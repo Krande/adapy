@@ -38,7 +38,7 @@ class ParamModelsTestCase(unittest.TestCase):
         my_step.add_load(Load("Gravity", "gravity", -9.81))
         a.fem.add_step(my_step)
 
-        a.to_fem("SimpleStru", fem_format="abaqus", overwrite=True, scratch_dir=test_folder)
+        a.to_fem("SimpleStru", fem_format="abaqus", overwrite=True)
 
     def test_add_piping(self):
         a = Assembly("ParametricSite")

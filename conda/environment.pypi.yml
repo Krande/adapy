@@ -4,19 +4,5 @@ channels:
 dependencies:
   - pythonocc-core
   - ifcopenshell
-  - pip
-  - pip:
-      - gmsh
-      - meshio
-      - pandas
-      - toolz
-      - pyquaternion
-      - lmfit
-      - ccx2paraview
-      - jupyterlab
-      - pythreejs
-      - pyparsing
-      - plotly
-      - kaleido
 
 

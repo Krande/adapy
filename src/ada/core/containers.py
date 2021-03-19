@@ -21,9 +21,6 @@ __all__ = [
     "Sections",
 ]
 
-logger = logging.getLogger("ada")
-logger.setLevel(logging.ERROR)
-
 
 class BaseCollections:
     """
@@ -416,11 +413,11 @@ class Connections(BaseCollections):
             else:
                 # This indicates that the beams are most probably parallel
                 # logger.debug(bm1.ID, bm2.ID, t, 'whats going on')
-                return
+                return None
 
         if p_check(AB, CD):
             # logger.debug('beams', bm1.ID, bm2.ID, 'are parallel')
-            return
+            return None
 
         if v_len(AB_ - CD_) > outofplane_tol:
             return None
@@ -968,7 +965,7 @@ class Nodes:
             old_node = self._nodes[index]
             vlen = vector_length(old_node.p - node.p)
             if vlen < point_tol:
-                logger.debug(f'Replaced new node with node id "{self._nodes[index].id}" found within point tolerances')
+                logging.debug(f'Replaced new node with node id "{self._nodes[index].id}" found within point tolerances')
                 return self._nodes[index]
             else:
                 insert_node(node, index)

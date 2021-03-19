@@ -48,16 +48,29 @@ jobs:
         platform: [ { name: Windows, distver: windows-latest }] #, { name: Ubuntu, distver: ubuntu-latest }]
     steps:
       - uses: actions/checkout@v2
-      - name: Cache conda
-        uses: actions/cache@v2
-        env:
-          # Increase this value to reset cache if etc/example-environment.yml has not changed
-          CACHE_NUMBER: 0
-        with:
-          path: ~/conda_pkgs_dir
-          key:
-            ${{ runner.os }}-conda-${{ env.CACHE_NUMBER }}-${{
-            hashFiles('conda/environment.pypi.yml') }}
+#      - name: Cache conda
+#        uses: actions/cache@v2
+#        env:
+#          # Increase this value to reset cache if etc/example-environment.yml has not changed
+#          CACHE_NUMBER: 1
+#        with:
+#          path: ~/conda_pkgs_dir
+#          key:
+#            ${{ runner.os }}-conda-${{ env.CACHE_NUMBER }}-${{
+#            hashFiles('conda/environment.pypi.yml') }}
+#      - name: Cache pip
+#        uses: actions/cache@v2
+#        env:
+#          # Increase this value to reset cache if etc/example-environment.yml has not changed
+#          CACHE_NUMBER: 1
+#        with:
+#          # This path is specific to Ubuntu
+#          path: ~/.cache/pip
+#          # Look to see if there is a cache hit for the corresponding requirements file
+#          key: ${{ runner.os }}-pip-${{ hashFiles('conda/environment.pypi.yml') }}
+#          restore-keys: |
+#            ${{ runner.os }}-pip-
+#            ${{ runner.os }}-
       - uses: conda-incubator/setup-miniconda@v2 # https://github.com/conda-incubator/setup-miniconda
         with:
           activate-environment: "ada"

@@ -7,10 +7,10 @@ from itertools import chain
 
 import numpy as np
 
-from ada.base import Backend, BackendGeom
-from ada.config import Settings as _Settings
-from ada.core.containers import Beams, Connections, Materials, Nodes, Plates, Sections
-from ada.core.utils import (
+from .base import Backend, BackendGeom
+from .config import Settings as _Settings
+from .core.containers import Beams, Connections, Materials, Nodes, Plates, Sections
+from .core.utils import (
     Counter,
     angle_between,
     create_guid,
@@ -20,10 +20,10 @@ from ada.core.utils import (
     unit_vector,
     vector_length,
 )
-from ada.fem import FEM, Elem, FemSet
-from ada.fem.io import femio
-from ada.materials.metals import CarbonSteel
-from ada.sections import GeneralProperties, SectionCat
+from .fem import FEM, Elem, FemSet
+from .fem.io import femio
+from .materials.metals import CarbonSteel
+from .sections import GeneralProperties, SectionCat
 
 __author__ = "Kristoffer H. Andersen"
 __all__ = [
@@ -612,7 +612,11 @@ class Part(BackendGeom):
             """
             if bm.section.type == "gensec":
                 return bm, []
-            vol = bm.bbox
+            try:
+                vol = bm.bbox
+            except ValueError as e:
+                logging.error(f"Intersect bbox skipped: {e}")
+                return None
             vol_in = [x for x in zip(vol[0], vol[1])]
             beams = filter(
                 lambda x: x != bm,
@@ -620,7 +624,7 @@ class Part(BackendGeom):
             )
             return bm, beams
 
-        return map(intersect, all_beams)
+        return filter(None, map(intersect, all_beams))
 
     def _flatten_list_of_subparts(self, p, list_of_parts=None):
         for value in p.parts.values():
@@ -1504,6 +1508,7 @@ class Beam(BackendGeom):
     ):
         super().__init__(name, metadata=metadata, units=units, guid=guid)
         self._ifc_elem = None
+
         if ifc_elem is not None:
             props = self._import_from_ifc_beam(ifc_elem)
             self.name = props["name"]
@@ -1558,11 +1563,15 @@ class Beam(BackendGeom):
 
         xvec = unit_vector(self.n2.p - self.n1.p)
         tol = 1e-3
+        from ada.core.constants import Y, Z
 
-        if vector_length(xvec - np.array([0, 0, 1])) < tol:
-            gup = np.array([0, 1, 0])
+        zvec = np.array(Z)
+        dvec = xvec - zvec
+        vlen = vector_length(dvec)
+        if vlen < tol:
+            gup = np.array(Y)
         else:
-            gup = np.array([0, 0, 1])
+            gup = np.array(Z)
 
         if up is None:
             if angle != 0.0 and angle is not None:
@@ -1703,6 +1712,10 @@ class Beam(BackendGeom):
             ot = list(chain.from_iterable(outer_curve))
         else:
             ot = outer_curve
+
+        if type(ot) is CurvePoly:
+            assert isinstance(ot, CurvePoly)
+            ot = ot.points2d
 
         yv = self.yvec
         xv = self.xvec
@@ -2261,6 +2274,7 @@ class Plate(BackendGeom):
         units="m",
         ifc_elem=None,
         guid=None,
+        **kwargs,
     ):
         # TODO: Support generation of plate object from IFC elem
         super().__init__(name, guid=guid, metadata=metadata, units=units)
@@ -2305,6 +2319,7 @@ class Plate(BackendGeom):
             xdir=xdir,
             tol=tol,
             parent=self,
+            **kwargs,
         )
         self.colour = colour
         self._offset = offset

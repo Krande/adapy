@@ -169,6 +169,7 @@ class BackendGeom(Backend):
         :param geom_repr:
         :param schema: STEP Schemas.
         """
+
         from OCC.Core.IFSelect import IFSelect_RetError
         from OCC.Core.Interface import Interface_Static_SetCVal
         from OCC.Core.STEPConstruct import stepconstruct_FindEntity

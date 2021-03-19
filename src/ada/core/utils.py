@@ -2,7 +2,6 @@
 import datetime
 import hashlib
 import logging
-import math
 import os
 import pathlib
 import shutil
@@ -199,7 +198,7 @@ def rot_matrix(normal, original_normal=(0, 0, 1)):
     if np.isnan(axis[0]) or np.isnan(axis[1]) or np.isnan(axis[2]):
         raise ValueError("Axis contains isnan members")
     c = costheta
-    s = math.sqrt(1 - c * c)
+    s = np.sqrt(1 - c * c)
     C = 1 - c
     x, y, z = axis[0], axis[1], axis[2]
 
@@ -242,7 +241,12 @@ def vector_length(vector):
     :type vector: np.array
     :rtype: float
     """
-    return math.sqrt(vector[0] ** 2 + vector[1] ** 2 + vector[2] ** 2)
+    if len(vector) == 2:
+        raise ValueError("Vector is not a 3d vector, but a 2d vector. Please consider vector_length_2d() instead")
+    elif len(vector) != 3:
+        raise ValueError(f"Vector is not a 3d vector. Vector array length: {len(vector)}")
+
+    return float(np.linalg.norm(vector))
 
 
 def vector_length_2d(vector):
@@ -254,7 +258,12 @@ def vector_length_2d(vector):
     :type vector: np.array
     :rtype: float
     """
-    return math.sqrt(vector[0] ** 2 + vector[1] ** 2)
+    if len(vector) == 3:
+        raise ValueError("Vector is not a 2d vector, but a 3d vector. Please consider vector_length() instead")
+    elif len(vector) != 2:
+        raise ValueError(f"Vector is not a 2d vector. Vector array length: {len(vector)}")
+
+    return float(np.linalg.norm(vector))
 
 
 def distfunc(x, point, A, B):
@@ -262,7 +271,7 @@ def distfunc(x, point, A, B):
     A function of x for the distance between point A on vector AB and arbitrary point C. X is a scalar multiplied with
     AB vector based on the distance to C.
 
-    f(x) = math.sqrt(vector[0] ** 2 + vector[1] ** 2 + vector[2] ** 2)
+    f(x) = np.sqrt(vector[0] ** 2 + vector[1] ** 2 + vector[2] ** 2)
 
     vector = C-(A+x*AB)
 
@@ -293,53 +302,13 @@ def parallel_check(ab, cd, tol=0.0001):
     :return: True or False
     :rtype: bool
     """
-    # Check for value difference
-    diff = list(abs(ab / max(abs(ab))) - abs(cd / max(abs(cd))))
-    # Check for consistent positive\negative values
-    ab_check = ["neg" if x < 0 else "pos" for x in ab]
-    cd_check = ["neg" if x < 0 else "pos" for x in cd]
-    cd_check_opp = ["neg" if x > 0 else "pos" for x in cd]
-    ab_new = []
-    cd_new = []
-    cd_new_opp = []
-    for i, x in enumerate(list(ab)):
-        if abs(x) < tol:
-            ab_new.append("zero")
-        else:
-            ab_new.append(ab_check[i])
-
-    for i, x in enumerate(list(cd)):
-        if abs(x) < tol:
-            cd_new.append("zero")
-        else:
-            cd_new.append(cd_check[i])
-
-    for i, x in enumerate(list(cd)):
-        if abs(x) < tol:
-            cd_new_opp.append("zero")
-        else:
-            cd_new_opp.append(cd_check_opp[i])
-
-    if ab_new == cd_new or ab_new == cd_new_opp:
-        par_ = True
-    else:
-        par_ = False
-
-    if [True if abs(x) < tol else False for x in diff] == [
-        True,
-        True,
-        True,
-    ] and par_ is True:
-        return True
-    else:
-        return False
+    return True if np.abs(np.sin(angle_between(ab, cd))) < tol else False
 
 
 def intersect_calc(A, C, AB, CD):
     """
-    Function for evaluating an intersection point between two vector-lines (AB & CD).
-    The function returns variables s & t denoting the scalar value multiplied with the two
-    vector equations A + t*AB = C + s*CD.
+    Function for evaluating an intersection point between two vector-lines (AB & CD).  The function returns
+    variables s & t denoting the scalar value multiplied with the two vector equations A + s*AB = C + t*CD.
 
     :param A:
     :type A:
@@ -349,12 +318,10 @@ def intersect_calc(A, C, AB, CD):
     :type AB:
     :param CD:
     :type CD:
-    :return:
-    :rtype:
     """
     # Setting up the equation for use in linalg.lstsq
-    a = [[AB[0], -CD[0]], [AB[1], -CD[1]], [AB[2], -CD[2]]]
-    b = [-A[0] + C[0], -A[1] + C[1], -A[2] + C[2]]
+    a = np.array((AB, -CD)).T
+    b = C - A
 
     st = np.linalg.lstsq(a, b, rcond=None)
 
@@ -857,7 +824,10 @@ class SegCreator:
                 v_s = vector_length_2d(s - e)
                 if v_s > self._tol:
                     if self._debug is True:
-                        self._add_to_plot([self.p2, self._seg_list[0].p2], label=f"p={i}: Line Gen p2, Seg0.p2")
+                        self._add_to_plot(
+                            [self.p2, self._seg_list[0].p2],
+                            label=f"p={i}: Line Gen p2, Seg0.p2",
+                        )
                     self._seg_list.append(LineSegment(p1=self.p2, p2=self._seg_list[0].p2))
         else:
             # Check BEFORE Center point
@@ -2677,7 +2647,7 @@ def make_revolved_cylinder(pnt, height, revolve_angle, rotation, wall_thick):
     hexface = BRepBuilderAPI_MakeFace(hexwire_wire).Face()
     revolve_axis = gp_Ax1(gp_Pnt(pnt["X"], pnt["Y"], pnt["Z"]), gp_Dir(0, 0, 1))
     # create revolved shape
-    revolved_shape_ = BRepPrimAPI_MakeRevol(hexface, revolve_axis, math.radians(float(revolve_angle))).Shape()
+    revolved_shape_ = BRepPrimAPI_MakeRevol(hexface, revolve_axis, np.radians(float(revolve_angle))).Shape()
     revolved_shape_ = rotate_shp_3_axis(revolved_shape_, revolve_axis, rotation)
 
     return revolved_shape_
@@ -2715,12 +2685,35 @@ def make_vector(name, origin, csys, parent, pnt_r=0.2, cyl_l=0.3, cyl_r=0.2, uni
 
     origin = np.array(origin)
     parent.add_shape(PrimSphere(name + "_origin", origin, pnt_r, units=units, metadata=dict(origin=origin)))
-    parent.add_shape(PrimCyl(name + "_X", origin, origin + np.array(csys[0]) * cyl_l, cyl_r, units=units, colour="RED"))
     parent.add_shape(
-        PrimCyl(name + "_Y", origin, origin + np.array(csys[1]) * cyl_l, cyl_r, units=units, colour="GREEN")
+        PrimCyl(
+            name + "_X",
+            origin,
+            origin + np.array(csys[0]) * cyl_l,
+            cyl_r,
+            units=units,
+            colour="RED",
+        )
     )
     parent.add_shape(
-        PrimCyl(name + "_Z", origin, origin + np.array(csys[2]) * cyl_l, cyl_r, units=units, colour="BLUE")
+        PrimCyl(
+            name + "_Y",
+            origin,
+            origin + np.array(csys[1]) * cyl_l,
+            cyl_r,
+            units=units,
+            colour="GREEN",
+        )
+    )
+    parent.add_shape(
+        PrimCyl(
+            name + "_Z",
+            origin,
+            origin + np.array(csys[2]) * cyl_l,
+            cyl_r,
+            units=units,
+            colour="BLUE",
+        )
     )
 
 
@@ -2749,7 +2742,7 @@ def rotate_shp_3_axis(shape, revolve_axis, rotation):
     from OCC.Core.gp import gp_Trsf
 
     alpha = gp_Trsf()
-    alpha.SetRotation(revolve_axis, math.radians(rotation))
+    alpha.SetRotation(revolve_axis, np.radians(rotation))
     brep_trns = BRepBuilderAPI_Transform(shape, alpha, False)
     shp = brep_trns.Shape()
     return shp

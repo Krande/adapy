@@ -299,15 +299,15 @@ class GeneralProperties:
 
         if self.parent.type in SectionCat.circular:
             self._calc_circular()
-        elif self.parent.type in SectionCat.igirders or self.parent.type in SectionCat.iprofiles:
+        elif SectionCat.is_i_profile(self.parent.type):
             self._calc_isec()
-        elif self.parent.type in SectionCat.box:
+        elif SectionCat.is_box_profile(self.parent.type):
             self._calc_box()
         elif self.parent.type in SectionCat.general:
             pass  # it is known
         elif self.parent.type in SectionCat.tubular:
             self._calc_tubular()
-        elif self.parent.type in SectionCat.angular:
+        elif SectionCat.is_hp_profile(self.parent.type):
             self._calc_angular()
         elif self.parent.type in SectionCat.channels:
             self._calc_channel()
@@ -773,28 +773,16 @@ class SectionCat:
 
     @classmethod
     def is_i_profile(cls, bmtype):
-        if bmtype.upper() in cls.igirders + cls.iprofiles:
-            return True
-        else:
-            return False
+        return True if bmtype.upper() in cls.igirders + cls.iprofiles + cls.tprofiles else False
 
     @classmethod
     def is_box_profile(cls, bmtype):
-        if bmtype.upper() in cls.box + cls.shs + cls.rhs:
-            return True
-        else:
-            return False
+        return True if bmtype.upper() in cls.box + cls.shs + cls.rhs else False
 
     @classmethod
     def is_hp_profile(cls, bmtype):
-        if bmtype.upper() in cls.angular:
-            return True
-        else:
-            return False
+        return True if bmtype.upper() in cls.angular else False
 
     @classmethod
     def is_circular_profile(cls, bmtype):
-        if bmtype.upper() in cls.tubular + cls.circular:
-            return True
-        else:
-            return False
+        return True if bmtype.upper() in cls.tubular + cls.circular else False
