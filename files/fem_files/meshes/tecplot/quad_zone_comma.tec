@@ -1,0 +1,9 @@
+TITLE = "Zone and variables separated by commas"
+VARIABLES = X, Y, "foo bar",  foobar
+ZONE N=4, E =1,ET= QUADRILATERAL , T = "Hex with commas"
+,   F = FEBLOCK, VARLOCATION  =(  [4]= CELLCENTERED )
+ 0.0 1.0 1.0 0.0
+ 0.0 0.0 1.0 1.0
+ 1.0 2.0 3.0 4.0
+ 42.0
+ 1 2 3 4

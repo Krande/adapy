@@ -1,0 +1,13 @@
+# Pycharm
+.idea
+# Packaging
+build/
+dist/
+doc/_build/
+*.egg-info/
+.pytest_cache/
+# Other
+.ipynb_checkpoints
+__pycache__
+temp/
+.coverage

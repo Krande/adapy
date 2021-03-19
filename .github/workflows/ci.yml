@@ -1,0 +1,94 @@
+name: ci-ada-main
+
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+    branches:
+    - main
+
+jobs:
+  activate:
+    if: github.repository == 'krande/adapy'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok go
+  lint:
+    needs: activate
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/setup-python@v2
+      with:
+        python-version: "3.x"
+    - uses: actions/checkout@v2
+    - name: Lint with isort
+      run: |
+        pip install isort
+        cd src
+        isort --check .
+    - name: Lint with flake8
+      run: |
+        pip install flake8
+        cd src
+        flake8 .
+    - name: Lint with black
+      run: |
+        pip install black
+        cd src
+        black --check .
+  test:
+    needs: lint
+    name: ${{ matrix.platform.name }}-${{ matrix.pyver.name }}
+    runs-on: ${{ matrix.platform.distver }}
+    strategy:
+      fail-fast: false
+      matrix:
+        pyver: [ { name: py38, distver: '3.8.8' }]
+        platform: [ { name: Windows, distver: windows-latest }] #, { name: Ubuntu, distver: ubuntu-latest }]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Cache conda
+        uses: actions/cache@v2
+        env:
+          # Increase this value to reset cache if etc/example-environment.yml has not changed
+          CACHE_NUMBER: 0
+        with:
+          path: ~/conda_pkgs_dir
+          key:
+            ${{ runner.os }}-conda-${{ env.CACHE_NUMBER }}-${{
+            hashFiles('conda/environment.pypi.yml') }}
+      - uses: conda-incubator/setup-miniconda@v2 # https://github.com/conda-incubator/setup-miniconda
+        with:
+          activate-environment: "ada"
+          environment-file: conda/environment.pypi.yml
+          python-version: ${{ matrix.pyver.distver }}
+          use-only-tar-bz2: true
+      - name: Install package in env
+        run: |
+          pip install .
+      - name: test Package
+        run: |
+          cd tests
+          pip install pytest pytest-cov
+          pytest --doctest-modules --junitxml=junit/test-results.xml --cov=. --cov-report=xml --cov-report=html
+  publish:
+    needs: test
+    name: Build and Publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build package
+        run: |
+          pip install build
+          python -m build
+      - name: Publish package
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[Release]')
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
+
+
+
+

@@ -1,0 +1,24 @@
+{% set name = "ada" %}
+{% set version = "0.0.2" %}
+
+package:
+  name: "{{ name|lower }}"
+  version: "{{ version }}"
+
+source:
+  url: https://pypi.io/packages/source/{{ name[0] }}/{{ name }}/{{ name }}-{{ version }}.tar.gz
+
+build:
+  number: 0
+  script: "{{ PYTHON }} -m pip install . --no-deps --ignore-installed -vv "
+
+requirements:
+  build:
+    - ifcopenshell
+    - pythonocc-core
+  run:
+    - python
+
+about:
+  home: https://github.com/krande/adapy
+  license: GPLv3

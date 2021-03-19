@@ -1,0 +1,9 @@
+TITLE = "Zone and variables separated by white spaces"
+VARIABLES = X Y "foo bar"  foobar
+ZONE T = "VARLOCATION" N=4 E =1 ET= QUADRILATERAL
+   F = FEBLOCK VARLOCATION  =(  [4]= CELLCENTERED )
+ 0.0 1.0 1.0 0.0
+ 0.0 0.0 1.0 1.0
+ 1.0 2.0 3.0 4.0
+ 42.0
+ 1 2 3 4

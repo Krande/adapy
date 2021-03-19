@@ -1,0 +1,14 @@
+*Heading
+Abaqus DataFile Version 6.14
+*Node
+1, 1, 0, 0
+2, 1, 1, 0
+3, 2, 0.5, 0
+4, 0, 0.5, 0
+*Element, type=S3, ELSET=right
+1, 1, 2, 3
+*Element, type=S3, ELSET=left
+2, 1, 2, 4
+*Elset, elset=all
+right
+left
