@@ -448,10 +448,10 @@ class Connections(BaseCollections):
             if n.id not in [bm2.n1.id, bm2.n2.id]:
                 if n1 is True:
                     bm2.n1 = n
-                    bm2.original_n1.Free = False
+                    bm2.n1.Free = False
                 else:
                     bm2.n2 = n
-                    bm2.original_n2.Free = False
+                    bm2.n2.Free = False
             else:
                 pass
                 # logger.debug('Midnode on n1')
