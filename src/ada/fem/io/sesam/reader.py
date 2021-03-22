@@ -1,14 +1,9 @@
 import logging
-import os
 import re
 from itertools import chain
 
-import numpy as np
-
-from ada import Assembly, Material, Part, Section
-from ada.core.containers import Materials
-from ada.fem import Constraint, Csys, Elem, FemSection, FemSet, Load, Mass, Spring
-from ada.fem.io import FemObjectReader, FemWriter
+from ada.fem import Constraint, Csys, Elem, FemSection, FemSet, Mass, Spring
+from ada.fem.io.utils import get_ff_regex, str_to_int
 from ada.materials.metals import CarbonSteel
 from ada.sections import GeneralProperties
 
@@ -29,37 +24,16 @@ def read_fem(assembly, fem_file, fem_name=None):
         reader.read_sesam_fem(d.read())
 
 
-def to_fem(
-    assembly,
-    name,
-    scratch_dir=None,
-    metadata=None,
-    execute=False,
-    run_ext=False,
-    cpus=2,
-    gpus=None,
-    overwrite=False,
-    exit_on_complete=False,
-):
-    if metadata is None:
-        metadata = dict()
-    if "control_file" not in metadata.keys():
-        metadata["control_file"] = None
-
-    a = SesamWriter(assembly)
-    a.write(name, scratch_dir, metadata, overwrite=overwrite)
-
-
-class SesamReader(FemObjectReader):
+class SesamReader:
     re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 
     # Nodes
-    re_gnode_in = FemObjectReader.get_ff_regex("GNODE", "nodex", "nodeno", "ndof", "odof")
-    re_gcoord_in = FemObjectReader.get_ff_regex("GCOORD", "id", "x", "y", "z")
+    re_gnode_in = get_ff_regex("GNODE", "nodex", "nodeno", "ndof", "odof")
+    re_gcoord_in = get_ff_regex("GCOORD", "id", "x", "y", "z")
 
     # Elements
-    re_gelmnt = FemObjectReader.get_ff_regex("GELMNT1", "elnox", "elno", "eltyp", "eltyad", "nids")
-    re_gelref1 = FemObjectReader.get_ff_regex(
+    re_gelmnt = get_ff_regex("GELMNT1", "elnox", "elno", "eltyp", "eltyad", "nids")
+    re_gelref1 = get_ff_regex(
         "GELREF1",
         "elno",
         "matno",
@@ -77,8 +51,8 @@ class SesamReader(FemObjectReader):
     )
 
     # Beam Sections
-    re_sectnames = FemObjectReader.get_ff_regex("TDSECT", "nfield", "geono", "codnam", "codtxt", "set_name")
-    re_giorh = FemObjectReader.get_ff_regex(
+    re_sectnames = get_ff_regex("TDSECT", "nfield", "geono", "codnam", "codtxt", "set_name")
+    re_giorh = get_ff_regex(
         "GIORH ",
         "geono",
         "hz",
@@ -93,8 +67,8 @@ class SesamReader(FemObjectReader):
         "NLOBYB|",
         "NLOBZ|",
     )
-    re_gbox = FemObjectReader.get_ff_regex("GBOX", "geono", "hz", "ty", "tb", "tt", "by", "sfy", "sfz")
-    re_gbeamg = FemObjectReader.get_ff_regex(
+    re_gbox = get_ff_regex("GBOX", "geono", "hz", "ty", "tb", "tt", "by", "sfy", "sfz")
+    re_gbeamg = get_ff_regex(
         "GBEAMG",
         "geono",
         "comp",
@@ -116,15 +90,15 @@ class SesamReader(FemObjectReader):
         "wz|",
         "fabr|",
     )
-    re_gpipe = FemObjectReader.get_ff_regex("GPIPE", "geono", "di", "dy", "t", "sfy", "sfz")
-    re_lcsys = FemObjectReader.get_ff_regex("GUNIVEC", "transno", "unix", "uniy", "uniz")
+    re_gpipe = get_ff_regex("GPIPE", "geono", "di", "dy", "t", "sfy", "sfz")
+    re_lcsys = get_ff_regex("GUNIVEC", "transno", "unix", "uniy", "uniz")
 
     # Shell section
-    re_thick = FemObjectReader.get_ff_regex("GELTH", "geono", "th")
+    re_thick = get_ff_regex("GELTH", "geono", "th")
 
     # Other
-    re_bnbcd = FemObjectReader.get_ff_regex("BNBCD", "nodeno", "ndof", "content")
-    re_belfix = FemObjectReader.get_ff_regex(
+    re_bnbcd = get_ff_regex("BNBCD", "nodeno", "ndof", "content")
+    re_belfix = get_ff_regex(
         "BELFIX",
         "fixno",
         "opt",
@@ -137,19 +111,17 @@ class SesamReader(FemObjectReader):
         "a5|",
         "a6|",
     )
-    re_mgsprng = FemObjectReader.get_ff_regex("MGSPRNG", "matno", "ndof", "bulk")
-    re_bnmass = FemObjectReader.get_ff_regex("BNMASS", "nodeno", "ndof", "m1", "m2", "m3", "m4", "m5", "m6")
-    re_geccen = FemObjectReader.get_ff_regex("GECCEN", "eccno", "ex", "ey", "ez")
-    re_bldep = FemObjectReader.get_ff_regex("BLDEP", "slave", "master", "nddof", "ndep", "bulk")
-    re_setmembs = FemObjectReader.get_ff_regex("GSETMEMB", "nfield", "isref", "index", "istype", "isorig", "members")
-    re_setnames = FemObjectReader.get_ff_regex("TDSETNAM", "nfield", "isref", "codnam", "codtxt", "set_name")
+    re_mgsprng = get_ff_regex("MGSPRNG", "matno", "ndof", "bulk")
+    re_bnmass = get_ff_regex("BNMASS", "nodeno", "ndof", "m1", "m2", "m3", "m4", "m5", "m6")
+    re_geccen = get_ff_regex("GECCEN", "eccno", "ex", "ey", "ez")
+    re_bldep = get_ff_regex("BLDEP", "slave", "master", "nddof", "ndep", "bulk")
+    re_setmembs = get_ff_regex("GSETMEMB", "nfield", "isref", "index", "istype", "isorig", "members")
+    re_setnames = get_ff_regex("TDSETNAM", "nfield", "isref", "codnam", "codtxt", "set_name")
 
     # Materials
-    re_matnames = FemObjectReader.get_ff_regex("TDMATER", "nfield", "geo_no", "codnam", "codtxt", "name")
-    re_misosel = FemObjectReader.get_ff_regex(
-        "MISOSEL", "matno", "young", "poiss", "rho", "damp", "alpha", "iyield", "yield"
-    )
-    re_morsmel = FemObjectReader.get_ff_regex(
+    re_matnames = get_ff_regex("TDMATER", "nfield", "geo_no", "codnam", "codtxt", "name")
+    re_misosel = get_ff_regex("MISOSEL", "matno", "young", "poiss", "rho", "damp", "alpha", "iyield", "yield")
+    re_morsmel = get_ff_regex(
         "MORSMEL",
         "matno",
         "q1",
@@ -186,6 +158,8 @@ class SesamReader(FemObjectReader):
     """
 
     def __init__(self, assembly, part_name="T1"):
+        from ada import Part
+
         self.assembly = assembly
         self.part = Part(part_name)
         assembly.add_part(self.part)
@@ -199,7 +173,7 @@ class SesamReader(FemObjectReader):
         :return: Generic element description
         """
         for ses, gen in cls.el_map.items():
-            if cls.str_to_int(eltyp) == ses:
+            if str_to_int(eltyp) == ses:
                 return gen
 
         raise Exception("Currently unsupported eltype", eltyp)
@@ -279,14 +253,14 @@ class SesamReader(FemObjectReader):
                 parent.nodes.from_id(x)
                 for x in filter(
                     lambda x: x != 0,
-                    map(cls.str_to_int, d["nids"].replace("\n", "").split()),
+                    map(str_to_int, d["nids"].replace("\n", "").split()),
                 )
             ]
             eltyp = d["eltyp"]
             el_type = cls.sesam_eltype_2_general(eltyp)
-            metadata = dict(eltyad=cls.str_to_int(d["eltyad"]), eltyp=eltyp)
+            metadata = dict(eltyad=str_to_int(d["eltyad"]), eltyp=eltyp)
             return Elem(
-                cls.str_to_int(d["elno"]),
+                str_to_int(d["elno"]),
                 nodes,
                 el_type,
                 None,
@@ -297,7 +271,7 @@ class SesamReader(FemObjectReader):
         return FemElements(list(map(grab_elements, cls.re_gelmnt.finditer(bulk_str))), fem_obj=parent)
 
     @classmethod
-    def get_materials(cls, bulk_str, parent):
+    def get_materials(cls, bulk_str, part):
         """
         Interpret Material bulk string to FEM objects
 
@@ -313,12 +287,13 @@ class SesamReader(FemObjectReader):
 
         :return:
         """
+        from ada import Material
         from ada.core.containers import Materials
         from ada.core.utils import roundoff
 
         def grab_name(m):
             d = m.groupdict()
-            return cls.str_to_int(d["geo_no"]), d["name"]
+            return str_to_int(d["geo_no"]), d["name"]
 
         mat_names = {matid: mat_name for matid, mat_name in map(grab_name, cls.re_matnames.finditer(bulk_str))}
 
@@ -333,7 +308,7 @@ class SesamReader(FemObjectReader):
             """
 
             d = m.groupdict()
-            matno = cls.str_to_int(d["matno"])
+            matno = str_to_int(d["matno"])
             return Material(
                 name=mat_names[matno],
                 mat_id=matno,
@@ -348,11 +323,12 @@ class SesamReader(FemObjectReader):
                     sig_y=5e6,
                 ),
                 metadata=d,
+                parent=part,
             )
 
         def get_mat(match):
             d = match.groupdict()
-            matno = cls.str_to_int(d["matno"])
+            matno = str_to_int(d["matno"])
             return Material(
                 name=mat_names[matno],
                 mat_id=matno,
@@ -366,6 +342,7 @@ class SesamReader(FemObjectReader):
                     eps_p=[],
                     sig_y=roundoff(d["yield"]),
                 ),
+                parent=part,
             )
 
         return Materials(
@@ -375,110 +352,8 @@ class SesamReader(FemObjectReader):
                     map(get_morsmel, cls.re_morsmel.finditer(bulk_str)),
                 ]
             ),
-            parent=parent,
+            parent=part,
         )
-
-    @classmethod
-    def get_sets(cls, bulk_str, parent):
-        from itertools import groupby
-        from operator import itemgetter
-
-        from ada.fem import FemSet
-        from ada.fem.containers import FemSets
-
-        def get_setmap(m):
-            d = m.groupdict()
-            set_type = "nset" if cls.str_to_int(d["istype"]) == 1 else "elset"
-            if set_type == "nset":
-                members = [parent.nodes.from_id(cls.str_to_int(x)) for x in d["members"].split()]
-            else:
-                members = [parent.elements.from_id(cls.str_to_int(x)) for x in d["members"].split()]
-            return cls.str_to_int(d["isref"]), set_type, members
-
-        set_map = dict()
-        for setid_el_type, content in groupby(
-            map(get_setmap, cls.re_setmembs.finditer(bulk_str)), key=itemgetter(0, 1)
-        ):
-            setid = setid_el_type[0]
-            eltype = setid_el_type[1]
-            set_map[setid] = [list(), eltype]
-            for c in content:
-                set_map[setid][0] += c[2]
-
-        def get_femsets(m):
-            nonlocal set_map
-            d = m.groupdict()
-            isref = cls.str_to_int(d["isref"])
-            fem_set = FemSet(
-                d["set_name"].strip(),
-                set_map[isref][0],
-                set_map[isref][1],
-                parent=parent,
-            )
-            return fem_set
-
-        return FemSets(list(map(get_femsets, cls.re_setnames.finditer(bulk_str))), fem_obj=parent)
-
-    @staticmethod
-    def get_hinges_from_elem(elem, members, hinges_global, lcsysd, xvec, zvec, yvec):
-        """
-
-        :param elem:
-        :param members:
-        :param hinges_global:
-        # :param fem:
-        :return:
-        """
-        if len(elem.nodes) > 2:
-            raise ValueError("This algorithm was not designed for more than 2 noded elements")
-        from ada.core.utils import unit_vector
-
-        hinges = []
-        for i, x in enumerate(members):
-            if i >= len(elem.nodes):
-                break
-            if x == 0:
-                continue
-            if x not in hinges_global.keys():
-                raise ValueError("fixno not found!")
-            opt, trano, a1, a2, a3, a4, a5, a6 = hinges_global[x]
-            n = elem.nodes[i]
-            if trano > 0:
-                csys = None
-            else:
-                csys = Csys(
-                    f"el{elem.id}_hinge{i + 1}_csys",
-                    coords=([unit_vector(xvec) + n.p, unit_vector(yvec) + n.p, n.p]),
-                )
-            dofs_origin = [1, 2, 3, 4, 5, 6]
-            d = [int(x) for x, i in zip(dofs_origin, (a1, a2, a3, a4, a5, a6)) if int(i) != 0]
-
-            hinges.append((n, d, csys))
-        return hinges
-
-    @staticmethod
-    def get_ecc_from_elem(elem, members, eccentricities, fix_data):
-        """
-
-        :param elem:
-        :param members:
-        :param eccentricities:
-        :param fix_data:
-        :type elem: ada.fem.Elem
-        """
-        # To the interpretation here
-        start = 0 if fix_data != -1 else len(elem.nodes)
-        end = len(elem.nodes) if fix_data != -1 else 2 * len(elem.nodes)
-        eccen = []
-        for i, x in enumerate(members[start:]):
-            if i >= end:
-                break
-            if x == 0:
-                continue
-            n_offset = elem.nodes[i]
-            ecc = eccentricities[x]
-            eccen.append((n_offset, ecc))
-        return eccen
 
     @classmethod
     def get_sections(cls, bulk_str, fem):
@@ -516,6 +391,7 @@ class SesamReader(FemObjectReader):
 
         import numpy as np
 
+        from ada import Section
         from ada.core.containers import Sections
         from ada.core.utils import roundoff, unit_vector, vector_length
         from ada.fem.containers import FemSections
@@ -523,7 +399,7 @@ class SesamReader(FemObjectReader):
         # Get section names
         def get_section_names(m):
             d = m.groupdict()
-            return cls.str_to_int(d["geono"]), d["set_name"].strip()
+            return str_to_int(d["geono"]), d["set_name"].strip()
 
         sect_names = {sec_id: name for sec_id, name in map(get_section_names, cls.re_sectnames.finditer(bulk_str))}
 
@@ -531,7 +407,7 @@ class SesamReader(FemObjectReader):
 
         def get_lcsys(m):
             d = m.groupdict()
-            return cls.str_to_int(d["transno"]), (
+            return str_to_int(d["transno"]), (
                 roundoff(d["unix"]),
                 roundoff(d["uniy"]),
                 roundoff(d["uniz"]),
@@ -542,7 +418,7 @@ class SesamReader(FemObjectReader):
         # I-beam
         def get_IBeams(match):
             d = match.groupdict()
-            sec_id = cls.str_to_int(d["geono"])
+            sec_id = str_to_int(d["geono"])
             return Section(
                 name=sect_names[sec_id],
                 sec_id=sec_id,
@@ -554,12 +430,13 @@ class SesamReader(FemObjectReader):
                 t_ftop=roundoff(d["tt"]),
                 t_fbtn=roundoff(d["tb"]),
                 genprops=GeneralProperties(sfy=float(d["sfy"]), sfz=float(d["sfz"])),
+                parent=fem.parent,
             )
 
         # Box-beam
         def get_BoxBeams(match):
             d = match.groupdict()
-            sec_id = cls.str_to_int(d["geono"])
+            sec_id = str_to_int(d["geono"])
             return Section(
                 name=sect_names[sec_id],
                 sec_id=sec_id,
@@ -571,12 +448,13 @@ class SesamReader(FemObjectReader):
                 t_ftop=roundoff(d["tt"]),
                 t_fbtn=roundoff(d["tb"]),
                 genprops=GeneralProperties(sfy=float(d["sfy"]), sfz=float(d["sfz"])),
+                parent=fem.parent,
             )
 
         # General-beam
         def get_GenBeams(match):
             d = match.groupdict()
-            sec_id = cls.str_to_int(d["geono"])
+            sec_id = str_to_int(d["geono"])
             gen_props = GeneralProperties(
                 ax=roundoff(d["area"]),
                 ix=roundoff(d["ix"]),
@@ -596,21 +474,18 @@ class SesamReader(FemObjectReader):
             if sec_id in fem.parent.sections.idmap.keys():
                 sec = fem.parent.sections.get_by_id(sec_id)
                 sec._genprops = gen_props
-                gen_props.edit(parent=sec)
+                gen_props.parent = sec
             else:
                 sec = Section(
-                    name=f"GB{sec_id}",
-                    sec_id=sec_id,
-                    sec_type="GENBEAM",
-                    genprops=gen_props,
+                    name=f"GB{sec_id}", sec_id=sec_id, sec_type="GENBEAM", genprops=gen_props, parent=fem.parent
                 )
-                gen_props.edit(parent=sec)
+                gen_props.parent = sec
                 fem.parent.sections.add(sec)
 
         # Tubular-beam
         def get_gpipe(match):
             d = match.groupdict()
-            sec_id = cls.str_to_int(d["geono"])
+            sec_id = str_to_int(d["geono"])
             if sec_id not in sect_names:
                 sec_name = f"TUB{sec_id}"
             else:
@@ -623,26 +498,27 @@ class SesamReader(FemObjectReader):
                 r=roundoff(float(d["dy"]) / 2),
                 wt=roundoff(t),
                 genprops=GeneralProperties(sfy=float(d["sfy"]), sfz=float(d["sfz"])),
+                parent=fem.parent,
             )
 
         def get_thicknesses(match):
             d = match.groupdict()
-            sec_id = cls.str_to_int(d["geono"])
+            sec_id = str_to_int(d["geono"])
             t = d["th"]
             return sec_id, t
 
         def get_hinges(match):
             d = match.groupdict()
-            fixno = cls.str_to_int(d["fixno"])
-            opt = cls.str_to_int(d["opt"])
-            trano = cls.str_to_int(d["trano"])
-            a1 = cls.str_to_int(d["a1"])
-            a2 = cls.str_to_int(d["a2"])
-            a3 = cls.str_to_int(d["a3"])
-            a4 = cls.str_to_int(d["a4"])
-            a5 = cls.str_to_int(d["a5"])
+            fixno = str_to_int(d["fixno"])
+            opt = str_to_int(d["opt"])
+            trano = str_to_int(d["trano"])
+            a1 = str_to_int(d["a1"])
+            a2 = str_to_int(d["a2"])
+            a3 = str_to_int(d["a3"])
+            a4 = str_to_int(d["a4"])
+            a5 = str_to_int(d["a5"])
             try:
-                a6 = cls.str_to_int(d["a6"])
+                a6 = str_to_int(d["a6"])
             except BaseException as e:
                 logging.debug(e)
                 a6 = 0
@@ -651,7 +527,7 @@ class SesamReader(FemObjectReader):
 
         def get_eccentricities(match):
             d = match.groupdict()
-            eccno = cls.str_to_int(d["eccno"])
+            eccno = str_to_int(d["eccno"])
             ex = float(d["ex"])
             ey = float(d["ey"])
             ez = float(d["ez"])
@@ -678,13 +554,13 @@ class SesamReader(FemObjectReader):
 
         def get_femsecs(match):
             d = match.groupdict()
-            geono = cls.str_to_int(d["geono"])
+            geono = str_to_int(d["geono"])
             next(total_geo)
-            transno = cls.str_to_int(d["transno"])
-            elno = cls.str_to_int(d["elno"])
+            transno = str_to_int(d["transno"])
+            elno = str_to_int(d["elno"])
             elem = fem.elements.from_id(elno)
 
-            matno = cls.str_to_int(d["matno"])
+            matno = str_to_int(d["matno"])
 
             # Go no further if element has no fem section
             if elem.type in elem.springs + elem.masses:
@@ -707,12 +583,12 @@ class SesamReader(FemObjectReader):
                 ma = max(abs(crossed))
                 yvec = tuple([roundoff(x / ma, 3) for x in crossed])
 
-                fix_data = cls.str_to_int(d["fixno"])
-                ecc_data = cls.str_to_int(d["eccno"])
+                fix_data = str_to_int(d["fixno"])
+                ecc_data = str_to_int(d["eccno"])
 
                 members = None
                 if d["members"] is not None:
-                    members = [cls.str_to_int(x) for x in d["members"].replace("\n", " ").split()]
+                    members = [str_to_int(x) for x in d["members"].replace("\n", " ").split()]
 
                 hinges = None
                 if fix_data == -1:
@@ -760,6 +636,109 @@ class SesamReader(FemObjectReader):
         return FemSections(sections, fem_obj=fem)
 
     @classmethod
+    def get_sets(cls, bulk_str, parent):
+        from itertools import groupby
+        from operator import itemgetter
+
+        from ada.fem import FemSet
+        from ada.fem.containers import FemSets
+
+        def get_setmap(m):
+            d = m.groupdict()
+            set_type = "nset" if str_to_int(d["istype"]) == 1 else "elset"
+            if set_type == "nset":
+                members = [parent.nodes.from_id(str_to_int(x)) for x in d["members"].split()]
+            else:
+                members = [parent.elements.from_id(str_to_int(x)) for x in d["members"].split()]
+            return str_to_int(d["isref"]), set_type, members
+
+        set_map = dict()
+        for setid_el_type, content in groupby(
+            map(get_setmap, cls.re_setmembs.finditer(bulk_str)), key=itemgetter(0, 1)
+        ):
+            setid = setid_el_type[0]
+            eltype = setid_el_type[1]
+            set_map[setid] = [list(), eltype]
+            for c in content:
+                set_map[setid][0] += c[2]
+
+        def get_femsets(m):
+            nonlocal set_map
+            d = m.groupdict()
+            isref = str_to_int(d["isref"])
+            fem_set = FemSet(
+                d["set_name"].strip(),
+                set_map[isref][0],
+                set_map[isref][1],
+                parent=parent,
+            )
+            return fem_set
+
+        return FemSets(list(map(get_femsets, cls.re_setnames.finditer(bulk_str))), fem_obj=parent)
+
+    @staticmethod
+    def get_hinges_from_elem(elem, members, hinges_global, lcsysd, xvec, zvec, yvec):
+        """
+
+        :param elem:
+        :param members:
+        :param hinges_global:
+        :type elem: ada.Elem
+        :return:
+        """
+        if len(elem.nodes) > 2:
+            raise ValueError("This algorithm was not designed for more than 2 noded elements")
+        from ada.core.utils import unit_vector
+
+        hinges = []
+        for i, x in enumerate(members):
+            if i >= len(elem.nodes):
+                break
+            if x == 0:
+                continue
+            if x not in hinges_global.keys():
+                raise ValueError("fixno not found!")
+            opt, trano, a1, a2, a3, a4, a5, a6 = hinges_global[x]
+            n = elem.nodes[i]
+            if trano > 0:
+                csys = None
+            else:
+                csys = Csys(
+                    f"el{elem.id}_hinge{i + 1}_csys",
+                    coords=([unit_vector(xvec) + n.p, unit_vector(yvec) + n.p, n.p]),
+                    parent=elem.parent,
+                )
+            dofs_origin = [1, 2, 3, 4, 5, 6]
+            d = [int(x) for x, i in zip(dofs_origin, (a1, a2, a3, a4, a5, a6)) if int(i) != 0]
+
+            hinges.append((n, d, csys))
+        return hinges
+
+    @staticmethod
+    def get_ecc_from_elem(elem, members, eccentricities, fix_data):
+        """
+
+        :param elem:
+        :param members:
+        :param eccentricities:
+        :param fix_data:
+        :type elem: ada.fem.Elem
+        """
+        # To the interpretation here
+        start = 0 if fix_data != -1 else len(elem.nodes)
+        end = len(elem.nodes) if fix_data != -1 else 2 * len(elem.nodes)
+        eccen = []
+        for i, x in enumerate(members[start:]):
+            if i >= end:
+                break
+            if x == 0:
+                continue
+            n_offset = elem.nodes[i]
+            ecc = eccentricities[x]
+            eccen.append((n_offset, ecc))
+        return eccen
+
+    @classmethod
     def get_mass(cls, bulk_str, fem):
         """
 
@@ -776,7 +755,7 @@ class SesamReader(FemObjectReader):
         def grab_mass(match):
             d = match.groupdict()
 
-            nodeno = cls.str_to_int(d["nodeno"])
+            nodeno = str_to_int(d["nodeno"])
             mass_in = [
                 roundoff(d["m1"]),
                 roundoff(d["m2"]),
@@ -813,11 +792,11 @@ class SesamReader(FemObjectReader):
         """
 
         def grab_constraint(master, data):
-            m = cls.str_to_int(master)
+            m = str_to_int(master)
             m_set = FemSet(f"co{m}_m", [fem.nodes.from_id(m)], "nset")
             slaves = []
             for d in data:
-                s = cls.str_to_int(d["slave"])
+                s = str_to_int(d["slave"])
                 slaves.append(fem.nodes.from_id(s))
             s_set = FemSet(f"co{m}_m", slaves, "nset")
             fem.add_set(m_set)
@@ -845,8 +824,8 @@ class SesamReader(FemObjectReader):
         def grab_grspring(m):
             nonlocal gr_spr_elements
             d = m.groupdict()
-            matno = cls.str_to_int(d["matno"])
-            ndof = cls.str_to_int(d["ndof"])
+            matno = str_to_int(d["matno"])
+            ndof = str_to_int(d["ndof"])
             bulk = d["bulk"].replace("\n", "").split()
             el = gr_spr_elements[matno]
             spr_name = f"spr{el.id}"
@@ -891,14 +870,14 @@ class SesamReader(FemObjectReader):
 
         def grab_bc(match):
             d = match.groupdict()
-            node = fem.nodes.from_id(cls.str_to_int(d["nodeno"]))
+            node = fem.nodes.from_id(str_to_int(d["nodeno"]))
             assert isinstance(node, Node)
 
             fem_set = FemSet(f"bc{node.id}_set", [node], "nset")
             fem.sets.add(fem_set)
             dofs = []
             for i, c in enumerate(d["content"].replace("\n", "").split()):
-                bc_sestype = cls.str_to_int(c.strip())
+                bc_sestype = str_to_int(c.strip())
                 if bc_sestype in [0, 4]:
                     continue
                 dofs.append(i + 1)
@@ -908,354 +887,3 @@ class SesamReader(FemObjectReader):
             return bc
 
         return list(map(grab_bc, cls.re_bnbcd.finditer(bulk_str)))
-
-
-class SesamWriter(Assembly, FemWriter):
-    """
-    `Sesam <https://usfos.no/>`_ is a nonlinear static and dynamic analysis of space frame structures.
-
-    """
-
-    analysis_path = None
-
-    def __init__(self, origin):
-        super(SesamWriter, self).__init__(origin.name)
-        self.__dict__.update(origin.__dict__)
-        parts = list(filter(lambda x: len(x.fem.nodes) > 0, self.get_all_subparts()))
-        if len(parts) != 1:
-            raise ValueError("Sesam writer currently only works for a single part")
-        part = parts[0]
-        from operator import attrgetter
-
-        self._gnodes = sorted(part.fem.nodes, key=attrgetter("id"))
-        self._gloads = part.fem.steps[0].loads if len(part.fem.steps) > 0 else []
-        self._gelements = part.fem.elements
-        self._gsections = part.fem.sections
-        self._gmaterials = Materials()
-        for fsec in self._gsections:
-            self._gmaterials.add(fsec.material)
-        self._gelsets = part.fem.elsets
-        self._gnsets = part.fem.nsets
-        self._gmass = part.fem.masses
-        self._gbcs = part.fem.bcs
-        self._gnonstru = []
-        self._geccen = []
-        self._thick_map = None
-
-    def write(
-        self,
-        name,
-        scratch_dir=None,
-        description=None,
-        execute=False,
-        run_ext=False,
-        cpus=2,
-        gpus=None,
-        overwrite=False,
-    ):
-        self._write_dir(scratch_dir, name, overwrite)
-        import datetime
-
-        now = datetime.datetime.now()
-        date_str = now.strftime("%d-%b-%Y")
-        clock_str = now.strftime("%H:%M:%S")
-        user = os.getlogin()
-
-        units = "UNITS     5.00000000E+00  1.00000000E+00  1.00000000E+00  1.00000000E+00\n          1.00000000E+00\n"
-
-        with open((self.analysis_path / "T100").with_suffix(".FEM"), "w") as d:
-            d.write(
-                f"""IDENT     1.00000000E+00  1.00000000E+02  3.00000000E+00  0.00000000E+00
-DATE      1.00000000E+00  0.00000000E+00  4.00000000E+00  7.20000000E+01
-DATE:     {date_str}         TIME:          {clock_str}
-PROGRAM:  ADA python          VERSION:       Not Applicable
-COMPUTER: X86 Windows         INSTALLATION:
-USER:     {user}            ACCOUNT:     \n"""
-            )
-            d.write(units)
-            d.write(self._materials_str)
-            d.write(self._sections_str)
-            d.write(self._nodes_str)
-            d.write(self._bc_str)
-            d.write(self._elem_str)
-            d.write(self._loads_str)
-            d.write("IEND                0.00            0.00            0.00            0.00")
-
-        print(f'Created an Sesam input deck at "{self.analysis_path}"')
-
-    @property
-    def _materials_str(self):
-        """
-
-        'TDMATER', 'nfield', 'geo_no', 'codnam', 'codtxt', 'name'
-        'MISOSEL', 'matno', 'young', 'poiss', 'rho', 'damp', 'alpha', 'iyield', 'yield'
-
-        :return:
-        """
-        materials = self._gmaterials
-        out_str = "".join(
-            [self.write_ff("TDMATER", [(4, mat.id, 100 + len(mat.name), 0), (mat.name,)]) for mat in materials]
-        )
-
-        out_str += "".join(
-            [
-                self.write_ff(
-                    "MISOSEL",
-                    [
-                        (mat.id, mat.model.E, mat.model.v, mat.model.rho),
-                        (mat.model.zeta, mat.model.alpha, 1, mat.model.sig_y),
-                    ],
-                )
-                for mat in materials
-            ]
-        )
-        return out_str
-
-    @property
-    def _sections_str(self):
-        """
-
-        'TDSECT', 'nfield', 'geono', 'codnam', 'codtxt', 'set_name'
-        'GIORH ', 'geono', 'hz', 'ty', 'bt', 'tt', 'bb', 'tb', 'sfy', 'sfz', 'NLOBYT|', 'NLOBYB|', 'NLOBZ|'
-
-        :return:
-        """
-        from ada.core.utils import Counter
-        from ada.sections import SectionCat
-
-        sec_str = ""
-        sec_ids = []
-        names_str = ""
-        concept_str = ""
-        thick_map = dict()
-        c = Counter(0)
-        g = Counter(0)
-        ircon = Counter(0)
-        shid = Counter(0)
-        bmid = Counter(0)
-        for sec in self._gsections:
-            assert isinstance(sec, FemSection)
-            if sec.type == "beam":
-                section = sec.section
-                assert isinstance(section, Section)
-                if sec.section not in sec_ids:
-                    secid = next(bmid)
-                    section.metadata["numid"] = secid
-                    names_str += self.write_ff(
-                        "TDSECT",
-                        [
-                            (4, secid, 100 + len(sec.section.name), 0),
-                            (sec.section.name,),
-                        ],
-                    )
-                    sec_ids.append(sec.section)
-                    if "beam" in sec.metadata.keys():
-                        # Give concept relationship based on inputted values
-                        beam = sec.metadata["beam"]
-                        numel = sec.metadata["numel"]
-                        sec.metadata["ircon"] = next(ircon)
-                        concept_str += self.write_ff(
-                            "TDSCONC",
-                            [(4, sec.metadata["ircon"], 100 + len(beam.guid), 0), (beam.guid,)],
-                        )
-                        concept_str += self.write_ff("SCONCEPT", [(8, next(c), 7, 0), (0, 1, 0, 2)])
-                        sconc_ref = next(c)
-                        concept_str += self.write_ff("SCONCEPT", [(5, sconc_ref, 2, 4), (1,)])
-                        elids = []
-                        i = 0
-                        elid_bulk = [numel]
-                        for el in sec.elset.members:
-                            if i == 3:
-                                elids.append(tuple(elid_bulk))
-                                elid_bulk = []
-                                i = -1
-                            elid_bulk.append(el.id)
-                            i += 1
-                        if len(elid_bulk) != 0:
-                            elids.append(tuple(elid_bulk))
-                            elid_bulk = []
-
-                        mesh_args = [(5 + numel, sconc_ref, 1, 2)] + elids
-                        concept_str += self.write_ff("SCONMESH", mesh_args)
-                        concept_str += self.write_ff("GUNIVEC", [(next(g), *beam.up)])
-
-                    section.properties.calculate()
-                    p = section.properties
-                    sec_str += self.write_ff(
-                        "GBEAMG",
-                        [
-                            (secid, 0, p.Ax, p.Ix),
-                            (p.Iy, p.Iz, p.Iyz, p.Wxmin),
-                            (p.Wymin, p.Wzmin, p.Shary, p.Sharz),
-                            (p.Scheny, p.Schenz, p.Sy, p.Sz),
-                        ],
-                    )
-
-                    if SectionCat.is_i_profile(section.type):
-                        sec_str += self.write_ff(
-                            "GIORH",
-                            [
-                                (secid, section.h, section.t_w, section.w_top),
-                                (section.t_ftop, section.w_top, section.t_ftop, p.Sfy),
-                                (p.Sfz,),
-                            ],
-                        )
-                    elif SectionCat.is_hp_profile(section.type):
-                        sec_str += self.write_ff(
-                            "GLSEC",
-                            [
-                                (secid, section.h, section.t_w, section.w_btn),
-                                (section.t_fbtn, p.Sfy, p.Sfz, 1),
-                            ],
-                        )
-                    elif SectionCat.is_box_profile(section.type):
-                        sec_str += self.write_ff(
-                            "GBOX",
-                            [
-                                (secid, section.h, section.t_w, section.t_fbtn),
-                                (section.t_ftop, section.w_btn, p.Sfy, p.Sfz),
-                            ],
-                        )
-                    elif SectionCat.is_circular_profile(section.type):
-                        sec_str += self.write_ff(
-                            "GPIPE",
-                            [(secid, section.r - section.wt, section.r, section.wt), (p.Sfy, p.Sfz)],
-                        )
-                    else:
-                        logging.error(f'Unable to convert "{section}". This will be exported as general section only')
-
-            elif sec.type == "shell":
-                if sec.thickness not in thick_map.keys():
-                    sh_id = next(shid)
-                    thick_map[sec.thickness] = sh_id
-                else:
-                    sh_id = thick_map[sec.thickness]
-                sec_str += self.write_ff("GELTH", [(sh_id, sec.thickness, 5)])
-            else:
-                raise ValueError(f"Unknown type {sec.type}")
-        self._thick_map = thick_map
-        return names_str + sec_str + concept_str
-
-    @property
-    def _elem_str(self):
-        """
-
-        'GELREF1',  ('elno', 'matno', 'addno', 'intno'), ('mintno', 'strano', 'streno', 'strepono'), ('geono', 'fixno',
-                    'eccno', 'transno'), 'members|'
-
-        'GELMNT1', 'elnox', 'elno', 'eltyp', 'eltyad', 'nids'
-
-        :return:
-        """
-        elements = self._gelements
-
-        out_str = "".join(
-            [
-                self.write_ff(
-                    "GELMNT1",
-                    [
-                        (el.id, el.id, SesamReader.eltype_2_sesam(el.type), 0),
-                        ([n.id for n in el.nodes]),
-                    ],
-                )
-                for el in elements
-            ]
-        )
-        for el in elements:
-            fem_sec = el.fem_sec
-            assert isinstance(fem_sec, FemSection)
-            if fem_sec.type == "beam":
-                sec_id = fem_sec.section.metadata["numid"]
-            elif fem_sec.type == "shell":
-                sec_id = self._thick_map[fem_sec.thickness]
-            else:
-                raise ValueError(f'Unsupported elem type "{fem_sec.type}"')
-            out_str += self.write_ff(
-                "GELREF1",
-                [
-                    (el.id, el.fem_sec.material.id, 0, 0),
-                    (0, 0, 0, 0),
-                    (sec_id, 0, 0, 1),
-                ],
-            )
-        return out_str
-
-    @property
-    def _nodes_str(self):
-        """
-        GNODE: GNODE NODEX NODENO NDOF ODOF NODEX
-
-        """
-
-        nodes = self._gnodes
-
-        nids = []
-        for n in nodes:
-            if n.id not in nids:
-                nids.append(n.id)
-            else:
-                raise Exception('Doubly defined node id "{}". TODO: Make necessary code updates'.format(n[0]))
-        if len(nodes) == 0:
-            return "** No Nodes"
-        else:
-
-            out_str = "".join([self.write_ff("GNODE", [(no.id, no.id, 6, 123456)]) for no in nodes])
-            out_str += "".join([self.write_ff("GCOORD", [(no.id, no[0], no[1], no[2])]) for no in nodes])
-            return out_str
-
-    @property
-    def _bc_str(self):
-        out_str = ""
-        for bc in self._gbcs:
-            for m in bc.fem_set.members:
-                dofs = [1 if i in bc.dofs else 0 for i in range(1, 7)]
-                data = [tuple([m.id, 6] + dofs[:2]), tuple(dofs[2:])]
-                out_str += self.write_ff("BNBCD", data)
-        return out_str
-
-    @property
-    def _loads_str(self):
-        out_str = ""
-        for i, l in enumerate(self._gloads):
-            assert isinstance(l, Load)
-            lid = i + 1
-            out_str += self.write_ff("TDLOAD", [(4, lid, 100 + len(l.name), 0), (l.name,)])
-            if l.type in ["acc", "grav"]:
-                out_str += self.write_ff(
-                    "BGRAV",
-                    [(lid, 0, 0, 0), tuple([x * l.magnitude for x in l.acc_vector])],
-                )
-        return out_str
-
-    @staticmethod
-    def write_ff(flag, data):
-        """
-        flag = NCOD
-        data = [(int, float, int, float), (float, int)]
-
-        ->> NCOD    INT     FLOAT       INT     FLOAT
-                    FLOAT   INT
-
-        :param flag:
-        :param data:
-        :return:
-        """
-
-        def write_data(d):
-            if type(d) in (np.float64, float, int, np.uint64, np.int32) and d >= 0:
-                return f"  {d:<14.8E}"
-            elif type(d) in (np.float64, float, int, np.uint64, np.int32) and d < 0:
-                return f" {d:<15.8E}"
-            elif type(d) is str:
-                return d
-            else:
-                raise ValueError(f"Unknown input {type(d)} {d}")
-
-        out_str = f"{flag:<8}"
-        for row in data:
-            v = [write_data(x) for x in row]
-            if row == data[-1]:
-                out_str += "".join(v) + "\n"
-            else:
-                out_str += "".join(v) + "\n" + 8 * " "
-        return out_str

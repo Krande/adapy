@@ -4,7 +4,7 @@ from ada import Beam, Plate, PrimExtrude, PrimCyl, Part, Assembly
 from ada.config import Settings
 from ada.core.utils import align_to_plate
 from ada.fem import Step, Load
-from ada.fem.io.mesh import create_beam_mesh, create_plate_mesh
+from ada.fem.io.mesh.recipes import create_beam_mesh, create_plate_mesh
 
 test_folder = Settings.test_dir / "mesh"
 
@@ -59,7 +59,7 @@ class BeamIO(unittest.TestCase):
         p = Part('MyFem') / [pl1, pl2]
 
         create_plate_mesh(pl1, "shell", fem=p.fem, interactive=False, gmsh_session=gmsh)
-        # create_plate_mesh(pl2, gmsh, "shell", p.fem, interactive=True)
+        create_plate_mesh(pl2, "shell", fem=p.fem, interactive=False, gmsh_session=gmsh)
 
         a = Assembly('Test') / p
         a.to_ifc(test_folder / 'ADA_pl_mesh_ifc')

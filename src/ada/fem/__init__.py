@@ -1,11 +1,8 @@
-import logging
-
 import numpy as np
 
 from . import constants as co
 from .containers import FemElements, FemSections, FemSets
 
-logger = logging.getLogger("ada")
 __all__ = [
     "Amplitude",
     "Bc",
@@ -110,7 +107,7 @@ class ElemShapes:
     :param el_type:
     """
 
-    tri = ["S3", "S3R"]
+    tri = ["S3", "S3R", "R3D3"]
     quad = ["S4", "S4R", "R3D4"]
     quad8 = ["S8", "S8R"]
     quad6 = ["STRI65"]
@@ -610,6 +607,18 @@ class FEM(FemBase):
         constraint.parent = self
         self._constraints.append(constraint)
 
+    def add_lcsys(self, lcsys):
+        """
+
+        :param lcsys:
+        :type lcsys: ada.fem.Csys
+        :return:
+        """
+        if lcsys.name in self._lcsys.keys():
+            raise ValueError("Local Coordinate system cannot have duplicate name")
+        lcsys.parent = self
+        self._lcsys[lcsys.name] = lcsys
+
     def add_connector_section(self, connector_section):
         """
         Adds a connector section to the assembly
@@ -784,11 +793,13 @@ class FEM(FemBase):
             """
 
             :param fs:
-            :type fs: FemSection
+            :type fs: ada.fem.FemSection
             """
             if fs.hinges is None or fs.type != "beam":
                 return
             elem = fs.elset.members[0]
+            assert isinstance(elem, Elem)
+
             for n, d, csys in fs.hinges:
                 n2 = Node(n.p, None, parent=elem.parent)
                 elem.parent.nodes.add(n2, allow_coincident=True)
@@ -805,7 +816,6 @@ class FEM(FemBase):
                     s_set,
                     d,
                     csys=csys,
-                    parent=elem.parent,
                 )
                 elem.parent.add_constraint(c)
 
@@ -1765,6 +1775,10 @@ class Constraint(FemBase):
         :rtype: Csys
         """
         return self._csys
+
+    @property
+    def mpc_type(self):
+        return self._mpc_type
 
     def __repr__(self):
         return f'Constraint("{self.type}", m: "{self.m_set.name}", s: "{self.s_set.name}", dofs: "{self.dofs}")'

@@ -92,7 +92,7 @@ class TestSesam(unittest.TestCase):
         a.to_fem('MyTest', fem_format='sesam', overwrite=True)
 
     def test_write_ff(self):
-        from ada.fem.io.sesam import SesamWriter
+        from ada.fem.io.sesam.writer import SesamWriter
 
         flag = 'TDMATER'
         data = [(1, 1, 0, 0), (83025, 4, 0, 3),

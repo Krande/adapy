@@ -1,13 +1,115 @@
 import os
 import pathlib
+import re
+import shutil
+import subprocess
 import sys
+import time
 from contextlib import contextmanager
+
+from ada.config import Settings as _Settings
 
 try:
     # Python 3.6+
     from os import PathLike
 except ImportError:
     from pathlib import PurePath as PathLike
+
+
+class LocalExecute:
+    """
+
+    Backend Component for executing local analysis
+    """
+
+    def __init__(
+        self,
+        inp_path,
+        cpus=2,
+        gpus=None,
+        run_ext=False,
+        metadata=None,
+        auto_execute=True,
+        excute_locally=True,
+    ):
+        self._inp_path = pathlib.Path(inp_path)
+        self._cpus = cpus
+        self._gpus = gpus
+        self._run_ext = run_ext
+        self._metadata = metadata
+        self._auto_execute = auto_execute
+        self._local_execute = excute_locally
+
+    def _run_local(self, run_command, stop_command=None, exit_on_complete=True):
+
+        bat_start_str = f"""echo OFF
+for %%* in (.) do set CurrDirName=%%~nx*
+title %CurrDirName%
+cd /d {self.analysis_dir}
+echo ON
+{run_command}"""
+        if exit_on_complete is False:
+            bat_start_str += "\npause"
+
+        start_bat = "run.bat"
+        stop_bat = "stop.bat"
+
+        os.makedirs(self.execute_dir, exist_ok=True)
+        with open(self.execute_dir / start_bat, "w") as d:
+            d.write(bat_start_str + "\nEXIT")
+
+        if stop_command is not None:
+            with open(self.execute_dir / stop_bat, "w") as d:
+                d.write(f"cd /d {self.analysis_dir}\n{stop_command}")
+
+        if _Settings.execute_dir is not None:
+            shutil.copy(self.execute_dir / start_bat, _Settings.execute_dir / start_bat)
+            shutil.copy(self.execute_dir / stop_bat, _Settings.execute_dir / stop_bat)
+
+        fem_tool = type(self).__name__
+
+        print(80 * "-")
+        print(f'starting {fem_tool} simulation "{self.analysis_name}"')
+        if self._auto_execute is True:
+            if self._run_ext is True:
+                subprocess.run(
+                    "start " + start_bat,
+                    cwd=self.execute_dir,
+                    shell=True,
+                    env=os.environ,
+                )
+                print(f"Note! This starts {fem_tool} in an external window on a separate thread.")
+            else:
+                subprocess.run(
+                    "start /wait " + start_bat,
+                    cwd=self.execute_dir,
+                    shell=True,
+                    env=os.environ,
+                )
+                print(f'Finished {fem_tool} simulation "{self.analysis_name}"')
+        print(80 * "-")
+
+    def run(self):
+        raise NotImplementedError("The run function is not implemented")
+
+    @property
+    def analysis_dir(self):
+        return self.inp_path.parent
+
+    @property
+    def execute_dir(self):
+        if _Settings.execute_dir is None:
+            return self.analysis_dir
+        else:
+            return _Settings.execute_dir / self.analysis_name
+
+    @property
+    def analysis_name(self):
+        return self.inp_path.stem
+
+    @property
+    def inp_path(self):
+        return pathlib.Path(self._inp_path)
 
 
 def is_buffer(obj, mode):
@@ -49,114 +151,6 @@ def get_fem_model_from_assembly(assembly):
     return parts[0]
 
 
-class LocalExecute:
-    """
-
-    Backend Component for executing local analysis
-    """
-
-    alt_execute_dir = None
-    _exe_path = None
-
-    def __init__(
-        self,
-        inp_path,
-        cpus=2,
-        gpus=None,
-        run_ext=False,
-        metadata=None,
-        auto_execute=True,
-        excute_locally=True,
-    ):
-        self._inp_path = inp_path
-        self._cpus = cpus
-        self._gpus = gpus
-        self._run_ext = run_ext
-        self._metadata = metadata
-        self._auto_execute = auto_execute
-        self._local_execute = excute_locally
-
-    def _run_local(self, run_command, stop_command=None, exit_on_complete=True):
-        import shutil
-        import subprocess
-
-        bat_start_str = f"""echo OFF
-for %%* in (.) do set CurrDirName=%%~nx*
-title %CurrDirName%
-cd /d {self.analysis_dir}
-echo ON
-{run_command}"""
-        if exit_on_complete is False:
-            bat_start_str += "\npause"
-
-        start_bat = "run.bat"
-        stop_bat = "stop.bat"
-
-        os.makedirs(self.execute_dir, exist_ok=True)
-        with open(self.execute_dir / start_bat, "w") as d:
-            d.write(bat_start_str + "\nEXIT")
-
-        if self.alt_execute_dir is not None:
-            shutil.copy(self.execute_dir / start_bat, self.analysis_dir / start_bat)
-
-        if stop_command is not None:
-            with open(self.execute_dir / stop_bat, "w") as d:
-                d.write(f"cd /d {self.analysis_dir}\n{stop_command}")
-
-            if self.alt_execute_dir is not None:
-                shutil.copy(self.execute_dir / stop_bat, self.analysis_dir / stop_bat)
-
-        fem_tool = type(self).__name__
-
-        print(80 * "-")
-        print(f'starting {fem_tool} simulation "{self.analysis_name}"')
-        if self._auto_execute is True:
-            if self._run_ext is True:
-                subprocess.run("start " + start_bat, cwd=self.execute_dir, shell=True)
-                print(f"Note! This starts {fem_tool} in an external window on a separate thread.")
-            else:
-                subprocess.run("start /wait " + start_bat, cwd=self.execute_dir, shell=True)
-                print(f'Finished {fem_tool} simulation "{self.analysis_name}"')
-        print(80 * "-")
-
-    def run(self):
-        raise NotImplementedError("The run function is not implemented")
-
-    @property
-    def analysis_dir(self):
-        return self.inp_path.parent
-
-    @property
-    def execute_dir(self):
-        if self.alt_execute_dir is None:
-            return self.analysis_dir
-        else:
-            return self.alt_execute_dir / self.analysis_name
-
-    @property
-    def analysis_name(self):
-        return self.inp_path.stem
-
-    @property
-    def inp_path(self):
-        return pathlib.Path(self._inp_path)
-
-    @property
-    def exe_path(self):
-        return pathlib.Path(self._exe_path)
-
-    @property
-    def exe_dir(self):
-        return self.exe_path.parents[0]
-
-
-def get_fem_exe_paths():
-    from .calculix.execute import Calculix
-    from .code_aster.execute import CodeAsterAnalysis
-
-    return dict(ccx=Calculix.exe_path, code_aster=CodeAsterAnalysis.exe_path)
-
-
 def get_exe_path(exe_name):
     """
 
@@ -184,3 +178,101 @@ def get_exe_path(exe_name):
         raise FileNotFoundError(exe_path)
 
     return exe_path
+
+
+def str_to_int(s):
+    try:
+        return int(float(s))
+    except ValueError:
+        raise ValueError("stop a minute")
+
+
+def str_to_float(s):
+    from ada.core.utils import roundoff
+
+    return roundoff(s)
+
+
+def get_ff_regex(flag, *args):
+    """
+    Compile a regex search string for Fortran formatted string input.
+
+    :param flag: Name of keyword flag (ie. the first word on a line of input parameters)
+    :param args: Group name for each parameter. Include the character | to signify the parameters is optional.
+
+
+    :return: Returns a compiled regex search string.. re.compile(..)
+    """
+    pattern_str = r"^(?P<flag>.*?)" if flag is True else rf"^{flag}"
+    counter = 0
+    re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
+
+    def add_key(k):
+        if "|" in k:
+            return rf'(?: \s*(?P<{k.replace("|", "")}>.*?)|)'
+        return rf" \s*(?P<{k}>.*?)"
+
+    for i, key in enumerate(args):
+        if type(key) is str:
+            pattern_str += add_key(key)
+            counter += 1
+            if counter == 4 and i < len(args) - 1:
+                counter = 0
+                pattern_str += r"(?:\n|)\s*"
+        elif type(key) is list:
+            for subkey in key:
+                pattern_str += add_key(subkey)
+            pattern_str += r"(?:\n|)\s*"
+        else:
+            raise ValueError(f'Unrecognized input type "{type(key)}"')
+
+    if not args:
+        pattern_str += add_key("bulk")
+
+    return re.compile(pattern_str + r"(?:(?=^[A-Z]|\Z))", re_in)
+
+
+def _overwrite_dir(analysis_dir):
+
+    print("Removing old files before copying new")
+    try:
+
+        shutil.rmtree(analysis_dir)
+    except WindowsError as e:
+        print("Failed to delete due to '{}'".format(e))  # Or just pass
+
+    time.sleep(0.5)
+    os.makedirs(analysis_dir, exist_ok=True)
+
+
+def _lock_check(analysis_dir):
+    lck_file = (analysis_dir / analysis_dir.stem).with_suffix(".lck")
+    if lck_file.is_file():
+        raise IOError(
+            f'Found lock-file:\n\n"{lck_file}"\n\nThis indicates that an analysis is running.'
+            "Please stop analysis and try again"
+        )
+    if (analysis_dir / "ada.lck").is_file():
+        raise IOError(
+            f'Found ADA lock-file:\n\n"{analysis_dir}\\ada.lck"\n\nThis indicates that the analysis folder is'
+            f" locked Please removed ADA lock file if this is not the case and try again"
+        )
+
+
+def _folder_prep(scratch_dir, analysis_name, overwrite):
+
+    if scratch_dir is None:
+        scratch_dir = pathlib.Path(_Settings.scratch_dir)
+    else:
+        scratch_dir = pathlib.Path(scratch_dir)
+
+    analysis_dir = scratch_dir / analysis_name
+    if analysis_dir.is_dir():
+        _lock_check(analysis_dir)
+        if overwrite is True:
+            _overwrite_dir(analysis_dir)
+        else:
+            raise IOError("The analysis folder exists. Please remove folder and try again")
+
+    os.makedirs(analysis_dir, exist_ok=True)
+    return analysis_dir

@@ -16,8 +16,10 @@ class Settings:
 
     convert_bad_names = False
     use_occ_bounding_box_algo = False
-    # The following is active only if OCC bounding box is True
-    use_oriented_bbox = True
+    use_oriented_bbox = True  # This is only relevant if OCC bounding box is True
+
+    # IFC export settings
+    include_ecc = False
 
     # FEM analysis settings
     if os.getenv("ADA_execute_dir", None) is not None:
