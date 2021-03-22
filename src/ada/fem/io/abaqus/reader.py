@@ -1173,11 +1173,12 @@ class AbaPartReader(FemObjectReader):
         return consecsd
 
     @classmethod
-    def get_connectors_from_inp(cls, bulk_str, parent):
+    def get_connectors_from_inp(cls, bulk_str, fem):
         """
 
         :param bulk_str:
-        :param parent:
+        :param fem:
+        :type fem: ada.fem.FEM
         :return:
         """
         a = AbaFF("Connector Section", [("elset=", "behavior="), ("contype",), ("csys",)])
@@ -1187,7 +1188,7 @@ class AbaPartReader(FemObjectReader):
         for m in a.regex.finditer(bulk_str):
             d = m.groupdict()
             name = d["behavior"] + next(nsuffix)
-            elset = parent.elsets[d["elset"]]
+            elset = fem.elsets[d["elset"]]
             elem = elset.members[0]
 
             csys_ref = d["csys"].replace('"', "")
@@ -1206,8 +1207,8 @@ class AbaPartReader(FemObjectReader):
                 n1,
                 n2,
                 con_type,
-                parent.connector_sections[d["behavior"]],
-                csys=parent.lcsys[csys_ref],
+                fem.connector_sections[d["behavior"]],
+                csys=fem.lcsys[csys_ref],
             )
         return cons
 

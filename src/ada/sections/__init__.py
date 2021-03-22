@@ -325,6 +325,10 @@ class GeneralProperties:
         """
         return self._parent
 
+    @parent.setter
+    def parent(self, value):
+        self._parent = value
+
     @property
     def Ax(self):
         """

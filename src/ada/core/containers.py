@@ -132,7 +132,6 @@ class Beams(BaseCollections):
             vol_new = []
             for p in vol_:
                 vol_new.append((roundoff(p[0] - margins), roundoff(p[1] + margins)))
-            # logger.debug('scaled from "{}" to "{}"'.format(vol, vol_new))
         else:
             vol_new = vol_
         vol = vol_new
@@ -411,12 +410,11 @@ class Connections(BaseCollections):
             if t_ == 0 or t_ == 1:
                 pass
             else:
-                # This indicates that the beams are most probably parallel
-                # logger.debug(bm1.ID, bm2.ID, t, 'whats going on')
+                logging.debug(f"Beam cross-check indicates that the beams {bm1} and {bm2} are most probably parallel")
                 return None
 
         if p_check(AB, CD):
-            # logger.debug('beams', bm1.ID, bm2.ID, 'are parallel')
+            logging.debug(f"beams {bm1} {bm2} are parallel")
             return None
 
         if v_len(AB_ - CD_) > outofplane_tol:
@@ -438,7 +436,7 @@ class Connections(BaseCollections):
 
         from ada import Node
 
-        def eval_node(ab, bm2, n1=True):
+        def eval_node(ab, n1=True):
             n = Node(ab)
             n_old = self._parent.nodes.add(n)
 
@@ -453,13 +451,12 @@ class Connections(BaseCollections):
                     bm2.n2 = n
                     bm2.n2.Free = False
             else:
-                pass
-                # logger.debug('Midnode on n1')
+                logging.debug("Midnode on n1")
 
         if t_ <= 0:
-            eval_node(AB_, bm2, n1=True)
+            eval_node(AB_, n1=True)
         elif t_ >= 1:
-            eval_node(AB_, bm2, n1=False)
+            eval_node(AB_, n1=False)
         else:
             raise ValueError('bm1 "{}", bm2 "{}", t: "{}"'.format(bm1.id, bm2.id, t_))
 
@@ -697,11 +694,17 @@ class Sections:
         if section.name is None:
             raise Exception("Name is not allowed to be None.")
 
+        # Note: Evaluate if parent should be "Sections" not Part object?
+        if section.parent is None:
+            section.parent = self._parent
+
         if section.name in self._nmap.keys():
             return self._nmap[section.name]
+
         if section.id is None or section.id in self._idmap.keys():
             new_sec_id = len(self._sections) + 1
             section.edit(sec_id=new_sec_id)
+
         self._sections.append(section)
         self._idmap[section.id] = section
         self._nmap[section.name] = section

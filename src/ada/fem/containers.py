@@ -118,9 +118,8 @@ class FemElements:
         """
         Remove elements from element set. Will remove element set on completion
 
-        :param elset:
+        :param elset: Pass in a
         :type elset: ada.fem.FemSet
-        :return:
         """
         for el in elset.members:
             self._idmap.pop(el.id)

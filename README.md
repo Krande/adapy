@@ -3,17 +3,17 @@
 A toolkit for structural analysis and design that focus on interoperability between
 IFC and various Finite Element formats.
 
+This library is still undergoing significant development so expect there to be occasional bugs and breaking changes.
 
-This library is still undergoing significant development so expect there to be occasional bugs and breaking changes.   
 
 Currently there is only support for Windows. But given that ada is written in pure python and that we believe all 
 dependencies are multiplatform we hope to add support for linux and macOS in the future.
 
-
 ## Installation
 Here are the steps necessary to install the ada package
 
-Note that it is recommended to create a isolated environment for the installation. For example
+Note that it is recommended to create an isolated environment for the installation. You can create a new environment
+like so:
 
 ```
 conda create -n adaenv 
@@ -27,9 +27,11 @@ First you need to have installed `ifcopenshell` and `pythonocc-core` from conda-
 
 `conda -c conda-forge ifcopenshell pythonocc-core`
 
-After the dependencies are installed you can install ada using 
+After the conda-forge dependencies are installed you can install ada using 
 
 `pip install ada-py`
+
+(which will automatically include all dependencies from PyPi)
 
 
 ### Using Conda (Note! Work in progress)

@@ -1,8 +1,8 @@
 # coding=utf-8
-import copy
 import logging
 import os
 import pathlib
+import traceback
 from itertools import chain
 
 import numpy as np
@@ -85,7 +85,7 @@ class Part(BackendGeom):
         guid=None,
     ):
         super().__init__(name, guid=guid, metadata=metadata, units=units, parent=parent)
-        from ada.fem.io.mesh import GMesh
+        from ada.fem.io.io_gmsh import GMesh
 
         self._nodes = Nodes(parent=self)
         self._beams = Beams(parent=self)
@@ -130,15 +130,15 @@ class Part(BackendGeom):
         beam.parent = self
         mat = self.add_material(beam.material)
         if mat is not None:
-            beam.material=mat
+            beam.material = mat
 
         sec = self.add_section(beam.section)
         if sec is not None:
-            beam.section=sec
+            beam.section = sec
 
         tap = self.add_section(beam.taper)
         if tap is not None:
-            beam.taper=tap
+            beam.taper = tap
 
         old_node = self.nodes.add(beam.n1)
         if old_node is not None:
@@ -615,7 +615,7 @@ class Part(BackendGeom):
             try:
                 vol = bm.bbox
             except ValueError as e:
-                logging.error(f"Intersect bbox skipped: {e}")
+                logging.error(f"Intersect bbox skipped: {e}\n{traceback.format_exc()}")
                 return None
             vol_in = [x for x in zip(vol[0], vol[1])]
             beams = filter(
@@ -1188,18 +1188,22 @@ class Assembly(Part):
     ):
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
-        Currently supported FEM write formats are:
+        Currently there is limited write support for the following FEM formats are:
 
         Open Source
 
-        * Calculix (open source)
-        * Code_Aster (open source)
+        * Calculix
+        * Code_Aster
 
         Proprietary
 
         * Abaqus
         * Usfos
         * Sesam
+
+
+        Write support is added on a need-only-basis. Any contributions are welcome!
+
 
         :param name: Name of FEM analysis input deck
         :param fem_format: Desired fem format
@@ -1665,6 +1669,7 @@ class Beam(BackendGeom):
         return (xmin, ymin, zmin), (xmax, ymax, zmax)
 
     def _generate_ifc_beam(self):
+        from ada.config import Settings
         from ada.core.constants import O, X, Z
         from ada.core.ifc_utils import (
             add_colour,
@@ -1674,7 +1679,6 @@ class Beam(BackendGeom):
             create_property_set,
         )
         from ada.core.utils import angle_between
-        from ada.config import Settings
 
         sec = self.section
         if self.parent is None:

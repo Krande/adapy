@@ -1059,7 +1059,7 @@ class AbaConstraint(FemObjectInitializer, Constraint):
 
         if self.csys is not None:
             new_csys_str = "\n" + csys_str(self.csys, self._fem_writer)
-            cstr = f", Orientation={self.csys.name}"
+            cstr = f", Orientation={self.csys.name.upper()}"
         else:
             cstr = ""
             new_csys_str = ""
@@ -1592,7 +1592,9 @@ def csys_str(csys, fem_writer):
     :type csys: ada.fem.Csys
     :return:
     """
-    name = csys.name.replace('"', "")
+
+    name = csys.name.replace('"', "").upper()
+
     ori_str = f'*Orientation, name="{name}"'
     if csys.nodes is None and csys.coords is None:
         ori_str += "\n 1.,           0.,           0.,           0.,           1.,           0.\n 1, 0."
@@ -1603,7 +1605,7 @@ def csys_str(csys, fem_writer):
         )
     else:
         ax, ay, az = csys.coords[0]
-        ori_str += f"\n{ax}, {ay}, {az}"
+        ori_str += f" \n{ax}, {ay}, {az}"
         bx, by, bz = csys.coords[1]
         ori_str += f", {bx}, {by}, {bz}"
         if len(csys.coords) == 3:
