@@ -112,10 +112,20 @@ echo ON
         print(f'starting {fem_tool} simulation "{self.analysis_name}"')
         if self._auto_execute is True:
             if self._run_ext is True:
-                subprocess.run("start " + start_bat, cwd=self.execute_dir, shell=True)
+                subprocess.run(
+                    "start " + start_bat,
+                    cwd=self.execute_dir,
+                    shell=True,
+                    env=os.environ,
+                )
                 print(f"Note! This starts {fem_tool} in an external window on a separate thread.")
             else:
-                subprocess.run("start /wait " + start_bat, cwd=self.execute_dir, shell=True)
+                subprocess.run(
+                    "start /wait " + start_bat,
+                    cwd=self.execute_dir,
+                    shell=True,
+                    env=os.environ,
+                )
                 print(f'Finished {fem_tool} simulation "{self.analysis_name}"')
         print(80 * "-")
 
@@ -144,10 +154,6 @@ echo ON
     @property
     def exe_path(self):
         return pathlib.Path(self._exe_path)
-
-    @property
-    def exe_dir(self):
-        return self.exe_path.parents[0]
 
 
 def get_fem_exe_paths():

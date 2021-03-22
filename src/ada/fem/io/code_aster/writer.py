@@ -82,6 +82,8 @@ def to_fem(
     with open((analysis_dir / name).with_suffix(".comm"), "w") as f:
         f.write(write_to_comm(name, assembly, p, analysis_dir))
 
+    print(f'Created a Code_Aster input deck at "{analysis_dir}"')
+
     if execute:
         from .execute import run_code_aster
 
@@ -94,8 +96,6 @@ def to_fem(
             execute=execute,
             exit_on_complete=exit_on_complete,
         )
-
-    print(f'Created a Code_Aster input deck at "{analysis_dir}"')
 
 
 def write_to_comm(name, a, p, analysis_dir):

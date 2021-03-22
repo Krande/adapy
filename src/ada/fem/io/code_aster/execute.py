@@ -100,6 +100,6 @@ class CodeAsterAnalysis(LocalExecute):
     def run(self, exit_on_complete=True):
         if Settings.use_docker_execute is False:
             exe_path = get_exe_path("code_aster")
-            self._run_local(f"{exe_path} {self.analysis_name}.export", exit_on_complete=exit_on_complete)
+            self._run_local(f'"{exe_path}" {self.analysis_name}.export', exit_on_complete=exit_on_complete)
         else:
             self._run_docker()
