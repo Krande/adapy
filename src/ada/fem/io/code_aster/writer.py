@@ -73,11 +73,13 @@ def to_fem(
 
     p = get_fem_model_from_assembly(assembly)
 
-    write_to_med(p, analysis_dir)
-    write_export_file(analysis_dir, p.name, 2)
+    write_to_med(name, p, analysis_dir)
+
+    with open((analysis_dir / name).with_suffix('.export'), 'w') as f:
+        f.write(write_export_file(analysis_dir, name, 2))
 
     # TODO: Finish .comm setup based on Salome meca setup
-    with open(analysis_dir.with_suffix(".comm"), "w") as f:
+    with open((analysis_dir / name).with_suffix(".comm"), "w") as f:
         f.write('mesh = LIRE_MAILLAGE(FORMAT="MED", UNITE=20)\n\n')
         f.write(
             """model = AFFE_MODELE(
@@ -90,14 +92,27 @@ def to_fem(
 ) \n"""
         )
 
+    if execute:
+        from .execute import run_code_aster
+        run_code_aster(
+            (analysis_dir / name).with_suffix(".export"),
+            cpus=cpus,
+            gpus=gpus,
+            run_ext=run_ext,
+            metadata=assembly.metadata,
+            execute=execute,
+            exit_on_complete=exit_on_complete,
+        )
+
     print(f'Created a Code_Aster input deck at "{analysis_dir}"')
 
 
-def write_to_med(p, analysis_dir):
+def write_to_med(name, p, analysis_dir):
     """
     Method for writing a part directly based on meshio example
 
-    :param p:
+    :param name: name
+    :param p: Part
     :param analysis_dir:
     :type p: ada.Part
     """
@@ -124,7 +139,7 @@ def write_to_med(p, analysis_dir):
         cells.append((med_el, el_mapped))
 
     mesh = meshio.Mesh(points, cells)
-    part_file = (analysis_dir / p.name).with_suffix(".med")
+    part_file = (analysis_dir / name).with_suffix(".med")
     f = h5py.File(part_file, "w")
 
     # Strangely the version must be 3.0.x

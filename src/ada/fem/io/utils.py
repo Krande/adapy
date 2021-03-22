@@ -68,7 +68,7 @@ class LocalExecute:
         auto_execute=True,
         excute_locally=True,
     ):
-        self._inp_path = inp_path
+        self._inp_path = pathlib.Path(inp_path)
         self._cpus = cpus
         self._gpus = gpus
         self._run_ext = run_ext
