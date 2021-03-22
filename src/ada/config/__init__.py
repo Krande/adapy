@@ -15,9 +15,13 @@ class Settings:
     valid_units = ["m", "mm"]
 
     convert_bad_names = False
+
     use_occ_bounding_box_algo = False
     # The following is active only if OCC bounding box is True
     use_oriented_bbox = True
+
+    # IFC export settings
+    include_ecc = False
 
     # FEM analysis settings
     if os.getenv("ADA_execute_dir", None) is not None:

@@ -1762,8 +1762,7 @@ class Beam(BackendGeom):
             create_property_set,
         )
         from ada.core.utils import angle_between
-
-        include_ecc = False
+        from ada.config import Settings
 
         sec = self.section
         if self.parent is None:
@@ -1776,7 +1775,7 @@ class Beam(BackendGeom):
         owner_history = f.by_type("IfcOwnerHistory")[0]
         parent = self.parent.ifc_elem
 
-        if include_ecc:
+        if Settings.include_ecc:
             e1 = self.e1 if self.e1 is not None else (0.0, 0.0, 0.0)
             e2 = self.e2 if self.e2 is not None else (0.0, 0.0, 0.0)
         else:
