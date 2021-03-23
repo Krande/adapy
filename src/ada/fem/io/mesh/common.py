@@ -194,7 +194,7 @@ class GMesh:
         for s, e in zip(corners[:-1], corners[1:]):
             li = (s, e)
             all_points.append(s)
-            res = list(filter(None, map(is_on_line, [(li, bm) for bm in beams])))
+            res = [x for x in map(is_on_line, [(li, bm) for bm in beams]) if x is not None]
             add_points = [r[0] for r in res]
             crossing_beams += filter(lambda x: x not in crossing_beams, [r[1] for r in res])
             sorted_li = list(sorted(add_points, key=lambda x: vector_length(np.array(x) - np.array(s))))
@@ -266,8 +266,8 @@ class GMesh:
         bm = self._bm_map[li]
         segments = model.mesh.getElements(1, li)[1][0]
         fem_nodes = model.mesh.getElements(1, li)[2][0]
-        elemTypes, elemTags, elemNodeTags = gmsh.model.mesh.getElements(1, li)
-        face, dim, morder, numv, parv, _ = gmsh.model.mesh.getElementProperties(elemTypes[0])
+        elem_types, elem_tags, elem_node_tags = gmsh.model.mesh.getElements(1, li)
+        face, dim, morder, numv, parv, _ = gmsh.model.mesh.getElementProperties(elem_types[0])
 
         def make_elem(j):
             no = []

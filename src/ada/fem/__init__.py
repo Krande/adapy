@@ -1776,6 +1776,10 @@ class Constraint(FemBase):
         """
         return self._csys
 
+    @property
+    def mpc_type(self):
+        return self._mpc_type
+
     def __repr__(self):
         return f'Constraint("{self.type}", m: "{self.m_set.name}", s: "{self.s_set.name}", dofs: "{self.dofs}")'
 

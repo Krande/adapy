@@ -4,7 +4,7 @@ from itertools import chain
 
 from ada import Material, Part, Section
 from ada.fem import Constraint, Csys, Elem, FemSection, FemSet, Mass, Spring
-from ada.fem.io import FemObjectReader
+from ada.fem.io.utils import get_ff_regex
 from ada.materials.metals import CarbonSteel
 from ada.sections import GeneralProperties
 
@@ -25,16 +25,16 @@ def read_fem(assembly, fem_file, fem_name=None):
         reader.read_sesam_fem(d.read())
 
 
-class SesamReader(FemObjectReader):
+class SesamReader:
     re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 
     # Nodes
-    re_gnode_in = FemObjectReader.get_ff_regex("GNODE", "nodex", "nodeno", "ndof", "odof")
-    re_gcoord_in = FemObjectReader.get_ff_regex("GCOORD", "id", "x", "y", "z")
+    re_gnode_in = get_ff_regex("GNODE", "nodex", "nodeno", "ndof", "odof")
+    re_gcoord_in = get_ff_regex("GCOORD", "id", "x", "y", "z")
 
     # Elements
-    re_gelmnt = FemObjectReader.get_ff_regex("GELMNT1", "elnox", "elno", "eltyp", "eltyad", "nids")
-    re_gelref1 = FemObjectReader.get_ff_regex(
+    re_gelmnt = get_ff_regex("GELMNT1", "elnox", "elno", "eltyp", "eltyad", "nids")
+    re_gelref1 = get_ff_regex(
         "GELREF1",
         "elno",
         "matno",
@@ -52,8 +52,8 @@ class SesamReader(FemObjectReader):
     )
 
     # Beam Sections
-    re_sectnames = FemObjectReader.get_ff_regex("TDSECT", "nfield", "geono", "codnam", "codtxt", "set_name")
-    re_giorh = FemObjectReader.get_ff_regex(
+    re_sectnames = get_ff_regex("TDSECT", "nfield", "geono", "codnam", "codtxt", "set_name")
+    re_giorh = get_ff_regex(
         "GIORH ",
         "geono",
         "hz",
@@ -68,8 +68,8 @@ class SesamReader(FemObjectReader):
         "NLOBYB|",
         "NLOBZ|",
     )
-    re_gbox = FemObjectReader.get_ff_regex("GBOX", "geono", "hz", "ty", "tb", "tt", "by", "sfy", "sfz")
-    re_gbeamg = FemObjectReader.get_ff_regex(
+    re_gbox = get_ff_regex("GBOX", "geono", "hz", "ty", "tb", "tt", "by", "sfy", "sfz")
+    re_gbeamg = get_ff_regex(
         "GBEAMG",
         "geono",
         "comp",
@@ -91,15 +91,15 @@ class SesamReader(FemObjectReader):
         "wz|",
         "fabr|",
     )
-    re_gpipe = FemObjectReader.get_ff_regex("GPIPE", "geono", "di", "dy", "t", "sfy", "sfz")
-    re_lcsys = FemObjectReader.get_ff_regex("GUNIVEC", "transno", "unix", "uniy", "uniz")
+    re_gpipe = get_ff_regex("GPIPE", "geono", "di", "dy", "t", "sfy", "sfz")
+    re_lcsys = get_ff_regex("GUNIVEC", "transno", "unix", "uniy", "uniz")
 
     # Shell section
-    re_thick = FemObjectReader.get_ff_regex("GELTH", "geono", "th")
+    re_thick = get_ff_regex("GELTH", "geono", "th")
 
     # Other
-    re_bnbcd = FemObjectReader.get_ff_regex("BNBCD", "nodeno", "ndof", "content")
-    re_belfix = FemObjectReader.get_ff_regex(
+    re_bnbcd = get_ff_regex("BNBCD", "nodeno", "ndof", "content")
+    re_belfix = get_ff_regex(
         "BELFIX",
         "fixno",
         "opt",
@@ -112,19 +112,17 @@ class SesamReader(FemObjectReader):
         "a5|",
         "a6|",
     )
-    re_mgsprng = FemObjectReader.get_ff_regex("MGSPRNG", "matno", "ndof", "bulk")
-    re_bnmass = FemObjectReader.get_ff_regex("BNMASS", "nodeno", "ndof", "m1", "m2", "m3", "m4", "m5", "m6")
-    re_geccen = FemObjectReader.get_ff_regex("GECCEN", "eccno", "ex", "ey", "ez")
-    re_bldep = FemObjectReader.get_ff_regex("BLDEP", "slave", "master", "nddof", "ndep", "bulk")
-    re_setmembs = FemObjectReader.get_ff_regex("GSETMEMB", "nfield", "isref", "index", "istype", "isorig", "members")
-    re_setnames = FemObjectReader.get_ff_regex("TDSETNAM", "nfield", "isref", "codnam", "codtxt", "set_name")
+    re_mgsprng = get_ff_regex("MGSPRNG", "matno", "ndof", "bulk")
+    re_bnmass = get_ff_regex("BNMASS", "nodeno", "ndof", "m1", "m2", "m3", "m4", "m5", "m6")
+    re_geccen = get_ff_regex("GECCEN", "eccno", "ex", "ey", "ez")
+    re_bldep = get_ff_regex("BLDEP", "slave", "master", "nddof", "ndep", "bulk")
+    re_setmembs = get_ff_regex("GSETMEMB", "nfield", "isref", "index", "istype", "isorig", "members")
+    re_setnames = get_ff_regex("TDSETNAM", "nfield", "isref", "codnam", "codtxt", "set_name")
 
     # Materials
-    re_matnames = FemObjectReader.get_ff_regex("TDMATER", "nfield", "geo_no", "codnam", "codtxt", "name")
-    re_misosel = FemObjectReader.get_ff_regex(
-        "MISOSEL", "matno", "young", "poiss", "rho", "damp", "alpha", "iyield", "yield"
-    )
-    re_morsmel = FemObjectReader.get_ff_regex(
+    re_matnames = get_ff_regex("TDMATER", "nfield", "geo_no", "codnam", "codtxt", "name")
+    re_misosel = get_ff_regex("MISOSEL", "matno", "young", "poiss", "rho", "damp", "alpha", "iyield", "yield")
+    re_morsmel = get_ff_regex(
         "MORSMEL",
         "matno",
         "q1",

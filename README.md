@@ -123,6 +123,12 @@ Settings.fem_exe_paths["ccx"] = "<path to your ccx.exe>"
 Settings.fem_exe_paths["abaqus"] = "<path to your abaqus.bat>"
 ```
 
+For installation files of open source FEM software such as Calculix and Code Aster, here are some links:
+
+* https://github.com/calculix/cae/releases (calculix CAE for windows/linux)
+* https://code-aster-windows.com/download/ (Code Aster for Windows)
+* https://www.code-aster.org/spip.php?rubrique21 (Code Aster for Linux)
+
 ## For developers
 
 For developers interested in contributing to this project feel free to make a fork, experiment and create a pull request

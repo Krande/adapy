@@ -4,7 +4,7 @@ import pathlib
 import shutil
 import subprocess
 
-from ..utils import LocalExecute
+from ada.config import Settings as _Settings
 
 
 def run_abaqus(
@@ -88,14 +88,11 @@ echo ON
         with open(inp_path.parent / "analysis_manifest.json", "w") as fp:
             json.dump(manifest, fp, indent=4)
 
-    if LocalExecute.alt_execute_dir is not None:
-        local_exec = LocalExecute(inp_path)
-        execute_path = pathlib.Path(local_exec.execute_dir)
-        os.makedirs(execute_path, exist_ok=True)
-        shutil.copy(inp_path.parent / start_bat, execute_path / start_bat)
-        shutil.copy(inp_path.parent / stop_bat, execute_path / stop_bat)
-    else:
-        execute_path = inp_path.parent
+    execute_path = _Settings.execute_dir if _Settings.execute_dir is not None else inp_path.parent
+
+    os.makedirs(execute_path, exist_ok=True)
+    shutil.copy(inp_path.parent / start_bat, execute_path / start_bat)
+    shutil.copy(inp_path.parent / stop_bat, execute_path / stop_bat)
 
     if return_bat_str is True:
         return bat_start_str

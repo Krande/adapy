@@ -471,7 +471,6 @@ class Materials(BaseCollections):
     """
 
     def __init__(self, materials=None, unique_ids=True, parent=None, units="m"):
-
         super().__init__(parent)
         self._materials = sorted(materials, key=attrgetter("name")) if materials is not None else []
         self._unique_ids = unique_ids
@@ -514,10 +513,13 @@ class Materials(BaseCollections):
         return f"Materials({rpr.repr(self._materials) if self._materials else ''})"
 
     def index(self, item):
-        index = bisect_left(self._materials, item)
-        if (index != len(self._materials)) and (self._materials[index] == item):
-            return index
-        raise ValueError(f"{repr(item)} not found")
+        """
+
+        :param item:
+        :type item: ada.Material
+        :return:
+        """
+        return self._materials.index(item)
 
     def count(self, item):
         return int(item in self)

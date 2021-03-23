@@ -85,6 +85,4 @@ class AbaFF:
 
     @property
     def regex(self):
-        from ada.fem.io import FemObjectReader
-
-        return re.compile(self.regstr, FemObjectReader.re_in)
+        return re.compile(self.regstr, re.IGNORECASE | re.MULTILINE | re.DOTALL)

@@ -21,7 +21,7 @@ from .core.utils import (
     vector_length,
 )
 from .fem import FEM, Elem, FemSet
-from .fem.io import femio
+from .fem.io.utils import femio
 from .materials.metals import CarbonSteel
 from .sections import GeneralProperties, SectionCat
 
@@ -85,7 +85,7 @@ class Part(BackendGeom):
         guid=None,
     ):
         super().__init__(name, guid=guid, metadata=metadata, units=units, parent=parent)
-        from ada.fem.io.io_gmsh import GMesh
+        from ada.fem.io.mesh import GMesh
 
         self._nodes = Nodes(parent=self)
         self._beams = Beams(parent=self)
@@ -4589,6 +4589,22 @@ class Material(Backend):
         self._ifc_mat = None
 
     def __eq__(self, other):
+        """
+        Assuming uniqueness of Material Name and parent
+
+        TODO: Make this check for same Material Model parameters
+
+        :param other:
+        :type other: Material
+        :return:
+        """
+        # other_parent = other.__dict__['_parent']
+        # other_name = other.__dict__['_name']
+        # if self.name == other_name and other_parent == self.parent:
+        #     return True
+        # else:
+        #     return False
+
         for key, val in self.__dict__.items():
             if "parent" in key or key == "_mat_id":
                 continue
@@ -4596,21 +4612,6 @@ class Material(Backend):
                 return False
 
         return True
-
-    def edit(self, name=None, mat_model=None, mat_id=None, parent=None):
-        """
-        Edit material properties
-
-        :param name:
-        :param mat_id:
-        :param mat_model:
-        :param parent:
-        :return:
-        """
-        self._mat_id = mat_id if mat_id is not None else self.id
-        self._name = name if name is not None else self.name
-        self._mat_model = mat_model if mat_model is not None else self.model
-        self._parent = parent if parent is not None else self._parent
 
     def _generate_ifc_mat(self):
 

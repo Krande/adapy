@@ -4,7 +4,7 @@ from ada import Beam, Plate, PrimExtrude, PrimCyl, Part, Assembly
 from ada.config import Settings
 from ada.core.utils import align_to_plate
 from ada.fem import Step, Load
-from ada.fem.io.io_gmsh.recipes import create_beam_mesh, create_plate_mesh
+from ada.fem.io.mesh.recipes import create_beam_mesh, create_plate_mesh
 
 test_folder = Settings.test_dir / "mesh"
 

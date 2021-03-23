@@ -4,10 +4,8 @@ from operator import attrgetter
 import meshio
 import numpy as np
 
-from ada.fem.io import _folder_prep
-
 from ..io_meshio import ada_to_meshio_type
-from ..utils import get_fem_model_from_assembly
+from ..utils import _folder_prep, get_fem_model_from_assembly
 
 meshio_to_med_type = {
     "vertex": "PO1",

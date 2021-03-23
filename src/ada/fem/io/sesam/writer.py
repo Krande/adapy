@@ -3,10 +3,9 @@ import os
 
 import numpy as np
 
-from ada import Assembly, Section
 from ada.core.containers import Materials
 from ada.fem import FemSection, Load
-from ada.fem.io import FemWriter
+from ada.fem.io.utils import _folder_prep
 
 
 def to_fem(
@@ -30,18 +29,15 @@ def to_fem(
     a.write(name, scratch_dir, metadata, overwrite=overwrite)
 
 
-class SesamWriter(Assembly, FemWriter):
+class SesamWriter:
     """
-    `Sesam <https://usfos.no/>`_ is a nonlinear static and dynamic analysis of space frame structures.
+    `Sesam <https://www.dnv.com/software/products/sesam-products.html>`_ is a brand of services from DNV covering
+    FEM and Hydrodynamics for maritime applications.
 
     """
 
-    analysis_path = None
-
-    def __init__(self, origin):
-        super(SesamWriter, self).__init__(origin.name)
-        self.__dict__.update(origin.__dict__)
-        parts = list(filter(lambda x: len(x.fem.nodes) > 0, self.get_all_subparts()))
+    def __init__(self, assembly):
+        parts = list(filter(lambda x: len(x.fem.nodes) > 0, assembly.get_all_subparts()))
         if len(parts) != 1:
             raise ValueError("Sesam writer currently only works for a single part")
         part = parts[0]
@@ -73,7 +69,7 @@ class SesamWriter(Assembly, FemWriter):
         gpus=None,
         overwrite=False,
     ):
-        self._write_dir(scratch_dir, name, overwrite)
+        analysis_dir = _folder_prep(scratch_dir, name, overwrite)
         import datetime
 
         now = datetime.datetime.now()
@@ -83,7 +79,7 @@ class SesamWriter(Assembly, FemWriter):
 
         units = "UNITS     5.00000000E+00  1.00000000E+00  1.00000000E+00  1.00000000E+00\n          1.00000000E+00\n"
 
-        with open((self.analysis_path / "T100").with_suffix(".FEM"), "w") as d:
+        with open((analysis_dir / "T100").with_suffix(".FEM"), "w") as d:
             d.write(
                 f"""IDENT     1.00000000E+00  1.00000000E+02  3.00000000E+00  0.00000000E+00
 DATE      1.00000000E+00  0.00000000E+00  4.00000000E+00  7.20000000E+01
@@ -101,7 +97,7 @@ USER:     {user}            ACCOUNT:     \n"""
             d.write(self._loads_str)
             d.write("IEND                0.00            0.00            0.00            0.00")
 
-        print(f'Created an Sesam input deck at "{self.analysis_path}"')
+        print(f'Created an Sesam input deck at "{analysis_dir}"')
 
     @property
     def _materials_str(self):
@@ -153,30 +149,29 @@ USER:     {user}            ACCOUNT:     \n"""
         ircon = Counter(0)
         shid = Counter(0)
         bmid = Counter(0)
-        for sec in self._gsections:
-            assert isinstance(sec, FemSection)
-            if sec.type == "beam":
-                section = sec.section
-                assert isinstance(section, Section)
-                if sec.section not in sec_ids:
+        for fem_sec in self._gsections:
+            assert isinstance(fem_sec, FemSection)
+            if fem_sec.type == "beam":
+                section = fem_sec.section
+                if section not in sec_ids:
                     secid = next(bmid)
                     section.metadata["numid"] = secid
                     names_str += self.write_ff(
                         "TDSECT",
                         [
-                            (4, secid, 100 + len(sec.section.name), 0),
-                            (sec.section.name,),
+                            (4, secid, 100 + len(fem_sec.section.name), 0),
+                            (fem_sec.section.name,),
                         ],
                     )
-                    sec_ids.append(sec.section)
-                    if "beam" in sec.metadata.keys():
+                    sec_ids.append(fem_sec.section)
+                    if "beam" in fem_sec.metadata.keys():
                         # Give concept relationship based on inputted values
-                        beam = sec.metadata["beam"]
-                        numel = sec.metadata["numel"]
-                        sec.metadata["ircon"] = next(ircon)
+                        beam = fem_sec.metadata["beam"]
+                        numel = fem_sec.metadata["numel"]
+                        fem_sec.metadata["ircon"] = next(ircon)
                         concept_str += self.write_ff(
                             "TDSCONC",
-                            [(4, sec.metadata["ircon"], 100 + len(beam.guid), 0), (beam.guid,)],
+                            [(4, fem_sec.metadata["ircon"], 100 + len(beam.guid), 0), (beam.guid,)],
                         )
                         concept_str += self.write_ff("SCONCEPT", [(8, next(c), 7, 0), (0, 1, 0, 2)])
                         sconc_ref = next(c)
@@ -184,7 +179,7 @@ USER:     {user}            ACCOUNT:     \n"""
                         elids = []
                         i = 0
                         elid_bulk = [numel]
-                        for el in sec.elset.members:
+                        for el in fem_sec.elset.members:
                             if i == 3:
                                 elids.append(tuple(elid_bulk))
                                 elid_bulk = []
@@ -244,15 +239,15 @@ USER:     {user}            ACCOUNT:     \n"""
                     else:
                         logging.error(f'Unable to convert "{section}". This will be exported as general section only')
 
-            elif sec.type == "shell":
-                if sec.thickness not in thick_map.keys():
+            elif fem_sec.type == "shell":
+                if fem_sec.thickness not in thick_map.keys():
                     sh_id = next(shid)
-                    thick_map[sec.thickness] = sh_id
+                    thick_map[fem_sec.thickness] = sh_id
                 else:
-                    sh_id = thick_map[sec.thickness]
-                sec_str += self.write_ff("GELTH", [(sh_id, sec.thickness, 5)])
+                    sh_id = thick_map[fem_sec.thickness]
+                sec_str += self.write_ff("GELTH", [(sh_id, fem_sec.thickness, 5)])
             else:
-                raise ValueError(f"Unknown type {sec.type}")
+                raise ValueError(f"Unknown type {fem_sec.type}")
         self._thick_map = thick_map
         return names_str + sec_str + concept_str
 
