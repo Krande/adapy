@@ -26,7 +26,7 @@ from ada.fem import (
     Surface,
 )
 from ada.fem.containers import FemElements, FemSections, FemSets
-from ada.fem.io.abaqus.common import AbaFF
+from ada.fem.io.abaqus.common import AbaCards, AbaFF
 from ada.materials.metals import CarbonSteel
 
 from ..utils import str_to_int
@@ -116,7 +116,7 @@ class AbaqusReader:
             self.assembly.fem.connectors.update(AbaPartReader.get_connectors_from_inp(ass_sets, ass_fem))
             self.assembly.fem._bcs += AbaPartReader.get_bcs_from_bulk(props_str, ass_fem)
 
-        self.get_interactions_from_lines(props_str)
+        get_interactions_from_bulk_str(props_str, self.assembly)
         self.get_initial_conditions_from_lines(props_str)
 
     @staticmethod
@@ -134,7 +134,7 @@ class AbaqusReader:
                 with open(pathlib.Path(input_files_dir) / fname, "r") as d:
                     return d.read()
 
-        return "".join(filter(None, map(read_inp, os.listdir(input_files_dir))))
+        return "".join([x for x in map(read_inp, os.listdir(input_files_dir)) if x is not None])
 
     @staticmethod
     def grab_set_from_assembly(set_str, fem_p, set_type):
@@ -406,103 +406,6 @@ class AbaqusReader:
                     tabular = tab_list
                     props.update(dict(pressure_overclosure=behave, tabular=tabular))
             self.assembly.fem.add_interaction_property(InteractionProperty(**props))
-
-    def get_interactions_from_lines(self, bulk_str):
-        """
-        **
-        ** INTERACTIONS
-        **
-        ** Interaction: Int-1
-        *Contact, op=NEW
-        *Contact Inclusions, ALL EXTERIOR
-        *Contact Property Assignment
-         ,  , IntProp-1
-        ** ----------------------------------------------------------------
-        **
-        ** STEP: dyn
-        **
-        """
-        from .common import AbaFF
-
-        if bulk_str.find("** Interaction") == -1 and bulk_str.find("*Contact") == -1:
-            return
-
-        # re_general_contact = re.compile(
-        #     r"\*\* interaction: (?P<name>.*?)\n(?:\*Contact, op=(?P<mod>.*?))\n(?:\*contact inclusions, "
-        #     r"(?P<inclusions>.*?))\n(?:\*contact property assignment\n\s*,\s*,\s*(?P<intprop>.*?))$",
-        #     self.re_in,
-        # )
-
-        def resolve_surface_ref(surf_ref, assembly):
-            surf_name = surf_ref.split(".")[-1] if "." in surf_ref else surf_ref
-            surf = None
-            if surf_name in assembly.fem.surfaces.keys():
-                surf = assembly.fem.surfaces[surf_name]
-
-            for p in assembly.get_all_parts_in_assembly():
-                if surf_name in p.fem.surfaces.keys():
-                    surf = p.fem.surfaces[surf_name]
-            if surf is None:
-                raise ValueError("Unable to find surfaces in assembly parts")
-
-            return surf
-
-        contact_pairs = AbaFF(
-            "Contact Pair",
-            [
-                (
-                    "interaction=",
-                    "small sliding==|",
-                    "type=|",
-                    "adjust=|",
-                    "mechanical constraint=|",
-                    "geometric correction=|",
-                    "cpset=|",
-                ),
-                ("surf1", "surf2"),
-            ],
-            nameprop=("Interaction", "name"),
-        )
-
-        for m in contact_pairs.regex.finditer(bulk_str):
-            d = m.groupdict()
-            intprop = self.assembly.fem.intprops[d["interaction"]]
-            surf1 = resolve_surface_ref(d["surf1"], self.assembly)
-            surf2 = resolve_surface_ref(d["surf2"], self.assembly)
-
-            self.assembly.fem.add_interaction(Interaction(d["name"], "surface", surf1, surf2, intprop, metadata=d))
-
-        #
-        # for m in re_iglobal.finditer(bulk_str):
-        #     inter_bulk = m.group()
-        #     gen_contact_res = re_general_contact.search(inter_bulk)
-        #     surf_contact_res = re_surface_contact.search(inter_bulk)
-        #     if gen_contact_res is not None:
-        #         d = gen_contact_res.groupdict()
-        #         intprop = self.assembly.fem.intprops[d["intprop"]]
-        #         metadata = dict(contact_mod=d["mod"], contact_inclusions=d["inclusions"])
-        #         interact = Interaction(d["name"], "general", None, None, intprop, metadata=metadata)
-        #     elif surf_contact_res is not None:
-        #         d = surf_contact_res.groupdict()
-        #         intprop = self.assembly.fem.intprops[d["intprop"]]
-        #         surf1_name = d["surf1"].split(".")[-1] if "." in d["surf1"] else d["surf1"]
-        #         surf2_name = d["surf2"].split(".")[-1] if "." in d["surf2"] else d["surf2"]
-        #         surf1, surf2 = None, None
-        #         if surf1_name in self.assembly.fem.surfaces.keys():
-        #             surf1 = self.assembly.fem.surfaces[surf1_name]
-        #         if surf2_name in self.assembly.fem.surfaces.keys():
-        #             surf2 = self.assembly.fem.surfaces[surf2_name]
-        #         for p in self.assembly.get_all_parts_in_assembly():
-        #             if surf1_name in p.fem.surfaces.keys():
-        #                 surf1 = p.fem.surfaces[surf1_name]
-        #             if surf2_name in p.fem.surfaces.keys():
-        #                 surf2 = p.fem.surfaces[surf2_name]
-        #         if surf1 is None or surf2 is None:
-        #             raise ValueError("Unable to find surfaces in assembly parts")
-        #         interact = Interaction(d["name"], "surface", surf1, surf2, intprop, d["mech_constr"])
-        #     else:
-        #         raise ValueError("Unable to interpret interaction")
-        #     self.assembly.fem.add_interaction(interact)
 
     def get_initial_conditions_from_lines(self, bulk_str):
         """
@@ -1422,6 +1325,55 @@ class AbaPartReader:
             )
 
         return map(grab_shell, re_shell.finditer(bulk_str))
+
+
+def get_interactions_from_bulk_str(bulk_str, assembly):
+    """
+
+    :param bulk_str:
+    :param assembly:
+    :type assembly: ada.Assembly
+    :return:
+    """
+    gen_name = Counter(1, "general")
+
+    if bulk_str.find("** Interaction") == -1 and bulk_str.find("*Contact") == -1:
+        return
+
+    def resolve_surface_ref(surf_ref):
+        surf_name = surf_ref.split(".")[-1] if "." in surf_ref else surf_ref
+        surf = None
+        if surf_name in assembly.fem.surfaces.keys():
+            surf = assembly.fem.surfaces[surf_name]
+
+        for p in assembly.get_all_parts_in_assembly():
+            if surf_name in p.fem.surfaces.keys():
+                surf = p.fem.surfaces[surf_name]
+        if surf is None:
+            raise ValueError("Unable to find surfaces in assembly parts")
+
+        return surf
+
+    for m in AbaCards.contact_pairs.regex.finditer(bulk_str):
+        d = m.groupdict()
+        intprop = assembly.fem.intprops[d["interaction"]]
+        surf1 = resolve_surface_ref(d["surf1"])
+        surf2 = resolve_surface_ref(d["surf2"])
+
+        assembly.fem.add_interaction(Interaction(d["name"], "surface", surf1, surf2, intprop, metadata=d))
+
+    for m in AbaCards.contact_general.regex.finditer(bulk_str):
+        s = m.start()
+        e = m.endpos
+        interact_str = bulk_str[s:e]
+        d = m.groupdict()
+        intprop = assembly.fem.intprops[d["interaction"]]
+        # surf1 = resolve_surface_ref(d["surf1"])
+        # surf2 = resolve_surface_ref(d["surf2"])
+
+        assembly.fem.add_interaction(
+            Interaction(next(gen_name), "general", None, None, intprop, metadata=dict(aba_bulk=interact_str))
+        )
 
 
 def bulk_w_includes(inp_path):

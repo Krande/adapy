@@ -86,3 +86,35 @@ class AbaFF:
     @property
     def regex(self):
         return re.compile(self.regstr, re.IGNORECASE | re.MULTILINE | re.DOTALL)
+
+
+class AbaCards:
+    contact_pairs = AbaFF(
+        "Contact Pair",
+        [
+            (
+                "interaction=",
+                "small sliding==|",
+                "type=|",
+                "adjust=|",
+                "mechanical constraint=|",
+                "geometric correction=|",
+                "cpset=|",
+            ),
+            ("surf1", "surf2"),
+        ],
+        nameprop=("Interaction", "name"),
+    )
+
+    contact_general = AbaFF(
+        "Contact",
+        args=[()],
+        subflags=[
+            ("Contact Inclusions", [(), ("surf1", "surf2")]),
+            ("Contact Property Assignment", [(), ("vara", "varb", "interaction")]),
+            ("Contact Formulation", [("type=",), ("csurf1", "csurf2", "csurf_type")]),
+            ("Contact Initialization Assignment", [(), ("ssurf1", "ssurf2", "cinit")]),
+            ("Surface Property Assignment", [("property=",), ("bulk>",)]),
+        ],
+        # nameprop=("Interaction", "name"),
+    )

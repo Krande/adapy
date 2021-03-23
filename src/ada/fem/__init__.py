@@ -107,7 +107,7 @@ class ElemShapes:
     :param el_type:
     """
 
-    tri = ["S3", "S3R"]
+    tri = ["S3", "S3R", "R3D3"]
     quad = ["S4", "S4R", "R3D4"]
     quad8 = ["S8", "S8R"]
     quad6 = ["STRI65"]

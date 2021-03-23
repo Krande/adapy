@@ -588,7 +588,10 @@ class FemSets:
                 fem_set.metadata["generate"] = False
 
         if fem_set.type == "nset":
-            fem_set._members = list(map(get_nset, fem_set.members))
+            if len(fem_set.members) == 1 and type(fem_set.members[0]) is str and type(fem_set.members[0]) is not Node:
+                fem_set._members = self.nodes[fem_set.members[0]]
+            else:
+                fem_set._members = list(map(get_nset, fem_set.members))
             fem_set.parent = self._fem_obj
         else:
             fem_set._members = list(map(get_elset, fem_set.members))

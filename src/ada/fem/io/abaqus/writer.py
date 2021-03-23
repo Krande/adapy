@@ -1161,6 +1161,10 @@ def interaction_str(interaction, fem_writer):
     :param fem_writer:
     :type interaction: ada.fem.Interaction
     """
+    # Allowing Free text to be parsed directly through interaction class.
+    if "aba_bulk" in interaction.metadata.keys():
+        return interaction.metadata["aba_bulk"]
+
     contact_mod = interaction.metadata["contact_mod"] if "contact_mod" in interaction.metadata.keys() else "NEW"
     contact_incl = (
         interaction.metadata["contact_inclusions"]

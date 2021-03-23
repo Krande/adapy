@@ -282,7 +282,7 @@ def _folder_prep(scratch_dir, analysis_name, overwrite):
 def femio(f):
     """
 
-    TODO: Make this a file-identifcation utility and allow for storing cached FEM representations in a HDF5 file.
+    TODO: Make this into a file-identifcation utility and allow for storing cached FEM representations in a HDF5 file.
 
     :param f:
     :return:
