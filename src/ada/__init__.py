@@ -417,7 +417,7 @@ class Part(BackendGeom):
                 ada_shape = Shape(ada_name + "_" + str(i), shp, colour, opacity, units=units)
                 self.add_shape(ada_shape)
 
-    def create_objects_from_fem(self):
+    def create_objects_from_fem(self, skip_plates=False, skip_beams=False):
         """
         Build Beams and PLates from the contents of the local FEM object
 
@@ -501,10 +501,12 @@ class Part(BackendGeom):
             :param p:
             :type p: Part
             """
-            p._plates = Plates(
-                list(chain.from_iterable([convert_shell_elements_to_object(sh, p) for sh in p.fem.elements.shell]))
-            )
-            p._beams = Beams([elem_to_beam(bm, p) for bm in p.fem.elements.beams])
+            if skip_plates is False:
+                p._plates = Plates(
+                    list(chain.from_iterable([convert_shell_elements_to_object(sh, p) for sh in p.fem.elements.shell]))
+                )
+            if skip_beams is False:
+                p._beams = Beams([elem_to_beam(bm, p) for bm in p.fem.elements.beams])
 
         if type(self) is Assembly:
             for p_ in self.get_all_parts_in_assembly():
