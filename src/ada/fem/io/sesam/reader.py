@@ -4,7 +4,7 @@ from itertools import chain
 
 from ada import Material, Part, Section
 from ada.fem import Constraint, Csys, Elem, FemSection, FemSet, Mass, Spring
-from ada.fem.io.utils import get_ff_regex
+from ada.fem.io.utils import get_ff_regex, str_to_int
 from ada.materials.metals import CarbonSteel
 from ada.sections import GeneralProperties
 
@@ -172,7 +172,7 @@ class SesamReader:
         :return: Generic element description
         """
         for ses, gen in cls.el_map.items():
-            if cls.str_to_int(eltyp) == ses:
+            if str_to_int(eltyp) == ses:
                 return gen
 
         raise Exception("Currently unsupported eltype", eltyp)
@@ -252,14 +252,14 @@ class SesamReader:
                 parent.nodes.from_id(x)
                 for x in filter(
                     lambda x: x != 0,
-                    map(cls.str_to_int, d["nids"].replace("\n", "").split()),
+                    map(str_to_int, d["nids"].replace("\n", "").split()),
                 )
             ]
             eltyp = d["eltyp"]
             el_type = cls.sesam_eltype_2_general(eltyp)
-            metadata = dict(eltyad=cls.str_to_int(d["eltyad"]), eltyp=eltyp)
+            metadata = dict(eltyad=str_to_int(d["eltyad"]), eltyp=eltyp)
             return Elem(
-                cls.str_to_int(d["elno"]),
+                str_to_int(d["elno"]),
                 nodes,
                 el_type,
                 None,
@@ -291,7 +291,7 @@ class SesamReader:
 
         def grab_name(m):
             d = m.groupdict()
-            return cls.str_to_int(d["geo_no"]), d["name"]
+            return str_to_int(d["geo_no"]), d["name"]
 
         mat_names = {matid: mat_name for matid, mat_name in map(grab_name, cls.re_matnames.finditer(bulk_str))}
 
@@ -306,7 +306,7 @@ class SesamReader:
             """
 
             d = m.groupdict()
-            matno = cls.str_to_int(d["matno"])
+            matno = str_to_int(d["matno"])
             return Material(
                 name=mat_names[matno],
                 mat_id=matno,
@@ -326,7 +326,7 @@ class SesamReader:
 
         def get_mat(match):
             d = match.groupdict()
-            matno = cls.str_to_int(d["matno"])
+            matno = str_to_int(d["matno"])
             return Material(
                 name=mat_names[matno],
                 mat_id=matno,
@@ -396,7 +396,7 @@ class SesamReader:
         # Get section names
         def get_section_names(m):
             d = m.groupdict()
-            return cls.str_to_int(d["geono"]), d["set_name"].strip()
+            return str_to_int(d["geono"]), d["set_name"].strip()
 
         sect_names = {sec_id: name for sec_id, name in map(get_section_names, cls.re_sectnames.finditer(bulk_str))}
 
@@ -404,7 +404,7 @@ class SesamReader:
 
         def get_lcsys(m):
             d = m.groupdict()
-            return cls.str_to_int(d["transno"]), (
+            return str_to_int(d["transno"]), (
                 roundoff(d["unix"]),
                 roundoff(d["uniy"]),
                 roundoff(d["uniz"]),
@@ -415,7 +415,7 @@ class SesamReader:
         # I-beam
         def get_IBeams(match):
             d = match.groupdict()
-            sec_id = cls.str_to_int(d["geono"])
+            sec_id = str_to_int(d["geono"])
             return Section(
                 name=sect_names[sec_id],
                 sec_id=sec_id,
@@ -433,7 +433,7 @@ class SesamReader:
         # Box-beam
         def get_BoxBeams(match):
             d = match.groupdict()
-            sec_id = cls.str_to_int(d["geono"])
+            sec_id = str_to_int(d["geono"])
             return Section(
                 name=sect_names[sec_id],
                 sec_id=sec_id,
@@ -451,7 +451,7 @@ class SesamReader:
         # General-beam
         def get_GenBeams(match):
             d = match.groupdict()
-            sec_id = cls.str_to_int(d["geono"])
+            sec_id = str_to_int(d["geono"])
             gen_props = GeneralProperties(
                 ax=roundoff(d["area"]),
                 ix=roundoff(d["ix"]),
@@ -482,7 +482,7 @@ class SesamReader:
         # Tubular-beam
         def get_gpipe(match):
             d = match.groupdict()
-            sec_id = cls.str_to_int(d["geono"])
+            sec_id = str_to_int(d["geono"])
             if sec_id not in sect_names:
                 sec_name = f"TUB{sec_id}"
             else:
@@ -500,22 +500,22 @@ class SesamReader:
 
         def get_thicknesses(match):
             d = match.groupdict()
-            sec_id = cls.str_to_int(d["geono"])
+            sec_id = str_to_int(d["geono"])
             t = d["th"]
             return sec_id, t
 
         def get_hinges(match):
             d = match.groupdict()
-            fixno = cls.str_to_int(d["fixno"])
-            opt = cls.str_to_int(d["opt"])
-            trano = cls.str_to_int(d["trano"])
-            a1 = cls.str_to_int(d["a1"])
-            a2 = cls.str_to_int(d["a2"])
-            a3 = cls.str_to_int(d["a3"])
-            a4 = cls.str_to_int(d["a4"])
-            a5 = cls.str_to_int(d["a5"])
+            fixno = str_to_int(d["fixno"])
+            opt = str_to_int(d["opt"])
+            trano = str_to_int(d["trano"])
+            a1 = str_to_int(d["a1"])
+            a2 = str_to_int(d["a2"])
+            a3 = str_to_int(d["a3"])
+            a4 = str_to_int(d["a4"])
+            a5 = str_to_int(d["a5"])
             try:
-                a6 = cls.str_to_int(d["a6"])
+                a6 = str_to_int(d["a6"])
             except BaseException as e:
                 logging.debug(e)
                 a6 = 0
@@ -524,7 +524,7 @@ class SesamReader:
 
         def get_eccentricities(match):
             d = match.groupdict()
-            eccno = cls.str_to_int(d["eccno"])
+            eccno = str_to_int(d["eccno"])
             ex = float(d["ex"])
             ey = float(d["ey"])
             ez = float(d["ez"])
@@ -551,13 +551,13 @@ class SesamReader:
 
         def get_femsecs(match):
             d = match.groupdict()
-            geono = cls.str_to_int(d["geono"])
+            geono = str_to_int(d["geono"])
             next(total_geo)
-            transno = cls.str_to_int(d["transno"])
-            elno = cls.str_to_int(d["elno"])
+            transno = str_to_int(d["transno"])
+            elno = str_to_int(d["elno"])
             elem = fem.elements.from_id(elno)
 
-            matno = cls.str_to_int(d["matno"])
+            matno = str_to_int(d["matno"])
 
             # Go no further if element has no fem section
             if elem.type in elem.springs + elem.masses:
@@ -580,12 +580,12 @@ class SesamReader:
                 ma = max(abs(crossed))
                 yvec = tuple([roundoff(x / ma, 3) for x in crossed])
 
-                fix_data = cls.str_to_int(d["fixno"])
-                ecc_data = cls.str_to_int(d["eccno"])
+                fix_data = str_to_int(d["fixno"])
+                ecc_data = str_to_int(d["eccno"])
 
                 members = None
                 if d["members"] is not None:
-                    members = [cls.str_to_int(x) for x in d["members"].replace("\n", " ").split()]
+                    members = [str_to_int(x) for x in d["members"].replace("\n", " ").split()]
 
                 hinges = None
                 if fix_data == -1:
@@ -642,12 +642,12 @@ class SesamReader:
 
         def get_setmap(m):
             d = m.groupdict()
-            set_type = "nset" if cls.str_to_int(d["istype"]) == 1 else "elset"
+            set_type = "nset" if str_to_int(d["istype"]) == 1 else "elset"
             if set_type == "nset":
-                members = [parent.nodes.from_id(cls.str_to_int(x)) for x in d["members"].split()]
+                members = [parent.nodes.from_id(str_to_int(x)) for x in d["members"].split()]
             else:
-                members = [parent.elements.from_id(cls.str_to_int(x)) for x in d["members"].split()]
-            return cls.str_to_int(d["isref"]), set_type, members
+                members = [parent.elements.from_id(str_to_int(x)) for x in d["members"].split()]
+            return str_to_int(d["isref"]), set_type, members
 
         set_map = dict()
         for setid_el_type, content in groupby(
@@ -662,7 +662,7 @@ class SesamReader:
         def get_femsets(m):
             nonlocal set_map
             d = m.groupdict()
-            isref = cls.str_to_int(d["isref"])
+            isref = str_to_int(d["isref"])
             fem_set = FemSet(
                 d["set_name"].strip(),
                 set_map[isref][0],
@@ -752,7 +752,7 @@ class SesamReader:
         def grab_mass(match):
             d = match.groupdict()
 
-            nodeno = cls.str_to_int(d["nodeno"])
+            nodeno = str_to_int(d["nodeno"])
             mass_in = [
                 roundoff(d["m1"]),
                 roundoff(d["m2"]),
@@ -789,11 +789,11 @@ class SesamReader:
         """
 
         def grab_constraint(master, data):
-            m = cls.str_to_int(master)
+            m = str_to_int(master)
             m_set = FemSet(f"co{m}_m", [fem.nodes.from_id(m)], "nset")
             slaves = []
             for d in data:
-                s = cls.str_to_int(d["slave"])
+                s = str_to_int(d["slave"])
                 slaves.append(fem.nodes.from_id(s))
             s_set = FemSet(f"co{m}_m", slaves, "nset")
             fem.add_set(m_set)
@@ -821,8 +821,8 @@ class SesamReader:
         def grab_grspring(m):
             nonlocal gr_spr_elements
             d = m.groupdict()
-            matno = cls.str_to_int(d["matno"])
-            ndof = cls.str_to_int(d["ndof"])
+            matno = str_to_int(d["matno"])
+            ndof = str_to_int(d["ndof"])
             bulk = d["bulk"].replace("\n", "").split()
             el = gr_spr_elements[matno]
             spr_name = f"spr{el.id}"
@@ -867,14 +867,14 @@ class SesamReader:
 
         def grab_bc(match):
             d = match.groupdict()
-            node = fem.nodes.from_id(cls.str_to_int(d["nodeno"]))
+            node = fem.nodes.from_id(str_to_int(d["nodeno"]))
             assert isinstance(node, Node)
 
             fem_set = FemSet(f"bc{node.id}_set", [node], "nset")
             fem.sets.add(fem_set)
             dofs = []
             for i, c in enumerate(d["content"].replace("\n", "").split()):
-                bc_sestype = cls.str_to_int(c.strip())
+                bc_sestype = str_to_int(c.strip())
                 if bc_sestype in [0, 4]:
                     continue
                 dofs.append(i + 1)
