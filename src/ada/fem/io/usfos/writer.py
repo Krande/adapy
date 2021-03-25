@@ -1,8 +1,7 @@
 import os
 from operator import attrgetter
 
-from ada import Assembly
-from ada.fem.io import FemWriter
+from ada.fem.io.utils import _folder_prep
 
 
 def to_fem(
@@ -39,21 +38,19 @@ def to_fem(
     a.write(name, scratch_dir, metadata, overwrite=overwrite)
 
 
-class UsfosWriter(Assembly, FemWriter):
+class UsfosWriter:
     """
     `Usfos <https://usfos.no/>`_ is a nonlinear static and dynamic analysis of space frame structures.
 
     """
 
-    analysis_path = None
-
-    def __init__(self, origin):
-        super(UsfosWriter, self).__init__(origin.name)
-        self.__dict__.update(origin.__dict__)
-        parts = list(filter(lambda x: len(x.fem.nodes) > 0, self.get_all_subparts()))
+    def __init__(self, assembly):
+        parts = list(filter(lambda x: len(x.fem.nodes) > 0, assembly.get_all_subparts()))
         if len(parts) != 1:
             raise ValueError("Usfos writer currently only works for a single part")
         part = parts[0]
+        self.part = part
+        self._gmaterials = assembly.materials
         self._gnodes = part.fem.nodes
         self._gelements = part.fem.elements
         self._gsections = part.fem.sections
@@ -72,7 +69,7 @@ class UsfosWriter(Assembly, FemWriter):
         run_ext=False,
         overwrite=False,
     ):
-        self._write_dir(scratch_dir, name, overwrite)
+        analysis_dir = _folder_prep(scratch_dir, name, overwrite)
 
         head = """ HEAD\n\n\n"""
 
@@ -80,23 +77,23 @@ class UsfosWriter(Assembly, FemWriter):
         # sec_str = self.sections_str
         # mat_str = self.materials_str
 
-        with open(os.path.join(self.analysis_path, r"ufo_bulk.fem"), "w") as d:
+        with open(os.path.join(analysis_dir, r"ufo_bulk.fem"), "w") as d:
             d.write(head)
             d.write(self.nodal_str + "\n")
             d.write(self.beam_str + "\n")
-            d.write(self.shell_str + "\n")
+            d.write(shell_str(self.part) + "\n")
             d.write(self.eccent_str + "\n")
             d.write(self.sections_str + "\n")
-            d.write(self.materials_str + "\n")
+            d.write(materials_str(self._gmaterials) + "\n")
             d.write(self.mass_str + "\n")
             d.write(self.create_usfos_set_str + "\n")
 
         if metadata["control_file"] is not None:
-            with open(os.path.join(self.analysis_path, r"usfos.fem"), "w") as d:
+            with open(os.path.join(analysis_dir, r"usfos.fem"), "w") as d:
                 d.write(metadata["control_file"] + "\n")
                 # d.write(self.nonstru_str + '\n')
 
-        print(f'Created an Usfos input deck at "{self.analysis_path}"')
+        print(f'Created an Usfos input deck at "{analysis_dir}"')
 
     @property
     def gnodes(self):
@@ -190,6 +187,9 @@ class UsfosWriter(Assembly, FemWriter):
             sec = fem_sec.section
             xvec = fem_sec.local_z
             xvec_str = f"{xvec[0]:>13.5f}{xvec[1]:>15.5f}{xvec[2]:>15.5f}"
+
+            mat_id = self._gmaterials.index(mat) + 1
+
             if xvec_str in locvecs:
                 locid = locvecs.index(xvec_str)
             else:
@@ -211,7 +211,7 @@ class UsfosWriter(Assembly, FemWriter):
             else:
                 ecc1_str = ""
                 ecc2_str = ""
-            return f" BEAM{el.id:>15}{n1.id:>8}{n2.id:>9}{mat.id:>11}{sec.id:>7}{locid + 1:>9}{ecc1_str}{ecc2_str}"
+            return f" BEAM{el.id:>15}{n1.id:>8}{n2.id:>9}{mat_id:>11}{sec.id:>7}{locid + 1:>9}{ecc1_str}{ecc2_str}"
 
         bm_str += "\n".join(list(map(write_elem, self._gelements.beams)))
 
@@ -219,78 +219,6 @@ class UsfosWriter(Assembly, FemWriter):
             loc_str += " UNITVEC{:>13}{:<10}\n".format(i + 1, loc)
 
         return bm_str + "\n" + loc_str
-
-    @property
-    def shell_str(self):
-        pl_str = (
-            "'            Elem ID      np1      np2      np3      np4    mater   geom      ec1    ec2    ec3    ec4\n"
-        )
-        sec_str = """'            Geom ID     Thick"""
-        geom_id = len(self._gsections) + 1
-        if len(self.sections) > 0:
-            geom_id = max(len(self.sections) + 1, max([e.id for e in self.sections]), geom_id)
-        thick = []
-        for el in sorted(self.gelements.shell, key=attrgetter("id")):
-            t = el.fem_sec.thickness
-            if t not in thick:
-                thick.append(t)
-                locid = thick.index(t)
-                sec_str += "\n PLTHICK{:>12}{:>10}".format(locid + 1 + geom_id, t)
-
-        sec_str += "\n"
-
-        def write_elem(el):
-            """
-
-            :param el:
-            :type el: ada.fem.Elem
-            """
-            t = el.fem_sec.thickness
-            if len(el.nodes) > 4:
-                raise ValueError(f'Shell id "{el.id}" consist of {len(el.nodes)} nodes')
-            else:
-                nodes_str = "".join(["{:>9}".format(no.id) for no in el.nodes])
-                if len(el.nodes) == 3:
-                    return " TRISHELL{:>11}{}{:>9}{:>7}".format(
-                        el.id,
-                        nodes_str,
-                        el.fem_sec.material.id,
-                        thick.index(t) + 1 + geom_id,
-                    )
-                else:
-                    return " QUADSHEL{:>11}{}{:>9}{:>7}".format(
-                        el.id,
-                        nodes_str,
-                        el.fem_sec.material.id,
-                        thick.index(t) + 1 + geom_id,
-                    )
-
-        return sec_str + pl_str + "\n".join(list(map(write_elem, sorted(self.gelements.shell, key=attrgetter("id")))))
-
-    @property
-    def materials_str(self):
-        """
-        :return: Usfos material definition string
-        """
-
-        mat_str = """'            Mat ID     E-mod       Poiss     Yield      Density     ThermX\n"""
-
-        def write_mat(m):
-            """
-
-            :param m:
-            :type m: ada.Material
-            """
-            return " MISOIEP{:>11}{:>10.3E}{:>12}{:>10.3E}{:>13}{:>11}".format(
-                m.id,
-                m.model.E,
-                m.model.v,
-                float(m.model.sig_y),
-                m.model.rho,
-                m.model.alpha,
-            )
-
-        return mat_str + "\n".join(list(map(write_mat, sorted(self.materials, key=attrgetter("id")))))
 
     @property
     def sections_str(self):
@@ -319,7 +247,7 @@ class UsfosWriter(Assembly, FemWriter):
         cha_str = f"' Channels\n'{space}Geom ID     H     T-web    W-top   T-top    W-bot   T-bot Sh_y Sh_z\n"
         gens_str = f"' General Beams\n'{space}Geom ID     \n"
 
-        for s in sorted(self.sections, key=attrgetter("id")):
+        for s in sorted(self.part.sections, key=attrgetter("id")):
             assert isinstance(s, Section)
             if s.type in SectionCat.box:
                 # BOX      100000001    0.500   0.016   0.016   0.016    0.500
@@ -503,3 +431,78 @@ class UsfosWriter(Assembly, FemWriter):
 
         eccent_str += "\n".join(list(map(write_eccent, self._geccen)))
         return eccent_str
+
+
+def materials_str(materials):
+    """
+    :return: Usfos material definition string
+    """
+
+    mat_str = """'            Mat ID     E-mod       Poiss     Yield      Density     ThermX\n"""
+
+    def write_mat(i, m):
+        """
+        :param i: Index of material
+        :param m: Material
+        :type m: ada.Material
+        """
+        return " MISOIEP{:>11}{:>10.3E}{:>12}{:>10.3E}{:>13}{:>11}".format(
+            i,
+            m.model.E,
+            m.model.v,
+            float(m.model.sig_y),
+            m.model.rho,
+            m.model.alpha,
+        )
+
+    return mat_str + "\n".join(write_mat(i + 1, mat) for i, mat in enumerate(materials))
+
+
+def shell_str(part):
+    """
+
+    :param part:
+    :type part: ada.Part
+    :return:
+    """
+
+    pl_str = "'            Elem ID      np1      np2      np3      np4    mater   geom      ec1    ec2    ec3    ec4\n"
+    sec_str = """'            Geom ID     Thick"""
+    geom_id = len(part.sections) + 1
+    thick = []
+    for el in sorted(part.fem.elements.shell, key=attrgetter("id")):
+        t = el.fem_sec.thickness
+        if t not in thick:
+            thick.append(t)
+            locid = thick.index(t)
+            sec_str += "\n PLTHICK{:>12}{:>10}".format(locid + 1 + geom_id, t)
+
+    sec_str += "\n"
+
+    def write_elem(el):
+        """
+
+        :param el:
+        :type el: ada.fem.Elem
+        """
+        t = el.fem_sec.thickness
+        if len(el.nodes) > 4:
+            raise ValueError(f'Shell id "{el.id}" consist of {len(el.nodes)} nodes')
+        else:
+            nodes_str = "".join(["{:>9}".format(no.id) for no in el.nodes])
+            if len(el.nodes) == 3:
+                return " TRISHELL{:>11}{}{:>9}{:>7}".format(
+                    el.id,
+                    nodes_str,
+                    el.fem_sec.material.id,
+                    thick.index(t) + 1 + geom_id,
+                )
+            else:
+                return " QUADSHEL{:>11}{}{:>9}{:>7}".format(
+                    el.id,
+                    nodes_str,
+                    el.fem_sec.material.id,
+                    thick.index(t) + 1 + geom_id,
+                )
+
+    return sec_str + pl_str + "\n".join(list(map(write_elem, sorted(part.fem.elements.shell, key=attrgetter("id")))))

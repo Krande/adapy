@@ -1,8 +1,8 @@
 # coding=utf-8
-import copy
 import logging
 import os
 import pathlib
+import traceback
 from itertools import chain
 
 import numpy as np
@@ -20,8 +20,7 @@ from .core.utils import (
     unit_vector,
     vector_length,
 )
-from .fem import FEM, Elem, FemSet
-from .fem.io import femio
+from .fem import FEM, Elem, FemSet, io
 from .materials.metals import CarbonSteel
 from .sections import GeneralProperties, SectionCat
 
@@ -30,13 +29,13 @@ __all__ = [
     "Assembly",
     "Part",
     "Beam",
+    "Plate",
     "Pipe",
     "Wall",
     "Penetration",
     "Section",
     "Material",
     "Shape",
-    "Plate",
     "Node",
     "Connection",
     "PrimBox",
@@ -130,15 +129,15 @@ class Part(BackendGeom):
         beam.parent = self
         mat = self.add_material(beam.material)
         if mat is not None:
-            beam.edit(material=mat)
+            beam.material = mat
 
         sec = self.add_section(beam.section)
         if sec is not None:
-            beam.edit(section=sec)
+            beam.section = sec
 
         tap = self.add_section(beam.taper)
         if tap is not None:
-            beam.edit(taper=tap)
+            beam.taper = tap
 
         old_node = self.nodes.add(beam.n1)
         if old_node is not None:
@@ -389,9 +388,9 @@ class Part(BackendGeom):
                 shps += extract_subshapes(read_step_file(stp_file))
             return shps
 
-        def extract_subshapes(shp):
+        def extract_subshapes(shp_):
             s = []
-            t = TopologyExplorer(shp)
+            t = TopologyExplorer(shp_)
             for solid in t.solids():
                 s.append(solid)
             return s
@@ -417,7 +416,7 @@ class Part(BackendGeom):
                 ada_shape = Shape(ada_name + "_" + str(i), shp, colour, opacity, units=units)
                 self.add_shape(ada_shape)
 
-    def create_objects_from_fem(self):
+    def create_objects_from_fem(self, skip_plates=False, skip_beams=False):
         """
         Build Beams and PLates from the contents of the local FEM object
 
@@ -501,10 +500,12 @@ class Part(BackendGeom):
             :param p:
             :type p: Part
             """
-            p._plates = Plates(
-                list(chain.from_iterable([convert_shell_elements_to_object(sh, p) for sh in p.fem.elements.shell]))
-            )
-            p._beams = Beams([elem_to_beam(bm, p) for bm in p.fem.elements.beams])
+            if skip_plates is False:
+                p._plates = Plates(
+                    list(chain.from_iterable([convert_shell_elements_to_object(sh, p) for sh in p.fem.elements.shell]))
+                )
+            if skip_beams is False:
+                p._beams = Beams([elem_to_beam(bm, p) for bm in p.fem.elements.beams])
 
         if type(self) is Assembly:
             for p_ in self.get_all_parts_in_assembly():
@@ -615,7 +616,7 @@ class Part(BackendGeom):
             try:
                 vol = bm.bbox
             except ValueError as e:
-                logging.error(f"Intersect bbox skipped: {e}")
+                logging.error(f"Intersect bbox skipped: {e}\n{traceback.format_exc()}")
                 return None
             vol_in = [x for x in zip(vol[0], vol[1])]
             beams = filter(
@@ -1138,7 +1139,7 @@ class Assembly(Part):
                         logging.debug(f'Shape "{product.Name}" was added below Assembly Level -> No owner found')
         print(f'Import of IFC file "{ifc_file}" is complete')
 
-    @femio
+    @io.femio
     def read_fem(
         self,
         fem_file,
@@ -1170,7 +1171,7 @@ class Assembly(Part):
 
         convert_func(self, fem_file, fem_name)
 
-    @femio
+    @io.femio
     def to_fem(
         self,
         name,
@@ -1188,18 +1189,22 @@ class Assembly(Part):
     ):
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
-        Currently supported FEM write formats are:
+        Currently there is limited write support for the following FEM formats are:
 
         Open Source
 
-        * Calculix (open source)
-        * Code_Aster (open source)
+        * Calculix
+        * Code_Aster
 
         Proprietary
 
         * Abaqus
         * Usfos
         * Sesam
+
+
+        Write support is added on a need-only-basis. Any contributions are welcome!
+
 
         :param name: Name of FEM analysis input deck
         :param fem_format: Desired fem format
@@ -1530,15 +1535,13 @@ class Beam(BackendGeom):
         self._curve = curve
         self._n1 = n1 if type(n1) is Node else Node(n1, units=units)
         self._n2 = n2 if type(n2) is Node else Node(n2, units=units)
-        self._original_n1 = Node(copy.copy(self._n1.p), units=units)
-        self._original_n2 = Node(copy.copy(self._n2.p), units=units)
         self._jusl = jusl
 
         self._connected_to = []
         self._connected_from = []
         self._tos = None
-        self._e1 = np.array([0, 0, 0]) if e1 is None else np.array(e1)
-        self._e2 = np.array([0, 0, 0]) if e2 is None else np.array(e2)
+        self._e1 = e1
+        self._e2 = e2
 
         self._parent = parent
         self._bbox = None
@@ -1612,92 +1615,6 @@ class Beam(BackendGeom):
         self._ifc_geom = ifc_geom
         self._opacity = opacity
 
-    def edit(
-        self,
-        bm_end1=None,
-        bm_end2=None,
-        material=None,
-        section=None,
-        taper=None,
-        connected_to=None,
-        connected_from=None,
-    ):
-        """
-        This method is for editing beam properties
-
-        :param bm_end1:
-        :param bm_end2:
-        :param material:
-        :param section:
-        :param taper:
-        :param connected_to: Another beam member that this beam is connected to
-        :param connected_from: Another beam member that is connected to this beam
-        """
-        self._original_n1 = bm_end1 if bm_end1 is not None else self._original_n1
-        self._original_n2 = bm_end2 if bm_end2 is not None else self._original_n2
-        self._material = material if material is not None else self._material
-        self._section = section if section is not None else self._section
-        self._taper = taper if taper is not None else self._taper
-        if connected_from is not None:
-            self._connected_from += connected_from
-        if connected_to is not None:
-            self._connected_to += connected_to
-
-    def _calculate_tos(self):
-        """
-        Use the beam properties to determine its top of steel nodal coordinates
-        """
-        x_lvec, y_lvec, z_lvec = self.ori
-        h = self.section.h
-        w = max(self.section.w_top, self.section.w_btn)
-        py_half = [abs(w * y) / 2 for y in y_lvec]
-        pz_half = [abs(h * z) / 2 for z in z_lvec]
-        n1, n2 = self._calculate_na()
-        p1 = copy.deepcopy(n1.p)
-        p1 = p1 + py_half + pz_half
-
-        return p1[2]
-
-    def _calculate_na(self):
-        """
-
-        :param self: StruBeam Object
-        :return: n1 and n2 of the neutral axis of the beam provided it has been exported from PDMS\\E3D
-        """
-        x_lvec, y_lvec, z_lvec = self.ori
-        sec = self.section
-        h = sec.h
-        w = max(sec.w_top, sec.w_btn)
-        py_half = np.array([w * y / 2 for y in y_lvec])
-        pz_half = np.array([h * z / 2 for z in z_lvec])
-
-        # Use the original values of the beam
-        p1 = copy.deepcopy(self.original_n1.p)
-        p2 = copy.deepcopy(self.original_n2.p)
-
-        # Move the origin to the neutral axis of the element
-        if self.jusl == "TOS" or self.jusl == "CTOP":
-            p1 = p1 - pz_half
-            p2 = p2 - pz_half
-        elif self.jusl == "LBOT":
-            p1 = p1 + py_half + pz_half
-            p2 = p2 + py_half + pz_half
-        elif self.jusl == "LTS":
-            p1 = p1 + py_half
-            p2 = p2 + py_half
-        elif self.jusl == "NA":
-            p1 = p1
-            p2 = p2
-        else:
-            logging.debug("Unknown JUSL {} ".format(self.jusl))
-        p1 = p1 + self.e1
-        p2 = p2 + self.e2
-
-        n1 = Node(p1[0], p1[1], p1[2])
-        n2 = Node(p2[0], p2[1], p2[2])
-
-        return n1, n2
-
     def get_outer_points(self):
         """
 
@@ -1753,6 +1670,7 @@ class Beam(BackendGeom):
         return (xmin, ymin, zmin), (xmax, ymax, zmax)
 
     def _generate_ifc_beam(self):
+        from ada.config import Settings
         from ada.core.constants import O, X, Z
         from ada.core.ifc_utils import (
             add_colour,
@@ -1762,8 +1680,6 @@ class Beam(BackendGeom):
             create_property_set,
         )
         from ada.core.utils import angle_between
-
-        include_ecc = False
 
         sec = self.section
         if self.parent is None:
@@ -1776,11 +1692,14 @@ class Beam(BackendGeom):
         owner_history = f.by_type("IfcOwnerHistory")[0]
         parent = self.parent.ifc_elem
 
-        if include_ecc:
-            e1 = self.e1 if self.e1 is not None else (0.0, 0.0, 0.0)
-            e2 = self.e2 if self.e2 is not None else (0.0, 0.0, 0.0)
+        if Settings.include_ecc and self.e1 is not None:
+            e1 = self.e1
         else:
             e1 = (0.0, 0.0, 0.0)
+
+        if Settings.include_ecc and self.e2 is not None:
+            e2 = self.e2
+        else:
             e2 = (0.0, 0.0, 0.0)
 
         p1 = tuple([float(x) + float(e1[i]) for i, x in enumerate(self.n1.p)])
@@ -1993,6 +1912,10 @@ class Beam(BackendGeom):
         """
         return self._section
 
+    @section.setter
+    def section(self, value):
+        self._section = value
+
     @property
     def taper(self):
         """
@@ -2002,6 +1925,10 @@ class Beam(BackendGeom):
         """
         return self._taper
 
+    @taper.setter
+    def taper(self, value):
+        self._taper = value
+
     @property
     def material(self):
         """
@@ -2010,6 +1937,10 @@ class Beam(BackendGeom):
         :rtype: Material
         """
         return self._material
+
+    @material.setter
+    def material(self, value):
+        self._material = value
 
     @property
     def member_type(self):
@@ -2138,24 +2069,6 @@ class Beam(BackendGeom):
                 self._bbox = self._calc_bbox()
 
         return self._bbox
-
-    @property
-    def original_n1(self):
-        """
-
-        :return:
-        :rtype: Node
-        """
-        return self._original_n1
-
-    @property
-    def original_n2(self):
-        """
-
-        :return:
-        :rtype: Node
-        """
-        return self._original_n2
 
     @property
     def e1(self):
@@ -4677,6 +4590,22 @@ class Material(Backend):
         self._ifc_mat = None
 
     def __eq__(self, other):
+        """
+        Assuming uniqueness of Material Name and parent
+
+        TODO: Make this check for same Material Model parameters
+
+        :param other:
+        :type other: Material
+        :return:
+        """
+        # other_parent = other.__dict__['_parent']
+        # other_name = other.__dict__['_name']
+        # if self.name == other_name and other_parent == self.parent:
+        #     return True
+        # else:
+        #     return False
+
         for key, val in self.__dict__.items():
             if "parent" in key or key == "_mat_id":
                 continue
@@ -4684,21 +4613,6 @@ class Material(Backend):
                 return False
 
         return True
-
-    def edit(self, name=None, mat_model=None, mat_id=None, parent=None):
-        """
-        Edit material properties
-
-        :param name:
-        :param mat_id:
-        :param mat_model:
-        :param parent:
-        :return:
-        """
-        self._mat_id = mat_id if mat_id is not None else self.id
-        self._name = name if name is not None else self.name
-        self._mat_model = mat_model if mat_model is not None else self.model
-        self._parent = parent if parent is not None else self._parent
 
     def _generate_ifc_mat(self):
 

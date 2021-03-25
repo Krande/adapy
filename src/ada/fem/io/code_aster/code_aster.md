@@ -3,15 +3,7 @@
 
 The following is a summarized TODO list for support
 
-## Target 1
-
-* Create a valid export Code_Aster .med function
-* Static Implicit
-* Eigenfrequency
-
-## Target 2
-Add support for Explicit analysis
-
-## Moving Targets
-A variety of implementations that are 
-* Contact Definitions
+- [x] Write MED files that can be opened in Salome Meca
+- [ ] Add Element and Node Set information to Code Aster input files (MED/COMM?)
+- [ ] Add section information (MED/COMM?)
+- [ ] Create a valid export of Code_Aster analysis .med/.comm function
