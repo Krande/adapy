@@ -1,4 +1,4 @@
-from .reader import read_fem
+from .execute import run_calculix
 from .writer import to_fem
 
-__all__ = ["read_fem", "to_fem"]
+__all__ = ["to_fem", "run_calculix"]

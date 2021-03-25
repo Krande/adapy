@@ -1,5 +1,6 @@
 import unittest
-from ada.fem.io.abaqus.common import AbaFF
+import pprint
+from ada.fem.io.abaqus.common import AbaCards
 
 consec = """*Node
      20,   285.025665,   130.837769,   553.482483
@@ -104,79 +105,79 @@ S02_Fused-1.s22, S02_Fused-1.s21
 ** Interaction: bump3
 *Contact Pair, interaction=bumper130, small sliding, type=SURFACE TO SURFACE
 S02_Fused-1.s32, S02_Fused-1.s31
+**
+** Interaction: Int-2
+*Contact
+*Contact Inclusions
+m_Surf-1 , s_Surf-1
+*Contact Property Assignment
+ ,  , nofric
+*Contact Formulation, type=MASTER SLAVE ROLES
+m_Surf-1 , s_Surf-1 , SLAVE
+*Contact Initialization Assignment
+m_Surf-1 , s_Surf-1 , CInit-1
+*Surface Property Assignment, property=GEOMETRIC CORRECTION
+_Int-2_gcs0_1, Circumferential, 350.063, 99.878, 546.006,  350.989, 99.5022, 545.981
+_Int-2_gcs0_2, Circumferential, 350.063, 100.122, 546.006,  350.989, 100.498, 545.981
+_Int-2_gcs0_3, Circumferential, 344.598, 100., 539.316,  345.23, 100., 540.09
+_Int-2_gcs0_4, Circumferential, 349.849, 100.125, 545.745,  350.319, 100.55, 544.971
+_Int-2_gcs0_5, Circumferential, 349.849, 99.875, 545.745,  350.319, 99.4502, 544.971
+** ----------------------------------------------------------------
+** 
 """
+
 
 class AbaqusIO(unittest.TestCase):
     def test_consec(self):
-        a = AbaFF("Connector Section", [("elset=", "behavior="), ("contype",), ("csys",)])
-
-        for m in a.regex.finditer(consec):
+        assertions = [
+            {
+                "elset": "Wire-1-Set-1",
+                "behavior": "ConnProp-1_VISC_DAMPER_ELEM",
+                "contype": "Bushing,",
+                "csys": '"Datum csys-1",',
+            },
+            {
+                "elset": "Wire-2-Set-1",
+                "behavior": "ConnProp-1_VISC_DAMPER_ELEM",
+                "contype": "Bushing,",
+                "csys": '"Datum csys-2",',
+            },
+        ]
+        for i, m in enumerate(AbaCards.connector_section.regex.finditer(consec)):
             d = m.groupdict()
-            print(d)
+            assert assertions[i] == d
 
+    # TODO: Make similar assertion tests for all other flags
     def test_conn_beha(self):
-        conbeh_re = AbaFF(
-            "Connector Behavior",
-            [("name=",)],
-            [("Connector Elasticity", [("nonlinear|", "component=|"), ("bulk>",)])],
-        )
-
-        print(conbeh_re.regstr)
-
-        for m in conbeh_re.regex.finditer(conbeh):
+        for m in AbaCards.connector_behaviour.regex.finditer(conbeh):
             d = m.groupdict()
             print(d)
 
     def test_shell2solid(self):
-        sh2so_re = AbaFF("Shell to Solid Coupling", [("constraint name=",), ("surf1", "surf2")])
-        print(sh2so_re.regstr)
-
-        for m in sh2so_re.regex.finditer(shell2solids):
+        for m in AbaCards.sh2so_re.regex.finditer(shell2solids):
             d = m.groupdict()
             print(d)
 
     def test_couplings(self):
-        sh2so_re = AbaFF(
-            "Coupling", [("constraint name=", "ref node=", "surface=")], [("Kinematic", [(),("bulk>",)])]
-        )
-        print(sh2so_re.regstr)
-
-        for m in sh2so_re.regex.finditer(couplings):
+        for m in AbaCards.coupling.regex.finditer(couplings):
             d = m.groupdict()
             print(d)
 
     def test_surfaces(self):
-        a = AbaFF(
-            "Surface", [("type=", "name=", 'internal|'), ("bulk>", )]
-        )
-        print(a.regstr)
-
-        for m in a.regex.finditer(surfaces):
+        for m in AbaCards.surface.regex.finditer(surfaces):
             d = m.groupdict()
             print(d)
 
-    def test_interactions(self):
-        contact_pairs = AbaFF(
-            "Contact Pair",
-            [
-                (
-                    "interaction=",
-                    "small sliding==|",
-                    "type=|",
-                    "adjust=|",
-                    "mechanical constraint=|",
-                    "geometric correction=|",
-                    "cpset=|",
-                ),
-                ("surf1", "surf2"),
-            ],
-            nameprop=("Interaction", "name"),
-        )
-        print(contact_pairs.regstr)
-
-        for m in contact_pairs.regex.finditer(interactions):
+    def test_contact_pairs(self):
+        for m in AbaCards.contact_pairs.regex.finditer(interactions):
             d = m.groupdict()
             print(d)
+
+    def test_contact_general(self):
+        for m in AbaCards.contact_general.regex.finditer(interactions):
+            d = m.groupdict()
+            pprint.pprint(d, indent=4)
+
 
 if __name__ == "__main__":
     unittest.main()

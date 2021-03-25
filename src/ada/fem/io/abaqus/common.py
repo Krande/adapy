@@ -85,6 +85,60 @@ class AbaFF:
 
     @property
     def regex(self):
-        from ada.fem.io import FemObjectReader
+        return re.compile(self.regstr, re.IGNORECASE | re.MULTILINE | re.DOTALL)
 
-        return re.compile(self.regstr, FemObjectReader.re_in)
+
+class AbaCards:
+    contact_pairs = AbaFF(
+        "Contact Pair",
+        [
+            (
+                "interaction=",
+                "small sliding==|",
+                "type=|",
+                "adjust=|",
+                "mechanical constraint=|",
+                "geometric correction=|",
+                "cpset=|",
+            ),
+            ("surf1", "surf2"),
+        ],
+        nameprop=("Interaction", "name"),
+    )
+
+    contact_general = AbaFF(
+        "Contact",
+        args=[()],
+        subflags=[
+            ("Contact Inclusions", [(), ("surf1", "surf2")]),
+            ("Contact Property Assignment", [(), ("vara", "varb", "interaction")]),
+            ("Contact Formulation", [("type=",), ("csurf1", "csurf2", "csurf_type")]),
+            ("Contact Initialization Assignment", [(), ("ssurf1", "ssurf2", "cinit")]),
+            ("Surface Property Assignment", [("property=",), ("bulk>",)]),
+        ],
+        # nameprop=("Interaction", "name"),
+    )
+
+    surface_smoothing = AbaFF("Surface Smoothing", [("name=",), ("bulk>",)])
+    surface = AbaFF("Surface", [("type=", "name=", "internal|"), ("bulk>",)])
+    orientation = AbaFF(
+        "Orientation",
+        [
+            ("name=", "definition=|", "local directions=|", "system=|"),
+            ("ax", "ay", "az", "bx", "by", "bz", "|cx", "|cy", "|cz"),
+            ("v1", "v2"),
+        ],
+    )
+    rigid_bodies = AbaFF("Rigid Body", [("ref node=", "elset=")])
+    coupling = AbaFF(
+        "Coupling",
+        [("constraint name=", "ref node=", "surface=", "orientation=|")],
+        [("Kinematic", [(), ("bulk>",)])],
+    )
+    sh2so_re = AbaFF("Shell to Solid Coupling", [("constraint name=",), ("surf1", "surf2")])
+    connector_behaviour = AbaFF(
+        "Connector Behavior",
+        [("name=",)],
+        [("Connector Elasticity", [("nonlinear|", "component=|"), ("bulk>",)])],
+    )
+    connector_section = AbaFF("Connector Section", [("elset=", "behavior="), ("contype",), ("csys",)])

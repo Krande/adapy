@@ -6,10 +6,9 @@ from operator import attrgetter
 
 import numpy as np
 
-from ada import Assembly, Node, Part
 from ada.core.utils import NewLine, bool2text
-from ada.fem import Constraint, FemSection, FemSet, HistOutput, Load, Step, Surface
-from ada.fem.io import FemObjectInitializer, FemWriter
+from ada.fem import FemSet, HistOutput, Load, Step, Surface
+from ada.fem.io.utils import _folder_prep
 from ada.sections import SectionCat
 
 __all__ = ["main_inp_str", "to_fem"]
@@ -139,10 +138,10 @@ def to_fem(
     return a.analysis_path
 
 
-class AbaqusWriter(Assembly, FemWriter):
+class AbaqusWriter:
     """
 
-    :type origin: Assembly
+    :type assembly: ada.Assembly
     """
 
     _subr_path = None
@@ -154,9 +153,8 @@ class AbaqusWriter(Assembly, FemWriter):
     analysis_path = None
     parts_and_assemblies = True
 
-    def __init__(self, origin):
-        super(AbaqusWriter, self).__init__(origin.name)
-        self.__dict__.update(origin.__dict__)
+    def __init__(self, assembly):
+        self.assembly = assembly
 
     def write(self, name, scratch_dir=None, metadata=None, overwrite=False):
         """
@@ -171,14 +169,15 @@ class AbaqusWriter(Assembly, FemWriter):
         :type overwrite: bool
         """
         print("creating: {0}".format(name))
-        self._write_dir(scratch_dir, name, overwrite)
 
-        self._metadata["info"] = metadata
+        self.analysis_path = _folder_prep(scratch_dir, name, overwrite)
+
+        self.assembly.metadata["info"] = metadata
 
         # Sensors
-        list(map(self.write_sensor, self.fem.sensors.values()))
+        list(map(self.write_sensor, self.assembly.fem.sensors.values()))
 
-        for part in self.get_all_subparts():
+        for part in self.assembly.get_all_subparts():
             if len(part.fem.elements) + len(part.fem.connectors) == 0:
                 continue
 
@@ -200,21 +199,21 @@ class AbaqusWriter(Assembly, FemWriter):
 
         # Connectors
         with open(core_dir / "connectors.inp", "w") as d:
-            d.write(self.connectors_str if len(self.fem.connectors) > 0 else "**")
+            d.write(self.connectors_str if len(self.assembly.fem.connectors) > 0 else "**")
 
         # Constraints
         with open(core_dir / "constraints.inp", "w") as d:
-            d.write(self.constraints_str if len(self.fem.constraints) > 0 else "**")
+            d.write(self.constraints_str if len(self.assembly.fem.constraints) > 0 else "**")
 
         # Assembly data
         with open(core_dir / "assembly_data.inp", "w") as d:
-            if len(self.fem.nodes) > 0:
+            if len(self.assembly.fem.nodes) > 0:
                 assembly_nodes_str = (
                     "*Node\n"
                     + "".join(
                         [
                             f"{no.id:>7}, {no.x:>13}, {no.y:>13}, {no.z:>13}\n"
-                            for no in sorted(self.fem.nodes, key=attrgetter("id"))
+                            for no in sorted(self.assembly.fem.nodes, key=attrgetter("id"))
                         ]
                     ).rstrip()
                 )
@@ -244,14 +243,14 @@ class AbaqusWriter(Assembly, FemWriter):
             d.write(self.bc_str)
 
         # Analysis steps
-        for step_in in self.fem.steps:
+        for step_in in self.assembly.fem.steps:
             self.write_step(step_in)
 
     def eval_interactions(self):
-        if len(self.fem.steps) > 0:
-            initial_step = self.fem.steps[0]
+        if len(self.assembly.fem.steps) > 0:
+            initial_step = self.assembly.fem.steps[0]
             if initial_step.type == "explicit":
-                for interact in self.fem.interactions.values():
+                for interact in self.assembly.fem.interactions.values():
                     if interact.name not in initial_step.interactions.keys():
                         initial_step.add_interaction(interact)
                         return
@@ -266,10 +265,10 @@ class AbaqusWriter(Assembly, FemWriter):
         :param step_in:
         :type step_in: Step
         """
-        step = AbaStep(step_in, self)
-        with open(self.analysis_path / "core_input_files" / f"step_{step.name}.inp", "w") as d:
-            d.write(step.str)
-            if "*End Step" not in step.str:
+        step_str = AbaStep(step_in).str
+        with open(self.analysis_path / "core_input_files" / f"step_{step_in.name}.inp", "w") as d:
+            d.write(step_str)
+            if "*End Step" not in step_str:
                 d.write("*End Step\n")
 
     def write_part_bulk(self, part_in):
@@ -296,7 +295,7 @@ class AbaqusWriter(Assembly, FemWriter):
         :param sensor_in:
         :type sensor_in: FemSet
         """
-        for step in self.fem.steps:
+        for step in self.assembly.fem.steps:
             step.add_history_output(
                 HistOutput(
                     "{}_hist".format(sensor_in.name),
@@ -358,7 +357,7 @@ class AbaqusWriter(Assembly, FemWriter):
     @property
     def constraint_control(self):
         constraint_ctrl_on = True
-        for step in self.fem.steps:
+        for step in self.assembly.fem.steps:
             if step.type == "explicit":
                 constraint_ctrl_on = False
         return "**" if constraint_ctrl_on is False else "*constraint controls, print=yes"
@@ -379,11 +378,11 @@ class AbaqusWriter(Assembly, FemWriter):
                 return True
             return len(p.fem.elements) + len(p.fem.connectors) != 0
 
-        part_str = "\n".join(map(self.part_inp_str, filter(skip_if_this, self.get_all_subparts())))
-        instance_str = "\n".join(map(self.inst_inp_str, filter(inst_skip, self.get_all_subparts())))
+        part_str = "\n".join(map(self.part_inp_str, filter(skip_if_this, self.assembly.get_all_subparts())))
+        instance_str = "\n".join(map(self.inst_inp_str, filter(inst_skip, self.assembly.get_all_subparts())))
         step_str = (
-            "\n".join(list(map(self.step_inp_str, self.fem.steps))).rstrip()
-            if len(self.fem.steps) > 0
+            "\n".join(list(map(self.step_inp_str, self.assembly.fem.steps))).rstrip()
+            if len(self.assembly.fem.steps) > 0
             else "** No Steps added"
         )
         incl = "*INCLUDE,INPUT=core_input_files"
@@ -413,59 +412,59 @@ class AbaqusWriter(Assembly, FemWriter):
     @property
     def elsets_str(self):
         return (
-            "\n".join([aba_set_str(el, self) for el in self.fem.elsets.values()]).rstrip()
-            if len(self.fem.elsets) > 0
+            "\n".join([aba_set_str(el, self) for el in self.assembly.fem.elsets.values()]).rstrip()
+            if len(self.assembly.fem.elsets) > 0
             else "** No element sets"
         )
 
     @property
     def nsets_str(self):
         return (
-            "\n".join([aba_set_str(no, self) for no in self.fem.nsets.values()]).rstrip()
-            if len(self.fem.nsets) > 0
+            "\n".join([aba_set_str(no, self) for no in self.assembly.fem.nsets.values()]).rstrip()
+            if len(self.assembly.fem.nsets) > 0
             else "** No node sets"
         )
 
     @property
     def materials_str(self):
-        return "\n".join([material_str(mat) for mat in self.materials])
+        return "\n".join([material_str(mat) for mat in self.assembly.materials])
 
     @property
     def surfaces_str(self):
         return (
-            "\n".join([surface_str(s, self) for s in self.fem.surfaces.values()])
-            if len(self.fem.surfaces) > 0
+            "\n".join([surface_str(s, self) for s in self.assembly.fem.surfaces.values()])
+            if len(self.assembly.fem.surfaces) > 0
             else "** No Surfaces"
         )
 
     @property
     def constraints_str(self):
         return (
-            "\n".join([AbaConstraint(c, self).str for c in self.fem.constraints])
-            if len(self.fem.constraints) > 0
+            "\n".join([AbaConstraint(c, self).str for c in self.assembly.fem.constraints])
+            if len(self.assembly.fem.constraints) > 0
             else "** No Constraints"
         )
 
     @property
     def connector_sections_str(self):
-        return "\n".join([connector_section_str(consec) for consec in self.fem.connector_sections.values()])
+        return "\n".join([connector_section_str(consec) for consec in self.assembly.fem.connector_sections.values()])
 
     @property
     def connectors_str(self):
-        return "\n".join([connector_str(con, self) for con in self.fem.connectors.values()])
+        return "\n".join([connector_str(con, self) for con in self.assembly.fem.connectors.values()])
 
     @property
     def amplitude_str(self):
-        return "\n".join([amplitude_str(ampl) for ampl in self.fem.amplitudes.values()])
+        return "\n".join([amplitude_str(ampl) for ampl in self.assembly.fem.amplitudes.values()])
 
     @property
     def interact_str(self):
-        return "\n".join([interaction_str(interact, self) for interact in self.fem.interactions.values()])
+        return "\n".join([interaction_str(interact, self) for interact in self.assembly.fem.interactions.values()])
 
     @property
     def int_prop_str(self):
-        iprop_str = "\n".join([interaction_prop_str(iprop) for iprop in self.fem.intprops.values()])
-        smoothings = self.fem.metadata.get("surf_smoothing", None)
+        iprop_str = "\n".join([interaction_prop_str(iprop) for iprop in self.assembly.fem.intprops.values()])
+        smoothings = self.assembly.fem.metadata.get("surf_smoothing", None)
         if smoothings is not None:
             iprop_str += "\n"
             for smooth in smoothings:
@@ -485,7 +484,10 @@ class AbaqusWriter(Assembly, FemWriter):
             return True if pre_field.type != "INITIAL STATE" else False
 
         return "\n".join(
-            [predefined_field_str(prefield) for prefield in filter(eval_fields, self.fem.predefined_fields.values())]
+            [
+                predefined_field_str(prefield)
+                for prefield in filter(eval_fields, self.assembly.fem.predefined_fields.values())
+            ]
         )
 
     @property
@@ -493,8 +495,8 @@ class AbaqusWriter(Assembly, FemWriter):
         return "\n".join(
             chain.from_iterable(
                 (
-                    [bc_str(bc, self) for bc in self.fem.bcs],
-                    [bc_str(bc, self) for p in self.get_all_parts_in_assembly() for bc in p.fem.bcs],
+                    [bc_str(bc, self) for bc in self.assembly.fem.bcs],
+                    [bc_str(bc, self) for p in self.assembly.get_all_parts_in_assembly() for bc in p.fem.bcs],
                 )
             )
         )
@@ -503,14 +505,18 @@ class AbaqusWriter(Assembly, FemWriter):
         return "AbaqusWriter()"
 
 
-class AbaqusPartWriter(Part):
-    def __init__(self, origin):
-        super(AbaqusPartWriter, self).__init__(origin.name)
-        self.__dict__.update(origin.__dict__)
+class AbaqusPartWriter:
+    def __init__(self, part):
+        """
+
+        :param part:
+        :type part: ada.Part
+        """
+        self.part = part
 
     @property
     def bulk_str(self):
-        return f"""** Abaqus Part {self.name}
+        return f"""** Abaqus Part {self.part.name}
 ** Exported using ADA OpenSim
 *NODE
 {self.nodes_str}
@@ -527,30 +533,30 @@ class AbaqusPartWriter(Part):
 
     @property
     def solid_sec_str(self):
-        solid_secs = [AbaSection(sec, self).str for sec in self.fem.sections.solids]
+        solid_secs = [AbaSection(sec, self).str for sec in self.part.fem.sections.solids]
         return "\n".join(solid_secs).rstrip() if len(solid_secs) > 0 else "** No solid sections"
 
     @property
     def shell_sec_str(self):
-        shell_secs = [AbaSection(sec, self).str for sec in self.fem.sections.shells]
+        shell_secs = [AbaSection(sec, self).str for sec in self.part.fem.sections.shells]
         return "\n".join(shell_secs).rstrip() if len(shell_secs) > 0 else "** No shell sections"
 
     @property
     def beam_sec_str(self):
-        beam_secs = [AbaSection(sec, self).str for sec in self.fem.sections.beams]
+        beam_secs = [AbaSection(sec, self).str for sec in self.part.fem.sections.beams]
         return "\n".join(beam_secs).rstrip() if len(beam_secs) > 0 else "** No beam sections"
 
     @property
     def elsets_str(self):
-        if len(self.fem.elsets) > 0:
-            return "\n".join([aba_set_str(el, self) for el in self.fem.elsets.values()]).rstrip()
+        if len(self.part.fem.elsets) > 0:
+            return "\n".join([aba_set_str(el, self) for el in self.part.fem.elsets.values()]).rstrip()
         else:
             return "** No element sets"
 
     @property
     def nsets_str(self):
-        if len(self.fem.nsets) > 0:
-            return "\n".join([aba_set_str(no, self) for no in self.fem.nsets.values()]).rstrip()
+        if len(self.part.fem.nsets) > 0:
+            return "\n".join([aba_set_str(no, self) for no in self.part.fem.nsets.values()]).rstrip()
         else:
             return "** No node sets"
 
@@ -559,93 +565,66 @@ class AbaqusPartWriter(Part):
         f = "{nid:>7}, {x:>13}, {y:>13}, {z:>13}"
         return (
             "\n".join(
-                [f.format(nid=no.id, x=no[0], y=no[1], z=no[2]) for no in sorted(self.fem.nodes, key=attrgetter("id"))]
+                [
+                    f.format(nid=no.id, x=no[0], y=no[1], z=no[2])
+                    for no in sorted(self.part.fem.nodes, key=attrgetter("id"))
+                ]
             ).rstrip()
-            if len(self.fem.nodes) > 0
+            if len(self.part.fem.nodes) > 0
             else "** No Nodes"
         )
 
     @property
     def elements_str(self):
-        from itertools import groupby
-
-        from ada.core.utils import NewLine
-
-        def aba_write(el):
-            """
-
-            :type el: ada.fem.Elem
-            """
-            nl = NewLine(10, suffix=7 * " ")
-            if len(el.nodes) > 6:
-                di = " {}"
-            else:
-                di = "{:>13}"
-            return f"{el.id:>7}, " + " ".join([f"{di.format(no.id)}," + next(nl) for no in el.nodes])[:-1]
-
-        def elwriter(eltype_set, elements):
-            if "connector" in eltype_set:
-                return None
-            eltype, elset = eltype_set
-            el_set_str = f", ELSET={elset.name}" if elset is not None else ""
-            el_str = "\n".join(map(aba_write, elements))
-            return f"""*ELEMENT, type={eltype}{el_set_str}\n{el_str}\n"""
-
+        part_el = self.part.fem.elements
+        grouping = groupby(part_el, key=attrgetter("type", "elset"))
         return (
-            "".join(
-                list(
-                    filter(
-                        None,
-                        [
-                            elwriter(x, elements)
-                            for x, elements in groupby(self.fem.elements, key=attrgetter("type", "elset"))
-                        ],
-                    )
-                )
-            ).rstrip()
-            if len(self.fem.elements) > 0
+            "".join([els for els in [elwriter(x, elements) for x, elements in grouping] if els is not None]).rstrip()
+            if len(self.part.fem.elements) > 0
             else "** No elements"
         )
 
     @property
     def mass_str(self):
         return (
-            "\n".join([mass_str(m) for m in self.fem.masses.values()]) if len(self.fem.masses) > 0 else "** No Masses"
+            "\n".join([mass_str(m) for m in self.part.fem.masses.values()])
+            if len(self.part.fem.masses) > 0
+            else "** No Masses"
         )
 
     @property
     def surfaces_str(self):
-        if len(self.fem.surfaces) > 0:
-            return "\n".join([surface_str(s, self) for s in self.fem.surfaces.values()])
+        if len(self.part.fem.surfaces) > 0:
+            return "\n".join([surface_str(s, self) for s in self.part.fem.surfaces.values()])
         else:
             return "** No Surfaces"
 
     @property
     def constraints_str(self):
         return (
-            "\n".join([AbaConstraint(c, self).str for c in self.fem.constraints])
-            if len(self.fem.constraints) > 0
+            "\n".join([AbaConstraint(c, self).str for c in self.part.fem.constraints])
+            if len(self.part.fem.constraints) > 0
             else "** No Constraints"
         )
 
     @property
     def springs_str(self):
         return (
-            "\n".join([spring_str(c) for c in self.fem.springs.values()])
-            if len(self.fem.springs) > 0
+            "\n".join([spring_str(c) for c in self.part.fem.springs.values()])
+            if len(self.part.fem.springs) > 0
             else "** No Springs"
         )
 
     @property
     def instance_move_str(self):
-        if self.fem.metadata["move"] is not None:
-            move = self.fem.metadata["move"]
+        if self.part.fem.metadata["move"] is not None:
+            move = self.part.fem.metadata["move"]
             mo_str = "\n " + ", ".join([str(x) for x in move])
         else:
             mo_str = "\n 0.,        0.,           0."
 
-        if self.fem.metadata["rotate"] is not None:
-            rotate = self.fem.metadata["rotate"]
+        if self.part.fem.metadata["rotate"] is not None:
+            rotate = self.part.fem.metadata["rotate"]
             vecs = ", ".join([str(x) for x in rotate[0]])
             vece = ", ".join([str(x) for x in rotate[1]])
             angle = rotate[2]
@@ -657,13 +636,13 @@ class AbaqusPartWriter(Part):
         return move_str
 
 
-class AbaStep(FemObjectInitializer, Step):
+class AbaStep:
     """
-    :type fem_origin: Step
+    :type step: ada.fem.Step
     """
 
-    def __init__(self, fem_origin, write_object):
-        super().__init__(fem_origin, write_object)
+    def __init__(self, step):
+        self.step = step
 
     @property
     def dynamic_implicit_str(self):
@@ -671,16 +650,16 @@ class AbaStep(FemObjectInitializer, Step):
         Add a dynamic implicit step
         """
 
-        return f"""*Step, name={self.name}, nlgeom={bool2text(self.nl_geom)}, inc={self.total_incr}
-*Dynamic,application={self.dyn_type}, INITIAL={bool2text(self.init_accel_calc)}
- {self.init_incr},{self.total_time},{self.min_incr}, {self.max_incr}"""
+        return f"""*Step, name={self.step.name}, nlgeom={bool2text(self.step.nl_geom)}, inc={self.step.total_incr}
+*Dynamic,application={self.step.dyn_type}, INITIAL={bool2text(self.step.init_accel_calc)}
+ {self.step.init_incr},{self.step.total_time},{self.step.min_incr}, {self.step.max_incr}"""
 
     @property
     def explicit_str(self):
 
-        return f"""*Step, name={self.name}, nlgeom={bool2text(self.nl_geom)}
+        return f"""*Step, name={self.step.name}, nlgeom={bool2text(self.step.nl_geom)}
 *Dynamic, Explicit
-, {self.total_time}
+, {self.step.total_time}
 *Bulk Viscosity
     0.06, 1.2"""
 
@@ -691,7 +670,7 @@ class AbaStep(FemObjectInitializer, Step):
         """
 
         static_str = ""
-        stabilize = self.stabilize
+        stabilize = self.step.stabilize
         if stabilize is None:
             pass
         elif type(stabilize) is dict:
@@ -720,10 +699,14 @@ class AbaStep(FemObjectInitializer, Step):
                 "Unrecognized stabilize input. Can be bool, dict or None. "
                 'Reverting to default stabilizing type "energy"'
             )
+        line1 = (
+            f"*Step, name={self.step.name}, nlgeom={bool2text(self.step.nl_geom)}, "
+            f"unsymm={bool2text(self.step.unsymm)}, inc={self.step.total_incr}"
+        )
 
-        return f"""*Step, name={self.name}, nlgeom={bool2text(self.nl_geom)}, unsymm={bool2text(self.unsymm)}, inc={self.total_incr}
+        return f"""{line1}
 *Static{static_str}
- {self.init_incr}, {self.total_time}, {self.min_incr}, {self.max_incr}"""
+ {self.step.init_incr}, {self.step.total_time}, {self.step.min_incr}, {self.step.max_incr}"""
 
     @property
     def eigenfrequency_str(self):
@@ -736,7 +719,7 @@ class AbaStep(FemObjectInitializer, Step):
 **
 *Step, name=eig, nlgeom=NO, perturbation
 *Frequency, eigensolver=Lanczos, sim=NO, acoustic coupling=on, normalization=displacement
-{self.eigenmodes}, , , , ,
+{self.step.eigenmodes}, , , , ,
 """
 
     @property
@@ -750,7 +733,7 @@ class AbaStep(FemObjectInitializer, Step):
 **
 *Step, name=complex_eig, nlgeom=NO, perturbation, unsymm=YES
 *Complex Frequency, friction damping=NO
-{self.eigenmodes}, , ,
+{self.step.eigenmodes}, , ,
 """
 
     @property
@@ -759,18 +742,18 @@ class AbaStep(FemObjectInitializer, Step):
         A Steady state response analysis
         """
 
-        if self.nodeid is None:
+        if self.step.nodeid is None:
             raise ValueError("Please define a nodeid for the steady state load")
 
         return f"""** ----------------------------------------------------------------
-*STEP,NAME=Response_Analysis_{self.fmin}_{self.fmax}Hz
+*STEP,NAME=Response_Analysis_{self.step.fmin}_{self.step.fmax}Hz
 *STEADY STATE DYNAMICS, DIRECT, INTERVAL=RANGE
-{add_freq_range(self.fmin, self.fmax)}
-*GLOBAL DAMPING, ALPHA={self.alpha} , BETA={self.beta}
+{add_freq_range(self.step.fmin, self.step.fmax)}
+*GLOBAL DAMPING, ALPHA={self.step.alpha} , BETA={self.step.beta}
 **
 *LOAD CASE, NAME=LC1
 *CLOAD, OP=NEW
-{self.nodeid},2, 1
+{self.step.nodeid},2, 1
 *END LOAD CASE
 **
 *OUTPUT, FIELD, FREQUENCY=1
@@ -785,41 +768,49 @@ UT, AT, TU, TA
 
     @property
     def _hist_output_str(self):
-        return "\n".join([hist_output_str(hs) for hs in self._hist_outputs]) if len(self._hist_outputs) > 0 else "**"
+        return (
+            "\n".join([hist_output_str(hs) for hs in self.step.hist_outputs])
+            if len(self.step.hist_outputs) > 0
+            else "**"
+        )
 
     @property
     def _field_output_str(self):
-        return "\n".join([field_output_str(fs) for fs in self._field_outputs]) if len(self._field_outputs) > 0 else "**"
+        return (
+            "\n".join([field_output_str(fs) for fs in self.step.field_outputs])
+            if len(self.step.field_outputs) > 0
+            else "**"
+        )
 
     @property
     def interactions_str(self):
-        return "\n".join([interaction_str(interact, self) for interact in self.interactions.values()])
+        return "\n".join([interaction_str(interact, self) for interact in self.step.interactions.values()])
 
     @property
     def step_data_str(self):
-        if self.type.lower() == "static":
+        if self.step.type.lower() == "static":
             return self.static_str
-        elif self.type.lower() in ["quasi_static", "dynamic"]:
+        elif self.step.type.lower() in ["quasi_static", "dynamic"]:
             return self.dynamic_implicit_str
-        elif self.type.lower() == "explicit":
+        elif self.step.type.lower() == "explicit":
             return self.explicit_str
 
-        elif self.type.lower() == "eigenfrequency":
+        elif self.step.type.lower() == "eigenfrequency":
             return self.eigenfrequency_str
 
-        elif self.type.lower() == "response_analysis":
+        elif self.step.type.lower() == "response_analysis":
             return self.steady_state_response_str
 
-        elif self.type.lower() == "complex_eig":
+        elif self.step.type.lower() == "complex_eig":
             return self.complex_eig_str
 
         else:
-            raise ValueError(f"Unrecognized step type {self.type}.")
+            raise ValueError(f"Unrecognized step type {self.step.type}.")
 
     @property
     def bc_str(self):
         bcstr = ""
-        for bcid, bc_ in self._bcs.items():
+        for bcid, bc_ in self.step.bcs.items():
             bcstr += "\n" if "\n" not in bcstr[-2:] != "" else ""
             bcstr += bc_str(bc_, self)
 
@@ -827,27 +818,27 @@ UT, AT, TU, TA
 
     @property
     def load_str(self):
-        return "\n".join([load_str(l) for l in self._loads])
+        return "\n".join([load_str(l) for l in self.step.loads])
 
     @property
     def restart_request_str(self):
         return (
-            f"*Restart, write, frequency={self.restart_int}"
-            if self.restart_int is not None
+            f"*Restart, write, frequency={self.step.restart_int}"
+            if self.step.restart_int is not None
             else "** No Restart Requests"
         )
 
     @property
     def str(self):
-        if "aba_inp" in self._metadata.keys():
-            return self._metadata["aba_inp"]
+        if "aba_inp" in self.step.metadata.keys():
+            return self.step.metadata["aba_inp"]
         load_str = "** No Loads" if self.load_str == "" else self.load_str.rstrip()
         bc_str = "** No BCs" if self.bc_str == "" else self.bc_str.rstrip()
-        int_str = "** No Interactions" if len(self.interactions) == 0 else self.interactions_str
-        app_str = self.metadata["append"] if "append" in self.metadata.keys() else "**"
+        int_str = "** No Interactions" if len(self.step.interactions) == 0 else self.interactions_str
+        app_str = self.step.metadata["append"] if "append" in self.step.metadata.keys() else "**"
 
         return f"""**
-** STEP: {self.name}
+** STEP: {self.step.name}
 **
 {self.step_data_str}
 **
@@ -872,39 +863,40 @@ UT, AT, TU, TA
 """
 
 
-class AbaSection(FemObjectInitializer, FemSection):
+class AbaSection:
     """
 
-    :type fem_origin: FemSection
+    :type fem_sec: ada.fem.FemSection
     """
 
-    def __init__(self, fem_origin, write_object):
-        super().__init__(fem_origin, write_object)
+    def __init__(self, fem_sec, fem_writer):
+        self.fem_sec = fem_sec
+        self._fem_writer = fem_writer
 
     @property
     def _temp_str(self):
-        _temperature = self._metadata["temperature"] if "temperature" in self._metadata.keys() else None
+        _temperature = self.fem_sec.metadata["temperature"] if "temperature" in self.fem_sec.metadata.keys() else None
         return _temperature if _temperature is not None else "GRADIENT"
 
     @property
     def section_data(self):
-        if "section_type" in self._metadata.keys():
-            return self._metadata["section_type"]
+        if "section_type" in self.fem_sec.metadata.keys():
+            return self.fem_sec.metadata["section_type"]
 
-        if self.section.type in SectionCat.circular:
+        if self.fem_sec.section.type in SectionCat.circular:
             return "CIRC"
-        elif self.section.type in SectionCat.igirders or self.section.type in SectionCat.iprofiles:
+        elif self.fem_sec.section.type in SectionCat.igirders or self.fem_sec.section.type in SectionCat.iprofiles:
             return "I"
-        elif self.section.type in SectionCat.box:
+        elif self.fem_sec.section.type in SectionCat.box:
             return "BOX"
-        elif self.section.type in SectionCat.general:
+        elif self.fem_sec.section.type in SectionCat.general:
             return "GENERAL"
-        elif self.section.type in SectionCat.tubular:
+        elif self.fem_sec.section.type in SectionCat.tubular:
             return "PIPE"
-        elif self.section.type in SectionCat.angular:
+        elif self.fem_sec.section.type in SectionCat.angular:
             return "L"
         else:
-            raise Exception(f'Section type "{self.section.type}" is not added to Abaqus beam export yet')
+            raise Exception(f'Section type "{self.fem_sec.section.type}" is not added to Abaqus beam export yet')
 
     @property
     def props(self):
@@ -914,11 +906,11 @@ class AbaSection(FemObjectInitializer, FemSection):
         https://abaqus-docs.mit.edu/2017/English/SIMACAEELMRefMap/simaelm-c-beamcrosssection.htm
         """
 
-        n1 = ", ".join(str(x) for x in self.local_y)
-        if "line1" in self._metadata.keys():
-            return self._metadata["line1"] + f"\n{n1}"
+        n1 = ", ".join(str(x) for x in self.fem_sec.local_y)
+        if "line1" in self.fem_sec.metadata.keys():
+            return self.fem_sec.metadata["line1"] + f"\n{n1}"
 
-        sec = self.section
+        sec = self.fem_sec.section
         if self.section_data == "CIRC":
             return f"{sec.r}\n {n1}"
         elif self.section_data == "I":
@@ -928,44 +920,46 @@ class AbaSection(FemObjectInitializer, FemSection):
                     sec.w_btn = new_width
                 else:
                     sec.w_top = new_width
-                logging.error(f"For {self.name}: t_fbtn + t_w > min(w_top, w_btn). {log_fin}")
+                logging.error(f"For {self.fem_sec.name}: t_fbtn + t_w > min(w_top, w_btn). {log_fin}")
             return f"{sec.h / 2}, {sec.h}, {sec.w_btn}, {sec.w_top}, {sec.t_fbtn}, {sec.t_ftop}, {sec.t_w}\n {n1}"
         elif self.section_data == "BOX":
             if sec.t_w * 2 > min(sec.w_top, sec.w_btn):
                 raise ValueError("Web thickness cannot be larger than section width")
             return f"{sec.w_top}, {sec.h}, {sec.t_w}, {sec.t_ftop}, {sec.t_w}, {sec.t_fbtn}\n {n1}"
         elif self.section_data == "GENERAL":
-
             gp = sec.properties
-            mat = self.material.model
+            mat = self.fem_sec.material.model
             if gp.Ix <= 0.0:
                 gp.Ix = 1
-                logging.error(f"Section {self.name} Ix <= 0.0. Changing to 2. {log_fin}")
+                logging.error(f"Section {self.fem_sec.name} Ix <= 0.0. Changing to 2. {log_fin}")
             if gp.Iy <= 0.0:
                 gp.Iy = 2
-                logging.error(f"Section {self.name} Iy <= 0.0. Changing to 2. {log_fin}")
+                logging.error(f"Section {self.fem_sec.name} Iy <= 0.0. Changing to 2. {log_fin}")
             if gp.Iz <= 0.0:
                 gp.Iz = 2
-                logging.error(f"Section {self.name} Iz <= 0.0. Changing to 2. {log_fin}")
+                logging.error(f"Section {self.fem_sec.name} Iz <= 0.0. Changing to 2. {log_fin}")
             if gp.Iyz <= 0.0:
                 gp.Iyz = (gp.Iy + gp.Iz) / 2
-                logging.error(f"Section {self.name} Iyz <= 0.0. Changing to (Iy + Iz) / 2. {log_fin}")
+                logging.error(f"Section {self.fem_sec.name} Iyz <= 0.0. Changing to (Iy + Iz) / 2. {log_fin}")
             if gp.Iy * gp.Iz - gp.Iyz ** 2 < 0:
                 old_y = str(gp.Iy)
                 gp.Iy = 1.1 * (gp.Iy + (gp.Iyz ** 2) / gp.Iz)
                 logging.error(
-                    f"Warning! Section {self.name}: I(11)*I(22)-I(12)**2 MUST BE POSITIVE. "
+                    f"Warning! Section {self.fem_sec.name}: I(11)*I(22)-I(12)**2 MUST BE POSITIVE. "
                     f"Mod Iy={old_y} to {gp.Iy}. {log_fin}"
                 )
             if (-(gp.Iy + gp.Iz) / 2 < gp.Iyz <= (gp.Iy + gp.Iz) / 2) is False:
                 raise ValueError("Iyz must be between -(Iy+Iz)/2 and (Iy+Iz)/2")
             return f"{gp.Ax}, {gp.Iy}, {gp.Iyz}, {gp.Iz}, {gp.Ix}\n {n1}\n {mat.E:.3E}, ,{mat.alpha:.2E}"
         elif self.section_data == "PIPE":
-            return f"{self.section.r}, {self.section.wt}\n {n1}"
+            return f"{self.fem_sec.section.r}, {self.fem_sec.section.wt}\n {n1}"
         elif self.section_data == "L":
-            return f"{self.section.w_btn}, {self.section.h}, {self.section.t_fbtn}, {self.section.t_w}\n {n1}"
+            return (
+                f"{self.fem_sec.section.w_btn}, {self.fem_sec.section.h}, {self.fem_sec.section.t_fbtn}, "
+                f"{self.fem_sec.section.t_w}\n {n1}"
+            )
         else:
-            raise NotImplementedError(f'section type "{self.section.type}" is not added to Abaqus beam export yet')
+            raise NotImplementedError(f'section type "{self.fem_sec.section.type}" is not added to Abaqus export yet')
 
     @property
     def beam_str(self):
@@ -982,9 +976,9 @@ class AbaSection(FemObjectInitializer, FemSection):
         https://abaqus-docs.mit.edu/2017/English/SIMACAEELMRefMap/simaelm-c-beamsectionbehavior.htm#hj-top
 
         """
-        top_line = f"** Section: {self.elset.name}  Profile: {self.elset.name}"
-        density = self.material.model.rho if self.material.model.rho > 0.0 else 1e-4
-        ass = self.parent.parent.get_assembly()
+        top_line = f"** Section: {self.fem_sec.elset.name}  Profile: {self.fem_sec.elset.name}"
+        density = self.fem_sec.material.model.rho if self.fem_sec.material.model.rho > 0.0 else 1e-4
+        ass = self.fem_sec.parent.parent.get_assembly()
 
         rotary_str = ""
         if len(ass.fem.steps) > 0:
@@ -994,83 +988,86 @@ class AbaSection(FemObjectInitializer, FemSection):
 
         if self.section_data != "GENERAL":
             return (
-                f"{top_line}\n*Beam Section, elset={self.elset.name}, material={self.material.name}, "
+                f"{top_line}\n*Beam Section, elset={self.fem_sec.elset.name}, material={self.fem_sec.material.name}, "
                 f"temperature={self._temp_str}, section={self.section_data}{rotary_str}\n{self.props}"
             )
         else:
             return f"""{top_line}
-*Beam General Section, elset={self.elset.name}, section=GENERAL{rotary_str}, density={density}
+*Beam General Section, elset={self.fem_sec.elset.name}, section=GENERAL{rotary_str}, density={density}
  {self.props}"""
 
     @property
     def shell_str(self):
-        return f"""** Section: {self.name}
-*Shell Section, elset={self.elset.name}, material={self.material.name}
- {self.thickness}, {self._int_points}"""
+        return f"""** Section: {self.fem_sec.name}
+*Shell Section, elset={self.fem_sec.elset.name}, material={self.fem_sec.material.name}
+ {self.fem_sec.thickness}, {self.fem_sec.int_points}"""
 
     @property
     def solid_str(self):
-        return f"""** Section: {self.name}
-*Solid Section, elset={self.elset.name}, material={self.material.name}
+        return f"""** Section: {self.fem_sec.name}
+*Solid Section, elset={self.fem_sec.elset.name}, material={self.fem_sec.material.name}
 ,"""
 
     @property
     def str(self):
-        if self._sec_type == "solid":
+        if self.fem_sec.type == "solid":
             return self.solid_str
-        elif self._sec_type == "shell":
+        elif self.fem_sec.type == "shell":
             return self.shell_str
-        elif self._sec_type == "beam":
+        elif self.fem_sec.type == "beam":
             return self.beam_str
 
 
-class AbaConstraint(FemObjectInitializer, Constraint):
+class AbaConstraint:
     """
 
     Coupling definition:
     https://abaqus-docs.mit.edu/2017/English/SIMACAEKEYRefMap/simakey-r-coupling.htm#simakey-r-coupling
 
-    :type fem_origin: Constraint
+    :type constraint: ada.fem.Constraint
     """
 
-    def __init__(self, fem_origin, writer_object):
-        super().__init__(fem_origin, writer_object)
+    def __init__(self, constraint, fem_writer):
+        self.constraint = constraint
+        self._fem_writer = fem_writer
 
     @property
     def _coupling(self):
-        dofs_str = "".join([f" {x[0]}, {x[1]}\n" if type(x) != int else f" {x}, {x}\n" for x in self.dofs]).rstrip()
+        dofs_str = "".join(
+            [f" {x[0]}, {x[1]}\n" if type(x) != int else f" {x}, {x}\n" for x in self.constraint.dofs]
+        ).rstrip()
 
-        if type(self.s_set) is FemSet:
+        if type(self.constraint.s_set) is FemSet:
             new_surf = surface_str(
                 Surface(
-                    f"{self.name}_surf",
+                    f"{self.constraint.name}_surf",
                     "NODE",
-                    self.s_set,
+                    self.constraint.s_set,
                     1.0,
-                    parent=self.s_set.parent,
+                    parent=self.constraint.s_set.parent,
                 ),
                 self._fem_writer,
             )
-            surface_ref = f"{self.name}_surf"
+            surface_ref = f"{self.constraint.name}_surf"
             add_str = new_surf
         else:
             add_str = "**"
-            surface_ref = get_instance_name(self.s_set, self._fem_writer)
+            surface_ref = get_instance_name(self.constraint.s_set, self._fem_writer)
 
-        if self.csys is not None:
-            new_csys_str = "\n" + csys_str(self.csys, self._fem_writer)
-            cstr = f", Orientation={self.csys.name}"
+        if self.constraint.csys is not None:
+            new_csys_str = "\n" + csys_str(self.constraint.csys, self._fem_writer)
+            cstr = f", Orientation={self.constraint.csys.name.upper()}"
         else:
             cstr = ""
             new_csys_str = ""
 
-        rnode = f"{get_instance_name(self.m_set.members[0], self._fem_writer)}"
+        rnode = f"{get_instance_name(self.constraint.m_set.members[0], self._fem_writer)}"
         return f"""** ----------------------------------------------------------------
-** Coupling element {self.name}
+** Coupling element {self.constraint.name}
 ** ----------------------------------------------------------------{new_csys_str}
-** COUPLING {self.name}
+** COUPLING {self.constraint.name}
 {add_str}
-*COUPLING, CONSTRAINT NAME={self.name}, REF NODE={rnode}, SURFACE={surface_ref}{cstr}
+*COUPLING, CONSTRAINT NAME={self.constraint.name}, REF NODE={rnode}, SURFACE={surface_ref}{cstr}
 *KINEMATIC
 {dofs_str}""".rstrip()
 
@@ -1078,57 +1075,82 @@ class AbaConstraint(FemObjectInitializer, Constraint):
     def _tie(self):
         num = 80
         pos_tol_str = ""
-        if self.pos_tol is not None:
-            pos_tol_str = "position tolerance={},".format(float(self.pos_tol))
-        coupl_text = "**" + num * "-" + """\n** COUPLING {}\n""".format(self.name) + "**" + num * "-" + "\n"
+        if self.constraint.pos_tol is not None:
+            pos_tol_str = "position tolerance={},".format(float(self.constraint.pos_tol))
+        coupl_text = "**" + num * "-" + """\n** COUPLING {}\n""".format(self.constraint.name) + "**" + num * "-" + "\n"
 
         # Master input
         coupl_text += """*SURFACE, TYPE=NODE, NAME={2}_m_surf
  {0}, 1.
 *SURFACE, TYPE=NODE, NAME={2}_s_surf
  {1}, 1.\n""".format(
-            get_instance_name(self.m_set, self._fem_writer),
-            get_instance_name(self.s_set, self._fem_writer),
-            self.name,
+            get_instance_name(self.constraint.m_set, self._fem_writer),
+            get_instance_name(self.constraint.s_set, self._fem_writer),
+            self.constraint.name,
         )
 
         coupl_text += """** Constraint: {0}
 *Tie, name={0}, adjust=no,{1} no rotation
  {0}_m_surf, {0}_s_surf""".format(
-            self.name, pos_tol_str
+            self.constraint.name, pos_tol_str
         )
         return coupl_text
 
     @property
     def _mpc(self):
-        mpc_vars = "\n".join(
-            [f" {self._mpc_type},{m.id:>8},{s.id:>8}" for m, s in zip(self.m_set.members, self.s_set.members)]
-        )
-        return f"** Constraint: {self.name}\n*MPC\n{mpc_vars}"
+        mpc_type = self.constraint.mpc_type
+        m_members = self.constraint.m_set.members
+        s_members = self.constraint.s_set.members
+        mpc_vars = "\n".join([f" {mpc_type},{m.id:>8},{s.id:>8}" for m, s in zip(m_members, s_members)])
+        return f"** Constraint: {self.constraint.name}\n*MPC\n{mpc_vars}"
 
     @property
     def _shell2solid(self):
+        mname = self.constraint.m_set.name
+        sname = self.constraint.s_set.name
 
-        mname = self.m_set.name
-        sname = self.s_set.name
-
-        return f"** Constraint: {self.name}\n*Shell to Solid Coupling, constraint name={self.name}\n{mname}, {sname}"
+        return (
+            f"** Constraint: {self.constraint.name}\n*Shell to Solid Coupling, "
+            f"constraint name={self.constraint.name}\n{mname}, {sname}"
+        )
 
     @property
     def str(self):
-        if self.type == "coupling":
+        if self.constraint.type == "coupling":
             return self._coupling
-        elif self.type == "tie":
+        elif self.constraint.type == "tie":
             return self._tie
-        elif self.type == "rigid body":
-            rnode = get_instance_name(self.m_set, self)
-            return f"*Rigid Body, ref node={rnode}, elset={get_instance_name(self.s_set, self)}"
-        elif self.type == "mpc":
+        elif self.constraint.type == "rigid body":
+            rnode = get_instance_name(self.constraint.m_set, self)
+            return f"*Rigid Body, ref node={rnode}, elset={get_instance_name(self.constraint.s_set, self)}"
+        elif self.constraint.type == "mpc":
             return self._mpc
-        elif self.type == "shell2solid":
+        elif self.constraint.type == "shell2solid":
             return self._shell2solid
         else:
-            raise NotImplementedError(f"{self.type}")
+            raise NotImplementedError(f"{self.constraint.type}")
+
+
+def aba_write(el):
+    """
+
+    :type el: ada.fem.Elem
+    """
+    nl = NewLine(10, suffix=7 * " ")
+    if len(el.nodes) > 6:
+        di = " {}"
+    else:
+        di = "{:>13}"
+    return f"{el.id:>7}, " + " ".join([f"{di.format(no.id)}," + next(nl) for no in el.nodes])[:-1]
+
+
+def elwriter(eltype_set, elements):
+    if "connector" in eltype_set:
+        return None
+    eltype, elset = eltype_set
+    el_set_str = f", ELSET={elset.name}" if elset is not None else ""
+    el_str = "\n".join(map(aba_write, elements))
+    return f"""*ELEMENT, type={eltype}{el_set_str}\n{el_str}\n"""
 
 
 def interaction_str(interaction, fem_writer):
@@ -1138,6 +1160,10 @@ def interaction_str(interaction, fem_writer):
     :param fem_writer:
     :type interaction: ada.fem.Interaction
     """
+    # Allowing Free text to be parsed directly through interaction class.
+    if "aba_bulk" in interaction.metadata.keys():
+        return interaction.metadata["aba_bulk"]
+
     contact_mod = interaction.metadata["contact_mod"] if "contact_mod" in interaction.metadata.keys() else "NEW"
     contact_incl = (
         interaction.metadata["contact_inclusions"]
@@ -1509,6 +1535,7 @@ def get_instance_name(obj, fem_writer):
     :param fem_writer:
     :return:
     """
+    from ada import Assembly, Node
 
     if type(obj) is Node:
         obj_ref = obj.id
@@ -1592,7 +1619,9 @@ def csys_str(csys, fem_writer):
     :type csys: ada.fem.Csys
     :return:
     """
-    name = csys.name.replace('"', "")
+
+    name = csys.name.replace('"', "").upper()
+
     ori_str = f'*Orientation, name="{name}"'
     if csys.nodes is None and csys.coords is None:
         ori_str += "\n 1.,           0.,           0.,           0.,           1.,           0.\n 1, 0."
@@ -1603,7 +1632,7 @@ def csys_str(csys, fem_writer):
         )
     else:
         ax, ay, az = csys.coords[0]
-        ori_str += f"\n{ax}, {ay}, {az}"
+        ori_str += f" \n{ax}, {ay}, {az}"
         bx, by, bz = csys.coords[1]
         ori_str += f", {bx}, {by}, {bz}"
         if len(csys.coords) == 3:

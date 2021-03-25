@@ -4,10 +4,8 @@ from operator import attrgetter
 import meshio
 import numpy as np
 
-from ada.fem.io import _folder_prep
-
 from ..io_meshio import ada_to_meshio_type
-from ..utils import get_fem_model_from_assembly
+from ..utils import _folder_prep, get_fem_model_from_assembly
 
 meshio_to_med_type = {
     "vertex": "PO1",
@@ -73,31 +71,85 @@ def to_fem(
 
     p = get_fem_model_from_assembly(assembly)
 
-    write_to_med(p, analysis_dir)
-    write_export_file(analysis_dir, p.name, 2)
+    write_to_med(name, p, analysis_dir)
+
+    with open((analysis_dir / name).with_suffix(".export"), "w") as f:
+        f.write(write_export_file(analysis_dir, name, 2))
 
     # TODO: Finish .comm setup based on Salome meca setup
-    with open(analysis_dir.with_suffix(".comm"), "w") as f:
-        f.write('mesh = LIRE_MAILLAGE(FORMAT="MED", UNITE=20)\n\n')
-        f.write(
-            """model = AFFE_MODELE(
-  AFFE=_F(
-    MODELISATION=('3D', ),
-    PHENOMENE='MECANIQUE',
-    TOUT='OUI'
-  ),
-  MAILLAGE=mesh
-) \n"""
-        )
+    with open((analysis_dir / name).with_suffix(".comm"), "w") as f:
+        f.write(write_to_comm(name, assembly, p, analysis_dir))
 
     print(f'Created a Code_Aster input deck at "{analysis_dir}"')
 
+    if execute:
+        from .execute import run_code_aster
 
-def write_to_med(p, analysis_dir):
+        run_code_aster(
+            (analysis_dir / name).with_suffix(".export"),
+            cpus=cpus,
+            gpus=gpus,
+            run_ext=run_ext,
+            metadata=assembly.metadata,
+            execute=execute,
+            exit_on_complete=exit_on_complete,
+        )
+
+
+def write_to_comm(name, a, p, analysis_dir):
+    comm_str = "DEBUT(LANG='EN')\n\n"
+    comm_str += 'mesh=LIRE_MAILLAGE(FORMAT="MED", UNITE=20)\n\n'
+    comm_str += "model=AFFE_MODELE(AFFE=_F(MODELISATION=('3D', ),PHENOMENE='MECANIQUE',TOUT='OUI'),MAILLAGE=mesh)\n\n"
+    # Add missing parameters here
+    comm_str += "FIN()"
+
+    return comm_str
+
+
+def write_export_file(analysis_dir, name, cpus):
+    """
+
+    :param analysis_dir:
+    :param name:
+    :param cpus:
+    :return:
+    """
+    #     alt_str = r"""P actions make_etude
+    # P memjob 507904
+    # P memory_limit 496.0
+    # P mode interactif
+    # P mpi_nbcpu 1
+    # P ncpus {cpus}
+    # P rep_trav {analysis_dir}
+    # P time_limit 60.0
+    # P tpsjob 2
+    # P version stable
+    # A memjeveux 62.0
+    # A tpmax 60.0
+    # F comm {analysis_dir}\{name}.comm D  1
+    # F mmed {analysis_dir}\{name}.med D  20"""
+
+    export_str = rf"""P actions make_etude
+P memory_limit 1274
+P time_limit 900
+P version stable
+P mpi_nbcpu 1
+P mode interactif
+P ncpus {cpus}
+P rep_trav {analysis_dir}
+F comm {analysis_dir}\{name}.comm D  1
+F mmed {analysis_dir}\{name}.med D  20
+F rmed {analysis_dir}\{name}.rmed R 80"""
+
+    return export_str
+
+
+def write_to_med(name, p, analysis_dir):
     """
     Method for writing a part directly based on meshio example
 
-    :param p:
+    :param name: name
+    :param p: Part
     :param analysis_dir:
     :type p: ada.Part
     """
@@ -124,7 +176,7 @@ def write_to_med(p, analysis_dir):
         cells.append((med_el, el_mapped))
 
     mesh = meshio.Mesh(points, cells)
-    part_file = (analysis_dir / p.name).with_suffix(".med")
+    part_file = (analysis_dir / name).with_suffix(".med")
     f = h5py.File(part_file, "w")
 
     # Strangely the version must be 3.0.x
@@ -251,24 +303,6 @@ def write_to_med(p, analysis_dir):
                 data,
                 med_type,
             )
-
-
-def write_export_file(analysis_dir, name, cpus):
-    return rf"""P actions make_etude
-P memjob 507904
-P memory_limit 496.0
-P mode interactif
-P mpi_nbcpu 1
-P ncpus {cpus}
-P rep_trav {analysis_dir}
-P time_limit 60.0
-P tpsjob 2
-P version stable
-A memjeveux 62.0
-A tpmax 60.0
-F comm {analysis_dir}\{name}.comm D  1
-F mmed {analysis_dir}\{name}.med D  20
-"""
 
 
 num_nodes_per_cell = {

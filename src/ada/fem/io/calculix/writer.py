@@ -1,10 +1,10 @@
 import os
+import traceback
 from itertools import groupby
 from operator import attrgetter
 
 from ada.core.utils import NewLine, bool2text
-from ada.fem.io import _folder_prep
-from ada.fem.io.utils import get_fem_model_from_assembly
+from ada.fem.io.utils import _folder_prep, get_fem_model_from_assembly
 
 from ..abaqus.writer import (
     AbaqusWriter,
@@ -92,33 +92,34 @@ def to_fem(
 
 
 class CcxSection(AbaSection):
-    def __init__(self, origin, fem_writer):
-        super().__init__(origin, fem_writer)
+    def __init__(self, fem_sec, fem_writer):
+        super().__init__(fem_sec, fem_writer)
 
     @property
     def section_data(self):
-        if "section_type" in self._metadata.keys():
-            return self._metadata["section_type"]
+        sec_type = self.fem_sec.section.type
+        if "section_type" in self.fem_sec.metadata.keys():
+            return self.fem_sec.metadata["section_type"]
         from ada.sections import SectionCat
 
-        if self.section.type in SectionCat.circular:
-            self.section.properties.calculate()
+        if sec_type in SectionCat.circular:
+            self.fem_sec.section.properties.calculate()
             return "GENERAL"
-        elif self.section.type in SectionCat.igirders or self.section.type in SectionCat.iprofiles:
-            self.section.properties.calculate()
+        elif sec_type in SectionCat.igirders or sec_type in SectionCat.iprofiles:
+            self.fem_sec.section.properties.calculate()
             return "GENERAL"
-        elif self.section.type in SectionCat.box:
+        elif sec_type in SectionCat.box:
             return "BOX"
-        elif self.section.type in SectionCat.general:
+        elif sec_type in SectionCat.general:
             return "GENERAL"
-        elif self.section.type in SectionCat.tubular:
-            self.section.properties.calculate()
+        elif sec_type in SectionCat.tubular:
+            self.fem_sec.section.properties.calculate()
             return "PIPE"
-        elif self.section.type in SectionCat.angular:
-            self.section.properties.calculate()
+        elif sec_type in SectionCat.angular:
+            self.fem_sec.section.properties.calculate()
             return "GENERAL"
         else:
-            raise Exception('section type "{sec_type}" is not added to AbaBeam yet'.format(sec_type=self.section.type))
+            raise Exception(f'Section type "{sec_type}" is not added to AbaBeam yet.\n{traceback.format_exc()}')
 
     @property
     def beam_str(self):
@@ -135,24 +136,29 @@ class CcxSection(AbaSection):
         https://abaqus-docs.mit.edu/2017/English/SIMACAEELMRefMap/simaelm-c-beamsectionbehavior.htm#hj-top
 
         """
-        top_line = f"** Section: {self.elset.name}  Profile: {self.elset.name}"
-        n1 = ", ".join(str(x) for x in self.local_y)
-        ass = self.parent.parent.get_assembly()
+        top_line = f"** Section: {self.fem_sec.elset.name}  Profile: {self.fem_sec.elset.name}"
+        n1 = ", ".join(str(x) for x in self.fem_sec.local_y)
+        ass = self.fem_sec.parent.parent.get_assembly()
         rotary_str = ""
         if len(ass.fem.steps) > 0:
             initial_step = ass.fem.steps[0]
             if initial_step.type == "explicit":
                 rotary_str = ", ROTARY INERTIA=ISOTROPIC"
 
+        second_line = (
+            f"*Beam Section, elset={self.fem_sec.elset.name}, material={self.fem_sec.material.name}, "
+            f"section={self.section_data}{rotary_str}"
+        )
+
         if self.section_data != "GENERAL":
             return f"""{top_line}
-*Beam Section, elset={self.elset.name}, material={self.material.name}, section={self.section_data}{rotary_str}
+{second_line}
  {self.props}"""
         elif self.section_data == "PIPE":
-            return f"{self.section.r}, {self.section.wt}\n {n1}"
+            return f"{self.fem_sec.section.r}, {self.fem_sec.section.wt}\n {n1}"
         else:
             return f"""{top_line}
-*Beam Section, elset={self.elset.name}, material={self.material.name},  section=GENERAL{rotary_str}
+*Beam Section, elset={self.fem_sec.elset.name}, material={self.fem_sec.material.name},  section=GENERAL{rotary_str}
  {self.props}"""
 
 
@@ -225,26 +231,7 @@ def elements_str(fem_elements):
     :param fem_elements:
     :return:
     """
-
-    def aba_write(el):
-        """
-
-        :type el: ada.fem.Elem
-        """
-        nl = NewLine(10, suffix=7 * " ")
-        if len(el.nodes) > 6:
-            di = " {}"
-        else:
-            di = "{:>13}"
-        return f"{el.id:>7}, " + " ".join([f"{di.format(no.id)}," + next(nl) for no in el.nodes])[:-1]
-
-    def elwriter(eltype_set, elements):
-        if "connector" in eltype_set:
-            return None
-        eltype, elset = eltype_set
-        el_set_str = f", ELSET={elset.name}" if elset is not None else ""
-        el_str = "\n".join(map(aba_write, elements))
-        return f"""*ELEMENT, type={eltype}{el_set_str}\n{el_str}\n"""
+    from ..abaqus.writer import elwriter
 
     return (
         "".join(
@@ -398,17 +385,17 @@ def bc_str(bc):
     dofs_str = dofs_str.rstrip()
 
     if bc.type == "connector displacement":
-        bc_str = "*Connector Motion"
+        bcstr = "*Connector Motion"
         add_str = ", type=DISPLACEMENT"
     elif bc.type == "connector velocity":
-        bc_str = "*Connector Motion"
+        bcstr = "*Connector Motion"
         add_str = ", type=VELOCITY"
     else:
-        bc_str = "*Boundary"
+        bcstr = "*Boundary"
         add_str = ""
 
     return f"""** Name: {bc.name} Type: {aba_type}
-{bc_str}{ampl_ref_str}{add_str}
+{bcstr}{ampl_ref_str}{add_str}
 {dofs_str}"""
 
 
