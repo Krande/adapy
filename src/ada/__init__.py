@@ -388,9 +388,9 @@ class Part(BackendGeom):
                 shps += extract_subshapes(read_step_file(stp_file))
             return shps
 
-        def extract_subshapes(shp):
+        def extract_subshapes(shp_):
             s = []
-            t = TopologyExplorer(shp)
+            t = TopologyExplorer(shp_)
             for solid in t.solids():
                 s.append(solid)
             return s

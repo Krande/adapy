@@ -29,9 +29,9 @@ def run_code_aster(
     :param gpus: Number of GPUs to run the analysis on. Default is none.
     :param run_ext: If False the process will wait for the abaqus analysis to finish. Default is False
     :param metadata: Dictionary containing various metadata relevant for the analysis
-    :param subr_path: Path to fortran subroutine file (optional).
     :param execute: Automatically starts Abaqus analysis. Default is True
     :param return_bat_str:
+    :param exit_on_complete:
     """
 
     ca = CodeAsterAnalysis(

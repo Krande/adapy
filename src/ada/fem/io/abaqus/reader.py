@@ -26,7 +26,7 @@ from ada.fem import (
     Surface,
 )
 from ada.fem.containers import FemElements, FemSections, FemSets
-from ada.fem.io.abaqus.common import AbaCards, AbaFF
+from ada.fem.io.abaqus.common import AbaCards
 from ada.materials.metals import CarbonSteel
 
 from ..utils import str_to_int
@@ -303,9 +303,9 @@ def get_intprop_from_lines(assembly, bulk_str):
     """
     re_str = r"(\*Surface Interaction, name=.*?)(?=\*)(?!\*Friction|\*Surface Behavior|\*Surface Smoothing)"
     # surf_interact = AbaFF("Surface Interaction", [("name=",), ("bulk>",)], [("Friction", [(), ("bulkFRIC>",)])])
-    surf_smoothing = AbaFF("Surface Smoothing", [("name=",), ("bulk>",)])
+
     assembly.fem.metadata["surf_smoothing"] = []
-    for m in surf_smoothing.regex.finditer(bulk_str):
+    for m in AbaCards.surface_smoothing.regex.finditer(bulk_str):
         d = m.groupdict()
         assembly.fem.metadata["surf_smoothing"].append(d)
 
@@ -777,7 +777,6 @@ def get_surfaces_from_bulk(bulk_str, parent):
 
     :return:
     """
-    surface_re = AbaFF("Surface", [("type=", "name=", "internal|"), ("bulk>",)])
 
     def interpret_member(mem):
         msplit = mem.split(",")
@@ -790,7 +789,7 @@ def get_surfaces_from_bulk(bulk_str, parent):
         return tuple([ref, msplit[1].strip()])
 
     surf_d = dict()
-    for m in surface_re.regex.finditer(bulk_str):
+    for m in AbaCards.surface.regex.finditer(bulk_str):
         d = m.groupdict()
         name = d["name"].strip()
         surf_type = d["type"] if d["type"] is not None else "ELEMENT"
@@ -863,17 +862,9 @@ def get_lcsys_from_bulk(bulk_str, parent):
     #     r"^\*Orientation(:?,\s*definition=(?P<definition>.*?)|)(?:,\s*system=(?P<system>.*?)|)\s*name=(?P<name>.*?)\n(?P<content>.*?)$",
     #     _re_in,
     # )
-    a = AbaFF(
-        "Orientation",
-        [
-            ("name=", "definition=|", "local directions=|", "system=|"),
-            ("ax", "ay", "az", "bx", "by", "bz", "|cx", "|cy", "|cz"),
-            ("v1", "v2"),
-        ],
-    )
 
     lcsysd = dict()
-    for m in a.regex.finditer(bulk_str):
+    for m in AbaCards.orientation.regex.finditer(bulk_str):
         d = m.groupdict()
         name = d["name"].replace('"', "")
         defi = d["definition"] if d["definition"] is not None else "COORDINATES"
@@ -909,25 +900,19 @@ def get_constraints_from_inp(bulk_str, fem):
 
     # Rigid Bodies
 
-    rigid_bodies = AbaFF("Rigid Body", [("ref node=", "elset=")])
     constraints = []
     rbnames = Counter(1, "rgb")
     conames = Counter(1, "co")
 
-    for m in rigid_bodies.regex.finditer(bulk_str):
+    for m in AbaCards.rigid_bodies.regex.finditer(bulk_str):
         d = m.groupdict()
         name = next(rbnames)
         ref_node = grab_set_from_assembly(d["ref_node"], fem, "nset")
         elset = grab_set_from_assembly(d["elset"], fem, "elset")
         constraints.append(Constraint(name, "rigid body", ref_node, elset, parent=fem))
 
-    couplings_re = AbaFF(
-        "Coupling",
-        [("constraint name=", "ref node=", "surface=", "orientation=|")],
-        [("Kinematic", [(), ("bulk>",)])],
-    )
     couplings = []
-    for m in couplings_re.regex.finditer(bulk_str):
+    for m in AbaCards.coupling.regex.finditer(bulk_str):
         d = m.groupdict()
         name = d["constraint_name"]
         rn = d["ref_node"].strip()
@@ -957,11 +942,8 @@ def get_constraints_from_inp(bulk_str, fem):
         couplings.append(Constraint(name, "coupling", ref_set, surf, csys=csys, dofs=dofs, parent=fem))
 
     # Shell to Solid Couplings
-
-    sh2so_re = AbaFF("Shell to Solid Coupling", [("constraint name=",), ("surf1", "surf2")])
-
     sh2solids = []
-    for m in sh2so_re.regex.finditer(bulk_str):
+    for m in AbaCards.sh2so_re.regex.finditer(bulk_str):
         d = m.groupdict()
         name = d["constraint_name"]
         surf1 = fem.surfaces[d["surf1"]]
@@ -1008,14 +990,16 @@ def get_constraints_from_inp(bulk_str, fem):
 
 
 def get_connector_sections_from_bulk(bulk_str, parent):
-    conbeh = AbaFF(
-        "Connector Behavior",
-        [("name=",)],
-        [("Connector Elasticity", [("nonlinear|", "component=|"), ("bulk>",)])],
-    )
+    """
+
+    :param bulk_str:
+    :param parent:
+    :return:
+    """
+
     consecsd = dict()
 
-    for m in conbeh.regex.finditer(bulk_str):
+    for m in AbaCards.connector_behaviour.regex.finditer(bulk_str):
         d = m.groupdict()
         name = d["name"]
         comp = int(d["component"])
@@ -1037,11 +1021,10 @@ def get_connectors_from_inp(bulk_str, fem):
     :type fem: ada.fem.FEM
     :return:
     """
-    a = AbaFF("Connector Section", [("elset=", "behavior="), ("contype",), ("csys",)])
 
     nsuffix = Counter(1, "_")
     cons = dict()
-    for m in a.regex.finditer(bulk_str):
+    for m in AbaCards.connector_section.regex.finditer(bulk_str):
         d = m.groupdict()
         name = d["behavior"] + next(nsuffix)
         elset = fem.elsets[d["elset"]]
