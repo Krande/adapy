@@ -20,8 +20,7 @@ from .core.utils import (
     unit_vector,
     vector_length,
 )
-from .fem import FEM, Elem, FemSet
-from .fem.io.utils import femio
+from .fem import FEM, Elem, FemSet, io
 from .materials.metals import CarbonSteel
 from .sections import GeneralProperties, SectionCat
 
@@ -1140,7 +1139,7 @@ class Assembly(Part):
                         logging.debug(f'Shape "{product.Name}" was added below Assembly Level -> No owner found')
         print(f'Import of IFC file "{ifc_file}" is complete')
 
-    @femio
+    @io.femio
     def read_fem(
         self,
         fem_file,
@@ -1172,7 +1171,7 @@ class Assembly(Part):
 
         convert_func(self, fem_file, fem_name)
 
-    @femio
+    @io.femio
     def to_fem(
         self,
         name,

@@ -2,7 +2,6 @@ import logging
 import re
 from itertools import chain
 
-from ada import Material, Part, Section
 from ada.fem import Constraint, Csys, Elem, FemSection, FemSet, Mass, Spring
 from ada.fem.io.utils import get_ff_regex, str_to_int
 from ada.materials.metals import CarbonSteel
@@ -159,6 +158,8 @@ class SesamReader:
     """
 
     def __init__(self, assembly, part_name="T1"):
+        from ada import Part
+
         self.assembly = assembly
         self.part = Part(part_name)
         assembly.add_part(self.part)
@@ -286,6 +287,7 @@ class SesamReader:
 
         :return:
         """
+        from ada import Material
         from ada.core.containers import Materials
         from ada.core.utils import roundoff
 
@@ -389,6 +391,7 @@ class SesamReader:
 
         import numpy as np
 
+        from ada import Section
         from ada.core.containers import Sections
         from ada.core.utils import roundoff, unit_vector, vector_length
         from ada.fem.containers import FemSections

@@ -6,7 +6,6 @@ from operator import attrgetter
 
 import numpy as np
 
-from ada import Assembly, Node
 from ada.core.utils import NewLine, bool2text
 from ada.fem import FemSet, HistOutput, Load, Step, Surface
 from ada.fem.io.utils import _folder_prep
@@ -1536,6 +1535,7 @@ def get_instance_name(obj, fem_writer):
     :param fem_writer:
     :return:
     """
+    from ada import Assembly, Node
 
     if type(obj) is Node:
         obj_ref = obj.id
