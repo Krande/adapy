@@ -482,6 +482,10 @@ class Part(BackendGeom):
                         e1 = ecc
                     if no.id == n2.id:
                         e2 = ecc
+
+            if elem.fem_sec.section.type == 'GENBEAM':
+                logging.error(f'Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section')
+
             return Beam(
                 f"bm{elem.id}",
                 n1,
