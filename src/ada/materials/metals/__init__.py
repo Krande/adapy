@@ -168,13 +168,13 @@ class Metal:
 
     @units.setter
     def units(self, value):
-        if self._units == "mm" and value == "m":
+        if self._units == "m" and value == "mm":
             self._E *= 1e-6
             if self._sig_y is not None:
                 self._sig_y *= 1e-6
             self._rho *= 1e-9
             self._units = value
-        elif self._units == "m" and value == "mm":
+        elif self._units == "mm" and value == "m":
             self._E *= 1e6
             if self._sig_y is not None:
                 self._sig_y *= 1e6
