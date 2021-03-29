@@ -251,7 +251,9 @@ class BackendGeom(Backend):
 
         print(f'step file created at "{destination_file}"')
 
-    def render_locally(self, addr="localhost", server_port=8080, open_webbrowser=False, render_engine="threejs"):
+    def render_locally(
+        self, addr="localhost", server_port=8080, open_webbrowser=False, render_engine="threejs", resolution=(1800, 900)
+    ):
         from OCC.Display.WebGl.simple_server import start_server
 
         if render_engine == "xdom":
@@ -270,7 +272,7 @@ class BackendGeom(Backend):
 
             _path = pathlib.Path("temp/index.html").resolve().absolute()
 
-            renderer = MyRenderer((1800, 900))
+            renderer = MyRenderer(resolution)
             renderer.DisplayObj(self)
             renderer.build_display()
 

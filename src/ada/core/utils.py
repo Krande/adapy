@@ -2802,3 +2802,41 @@ def split_beam(bm, fraction):
     """
     raise NotImplementedError()
     # nmid = bm.n1.p + bm.xvec * bm.length * fraction
+
+
+def are_plates_touching(pl1, pl2, tol=1e-3):
+    """
+    Check if two plates are within tolerance of eachother.
+
+    This uses the OCC shape representation of the plate.
+
+    :param pl1:
+    :param pl2:
+    :param tol:
+    :return:
+    """
+    dss = compute_minimal_distance_between_shapes(pl1.solid, pl2.solid)
+    if dss.Value() <= tol:
+        return dss
+    else:
+        return None
+
+
+def compute_minimal_distance_between_shapes(shp1, shp2):
+    """
+    compute the minimal distance between 2 shapes
+
+    :rtype: OCC.Core.BRepExtrema.BRepExtrema_DistShapeShape
+    """
+    from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
+
+    dss = BRepExtrema_DistShapeShape()
+    dss.LoadS1(shp1)
+    dss.LoadS2(shp2)
+    dss.Perform()
+
+    assert dss.IsDone()
+
+    logging.info("Minimal distance between shapes: ", dss.Value())
+
+    return dss

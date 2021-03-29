@@ -267,16 +267,18 @@ def get_initial_conditions_from_lines(assembly, bulk_str):
         props = [sort_props(line) for line in bcs.splitlines()]
         set_name, dofs, magn = list(zip(*props))
         fem_set = None
-        if set_name[0] in assembly.fem.elsets.keys():
-            fem_set = assembly.fem.elsets[set_name[0]]
-        elif set_name[0] in assembly.fem.nsets.keys():
-            fem_set = assembly.fem.nsets[set_name[0]]
+        set_name_up = set_name[0]
+        if set_name_up in assembly.fem.elsets.keys():
+            fem_set = assembly.fem.elsets[set_name_up]
+        elif set_name_up in assembly.fem.nsets.keys():
+            fem_set = assembly.fem.nsets[set_name_up]
         else:
             for p in assembly.get_all_parts_in_assembly():
-                if set_name[0] in p.fem.elsets.keys():
-                    fem_set = p.fem.elsets[set_name[0]]
+                if set_name_up in p.fem.elsets.keys():
+                    fem_set = p.fem.elsets[set_name_up]
         if fem_set is None:
             raise ValueError(f'Unable to find fem set "{set_name[0]}"')
+
         return PredefinedField(bc_name, bc_type, fem_set, dofs, magn, parent=assembly.fem)
 
     for match in re.finditer(re_str, bulk_str, _re_in):
@@ -562,12 +564,19 @@ def get_elem_from_inp(bulk_str, fem):
     )
 
 
-def get_sections_from_inp(bulk_str, parent):
-    iter_beams = get_beam_sections_from_inp(bulk_str, parent)
-    iter_shell = get_shell_sections_from_inp(bulk_str, parent)
-    iter_solid = get_solid_sections_from_inp(bulk_str, parent)
+def get_sections_from_inp(bulk_str, fem):
+    """
 
-    return FemSections(chain.from_iterable([iter_beams, iter_shell, iter_solid]), parent)
+    :param bulk_str:
+    :param fem:
+    :type fem: ada.fem.FEM
+    :return:
+    """
+    iter_beams = get_beam_sections_from_inp(bulk_str, fem)
+    iter_shell = get_shell_sections_from_inp(bulk_str, fem)
+    iter_solid = get_solid_sections_from_inp(bulk_str, fem)
+
+    return FemSections(chain.from_iterable([iter_beams, iter_shell, iter_solid]), fem)
 
 
 def get_sets_from_bulk(bulk_str, fem):
@@ -609,7 +618,7 @@ def get_sets_from_bulk(bulk_str, fem):
             raise ValueError(f'Unable to find instance "{instance}" amongst assembly parts')
 
     def get_set(match):
-        name = match.group(2).upper()
+        name = match.group(2)
         set_type = match.group(1)
         internal = True if match.group(3) is not None else False
         instance = match.group(4)
@@ -692,23 +701,23 @@ def get_bcs_from_bulk(bulk_str, fem):
         magn = None if len(magn) == 0 else magn
         return set_name, dofs, magn
 
-    def get_set(part_instance_name, set_name):
+    def get_nset(part_instance_name, set_name):
         for p in fem.parent.parts.values():
             if p.fem.instance_name == part_instance_name:
-                return p.fem.nsets[set_name]
+                return p.fem.sets.get_nset_from_name(set_name)
 
     def get_bc(match):
         d = match.groupdict()
         bc_name = d["name"] if d["name"] is not None else next(bc_counter)
         bc_type = d["type"]
         set_name, dofs, magn = get_dofs(d["content"])
-        set_name = set_name.upper()
+
         if "." in set_name:
             part_instance_name, set_name = set_name.split(".")
-            fem_set = get_set(part_instance_name, set_name)
+            fem_set = get_nset(part_instance_name, set_name)
         else:
             if set_name in fem.nsets.keys():
-                fem_set = fem.nsets[set_name]
+                fem_set = fem.sets.get_nset_from_name(set_name)
             else:
                 val = str_to_int(set_name)
                 if val in fem.nodes.dmap.keys():
@@ -831,7 +840,7 @@ def get_surfaces_from_bulk(bulk_str, parent):
             else:
                 weight_factor = None
                 face_id_label = set_id_ref
-                fem_set = parent.elsets[set_ref]
+                fem_set = parent.sets.get_elset_from_name(set_ref)
         else:
             fem_set = None
             weight_factor = None
@@ -1052,10 +1061,14 @@ def get_connectors_from_inp(bulk_str, fem):
     return cons
 
 
-def get_beam_sections_from_inp(bulk_str, parent):
+def get_beam_sections_from_inp(bulk_str, fem):
     """
 
     https://abaqus-docs.mit.edu/2017/English/SIMACAEELMRefMap/simaelm-c-beamcrosssectlib.htm
+
+    :param bulk_str:
+    :param fem:
+    :type fem: ada.fem.FEM
     """
     from ada import Section
     from ada.sections import GeneralProperties
@@ -1083,10 +1096,10 @@ def get_beam_sections_from_inp(bulk_str, parent):
                 t_w=t1,
                 t_fbtn=t4,
                 t_ftop=t2,
-                parent=parent,
+                parent=fem,
             )
         elif sec_type.upper() == "CIRC":
-            return Section(profile_name, "CIRC", r=props_clean[0], parent=parent)
+            return Section(profile_name, "CIRC", r=props_clean[0], parent=fem)
         elif sec_type.upper() == "I":
             (
                 l,
@@ -1106,14 +1119,14 @@ def get_beam_sections_from_inp(bulk_str, parent):
                 t_w=t3,
                 t_fbtn=t1,
                 t_ftop=t2,
-                parent=parent,
+                parent=fem,
             )
         elif sec_type.upper() == "L":
             b, h, t1, t2 = props_clean
-            return Section(profile_name, "HP", h=h, w_btn=b, t_w=t2, t_fbtn=t1, parent=parent)
+            return Section(profile_name, "HP", h=h, w_btn=b, t_w=t2, t_fbtn=t1, parent=fem)
         elif sec_type.upper() == "PIPE":
             r, t = props_clean
-            return Section(profile_name, "TUB", r=r, wt=t, parent=parent)
+            return Section(profile_name, "TUB", r=r, wt=t, parent=fem)
         elif sec_type.upper() == "TRAPEZOID":
             # Currently converts Trapezoid to general beam
             b, h, a, d = props_clean
@@ -1152,16 +1165,16 @@ def get_beam_sections_from_inp(bulk_str, parent):
                 )
                 / 12,
             )
-            return Section(profile_name, "GENBEAM", genprops=genprops, parent=parent)
+            return Section(profile_name, "GENBEAM", genprops=genprops, parent=fem)
         else:
             raise ValueError(f'Currently unsupported section type "{sec_type}"')
 
     def grab_beam(match):
         d = match.groupdict()
-        elset = parent.elsets[d["elset"]]
+        elset = fem.elsets[d["elset"]]
         name = d["sec_name"] if d["sec_name"] is not None else elset.name
         profile = d["profile_name"] if d["profile_name"] is not None else elset.name
-        ass = parent.parent.get_assembly()
+        ass = fem.parent.get_assembly()
         material = ass.materials.get_by_name(d["material"])
         # material = parent.parent.materials.get_by_name(d['material'])
         temperature = d["temperature"]
@@ -1175,7 +1188,7 @@ def get_beam_sections_from_inp(bulk_str, parent):
             section_type=section_type,
             line1=geo_props,
         )
-        res = parent.parent.sections.add(sec)
+        res = fem.parent.sections.add(sec)
         if res is not None:
             sec = res
         return FemSection(
@@ -1186,18 +1199,22 @@ def get_beam_sections_from_inp(bulk_str, parent):
             local_y=beam_y,
             material=material,
             metadata=metadata,
-            parent=parent,
+            parent=fem,
         )
 
     return map(grab_beam, re_beam.finditer(bulk_str))
 
 
-def get_solid_sections_from_inp(bulk_str, parent):
+def get_solid_sections_from_inp(bulk_str, fem):
     """
 
     ** Section: Section-80-MAT2TH1
     *Shell Section, elset=MAT2TH1, material=S3_BS__S355_16_T__40_M2
     0.02, 5
+
+    :param bulk_str:
+    :param fem:
+    :type fem: ada.fem.FEM
 
     """
     secnames = Counter(1, "solidsec")
@@ -1219,20 +1236,23 @@ def get_solid_sections_from_inp(bulk_str, parent):
             sec_type="solid",
             elset=elset,
             material=material,
-            parent=parent,
+            parent=fem,
         )
 
     return map(grab_solid, solid_iter)
 
 
-def get_shell_sections_from_inp(bulk_str, parent):
+def get_shell_sections_from_inp(bulk_str, fem):
     """
 
     ** Section: Section-80-MAT2TH1
     *Shell Section, elset=MAT2TH1, material=S3_BS__S355_16_T__40_M2
     0.02, 5
+    :param bulk_str:
+    :param fem:
+    :type fem: ada.fem.FEM
+    :return: map object containing list of FemSection objects
 
-    :return:
     """
 
     shname = Counter(1, "sh")
@@ -1252,7 +1272,7 @@ def get_shell_sections_from_inp(bulk_str, parent):
     def grab_shell(m):
         d = m.groupdict()
         name = d["name"] if d["name"] is not None else next(shname)
-        elset = parent.elsets[d["elset"]]
+        elset = fem.sets.get_elset_from_name(d["elset"])
         material = d["material"]
         thickness = float(d["t"])
         offset = d["offset"]
@@ -1266,7 +1286,7 @@ def get_shell_sections_from_inp(bulk_str, parent):
             material=material,
             int_points=int_points,
             offset=offset,
-            parent=parent,
+            parent=fem,
             metadata=metadata,
         )
 
