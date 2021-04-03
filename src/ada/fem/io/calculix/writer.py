@@ -1,9 +1,8 @@
-import os
 import traceback
 from itertools import groupby
 from operator import attrgetter
 
-from ada.core.utils import NewLine, bool2text
+from ada.core.utils import NewLine, bool2text, get_current_user
 from ada.fem.io.utils import _folder_prep, get_fem_model_from_assembly
 
 from ..abaqus.writer import (
@@ -48,6 +47,7 @@ def to_fem(
     :param exit_on_complete:
     :return:
     """
+
     analysis_dir = _folder_prep(scratch_dir, name, overwrite)
     inp_file = (analysis_dir / name).with_suffix(".inp")
 
@@ -55,7 +55,7 @@ def to_fem(
 
     with open(inp_file, "w") as f:
         # Header
-        f.write(main_header_str.format(username=os.getlogin()))
+        f.write(main_header_str.format(username=get_current_user()))
 
         # Part level information
         f.write(nodes_str(p.fem.nodes) + "\n")

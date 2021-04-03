@@ -1,8 +1,6 @@
-name: ada
+name: adaenv
 channels:
   - conda-forge
 dependencies:
   - pythonocc-core
   - ifcopenshell
-
-

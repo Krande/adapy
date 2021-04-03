@@ -1,9 +1,9 @@
 import logging
-import os
 
 import numpy as np
 
 from ada.core.containers import Materials
+from ada.core.utils import get_current_user
 from ada.fem import FemSection, Load
 from ada.fem.io.utils import _folder_prep
 
@@ -75,7 +75,7 @@ class SesamWriter:
         now = datetime.datetime.now()
         date_str = now.strftime("%d-%b-%Y")
         clock_str = now.strftime("%H:%M:%S")
-        user = os.getlogin()
+        user = get_current_user()
 
         units = "UNITS     5.00000000E+00  1.00000000E+00  1.00000000E+00  1.00000000E+00\n          1.00000000E+00\n"
 

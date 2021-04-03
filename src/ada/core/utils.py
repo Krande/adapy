@@ -21,6 +21,7 @@ __all__ = [
     "angle_between",
     "Counter",
     "clockwise",
+    "get_current_user",
     "get_file_size",
     "is_coplanar",
     "make_cylinder_from_points",
@@ -1999,7 +2000,7 @@ def easy_plotly(
             os.makedirs(dirpath)
         pio.write_image(fig, save_filename, width=1600, height=800)
         if "\\" not in save_filename:
-            output_file = r"C:\Users\{}\Downloads\{}.png".format(os.getlogin(), filename)
+            output_file = pathlib.Path(f"C:/ADA/temp/{filename}.png")
             if os.path.isfile(output_file) is True:
                 shutil.move(output_file, dirpath + "\\" + filename + ".png")
             else:
@@ -2009,6 +2010,16 @@ def easy_plotly(
         if return_widget is True:
             return fig
         fig.show(renderer=renderer)
+
+
+def get_current_user():
+    """
+
+    :return: Name of current user
+    """
+    import getpass
+
+    return getpass.getuser()
 
 
 def get_list_of_files(dir_name, file_ext=None, strict=False):

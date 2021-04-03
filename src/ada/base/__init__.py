@@ -329,8 +329,17 @@ class BackendGeom(Backend):
         return self._penetrations
 
     def _repr_html_(self):
+        from IPython.display import display
+        from ipywidgets import HBox, VBox
+
         from ada.base.renderer import MyRenderer
 
-        self._renderer = MyRenderer()
-        self._renderer.DisplayObj(self)
-        self._renderer.Display()
+        renderer = MyRenderer()
+
+        renderer.DisplayObj(self)
+        renderer.build_display()
+        self._renderer = renderer
+        display(HBox([VBox([HBox(renderer._controls), renderer._renderer]), renderer.html]))
+        # renderer._reset()
+        # self._renderer.Display()
+        return ""

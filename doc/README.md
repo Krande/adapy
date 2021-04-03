@@ -1,4 +1,5 @@
 # TODO
-Copy doc from local repo and set up a github pages. 
-Inspiration
-* https://github.com/annegentle/create-demo
+Where to place the documentation?
+
+Github.io or readthedocs?
+
