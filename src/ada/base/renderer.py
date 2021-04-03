@@ -566,6 +566,7 @@ class MyRenderer(JupyterRenderer):
         self._camera.mode = "orthographic"
         self._camera_target = camera_target
         self._camera.position = camera_position
+
         if rotation is not None:
             self._camera.rotation = rotation
         # Set up lights in every of the 8 corners of the global bounding box
@@ -596,7 +597,7 @@ class MyRenderer(JupyterRenderer):
         self._picker = Picker(controlling=self._displayed_pickable_objects, event="dblclick")
         self._picker.observe(self.click)
 
-        self.renderer = Renderer(
+        self._renderer = Renderer(
             camera=self._camera,
             background=self._background,
             background_opacity=self._background_opacity,

@@ -1,5 +1,5 @@
 import json
-import os
+import pathlib
 import re
 from collections import OrderedDict
 
@@ -31,9 +31,9 @@ def profile_db_collect(sec_type, dim, units="m"):
 
     if sec_type == "IP":
         sec_type = "IPE"
-    dir_path = os.path.dirname(os.path.realpath(__file__))
+    dir_path = pathlib.Path(__file__).resolve().parent
 
-    with open(dir_path + r"\resources\ProfileDB.json") as data_file:
+    with open(dir_path / "resources" / "ProfileDB.json") as data_file:
         profile_db_main = json.load(data_file, object_pairs_hook=OrderedDict)
 
     profile_db = profile_db_main["ProfileDB"]

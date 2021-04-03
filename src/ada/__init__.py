@@ -14,6 +14,7 @@ from .core.utils import (
     Counter,
     angle_between,
     create_guid,
+    get_current_user,
     get_list_of_files,
     make_wire_from_points,
     roundoff,
@@ -984,7 +985,7 @@ class Assembly(Part):
 
         from ada.core.ifc_utils import generate_tpl_ifc_file
 
-        creator = os.getlogin() if creator is None else creator
+        creator = get_current_user() if creator is None else creator
         self._ifc_file = generate_tpl_ifc_file(name, project, organization, creator, schema, units)
         if metadata is None:
             metadata = dict()
