@@ -5,9 +5,10 @@ IFC and various Finite Element formats.
 
 This library is still undergoing significant development so expect there to be occasional bugs and breaking changes.
 
+Try the latest build online here
 
-Currently there is only support for Windows. But given that ada is written in pure python and that we believe all 
-dependencies are multiplatform we hope to add support for linux and macOS in the future.
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Krande/adapy-binder/main)
+
 
 ## Installation
 Here are the steps necessary to install the ada package
