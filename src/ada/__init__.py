@@ -4093,6 +4093,8 @@ class Penetration(BackendGeom):
             self._ifc_opening = self._generate_ifc_opening()
         return self._ifc_opening
 
+    def __repr__(self):
+        return f'Pen(type={type(self.primitive)})'
 
 class Section(Backend):
     """

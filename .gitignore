@@ -3,7 +3,7 @@
 # Packaging
 build/
 dist/
-doc/_build/
+docs/_build/
 *.egg-info/
 .pytest_cache/
 # Other

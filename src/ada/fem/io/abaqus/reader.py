@@ -38,12 +38,17 @@ _re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 def read_fem(assembly, fem_file, fem_name=None):
     """
     This will create and add an AbaqusPart object based on a path reference to a Abaqus input file.
-    :param assembly:
+
+    :param assembly: Assembly object
     :param fem_file: Absolute or relative path to Abaqus *.inp file. See below for further explanation
-    :param fem_name:
+    :param fem_name: Currently not in use.
     :type assembly: ada.Assembly
     """
     print("Starting import of Abaqus input file")
+
+    if fem_name is not None:
+        global part_name_counter
+        part_name_counter = Counter(1, fem_name)
 
     bulk_str = read_bulk_w_includes(fem_file)
     lbulk = bulk_str.lower()

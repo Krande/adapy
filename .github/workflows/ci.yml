@@ -2,6 +2,10 @@ name: ci-ada-main
 
 on:
   push:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/ci.yml'
     branches:
     - main
     - dev

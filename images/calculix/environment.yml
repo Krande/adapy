@@ -1,0 +1,11 @@
+name: root
+channels:
+  - conda-forge
+dependencies:
+  - python==3.8.8
+  - pythonocc-core
+  - ifcopenshell
+  - jupyter
+  - pip
+  - pip:
+      - ada-py

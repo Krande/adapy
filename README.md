@@ -5,9 +5,10 @@ IFC and various Finite Element formats.
 
 This library is still undergoing significant development so expect there to be occasional bugs and breaking changes.
 
+Try the latest build online here
 
-Currently there is only support for Windows. But given that ada is written in pure python and that we believe all 
-dependencies are multiplatform we hope to add support for linux and macOS in the future.
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Krande/adapy-binder/main)
+
 
 ## Installation
 Here are the steps necessary to install the ada package
@@ -63,7 +64,7 @@ creates an IFC with the following hierarchy (as shown in the figure below taken 
         MyPart (IfcBuildingStorey)
             MyBeam (IfcBeam)
 
-![Beam Visualized in BlenderBIM](doc/figures/my_beam.png)
+![Beam Visualized in BlenderBIM](docs/_static/figures/my_beam.png)
 
 
 ### Create and execute a FEM analysis in Calculix and Abaqus
@@ -82,8 +83,8 @@ a.to_fem("MyCantilever_calculix", "calculix", overwrite=True, execute=True)
 
 after the execution is finished you can look at the results
 
-![Paraview Results](doc/figures/fem_beam_paraview.png)
-![Abaqus Results](doc/figures/fem_beam_abaqus.png)
+![Paraview Results](docs/_static/figures/fem_beam_paraview.png)
+![Abaqus Results](docs/_static/figures/fem_beam_abaqus.png)
 
 
 In short `beam_ex1` creates a `Beam` object which it uses to create a FEM mesh comprised of shell elements using GMSH. 
