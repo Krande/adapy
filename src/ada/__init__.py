@@ -3742,6 +3742,9 @@ class PrimSphere(Shape):
             self._geom = make_sphere(self.pnt, self.radius)
             self._units = value
 
+    def __repr__(self):
+        return f"PrimSphere({self.name})"
+
 
 class PrimBox(Shape):
     def __init__(self, name, p1, p2, colour=None, opacity=1.0, metadata=None, units="m"):
@@ -3773,6 +3776,9 @@ class PrimBox(Shape):
             self._geom = make_box_by_points(self.p1, self.p2)
             self._units = value
 
+    def __repr__(self):
+        return f"PrimBox({self.name})"
+
 
 class PrimCyl(Shape):
     def __init__(self, name, p1, p2, r, colour=None, opacity=1.0, metadata=None, units="m"):
@@ -3797,6 +3803,9 @@ class PrimCyl(Shape):
             self.p2 = [x * scale_factor for x in self.p2]
             self.r = self.r * scale_factor
             self._geom = make_cylinder_from_points(self.p1, self.p2, self.r)
+
+    def __repr__(self):
+        return f"PrimCyl({self.name})"
 
 
 class PrimExtrude(Shape):
@@ -3859,6 +3868,9 @@ class PrimExtrude(Shape):
     @property
     def extrude_depth(self):
         return self._extrude_depth
+
+    def __repr__(self):
+        return f"PrimExtrude({self.name})"
 
 
 class PrimRevolve(Shape):
@@ -3932,6 +3944,9 @@ class PrimRevolve(Shape):
     def revolve_angle(self):
         return self._revolve_angle
 
+    def __repr__(self):
+        return f"PrimRevolve({self.name})"
+
 
 class PrimSweep(Shape):
     def __init__(
@@ -3999,6 +4014,9 @@ class PrimSweep(Shape):
     @property
     def profile_curve_inner(self):
         return self._profile_curve_inner
+
+    def __repr__(self):
+        return f"PrimSweep({self.name})"
 
 
 class Penetration(BackendGeom):
@@ -4094,7 +4112,8 @@ class Penetration(BackendGeom):
         return self._ifc_opening
 
     def __repr__(self):
-        return f'Pen(type={type(self.primitive)})'
+        return f"Pen(type={self.primitive})"
+
 
 class Section(Backend):
     """
@@ -4886,8 +4905,10 @@ class Node:
 
 class Connection(Part):
     """
-    A basic Connection class
 
+    TODO: Build something with this class
+
+    A basic Connection class
     """
 
     def __init__(self, name, incoming_beams, wp=None):
