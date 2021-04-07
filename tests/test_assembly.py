@@ -1,5 +1,6 @@
 import unittest
-from ada import Assembly, Beam, Plate, Section, Material, Part
+
+from ada import Assembly, Beam, Part, Plate, Section
 from ada.param_models.basic_module import SimpleStru
 
 
@@ -10,9 +11,7 @@ class VisualizeTests(unittest.TestCase):
 
         bm1 = Beam("bm1", n1=[0, 0, 0], n2=[2, 0, 0], sec="IPE220", colour="red")
         bm2 = Beam("bm2", n1=[0, 0, 1], n2=[2, 0, 1], sec="HP220x10", colour="blue")
-        bm3 = Beam(
-            "bm3", n1=[0, 0, 2], n2=[2, 0, 2], sec="BG800x400x20x40", colour="green"
-        )
+        bm3 = Beam("bm3", n1=[0, 0, 2], n2=[2, 0, 2], sec="BG800x400x20x40", colour="green")
         bm4 = Beam("bm4", n1=[0, 0, 3], n2=[2, 0, 3], sec="CIRC200", colour="green")
         bm5 = Beam("bm5", n1=[0, 0, 4], n2=[2, 0, 4], sec="TUB200x10", colour="green")
 
@@ -25,20 +24,10 @@ class VisualizeTests(unittest.TestCase):
     def test_viz(self):
         a = Assembly("my_test_assembly")
         a.add_beam(Beam("bm1", n1=[0, 0, 0], n2=[2, 0, 0], sec="IPE220", colour="red"))
-        a.add_beam(
-            Beam("bm2", n1=[0, 0, 1], n2=[2, 0, 1], sec="HP220x10", colour="blue")
-        )
-        a.add_beam(
-            Beam(
-                "bm3", n1=[0, 0, 2], n2=[2, 0, 2], sec="BG800x400x20x40", colour="green"
-            )
-        )
-        a.add_beam(
-            Beam("bm4", n1=[0, 0, 3], n2=[2, 0, 3], sec="CIRC200", colour="green")
-        )
-        a.add_beam(
-            Beam("bm5", n1=[0, 0, 4], n2=[2, 0, 4], sec="TUB200x10", colour="green")
-        )
+        a.add_beam(Beam("bm2", n1=[0, 0, 1], n2=[2, 0, 1], sec="HP220x10", colour="blue"))
+        a.add_beam(Beam("bm3", n1=[0, 0, 2], n2=[2, 0, 2], sec="BG800x400x20x40", colour="green"))
+        a.add_beam(Beam("bm4", n1=[0, 0, 3], n2=[2, 0, 3], sec="CIRC200", colour="green"))
+        a.add_beam(Beam("bm5", n1=[0, 0, 4], n2=[2, 0, 4], sec="TUB200x10", colour="green"))
         a.add_plate(
             Plate(
                 "pl1",
@@ -100,18 +89,6 @@ class TestEqualityProtocol(unittest.TestCase):
         self.assertTrue(sec1 == sec1)
         self.assertTrue(sec1 in list_of_secs)
         self.assertFalse(Section(name="sec4", **secvar) in list_of_secs)
-
-    def test_material_equal(self):
-        matvar = dict(
-            sec_type="IG",
-            h=0.8,
-            w_top=0.2,
-            w_btn=0.2,
-            t_fbtn=0.01,
-            t_ftop=0.01,
-            t_w=0.01,
-        )
-        Material("MyMat")
 
     def test_parts_list(self):
         a = Assembly("MyAssembly")

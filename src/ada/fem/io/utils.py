@@ -45,8 +45,7 @@ class LocalExecute:
         if sys.platform == "linux" or sys.platform == "linux2":
             run_linux(self, run_command)
         elif sys.platform == "darwin":
-            wait_cmd = "wait "
-            run_str = ""
+            run_macOS(self, run_command)
         else:  # sys.platform == "win32":
             run_windows(self, run_command, stop_command, exit_on_complete)
 
@@ -74,9 +73,7 @@ class LocalExecute:
 
 
 def is_buffer(obj, mode):
-    return ("r" in mode and hasattr(obj, "read")) or (
-        "w" in mode and hasattr(obj, "write")
-    )
+    return ("r" in mode and hasattr(obj, "read")) or ("w" in mode and hasattr(obj, "write"))
 
 
 @contextmanager
@@ -102,11 +99,7 @@ def get_fem_model_from_assembly(assembly):
     :return: A single or multiple parts
     :rtype: ada.Part
     """
-    parts = list(
-        filter(
-            lambda p: len(p.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)
-        )
-    )
+    parts = list(filter(lambda p: len(p.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)))
 
     if len(parts) > 1:
         raise ValueError(
@@ -137,9 +130,7 @@ def get_exe_path(exe_name):
     elif shutil.which(f"{exe_name}.bat"):
         exe_path = shutil.which(f"{exe_name}.bat")
     else:
-        raise FileNotFoundError(
-            f'No Path to Executable "{exe_name}.exe" or "{exe_name}.bat" is found'
-        )
+        raise FileNotFoundError(f'No Path to Executable "{exe_name}.exe" or "{exe_name}.bat" is found')
 
     exe_path = pathlib.Path(exe_path)
 
@@ -241,9 +232,7 @@ def _folder_prep(scratch_dir, analysis_name, overwrite):
         if overwrite is True:
             _overwrite_dir(analysis_dir)
         else:
-            raise IOError(
-                "The analysis folder exists. Please remove folder and try again"
-            )
+            raise IOError("The analysis folder exists. Please remove folder and try again")
 
     os.makedirs(analysis_dir, exist_ok=True)
     return analysis_dir
@@ -289,17 +278,15 @@ echo ON
     if exe._auto_execute is True:
         if exe._run_ext is True:
             subprocess.run(
-                'start ' + start_bat,
+                "start " + start_bat,
                 cwd=exe.execute_dir,
                 shell=True,
                 env=os.environ,
             )
-            print(
-                f"Note! This starts {fem_tool} in an external window on a separate thread."
-            )
+            print(f"Note! This starts {fem_tool} in an external window on a separate thread.")
         else:
             subprocess.run(
-                'start /wait ' + start_bat,
+                "start /wait " + start_bat,
                 cwd=exe.execute_dir,
                 shell=True,
                 env=os.environ,
@@ -327,9 +314,7 @@ def run_linux(exe, run_command):
                 shell=True,
                 env=os.environ,
             )
-            print(
-                f"Note! This starts {fem_tool} in an external window on a separate thread."
-            )
+            print(f"Note! This starts {fem_tool} in an external window on a separate thread.")
         else:
             subprocess.run(
                 run_command,
@@ -339,3 +324,7 @@ def run_linux(exe, run_command):
             )
             print(f'Finished {fem_tool} simulation "{exe.analysis_name}"')
     print(80 * "-")
+
+
+def run_macOS(exe, run_command):
+    raise NotImplementedError()

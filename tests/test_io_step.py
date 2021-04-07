@@ -1,11 +1,10 @@
 import unittest
 
-from ada import Assembly, Beam, Section, CurvePoly
-from ada.param_models.basic_module import SimpleStru, make_it_complex
+from ada import Assembly, Beam, CurvePoly, Section
 from ada.config import Settings
+from ada.param_models.basic_module import SimpleStru, make_it_complex
 
 test_folder = Settings.test_dir / "step_basics"
-
 
 
 class MyStepCases(unittest.TestCase):

@@ -1,10 +1,10 @@
 import unittest
 
-from ada import Assembly, Part, Beam, Plate, Section, Wall, Pipe
+from ada import Assembly, Beam, Part, Pipe, Plate, Section, Wall
+from ada.config import Settings
 from ada.core.utils import download_to
 from ada.param_models.basic_module import SimpleStru
-from ada.param_models.basic_structural_components import Window, Door
-from ada.config import Settings
+from ada.param_models.basic_structural_components import Door, Window
 
 test_folder = Settings.test_dir / "ifc_basics"
 
@@ -154,7 +154,6 @@ class IfcRoundtripping(unittest.TestCase):
         assert len(all_parts) == 3
 
     def test_ifc_reimport(self):
-
 
         # Model to be re-imported
         a = Assembly("my_test_assembly")

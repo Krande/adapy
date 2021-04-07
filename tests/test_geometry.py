@@ -1,13 +1,15 @@
 import unittest
+
 import numpy as np
+
 from ada.core.utils import (
-    rotation_matrix_csys_rotate,
-    global_2_local_nodes,
-    local_2_global_nodes,
-    roundoff,
     calc_2darc_start_end_from_lines_radius,
     calc_arc_radius_center_from_3points,
+    global_2_local_nodes,
     intersection_point,
+    local_2_global_nodes,
+    rotation_matrix_csys_rotate,
+    roundoff,
 )
 
 # Arbitrary global coordinates
@@ -63,17 +65,13 @@ class CoordinateSystems(unittest.TestCase):
     def test_csys_rotation1(self):
         csys1 = [(1, 0, 0), (0, 1, 0)]
 
-        origin = (0, 0, 0)
         point = (2, -0.3, 2)
         xvec = np.array([1, 0, 0])
         yvec = np.array([0, 0, 1])
-        zvec = np.cross(xvec, yvec)
         csys2 = [xvec, yvec]
 
-        p = np.array(point) - np.array(origin)
         rm_to_local = rotation_matrix_csys_rotate(csys1, csys2)
         p_local = np.dot(rm_to_local, point)
-        vec_local = np.dot(rm_to_local, [0, -1, 0])
 
         rm_to_global = rotation_matrix_csys_rotate(csys2, csys1, inverse=True)
         p_global = np.dot(rm_to_global, p_local)
@@ -138,12 +136,11 @@ class ArcGeom(unittest.TestCase):
 
     def test_basic_arc2(self):
         from ada.core.utils import (
-            calc_2darc_start_end_from_lines_radius,
             angle_between,
-            linear_2dtransform_rotate,
             intersect_line_circle,
-            unit_vector,
+            linear_2dtransform_rotate,
             local_2_global_nodes,
+            unit_vector,
         )
 
         origin = (0, 0, 0)
@@ -168,7 +165,6 @@ class ArcGeom(unittest.TestCase):
         else:
             theta = alpha / 2
 
-        tdeg = np.rad2deg(theta)
         A = p2 - v1 * s
 
         center = linear_2dtransform_rotate(p2, A, np.rad2deg(theta))

@@ -1,5 +1,6 @@
-import unittest
 import pprint
+import unittest
+
 from ada.fem.io.abaqus.common import AbaCards
 
 consec = """*Node
@@ -25,7 +26,7 @@ conbeh = """*End Assembly
       0.,     0.
  160000.,  0.001
  350000.,  0.035
-** 
+**
 ** MATERIALS
 ** """
 
@@ -95,7 +96,7 @@ couplings = """*Orientation, name="Datum csys-12"
 3, 3"""
 
 interactions = """** INTERACTIONS
-** 
+**
 ** Interaction: bump1
 *Contact Pair, interaction=bumper130, type=SURFACE TO SURFACE
 S02_Fused-1.s12, S02_Fused-1.s11
@@ -123,7 +124,7 @@ _Int-2_gcs0_3, Circumferential, 344.598, 100., 539.316,  345.23, 100., 540.09
 _Int-2_gcs0_4, Circumferential, 349.849, 100.125, 545.745,  350.319, 100.55, 544.971
 _Int-2_gcs0_5, Circumferential, 349.849, 99.875, 545.745,  350.319, 99.4502, 544.971
 ** ----------------------------------------------------------------
-** 
+**
 """
 
 
