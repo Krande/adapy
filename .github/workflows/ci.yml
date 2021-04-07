@@ -30,17 +30,14 @@ jobs:
     - name: Lint with isort
       run: |
         pip install isort
-        cd src
         isort --check .
     - name: Lint with flake8
       run: |
         pip install flake8
-        cd src
         flake8 .
     - name: Lint with black
       run: |
         pip install black
-        cd src
         black --check .
   test:
     needs: lint

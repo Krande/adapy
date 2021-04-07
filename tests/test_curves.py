@@ -1,7 +1,8 @@
 import unittest
-from ada import CurvePoly, CurveRevolve, Assembly, Part, PrimSweep
-from ada.config import Settings
+
 from OCC.Display.WebGl import x3dom_renderer
+
+from ada import CurvePoly
 
 # Settings.debug = True
 sweep_curve = [(1, 1, 0), (5, 5.0, 0.0, 1), (10, 1, 0)]
@@ -17,7 +18,5 @@ class SweepTests(unittest.TestCase):
         # my_renderer.render()
 
 
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -86,7 +86,7 @@ pygments_style = "sphinx"
 # html_sourcelink_suffix = ''
 # blob_url = f'https://raw.githubusercontent.com/Krande/adapy/dev/docs/notebooks/${{newpath}}.ipynb'
 # blob_url = 'https://github.com/Krande/adapy/blob/dev/docs/notebooks/${{newpath}}.ipynb'
-blob_url = 'https://github.com/Krande/adapy/raw/dev/docs/notebooks/${newpath}.ipynb'
+blob_url = "https://github.com/Krande/adapy/raw/dev/docs/notebooks/${newpath}.ipynb"
 
 nbsphinx_prolog = rf"""
 

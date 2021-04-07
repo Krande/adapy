@@ -6,6 +6,3 @@ dependencies:
   - pythonocc-core
   - ifcopenshell
   - jupyter
-  - pip
-  - pip:
-      - ada-py

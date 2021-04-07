@@ -1,7 +1,8 @@
 import unittest
-from ada import Beam, Assembly, Part
-from ada.core.constants import color_map
+
+from ada import Assembly, Beam, Part
 from ada.config import Settings
+from ada.core.constants import color_map
 
 test_folder = Settings.test_dir / "colours"
 

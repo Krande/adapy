@@ -7,7 +7,7 @@ This library is still undergoing significant development so expect there to be o
 
 Try the latest build online here
 
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Krande/adapy-binder/main)
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Krande/adapy/main)
 
 
 ## Installation

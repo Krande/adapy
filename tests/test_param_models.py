@@ -1,8 +1,9 @@
 import unittest
+
 from ada import Assembly, Pipe, Section
-from ada.param_models.basic_module import SimpleStru
-from ada.fem import Step, Load
 from ada.config import Settings
+from ada.fem import Load, Step
+from ada.param_models.basic_module import SimpleStru
 
 test_folder = Settings.test_dir / "param_models"
 

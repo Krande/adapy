@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - 'src/**'
-      - 'Dockerfile'
+      - 'images/calculix/Dockerfile'
       - '.github/workflows/ci-docker-base.yml'
     branches:
       - main
@@ -37,6 +37,6 @@ jobs:
           file: images/calculix/Dockerfile
           context: .
           push: true
-          tags: ada/base:latest
+          tags: krande/ada:Ccx216Py388
       - name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}

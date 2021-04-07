@@ -1,8 +1,8 @@
 import unittest
-from ada import Beam, Section, Material, Assembly, Part
-from ada import CurveRevolve, CurvePoly
-from ada.materials.metals import CarbonSteel
+
+from ada import Assembly, Beam, CurvePoly, Material, Part, Section
 from ada.config import Settings
+from ada.materials.metals import CarbonSteel
 
 test_folder = Settings.test_dir / "beams"
 
@@ -175,7 +175,7 @@ class BeamIO(unittest.TestCase):
 
         p.add_beam(
             Beam(
-                f"bm_test2X0",
+                "bm_test2X0",
                 n1=[0, 0, 0],
                 n2=[5, 0, 0],
                 sec=section,
@@ -185,7 +185,7 @@ class BeamIO(unittest.TestCase):
         )
         p.add_beam(
             Beam(
-                f"bm_test2X90",
+                "bm_test2X90",
                 n1=[0, 0, 1],
                 n2=[5, 0, 1],
                 sec=section,
@@ -195,7 +195,7 @@ class BeamIO(unittest.TestCase):
         )
         p.add_beam(
             Beam(
-                f"bm_test2Y0",
+                "bm_test2Y0",
                 n1=[0, 0, 2],
                 n2=[0, 5, 2],
                 sec=section,
@@ -205,7 +205,7 @@ class BeamIO(unittest.TestCase):
         )
         p.add_beam(
             Beam(
-                f"bm_test2Y90",
+                "bm_test2Y90",
                 n1=[0, 0, 3],
                 n2=[0, 5, 3],
                 sec=section,
@@ -224,15 +224,15 @@ class BeamIO(unittest.TestCase):
         e_i = [(475.0, 475.0, 475.0), (-475.0, 475.0, 475.0), (-475.0, -475.0, 475.0), (475.0, -475.0, 475.0)]
         poly_s_o = CurvePoly(s_o, (0, 0, 0), (0, 0, 1), (1, 0, 0))
         poly_s_i = CurvePoly(s_i, (0, 0, 0), (0, 0, 1), (1, 0, 0))
-        section_s = Section('MyStartCrossSection', "poly", outer_poly=poly_s_o, inner_poly=poly_s_i, units="mm")
+        section_s = Section("MyStartCrossSection", "poly", outer_poly=poly_s_o, inner_poly=poly_s_i, units="mm")
 
         poly_e_o = CurvePoly(e_o, (0, 0, 0), (0, 0, 1), (1, 0, 0))
         poly_e_i = CurvePoly(e_i, (0, 0, 0), (0, 0, 1), (1, 0, 0))
-        section_e = Section('MyEndCrossSection', "poly", outer_poly=poly_e_o, inner_poly=poly_e_i, units="mm")
+        section_e = Section("MyEndCrossSection", "poly", outer_poly=poly_e_o, inner_poly=poly_e_i, units="mm")
 
-        bm = Beam('MyCone', (2,2,2), (4,4,4), sec=section_s, tap=section_e)
-        a = Assembly('Level1', project='Project0',creator='krande', units='mm') / (Part('Level2') / bm)
-        a.to_ifc(test_folder / 'cone_ex.ifc')
+        bm = Beam("MyCone", (2, 2, 2), (4, 4, 4), sec=section_s, tap=section_e)
+        a = Assembly("Level1", project="Project0", creator="krande", units="mm") / (Part("Level2") / bm)
+        a.to_ifc(test_folder / "cone_ex.ifc")
 
     # def test_revolved_beam(self):
     #     curve = CurveRevolve("THRU", (10, 0, 0), (10, 10, 0), point_on=(11, 5.0, 0.0), rot_axis=(0, 0, 1))
@@ -313,9 +313,9 @@ class BeamProfiles(unittest.TestCase):
             assert validation[i]["r"] == bm.section.r
 
     def test_tapered_profile(self):
-        bm = Beam('MyTaperedBeam', (0,0,0), (1,1,1), 'TUB300/200x20')
-        a = Assembly() / (Part('Test') / bm)
-        a.to_ifc(test_folder / 'tapered.ifc')
+        bm = Beam("MyTaperedBeam", (0, 0, 0), (1, 1, 1), "TUB300/200x20")
+        a = Assembly() / (Part("Test") / bm)
+        a.to_ifc(test_folder / "tapered.ifc")
 
 
 class BeamBBox(unittest.TestCase):
@@ -327,18 +327,18 @@ class BeamBBox(unittest.TestCase):
         blist = []
         ypos = 0
 
-        for sec in ['IPE300', 'HP200x10', 'TUB300x30', 'TUB300/200x20']:
+        for sec in ["IPE300", "HP200x10", "TUB300x30", "TUB300/200x20"]:
             bm = Beam(sec, (0, ypos, 0), (0, ypos, 1), sec)
-            blist += [Part(sec+'_Z') / [bm, PrimBox('Bbox_Z_'+sec, *bm.bbox, colour='red', opacity=0.5)]]
+            blist += [Part(sec + "_Z") / [bm, PrimBox("Bbox_Z_" + sec, *bm.bbox, colour="red", opacity=0.5)]]
             bm = Beam(sec, (0, ypos, 2), (1, ypos, 2), sec)
-            blist += [Part(sec+'_X') / [bm, PrimBox('Bbox_X_' + sec, *bm.bbox, colour='red', opacity=0.5)]]
-            bm = Beam('bm_'+sec+'_Y', (ypos, 0, 3), (ypos, 1, 3), sec)
-            blist += [Part(sec + '_Y') / [bm, PrimBox('Bbox_Y_' + sec, *bm.bbox, colour='red', opacity=0.5)]]
-            bm = Beam('bm_' + sec + '_XYZ', (ypos, ypos, 4), (ypos+1, ypos+1, 5), sec)
-            blist += [Part(sec + '_XYZ') / [bm, PrimBox('Bbox_XYZ_' + sec, *bm.bbox, colour='red', opacity=0.5)]]
+            blist += [Part(sec + "_X") / [bm, PrimBox("Bbox_X_" + sec, *bm.bbox, colour="red", opacity=0.5)]]
+            bm = Beam("bm_" + sec + "_Y", (ypos, 0, 3), (ypos, 1, 3), sec)
+            blist += [Part(sec + "_Y") / [bm, PrimBox("Bbox_Y_" + sec, *bm.bbox, colour="red", opacity=0.5)]]
+            bm = Beam("bm_" + sec + "_XYZ", (ypos, ypos, 4), (ypos + 1, ypos + 1, 5), sec)
+            blist += [Part(sec + "_XYZ") / [bm, PrimBox("Bbox_XYZ_" + sec, *bm.bbox, colour="red", opacity=0.5)]]
             ypos += 1
         a = Assembly() / blist
-        a.to_ifc(test_folder / 'beam_bounding_box.ifc')
+        a.to_ifc(test_folder / "beam_bounding_box.ifc")
 
     def test_iprofiles_bbox(self):
         bm = Beam("my_beam", (0, 0, 0), (0, 0, 1), "IPE300")
@@ -347,6 +347,7 @@ class BeamBBox(unittest.TestCase):
     def test_tubular_bbox(self):
         bm = Beam("my_beam", (0, 0, 0), (0, 0, 1), "TUB300x30")
         assert bm.bbox == ((-0.3, -0.3, 0.0), (0.3, 0.3, 1.0))
+
 
 if __name__ == "__main__":
     unittest.TestCase()

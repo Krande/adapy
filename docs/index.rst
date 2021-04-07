@@ -9,7 +9,7 @@ This library is still undergoing significant development so expect there to be o
 Try the latest build online here
 
 .. image:: https://mybinder.org/badge_logo.svg
- :target: https://mybinder.org/v2/gh/Krande/adapy-binder/dev
+ :target: https://mybinder.org/v2/gh/Krande/adapy/main
 
 
 **Build, Analyze and Postprocess in Code**
