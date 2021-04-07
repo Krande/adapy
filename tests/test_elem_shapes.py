@@ -1,7 +1,8 @@
 import unittest
-from ada import Assembly, Part, PrimBox, PrimExtrude, PrimCyl, PrimRevolve, PrimSweep, CurvePoly
-from ada.param_models.basic_module import SimpleStru
+
+from ada import Assembly, Part, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, PrimSweep
 from ada.config import Settings
+from ada.param_models.basic_module import SimpleStru
 
 test_folder = Settings.test_dir / "shapes"
 
@@ -25,6 +26,7 @@ class TestShapesExport(unittest.TestCase):
         a = Assembly("Site") / SimpleStru("SimpleStru")
         a.add_shape(PrimExtrude("VolExtrude", [(0, 0), (1, 0), (0.5, 1)], 2, (0, 0, 1), (2, 2, 2), (1, 0, 0)))
         a.to_ifc(test_folder / "world_shape_extrude.ifc")
+
 
 class TestAdvanced(unittest.TestCase):
     def test_export_primrevolve(self):

@@ -1,8 +1,9 @@
 import unittest
-from ada import Assembly, Part, Beam, Plate, Wall, Pipe, Section
-from ada.param_models.basic_module import SimpleStru, ReinforcedFloor
-from ada.param_models.basic_structural_components import Window, Door
+
+from ada import Assembly, Beam, Part, Pipe, Plate, Section, Wall
 from ada.config import Settings
+from ada.param_models.basic_module import ReinforcedFloor, SimpleStru
+from ada.param_models.basic_structural_components import Door, Window
 
 test_folder = Settings.test_dir / "units"
 

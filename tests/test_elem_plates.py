@@ -1,7 +1,8 @@
 import unittest
+
 from ada import Assembly, Part, Plate
-from ada.core.constants import O, X, Y, Z
 from ada.config import Settings
+from ada.core.constants import O, X, Z
 
 test_folder = Settings.test_dir / "plates"
 

@@ -1,0 +1,11 @@
+name: root
+channels:
+  - conda-forge
+dependencies:
+  - sphinx
+  - nbsphinx
+#  - pywin32
+  - jupyter
+  - pip
+  - pip:
+      - sphinx-rtd-theme

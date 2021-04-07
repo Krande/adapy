@@ -1,4 +1,5 @@
 import unittest
+
 from ada import Node
 from ada.fem import Elem
 from ada.fem.containers import FemElements
@@ -20,25 +21,29 @@ def get_nodes():
 
 def get_elems():
     n1, n2, n3, n4, n5, n6, n7, n8, n9, n10 = get_nodes()
-    el1 = Elem(1, [n1, n2], 'B31')
-    el2 = Elem(2, [n2, n3], 'B31')
-    el3 = Elem(3, [n3, n1], 'B31')
-    el4 = Elem(4, [n1, n2, n3, n4], 'S4R')
+    el1 = Elem(1, [n1, n2], "B31")
+    el2 = Elem(2, [n2, n3], "B31")
+    el3 = Elem(3, [n3, n1], "B31")
+    el4 = Elem(4, [n1, n2, n3, n4], "S4R")
     return el1, el2, el3, el4
 
 
 class TestConstruction(unittest.TestCase):
-
     def test_empty(self):
         n = FemElements([])
+        assert len(n) == 0
 
     def test_from_sequence(self):
         all_elemes = get_elems()
         n = FemElements(all_elemes[:3])
 
+        assert len(n) == 3
+
     def test_with_duplicates(self):
         el1, el2, el3, el4 = get_elems()
         n = FemElements([el1, el2, el1])
+
+        assert len(n) == 3
 
     def test_from_iterables(self):
         el1, el2, el3, el4 = get_elems()
@@ -51,6 +56,8 @@ class TestConstruction(unittest.TestCase):
         g = geniter()
         n = FemElements(g)
 
+        assert len(n) == 3
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

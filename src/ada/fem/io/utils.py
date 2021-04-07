@@ -42,52 +42,12 @@ class LocalExecute:
 
     def _run_local(self, run_command, stop_command=None, exit_on_complete=True):
 
-        bat_start_str = f"""echo OFF
-for %%* in (.) do set CurrDirName=%%~nx*
-title %CurrDirName%
-cd /d {self.analysis_dir}
-echo ON
-{run_command}"""
-        if exit_on_complete is False:
-            bat_start_str += "\npause"
-
-        start_bat = "run.bat"
-        stop_bat = "stop.bat"
-
-        os.makedirs(self.execute_dir, exist_ok=True)
-        with open(self.execute_dir / start_bat, "w") as d:
-            d.write(bat_start_str + "\nEXIT")
-
-        if stop_command is not None:
-            with open(self.execute_dir / stop_bat, "w") as d:
-                d.write(f"cd /d {self.analysis_dir}\n{stop_command}")
-
-        if _Settings.execute_dir is not None:
-            shutil.copy(self.execute_dir / start_bat, _Settings.execute_dir / start_bat)
-            shutil.copy(self.execute_dir / stop_bat, _Settings.execute_dir / stop_bat)
-
-        fem_tool = type(self).__name__
-
-        print(80 * "-")
-        print(f'starting {fem_tool} simulation "{self.analysis_name}"')
-        if self._auto_execute is True:
-            if self._run_ext is True:
-                subprocess.run(
-                    "start " + start_bat,
-                    cwd=self.execute_dir,
-                    shell=True,
-                    env=os.environ,
-                )
-                print(f"Note! This starts {fem_tool} in an external window on a separate thread.")
-            else:
-                subprocess.run(
-                    "start /wait " + start_bat,
-                    cwd=self.execute_dir,
-                    shell=True,
-                    env=os.environ,
-                )
-                print(f'Finished {fem_tool} simulation "{self.analysis_name}"')
-        print(80 * "-")
+        if sys.platform == "linux" or sys.platform == "linux2":
+            run_linux(self, run_command)
+        elif sys.platform == "darwin":
+            run_macOS(self, run_command)
+        else:  # sys.platform == "win32":
+            run_windows(self, run_command, stop_command, exit_on_complete)
 
     def run(self):
         raise NotImplementedError("The run function is not implemented")
@@ -276,3 +236,95 @@ def _folder_prep(scratch_dir, analysis_name, overwrite):
 
     os.makedirs(analysis_dir, exist_ok=True)
     return analysis_dir
+
+
+def run_windows(exe, run_command, stop_command=None, exit_on_complete=True):
+    """
+
+    :param exe:
+    :param run_command:
+    :param stop_command:
+    :param exit_on_complete:
+    :return:
+    """
+    bat_start_str = f"""echo OFF
+for %%* in (.) do set CurrDirName=%%~nx*
+title %CurrDirName%
+cd /d {exe.analysis_dir}
+echo ON
+    {run_command}"""
+    if exit_on_complete is False:
+        bat_start_str += "\npause"
+
+    start_bat = "run.bat"
+    stop_bat = "stop.bat"
+
+    os.makedirs(exe.execute_dir, exist_ok=True)
+    with open(exe.execute_dir / start_bat, "w") as d:
+        d.write(bat_start_str + "\nEXIT")
+
+    if stop_command is not None:
+        with open(exe.execute_dir / stop_bat, "w") as d:
+            d.write(f"cd /d {exe.analysis_dir}\n{stop_command}")
+
+    if _Settings.execute_dir is not None:
+        shutil.copy(exe.execute_dir / start_bat, _Settings.execute_dir / start_bat)
+        shutil.copy(exe.execute_dir / stop_bat, _Settings.execute_dir / stop_bat)
+
+    fem_tool = type(exe).__name__
+
+    print(80 * "-")
+    print(f'starting {fem_tool} simulation "{exe.analysis_name}"')
+    if exe._auto_execute is True:
+        if exe._run_ext is True:
+            subprocess.run(
+                "start " + start_bat,
+                cwd=exe.execute_dir,
+                shell=True,
+                env=os.environ,
+            )
+            print(f"Note! This starts {fem_tool} in an external window on a separate thread.")
+        else:
+            subprocess.run(
+                "start /wait " + start_bat,
+                cwd=exe.execute_dir,
+                shell=True,
+                env=os.environ,
+            )
+            print(f'Finished {fem_tool} simulation "{exe.analysis_name}"')
+    print(80 * "-")
+
+
+def run_linux(exe, run_command):
+    """
+
+    :param exe:
+    :param run_command:
+    :return:
+    """
+    fem_tool = type(exe).__name__
+
+    print(80 * "-")
+    print(f'starting {fem_tool} simulation "{exe.analysis_name}" (on Linux)')
+    if exe._auto_execute is True:
+        if exe._run_ext is True:
+            subprocess.run(
+                run_command,
+                cwd=exe.execute_dir,
+                shell=True,
+                env=os.environ,
+            )
+            print(f"Note! This starts {fem_tool} in an external window on a separate thread.")
+        else:
+            subprocess.run(
+                run_command,
+                cwd=exe.execute_dir,
+                shell=True,
+                env=os.environ,
+            )
+            print(f'Finished {fem_tool} simulation "{exe.analysis_name}"')
+    print(80 * "-")
+
+
+def run_macOS(exe, run_command):
+    raise NotImplementedError()

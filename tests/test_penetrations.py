@@ -1,6 +1,17 @@
 import unittest
-from ada import Assembly, Part, Beam, Section, PrimRevolve, PrimExtrude, PrimCyl, PrimBox
+
 import numpy as np
+
+from ada import (
+    Assembly,
+    Beam,
+    Part,
+    PrimBox,
+    PrimCyl,
+    PrimExtrude,
+    PrimRevolve,
+    Section,
+)
 from ada.config import Settings
 
 test_folder = Settings.test_dir / "penetrations"

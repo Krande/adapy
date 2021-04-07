@@ -1,6 +1,7 @@
 import unittest
-from ada.core.containers import Nodes
+
 from ada import Node
+from ada.core.containers import Nodes
 
 
 def get_nodes():
@@ -18,17 +19,21 @@ def get_nodes():
 
 
 class TestConstruction(unittest.TestCase):
-
     def test_empty(self):
         n = Nodes([])
+        assert len(n) == 0
 
     def test_from_sequence(self):
         all_nodes = get_nodes()
         n = Nodes(all_nodes[:3])
 
+        assert len(n) == 3
+
     def test_with_duplicates(self):
         n1, n2, n3, n4, n5, n6, n7, n8, n9, n10 = get_nodes()
         n = Nodes([n1, n2, n1])
+
+        assert len(n) == 2
 
     def test_from_iterables(self):
         n1, n2, n3, n4, n5, n6, n7, n8, n9, n10 = get_nodes()
@@ -40,6 +45,8 @@ class TestConstruction(unittest.TestCase):
 
         g = geniter()
         n = Nodes(g)
+
+        assert len(n) == 3
 
 
 class TestContainerProtocol(unittest.TestCase):
@@ -66,7 +73,6 @@ class TestContainerProtocol(unittest.TestCase):
 
 
 class TestSizedProtocol(unittest.TestCase):
-
     def setUp(self):
         self.n = Nodes(get_nodes())
 
@@ -87,6 +93,7 @@ class TestSizedProtocol(unittest.TestCase):
     def test_with_duplicates(self):
         n1, n2, n3, n4, n5, n6, n7, n8, n9, n10 = get_nodes()
         n = Nodes([n1, n1, n1])
+
         self.assertEqual(len(n), 1)
 
 
@@ -131,12 +138,10 @@ class TestEqualityProtocol(unittest.TestCase):
         n1 = Node((1.0, 2.0, 3.0), 1)
         n5 = Node((1.0, 3.0, 2.0), 5)
 
-        v = tuple(n1.p) < tuple(n5.p)
-        b2 = None
+        assert tuple(n1.p) < tuple(n5.p)
 
 
 class TestSequenceProtocol(unittest.TestCase):
-
     def setUp(self):
         self.n = Nodes(get_nodes())
 
@@ -224,8 +229,9 @@ class TestReprProtocol(unittest.TestCase):
     def test_repr_some(self):
         n1, n2, n3, n4, n5, n6, n7, n8, n9, n10 = get_nodes()
         s = Nodes([n1, n2, n3])
-        self.assertEqual(repr(s),
-                         "Nodes([Node([1.0, 1.0, 1.0], 2), Node([1.0, 2.0, 3.0], 1), Node([2.0, 1.0, 8.0], 3)])")
+        self.assertEqual(
+            repr(s), "Nodes([Node([1.0, 1.0, 1.0], 2), Node([1.0, 2.0, 3.0], 1), Node([2.0, 1.0, 8.0], 3)])"
+        )
 
 
 class TestGetByVolume(unittest.TestCase):
@@ -262,8 +268,14 @@ class TestGetByVolume(unittest.TestCase):
 
     def test_not_in(self):
         n1, n2, n3, n4, n5, n6, n7, n8, n9, n10 = get_nodes()
+
         s = Nodes([n1, n2, n3, n4, n5, n6, n7, n8, n9, n10])
 
+        n11 = Node((0, 0, 0), 10000)
+        assert n11 not in s
 
-if __name__ == '__main__':
+        assert n10 in s
+
+
+if __name__ == "__main__":
     unittest.main()

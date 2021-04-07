@@ -1,11 +1,10 @@
 import unittest
-import pathlib
-from ada import Assembly, Wall, Part
-from ada.param_models.basic_structural_components import Window, Door
+
+from ada import Assembly, Part, Wall
 from ada.config import Settings
+from ada.param_models.basic_structural_components import Door, Window
 
 test_folder = Settings.test_dir / "walls"
-
 
 
 class Walls(unittest.TestCase):
