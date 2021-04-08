@@ -6,12 +6,12 @@ from ada.fem.io.mesh.recipes import create_beam_mesh
 from ada.fem.utils import get_beam_end_nodes
 
 
-def beam_ex1():
+def beam_ex1(p1=(0, 0, 0), p2=(1.5, 0, 0), profile="IPE400"):
     """
 
     :return:
     """
-    bm = Beam("MyBeam", (0, 0, 0), (1.5, 0, 0), "IPE400")
+    bm = Beam("MyBeam", p1, p2, profile)
     a = Assembly("Test", creator="Kristoffer H. Andersen") / [Part("MyPart") / bm]
 
     h = 0.2

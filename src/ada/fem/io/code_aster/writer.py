@@ -4,6 +4,8 @@ from operator import attrgetter
 import meshio
 import numpy as np
 
+from ada.config import Settings as _Settings
+
 from ..io_meshio import ada_to_meshio_type
 from ..utils import _folder_prep, get_fem_model_from_assembly
 
@@ -70,8 +72,13 @@ def to_fem(
     assembly.metadata["info"]["description"] = description
 
     p = get_fem_model_from_assembly(assembly)
+    if _Settings.ca_use_meshio_med_convert:
+        from ada.fem.io.io_meshio.writer import fem_to_meshio
 
-    write_to_med(name, p, analysis_dir)
+        mesh = fem_to_meshio(p.fem)
+        mesh.write(_Settings.scratch_dir / name / "mesh.med")
+    else:
+        write_to_med(name, p, analysis_dir)
 
     with open((analysis_dir / name).with_suffix(".export"), "w") as f:
         f.write(write_export_file(analysis_dir, name, 2))
@@ -97,8 +104,16 @@ def to_fem(
 
 
 def write_to_comm(name, a, p, analysis_dir):
+    """
+
+    :param name:
+    :param a:
+    :param p:
+    :param analysis_dir:
+    :return:
+    """
     comm_str = "DEBUT(LANG='EN')\n\n"
-    comm_str += 'mesh=LIRE_MAILLAGE(FORMAT="MED", UNITE=20)\n\n'
+    comm_str += "mesh=LIRE_MAILLAGE(FORMAT=\"MED\", UNITE=20, VERI_MAIL=_F(VERIF='OUI'))\n\n"
     comm_str += "model=AFFE_MODELE(AFFE=_F(MODELISATION=('3D', ),PHENOMENE='MECANIQUE',TOUT='OUI'),MAILLAGE=mesh)\n\n"
     # Add missing parameters here
     comm_str += "FIN()"
@@ -146,7 +161,9 @@ F rmed {analysis_dir}\{name}.rmed R 80"""
 
 def write_to_med(name, p, analysis_dir):
     """
-    Method for writing a part directly based on meshio example
+    Custom Method for writing a part directly based on meshio example
+
+
 
     :param name: name
     :param p: Part
@@ -177,6 +194,11 @@ def write_to_med(name, p, analysis_dir):
 
     mesh = meshio.Mesh(points, cells)
     part_file = (analysis_dir / name).with_suffix(".med")
+
+    dim = 3  # mesh.points.shape[1]
+    node_data = mesh.points.flatten(order="F")
+    # ndata2 = np.array(points).flatten(order="F")
+
     f = h5py.File(part_file, "w")
 
     # Strangely the version must be 3.0.x
@@ -190,13 +212,13 @@ def write_to_med(name, p, analysis_dir):
     mesh_ensemble = f.create_group("ENS_MAA")
     mesh_name = "mesh"
     med_mesh = mesh_ensemble.create_group(mesh_name)
-    med_mesh.attrs.create("DIM", mesh.points.shape[1])  # mesh dimension
-    med_mesh.attrs.create("ESP", mesh.points.shape[1])  # spatial dimension
+    med_mesh.attrs.create("DIM", dim)  # mesh dimension
+    med_mesh.attrs.create("ESP", dim)  # spatial dimension
     med_mesh.attrs.create("REP", 0)  # cartesian coordinate system (repère in French)
     med_mesh.attrs.create("UNT", numpy_void_str)  # time unit
     med_mesh.attrs.create("UNI", numpy_void_str)  # spatial unit
     med_mesh.attrs.create("SRT", 1)  # sorting type MED_SORT_ITDT
-    med_mesh.attrs.create("NOM", np.string_(_component_names(mesh.points.shape[1])))  # component names
+    med_mesh.attrs.create("NOM", np.string_(_component_names(dim)))  # component names
     med_mesh.attrs.create("DES", np.string_("Mesh created with meshio"))
     med_mesh.attrs.create("TYP", 0)  # mesh type (MED_NON_STRUCTURE)
 
@@ -214,7 +236,7 @@ def write_to_med(name, p, analysis_dir):
     nodes_group.attrs.create("CGS", 1)
     profile = "MED_NO_PROFILE_INTERNAL"
     nodes_group.attrs.create("PFL", np.string_(profile))
-    coo = nodes_group.create_dataset("COO", data=mesh.points.flatten(order="F"))
+    coo = nodes_group.create_dataset("COO", data=node_data)
     coo.attrs.create("CGT", 1)
     coo.attrs.create("NBR", len(mesh.points))
 
@@ -250,22 +272,6 @@ def write_to_med(name, p, analysis_dir):
     families = fas.create_group(mesh_name)
     family_zero = families.create_group("FAMILLE_ZERO")  # must be defined in any case
     family_zero.attrs.create("NUM", 0)
-
-    # For point tags
-    try:
-        if len(mesh.point_tags) > 0:
-            node = families.create_group("NOEUD")
-            _write_families(node, mesh.point_tags)
-    except AttributeError:
-        pass
-
-    # For cell tags
-    try:
-        if len(mesh.cell_tags) > 0:
-            element = families.create_group("ELEME")
-            _write_families(element, mesh.cell_tags)
-    except AttributeError:
-        pass
 
     # Write nodal/cell data
     fields = f.create_group("CHA")

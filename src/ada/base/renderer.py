@@ -319,7 +319,7 @@ class MyRenderer(JupyterRenderer):
             self.DisplayBeam(obj)
         elif type(obj) is Plate:
             self.DisplayPlate(obj)
-        elif type(obj) is Shape:
+        elif issubclass(type(obj), Shape):
             self.DisplayAdaShape(obj)
         else:
             raise ValueError(f'type "{type(obj)}" Not Recognized')

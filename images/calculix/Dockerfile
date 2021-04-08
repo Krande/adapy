@@ -86,20 +86,16 @@ ENTRYPOINT ["/usr/bin/tini", "--"]
 
 ENV ADA_ccx_exe=/usr/local/bin/ccx_2.16
 
-ENV ADA_temp_dir ${HOME}/temp
-ENV ADA_scratch_dir ${HOME}/scratch
-ENV ADA_test_dir ${HOME}/tests
-ENV ADA_log_dir ${HOME}/log
-
 RUN mkdir /tmp/adapy
 COPY . /tmp/adapy
 RUN cd /tmp/adapy && pip install .
 
 WORKDIR ${HOME}
 
-COPY examples .
-
-RUN mkdir ${ADA_temp_dir} && mkdir ${ADA_scratch_dir} && mkdir ${ADA_test_dir} && mkdir ${ADA_log_dir}
+ENV ADA_temp_dir ${HOME}/temp
+ENV ADA_test_dir ${HOME}/temp/tests
+ENV ADA_log_dir ${HOME}/temp/log
+ENV ADA_scratch_dir ${HOME}/scratch
 
 USER root
 RUN chown -R ${NB_UID} ${HOME}
@@ -107,6 +103,5 @@ USER ${NB_USER}
 
 LABEL calculix="2.16"
 LABEL python="3.8.8"
-
 
 CMD ["jupyter", "notebook", "--port=8888", "--no-browser", "--ip=0.0.0.0", "--allow-root"]

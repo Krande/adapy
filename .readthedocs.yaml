@@ -15,3 +15,14 @@ formats:
 
 conda:
   environment: docs/environment.docs.yml
+
+
+build:
+  image: latest
+
+
+python:
+  version: 3.8
+  install:
+    - method: pip
+      path: .
