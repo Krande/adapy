@@ -2265,6 +2265,40 @@ def unzip_it(zip_path, extract_path=None):
 
 
 # OCC
+def occ_shape_to_faces(shape, quality=1.0, render_edges=False, parallel=True):
+    """
+
+    :param shape:
+    :param quality:
+    :param render_edges:
+    :param parallel:
+    :return:
+    """
+    # first, compute the tesselation
+    from OCC.Core.Tesselator import ShapeTesselator
+
+    tess = ShapeTesselator(shape)
+    tess.Compute(compute_edges=render_edges, mesh_quality=quality, parallel=parallel)
+
+    # get vertices and normals
+    vertices_position = tess.GetVerticesPositionAsTuple()
+    number_of_triangles = tess.ObjGetTriangleCount()
+    number_of_vertices = len(vertices_position)
+
+    # number of vertices should be a multiple of 3
+    if number_of_vertices % 3 != 0:
+        raise AssertionError("Wrong number of vertices")
+    if number_of_triangles * 9 != number_of_vertices:
+        raise AssertionError("Wrong number of triangles")
+
+    # then we build the vertex and faces collections as numpy ndarrays
+    np_vertices = np.array(vertices_position, dtype="float32").reshape(int(number_of_vertices / 3), 3)
+    # Note: np_faces is just [0, 1, 2, 3, 4, 5, ...], thus arange is used
+    np_faces = np.arange(np_vertices.shape[0], dtype="uint32")
+
+    return np_vertices, np_faces
+
+
 def is_edges_ok(edge1, fillet, edge2):
     from OCC.Extend.TopologyUtils import TopologyExplorer
 

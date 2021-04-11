@@ -27,6 +27,8 @@ class Settings:
     else:
         execute_dir = None
 
+    ca_use_meshio_med_convert = True
+
     # Execute Settings
     use_docker_execute = False
 

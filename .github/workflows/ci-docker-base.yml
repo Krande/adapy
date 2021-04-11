@@ -8,7 +8,7 @@ on:
       - '.github/workflows/ci-docker-base.yml'
     branches:
       - main
-      - dev
+      - docs
 
 jobs:
   docker:

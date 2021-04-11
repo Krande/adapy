@@ -37,11 +37,6 @@ def meshio_to_fem(
     :type assembly: ada.Assembly
     :return:
     """
-    from . import ada_to_meshio_type
-
-    def get_nids(el):
-        return [n.id for n in el.nodes]
-
     if scratch_dir is None:
         scratch_dir = _Settings.scratch_dir
 
@@ -51,42 +46,9 @@ def meshio_to_fem(
     os.makedirs(analysis_dir, exist_ok=True)
 
     for p in assembly.get_all_parts_in_assembly(include_self=True):
-        # assert isinstance(p, Part)
-        cells = []
-        plist = list(sorted(p.fem.nodes, key=attrgetter("id")))
-        if len(plist) == 0:
+        mesh = fem_to_meshio(p.fem)
+        if mesh is None:
             continue
-
-        pid = plist[-1].id
-        points = np.zeros((int(pid + 1), 3))
-
-        def pmap(n):
-            points[n.id] = n.p
-
-        list(map(pmap, p.fem.nodes))
-        for group, elements in groupby(p.fem.elements, key=attrgetter("type")):
-            if group in ElemShapes.masses + ElemShapes.springs:
-                # Do something
-                continue
-            med_el = ada_to_meshio_type[group]
-            el_mapped = np.array(list(map(get_nids, elements)))
-            cells.append((med_el, el_mapped))
-
-        cell_sets = dict()
-        for setid, elset in p.fem.sets.elements.items():
-            # cell_sets[setid] = dict()
-            # for group, elements in groupby(elset, key=attrgetter('type')):
-            #     if group in ['MASS']:
-            #         # Do something
-            #         continue
-            #     med_el = ada_to_meshio_type[group]
-            cell_sets[setid] = np.array([[el.id for el in elset.members]])
-
-        point_sets = dict()
-        for setid, nset in p.fem.sets.nodes.items():
-            point_sets[setid] = np.array([el.id for el in nset.members])
-
-        mesh = meshio.Mesh(points, cells, point_sets=point_sets, cell_sets=cell_sets)
         prefix_mapper = dict(abaqus="inp")
         if mesh_format in ["abaqus"]:
             prefix = prefix_mapper[mesh_format]
@@ -101,3 +63,48 @@ def meshio_to_fem(
             file_format=mesh_format,
         )
         print(f'Exported "{mesh_format}" using meshio to "{analysis_dir}"')
+
+
+def fem_to_meshio(fem):
+    """
+
+    :param fem: Ada FEM object
+    :type fem: ada.fem.FEM
+    :return: Meshio MESH object
+    :rtype: meshio.Mesh
+    """
+    from . import ada_to_meshio_type
+
+    def get_nids(el):
+        return [n.id for n in el.nodes]
+
+    cells = []
+    plist = list(sorted(fem.nodes, key=attrgetter("id")))
+    if len(plist) == 0:
+        return None
+
+    pid = plist[-1].id
+    points = np.zeros((int(pid + 1), 3))
+
+    def pmap(n):
+        points[n.id] = n.p
+
+    list(map(pmap, fem.nodes))
+    for group, elements in groupby(fem.elements, key=attrgetter("type")):
+        if group in ElemShapes.masses + ElemShapes.springs:
+            # Do something
+            continue
+        med_el = ada_to_meshio_type[group]
+        el_mapped = np.array(list(map(get_nids, elements)))
+        cells.append((med_el, el_mapped))
+
+    cell_sets = dict()
+    for setid, elset in fem.sets.elements.items():
+        cell_sets[setid] = np.array([[el.id for el in elset.members]], dtype="int32")
+
+    point_sets = dict()
+    for setid, nset in fem.sets.nodes.items():
+        point_sets[setid] = np.array([[el.id for el in nset.members]], dtype="int32")
+
+    mesh = meshio.Mesh(points, cells, point_sets=point_sets, cell_sets=cell_sets)
+    return mesh
