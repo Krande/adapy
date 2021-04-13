@@ -240,8 +240,7 @@ USER:     {user}            ACCOUNT:     \n"""
                         )
                     elif SectionCat.is_flatbar(section.type):
                         sec_str += self.write_ff(
-                            "GBARM",
-                            [(secid, section.h, section.w_top, section.w_btn), (p.Sfy, p.Sfz)]
+                            "GBARM", [(secid, section.h, section.w_top, section.w_btn), (p.Sfy, p.Sfz)]
                         )
                     else:
                         logging.error(f'Unable to convert "{section}". This will be exported as general section only')
@@ -302,7 +301,7 @@ USER:     {user}            ACCOUNT:     \n"""
             else:
                 raise ValueError(f'Unsupported elem type "{fem_sec.type}"')
 
-            fixno = el.metadata.get('fixno', None)
+            fixno = el.metadata.get("fixno", None)
             if fixno is None:
                 last_tuples = [(sec_id, 0, 0, 1)]
             else:
@@ -314,7 +313,8 @@ USER:     {user}            ACCOUNT:     \n"""
                 [
                     (el.id, el.fem_sec.material.id, 0, 0),
                     (0, 0, 0, 0),
-                ] + last_tuples,
+                ]
+                + last_tuples,
             )
 
         for el in elements:
@@ -356,7 +356,7 @@ USER:     {user}            ACCOUNT:     \n"""
                 else:
                     raise NotImplementedError()
                 data = (tuple([m.id, 6] + masses[:2]), tuple(masses[2:]))
-                out_str += self.write_ff('BNMASS', data)
+                out_str += self.write_ff("BNMASS", data)
         return out_str
 
     @property
@@ -372,19 +372,18 @@ USER:     {user}            ACCOUNT:     \n"""
     @property
     def _hinges_str(self):
         from ada.core.utils import Counter
+
         out_str = ""
         h = Counter(0)
 
         def write_hinge(hinge):
             dofs = [0 if i in hinge else 1 for i in range(1, 7)]
             fix_id = next(h)
-            data = [tuple([fix_id, 3, 0, 0]),
-                    tuple(dofs[:4]),
-                    tuple(dofs[4:])]
+            data = [tuple([fix_id, 3, 0, 0]), tuple(dofs[:4]), tuple(dofs[4:])]
             return fix_id, self.write_ff("BELFIX", data)
 
         for el in self._gelements:
-            h1, h2 = el.metadata.get('h1', None), el.metadata.get('h2', None)
+            h1, h2 = el.metadata.get("h1", None), el.metadata.get("h2", None)
             if h2 is None and h1 is None:
                 continue
             h1_fix, h2_fix = 0, 0
@@ -394,7 +393,7 @@ USER:     {user}            ACCOUNT:     \n"""
             if h2 is not None:
                 h2_fix, res_str = write_hinge(h2)
                 out_str += res_str
-            el.metadata['fixno'] = h1_fix, h2_fix
+            el.metadata["fixno"] = h1_fix, h2_fix
 
         return out_str
 
