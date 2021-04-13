@@ -406,12 +406,9 @@ class Connections(BaseCollections):
         CD_ = C + t * CD
 
         t_ = roundoff(t)
-        if 0 <= t_ <= 1:
-            if t_ == 0 or t_ == 1:
-                pass
-            else:
-                logging.debug(f"Beam cross-check indicates that the beams {bm1} and {bm2} are most probably parallel")
-                return None
+        if 0 < t_ < 1:
+            logging.debug(f"Beam cross-check indicates that the beams {bm1} and {bm2} are most probably parallel")
+            return None
 
         if p_check(AB, CD):
             logging.debug(f"beams {bm1} {bm2} are parallel")

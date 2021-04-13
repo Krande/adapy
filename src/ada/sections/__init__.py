@@ -230,6 +230,12 @@ class GeneralProperties:
         self._Iy = (math.pi * s.r ** 4) / 4
         self._Iz = self._Iy
 
+    def _calc_flatbar(self):
+        s = self.parent
+        self._Ax = (s.w_btn + s.w_top) / 2 * s.h
+        self._Iy = s.w_top * s.h ** 3 / 12
+        self._Iz = s.h * s.w_top ** 3 / 12
+
     def _calc_channel(self):
         """
 
@@ -311,6 +317,8 @@ class GeneralProperties:
             self._calc_angular()
         elif self.parent.type in SectionCat.channels:
             self._calc_channel()
+        elif SectionCat.is_flatbar(self.parent.type):
+            self._calc_flatbar()
         else:
             raise Exception(
                 f'section type "{self.parent.type}" is not yet supported in the cross section parameter calculations'
@@ -790,3 +798,7 @@ class SectionCat:
     @classmethod
     def is_circular_profile(cls, bmtype):
         return True if bmtype.upper() in cls.tubular + cls.circular else False
+
+    @classmethod
+    def is_flatbar(cls, bmtype):
+        return True if bmtype.upper() in cls.flatbar else False

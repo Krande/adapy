@@ -28,9 +28,9 @@ class Backend:
     def name(self, value):
         if _Settings.convert_bad_names:
             logging.debug("Converting bad name")
-            value = value.replace("/", "").replace("=", "")
+            value = value.replace("/", "_").replace("=", "")
             if str.isnumeric(value[0]):
-                value = "ADA" + value
+                value = "ADA_" + value
 
         if "/" in value:
             logging.debug(f'Character "/" found in {value}')
