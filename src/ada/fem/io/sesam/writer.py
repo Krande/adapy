@@ -92,7 +92,9 @@ USER:     {user}            ACCOUNT:     \n"""
             d.write(self._materials_str)
             d.write(self._sections_str)
             d.write(self._nodes_str)
+            d.write(self._mass_str)
             d.write(self._bc_str)
+            d.write(self._hinges_str)
             d.write(self._elem_str)
             d.write(self._loads_str)
             d.write("IEND                0.00            0.00            0.00            0.00")
@@ -211,7 +213,7 @@ USER:     {user}            ACCOUNT:     \n"""
                             "GIORH",
                             [
                                 (secid, section.h, section.t_w, section.w_top),
-                                (section.t_ftop, section.w_top, section.t_ftop, p.Sfy),
+                                (section.t_ftop, section.w_btn, section.t_fbtn, p.Sfy),
                                 (p.Sfz,),
                             ],
                         )
@@ -235,6 +237,11 @@ USER:     {user}            ACCOUNT:     \n"""
                         sec_str += self.write_ff(
                             "GPIPE",
                             [(secid, section.r - section.wt, section.r, section.wt), (p.Sfy, p.Sfz)],
+                        )
+                    elif SectionCat.is_flatbar(section.type):
+                        sec_str += self.write_ff(
+                            "GBARM",
+                            [(secid, section.h, section.w_top, section.w_btn), (p.Sfy, p.Sfz)]
                         )
                     else:
                         logging.error(f'Unable to convert "{section}". This will be exported as general section only')
@@ -278,7 +285,14 @@ USER:     {user}            ACCOUNT:     \n"""
                 for el in elements
             ]
         )
-        for el in elements:
+
+        def write_elem(el):
+            """
+
+            :param el:
+            :type el: ada.fem.Elem
+            :return: input str for Elem
+            """
             fem_sec = el.fem_sec
             assert isinstance(fem_sec, FemSection)
             if fem_sec.type == "beam":
@@ -287,14 +301,25 @@ USER:     {user}            ACCOUNT:     \n"""
                 sec_id = self._thick_map[fem_sec.thickness]
             else:
                 raise ValueError(f'Unsupported elem type "{fem_sec.type}"')
-            out_str += self.write_ff(
+
+            fixno = el.metadata.get('fixno', None)
+            if fixno is None:
+                last_tuples = [(sec_id, 0, 0, 1)]
+            else:
+                h1_fix, h2_fix = fixno
+                last_tuples = [(sec_id, -1, 0, 1), (h1_fix, h2_fix)]
+
+            return self.write_ff(
                 "GELREF1",
                 [
                     (el.id, el.fem_sec.material.id, 0, 0),
                     (0, 0, 0, 0),
-                    (sec_id, 0, 0, 1),
-                ],
+                ] + last_tuples,
             )
+
+        for el in elements:
+            out_str += write_elem(el)
+
         return out_str
 
     @property
@@ -321,6 +346,20 @@ USER:     {user}            ACCOUNT:     \n"""
             return out_str
 
     @property
+    def _mass_str(self):
+        out_str = ""
+
+        for mass in self._gmass.values():
+            for m in mass.fem_set.members:
+                if type(mass.mass) is float:
+                    masses = [mass.mass for _ in range(0, 3)] + [0, 0, 0]
+                else:
+                    raise NotImplementedError()
+                data = (tuple([m.id, 6] + masses[:2]), tuple(masses[2:]))
+                out_str += self.write_ff('BNMASS', data)
+        return out_str
+
+    @property
     def _bc_str(self):
         out_str = ""
         for bc in self._gbcs:
@@ -328,6 +367,35 @@ USER:     {user}            ACCOUNT:     \n"""
                 dofs = [1 if i in bc.dofs else 0 for i in range(1, 7)]
                 data = [tuple([m.id, 6] + dofs[:2]), tuple(dofs[2:])]
                 out_str += self.write_ff("BNBCD", data)
+        return out_str
+
+    @property
+    def _hinges_str(self):
+        from ada.core.utils import Counter
+        out_str = ""
+        h = Counter(0)
+
+        def write_hinge(hinge):
+            dofs = [0 if i in hinge else 1 for i in range(1, 7)]
+            fix_id = next(h)
+            data = [tuple([fix_id, 3, 0, 0]),
+                    tuple(dofs[:4]),
+                    tuple(dofs[4:])]
+            return fix_id, self.write_ff("BELFIX", data)
+
+        for el in self._gelements:
+            h1, h2 = el.metadata.get('h1', None), el.metadata.get('h2', None)
+            if h2 is None and h1 is None:
+                continue
+            h1_fix, h2_fix = 0, 0
+            if h1 is not None:
+                h1_fix, res_str = write_hinge(h1)
+                out_str += res_str
+            if h2 is not None:
+                h2_fix, res_str = write_hinge(h2)
+                out_str += res_str
+            el.metadata['fixno'] = h1_fix, h2_fix
+
         return out_str
 
     @property
