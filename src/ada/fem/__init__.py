@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 
 from . import constants as co
@@ -2089,18 +2091,20 @@ class Bc(FemBase):
 class Mass(FemBase):
     """
 
-    :param name:
-    :param fem_set:
-    :param mass:
-    :param mass_type:
-    :param ptype:
+    :param name: Name of set
+    :param fem_set: Fem Set (of element or nodal type)
+    :type fem_set: FemSet
+    :param mass: Mass magnitude
+    :param mass_type: Type of mass. See _valid_types. Default is 'MASS'
+    :param ptype: Point mass type. Can be None, 'Isotropic' or 'Anisotropic'
     :param units:
     :param metadata:
     :param parent:
-    :type fem_set: FemSet
+
     """
 
     _valid_types = ["MASS", "NONSTRUCTURAL MASS", "ROTARY INERTIA"]
+    _valid_ptypes = [None, "ISOTROPIC", "ANISOTROPIC"]
 
     def __init__(
         self,
@@ -2117,10 +2121,15 @@ class Mass(FemBase):
         self._fem_set = fem_set
         if mass is None:
             raise ValueError("Mass cannot be None")
+        if type(mass) not in (list, tuple):
+            logging.info(f"Mass {type(mass)} converted to list of len=1. Assume equal mass in all 3 transl. DOFs.")
+            mass = [mass]
         self._mass = mass
         self._mass_type = mass_type if mass_type is not None else "MASS"
         if self.type not in Mass._valid_types:
-            raise ValueError(f'Mass type "{self.type}" is not supported')
+            raise ValueError(f'Mass type "{self.type}" is not in list of supported types {self._valid_types}')
+        if ptype not in self._valid_ptypes:
+            raise ValueError(f'Mass point type "{ptype}" is not in list of supported types {self._valid_ptypes}')
         self.point_mass_type = ptype
         self._units = units
 
@@ -2139,11 +2148,11 @@ class Mass(FemBase):
     def mass(self):
         if self.point_mass_type is None:
             if self.type == "MASS":
-                if (len(self._mass) == 1) is False:
+                if type(self._mass) in (list, tuple):
                     raise ValueError("Mass can only be a scalar number for Isotropic mass")
-                return self._mass[0]
+                return float(self._mass[0])
             else:
-                return self._mass
+                return float(self._mass)
         elif self.point_mass_type == "ISOTROPIC":
             if (len(self._mass) == 1) is False:
                 raise ValueError("Mass can only be a scalar number for Isotropic mass")

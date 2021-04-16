@@ -12,7 +12,7 @@ COPY examples examples
 RUN mkdir ${ADA_temp_dir} && mkdir ${ADA_scratch_dir} && mkdir ${ADA_test_dir} && mkdir ${ADA_log_dir}
 
 USER root
-RUN chown -R ${NB_UID} ${ADA_scratch_dir}
+RUN chown -R ${NB_UID} ${HOME}
 USER ${NB_USER}
 
 COPY . /home/adapy

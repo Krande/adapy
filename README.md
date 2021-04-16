@@ -1,6 +1,6 @@
 # ADA - Assembly for Design & Analysis
 
-A toolkit for structural analysis and design that focus on interoperability between
+A python library for structural analysis and design that focus on interoperability between
 IFC and various Finite Element formats.
 
 This library is still undergoing significant development so expect there to be occasional bugs and breaking changes.
@@ -81,13 +81,32 @@ a.to_fem("MyCantilever_abaqus", "abaqus", overwrite=True, execute=True, run_ext=
 a.to_fem("MyCantilever_calculix", "calculix", overwrite=True, execute=True)
 ```
 
-after the execution is finished you can look at the results
+after the execution is finished you can look at the results (in Paraview or Abaqus CAE for the results from 
+calculix and/or abaqus respectively)
+
 
 ![Paraview Results](docs/_static/figures/fem_beam_paraview.png)
 ![Abaqus Results](docs/_static/figures/fem_beam_abaqus.png)
 
+or if your prefer to keep it in python here is a way you can use meshio to read the results from calculix and do your
+postprocessing using python only.
 
-In short `beam_ex1` creates a `Beam` object which it uses to create a FEM mesh comprised of shell elements using GMSH. 
+```python
+from ada.config import Settings
+import meshio
+
+vtu = Settings.scratch_dir / "MyCantilever_calculix" / "MyCantilever_calculix.vtu"
+mesh = meshio.read(vtu)
+
+# Von Mises stresses and displacement at a point @ index=0
+print(mesh.point_data['S'][0])
+print(mesh.point_data['U'][0])
+```
+
+In short `beam_ex1` creates a `Beam` object which it uses to create a shell element `FEM` mesh using 
+a mesh recipe [create_beam_mesh](https://github.com/Krande/adapy/blob/c594ccbfbdd2ea9384fa8a4721a65580331b4a09/src/ada/fem/io/mesh/recipes.py#L99-L223). 
+The recipe uses [GMSH](https://gmsh.info/) to construct elements on nodes. 
+
 
 The current reasoning is to work with a base representation of beam/plates and have the ability
 to easily create a FEM representation of any of the base objects in 1D (beam elements), 
@@ -97,7 +116,7 @@ building meshes).
 
 **Note!**
 
-This example assumes you have installed Abaqus and Calculix locally on your computer.
+The above example assumes you have installed Abaqus and Calculix locally on your computer.
 
 To set correct paths to your installations of Abaqus or Calculix you wish to use there are a few ways of doing so.
 
@@ -139,7 +158,6 @@ Before making a pull request you need to lint with, isort, flake8 and black
 
 ````
 pip install black isort flake8
-cd src/ada
 isort .
 flake8 .
 black .

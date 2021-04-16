@@ -1,7 +1,7 @@
 Assembly for Design & Analysis (ADA)
 ==============================================================
 
-A toolkit for structural analysis and design that focus on interoperability between
+A python library for structural analysis and design that focus on interoperability between
 IFC and various Finite Element formats.
 
 This library is still undergoing significant development so expect there to be occasional bugs and breaking changes.
@@ -18,12 +18,17 @@ Try the latest build online here
 .. figure:: /_static/figures/flow_parametric.png
 
 
-You can also create methods on Part objects that automatically checks for any connecting/clashing elements and create
-your own parametric connecting/penetration detail in python. This enables you to input a simplified concept analysis
-model and output a fully detailed model simply by using object oriented design together with parametric modelling.
+**Steel detailing as a method**
 
-In the example below a method is created to check for all penetrating piping segments and create a simple penetration
-detail, which is a cylindrical cutout through the deck plate and stringer.
+You can create methods on any Part objects that you can customize to your liking. This enables you to input
+simplified concept analysis models and output fully detailed models simply by using object oriented design
+together with parametric modelling.
+
+In the example below a method is created on a `Reinforced Floor` (basically just a plate with HP profiles underneath)
+class inherited from the `Part` class to check for all penetrating piping segments and for each penetration
+do the necessary detailing (which for the sake of simplicity in this example) resulted in a cylindrical cutout through
+the deck plate and stringer.
+
 With little effort you can add reinforcements to the detail and end up with a
 flexible, robust and fabrication friendly parametric detail that you can re-use.
 
