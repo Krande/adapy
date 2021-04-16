@@ -146,8 +146,9 @@ Settings.fem_exe_paths["abaqus"] = "<path to your abaqus.bat>"
 For installation files of open source FEM software such as Calculix and Code Aster, here are some links:
 
 * https://github.com/calculix/cae/releases (calculix CAE for windows/linux)
-* https://code-aster-windows.com/download/ (Code Aster for Windows)
+* https://code-aster-windows.com/download/ (Code Aster for Windows Salome Meca v9.3)
 * https://www.code-aster.org/spip.php?rubrique21 (Code Aster for Linux)
+* https://salome-platform.org/downloads/current-version (Salome Meca v9.6 for windows/linux)
 
 ## For developers
 
