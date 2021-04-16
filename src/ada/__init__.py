@@ -350,18 +350,18 @@ class Part(BackendGeom):
             self.add_wall(wall)
 
     def read_step_file(
-        self, cad_ref, name=None, scale=None, transform=None, rotate=None, colour=None, opacity=1.0, units="m"
+        self, step_path, name=None, scale=None, transform=None, rotate=None, colour=None, opacity=1.0, units="m"
     ):
         """
 
-        :param cad_ref:
-        :param name:
-        :param scale:
-        :param transform:
-        :param rotate:
-        :param colour:
-        :param opacity:
-        :return:
+        :param step_path: Can be path to stp file or path to directory of step files.
+        :param name: Desired name of destination Shape object
+        :param scale: Scale the step content upon import
+        :param transform: Transform the step content upon import
+        :param rotate: Rotate step content upon import
+        :param colour: Assign a specific colour upon import
+        :param opacity: Assign Opacity upon import
+        :param units: Unit of the imported STEP file. Default is 'm'
         """
         import math
 
@@ -397,18 +397,14 @@ class Part(BackendGeom):
             return s
 
         shapes = []
-        if type(cad_ref) is str and ".stp" in cad_ref:
-            cad_file_path = pathlib.Path(cad_ref)
-            if cad_file_path.is_file():
-                shapes += extract_subshapes(read_step_file(str(cad_file_path)))
-            elif cad_file_path.is_dir():
-                shapes += walk_shapes(cad_file_path)
-            else:
-                raise Exception(
-                    'step_ref "{}" does not represent neither file or folder found on system'.format(cad_ref)
-                )
+
+        cad_file_path = pathlib.Path(step_path)
+        if cad_file_path.is_file():
+            shapes += extract_subshapes(read_step_file(str(cad_file_path)))
+        elif cad_file_path.is_dir():
+            shapes += walk_shapes(cad_file_path)
         else:
-            raise Exception('step_ref type "{}" is not recognized'.format(type(cad_ref)))
+            raise Exception(f'step_ref "{step_path}" does not represent neither file or folder found on system')
 
         shapes = [transform_shape(s) for s in shapes]
         if len(shapes) > 0:
