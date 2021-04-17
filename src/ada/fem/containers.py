@@ -254,6 +254,10 @@ class FemElements:
         return cogx, cogy, cogz, tot_mass, tot_vol, sh_mass, bm_mass, no_mass
 
     @property
+    def max_el_id(self):
+        return max(self._idmap.keys())
+
+    @property
     def elements(self):
         return self._elements
 
