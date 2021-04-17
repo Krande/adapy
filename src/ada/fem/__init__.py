@@ -493,7 +493,9 @@ class FEM(FemBase):
         if bc.name in [b.name for b in self._bcs]:
             raise Exception('BC with name "{bc_id}" already exists'.format(bc_id=bc.name))
         bc.parent = self
-        if bc.fem_set not in self.sets:
+        if bc.fem_set.parent is None:
+            # TODO: look over this implementation. Is this okay?
+            logging.error('Bc FemSet has no parent. Adding to self')
             self.sets.add(bc.fem_set)
 
         self._bcs.append(bc)

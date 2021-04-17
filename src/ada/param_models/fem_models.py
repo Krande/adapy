@@ -47,13 +47,15 @@ def beam_ex1(p1=(0, 0, 0), p2=(1.5, 0, 0), profile="IPE400"):
     bm.add_penetration(PrimBox("box", (x, -0.1, -0.1), (x + 0.2, 0.1, 0.1)))
 
     # Create a FEM analysis of the beam as a cantilever subjected to gravity loads
-    create_beam_mesh(bm, a.get_part("MyPart").fem, "shell")
+    p = a.get_part("MyPart")
+    create_beam_mesh(bm, p.fem, "shell")
 
     # Add a set containing ALL elements (necessary for Calculix loads).
-    fs = a.fem.add_set(FemSet("Eall", [el for el in a.get_part("MyPart").fem.elements.elements], "elset"))
+    fs = p.fem.add_set(FemSet("Eall", [el for el in p.fem.elements], "elset"))
 
     step = a.fem.add_step(Step("gravity", "static", nl_geom=True, init_incr=100.0, total_time=100.0))
     step.add_load(Load("grav", "gravity", -9.81, fem_set=fs))
 
-    a.fem.add_bc(Bc("Fixed", FemSet("bc_nodes", get_beam_end_nodes(bm), "nset"), [1, 2, 3]))
+    fix_set = p.fem.add_set(FemSet("bc_nodes", get_beam_end_nodes(bm), "nset"))
+    a.fem.add_bc(Bc("Fixed", fix_set, [1, 2, 3]))
     return a
