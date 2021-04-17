@@ -80,7 +80,7 @@ def fem_to_meshio(fem):
     points = np.zeros((int(fem.nodes.max_nid + 1), 3))
 
     def pmap(n):
-        points[n.id] = n.p
+        points[int(n.id - 1)] = n.p
 
     list(map(pmap, fem.nodes))
 
@@ -88,15 +88,20 @@ def fem_to_meshio(fem):
     cells = []
 
     def get_nids(el):
-        return [n.id for n in el.nodes]
+        return [n.id - 1 for n in el.nodes]
 
     for group, elements in groupby(fem.elements, key=attrgetter("type")):
         if group in ElemShapes.masses + ElemShapes.springs:
-            logging.error('NotImplemented: Skipping Mass or Spring Elements')
+            logging.error("NotImplemented: Skipping Mass or Spring Elements")
             continue
         med_el = ada_to_meshio_type[group]
+        elements = list(elements)
         el_mapped = np.array(list(map(get_nids, elements)))
-        cells.append((med_el, el_mapped))
+        el_long = np.zeros((int(fem.elements.max_el_id + 1), len(el_mapped[0])))
+        for el in elements:
+            el_long[el.id] = get_nids(el)
+
+        cells.append((med_el, el_long))
 
     cell_sets = dict()
     for setid, elset in fem.sets.elements.items():
