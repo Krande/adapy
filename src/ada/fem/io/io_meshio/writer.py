@@ -85,31 +85,31 @@ def fem_to_meshio(fem):
     list(map(pmap, fem.nodes))
 
     # Elements
-    cells = []
 
-    def get_nids(el):
+    def get_node_ids_from_element(el):
         return [n.id - 1 for n in el.nodes]
 
+    cells = []
     for group, elements in groupby(fem.elements, key=attrgetter("type")):
         if group in ElemShapes.masses + ElemShapes.springs:
             logging.error("NotImplemented: Skipping Mass or Spring Elements")
             continue
         med_el = ada_to_meshio_type[group]
         elements = list(elements)
-        el_mapped = np.array(list(map(get_nids, elements)))
+        el_mapped = np.array(list(map(get_node_ids_from_element, elements)))
         el_long = np.zeros((int(fem.elements.max_el_id + 1), len(el_mapped[0])))
         for el in elements:
-            el_long[el.id] = get_nids(el)
+            el_long[el.id] = get_node_ids_from_element(el)
 
         cells.append((med_el, el_long))
 
     cell_sets = dict()
-    for setid, elset in fem.sets.elements.items():
-        cell_sets[setid] = np.array([[el.id for el in elset.members]], dtype="int32")
+    for set_name, elset in fem.sets.elements.items():
+        cell_sets[set_name] = np.array([[el.id for el in elset.members]], dtype="int32")
 
     point_sets = dict()
-    for setid, nset in fem.sets.nodes.items():
-        point_sets[setid] = np.array([[el.id for el in nset.members]], dtype="int32")
+    for set_name, nset in fem.sets.nodes.items():
+        point_sets[set_name] = np.array([[el.id for el in nset.members]], dtype="int32")
 
     mesh = meshio.Mesh(points, cells, point_sets=point_sets, cell_sets=cell_sets)
     return mesh
