@@ -142,7 +142,7 @@ class FemElements:
         return FemElements(result) if isinstance(index, slice) else result
 
     def __add__(self, other):
-        return FemElements(chain(self.elements, other.elements), self._fem_obj)
+        return FemElements(chain.from_iterable([self.elements, other.elements]), self._fem_obj)
 
     def __repr__(self):
         data = {}
@@ -189,14 +189,14 @@ class FemElements:
             ln = global_2_local_nodes([locx, locy], origin, el.nodes)
             x, y, z = list(zip(*ln))
             area = poly_area(x, y)
-            vol = t * area
-            mass = vol * el.fem_sec.material.model.rho
+            vol_ = t * area
+            mass = vol_ * el.fem_sec.material.model.rho
             mass_per_node = mass / len(el.nodes)
 
             # Have not added offset to fem_section yet
             # adjusted_nodes = [e.p+t*normal for e in el.nodes]
 
-            return mass_per_node, [e for e in el.nodes], vol
+            return mass_per_node, [e for e in el.nodes], vol_
 
         def calc_bm_elem(el):
             """
@@ -205,13 +205,13 @@ class FemElements:
             :type el: ada.Elem
             """
             el.fem_sec.section.properties.calculate()
-            nodes = el.fem_sec.get_offset_coords()
-            elem_len = vector_length(nodes[-1] - nodes[0])
-            vol = el.fem_sec.section.properties.Ax * elem_len
-            mass = vol * el.fem_sec.material.model.rho
+            nodes_ = el.fem_sec.get_offset_coords()
+            elem_len = vector_length(nodes_[-1] - nodes_[0])
+            vol_ = el.fem_sec.section.properties.Ax * elem_len
+            mass = vol_ * el.fem_sec.material.model.rho
             mass_per_node = mass / 2
 
-            return mass_per_node, [el.nodes[0], el.nodes[-1]], vol
+            return mass_per_node, [el.nodes[0], el.nodes[-1]], vol_
 
         def calc_mass_elem(el):
             """
@@ -222,9 +222,9 @@ class FemElements:
             if el.mass_props.type != "MASS":
                 raise NotImplementedError(f'Mass type "{el.mass_props.type}" is not yet implemented')
             mass = el.mass_props.mass
-            nodes = el.nodes
-            vol = 0.0
-            return mass, nodes, vol
+            nodes_ = el.nodes
+            vol_ = 0.0
+            return mass, nodes_, vol_
 
         sh = list(chain(map(calc_sh_elem, self.shell)))
         bm = list(chain(map(calc_bm_elem, self.beams)))
@@ -263,27 +263,35 @@ class FemElements:
 
     @property
     def shell(self):
-        from ada.fem import Elem
+        from ada.fem import ElemShapes
 
         skipel = ["MASS", "SPRING1"]
-        return filter(lambda x: x.type not in skipel and x.type in Elem.shell, self._elements)
+        return filter(lambda x: x.type not in skipel and x.type in ElemShapes.shell, self._elements)
 
     @property
     def beams(self):
-        from ada.fem import Elem
+        from ada.fem import ElemShapes
 
         skipel = ["MASS", "SPRING1"]
-        return filter(lambda x: x.type not in skipel and x.type in Elem.beam, self._elements)
+        return filter(lambda x: x.type not in skipel and x.type in ElemShapes.beam, self._elements)
 
     @property
     def connectors(self):
-        from ada.fem import Elem
+        """
+
+        :return: Connector elements (lazy iterator)
+        """
+        from ada.fem import ElemShapes
 
         skipel = ["MASS", "SPRING1"]
-        return filter(lambda x: x.type not in skipel and x.type in Elem.connectors, self._elements)
+        return filter(lambda x: x.type not in skipel and x.type in ElemShapes.connectors, self._elements)
 
     @property
     def masses(self):
+        """
+
+        :return: Mass elements (lazy iterator)
+        """
         from ada.fem import Mass
 
         return filter(lambda x: x.type in Mass._valid_types, self._elements)
@@ -292,7 +300,8 @@ class FemElements:
     def edges(self):
         """
 
-        :return:
+
+        :return: List of edges for visualization for all elements
         """
 
         def grab_nodes(elem):
@@ -311,7 +320,7 @@ class FemElements:
     def edges_alt(self):
         """
 
-        :return:
+        :return: List of edges for visualization for all elements (alternative implementation)
         """
 
         def grab_ids(elem):
@@ -551,6 +560,19 @@ class FemSets:
         if len(self._sets) > 0:
             self.link_data()
 
+    def add_references(self):
+        """
+        Add reference to the containing FemSet for each member (node or element)
+
+        :return:
+        """
+
+        def _map_ref(el, fem_set):
+            el.refs.append(fem_set)
+
+        for _set in self._sets:
+            [_map_ref(m, _set) for m in _set.members]
+
     @staticmethod
     def is_nset(fs):
         return True if fs.type == "nset" else False
@@ -559,7 +581,7 @@ class FemSets:
     def is_elset(fs):
         return True if fs.type == "elset" else False
 
-    def _map_members(self, fem_set):
+    def _instantiate_all_members(self, fem_set):
         """
 
         :param fem_set:
@@ -604,7 +626,7 @@ class FemSets:
         return fem_set
 
     def link_data(self):
-        list(map(self._map_members, self._sets))
+        list(map(self._instantiate_all_members, self._sets))
 
     def _assemble_sets(self, set_type):
         elsets = dict()
@@ -612,7 +634,7 @@ class FemSets:
             if elset.name not in elsets.keys():
                 elsets[elset.name] = elset
             else:
-                self._map_members(elset)
+                self._instantiate_all_members(elset)
                 elsets[elset.name] += elset
         return elsets
 
@@ -748,4 +770,4 @@ class FemSets:
             self._nomap[fe_set.name] = fe_set
         if fe_set.parent is None:
             fe_set.parent = self._fem_obj
-        self._map_members(fe_set)
+        self._instantiate_all_members(fe_set)

@@ -1,34 +1,14 @@
+import logging
 from itertools import groupby
 from operator import attrgetter
 
-import meshio
 import numpy as np
 
 from ada.config import Settings as _Settings
+from ada.fem import ElemShapes
 
-from ..io_meshio import ada_to_meshio_type
 from ..utils import _folder_prep, get_fem_model_from_assembly
-
-meshio_to_med_type = {
-    "vertex": "PO1",
-    "line": "SE2",
-    "line3": "SE3",
-    "triangle": "TR3",
-    "triangle6": "TR6",
-    "quad": "QU4",
-    "quad8": "QU8",
-    "tetra": "TE4",
-    "tetra10": "T10",
-    "hexahedron": "HE8",
-    "hexahedron20": "H20",
-    "pyramid": "PY5",
-    "pyramid13": "P13",
-    "wedge": "PE6",
-    "wedge15": "P15",
-}
-
-med_to_meshio_type = {v: k for k, v in meshio_to_med_type.items()}
-numpy_void_str = np.string_("")
+from .common import abaqus_to_med_type
 
 
 def to_fem(
@@ -44,12 +24,10 @@ def to_fem(
     exit_on_complete=True,
 ):
     """
-    Write a Code_Aster .med and .comm file
+    Write Code_Aster .med, .export and .comm file from Assembly data
 
 
-    Based on meshio implementation..
-
-    Todo: Evaluate if meshio can replace parts of the mesh writing algorithm..
+    MED writer modified and based on meshio implementation..
 
     :param assembly:
     :param name:
@@ -61,7 +39,6 @@ def to_fem(
     :param gpus:
     :param overwrite:
     :param exit_on_complete:
-    :return:
     """
     print(f"creating: {name}")
     analysis_dir = _folder_prep(scratch_dir, name, overwrite)
@@ -72,14 +49,9 @@ def to_fem(
     assembly.metadata["info"]["description"] = description
 
     p = get_fem_model_from_assembly(assembly)
+    # TODO: Implement support for multiple parts. Need to understand how submeshes in Salome and Code Aster works.
     # for p in filter(lambda x: len(x.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)):
-    if _Settings.ca_use_meshio_med_convert:
-        from ada.fem.io.io_meshio.writer import fem_to_meshio
-
-        mesh = fem_to_meshio(p.fem)
-        mesh.write(_Settings.scratch_dir / name / f"{name}.med")
-    else:
-        write_to_med(name, p, analysis_dir)
+    write_to_med(name, p, analysis_dir)
 
     with open((analysis_dir / name).with_suffix(".export"), "w") as f:
         f.write(write_export_file(analysis_dir, name, 2))
@@ -116,7 +88,7 @@ def write_to_comm(name, a, p, analysis_dir):
     comm_str = "DEBUT(LANG='EN')\n\n"
     comm_str += "mesh=LIRE_MAILLAGE(FORMAT=\"MED\", UNITE=20, VERI_MAIL=_F(VERIF='OUI'))\n\n"
     comm_str += "model=AFFE_MODELE(AFFE=_F(MODELISATION=('3D', ),PHENOMENE='MECANIQUE',TOUT='OUI'),MAILLAGE=mesh)\n\n"
-    # Add missing parameters here
+    # TODO: Add missing parameters here
     comm_str += "FIN()"
 
     return comm_str
@@ -160,47 +132,22 @@ F rmed {analysis_dir}\{name}.rmed R 80"""
     return export_str
 
 
-def write_to_med(name, p, analysis_dir):
+def write_to_med(name, part, analysis_dir):
     """
-    Custom Method for writing a part directly based on meshio example
+    Custom Method for writing a part directly based on meshio
 
-
-
-    :param name: name
-    :param p: Part
+    :param name:
+    :param part:
     :param analysis_dir:
-    :type p: ada.Part
+    :type part: ada.Part
+    :return:
     """
     import h5py
 
-    def get_nids(el):
-        return [n.id for n in el.nodes]
+    filename = (analysis_dir / name).with_suffix(".med")
+    mesh_name = name if name is not None else part.fem.name
 
-    cells = []
-    plist = list(sorted(p.fem.nodes, key=attrgetter("id")))
-    if len(plist) == 0:
-        return None
-
-    pid = plist[-1].id
-    points = np.zeros((int(pid + 1), 3))
-
-    def pmap(n):
-        points[n.id] = n.p
-
-    list(map(pmap, p.fem.nodes))
-    for group, elements in groupby(p.fem.elements, key=attrgetter("type")):
-        med_el = ada_to_meshio_type[group]
-        el_mapped = np.array(list(map(get_nids, elements)))
-        cells.append((med_el, el_mapped))
-
-    mesh = meshio.Mesh(points, cells)
-    part_file = (analysis_dir / name).with_suffix(".med")
-
-    dim = 3  # mesh.points.shape[1]
-    node_data = mesh.points.flatten(order="F")
-    # ndata2 = np.array(points).flatten(order="F")
-
-    f = h5py.File(part_file, "w")
+    f = h5py.File(filename, "w")
 
     # Strangely the version must be 3.0.x
     # Any version >= 3.1.0 will NOT work with SALOME 8.3
@@ -209,9 +156,128 @@ def write_to_med(name, p, analysis_dir):
     info.attrs.create("MIN", 0)
     info.attrs.create("REL", 0)
 
+    time_step = _write_mesh_presets(f, mesh_name)
+
+    profile = "MED_NO_PROFILE_INTERNAL"
+
+    # Node and Element sets (familles in French)
+    fas = f.create_group("FAS")
+    families = fas.create_group(mesh_name)
+    family_zero = families.create_group("FAMILLE_ZERO")  # must be defined in any case
+    family_zero.attrs.create("NUM", 0)
+
+    # Make sure that all member references are updated (TODO: Evaluate if this can be avoided using a smarter algorithm)
+    part.fem.sets.add_references()
+
+    # Nodes and node sets
+    _write_nodes(part, time_step, profile, families)
+
+    # Elements (mailles in French) and element sets
+    _write_elements(part, time_step, profile, families)
+
+
+def _write_nodes(part, time_step, profile, families):
+    """
+
+    TODO: Go through each data group and set in HDF5 file and make sure that it writes what was read 1:1.
+        Use cylinder.med as a benchmark.
+
+    Add the following datasets ['COO', 'FAM', 'NUM'] to the 'NOE' group
+
+    :param part:
+    :param time_step:
+    :param profile:
+    :return:
+    """
+    points = np.zeros((int(part.fem.nodes.max_nid), 3))
+
+    def pmap(n):
+        points[int(n.id - 1)] = n.p
+
+    list(map(pmap, part.fem.nodes))
+
+    # Try this
+    if _Settings.ca_experimental_id_numbering is True:
+        points = np.array([n.p for n in part.fem.nodes])
+
+    nodes_group = time_step.create_group("NOE")
+    nodes_group.attrs.create("CGT", 1)
+    nodes_group.attrs.create("CGS", 1)
+
+    nodes_group.attrs.create("PFL", np.string_(profile))
+    coo = nodes_group.create_dataset("COO", data=points.flatten(order="F"))
+    coo.attrs.create("CGT", 1)
+    coo.attrs.create("NBR", len(points))
+
+    if _Settings.ca_experimental_id_numbering is True:
+        node_ids = [n.id for n in part.fem.nodes]
+        num = nodes_group.create_dataset("NUM", data=node_ids)
+        num.attrs.create("CGT", 1)
+        num.attrs.create("NBR", len(points))
+
+    if len(part.fem.nsets.keys()) > 0:
+        _add_node_sets(nodes_group, part, points, families)
+
+
+def _write_elements(part, time_step, profile, families):
+    """
+
+    Add the following ['FAM', 'NOD', 'NUM'] to the 'MAI' group
+
+    **NOD** requires 'CGT' and 'NBR' attrs
+
+    :param part:
+    :param time_step:
+    :param profile:
+    :param families:
+    :return:
+    """
+
+    def get_node_ids_from_element(el_):
+        return [int(n.id) for n in el_.nodes]
+
+    elements_group = time_step.create_group("MAI")
+    elements_group.attrs.create("CGT", 1)
+    for group, elements in groupby(part.fem.elements, key=attrgetter("type")):
+        if group in ElemShapes.masses + ElemShapes.springs:
+            logging.error("NotImplemented: Skipping Mass or Spring Elements")
+            continue
+        med_type = abaqus_to_med_type(group)
+        elements = list(elements)
+        cells = np.array(list(map(get_node_ids_from_element, elements)))
+
+        med_cells = elements_group.create_group(med_type)
+        med_cells.attrs.create("CGT", 1)
+        med_cells.attrs.create("CGS", 1)
+        med_cells.attrs.create("PFL", np.string_(profile))
+
+        nod = med_cells.create_dataset("NOD", data=cells.flatten(order="F"))
+        nod.attrs.create("CGT", 1)
+        nod.attrs.create("NBR", len(cells))
+
+        # Node Numbering is necessary for proper handling of
+        num = med_cells.create_dataset("NUM", data=[int(el.id) for el in elements])
+        num.attrs.create("CGT", 1)
+        num.attrs.create("NBR", len(cells))
+
+    # Add Element sets
+    if len(part.fem.elsets.keys()) > 0:
+        _add_cell_sets(elements_group, part, families)
+
+
+def _write_mesh_presets(f, mesh_name):
+    """
+
+    :param f:
+    :param mesh_name:
+    :return: Time step 0
+    """
+    numpy_void_str = np.string_("")
+    dim = 3
+
     # Meshes
     mesh_ensemble = f.create_group("ENS_MAA")
-    mesh_name = "mesh"
+
     med_mesh = mesh_ensemble.create_group(mesh_name)
     med_mesh.attrs.create("DIM", dim)  # mesh dimension
     med_mesh.attrs.create("ESP", dim)  # spatial dimension
@@ -219,7 +285,10 @@ def write_to_med(name, p, analysis_dir):
     med_mesh.attrs.create("UNT", numpy_void_str)  # time unit
     med_mesh.attrs.create("UNI", numpy_void_str)  # spatial unit
     med_mesh.attrs.create("SRT", 1)  # sorting type MED_SORT_ITDT
-    med_mesh.attrs.create("NOM", np.string_(_component_names(dim)))  # component names
+
+    # component names:
+    names = ["X", "Y", "Z"][:dim]
+    med_mesh.attrs.create("NOM", np.string_("".join(f"{name:<16}" for name in names)))
     med_mesh.attrs.create("DES", np.string_("Mesh created with meshio"))
     med_mesh.attrs.create("TYP", 0)  # mesh type (MED_NON_STRUCTURE)
 
@@ -230,249 +299,222 @@ def write_to_med(name, p, analysis_dir):
     time_step.attrs.create("NDT", -1)  # no time step (-1)
     time_step.attrs.create("NOR", -1)  # no iteration step (-1)
     time_step.attrs.create("PDT", -1.0)  # current time
+    return time_step
 
-    # Points
-    nodes_group = time_step.create_group("NOE")
-    nodes_group.attrs.create("CGT", 1)
-    nodes_group.attrs.create("CGS", 1)
-    profile = "MED_NO_PROFILE_INTERNAL"
-    nodes_group.attrs.create("PFL", np.string_(profile))
-    coo = nodes_group.create_dataset("COO", data=node_data)
-    coo.attrs.create("CGT", 1)
-    coo.attrs.create("NBR", len(mesh.points))
 
-    # Point tags
-    if "point_tags" in mesh.point_data:  # only works for med -> med
-        family = nodes_group.create_dataset("FAM", data=mesh.point_data["point_tags"])
+def resolve_ids_in_multiple(tags, tags_data, is_elem):
+    """
+    Find elements shared by multiple sets
+
+    :param tags:
+    :param tags_data:
+    :return:
+    """
+    from ada.fem import FemSet
+
+    fin_data = dict()
+    for t, memb in tags_data.items():
+        fin_data[t] = []
+        for mem in memb:
+            refs = list(filter(lambda x: type(x) == FemSet, mem.refs))
+            if len(refs) > 1:
+                names = [r.name for r in refs]
+                if names not in tags.values():
+                    new_int = min(tags.keys()) - 1 if is_elem else max(tags.keys()) + 1
+                    tags[new_int] = names
+                    fin_data[new_int] = []
+                else:
+                    rmap = {tuple(v): r for r, v in tags.items()}
+                    new_int = rmap[tuple(names)]
+                if mem not in fin_data[new_int]:
+                    fin_data[new_int].append(mem)
+            else:
+                fin_data[t].append(mem)
+    to_be_removed = []
+    for i, f in fin_data.items():
+        if len(f) == 0:
+            to_be_removed.append(i)
+    for t in to_be_removed:
+        fin_data.pop(t)
+        tags.pop(t)
+    return fin_data
+
+
+def _add_cell_sets(cells_group, part, families):
+    """
+
+    :param cells_group:
+    :param part:
+    :param families:
+    :type part: ada.Part
+    """
+    cell_id_num = -4
+
+    element = families.create_group("ELEME")
+    tags = dict()
+    tags_data = dict()
+
+    cell_id_current = cell_id_num
+    for cell_set in part.fem.elsets.values():
+        tags[cell_id_current] = [cell_set.name]
+        tags_data[cell_id_current] = cell_set.members
+        cell_id_current -= 1
+
+    res_data = resolve_ids_in_multiple(tags, tags_data, True)
+
+    def get_node_ids_from_element(el_):
+        return [int(n.id - 1) for n in el_.nodes]
+
+    for group, elements in groupby(part.fem.elements, key=attrgetter("type")):
+        if group in ElemShapes.masses + ElemShapes.springs:
+            logging.error("NotImplemented: Skipping Mass or Spring Elements")
+            continue
+        elements = list(elements)
+        cell_ids = {el.id: i for i, el in enumerate(elements)}
+
+        cell_data = np.zeros(len(elements), dtype=np.int32)
+
+        for t, mem in res_data.items():
+            list_filtered = [cell_ids[el.id] for el in filter(lambda x: x.type == group, mem)]
+            for index in list_filtered:
+                cell_data[index] = t
+
+        cells = np.array(list(map(get_node_ids_from_element, elements)))
+        med_type = abaqus_to_med_type(group)
+        med_cells = cells_group.get(med_type)
+        family = med_cells.create_dataset("FAM", data=cell_data)
         family.attrs.create("CGT", 1)
-        family.attrs.create("NBR", len(mesh.points))
+        family.attrs.create("NBR", len(cells))
 
-    # Cells (mailles in French)
-    if len(mesh.cells) != len(np.unique([c.type for c in mesh.cells])):
-        raise ValueError("MED files cannot have two sections of the same cell type.")
-    cells_group = time_step.create_group("MAI")
-    cells_group.attrs.create("CGT", 1)
-    for k, (cell_type, cells) in enumerate(mesh.cells):
-        med_type = meshio_to_med_type[cell_type]
-        med_cells = cells_group.create_group(med_type)
-        med_cells.attrs.create("CGT", 1)
-        med_cells.attrs.create("CGS", 1)
-        med_cells.attrs.create("PFL", np.string_(profile))
-        nod = med_cells.create_dataset("NOD", data=cells.flatten(order="F") + 1)
-        nod.attrs.create("CGT", 1)
-        nod.attrs.create("NBR", len(cells))
-
-        # Cell tags
-        if "cell_tags" in mesh.cell_data:  # works only for med -> med
-            family = med_cells.create_dataset("FAM", data=mesh.cell_data["cell_tags"][k])
-            family.attrs.create("CGT", 1)
-            family.attrs.create("NBR", len(cells))
-
-    # Information about point and cell sets (familles in French)
-    fas = f.create_group("FAS")
-    families = fas.create_group(mesh_name)
-    family_zero = families.create_group("FAMILLE_ZERO")  # must be defined in any case
-    family_zero.attrs.create("NUM", 0)
-
-    # Write nodal/cell data
-    fields = f.create_group("CHA")
-
-    # Nodal data
-    for name, data in mesh.point_data.items():
-        if name == "point_tags":  # ignore point_tags already written under FAS
-            continue
-        supp = "NOEU"  # nodal data
-        _write_data(fields, mesh_name, profile, name, supp, data)
-
-    # Cell data
-    # Only support writing ELEM fields with only 1 Gauss point per cell
-    # Or ELNO (DG) fields defined at every node per cell
-    for name, d in mesh.cell_data.items():
-        if name == "cell_tags":  # ignore cell_tags already written under FAS
-            continue
-        for cell, data in zip(mesh.cells, d):
-            # Determine the nature of the cell data
-            # Either shape = (n_data, ) or (n_data, n_components) -> ELEM
-            # or shape = (n_data, n_gauss_points, n_components) -> ELNO or ELGA
-            med_type = meshio_to_med_type[cell.type]
-            if data.ndim <= 2:
-                supp = "ELEM"
-            elif data.shape[1] == num_nodes_per_cell[cell_type]:
-                supp = "ELNO"
-            else:  # general ELGA data defined at unknown Gauss points
-                supp = "ELGA"
-            _write_data(
-                fields,
-                mesh_name,
-                profile,
-                name,
-                supp,
-                data,
-                med_type,
-            )
+    _write_families(element, tags)
 
 
-num_nodes_per_cell = {
-    "vertex": 1,
-    "line": 2,
-    "triangle": 3,
-    "quad": 4,
-    "quad8": 8,
-    "tetra": 4,
-    "hexahedron": 8,
-    "hexahedron20": 20,
-    "hexahedron24": 24,
-    "wedge": 6,
-    "pyramid": 5,
-    #
-    "line3": 3,
-    "triangle6": 6,
-    "quad9": 9,
-    "tetra10": 10,
-    "hexahedron27": 27,
-    "wedge15": 15,
-    "wedge18": 18,
-    "pyramid13": 13,
-    "pyramid14": 14,
-    #
-    "line4": 4,
-    "triangle10": 10,
-    "quad16": 16,
-    "tetra20": 20,
-    "wedge40": 40,
-    "hexahedron64": 64,
-    #
-    "line5": 5,
-    "triangle15": 15,
-    "quad25": 25,
-    "tetra35": 35,
-    "wedge75": 75,
-    "hexahedron125": 125,
-    #
-    "line6": 6,
-    "triangle21": 21,
-    "quad36": 36,
-    "tetra56": 56,
-    "wedge126": 126,
-    "hexahedron216": 216,
-    #
-    "line7": 7,
-    "triangle28": 28,
-    "quad49": 49,
-    "tetra84": 84,
-    "wedge196": 196,
-    "hexahedron343": 343,
-    #
-    "line8": 8,
-    "triangle36": 36,
-    "quad64": 64,
-    "tetra120": 120,
-    "wedge288": 288,
-    "hexahedron512": 512,
-    #
-    "line9": 9,
-    "triangle45": 45,
-    "quad81": 81,
-    "tetra165": 165,
-    "wedge405": 405,
-    "hexahedron729": 729,
-    #
-    "line10": 10,
-    "triangle55": 55,
-    "quad100": 100,
-    "tetra220": 220,
-    "wedge550": 550,
-    "hexahedron1000": 1000,
-    "hexahedron1331": 1331,
-    #
-    "line11": 11,
-    "triangle66": 66,
-    "quad121": 121,
-    "tetra286": 286,
-}
-
-
-def _write_data(
-    fields,
-    mesh_name,
-    profile,
-    name,
-    supp,
-    data,
-    med_type=None,
-):
-    # Skip for general ELGA fields defined at unknown Gauss points
-    if supp == "ELGA":
-        return
-
-    # Field
-    try:  # a same MED field may contain fields of different natures
-        field = fields.create_group(name)
-        field.attrs.create("MAI", np.string_(mesh_name))
-        field.attrs.create("TYP", 6)  # MED_FLOAT64
-        field.attrs.create("UNI", numpy_void_str)  # physical unit
-        field.attrs.create("UNT", numpy_void_str)  # time unit
-        n_components = 1 if data.ndim == 1 else data.shape[-1]
-        field.attrs.create("NCO", n_components)  # number of components
-        field.attrs.create("NOM", np.string_(_component_names(n_components)))
-
-        # Time-step
-        step = "0000000000000000000100000000000000000001"
-        time_step = field.create_group(step)
-        time_step.attrs.create("NDT", 1)  # time step 1
-        time_step.attrs.create("NOR", 1)  # iteration step 1
-        time_step.attrs.create("PDT", 0.0)  # current time
-        time_step.attrs.create("RDT", -1)  # NDT of the mesh
-        time_step.attrs.create("ROR", -1)  # NOR of the mesh
-
-    except ValueError:  # name already exists
-        field = fields[name]
-        ts_name = list(field.keys())[-1]
-        time_step = field[ts_name]
-
-    # Field information
-    if supp == "NOEU":
-        typ = time_step.create_group("NOE")
-    elif supp == "ELNO":
-        typ = time_step.create_group("NOE." + med_type)
-    else:  # 'ELEM' with only 1 Gauss points!
-        typ = time_step.create_group("MAI." + med_type)
-
-    typ.attrs.create("GAU", numpy_void_str)  # no associated Gauss points
-    typ.attrs.create("PFL", np.string_(profile))
-    profile = typ.create_group(profile)
-    profile.attrs.create("NBR", len(data))  # number of data
-    if supp == "ELNO":
-        profile.attrs.create("NGA", data.shape[1])
-    else:
-        profile.attrs.create("NGA", 1)
-    profile.attrs.create("GAU", numpy_void_str)
-
-    # Dataset
-    profile.create_dataset("CO", data=data.flatten(order="F"))
-
-
-def _component_names(n_components):
+def _add_node_sets(nodes_group, part, points, families):
     """
-    To be correctly read in a MED viewer, each component must be a
-    string of width 16. Since we do not know the physical nature of
-    the data, we just use V1, V2, ...
+    :param nodes_group:
+    :param part:
+    :param families:
+    :type part: ada.Part
     """
-    return "".join(["V%-15d" % (i + 1) for i in range(n_components)])
+    tags = dict()
+
+    # TODO: Simplify this function
+    # tags_data = dict()
+    # cell_id_current = 4
+    # for cell_set in part.fem.nsets.values():
+    #     tags[cell_id_current] = [cell_set.name]
+    #     tags_data[cell_id_current] = cell_set.members
+    #     cell_id_current += 1
+    #
+    # nmap = {n.id: i for i, n in enumerate(part.fem.nodes)}
+    #
+    # res_data = resolve_ids_in_multiple(tags, tags_data, False)
+    # points = np.zeros(len(points), dtype=np.int32)
+    #
+    # for t, rd in res_data.items():
+    #     for r in rd:
+    #         points[nmap[r.id]] = t
+    # #
+    nsets = dict()
+    for key, val in part.fem.nsets.items():
+        nsets[key] = [int(p.id) for p in val]
+
+    points = _set_to_tags(nsets, points, 2, tags)
+
+    family = nodes_group.create_dataset("FAM", data=points)
+    family.attrs.create("CGT", 1)
+    family.attrs.create("NBR", len(points))
+
+    # For point tags
+    node = families.create_group("NOEUD")
+    _write_families(node, tags)
+
+
+def _resolve_element_in_use_by_other_set(tagged_data, ind, tags, name, is_elem):
+    """
+
+
+    :param tagged_data:
+    :param ind:
+    :param tags:
+    :param name:
+    :param is_elem:
+    """
+    existing_id = int(tagged_data[ind])
+    current_tags = tags[existing_id]
+    all_tags = current_tags + [name]
+
+    if name in current_tags:
+        raise ValueError("Unexpected error. Name already exists in set during resolving set members.")
+
+    new_int = None
+    for i_, t_ in tags.items():
+        if all_tags == t_:
+            new_int = i_
+            break
+
+    if new_int is None:
+        new_int = int(min(tags.keys()) - 1) if is_elem else int(max(tags.keys()) + 1)
+        tags[new_int] = tags[existing_id] + [name]
+
+    tagged_data[ind] = new_int
+
+
+def _set_to_tags(sets, data, tag_start_int, tags, id_map=None):
+    """
+
+    :param sets:
+    :param data:
+    :param tag_start_int:
+    :param
+    :return: The tagged data.
+    """
+    tagged_data = np.zeros(len(data), dtype=np.int32)
+    tag_int = 0 + tag_start_int
+
+    is_elem = False if tag_int > 0 else True
+
+    tag_int = tag_start_int
+    tag_map = dict()
+    # Generate basic tags upfront
+    for name in sets.keys():
+        tags[tag_int] = [name]
+        tag_map[name] = tag_int
+        if is_elem is True:
+            tag_int -= 1
+        else:
+            tag_int += 1
+
+    for name, set_data in sets.items():
+        if len(set_data) == 0:
+            continue
+
+        for index_ in set_data:
+            index = int(index_ - 1)
+
+            if id_map is not None:
+                index = id_map[index_]
+
+            if index > len(tagged_data) - 1:
+                raise IndexError()
+
+            if tagged_data[index] != 0:  # id is already defined in another set
+                _resolve_element_in_use_by_other_set(tagged_data, index, tags, name, is_elem)
+            else:
+                tagged_data[index] = tag_map[name]
+
+    return tagged_data
 
 
 def _family_name(set_id, name):
-    """
-    Return the FAM object name corresponding to
-    the unique set id and a list of subset names
+    """Return the FAM object name corresponding to the unique set id and a list of
+    subset names
     """
     return "FAM" + "_" + str(set_id) + "_" + "_".join(name)
 
 
 def _write_families(fm_group, tags):
-    """
-    Write point/cell tag information under FAS/[mesh_name]
-    """
+    """Write point/cell tag information under FAS/[mesh_name]"""
     for set_id, name in tags.items():
         family = fm_group.create_group(_family_name(set_id, name))
         family.attrs.create("NUM", set_id)
@@ -480,5 +522,7 @@ def _write_families(fm_group, tags):
         group.attrs.create("NBR", len(name))  # number of subsets
         dataset = group.create_dataset("NOM", (len(name),), dtype="80int8")
         for i in range(len(name)):
-            name_80 = name[i] + "\x00" * (80 - len(name[i]))  # make name 80 characters
-            dataset[i] = [ord(x) for x in name_80]
+            # make name 80 characters
+            name_80 = name[i] + "\x00" * (80 - len(name[i]))
+            # Needs numpy array, see <https://github.com/h5py/h5py/issues/1735>
+            dataset[i] = np.array([ord(x) for x in name_80])

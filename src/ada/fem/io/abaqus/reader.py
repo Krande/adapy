@@ -17,6 +17,7 @@ from ada.fem import (
     Constraint,
     Csys,
     Elem,
+    ElemShapes,
     FemSection,
     FemSet,
     Interaction,
@@ -505,6 +506,7 @@ def get_elem_from_inp(bulk_str, fem):
     :return:
     :rtype: ada.fem.containers.FemElements
     """
+
     from ada import Node, Part
 
     re_el = re.compile(
@@ -518,14 +520,14 @@ def get_elem_from_inp(bulk_str, fem):
         elset = d["elset"]
         members = d["members"]
         res = re.search("[a-zA-Z]", members)
-        if eltype.upper() in Elem.cube20 + Elem.cube27 or res is None:
-            if eltype.upper() in Elem.cube20 + Elem.cube27:
+        if eltype.upper() in ElemShapes.cube20 + ElemShapes.cube27 or res is None:
+            if eltype.upper() in ElemShapes.cube20 + ElemShapes.cube27:
                 temp = members.splitlines()
                 ntext = "".join([l1.strip() + "    " + l2.strip() + "\n" for l1, l2 in zip(temp[:-1:2], temp[1::2])])
             else:
                 ntext = d["members"]
             res = np.fromstring(ntext.replace("\n", ","), sep=",", dtype=int)
-            n = Elem.num_nodes(eltype) + 1
+            n = ElemShapes.num_nodes(eltype) + 1
             res_ = res.reshape(int(res.size / n), n)
             return [Elem(e[0], [fem.nodes.from_id(n) for n in e[1:]], eltype, elset, parent=fem) for e in res_]
         else:
@@ -764,6 +766,7 @@ def get_mass_from_bulk(bulk_str, parent):
         """
 
         :param el_set:
+        :param mass_prop:
         :type el_set: ada.fem.FemSet
         """
         elem = el_set.members[0]

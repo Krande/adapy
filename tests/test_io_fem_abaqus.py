@@ -1,6 +1,9 @@
 import pprint
 import unittest
 
+from common import build_test_beam, build_test_model, example_files
+
+from ada import Assembly
 from ada.fem.io.abaqus.common import AbaCards
 
 consec = """*Node
@@ -128,7 +131,7 @@ _Int-2_gcs0_5, Circumferential, 349.849, 99.875, 545.745,  350.319, 99.4502, 544
 """
 
 
-class AbaqusIO(unittest.TestCase):
+class TestAbaCards(unittest.TestCase):
     def test_consec(self):
         assertions = [
             {
@@ -178,6 +181,25 @@ class AbaqusIO(unittest.TestCase):
         for m in AbaCards.contact_general.regex.finditer(interactions):
             d = m.groupdict()
             pprint.pprint(d, indent=4)
+
+
+class TestAbaqus(unittest.TestCase):
+    def test_write_bm(self):
+        a = build_test_beam()
+        a.to_fem("my_beam", fem_format="abaqus", overwrite=True)
+
+    def test_write_test_model(self):
+        a = build_test_model()
+        a.to_fem("my_abaqus", fem_format="abaqus", overwrite=True)
+
+    def test_read_C3D20(self):
+        a = Assembly("my_assembly", "temp")
+        a.read_fem(example_files / "fem_files/abaqus/box.inp")
+
+    def test_read_R3D4(self):
+        a = Assembly("my_assembly", "temp")
+        a.read_fem(example_files / "fem_files/abaqus/box_rigid.inp")
+        assert len(a.fem.constraints) == 1
 
 
 if __name__ == "__main__":

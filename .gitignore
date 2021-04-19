@@ -11,3 +11,6 @@ docs/_build/
 __pycache__
 temp/
 .coverage
+coverage.xml
+htmlcov/
+junit/

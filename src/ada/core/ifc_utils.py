@@ -235,8 +235,8 @@ def create_property_set(name, ifc_file, metadata_props):
     owner_history = ifc_file.by_type("IfcOwnerHistory")[0]
     properties = []
 
-    def ifc_value(v):
-        return ifc_file.create_entity("IfcText", str(v))
+    def ifc_value(v_):
+        return ifc_file.create_entity("IfcText", str(v_))
 
     def to_str(in_enum):
         return (
@@ -592,49 +592,49 @@ def scale_ifc_file_object(ifc_file, scale_factor):
         classes_to_modify[d.name()] = attributes_to_modify
 
     def scale_all(obj, sf):
-        def serialize(obj):
+        def serialize(obj_):
             """Recursively walk object's hierarchy."""
-            if isinstance(obj, (int, float)):
-                return obj * sf
-            elif isinstance(obj, list):
-                return [serialize(item) for item in obj]
-            elif isinstance(obj, tuple):
-                return tuple(serialize([item for item in obj]))
+            if isinstance(obj_, (int, float)):
+                return obj_ * sf
+            elif isinstance(obj_, list):
+                return [serialize(item) for item in obj_]
+            elif isinstance(obj_, tuple):
+                return tuple(serialize([item for item in obj_]))
             else:
                 try:
-                    if obj.is_a("IfcLengthMeasure") is True:
-                        obj.wrappedValue = obj.wrappedValue * sf
-                        return obj
-                    elif obj.is_a("IfcReal") is True:
-                        obj.wrappedValue = obj.wrappedValue * sf
-                        return obj
-                    elif obj.is_a("IfcInteger") is True:
-                        obj.wrappedValue = int(obj.wrappedValue * sf)
-                        return obj
-                    elif obj.is_a("IfcPlaneAngleMeasure") is True:
-                        return obj
-                    elif obj.is_a("IfcPressureMeasure") or obj.is_a("IfcModulusOfElasticityMeasure"):
+                    if obj_.is_a("IfcLengthMeasure") is True:
+                        obj_.wrappedValue = obj_.wrappedValue * sf
+                        return obj_
+                    elif obj_.is_a("IfcReal") is True:
+                        obj_.wrappedValue = obj_.wrappedValue * sf
+                        return obj_
+                    elif obj_.is_a("IfcInteger") is True:
+                        obj_.wrappedValue = int(obj_.wrappedValue * sf)
+                        return obj_
+                    elif obj_.is_a("IfcPlaneAngleMeasure") is True:
+                        return obj_
+                    elif obj_.is_a("IfcPressureMeasure") or obj_.is_a("IfcModulusOfElasticityMeasure"):
                         # sf is a length unit.
                         conv_unit = 1 / sf ** 2
-                        obj.wrappedValue = obj.wrappedValue * conv_unit
-                        return obj
-                    elif obj.is_a("IfcMassDensityMeasure"):
+                        obj_.wrappedValue = obj_.wrappedValue * conv_unit
+                        return obj_
+                    elif obj_.is_a("IfcMassDensityMeasure"):
                         conv_unit = 1 / sf ** 3
-                        obj.wrappedValue = obj.wrappedValue * conv_unit
-                        return obj
+                        obj_.wrappedValue = obj_.wrappedValue * conv_unit
+                        return obj_
                     # Unit-less
-                    elif obj.is_a("IfcText") is True or obj.is_a("IfcPositiveRatioMeasure") is True:
-                        return obj
-                    elif obj.is_a("IfcThermalExpansionCoefficientMeasure") or obj.is_a(
+                    elif obj_.is_a("IfcText") is True or obj_.is_a("IfcPositiveRatioMeasure") is True:
+                        return obj_
+                    elif obj_.is_a("IfcThermalExpansionCoefficientMeasure") or obj_.is_a(
                         "IfcSpecificHeatCapacityMeasure"
                     ):
-                        return obj
-                    elif obj.is_a("IfcLogical") is True:
-                        return obj
-                except Exception as e:
-                    raise ValueError(f"Error {e}")
+                        return obj_
+                    elif obj_.is_a("IfcLogical") is True:
+                        return obj_
+                except Exception as er:
+                    raise ValueError(f"Error {er}")
 
-                raise ValueError(f'Unknown entity "{type(obj)}", "{obj}"')
+                raise ValueError(f'Unknown entity "{type(obj_)}", "{obj_}"')
 
         return serialize(obj)
 

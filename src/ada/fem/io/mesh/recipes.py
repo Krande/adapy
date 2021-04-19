@@ -162,6 +162,9 @@ def create_beam_mesh(
 
     get_nodes_and_elements(gmsh_session, fem)
 
+    # This is needed for code aster MED to do proper roundtripping
+    fem.nodes.renumber()
+
     if fem is None:
         gmsh_session.write(str(temp_dir / f"{name}.msh"))
         m = meshio.read(str(temp_dir / f"{name}.msh"))

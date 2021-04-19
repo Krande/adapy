@@ -3,7 +3,6 @@ import logging
 import os
 from itertools import chain
 
-import gmsh
 import numpy as np
 
 from ada import Node, Plate
@@ -54,6 +53,7 @@ class GMesh:
         :param sh_int_points:
         :return:
         """
+        import gmsh
 
         part = self._part
         pl_in = [pl_ for p in part.get_all_subparts() for pl_ in p.plates] + [pl for pl in part.plates]
@@ -127,6 +127,8 @@ class GMesh:
         :type shp: ada.Shape
         :rtype: ada.FEM
         """
+        import gmsh
+
         gmsh.option.setNumber("Mesh.Algorithm", mesh_algo)
         gmsh.option.setNumber("Mesh.ElementOrder", order)
         gmsh.option.setNumber("Mesh.SecondOrderIncomplete", 1)
@@ -157,6 +159,7 @@ class GMesh:
         :param size:
         :type pl: ada.Plate
         """
+        import gmsh
 
         corners = [n for n in pl.poly.points3d]
         corners += [corners[0]]
@@ -241,6 +244,8 @@ class GMesh:
         :param bm:
         :type bm: ada.Beam
         """
+        import gmsh
+
         p1, p2 = bm.n1.p, bm.n2.p
         s = self.get_point(p1)
         e = self.get_point(p2)
@@ -261,6 +266,7 @@ class GMesh:
         :param order:
         :return:
         """
+        import gmsh
 
         model = gmsh.model
         bm = self._bm_map[li]
@@ -306,6 +312,7 @@ class GMesh:
         :param order:
         :return:
         """
+        import gmsh
 
         pl = self._pl_map[sh]
         assert isinstance(pl, Plate)
@@ -353,6 +360,8 @@ class GMesh:
         return elements
 
     def get_point(self, p):
+        import gmsh
+
         tol = self._tol
         tol_vec = np.array([tol, tol, tol])
         lower = np.array(p) - tol_vec
@@ -365,6 +374,7 @@ class GMesh:
         :param e:
         :return:
         """
+        import gmsh
 
         nco = gmsh.model.mesh.getNode(e)
         return Node([roundoff(x) for x in nco[0]], e, parent=self._part.fem)
@@ -374,20 +384,41 @@ class GMesh:
         return self._work_dir
 
 
-def get_point(gmsh_session, p, tol=1e-5):
+def get_point(gmsh, p, tol=1e-5):
+    """
+
+    :param gmsh:
+    :type gmsh: gmsh
+    :param p:
+    :param tol:
+    :return: Entity Bounding box
+    """
     tol_vec = np.array([tol, tol, tol])
     lower = np.array(p) - tol_vec
     upper = np.array(p) + tol_vec
-    return gmsh_session.model.getEntitiesInBoundingBox(*lower.tolist(), *upper.tolist(), 0)
+    return gmsh.model.getEntitiesInBoundingBox(*lower.tolist(), *upper.tolist(), 0)
 
 
-def get_nodes_and_elements(gmsh_session, fem, fem_set_name="all_elements"):
-    nodes = list(gmsh_session.model.mesh.getNodes(-1, -1))
+def get_nodes_and_elements(gmsh, fem=None, fem_set_name="all_elements"):
+    """
+
+    :param gmsh:
+    :type gmsh: gmsh
+    :param fem:
+    :type fem: ada.fem.FEM
+    :param fem_set_name:
+    :type fem_set_name: str
+    """
+    from ada.fem import FEM
+
+    fem = FEM("AdaFEM") if fem is None else fem
+
+    nodes = list(gmsh.model.mesh.getNodes(-1, -1))
     # Get nodes
     fem._nodes = Nodes(
         [
             Node(
-                [roundoff(x) for x in gmsh_session.model.mesh.getNode(n)[0]],
+                [roundoff(x) for x in gmsh.model.mesh.getNode(n)[0]],
                 n,
                 parent=fem,
             )
@@ -397,10 +428,10 @@ def get_nodes_and_elements(gmsh_session, fem, fem_set_name="all_elements"):
     )
 
     # Get elements
-    elemTypes, elemTags, elemNodeTags = gmsh_session.model.mesh.getElements(2, -1)
+    elemTypes, elemTags, elemNodeTags = gmsh.model.mesh.getElements(2, -1)
     elements = []
     for k, element_list in enumerate(elemTags):
-        face, dim, morder, numv, parv, _ = gmsh_session.model.mesh.getElementProperties(elemTypes[k])
+        face, dim, morder, numv, parv, _ = gmsh.model.mesh.getElementProperties(elemTypes[k])
         elem_type = gmsh_map[face]
         for j, eltag in enumerate(element_list):
             nodes = []
@@ -476,6 +507,8 @@ def eval_thick_normal_from_cog_of_beam_plate(beam, cog):
 
 
 def _init_gmsh_session():
+    import gmsh
+
     gmsh_session = gmsh
     try:
         gmsh_session.finalize()
@@ -484,3 +517,39 @@ def _init_gmsh_session():
     gmsh_session.initialize()
     gmsh_session.option.setNumber("General.Terminal", 1)
     return gmsh_session
+
+
+class GmshSession:
+    def __init__(self, persist=True, geom_repr="shall", settings=None):
+        print("init method called")
+        self.gmsh = None
+        self.settings = settings
+        self.geom_repr = geom_repr
+        self.persist = persist
+
+    def run(self, function, *args, **kwargs):
+        print("run function")
+        res = function(self.gmsh, *args, **kwargs)
+        if self.persist is False:
+            self.gmsh.finalize()
+            self.gmsh.initialize()
+            self._add_settings()
+        return res
+
+    def _add_settings(self):
+        if self.settings is not None:
+            for setting, value in self.settings.items():
+                self.gmsh.option.setNumber(setting, value)
+
+    def __enter__(self):
+        print("Starting GMSH session")
+        import gmsh
+
+        self.gmsh = gmsh
+        self.gmsh.initialize()
+        self._add_settings()
+        return self
+
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        print("Closing GMSH")
+        self.gmsh.finalize()

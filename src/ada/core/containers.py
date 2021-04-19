@@ -734,6 +734,19 @@ class Nodes:
         self._maxid = max(self._idmap.keys()) if len(self._nodes) > 0 else 0
         self._bbox = self._get_bbox() if len(self._nodes) > 0 else None
 
+    def renumber(self):
+        """
+        Ensures that the node numberings starts at 1 and has no holes in its numbering.
+
+        """
+        for i, n in enumerate(sorted(self._nodes, key=attrgetter("id")), start=1):
+            if i != n.id:
+                n.id = i
+
+        self._idmap = {n.id: n for n in sorted(self._nodes, key=attrgetter("id"))}
+        self._maxid = max(self._idmap.keys()) if len(self._nodes) > 0 else 0
+        self._bbox = self._get_bbox() if len(self._nodes) > 0 else None
+
     def _np_array_to_nlist(self, np_array):
         from ada import Node
 

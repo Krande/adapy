@@ -27,9 +27,11 @@ class Settings:
     else:
         execute_dir = None
 
-    ca_use_meshio_med_convert = True
+    # Code Aster conversion specific settings
+    ca_use_meshio_med_convert = False
+    ca_experimental_id_numbering = False
 
-    # Execute Settings
+    # Execution Settings
     use_docker_execute = False
 
     debug = False
