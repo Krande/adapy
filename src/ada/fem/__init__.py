@@ -495,7 +495,7 @@ class FEM(FemBase):
         bc.parent = self
         if bc.fem_set.parent is None:
             # TODO: look over this implementation. Is this okay?
-            logging.error('Bc FemSet has no parent. Adding to self')
+            logging.error("Bc FemSet has no parent. Adding to self")
             self.sets.add(bc.fem_set)
 
         self._bcs.append(bc)

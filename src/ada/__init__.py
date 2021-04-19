@@ -1159,13 +1159,12 @@ class Assembly(Part):
         :param fem_name:
         :param fem_converter: Set desired fem converter. Use either 'default' or 'meshio'.
         :param convert_func:
-        :type fem_file: str
+        :type fem_file: Union[str, os.PathLike]
         :type fem_format: str
         :type fem_name: str
 
         Note! The meshio fem converter implementation currently only supports reading elements and nodes.
         """
-
         fem_file = pathlib.Path(fem_file)
         if fem_file.exists() is False:
             raise FileNotFoundError(fem_file)

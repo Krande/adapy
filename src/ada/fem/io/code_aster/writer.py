@@ -72,11 +72,12 @@ def to_fem(
     assembly.metadata["info"]["description"] = description
 
     p = get_fem_model_from_assembly(assembly)
+    # for p in filter(lambda x: len(x.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)):
     if _Settings.ca_use_meshio_med_convert:
         from ada.fem.io.io_meshio.writer import fem_to_meshio
 
         mesh = fem_to_meshio(p.fem)
-        mesh.write(_Settings.scratch_dir / name / "mesh.med")
+        mesh.write(_Settings.scratch_dir / name / f"{name}.med")
     else:
         write_to_med(name, p, analysis_dir)
 

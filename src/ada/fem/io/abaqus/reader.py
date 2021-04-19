@@ -960,8 +960,8 @@ def get_constraints_from_inp(bulk_str, fem):
     for m in AbaCards.sh2so_re.regex.finditer(bulk_str):
         d = m.groupdict()
         name = d["constraint_name"]
-        surf1 = fem.surfaces[d["surf1"]]
-        surf2 = fem.surfaces[d["surf2"]]
+        surf1 = grab_set_from_assembly(d["surf1"], fem, "surface")
+        surf2 = grab_set_from_assembly(d["surf2"], fem, "surface")
         sh2solids.append(Constraint(name, "shell2solid", surf1, surf2))
 
     # MPC's
@@ -1351,30 +1351,46 @@ def list_cleanup(membulkstr):
     return membulkstr.replace(",\n", ",").replace("\n", ",")
 
 
-def grab_set_from_assembly(set_str, fem_p, set_type):
+def is_set_in_part(part, set_name, set_type):
+    """
+
+    :param part:
+    :param set_name:
+    :param set_type:
+    :type part: ada.Part
+    :return: Set (node, element or surface)
+    """
+
+    set_map = {"nset": part.fem.nsets, "elset": part.fem.elsets, "surface": part.fem.surfaces}
+    el_map = {"nset": part.fem.nodes, "elset": part.fem.elements}
+
+    if set_name in set_map[set_type].keys():
+        return set_map[set_type][set_name]
+    else:
+        _id = int(set_name)
+        return el_map[set_type].from_id(_id)
+
+
+def grab_set_from_assembly(set_str, fem, set_type):
     """
 
     :param set_str:
-    :param fem_p:
+    :param fem:
     :param set_type:
-    :type fem_p: ada.fem.FEM
-    :rtype: ada.fem.FemSet
+    :type fem: ada.fem.FEM
+    :rtype: Union[ada.fem.FemSet, ada.fem.Surface]
     """
-    from ada import Part
-
     res = set_str.split(".")
     if len(res) == 0:
+        set_map = {"nset": fem.nsets, "elset": fem.elsets, "surface": fem.surfaces}
         set_name = res[0]
-        return fem_p.nsets[set_name] if set_type == "nset" else fem_p.elsets[set_name]
+        return set_map[set_type][set_name]
     else:
         set_name = res[1]
         p_name = res[0]
-        for p_ in fem_p.parent.get_all_parts_in_assembly():
-            assert isinstance(p_, Part)
-            if p_name == p_.fem.instance_name:
-                if set_name in p_.fem.nsets.keys() or set_name in p_.fem.elsets.keys():
-                    return p_.fem.nsets[set_name] if set_type == "nset" else p_.fem.elsets[set_name]
-                else:
-                    _id = int(set_name)
-                    return p_.fem.nodes.from_id(_id) if set_type == "nset" else p_.fem.elements.from_id(_id)
+        for part in fem.parent.get_all_parts_in_assembly():
+            if p_name == part.fem.instance_name:
+                r = is_set_in_part(part, set_name, set_type)
+                if r is not None:
+                    return r
     raise ValueError(f'No {set_type} "{set_str}" was found')
