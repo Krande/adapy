@@ -1610,7 +1610,7 @@ class Beam(BackendGeom):
         else:
             if mat is None:
                 mat = "S355"
-            self._material = Material(name=name + "_mat", mat_model=CarbonSteel(mat, plasticity_model=None))
+            self._material = Material(name=mat, mat_model=CarbonSteel(mat, plasticity_model=None))
 
         self._ifc_geom = ifc_geom
         self._opacity = opacity

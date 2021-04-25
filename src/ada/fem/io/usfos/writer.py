@@ -188,7 +188,7 @@ class UsfosWriter:
             xvec = fem_sec.local_z
             xvec_str = f"{xvec[0]:>13.5f}{xvec[1]:>15.5f}{xvec[2]:>15.5f}"
 
-            mat_id = self._gmaterials.index(mat) + 1
+            mat_id = mat.id
 
             if xvec_str in locvecs:
                 locid = locvecs.index(xvec_str)
@@ -447,7 +447,7 @@ def materials_str(materials):
         :type m: ada.Material
         """
         return " MISOIEP{:>11}{:>10.3E}{:>12}{:>10.3E}{:>13}{:>11}".format(
-            i,
+            m.id,
             m.model.E,
             m.model.v,
             float(m.model.sig_y),

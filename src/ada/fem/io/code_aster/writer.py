@@ -5,10 +5,13 @@ from operator import attrgetter
 import numpy as np
 
 from ada.config import Settings as _Settings
+from ada.core.utils import Counter
 from ada.fem import ElemShapes
 
 from ..utils import _folder_prep, get_fem_model_from_assembly
 from .common import abaqus_to_med_type
+
+mat_counts = Counter(1)
 
 
 def to_fem(
@@ -58,11 +61,11 @@ def to_fem(
 
     # TODO: Finish .comm setup based on Salome meca setup
     with open((analysis_dir / name).with_suffix(".comm"), "w") as f:
-        f.write(write_to_comm(name, assembly, p, analysis_dir))
+        f.write(write_to_comm(assembly, p))
 
     print(f'Created a Code_Aster input deck at "{analysis_dir}"')
 
-    if execute:
+    if execute is True:
         from .execute import run_code_aster
 
         run_code_aster(
@@ -76,20 +79,43 @@ def to_fem(
         )
 
 
-def write_to_comm(name, a, p, analysis_dir):
+def write_to_comm(assembly, part):
     """
-
-    :param name:
-    :param a:
-    :param p:
-    :param analysis_dir:
+    :param assembly:
+    :type assembly: ada.Assembly
+    :param part:
+    :type part: ada.Part
     :return:
     """
-    comm_str = "DEBUT(LANG='EN')\n\n"
-    comm_str += "mesh=LIRE_MAILLAGE(FORMAT=\"MED\", UNITE=20, VERI_MAIL=_F(VERIF='OUI'))\n\n"
-    comm_str += "model=AFFE_MODELE(AFFE=_F(MODELISATION=('3D', ),PHENOMENE='MECANIQUE',TOUT='OUI'),MAILLAGE=mesh)\n\n"
-    # TODO: Add missing parameters here
-    comm_str += "FIN()"
+
+    materials_str = "\n".join(list(map(write_material, part.materials)))
+    sections_str = write_sections(part.fem.sections)
+    bc_str = "\n".join(list(map(write_boundary_condition, assembly.fem.bcs)))
+    step_str = "\n".join([write_step(s, part) for s in assembly.fem.steps])
+
+    comm_str = f"""# Units: N, m
+DEBUT(LANG="EN")
+
+mesh = LIRE_MAILLAGE(FORMAT="MED", UNITE=20)
+
+model = AFFE_MODELE(
+    AFFE=_F(MODELISATION=("DKT",), PHENOMENE="MECANIQUE", TOUT="OUI"), MAILLAGE=mesh
+)
+
+# Materials
+{materials_str}
+
+# Sections
+{sections_str}
+
+# Boundary Conditions
+{bc_str}
+
+# Step Information
+{step_str}
+
+FIN()
+"""
 
     return comm_str
 
@@ -102,21 +128,6 @@ def write_export_file(analysis_dir, name, cpus):
     :param cpus:
     :return:
     """
-    #     alt_str = r"""P actions make_etude
-    # P memjob 507904
-    # P memory_limit 496.0
-    # P mode interactif
-    # P mpi_nbcpu 1
-    # P ncpus {cpus}
-    # P rep_trav {analysis_dir}
-    # P time_limit 60.0
-    # P tpsjob 2
-    # P version stable
-    # A memjeveux 62.0
-    # A tpmax 60.0
-    # F comm {analysis_dir}\{name}.comm D  1
-    # F mmed {analysis_dir}\{name}.med D  20"""
-
     export_str = rf"""P actions make_etude
 P memory_limit 1274
 P time_limit 900
@@ -124,10 +135,10 @@ P version stable
 P mpi_nbcpu 1
 P mode interactif
 P ncpus {cpus}
-P rep_trav {analysis_dir}
-F comm {analysis_dir}\{name}.comm D  1
-F mmed {analysis_dir}\{name}.med D  20
-F rmed {analysis_dir}\{name}.rmed R 80"""
+F comm {name}.comm D 1
+F mmed {name}.med D 20
+F mess {name}.mess R 6
+F rmed {name}.rmed R 80"""
 
     return export_str
 
@@ -526,3 +537,185 @@ def _write_families(fm_group, tags):
             name_80 = name[i] + "\x00" * (80 - len(name[i]))
             # Needs numpy array, see <https://github.com/h5py/h5py/issues/1735>
             dataset[i] = np.array([ord(x) for x in name_80])
+
+
+# Code Aster Properties
+
+
+def write_material(material):
+    """
+
+    :param material:
+    :type material: ada.Material
+    :return: Code Aster COMM Input string
+    """
+    from ada.core.utils import NewLine
+
+    # Bi-linear hardening ECRO_LINE=_F(D_SIGM_EPSI=2.0e06, SY=2.35e06,)
+
+    model = material.model
+    nl = NewLine(3, suffix="	")
+    nl_mat = "nl_mat=(	\n	"
+    if model.plasticity_model is not None:
+        eps = [e for e in model.eps_p]
+        eps[0] = 1e-5  # Epsilon index=0 cannot be zero
+        nl_mat += "".join([f"{e:.4E},{s:.4E}," + next(nl) for e, s in zip(eps, model.sig_p)]) + ")"
+    else:
+        nl_mat += ",)"
+
+        logging.error(f"No plasticity is defined for material {material.name}")
+    hardening_model_str = """Traction=DEFI_FONCTION(
+    NOM_PARA='EPSI', NOM_RESU='SIGM', VALE=nl_mat, INTERPOL='LIN', PROL_DROITE='LINEAIRE', PROL_GAUCHE='CONSTANT'
+)"""
+    return f"""{nl_mat}
+
+{hardening_model_str}
+
+{material.name} = DEFI_MATERIAU(
+    ELAS=_F(E={model.E}, NU={model.v}, RHO={model.rho}), TRACTION=_F(SIGM=Traction,),
+)
+"""
+
+
+def write_sections(fem_sections):
+    """
+
+    :param fem_sections:
+    :type fem_sections: ada.fem.containers.FemSections
+    :return:
+    """
+    mat_assign_str = ""
+    shell_sections_str = ""
+
+    if len(fem_sections.shells) > 0:
+        mat_assign_str, shell_sections_str = [
+            "".join(x) for x in zip(*list(map(write_shell_section, fem_sections.shells)))
+        ]
+
+    if len(fem_sections.beams) > 0:
+        logging.error("Beam section export to Code Aster is not yet suppoerted")
+    if len(fem_sections.solids) > 0:
+        logging.error("Solid section export to Code Aster is not yet supported")
+
+    beam_sections_str = ""
+    solid_sections_str = ""
+    return f"""
+material = AFFE_MATERIAU(MODELE=model, AFFE=(
+{mat_assign_str}
+    )
+)
+
+
+# Shell elements:
+#   EPAIS: thickness
+#   VECTEUR: a direction of reference in the tangent plan
+
+element = AFFE_CARA_ELEM(
+        MODELE=model,
+        COQUE=(
+{shell_sections_str}{beam_sections_str}{solid_sections_str}
+        ),
+    )
+"""
+
+
+def write_shell_section(fem_sec):
+    """
+
+
+    :param fem_sec:
+    :type fem_sec: ada.fem.FemSection
+    :return:
+    """
+    mat_name = fem_sec.material.name
+    sec_name = fem_sec.elset.name
+    #
+    local_vec = str(tuple(fem_sec.local_y))
+    mat_ = f'		_F(MATER=({mat_name},), GROUP_MA="{sec_name}"),\n'
+    sec_str = f"""            _F(
+                GROUP_MA=("{sec_name}"),
+                EPAIS={fem_sec.thickness},
+                VECTEUR={local_vec},
+            ),
+"""
+    return mat_, sec_str
+
+
+def write_boundary_condition(bc):
+    """
+
+    :param bc:
+    :type bc: ada.fem.Bc
+    :return:
+    :rtype: str
+    """
+    set_name = bc.fem_set.name
+
+    return f"""{bc.name}_bc = AFFE_CHAR_MECA(
+    MODELE=model, DDL_IMPO=_F(GROUP_NO="{set_name}", LIAISON="ENCASTRE")
+)"""
+
+
+def write_load(load):
+    """
+
+    :param load:
+    :type load: ada.fem.Load
+    :return:
+    :rtype: str
+    """
+    if load.type == "gravity":
+        return f"""{load.name} = AFFE_CHAR_MECA(
+    MODELE=model, PESANTEUR=_F(DIRECTION=(0.0, 0.0, -1.0), GRAVITE={load.magnitude})
+)"""
+    else:
+        raise NotImplementedError(f'Load type "{load.type}"')
+
+
+def write_step(step, part):
+    """
+
+    :param step:
+    :type step: ada.fem.Step
+    :param part:
+    :type part: ada.Part
+    :return:
+    :rtype: str
+    """
+
+    load_str = "\n".join(list(map(write_load, step.loads)))
+    load = step.loads[0]
+    bc = part.get_assembly().fem.bcs[0]
+    if step.type == "static":
+        return f"""
+{load_str}
+
+timeReel = DEFI_LIST_REEL(DEBUT=0.0, INTERVALLE=_F(JUSQU_A=1.0, NOMBRE=10))
+timeInst = DEFI_LIST_INST(METHODE="AUTO", DEFI_LIST=_F(LIST_INST=timeReel))
+rampFunc = DEFI_FONCTION(NOM_PARA="INST", VALE=(0.0, 0.0, 1.0, 1.0))
+
+result = STAT_NON_LINE(
+    MODELE=model,
+    CHAM_MATER=material,
+    CARA_ELEM=element,
+    COMPORTEMENT=(_F(DEFORMATION="PETIT", RELATION="VMIS_ISOT_TRAC", TOUT="OUI")),
+    CONVERGENCE=_F(ARRET="OUI", ITER_GLOB_MAXI=8,),
+    EXCIT=(_F(CHARGE={bc.name}_bc), _F(CHARGE={load.name}, FONC_MULT=rampFunc)),
+    INCREMENT=_F(LIST_INST=timeInst),
+    ARCHIVAGE=_F(LIST_INST=timeReel),
+)
+
+result = CALC_CHAMP(
+    reuse=result, RESULTAT=result, CONTRAINTE=("EFGE_ELNO", "EFGE_NOEU"),
+)
+
+IMPR_RESU(
+    RESU=_F(
+        NOM_CHAM=("DEPL", "EFGE_ELNO", "EFGE_NOEU"),
+        NOM_CHAM_MED=("DISP", "GEN_FORCES_ELEM", "GEN_FORCES_NODES"),
+        RESULTAT=result,
+    ),
+    UNITE=80,
+)"""
+    else:
+        raise NotImplementedError(f'Step stype "{step.type}" is not yet supported')

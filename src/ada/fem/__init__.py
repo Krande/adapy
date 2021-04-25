@@ -1141,7 +1141,7 @@ class FemSection(FemBase):
         from ada.core.utils import roundoff, unit_vector, vector_length
 
         if self._local_y is None:
-            if self.type == "beam":
+            if self.type in ("beam", "shell"):
                 n1, n2 = self.elset.members[0].nodes[0], self.elset.members[0].nodes[-1]
                 v = n2.p - n1.p
                 if vector_length(v) == 0.0:
@@ -1153,7 +1153,7 @@ class FemSection(FemBase):
                 ma = max(abs(crossed))
                 self._local_y = tuple([roundoff(x / ma, 3) for x in crossed])
             else:
-                raise NotImplementedError("Local Y is not implemented for shell elements, yet.")
+                raise NotImplementedError("Local Y is not implemented for solid elements.")
         return self._local_y
 
     @property

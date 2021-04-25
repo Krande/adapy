@@ -485,9 +485,9 @@ class Materials(BaseCollections):
         return iter(self._materials)
 
     def __getitem__(self, index):
-        if index not in self._dmap.keys():
-            raise ValueError(f'Material name "{index}" not found')
-        result = self._dmap[index]
+        # if index not in self._dmap.keys():
+        #     raise ValueError(f'Material name "{index}" not found')
+        result = self._materials[index]
         return Materials(result) if isinstance(index, slice) else result
 
     def __eq__(self, other):

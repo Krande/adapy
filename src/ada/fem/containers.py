@@ -419,10 +419,12 @@ class FemSections:
 
         :param fem_sec:
         :type fem_sec: ada.fem.FemSection
+        :param mat_repo:
+        :type mat_repo: ada.core.containers.Materials
         """
 
         if type(fem_sec.material) is str:
-            fem_sec._material = mat_repo[fem_sec.material]
+            fem_sec._material = mat_repo.get_by_name(fem_sec.material)
 
     def _map_elsets(self, fem_sec, elset_repo):
         """
