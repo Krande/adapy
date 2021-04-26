@@ -1760,7 +1760,7 @@ class SIZE_UNIT:
 
 
 def convert_unit(size_in_bytes, unit):
-    """ Convert the size from bytes to other units like KB, MB or GB"""
+    """Convert the size from bytes to other units like KB, MB or GB"""
     if unit == SIZE_UNIT.KB:
         return size_in_bytes / 1024
     elif unit == SIZE_UNIT.MB:
@@ -1772,7 +1772,7 @@ def convert_unit(size_in_bytes, unit):
 
 
 def get_file_size(file_name, size_type=SIZE_UNIT.MB):
-    """ Get file in size in given unit like KB, MB or GB"""
+    """Get file in size in given unit like KB, MB or GB"""
     size = os.path.getsize(file_name)
     return convert_unit(size, size_type)
 

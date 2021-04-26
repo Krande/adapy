@@ -425,7 +425,11 @@ class UsfosWriter:
         eccent_str = "'             Ecc ID             ex             ey             ez\n"
 
         def write_eccent(data):
-            """"""
+            """
+
+            :param data:
+            :return:
+            """
             eid, e = data
             return f"ECCENT{eid:>12}{e[0]:>13.3f}{e[1]:>13.3f}{e[2]:>13.3f}"
 

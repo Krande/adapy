@@ -38,7 +38,7 @@ jobs:
     - name: Lint with black
       run: |
         pip install black
-        black --check .
+        black --config pyproject.toml --check .
   test:
     needs: lint
     name: ${{ matrix.platform.name }}-${{ matrix.pyver.name }}

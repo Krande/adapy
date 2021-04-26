@@ -137,7 +137,14 @@ def import_bulk2(file_path, buffer_function):
 
 
 def import_parts(assembly, bulk_str, ass_data):
-    """"""
+    """
+    Import parts from an assembly
+
+    :param assembly:
+    :param bulk_str:
+    :param ass_data:
+    :type assembly: ada.Assembly
+    """
 
     parts_matches = re.compile(r"\*Part, name=(.*?)\n(.*?)\*End Part", _re_in)
     part_names = re.compile(r"\*\*\s*PART INSTANCE:\s*(.*?)\n(.*)", _re_in)

@@ -1863,7 +1863,11 @@ class InteractionProperty(FemBase):
 
 
 class Interaction(FemBase):
-    """"""
+    """
+    A class representing the physical properties of
+    interaction between solid bodies.
+
+    """
 
     _valid_contact_types = ["SURFACE", "GENERAL"]
     _valid_surface_types = ["SURFACE TO SURFACE"]

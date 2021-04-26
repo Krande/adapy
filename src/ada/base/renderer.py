@@ -660,7 +660,11 @@ class MyRenderer(JupyterRenderer):
                 callback(self._current_shape_selection)
 
     def _click_ada_to_html(self, obj):
-        """"""
+        """
+
+        :param obj:
+        :return:
+        """
         from ada import Beam, Part, Pipe, Plate, Shape, Wall
         from ada.fem.utils import get_eldata
 

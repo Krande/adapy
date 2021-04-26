@@ -309,7 +309,11 @@ def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props):
 
 
 def to_real(v):
-    """"""
+    """
+
+    :param v:
+    :return:
+    """
     if type(v) is tuple:
         return [float(x) for x in v]
     elif type(v) is list:

@@ -2,7 +2,11 @@ import re
 
 
 class AbaFF:
-    """"""
+    """
+    Abaqus Fortran Flags. A class designed to aid in building regex searched
+    for Abaqus flags.
+
+    """
 
     def __init__(self, flag, args, subflags=None, nameprop=None):
         """
