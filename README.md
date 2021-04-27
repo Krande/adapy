@@ -5,9 +5,15 @@ IFC and various Finite Element formats.
 
 This library is still undergoing significant development so expect there to be occasional bugs and breaking changes.
 
-Try the latest build online here
+Try the latest build online here 
 
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Krande/adapy/main)
+
+(clicking the link above will open a jupyter notebook client in the cloud using the latest version of adapy)
+
+## Quick Links
+* Feel free to start/join any informal topic related to adapy [here](https://github.com/Krande/adapy/discussions).
+* Issues related to adapy can be raised [here](https://github.com/Krande/adapy/issues)
 
 
 ## Installation
@@ -38,9 +44,9 @@ After the conda-forge dependencies are installed you can install ada using
 ### Using Conda (Note! Work in progress)
 Note! Conda installation is not yet set up.
 
-To install using conda you can use
+[comment]: <> (To install using conda you can use)
 
-`conda install -c krande -conda-forge ada`
+[comment]: <> (`conda install -c krande -conda-forge ada`)
 
 
 ## Usage
@@ -152,10 +158,10 @@ For installation files of open source FEM software such as Calculix and Code Ast
 
 ## For developers
 
-For developers interested in contributing to this project feel free to make a fork, experiment and create a pull request
-when you have something you would like to add/change/remove. 
+For developers interested in contributing to this project feel free to 
+make a fork, experiment and create a pull request when you have something you would like to add/change/remove. 
 
-Before making a pull request you need to lint with, isort, flake8 and black 
+Before making a pull request you need to lint with, isort, flake8 and black. 
 
 ````
 pip install black isort flake8

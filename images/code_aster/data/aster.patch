@@ -1,0 +1,12 @@
+--- aster/waftools/mathematics.py	2020-06-05 14:58:36.000000000 +0200
++++ aster_patched/waftools/mathematics.py	2020-06-05 14:58:57.000000000 +0200
+@@ -359,9 +359,6 @@
+ blacs_fragment = r"""
+ program test_blacs
+     integer iam, nprocs
+-    call blacs_pinfo (iam, nprocs)
+-    print *,iam
+-    print *,nprocs
+ end program test_blacs
+ """
+ 

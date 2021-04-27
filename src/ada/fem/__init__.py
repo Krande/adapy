@@ -273,6 +273,7 @@ class ElemShapes:
 
         """
         if self.type not in self.beam:
+            logging.error("A call was made to beam edges even though type is not beam")
             return None
         if self.type in ["B31", "SPRING2"]:
             return [[0, 1]]
@@ -1503,6 +1504,11 @@ class Elem(FemBase):
 
     @property
     def shape(self):
+        """
+
+        :return:
+        :rtype: ada.fem.ElemShapes
+        """
         return self._shape
 
     @property

@@ -2029,11 +2029,10 @@ def get_list_of_files(dir_path, file_ext=None, strict=False):
     :param dir_path: Parent directory in which the recursive search for files will take place
     :param file_ext: File extension
     :param strict: If True the function raiser errors when no files are found.
-    :return:
+    :return: list of all found files
     """
-
+    all_files = []
     list_of_file = os.listdir(dir_path)
-    all_files = list()
 
     # Iterate over all the entries
     for entry in list_of_file:
@@ -2048,7 +2047,7 @@ def get_list_of_files(dir_path, file_ext=None, strict=False):
     if file_ext is not None:
         all_files = [f for f in all_files if f.endswith(file_ext)]
 
-    if not all_files:
+    if len(all_files) == 0:
         msg = f'Files with "{file_ext}"-extension is not found in "{dir_path}" or any sub-folder.'
         if strict:
             raise FileNotFoundError(msg)

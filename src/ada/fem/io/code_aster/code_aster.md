@@ -5,8 +5,9 @@ The following is a summarized TODO list for fully functional support of Code Ast
 
 - [x] Write MED files that can be opened in Salome Meca
 - [x] Add Element and Node Set information to Code Aster input files (MED)
-- [ ] Add section information (MED/COMM?)
-- [ ] Create a valid export of Code_Aster analysis .med/.comm function
+- [x] Add section information (MED/COMM?)
+- [x] Create a valid export of Code_Aster analysis .med/.comm function
+- [ ] Add Code Aster to the main adapy demonstration dockerfile with a jupyter client frontend
 
 ## Notes
 
@@ -21,3 +22,6 @@ node numbering is starting at 1 and has no gaps. Had to run `renumber()` method 
 other than starting at 1 and have gaps. Usually when defining artifical elements you would
   use a much higher number (at 10 000 100 000 or other to signify the type of element).
   
+## Resources
+
+* http://tfel.sourceforge.net/

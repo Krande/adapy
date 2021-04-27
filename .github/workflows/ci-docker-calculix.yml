@@ -1,14 +1,13 @@
-name: ci-ada-docker-base
+name: ci-ada-docker-calculix
 
 on:
   push:
     paths:
-      - 'images/base/Dockerfile'
-      - '.github/workflows/ci-docker-base.yml'
+      - 'src/**'
+      - 'images/calculix/Dockerfile'
+      - '.github/workflows/ci-docker-calculix.yml'
     branches:
       - main
-      - docs
-      - dev-0.0.10
 
 jobs:
   docker:
@@ -28,9 +27,9 @@ jobs:
         id: docker_build
         uses: docker/build-push-action@v2
         with:
-          file: images/base/Dockerfile
+          file: images/calculix/Dockerfile
           context: .
           push: true
-          tags: krande/ada:base
+          tags: krande/ada:calculix-code-aster
       - name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}

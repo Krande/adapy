@@ -394,6 +394,7 @@ class SesamReader:
         from ada import Section
         from ada.core.containers import Sections
         from ada.core.utils import roundoff, unit_vector, vector_length
+        from ada.fem import ElemShapes
         from ada.fem.containers import FemSections
 
         # Get section names
@@ -563,13 +564,13 @@ class SesamReader:
             matno = str_to_int(d["matno"])
 
             # Go no further if element has no fem section
-            if elem.type in elem.springs + elem.masses:
+            if elem.type in ElemShapes.springs + ElemShapes.masses:
                 next(importedgeom_counter)
                 elem.metadata["matno"] = matno
                 return None
 
             mat = fem.parent.materials.get_by_id(matno)
-            if elem.type in Elem.beam:
+            if elem.type in ElemShapes.beam:
                 next(importedgeom_counter)
                 sec = fem.parent.sections.get_by_id(geono)
                 n1, n2 = elem.nodes
@@ -614,7 +615,7 @@ class SesamReader:
                 )
                 return fem_sec
 
-            elif elem.type in Elem.shell:
+            elif elem.type in ElemShapes.shell:
                 next(importedgeom_counter)
                 sec_name = f"sh{elno}"
                 fem_set = FemSet(sec_name, [elem], "elset", parent=fem, metadata=dict(internal=True))

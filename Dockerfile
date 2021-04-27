@@ -1,20 +1,26 @@
-FROM krande/ada@sha256:18dac2a426b03dd67f6237f72375dbf2c061bd021fed462f6399935cbd56d902
+FROM krande/ada@sha256:e7f02a79d61fe9abf63efd1fb5865706e98b7dc017cffa9ee73b14b059c8cfd6
 
-ENV ADA_temp_dir ${HOME}/temp
-ENV ADA_test_dir ${HOME}/temp/tests
-ENV ADA_log_dir ${HOME}/temp/log
-ENV ADA_scratch_dir ${HOME}/scratch
+ARG TMPDIR=/tmp/adapy
+
+USER root
+RUN rm -rfv /tmp/*
+RUN mkdir ${TMPDIR}
+
+WORKDIR ${TMPDIR}
+
+COPY src src
+COPY setup.cfg .
+COPY pyproject.toml .
+COPY MANIFEST.in .
+COPY LICENSE .
+COPY README.md .
+
+RUN pip install . --no-cache-dir
+
+# Cleanup all temporary files from this and all previous steps
+RUN rm -rfv /tmp/*
+USER ${NB_USER}
 
 WORKDIR ${HOME}
 
 COPY examples examples
-
-RUN mkdir ${ADA_temp_dir} && mkdir ${ADA_scratch_dir} && mkdir ${ADA_test_dir} && mkdir ${ADA_log_dir}
-
-USER root
-RUN chown -R ${NB_UID} ${HOME}
-USER ${NB_USER}
-
-COPY . /home/adapy
-RUN cd /home/adapy && pip install .
-

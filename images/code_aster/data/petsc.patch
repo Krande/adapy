@@ -1,0 +1,22 @@
+diff -ruN petsc/config/BuildSystem/config/packages/metis.py petsc_aster/config/BuildSystem/config/packages/metis.py
+--- petsc/config/BuildSystem/config/packages/metis.py	2018-07-02 17:58:27.000000000 +0200
++++ petsc_aster/config/BuildSystem/config/packages/metis.py	2020-06-04 20:47:14.000000000 +0200
+@@ -40,12 +40,12 @@
+     config.package.Package.configureLibrary(self)
+     oldFlags = self.compilers.CPPFLAGS
+     self.compilers.CPPFLAGS += ' '+self.headers.toString(self.include)
+-    if not self.checkCompile('#include "metis.h"', '#if (IDXTYPEWIDTH != '+ str(self.getDefaultIndexSize())+')\n#error incompatible IDXTYPEWIDTH\n#endif'):
+-      if self.defaultIndexSize == 64:
+-        msg= '--with-64-bit-indices option requires a metis build with IDXTYPEWIDTH=64.\n'
+-      else:
+-        msg= 'IDXTYPEWIDTH=64 metis build appears to be specified for a default 32-bit-indices build of PETSc.\n'
+-      raise RuntimeError('Metis specified is incompatible!\n'+msg+'Suggest using --download-metis for a compatible metis')
++    # if not self.checkCompile('#include "metis.h"', '#if (IDXTYPEWIDTH != '+ str(self.getDefaultIndexSize())+')\n#error incompatible IDXTYPEWIDTH\n#endif'):
++    #   if self.defaultIndexSize == 64:
++    #     msg= '--with-64-bit-indices option requires a metis build with IDXTYPEWIDTH=64.\n'
++    #   else:
++    #     msg= 'IDXTYPEWIDTH=64 metis build appears to be specified for a default 32-bit-indices build of PETSc.\n'
++    #   raise RuntimeError('Metis specified is incompatible!\n'+msg+'Suggest using --download-metis for a compatible metis')
+ 
+     self.compilers.CPPFLAGS = oldFlags
+     return
