@@ -291,14 +291,63 @@ result = STAT_NON_LINE(
 )
 
 result = CALC_CHAMP(
-    reuse=result, RESULTAT=result, CONTRAINTE=("EFGE_ELNO", "EFGE_NOEU"),
+    reuse=result, RESULTAT=result,
+    CONTRAINTE=("EFGE_ELNO", "EFGE_NOEU", "SIGM_ELNO"),
+    DEFORMATION=("EPSI_ELNO", "EPSP_ELNO"),
+)
+
+stress = POST_CHAMP(
+    EXTR_COQUE=_F(
+        NIVE_COUCHE='MOY',
+    NOM_CHAM=('SIGM_ELNO', ),
+    NUME_COUCHE=1),
+    RESULTAT=result
+)
+
+stress = CALC_CHAMP(
+    reuse=stress,
+    CONTRAINTE=('SIGM_NOEU', ),
+    RESULTAT=stress
+)
+
+strain = POST_CHAMP(
+    EXTR_COQUE=_F(
+        NIVE_COUCHE='MOY',
+    NOM_CHAM=('EPSI_ELNO', ),
+    NUME_COUCHE=1),
+    RESULTAT=result
+)
+
+strainP = POST_CHAMP(
+    EXTR_COQUE=_F(
+        NIVE_COUCHE='MOY',
+    NOM_CHAM=('EPSP_ELNO', ),
+    NUME_COUCHE=1),
+    RESULTAT=result
 )
 
 IMPR_RESU(
-    RESU=_F(
-        NOM_CHAM=("DEPL", "EFGE_ELNO", "EFGE_NOEU"),
-        NOM_CHAM_MED=("DISP", "GEN_FORCES_ELEM", "GEN_FORCES_NODES"),
-        RESULTAT=result,
+    RESU=(
+        _F(
+            NOM_CHAM=("DEPL", "EFGE_ELNO", "EFGE_NOEU"),
+            NOM_CHAM_MED=("DISP", "GEN_FORCES_ELEM", "GEN_FORCES_NODES"),
+            RESULTAT=result,
+        ),
+        _F(
+            NOM_CHAM=("SIGM_ELNO", "SIGM_NOEU"),
+            NOM_CHAM_MED=("STRESSES_ELEM", "STRESSES_NODES"),
+            RESULTAT=stress,
+        ),
+        _F(
+            NOM_CHAM=("EPSI_ELNO",),
+            NOM_CHAM_MED=("STRAINS_ELEM",),
+            RESULTAT=strain,
+        ),
+        _F(
+            NOM_CHAM=("EPSP_ELNO",),
+            NOM_CHAM_MED=("PLASTIC_STRAINS_ELEM",),
+            RESULTAT=strainP,
+        ),
     ),
     UNITE=80,
 )"""
