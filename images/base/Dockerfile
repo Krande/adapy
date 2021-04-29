@@ -55,6 +55,7 @@ RUN  sed -i -e 's|\.\./\.\./\.\./SPOOLES.2.2|${TOOLS}/spooles.2.2|g' \
             -e 's|\.\./\.\./\.\./ARPACK|/usr/local/ARPACK|g' \
             Makefile
 
+ENV nproc=2
 RUN make -j $(nproc) --warn-undefined-variables
 RUN cp ccx_2.16 /usr/local/bin
 RUN chmod a+rx /usr/local/bin/ccx_2.16

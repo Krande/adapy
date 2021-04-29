@@ -389,12 +389,12 @@ def write_to_med(name, part, analysis_dir):
     :type part: ada.Part
     :return:
     """
-    import h5py
     import pathlib
+
+    import h5py
 
     analysis_dir = pathlib.Path(analysis_dir)
     filename = (analysis_dir / name).with_suffix(".med")
-
 
     f = h5py.File(filename, "w")
     mesh_name = name if name is not None else part.fem.name

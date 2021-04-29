@@ -1617,12 +1617,12 @@ def orientations_str(assembly, fem_writer):
     :param fem_writer:
     :type assembly: ada.Assembly
     """
-    cstr = '** Orientations associated with Loads'
+    cstr = "** Orientations associated with Loads"
     for step in assembly.fem.steps:
         for load in step.loads:
             if load.csys is not None:
-                cstr += '\n'
-                coord_str = ', '.join([str(x) for x in chain.from_iterable(load.csys.coords)])[:-1]
+                cstr += "\n"
+                coord_str = ", ".join([str(x) for x in chain.from_iterable(load.csys.coords)])[:-1]
                 name = load.fem_set.name
                 inst_name = get_instance_name(load.fem_set, fem_writer)
                 cstr += f"*Nset, nset=_T-{name}, internal\n{inst_name},\n"

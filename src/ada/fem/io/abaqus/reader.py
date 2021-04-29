@@ -933,7 +933,7 @@ def get_constraints_from_inp(bulk_str, fem):
         name = d["name"]
         msurf = grab_set_from_assembly(d["surf1"], fem, "surface")
         ssurf = grab_set_from_assembly(d["surf2"], fem, "surface")
-        constraints.append(Constraint(name, 'tie', msurf, ssurf, metadata=dict(adjust=d["adjust"])))
+        constraints.append(Constraint(name, "tie", msurf, ssurf, metadata=dict(adjust=d["adjust"])))
 
     for m in AbaCards.rigid_bodies.regex.finditer(bulk_str):
         d = m.groupdict()

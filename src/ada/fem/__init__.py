@@ -2747,7 +2747,7 @@ class Load(FemBase):
         self._acc_vector = acc_vector
         self._accr_origin = accr_origin
         self._accr_rot_axis = accr_rot_axis
-        self._csys=csys
+        self._csys = csys
         if self.type == "point_load":
             if self._dof is None or self._fem_set is None or self._name is None:
                 raise Exception("self._dofs and nid (Node id) and name needs to be set in order to use point loads")
