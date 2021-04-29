@@ -11,6 +11,7 @@ Try the latest build online here
 
 (clicking the link above will open a jupyter notebook client in the cloud using the latest version of adapy)
 
+
 ## Quick Links
 * Feel free to start/join any informal topic related to adapy [here](https://github.com/Krande/adapy/discussions).
 * Issues related to adapy can be raised [here](https://github.com/Krande/adapy/issues)
