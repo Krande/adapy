@@ -36,7 +36,7 @@ _abaqus_to_med_type = {
     "C3D4": "TE4",
     "C3D10": "T10",
     "C3D8": "HE8",
-    "C3D20R": "H20",
+    ("C3D20R", "C3D20RH"): "H20",
     "C3D5": "PY5",
     # "pyramid13": "P13",
     "C3D6": "PE6",

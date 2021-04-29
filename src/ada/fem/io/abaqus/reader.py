@@ -928,6 +928,13 @@ def get_constraints_from_inp(bulk_str, fem):
     rbnames = Counter(1, "rgb")
     conames = Counter(1, "co")
 
+    for m in AbaCards.tie.regex.finditer(bulk_str):
+        d = m.groupdict()
+        name = d["name"]
+        msurf = grab_set_from_assembly(d["surf1"], fem, "surface")
+        ssurf = grab_set_from_assembly(d["surf2"], fem, "surface")
+        constraints.append(Constraint(name, 'tie', msurf, ssurf, metadata=dict(adjust=d["adjust"])))
+
     for m in AbaCards.rigid_bodies.regex.finditer(bulk_str):
         d = m.groupdict()
         name = next(rbnames)
@@ -1391,7 +1398,7 @@ def grab_set_from_assembly(set_str, fem, set_type):
     :rtype: Union[ada.fem.FemSet, ada.fem.Surface]
     """
     res = set_str.split(".")
-    if len(res) == 0:
+    if len(res) == 1:
         set_map = {"nset": fem.nsets, "elset": fem.elsets, "surface": fem.surfaces}
         set_name = res[0]
         return set_map[set_type][set_name]

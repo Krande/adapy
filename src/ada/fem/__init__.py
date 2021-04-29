@@ -2487,7 +2487,7 @@ class Step(FemBase):
 
         # Not-initialized parameters
         self._bcs = dict()
-        self._loads = list()
+        self._loads = []
         self._interactions = dict()
         self._hist_outputs = [self.default_hist]
         self._field_outputs = [self.default_field]
@@ -2733,6 +2733,7 @@ class Load(FemBase):
         acc_vector=None,
         accr_origin=None,
         accr_rot_axis=None,
+        csys=None,
         metadata=None,
         parent=None,
     ):
@@ -2746,6 +2747,7 @@ class Load(FemBase):
         self._acc_vector = acc_vector
         self._accr_origin = accr_origin
         self._accr_rot_axis = accr_rot_axis
+        self._csys=csys
         if self.type == "point_load":
             if self._dof is None or self._fem_set is None or self._name is None:
                 raise Exception("self._dofs and nid (Node id) and name needs to be set in order to use point loads")
@@ -2823,3 +2825,7 @@ class Load(FemBase):
     @property
     def acc_rot_axis(self):
         return self._accr_rot_axis
+
+    @property
+    def csys(self):
+        return self._csys

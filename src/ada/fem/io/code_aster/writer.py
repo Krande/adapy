@@ -390,12 +390,14 @@ def write_to_med(name, part, analysis_dir):
     :return:
     """
     import h5py
+    import pathlib
 
+    analysis_dir = pathlib.Path(analysis_dir)
     filename = (analysis_dir / name).with_suffix(".med")
-    mesh_name = name if name is not None else part.fem.name
+
 
     f = h5py.File(filename, "w")
-
+    mesh_name = name if name is not None else part.fem.name
     # Strangely the version must be 3.0.x
     # Any version >= 3.1.0 will NOT work with SALOME 8.3
     info = f.create_group("INFOS_GENERALES")
@@ -421,6 +423,8 @@ def write_to_med(name, part, analysis_dir):
 
     # Elements (mailles in French) and element sets
     _write_elements(part, time_step, profile, families)
+
+    f.close()
 
 
 def _write_nodes(part, time_step, profile, families):
