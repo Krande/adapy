@@ -235,10 +235,21 @@ def write_boundary_condition(bc):
     :rtype: str
     """
     set_name = bc.fem_set.name
+    bc_str = ""
+    for i, n in enumerate(["DX", "DY", "DZ", "DRX", "DRY", "DRZ"], start=1):
+        if i in bc.dofs:
+            bc_str += f"{n}=0, "
+    dofs_str = f"""dofs = dict(
+    GROUP_NO="{set_name}",
+    {bc_str}
+)\n"""
 
-    return f"""{bc.name}_bc = AFFE_CHAR_MECA(
-    MODELE=model, DDL_IMPO=_F(GROUP_NO="{set_name}", LIAISON="ENCASTRE")
+    return (
+        dofs_str
+        + f"""{bc.name}_bc = AFFE_CHAR_MECA(
+    MODELE=model, DDL_IMPO=_F(**dofs)
 )"""
+    )
 
 
 def write_load(load):

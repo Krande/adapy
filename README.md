@@ -73,7 +73,7 @@ creates an IFC with the following hierarchy (as shown in the figure below taken 
 ![Beam Visualized in BlenderBIM](docs/_static/figures/my_beam.png)
 
 
-### Create and execute a FEM analysis in Calculix and Abaqus
+### Create and execute a FEM analysis in Calculix, Code Aster and Abaqus
 
 This example uses a function `beam_ex1` from [here](src/ada/param_models/fem_models.py) that returns an
 Assembly object ready to be written to FEM. 
@@ -85,6 +85,7 @@ a = beam_ex1()
 
 a.to_fem("MyCantilever_abaqus", "abaqus", overwrite=True, execute=True, run_ext=True)
 a.to_fem("MyCantilever_calculix", "calculix", overwrite=True, execute=True)
+a.to_fem("MyCantilever_code_aster", "code_aster", overwrite=True, execute=True)
 ```
 
 after the execution is finished you can look at the results (in Paraview or Abaqus CAE for the results from 
@@ -104,9 +105,14 @@ import meshio
 vtu = Settings.scratch_dir / "MyCantilever_calculix" / "MyCantilever_calculix.vtu"
 mesh = meshio.read(vtu)
 
-# Von Mises stresses and displacement at a point @ index=0
-print(mesh.point_data['S'][0])
-print(mesh.point_data['U'][0])
+# Displacements in [X, Y, Z] at point @ index=-1
+print('Calculix:',mesh.point_data['U'][-1])
+
+rmed = Settings.scratch_dir / "MyCantilever_code_aster" / "MyCantilever_code_aster.rmed"
+ca_mesh = meshio.read(rmed, 'med')
+
+# Displacements in [X, Y, Z] at point @ index=-1
+print('Code Aster:',ca_mesh.point_data['DISP[10] - 1'][-1][:3])
 ```
 
 In short `beam_ex1` creates a `Beam` object which it uses to create a shell element `FEM` mesh using 
