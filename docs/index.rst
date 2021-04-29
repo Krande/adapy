@@ -25,9 +25,9 @@ simplified concept analysis models and output fully detailed models simply by us
 together with parametric modelling.
 
 In the example below a method is created on a `Reinforced Floor` (basically just a plate with HP profiles underneath)
-class inherited from the `Part` class to check for all penetrating piping segments and for each penetration
-do the necessary detailing (which for the sake of simplicity in this example) resulted in a cylindrical cutout through
-the deck plate and stringer.
+class inherited from the `Part` class. The method checks for all penetrating piping segments and for each penetration
+do the necessary detailing. For the sake of simplicity in this example the detailing was just a cylindrical cutout
+through the deck plate and stringer.
 
 With little effort you can add reinforcements to the detail and end up with a
 flexible, robust and fabrication friendly parametric detail that you can re-use.
@@ -38,6 +38,11 @@ flexible, robust and fabrication friendly parametric detail that you can re-use.
     :align: center
 
     Create parametric penetration details using code
+
+**Build mesh recipes, not meshes**
+
+TODO: Add figure and text
+
 
 
 **Path to Software Agnosticism**

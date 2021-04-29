@@ -5,9 +5,15 @@ IFC and various Finite Element formats.
 
 This library is still undergoing significant development so expect there to be occasional bugs and breaking changes.
 
-Try the latest build online here
+Try the latest build online here 
 
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Krande/adapy/main)
+
+(clicking the link above will open a jupyter notebook client in the cloud using the latest version of adapy)
+
+## Quick Links
+* Feel free to start/join any informal topic related to adapy [here](https://github.com/Krande/adapy/discussions).
+* Issues related to adapy can be raised [here](https://github.com/Krande/adapy/issues)
 
 
 ## Installation
@@ -38,9 +44,9 @@ After the conda-forge dependencies are installed you can install ada using
 ### Using Conda (Note! Work in progress)
 Note! Conda installation is not yet set up.
 
-To install using conda you can use
+[comment]: <> (To install using conda you can use)
 
-`conda install -c krande -conda-forge ada`
+[comment]: <> (`conda install -c krande -conda-forge ada`)
 
 
 ## Usage
@@ -67,7 +73,7 @@ creates an IFC with the following hierarchy (as shown in the figure below taken 
 ![Beam Visualized in BlenderBIM](docs/_static/figures/my_beam.png)
 
 
-### Create and execute a FEM analysis in Calculix and Abaqus
+### Create and execute a FEM analysis in Calculix, Code Aster and Abaqus
 
 This example uses a function `beam_ex1` from [here](src/ada/param_models/fem_models.py) that returns an
 Assembly object ready to be written to FEM. 
@@ -79,6 +85,7 @@ a = beam_ex1()
 
 a.to_fem("MyCantilever_abaqus", "abaqus", overwrite=True, execute=True, run_ext=True)
 a.to_fem("MyCantilever_calculix", "calculix", overwrite=True, execute=True)
+a.to_fem("MyCantilever_code_aster", "code_aster", overwrite=True, execute=True)
 ```
 
 after the execution is finished you can look at the results (in Paraview or Abaqus CAE for the results from 
@@ -98,9 +105,14 @@ import meshio
 vtu = Settings.scratch_dir / "MyCantilever_calculix" / "MyCantilever_calculix.vtu"
 mesh = meshio.read(vtu)
 
-# Von Mises stresses and displacement at a point @ index=0
-print(mesh.point_data['S'][0])
-print(mesh.point_data['U'][0])
+# Displacements in [X, Y, Z] at point @ index=-1
+print('Calculix:',mesh.point_data['U'][-1])
+
+rmed = Settings.scratch_dir / "MyCantilever_code_aster" / "MyCantilever_code_aster.rmed"
+ca_mesh = meshio.read(rmed, 'med')
+
+# Displacements in [X, Y, Z] at point @ index=-1
+print('Code Aster:',ca_mesh.point_data['DISP[10] - 1'][-1][:3])
 ```
 
 In short `beam_ex1` creates a `Beam` object which it uses to create a shell element `FEM` mesh using 
@@ -146,15 +158,16 @@ Settings.fem_exe_paths["abaqus"] = "<path to your abaqus.bat>"
 For installation files of open source FEM software such as Calculix and Code Aster, here are some links:
 
 * https://github.com/calculix/cae/releases (calculix CAE for windows/linux)
-* https://code-aster-windows.com/download/ (Code Aster for Windows)
+* https://code-aster-windows.com/download/ (Code Aster for Windows Salome Meca v9.3.0)
 * https://www.code-aster.org/spip.php?rubrique21 (Code Aster for Linux)
+* https://salome-platform.org/downloads/current-version (Salome v9.6.0 for windows/linux)
 
 ## For developers
 
-For developers interested in contributing to this project feel free to make a fork, experiment and create a pull request
-when you have something you would like to add/change/remove. 
+For developers interested in contributing to this project feel free to 
+make a fork, experiment and create a pull request when you have something you would like to add/change/remove. 
 
-Before making a pull request you need to lint with, isort, flake8 and black 
+Before making a pull request you need to lint with, isort, flake8 and black. 
 
 ````
 pip install black isort flake8

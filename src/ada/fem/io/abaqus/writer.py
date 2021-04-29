@@ -219,7 +219,8 @@ class AbaqusWriter:
                 )
             else:
                 assembly_nodes_str = "** No Nodes"
-            d.write(f"{assembly_nodes_str}\n{self.nsets_str}\n{self.elsets_str}\n{self.surfaces_str}")
+            d.write(f"{assembly_nodes_str}\n{self.nsets_str}\n{self.elsets_str}\n{self.surfaces_str}\n")
+            d.write(orientations_str(self.assembly, self))
 
         # Amplitude data
         with open(core_dir / "amplitude_data.inp", "w") as d:
@@ -1072,31 +1073,6 @@ class AbaConstraint:
 {dofs_str}""".rstrip()
 
     @property
-    def _tie(self):
-        num = 80
-        pos_tol_str = ""
-        if self.constraint.pos_tol is not None:
-            pos_tol_str = "position tolerance={},".format(float(self.constraint.pos_tol))
-        coupl_text = "**" + num * "-" + """\n** COUPLING {}\n""".format(self.constraint.name) + "**" + num * "-" + "\n"
-
-        # Master input
-        coupl_text += """*SURFACE, TYPE=NODE, NAME={2}_m_surf
- {0}, 1.
-*SURFACE, TYPE=NODE, NAME={2}_s_surf
- {1}, 1.\n""".format(
-            get_instance_name(self.constraint.m_set, self._fem_writer),
-            get_instance_name(self.constraint.s_set, self._fem_writer),
-            self.constraint.name,
-        )
-
-        coupl_text += """** Constraint: {0}
-*Tie, name={0}, adjust=no,{1} no rotation
- {0}_m_surf, {0}_s_surf""".format(
-            self.constraint.name, pos_tol_str
-        )
-        return coupl_text
-
-    @property
     def _mpc(self):
         mpc_type = self.constraint.mpc_type
         m_members = self.constraint.m_set.members
@@ -1119,7 +1095,7 @@ class AbaConstraint:
         if self.constraint.type == "coupling":
             return self._coupling
         elif self.constraint.type == "tie":
-            return self._tie
+            return _tie(self.constraint)
         elif self.constraint.type == "rigid body":
             rnode = get_instance_name(self.constraint.m_set, self)
             return f"*Rigid Body, ref node={rnode}, elset={get_instance_name(self.constraint.s_set, self)}"
@@ -1129,6 +1105,29 @@ class AbaConstraint:
             return self._shell2solid
         else:
             raise NotImplementedError(f"{self.constraint.type}")
+
+
+def _tie(constraint):
+    """
+
+    :param constraint:
+    :type constraint: ada.fem.Constraint
+    :return: Constraint string
+    """
+    num = 80
+    pos_tol_str = ""
+    if constraint.pos_tol is not None:
+        pos_tol_str = f", position tolerance={constraint.pos_tol},"
+
+    coupl_text = "**" + num * "-" + """\n** COUPLING {}\n""".format(constraint.name) + "**" + num * "-" + "\n"
+    name = constraint.name
+
+    adjust = constraint.metadata.get("adjust", "no")
+
+    coupl_text += f"""** Constraint: {name}
+*Tie, name={name}, adjust={adjust}{pos_tol_str}
+{constraint.m_set.name}, {constraint.s_set.name}"""
+    return coupl_text
 
 
 def aba_write(el):
@@ -1405,15 +1404,13 @@ def surface_str(surface, fem_writer):
             add_str = surface.weight_factor
         else:
             add_str = surface.face_id_label
-        if surface.fem_set.name in surface.parent.elsets.keys():
-            return f"{top_line}\n{surface.fem_set.name}, {add_str}"
-        else:
-            return f"""{top_line}
-{get_instance_name(surface.fem_set, fem_writer)}, {add_str}"""
+        # if surface.fem_set.name in surface.parent.elsets.keys():
+        #     return f"{top_line}\n{surface.fem_set.name}, {add_str}"
+        # else:
+        return f"""{top_line}\n{get_instance_name(surface.fem_set, fem_writer)}, {add_str}"""
     else:
         id_refs_str = "\n".join([f"{m[0]}, {m[1]}" for m in surface.id_refs]).strip()
-        return f"""{top_line}
-{id_refs_str}"""
+        return f"""{top_line}\n{id_refs_str}"""
 
 
 def bc_str(bc, fem_writer):
@@ -1611,6 +1608,30 @@ def aba_set_str(aba_set, fem_writer=None):
     return set_str.rstrip()
 
 
+def orientations_str(assembly, fem_writer):
+    """
+    Add orientations associated with loads
+
+
+    :param assembly:
+    :param fem_writer:
+    :type assembly: ada.Assembly
+    """
+    cstr = "** Orientations associated with Loads"
+    for step in assembly.fem.steps:
+        for load in step.loads:
+            if load.csys is not None:
+                cstr += "\n"
+                coord_str = ", ".join([str(x) for x in chain.from_iterable(load.csys.coords)])[:-1]
+                name = load.fem_set.name
+                inst_name = get_instance_name(load.fem_set, fem_writer)
+                cstr += f"*Nset, nset=_T-{name}, internal\n{inst_name},\n"
+                cstr += f"*Transform, nset=_T-{name}\n{coord_str}\n"
+                cstr += csys_str(load.csys, fem_writer)
+
+    return cstr.strip()
+
+
 def csys_str(csys, fem_writer):
     """
 
@@ -1621,7 +1642,6 @@ def csys_str(csys, fem_writer):
     """
 
     name = csys.name.replace('"', "").upper()
-
     ori_str = f'*Orientation, name="{name}"'
     if csys.nodes is None and csys.coords is None:
         ori_str += "\n 1.,           0.,           0.,           0.,           1.,           0.\n 1, 0."

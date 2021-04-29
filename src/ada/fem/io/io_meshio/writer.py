@@ -1,3 +1,4 @@
+import logging
 import os
 from itertools import groupby
 from operator import attrgetter
@@ -73,38 +74,46 @@ def fem_to_meshio(fem):
     :return: Meshio MESH object
     :rtype: meshio.Mesh
     """
-    from . import ada_to_meshio_type
+    from meshio.abaqus._abaqus import abaqus_to_meshio_type
 
-    def get_nids(el):
-        return [n.id for n in el.nodes]
-
-    cells = []
-    plist = list(sorted(fem.nodes, key=attrgetter("id")))
-    if len(plist) == 0:
+    if len(fem.nodes) == 0:
+        logging.error(f"Attempt to convert empty FEM mesh for ({fem.name}) aborted")
         return None
 
-    pid = plist[-1].id
-    points = np.zeros((int(pid + 1), 3))
+    # Points
+    points = np.zeros((int(fem.nodes.max_nid + 1), 3))
 
     def pmap(n):
-        points[n.id] = n.p
+        points[int(n.id - 1)] = n.p
 
     list(map(pmap, fem.nodes))
+
+    # Elements
+
+    def get_node_ids_from_element(el_):
+        return [int(n.id - 1) for n in el_.nodes]
+
+    cells = []
     for group, elements in groupby(fem.elements, key=attrgetter("type")):
         if group in ElemShapes.masses + ElemShapes.springs:
-            # Do something
+            logging.error("NotImplemented: Skipping Mass or Spring Elements")
             continue
-        med_el = ada_to_meshio_type[group]
-        el_mapped = np.array(list(map(get_nids, elements)))
+        med_el = abaqus_to_meshio_type[group]
+        elements = list(elements)
+        el_mapped = np.array(list(map(get_node_ids_from_element, elements)))
+        el_long = np.zeros((int(fem.elements.max_el_id + 1), len(el_mapped[0])))
+        for el in elements:
+            el_long[el.id] = get_node_ids_from_element(el)
+
         cells.append((med_el, el_mapped))
 
     cell_sets = dict()
-    for setid, elset in fem.sets.elements.items():
-        cell_sets[setid] = np.array([[el.id for el in elset.members]], dtype="int32")
+    for set_name, elset in fem.sets.elements.items():
+        cell_sets[set_name] = np.array([[el.id for el in elset.members]], dtype="int32")
 
     point_sets = dict()
-    for setid, nset in fem.sets.nodes.items():
-        point_sets[setid] = np.array([[el.id for el in nset.members]], dtype="int32")
+    for set_name, nset in fem.sets.nodes.items():
+        point_sets[set_name] = np.array([[el.id for el in nset.members]], dtype="int32")
 
     mesh = meshio.Mesh(points, cells, point_sets=point_sets, cell_sets=cell_sets)
     return mesh

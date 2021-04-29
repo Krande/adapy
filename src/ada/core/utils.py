@@ -1760,7 +1760,7 @@ class SIZE_UNIT:
 
 
 def convert_unit(size_in_bytes, unit):
-    """ Convert the size from bytes to other units like KB, MB or GB"""
+    """Convert the size from bytes to other units like KB, MB or GB"""
     if unit == SIZE_UNIT.KB:
         return size_in_bytes / 1024
     elif unit == SIZE_UNIT.MB:
@@ -1772,7 +1772,7 @@ def convert_unit(size_in_bytes, unit):
 
 
 def get_file_size(file_name, size_type=SIZE_UNIT.MB):
-    """ Get file in size in given unit like KB, MB or GB"""
+    """Get file in size in given unit like KB, MB or GB"""
     size = os.path.getsize(file_name)
     return convert_unit(size, size_type)
 
@@ -2022,23 +2022,22 @@ def get_current_user():
     return getpass.getuser()
 
 
-def get_list_of_files(dir_name, file_ext=None, strict=False):
+def get_list_of_files(dir_path, file_ext=None, strict=False):
     """
     Get a list of file and sub directories for a given directory
 
-    :param dir_name: Parent directory in which the recursive search for files will take place
+    :param dir_path: Parent directory in which the recursive search for files will take place
     :param file_ext: File extension
     :param strict: If True the function raiser errors when no files are found.
-    :return:
+    :return: list of all found files
     """
-
-    list_of_file = os.listdir(dir_name)
-    all_files = list()
+    all_files = []
+    list_of_file = os.listdir(dir_path)
 
     # Iterate over all the entries
     for entry in list_of_file:
         # Create full path
-        full_path = os.path.join(dir_name, entry)
+        full_path = os.path.join(dir_path, entry)
         # If entry is a directory then get the list of files in this directory
         if os.path.isdir(full_path):
             all_files = all_files + get_list_of_files(full_path)
@@ -2048,8 +2047,8 @@ def get_list_of_files(dir_name, file_ext=None, strict=False):
     if file_ext is not None:
         all_files = [f for f in all_files if f.endswith(file_ext)]
 
-    if not all_files:
-        msg = f'Files with "{file_ext}"-extension is not found in "{dir_name}" or any sub-folder.'
+    if len(all_files) == 0:
+        msg = f'Files with "{file_ext}"-extension is not found in "{dir_path}" or any sub-folder.'
         if strict:
             raise FileNotFoundError(msg)
         else:

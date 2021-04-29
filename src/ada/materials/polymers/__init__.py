@@ -116,26 +116,26 @@ class TestData:
         comments = ""
         data = []
         cols = []
-        for l in lines:
-            if "#" in l[0]:
-                if "created by" in l.lower():
-                    self._created_by = l.split(":")[-1].strip()
-                if "column" in l:
-                    cols.append(l.split(":")[-1].strip())
-                if "standard" in l.lower():
-                    self._standard = l.split(":")[-1].strip() if "none" not in l.lower() else None
-                if "temperature" in l.lower():
-                    self._temperature = l.split(":")[-1].strip()
-                if "load type" in l.lower():
-                    self._load_type = l.split(":")[-1].strip()
-                if "source" in l.lower():
-                    self._source = l.split(":")[-1].strip()
-                if "name" in l.lower():
-                    self._name = l.split(":")[-1].strip()
-                comments += "".join(l[1:])
+        for li in lines:
+            if "#" in li[0]:
+                if "created by" in li.lower():
+                    self._created_by = li.split(":")[-1].strip()
+                if "column" in li:
+                    cols.append(li.split(":")[-1].strip())
+                if "standard" in li.lower():
+                    self._standard = li.split(":")[-1].strip() if "none" not in li.lower() else None
+                if "temperature" in li.lower():
+                    self._temperature = li.split(":")[-1].strip()
+                if "load type" in li.lower():
+                    self._load_type = li.split(":")[-1].strip()
+                if "source" in li.lower():
+                    self._source = li.split(":")[-1].strip()
+                if "name" in li.lower():
+                    self._name = li.split(":")[-1].strip()
+                comments += "".join(li[1:])
 
             else:
-                d = l.split(",")
+                d = li.split(",")
                 data.append([float(x) for x in d])
 
         self._data = list(zip(*data))

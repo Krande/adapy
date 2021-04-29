@@ -5,10 +5,8 @@ from . import abaqus, calculix, code_aster, sesam, usfos
 fem_exports = dict(
     abaqus=abaqus.to_fem, calculix=calculix.to_fem, code_aster=code_aster.to_fem, sesam=sesam.to_fem, usfos=usfos.to_fem
 )
-fem_imports = dict(
-    abaqus=abaqus.read_fem,
-    sesam=sesam.read_fem,
-)
+fem_imports = dict(abaqus=abaqus.read_fem, sesam=sesam.read_fem, code_aster=code_aster.read_fem)
+
 fem_executables = dict(abaqus=abaqus.run_abaqus, calculix=calculix.run_calculix, code_aster=code_aster.run_code_aster)
 
 

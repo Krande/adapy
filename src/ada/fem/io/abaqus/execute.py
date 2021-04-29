@@ -90,9 +90,10 @@ echo ON
 
     execute_path = _Settings.execute_dir if _Settings.execute_dir is not None else inp_path.parent
 
-    os.makedirs(execute_path, exist_ok=True)
-    shutil.copy(inp_path.parent / start_bat, execute_path / start_bat)
-    shutil.copy(inp_path.parent / stop_bat, execute_path / stop_bat)
+    if inp_path.parent != execute_path:
+        os.makedirs(execute_path, exist_ok=True)
+        shutil.copy(inp_path.parent / start_bat, execute_path / start_bat)
+        shutil.copy(inp_path.parent / stop_bat, execute_path / stop_bat)
 
     if return_bat_str is True:
         return bat_start_str

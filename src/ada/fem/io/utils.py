@@ -103,7 +103,7 @@ def get_fem_model_from_assembly(assembly):
 
     if len(parts) > 1:
         raise ValueError(
-            "This method does not support multipart FEM. Please make sure your assembly only contain 1 FEM"
+            "This method does not yet support multipart FEM. Please make sure your assembly only contain 1 FEM"
         )
     elif len(parts) == 0:
         raise ValueError("At least 1 part must have a FEM mesh ")

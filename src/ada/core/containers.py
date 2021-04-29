@@ -485,9 +485,9 @@ class Materials(BaseCollections):
         return iter(self._materials)
 
     def __getitem__(self, index):
-        if index not in self._dmap.keys():
-            raise ValueError(f'Material name "{index}" not found')
-        result = self._dmap[index]
+        # if index not in self._dmap.keys():
+        #     raise ValueError(f'Material name "{index}" not found')
+        result = self._materials[index]
         return Materials(result) if isinstance(index, slice) else result
 
     def __eq__(self, other):
@@ -730,7 +730,20 @@ class Nodes:
             nodes = toolz.unique(nodes, key=attrgetter("id"))
 
         self._nodes = sorted(nodes, key=attrgetter("x", "y", "z"))
-        self._idmap = {n.id: n for n in self._nodes}
+        self._idmap = {n.id: n for n in sorted(self._nodes, key=attrgetter("id"))}
+        self._maxid = max(self._idmap.keys()) if len(self._nodes) > 0 else 0
+        self._bbox = self._get_bbox() if len(self._nodes) > 0 else None
+
+    def renumber(self):
+        """
+        Ensures that the node numberings starts at 1 and has no holes in its numbering.
+
+        """
+        for i, n in enumerate(sorted(self._nodes, key=attrgetter("id")), start=1):
+            if i != n.id:
+                n.id = i
+
+        self._idmap = {n.id: n for n in sorted(self._nodes, key=attrgetter("id"))}
         self._maxid = max(self._idmap.keys()) if len(self._nodes) > 0 else 0
         self._bbox = self._get_bbox() if len(self._nodes) > 0 else None
 

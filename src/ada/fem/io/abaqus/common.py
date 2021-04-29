@@ -2,7 +2,11 @@ import re
 
 
 class AbaFF:
-    """"""
+    """
+    Abaqus Fortran Flags. A class designed to aid in building regex searched
+    for Abaqus flags.
+
+    """
 
     def __init__(self, flag, args, subflags=None, nameprop=None):
         """
@@ -89,6 +93,7 @@ class AbaFF:
 
 
 class AbaCards:
+    # Contact
     contact_pairs = AbaFF(
         "Contact Pair",
         [
@@ -119,6 +124,24 @@ class AbaCards:
         # nameprop=("Interaction", "name"),
     )
 
+    # Connectors
+    connector_behaviour = AbaFF(
+        "Connector Behavior",
+        [("name=",)],
+        [("Connector Elasticity", [("nonlinear|", "component=|"), ("bulk>",)])],
+    )
+    connector_section = AbaFF("Connector Section", [("elset=", "behavior="), ("contype",), ("csys",)])
+
+    # Constraints
+    sh2so_re = AbaFF("Shell to Solid Coupling", [("constraint name=",), ("surf1", "surf2")])
+    rigid_bodies = AbaFF("Rigid Body", [("ref node=", "elset=")])
+    coupling = AbaFF(
+        "Coupling",
+        [("constraint name=", "ref node=", "surface=", "orientation=|")],
+        [("Kinematic", [(), ("bulk>",)])],
+    )
+    tie = AbaFF("Tie", [("name=", "adjust="), ("surf1", "surf2")])
+    # Other
     surface_smoothing = AbaFF("Surface Smoothing", [("name=",), ("bulk>",)])
     surface = AbaFF("Surface", [("type=", "name=", "internal|"), ("bulk>",)])
     orientation = AbaFF(
@@ -129,16 +152,3 @@ class AbaCards:
             ("v1", "v2"),
         ],
     )
-    rigid_bodies = AbaFF("Rigid Body", [("ref node=", "elset=")])
-    coupling = AbaFF(
-        "Coupling",
-        [("constraint name=", "ref node=", "surface=", "orientation=|")],
-        [("Kinematic", [(), ("bulk>",)])],
-    )
-    sh2so_re = AbaFF("Shell to Solid Coupling", [("constraint name=",), ("surf1", "surf2")])
-    connector_behaviour = AbaFF(
-        "Connector Behavior",
-        [("name=",)],
-        [("Connector Elasticity", [("nonlinear|", "component=|"), ("bulk>",)])],
-    )
-    connector_section = AbaFF("Connector Section", [("elset=", "behavior="), ("contype",), ("csys",)])

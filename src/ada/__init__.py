@@ -114,7 +114,7 @@ class Part(BackendGeom):
 
         self._props = props
         if fem is not None:
-            fem.edit(parent=self)
+            fem.parent = self
 
         self._fem = FEM(name + "-1", parent=self) if fem is None else fem
 
@@ -794,7 +794,7 @@ class Part(BackendGeom):
         """
 
         :return:
-        :rtype: FEM
+        :rtype: ada.fem.FEM
         """
         return self._fem
 
@@ -1159,13 +1159,12 @@ class Assembly(Part):
         :param fem_name:
         :param fem_converter: Set desired fem converter. Use either 'default' or 'meshio'.
         :param convert_func:
-        :type fem_file: str
+        :type fem_file: Union[str, os.PathLike]
         :type fem_format: str
         :type fem_name: str
 
         Note! The meshio fem converter implementation currently only supports reading elements and nodes.
         """
-
         fem_file = pathlib.Path(fem_file)
         if fem_file.exists() is False:
             raise FileNotFoundError(fem_file)
@@ -1611,7 +1610,7 @@ class Beam(BackendGeom):
         else:
             if mat is None:
                 mat = "S355"
-            self._material = Material(name=name + "_mat", mat_model=CarbonSteel(mat, plasticity_model=None))
+            self._material = Material(name=mat, mat_model=CarbonSteel(mat, plasticity_model=None))
 
         self._ifc_geom = ifc_geom
         self._opacity = opacity
@@ -3676,7 +3675,7 @@ class Shape(BackendGeom):
                 raise ValueError("No geometry information attached to this element")
             geom, color, alpha = get_representation(ifc_elem, self.ifc_settings)
             self._geom = geom
-            self._colour = color
+            self.colour = color
             self._opacity = alpha
         return self._geom
 
@@ -4912,20 +4911,6 @@ class Connection(Part):
         self._beams = incoming_beams
         self._clines = list()
         self._wp = wp
-
-    def edit(self, colour=None, parent=None, name=None, wp=None):
-        """
-        Sets the joint work point
-
-        :param colour:
-        :param parent:
-        :param name:
-        :param wp:
-        """
-        self._colour = colour if colour is not None else self._colour
-        self._parent = parent if parent is not None else self._parent
-        self._name = name if name is not None else self._name
-        self._wp = wp if wp is not None else self._wp
 
     def add_cline(self, cline):
         self._clines.append(cline)

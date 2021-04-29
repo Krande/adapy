@@ -117,12 +117,12 @@ class ElemShapes:
     cube8 = ["C3D8", "C3D8R", "C3D8H"]
     cube20 = ["C3D20", "C3D20R", "C3D20RH"]
     cube27 = ["C3D27"]
-    pyramid4 = ["C3D4"]
-    pyramid5 = ["C3D5"]
-    pyramid10 = ["C3D10"]
+    tetrahedron = ["C3D4"]
+    tetrahedron10 = ["C3D10"]
+    pyramid5 = ["C3D5", "C3D5H"]
     prism6 = ["C3D6"]
     prism15 = ["C3D15"]
-    volume = cube8 + cube20 + pyramid10 + pyramid4 + pyramid5 + prism15 + prism6
+    volume = cube8 + cube20 + tetrahedron10 + tetrahedron + pyramid5 + prism15 + prism6
     bm2 = ["B31", "B32"]
     beam = bm2
     spring1n = ["SPRING1"]
@@ -134,6 +134,22 @@ class ElemShapes:
     other = other2n
 
     @staticmethod
+    def is_valid_elem(elem_type):
+        value = elem_type.upper()
+        if (
+            value
+            not in ElemShapes.shell
+            + ElemShapes.volume
+            + ElemShapes.beam
+            + ElemShapes.springs
+            + ElemShapes.masses
+            + ElemShapes.other
+        ):
+            return False
+        else:
+            return True
+
+    @staticmethod
     def num_nodes(el_name):
         if el_name in ElemShapes.masses + ElemShapes.spring1n:
             return 1
@@ -141,7 +157,7 @@ class ElemShapes:
             return 2
         elif el_name in ElemShapes.tri:
             return 3
-        elif el_name in ElemShapes.quad + ElemShapes.pyramid4:
+        elif el_name in ElemShapes.quad + ElemShapes.tetrahedron:
             return 4
         elif el_name in ElemShapes.pyramid5:
             return 5
@@ -149,7 +165,7 @@ class ElemShapes:
             return 6
         elif el_name in ElemShapes.quad8 + ElemShapes.cube8:
             return 8
-        elif el_name in ElemShapes.pyramid10:
+        elif el_name in ElemShapes.tetrahedron10:
             return 10
         elif el_name in ElemShapes.prism15:
             return 15
@@ -160,31 +176,55 @@ class ElemShapes:
         else:
             raise ValueError(f'element type "{el_name}" is not yet supported')
 
-    def __init__(self, el_type):
-        self.type = el_type
+    def __init__(self, el_type, nodes):
+        if ElemShapes.is_valid_elem(el_type) is False:
+            raise ValueError(f'Currently unsupported element type "{el_type}".')
+        self.type = el_type.upper()
+        self.nodes = nodes
+        self._edges = None
 
     @property
-    def type(self):
-        """
+    def edges(self):
+        if self.edges_seq is None:
+            raise ValueError(f'Element type "{self.type}" is missing element node descriptions')
+        if self._edges is None:
+            self._edges = [self.nodes[e].p for ed_seq in self.edges_seq for e in ed_seq]
+            return self._edges
+        else:
+            return self._edges
 
-        :return: Element type.
-        """
-        return self._el_type
+    @property
+    def faces(self):
+        if self.type.upper() in ElemShapes.volume:
+            faces = self._cube_faces_global
+        elif self.type.upper() in ElemShapes.shell:
+            faces = self._shell_faces
+        else:
+            raise ValueError(f'element type "{self.type}" is yet to be included')
 
-    @type.setter
-    def type(self, value):
-        value = value.upper()
-        if (
-            value
-            not in ElemShapes.shell
-            + ElemShapes.volume
-            + ElemShapes.beam
-            + ElemShapes.springs
-            + ElemShapes.masses
-            + ElemShapes.other
-        ):
-            raise ValueError(f'Currently unsupported element type "{value}".')
-        self._el_type = value
+        if faces is None:
+            return None
+
+        new_n = [[self.nodes[n[0]], self.nodes[n[1]], self.nodes[n[2]]] for n in faces]
+        return new_n
+
+    @property
+    def _cube_faces_global(self):
+        if self._cube_faces is None:
+            return None
+        new_n = []
+        for n in self._cube_faces:
+            new_n.append([self.nodes[n[0]], self.nodes[n[1]], self.nodes[n[2]]])
+        return new_n
+
+    @property
+    def _cube_edges_global(self):
+        if self._volume_edges is None:
+            return None
+        new_n = []
+        for n in self._volume_edges:
+            new_n.append([self.nodes[n[0]], self.nodes[n[1]]])
+        return new_n
 
     @property
     def edges_seq(self):
@@ -215,6 +255,8 @@ class ElemShapes:
 
     @property
     def spring_edges(self):
+        if self.type not in self.springs:
+            return None
         springs = dict(SPRING2=[[0, 1]])
         return springs[self.type]
 
@@ -230,6 +272,9 @@ class ElemShapes:
         0-----+-----1 --> u   0----2----1     0---2---3---1
 
         """
+        if self.type not in self.beam:
+            logging.error("A call was made to beam edges even though type is not beam")
+            return None
         if self.type in ["B31", "SPRING2"]:
             return [[0, 1]]
         elif self.type == "B32":
@@ -265,6 +310,9 @@ v
 |        `\             |        `\          |         \            |             \
 0----------1 --> u      0-----3----1         0---3---4---1          0---3---4---5---1
 """
+        if self.type not in self.shell:
+            return None
+
         if self.type in ["S4", "S4R", "R3D4"]:
             return [[0, 1], [1, 2], [2, 3], [3, 0]]
         elif self.type in ["S3", "S3R"]:
@@ -274,12 +322,15 @@ v
 
     @property
     def _shell_faces(self):
+        if self.type not in self.shell:
+            return None
+
         if self.type.upper() in ["S4", "S4R"]:
             return [[0, 1, 2], [0, 2, 3]]
         elif self.type.upper() in ["S3", "S3R"]:
             return [[0, 1, 2]]
         else:
-            print('element type "{}" is yet to be included'.format(self.type))
+            logging.error(f'element type "{self.type}" is yet to be included')
 
     @property
     def _volume_edges(self):
@@ -319,6 +370,8 @@ v
                 `\.
                    ` w
         """
+        if self.type not in self.volume:
+            return None
         if self.type in ["C3D8", "C3D8R", "C3D8H"]:
             return [
                 [0, 1],
@@ -395,6 +448,8 @@ v
 
     @property
     def _cube_faces(self):
+        if self.type not in self.volume:
+            return None
         if self.type.upper() == "C3D8":
             return [
                 [0, 2, 3],
@@ -413,7 +468,7 @@ v
         elif self.type.upper() == "C3D10":
             return [[0, 2, 3], [0, 1, 2], [1, 2, 3], [0, 2, 3]]
         else:
-            print("Element type {} is currently not supported".format(self.type))
+            logging.error(f"Element type {self.type} is currently not supported for visualization")
 
 
 class FEM(FemBase):
@@ -453,17 +508,6 @@ class FEM(FemBase):
         self._initial_state = None
         self._lcsys = dict()
 
-    def edit(self, parent=None, instance_name=None, initial_state=None):
-        """
-
-        :param parent:
-        :param instance_name:
-        :param initial_state:
-        """
-        self._parent = parent if parent is not None else self._parent
-        self._name = instance_name if instance_name is not None else self._name
-        self._initial_state = initial_state if initial_state is not None else self._initial_state
-
     def add_elem(self, elem):
         """
 
@@ -493,7 +537,9 @@ class FEM(FemBase):
         if bc.name in [b.name for b in self._bcs]:
             raise Exception('BC with name "{bc_id}" already exists'.format(bc_id=bc.name))
         bc.parent = self
-        if bc.fem_set not in self.sets:
+        if bc.fem_set.parent is None:
+            # TODO: look over this implementation. Is this okay?
+            logging.error("Bc FemSet has no parent. Adding to self")
             self.sets.add(bc.fem_set)
 
         self._bcs.append(bc)
@@ -957,6 +1003,10 @@ class FEM(FemBase):
         """
         return self._initial_state
 
+    @initial_state.setter
+    def initial_state(self, value):
+        self._initial_state = value
+
     @property
     def springs(self):
         return self._springs
@@ -1092,7 +1142,7 @@ class FemSection(FemBase):
         from ada.core.utils import roundoff, unit_vector, vector_length
 
         if self._local_y is None:
-            if self.type == "beam":
+            if self.type in ("beam", "shell"):
                 n1, n2 = self.elset.members[0].nodes[0], self.elset.members[0].nodes[-1]
                 v = n2.p - n1.p
                 if vector_length(v) == 0.0:
@@ -1104,7 +1154,7 @@ class FemSection(FemBase):
                 ma = max(abs(crossed))
                 self._local_y = tuple([roundoff(x / ma, 3) for x in crossed])
             else:
-                raise NotImplementedError("Local Y is not implemented for shell elements, yet.")
+                raise NotImplementedError("Local Y is not implemented for solid elements.")
         return self._local_y
 
     @property
@@ -1334,7 +1384,7 @@ class Surface(FemBase):
         return self._id_refs
 
 
-class Elem(FemBase, ElemShapes):
+class Elem(FemBase):
     """
     Node numbering of elements is based on GMSH doc here http://gmsh.info/doc/texinfo/gmsh.html#Node-ordering
 
@@ -1363,11 +1413,14 @@ class Elem(FemBase, ElemShapes):
         from ada import Node
 
         super().__init__(el_id, metadata, parent)
-        super(FemBase, self).__init__(el_type)
+        self.type = el_type
         self._el_id = el_id
-        num_nodes = self.num_nodes(self.type)
+
+        num_nodes = ElemShapes.num_nodes(el_type)
         if len(nodes) != num_nodes:
             raise ValueError(f'Number of passed nodes "{len(nodes)}" does not match expected "{num_nodes}" ')
+
+        self._shape = ElemShapes(el_type, nodes)
 
         if type(nodes[0]) is Node:
             for node in nodes:
@@ -1375,9 +1428,23 @@ class Elem(FemBase, ElemShapes):
 
         self._nodes = nodes
         self._elset = elset
-        self._edges = None
         self._fem_sec = fem_sec
         self._mass_props = mass_props
+        self._refs = []
+
+    @property
+    def type(self):
+        """
+
+        :return: Element type.
+        """
+        return self._el_type
+
+    @type.setter
+    def type(self, value):
+        if ElemShapes.is_valid_elem(value) is False:
+            raise ValueError(f'Currently unsupported element type "{value}".')
+        self._el_type = value
 
     @property
     def name(self):
@@ -1410,46 +1477,6 @@ class Elem(FemBase, ElemShapes):
         return self._elset
 
     @property
-    def edges(self):
-        if self.edges_seq is None:
-            raise ValueError(f'Element type "{self.type}" is missing element node descriptions')
-        if self._edges is None:
-            self._edges = [self.nodes[e].p for ed_seq in self.edges_seq for e in ed_seq]
-            return self._edges
-        else:
-            return self._edges
-
-    @property
-    def faces(self):
-        if self.type.upper() in ElemShapes.volume:
-            faces = self._cube_faces_global
-        elif self.type.upper() in ElemShapes.shell:
-            faces = self._shell_faces
-        else:
-            raise ValueError('element type "{}" is yet to be included'.format(self.type))
-
-        new_n = [[self.nodes[n[0]], self.nodes[n[1]], self.nodes[n[2]]] for n in faces]
-        return new_n
-
-    @property
-    def _cube_faces_global(self):
-        if self._cube_faces is None:
-            return None
-        new_n = []
-        for n in self._cube_faces:
-            new_n.append([self.nodes[n[0]], self.nodes[n[1]], self.nodes[n[2]]])
-        return new_n
-
-    @property
-    def _cube_edges_global(self):
-        if self._volume_edges is None:
-            return None
-        new_n = []
-        for n in self._volume_edges:
-            new_n.append([self.nodes[n[0]], self.nodes[n[1]]])
-        return new_n
-
-    @property
     def fem_sec(self):
         """
 
@@ -1474,6 +1501,19 @@ class Elem(FemBase, ElemShapes):
     @mass_props.setter
     def mass_props(self, value):
         self._mass_props = value
+
+    @property
+    def shape(self):
+        """
+
+        :return:
+        :rtype: ada.fem.ElemShapes
+        """
+        return self._shape
+
+    @property
+    def refs(self):
+        return self._refs
 
     def __repr__(self):
         return f'Elem(ID: {self._el_id}, Type: {self.type}, NodeIds: "{self.nodes}")'
@@ -1829,7 +1869,11 @@ class InteractionProperty(FemBase):
 
 
 class Interaction(FemBase):
-    """"""
+    """
+    A class representing the physical properties of
+    interaction between solid bodies.
+
+    """
 
     _valid_contact_types = ["SURFACE", "GENERAL"]
     _valid_surface_types = ["SURFACE TO SURFACE"]
@@ -1970,7 +2014,7 @@ class PredefinedField(FemBase):
         self._initial_state_part = initial_state_part
         self._initial_state_file = initial_state_file
         if self.initial_state_file is not None:
-            self.initial_state_part.fem.edit(initial_state=self)
+            self.initial_state_part.fem.initial_state = self
 
     @property
     def type(self):
@@ -2001,6 +2045,11 @@ class PredefinedField(FemBase):
 
     @property
     def initial_state_part(self):
+        """
+
+        :return:
+        :rtype: ada.Part
+        """
         return self._initial_state_part
 
     @property
@@ -2289,20 +2338,6 @@ class FieldOutput(FemBase):
         self._int_value = int_value
         self._int_type = int_type
 
-    def edit(self, parent=None, nodal=None, element=None, contact=None):
-        """
-
-        :param parent:
-        :param nodal:
-        :param element:
-        :param contact:
-        :return:
-        """
-        self._parent = parent if parent is not None else self._parent
-        self._nodal = nodal if nodal is not None else self._nodal
-        self._element = element if element is not None else self._element
-        self._contact = contact if contact is not None else self._contact
-
     @property
     def nodal(self):
         return self._nodal
@@ -2452,7 +2487,7 @@ class Step(FemBase):
 
         # Not-initialized parameters
         self._bcs = dict()
-        self._loads = list()
+        self._loads = []
         self._interactions = dict()
         self._hist_outputs = [self.default_hist]
         self._field_outputs = [self.default_field]
@@ -2698,6 +2733,7 @@ class Load(FemBase):
         acc_vector=None,
         accr_origin=None,
         accr_rot_axis=None,
+        csys=None,
         metadata=None,
         parent=None,
     ):
@@ -2711,6 +2747,7 @@ class Load(FemBase):
         self._acc_vector = acc_vector
         self._accr_origin = accr_origin
         self._accr_rot_axis = accr_rot_axis
+        self._csys = csys
         if self.type == "point_load":
             if self._dof is None or self._fem_set is None or self._name is None:
                 raise Exception("self._dofs and nid (Node id) and name needs to be set in order to use point loads")
@@ -2788,3 +2825,7 @@ class Load(FemBase):
     @property
     def acc_rot_axis(self):
         return self._accr_rot_axis
+
+    @property
+    def csys(self):
+        return self._csys

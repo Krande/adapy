@@ -162,9 +162,11 @@ class MyRenderer(JupyterRenderer):
             :type el: ada.fem.Elem
             :return:
             """
-            if el.edges_seq is None:
+            if el.shape.edges_seq is None:
                 return None
-            return [part.fem.nodes.from_id(i).p for i in [el.nodes[e].id for ed_seq in el.edges_seq for e in ed_seq]]
+            return [
+                part.fem.nodes.from_id(i).p for i in [el.nodes[e].id for ed_seq in el.shape.edges_seq for e in ed_seq]
+            ]
 
         lmesh_id = "%s" % uuid.uuid4().hex
 
@@ -658,7 +660,11 @@ class MyRenderer(JupyterRenderer):
                 callback(self._current_shape_selection)
 
     def _click_ada_to_html(self, obj):
-        """"""
+        """
+
+        :param obj:
+        :return:
+        """
         from ada import Beam, Part, Pipe, Plate, Shape, Wall
         from ada.fem.utils import get_eldata
 
