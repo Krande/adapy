@@ -95,6 +95,7 @@ USER:     {user}            ACCOUNT:     \n"""
             d.write(self._mass_str)
             d.write(self._bc_str)
             d.write(self._hinges_str)
+            d.write(self._univec_str)
             d.write(self._elem_str)
             d.write(self._loads_str)
             d.write("IEND                0.00            0.00            0.00            0.00")
@@ -302,11 +303,12 @@ USER:     {user}            ACCOUNT:     \n"""
                 raise ValueError(f'Unsupported elem type "{fem_sec.type}"')
 
             fixno = el.metadata.get("fixno", None)
+            transno = el.metadata.get("transno")
             if fixno is None:
-                last_tuples = [(sec_id, 0, 0, 1)]
+                last_tuples = [(sec_id, 0, 0, transno)]
             else:
                 h1_fix, h2_fix = fixno
-                last_tuples = [(sec_id, -1, 0, 1), (h1_fix, h2_fix)]
+                last_tuples = [(sec_id, -1, 0, transno), (h1_fix, h2_fix)]
 
             return self.write_ff(
                 "GELREF1",
@@ -351,7 +353,7 @@ USER:     {user}            ACCOUNT:     \n"""
 
         for mass in self._gmass.values():
             for m in mass.fem_set.members:
-                if type(mass.mass) is float:
+                if type(mass.mass) in (int, float, np.float64):
                     masses = [mass.mass for _ in range(0, 3)] + [0, 0, 0]
                 else:
                     raise NotImplementedError()
@@ -394,6 +396,26 @@ USER:     {user}            ACCOUNT:     \n"""
                 h2_fix, res_str = write_hinge(h2)
                 out_str += res_str
             el.metadata["fixno"] = h1_fix, h2_fix
+
+        return out_str
+
+    @property
+    def _univec_str(self):
+        from ada.core.utils import Counter
+
+        out_str = ""
+        unit_vector = Counter(0)
+
+        def write_local_z(vec):
+            transno = next(unit_vector)
+            data = [tuple([transno, *vec])]
+            return transno, self.write_ff("GUNIVEC", data)
+
+        for el in self._gelements:
+            local_z = el.fem_sec.local_z
+            transno, res_str = write_local_z(local_z)
+            out_str += res_str
+            el.metadata["transno"] = transno
 
         return out_str
 
