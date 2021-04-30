@@ -107,6 +107,8 @@ def to_fem(
     :param exit_on_complete:
 
     """
+    from .execute import run_abaqus
+
     if metadata is None:
         metadata = dict()
 
@@ -121,20 +123,17 @@ def to_fem(
     print(f'Created an Abaqus input deck at "{a.analysis_path}"')
     # Create run batch files and if execute=True run the analysis
     inp_path = (a.analysis_path / name).with_suffix(".inp")
-    if execute:
-        from .execute import run_abaqus
 
-        run_abaqus(
-            inp_path,
-            cpus=cpus,
-            gpus=gpus,
-            run_ext=run_ext,
-            manifest=metadata,
-            subr_path=a._subr_path,
-            execute=execute,
-            exit_on_complete=exit_on_complete,
-        )
-
+    run_abaqus(
+        inp_path,
+        cpus=cpus,
+        gpus=gpus,
+        run_ext=run_ext,
+        manifest=metadata,
+        subr_path=a._subr_path,
+        execute=execute,
+        exit_on_complete=exit_on_complete
+    )
     return a.analysis_path
 
 
@@ -1520,9 +1519,9 @@ def load_str(load):
             )
         if mom != 0:
             lstr += "** Name: {}   Type: Moment\n*Cload{}\n{}".format(load.name + "_M", follower_str, bc_text_m)
-        return lstr
+        return lstr.strip()
     else:
-        raise Exception("Unknown load type", load.type)
+        raise ValueError("Unsupported load type", load.type)
 
 
 def get_instance_name(obj, fem_writer):
