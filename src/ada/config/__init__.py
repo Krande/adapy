@@ -2,6 +2,17 @@ import os
 import pathlib
 
 
+def _get_platform_home():
+    """
+
+    :return:
+    """
+    # _platform_home = dict(win32="C:/ADA", linux="/home/ADA", linux2="/home/ADA", macos="/home/ADA")
+    # return _platform_home[sys.platform]
+
+    return pathlib.Path.home() / "ADA"
+
+
 class Settings:
     """
     The Properties object contains all general purpose properties relevant for Parts and Assemblies
@@ -35,11 +46,11 @@ class Settings:
     use_docker_execute = False
 
     debug = False
-
-    scratch_dir = pathlib.Path(os.getenv("ADA_scratch_dir", "C:/ADA/Analyses"))
-    temp_dir = pathlib.Path(os.getenv("ADA_temp_dir", "C:/ADA/temp"))
-    debug_dir = pathlib.Path(os.getenv("ADA_log_dir", "C:/ADA/logs"))
-    test_dir = pathlib.Path(os.getenv("ADA_test_dir", "C:/ADA/tests"))
+    _home = _get_platform_home()
+    scratch_dir = pathlib.Path(os.getenv("ADA_scratch_dir", f"{_home}/Analyses"))
+    temp_dir = pathlib.Path(os.getenv("ADA_temp_dir", f"{_home}/temp"))
+    debug_dir = pathlib.Path(os.getenv("ADA_log_dir", f"{_home}/logs"))
+    test_dir = pathlib.Path(os.getenv("ADA_test_dir", f"{_home}/tests"))
 
     fem_exe_paths = dict(abaqus=None, ccx=None, sesam=None, usfos=None, code_aster=None)
 

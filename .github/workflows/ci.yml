@@ -8,7 +8,7 @@ on:
       - '.github/workflows/ci.yml'
     branches:
     - main
-    - dev-0.0.10
+    - dev-0.0.11
   pull_request:
     branches:
     - main
