@@ -63,6 +63,8 @@ __all__ = [
     "create_guid",
     "segments_to_local_points",
     "zip_dir",
+    "replace_nodes_by_tol",
+    "replace_node",
 ]
 
 
@@ -373,9 +375,9 @@ def is_point_inside_bbox(p, bbox, tol=1e-3):
     :return:
     """
     if (
-        bbox[0][0] - tol < p[0] < bbox[0][1] + tol
-        and bbox[1][0] - tol < p[1] < bbox[1][1] + tol
-        and bbox[2][0] - tol < p[2] < bbox[2][1] + tol
+        bbox[0][0][0] - tol < p[0] < bbox[0][1][0] + tol
+        and bbox[1][0][1] - tol < p[1] < bbox[1][1][1] + tol
+        and bbox[2][0][2] - tol < p[2] < bbox[2][1][2] + tol
     ):
         return True
     else:
@@ -1764,9 +1766,9 @@ def convert_unit(size_in_bytes, unit):
     if unit == SIZE_UNIT.KB:
         return size_in_bytes / 1024
     elif unit == SIZE_UNIT.MB:
-        return size_in_bytes / (1024 * 1024)
+        return size_in_bytes / (1024 ** 2)
     elif unit == SIZE_UNIT.GB:
-        return size_in_bytes / (1024 * 1024 * 1024)
+        return size_in_bytes / (1024 ** 3)
     else:
         return size_in_bytes
 
@@ -2884,3 +2886,67 @@ def compute_minimal_distance_between_shapes(shp1, shp2):
     logging.info("Minimal distance between shapes: ", dss.Value())
 
     return dss
+
+
+def replace_node(fem, old, new):
+    """
+
+    :param fem: ada.fem
+    :param old:
+    :param new:
+    :type fem: ada.fem.FEM
+    :type old: ada.Node
+    :type new: ada.Node
+    """
+
+    for elem in old.refs.copy():
+        # assert isinstance(ref, ada.fem.Elem)
+        try:
+            ref_index = elem.nodes.index(old)
+        except ValueError:
+            return
+        elem.nodes.pop(ref_index)
+
+        if new.id not in [e.id for e in elem.nodes]:
+            elem.nodes.insert(ref_index, new)
+
+        if len(elem.nodes) < 2:
+            fem.elements.remove_elements_by_id(elem.id)
+            old.refs.pop(old.refs.index(elem))
+            logging.error(f"Element removed due to coinciding nodes. Elem id {elem.id}")
+        elif len(elem.nodes) == (len(elem.edges_seq) - 1):
+            elem.change_type(len(elem.nodes))
+
+
+def replace_nodes_by_tol(fem, decimals=0, tol=1e-4):
+    """
+
+    :param fem:
+    :param decimals:
+    :param tol:
+    :type fem: ada.fem.FEM
+    """
+
+    def rounding(vec, decimals_):
+        return np.around(vec, decimals=decimals_)
+
+    def n_is_most_precise(node, other_nodes_, decimals_=0):
+        most_precise = [np.array_equal(node.p, rounding(node.p, decimals_)) for node in [n] + other_nodes_]
+
+        if most_precise[0] and not np.all(most_precise[1:]):
+            return True
+        elif not most_precise[0] and np.any(most_precise[1:]):
+            return False
+        elif decimals_ == 10:
+            logging.error(f"Recursion started at 0 decimals, but are now at {decimals_} decimals. Will proceed with n.")
+            return True
+        else:
+            return n_is_most_precise(node, other_nodes_, decimals_ + 1)
+
+    for n in fem.nodes:
+        nearby_nodes = fem.nodes.get_by_volume(n.p, tol=tol)
+        other_nodes = list(filter(lambda x: x != n, nearby_nodes))
+        if len(other_nodes) > 0:
+            if n_is_most_precise(n, other_nodes, decimals):
+                for other_node in other_nodes:
+                    replace_node(fem, other_node, n)

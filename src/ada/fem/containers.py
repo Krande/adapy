@@ -128,6 +128,22 @@ class FemElements:
         p = elset.parent
         p.sets.elements.pop(elset.name)
 
+    def remove_elements_by_id(self, ids):
+        """
+        Remove elements from element ids. Will remove elements on completion
+
+        :param ids: Pass in a
+        :type ids: int or list of ints
+        """
+        from collections.abc import Iterable
+
+        ids = list(ids) if isinstance(ids, Iterable) else [ids]
+        for id in ids:
+            if id in self._idmap.keys():
+                self._idmap.pop(id)
+        self._elements = list(self._idmap.values())
+        self._by_types = groupby(self._elements, key=attrgetter("type", "elset"))
+
     def __contains__(self, item):
         return item.id in self._idmap.keys()
 
