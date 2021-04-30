@@ -870,7 +870,7 @@ class Nodes:
 
     @property
     def vol_cog(self):
-        return ((self.bbox[i][0][i] + self.bbox[i][1][i]) / 2 for i in range(3))
+        return tuple([(self.bbox[i][0][i] + self.bbox[i][1][i]) / 2 for i in range(3)])
 
     @property
     def max_nid(self):
