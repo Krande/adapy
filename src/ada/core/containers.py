@@ -870,14 +870,7 @@ class Nodes:
 
     @property
     def vol_cog(self):
-        def get_middle(bbox, i):
-            return (bbox[i][0][i] + bbox[i][1][i]) / 2
-
-        return (
-            get_middle(self.bbox, 0),
-            get_middle(self.bbox, 1),
-            get_middle(self.bbox, 2),
-        )
+        return ((self.bbox[i][0][i] + self.bbox[i][1][i]) / 2 for i in range(3))
 
     @property
     def max_nid(self):
@@ -900,11 +893,7 @@ class Nodes:
 
         p = np.array(p) if type(p) is (list, tuple) else p
         if p is not None and vol_cyl is None and vol_box is None:
-            vol = [
-                (p[0] - tol, p[0] + tol),
-                (p[1] - tol, p[1] + tol),
-                (p[2] - tol, p[2] + tol),
-            ]
+            vol = [(coord - tol, coord + tol) for coord in p]
         elif vol_box is not None:
             vol = list(zip(p, vol_box))
         elif vol_cyl is not None and p is not None:
