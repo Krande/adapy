@@ -132,7 +132,7 @@ def to_fem(
         manifest=metadata,
         subr_path=a._subr_path,
         execute=execute,
-        exit_on_complete=exit_on_complete
+        exit_on_complete=exit_on_complete,
     )
     return a.analysis_path
 
