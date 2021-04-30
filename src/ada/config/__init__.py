@@ -1,6 +1,5 @@
 import os
 import pathlib
-import sys
 
 
 def _get_platform_home():
@@ -8,9 +7,10 @@ def _get_platform_home():
 
     :return:
     """
+    # _platform_home = dict(win32="C:/ADA", linux="/home/ADA", linux2="/home/ADA", macos="/home/ADA")
+    # return _platform_home[sys.platform]
 
-    _platform_home = dict(win32="C:/ADA", linux="/home/ADA", linux2="/home/ADA", macos="/home/ADA")
-    return _platform_home[sys.platform]
+    return pathlib.Path.home() / "ADA"
 
 
 class Settings:
