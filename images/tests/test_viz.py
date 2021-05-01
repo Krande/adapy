@@ -54,11 +54,12 @@ class MyTestCase(unittest.TestCase):
         a = beam_ex1()
         p = a.parts["MyPart"]
         ca_name = "MyCantilever_code_aster"
-        a.to_fem(ca_name, "code_aster", overwrite=True, execute=True)
+        # a.to_fem(ca_name, "code_aster", overwrite=True, execute=True)
 
         rmed = (Settings.scratch_dir / ca_name / ca_name).with_suffix(".rmed")
-        res = Results(p, rmed)
+        res = Results(p, rmed, palette=[(1, 0, 0), (0, 149 / 255, 239 / 255)])
         res._repr_html_()
+        res._render_sets
 
 
 if __name__ == "__main__":
