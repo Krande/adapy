@@ -2,7 +2,7 @@ import pathlib
 
 import numpy as np
 from IPython.display import display
-from ipywidgets import HBox, VBox, Dropdown
+from ipywidgets import Dropdown, HBox, VBox
 from pythreejs import BufferAttribute, BufferGeometry, Mesh, MeshBasicMaterial
 
 from .renderer import MyRenderer
@@ -195,7 +195,7 @@ class Results:
 
         data = p["new"]
         if self._analysis_type == "code_aster":
-            if 'DISP' in data:
+            if "DISP" in data:
                 self._viz_geom(data, displ_data=True)
             else:
                 self._viz_geom(data)
@@ -216,7 +216,7 @@ class Results:
                 self.renderer._controls.pop()
                 self.renderer._controls.append(self._render_sets)
             else:
-                raise NotImplementedError(f"Support for analysis_type \"{self._analysis_type}\"")
+                raise NotImplementedError(f'Support for analysis_type "{self._analysis_type}"')
 
         renderer = self._renderer
         display(HBox([VBox([HBox(renderer._controls), renderer._renderer]), renderer.html]))
