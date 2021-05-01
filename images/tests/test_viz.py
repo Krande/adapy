@@ -3,7 +3,7 @@ import unittest
 import meshio
 import numpy as np
 
-from ada.base.render_fem import render_mesh, viz_fem
+from ada.base.render_fem import Results, render_mesh, viz_fem
 from ada.config import Settings
 from ada.param_models.fem_models import beam_ex1
 
@@ -43,12 +43,22 @@ class MyTestCase(unittest.TestCase):
         a = beam_ex1()
         p = a.parts["MyPart"]
         ca_name = "MyCantilever_code_aster"
-        # a.to_fem(ca_name, "code_aster", overwrite=True, execute=True)
+        a.to_fem(ca_name, "code_aster", overwrite=True, execute=True)
 
         rmed = (Settings.scratch_dir / ca_name / ca_name).with_suffix(".rmed")
         mesh = meshio.read(rmed, "med")
 
         viz_fem(p.fem, mesh, "DISP[10] - 1")
+
+    def test_fem_cantilever_res_class(self):
+        a = beam_ex1()
+        p = a.parts["MyPart"]
+        ca_name = "MyCantilever_code_aster"
+        a.to_fem(ca_name, "code_aster", overwrite=True, execute=True)
+
+        rmed = (Settings.scratch_dir / ca_name / ca_name).with_suffix(".rmed")
+        res = Results(p, rmed)
+        res._repr_html_()
 
 
 if __name__ == "__main__":
