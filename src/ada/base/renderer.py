@@ -866,3 +866,5 @@ class SectionRenderer:
         display(HBox([fig, html]))
 
         # display(widgets.VBox([widgets.HBox([testb]), center, self._fig]))
+
+

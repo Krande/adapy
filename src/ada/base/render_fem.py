@@ -3,55 +3,11 @@ import pathlib
 import numpy as np
 from IPython.display import display
 from ipywidgets import Dropdown, HBox, VBox
-from pythreejs import BufferAttribute, BufferGeometry, Mesh, MeshBasicMaterial
 
+
+from .common import get_fem_faces, magnitude, get_fem_edges
 from .renderer import MyRenderer
-
-
-def make_geom(vertices, faces, colors, opacity=None):
-    """
-
-    :param vertices:
-    :param faces:
-    :param colors:
-    :return:
-    """
-    geometry = BufferGeometry(
-        attributes=dict(
-            position=BufferAttribute(vertices, normalized=False),
-            index=BufferAttribute(faces, normalized=False),
-            color=BufferAttribute(colors),
-        )
-    )
-
-    mat_atts = dict(vertexColors="VertexColors", side="DoubleSide")
-    if opacity is not None:
-        mat_atts["opacity"] = opacity
-        mat_atts["transparent"] = True
-
-    material = MeshBasicMaterial(**mat_atts)
-    mesh = Mesh(
-        geometry=geometry,
-        material=material,
-        # position=[-0.5, -0.5, -0.5],  # Center the cube
-    )
-    return mesh
-
-
-def get_mesh_faces(fem):
-    """
-
-    :param fem:
-    :type fem: ada.fem.FEM
-    :return:
-    :rtype: list
-    """
-    faceids = []
-    for el in fem.elements.elements:
-        for f in el.shape.faces:
-            # Convert to indices, not id
-            faceids += [[e.id - 1 for e in f]]
-    return faceids
+from .threejs_geom import faces_to_mesh, lines_to_mesh, vertices_to_mesh
 
 
 def render_mesh(vertices, faces, colors):
@@ -64,16 +20,12 @@ def render_mesh(vertices, faces, colors):
     :return:
     """
 
-    mesh = make_geom(vertices, faces, colors)
+    mesh = faces_to_mesh("faces", vertices, faces, colors)
 
     renderer = MyRenderer()
     renderer._displayed_pickable_objects.add(mesh)
     renderer.build_display()
     display(HBox([VBox([HBox(renderer._controls), renderer._renderer]), renderer.html]))
-
-
-def magnitude(u_):
-    return np.sqrt(u_[0] ** 2 + u_[1] ** 2 + u_[2] ** 2)
 
 
 def viz_fem(fem, mesh, data_type):
@@ -90,7 +42,7 @@ def viz_fem(fem, mesh, data_type):
     """
     u = np.asarray(mesh.point_data[data_type], dtype="float32")
     vertices = np.asarray(mesh.points, dtype="float32")
-    faces = np.asarray(get_mesh_faces(fem), dtype="uint16").ravel()
+    faces = np.asarray(get_fem_faces(fem), dtype="uint16").ravel()
 
     res = [magnitude(u_) for u_ in u]
     max_r = max(res)
@@ -139,7 +91,8 @@ class Results:
         mesh = self._get_mesh(file_ref)
         self._mesh = mesh
         self._vertices = np.asarray(mesh.points, dtype="float32")
-        self._faces = np.asarray(get_mesh_faces(self._part.fem), dtype="uint16").ravel()
+        self._faces = np.asarray(get_fem_faces(self._part.fem), dtype="uint16").ravel()
+        self._edges = np.asarray(get_fem_edges(self._part.fem), dtype="uint16").ravel()
 
         for n in mesh.point_data.keys():
             self._point_data.append(n)
@@ -178,15 +131,20 @@ class Results:
         if displ_data:
             vertices = np.asarray([x + u[:3] for x, u in zip(self._vertices, data)], dtype="float32")
             white_color = np.asarray([(245 / 255, 245 / 255, 245 / 255) for x in self._vertices], dtype="float32")
-            o_mesh = make_geom(self._vertices, self._faces, white_color, opacity=0.5)
+            o_mesh = faces_to_mesh("undeformed", self._vertices, self._faces, white_color, opacity=0.5)
             renderer._displayed_pickable_objects.add(o_mesh)
         else:
             vertices = self._vertices
 
         # Colours
         colors = self._colorize_data(data)
-        mesh = make_geom(vertices, self._faces, colors)
+        mesh = faces_to_mesh("deformed", vertices, self._faces, colors)
+        default_vertex_color = (8, 8, 8)
+        points = vertices_to_mesh("deformed_vertices", vertices, default_vertex_color)
+        lines = lines_to_mesh("deformed_lines", vertices, self._edges, default_vertex_color)
         renderer._displayed_pickable_objects.add(mesh)
+        renderer._displayed_pickable_objects.add(points)
+        renderer._displayed_pickable_objects.add(lines)
 
         renderer.build_display()
         self._renderer = renderer
