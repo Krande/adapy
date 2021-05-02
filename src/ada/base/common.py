@@ -48,5 +48,9 @@ def get_fem_vertices(fem):
     return np.asarray([n.p for n in fem.nodes._nodes], dtype="float32")
 
 
+def get_bounding_box(vertices):
+    return np.min(vertices, 0), np.max(vertices, 0)
+
+
 def magnitude(u):
     return np.sqrt(u[0] ** 2 + u[1] ** 2 + u[2] ** 2)

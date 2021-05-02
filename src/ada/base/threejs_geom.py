@@ -1,18 +1,19 @@
+import numpy as np
 from pythreejs import (
     BufferAttribute,
     BufferGeometry,
-    Mesh,
-    MeshBasicMaterial,
-    PointsMaterial,
-    Points,
     LineBasicMaterial,
     LineSegments,
+    Mesh,
+    MeshBasicMaterial,
+    Points,
+    PointsMaterial,
 )
-import numpy as np
+
 from .common import format_color
 
 
-def lines_to_mesh(name, np_edge_vertices, np_edge_indices, edge_color, linewidth=1):
+def edges_to_mesh(name, np_edge_vertices, np_edge_indices, edge_color, linewidth=1):
     """
 
     :param name:

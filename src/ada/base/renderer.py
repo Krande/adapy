@@ -554,7 +554,6 @@ class MyRenderer(JupyterRenderer):
         if self._shapes:
             self._bb = BoundingBox([self._shapes.values()])
         else:  # if nothing registered yet, create a fake bb
-
             self._bb = BoundingBox([[BRepPrimAPI_MakeSphere(5.0).Shape()]])
         bb_max = self._bb.max
         orbit_radius = 1.5 * self._bb._max_dist_from_center()
@@ -866,5 +865,3 @@ class SectionRenderer:
         display(HBox([fig, html]))
 
         # display(widgets.VBox([widgets.HBox([testb]), center, self._fig]))
-
-

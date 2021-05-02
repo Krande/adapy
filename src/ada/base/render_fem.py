@@ -4,10 +4,9 @@ import numpy as np
 from IPython.display import display
 from ipywidgets import Dropdown, HBox, VBox
 
-
-from .common import get_fem_faces, magnitude, get_fem_edges
+from .common import get_fem_edges, get_fem_faces, magnitude
 from .renderer import MyRenderer
-from .threejs_geom import faces_to_mesh, lines_to_mesh, vertices_to_mesh
+from .threejs_geom import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
 
 def render_mesh(vertices, faces, colors):
@@ -141,12 +140,12 @@ class Results:
         mesh = faces_to_mesh("deformed", vertices, self._faces, colors)
         default_vertex_color = (8, 8, 8)
         points = vertices_to_mesh("deformed_vertices", vertices, default_vertex_color)
-        lines = lines_to_mesh("deformed_lines", vertices, self._edges, default_vertex_color)
+        lines = edges_to_mesh("deformed_lines", vertices, self._edges, default_vertex_color)
         renderer._displayed_pickable_objects.add(mesh)
         renderer._displayed_pickable_objects.add(points)
         renderer._displayed_pickable_objects.add(lines)
 
-        renderer.build_display()
+        renderer.build_display(camera_type="perspective")
         self._renderer = renderer
 
     def on_changed_point_data_set(self, p):
