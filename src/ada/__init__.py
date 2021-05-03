@@ -1236,19 +1236,37 @@ class Assembly(Part):
         # Update all global materials and sections before writing input file
         # self.materials
         # self.sections
+        try:
+            convert_func(
+                self,
+                name,
+                scratch_dir,
+                metadata,
+                execute,
+                run_ext,
+                cpus,
+                gpus,
+                overwrite,
+                exit_on_complete,
+            )
+        except IOError as e:
+            if _Settings.return_experimental_fem_res_after_execute is False:
+                raise e
 
-        convert_func(
-            self,
-            name,
-            scratch_dir,
-            metadata,
-            execute,
-            run_ext,
-            cpus,
-            gpus,
-            overwrite,
-            exit_on_complete,
-        )
+        if _Settings.return_experimental_fem_res_after_execute is True:
+            base_path = _Settings.scratch_dir / name / name
+            fem_res_paths = dict(code_aster=base_path.with_suffix(".rmed"))
+            if fem_format not in fem_res_paths.keys():
+                logging.error(f'FEM format "{fem_format}" is not yet supported for results processing')
+                return None
+
+            res_path = fem_res_paths[fem_format]
+            if res_path.exists():
+                from ada.base.render_fem import Results
+
+                return Results(res_path)
+            else:
+                logging.error(f'Result file "{res_path}" was not found')
 
     def to_ifc(self, destination_file):
         """

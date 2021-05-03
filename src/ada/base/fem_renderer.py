@@ -4,7 +4,13 @@ import numpy as np
 from pythreejs import Group
 
 import ada.fem
-from .common import get_bounding_box, get_fem_edges, get_fem_faces, get_fem_vertices
+
+from .common import (
+    get_bounding_box,
+    get_edges_from_fem,
+    get_faces_from_fem,
+    get_vertices_from_fem,
+)
 from .threejs_geom import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
 
@@ -31,7 +37,7 @@ class FemRenderer:
         self._displayed_pickable_objects = Group()
 
     def add_fem(self, fem):
-        vertices, faces, edges = get_fem_vertices(fem), get_fem_faces(fem), get_fem_edges(fem)
+        vertices, faces, edges = get_vertices_from_fem(fem), get_faces_from_fem(fem), get_edges_from_fem(fem)
         self._view_items.append(ViewItem(fem, vertices, edges, faces))
 
     def _view_to_mesh(

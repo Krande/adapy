@@ -4,7 +4,13 @@ import numpy as np
 from IPython.display import display
 from ipywidgets import Dropdown, HBox, VBox
 
-from .common import get_fem_edges, get_fem_faces, magnitude
+from .common import (
+    get_edges_and_faces_from_mesh,
+    get_edges_from_fem,
+    get_faces_from_fem,
+    get_vertices_from_fem,
+    magnitude,
+)
 from .renderer import MyRenderer
 from .threejs_geom import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
@@ -41,7 +47,7 @@ def viz_fem(fem, mesh, data_type):
     """
     u = np.asarray(mesh.point_data[data_type], dtype="float32")
     vertices = np.asarray(mesh.points, dtype="float32")
-    faces = np.asarray(get_fem_faces(fem), dtype="uint16").ravel()
+    faces = np.asarray(get_faces_from_fem(fem), dtype="uint16").ravel()
 
     res = [magnitude(u_) for u_ in u]
     max_r = max(res)
@@ -51,13 +57,14 @@ def viz_fem(fem, mesh, data_type):
 
 
 class Results:
-    def __init__(self, part, result_file, palette=None):
+    def __init__(self, result_file_path, part=None, palette=None):
         self.palette = [(0, 149 / 255, 239 / 255), (1, 0, 0)] if palette is None else palette
-        self._part = part
         self._analysis_type = None
         self._point_data = []
         self._cell_data = []
-        self._read_result_file(result_file)
+        self._results_file_path = result_file_path
+        self._read_result_file(result_file_path)
+        self._part = part
         self._renderer = None
         self._render_sets = None
 
@@ -86,12 +93,27 @@ class Results:
 
         return mesh
 
+    def _read_part(self, file_ref):
+        mesh = self._get_mesh(file_ref)
+        self._mesh = mesh
+        self._vertices = np.asarray(get_vertices_from_fem(self._part.fem), dtype="float32")
+        self._faces = np.asarray(get_faces_from_fem(self._part.fem), dtype="uint16").ravel()
+        self._edges = np.asarray(get_edges_from_fem(self._part.fem), dtype="uint16").ravel()
+
+        for n in mesh.point_data.keys():
+            self._point_data.append(n)
+
+        for n in mesh.cell_data.keys():
+            self._cell_data.append(n)
+
     def _read_result_file(self, file_ref):
         mesh = self._get_mesh(file_ref)
         self._mesh = mesh
         self._vertices = np.asarray(mesh.points, dtype="float32")
-        self._faces = np.asarray(get_fem_faces(self._part.fem), dtype="uint16").ravel()
-        self._edges = np.asarray(get_fem_edges(self._part.fem), dtype="uint16").ravel()
+
+        edges, faces = get_edges_and_faces_from_mesh(mesh)
+        self._edges = np.asarray(edges, dtype="uint16").ravel()
+        self._faces = np.asarray(faces, dtype="uint16").ravel()
 
         for n in mesh.point_data.keys():
             self._point_data.append(n)
@@ -177,3 +199,6 @@ class Results:
 
         renderer = self._renderer
         display(HBox([VBox([HBox(renderer._controls), renderer._renderer]), renderer.html]))
+
+    def __repr__(self):
+        return f"Results({self._analysis_type}, {self._results_file_path.name})"

@@ -109,11 +109,13 @@ class ElemShapes:
     :param el_type:
     """
 
+    # 2D elements
     tri = ["S3", "S3R", "R3D3"]
     quad = ["S4", "S4R", "R3D4"]
     quad8 = ["S8", "S8R"]
     quad6 = ["STRI65"]
     shell = tri + quad + quad8 + quad6
+    # 3D elements
     cube8 = ["C3D8", "C3D8R", "C3D8H"]
     cube20 = ["C3D20", "C3D20R", "C3D20RH"]
     cube27 = ["C3D27"]
@@ -123,6 +125,7 @@ class ElemShapes:
     prism6 = ["C3D6"]
     prism15 = ["C3D15"]
     volume = cube8 + cube20 + tetrahedron10 + tetrahedron + pyramid5 + prism15 + prism6
+    # 1D/0D elements
     bm2 = ["B31", "B32"]
     beam = bm2
     spring1n = ["SPRING1"]
@@ -185,11 +188,18 @@ class ElemShapes:
 
     @property
     def edges(self):
+        from ada import Node
+
         if self.edges_seq is None:
             raise ValueError(f'Element type "{self.type}" is missing element node descriptions')
         if self._edges is None:
-            self._edges = [self.nodes[e].p for ed_seq in self.edges_seq for e in ed_seq]
+            if type(self.nodes[0]) is Node:
+                self._edges = [self.nodes[e].p for ed_seq in self.edges_seq for e in ed_seq]
+            else:
+                self._edges = [self.nodes[e] for ed_seq in self.edges_seq for e in ed_seq]
+
             return self._edges
+
         else:
             return self._edges
 

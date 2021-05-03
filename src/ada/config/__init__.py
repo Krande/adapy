@@ -42,6 +42,9 @@ class Settings:
     ca_use_meshio_med_convert = False
     ca_experimental_id_numbering = False
 
+    # Fem Results
+    return_experimental_fem_res_after_execute = False
+
     # Execution Settings
     use_docker_execute = False
 

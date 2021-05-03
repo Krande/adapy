@@ -3,8 +3,7 @@ import unittest
 import meshio
 import numpy as np
 
-from ada.base.common import get_bounding_box, get_fem_vertices
-from ada.base.fem_renderer import FemRenderer
+from ada.base.common import get_bounding_box, get_vertices_from_fem
 from ada.base.render_fem import Results, render_mesh, viz_fem
 from ada.config import Settings
 from ada.param_models.fem_models import beam_ex1
@@ -38,14 +37,25 @@ vertexcolors = np.asarray(
 
 ca_name = "MyCantilever_code_aster"
 rmed = (Settings.scratch_dir / ca_name / ca_name).with_suffix(".rmed")
+a = beam_ex1()
+p = a.parts["MyPart"]
 
 
-def run_analysis():
-    a = beam_ex1()
-    p = a.parts["MyPart"]
-    if rmed.exists() is False:
-        a.to_fem(ca_name, "code_aster", overwrite=True, execute=True)
-    return p
+def run_analysis(force_rerun=False):
+    if rmed.exists() is False or force_rerun is True:
+        res = a.to_fem(ca_name, "code_aster", overwrite=True, execute=True)
+        print(res)
+
+
+class MeshTests(unittest.TestCase):
+    def test_base_example(self):
+        Settings.return_experimental_fem_res_after_execute = True
+        res = a.to_fem(ca_name, "code_aster", overwrite=False, execute=False)
+        print(res)
+
+    def test_results_example(self):
+        res = Results(rmed)
+        res._repr_html_()
 
 
 class MyTestCase(unittest.TestCase):
@@ -53,34 +63,17 @@ class MyTestCase(unittest.TestCase):
         render_mesh(vertices, faces, vertexcolors)
 
     def test_fem_cantilever(self):
-        a = beam_ex1()
-        p = a.parts["MyPart"]
-        ca_name = "MyCantilever_code_aster"
-        a.to_fem(ca_name, "code_aster", overwrite=True, execute=True)
-
-        rmed = (Settings.scratch_dir / ca_name / ca_name).with_suffix(".rmed")
         mesh = meshio.read(rmed, "med")
-
         viz_fem(p.fem, mesh, "DISP[10] - 1")
 
     def test_bounding_box(self):
-        p = run_analysis()
-        vertices = get_fem_vertices(p.fem)
+        vertices = get_vertices_from_fem(p.fem)
         res = get_bounding_box(vertices)
         print(res)
 
     def test_fem_cantilever_res_class(self):
-        p = run_analysis()
         res = Results(p, rmed, palette=[(1, 0, 0), (0, 149 / 255, 239 / 255)])
         res._repr_html_()
-
-
-class TestFemRenderer(unittest.TestCase):
-    def test_basic_mesh(self):
-        pass
-        # p = run_analysis()
-        fem_r = FemRenderer()
-        # fem_r.add_fem()
 
 
 if __name__ == "__main__":
