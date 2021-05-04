@@ -2784,6 +2784,31 @@ class Load(FemBase):
         return self._dof
 
     @property
+    def forces(self):
+        if self.type not in ("force",):
+            return None
+
+        return [x*self.magnitude for x in self.dof]
+
+    @property
+    def forces_global(self):
+        if self.type not in ("force",):
+            return None
+        if self.csys is None:
+            return [x * self.magnitude for x in self.dof]
+        else:
+            csys = self.csys
+            if csys.coords is None:
+                logging.error("Calculating global forces without COORDS is not yet supported")
+                return None
+
+            from ada.core.utils import rotation_matrix_csys_rotate
+            destination_csys = [(1, 0, 0), (0, 1, 0)]
+            rmat = rotation_matrix_csys_rotate(csys.coords, destination_csys)
+            res = np.concatenate([np.dot(rmat, np.array(self.dof[:3])), np.dot(rmat, np.array(self.dof[3:]))])
+            return [x * self.magnitude for x in res]
+
+    @property
     def amplitude(self):
         return self._amplitude
 
