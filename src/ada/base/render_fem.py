@@ -1,7 +1,7 @@
 import pathlib
 
 import numpy as np
-from IPython.display import display
+from IPython.display import display, clear_output
 from ipywidgets import Dropdown, HBox, VBox
 
 from .common import (
@@ -136,20 +136,28 @@ class Results:
         colors = np.asarray([curr_p(x) for x in res], dtype="float32")
         return colors
 
-    def _viz_geom(self, data_type, displ_data=False):
+    def _viz_geom(self, data_type, displ_data=False, renderer=None):
         """
 
         :param data_type:
         :param displ_data:
+        :type renderer: ada.base.renderer.MyRenderer
         :return:
         """
 
         data = np.asarray(self.mesh.point_data[data_type], dtype="float32")
-
-        renderer = MyRenderer()
+        if renderer is None:
+            renderer = MyRenderer()
+            self._renderer = renderer
+        else:
+            clear_output()
+            renderer = MyRenderer()
+            self._renderer = renderer
+            from pythreejs import Group
+            renderer._displayed_pickable_objects = Group()
 
         # deformations
-        if displ_data:
+        if displ_data is True:
             vertices = np.asarray([x + u[:3] for x, u in zip(self._vertices, data)], dtype="float32")
             white_color = np.asarray([(245 / 255, 245 / 255, 245 / 255) for x in self._vertices], dtype="float32")
             o_mesh = faces_to_mesh("undeformed", self._vertices, self._faces, white_color, opacity=0.5)
@@ -163,30 +171,37 @@ class Results:
         default_vertex_color = (8, 8, 8)
         points = vertices_to_mesh("deformed_vertices", vertices, default_vertex_color)
         lines = edges_to_mesh("deformed_lines", vertices, self._edges, default_vertex_color)
+
         renderer._displayed_pickable_objects.add(mesh)
         renderer._displayed_pickable_objects.add(points)
         renderer._displayed_pickable_objects.add(lines)
 
         renderer.build_display(camera_type="perspective")
-        self._renderer = renderer
 
     def on_changed_point_data_set(self, p):
-
         data = p["new"]
         if self._analysis_type == "code_aster":
             if "DISP" in data:
-                self._viz_geom(data, displ_data=True)
+                self._viz_geom(data, displ_data=True, renderer=self.renderer)
             else:
-                self._viz_geom(data)
-            print(f'Changing set to "{p}"')
+                self._viz_geom(data, renderer=self.renderer)
+            i = self._point_data.index(data)
+            self._render_sets = Dropdown(
+                options=self._point_data, value=self._point_data[i], tooltip="Select a set", disabled=False
+            )
+            self._render_sets.observe(self.on_changed_point_data_set, "value")
+            self.renderer._controls.pop()
+            self.renderer._controls.append(self._render_sets)
+            print(f'Changed field value to "{p["new"]}"')
+            display(HBox([VBox([HBox(self.renderer._controls), self.renderer._renderer]), self.renderer.html]))
 
-        self.renderer.build_display()
 
     def _repr_html_(self):
         if self._renderer is None:
+            self._renderer = MyRenderer()
             if self._analysis_type == "code_aster":
                 data = [x for x in self._point_data if "DISP" in x][-1]
-                self._viz_geom(data, displ_data=True)
+                self._viz_geom(data, displ_data=True, renderer=self.renderer)
                 i = self._point_data.index(data)
                 self._render_sets = Dropdown(
                     options=self._point_data, value=self._point_data[i], tooltip="Select a set", disabled=False
@@ -197,8 +212,7 @@ class Results:
             else:
                 raise NotImplementedError(f'Support for analysis_type "{self._analysis_type}"')
 
-        renderer = self._renderer
-        display(HBox([VBox([HBox(renderer._controls), renderer._renderer]), renderer.html]))
+        display(HBox([VBox([HBox(self.renderer._controls), self.renderer._renderer]), self.renderer.html]))
 
     def __repr__(self):
         return f"Results({self._analysis_type}, {self._results_file_path.name})"
