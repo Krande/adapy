@@ -1,7 +1,7 @@
 import pathlib
 
 import numpy as np
-from IPython.display import display, clear_output
+from IPython.display import clear_output, display
 from ipywidgets import Dropdown, HBox, VBox
 
 from .common import (
@@ -154,6 +154,7 @@ class Results:
             renderer = MyRenderer()
             self._renderer = renderer
             from pythreejs import Group
+
             renderer._displayed_pickable_objects = Group()
 
         # deformations
@@ -194,7 +195,6 @@ class Results:
             self.renderer._controls.append(self._render_sets)
             print(f'Changed field value to "{p["new"]}"')
             display(HBox([VBox([HBox(self.renderer._controls), self.renderer._renderer]), self.renderer.html]))
-
 
     def _repr_html_(self):
         if self._renderer is None:

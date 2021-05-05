@@ -1700,6 +1700,10 @@ class Csys(FemBase):
     def coords(self):
         return self._coords
 
+    def __repr__(self):
+        content_map = dict(COORDINATES=self.coords, NODES=self.nodes)
+        return f'Csys("{self.name}", "{self.definition}", {content_map[self.definition]})'
+
 
 class ConnectorSection(FemBase):
     """
@@ -2788,7 +2792,7 @@ class Load(FemBase):
         if self.type not in ("force",):
             return None
 
-        return [x*self.magnitude for x in self.dof]
+        return [x * self.magnitude for x in self.dof]
 
     @property
     def forces_global(self):
@@ -2803,6 +2807,7 @@ class Load(FemBase):
                 return None
 
             from ada.core.utils import rotation_matrix_csys_rotate
+
             destination_csys = [(1, 0, 0), (0, 1, 0)]
             rmat = rotation_matrix_csys_rotate(csys.coords, destination_csys)
             res = np.concatenate([np.dot(rmat, np.array(self.dof[:3])), np.dot(rmat, np.array(self.dof[3:]))])
@@ -2863,4 +2868,8 @@ class Load(FemBase):
 
     @property
     def csys(self):
+        """
+
+        :rtype: Csys
+        """
         return self._csys
