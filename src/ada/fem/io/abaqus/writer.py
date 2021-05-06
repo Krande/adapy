@@ -1668,16 +1668,17 @@ def hist_output_str(hist_output):
     :type hist_output: ada.fem.HistOutput
     :return:
     """
-    if hist_output.type == "connector":
-        set_type_str = "*Element Output, elset="
-    elif hist_output.type == "node":
-        set_type_str = "*Node Output, nset="
-    elif hist_output.type == "energy":
-        set_type_str = "*Energy Output"
-    elif hist_output.type == "contact":
-        set_type_str = "*Contact Output"
-    else:
+    hist_map = dict(
+        connector="*Element Output, elset=",
+        node="*Node Output, nset=",
+        energy="*Energy Output",
+        contact="*Contact Output"
+    )
+
+    if hist_output.type not in hist_map.keys():
         raise Exception('Unknown output type "{}"'.format(hist_output.type))
+
+    set_type_str = hist_map[hist_output.type]
     newline = NewLine(10)
     var_str = "".join([" {},".format(val) + next(newline) for val in hist_output.variables])[:-1]
 
