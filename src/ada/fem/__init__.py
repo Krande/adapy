@@ -180,9 +180,14 @@ class ElemShapes:
             raise ValueError(f'element type "{el_name}" is not yet supported')
 
     def __init__(self, el_type, nodes):
+        self.type = el_type.upper()
         if ElemShapes.is_valid_elem(el_type) is False:
             raise ValueError(f'Currently unsupported element type "{el_type}".')
-        self.type = el_type.upper()
+
+        num_nodes = ElemShapes.num_nodes(self.type)
+        if len(nodes) != num_nodes:
+            raise ValueError(f'Number of passed nodes "{len(nodes)}" does not match expected "{num_nodes}" ')
+
         self.nodes = nodes
         self._edges = None
 
@@ -1423,14 +1428,10 @@ class Elem(FemBase):
         from ada import Node
 
         super().__init__(el_id, metadata, parent)
-        self.type = el_type
+        self.type = el_type.upper()
         self._el_id = el_id
 
-        num_nodes = ElemShapes.num_nodes(el_type)
-        if len(nodes) != num_nodes:
-            raise ValueError(f'Number of passed nodes "{len(nodes)}" does not match expected "{num_nodes}" ')
-
-        self._shape = ElemShapes(el_type, nodes)
+        self._shape = ElemShapes(self.type, nodes)
 
         if type(nodes[0]) is Node:
             for node in nodes:
@@ -1454,7 +1455,7 @@ class Elem(FemBase):
     def type(self, value):
         if ElemShapes.is_valid_elem(value) is False:
             raise ValueError(f'Currently unsupported element type "{value}".')
-        self._el_type = value
+        self._el_type = value.upper()
 
     @property
     def name(self):
@@ -1564,7 +1565,7 @@ class Connector(Elem):
 
         if type(n1) is not Node or type(n2) is not Node:
             raise ValueError("Connector Start\\end must be nodes")
-        super(Connector, self).__init__(el_id, [n1, n2], "Connector")
+        super(Connector, self).__init__(el_id, [n1, n2], "CONNECTOR")
         super(Elem, self).__init__(name, metadata, parent)
         self._n1 = n1
         self._n2 = n2
@@ -2214,6 +2215,8 @@ class Mass(FemBase):
                 if type(self._mass) in (list, tuple):
                     raise ValueError("Mass can only be a scalar number for Isotropic mass")
                 return float(self._mass[0])
+            elif self.type == "NONSTRUCTURAL MASS":
+                return self._mass
             else:
                 return float(self._mass)
         elif self.point_mass_type == "ISOTROPIC":
