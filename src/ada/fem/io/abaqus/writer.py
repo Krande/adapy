@@ -211,7 +211,7 @@ class AbaqusWriter:
                     "*Node\n"
                     + "".join(
                         [
-                            f"{no.id:>7}, {no.x:>13}, {no.y:>13}, {no.z:>13}\n"
+                            f"{no.id:>7}, {no.x:>13.6f}, {no.y:>13.6f}, {no.z:>13.6f}\n"
                             for no in sorted(self.assembly.fem.nodes, key=attrgetter("id"))
                         ]
                     ).rstrip()
@@ -562,7 +562,7 @@ class AbaqusPartWriter:
 
     @property
     def nodes_str(self):
-        f = "{nid:>7}, {x:>13}, {y:>13}, {z:>13}"
+        f = "{nid:>7}, {x:>13.6f}, {y:>13.6f}, {z:>13.6f}"
         return (
             "\n".join(
                 [
