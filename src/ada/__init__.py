@@ -572,15 +572,22 @@ class Part(BackendGeom):
         for p in self.get_all_subparts() + [self]:
             if p.name == name:
                 return p
+
             for bm in p.beams:
                 if bm.name == name:
                     return bm
+
             for pl in p.plates:
                 if pl.name == name:
                     return pl
+
             for shp in p.shapes:
                 if shp.name == name:
                     return shp
+
+            for mat in p.materials:
+                if mat.name == name:
+                    return mat
 
     def get_all_parts_in_assembly(self, include_self=False):
         parent = self.get_assembly()
@@ -4769,6 +4776,10 @@ class Material(Backend):
     @property
     def model(self):
         return self._mat_model
+
+    @model.setter
+    def model(self, value):
+        self._mat_model = value
 
     @property
     def units(self):

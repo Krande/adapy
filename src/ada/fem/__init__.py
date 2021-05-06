@@ -2275,6 +2275,7 @@ class HistOutput(FemBase):
         "ALLWK",
         "ETOTAL",
     ]
+    _valid_types = ["node", "energy", "contact", "connector"]
 
     def __init__(
         self,
@@ -2288,6 +2289,12 @@ class HistOutput(FemBase):
         parent=None,
     ):
         super().__init__(name, metadata, parent)
+
+        if set_type not in self._valid_types:
+            raise ValueError(
+                f'set_type "{set_type}" is not yet supported. Currently supported types are "{self._valid_types}"'
+            )
+
         self._fem_set = fem_set
         self._set_type = set_type
         self._variables = variables
