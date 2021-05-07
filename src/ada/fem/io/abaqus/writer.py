@@ -1672,7 +1672,7 @@ def hist_output_str(hist_output):
         connector="*Element Output, elset=",
         node="*Node Output, nset=",
         energy="*Energy Output",
-        contact="*Contact Output"
+        contact="*Contact Output",
     )
 
     if hist_output.type not in hist_map.keys():
