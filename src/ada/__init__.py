@@ -2595,7 +2595,10 @@ class Pipe(BackendGeom):
         self._build_pipe()
 
     def _build_pipe(self):
+        """
 
+        :return:
+        """
         from OCC.Core.BRep import BRep_Tool_Pnt
         from OCC.Extend.TopologyUtils import TopologyExplorer
 
@@ -2617,19 +2620,29 @@ class Pipe(BackendGeom):
             xvec1 = p12.p - p11.p
             xvec2 = p22.p - p21.p
             normal = unit_vector(np.cross(xvec1, xvec2))
-            if i == 0:
-                edge1 = Pipe.make_edge(seg1)
-            else:
-                edge1 = edges[-1]
+            edge1 = Pipe.make_edge(seg1) if i == 0 else edges[-1]
             edge2 = Pipe.make_edge(seg2)
             ed1, ed2, fillet = self.make_fillet(edge1, edge2, normal, pipe_bend_radius)
-            fillets.append((xvec1, fillet))
-            edges.append(ed1)
-            edges.append(ed2)
+
+            if ed1.IsNull() is False:
+                edges.append(ed1)
+
+            if ed2.IsNull() is False:
+                edges.append(ed2)
+            else:
+                edges.append(edge2)
+
+            if fillet.IsNull() is False:
+                fillets.append((xvec1, fillet))
+            else:
+                continue
             t = TopologyExplorer(fillet)
             ps = [BRep_Tool_Pnt(v) for v in t.vertices()]
-            ns = Node([ps[0].X(), ps[0].Y(), ps[0].Z()])
-            ne = Node([ps[-1].X(), ps[-1].Y(), ps[-1].Z()])
+            if len(ps) == 0:
+                logging.debug('No Edges created')
+                continue
+            ns = Node([ps[0].X(), ps[0].Y(), ps[0].Z()], units=self.units)
+            ne = Node([ps[-1].X(), ps[-1].Y(), ps[-1].Z()], units=self.units)
             if i == 0:
                 s1n = [seg1[0], ns]
                 s2n = [ne, seg2[1]]
@@ -2664,6 +2677,7 @@ class Pipe(BackendGeom):
         from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe
         from OCC.Core.gp import gp_Dir
         from OCC.Extend.TopologyUtils import TopologyExplorer
+        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
 
         t = TopologyExplorer(edge)
         points = [v for v in t.vertices()]
@@ -2680,9 +2694,10 @@ class Pipe(BackendGeom):
         wire = makeWire.Wire()
         elbow_o = BRepOffsetAPI_MakePipe(wire, o).Shape()
         elbow_i = BRepOffsetAPI_MakePipe(wire, i).Shape()
-        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
 
         boolean_result = BRepAlgoAPI_Cut(elbow_o, elbow_i).Shape()
+        if boolean_result.IsNull():
+            logging.debug('Boolean returns None')
         return boolean_result
 
     def _generate_ifc_pipe_segments(self):
@@ -2882,7 +2897,11 @@ class Pipe(BackendGeom):
         from OCC.Core.gp import gp_Pnt
 
         p1, p2 = segment
-        return BRepBuilderAPI_MakeEdge(gp_Pnt(*p1.p.tolist()), gp_Pnt(*p2.p.tolist())).Edge()
+        res = BRepBuilderAPI_MakeEdge(gp_Pnt(*p1.p.tolist()), gp_Pnt(*p2.p.tolist())).Edge()
+
+        if res.IsNull():
+            logging.debug("Edge creation returned None")
+        return res
 
     @staticmethod
     def make_fillet(edge1, edge2, normal, bend_radius):
@@ -2890,8 +2909,8 @@ class Pipe(BackendGeom):
         from OCC.Core.ChFi2d import ChFi2d_AnaFilletAlgo
         from OCC.Core.gp import gp_Dir, gp_Pln, gp_Vec
         from OCC.Extend.TopologyUtils import TopologyExplorer
-
         from ada.core.utils import is_edges_ok
+        import copy
 
         f = ChFi2d_AnaFilletAlgo()
         plane_normal = gp_Dir(gp_Vec(*normal[:3]))
@@ -2899,13 +2918,18 @@ class Pipe(BackendGeom):
         apt = None
         for v in t.vertices():
             apt = BRep_Tool_Pnt(v)
-        f.Init(edge1, edge2, gp_Pln(apt, plane_normal))
+        ed1 = copy.copy(edge1)
+        ed2 = copy.copy(edge2)
+        f.Init(ed1, ed2, gp_Pln(apt, plane_normal))
         f.Perform(bend_radius * 0.999)
-        fillet2d = f.Result(edge1, edge2)
-        if is_edges_ok(edge1, fillet2d, edge2) is False:
+        fillet2d = f.Result(ed1, ed2)
+        if is_edges_ok(ed1, fillet2d, ed2) is False:
             logging.debug("Is Edges algorithm fails on edges")
 
-        return edge1, edge2, fillet2d
+        if fillet2d.IsNull() is True:
+            logging.debug("Fillet is null")
+
+        return ed1, ed2, fillet2d
 
     @staticmethod
     def make_sec_face(point, direction, radius):

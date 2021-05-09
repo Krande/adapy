@@ -52,3 +52,4 @@ class TestAdvanced(unittest.TestCase):
         # my_renderer.DisplayShape(shape.sweep_curve.wire)
         # my_renderer.DisplayShape(shape.geom)
         # my_renderer.render()
+
