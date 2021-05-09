@@ -1594,12 +1594,10 @@ class Beam(BackendGeom):
         from ada.core.constants import Y, Z
 
         zvec = np.array(Z)
-        dvec = xvec - zvec
-        vlen = vector_length(dvec)
-        if vlen < tol:
-            gup = np.array(Y)
-        else:
-            gup = np.array(Z)
+        a = angle_between(xvec, zvec)
+        if a == np.pi or a == 0:
+            zvec = np.array(Y)
+        gup = np.array(zvec)
 
         if up is None:
             if angle != 0.0 and angle is not None:
@@ -2584,9 +2582,9 @@ class Pipe(BackendGeom):
         self._material = mat if isinstance(mat, Material) else Material(name=name + "_mat", mat_model=CarbonSteel(mat))
         self._content = content
         self.colour = colour
-        self._n1 = points[0] if type(points[0]) is Node else Node(points[0])
-        self._n2 = points[-1] if type(points[-1]) is Node else Node(points[-1])
-        self._points = [Node(n) if type(n) is not Node else n for n in points]
+        self._n1 = points[0] if type(points[0]) is Node else Node(points[0], units=units)
+        self._n2 = points[-1] if type(points[-1]) is Node else Node(points[-1], units=units)
+        self._points = [Node(n, units=units) if type(n) is not Node else n for n in points]
         self._segments = None
         self._elbows = None
         self._swept_solids = None
@@ -2635,11 +2633,12 @@ class Pipe(BackendGeom):
             if fillet.IsNull() is False:
                 fillets.append((xvec1, fillet))
             else:
+                logging.error("Fillet is null. Skipping")
                 continue
             t = TopologyExplorer(fillet)
             ps = [BRep_Tool_Pnt(v) for v in t.vertices()]
             if len(ps) == 0:
-                logging.debug('No Edges created')
+                logging.debug("No Edges created")
                 continue
             ns = Node([ps[0].X(), ps[0].Y(), ps[0].Z()], units=self.units)
             ne = Node([ps[-1].X(), ps[-1].Y(), ps[-1].Z()], units=self.units)
@@ -2673,11 +2672,11 @@ class Pipe(BackendGeom):
 
     def sweep_pipe(self, edge, xvec):
         from OCC.Core.BRep import BRep_Tool_Pnt
+        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
         from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeWire
         from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe
         from OCC.Core.gp import gp_Dir
         from OCC.Extend.TopologyUtils import TopologyExplorer
-        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
 
         t = TopologyExplorer(edge)
         points = [v for v in t.vertices()]
@@ -2692,12 +2691,16 @@ class Pipe(BackendGeom):
         makeWire.Add(edge)
         makeWire.Build()
         wire = makeWire.Wire()
-        elbow_o = BRepOffsetAPI_MakePipe(wire, o).Shape()
-        elbow_i = BRepOffsetAPI_MakePipe(wire, i).Shape()
+        try:
+            elbow_o = BRepOffsetAPI_MakePipe(wire, o).Shape()
+            elbow_i = BRepOffsetAPI_MakePipe(wire, i).Shape()
+        except RuntimeError as e:
+            logging.error(e)
+            return wire
 
         boolean_result = BRepAlgoAPI_Cut(elbow_o, elbow_i).Shape()
         if boolean_result.IsNull():
-            logging.debug('Boolean returns None')
+            logging.debug("Boolean returns None")
         return boolean_result
 
     def _generate_ifc_pipe_segments(self):
@@ -2905,12 +2908,14 @@ class Pipe(BackendGeom):
 
     @staticmethod
     def make_fillet(edge1, edge2, normal, bend_radius):
+        import copy
+
         from OCC.Core.BRep import BRep_Tool_Pnt
         from OCC.Core.ChFi2d import ChFi2d_AnaFilletAlgo
         from OCC.Core.gp import gp_Dir, gp_Pln, gp_Vec
         from OCC.Extend.TopologyUtils import TopologyExplorer
+
         from ada.core.utils import is_edges_ok
-        import copy
 
         f = ChFi2d_AnaFilletAlgo()
         plane_normal = gp_Dir(gp_Vec(*normal[:3]))
