@@ -572,15 +572,22 @@ class Part(BackendGeom):
         for p in self.get_all_subparts() + [self]:
             if p.name == name:
                 return p
+
             for bm in p.beams:
                 if bm.name == name:
                     return bm
+
             for pl in p.plates:
                 if pl.name == name:
                     return pl
+
             for shp in p.shapes:
                 if shp.name == name:
                     return shp
+
+            for mat in p.materials:
+                if mat.name == name:
+                    return mat
 
     def get_all_parts_in_assembly(self, include_self=False):
         parent = self.get_assembly()
@@ -1236,19 +1243,37 @@ class Assembly(Part):
         # Update all global materials and sections before writing input file
         # self.materials
         # self.sections
+        try:
+            convert_func(
+                self,
+                name,
+                scratch_dir,
+                metadata,
+                execute,
+                run_ext,
+                cpus,
+                gpus,
+                overwrite,
+                exit_on_complete,
+            )
+        except IOError as e:
+            if _Settings.return_experimental_fem_res_after_execute is False:
+                raise e
 
-        convert_func(
-            self,
-            name,
-            scratch_dir,
-            metadata,
-            execute,
-            run_ext,
-            cpus,
-            gpus,
-            overwrite,
-            exit_on_complete,
-        )
+        if _Settings.return_experimental_fem_res_after_execute is True:
+            base_path = _Settings.scratch_dir / name / name
+            fem_res_paths = dict(code_aster=base_path.with_suffix(".rmed"))
+            if fem_format not in fem_res_paths.keys():
+                logging.error(f'FEM format "{fem_format}" is not yet supported for results processing')
+                return None
+
+            res_path = fem_res_paths[fem_format]
+            if res_path.exists():
+                from ada.base.render_fem import Results
+
+                return Results(res_path)
+            else:
+                logging.error(f'Result file "{res_path}" was not found')
 
     def to_ifc(self, destination_file):
         """
@@ -1569,12 +1594,10 @@ class Beam(BackendGeom):
         from ada.core.constants import Y, Z
 
         zvec = np.array(Z)
-        dvec = xvec - zvec
-        vlen = vector_length(dvec)
-        if vlen < tol:
-            gup = np.array(Y)
-        else:
-            gup = np.array(Z)
+        a = angle_between(xvec, zvec)
+        if a == np.pi or a == 0:
+            zvec = np.array(Y)
+        gup = np.array(zvec)
 
         if up is None:
             if angle != 0.0 and angle is not None:
@@ -2559,9 +2582,9 @@ class Pipe(BackendGeom):
         self._material = mat if isinstance(mat, Material) else Material(name=name + "_mat", mat_model=CarbonSteel(mat))
         self._content = content
         self.colour = colour
-        self._n1 = points[0] if type(points[0]) is Node else Node(points[0])
-        self._n2 = points[-1] if type(points[-1]) is Node else Node(points[-1])
-        self._points = [Node(n) if type(n) is not Node else n for n in points]
+        self._n1 = points[0] if type(points[0]) is Node else Node(points[0], units=units)
+        self._n2 = points[-1] if type(points[-1]) is Node else Node(points[-1], units=units)
+        self._points = [Node(n, units=units) if type(n) is not Node else n for n in points]
         self._segments = None
         self._elbows = None
         self._swept_solids = None
@@ -2570,7 +2593,10 @@ class Pipe(BackendGeom):
         self._build_pipe()
 
     def _build_pipe(self):
+        """
 
+        :return:
+        """
         from OCC.Core.BRep import BRep_Tool_Pnt
         from OCC.Extend.TopologyUtils import TopologyExplorer
 
@@ -2592,19 +2618,30 @@ class Pipe(BackendGeom):
             xvec1 = p12.p - p11.p
             xvec2 = p22.p - p21.p
             normal = unit_vector(np.cross(xvec1, xvec2))
-            if i == 0:
-                edge1 = Pipe.make_edge(seg1)
-            else:
-                edge1 = edges[-1]
+            edge1 = Pipe.make_edge(seg1) if i == 0 else edges[-1]
             edge2 = Pipe.make_edge(seg2)
             ed1, ed2, fillet = self.make_fillet(edge1, edge2, normal, pipe_bend_radius)
-            fillets.append((xvec1, fillet))
-            edges.append(ed1)
-            edges.append(ed2)
+
+            if ed1.IsNull() is False:
+                edges.append(ed1)
+
+            if ed2.IsNull() is False:
+                edges.append(ed2)
+            else:
+                edges.append(edge2)
+
+            if fillet.IsNull() is False:
+                fillets.append((xvec1, fillet))
+            else:
+                logging.error("Fillet is null. Skipping")
+                continue
             t = TopologyExplorer(fillet)
             ps = [BRep_Tool_Pnt(v) for v in t.vertices()]
-            ns = Node([ps[0].X(), ps[0].Y(), ps[0].Z()])
-            ne = Node([ps[-1].X(), ps[-1].Y(), ps[-1].Z()])
+            if len(ps) == 0:
+                logging.debug("No Edges created")
+                continue
+            ns = Node([ps[0].X(), ps[0].Y(), ps[0].Z()], units=self.units)
+            ne = Node([ps[-1].X(), ps[-1].Y(), ps[-1].Z()], units=self.units)
             if i == 0:
                 s1n = [seg1[0], ns]
                 s2n = [ne, seg2[1]]
@@ -2635,6 +2672,7 @@ class Pipe(BackendGeom):
 
     def sweep_pipe(self, edge, xvec):
         from OCC.Core.BRep import BRep_Tool_Pnt
+        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
         from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeWire
         from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe
         from OCC.Core.gp import gp_Dir
@@ -2653,11 +2691,16 @@ class Pipe(BackendGeom):
         makeWire.Add(edge)
         makeWire.Build()
         wire = makeWire.Wire()
-        elbow_o = BRepOffsetAPI_MakePipe(wire, o).Shape()
-        elbow_i = BRepOffsetAPI_MakePipe(wire, i).Shape()
-        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+        try:
+            elbow_o = BRepOffsetAPI_MakePipe(wire, o).Shape()
+            elbow_i = BRepOffsetAPI_MakePipe(wire, i).Shape()
+        except RuntimeError as e:
+            logging.error(e)
+            return wire
 
         boolean_result = BRepAlgoAPI_Cut(elbow_o, elbow_i).Shape()
+        if boolean_result.IsNull():
+            logging.debug("Boolean returns None")
         return boolean_result
 
     def _generate_ifc_pipe_segments(self):
@@ -2857,10 +2900,16 @@ class Pipe(BackendGeom):
         from OCC.Core.gp import gp_Pnt
 
         p1, p2 = segment
-        return BRepBuilderAPI_MakeEdge(gp_Pnt(*p1.p.tolist()), gp_Pnt(*p2.p.tolist())).Edge()
+        res = BRepBuilderAPI_MakeEdge(gp_Pnt(*p1.p.tolist()), gp_Pnt(*p2.p.tolist())).Edge()
+
+        if res.IsNull():
+            logging.debug("Edge creation returned None")
+        return res
 
     @staticmethod
     def make_fillet(edge1, edge2, normal, bend_radius):
+        import copy
+
         from OCC.Core.BRep import BRep_Tool_Pnt
         from OCC.Core.ChFi2d import ChFi2d_AnaFilletAlgo
         from OCC.Core.gp import gp_Dir, gp_Pln, gp_Vec
@@ -2874,13 +2923,18 @@ class Pipe(BackendGeom):
         apt = None
         for v in t.vertices():
             apt = BRep_Tool_Pnt(v)
-        f.Init(edge1, edge2, gp_Pln(apt, plane_normal))
+        ed1 = copy.copy(edge1)
+        ed2 = copy.copy(edge2)
+        f.Init(ed1, ed2, gp_Pln(apt, plane_normal))
         f.Perform(bend_radius * 0.999)
-        fillet2d = f.Result(edge1, edge2)
-        if is_edges_ok(edge1, fillet2d, edge2) is False:
+        fillet2d = f.Result(ed1, ed2)
+        if is_edges_ok(ed1, fillet2d, ed2) is False:
             logging.debug("Is Edges algorithm fails on edges")
 
-        return edge1, edge2, fillet2d
+        if fillet2d.IsNull() is True:
+            logging.debug("Fillet is null")
+
+        return ed1, ed2, fillet2d
 
     @staticmethod
     def make_sec_face(point, direction, radius):
@@ -4751,6 +4805,10 @@ class Material(Backend):
     @property
     def model(self):
         return self._mat_model
+
+    @model.setter
+    def model(self, value):
+        self._mat_model = value
 
     @property
     def units(self):

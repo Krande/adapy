@@ -107,6 +107,8 @@ def to_fem(
     :param exit_on_complete:
 
     """
+    from .execute import run_abaqus
+
     if metadata is None:
         metadata = dict()
 
@@ -121,20 +123,17 @@ def to_fem(
     print(f'Created an Abaqus input deck at "{a.analysis_path}"')
     # Create run batch files and if execute=True run the analysis
     inp_path = (a.analysis_path / name).with_suffix(".inp")
-    if execute:
-        from .execute import run_abaqus
 
-        run_abaqus(
-            inp_path,
-            cpus=cpus,
-            gpus=gpus,
-            run_ext=run_ext,
-            manifest=metadata,
-            subr_path=a._subr_path,
-            execute=execute,
-            exit_on_complete=exit_on_complete,
-        )
-
+    run_abaqus(
+        inp_path,
+        cpus=cpus,
+        gpus=gpus,
+        run_ext=run_ext,
+        manifest=metadata,
+        subr_path=a._subr_path,
+        execute=execute,
+        exit_on_complete=exit_on_complete,
+    )
     return a.analysis_path
 
 
@@ -212,7 +211,7 @@ class AbaqusWriter:
                     "*Node\n"
                     + "".join(
                         [
-                            f"{no.id:>7}, {no.x:>13}, {no.y:>13}, {no.z:>13}\n"
+                            f"{no.id:>7}, {no.x:>13.6f}, {no.y:>13.6f}, {no.z:>13.6f}\n"
                             for no in sorted(self.assembly.fem.nodes, key=attrgetter("id"))
                         ]
                     ).rstrip()
@@ -563,7 +562,7 @@ class AbaqusPartWriter:
 
     @property
     def nodes_str(self):
-        f = "{nid:>7}, {x:>13}, {y:>13}, {z:>13}"
+        f = "{nid:>7}, {x:>13.6f}, {y:>13.6f}, {z:>13.6f}"
         return (
             "\n".join(
                 [
@@ -1520,9 +1519,9 @@ def load_str(load):
             )
         if mom != 0:
             lstr += "** Name: {}   Type: Moment\n*Cload{}\n{}".format(load.name + "_M", follower_str, bc_text_m)
-        return lstr
+        return lstr.strip()
     else:
-        raise Exception("Unknown load type", load.type)
+        raise ValueError("Unsupported load type", load.type)
 
 
 def get_instance_name(obj, fem_writer):
@@ -1669,16 +1668,17 @@ def hist_output_str(hist_output):
     :type hist_output: ada.fem.HistOutput
     :return:
     """
-    if hist_output.type == "connector":
-        set_type_str = "*Element Output, elset="
-    elif hist_output.type == "node":
-        set_type_str = "*Node Output, nset="
-    elif hist_output.type == "energy":
-        set_type_str = "*Energy Output"
-    elif hist_output.type == "contact":
-        set_type_str = "*Contact Output"
-    else:
+    hist_map = dict(
+        connector="*Element Output, elset=",
+        node="*Node Output, nset=",
+        energy="*Energy Output",
+        contact="*Contact Output",
+    )
+
+    if hist_output.type not in hist_map.keys():
         raise Exception('Unknown output type "{}"'.format(hist_output.type))
+
+    set_type_str = hist_map[hist_output.type]
     newline = NewLine(10)
     var_str = "".join([" {},".format(val) + next(newline) for val in hist_output.variables])[:-1]
 

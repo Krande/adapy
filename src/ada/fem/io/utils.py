@@ -251,8 +251,8 @@ def run_windows(exe, run_command, stop_command=None, exit_on_complete=True):
 for %%* in (.) do set CurrDirName=%%~nx*
 title %CurrDirName%
 cd /d {exe.analysis_dir}
-echo ON
-    {run_command}"""
+echo ON\ncall {run_command}"""
+
     if exit_on_complete is False:
         bat_start_str += "\npause"
 
@@ -260,6 +260,7 @@ echo ON
     stop_bat = "stop.bat"
 
     os.makedirs(exe.execute_dir, exist_ok=True)
+
     with open(exe.execute_dir / start_bat, "w") as d:
         d.write(bat_start_str + "\nEXIT")
 

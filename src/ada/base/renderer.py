@@ -528,11 +528,12 @@ class MyRenderer(JupyterRenderer):
 
         return shape_mesh
 
-    def build_display(self, position=None, rotation=None):
+    def build_display(self, position=None, rotation=None, camera_type="orthographic"):
         """
 
         :param position: Camera Position
         :param rotation: Camera Rotation
+        :param camera_type: Camera Type "orthographic" or "perspective"
         """
         import itertools
         import math
@@ -553,7 +554,6 @@ class MyRenderer(JupyterRenderer):
         if self._shapes:
             self._bb = BoundingBox([self._shapes.values()])
         else:  # if nothing registered yet, create a fake bb
-
             self._bb = BoundingBox([[BRepPrimAPI_MakeSphere(5.0).Shape()]])
         bb_max = self._bb.max
         orbit_radius = 1.5 * self._bb._max_dist_from_center()
@@ -565,7 +565,7 @@ class MyRenderer(JupyterRenderer):
 
         self._camera = CombinedCamera(position=camera_position, width=self._size[0], height=self._size[1])
         self._camera.up = (0.0, 0.0, 1.0)
-        self._camera.mode = "orthographic"
+        self._camera.mode = camera_type
         self._camera_target = camera_target
         self._camera.position = camera_position
 

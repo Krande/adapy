@@ -30,7 +30,7 @@ class Settings:
     use_oriented_bbox = True  # This is only relevant if OCC bounding box is True
 
     # IFC export settings
-    include_ecc = False
+    include_ecc = True
 
     # FEM analysis settings
     if os.getenv("ADA_execute_dir", None) is not None:
@@ -41,6 +41,9 @@ class Settings:
     # Code Aster conversion specific settings
     ca_use_meshio_med_convert = False
     ca_experimental_id_numbering = False
+
+    # Fem Results
+    return_experimental_fem_res_after_execute = False
 
     # Execution Settings
     use_docker_execute = False

@@ -63,6 +63,6 @@ def femio(f):
         else:
             raise ValueError(f'Unrecognized fem_converter "{fem_converter}". Only "meshio" and "default" are supported')
 
-        f(*args, **kwargs)
+        return f(*args, **kwargs)
 
     return convert_fem_wrapper

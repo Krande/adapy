@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import pathlib
 import shutil
@@ -39,7 +40,11 @@ def run_abaqus(
     """
     from ..utils import get_exe_path
 
-    aba_dir = get_exe_path("abaqus")
+    try:
+        aba_dir = get_exe_path("abaqus")
+    except FileNotFoundError as e:
+        logging.error(e)
+        return
 
     inp_path = pathlib.Path(inp_path)
 

@@ -8,12 +8,12 @@ RUN mkdir ${TMPDIR}
 
 WORKDIR ${TMPDIR}
 
-COPY src src
 COPY setup.cfg .
 COPY pyproject.toml .
 COPY MANIFEST.in .
 COPY LICENSE .
 COPY README.md .
+COPY src src
 
 RUN pip install . --no-cache-dir
 

@@ -816,11 +816,10 @@ class Nodes:
             p2 = np.array(rotate[1])
             deg = rotate[2]
             my_quaternion = Quaternion(axis=p2 - p1, degrees=deg)
-            R = my_quaternion.rotation_matrix
-            vectors = np.array([n.p for n in self._nodes])
-            res = np.matmul(vectors, np.transpose(R))
-            [map_rotations(n, p) for n, p in zip(self._nodes, res)]
-            # list(map(rotating, self._nodes))
+            rot_mat = my_quaternion.rotation_matrix
+            vectors = np.array([n.p - p1 for n in self._nodes])
+            res = np.matmul(vectors, np.transpose(rot_mat))
+            [map_rotations(n, p + p1) for n, p in zip(self._nodes, res)]
 
         if move is not None:
             move = np.array(move)

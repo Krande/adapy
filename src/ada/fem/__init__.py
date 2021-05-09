@@ -109,11 +109,13 @@ class ElemShapes:
     :param el_type:
     """
 
+    # 2D elements
     tri = ["S3", "S3R", "R3D3"]
     quad = ["S4", "S4R", "R3D4"]
     quad8 = ["S8", "S8R"]
     quad6 = ["STRI65"]
     shell = tri + quad + quad8 + quad6
+    # 3D elements
     cube8 = ["C3D8", "C3D8R", "C3D8H"]
     cube20 = ["C3D20", "C3D20R", "C3D20RH"]
     cube27 = ["C3D27"]
@@ -123,6 +125,7 @@ class ElemShapes:
     prism6 = ["C3D6"]
     prism15 = ["C3D15"]
     volume = cube8 + cube20 + tetrahedron10 + tetrahedron + pyramid5 + prism15 + prism6
+    # 1D/0D elements
     bm2 = ["B31", "B32"]
     beam = bm2
     spring1n = ["SPRING1"]
@@ -177,19 +180,31 @@ class ElemShapes:
             raise ValueError(f'element type "{el_name}" is not yet supported')
 
     def __init__(self, el_type, nodes):
+        self.type = el_type.upper()
         if ElemShapes.is_valid_elem(el_type) is False:
             raise ValueError(f'Currently unsupported element type "{el_type}".')
-        self.type = el_type.upper()
+
+        num_nodes = ElemShapes.num_nodes(self.type)
+        if len(nodes) != num_nodes:
+            raise ValueError(f'Number of passed nodes "{len(nodes)}" does not match expected "{num_nodes}" ')
+
         self.nodes = nodes
         self._edges = None
 
     @property
     def edges(self):
+        from ada import Node
+
         if self.edges_seq is None:
             raise ValueError(f'Element type "{self.type}" is missing element node descriptions')
         if self._edges is None:
-            self._edges = [self.nodes[e].p for ed_seq in self.edges_seq for e in ed_seq]
+            if type(self.nodes[0]) is Node:
+                self._edges = [self.nodes[e].p for ed_seq in self.edges_seq for e in ed_seq]
+            else:
+                self._edges = [self.nodes[e] for ed_seq in self.edges_seq for e in ed_seq]
+
             return self._edges
+
         else:
             return self._edges
 
@@ -1413,14 +1428,10 @@ class Elem(FemBase):
         from ada import Node
 
         super().__init__(el_id, metadata, parent)
-        self.type = el_type
+        self.type = el_type.upper()
         self._el_id = el_id
 
-        num_nodes = ElemShapes.num_nodes(el_type)
-        if len(nodes) != num_nodes:
-            raise ValueError(f'Number of passed nodes "{len(nodes)}" does not match expected "{num_nodes}" ')
-
-        self._shape = ElemShapes(el_type, nodes)
+        self._shape = ElemShapes(self.type, nodes)
 
         if type(nodes[0]) is Node:
             for node in nodes:
@@ -1444,7 +1455,7 @@ class Elem(FemBase):
     def type(self, value):
         if ElemShapes.is_valid_elem(value) is False:
             raise ValueError(f'Currently unsupported element type "{value}".')
-        self._el_type = value
+        self._el_type = value.upper()
 
     @property
     def name(self):
@@ -1554,7 +1565,7 @@ class Connector(Elem):
 
         if type(n1) is not Node or type(n2) is not Node:
             raise ValueError("Connector Start\\end must be nodes")
-        super(Connector, self).__init__(el_id, [n1, n2], "Connector")
+        super(Connector, self).__init__(el_id, [n1, n2], "CONNECTOR")
         super(Elem, self).__init__(name, metadata, parent)
         self._n1 = n1
         self._n2 = n2
@@ -1689,6 +1700,10 @@ class Csys(FemBase):
     @property
     def coords(self):
         return self._coords
+
+    def __repr__(self):
+        content_map = dict(COORDINATES=self.coords, NODES=self.nodes)
+        return f'Csys("{self.name}", "{self.definition}", {content_map[self.definition]})'
 
 
 class ConnectorSection(FemBase):
@@ -2200,6 +2215,8 @@ class Mass(FemBase):
                 if type(self._mass) in (list, tuple):
                     raise ValueError("Mass can only be a scalar number for Isotropic mass")
                 return float(self._mass[0])
+            elif self.type == "NONSTRUCTURAL MASS":
+                return self._mass
             else:
                 return float(self._mass)
         elif self.point_mass_type == "ISOTROPIC":
@@ -2261,6 +2278,7 @@ class HistOutput(FemBase):
         "ALLWK",
         "ETOTAL",
     ]
+    _valid_types = ["node", "energy", "contact", "connector"]
 
     def __init__(
         self,
@@ -2274,6 +2292,12 @@ class HistOutput(FemBase):
         parent=None,
     ):
         super().__init__(name, metadata, parent)
+
+        if set_type not in self._valid_types:
+            raise ValueError(
+                f'set_type "{set_type}" is not yet supported. Currently supported types are "{self._valid_types}"'
+            )
+
         self._fem_set = fem_set
         self._set_type = set_type
         self._variables = variables
@@ -2774,6 +2798,32 @@ class Load(FemBase):
         return self._dof
 
     @property
+    def forces(self):
+        if self.type not in ("force",):
+            return None
+
+        return [x * self.magnitude for x in self.dof]
+
+    @property
+    def forces_global(self):
+        if self.type not in ("force",):
+            return None
+        if self.csys is None:
+            return [x * self.magnitude for x in self.dof]
+        else:
+            csys = self.csys
+            if csys.coords is None:
+                logging.error("Calculating global forces without COORDS is not yet supported")
+                return None
+
+            from ada.core.utils import rotation_matrix_csys_rotate
+
+            destination_csys = [(1, 0, 0), (0, 1, 0)]
+            rmat = rotation_matrix_csys_rotate(csys.coords, destination_csys)
+            res = np.concatenate([np.dot(rmat, np.array(self.dof[:3])), np.dot(rmat, np.array(self.dof[3:]))])
+            return [x * self.magnitude for x in res]
+
+    @property
     def amplitude(self):
         return self._amplitude
 
@@ -2828,4 +2878,8 @@ class Load(FemBase):
 
     @property
     def csys(self):
+        """
+
+        :rtype: Csys
+        """
         return self._csys

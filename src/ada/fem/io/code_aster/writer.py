@@ -49,6 +49,7 @@ def to_fem(
     assembly.metadata["info"]["description"] = description
 
     p = get_fem_model_from_assembly(assembly)
+
     # TODO: Implement support for multiple parts. Need to understand how submeshes in Salome and Code Aster works.
     # for p in filter(lambda x: len(x.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)):
     write_to_med(name, p, analysis_dir)
@@ -56,24 +57,22 @@ def to_fem(
     with open((analysis_dir / name).with_suffix(".export"), "w") as f:
         f.write(write_export_file(name, cpus))
 
-    # TODO: Finish .comm setup based on Salome meca setup
     with open((analysis_dir / name).with_suffix(".comm"), "w") as f:
         f.write(write_to_comm(assembly, p))
 
     print(f'Created a Code_Aster input deck at "{analysis_dir}"')
 
-    if execute is True:
-        from .execute import run_code_aster
+    from .execute import run_code_aster
 
-        run_code_aster(
-            (analysis_dir / name).with_suffix(".export"),
-            cpus=cpus,
-            gpus=gpus,
-            run_ext=run_ext,
-            metadata=assembly.metadata,
-            execute=execute,
-            exit_on_complete=exit_on_complete,
-        )
+    run_code_aster(
+        (analysis_dir / name).with_suffix(".export"),
+        cpus=cpus,
+        gpus=gpus,
+        run_ext=run_ext,
+        metadata=assembly.metadata,
+        execute=execute,
+        exit_on_complete=exit_on_complete,
+    )
 
 
 # COMM File input
