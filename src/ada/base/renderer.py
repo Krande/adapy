@@ -254,6 +254,7 @@ class MyRenderer(JupyterRenderer):
         except BaseException as e:
             logging.error(e)
             return None
+
         for r in res:
             self._refs[r.name] = plate
 
@@ -265,8 +266,14 @@ class MyRenderer(JupyterRenderer):
         """
         # self.AddShapeToScene(geom)
         res = []
+
         for i, geom in enumerate(pipe.geometries):
-            res += self.DisplayShape(geom, shape_color=pipe.colour_webgl, opacity=0.5)
+            try:
+                res += self.DisplayShape(geom, shape_color=pipe.colour_webgl, opacity=0.5)
+            except BaseException as e:
+                logging.error(e)
+                continue
+
         for r in res:
             self._refs[r.name] = pipe
 
@@ -276,8 +283,12 @@ class MyRenderer(JupyterRenderer):
         :param wall:
         :type wall: ada.Wall
         """
+        try:
+            res = self.DisplayShape(wall.solid, shape_color=wall.colour, opacity=0.5)
+        except BaseException as e:
+            logging.error(e)
+            return None
 
-        res = self.DisplayShape(wall.solid, shape_color=wall.colour, opacity=0.5)
         for r in res:
             self._refs[r.name] = wall
 
@@ -300,8 +311,8 @@ class MyRenderer(JupyterRenderer):
         list(map(self.DisplayAdaShape, all_shapes))
         list(filter(None, map(self.DisplayBeam, all_beams)))
         list(filter(None, map(self.DisplayPlate, all_plates)))
-        list(map(self.DisplayPipe, all_pipes))
-        list(map(self.DisplayWall, all_walls))
+        list(filter(None, map(self.DisplayPipe, all_pipes)))
+        list(filter(None, map(self.DisplayWall, all_walls)))
         list(
             map(
                 self.DisplayMesh,

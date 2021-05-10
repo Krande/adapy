@@ -960,10 +960,12 @@ class Part(BackendGeom):
     def __repr__(self):
         nbms = len(self.beams) + len([bm for p in self.get_all_subparts() for bm in p.beams])
         npls = len(self.plates) + len([pl for p in self.get_all_subparts() for pl in p.plates])
+        npipes = len(self.pipes) + len([pl for p in self.get_all_subparts() for pl in p.pipes])
         nshps = len(self.shapes) + len([shp for p in self.get_all_subparts() for shp in p.shapes])
         nels = len(self.fem.elements) + len([el for p in self.get_all_subparts() for el in p.fem.elements])
         nnodes = len(self.fem.nodes) + len([no for p in self.get_all_subparts() for no in p.fem.nodes])
-        return f'Part("{self.name}": Beams: {nbms}, Plates: {npls}, Shapes: {nshps}, Elements: {nels}, Nodes: {nnodes})'
+        return f'Part("{self.name}": Beams: {nbms}, Plates: {npls}, ' \
+               f'Pipes: {npipes}, Shapes: {nshps}, Elements: {nels}, Nodes: {nnodes})'
 
 
 class Assembly(Part):
@@ -1490,13 +1492,14 @@ class Assembly(Part):
         return self._presentation_layers
 
     def __repr__(self):
-        nm = self.name
         nbms = len([bm for p in self.get_all_subparts() for bm in p.beams]) + len(self.beams)
         npls = len([pl for p in self.get_all_subparts() for pl in p.plates]) + len(self.plates)
         nshps = len([shp for p in self.get_all_subparts() for shp in p.shapes]) + len(self.shapes)
+        npipes = len(self.pipes) + len([pl for p in self.get_all_subparts() for pl in p.pipes])
         nels = len(self.fem.elements) + len([el for p in self.get_all_subparts() for el in p.fem.elements])
         nns = len(self.fem.nodes) + len([no for p in self.get_all_subparts() for no in p.fem.nodes])
-        return f'Assembly("{nm}": Beams: {nbms}, Plates: {npls}, Shapes: {nshps}, Elements: {nels}, Nodes: {nns})'
+        return f'Assembly("{self.name}": Beams: {nbms}, Plates: {npls}, Pipes: {npipes}, ' \
+               f'Shapes: {nshps}, Elements: {nels}, Nodes: {nns})'
 
 
 class Beam(BackendGeom):
