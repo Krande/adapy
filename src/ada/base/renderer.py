@@ -755,6 +755,35 @@ class MyRenderer(JupyterRenderer):
             logging.error(f'Unrecognized set "{setref}". Not belonging to node or elements')
         edge_geom.attributes["color"].array = color_array
 
+    def highlight_elem(self, elem_id, fem_name):
+        """
+
+        :param elem_id: Can be int or list of ints
+        :param fem_name:
+        :return:
+        """
+        fem = self._fem_refs[fem_name][0]
+        edge_geom = self._fem_refs[fem_name][1]
+        if type(elem_id) is int:
+            el = fem.elements.from_id(elem_id)
+            elem_nodes = grab_nodes(el, fem, True)
+        elif type(elem_id) in (tuple, list):
+            elem_nodes = list(
+                chain.from_iterable(filter(None, [grab_nodes(fem.elements.from_id(el), fem, True) for el in elem_id]))
+            )
+        else:
+            raise ValueError(f'Unrecognized type "{type(elem_id)}"')
+
+        edges_nodes = list(chain.from_iterable(filter(None, [grab_nodes(el, fem, True) for el in fem.elements])))
+        res1 = [list(more_itertools.locate(edges_nodes, lambda a: a == i)) for i in elem_nodes]
+        set_edges_indices = chain.from_iterable(res1)
+        dark_grey = (0.66, 0.66, 0.66)
+        color_array = np.array([dark_grey for x in edge_geom.attributes["color"].array], dtype="float32")
+        color = (1, 0, 0)
+        for i in set_edges_indices:
+            color_array[i] = color
+        edge_geom.attributes["color"].array = color_array
+
 
 class SectionRenderer:
     """
