@@ -65,6 +65,8 @@ __all__ = [
     "zip_dir",
     "replace_nodes_by_tol",
     "replace_node",
+    "calc_yvec",
+    "calc_zvec",
 ]
 
 
@@ -1412,8 +1414,7 @@ def local_2_global_nodes(nodes, origin, xdir, normal):
         nodes = [no.p for no in nodes]
 
     nodes = [np.array(n, dtype=np.float64) if len(n) == 3 else np.array(list(n) + [0], dtype=np.float64) for n in nodes]
-    normal = np.array(normal, dtype=np.float64) if type(normal) in (list, tuple) else normal
-    yvec = np.array([x if abs(x) != 0.0 else 0.0 for x in np.cross(normal, xdir)], dtype=np.float64)
+    yvec = calc_yvec(xdir, normal)
 
     rmat = rotation_matrix_csys_rotate([xdir, yvec], [X, Y], inverse=True)
 
@@ -2950,3 +2951,37 @@ def replace_nodes_by_tol(fem, decimals=0, tol=1e-4):
             if n_is_most_precise(n, other_nodes, decimals):
                 for other_node in other_nodes:
                     replace_node(fem, other_node, n)
+
+
+def calc_yvec(x_vec, z_vec=None):
+    """
+
+    :param x_vec:
+    :param z_vec:
+    :return:
+    """
+
+    if z_vec is None:
+        calc_zvec(x_vec)
+
+    return np.cross(z_vec, x_vec)
+
+
+def calc_zvec(x_vec, y_vec=None):
+    """
+    Calculate Z-vector (up) from an x-vector (along beam) only.
+
+    :param x_vec:
+    :param y_vec:
+    :return:
+    """
+    from ada.core.constants import Y, Z
+
+    if y_vec is None:
+        z_vec = np.array(Z)
+        a = angle_between(x_vec, z_vec)
+        if a == np.pi or a == 0:
+            z_vec = np.array(Y)
+        return z_vec
+    else:
+        np.cross(x_vec, y_vec)

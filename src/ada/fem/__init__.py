@@ -1133,6 +1133,7 @@ class FemSection(FemBase):
                 n1, n2 = self.elset.members[0].nodes[0], self.elset.members[0].nodes[-1]
                 v = n2.p - n1.p
                 if vector_length(v) == 0.0:
+                    logging.error(f"Element {self.elset.members[0].id} has zero length")
                     xvec = [1, 0, 0]
                 else:
                     xvec = unit_vector(v)
@@ -1151,6 +1152,8 @@ class FemSection(FemBase):
     def local_y(self):
         """
 
+
+
         :return: Local Z describes the up vector of the cross section
         :rtype: list
         """
@@ -1164,8 +1167,8 @@ class FemSection(FemBase):
                     xvec = [1, 0, 0]
                 else:
                     xvec = unit_vector(v)
-
-                crossed = np.cross(xvec, self.local_z)
+                # See https://en.wikipedia.org/wiki/Cross_product#Coordinate_notation for order of cross product
+                crossed = np.cross(self.local_z, xvec)
                 ma = max(abs(crossed))
                 self._local_y = tuple([roundoff(x / ma, 3) for x in crossed])
             else:
@@ -2883,3 +2886,7 @@ class Load(FemBase):
         :rtype: Csys
         """
         return self._csys
+
+    def __repr__(self):
+        forc_str = ",".join(f"{f:.6E}" for f in self.forces)
+        return f"Load({self.name}, {self.type}, [{forc_str}])"

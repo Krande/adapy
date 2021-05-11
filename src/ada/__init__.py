@@ -13,6 +13,8 @@ from .core.containers import Beams, Connections, Materials, Nodes, Plates, Secti
 from .core.utils import (
     Counter,
     angle_between,
+    calc_yvec,
+    calc_zvec,
     create_guid,
     get_current_user,
     get_list_of_files,
@@ -1598,12 +1600,7 @@ class Beam(BackendGeom):
 
         xvec = unit_vector(self.n2.p - self.n1.p)
         tol = 1e-3
-        from ada.core.constants import Y, Z
-
-        zvec = np.array(Z)
-        a = angle_between(xvec, zvec)
-        if a == np.pi or a == 0:
-            zvec = np.array(Y)
+        zvec = calc_zvec(xvec)
         gup = np.array(zvec)
 
         if up is None:
@@ -1615,13 +1612,13 @@ class Beam(BackendGeom):
                 up = np.array([roundoff(x) if abs(x) != 0.0 else 0.0 for x in np.matmul(gup, np.transpose(rot_mat))])
             else:
                 up = np.array([roundoff(x) if abs(x) != 0.0 else 0.0 for x in gup])
-            yvec = np.cross(up, xvec)
+            yvec = calc_yvec(xvec, up)
         else:
             if (len(up) == 3) is False:
                 raise ValueError("Up vector must be length 3")
             if vector_length(xvec - up) < tol:
                 raise ValueError("The assigned up vector is too close to your beam direction")
-            yvec = np.cross(up, xvec)
+            yvec = calc_yvec(xvec, up)
             # TODO: Fix improper calculation of angle (e.g. xvec = [1,0,0] and up = [0, 1,0] should be 270?
             rad = angle_between(up, yvec)
             angle = np.rad2deg(rad)
@@ -2742,12 +2739,9 @@ class Pipe(BackendGeom):
             rp1 = to_real(p1.p)
             rp2 = to_real(p2.p)
             xvec = unit_vector(p2.p - p1.p)
-            vlen = vector_length(xvec - np.array([0, 0, 1]))
-            vlen2 = vector_length(xvec + np.array([0, 0, 1]))
-            if vlen != 0.0 and vlen2 != 0.0:
-                yvec = unit_vector(np.cross(xvec, np.array([0, 0, 1])))
-            else:
-                yvec = unit_vector(np.cross(xvec, np.array([1, 0, 0])))
+            a = angle_between(xvec, np.array([0, 0, 1]))
+            zvec = np.array([0, 0, 1]) if a != np.pi and a != 0 else np.array([1, 0, 0])
+            yvec = unit_vector(np.cross(zvec, xvec))
             seg_l = vector_length(p2.p - p1.p)
 
             extrusion_placement = create_ifcaxis2placement(f, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
@@ -3110,7 +3104,7 @@ class Wall(BackendGeom):
         p1, p2 = self._segments[wall_segment]
         xvec = unit_vector(np.array(p2) - np.array(p1))
         zvec = np.array([0, 0, 1])
-        yvec = unit_vector(np.cross(xvec, zvec))
+        yvec = unit_vector(np.cross(zvec, xvec))
 
         return xvec, yvec, zvec
 
@@ -3306,11 +3300,11 @@ class Wall(BackendGeom):
         yvec = None
         prev_xvec = None
         prev_yvec = None
-
+        zvec = np.array([0, 0, 1])
         # Inner line
         for p1, p2 in zip(vpo[:-1], vpo[1:]):
             xvec = p2 - p1
-            yvec = unit_vector(np.cross(xvec, np.array([0, 0, 1])))
+            yvec = unit_vector(np.cross(zvec, xvec))
             new_point = p1 + yvec * (self._thickness / 2) + yvec * self.offset
             if prev_xvec is not None:
                 if parallel_check(xvec, prev_xvec) is False:
