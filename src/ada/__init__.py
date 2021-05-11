@@ -1231,7 +1231,7 @@ class Assembly(Part):
         :param fem_converter: Set desired fem converter. Use either 'default' or 'meshio'.
         :param convert_func:
         :param exit_on_complete:
-
+        :rtype: ada.base.render_fem.Results
 
             Note! Meshio implementation currently only supports reading & writing elements and nodes.
 
@@ -1263,23 +1263,21 @@ class Assembly(Part):
                 exit_on_complete,
             )
         except IOError as e:
-            if _Settings.return_experimental_fem_res_after_execute is False:
-                raise e
+            logging.info(e)
 
-        if _Settings.return_experimental_fem_res_after_execute is True:
-            base_path = _Settings.scratch_dir / name / name
-            fem_res_paths = dict(code_aster=base_path.with_suffix(".rmed"))
-            if fem_format not in fem_res_paths.keys():
-                logging.error(f'FEM format "{fem_format}" is not yet supported for results processing')
-                return None
+        base_path = _Settings.scratch_dir / name / name
+        fem_res_paths = dict(code_aster=base_path.with_suffix(".rmed"))
+        if fem_format not in fem_res_paths.keys():
+            logging.error(f'FEM format "{fem_format}" is not yet supported for results processing')
+            return None
 
-            res_path = fem_res_paths[fem_format]
-            if res_path.exists():
-                from ada.base.render_fem import Results
+        res_path = fem_res_paths[fem_format]
+        if res_path.exists():
+            from ada.base.render_fem import Results
 
-                return Results(res_path)
-            else:
-                logging.error(f'Result file "{res_path}" was not found')
+            return Results(res_path)
+        else:
+            logging.error(f'Result file "{res_path}" was not found')
 
     def to_ifc(self, destination_file):
         """

@@ -83,6 +83,19 @@ class Results:
         """
         return self._renderer
 
+    @property
+    def mesh_undeformed(self):
+        return self._undeformed_mesh
+
+    @property
+    def mesh_deformed(self):
+        """
+
+        :return:
+        :rtype: pythreejs.Mesh
+        """
+        return self._deformed_mesh
+
     def _get_mesh(self, file_ref):
         import meshio
 
@@ -138,7 +151,7 @@ class Results:
         colors = np.asarray([curr_p(x) for x in res], dtype="float32")
         return colors
 
-    def _viz_geom(self, data_type, displ_data=False, renderer=None):
+    def create_viz_geom(self, data_type, displ_data=False, renderer=None):
         """
 
         :param data_type:
@@ -146,6 +159,7 @@ class Results:
         :type renderer: ada.base.renderer.MyRenderer
         :return:
         """
+        default_vertex_color = (8, 8, 8)
 
         data = np.asarray(self.mesh.point_data[data_type], dtype="float32")
         colors = self._colorize_data(data)
@@ -173,7 +187,6 @@ class Results:
 
         # Colours
         mesh = faces_to_mesh("deformed", vertices, self._faces, colors)
-        default_vertex_color = (8, 8, 8)
         points = vertices_to_mesh("deformed_vertices", vertices, default_vertex_color)
         lines = edges_to_mesh("deformed_lines", vertices, self._edges, default_vertex_color)
 
@@ -203,16 +216,16 @@ class Results:
                 print("\r" + "Point Tags are not a valid display value" + 10 * " ", end="")
                 return None
             if "DISP" in data:
-                self._viz_geom(data, displ_data=True, renderer=self.renderer)
+                self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
             else:
-                self._viz_geom(data, renderer=self.renderer)
+                self.create_viz_geom(data, renderer=self.renderer)
 
     def _repr_html_(self):
         if self._renderer is None:
             self._renderer = MyRenderer()
             if self._analysis_type == "code_aster":
                 data = [x for x in self._point_data if "DISP" in x][-1]
-                self._viz_geom(data, displ_data=True, renderer=self.renderer)
+                self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
                 i = self._point_data.index(data)
                 self._render_sets = Dropdown(
                     options=self._point_data, value=self._point_data[i], tooltip="Select a set", disabled=False
