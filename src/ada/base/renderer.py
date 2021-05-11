@@ -1,5 +1,8 @@
 import logging
 import uuid
+from itertools import chain
+import more_itertools
+from random import randint
 
 import numpy as np
 from OCC.Core.Tesselator import ShapeTesselator
@@ -25,6 +28,8 @@ from pythreejs import (
 )
 
 __all__ = ["MyRenderer", "SectionRenderer"]
+
+import ada.fem
 
 
 class MyRenderer(JupyterRenderer):
@@ -83,6 +88,7 @@ class MyRenderer(JupyterRenderer):
         # self._controls.append(p1)
         # self._controls.append(p2)
         self._refs = dict()
+        self._fem_refs = dict()
 
     def visible_check(self, obj, obj_type="geom"):
         from ada import Beam, Part, Plate
@@ -120,8 +126,6 @@ class MyRenderer(JupyterRenderer):
         :param vertex_width:
         :type part: ada.Part
         """
-        from itertools import chain
-        from random import randint
 
         from OCC.Core.BRep import BRep_Builder
         from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
@@ -129,10 +133,8 @@ class MyRenderer(JupyterRenderer):
         from OCC.Core.TopoDS import TopoDS_Compound
 
         # edge_color = format_color(*part.colour) if edge_color is None else edge_color
-
-        edge_color = (
-            format_color(randint(0, 255), randint(0, 255), randint(0, 255)) if edge_color is None else edge_color
-        )
+        rgb = randint(0, 255), randint(0, 255), randint(0, 255)
+        edge_color = format_color(*rgb) if edge_color is None else edge_color
         vertex_color = self._default_vertex_color if vertex_color is None else vertex_color
 
         pmesh_id = "%s" % uuid.uuid4().hex
@@ -154,32 +156,19 @@ class MyRenderer(JupyterRenderer):
         mat = PointsMaterial(color=vertex_color, sizeAttenuation=False, size=vertex_width)
         geom = BufferGeometry(attributes=attributes)
         points_geom = Points(geometry=geom, material=mat, name=pmesh_id)
-
-        def grab_nodes(el):
-            """
-
-            :param el:
-            :type el: ada.fem.Elem
-            :return:
-            """
-            if el.shape.edges_seq is None:
-                return None
-            return [
-                part.fem.nodes.from_id(i).p for i in [el.nodes[e].id for ed_seq in el.shape.edges_seq for e in ed_seq]
-            ]
-
         lmesh_id = "%s" % uuid.uuid4().hex
-
-        edges_nodes = list(chain.from_iterable(filter(None, map(grab_nodes, part.fem.elements))))
+        edges_nodes = list(chain.from_iterable(filter(None, [grab_nodes(el, part.fem) for el in part.fem.elements])))
         np_edge_vertices = np.array(edges_nodes, dtype=np.float32)
         np_edge_indices = np.arange(np_edge_vertices.shape[0], dtype=np.uint32)
+        vertex_col = tuple([x / 255 for x in rgb])
         edge_geometry = BufferGeometry(
             attributes={
                 "position": BufferAttribute(np_edge_vertices),
                 "index": BufferAttribute(np_edge_indices),
+                "color": BufferAttribute([vertex_col for n in np_edge_vertices]),
             }
         )
-        edge_material = LineBasicMaterial(color=edge_color, linewidth=1)
+        edge_material = LineBasicMaterial(vertexColors="VertexColors", linewidth=2)
 
         edge_geom = LineSegments(
             geometry=edge_geometry,
@@ -195,8 +184,9 @@ class MyRenderer(JupyterRenderer):
             self._displayed_pickable_objects.add(elem)
 
         self._fem_sets_opts.options = ["None"] + [
-            s.name for s in filter(lambda x: "internal" not in x.metadata.keys(), part.fem.sets)
+            f"{part.fem.name}.{s.name}" for s in filter(lambda x: "internal" not in x.metadata.keys(), part.fem.sets)
         ]
+        self._fem_refs[part.fem.name] = (part.fem, edge_geometry)
 
     def DisplayAdaShape(self, shp):
         """
@@ -741,7 +731,29 @@ class MyRenderer(JupyterRenderer):
 
     def _on_changed_fem_set(self, p):
         indata = p["new"]
-        print(f"\r {indata}", end=" ")
+        tmp_data = indata.split(".")
+        pref = tmp_data[0]
+        setref = tmp_data[1]
+        fem = self._fem_refs[pref][0]
+        edge_geom = self._fem_refs[pref][1]
+        edges_nodes = list(chain.from_iterable(filter(None, [grab_nodes(el, fem, True) for el in fem.elements])))
+        dark_grey = (0.66, 0.66, 0.66)
+        color_array = np.array([dark_grey for x in edge_geom.attributes["color"].array], dtype="float32")
+
+        color = (1, 0, 0)
+        if setref in fem.elsets.keys():
+            fem_set = fem.elsets[setref]
+            set_edges_nodes = list(chain.from_iterable(filter(None, [grab_nodes(el, fem, True) for el in fem_set.members])))
+
+            res1 = [list(more_itertools.locate(edges_nodes, lambda a: a == i)) for i in set_edges_nodes]
+            set_edges_indices = chain.from_iterable(res1)
+            for i in set_edges_indices:
+                color_array[i] = color
+        elif setref in fem.nsets.keys():
+            print(f'Set "{setref}" is a node set (which is not yet supported)')
+        else:
+            logging.error(f'Unrecognized set "{setref}". Not belonging to node or elements')
+        edge_geom.attributes["color"].array = color_array
 
 
 class SectionRenderer:
@@ -876,3 +888,20 @@ class SectionRenderer:
         display(HBox([fig, html]))
 
         # display(widgets.VBox([widgets.HBox([testb]), center, self._fig]))
+
+
+def grab_nodes(el, fem, return_ids=False):
+    """
+
+    :param el:
+    :param fem:
+    :param return_ids:
+    :type el: ada.fem.Elem
+    :type fem: ada.fem.FEM
+    """
+    if el.shape.edges_seq is None:
+        return None
+    if return_ids:
+        return [i for i in [el.nodes[e].id for ed_seq in el.shape.edges_seq for e in ed_seq]]
+    else:
+        return [fem.nodes.from_id(i).p for i in [el.nodes[e].id for ed_seq in el.shape.edges_seq for e in ed_seq]]

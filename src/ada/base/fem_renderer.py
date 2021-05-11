@@ -56,7 +56,7 @@ class FemRenderer:
 
         vertices_m = vertices_to_mesh(f"{fem.name}_vertices", vertices, vertex_colors, vertex_width)
         edges_m = edges_to_mesh(f"{fem.name}_edges", vertices, edges, edge_color=edge_color, linewidth=edge_width)
-        faces_m = faces_to_mesh(f"{fem.name}_faces", vertices, faces, colors=face_colors)
+        face_geom, faces_m = faces_to_mesh(f"{fem.name}_faces", vertices, faces, colors=face_colors)
 
         return vertices_m, edges_m, faces_m
 

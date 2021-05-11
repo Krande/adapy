@@ -67,6 +67,8 @@ class Results:
         self._part = part
         self._renderer = None
         self._render_sets = None
+        self._undeformed_mesh = None
+        self._deformed_mesh = None
 
     @property
     def mesh(self):
@@ -146,55 +148,64 @@ class Results:
         """
 
         data = np.asarray(self.mesh.point_data[data_type], dtype="float32")
+        colors = self._colorize_data(data)
+
         if renderer is None:
             renderer = MyRenderer()
             self._renderer = renderer
-        else:
-            clear_output()
-            renderer = MyRenderer()
-            self._renderer = renderer
-            from pythreejs import Group
-
-            renderer._displayed_pickable_objects = Group()
 
         # deformations
         if displ_data is True:
             vertices = np.asarray([x + u[:3] for x, u in zip(self._vertices, data)], dtype="float32")
-            white_color = np.asarray([(245 / 255, 245 / 255, 245 / 255) for x in self._vertices], dtype="float32")
-            o_mesh = faces_to_mesh("undeformed", self._vertices, self._faces, white_color, opacity=0.5)
-            renderer._displayed_pickable_objects.add(o_mesh)
+            if self._undeformed_mesh is None:
+                dark_grey = (0.66, 0.66, 0.66)
+                white_color = np.asarray([dark_grey for x in self._vertices], dtype="float32")
+                o_mesh = faces_to_mesh("undeformed", self._vertices, self._faces, white_color, opacity=0.5)
+                self._undeformed_mesh = o_mesh
+                renderer._displayed_non_pickable_objects.add(o_mesh)
         else:
             vertices = self._vertices
+            if self._undeformed_mesh is not None:
+                renderer._displayed_non_pickable_objects.remove(self._undeformed_mesh)
+                self._undeformed_mesh = None
+
+        vertices = np.array(vertices, dtype=np.float32)
 
         # Colours
-        colors = self._colorize_data(data)
         mesh = faces_to_mesh("deformed", vertices, self._faces, colors)
         default_vertex_color = (8, 8, 8)
         points = vertices_to_mesh("deformed_vertices", vertices, default_vertex_color)
         lines = edges_to_mesh("deformed_lines", vertices, self._edges, default_vertex_color)
 
-        renderer._displayed_pickable_objects.add(mesh)
-        renderer._displayed_pickable_objects.add(points)
-        renderer._displayed_pickable_objects.add(lines)
+        if self._deformed_mesh is None:
+            self._deformed_mesh = (mesh, points, lines)
+            renderer._displayed_pickable_objects.add(mesh)
+            renderer._displayed_pickable_objects.add(points)
+            renderer._displayed_pickable_objects.add(lines)
+            renderer.build_display(camera_type="perspective")
+        else:
+            face_geom = self._deformed_mesh[0].geometry
+            face_geom.attributes["position"].array = vertices
+            face_geom.attributes["index"].array = self._faces
+            face_geom.attributes["color"].array = colors
 
-        renderer.build_display(camera_type="perspective")
+            point_geom = self._deformed_mesh[1].geometry
+            point_geom.attributes["position"].array = vertices
+
+            edge_geom = self._deformed_mesh[2].geometry
+            edge_geom.attributes["position"].array = vertices
+            edge_geom.attributes["index"].array = self._edges
 
     def on_changed_point_data_set(self, p):
         data = p["new"]
         if self._analysis_type == "code_aster":
+            if 'point_tags' in data:
+                print("\r" + f'Point Tags are not a valid display value'+10*' ', end="")
+                return None
             if "DISP" in data:
                 self._viz_geom(data, displ_data=True, renderer=self.renderer)
             else:
                 self._viz_geom(data, renderer=self.renderer)
-            i = self._point_data.index(data)
-            self._render_sets = Dropdown(
-                options=self._point_data, value=self._point_data[i], tooltip="Select a set", disabled=False
-            )
-            self._render_sets.observe(self.on_changed_point_data_set, "value")
-            self.renderer._controls.pop()
-            self.renderer._controls.append(self._render_sets)
-            print(f'Changed field value to "{p["new"]}"')
-            display(HBox([VBox([HBox(self.renderer._controls), self.renderer._renderer]), self.renderer.html]))
 
     def _repr_html_(self):
         if self._renderer is None:
