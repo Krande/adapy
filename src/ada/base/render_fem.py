@@ -1,7 +1,7 @@
 import pathlib
 
 import numpy as np
-from IPython.display import clear_output, display
+from IPython.display import display
 from ipywidgets import Dropdown, HBox, VBox
 
 from .common import (
@@ -199,8 +199,8 @@ class Results:
     def on_changed_point_data_set(self, p):
         data = p["new"]
         if self._analysis_type == "code_aster":
-            if 'point_tags' in data:
-                print("\r" + f'Point Tags are not a valid display value'+10*' ', end="")
+            if "point_tags" in data:
+                print("\r" + "Point Tags are not a valid display value" + 10 * " ", end="")
                 return None
             if "DISP" in data:
                 self._viz_geom(data, displ_data=True, renderer=self.renderer)

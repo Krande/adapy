@@ -1,9 +1,9 @@
 import logging
 import uuid
 from itertools import chain
-import more_itertools
 from random import randint
 
+import more_itertools
 import numpy as np
 from OCC.Core.Tesselator import ShapeTesselator
 from OCC.Display.WebGl.jupyter_renderer import (
@@ -28,8 +28,6 @@ from pythreejs import (
 )
 
 __all__ = ["MyRenderer", "SectionRenderer"]
-
-import ada.fem
 
 
 class MyRenderer(JupyterRenderer):
@@ -743,7 +741,9 @@ class MyRenderer(JupyterRenderer):
         color = (1, 0, 0)
         if setref in fem.elsets.keys():
             fem_set = fem.elsets[setref]
-            set_edges_nodes = list(chain.from_iterable(filter(None, [grab_nodes(el, fem, True) for el in fem_set.members])))
+            set_edges_nodes = list(
+                chain.from_iterable(filter(None, [grab_nodes(el, fem, True) for el in fem_set.members]))
+            )
 
             res1 = [list(more_itertools.locate(edges_nodes, lambda a: a == i)) for i in set_edges_nodes]
             set_edges_indices = chain.from_iterable(res1)
