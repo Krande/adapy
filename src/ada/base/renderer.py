@@ -3,7 +3,6 @@ import uuid
 from itertools import chain
 from random import randint
 
-import more_itertools
 import numpy as np
 from OCC.Core.Tesselator import ShapeTesselator
 from OCC.Display.WebGl.jupyter_renderer import (
@@ -166,7 +165,7 @@ class MyRenderer(JupyterRenderer):
                 "color": BufferAttribute([vertex_col for n in np_edge_vertices]),
             }
         )
-        edge_material = LineBasicMaterial(vertexColors="VertexColors", linewidth=2)
+        edge_material = LineBasicMaterial(vertexColors="VertexColors", linewidth=5)
 
         edge_geom = LineSegments(
             geometry=edge_geometry,
@@ -745,7 +744,7 @@ class MyRenderer(JupyterRenderer):
                 chain.from_iterable(filter(None, [grab_nodes(el, fem, True) for el in fem_set.members]))
             )
 
-            res1 = [list(more_itertools.locate(edges_nodes, lambda a: a == i)) for i in set_edges_nodes]
+            res1 = [locate(edges_nodes, i) for i in set_edges_nodes]
             set_edges_indices = chain.from_iterable(res1)
             for i in set_edges_indices:
                 color_array[i] = color
@@ -775,7 +774,7 @@ class MyRenderer(JupyterRenderer):
             raise ValueError(f'Unrecognized type "{type(elem_id)}"')
 
         edges_nodes = list(chain.from_iterable(filter(None, [grab_nodes(el, fem, True) for el in fem.elements])))
-        res1 = [list(more_itertools.locate(edges_nodes, lambda a: a == i)) for i in elem_nodes]
+        res1 = [locate(edges_nodes, i) for i in elem_nodes]
         set_edges_indices = chain.from_iterable(res1)
         dark_grey = (0.66, 0.66, 0.66)
         color_array = np.array([dark_grey for x in edge_geom.attributes["color"].array], dtype="float32")
@@ -934,3 +933,7 @@ def grab_nodes(el, fem, return_ids=False):
         return [i for i in [el.nodes[e].id for ed_seq in el.shape.edges_seq for e in ed_seq]]
     else:
         return [fem.nodes.from_id(i).p for i in [el.nodes[e].id for ed_seq in el.shape.edges_seq for e in ed_seq]]
+
+
+def locate(data_set, i):
+    return [index for index, value in enumerate(data_set) if value == i]
