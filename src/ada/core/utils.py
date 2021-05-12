@@ -67,6 +67,7 @@ __all__ = [
     "replace_node",
     "calc_yvec",
     "calc_zvec",
+    "visualize_elem_ori",
 ]
 
 
@@ -2717,9 +2718,9 @@ def make_edge(p1, p2):
     return BRepBuilderAPI_MakeEdge(gp_Pnt(*[float(x) for x in p1[:3]]), gp_Pnt(*[float(x) for x in p2[:3]])).Edge()
 
 
-def make_vector(name, origin, csys, parent, pnt_r=0.2, cyl_l=0.3, cyl_r=0.2, units="m"):
+def make_ori_vector(name, origin, csys, pnt_r=0.2, cyl_l=0.3, cyl_r=0.2, units="m"):
     """
-    Visualize a plates locale coordinate system and node numbering.
+    Visualize a local coordinate system with a sphere and 3 cylinders representing origin and.
 
     :param name:
     :param origin:
@@ -2728,39 +2729,55 @@ def make_vector(name, origin, csys, parent, pnt_r=0.2, cyl_l=0.3, cyl_r=0.2, uni
     :param cyl_r:
     :return:
     """
-    from ada import PrimCyl, PrimSphere
+    from ada import Part, PrimCyl, PrimSphere
 
     origin = np.array(origin)
-    parent.add_shape(PrimSphere(name + "_origin", origin, pnt_r, units=units, metadata=dict(origin=origin)))
-    parent.add_shape(
-        PrimCyl(
-            name + "_X",
-            origin,
-            origin + np.array(csys[0]) * cyl_l,
-            cyl_r,
-            units=units,
-            colour="RED",
-        )
+    o_shape = PrimSphere(name + "_origin", origin, pnt_r, units=units, metadata=dict(origin=origin))
+    x_vec_shape = PrimCyl(
+        name + "_X",
+        origin,
+        origin + np.array(csys[0]) * cyl_l,
+        cyl_r,
+        units=units,
+        colour="BLUE",
     )
-    parent.add_shape(
-        PrimCyl(
-            name + "_Y",
-            origin,
-            origin + np.array(csys[1]) * cyl_l,
-            cyl_r,
-            units=units,
-            colour="GREEN",
-        )
+
+    y_vec_shape = PrimCyl(
+        name + "_Y",
+        origin,
+        origin + np.array(csys[1]) * cyl_l,
+        cyl_r,
+        units=units,
+        colour="GREEN",
     )
-    parent.add_shape(
-        PrimCyl(
-            name + "_Z",
-            origin,
-            origin + np.array(csys[2]) * cyl_l,
-            cyl_r,
-            units=units,
-            colour="BLUE",
-        )
+
+    z_vec_shape = PrimCyl(
+        name + "_Z",
+        origin,
+        origin + np.array(csys[2]) * cyl_l,
+        cyl_r,
+        units=units,
+        colour="RED",
+    )
+    return Part(name, units=units) / (o_shape, x_vec_shape, y_vec_shape, z_vec_shape)
+
+
+def visualize_elem_ori(elem):
+    """
+
+    :param elem:
+    :type elem: ada.fem.Elem
+    :return: ada.Shape
+    """
+    origin = (elem.nodes[-1].p + elem.nodes[0].p) / 2
+    return make_ori_vector(
+        f"elem{elem.id}_ori",
+        origin,
+        elem.fem_sec.csys,
+        pnt_r=0.2,
+        cyl_r=0.05,
+        cyl_l=1.0,
+        units=elem.fem_sec.section.units,
     )
 
 

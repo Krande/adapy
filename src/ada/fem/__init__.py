@@ -1176,6 +1176,20 @@ class FemSection(FemBase):
         return self._local_y
 
     @property
+    def local_x(self):
+        if self.type == "beam":
+            from ada.core.utils import unit_vector
+
+            el = self.elset.members[0]
+            return unit_vector(el.nodes[-1].p - el.nodes[0].p)
+        else:
+            logging.error(f"X-vector not defined for {self.type}")
+
+    @property
+    def csys(self):
+        return [self.local_x, self.local_y, self.local_z]
+
+    @property
     def section(self):
         """
 
