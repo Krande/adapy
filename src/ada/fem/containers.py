@@ -257,8 +257,8 @@ class FemElements:
 
         for m, nodes, vol in sh + bm + ma:
             tot_vol += vol
+            tot_mass += m
             for n in nodes:
-                tot_mass += m
                 mcogx += m * n[0]
                 mcogy += m * n[1]
                 mcogz += m * n[2]

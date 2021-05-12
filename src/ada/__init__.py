@@ -1277,7 +1277,7 @@ class Assembly(Part):
 
             return Results(res_path)
         else:
-            logging.error(f'Result file "{res_path}" was not found')
+            logging.info(f'Result file "{res_path}" was not found')
 
     def to_ifc(self, destination_file):
         """
