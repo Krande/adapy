@@ -8,6 +8,7 @@ import shutil
 import uuid
 import warnings
 import zipfile
+from typing import Union
 from decimal import ROUND_HALF_EVEN, Decimal
 
 import ifcopenshell
@@ -2718,25 +2719,34 @@ def make_edge(p1, p2):
     return BRepBuilderAPI_MakeEdge(gp_Pnt(*[float(x) for x in p1[:3]]), gp_Pnt(*[float(x) for x in p2[:3]])).Edge()
 
 
-def make_ori_vector(name, origin, csys, pnt_r=0.2, cyl_l=0.3, cyl_r=0.2, units="m"):
+def make_ori_vector(name, origin, csys, pnt_r=0.2, cyl_l: Union[float, list, tuple] = 0.3, cyl_r=0.2, units="m"):
     """
     Visualize a local coordinate system with a sphere and 3 cylinders representing origin and.
 
     :param name:
     :param origin:
-    :param csys:
+    :param csys: Coordinate system
+    :param pnt_r:
     :param cyl_l:
+    :type cyl_l: Union[float, list, tuple]
     :param cyl_r:
+    :param units:
     :return:
     """
     from ada import Part, PrimCyl, PrimSphere
 
     origin = np.array(origin)
     o_shape = PrimSphere(name + "_origin", origin, pnt_r, units=units, metadata=dict(origin=origin))
+
+    if type(cyl_l) in (list, tuple):
+        cyl_l_x, cyl_l_y, cyl_l_z = cyl_l
+    else:
+        cyl_l_x, cyl_l_y, cyl_l_z = cyl_l, cyl_l, cyl_l
+
     x_vec_shape = PrimCyl(
         name + "_X",
         origin,
-        origin + np.array(csys[0]) * cyl_l,
+        origin + np.array(csys[0]) * cyl_l_x,
         cyl_r,
         units=units,
         colour="BLUE",
@@ -2745,7 +2755,7 @@ def make_ori_vector(name, origin, csys, pnt_r=0.2, cyl_l=0.3, cyl_r=0.2, units="
     y_vec_shape = PrimCyl(
         name + "_Y",
         origin,
-        origin + np.array(csys[1]) * cyl_l,
+        origin + np.array(csys[1]) * cyl_l_y,
         cyl_r,
         units=units,
         colour="GREEN",
@@ -2754,7 +2764,7 @@ def make_ori_vector(name, origin, csys, pnt_r=0.2, cyl_l=0.3, cyl_r=0.2, units="
     z_vec_shape = PrimCyl(
         name + "_Z",
         origin,
-        origin + np.array(csys[2]) * cyl_l,
+        origin + np.array(csys[2]) * cyl_l_z,
         cyl_r,
         units=units,
         colour="RED",
@@ -2778,6 +2788,37 @@ def visualize_elem_ori(elem):
         cyl_r=0.05,
         cyl_l=1.0,
         units=elem.fem_sec.section.units,
+    )
+
+
+def visualize_load(load, units="m", pnt_r=0.2, cyl_r=0.05, cyl_l_norm=1.5):
+    """
+
+    :param load:
+    :param units:
+    :param pnt_r:
+    :param cyl_r:
+    :param cyl_l_norm:
+    :type load: ada.fem.Load
+    :return:
+    :rtype: ada.Part
+    """
+    from ada.core.constants import X, Y, Z
+
+    csys = load.csys if load.csys is not None else [X, Y, Z]
+    forces = np.array(load.forces[:3])
+    forces_normalized = tuple(cyl_l_norm * (forces / max(abs(forces))))
+
+    origin = load.fem_set.members[0].p
+
+    return make_ori_vector(
+        f"F_{load.name}_ori",
+        origin,
+        csys,
+        pnt_r=pnt_r,
+        cyl_r=cyl_r,
+        cyl_l=forces_normalized,
+        units=units,
     )
 
 
