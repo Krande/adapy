@@ -1433,23 +1433,23 @@ def bc_str(bc, fem_writer):
     for dof, magn in zip(bc.dofs, bc.magnitudes):
         if dof is None:
             continue
-        magn_str = f", {magn:.4f}" if magn is not None else ""
+        magn_str = f", {magn:.6E}" if magn is not None else ""
         if bc.type in ["connector displacement", "connector velocity"] or type(dof) is str:
             dofs_str += f" {inst_name}, {dof}{magn_str}\n"
         else:
             dofs_str += f" {inst_name}, {dof}, {dof}{magn_str}\n"
 
     dofs_str = dofs_str.rstrip()
+    add_map = {
+        "connector displacement": ("*Connector Motion",", type=DISPLACEMENT"),
+        "connector velocity": ("*Connector Motion", ", type=VELOCITY"),
+        "other": ("*Boundary","")
+    }
 
-    if bc.type == "connector displacement":
-        bcstr = "*Connector Motion"
-        add_str = ", type=DISPLACEMENT"
-    elif bc.type == "connector velocity":
-        bcstr = "*Connector Motion"
-        add_str = ", type=VELOCITY"
+    if bc.type in add_map.keys():
+        bcstr, add_str = add_map[bc.type]
     else:
-        bcstr = "*Boundary"
-        add_str = ""
+        bcstr, add_str = add_map["other"]
 
     return f"""** Name: {bc.name} Type: {aba_type}
 {bcstr}{ampl_ref_str}{add_str}
