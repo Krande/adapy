@@ -1421,6 +1421,8 @@ def bc_str(bc, fem_writer):
     :return:
     """
     ampl_ref_str = "" if bc.amplitude_name is None else ", amplitude=" + bc.amplitude_name
+    fem_set = bc.fem_set
+    inst_name = get_instance_name(fem_set, fem_writer)
 
     if bc.type in _valid_aba_bcs:
         aba_type = bc.type
@@ -1432,12 +1434,9 @@ def bc_str(bc, fem_writer):
         if dof is None:
             continue
         magn_str = f", {magn:.4f}" if magn is not None else ""
-
         if bc.type in ["connector displacement", "connector velocity"] or type(dof) is str:
-            inst_name = get_instance_name(bc.fem_set, fem_writer)
             dofs_str += f" {inst_name}, {dof}{magn_str}\n"
         else:
-            inst_name = get_instance_name(bc.fem_set, fem_writer)
             dofs_str += f" {inst_name}, {dof}, {dof}{magn_str}\n"
 
     dofs_str = dofs_str.rstrip()
@@ -1545,7 +1544,7 @@ def get_instance_name(obj, fem_writer):
 
     if fem_writer in (Step, Load) and assembly_level is False:
         return f"{obj.parent.instance_name}.{obj_ref}"
-    elif type(obj.parent.parent) != Assembly and type(fem_writer) in (AbaqusWriter, AbaConstraint):
+    elif type(obj.parent.parent) != Assembly and type(fem_writer) in (AbaqusWriter, AbaConstraint, AbaStep):
         return f"{obj.parent.instance_name}.{obj_ref}"
     else:
         return str(obj_ref)
@@ -1574,29 +1573,21 @@ def aba_set_str(aba_set, fem_writer=None):
 
     el_instances = dict()
 
-    for p, mem in groupby(aba_set.members, key=attrgetter("parent")):
-        el_instances[p.name] = list(mem)
-
-    # for mem in self.members:
-    #     if mem.parent.name not in el_instances.keys():
-    #         el_instances[mem.parent.name] = []
-    #     if mem not in el_instances[mem.parent.name]:
-    #         el_instances[mem.parent.name].append(mem)
+    for parent, mem in groupby(aba_set.members, key=attrgetter("parent")):
+        el_instances[parent.name] = list(mem)
 
     set_str = ""
     for elinst, members in el_instances.items():
         el_root = f"{el_str}={aba_set.name}"
-        if internal is True and type(fem_writer) in (
-            AbaqusWriter,
-            AbaStep,
-        ):
-            el_root += "" if "," in el_str[-2] else ", "
-            el_root += "internal"
-        if elinst != aba_set.parent.name:
-            el_root += "" if "," in el_str[-2] else ", "
-            el_root += f"instance={elinst}"
+        if type(fem_writer) in (AbaqusWriter, AbaStep):
+            if internal is True:
+                el_root += "" if "," in el_str[-2] else ", "
+                el_root += "internal"
+            if elinst != aba_set.parent.name:
+                el_root += "" if "," in el_str[-2] else ", "
+                el_root += f"instance={elinst}"
 
-        if generate:
+        if generate is True:
             assert len(aba_set.metadata["gen_mem"]) == 3
             el_root += "" if "," in el_root[-2] else ", "
             set_str += (

@@ -2168,6 +2168,8 @@ class Bc(FemBase):
     def amplitude_name(self):
         return self._amplitude_name
 
+    def __repr__(self):
+        return f'Bc("{self.name}", type="{self.type}", dofs={self.dofs}, fem_set="{self.fem_set.name}")'
 
 class Mass(FemBase):
     """
@@ -2552,7 +2554,7 @@ class Step(FemBase):
         bc.parent = self
         self._bcs[bc.name] = bc
 
-        if bc.fem_set not in self.parent.sets:
+        if bc.fem_set not in self.parent.sets and bc.fem_set.parent is None:
             self.parent.sets.add(bc.fem_set)
 
     def add_history_output(self, hist_output):
