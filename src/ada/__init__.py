@@ -2581,12 +2581,15 @@ class Pipe(BackendGeom):
         self._ifc_elem = None
 
         self._section = sec
+        sec.parent = self
         self._material = mat if isinstance(mat, Material) else Material(name=name + "_mat", mat_model=CarbonSteel(mat))
         self._content = content
         self.colour = colour
+
         self._n1 = points[0] if type(points[0]) is Node else Node(points[0], units=units)
         self._n2 = points[-1] if type(points[-1]) is Node else Node(points[-1], units=units)
         self._points = [Node(n, units=units) if type(n) is not Node else n for n in points]
+        self._param_segments = []
         self._segments = None
         self._elbows = None
         self._swept_solids = None
@@ -2599,225 +2602,58 @@ class Pipe(BackendGeom):
 
         :return:
         """
-        from OCC.Core.BRep import BRep_Tool_Pnt
-        from OCC.Extend.TopologyUtils import TopologyExplorer
-
         segs = []
         for p1, p2 in zip(self.points[:-1], self.points[1:]):
+            if vector_length(p2.p - p1.p) == 0.0:
+                logging.info("skipping zero length segment")
+                continue
             segs.append([p1, p2])
         self._segments = segs
-        pipe_bend_radius = self.pipe_bend_radius
 
         # Make elbows and adjust segments
         edges = []
         fillets = []
         swept_solids = []
         self._elbows = []
-        new_segments = []
+        props = dict(section=self.section, material=self.material, parent=self, units=self.units)
         for i, (seg1, seg2) in enumerate(zip(self.segments[:-1], self.segments[1:])):
             p11, p12 = seg1
             p21, p22 = seg2
             xvec1 = p12.p - p11.p
             xvec2 = p22.p - p21.p
-            normal = unit_vector(np.cross(xvec1, xvec2))
-            edge1 = Pipe.make_edge(seg1) if i == 0 else edges[-1]
-            edge2 = Pipe.make_edge(seg2)
-            ed1, ed2, fillet = self.make_fillet(edge1, edge2, normal, pipe_bend_radius)
-
-            if ed1.IsNull() is False:
-                edges.append(ed1)
-
-            if ed2.IsNull() is False:
-                edges.append(ed2)
+            if angle_between(xvec1, xvec2) in (np.pi, 0):
+                self.param_segments.append(
+                    PipeSegStraight(self.name + f"_{i+1}_1", p11, p12, **props)
+                )
             else:
-                edges.append(edge2)
+                if p12 != p21:
+                    logging.error("No shared point found")
+                if _Settings.make_elbows is False:
+                    self.param_segments.append(PipeSegStraight(self.name + f"_{i+1}_1", p11, p12, **props))
+                else:
+                    self.param_segments.append(
+                        PipeSegElbow(
+                            self.name + f"_{i+1}",
+                            p11,
+                            p12,
+                            p22,
+                            self.pipe_bend_radius,
+                            **props
+                        )
+                    )
 
-            if fillet.IsNull() is False:
-                fillets.append((xvec1, fillet))
-            else:
-                logging.error("Fillet is null. Skipping")
-                continue
-            t = TopologyExplorer(fillet)
-            ps = [BRep_Tool_Pnt(v) for v in t.vertices()]
-            if len(ps) == 0:
-                logging.debug("No Edges created")
-                continue
-            ns = Node([ps[0].X(), ps[0].Y(), ps[0].Z()], units=self.units)
-            ne = Node([ps[-1].X(), ps[-1].Y(), ps[-1].Z()], units=self.units)
-            if i == 0:
-                s1n = [seg1[0], ns]
-                s2n = [ne, seg2[1]]
-                new_segments.append(s1n)
-                new_segments.append(s2n)
-            else:
-                s2n = [ne, seg2[1]]
-                new_segments[-1][1] = ns
-                new_segments.append(s2n)
-            swept_solids.append(self.sweep_pipe(ed1, xvec1))
-            if i == len(self._segments) - 2:
-                swept_solids.append(self.sweep_pipe(ed2, xvec2))
-            elbow = self.sweep_pipe(fillet, xvec1)
-            self._elbows.append(elbow)
-        if len(self._segments) > 1:
-            self._segments = new_segments
-        else:
-            if len(self._segments) == 1:
-                seg = self._segments[0]
-                p1, p2 = seg
-                xvec = p2.p - p1.p
-                edge = Pipe.make_edge(seg)
-                edges.append(edge)
-                swept_solids.append(self.sweep_pipe(edge, xvec))
         self._swept_solids = swept_solids
         self._edges = edges
         self._fillets = fillets
 
-    def sweep_pipe(self, edge, xvec):
-        from OCC.Core.BRep import BRep_Tool_Pnt
-        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
-        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeWire
-        from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe
-        from OCC.Core.gp import gp_Dir
-        from OCC.Extend.TopologyUtils import TopologyExplorer
+    @property
+    def param_segments(self):
+        """
 
-        t = TopologyExplorer(edge)
-        points = [v for v in t.vertices()]
-        point = BRep_Tool_Pnt(points[0])
-        # x, y, z = point.X(), point.Y(), point.Z()
-        direction = gp_Dir(*unit_vector(xvec).astype(float).tolist())
-        o = self.make_sec_face(point, direction, self.section.r)
-        i = self.make_sec_face(point, direction, self.section.r - self.section.wt)
-
-        # pipe
-        makeWire = BRepBuilderAPI_MakeWire()
-        makeWire.Add(edge)
-        makeWire.Build()
-        wire = makeWire.Wire()
-        try:
-            elbow_o = BRepOffsetAPI_MakePipe(wire, o).Shape()
-            elbow_i = BRepOffsetAPI_MakePipe(wire, i).Shape()
-        except RuntimeError as e:
-            logging.error(e)
-            return wire
-
-        boolean_result = BRepAlgoAPI_Cut(elbow_o, elbow_i).Shape()
-        if boolean_result.IsNull():
-            logging.debug("Boolean returns None")
-        return boolean_result
-
-    def _generate_ifc_pipe_segments(self):
-        import ifcopenshell.geom
-
-        from ada.core.ifc_utils import (  # create_ifcrevolveareasolid,
-            create_ifcaxis2placement,
-            create_ifclocalplacement,
-            create_ifcpolyline,
-            to_real,
-        )
-
-        if self.parent is None:
-            raise ValueError("Parent cannot be None for IFC export")
-
-        a = self.parent.get_assembly()
-        f = a.ifc_file
-
-        context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = f.by_type("IfcOwnerHistory")[0]
-        parent = self.parent.ifc_elem
-        schema = a.ifc_file.wrapped_data.schema
-
-        segments = []
-        polylines = []
-        pipe_segments = []
-
-        profile = f.createIfcCircleHollowProfileDef("AREA", self.section.name, None, self.section.r, self.section.wt)
-        ifcdir = f.createIfcDirection((0.0, 0.0, 1.0))
-
-        for i, (p1, p2) in enumerate(self.segments):
-            rp1 = to_real(p1.p)
-            rp2 = to_real(p2.p)
-            xvec = unit_vector(p2.p - p1.p)
-            a = angle_between(xvec, np.array([0, 0, 1]))
-            zvec = np.array([0, 0, 1]) if a != np.pi and a != 0 else np.array([1, 0, 0])
-            yvec = unit_vector(np.cross(zvec, xvec))
-            seg_l = vector_length(p2.p - p1.p)
-
-            extrusion_placement = create_ifcaxis2placement(f, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
-
-            solid = f.createIfcExtrudedAreaSolid(profile, extrusion_placement, ifcdir, seg_l)
-
-            polyline = create_ifcpolyline(f, [rp1, rp2])
-
-            segments.append(solid)
-            polylines.append(polyline)
-
-            axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve3D", [polyline])
-            body_representation = f.createIfcShapeRepresentation(context, "Body", "SweptSolid", [solid])
-
-            product_shape = f.createIfcProductDefinitionShape(None, None, [axis_representation, body_representation])
-
-            origin = f.createIfcCartesianPoint((0.0, 0.0, 0.0))
-            local_z = f.createIfcDirection((0.0, 0.0, 1.0))
-            local_x = f.createIfcDirection((1.0, 0.0, 0.0))
-            d237 = f.createIfcLocalPlacement(None, f.createIfcAxis2Placement3D(origin, local_z, local_x))
-
-            d256 = f.createIfcCartesianPoint(rp1)
-            d257 = f.createIfcDirection(to_real(xvec))
-            d258 = f.createIfcDirection(to_real(yvec))
-            d236 = f.createIfcAxis2Placement3D(d256, d257, d258)
-            local_placement = f.createIfcLocalPlacement(d237, d236)
-
-            pipe_segment = f.createIfcPipeSegment(
-                create_guid(),
-                owner_history,
-                f"{self.name}{i}",
-                "An awesome pipe",
-                None,
-                local_placement,
-                product_shape,
-                None,
-            )
-            pipe_segments.append(pipe_segment)
-
-            ifc_mat = self.material.ifc_mat
-            mat_profile = f.createIfcMaterialProfile(self.material.name, None, ifc_mat, profile, None, None)
-            mat_profile_set = f.createIfcMaterialProfileSet(None, None, [mat_profile], None)
-            mat_profile_set = f.createIfcMaterialProfileSetUsage(mat_profile_set, 8, None)
-            f.createIfcRelAssociatesMaterial(create_guid(), None, None, None, [pipe_segment], mat_profile_set)
-
-        # Add elbows
-        # TODO: Make this parametric by using swept geom
-        for i, elbow_shape in enumerate(self.elbows):
-            pfitting_placement = create_ifclocalplacement(
-                f,
-                (0.0, 0.0, 0.0),
-                (0.0, 0.0, 1.0),
-                (1.0, 0.0, 0.0),
-                parent.ObjectPlacement,
-            )
-
-            # ifc_elbow = f.add(ifcopenshell_geom.serialise(schema=self.schema, string_or_shape=elbow_shape))
-            ifc_elbow = f.add(ifcopenshell.geom.tesselate(schema, elbow_shape, self.faceted_tol))
-            #
-            # # Link to representation context
-            for rep in ifc_elbow.Representations:
-                rep.ContextOfItems = context
-
-            pfitting = f.createIfcPipeFitting(
-                create_guid(),
-                owner_history,
-                f"Elbow{i}",
-                "An awesome Elbow",
-                None,
-                pfitting_placement,
-                ifc_elbow,
-                None,
-                None,
-            )
-            # pfitting.Representation = ifc_elbow
-            pipe_segments.append(pfitting)
-
-        return pipe_segments
+        :return: List of parame
+        :rtype: list
+        """
+        return self._param_segments
 
     @property
     def material(self):
@@ -2887,69 +2723,6 @@ class Pipe(BackendGeom):
     def n2(self):
         return self._n2
 
-    @staticmethod
-    def make_edge(segment):
-        """
-
-        :param segment:
-        :return:
-        :rtype: OCC.Core.TopoDS.TopoDS_Edge
-        """
-        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge
-        from OCC.Core.gp import gp_Pnt
-
-        p1, p2 = segment
-        res = BRepBuilderAPI_MakeEdge(gp_Pnt(*p1.p.tolist()), gp_Pnt(*p2.p.tolist())).Edge()
-
-        if res.IsNull():
-            logging.debug("Edge creation returned None")
-        return res
-
-    @staticmethod
-    def make_fillet(edge1, edge2, normal, bend_radius):
-        import copy
-
-        from OCC.Core.BRep import BRep_Tool_Pnt
-        from OCC.Core.ChFi2d import ChFi2d_AnaFilletAlgo
-        from OCC.Core.gp import gp_Dir, gp_Pln, gp_Vec
-        from OCC.Extend.TopologyUtils import TopologyExplorer
-
-        from ada.core.utils import is_edges_ok
-
-        f = ChFi2d_AnaFilletAlgo()
-        plane_normal = gp_Dir(gp_Vec(*normal[:3]))
-        t = TopologyExplorer(edge1)
-        apt = None
-        for v in t.vertices():
-            apt = BRep_Tool_Pnt(v)
-        ed1 = copy.copy(edge1)
-        ed2 = copy.copy(edge2)
-        f.Init(ed1, ed2, gp_Pln(apt, plane_normal))
-        f.Perform(bend_radius * 0.999)
-        fillet2d = f.Result(ed1, ed2)
-        if is_edges_ok(ed1, fillet2d, ed2) is False:
-            logging.debug("Is Edges algorithm fails on edges")
-
-        if fillet2d.IsNull() is True:
-            logging.debug("Fillet is null")
-
-        return ed1, ed2, fillet2d
-
-    @staticmethod
-    def make_sec_face(point, direction, radius):
-        from OCC.Core.BRepBuilderAPI import (
-            BRepBuilderAPI_MakeEdge,
-            BRepBuilderAPI_MakeFace,
-            BRepBuilderAPI_MakeWire,
-        )
-        from OCC.Core.gp import gp_Ax2, gp_Circ
-
-        circle = gp_Circ(gp_Ax2(point, direction), radius)
-        profile_edge = BRepBuilderAPI_MakeEdge(circle).Edge()
-        profile_wire = BRepBuilderAPI_MakeWire(profile_edge).Wire()
-        profile_face = BRepBuilderAPI_MakeFace(profile_wire).Face()
-        return profile_face
-
     @property
     def units(self):
         return self._units
@@ -2967,20 +2740,224 @@ class Pipe(BackendGeom):
             self._units = value
 
     @property
-    def faceted_tol(self):
-        if self.units == "m":
-            return 1e-2
-        else:
-            return 1
-
-    @property
     def ifc_elem(self):
         if self._ifc_elem is None:
-            self._ifc_elem = self._generate_ifc_pipe_segments()
+            segments = []
+            for param_seg in self.param_segments:
+                res = param_seg.to_ifc_elem()
+                if res is None:
+                    logging.error(f'Branch "{param_seg.name}" was not converted to ifc element')
+                segments += [res]
+            self._ifc_elem = segments
         return self._ifc_elem
 
     def __repr__(self):
         return f"Pipe({self.name}, {self.section})"
+
+
+class PipeSegStraight(BackendGeom):
+    def __init__(self, name, p1, p2, section, material, parent=None, guid=None, metadata=None, units="m", colour=None):
+        super(PipeSegStraight, self).__init__(name, guid, metadata, units, parent, colour)
+        self.p1 = p1
+        self.p2 = p2
+        self.section = section
+        self.material = material
+
+    @property
+    def xvec1(self):
+        return self.p2 - self.p1
+
+    def geom(self):
+        from ada.core.utils import sweep_pipe, make_edge
+
+        edge = make_edge(self.p1, self.p2)
+        return sweep_pipe(edge, self.xvec1, self.section.r, self.section.wt)
+
+    def to_ifc_elem(self):
+        from ada.core.ifc_utils import (  # create_ifcrevolveareasolid,
+            create_ifcaxis2placement,
+            create_ifclocalplacement,
+            create_ifcpolyline,
+            to_real,
+        )
+
+        if self.parent is None:
+            raise ValueError("Parent cannot be None for IFC export")
+
+        a = self.parent.get_assembly()
+        f = a.ifc_file
+
+        context = f.by_type("IfcGeometricRepresentationContext")[0]
+        owner_history = f.by_type("IfcOwnerHistory")[0]
+
+        p1 = self.p1
+        p2 = self.p2
+
+        ifcdir = f.createIfcDirection((0.0, 0.0, 1.0))
+
+        rp1 = to_real(p1.p)
+        rp2 = to_real(p2.p)
+        xvec = unit_vector(p2.p - p1.p)
+        a = angle_between(xvec, np.array([0, 0, 1]))
+        zvec = np.array([0, 0, 1]) if a != np.pi and a != 0 else np.array([1, 0, 0])
+        yvec = unit_vector(np.cross(zvec, xvec))
+        seg_l = vector_length(p2.p - p1.p)
+
+        extrusion_placement = create_ifcaxis2placement(f, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+
+        solid = f.createIfcExtrudedAreaSolid(self.section.ifc_profile, extrusion_placement, ifcdir, seg_l)
+
+        polyline = create_ifcpolyline(f, [rp1, rp2])
+
+        axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve3D", [polyline])
+        body_representation = f.createIfcShapeRepresentation(context, "Body", "SweptSolid", [solid])
+
+        product_shape = f.createIfcProductDefinitionShape(None, None, [axis_representation, body_representation])
+
+        origin = f.createIfcCartesianPoint((0.0, 0.0, 0.0))
+        local_z = f.createIfcDirection((0.0, 0.0, 1.0))
+        local_x = f.createIfcDirection((1.0, 0.0, 0.0))
+        d237 = f.createIfcLocalPlacement(None, f.createIfcAxis2Placement3D(origin, local_z, local_x))
+
+        d256 = f.createIfcCartesianPoint(rp1)
+        d257 = f.createIfcDirection(to_real(xvec))
+        d258 = f.createIfcDirection(to_real(yvec))
+        d236 = f.createIfcAxis2Placement3D(d256, d257, d258)
+        local_placement = f.createIfcLocalPlacement(d237, d236)
+
+        pipe_segment = f.createIfcPipeSegment(
+            create_guid(),
+            owner_history,
+            self.name,
+            "An awesome pipe",
+            None,
+            local_placement,
+            product_shape,
+            None,
+        )
+
+        ifc_mat = self.material.ifc_mat
+        mat_profile = f.createIfcMaterialProfile(
+            self.material.name, None, ifc_mat, self.section.ifc_profile, None, None
+        )
+        mat_profile_set = f.createIfcMaterialProfileSet(None, None, [mat_profile], None)
+        mat_profile_set = f.createIfcMaterialProfileSetUsage(mat_profile_set, 8, None)
+        f.createIfcRelAssociatesMaterial(create_guid(), None, None, None, [pipe_segment], mat_profile_set)
+
+        return pipe_segment
+
+
+class PipeSegElbow(BackendGeom):
+    def __init__(
+        self,
+        name,
+        p1,
+        p2,
+        p3,
+        bend_radius,
+        section,
+        material,
+        parent=None,
+        guid=None,
+        metadata=None,
+        units="m",
+        colour=None,
+    ):
+        super(PipeSegElbow, self).__init__(name, guid, metadata, units, parent, colour)
+        self.p1 = p1
+        self.p2 = p2
+        self.p3 = p3
+        self.bend_radius = bend_radius
+        self.section = section
+        self.material = material
+
+    @property
+    def parent(self):
+        """
+        :rtype: Pipe
+        """
+        return self._parent
+
+    @property
+    def xvec1(self):
+        return self.p2.p - self.p1.p
+
+    @property
+    def xvec2(self):
+        return self.p3.p - self.p2.p
+
+    def geom(self):
+        from ada.core.utils import sweep_pipe, make_fillet, make_edge
+
+        edge1 = make_edge(self.p1.p, self.p2.p)
+        edge2 = make_edge(self.p2.p, self.p3.p)
+        if edge1.IsNull() or edge2.IsNull():
+            logging.error(f'Elbow "{self.name}" - edge is null')
+            return None
+
+        if _Settings.make_elbows:
+            try:
+                ed1, ed2, fillet = make_fillet(edge1, edge2, self.bend_radius)
+            except ValueError as e:
+                logging.error(f'Elbow "{self.name}" - fillet is null')
+                return None
+            return sweep_pipe(fillet, self.xvec1, self.section.r, self.section.wt)
+        else:
+            return sweep_pipe(edge1, self.xvec1, self.section.r, self.section.wt)
+
+    def to_ifc_elem(self):
+        import ifcopenshell.geom
+        from ada.core.utils import faceted_tol
+        from ada.core.ifc_utils import (  # create_ifcrevolveareasolid,
+            create_ifcaxis2placement,
+            create_ifclocalplacement,
+            create_ifcpolyline,
+            to_real,
+        )
+
+        if self.parent is None:
+            raise ValueError("Parent cannot be None for IFC export")
+
+        a = self.parent.get_assembly()
+        f = a.ifc_file
+
+        context = f.by_type("IfcGeometricRepresentationContext")[0]
+        owner_history = f.by_type("IfcOwnerHistory")[0]
+        parent = self.parent.parent.ifc_elem
+        schema = a.ifc_file.wrapped_data.schema
+
+        pfitting_placement = create_ifclocalplacement(
+            f,
+            (0.0, 0.0, 0.0),
+            (0.0, 0.0, 1.0),
+            (1.0, 0.0, 0.0),
+            parent.ObjectPlacement,
+        )
+
+        # ifc_elbow = f.add(ifcopenshell_geom.serialise(schema=self.schema, string_or_shape=elbow_shape))
+        shape = self.geom()
+        if shape is None:
+            logging.error(f"Unable to create geometry for Branch {self.name}")
+            return None
+        ifc_elbow = f.add(ifcopenshell.geom.tesselate(schema, shape, faceted_tol(self.units)))
+        #
+        # # Link to representation context
+        for rep in ifc_elbow.Representations:
+            rep.ContextOfItems = context
+
+        pfitting = f.createIfcPipeFitting(
+            create_guid(),
+            owner_history,
+            self.name,
+            "An awesome Elbow",
+            None,
+            pfitting_placement,
+            ifc_elbow,
+            None,
+            None,
+        )
+        # pfitting.Representation = ifc_elbow
+        return pfitting
 
 
 class Wall(BackendGeom):

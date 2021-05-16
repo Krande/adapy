@@ -2716,7 +2716,12 @@ def make_edge(p1, p2):
     from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge
     from OCC.Core.gp import gp_Pnt
 
-    return BRepBuilderAPI_MakeEdge(gp_Pnt(*[float(x) for x in p1[:3]]), gp_Pnt(*[float(x) for x in p2[:3]])).Edge()
+    res = BRepBuilderAPI_MakeEdge(gp_Pnt(*[float(x) for x in p1[:3]]), gp_Pnt(*[float(x) for x in p2[:3]])).Edge()
+
+    if res.IsNull():
+        logging.debug("Edge creation returned None")
+
+    return res
 
 
 def make_ori_vector(name, origin, csys, pnt_r=0.2, cyl_l: Union[float, list, tuple] = 0.3, cyl_r=0.2, units="m"):
@@ -3043,3 +3048,63 @@ def calc_zvec(x_vec, y_vec=None):
         return z_vec
     else:
         np.cross(x_vec, y_vec)
+
+
+def faceted_tol(units):
+    """
+
+    :param units:
+    :return:
+    """
+    if units == "m":
+        return 1e-2
+    else:
+        return 1
+
+def make_sec_face(point, direction, radius):
+    from OCC.Core.BRepBuilderAPI import (
+        BRepBuilderAPI_MakeEdge,
+        BRepBuilderAPI_MakeFace,
+        BRepBuilderAPI_MakeWire,
+    )
+    from OCC.Core.gp import gp_Ax2, gp_Circ
+
+    circle = gp_Circ(gp_Ax2(point, direction), radius)
+    profile_edge = BRepBuilderAPI_MakeEdge(circle).Edge()
+    profile_wire = BRepBuilderAPI_MakeWire(profile_edge).Wire()
+    profile_face = BRepBuilderAPI_MakeFace(profile_wire).Face()
+    return profile_face
+
+
+def sweep_pipe(edge, xvec, r, wt):
+    from OCC.Core.BRep import BRep_Tool_Pnt
+    from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeWire
+    from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe
+    from OCC.Core.gp import gp_Dir
+    from OCC.Extend.TopologyUtils import TopologyExplorer
+
+    t = TopologyExplorer(edge)
+    points = [v for v in t.vertices()]
+    point = BRep_Tool_Pnt(points[0])
+    # x, y, z = point.X(), point.Y(), point.Z()
+    direction = gp_Dir(*unit_vector(xvec).astype(float).tolist())
+    o = make_sec_face(point, direction, r)
+    i = make_sec_face(point, direction, r - wt)
+
+    # pipe
+    makeWire = BRepBuilderAPI_MakeWire()
+    makeWire.Add(edge)
+    makeWire.Build()
+    wire = makeWire.Wire()
+    try:
+        elbow_o = BRepOffsetAPI_MakePipe(wire, o).Shape()
+        elbow_i = BRepOffsetAPI_MakePipe(wire, i).Shape()
+    except RuntimeError as e:
+        logging.error(f'Elbow creation failed: "{e}"')
+        return wire
+
+    boolean_result = BRepAlgoAPI_Cut(elbow_o, elbow_i).Shape()
+    if boolean_result.IsNull():
+        logging.debug("Boolean returns None")
+    return boolean_result
