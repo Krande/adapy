@@ -648,7 +648,7 @@ class MyRenderer(JupyterRenderer):
                     html_value = self._click_ada_to_html(obj)
                 except BaseException as e:
                     html_value = f'An error occured: "{str(e)}"'
-                self.html.value = html_value
+                self.html.value = f'<div style="margin: 0 auto; width:300px;">{html_value}</div>'
                 self._current_shape_selection = selected_shape
             else:
                 self.html.value = "<b>Shape type:</b> None<br><b>Shape id:</b> None"
@@ -665,6 +665,16 @@ class MyRenderer(JupyterRenderer):
         """
         from ada import Beam, Part, Pipe, Plate, Shape, Wall
         from ada.fem.utils import get_eldata
+
+        def write_metadata_to_html(met_d):
+            table_str = ''
+            for subkey, val in met_d.items():
+                if type(val) is dict:
+                    table_str += f"<tr></tr><td><b>{subkey}:</b></td></tr></tr>"
+                    table_str += write_metadata_to_html(val)
+                else:
+                    table_str += f"<tr><td>{subkey}</td><td>{val}</td></tr>"
+            return table_str
 
         part_name = self._refs[obj.name].name if obj.name in self._refs.keys() else obj.name
         selected_part = self._refs[obj.name] if obj.name in self._refs.keys() else None
@@ -707,14 +717,7 @@ class MyRenderer(JupyterRenderer):
             table_str = f'<div style="height:{self._size[1]}px;overflow:auto;line-height:1.0">'
             table_str += '<font size="2px" face="Arial" >'
             table_str += '<table style="width:100%;border: 1px solid black;"><tr><th>Key</th><th>Value</th></tr>'
-            for key, value in selected_part.metadata.items():
-                if type(value) is dict:
-                    for subkey, val in value.items():
-                        if type(val) is dict:
-                            logging.debug(f"Shape {selected_part} Metadata {key} is beyond 2 levels dict.")
-                        table_str += f"<tr><td>{subkey}</td><td>{val}</td></tr>"
-                else:
-                    table_str += f"<tr><td>{key}</td><td>{value}</td></tr>"
+            table_str += write_metadata_to_html(selected_part.metadata)
             table_str += "</table></font></div>"
             html_value += table_str
         elif type(selected_part) is Pipe:
