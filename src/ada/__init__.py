@@ -2622,9 +2622,7 @@ class Pipe(BackendGeom):
             xvec1 = p12.p - p11.p
             xvec2 = p22.p - p21.p
             if angle_between(xvec1, xvec2) in (np.pi, 0):
-                self.param_segments.append(
-                    PipeSegStraight(self.name + f"_{i+1}_1", p11, p12, **props)
-                )
+                self.param_segments.append(PipeSegStraight(self.name + f"_{i+1}_1", p11, p12, **props))
             else:
                 if p12 != p21:
                     logging.error("No shared point found")
@@ -2632,14 +2630,7 @@ class Pipe(BackendGeom):
                     self.param_segments.append(PipeSegStraight(self.name + f"_{i+1}_1", p11, p12, **props))
                 else:
                     self.param_segments.append(
-                        PipeSegElbow(
-                            self.name + f"_{i+1}",
-                            p11,
-                            p12,
-                            p22,
-                            self.pipe_bend_radius,
-                            **props
-                        )
+                        PipeSegElbow(self.name + f"_{i+1}", p11, p12, p22, self.pipe_bend_radius, **props)
                     )
 
         self._swept_solids = swept_solids
@@ -2768,7 +2759,7 @@ class PipeSegStraight(BackendGeom):
         return self.p2 - self.p1
 
     def geom(self):
-        from ada.core.utils import sweep_pipe, make_edge
+        from ada.core.utils import make_edge, sweep_pipe
 
         edge = make_edge(self.p1, self.p2)
         return sweep_pipe(edge, self.xvec1, self.section.r, self.section.wt)
@@ -2776,7 +2767,6 @@ class PipeSegStraight(BackendGeom):
     def to_ifc_elem(self):
         from ada.core.ifc_utils import (  # create_ifcrevolveareasolid,
             create_ifcaxis2placement,
-            create_ifclocalplacement,
             create_ifcpolyline,
             to_real,
         )
@@ -2887,7 +2877,7 @@ class PipeSegElbow(BackendGeom):
         return self.p3.p - self.p2.p
 
     def geom(self):
-        from ada.core.utils import sweep_pipe, make_fillet, make_edge
+        from ada.core.utils import make_edge, make_fillet, sweep_pipe
 
         edge1 = make_edge(self.p1.p, self.p2.p)
         edge2 = make_edge(self.p2.p, self.p3.p)
@@ -2898,7 +2888,7 @@ class PipeSegElbow(BackendGeom):
         if _Settings.make_elbows:
             try:
                 ed1, ed2, fillet = make_fillet(edge1, edge2, self.bend_radius)
-            except ValueError as e:
+            except ValueError:
                 logging.error(f'Elbow "{self.name}" - fillet is null')
                 return None
             return sweep_pipe(fillet, self.xvec1, self.section.r, self.section.wt)
@@ -2907,13 +2897,9 @@ class PipeSegElbow(BackendGeom):
 
     def to_ifc_elem(self):
         import ifcopenshell.geom
+
+        from ada.core.ifc_utils import create_ifclocalplacement
         from ada.core.utils import faceted_tol
-        from ada.core.ifc_utils import (  # create_ifcrevolveareasolid,
-            create_ifcaxis2placement,
-            create_ifclocalplacement,
-            create_ifcpolyline,
-            to_real,
-        )
 
         if self.parent is None:
             raise ValueError("Parent cannot be None for IFC export")

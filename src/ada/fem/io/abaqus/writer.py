@@ -1441,9 +1441,9 @@ def bc_str(bc, fem_writer):
 
     dofs_str = dofs_str.rstrip()
     add_map = {
-        "connector displacement": ("*Connector Motion",", type=DISPLACEMENT"),
+        "connector displacement": ("*Connector Motion", ", type=DISPLACEMENT"),
         "connector velocity": ("*Connector Motion", ", type=VELOCITY"),
-        "other": ("*Boundary","")
+        "other": ("*Boundary", ""),
     }
 
     if bc.type in add_map.keys():

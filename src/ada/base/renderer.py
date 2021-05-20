@@ -667,7 +667,7 @@ class MyRenderer(JupyterRenderer):
         from ada.fem.utils import get_eldata
 
         def write_metadata_to_html(met_d):
-            table_str = ''
+            table_str = ""
             for subkey, val in met_d.items():
                 if type(val) is dict:
                     table_str += f"<tr></tr><td><b>{subkey}:</b></td></tr></tr>"

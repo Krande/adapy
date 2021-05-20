@@ -2171,6 +2171,7 @@ class Bc(FemBase):
     def __repr__(self):
         return f'Bc("{self.name}", type="{self.type}", dofs={self.dofs}, fem_set="{self.fem_set.name}")'
 
+
 class Mass(FemBase):
     """
 

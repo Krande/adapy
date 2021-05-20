@@ -6,10 +6,9 @@ import os
 import pathlib
 import shutil
 import uuid
-import warnings
 import zipfile
-from typing import Union
 from decimal import ROUND_HALF_EVEN, Decimal
+from typing import Union
 
 import ifcopenshell
 import numpy as np
@@ -2136,6 +2135,27 @@ def get_time_stamp_now():
     return utc.localize(datetime.datetime.utcnow())
 
 
+def datetime_to_str(obj):
+    return obj.isoformat()
+
+
+def get_last_file_modified(file_dir, file_ext):
+    last_date = None
+    for f in get_list_of_files(file_dir, file_ext):
+        curr_date = get_file_time_local(f)
+        if last_date is None:
+            last_date = curr_date
+        elif curr_date > last_date:
+            last_date = curr_date
+    return last_date
+
+
+def datetime_from_str(obj_str):
+    import dateutil.parser
+
+    return dateutil.parser.parse(obj_str)
+
+
 def path_leaf(path):
     import ntpath
 
@@ -3060,6 +3080,7 @@ def faceted_tol(units):
         return 1e-2
     else:
         return 1
+
 
 def make_sec_face(point, direction, radius):
     from OCC.Core.BRepBuilderAPI import (
