@@ -1738,7 +1738,7 @@ class NewLine:
 
 class Counter:
     def __init__(self, start=1, prefix=None):
-        self.i = start
+        self.i = start-1
         self._prefix = prefix
 
     def set_i(self, i):

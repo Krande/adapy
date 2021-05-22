@@ -2575,6 +2575,7 @@ class Pipe(BackendGeom):
         colour=None,
         units="m",
         guid=None,
+            **kwargs
     ):
         super().__init__(name, guid=guid, metadata=metadata, units=units)
 
@@ -2595,9 +2596,9 @@ class Pipe(BackendGeom):
         self._swept_solids = None
         self._edges = None
         self._fillets = None
-        self._build_pipe()
+        self._build_pipe(**kwargs)
 
-    def _build_pipe(self):
+    def _build_pipe(self, **kwargs):
         """
 
         :return:
@@ -2610,28 +2611,38 @@ class Pipe(BackendGeom):
             segs.append([p1, p2])
         self._segments = segs
 
+        seg_names = Counter(prefix=self.name+'_')
+
         # Make elbows and adjust segments
         edges = []
         fillets = []
         swept_solids = []
         self._elbows = []
         props = dict(section=self.section, material=self.material, parent=self, units=self.units)
+
         for i, (seg1, seg2) in enumerate(zip(self.segments[:-1], self.segments[1:])):
             p11, p12 = seg1
             p21, p22 = seg2
             xvec1 = p12.p - p11.p
             xvec2 = p22.p - p21.p
             if angle_between(xvec1, xvec2) in (np.pi, 0):
-                self.param_segments.append(PipeSegStraight(self.name + f"_{i+1}_1", p11, p12, **props))
+                self.param_segments.append(PipeSegStraight(next(seg_names), p11, p12, **props))
             else:
                 if p12 != p21:
                     logging.error("No shared point found")
-                if _Settings.make_elbows is False:
-                    self.param_segments.append(PipeSegStraight(self.name + f"_{i+1}_1", p11, p12, **props))
+                if kwargs.get('make_elbows', False) is False:
+                    self.param_segments.append(PipeSegStraight(next(seg_names), p11, p12, **props))
                 else:
-                    self.param_segments.append(
-                        PipeSegElbow(self.name + f"_{i+1}", p11, p12, p22, self.pipe_bend_radius, **props)
-                    )
+                    curve = CurvePoly(points3d=[p11.p, list(p12.p) + [self.pipe_bend_radius], p22.p], is_closed=False)
+                    for c in curve.seg_list:
+                        if type(c) is LineSegment:
+                            assert isinstance(c, LineSegment)
+                            self.param_segments.append(PipeSegStraight(next(seg_names), Node(c.p1), Node(c.p2), **props))
+                        else:
+                            assert isinstance(c, ArcSegment)
+                            self.param_segments.append(
+                                PipeSegElbow(next(seg_names)+'_Elbow', Node(c.p1), Node(c.midpoint), Node(c.p2), c.radius, **props)
+                            )
 
         self._swept_solids = swept_solids
         self._edges = edges
@@ -2738,7 +2749,7 @@ class Pipe(BackendGeom):
                 res = param_seg.to_ifc_elem()
                 if res is None:
                     logging.error(f'Branch "{param_seg.name}" was not converted to ifc element')
-                segments += [res]
+                segments += res
             self._ifc_elem = segments
         return self._ifc_elem
 
@@ -2834,7 +2845,7 @@ class PipeSegStraight(BackendGeom):
         mat_profile_set = f.createIfcMaterialProfileSetUsage(mat_profile_set, 8, None)
         f.createIfcRelAssociatesMaterial(create_guid(), None, None, None, [pipe_segment], mat_profile_set)
 
-        return pipe_segment
+        return [pipe_segment]
 
 
 class PipeSegElbow(BackendGeom):
@@ -2857,6 +2868,7 @@ class PipeSegElbow(BackendGeom):
         self.p1 = p1
         self.p2 = p2
         self.p3 = p3
+        self.curve = CurvePoly(points3d=[self.p1.p, list(self.p2.p)+[bend_radius], self.p3.p], is_closed=False)
         self.bend_radius = bend_radius
         self.section = section
         self.material = material
@@ -2878,22 +2890,7 @@ class PipeSegElbow(BackendGeom):
 
     def geom(self):
         from ada.core.utils import make_edge, make_fillet, sweep_pipe
-
-        edge1 = make_edge(self.p1.p, self.p2.p)
-        edge2 = make_edge(self.p2.p, self.p3.p)
-        if edge1.IsNull() or edge2.IsNull():
-            logging.error(f'Elbow "{self.name}" - edge is null')
-            return None
-
-        if _Settings.make_elbows:
-            try:
-                ed1, ed2, fillet = make_fillet(edge1, edge2, self.bend_radius)
-            except ValueError:
-                logging.error(f'Elbow "{self.name}" - fillet is null')
-                return None
-            return sweep_pipe(fillet, self.xvec1, self.section.r, self.section.wt)
-        else:
-            return sweep_pipe(edge1, self.xvec1, self.section.r, self.section.wt)
+        return sweep_pipe(self.curve.wire, self.xvec1, self.section.r, self.section.wt)
 
     def to_ifc_elem(self):
         import ifcopenshell.geom
@@ -2925,8 +2922,21 @@ class PipeSegElbow(BackendGeom):
         if shape is None:
             logging.error(f"Unable to create geometry for Branch {self.name}")
             return None
-        ifc_elbow = f.add(ifcopenshell.geom.tesselate(schema, shape, faceted_tol(self.units)))
-        #
+
+        occ_string = ifcopenshell.geom.occ_utils.serialize_shape(shape)
+        serialized_geom = ifcopenshell.geom.serialise(schema, occ_string)
+
+        if serialized_geom is None:
+            if a.units == "mm":
+                tol = _Settings.mmtol
+            elif a.units == "m":
+                tol = _Settings.mtol
+            else:
+                raise ValueError(f'Unrecognized unit "{a.units}"')
+            logging.debug("Starting serialization of geometry")
+            serialized_geom = ifcopenshell.geom.tesselate(schema, occ_string, tol)
+
+        ifc_elbow = f.add(serialized_geom)
         # # Link to representation context
         for rep in ifc_elbow.Representations:
             rep.ContextOfItems = context
@@ -2942,8 +2952,16 @@ class PipeSegElbow(BackendGeom):
             None,
             None,
         )
-        # pfitting.Representation = ifc_elbow
-        return pfitting
+
+        ifc_mat = self.material.ifc_mat
+        mat_profile = f.createIfcMaterialProfile(
+            self.material.name, None, ifc_mat, self.section.ifc_profile, None, None
+        )
+        mat_profile_set = f.createIfcMaterialProfileSet(None, None, [mat_profile], None)
+        mat_profile_set = f.createIfcMaterialProfileSetUsage(mat_profile_set, 8, None)
+        f.createIfcRelAssociatesMaterial(create_guid(), None, None, None, [pfitting], mat_profile_set)
+
+        return [pfitting]
 
 
 class Wall(BackendGeom):

@@ -36,6 +36,7 @@ class PipeIO(unittest.TestCase):
                 (10, y0 + 5, z + 10),
             ],
             Section("PSec", "PIPE", r=0.10, wt=5e-3),
+            make_elbows=False
         )
         p.add_pipe(pipe1)
         a.to_ifc(test_folder / "pipe_bend.ifc")
