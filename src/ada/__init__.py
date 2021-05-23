@@ -2565,17 +2565,7 @@ class Pipe(BackendGeom):
     """
 
     def __init__(
-        self,
-        name,
-        points,
-        sec,
-        mat="S355",
-        content=None,
-        metadata=None,
-        colour=None,
-        units="m",
-        guid=None,
-            **kwargs
+        self, name, points, sec, mat="S355", content=None, metadata=None, colour=None, units="m", guid=None, **kwargs
     ):
         super().__init__(name, guid=guid, metadata=metadata, units=units)
 
@@ -2603,6 +2593,8 @@ class Pipe(BackendGeom):
 
         :return:
         """
+        from ada.core.utils import local_2_global_nodes, make_arc_segment
+
         segs = []
         for p1, p2 in zip(self.points[:-1], self.points[1:]):
             if vector_length(p2.p - p1.p) == 0.0:
@@ -2611,7 +2603,7 @@ class Pipe(BackendGeom):
             segs.append([p1, p2])
         self._segments = segs
 
-        seg_names = Counter(prefix=self.name+'_')
+        seg_names = Counter(prefix=self.name + "_")
 
         # Make elbows and adjust segments
         edges = []
@@ -2630,19 +2622,31 @@ class Pipe(BackendGeom):
             else:
                 if p12 != p21:
                     logging.error("No shared point found")
-                if kwargs.get('make_elbows', False) is False:
+                if kwargs.get("make_elbows", False) is False:
                     self.param_segments.append(PipeSegStraight(next(seg_names), p11, p12, **props))
                 else:
-                    curve = CurvePoly(points3d=[p11.p, list(p12.p) + [self.pipe_bend_radius], p22.p], is_closed=False)
-                    for c in curve.seg_list:
-                        if type(c) is LineSegment:
-                            assert isinstance(c, LineSegment)
-                            self.param_segments.append(PipeSegStraight(next(seg_names), Node(c.p1), Node(c.p2), **props))
-                        else:
-                            assert isinstance(c, ArcSegment)
-                            self.param_segments.append(
-                                PipeSegElbow(next(seg_names)+'_Elbow', Node(c.p1), Node(c.midpoint), Node(c.p2), c.radius, **props)
-                            )
+                    if i != 0:
+                        pseg = self.param_segments[-1]
+                        prev_p = (pseg.p1.p, pseg.p2.p)
+                    else:
+                        prev_p = (p11.p, p12.p)
+                    seg1, arc, seg2 = make_arc_segment(prev_p[0], prev_p[1], p22.p, self.pipe_bend_radius)
+                    if i == 0:
+                        self.param_segments.append(PipeSegStraight(next(seg_names), Node(seg1.p1), Node(seg1.p2), **props))
+                    else:
+                        pseg = self.param_segments[-1]
+                        pseg.p2 = Node(seg1.p2)
+                    self.param_segments.append(
+                        PipeSegElbow(
+                            next(seg_names) + "_Elbow",
+                            Node(arc.p1),
+                            Node(arc.midpoint),
+                            Node(arc.p2),
+                            arc.radius,
+                            **props,
+                        )
+                    )
+                    self.param_segments.append(PipeSegStraight(next(seg_names), Node(seg2.p1), Node(seg2.p2), **props))
 
         self._swept_solids = swept_solids
         self._edges = edges
@@ -2691,7 +2695,7 @@ class Pipe(BackendGeom):
 
     @property
     def geometries(self):
-        return self._elbows + self._swept_solids
+        return [x.geom for x in self._param_segments]
 
     @property
     def pipe_bend_radius(self):
@@ -2767,8 +2771,9 @@ class PipeSegStraight(BackendGeom):
 
     @property
     def xvec1(self):
-        return self.p2 - self.p1
+        return self.p2.p - self.p1.p
 
+    @property
     def geom(self):
         from ada.core.utils import make_edge, sweep_pipe
 
@@ -2868,7 +2873,6 @@ class PipeSegElbow(BackendGeom):
         self.p1 = p1
         self.p2 = p2
         self.p3 = p3
-        self.curve = CurvePoly(points3d=[self.p1.p, list(self.p2.p)+[bend_radius], self.p3.p], is_closed=False)
         self.bend_radius = bend_radius
         self.section = section
         self.material = material
@@ -2888,15 +2892,26 @@ class PipeSegElbow(BackendGeom):
     def xvec2(self):
         return self.p3.p - self.p2.p
 
+    @property
     def geom(self):
-        from ada.core.utils import make_edge, make_fillet, sweep_pipe
-        return sweep_pipe(self.curve.wire, self.xvec1, self.section.r, self.section.wt)
+        from ada.core.utils import sweep_pipe, make_edges_and_fillet_from_3points
+        from OCC.Extend.ShapeFactory import make_wire
+
+        ed1, ed2, fillet = make_edges_and_fillet_from_3points(self.p1, self.p2, self.p3, self.bend_radius)
+        wire = make_wire([ed1, fillet, ed2])
+        i = self.parent.param_segments.index(self)
+        if i != 0:
+            xvec = self.parent.param_segments[i-1].xvec1
+        else:
+            xvec = self.xvec1
+        return sweep_pipe(wire, xvec, self.section.r, self.section.wt)
 
     def to_ifc_elem(self):
         import ifcopenshell.geom
 
         from ada.core.ifc_utils import create_ifclocalplacement
         from ada.core.utils import faceted_tol
+        from ada.core.constants import X, Y, Z, O
 
         if self.parent is None:
             raise ValueError("Parent cannot be None for IFC export")
@@ -2909,16 +2924,10 @@ class PipeSegElbow(BackendGeom):
         parent = self.parent.parent.ifc_elem
         schema = a.ifc_file.wrapped_data.schema
 
-        pfitting_placement = create_ifclocalplacement(
-            f,
-            (0.0, 0.0, 0.0),
-            (0.0, 0.0, 1.0),
-            (1.0, 0.0, 0.0),
-            parent.ObjectPlacement,
-        )
+        pfitting_placement = create_ifclocalplacement(f, O, Z, X, parent.ObjectPlacement)
 
         # ifc_elbow = f.add(ifcopenshell_geom.serialise(schema=self.schema, string_or_shape=elbow_shape))
-        shape = self.geom()
+        shape = self.geom
         if shape is None:
             logging.error(f"Unable to create geometry for Branch {self.name}")
             return None

@@ -311,7 +311,7 @@ class MyRenderer(JupyterRenderer):
         )
 
     def DisplayObj(self, obj):
-        from ada import Beam, Part, Plate, Shape
+        from ada import Beam, Part, Plate, Shape, Pipe
 
         if issubclass(type(obj), Part) is True:
             self.DisplayAdaPart(obj)
@@ -319,6 +319,8 @@ class MyRenderer(JupyterRenderer):
             self.DisplayBeam(obj)
         elif type(obj) is Plate:
             self.DisplayPlate(obj)
+        elif type(obj) is Pipe:
+            self.DisplayPipe(obj)
         elif issubclass(type(obj), Shape):
             self.DisplayAdaShape(obj)
         else:

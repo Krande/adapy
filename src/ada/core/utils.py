@@ -704,7 +704,7 @@ def build_polycurve_occ(local_points, input_2d_coords=False, tol=1e-3):
     return seg_list
 
 
-def build_polycurve(local_points2d, tol=1e-3, debug=False, debug_name=None):
+def build_polycurve(local_points2d, tol=1e-3, debug=False, debug_name=None, is_closed=True):
     """
 
     :param local_points2d:
@@ -714,7 +714,7 @@ def build_polycurve(local_points2d, tol=1e-3, debug=False, debug_name=None):
     :return:
     """
 
-    segc = SegCreator(local_points2d, tol=tol, debug=debug, debug_name=debug_name)
+    segc = SegCreator(local_points2d, tol=tol, debug=debug, debug_name=debug_name, is_closed=is_closed)
     in_loop = True
     while in_loop:
         if segc.radius is not None:
@@ -740,6 +740,28 @@ def build_polycurve(local_points2d, tol=1e-3, debug=False, debug_name=None):
             segc.next()
 
     return segc._seg_list
+
+
+def make_edges_and_fillet_from_3points(p1, p2, p3, radius):
+    edge1 = make_edge(p1[:3], p2[:3])
+    edge2 = make_edge(p2[:3], p3[:3])
+    ed1, ed2, fillet = make_fillet(edge1, edge2, radius)
+    return ed1, ed2, fillet
+
+
+def make_arc_segment(p1, p2, p3, radius):
+    from ada import ArcSegment, LineSegment
+
+    ed1, ed2, fillet = make_edges_and_fillet_from_3points(p1, p2, p3, radius)
+
+    ed1_p = get_edge_points(ed1)
+    ed2_p = get_edge_points(ed2)
+    fil_p = get_edge_points(fillet)
+    midpoint = get_midpoint_of_arc(fillet)
+    l1 = LineSegment(*ed1_p)
+    arc = ArcSegment(fil_p[0], fil_p[1], midpoint, radius)
+    l2 = LineSegment(*ed2_p)
+    return [l1, arc, l2]
 
 
 class SegCreator:
@@ -816,6 +838,8 @@ class SegCreator:
                     self._seg_list.append(LineSegment(p1=self.pseg.p2, p2=self.p2))
 
             # Check AFTER center point
+            if self._is_closed is False:
+                return None
             v = vector_length_2d(np.array(self.p2) - self._seg_list[0].p2)
             if v < self._tol:
                 if self._debug:
@@ -930,6 +954,8 @@ class SegCreator:
         # After Arc
         after_arc_end = None
         if i == len(self._local_points) - 1:
+            if self._is_closed is False:
+                return None
             if vector_length_2d(self._seg_list[0].p1 - np.array(self.arc_end)) > self._tol:
                 after_arc_end = self._seg_list[0].p1
                 seg_after = LineSegment(p1=self.arc_end, p2=self._seg_list[0].p1)
@@ -1738,7 +1764,7 @@ class NewLine:
 
 class Counter:
     def __init__(self, start=1, prefix=None):
-        self.i = start-1
+        self.i = start - 1
         self._prefix = prefix
 
     def set_i(self, i):
@@ -2430,15 +2456,8 @@ def make_fillet(edge1, edge2, bend_radius):
     f = ChFi2d_AnaFilletAlgo()
 
     points1 = get_points_from_edge(edge1)
-    # vec1 = unit_vector(np.array(points1[-1]) - np.array(points1[0]))
-
     points2 = get_points_from_edge(edge2)
-    # vec2 = unit_vector(np.array(points2[-1]) - np.array(points2[0]))
-
-    # par = parallel_check(vec1, vec2)
     normal = normal_to_points_in_plane([np.array(x) for x in points1] + [np.array(x) for x in points2])
-    # normal = unit_vector(np.cross(vec1, vec2))
-
     plane_normal = gp_Dir(gp_Vec(normal[0], normal[1], normal[2]))
 
     t = TopologyExplorer(edge1)
@@ -2735,8 +2754,9 @@ def make_edge(p1, p2):
     """
     from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge
     from OCC.Core.gp import gp_Pnt
-
-    res = BRepBuilderAPI_MakeEdge(gp_Pnt(*[float(x) for x in p1[:3]]), gp_Pnt(*[float(x) for x in p2[:3]])).Edge()
+    p1 = gp_Pnt(*[float(x) for x in p1[:3]])
+    p2 = gp_Pnt(*[float(x) for x in p2[:3]])
+    res = BRepBuilderAPI_MakeEdge(p1, p2).Edge()
 
     if res.IsNull():
         logging.debug("Edge creation returned None")
