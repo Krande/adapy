@@ -35,12 +35,11 @@ class PipeIO(unittest.TestCase):
                 (10, y0 + 5, z + 2),
                 (10, y0 + 5, z + 10),
             ],
-            Section("PSec", "PIPE", r=0.10, wt=5e-3),
-            make_elbows=True
+            Section("PSec", "PIPE", r=0.10, wt=5e-3)
         )
         p.add_pipe(pipe1)
         a.to_ifc(test_folder / "pipe_bend.ifc")
-        # a.to_stp(test_folder / "pipe_bend.stp")
+        a.to_stp(test_folder / "pipe_bend.stp")
         # a._repr_html_()
 
 

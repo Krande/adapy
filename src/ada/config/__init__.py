@@ -28,7 +28,7 @@ class Settings:
     convert_bad_names = False
     use_occ_bounding_box_algo = False
     use_oriented_bbox = True  # This is only relevant if OCC bounding box is True
-    make_elbows = False
+    make_param_elbows = False
 
     # IFC export settings
     include_ecc = True

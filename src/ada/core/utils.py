@@ -564,6 +564,25 @@ def intersect_line_circle(line, center, radius):
     return p
 
 
+def get_center_from_3_points_and_radius(p1, p2, p3, radius):
+    from ada.core.constants import X, Y, Z
+    points = [p1, p2, p3]
+    n = normal_to_points_in_plane(points)
+    xv = p2 - p1
+    yv = calc_yvec(xv, n)
+    if angle_between(xv, X) in (np.pi, 0) and angle_between(yv, Y) in (np.pi, 0):
+        locn = [p-p1 for p in points]
+        res_locn = calc_2darc_start_end_from_lines_radius(*locn, radius)
+        res_glob = [np.array([p[0], p[1], 0])+p1 for p in res_locn]
+    else:
+        locn = global_2_local_nodes([xv, yv], p1, points)
+        res_loc = calc_2darc_start_end_from_lines_radius(*locn, radius)
+        res_glob = local_2_global_nodes(res_loc, p1, xv, n)
+    center, start, end, midp = res_glob
+
+    return center, start, end, midp
+
+
 def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius):
     """
     From intersecting lines and a given radius return the arc start, end, center of radius and a point on the arc
@@ -580,9 +599,9 @@ def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius):
     :return: center, start, end, midp
     """
 
-    p1 = p1 if type(p1) is np.ndarray else np.array(p1)
-    p2 = p2 if type(p2) is np.ndarray else np.array(p2)
-    p3 = p3 if type(p3) is np.ndarray else np.array(p3)
+    p1 = p1[:2] if type(p1) is np.ndarray else np.array(p1[:2])
+    p2 = p2[:2] if type(p2) is np.ndarray else np.array(p2[:2])
+    p3 = p3[:2] if type(p3) is np.ndarray else np.array(p3[:2])
 
     v1 = unit_vector(p2 - p1)
     v2 = unit_vector(p2 - p3)
@@ -758,9 +777,9 @@ def make_arc_segment(p1, p2, p3, radius):
     ed2_p = get_edge_points(ed2)
     fil_p = get_edge_points(fillet)
     midpoint = get_midpoint_of_arc(fillet)
-    l1 = LineSegment(*ed1_p)
-    arc = ArcSegment(fil_p[0], fil_p[1], midpoint, radius)
-    l2 = LineSegment(*ed2_p)
+    l1 = LineSegment(*ed1_p, edge_geom=ed1)
+    arc = ArcSegment(fil_p[0], fil_p[1], midpoint, radius, edge_geom=fillet)
+    l2 = LineSegment(*ed2_p, edge_geom=ed2)
     return [l1, arc, l2]
 
 
@@ -1454,6 +1473,8 @@ def normal_to_points_in_plane(points):
     :param points: List of Node objects
     :return:
     """
+    if len(points) <= 2:
+        raise ValueError("Insufficient number of points")
     p1 = points[0]
     p2 = points[1]
     p3 = points[2]
@@ -2754,6 +2775,7 @@ def make_edge(p1, p2):
     """
     from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge
     from OCC.Core.gp import gp_Pnt
+
     p1 = gp_Pnt(*[float(x) for x in p1[:3]])
     p2 = gp_Pnt(*[float(x) for x in p2[:3]])
     res = BRepBuilderAPI_MakeEdge(p1, p2).Edge()
