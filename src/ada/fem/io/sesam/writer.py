@@ -147,11 +147,11 @@ USER:     {user}            ACCOUNT:     \n"""
         names_str = ""
         concept_str = ""
         thick_map = dict()
-        c = Counter(0)
-        g = Counter(0)
-        ircon = Counter(0)
-        shid = Counter(0)
-        bmid = Counter(0)
+        c = Counter(1)
+        g = Counter(1)
+        ircon = Counter(1)
+        shid = Counter(1)
+        bmid = Counter(1)
         for fem_sec in self._gsections:
             assert isinstance(fem_sec, FemSection)
             if fem_sec.type == "beam":
@@ -376,7 +376,7 @@ USER:     {user}            ACCOUNT:     \n"""
         from ada.core.utils import Counter
 
         out_str = ""
-        h = Counter(0)
+        h = Counter(1)
 
         def write_hinge(hinge):
             dofs = [0 if i in hinge else 1 for i in range(1, 7)]
@@ -404,7 +404,7 @@ USER:     {user}            ACCOUNT:     \n"""
         from ada.core.utils import Counter
 
         out_str = ""
-        unit_vector = Counter(0)
+        unit_vector = Counter(1)
 
         def write_local_z(vec):
             transno = next(unit_vector)

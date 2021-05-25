@@ -29,7 +29,7 @@ class FemElements:
     def renumber(self):
         from ada.core.utils import Counter
 
-        elid = Counter(0)
+        elid = Counter(1)
 
         def mapid2(el):
             """
