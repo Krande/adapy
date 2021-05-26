@@ -565,15 +565,27 @@ def intersect_line_circle(line, center, radius):
 
 
 def get_center_from_3_points_and_radius(p1, p2, p3, radius):
-    from ada.core.constants import X, Y, Z
+    """
+
+    :param p1:
+    :param p2:
+    :param p3:
+    :param radius:
+    :return:
+    """
+    p1 = np.array(p1)
+    p2 = np.array(p2)
+    p3 = np.array(p3)
+    from ada.core.constants import X, Y
+
     points = [p1, p2, p3]
     n = normal_to_points_in_plane(points)
     xv = p2 - p1
     yv = calc_yvec(xv, n)
     if angle_between(xv, X) in (np.pi, 0) and angle_between(yv, Y) in (np.pi, 0):
-        locn = [p-p1 for p in points]
+        locn = [p - p1 for p in points]
         res_locn = calc_2darc_start_end_from_lines_radius(*locn, radius)
-        res_glob = [np.array([p[0], p[1], 0])+p1 for p in res_locn]
+        res_glob = [np.array([p[0], p[1], 0]) + p1 for p in res_locn]
     else:
         locn = global_2_local_nodes([xv, yv], p1, points)
         res_loc = calc_2darc_start_end_from_lines_radius(*locn, radius)

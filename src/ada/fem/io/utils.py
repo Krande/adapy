@@ -329,3 +329,12 @@ def run_linux(exe, run_command):
 
 def run_macOS(exe, run_command):
     raise NotImplementedError()
+
+
+def interpret_fem(fem_ref):
+    fem_type = None
+    if ".fem" in str(fem_ref).lower():
+        fem_type = "sesam"
+    elif ".inp" in str(fem_ref).lower():
+        fem_type = "abaqus"
+    return fem_type

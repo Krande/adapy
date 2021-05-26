@@ -311,7 +311,7 @@ class MyRenderer(JupyterRenderer):
         )
 
     def DisplayObj(self, obj):
-        from ada import Beam, Part, Plate, Shape, Pipe
+        from ada import Beam, Part, Pipe, Plate, Shape
 
         if issubclass(type(obj), Part) is True:
             self.DisplayAdaPart(obj)
@@ -690,14 +690,13 @@ class MyRenderer(JupyterRenderer):
                 fem_data=", ".join([f"(<b>{x}</b>: {y})" for x, y in fem_data.items()])
             )
             vol_cog_str = ", ".join([f"{x:.3f}" for x in selected_part.fem.nodes.vol_cog])
-            res = selected_part.fem.elements.calc_cog()
-            cogx, cogy, cogz, tot_mass, tot_vol, sh_mass, bm_mass, no_mass = res
-            cog_str = ", ".join([f"{x:.3f}" for x in (cogx, cogy, cogz)])
-            html_value += f"<b>Vol:</b> {tot_vol:.3f} <b>COG:</b> ({vol_cog_str}) <br>"
-            html_value += f"<b>Mass:</b> {tot_mass:.1f}  <b>COG:</b> ({cog_str}) <br>"
-            html_value += f"<b>Beam mass:</b> {bm_mass:.1f}<br>"
-            html_value += f"<b>Shell mass:</b> {sh_mass:.1f}<br>"
-            html_value += f"<b>Node mass:</b> {no_mass:.1f}<br>"
+            cog = selected_part.fem.elements.calc_cog()
+            cog_str = ", ".join([f"{x:.3f}" for x in cog.p])
+            html_value += f"<b>Vol:</b> {cog.tot_vol:.3f} <b>COG:</b> ({vol_cog_str}) <br>"
+            html_value += f"<b>Mass:</b> {cog.tot_mass:.1f}  <b>COG:</b> ({cog_str}) <br>"
+            html_value += f"<b>Beam mass:</b> {cog.bm_mass:.1f}<br>"
+            html_value += f"<b>Shell mass:</b> {cog.sh_mass:.1f}<br>"
+            html_value += f"<b>Node mass:</b> {cog.no_mass:.1f}<br>"
             html_value += (
                 "<br><br>Note! Mass calculations are calculated based on <br>beam offsets "
                 "(which is not shown in the viewer yet)."
