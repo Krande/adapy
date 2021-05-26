@@ -40,7 +40,7 @@ def to_fem(
     :param overwrite:
     :param exit_on_complete:
     """
-    print(f"creating: {name}")
+
     analysis_dir = _folder_prep(scratch_dir, name, overwrite)
 
     if "info" not in assembly.metadata:

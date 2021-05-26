@@ -1246,34 +1246,38 @@ class Assembly(Part):
             If this proves to create issues regarding performance this should be evaluated further.
 
         """
-        print(f'Exporting to "{fem_format}" using {convert_func.__name__}')
+
+        base_path = _Settings.scratch_dir / name / name
+        fem_res_paths = dict(code_aster=base_path.with_suffix(".rmed"))
+
+        res_path = fem_res_paths.get(fem_format, pathlib.Path(""))
 
         # Update all global materials and sections before writing input file
         # self.materials
         # self.sections
-        try:
-            convert_func(
-                self,
-                name,
-                scratch_dir,
-                metadata,
-                execute,
-                run_ext,
-                cpus,
-                gpus,
-                overwrite,
-                exit_on_complete,
-            )
-        except IOError as e:
-            logging.info(e)
+        if res_path.exists() is False or overwrite is True:
+            try:
+                convert_func(
+                    self,
+                    name,
+                    scratch_dir,
+                    metadata,
+                    execute,
+                    run_ext,
+                    cpus,
+                    gpus,
+                    overwrite,
+                    exit_on_complete,
+                )
+            except IOError as e:
+                logging.info(e)
+        else:
+            print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
 
-        base_path = _Settings.scratch_dir / name / name
-        fem_res_paths = dict(code_aster=base_path.with_suffix(".rmed"))
         if fem_format not in fem_res_paths.keys():
             logging.error(f'FEM format "{fem_format}" is not yet supported for results processing')
             return None
 
-        res_path = fem_res_paths[fem_format]
         if res_path.exists():
             from ada.base.render_fem import Results
 

@@ -53,6 +53,8 @@ Note! Conda installation is not yet set up.
 ## Usage
 Some example of using the ada package 
 
+
+
 ### Create an IFC file
 
 The following code
@@ -89,12 +91,13 @@ a.to_fem("MyCantilever_calculix", "calculix", overwrite=True, execute=True)
 a.to_fem("MyCantilever_code_aster", "code_aster", overwrite=True, execute=True)
 ```
 
-after the execution is finished you can look at the results (in Paraview or Abaqus CAE for the results from 
-calculix and/or abaqus respectively)
+after the execution is finished you can look at the results using supported post-processing software or directly
+in python using Jupyter notebook/lab (currently only supported for Code Aster) for the FEA results.
 
 
-![Paraview Results](docs/_static/figures/fem_beam_paraview.png)
+![Calculix (Paraview) Results](docs/_static/figures/fem_beam_paraview.png)
 ![Abaqus Results](docs/_static/figures/fem_beam_abaqus.png)
+![Code Aster (jupyter) results](docs/_static/figures/code_aster_jupyter_displ.png)
 
 or if your prefer to keep it in python here is a way you can use meshio to read the results from calculix and do your
 postprocessing using python only.
