@@ -1,7 +1,5 @@
 import unittest
 
-import numpy as np
-
 from ada import Assembly, Part, Pipe, Section
 from ada.config import Settings
 
@@ -48,6 +46,7 @@ class PipeIO(unittest.TestCase):
         # a._repr_html_()
 
     # def test_ifc_elbow(self):
+    #     import numpy as np
     #     from ada.core.constants import O, X, Z
     #     from ada.core.ifc_utils import (
     #         create_guid,
