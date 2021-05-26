@@ -11,14 +11,13 @@ class TestFemProperties(unittest.TestCase):
         a = build_test_model()
         p = a.parts["ParametricModel"]
         cog = p.fem.elements.calc_cog()
-
         tol = 0.01
 
-        assert abs(roundoff(cog[0]) - 2.5) < tol
-        assert abs(roundoff(cog[1]) - 2.5) < tol
-        assert abs(roundoff(cog[2]) - 1.5) < tol
-        assert abs(roundoff(cog[3]) - 7854.90) < tol
-        assert abs(roundoff(cog[4]) - 1.001) < tol
+        assert abs(roundoff(cog.p[0]) - 2.5) < tol
+        assert abs(roundoff(cog.p[1]) - 2.5) < tol
+        assert abs(roundoff(cog.p[2]) - 1.5) < tol
+        assert abs(roundoff(cog.tot_mass) - 7854.90) < tol
+        assert abs(roundoff(cog.tot_vol) - 1.001) < tol
 
 
 if __name__ == "__main__":

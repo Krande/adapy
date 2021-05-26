@@ -1,6 +1,7 @@
 from functools import wraps
 
 from . import abaqus, calculix, code_aster, sesam, usfos
+from .utils import interpret_fem
 
 fem_exports = dict(
     abaqus=abaqus.to_fem, calculix=calculix.to_fem, code_aster=code_aster.to_fem, sesam=sesam.to_fem, usfos=usfos.to_fem
@@ -11,22 +12,6 @@ fem_executables = dict(abaqus=abaqus.run_abaqus, calculix=calculix.run_calculix,
 
 
 def femio(f):
-    """
-
-    TODO: Make this into a file-identifcation utility and allow for storing cached FEM representations in a HDF5 file.
-
-    :param f:
-    :return:
-    """
-
-    def interpret_fem(fem_ref):
-        fem_type = None
-        if ".fem" in str(fem_ref).lower():
-            fem_type = "sesam"
-        elif ".inp" in str(fem_ref).lower():
-            fem_type = "abaqus"
-        return fem_type
-
     @wraps(f)
     def convert_fem_wrapper(*args, **kwargs):
         from .io_meshio import meshio_read_fem, meshio_to_fem

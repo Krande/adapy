@@ -49,7 +49,7 @@ class ReinforcedFloor(Part):
     def penetration_check(self):
         import numpy as np
 
-        from ada import PrimCyl
+        from ada import PipeSegStraight, PrimCyl
 
         a = self.get_assembly()
         cog = self.nodes.vol_cog
@@ -57,11 +57,13 @@ class ReinforcedFloor(Part):
         for p in a.get_all_subparts():
             for pipe in p.pipes:
                 for segment in pipe.segments:
-                    p1, p2 = segment
-                    v1 = (p1.p - cog) * normal
-                    v2 = (p2.p - cog) * normal
-                    if np.dot(v1, v2) < 0:
-                        self.add_penetration(PrimCyl("my_pen", p1.p, p2.p, pipe.section.r + 0.1))
+                    if type(segment) is PipeSegStraight:
+                        assert isinstance(segment, PipeSegStraight)
+                        p1, p2 = segment.p1, segment.p2
+                        v1 = (p1.p - cog) * normal
+                        v2 = (p2.p - cog) * normal
+                        if np.dot(v1, v2) < 0:
+                            self.add_penetration(PrimCyl("my_pen", p1.p, p2.p, pipe.section.r + 0.1))
 
 
 class SimpleStru(Part):

@@ -34,6 +34,8 @@ __all__ = [
     "Beam",
     "Plate",
     "Pipe",
+    "PipeSegStraight",
+    "PipeSegElbow",
     "Wall",
     "Penetration",
     "Section",
@@ -2598,7 +2600,7 @@ class Pipe(BackendGeom):
 
         :return:
         """
-        from ada.core.utils import local_2_global_nodes, make_arc_segment
+        from ada.core.utils import make_arc_segment
 
         segs = []
         for p1, p2 in zip(self.points[:-1], self.points[1:]):
@@ -2612,18 +2614,23 @@ class Pipe(BackendGeom):
 
         # Make elbows and adjust segments
         props = dict(section=self.section, material=self.material, parent=self, units=self.units)
-
+        angle_tol = 1e-1
+        len_tol = _Settings.point_tol if self.units == "m" else _Settings.point_tol * 1000
         for i, (seg1, seg2) in enumerate(zip(segments[:-1], segments[1:])):
             p11, p12 = seg1
             p21, p22 = seg2
             vlen1 = vector_length(seg1[1].p - seg1[0].p)
             vlen2 = vector_length(seg2[1].p - seg2[0].p)
-            if vlen1 < _Settings.point_tol or vlen2 == _Settings.point_tol:
-                logging.error("Segment Length is zero. Skipping")
+
+            if vlen1 < len_tol or vlen2 == len_tol:
+                logging.error(f'Segment Length is below point tolerance for unit "{self.units}". Skipping')
                 continue
-            xvec1 = p12.p - p11.p
-            xvec2 = p22.p - p21.p
-            if angle_between(xvec1, xvec2) in (np.pi, 0):
+            xvec1 = unit_vector(p12.p - p11.p)
+            xvec2 = unit_vector(p22.p - p21.p)
+            a = angle_between(xvec1, xvec2)
+            res = True if abs(abs(a) - abs(np.pi)) < angle_tol or abs(abs(a) - 0.0) < angle_tol else False
+
+            if res is True:
                 self._segments.append(PipeSegStraight(next(seg_names), p11, p12, **props))
             else:
                 if p12 != p21:
@@ -2644,26 +2651,34 @@ class Pipe(BackendGeom):
                     continue
 
                 if i == 0 or len(self._segments) == 0:
-                    self._segments.append(PipeSegStraight(next(seg_names), Node(seg1.p1), Node(seg1.p2), **props))
+                    self._segments.append(
+                        PipeSegStraight(
+                            next(seg_names), Node(seg1.p1, units=self.units), Node(seg1.p2, units=self.units), **props
+                        )
+                    )
                 else:
                     if len(self._segments) == 0:
                         print("sd")
                         continue
                     pseg = self._segments[-1]
-                    pseg.p2 = Node(seg1.p2)
+                    pseg.p2 = Node(seg1.p2, units=self.units)
 
                 self._segments.append(
                     PipeSegElbow(
                         next(seg_names) + "_Elbow",
-                        Node(seg1.p1),
-                        Node(p21.p),
-                        Node(seg2.p2),
+                        Node(seg1.p1, units=self.units),
+                        Node(p21.p, units=self.units),
+                        Node(seg2.p2, units=self.units),
                         arc.radius,
                         **props,
                         arc_seg=arc,
                     )
                 )
-                self._segments.append(PipeSegStraight(next(seg_names), Node(seg2.p1), Node(seg2.p2), **props))
+                self._segments.append(
+                    PipeSegStraight(
+                        next(seg_names), Node(seg2.p1, units=self.units), Node(seg2.p2, units=self.units), **props
+                    )
+                )
 
     @property
     def segments(self):
@@ -2710,8 +2725,8 @@ class Pipe(BackendGeom):
         wt = self.section.wt
         r = self.section.r
         d = r * 2
-        w_tol = 0.125
-        cor_tol = 0.003
+        w_tol = 0.125 if self.units == "m" else 125
+        cor_tol = 0.003 if self.units == "m" else 3
         corr_t = (wt - (wt * w_tol)) - cor_tol
         d -= 2.0 * corr_t
 
@@ -2745,14 +2760,15 @@ class Pipe(BackendGeom):
             self.n2.units = value
             self.section.units = value
             self.material.units = value
+            self._segments = []
             for p in self.points:
                 p.units = value
             self._build_pipe()
             self._units = value
 
     def _generate_ifc_pipe(self):
-        from ada.core.ifc_utils import create_ifclocalplacement, create_property_set
         from ada.core.constants import X, Z
+        from ada.core.ifc_utils import create_ifclocalplacement, create_property_set
 
         if self.parent is None:
             raise ValueError("Cannot build ifc element without parent")
@@ -2882,12 +2898,12 @@ class PipeSegStraight(BackendGeom):
         return self._ifc_elem
 
     def _to_ifc_elem(self):
+        from ada.core.constants import O, X, Z
         from ada.core.ifc_utils import (  # create_ifcrevolveareasolid,
             create_ifcaxis2placement,
             create_ifcpolyline,
             to_real,
         )
-        from ada.core.constants import X, Y, Z, O
 
         if self.parent is None:
             raise ValueError("Parent cannot be None for IFC export")
@@ -2999,7 +3015,7 @@ class PipeSegElbow(BackendGeom):
 
     @property
     def geom(self):
-        from ada.core.utils import sweep_pipe, make_edges_and_fillet_from_3points
+        from ada.core.utils import make_edges_and_fillet_from_3points, sweep_pipe
 
         i = self.parent._segments.index(self)
         if i != 0:
@@ -3033,7 +3049,7 @@ class PipeSegElbow(BackendGeom):
 
     def _elbow_tesselated(self, f, schema, a, context):
         import ifcopenshell.geom
-        from ada.core.ifc_utils import create_ifcpolyline, to_real
+
         shape = self.geom
         if shape is None:
             logging.error(f"Unable to create geometry for Branch {self.name}")
@@ -3057,9 +3073,12 @@ class PipeSegElbow(BackendGeom):
         return ifc_shape
 
     def _elbow_revolved_solid(self, f, context):
-        from ada.core.ifc_utils import create_ifcrevolveareasolid, create_ifcaxis2placement
-        from ada.core.utils import normal_to_points_in_plane, get_center_from_3_points_and_radius
-        from ada.core.constants import X, Y, Z, O
+        from ada.core.constants import O, X, Z
+        from ada.core.ifc_utils import create_ifcaxis2placement
+        from ada.core.utils import (
+            get_center_from_3_points_and_radius,
+            normal_to_points_in_plane,
+        )
 
         center, _, _, _ = get_center_from_3_points_and_radius(self.p1.p, self.p2.p, self.p3.p, self.bend_radius)
 
@@ -3085,8 +3104,6 @@ class PipeSegElbow(BackendGeom):
 
     def _to_ifc_elem(self):
         from ada.core.ifc_utils import create_ifclocalplacement
-        from ada.core.utils import faceted_tol
-        from ada.core.constants import X, Y, Z, O
 
         if self.parent is None:
             raise ValueError("Parent cannot be None for IFC export")
@@ -3107,7 +3124,7 @@ class PipeSegElbow(BackendGeom):
             ifc_elbow = self._elbow_revolved_solid(f, context)
 
         pfitting_placement = create_ifclocalplacement(f)
-        # pfitting = f.createIfcBuildingElementProxy(
+
         pfitting = f.createIfcPipeFitting(
             create_guid(),
             owner_history,

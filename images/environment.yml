@@ -3,6 +3,7 @@ channels:
   - conda-forge
 dependencies:
   - python==3.8.8
-  - pythonocc-core
+  - pythonocc-core==7.5.1
+  - occt==7.5.1
   - ifcopenshell
   - jupyter
