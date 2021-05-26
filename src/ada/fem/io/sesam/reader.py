@@ -580,7 +580,7 @@ class SesamReader:
                 else:
                     xvec = unit_vector(v)
                 zvec = lcsysd[transno]
-                crossed = np.cross(xvec, zvec)
+                crossed = np.cross(zvec, xvec)
                 ma = max(abs(crossed))
                 yvec = tuple([roundoff(x / ma, 3) for x in crossed])
 

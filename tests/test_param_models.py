@@ -43,9 +43,7 @@ class ParamModelsTestCase(unittest.TestCase):
 
     def test_add_piping(self):
         a = Assembly("ParametricSite")
-
-        pm = SimpleStru("ParametricModel")
-        a.add_part(pm)
+        pm = a.add_part(SimpleStru("ParametricModel"))
 
         elev = pm.Params.h - 0.4
         offset_Y = 0.4

@@ -30,7 +30,7 @@ def meshio_read_fem(assembly, fem_file, fem_name=None):
         return Node(data[1], data[0])
 
     point_ids = mesh.points_id if "points_id" in mesh.__dict__.keys() else [i + 1 for i, x in enumerate(mesh.points)]
-    elem_counter = Counter(0)
+    elem_counter = Counter(1)
 
     cell_ids = (
         mesh.cells_id
@@ -39,7 +39,7 @@ def meshio_read_fem(assembly, fem_file, fem_name=None):
     )
     fem._nodes = Nodes([to_node(p) for p in zip(point_ids, mesh.points)])
 
-    cell_block_counter = Counter(-1)
+    cell_block_counter = Counter(0)
 
     def to_elem(cellblock):
         block_id = next(cell_block_counter)

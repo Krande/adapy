@@ -6,9 +6,9 @@ import os
 import pathlib
 import shutil
 import uuid
-import warnings
 import zipfile
 from decimal import ROUND_HALF_EVEN, Decimal
+from typing import Union
 
 import ifcopenshell
 import numpy as np
@@ -65,6 +65,9 @@ __all__ = [
     "zip_dir",
     "replace_nodes_by_tol",
     "replace_node",
+    "calc_yvec",
+    "calc_zvec",
+    "visualize_elem_ori",
 ]
 
 
@@ -561,6 +564,37 @@ def intersect_line_circle(line, center, radius):
     return p
 
 
+def get_center_from_3_points_and_radius(p1, p2, p3, radius):
+    """
+
+    :param p1:
+    :param p2:
+    :param p3:
+    :param radius:
+    :return:
+    """
+    p1 = np.array(p1)
+    p2 = np.array(p2)
+    p3 = np.array(p3)
+    from ada.core.constants import X, Y
+
+    points = [p1, p2, p3]
+    n = normal_to_points_in_plane(points)
+    xv = p2 - p1
+    yv = calc_yvec(xv, n)
+    if angle_between(xv, X) in (np.pi, 0) and angle_between(yv, Y) in (np.pi, 0):
+        locn = [p - p1 for p in points]
+        res_locn = calc_2darc_start_end_from_lines_radius(*locn, radius)
+        res_glob = [np.array([p[0], p[1], 0]) + p1 for p in res_locn]
+    else:
+        locn = global_2_local_nodes([xv, yv], p1, points)
+        res_loc = calc_2darc_start_end_from_lines_radius(*locn, radius)
+        res_glob = local_2_global_nodes(res_loc, p1, xv, n)
+    center, start, end, midp = res_glob
+
+    return center, start, end, midp
+
+
 def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius):
     """
     From intersecting lines and a given radius return the arc start, end, center of radius and a point on the arc
@@ -577,9 +611,9 @@ def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius):
     :return: center, start, end, midp
     """
 
-    p1 = p1 if type(p1) is np.ndarray else np.array(p1)
-    p2 = p2 if type(p2) is np.ndarray else np.array(p2)
-    p3 = p3 if type(p3) is np.ndarray else np.array(p3)
+    p1 = p1[:2] if type(p1) is np.ndarray else np.array(p1[:2])
+    p2 = p2[:2] if type(p2) is np.ndarray else np.array(p2[:2])
+    p3 = p3[:2] if type(p3) is np.ndarray else np.array(p3[:2])
 
     v1 = unit_vector(p2 - p1)
     v2 = unit_vector(p2 - p3)
@@ -701,7 +735,7 @@ def build_polycurve_occ(local_points, input_2d_coords=False, tol=1e-3):
     return seg_list
 
 
-def build_polycurve(local_points2d, tol=1e-3, debug=False, debug_name=None):
+def build_polycurve(local_points2d, tol=1e-3, debug=False, debug_name=None, is_closed=True):
     """
 
     :param local_points2d:
@@ -711,7 +745,7 @@ def build_polycurve(local_points2d, tol=1e-3, debug=False, debug_name=None):
     :return:
     """
 
-    segc = SegCreator(local_points2d, tol=tol, debug=debug, debug_name=debug_name)
+    segc = SegCreator(local_points2d, tol=tol, debug=debug, debug_name=debug_name, is_closed=is_closed)
     in_loop = True
     while in_loop:
         if segc.radius is not None:
@@ -737,6 +771,28 @@ def build_polycurve(local_points2d, tol=1e-3, debug=False, debug_name=None):
             segc.next()
 
     return segc._seg_list
+
+
+def make_edges_and_fillet_from_3points(p1, p2, p3, radius):
+    edge1 = make_edge(p1[:3], p2[:3])
+    edge2 = make_edge(p2[:3], p3[:3])
+    ed1, ed2, fillet = make_fillet(edge1, edge2, radius)
+    return ed1, ed2, fillet
+
+
+def make_arc_segment(p1, p2, p3, radius):
+    from ada import ArcSegment, LineSegment
+
+    ed1, ed2, fillet = make_edges_and_fillet_from_3points(p1, p2, p3, radius)
+
+    ed1_p = get_edge_points(ed1)
+    ed2_p = get_edge_points(ed2)
+    fil_p = get_edge_points(fillet)
+    midpoint = get_midpoint_of_arc(fillet)
+    l1 = LineSegment(*ed1_p, edge_geom=ed1)
+    arc = ArcSegment(fil_p[0], fil_p[1], midpoint, radius, edge_geom=fillet)
+    l2 = LineSegment(*ed2_p, edge_geom=ed2)
+    return [l1, arc, l2]
 
 
 class SegCreator:
@@ -813,6 +869,8 @@ class SegCreator:
                     self._seg_list.append(LineSegment(p1=self.pseg.p2, p2=self.p2))
 
             # Check AFTER center point
+            if self._is_closed is False:
+                return None
             v = vector_length_2d(np.array(self.p2) - self._seg_list[0].p2)
             if v < self._tol:
                 if self._debug:
@@ -927,6 +985,8 @@ class SegCreator:
         # After Arc
         after_arc_end = None
         if i == len(self._local_points) - 1:
+            if self._is_closed is False:
+                return None
             if vector_length_2d(self._seg_list[0].p1 - np.array(self.arc_end)) > self._tol:
                 after_arc_end = self._seg_list[0].p1
                 seg_after = LineSegment(p1=self.arc_end, p2=self._seg_list[0].p1)
@@ -1412,8 +1472,7 @@ def local_2_global_nodes(nodes, origin, xdir, normal):
         nodes = [no.p for no in nodes]
 
     nodes = [np.array(n, dtype=np.float64) if len(n) == 3 else np.array(list(n) + [0], dtype=np.float64) for n in nodes]
-    normal = np.array(normal, dtype=np.float64) if type(normal) in (list, tuple) else normal
-    yvec = np.array([x if abs(x) != 0.0 else 0.0 for x in np.cross(normal, xdir)], dtype=np.float64)
+    yvec = calc_yvec(xdir, normal)
 
     rmat = rotation_matrix_csys_rotate([xdir, yvec], [X, Y], inverse=True)
 
@@ -1426,6 +1485,8 @@ def normal_to_points_in_plane(points):
     :param points: List of Node objects
     :return:
     """
+    if len(points) <= 2:
+        raise ValueError("Insufficient number of points")
     p1 = points[0]
     p2 = points[1]
     p3 = points[2]
@@ -1736,7 +1797,7 @@ class NewLine:
 
 class Counter:
     def __init__(self, start=1, prefix=None):
-        self.i = start
+        self.i = start - 1
         self._prefix = prefix
 
     def set_i(self, i):
@@ -2042,7 +2103,7 @@ def get_list_of_files(dir_path, file_ext=None, strict=False):
         full_path = os.path.join(dir_path, entry)
         # If entry is a directory then get the list of files in this directory
         if os.path.isdir(full_path):
-            all_files = all_files + get_list_of_files(full_path)
+            all_files = all_files + get_list_of_files(full_path, file_ext, strict)
         else:
             all_files.append(full_path)
 
@@ -2054,7 +2115,7 @@ def get_list_of_files(dir_path, file_ext=None, strict=False):
         if strict:
             raise FileNotFoundError(msg)
         else:
-            warnings.warn(msg)
+            logging.info(msg)
 
     return all_files
 
@@ -2131,6 +2192,27 @@ def get_time_stamp_now():
 
     utc = pytz.UTC
     return utc.localize(datetime.datetime.utcnow())
+
+
+def datetime_to_str(obj):
+    return obj.isoformat()
+
+
+def get_last_file_modified(file_dir, file_ext):
+    last_date = None
+    for f in get_list_of_files(file_dir, file_ext):
+        curr_date = get_file_time_local(f)
+        if last_date is None:
+            last_date = curr_date
+        elif curr_date > last_date:
+            last_date = curr_date
+    return last_date
+
+
+def datetime_from_str(obj_str):
+    import dateutil.parser
+
+    return dateutil.parser.parse(obj_str)
 
 
 def path_leaf(path):
@@ -2407,15 +2489,8 @@ def make_fillet(edge1, edge2, bend_radius):
     f = ChFi2d_AnaFilletAlgo()
 
     points1 = get_points_from_edge(edge1)
-    # vec1 = unit_vector(np.array(points1[-1]) - np.array(points1[0]))
-
     points2 = get_points_from_edge(edge2)
-    # vec2 = unit_vector(np.array(points2[-1]) - np.array(points2[0]))
-
-    # par = parallel_check(vec1, vec2)
     normal = normal_to_points_in_plane([np.array(x) for x in points1] + [np.array(x) for x in points2])
-    # normal = unit_vector(np.cross(vec1, vec2))
-
     plane_normal = gp_Dir(gp_Vec(normal[0], normal[1], normal[2]))
 
     t = TopologyExplorer(edge1)
@@ -2713,53 +2788,116 @@ def make_edge(p1, p2):
     from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge
     from OCC.Core.gp import gp_Pnt
 
-    return BRepBuilderAPI_MakeEdge(gp_Pnt(*[float(x) for x in p1[:3]]), gp_Pnt(*[float(x) for x in p2[:3]])).Edge()
+    p1 = gp_Pnt(*[float(x) for x in p1[:3]])
+    p2 = gp_Pnt(*[float(x) for x in p2[:3]])
+    res = BRepBuilderAPI_MakeEdge(p1, p2).Edge()
+
+    if res.IsNull():
+        logging.debug("Edge creation returned None")
+
+    return res
 
 
-def make_vector(name, origin, csys, parent, pnt_r=0.2, cyl_l=0.3, cyl_r=0.2, units="m"):
+def make_ori_vector(name, origin, csys, pnt_r=0.2, cyl_l: Union[float, list, tuple] = 0.3, cyl_r=0.2, units="m"):
     """
-    Visualize a plates locale coordinate system and node numbering.
+    Visualize a local coordinate system with a sphere and 3 cylinders representing origin and.
 
     :param name:
     :param origin:
-    :param csys:
+    :param csys: Coordinate system
+    :param pnt_r:
     :param cyl_l:
+    :type cyl_l: Union[float, list, tuple]
     :param cyl_r:
+    :param units:
     :return:
     """
-    from ada import PrimCyl, PrimSphere
+    from ada import Part, PrimCyl, PrimSphere
 
     origin = np.array(origin)
-    parent.add_shape(PrimSphere(name + "_origin", origin, pnt_r, units=units, metadata=dict(origin=origin)))
-    parent.add_shape(
-        PrimCyl(
-            name + "_X",
-            origin,
-            origin + np.array(csys[0]) * cyl_l,
-            cyl_r,
-            units=units,
-            colour="RED",
-        )
+    o_shape = PrimSphere(name + "_origin", origin, pnt_r, units=units, metadata=dict(origin=origin))
+
+    if type(cyl_l) in (list, tuple):
+        cyl_l_x, cyl_l_y, cyl_l_z = cyl_l
+    else:
+        cyl_l_x, cyl_l_y, cyl_l_z = cyl_l, cyl_l, cyl_l
+
+    x_vec_shape = PrimCyl(
+        name + "_X",
+        origin,
+        origin + np.array(csys[0]) * cyl_l_x,
+        cyl_r,
+        units=units,
+        colour="BLUE",
     )
-    parent.add_shape(
-        PrimCyl(
-            name + "_Y",
-            origin,
-            origin + np.array(csys[1]) * cyl_l,
-            cyl_r,
-            units=units,
-            colour="GREEN",
-        )
+
+    y_vec_shape = PrimCyl(
+        name + "_Y",
+        origin,
+        origin + np.array(csys[1]) * cyl_l_y,
+        cyl_r,
+        units=units,
+        colour="GREEN",
     )
-    parent.add_shape(
-        PrimCyl(
-            name + "_Z",
-            origin,
-            origin + np.array(csys[2]) * cyl_l,
-            cyl_r,
-            units=units,
-            colour="BLUE",
-        )
+
+    z_vec_shape = PrimCyl(
+        name + "_Z",
+        origin,
+        origin + np.array(csys[2]) * cyl_l_z,
+        cyl_r,
+        units=units,
+        colour="RED",
+    )
+    return Part(name, units=units) / (o_shape, x_vec_shape, y_vec_shape, z_vec_shape)
+
+
+def visualize_elem_ori(elem):
+    """
+
+    :param elem:
+    :type elem: ada.fem.Elem
+    :return: ada.Shape
+    """
+    origin = (elem.nodes[-1].p + elem.nodes[0].p) / 2
+    return make_ori_vector(
+        f"elem{elem.id}_ori",
+        origin,
+        elem.fem_sec.csys,
+        pnt_r=0.2,
+        cyl_r=0.05,
+        cyl_l=1.0,
+        units=elem.fem_sec.section.units,
+    )
+
+
+def visualize_load(load, units="m", pnt_r=0.2, cyl_r=0.05, cyl_l_norm=1.5):
+    """
+
+    :param load:
+    :param units:
+    :param pnt_r:
+    :param cyl_r:
+    :param cyl_l_norm:
+    :type load: ada.fem.Load
+    :return:
+    :rtype: ada.Part
+    """
+    from ada.core.constants import X, Y, Z
+
+    csys = load.csys if load.csys is not None else [X, Y, Z]
+    forces = np.array(load.forces[:3])
+    forces_normalized = tuple(cyl_l_norm * (forces / max(abs(forces))))
+
+    origin = load.fem_set.members[0].p
+
+    return make_ori_vector(
+        f"F_{load.name}_ori",
+        origin,
+        csys,
+        pnt_r=pnt_r,
+        cyl_r=cyl_r,
+        cyl_l=forces_normalized,
+        units=units,
     )
 
 
@@ -2950,3 +3088,98 @@ def replace_nodes_by_tol(fem, decimals=0, tol=1e-4):
             if n_is_most_precise(n, other_nodes, decimals):
                 for other_node in other_nodes:
                     replace_node(fem, other_node, n)
+
+
+def calc_yvec(x_vec, z_vec=None):
+    """
+
+    :param x_vec:
+    :param z_vec:
+    :return:
+    """
+
+    if z_vec is None:
+        calc_zvec(x_vec)
+
+    return np.cross(z_vec, x_vec)
+
+
+def calc_zvec(x_vec, y_vec=None):
+    """
+    Calculate Z-vector (up) from an x-vector (along beam) only.
+
+    :param x_vec:
+    :param y_vec:
+    :return:
+    """
+    from ada.core.constants import Y, Z
+
+    if y_vec is None:
+        z_vec = np.array(Z)
+        a = angle_between(x_vec, z_vec)
+        if a == np.pi or a == 0:
+            z_vec = np.array(Y)
+        return z_vec
+    else:
+        np.cross(x_vec, y_vec)
+
+
+def faceted_tol(units):
+    """
+
+    :param units:
+    :return:
+    """
+    if units == "m":
+        return 1e-2
+    else:
+        return 1
+
+
+def make_sec_face(point, direction, radius):
+    from OCC.Core.BRepBuilderAPI import (
+        BRepBuilderAPI_MakeEdge,
+        BRepBuilderAPI_MakeFace,
+        BRepBuilderAPI_MakeWire,
+    )
+    from OCC.Core.gp import gp_Ax2, gp_Circ
+
+    circle = gp_Circ(gp_Ax2(point, direction), radius)
+    profile_edge = BRepBuilderAPI_MakeEdge(circle).Edge()
+    profile_wire = BRepBuilderAPI_MakeWire(profile_edge).Wire()
+    profile_face = BRepBuilderAPI_MakeFace(profile_wire).Face()
+    return profile_face
+
+
+def sweep_pipe(edge, xvec, r, wt):
+    from OCC.Core.BRep import BRep_Tool_Pnt
+    from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeWire
+    from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe
+    from OCC.Core.gp import gp_Dir
+    from OCC.Extend.TopologyUtils import TopologyExplorer
+
+    t = TopologyExplorer(edge)
+    points = [v for v in t.vertices()]
+    point = BRep_Tool_Pnt(points[0])
+    # x, y, z = point.X(), point.Y(), point.Z()
+    direction = gp_Dir(*unit_vector(xvec).astype(float).tolist())
+    o = make_sec_face(point, direction, r)
+    i = make_sec_face(point, direction, r - wt)
+
+    # pipe
+    makeWire = BRepBuilderAPI_MakeWire()
+    makeWire.Add(edge)
+    makeWire.Build()
+    wire = makeWire.Wire()
+    try:
+        elbow_o = BRepOffsetAPI_MakePipe(wire, o).Shape()
+        elbow_i = BRepOffsetAPI_MakePipe(wire, i).Shape()
+    except RuntimeError as e:
+        logging.error(f'Elbow creation failed: "{e}"')
+        return wire
+
+    boolean_result = BRepAlgoAPI_Cut(elbow_o, elbow_i).Shape()
+    if boolean_result.IsNull():
+        logging.debug("Boolean returns None")
+    return boolean_result

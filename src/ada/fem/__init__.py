@@ -1133,6 +1133,7 @@ class FemSection(FemBase):
                 n1, n2 = self.elset.members[0].nodes[0], self.elset.members[0].nodes[-1]
                 v = n2.p - n1.p
                 if vector_length(v) == 0.0:
+                    logging.error(f"Element {self.elset.members[0].id} has zero length")
                     xvec = [1, 0, 0]
                 else:
                     xvec = unit_vector(v)
@@ -1151,6 +1152,8 @@ class FemSection(FemBase):
     def local_y(self):
         """
 
+
+
         :return: Local Z describes the up vector of the cross section
         :rtype: list
         """
@@ -1164,13 +1167,27 @@ class FemSection(FemBase):
                     xvec = [1, 0, 0]
                 else:
                     xvec = unit_vector(v)
-
-                crossed = np.cross(xvec, self.local_z)
+                # See https://en.wikipedia.org/wiki/Cross_product#Coordinate_notation for order of cross product
+                crossed = np.cross(self.local_z, xvec)
                 ma = max(abs(crossed))
                 self._local_y = tuple([roundoff(x / ma, 3) for x in crossed])
             else:
                 raise NotImplementedError("Local Y is not implemented for solid elements.")
         return self._local_y
+
+    @property
+    def local_x(self):
+        if self.type == "beam":
+            from ada.core.utils import unit_vector
+
+            el = self.elset.members[0]
+            return unit_vector(el.nodes[-1].p - el.nodes[0].p)
+        else:
+            logging.error(f"X-vector not defined for {self.type}")
+
+    @property
+    def csys(self):
+        return [self.local_x, self.local_y, self.local_z]
 
     @property
     def section(self):
@@ -2151,6 +2168,9 @@ class Bc(FemBase):
     def amplitude_name(self):
         return self._amplitude_name
 
+    def __repr__(self):
+        return f'Bc("{self.name}", type="{self.type}", dofs={self.dofs}, fem_set="{self.fem_set.name}")'
+
 
 class Mass(FemBase):
     """
@@ -2535,7 +2555,7 @@ class Step(FemBase):
         bc.parent = self
         self._bcs[bc.name] = bc
 
-        if bc.fem_set not in self.parent.sets:
+        if bc.fem_set not in self.parent.sets and bc.fem_set.parent is None:
             self.parent.sets.add(bc.fem_set)
 
     def add_history_output(self, hist_output):
@@ -2883,3 +2903,7 @@ class Load(FemBase):
         :rtype: Csys
         """
         return self._csys
+
+    def __repr__(self):
+        forc_str = ",".join(f"{f:.6E}" for f in self.forces)
+        return f"Load({self.name}, {self.type}, [{forc_str}])"

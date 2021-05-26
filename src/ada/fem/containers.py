@@ -1,8 +1,19 @@
 from bisect import bisect_left
+from dataclasses import dataclass
 from itertools import chain, groupby
 from operator import attrgetter
 
 import numpy as np
+
+
+@dataclass
+class COG:
+    p: np.array
+    tot_mass: float
+    tot_vol: float
+    sh_mass: float
+    bm_mass: float
+    no_mass: float
 
 
 class FemElements:
@@ -29,7 +40,7 @@ class FemElements:
     def renumber(self):
         from ada.core.utils import Counter
 
-        elid = Counter(0)
+        elid = Counter(1)
 
         def mapid2(el):
             """
@@ -179,6 +190,7 @@ class FemElements:
         nodes
 
         :return: cogx, cogy, cogz, tot_mass, tot_vol
+        :rtype: COG
         """
         from itertools import chain
 
@@ -207,12 +219,9 @@ class FemElements:
             area = poly_area(x, y)
             vol_ = t * area
             mass = vol_ * el.fem_sec.material.model.rho
-            mass_per_node = mass / len(el.nodes)
+            center = sum([e.p for e in el.nodes]) / len(el.nodes)
 
-            # Have not added offset to fem_section yet
-            # adjusted_nodes = [e.p+t*normal for e in el.nodes]
-
-            return mass_per_node, [e for e in el.nodes], vol_
+            return mass, center, vol_
 
         def calc_bm_elem(el):
             """
@@ -225,9 +234,9 @@ class FemElements:
             elem_len = vector_length(nodes_[-1] - nodes_[0])
             vol_ = el.fem_sec.section.properties.Ax * elem_len
             mass = vol_ * el.fem_sec.material.model.rho
-            mass_per_node = mass / 2
+            center = sum([e.p for e in el.nodes]) / len(el.nodes)
 
-            return mass_per_node, [el.nodes[0], el.nodes[-1]], vol_
+            return mass, center, vol_
 
         def calc_mass_elem(el):
             """
@@ -238,36 +247,29 @@ class FemElements:
             if el.mass_props.type != "MASS":
                 raise NotImplementedError(f'Mass type "{el.mass_props.type}" is not yet implemented')
             mass = el.mass_props.mass
-            nodes_ = el.nodes
             vol_ = 0.0
-            return mass, nodes_, vol_
+            return mass, el.nodes[0].p, vol_
 
         sh = list(chain(map(calc_sh_elem, self.shell)))
         bm = list(chain(map(calc_bm_elem, self.beams)))
         ma = list(chain(map(calc_mass_elem, self.masses)))
-        mcogx = 0.0
-        mcogy = 0.0
-        mcogz = 0.0
+
         tot_mass = 0.0
         tot_vol = 0.0
+        mcog_ = np.array([0, 0, 0]).astype(float)
 
         sh_mass = sum([r[0] for r in sh])
         bm_mass = sum([r[0] for r in bm])
         no_mass = sum([r[0] for r in ma])
 
-        for m, nodes, vol in sh + bm + ma:
+        for m, c, vol in sh + bm + ma:
             tot_vol += vol
-            for n in nodes:
-                tot_mass += m
-                mcogx += m * n[0]
-                mcogy += m * n[1]
-                mcogz += m * n[2]
+            tot_mass += m
+            mcog_ += m * np.array(c).astype(float)
 
-        cogx = mcogx / tot_mass
-        cogy = mcogy / tot_mass
-        cogz = mcogz / tot_mass
+        cog_ = mcog_ / tot_mass
 
-        return cogx, cogy, cogz, tot_mass, tot_vol, sh_mass, bm_mass, no_mass
+        return COG(cog_, tot_mass, tot_vol, sh_mass, bm_mass, no_mass)
 
     @property
     def max_el_id(self):

@@ -1,5 +1,7 @@
 import logging
 import uuid
+from itertools import chain
+from random import randint
 
 import numpy as np
 from OCC.Core.Tesselator import ShapeTesselator
@@ -83,6 +85,7 @@ class MyRenderer(JupyterRenderer):
         # self._controls.append(p1)
         # self._controls.append(p2)
         self._refs = dict()
+        self._fem_refs = dict()
 
     def visible_check(self, obj, obj_type="geom"):
         from ada import Beam, Part, Plate
@@ -120,8 +123,6 @@ class MyRenderer(JupyterRenderer):
         :param vertex_width:
         :type part: ada.Part
         """
-        from itertools import chain
-        from random import randint
 
         from OCC.Core.BRep import BRep_Builder
         from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
@@ -129,10 +130,8 @@ class MyRenderer(JupyterRenderer):
         from OCC.Core.TopoDS import TopoDS_Compound
 
         # edge_color = format_color(*part.colour) if edge_color is None else edge_color
-
-        edge_color = (
-            format_color(randint(0, 255), randint(0, 255), randint(0, 255)) if edge_color is None else edge_color
-        )
+        rgb = randint(0, 255), randint(0, 255), randint(0, 255)
+        edge_color = format_color(*rgb) if edge_color is None else edge_color
         vertex_color = self._default_vertex_color if vertex_color is None else vertex_color
 
         pmesh_id = "%s" % uuid.uuid4().hex
@@ -154,32 +153,19 @@ class MyRenderer(JupyterRenderer):
         mat = PointsMaterial(color=vertex_color, sizeAttenuation=False, size=vertex_width)
         geom = BufferGeometry(attributes=attributes)
         points_geom = Points(geometry=geom, material=mat, name=pmesh_id)
-
-        def grab_nodes(el):
-            """
-
-            :param el:
-            :type el: ada.fem.Elem
-            :return:
-            """
-            if el.shape.edges_seq is None:
-                return None
-            return [
-                part.fem.nodes.from_id(i).p for i in [el.nodes[e].id for ed_seq in el.shape.edges_seq for e in ed_seq]
-            ]
-
         lmesh_id = "%s" % uuid.uuid4().hex
-
-        edges_nodes = list(chain.from_iterable(filter(None, map(grab_nodes, part.fem.elements))))
+        edges_nodes = list(chain.from_iterable(filter(None, [grab_nodes(el, part.fem) for el in part.fem.elements])))
         np_edge_vertices = np.array(edges_nodes, dtype=np.float32)
         np_edge_indices = np.arange(np_edge_vertices.shape[0], dtype=np.uint32)
+        vertex_col = tuple([x / 255 for x in rgb])
         edge_geometry = BufferGeometry(
             attributes={
                 "position": BufferAttribute(np_edge_vertices),
                 "index": BufferAttribute(np_edge_indices),
+                "color": BufferAttribute([vertex_col for n in np_edge_vertices]),
             }
         )
-        edge_material = LineBasicMaterial(color=edge_color, linewidth=1)
+        edge_material = LineBasicMaterial(vertexColors="VertexColors", linewidth=5)
 
         edge_geom = LineSegments(
             geometry=edge_geometry,
@@ -195,8 +181,9 @@ class MyRenderer(JupyterRenderer):
             self._displayed_pickable_objects.add(elem)
 
         self._fem_sets_opts.options = ["None"] + [
-            s.name for s in filter(lambda x: "internal" not in x.metadata.keys(), part.fem.sets)
+            f"{part.fem.name}.{s.name}" for s in filter(lambda x: "internal" not in x.metadata.keys(), part.fem.sets)
         ]
+        self._fem_refs[part.fem.name] = (part.fem, edge_geometry)
 
     def DisplayAdaShape(self, shp):
         """
@@ -254,6 +241,7 @@ class MyRenderer(JupyterRenderer):
         except BaseException as e:
             logging.error(e)
             return None
+
         for r in res:
             self._refs[r.name] = plate
 
@@ -265,8 +253,14 @@ class MyRenderer(JupyterRenderer):
         """
         # self.AddShapeToScene(geom)
         res = []
+
         for i, geom in enumerate(pipe.geometries):
-            res += self.DisplayShape(geom, shape_color=pipe.colour_webgl, opacity=0.5)
+            try:
+                res += self.DisplayShape(geom, shape_color=pipe.colour_webgl, opacity=0.5)
+            except BaseException as e:
+                logging.error(e)
+                continue
+
         for r in res:
             self._refs[r.name] = pipe
 
@@ -276,8 +270,12 @@ class MyRenderer(JupyterRenderer):
         :param wall:
         :type wall: ada.Wall
         """
+        try:
+            res = self.DisplayShape(wall.solid, shape_color=wall.colour, opacity=0.5)
+        except BaseException as e:
+            logging.error(e)
+            return None
 
-        res = self.DisplayShape(wall.solid, shape_color=wall.colour, opacity=0.5)
         for r in res:
             self._refs[r.name] = wall
 
@@ -300,8 +298,8 @@ class MyRenderer(JupyterRenderer):
         list(map(self.DisplayAdaShape, all_shapes))
         list(filter(None, map(self.DisplayBeam, all_beams)))
         list(filter(None, map(self.DisplayPlate, all_plates)))
-        list(map(self.DisplayPipe, all_pipes))
-        list(map(self.DisplayWall, all_walls))
+        list(filter(None, map(self.DisplayPipe, all_pipes)))
+        list(filter(None, map(self.DisplayWall, all_walls)))
         list(
             map(
                 self.DisplayMesh,
@@ -313,7 +311,7 @@ class MyRenderer(JupyterRenderer):
         )
 
     def DisplayObj(self, obj):
-        from ada import Beam, Part, Plate, Shape
+        from ada import Beam, Part, Pipe, Plate, Shape
 
         if issubclass(type(obj), Part) is True:
             self.DisplayAdaPart(obj)
@@ -321,6 +319,8 @@ class MyRenderer(JupyterRenderer):
             self.DisplayBeam(obj)
         elif type(obj) is Plate:
             self.DisplayPlate(obj)
+        elif type(obj) is Pipe:
+            self.DisplayPipe(obj)
         elif issubclass(type(obj), Shape):
             self.DisplayAdaShape(obj)
         else:
@@ -650,7 +650,7 @@ class MyRenderer(JupyterRenderer):
                     html_value = self._click_ada_to_html(obj)
                 except BaseException as e:
                     html_value = f'An error occured: "{str(e)}"'
-                self.html.value = html_value
+                self.html.value = f'<div style="margin: 0 auto; width:300px;">{html_value}</div>'
                 self._current_shape_selection = selected_shape
             else:
                 self.html.value = "<b>Shape type:</b> None<br><b>Shape id:</b> None"
@@ -668,6 +668,16 @@ class MyRenderer(JupyterRenderer):
         from ada import Beam, Part, Pipe, Plate, Shape, Wall
         from ada.fem.utils import get_eldata
 
+        def write_metadata_to_html(met_d):
+            table_str = ""
+            for subkey, val in met_d.items():
+                if type(val) is dict:
+                    table_str += f"<tr></tr><td><b>{subkey}:</b></td></tr></tr>"
+                    table_str += write_metadata_to_html(val)
+                else:
+                    table_str += f"<tr><td>{subkey}</td><td>{val}</td></tr>"
+            return table_str
+
         part_name = self._refs[obj.name].name if obj.name in self._refs.keys() else obj.name
         selected_part = self._refs[obj.name] if obj.name in self._refs.keys() else None
         html_value = "<b>Name:</b> {part_name}".format(part_name=part_name)
@@ -680,14 +690,13 @@ class MyRenderer(JupyterRenderer):
                 fem_data=", ".join([f"(<b>{x}</b>: {y})" for x, y in fem_data.items()])
             )
             vol_cog_str = ", ".join([f"{x:.3f}" for x in selected_part.fem.nodes.vol_cog])
-            res = selected_part.fem.elements.calc_cog()
-            cogx, cogy, cogz, tot_mass, tot_vol, sh_mass, bm_mass, no_mass = res
-            cog_str = ", ".join([f"{x:.3f}" for x in (cogx, cogy, cogz)])
-            html_value += f"<b>Vol:</b> {tot_vol:.3f} <b>COG:</b> ({vol_cog_str}) <br>"
-            html_value += f"<b>Mass:</b> {tot_mass:.1f}  <b>COG:</b> ({cog_str}) <br>"
-            html_value += f"<b>Beam mass:</b> {bm_mass:.1f}<br>"
-            html_value += f"<b>Shell mass:</b> {sh_mass:.1f}<br>"
-            html_value += f"<b>Node mass:</b> {no_mass:.1f}<br>"
+            cog = selected_part.fem.elements.calc_cog()
+            cog_str = ", ".join([f"{x:.3f}" for x in cog.p])
+            html_value += f"<b>Vol:</b> {cog.tot_vol:.3f} <b>COG:</b> ({vol_cog_str}) <br>"
+            html_value += f"<b>Mass:</b> {cog.tot_mass:.1f}  <b>COG:</b> ({cog_str}) <br>"
+            html_value += f"<b>Beam mass:</b> {cog.bm_mass:.1f}<br>"
+            html_value += f"<b>Shell mass:</b> {cog.sh_mass:.1f}<br>"
+            html_value += f"<b>Node mass:</b> {cog.no_mass:.1f}<br>"
             html_value += (
                 "<br><br>Note! Mass calculations are calculated based on <br>beam offsets "
                 "(which is not shown in the viewer yet)."
@@ -709,14 +718,7 @@ class MyRenderer(JupyterRenderer):
             table_str = f'<div style="height:{self._size[1]}px;overflow:auto;line-height:1.0">'
             table_str += '<font size="2px" face="Arial" >'
             table_str += '<table style="width:100%;border: 1px solid black;"><tr><th>Key</th><th>Value</th></tr>'
-            for key, value in selected_part.metadata.items():
-                if type(value) is dict:
-                    for subkey, val in value.items():
-                        if type(val) is dict:
-                            logging.debug(f"Shape {selected_part} Metadata {key} is beyond 2 levels dict.")
-                        table_str += f"<tr><td>{subkey}</td><td>{val}</td></tr>"
-                else:
-                    table_str += f"<tr><td>{key}</td><td>{value}</td></tr>"
+            table_str += write_metadata_to_html(selected_part.metadata)
             table_str += "</table></font></div>"
             html_value += table_str
         elif type(selected_part) is Pipe:
@@ -730,7 +732,60 @@ class MyRenderer(JupyterRenderer):
 
     def _on_changed_fem_set(self, p):
         indata = p["new"]
-        print(f"\r {indata}", end=" ")
+        tmp_data = indata.split(".")
+        pref = tmp_data[0]
+        setref = tmp_data[1]
+        fem = self._fem_refs[pref][0]
+        edge_geom = self._fem_refs[pref][1]
+        edges_nodes = list(chain.from_iterable(filter(None, [grab_nodes(el, fem, True) for el in fem.elements])))
+        dark_grey = (0.66, 0.66, 0.66)
+        color_array = np.array([dark_grey for x in edge_geom.attributes["color"].array], dtype="float32")
+
+        color = (1, 0, 0)
+        if setref in fem.elsets.keys():
+            fem_set = fem.elsets[setref]
+            set_edges_nodes = list(
+                chain.from_iterable(filter(None, [grab_nodes(el, fem, True) for el in fem_set.members]))
+            )
+
+            res1 = [locate(edges_nodes, i) for i in set_edges_nodes]
+            set_edges_indices = chain.from_iterable(res1)
+            for i in set_edges_indices:
+                color_array[i] = color
+        elif setref in fem.nsets.keys():
+            print(f'Set "{setref}" is a node set (which is not yet supported)')
+        else:
+            logging.error(f'Unrecognized set "{setref}". Not belonging to node or elements')
+        edge_geom.attributes["color"].array = color_array
+
+    def highlight_elem(self, elem_id, fem_name):
+        """
+
+        :param elem_id: Can be int or list of ints
+        :param fem_name:
+        :return:
+        """
+        fem = self._fem_refs[fem_name][0]
+        edge_geom = self._fem_refs[fem_name][1]
+        if type(elem_id) is int:
+            el = fem.elements.from_id(elem_id)
+            elem_nodes = grab_nodes(el, fem, True)
+        elif type(elem_id) in (tuple, list):
+            elem_nodes = list(
+                chain.from_iterable(filter(None, [grab_nodes(fem.elements.from_id(el), fem, True) for el in elem_id]))
+            )
+        else:
+            raise ValueError(f'Unrecognized type "{type(elem_id)}"')
+
+        edges_nodes = list(chain.from_iterable(filter(None, [grab_nodes(el, fem, True) for el in fem.elements])))
+        res1 = [locate(edges_nodes, i) for i in elem_nodes]
+        set_edges_indices = chain.from_iterable(res1)
+        dark_grey = (0.66, 0.66, 0.66)
+        color_array = np.array([dark_grey for x in edge_geom.attributes["color"].array], dtype="float32")
+        color = (1, 0, 0)
+        for i in set_edges_indices:
+            color_array[i] = color
+        edge_geom.attributes["color"].array = color_array
 
 
 class SectionRenderer:
@@ -865,3 +920,24 @@ class SectionRenderer:
         display(HBox([fig, html]))
 
         # display(widgets.VBox([widgets.HBox([testb]), center, self._fig]))
+
+
+def grab_nodes(el, fem, return_ids=False):
+    """
+
+    :param el:
+    :param fem:
+    :param return_ids:
+    :type el: ada.fem.Elem
+    :type fem: ada.fem.FEM
+    """
+    if el.shape.edges_seq is None:
+        return None
+    if return_ids:
+        return [i for i in [el.nodes[e].id for ed_seq in el.shape.edges_seq for e in ed_seq]]
+    else:
+        return [fem.nodes.from_id(i).p for i in [el.nodes[e].id for ed_seq in el.shape.edges_seq for e in ed_seq]]
+
+
+def locate(data_set, i):
+    return [index for index, value in enumerate(data_set) if value == i]

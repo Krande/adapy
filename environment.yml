@@ -2,5 +2,6 @@ name: adaenv
 channels:
   - conda-forge
 dependencies:
-  - pythonocc-core
+  - pythonocc-core==7.5.1
+  - occt==7.5.1
   - ifcopenshell
