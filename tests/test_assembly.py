@@ -6,20 +6,17 @@ from ada.param_models.basic_module import SimpleStru
 
 class VisualizeTests(unittest.TestCase):
     def test_beams_viz(self):
-        def viz(a):
-            a._repr_html_()
-
         bm1 = Beam("bm1", n1=[0, 0, 0], n2=[2, 0, 0], sec="IPE220", colour="red")
         bm2 = Beam("bm2", n1=[0, 0, 1], n2=[2, 0, 1], sec="HP220x10", colour="blue")
         bm3 = Beam("bm3", n1=[0, 0, 2], n2=[2, 0, 2], sec="BG800x400x20x40", colour="green")
         bm4 = Beam("bm4", n1=[0, 0, 3], n2=[2, 0, 3], sec="CIRC200", colour="green")
         bm5 = Beam("bm5", n1=[0, 0, 4], n2=[2, 0, 4], sec="TUB200x10", colour="green")
 
-        viz(bm1)
-        viz(bm2)
-        viz(bm3)
-        viz(bm4)
-        viz(bm5)
+        bm1._repr_html_()
+        bm2._repr_html_()
+        bm3._repr_html_()
+        bm4._repr_html_()
+        bm5._repr_html_()
 
     def test_viz(self):
         a = Assembly("my_test_assembly")
