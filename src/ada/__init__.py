@@ -2614,18 +2614,23 @@ class Pipe(BackendGeom):
 
         # Make elbows and adjust segments
         props = dict(section=self.section, material=self.material, parent=self, units=self.units)
-
+        angle_tol = 1e-1
+        len_tol = _Settings.point_tol if self.units == "m" else _Settings.point_tol * 1000
         for i, (seg1, seg2) in enumerate(zip(segments[:-1], segments[1:])):
             p11, p12 = seg1
             p21, p22 = seg2
             vlen1 = vector_length(seg1[1].p - seg1[0].p)
             vlen2 = vector_length(seg2[1].p - seg2[0].p)
-            if vlen1 < _Settings.point_tol or vlen2 == _Settings.point_tol:
-                logging.error("Segment Length is zero. Skipping")
+
+            if vlen1 < len_tol or vlen2 == len_tol:
+                logging.error(f'Segment Length is below point tolerance for unit "{self.units}". Skipping')
                 continue
-            xvec1 = p12.p - p11.p
-            xvec2 = p22.p - p21.p
-            if angle_between(xvec1, xvec2) in (np.pi, 0):
+            xvec1 = unit_vector(p12.p - p11.p)
+            xvec2 = unit_vector(p22.p - p21.p)
+            a = angle_between(xvec1, xvec2)
+            res = True if abs(abs(a) - abs(np.pi)) < angle_tol or abs(abs(a) - 0.0) < angle_tol else False
+
+            if res is True:
                 self._segments.append(PipeSegStraight(next(seg_names), p11, p12, **props))
             else:
                 if p12 != p21:
@@ -2646,26 +2651,34 @@ class Pipe(BackendGeom):
                     continue
 
                 if i == 0 or len(self._segments) == 0:
-                    self._segments.append(PipeSegStraight(next(seg_names), Node(seg1.p1), Node(seg1.p2), **props))
+                    self._segments.append(
+                        PipeSegStraight(
+                            next(seg_names), Node(seg1.p1, units=self.units), Node(seg1.p2, units=self.units), **props
+                        )
+                    )
                 else:
                     if len(self._segments) == 0:
                         print("sd")
                         continue
                     pseg = self._segments[-1]
-                    pseg.p2 = Node(seg1.p2)
+                    pseg.p2 = Node(seg1.p2, units=self.units)
 
                 self._segments.append(
                     PipeSegElbow(
                         next(seg_names) + "_Elbow",
-                        Node(seg1.p1),
-                        Node(p21.p),
-                        Node(seg2.p2),
+                        Node(seg1.p1, units=self.units),
+                        Node(p21.p, units=self.units),
+                        Node(seg2.p2, units=self.units),
                         arc.radius,
                         **props,
                         arc_seg=arc,
                     )
                 )
-                self._segments.append(PipeSegStraight(next(seg_names), Node(seg2.p1), Node(seg2.p2), **props))
+                self._segments.append(
+                    PipeSegStraight(
+                        next(seg_names), Node(seg2.p1, units=self.units), Node(seg2.p2, units=self.units), **props
+                    )
+                )
 
     @property
     def segments(self):
@@ -2712,8 +2725,8 @@ class Pipe(BackendGeom):
         wt = self.section.wt
         r = self.section.r
         d = r * 2
-        w_tol = 0.125
-        cor_tol = 0.003
+        w_tol = 0.125 if self.units == "m" else 125
+        cor_tol = 0.003 if self.units == "m" else 3
         corr_t = (wt - (wt * w_tol)) - cor_tol
         d -= 2.0 * corr_t
 
@@ -2747,6 +2760,7 @@ class Pipe(BackendGeom):
             self.n2.units = value
             self.section.units = value
             self.material.units = value
+            self._segments = []
             for p in self.points:
                 p.units = value
             self._build_pipe()

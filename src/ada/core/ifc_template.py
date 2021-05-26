@@ -3,8 +3,8 @@ from __future__ import absolute_import, division, print_function
 import time
 import uuid
 
-import ifcopenshell.file
 from ifcopenshell import main
+from ifcopenshell.file import file as ifc_file
 from ifcopenshell.guid import compress
 
 # A quick way to setup an 'empty' IFC file, taken from:
@@ -72,4 +72,4 @@ def tpl_create(
 
     d.update(dict(_()))
 
-    return ifcopenshell.file.file.from_string(TEMPLATE % d)
+    return ifc_file.from_string(TEMPLATE % d)
