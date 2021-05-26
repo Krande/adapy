@@ -10,8 +10,7 @@ class TestSesam(unittest.TestCase):
         from ada.param_models.basic_module import SimpleStru
 
         a = Assembly("MyTest")
-        p = SimpleStru("SimpleStru")
-        a.add_part(p)
+        p = a.add_part(SimpleStru("SimpleStru"))
         p.gmsh.mesh()
         a.to_fem("MyTest", fem_format="sesam", overwrite=True)
 

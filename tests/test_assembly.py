@@ -39,19 +39,14 @@ class VisualizeTests(unittest.TestCase):
         a._repr_html_()
 
     def test_fem(self):
-        a = Assembly("MyAssembly")
-        p = Part("MyPart")
-        p.add_beam(Beam("Bm", (0, 0, 0), (1, 0, 0), "IPE300"))
-        a.add_part(p)
+        a = Assembly("MyAssembly") / (Part("MyPart") / Beam("Bm", (0, 0, 0), (1, 0, 0), "IPE300"))
         a.gmsh.mesh()
 
         a._repr_html_()
         a._renderer.toggle_mesh_visibility()
 
     def test_module(self):
-        a = Assembly("ParametricSite")
-        pm = SimpleStru("ParametricModel")
-        a.add_part(pm)
+        a = Assembly("ParametricSite") / SimpleStru("ParametricModel")
         a.gmsh.mesh()
 
         a._repr_html_()
