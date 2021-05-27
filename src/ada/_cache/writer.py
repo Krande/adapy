@@ -69,7 +69,7 @@ def add_fem_to_cache(fem, part_group):
 
     list(map(pmap, fem.nodes))
 
-    coo = fem_group.create_dataset("NODES", data=points.flatten(order="F"))
+    coo = fem_group.create_dataset("NODES", data=points)
     coo.attrs.create("NBR", len(points))
     coo.attrs.create("IDS", [p.id for p in fem.nodes])
 
@@ -81,9 +81,6 @@ def add_fem_to_cache(fem, part_group):
 
     for group, elements in groupby(fem.elements, key=attrgetter("type")):
         elements = list(elements)
-        cells = np.array(list(map(get_node_ids_from_element, elements)))
         med_cells = elements_group.create_group(group)
-
-        nodes = med_cells.create_dataset("NODE_REFS", data=cells.flatten(order="F"))
-        nodes.attrs.create("NBR", len(points))
-        med_cells.create_dataset("ELEMENTS", data=[int(el.id) for el in elements])
+        elements = [[int(el.id), *get_node_ids_from_element(el)] for el in elements]
+        med_cells.create_dataset("ELEMENTS", data=elements)

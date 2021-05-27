@@ -782,10 +782,7 @@ class Nodes:
         return Nodes(chain(self._nodes, other._nodes))
 
     def __repr__(self):
-        rpr = reprlib.Repr()
-        rpr.maxlist = 8
-        rpr.maxlevel = 1
-        return f"Nodes({rpr.repr(self._nodes) if self._nodes else ''})"
+        return f"Nodes({len(self._nodes)}, max_id: {self.max_nid}, min_id: {self.min_nid})"
 
     def index(self, item):
         index = bisect_left(self._nodes, item)
@@ -873,11 +870,11 @@ class Nodes:
 
     @property
     def max_nid(self):
-        return max(self.dmap.keys())
+        return max(self.dmap.keys()) if len(self.dmap.keys()) > 0 else 0
 
     @property
     def min_nid(self):
-        return min(self.dmap.keys())
+        return min(self.dmap.keys()) if len(self.dmap.keys()) > 0 else 0
 
     def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=1e-4):
         """
