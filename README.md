@@ -1,7 +1,7 @@
 # ADA - Assembly for Design & Analysis
 
-A python library for structural analysis and design that focus on interoperability between
-IFC and various Finite Element formats.
+A python library that aims to provide a framework for object-oriented structural analysis and design, and fluent 
+interoperability between IFC and various Finite Element formats.
 
 This library is still undergoing significant development so expect there to be occasional bugs and breaking changes.
 
@@ -33,7 +33,7 @@ To install ada using pip
 
 First you need to have installed `ifcopenshell` and `pythonocc-core` from conda-forge. 
 
-`conda -c conda-forge ifcopenshell pythonocc-core`
+`conda -c conda-forge ifcopenshell pythonocc-core==7.5.1 occt==7.5.1`
 
 After the conda-forge dependencies are installed you can install ada using 
 
@@ -51,27 +51,28 @@ Note! Conda installation is not yet set up.
 
 
 ## Usage
-Some example of using the ada package 
-
+Some examples of using the ada package 
 
 
 ### Create an IFC file
 
-The following code
-
-```python
-from ada import Assembly, Part, Beam
-
-a = Assembly("MyAssembly") / (Part("MyPart") / Beam("MyBeam", (0,0,0), (1,0,0), "IPE300"))
-a.to_ifc("C:/temp/myifc.ifc")
-```
-
-creates an IFC with the following hierarchy (as shown in the figure below taken from the awesome 
-[blender](https://blender.org) plugin [blenderbim](https://blenderbim.org/))
+To create an Ifc file containing an IfcBeam with the following hierarchy 
     
     MyAssembly (IfSite)
         MyPart (IfcBuildingStorey)
             MyBeam (IfcBeam)
+
+the following code will do just that
+
+```python
+from ada import Assembly, Part, Beam
+
+a = Assembly("MyAssembly") / (Part("MyPart") / Beam("MyBeam", (0, 0, 0), (1, 0, 0), "IPE300"))
+a.to_ifc("C:/temp/myifc.ifc")
+```
+
+The resulting IfcBeam (and corresponding hierarchy) is shown in the figure below taken from the awesome 
+[blender](https://blender.org) plugin [blenderbim](https://blenderbim.org/))
 
 ![Beam Visualized in BlenderBIM](docs/_static/figures/my_beam.png)
 
@@ -99,8 +100,8 @@ in python using Jupyter notebook/lab (currently only supported for Code Aster) f
 ![Abaqus Results](docs/_static/figures/fem_beam_abaqus.png)
 ![Code Aster (jupyter) results](docs/_static/figures/code_aster_jupyter_displ.png)
 
-or if your prefer to keep it in python here is a way you can use meshio to read the results from calculix and do your
-postprocessing using python only.
+To access the stress and displacement data directly using python here is a way you can use meshio to read the results 
+from Calculix and Code Aster (continuing on the previous example).
 
 ```python
 from ada.config import Settings
