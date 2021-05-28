@@ -5131,21 +5131,16 @@ class Connection(Part):
     A basic Connection class
     """
 
-    def __init__(self, name, incoming_beams, wp=None):
+    def __init__(self, name, incoming_beams, center=None, s=None, t=None):
         super(Connection, self).__init__(name)
         self._beams = incoming_beams
         self._clines = list()
-        self._wp = wp
-
-    def add_cline(self, cline):
-        self._clines.append(cline)
-
-    @property
-    def wp(self):
-        return self._wp
+        self._center = center
+        self._s = s
+        self._t = t
 
     def __repr__(self):
-        return 'Joint Name: "{}", center: "{}"'.format(self._name, self._wp)
+        return 'Joint Name: "{}", center: "{}"'.format(self._name, self._center)
 
 
 class CurveRevolve:

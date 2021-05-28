@@ -362,6 +362,49 @@ def intersection_point(v1, v2):
         return res
 
 
+def beam_cross_check(bm1, bm2, outofplane_tol=0.1):
+    """
+    Find intersection point between two beams
+
+    :param bm1:
+    :param bm2:
+    :param outofplane_tol:
+
+    :type bm1: ada.Beam
+    :type bm2: ada.Beam
+    """
+
+    p_check = parallel_check
+    i_check = intersect_calc
+    v_len = vector_length
+    a = bm1.n1.p
+    b = bm1.n2.p
+    c = bm2.n1.p
+    d = bm2.n2.p
+
+    ab = b - a
+    cd = d - c
+
+    s, t = i_check(a, c, ab, cd)
+
+    ab_ = a + s * ab
+    cd_ = c + t * cd
+
+    t_ = roundoff(t)
+    if 0 < t_ < 1:
+        logging.debug(f"Beam cross-check indicates that the beams {bm1} and {bm2} are most probably parallel")
+        return None
+
+    if p_check(ab, cd):
+        logging.debug(f"beams {bm1} {bm2} are parallel")
+        return None
+
+    if v_len(ab_ - cd_) > outofplane_tol:
+        return None
+
+    return ab_, s, t
+
+
 def normalize(curve):
     if type(curve) is tuple:
         return (curve[0], [y / max(abs(curve[1])) for y in curve[1]])
