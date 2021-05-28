@@ -2122,6 +2122,10 @@ class Beam(BackendGeom):
         """
         return self._e1
 
+    @e1.setter
+    def e1(self, value):
+        self._e1 = value
+
     @property
     def e2(self):
         """
@@ -2130,6 +2134,10 @@ class Beam(BackendGeom):
         :rtype: Node
         """
         return self._e2
+
+    @e2.setter
+    def e2(self, value):
+        self._e2 = value
 
     @property
     def opacity(self):

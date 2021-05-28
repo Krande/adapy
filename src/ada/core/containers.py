@@ -357,6 +357,8 @@ class Connections(BaseCollections):
         ass = self._parent.get_assembly()
         bm_res = ass.beam_clash_check()
 
+        point_tuples = []
+
         def are_beams_connected(beams):
             """
 
@@ -365,22 +367,35 @@ class Connections(BaseCollections):
             """
             bm1 = beams[0]
             assert isinstance(bm1, Beam)
+            cross_beams = dict()
             for bm2 in beams[1]:
                 if bm1 == bm2:
                     continue
                 assert isinstance(bm2, Beam)
                 point, s, t = beam_cross_check(bm1, bm2, out_of_plane_tol)
                 self._eval_joint_ends(bm1, bm2, t, point)
+
                 if point is not None:
+                    tp = tuple(point)
+                    if tp not in cross_beams.keys():
+                        cross_beams[tp] = []
+                    cross_beams[tp].append(bm2)
 
-                    if joint_func is not None:
-                        joint = joint_func([bm1, bm2], point, s, t)
-                    else:
-                        joint = Connection(next(self.counter), [bm1, bm2], point, s, t)
+            for p, mem in cross_beams.items():
+                if p in point_tuples:
+                    continue
+                point_tuples.append(p)
+                if joint_func is not None:
+                    joint = joint_func(next(self.counter), [bm1] + mem)
+                    if joint is None:
+                        continue
+                else:
+                    joint = Connection(next(self.counter), [bm1] + mem)
 
-                    bm1.connected_from.append(joint)
-                    bm2.connected_to.append(joint)
-                    self.add(joint)
+                bm1.connected_from.append(joint)
+                for m in mem:
+                    m.connected_to.append(joint)
+                self.add(joint)
 
         list(map(are_beams_connected, bm_res))
 
