@@ -2662,7 +2662,6 @@ class Pipe(BackendGeom):
                     )
                 else:
                     if len(self._segments) == 0:
-                        print("sd")
                         continue
                     pseg = self._segments[-1]
                     pseg.p2 = Node(seg1.p2, units=self.units)

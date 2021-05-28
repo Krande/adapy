@@ -224,14 +224,12 @@ class TestSequenceProtocol(unittest.TestCase):
 class TestReprProtocol(unittest.TestCase):
     def test_repr_empty(self):
         s = Nodes()
-        self.assertEqual(repr(s), "Nodes()")
+        self.assertEqual(repr(s), "Nodes(0, max_id: 0, min_id: 0)")
 
     def test_repr_some(self):
         n1, n2, n3, n4, n5, n6, n7, n8, n9, n10 = get_nodes()
         s = Nodes([n1, n2, n3])
-        self.assertEqual(
-            repr(s), "Nodes([Node([1.0, 1.0, 1.0], 2), Node([1.0, 2.0, 3.0], 1), Node([2.0, 1.0, 8.0], 3)])"
-        )
+        self.assertEqual(repr(s), "Nodes(3, max_id: 3, min_id: 1)")
 
 
 class TestGetByVolume(unittest.TestCase):
