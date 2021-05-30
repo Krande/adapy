@@ -1,4 +1,4 @@
-from ada import Beam, Part, Plate
+from ada import Beam, Part, Plate, Section
 from ada.core.utils import Counter
 
 bm_name = Counter(1, "bm")
@@ -72,7 +72,7 @@ class SimpleStru(Part):
         l = None
         h = None
 
-    def __init__(self, name, origin=(0, 0, 0), w=5, l=5, h=3, gsec="IPE200", csec="HEB200"):
+    def __init__(self, name, origin=(0, 0, 0), w=5, l=5, h=3, gsec="IPE200", csec="HEB200", pl_thick=10e-3):
         super(SimpleStru, self).__init__(name, origin)
         self.Params.w = w
         self.Params.h = h
@@ -80,19 +80,20 @@ class SimpleStru(Part):
 
         c1, c2, c3, c4 = self.c1, self.c2, self.c3, self.c4
         z0 = origin[2]
-
+        sec = Section(gsec, from_str=gsec, parent=self)
         for h_ in [z0, h]:
-            self.add_beam(Beam(next(bm_name), n1=c1(h_), n2=c2(h_), sec=gsec))
-            self.add_beam(Beam(next(bm_name), n1=c2(h_), n2=c3(h_), sec=gsec))
-            self.add_beam(Beam(next(bm_name), n1=c3(h_), n2=c4(h_), sec=gsec))
-            self.add_beam(Beam(next(bm_name), n1=c4(h_), n2=c1(h_), sec=gsec))
+            self.add_beam(Beam(next(bm_name), n1=c1(h_), n2=c2(h_), sec=sec))
+            self.add_beam(Beam(next(bm_name), n1=c2(h_), n2=c3(h_), sec=sec))
+            self.add_beam(Beam(next(bm_name), n1=c3(h_), n2=c4(h_), sec=sec))
+            self.add_beam(Beam(next(bm_name), n1=c4(h_), n2=c1(h_), sec=sec))
+            pl_el = h_ + sec.h / 2 - pl_thick
             self.add_part(
                 ReinforcedFloor(
                     next(floor_name),
                     Plate(
                         next(pl_name),
-                        [c1(h_), c2(h_), c3(h_), c4(h_)],
-                        10e-3,
+                        [c1(pl_el), c2(pl_el), c3(pl_el), c4(pl_el)],
+                        pl_thick,
                         use3dnodes=True,
                     ),
                 )

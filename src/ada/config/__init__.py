@@ -55,6 +55,7 @@ class Settings:
     temp_dir = pathlib.Path(os.getenv("ADA_temp_dir", f"{_home}/temp"))
     debug_dir = pathlib.Path(os.getenv("ADA_log_dir", f"{_home}/logs"))
     test_dir = pathlib.Path(os.getenv("ADA_test_dir", f"{_home}/tests"))
+    tools_dir = pathlib.Path(os.getenv("ADA_tools_dir", f"{_home}/tools"))
 
     fem_exe_paths = dict(abaqus=None, ccx=None, sesam=None, usfos=None, code_aster=None)
 

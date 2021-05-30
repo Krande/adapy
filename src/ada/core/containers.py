@@ -372,7 +372,10 @@ class Connections(BaseCollections):
                 if bm1 == bm2:
                     continue
                 assert isinstance(bm2, Beam)
-                point, s, t = beam_cross_check(bm1, bm2, out_of_plane_tol)
+                res = beam_cross_check(bm1, bm2, out_of_plane_tol)
+                if res is None:
+                    continue
+                point, s, t = res
                 self._eval_joint_ends(bm1, bm2, t, point)
 
                 if point is not None:
@@ -434,7 +437,7 @@ class Connections(BaseCollections):
         elif t_ >= 1:
             eval_node(intersect_point, n1=False)
         else:
-            raise ValueError('bm1 "{}", bm2 "{}", t: "{}"'.format(bm1.id, bm2.id, t_))
+            logging.error('bm1 "{}", bm2 "{}", t: "{}"'.format(bm1.name, bm2.name, t_))
 
 
 class Materials(BaseCollections):

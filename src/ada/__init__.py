@@ -1608,7 +1608,7 @@ class Beam(BackendGeom):
             if self._section is None:
                 raise ValueError("Unable to find beam section based on input: {}".format(sec))
         else:
-            raise ValueError("Unacceptable input type: {}".format(type(sec)))
+            raise ValueError(f'Unacceptable input type: "{type(sec)}"')
 
         self._section.parent = self
         self._taper.parent = self
@@ -1658,6 +1658,8 @@ class Beam(BackendGeom):
 
         self._ifc_geom = ifc_geom
         self._opacity = opacity
+
+        self._apply_jusl(jusl)
 
     def get_outer_points(self):
         """
@@ -1931,6 +1933,25 @@ class Beam(BackendGeom):
             guid=ifc_elem.GlobalId,
         )
 
+    def _apply_jusl(self, jusl):
+        jusl_map = dict(NA=None, TOP=(0, 0, -self.section.h / 4))
+
+        jusl_val = jusl_map.get(jusl, None)
+
+        if jusl_val is None:
+            if jusl != "NA":
+                logging.error(f'Unknown JUSL value "{jusl}"')
+            return None
+
+        if self.e1 is not None:
+            self.e1 += np.array(jusl_val)
+        else:
+            self.e1 = np.array(jusl_val)
+        if self.e2 is not None:
+            self.e2 += np.array(jusl_val)
+        else:
+            self.e2 = np.array(jusl_val)
+
     @property
     def units(self):
         return self._units
@@ -2013,7 +2034,14 @@ class Beam(BackendGeom):
         :return: length of beam
         :rtype: float
         """
-        return vector_length(self.n2.p - self.n1.p)
+        p1 = self.n1.p
+        p2 = self.n2.p
+
+        if self.e1 is not None:
+            p1 += self.e1
+        if self.e2 is not None:
+            p2 += self.e2
+        return vector_length(p2 - p1)
 
     @property
     def jusl(self):
@@ -2118,26 +2146,26 @@ class Beam(BackendGeom):
         """
 
         :return:
-        :rtype: Node
+        :rtype: numpy.ndarray
         """
         return self._e1
 
     @e1.setter
     def e1(self, value):
-        self._e1 = value
+        self._e1 = np.array(value)
 
     @property
     def e2(self):
         """
 
         :return:
-        :rtype: Node
+        :rtype: numpy.ndarray
         """
         return self._e2
 
     @e2.setter
     def e2(self, value):
-        self._e2 = value
+        self._e2 = np.array(value)
 
     @property
     def opacity(self):

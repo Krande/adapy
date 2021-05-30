@@ -15,6 +15,8 @@ import numpy as np
 import plotly.graph_objs as go
 from plotly import io as pio
 
+from ada.config import Settings as _Settings
+
 __all__ = [
     "make_box_by_points",
     "make_sphere",
@@ -400,6 +402,7 @@ def beam_cross_check(bm1, bm2, outofplane_tol=0.1):
         return None
 
     if v_len(ab_ - cd_) > outofplane_tol:
+        logging.debug("The two lines do not intersect within given tolerances")
         return None
 
     return ab_, s, t
@@ -865,12 +868,10 @@ class SegCreator:
         self._arc_midpoint = None
         self._is_closed = is_closed
         if debug is True:
-            from ada.config import Settings
+            self._debug_path = _Settings.debug_dir
 
-            self._debug_path = Settings.debug_dir
-
-            if os.path.isdir(Settings.debug_dir) is False:
-                os.makedirs(Settings.debug_dir, exist_ok=True)
+            if os.path.isdir(_Settings.debug_dir) is False:
+                os.makedirs(_Settings.debug_dir, exist_ok=True)
             self._start_plot()
 
     def next(self):

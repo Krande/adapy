@@ -69,7 +69,7 @@ class JointBase(Part):
         :type mem_base: ada.Beam
         :type mem_incoming: ada.Beam
         """
-        h_vec = np.array(mem_incoming.up) * mem_incoming.section.h / 2
+        h_vec = np.array(mem_incoming.up) * mem_incoming.section.h * 2
         p1, p2 = mem_base.bbox
         p1 = np.array(p1) - h_vec
         p2 = np.array(p2) + h_vec
@@ -113,12 +113,19 @@ class JointB(JointBase):
         :type gi2: ada.Beam
         :return:
         """
+
         dist = max(gi1.section.h, gi2.section.h) / 2
         xvec = column.xvec
 
         adjust_vec = 1 if s == 1.0 else -1
         adjust_col_end = adjust_vec * xvec * dist
         if adjust_vec == 1:
-            column.e2 = adjust_col_end
+            if column.e2 is None:
+                column.e2 = adjust_col_end
+            else:
+                column.e2 += adjust_col_end
         else:
-            column.e1 = adjust_col_end
+            if column.e1 is None:
+                column.e1 = adjust_col_end
+            else:
+                column.e1 += adjust_col_end
