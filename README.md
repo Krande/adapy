@@ -122,7 +122,7 @@ print('Code Aster:',ca_mesh.point_data['DISP[10] - 1'][-1][:3])
 
 In short `beam_ex1` creates a `Beam` object which it uses to create a shell element `FEM` mesh using 
 a mesh recipe [create_beam_mesh](https://github.com/Krande/adapy/blob/c594ccbfbdd2ea9384fa8a4721a65580331b4a09/src/ada/fem/io/mesh/recipes.py#L99-L223). 
-The recipe uses [GMSH](https://gmsh.info/) to construct elements on nodes. 
+The recipe uses [GMSH](https://gmsh.info/) to construct elements and nodes. 
 
 
 The current reasoning is to work with a base representation of beam/plates and have the ability

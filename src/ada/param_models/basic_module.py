@@ -82,10 +82,10 @@ class SimpleStru(Part):
         z0 = origin[2]
         sec = Section(gsec, from_str=gsec, parent=self)
         for h_ in [z0, h]:
-            self.add_beam(Beam(next(bm_name), n1=c1(h_), n2=c2(h_), sec=sec))
-            self.add_beam(Beam(next(bm_name), n1=c2(h_), n2=c3(h_), sec=sec))
-            self.add_beam(Beam(next(bm_name), n1=c3(h_), n2=c4(h_), sec=sec))
-            self.add_beam(Beam(next(bm_name), n1=c4(h_), n2=c1(h_), sec=sec))
+            self.add_beam(Beam(next(bm_name), n1=c1(h_), n2=c2(h_), sec=sec, jusl="TOP"))
+            self.add_beam(Beam(next(bm_name), n1=c2(h_), n2=c3(h_), sec=sec, jusl="TOP"))
+            self.add_beam(Beam(next(bm_name), n1=c3(h_), n2=c4(h_), sec=sec, jusl="TOP"))
+            self.add_beam(Beam(next(bm_name), n1=c4(h_), n2=c1(h_), sec=sec, jusl="TOP"))
             pl_el = h_ + sec.h / 2 - pl_thick
             self.add_part(
                 ReinforcedFloor(

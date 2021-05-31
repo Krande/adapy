@@ -1659,8 +1659,6 @@ class Beam(BackendGeom):
         self._ifc_geom = ifc_geom
         self._opacity = opacity
 
-        self._apply_jusl(jusl)
-
     def get_outer_points(self):
         """
 
@@ -1724,6 +1722,7 @@ class Beam(BackendGeom):
             create_ifclocalplacement,
             create_ifcrevolveareasolid,
             create_property_set,
+            convert_bm_jusl_to_ifc,
         )
         from ada.core.utils import angle_between
 
@@ -1863,12 +1862,15 @@ class Beam(BackendGeom):
             [ifc_beam] + elements,
             props,
         )
-
+        # Material
         ifc_mat = a.ifc_materials[self.material.name]
-        mat_profile = f.createIfcMaterialProfile(sec.name, "A material profile", ifc_mat, profile, None, "LoadBearing")
+        mat_profile = f.createIfcMaterialProfile(
+            sec.name, "A material profile", ifc_mat, profile, None, "LoadBearing"
+        )
         mat_profile_set = f.createIfcMaterialProfileSet(sec.name, None, [mat_profile], None)
-        f.createIfcRelAssociatesMaterial(create_guid(), None, None, None, [beam_type], mat_profile_set)
-        mat_profile_set = f.createIfcMaterialProfileSetUsage(mat_profile_set, 8, None)
+
+        f.createIfcRelAssociatesMaterial(create_guid(), owner_history, None, None, [beam_type], mat_profile_set)
+
         f.createIfcRelAssociatesMaterial(
             create_guid(),
             owner_history,
@@ -1877,6 +1879,10 @@ class Beam(BackendGeom):
             [ifc_beam],
             mat_profile_set,
         )
+
+        # Cardinality
+        mat_usage = f.createIfcMaterialProfileSetUsage(mat_profile_set, convert_bm_jusl_to_ifc(self))
+        f.createIfcRelAssociatesMaterial(create_guid(), owner_history, None, None, [ifc_beam], mat_usage)
 
         return ifc_beam
 
@@ -1932,25 +1938,6 @@ class Beam(BackendGeom):
             opacity=alpha,
             guid=ifc_elem.GlobalId,
         )
-
-    def _apply_jusl(self, jusl):
-        jusl_map = dict(NA=None, TOP=(0, 0, -self.section.h / 4))
-
-        jusl_val = jusl_map.get(jusl, None)
-
-        if jusl_val is None:
-            if jusl != "NA":
-                logging.error(f'Unknown JUSL value "{jusl}"')
-            return None
-
-        if self.e1 is not None:
-            self.e1 += np.array(jusl_val)
-        else:
-            self.e1 = np.array(jusl_val)
-        if self.e2 is not None:
-            self.e2 += np.array(jusl_val)
-        else:
-            self.e2 = np.array(jusl_val)
 
     @property
     def units(self):

@@ -1,3 +1,5 @@
+import logging
+
 import ifcopenshell
 import ifcopenshell.geom
 import ifcopenshell.util.element
@@ -748,3 +750,47 @@ def merge_ifc_files(parent_dir, output_file_name, clean_files=False, include_ele
     checkpoint = time.time()
     f.write(out_file_name)
     print(f"File written in {time.time() - checkpoint:.2f} seconds")
+
+
+def convert_bm_jusl_to_ifc(bm):
+    """
+    IfcCardinalPointReference
+
+
+    1.      bottom left
+    2.      bottom centre
+    3.      bottom right
+    4.      mid-depth left
+    5.      mid-depth centre
+    6.      mid-depth right
+    7.      top left
+    8.      top centre
+    9.      top right
+    10.     geometric centroid
+    11.     bottom in line with the geometric centroid
+    12.     left in line with the geometric centroid
+    13.     right in line with the geometric centroid
+    14.     top in line with the geometric centroid
+    15.     shear centre
+    16.     bottom in line with the shear centre
+    17.     left in line with the shear centre
+    18.     right in line with the shear centre
+    19.     top in line with the shear centre
+
+    https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/schema/ifcmaterialresource/lexical/ifccardinalpointreference.htm
+
+    :param bm:
+    :type bm: ada.Beam
+    :return:
+    """
+    jusl = bm.jusl
+    jusl_map = dict(NA=5, TOP=8)
+
+    jusl_val = jusl_map.get(jusl, None)
+
+    if jusl_val is None:
+        if jusl != "NA":
+            logging.error(f'Unknown JUSL value "{jusl}". Using NA')
+        return 5
+
+    return jusl_val
