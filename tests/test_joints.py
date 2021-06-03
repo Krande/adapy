@@ -11,8 +11,9 @@ test_folder = Settings.test_dir / "joints"
 class MyTestCase(unittest.TestCase):
     def test_joint_auto_map_param(self):
         a = Assembly() / SimpleStru("MySimpleStru")
+        a.to_ifc(test_folder / "simplestru_no_joints.ifc")
         a.connections.find(joint_func=joint_map)
-        a.to_ifc(test_folder / "joints_b_param.ifc")
+        a.to_ifc(test_folder / "simplestru_joints_b.ifc")
 
 
 if __name__ == "__main__":

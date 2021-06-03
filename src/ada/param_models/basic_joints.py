@@ -3,6 +3,7 @@ import logging
 import numpy as np
 
 from ada import Part, PrimBox
+from ada.core.containers import Beams
 from ada.core.utils import beam_cross_check
 
 
@@ -47,6 +48,9 @@ class JointBase(Part):
     def __init__(self, name, members):
         super(JointBase, self).__init__(name)
         self._init_check(members)
+        self._beams = Beams(members)
+        for m in members:
+            m._ifc_elem = None
 
     def _init_check(self, members):
         if self.num_mem != len(members):

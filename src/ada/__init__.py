@@ -1718,11 +1718,11 @@ class Beam(BackendGeom):
         from ada.core.constants import O, X, Z
         from ada.core.ifc_utils import (
             add_colour,
+            convert_bm_jusl_to_ifc,
             create_ifcaxis2placement,
             create_ifclocalplacement,
             create_ifcrevolveareasolid,
             create_property_set,
-            convert_bm_jusl_to_ifc,
         )
         from ada.core.utils import angle_between
 
@@ -1864,9 +1864,7 @@ class Beam(BackendGeom):
         )
         # Material
         ifc_mat = a.ifc_materials[self.material.name]
-        mat_profile = f.createIfcMaterialProfile(
-            sec.name, "A material profile", ifc_mat, profile, None, "LoadBearing"
-        )
+        mat_profile = f.createIfcMaterialProfile(sec.name, "A material profile", ifc_mat, profile, None, "LoadBearing")
         mat_profile_set = f.createIfcMaterialProfileSet(sec.name, None, [mat_profile], None)
 
         f.createIfcRelAssociatesMaterial(create_guid(), owner_history, None, None, [beam_type], mat_profile_set)
