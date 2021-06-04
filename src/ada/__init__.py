@@ -5164,6 +5164,64 @@ class Connection(Part):
         return 'Joint Name: "{}", center: "{}"'.format(self._name, self._center)
 
 
+class Bolts(Backend):
+    """
+
+    TODO: Create a bolt class based on the IfcMechanicalFastener concept.
+
+    https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/schema/ifcsharedcomponentelements/lexical/ifcmechanicalfastener.htm
+
+    Which in turn should likely be inside another element components class
+
+    https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/schema/ifcsharedcomponentelements/lexical/ifcelementcomponent.htm
+
+    """
+
+    def __init__(self, name, p1, p2, normal, members, parent=None):
+        super(Bolts, self).__init__(name, parent=parent)
+
+
+class Weld(Backend):
+    """
+    TODO: Create a weld class based on the IfcFastener concept.
+
+    https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/schema/ifcsharedcomponentelements/lexical/ifcfastener.htm
+    """
+
+    def __init__(self, name, p1, p2, normal, members, parent=None):
+        super(Weld, self).__init__(name, parent=parent)
+        self._p1 = p1
+        self._p2 = p2
+        self._normal = normal
+        self._members = members
+        self._ifc_elem = None
+
+    def _generate_ifc_elem(self):
+        """
+
+
+
+        :return:
+        """
+        if self.parent is None:
+            raise ValueError("Parent cannot be None for IFC export")
+
+        # a = self.parent.get_assembly()
+        # f = a.ifc_file
+
+        # context = f.by_type("IfcGeometricRepresentationContext")[0]
+        # owner_history = f.by_type("IfcOwnerHistory")[0]
+        # parent = self.parent.ifc_elem
+
+        # ifc_fastener = f.createIfcFastener()
+
+    def ifc_elem(self):
+        if self._ifc_elem is None:
+            self._ifc_elem = self._generate_ifc_elem()
+
+        return self._ifc_elem
+
+
 class CurveRevolve:
     def __init__(
         self,
