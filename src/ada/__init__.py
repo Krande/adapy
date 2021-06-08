@@ -1840,16 +1840,24 @@ class Beam(BackendGeom):
             add_colour(f, extrude_area_solid, str(self.colour), self.colour)
 
         # Add penetrations
-        elements = []
+        # elements = []
         for pen in self._penetrations:
-            elements.append(pen.ifc_opening)
+            # elements.append(pen.ifc_opening)
+            f.createIfcRelVoidsElement(
+                create_guid(),
+                owner_history,
+                None,
+                None,
+                ifc_beam,
+                pen.ifc_opening,
+            )
 
         f.createIfcRelDefinesByType(
             create_guid(),
             None,
             self.section.type,
             None,
-            [ifc_beam] + elements,
+            [ifc_beam],
             beam_type,
         )
 
@@ -1859,7 +1867,7 @@ class Beam(BackendGeom):
             owner_history,
             "Properties",
             None,
-            [ifc_beam] + elements,
+            [ifc_beam],
             props,
         )
         # Material
@@ -2374,9 +2382,17 @@ class Plate(BackendGeom):
             add_colour(f, ifcextrudedareasolid, str(self.colour), self.colour)
 
         # Add penetrations
-        elements = []
+        # elements = []
         for pen in self.penetrations:
-            elements.append(pen.ifc_opening)
+            # elements.append(pen.ifc_opening)
+            f.createIfcRelVoidsElement(
+                create_guid(),
+                owner_history,
+                None,
+                None,
+                ifc_plate,
+                pen.ifc_opening,
+            )
 
         # if "props" in self.metadata.keys():
         props = create_property_set("Properties", f, self.metadata)
@@ -2385,7 +2401,7 @@ class Plate(BackendGeom):
             owner_history,
             "Properties",
             None,
-            [ifc_plate] + elements,
+            [ifc_plate],
             props,
         )
 
@@ -4284,9 +4300,7 @@ class Penetration(BackendGeom):
         a = self.parent.parent.get_assembly()
         f = a.ifc_file
 
-        ifc_geom = self.parent.ifc_elem
         geom_parent = self.parent.parent.ifc_elem
-        # context = f.by_type("IfcGeometricRepresentationContext")[0]
         owner_history = f.by_type("IfcOwnerHistory")[0]
 
         # Create and associate an opening for the window in the wall
@@ -4312,15 +4326,6 @@ class Penetration(BackendGeom):
                         add_properties_to_elem(pro_id, f, opening_element, prop_)
                 else:
                     add_properties_to_elem("Properties", f, opening_element, pro)
-
-        f.createIfcRelVoidsElement(
-            create_guid(),
-            owner_history,
-            None,
-            None,
-            ifc_geom,
-            opening_element,
-        )
 
         return opening_element
 

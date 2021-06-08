@@ -1,9 +1,9 @@
 import unittest
 
-from ada import Assembly, Pipe, Section
+from ada import Assembly
 from ada.config import Settings
 from ada.fem import Load, Step
-from ada.param_models.basic_module import SimpleStru
+from ada.param_models.basic_module import SimpleStru, make_it_complex
 
 test_folder = Settings.test_dir / "param_models"
 
@@ -42,43 +42,8 @@ class ParamModelsTestCase(unittest.TestCase):
         a.to_fem("SimpleStru", fem_format="abaqus", overwrite=True)
 
     def test_add_piping(self):
-        a = Assembly("ParametricSite")
-        pm = a.add_part(SimpleStru("ParametricModel"))
-
-        elev = pm.Params.h - 0.4
-        offset_Y = 0.4
-        pipe1 = Pipe(
-            "Pipe1",
-            [
-                (0, offset_Y, elev),
-                (pm.Params.w + 0.4, offset_Y, elev),
-                (pm.Params.w + 0.4, pm.Params.l + 0.4, elev),
-                (pm.Params.w + 0.4, pm.Params.l + 0.4, 0.4),
-                (0, pm.Params.l + 0.4, 0.4),
-            ],
-            Section("PSec1", "PIPE", r=0.1, wt=10e-3),
-        )
-
-        pipe2 = Pipe(
-            "Pipe2",
-            [
-                (0.5, offset_Y + 0.5, elev + 1.4),
-                (0.5, offset_Y + 0.5, elev),
-                (0.2 + pm.Params.w, offset_Y + 0.5, elev),
-                (0.2 + pm.Params.w, pm.Params.l + 0.4, elev),
-                (0.2 + pm.Params.w, pm.Params.l + 0.4, 0.6),
-                (0, pm.Params.l + 0.4, 0.6),
-            ],
-            Section("PSec1", "PIPE", r=0.05, wt=5e-3),
-        )
-
-        pm.add_pipe(pipe1)
-        pm.add_pipe(pipe2)
-        for p in pm.parts.values():
-            if "floor" in p.name:
-                p.penetration_check()
-
-        a.to_ifc(test_folder / "my_simple_stru.ifc")
+        a = make_it_complex()
+        a.to_ifc(test_folder / "my_simple_stru_w_piping.ifc")
 
 
 if __name__ == "__main__":
