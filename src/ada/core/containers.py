@@ -344,16 +344,20 @@ class Connections(BaseCollections):
 
         self._connections.append(joint)
 
-    def find(self, out_of_plane_tol=0.1):
+    def find(self, out_of_plane_tol=0.1, joint_func=None):
         """
         Find all connections between beams in all parts using a simple clash check.
 
         :param out_of_plane_tol:
+        :param joint_func: Pass a function for mapping the generic Connection classes to a specific reinforced Joints
         """
         from ada import Beam, Connection
+        from ada.core.utils import beam_cross_check
 
         ass = self._parent.get_assembly()
         bm_res = ass.beam_clash_check()
+
+        point_tuples = []
 
         def are_beams_connected(beams):
             """
@@ -363,71 +367,49 @@ class Connections(BaseCollections):
             """
             bm1 = beams[0]
             assert isinstance(bm1, Beam)
+            cross_beams = dict()
             for bm2 in beams[1]:
                 if bm1 == bm2:
                     continue
                 assert isinstance(bm2, Beam)
-                point = self._beam_cross_check(bm1, bm2, out_of_plane_tol)
+                res = beam_cross_check(bm1, bm2, out_of_plane_tol)
+                if res is None:
+                    continue
+                point, s, t = res
+                self._eval_joint_ends(bm1, bm2, t, point)
+
                 if point is not None:
-                    connection = Connection(next(self.counter), [bm1, bm2], point)
-                    bm1.connected_from.append(connection)
-                    bm2.connected_to.append(connection)
-                    self.add(connection)
+                    tp = tuple(point)
+                    if tp not in cross_beams.keys():
+                        cross_beams[tp] = []
+                    cross_beams[tp].append(bm2)
+
+            for p, mem in cross_beams.items():
+                if p in point_tuples:
+                    continue
+                point_tuples.append(p)
+                if joint_func is not None:
+                    joint = joint_func(next(self.counter), [bm1] + mem)
+                    if joint is None:
+                        continue
+                else:
+                    joint = Connection(next(self.counter), [bm1] + mem)
+
+                bm1.connected_from.append(joint)
+                for m in mem:
+                    m.connected_to.append(joint)
+                self.add(joint)
 
         list(map(are_beams_connected, bm_res))
 
-    def _beam_cross_check(self, bm1, bm2, outofplane_tol=0.1):
-        """
-        Find intersection point between two beams
-
-        :param bm1:
-        :param bm2:
-        :param outofplane_tol:
-
-        :type bm1: ada.Beam
-        :type bm2: ada.Beam
-        """
-        from .utils import intersect_calc, parallel_check, roundoff
-
-        p_check = parallel_check
-        i_check = intersect_calc
-        v_len = vector_length
-        A = bm1.n1.p
-        B = bm1.n2.p
-        C = bm2.n1.p
-        D = bm2.n2.p
-
-        AB = B - A
-        CD = D - C
-
-        s, t = i_check(A, C, AB, CD)
-
-        AB_ = A + s * AB
-        CD_ = C + t * CD
-
-        t_ = roundoff(t)
-        if 0 < t_ < 1:
-            logging.debug(f"Beam cross-check indicates that the beams {bm1} and {bm2} are most probably parallel")
-            return None
-
-        if p_check(AB, CD):
-            logging.debug(f"beams {bm1} {bm2} are parallel")
-            return None
-
-        if v_len(AB_ - CD_) > outofplane_tol:
-            return None
-
-        self._eval_joint_ends(bm1, bm2, t_, AB_)
-        return AB_
-
-    def _eval_joint_ends(self, bm1, bm2, t_, AB_):
+    def _eval_joint_ends(self, bm1, bm2, t_, intersect_point):
         """
         Evaluate the  use AB_ to ensure that the node lands on the beam
 
         :param bm1:
         :param bm2:
         :param t_:
-        :param AB_:
+        :param intersect_point:
         :return:
         """
 
@@ -451,11 +433,11 @@ class Connections(BaseCollections):
                 logging.debug("Midnode on n1")
 
         if t_ <= 0:
-            eval_node(AB_, n1=True)
+            eval_node(intersect_point, n1=True)
         elif t_ >= 1:
-            eval_node(AB_, n1=False)
+            eval_node(intersect_point, n1=False)
         else:
-            raise ValueError('bm1 "{}", bm2 "{}", t: "{}"'.format(bm1.id, bm2.id, t_))
+            logging.error('bm1 "{}", bm2 "{}", t: "{}"'.format(bm1.name, bm2.name, t_))
 
 
 class Materials(BaseCollections):

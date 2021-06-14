@@ -1608,7 +1608,7 @@ class Beam(BackendGeom):
             if self._section is None:
                 raise ValueError("Unable to find beam section based on input: {}".format(sec))
         else:
-            raise ValueError("Unacceptable input type: {}".format(type(sec)))
+            raise ValueError(f'Unacceptable input type: "{type(sec)}"')
 
         self._section.parent = self
         self._taper.parent = self
@@ -1718,6 +1718,7 @@ class Beam(BackendGeom):
         from ada.core.constants import O, X, Z
         from ada.core.ifc_utils import (
             add_colour,
+            convert_bm_jusl_to_ifc,
             create_ifcaxis2placement,
             create_ifclocalplacement,
             create_ifcrevolveareasolid,
@@ -1839,16 +1840,24 @@ class Beam(BackendGeom):
             add_colour(f, extrude_area_solid, str(self.colour), self.colour)
 
         # Add penetrations
-        elements = []
+        # elements = []
         for pen in self._penetrations:
-            elements.append(pen.ifc_opening)
+            # elements.append(pen.ifc_opening)
+            f.createIfcRelVoidsElement(
+                create_guid(),
+                owner_history,
+                None,
+                None,
+                ifc_beam,
+                pen.ifc_opening,
+            )
 
         f.createIfcRelDefinesByType(
             create_guid(),
             None,
             self.section.type,
             None,
-            [ifc_beam] + elements,
+            [ifc_beam],
             beam_type,
         )
 
@@ -1858,15 +1867,16 @@ class Beam(BackendGeom):
             owner_history,
             "Properties",
             None,
-            [ifc_beam] + elements,
+            [ifc_beam],
             props,
         )
-
+        # Material
         ifc_mat = a.ifc_materials[self.material.name]
         mat_profile = f.createIfcMaterialProfile(sec.name, "A material profile", ifc_mat, profile, None, "LoadBearing")
         mat_profile_set = f.createIfcMaterialProfileSet(sec.name, None, [mat_profile], None)
-        f.createIfcRelAssociatesMaterial(create_guid(), None, None, None, [beam_type], mat_profile_set)
-        mat_profile_set = f.createIfcMaterialProfileSetUsage(mat_profile_set, 8, None)
+
+        f.createIfcRelAssociatesMaterial(create_guid(), owner_history, None, None, [beam_type], mat_profile_set)
+
         f.createIfcRelAssociatesMaterial(
             create_guid(),
             owner_history,
@@ -1875,6 +1885,10 @@ class Beam(BackendGeom):
             [ifc_beam],
             mat_profile_set,
         )
+
+        # Cardinality
+        mat_usage = f.createIfcMaterialProfileSetUsage(mat_profile_set, convert_bm_jusl_to_ifc(self))
+        f.createIfcRelAssociatesMaterial(create_guid(), owner_history, None, None, [ifc_beam], mat_usage)
 
         return ifc_beam
 
@@ -2013,7 +2027,14 @@ class Beam(BackendGeom):
         :return: length of beam
         :rtype: float
         """
-        return vector_length(self.n2.p - self.n1.p)
+        p1 = self.n1.p
+        p2 = self.n2.p
+
+        if self.e1 is not None:
+            p1 += self.e1
+        if self.e2 is not None:
+            p2 += self.e2
+        return vector_length(p2 - p1)
 
     @property
     def jusl(self):
@@ -2118,18 +2139,26 @@ class Beam(BackendGeom):
         """
 
         :return:
-        :rtype: Node
+        :rtype: numpy.ndarray
         """
         return self._e1
+
+    @e1.setter
+    def e1(self, value):
+        self._e1 = np.array(value)
 
     @property
     def e2(self):
         """
 
         :return:
-        :rtype: Node
+        :rtype: numpy.ndarray
         """
         return self._e2
+
+    @e2.setter
+    def e2(self, value):
+        self._e2 = np.array(value)
 
     @property
     def opacity(self):
@@ -2353,9 +2382,17 @@ class Plate(BackendGeom):
             add_colour(f, ifcextrudedareasolid, str(self.colour), self.colour)
 
         # Add penetrations
-        elements = []
+        # elements = []
         for pen in self.penetrations:
-            elements.append(pen.ifc_opening)
+            # elements.append(pen.ifc_opening)
+            f.createIfcRelVoidsElement(
+                create_guid(),
+                owner_history,
+                None,
+                None,
+                ifc_plate,
+                pen.ifc_opening,
+            )
 
         # if "props" in self.metadata.keys():
         props = create_property_set("Properties", f, self.metadata)
@@ -2364,7 +2401,7 @@ class Plate(BackendGeom):
             owner_history,
             "Properties",
             None,
-            [ifc_plate] + elements,
+            [ifc_plate],
             props,
         )
 
@@ -4263,9 +4300,7 @@ class Penetration(BackendGeom):
         a = self.parent.parent.get_assembly()
         f = a.ifc_file
 
-        ifc_geom = self.parent.ifc_elem
         geom_parent = self.parent.parent.ifc_elem
-        # context = f.by_type("IfcGeometricRepresentationContext")[0]
         owner_history = f.by_type("IfcOwnerHistory")[0]
 
         # Create and associate an opening for the window in the wall
@@ -4291,15 +4326,6 @@ class Penetration(BackendGeom):
                         add_properties_to_elem(pro_id, f, opening_element, prop_)
                 else:
                     add_properties_to_elem("Properties", f, opening_element, pro)
-
-        f.createIfcRelVoidsElement(
-            create_guid(),
-            owner_history,
-            None,
-            None,
-            ifc_geom,
-            opening_element,
-        )
 
         return opening_element
 
@@ -5131,21 +5157,74 @@ class Connection(Part):
     A basic Connection class
     """
 
-    def __init__(self, name, incoming_beams, wp=None):
+    def __init__(self, name, incoming_beams, center=None, s=None, t=None):
         super(Connection, self).__init__(name)
         self._beams = incoming_beams
         self._clines = list()
-        self._wp = wp
-
-    def add_cline(self, cline):
-        self._clines.append(cline)
-
-    @property
-    def wp(self):
-        return self._wp
+        self._center = center
+        self._s = s
+        self._t = t
 
     def __repr__(self):
-        return 'Joint Name: "{}", center: "{}"'.format(self._name, self._wp)
+        return 'Joint Name: "{}", center: "{}"'.format(self._name, self._center)
+
+
+class Bolts(Backend):
+    """
+
+    TODO: Create a bolt class based on the IfcMechanicalFastener concept.
+
+    https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/schema/ifcsharedcomponentelements/lexical/ifcmechanicalfastener.htm
+
+    Which in turn should likely be inside another element components class
+
+    https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/schema/ifcsharedcomponentelements/lexical/ifcelementcomponent.htm
+
+    """
+
+    def __init__(self, name, p1, p2, normal, members, parent=None):
+        super(Bolts, self).__init__(name, parent=parent)
+
+
+class Weld(Backend):
+    """
+    TODO: Create a weld class based on the IfcFastener concept.
+
+    https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/schema/ifcsharedcomponentelements/lexical/ifcfastener.htm
+    """
+
+    def __init__(self, name, p1, p2, normal, members, parent=None):
+        super(Weld, self).__init__(name, parent=parent)
+        self._p1 = p1
+        self._p2 = p2
+        self._normal = normal
+        self._members = members
+        self._ifc_elem = None
+
+    def _generate_ifc_elem(self):
+        """
+
+
+
+        :return:
+        """
+        if self.parent is None:
+            raise ValueError("Parent cannot be None for IFC export")
+
+        # a = self.parent.get_assembly()
+        # f = a.ifc_file
+
+        # context = f.by_type("IfcGeometricRepresentationContext")[0]
+        # owner_history = f.by_type("IfcOwnerHistory")[0]
+        # parent = self.parent.ifc_elem
+
+        # ifc_fastener = f.createIfcFastener()
+
+    def ifc_elem(self):
+        if self._ifc_elem is None:
+            self._ifc_elem = self._generate_ifc_elem()
+
+        return self._ifc_elem
 
 
 class CurveRevolve:

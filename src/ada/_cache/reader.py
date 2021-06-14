@@ -30,11 +30,12 @@ def get_fem_from_cache(cache_fem):
     points = node_groups[()]
     point_ids = node_groups.attrs["IDS"][()]
     fem = FEM(cache_fem.attrs["NAME"])
-    fem._nodes = Nodes([Node(points[int(pid - 1)], pid) for pid in point_ids], parent=fem)
+    nodes = Nodes([Node(points[int(pid - 1)], pid) for pid in point_ids], parent=fem)
+    fem._nodes = nodes
     elements = []
     for eltype, mesh in cache_fem["MESH"].items():
         el_ids = mesh["ELEMENTS"][()]
-        elements += [Elem(el_id[0], [fem._nodes.from_id(eli) for eli in el_id[1:]], eltype) for el_id in el_ids]
+        elements += [Elem(el_id[0], [nodes.from_id(eli) for eli in el_id[1:]], eltype) for el_id in el_ids]
     fem._elements = FemElements(elements, fem)
 
     return fem

@@ -2,7 +2,7 @@ import unittest
 
 from ada import Assembly, Beam, Part, Pipe, Plate, Section, Wall
 from ada.config import Settings
-from ada.param_models.basic_module import ReinforcedFloor, SimpleStru
+from ada.param_models.basic_module import SimpleStru, make_it_complex
 from ada.param_models.basic_structural_components import Door, Window
 
 test_folder = Settings.test_dir / "units"
@@ -91,44 +91,7 @@ class MyTestCase(unittest.TestCase):
 
     def test_simplestru_units(self):
 
-        pm = SimpleStru("ParametricModel")
-        elev = pm.Params.h - 0.4
-        offset_Y = 0.4
-
-        pipe1 = Pipe(
-            "Pipe1",
-            [
-                (0, offset_Y, elev),
-                (pm.Params.w + 0.4, offset_Y, elev),
-                (pm.Params.w + 0.4, pm.Params.l + 0.4, elev),
-                (pm.Params.w + 0.4, pm.Params.l + 0.4, 0.4),
-                (0, pm.Params.l + 0.4, 0.4),
-            ],
-            Section("PSec1", "PIPE", r=0.1, wt=10e-3),
-        )
-
-        pipe2 = Pipe(
-            "Pipe2",
-            [
-                (0.5, offset_Y + 0.5, elev + 1.4),
-                (0.5, offset_Y + 0.5, elev),
-                (0.2 + pm.Params.w, offset_Y + 0.5, elev),
-                (0.2 + pm.Params.w, pm.Params.l + 0.4, elev),
-                (0.2 + pm.Params.w, pm.Params.l + 0.4, 0.6),
-                (0, pm.Params.l + 0.4, 0.6),
-            ],
-            Section("PSec1", "PIPE", r=0.05, wt=5e-3),
-        )
-
-        a = Assembly("ParametricSite")
-        a.add_part(pm)
-        pm.add_pipe(pipe1)
-        pm.add_pipe(pipe2)
-
-        for p in pm.parts.values():
-            if type(p) is ReinforcedFloor:
-                p.penetration_check()
-
+        a = make_it_complex()
         a.units = "mm"
         a.to_ifc(test_folder / "my_simple_stru_mm.ifc")
         # a.units = "m"

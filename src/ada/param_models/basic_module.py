@@ -1,4 +1,4 @@
-from ada import Beam, Part, Plate
+from ada import Beam, Part, Plate, Section
 from ada.core.utils import Counter
 
 bm_name = Counter(1, "bm")
@@ -63,7 +63,9 @@ class ReinforcedFloor(Part):
                         v1 = (p1.p - cog) * normal
                         v2 = (p2.p - cog) * normal
                         if np.dot(v1, v2) < 0:
-                            self.add_penetration(PrimCyl("my_pen", p1.p, p2.p, pipe.section.r + 0.1))
+                            self.add_penetration(
+                                PrimCyl(f"{p.name}_{pipe.name}_{segment.name}_pen", p1.p, p2.p, pipe.section.r + 0.1)
+                            )
 
 
 class SimpleStru(Part):
@@ -72,38 +74,30 @@ class SimpleStru(Part):
         l = None
         h = None
 
-    def __init__(self, name, origin=(0, 0, 0), w=5, l=5, h=3, gsec="IPE200", csec="HEB200"):
+    def __init__(self, name, origin=(0, 0, 0), w=5, l=5, h=3, gsec="IPE200", csec="HEB200", pl_thick=10e-3):
         super(SimpleStru, self).__init__(name, origin)
         self.Params.w = w
         self.Params.h = h
         self.Params.l = l
 
+        # Define the 5 corner points of each storey
         c1, c2, c3, c4 = self.c1, self.c2, self.c3, self.c4
-        z0 = origin[2]
 
-        for h_ in [z0, h]:
-            self.add_beam(Beam(next(bm_name), n1=c1(h_), n2=c2(h_), sec=gsec))
-            self.add_beam(Beam(next(bm_name), n1=c2(h_), n2=c3(h_), sec=gsec))
-            self.add_beam(Beam(next(bm_name), n1=c3(h_), n2=c4(h_), sec=gsec))
-            self.add_beam(Beam(next(bm_name), n1=c4(h_), n2=c1(h_), sec=gsec))
-            self.add_part(
-                ReinforcedFloor(
-                    next(floor_name),
-                    Plate(
-                        next(pl_name),
-                        [c1(h_), c2(h_), c3(h_), c4(h_)],
-                        10e-3,
-                        use3dnodes=True,
-                    ),
-                )
-            )
+        # Define the relationship of corners that make up the 4 support beams
+        beams = [(c1, c2), (c2, c3), (c3, c4), (c4, c1)]
+
+        z0 = origin[2]
+        sec = Section(gsec, from_str=gsec, parent=self)
+        for elev in [z0, h]:
+            for p1, p2 in beams:
+                self.add_beam(Beam(next(bm_name), n1=p1(elev), n2=p2(elev), sec=sec, jusl="TOP"))
+            plate = Plate(next(pl_name), [c1(elev), c2(elev), c3(elev), c4(elev)], pl_thick, use3dnodes=True)
+            self.add_part(ReinforcedFloor(next(floor_name), plate))
 
         # Columns
-        self.add_beam(Beam(next(bm_name), n1=c1(z0), n2=c1(h), sec=csec))
-        self.add_beam(Beam(next(bm_name), n1=c2(z0), n2=c2(h), sec=csec))
-        self.add_beam(Beam(next(bm_name), n1=c3(z0), n2=c3(h), sec=csec))
-        self.add_beam(Beam(next(bm_name), n1=c4(z0), n2=c4(h), sec=csec))
-        self.connections.find()
+        columns = [(c1(z0), c1(h)), (c2(z0), c2(h)), (c3(z0), c3(h)), (c4(z0), c4(h))]
+        for p1, p2 in columns:
+            self.add_beam(Beam(next(bm_name), n1=p1, n2=p2, sec=csec))
 
     def c1(self, z):
         return 0, 0, z
@@ -135,12 +129,12 @@ def make_it_complex():
     a.add_part(pm)
 
     elev = pm.Params.h - 0.4
-    offset_Y = 0.4
+    offset_y = 0.4
     pipe1 = Pipe(
         "Pipe1",
         [
-            (0, offset_Y, elev),
-            (pm.Params.w + 0.4, offset_Y, elev),
+            (0, offset_y, elev),
+            (pm.Params.w + 0.4, offset_y, elev),
             (pm.Params.w + 0.4, pm.Params.l + 0.4, elev),
             (pm.Params.w + 0.4, pm.Params.l + 0.4, 0.4),
             (0, pm.Params.l + 0.4, 0.4),
@@ -151,19 +145,18 @@ def make_it_complex():
     pipe2 = Pipe(
         "Pipe2",
         [
-            (0.5, offset_Y + 0.5, elev + 1.4),
-            (0.5, offset_Y + 0.5, elev),
-            (0.2 + pm.Params.w, offset_Y + 0.5, elev),
+            (0.5, offset_y + 0.5, elev + 1.4),
+            (0.5, offset_y + 0.5, elev),
+            (0.2 + pm.Params.w, offset_y + 0.5, elev),
             (0.2 + pm.Params.w, pm.Params.l + 0.4, elev),
             (0.2 + pm.Params.w, pm.Params.l + 0.4, 0.6),
             (0, pm.Params.l + 0.4, 0.6),
         ],
-        Section("PSec1", "PIPE", r=0.05, wt=5e-3),
+        Section("PSec2", "PIPE", r=0.05, wt=5e-3),
     )
-
-    pm.add_pipe(pipe1)
-    pm.add_pipe(pipe2)
+    pm.add_part(Part("Piping") / [pipe1, pipe2])
     for p in pm.parts.values():
         if type(p) is ReinforcedFloor:
             p.penetration_check()
+
     return a
