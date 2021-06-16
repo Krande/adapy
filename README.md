@@ -97,6 +97,29 @@ creates an Ifc file containing an IfcBeam with the following hierarchy
 The resulting IfcBeam (and corresponding hierarchy) shown in the figure above is taken from the awesome 
 [blender](https://blender.org) plugin [blenderbim](https://blenderbim.org/).
 
+### Convert between FEM formats
+
+Here is an example showing the code for converting a sesam FEM file to abaqus and code aster
+
+_Note! Reading FEM load and step information is not supported, but might be added in the future._
+
+```python
+from ada import Assembly
+
+my_fem_file = 'path_to_your_sesam_file.FEM'
+
+a = Assembly()
+a.read_fem(my_fem_file)
+a.to_fem('nam_of_my_analysis_file_deck_directory', 'abaqus')
+a.to_fem('nam_of_my_analysis_file_deck_directory_code_aster', 'code_aster')
+
+# Note! If you are in a Jupyter Notebook\lab environment 
+# this will generate a pythreejs 3D visualization of your FEM mesh
+a
+```
+
+Current read support is: abaqus, code aster and sesam
+Current write support is: abaqus, code aster and sesam, calculix and usfos
 
 ### Create and execute a FEM analysis in Calculix, Code Aster and Abaqus
 
