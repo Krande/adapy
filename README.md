@@ -118,7 +118,7 @@ a.to_fem('nam_of_my_analysis_file_deck_directory_code_aster', 'code_aster')
 a
 ```
 
-Current read support is: abaqus, code aster and sesam
+Current read support is: abaqus, code aster and sesam  
 Current write support is: abaqus, code aster and sesam, calculix and usfos
 
 ### Create and execute a FEM analysis in Calculix, Code Aster and Abaqus
