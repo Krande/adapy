@@ -1248,14 +1248,22 @@ class Assembly(Part):
         """
 
         base_path = _Settings.scratch_dir / name / name
-        fem_res_paths = dict(code_aster=base_path.with_suffix(".rmed"))
+        fem_res_paths = dict(code_aster=base_path.with_suffix(".rmed"), abaqus=base_path.with_suffix(".odb"))
 
-        res_path = fem_res_paths.get(fem_format, pathlib.Path(""))
+        res_path = fem_res_paths.get(fem_format, None)
 
         # Update all global materials and sections before writing input file
         # self.materials
         # self.sections
-        if res_path.exists() is False or overwrite is True:
+        run_convert = True
+        if res_path is None:
+            pass
+        elif res_path.exists() is True:
+            run_convert = False
+        else:
+            pass
+
+        if run_convert is True and overwrite is True:
             try:
                 convert_func(
                     self,
