@@ -3070,50 +3070,40 @@ def compute_minimal_distance_between_shapes(shp1, shp2):
     return dss
 
 
-def replace_node(fem, old, new):
+def replace_node(old_node, new_node):
     """
 
-    :param fem: ada.fem
-    :param old:
-    :param new:
-    :type fem: ada.fem.FEM
-    :type old: ada.Node
-    :type new: ada.Node
+    :param old_node:
+    :param new_node:
+    :type old_node: ada.Node
+    :type new_node: ada.Node
     """
-
-    for elem in old.refs.copy():
-        # assert isinstance(ref, ada.fem.Elem)
+    for elem in old_node.refs.copy():
         try:
-            ref_index = elem.nodes.index(old)
+            node_index = elem.nodes.index(old_node)
         except ValueError:
+            logging.error(f"Could not find {old_node} in {elem}")
             return
-        elem.nodes.pop(ref_index)
-
-        if new.id not in [e.id for e in elem.nodes]:
-            elem.nodes.insert(ref_index, new)
-
-        if len(elem.nodes) < 2:
-            fem.elements.remove_elements_by_id(elem.id)
-            old.refs.pop(old.refs.index(elem))
-            logging.error(f"Element removed due to coinciding nodes. Elem id {elem.id}")
-        elif len(elem.nodes) == (len(elem.edges_seq) - 1):
-            elem.change_type(len(elem.nodes))
+        elem.nodes.pop(node_index)
+        elem.nodes.insert(node_index, new_node)
+        elem._shape = None
+        logging.debug(f"{old_node} exchanged with {new_node} --> {elem}")
 
 
-def replace_nodes_by_tol(fem, decimals=0, tol=1e-4):
+def replace_nodes_by_tol(nodes, decimals=0, tol=1e-4):
     """
 
-    :param fem:
+    :param nodes:
     :param decimals:
     :param tol:
-    :type fem: ada.fem.FEM
+    :type nodes: ada.core.containers.Nodes
     """
 
     def rounding(vec, decimals_):
         return np.around(vec, decimals=decimals_)
 
-    def n_is_most_precise(node, other_nodes_, decimals_=0):
-        most_precise = [np.array_equal(node.p, rounding(node.p, decimals_)) for node in [n] + other_nodes_]
+    def n_is_most_precise(n, nearby_nodes_, decimals_=0):
+        most_precise = [np.array_equal(n.p, rounding(n.p, decimals_)) for n in [node] + nearby_nodes_]
 
         if most_precise[0] and not np.all(most_precise[1:]):
             return True
@@ -3123,15 +3113,13 @@ def replace_nodes_by_tol(fem, decimals=0, tol=1e-4):
             logging.error(f"Recursion started at 0 decimals, but are now at {decimals_} decimals. Will proceed with n.")
             return True
         else:
-            return n_is_most_precise(node, other_nodes_, decimals_ + 1)
+            return n_is_most_precise(n, nearby_nodes_, decimals_ + 1)
 
-    for n in fem.nodes:
-        nearby_nodes = fem.nodes.get_by_volume(n.p, tol=tol)
-        other_nodes = list(filter(lambda x: x != n, nearby_nodes))
-        if len(other_nodes) > 0:
-            if n_is_most_precise(n, other_nodes, decimals):
-                for other_node in other_nodes:
-                    replace_node(fem, other_node, n)
+    for node in nodes:
+        nearby_nodes = list(filter(lambda x: x != node, nodes.get_by_volume(node.p, tol=tol)))
+        if nearby_nodes and n_is_most_precise(node, nearby_nodes, decimals):
+            for nearby_node in nearby_nodes:
+                replace_node(nearby_node, node)
 
 
 def calc_yvec(x_vec, z_vec=None):
