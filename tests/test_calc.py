@@ -1,4 +1,5 @@
 import unittest
+
 from ada import Beam
 from ada.calc.udl import UDL
 
@@ -11,5 +12,5 @@ class TestCalculations(unittest.TestCase):
         udl._repr_html_()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

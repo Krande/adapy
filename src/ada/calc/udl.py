@@ -1,11 +1,11 @@
 from typing import Union
 
 import numpy as np
-
-from ada import Beam
-from ada.core.utils import easy_plotly, Counter
 from IPython.display import display
 from ipywidgets import VBox
+
+from ada import Beam
+from ada.core.utils import Counter, easy_plotly
 
 
 class ResType:
@@ -70,7 +70,8 @@ class UDL:
         :param p: Load Magnitude
         :param x: Position of load
         :param name: Give the load a unique name
-        :param use_relative_position: If relative position of load is given with [0, 1], alternative is absolute pos from beginning of beam
+        :param use_relative_position: If relative position of load is given with [0, 1], alternative is absolute pos
+        from beginning of beam
         :return:
         """
         name = name if name is not None else next(self._pnames)
@@ -117,21 +118,21 @@ class UDL:
         l_moment = moment_.tolist()
 
         plot_displ = easy_plotly(
-            f"Simply Support Beam (displacements)",
+            "Simply Support Beam (displacements)",
             l_displ,
             xlbl="Beam Length [m]",
             ylbl="Displacement [m]",
             return_widget=True,
         )
         plot_shear = easy_plotly(
-            f"Simply Support Beam (shear)",
+            "Simply Support Beam (shear)",
             l_shear,
             xlbl="Beam Length [m]",
             ylbl="Shear [N]",
             return_widget=True,
         )
         plot_moment = easy_plotly(
-            f"Simply Support Beam (moments)",
+            "Simply Support Beam (moments)",
             l_moment,
             xlbl="Beam Length [m]",
             ylbl="Moment [Nm]",
@@ -169,6 +170,7 @@ def simply_supported(x, w, beam: Beam, res_type: Union[ResType.displ, ResType.sh
 
 def equation_compiler(f, print_latex=False, print_formula=False):
     from inspect import getsourcelines
+
     import pytexit
 
     lines = getsourcelines(f)
