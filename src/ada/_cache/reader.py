@@ -27,10 +27,10 @@ def get_part_from_cache(name, cache_p):
 
 def get_fem_from_cache(cache_fem):
     node_groups = cache_fem["NODES"]
-    points = node_groups[()]
-    point_ids = node_groups.attrs["IDS"][()]
+    points_in = node_groups[()]
+    points = [Node(n[1:], n[0]) for n in points_in]
     fem = FEM(cache_fem.attrs["NAME"])
-    nodes = Nodes([Node(points[int(pid - 1)], pid) for pid in point_ids], parent=fem)
+    nodes = Nodes(points, parent=fem)
     fem._nodes = nodes
     elements = []
     for eltype, mesh in cache_fem["MESH"].items():

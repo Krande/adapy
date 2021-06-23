@@ -1160,7 +1160,7 @@ class Assembly(Part):
         self,
         fem_file,
         fem_format=None,
-        fem_name=None,
+        name=None,
         fem_converter="default",
         convert_func=None,
     ):
@@ -1169,14 +1169,14 @@ class Assembly(Part):
 
         Currently supported FEM formats: Abaqus, Sesam and Calculix
 
-        :param fem_file: A
-        :param fem_format:
-        :param fem_name:
+        :param fem_file: Path to fem file
+        :param fem_format: Fem Format
+        :param name:
         :param fem_converter: Set desired fem converter. Use either 'default' or 'meshio'.
         :param convert_func:
         :type fem_file: Union[str, os.PathLike]
         :type fem_format: str
-        :type fem_name: str
+        :type name: str
 
         Note! The meshio fem converter implementation currently only supports reading elements and nodes.
         """
@@ -1184,7 +1184,7 @@ class Assembly(Part):
         if fem_file.exists() is False:
             raise FileNotFoundError(fem_file)
 
-        convert_func(self, fem_file, fem_name)
+        convert_func(self, fem_file, name)
 
     @io.femio
     def to_fem(
