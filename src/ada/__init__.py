@@ -1160,7 +1160,7 @@ class Assembly(Part):
         self,
         fem_file,
         fem_format=None,
-        fem_name=None,
+        name=None,
         fem_converter="default",
         convert_func=None,
     ):
@@ -1169,14 +1169,14 @@ class Assembly(Part):
 
         Currently supported FEM formats: Abaqus, Sesam and Calculix
 
-        :param fem_file: A
-        :param fem_format:
-        :param fem_name:
+        :param fem_file: Path to fem file
+        :param fem_format: Fem Format
+        :param name:
         :param fem_converter: Set desired fem converter. Use either 'default' or 'meshio'.
         :param convert_func:
         :type fem_file: Union[str, os.PathLike]
         :type fem_format: str
-        :type fem_name: str
+        :type name: str
 
         Note! The meshio fem converter implementation currently only supports reading elements and nodes.
         """
@@ -1184,7 +1184,7 @@ class Assembly(Part):
         if fem_file.exists() is False:
             raise FileNotFoundError(fem_file)
 
-        convert_func(self, fem_file, fem_name)
+        convert_func(self, fem_file, name)
 
     @io.femio
     def to_fem(
@@ -1248,14 +1248,22 @@ class Assembly(Part):
         """
 
         base_path = _Settings.scratch_dir / name / name
-        fem_res_paths = dict(code_aster=base_path.with_suffix(".rmed"))
+        fem_res_paths = dict(code_aster=base_path.with_suffix(".rmed"), abaqus=base_path.with_suffix(".odb"))
 
-        res_path = fem_res_paths.get(fem_format, pathlib.Path(""))
+        res_path = fem_res_paths.get(fem_format, None)
 
         # Update all global materials and sections before writing input file
         # self.materials
         # self.sections
-        if res_path.exists() is False or overwrite is True:
+        run_convert = True
+        if res_path is None:
+            pass
+        elif res_path.exists() is True:
+            run_convert = False
+        else:
+            pass
+
+        if run_convert is True or overwrite is True:
             try:
                 convert_func(
                     self,
@@ -1840,16 +1848,24 @@ class Beam(BackendGeom):
             add_colour(f, extrude_area_solid, str(self.colour), self.colour)
 
         # Add penetrations
-        elements = []
+        # elements = []
         for pen in self._penetrations:
-            elements.append(pen.ifc_opening)
+            # elements.append(pen.ifc_opening)
+            f.createIfcRelVoidsElement(
+                create_guid(),
+                owner_history,
+                None,
+                None,
+                ifc_beam,
+                pen.ifc_opening,
+            )
 
         f.createIfcRelDefinesByType(
             create_guid(),
             None,
             self.section.type,
             None,
-            [ifc_beam] + elements,
+            [ifc_beam],
             beam_type,
         )
 
@@ -1859,7 +1875,7 @@ class Beam(BackendGeom):
             owner_history,
             "Properties",
             None,
-            [ifc_beam] + elements,
+            [ifc_beam],
             props,
         )
         # Material
@@ -2374,9 +2390,17 @@ class Plate(BackendGeom):
             add_colour(f, ifcextrudedareasolid, str(self.colour), self.colour)
 
         # Add penetrations
-        elements = []
+        # elements = []
         for pen in self.penetrations:
-            elements.append(pen.ifc_opening)
+            # elements.append(pen.ifc_opening)
+            f.createIfcRelVoidsElement(
+                create_guid(),
+                owner_history,
+                None,
+                None,
+                ifc_plate,
+                pen.ifc_opening,
+            )
 
         # if "props" in self.metadata.keys():
         props = create_property_set("Properties", f, self.metadata)
@@ -2385,7 +2409,7 @@ class Plate(BackendGeom):
             owner_history,
             "Properties",
             None,
-            [ifc_plate] + elements,
+            [ifc_plate],
             props,
         )
 
@@ -4284,9 +4308,7 @@ class Penetration(BackendGeom):
         a = self.parent.parent.get_assembly()
         f = a.ifc_file
 
-        ifc_geom = self.parent.ifc_elem
         geom_parent = self.parent.parent.ifc_elem
-        # context = f.by_type("IfcGeometricRepresentationContext")[0]
         owner_history = f.by_type("IfcOwnerHistory")[0]
 
         # Create and associate an opening for the window in the wall
@@ -4312,15 +4334,6 @@ class Penetration(BackendGeom):
                         add_properties_to_elem(pro_id, f, opening_element, prop_)
                 else:
                     add_properties_to_elem("Properties", f, opening_element, pro)
-
-        f.createIfcRelVoidsElement(
-            create_guid(),
-            owner_history,
-            None,
-            None,
-            ifc_geom,
-            opening_element,
-        )
 
         return opening_element
 

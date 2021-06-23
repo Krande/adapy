@@ -48,6 +48,7 @@ def add_part_to_cache(part, parts_group):
 
     # Add FEM object
     if len(part.fem.nodes) > 0:
+        print(f'Caching FEM data from "{part.name}"')
         add_fem_to_cache(part.fem, part_group)
 
 
@@ -62,16 +63,9 @@ def add_fem_to_cache(fem, part_group):
     fem_group.attrs.create("NAME", fem.name)
 
     # Add Nodes
-    points = np.zeros((int(fem.nodes.max_nid), 3))
-
-    def pmap(n):
-        points[int(n.id - 1)] = n.p
-
-    list(map(pmap, fem.nodes))
-
+    points = np.array([[n.id, *n.p] for n in fem.nodes])
     coo = fem_group.create_dataset("NODES", data=points)
     coo.attrs.create("NBR", len(points))
-    coo.attrs.create("IDS", [p.id for p in fem.nodes])
 
     # Add elements
     def get_node_ids_from_element(el_):
@@ -79,8 +73,8 @@ def add_fem_to_cache(fem, part_group):
 
     elements_group = fem_group.create_group("MESH")
 
-    for group, elements in groupby(fem.elements, key=attrgetter("type")):
+    for group, elements in groupby(sorted(fem.elements, key=attrgetter("type")), key=attrgetter("type")):
         elements = list(elements)
+        elements_formatted = [[int(el.id), *get_node_ids_from_element(el)] for el in elements]
         med_cells = elements_group.create_group(group)
-        elements = [[int(el.id), *get_node_ids_from_element(el)] for el in elements]
-        med_cells.create_dataset("ELEMENTS", data=elements)
+        med_cells.create_dataset("ELEMENTS", data=elements_formatted)

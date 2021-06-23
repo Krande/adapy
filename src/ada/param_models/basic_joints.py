@@ -32,8 +32,11 @@ def joint_map(name, members):
         else:
             return False
 
-    if eval_joint_req(JointB):
-        return JointB(name, members)
+    joints = [JointB]
+
+    for joint in joints:
+        if eval_joint_req(joint):
+            return joint(name, members)
     else:
         member_types = [m.section.type for m in members]
         logging.error(f'Unable to find matching Joint using joint map for members "{member_types}"')

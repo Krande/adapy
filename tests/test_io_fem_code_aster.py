@@ -13,7 +13,7 @@ class TestCodeAster(unittest.TestCase):
         name = "cylinder"
 
         a = Assembly()
-        a.read_fem(example_files / "fem_files/meshes/med/cylinder.med", "code_aster", fem_name="cylinder_rewritten")
+        a.read_fem(example_files / "fem_files/meshes/med/cylinder.med", "code_aster", name="cylinder_rewritten")
         a.to_fem(name, "code_aster", overwrite=True)
 
         b = Assembly()
@@ -29,7 +29,7 @@ class TestCodeAster(unittest.TestCase):
         name = "box"
 
         a = Assembly()
-        a.read_fem(example_files / "fem_files/meshes/med/box.med", "code_aster", fem_name="box")
+        a.read_fem(example_files / "fem_files/meshes/med/box.med", "code_aster", name="box")
         a.to_fem(name, "code_aster", overwrite=True)
 
         b = Assembly()
@@ -45,7 +45,7 @@ class TestCodeAster(unittest.TestCase):
         name = "portal"
 
         a = Assembly()
-        a.read_fem(example_files / "fem_files/code_aster/portal_01.med", "code_aster", fem_name=name)
+        a.read_fem(example_files / "fem_files/code_aster/portal_01.med", "code_aster", name=name)
         a.to_fem(name, "code_aster", overwrite=True)
 
         b = Assembly()
