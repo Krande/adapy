@@ -794,7 +794,7 @@ class SectionCat:
     box = ["BG", "CG"]
     shs = ["SHS"]
     rhs = ["RHS", "URHS"]
-    tubular = ["TUB", "PIPE", "OD"]
+    tubular = ["TUB", "PIPE", "OD", "O"]
     iprofiles = ["HEA", "HEB", "IPE"]
     igirders = ["IG"]
     tprofiles = ["TG"]

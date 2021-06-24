@@ -247,7 +247,7 @@ def interpret_section_str(in_str, s=0.001, units="m"):
     for tub in SectionCat.tubular:
         res = re.search("({tub})({digit})x({digit})".format(tub=tub, digit=digit), in_str, re_in)
         if res is not None:
-            fac = 0.5 if tub == "OD" else 1.0
+            fac = 0.5 if tub in ["OD", "O"] else 1.0
             r = [rdoff(float(x) * s * fac) for x in res.group(2).split("/")]
             wt = [rdoff(float(x) * s) for x in res.group(3).split("/")]
             sec = Section(
