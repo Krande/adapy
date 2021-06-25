@@ -4967,14 +4967,14 @@ class Material(Backend):
         from ada.materials.metals import CarbonSteel, Metal
 
         mat_psets = ifc_mat.HasProperties
-        scale_pascal = 1 if self.units == 'mm' else 1e6
-        scale_volume = 1 if self.units == 'm' else 1e-9
+        scale_pascal = 1 if self.units == "mm" else 1e6
+        scale_volume = 1 if self.units == "m" else 1e-9
         props = {entity.Name: entity.NominalValue[0] for entity in mat_psets[0].Properties}
 
         mat_props = dict(
-            E=props.get("YoungModulus", 210000*scale_pascal),
+            E=props.get("YoungModulus", 210000 * scale_pascal),
             sig_y=props.get("YieldStress", 355 * scale_pascal),
-            rho=props.get("MassDensity", 7850*scale_volume),
+            rho=props.get("MassDensity", 7850 * scale_volume),
             v=props.get("PoissonRatio", 0.3),
             alpha=props.get("ThermalExpansionCoefficient", 1.2e-5),
             zeta=props.get("SpecificHeatCapacity", 1.15),
