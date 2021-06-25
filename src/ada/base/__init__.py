@@ -105,7 +105,7 @@ class Backend:
         """
 
         :return:
-        :rtype: Assembly
+        :rtype: ada.Assembly
         """
         from ada import Assembly
 
