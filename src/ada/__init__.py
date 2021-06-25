@@ -1038,7 +1038,7 @@ class Assembly(Part):
         oval = calculate_unit_scale(self.ifc_file)
         nval = calculate_unit_scale(f)
         if oval != nval:
-            logging.debug("Running Unit Conversion. This is still highly unstable")
+            logging.error("Running Unit Conversion on IFC import. This is still highly unstable")
             new_file = scale_ifc_file_object(f, nval)
             f = new_file
 
@@ -1057,7 +1057,7 @@ class Assembly(Part):
                     "IfcBuildingStorey",
                     "IfcSpatialZone",
                 ]:
-                    new_part = Part(name, ifc_elem=product)
+                    new_part = Part(name, ifc_elem=product, metadata=dict(original_name=name))
                     if parent_type in [
                         "IfcSite",
                         "IfcSpace",
@@ -1093,7 +1093,7 @@ class Assembly(Part):
                         imported = True
                     else:
                         for p in self.get_all_parts_in_assembly():
-                            if p.name == pp.Name:
+                            if p.name == pp.Name or p.metadata.get("original_name") == pp.Name:
                                 p.add_beam(bm)
                                 imported = True
                                 break
@@ -1278,7 +1278,7 @@ class Assembly(Part):
                     exit_on_complete,
                 )
             except IOError as e:
-                logging.info(e)
+                logging.error(e)
         else:
             print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
 
@@ -1705,7 +1705,7 @@ class Beam(BackendGeom):
         """
         from .sections import SectionCat
 
-        if SectionCat.is_circular_profile(self.section.type):
+        if SectionCat.is_circular_profile(self.section.type) or SectionCat.is_tubular_profile(self.section.type):
             d = self.section.r * 2
             dummy_beam = Beam("dummy", self.n1.p, self.n2.p, Section("DummySec", "BG", h=d, w_btn=d, w_top=d))
             outer_curve = dummy_beam.get_outer_points()
@@ -4967,17 +4967,19 @@ class Material(Backend):
         from ada.materials.metals import CarbonSteel, Metal
 
         mat_psets = ifc_mat.HasProperties
-        yield_stress = None
+        scale_pascal = 1 if self.units == 'mm' else 1e6
+        scale_volume = 1 if self.units == 'm' else 1e-9
         props = {entity.Name: entity.NominalValue[0] for entity in mat_psets[0].Properties}
 
         mat_props = dict(
-            E=props["YoungModulus"],
-            v=props["PoissonRatio"],
-            rho=props["MassDensity"],
-            alpha=props["ThermalExpansionCoefficient"],
-            zeta=props["SpecificHeatCapacity"],
-            sig_y=yield_stress,
+            E=props.get("YoungModulus", 210000*scale_pascal),
+            sig_y=props.get("YieldStress", 355 * scale_pascal),
+            rho=props.get("MassDensity", 7850*scale_volume),
+            v=props.get("PoissonRatio", 0.3),
+            alpha=props.get("ThermalExpansionCoefficient", 1.2e-5),
+            zeta=props.get("SpecificHeatCapacity", 1.15),
         )
+
         if "StrengthGrade" in props:
             mat_model = CarbonSteel(grade=props["StrengthGrade"], **mat_props)
         else:

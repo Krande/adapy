@@ -794,7 +794,7 @@ class SectionCat:
     box = ["BG", "CG"]
     shs = ["SHS"]
     rhs = ["RHS", "URHS"]
-    tubular = ["TUB", "PIPE", "OD", "O"]
+    tubular = ["TUB", "PIPE", "OD"]
     iprofiles = ["HEA", "HEB", "IPE"]
     igirders = ["IG"]
     tprofiles = ["TG"]
@@ -826,6 +826,10 @@ class SectionCat:
     @classmethod
     def is_circular_profile(cls, bmtype):
         return True if bmtype.upper() in cls.tubular + cls.circular else False
+
+    @classmethod
+    def is_tubular_profile(cls, bmtype):
+        return True if bmtype.upper() in cls.tubular else False
 
     @classmethod
     def is_flatbar(cls, bmtype):

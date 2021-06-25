@@ -458,7 +458,7 @@ def eval_thick_normal_from_cog_of_beam_plate(beam, cog):
     from ada.core.utils import vector_length
     from ada.sections import SectionCat
 
-    if SectionCat.is_circular_profile(beam.section.type):
+    if SectionCat.is_circular_profile(beam.section.type) or SectionCat.is_tubular_profile(beam.section.type):
         tol = beam.section.r / 8
     else:
         tol = beam.section.h / 8

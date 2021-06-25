@@ -234,10 +234,15 @@ USER:     {user}            ACCOUNT:     \n"""
                                 (section.t_ftop, section.w_btn, p.Sfy, p.Sfz),
                             ],
                         )
-                    elif SectionCat.is_circular_profile(section.type):
+                    elif SectionCat.is_tubular_profile(section.type):
                         sec_str += self.write_ff(
                             "GPIPE",
                             [(secid, section.r - section.wt, section.r, section.wt), (p.Sfy, p.Sfz)],
+                        )
+                    elif SectionCat.is_circular_profile(section.type):
+                        sec_str += self.write_ff(
+                            "GPIPE",
+                            [(secid, section.r - section.r*0.99, section.r, section.wt), (p.Sfy, p.Sfz)],
                         )
                     elif SectionCat.is_flatbar(section.type):
                         sec_str += self.write_ff(
