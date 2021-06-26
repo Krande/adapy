@@ -2229,9 +2229,11 @@ class Beam(BackendGeom):
         return self._ifc_elem
 
     def __repr__(self):
-        return "Beam(id: {}, Name: {}\nN1: {}, N2: {}\nSection: {}\nMaterial: {})".format(
-            self.guid, self.name, self.n1, self.n2, self.section, self.material
-        )
+        p1s = self.n1.p.tolist()
+        p2s = self.n2.p.tolist()
+        secn = self.section.sec_str
+        matn = self.material.name
+        return f'Beam("{self.name}", {p1s}, {p2s}, {secn}, {matn})'
 
 
 class Plate(BackendGeom):
