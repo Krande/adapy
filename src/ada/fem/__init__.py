@@ -4,6 +4,7 @@ import numpy as np
 
 from . import constants as co
 from .containers import FemElements, FemSections, FemSets
+from ..config import Settings as _Settings
 
 __all__ = [
     "Amplitude",
@@ -54,9 +55,14 @@ class FemBase:
 
     @name.setter
     def name(self, value):
+        from ada.core.utils import make_name_fem_ready
         if str.isnumeric(value[0]):
             raise ValueError("Name cannot start with numeric")
-        self._name = value
+        if _Settings.convert_bad_names_for_fem:
+            self._name = make_name_fem_ready(value)
+        else:
+            self._name = value.strip()
+
 
     @property
     def parent(self):
