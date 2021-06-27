@@ -1299,6 +1299,7 @@ class Assembly(Part):
 
         :param destination_file:
         """
+        from ada.fem.io.ifc_fem.writer import to_ifc_fem
 
         f = self.ifc_file
         owner_history = f.by_type("IfcOwnerHistory")[0]
@@ -1349,6 +1350,10 @@ class Assembly(Part):
                 else:
                     f.add(shp.ifc_elem)
                     physical_objects.append(shp.ifc_elem)
+
+            if len(p.fem.nodes) > 0:
+                to_ifc_fem(p.fem, f)
+
             if len(physical_objects) == 0:
                 continue
 
@@ -5186,9 +5191,10 @@ class JointBase(Part):
     mem_types: list
     num_mem: int
 
-    def __init__(self, name, members):
+    def __init__(self, name, members, centre):
         super(JointBase, self).__init__(name)
         self._init_check(members)
+        self._centre = centre
         self._beams = Beams(members)
         for m in members:
             m._ifc_elem = None
@@ -5219,6 +5225,10 @@ class JointBase(Part):
         p1 = np.array(p1) - h_vec
         p2 = np.array(p2) + h_vec
         mem_incoming.add_penetration(PrimBox(f"{self.name}_neg", p1, p2))
+
+    @property
+    def centre(self):
+        return self._centre
 
     def __repr__(self):
         return f'{self.__class__.__name__}("{self.name}", members:{len(self.beams)})'

@@ -351,7 +351,7 @@ class Connections(BaseCollections):
         :param out_of_plane_tol:
         :param joint_func: Pass a function for mapping the generic Connection classes to a specific reinforced Joints
         """
-        from ada import Beam, Connection
+        from ada import Beam, JointBase
         from ada.core.utils import beam_cross_check, roundoff
 
         ass = self._parent.get_assembly()
@@ -390,11 +390,11 @@ class Connections(BaseCollections):
                     continue
 
                 if joint_func is not None:
-                    joint = joint_func(next(self.counter), res_mem)
+                    joint = joint_func(next(self.counter), res_mem, p)
                     if joint is None:
                         continue
                 else:
-                    joint = Connection(next(self.counter), res_mem)
+                    joint = JointBase(next(self.counter), res_mem, p)
 
                 point_tuples.append(p)
                 bm1.connected_from.append(joint)

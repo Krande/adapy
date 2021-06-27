@@ -247,6 +247,7 @@ class GMesh:
         import gmsh
 
         p1, p2 = bm.n1.p, bm.n2.p
+
         s = self.get_point(p1)
         e = self.get_point(p2)
         if len(s) == 0:
@@ -258,6 +259,10 @@ class GMesh:
         if line in self._bm_map.keys():
             raise ValueError("This should not happen!")
         self._bm_map[line] = bm
+
+        if len(bm.connected_from) > 0:
+            for con in bm.connected_from:
+                gmsh.model.geo.addPoint(*con.centre, size)
 
     def get_beam_elements(self, li, order):
         """
