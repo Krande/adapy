@@ -5220,6 +5220,9 @@ class JointBase(Part):
         p2 = np.array(p2) + h_vec
         mem_incoming.add_penetration(PrimBox(f"{self.name}_neg", p1, p2))
 
+    def __repr__(self):
+        return f'{self.__class__.__name__}("{self.name}", members:{len(self.beams)})'
+
 
 class Bolts(Backend):
     """
