@@ -645,7 +645,7 @@ class Part(BackendGeom):
             self._flatten_list_of_subparts(value, list_of_parts)
 
     def _generate_ifc_elem(self):
-        from ada.core.ifc_utils import create_ifclocalplacement, create_property_set
+        from ada.core.ifc_utils import create_local_placement, create_property_set
 
         if self.parent is None:
             raise ValueError("Cannot build ifc element without parent")
@@ -656,7 +656,7 @@ class Part(BackendGeom):
         owner_history = f.by_type("IfcOwnerHistory")[0]
         itype = self.metadata["ifctype"]
         parent = self.parent.ifc_elem
-        placement = create_ifclocalplacement(
+        placement = create_local_placement(
             f,
             origin=self.origin,
             loc_x=self._lx,
@@ -1039,6 +1039,8 @@ class Assembly(Part):
         nval = calculate_unit_scale(f)
         if oval != nval:
             logging.error("Running Unit Conversion on IFC import. This is still highly unstable")
+            # length_unit = f.createIfcSIUnit(None, "LENGTHUNIT", None, "METRE")
+            # unit_assignment = f.createIfcUnitAssignment((length_unit,))
             new_file = scale_ifc_file_object(f, nval)
             f = new_file
 
@@ -1426,11 +1428,11 @@ class Assembly(Part):
         bimcon.pull(project, checkout)
 
     def _generate_ifc_elem(self):
-        from ada.core.ifc_utils import create_ifclocalplacement, create_property_set
+        from ada.core.ifc_utils import create_local_placement, create_property_set
 
         f = self.ifc_file
         owner_history = f.by_type("IfcOwnerHistory")[0]
-        site_placement = create_ifclocalplacement(f)
+        site_placement = create_local_placement(f)
         site = f.createIfcSite(
             self.guid,
             owner_history,
@@ -1732,9 +1734,9 @@ class Beam(BackendGeom):
         from ada.core.ifc_utils import (
             add_colour,
             convert_bm_jusl_to_ifc,
-            create_ifcaxis2placement,
-            create_ifclocalplacement,
+            create_global_axes,
             create_ifcrevolveareasolid,
+            create_local_placement,
             create_property_set,
         )
         from ada.core.utils import angle_between
@@ -1779,7 +1781,7 @@ class Beam(BackendGeom):
         else:
             profile_e = None
 
-        global_placement = create_ifclocalplacement(f, O, Z, X)
+        global_placement = create_local_placement(f, O, Z, X)
 
         if self.curve is not None:
             # TODO: Fix Sweeped Curve definition. Currently not working as intended (or maybe input is wrong.. )
@@ -1806,9 +1808,9 @@ class Beam(BackendGeom):
             circle = f.createIfcCircle(curve_axis2plac3d, curve.radius)
             ifc_polyline = f.createIfcTrimmedCurve(circle, [p1_ifc], [p2_ifc], True, "CARTESIAN")
 
-            revolve_placement = create_ifcaxis2placement(f, p1, profile_x, profile_y)
+            revolve_placement = create_global_axes(f, p1, profile_x, profile_y)
             extrude_area_solid = create_ifcrevolveareasolid(f, profile, revolve_placement, corigin, xvec, a3)
-            loc_plac = create_ifclocalplacement(f, O, Z, X, parent.ObjectPlacement)
+            loc_plac = create_local_placement(f, O, Z, X, parent.ObjectPlacement)
         else:
             ifc_polyline = f.createIfcPolyLine([p1_ifc, p2_ifc])
             ifc_axis2plac3d = f.createIfcAxis2Placement3D(f.createIfcCartesianPoint(O), None, None)
@@ -2332,10 +2334,10 @@ class Plate(BackendGeom):
         from ada.core.constants import O, X, Z
         from ada.core.ifc_utils import (
             add_colour,
-            create_ifcaxis2placement,
+            create_global_axes,
             create_ifcindexpolyline,
-            create_ifclocalplacement,
             create_ifcpolyline,
+            create_local_placement,
             create_property_set,
         )
 
@@ -2354,14 +2356,14 @@ class Plate(BackendGeom):
         yvec = np.cross(zvec, xvec)
 
         # Wall creation: Define the wall shape as a polyline axis and an extruded area solid
-        plate_placement = create_ifclocalplacement(f, relative_to=parent.ObjectPlacement)
+        plate_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
         tra_mat = np.array([xvec, yvec, zvec])
         t_vec = [0, 0, self.t]
         origin = np.array(self.poly.origin)
         res = origin + np.dot(tra_mat, t_vec)
         polyline = create_ifcpolyline(f, [origin.astype(float).tolist(), res.tolist()])
         axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve2D", [polyline])
-        extrusion_placement = create_ifcaxis2placement(f, O, Z, X)
+        extrusion_placement = create_global_axes(f, O, Z, X)
         points = [(float(n[0]), float(n[1]), float(n[2])) for n in self.poly.seg_global_points]
         seg_index = self.poly.seg_index
         polyline = create_ifcindexpolyline(f, points, seg_index)
@@ -2823,7 +2825,7 @@ class Pipe(BackendGeom):
 
     def _generate_ifc_pipe(self):
         from ada.core.constants import X, Z
-        from ada.core.ifc_utils import create_ifclocalplacement, create_property_set
+        from ada.core.ifc_utils import create_local_placement, create_property_set
 
         if self.parent is None:
             raise ValueError("Cannot build ifc element without parent")
@@ -2834,7 +2836,7 @@ class Pipe(BackendGeom):
         owner_history = f.by_type("IfcOwnerHistory")[0]
         parent = self.parent.ifc_elem
 
-        placement = create_ifclocalplacement(
+        placement = create_local_placement(
             f,
             origin=self.n1.p.astype(float).tolist(),
             loc_x=X,
@@ -2955,7 +2957,7 @@ class PipeSegStraight(BackendGeom):
     def _to_ifc_elem(self):
         from ada.core.constants import O, X, Z
         from ada.core.ifc_utils import (  # create_ifcrevolveareasolid,
-            create_ifcaxis2placement,
+            create_global_axes,
             create_ifcpolyline,
             to_real,
         )
@@ -2982,7 +2984,7 @@ class PipeSegStraight(BackendGeom):
         yvec = unit_vector(np.cross(zvec, xvec))
         seg_l = vector_length(p2.p - p1.p)
 
-        extrusion_placement = create_ifcaxis2placement(f, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+        extrusion_placement = create_global_axes(f, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
 
         solid = f.createIfcExtrudedAreaSolid(self.section.ifc_profile, extrusion_placement, ifcdir, seg_l)
 
@@ -3129,7 +3131,7 @@ class PipeSegElbow(BackendGeom):
 
     def _elbow_revolved_solid(self, f, context):
         from ada.core.constants import O, X, Z
-        from ada.core.ifc_utils import create_ifcaxis2placement
+        from ada.core.ifc_utils import create_global_axes
         from ada.core.utils import (
             get_center_from_3_points_and_radius,
             normal_to_points_in_plane,
@@ -3137,7 +3139,7 @@ class PipeSegElbow(BackendGeom):
 
         center, _, _, _ = get_center_from_3_points_and_radius(self.p1.p, self.p2.p, self.p3.p, self.bend_radius)
 
-        opening_axis_placement = create_ifcaxis2placement(f, O, Z, X)
+        opening_axis_placement = create_global_axes(f, O, Z, X)
 
         profile = self.section.ifc_profile
         normal = normal_to_points_in_plane([self.arc_seg.p1, self.arc_seg.p2, self.arc_seg.midpoint])
@@ -3158,7 +3160,7 @@ class PipeSegElbow(BackendGeom):
         return prod_def_shp
 
     def _to_ifc_elem(self):
-        from ada.core.ifc_utils import create_ifclocalplacement
+        from ada.core.ifc_utils import create_local_placement
 
         if self.parent is None:
             raise ValueError("Parent cannot be None for IFC export")
@@ -3178,7 +3180,7 @@ class PipeSegElbow(BackendGeom):
         else:
             ifc_elbow = self._elbow_revolved_solid(f, context)
 
-        pfitting_placement = create_ifclocalplacement(f)
+        pfitting_placement = create_local_placement(f)
 
         pfitting = f.createIfcPipeFitting(
             create_guid(),
@@ -3333,10 +3335,10 @@ class Wall(BackendGeom):
         from ada.core.constants import O, X, Z
         from ada.core.ifc_utils import (
             add_negative_extrusion,
-            create_ifcaxis2placement,
+            create_global_axes,
             create_ifcextrudedareasolid,
-            create_ifclocalplacement,
             create_ifcpolyline,
+            create_local_placement,
             create_property_set,
         )
 
@@ -3352,15 +3354,13 @@ class Wall(BackendGeom):
         elevation = self.origin[2]
 
         # Wall creation: Define the wall shape as a polyline axis and an extruded area solid
-        wall_placement = create_ifclocalplacement(f, relative_to=parent.ObjectPlacement)
+        wall_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
 
         # polyline = self.create_ifcpolyline(f, [(0.0, 0.0, 0.0), (5.0, 0.0, 0.0)])
         polyline = create_ifcpolyline(f, self.points)
         axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve2D", [polyline])
 
-        extrusion_placement = create_ifcaxis2placement(
-            f, (0.0, 0.0, float(elevation)), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0)
-        )
+        extrusion_placement = create_global_axes(f, (0.0, 0.0, float(elevation)), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
 
         polyline = create_ifcpolyline(f, self.extrusion_area)
         profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
@@ -3423,7 +3423,7 @@ class Wall(BackendGeom):
         import ifcopenshell.geom
 
         from ada.core.constants import O, X, Z
-        from ada.core.ifc_utils import create_ifclocalplacement
+        from ada.core.ifc_utils import create_local_placement
 
         a = self.parent.get_assembly()
         f = a.ifc_file
@@ -3433,7 +3433,7 @@ class Wall(BackendGeom):
         schema = a.ifc_file.wrapped_data.schema
 
         # Create a simplified representation for the Window
-        insert_placement = create_ifclocalplacement(f, O, Z, X, wall_el.ObjectPlacement)
+        insert_placement = create_local_placement(f, O, Z, X, wall_el.ObjectPlacement)
         if len(insert.shapes) > 1:
             raise ValueError("More than 1 shape is currently not allowed for Wall inserts")
         shape = insert.shapes[0].geom
@@ -3683,7 +3683,7 @@ class Shape(BackendGeom):
     def generate_parametric_solid(self, ifc_file):
         from ada.core.constants import O, X, Z
         from ada.core.ifc_utils import (
-            create_ifcaxis2placement,
+            create_global_axes,
             create_ifcextrudedareasolid,
             create_IfcFixedReferenceSweptAreaSolid,
             create_ifcindexpolyline,
@@ -3695,7 +3695,7 @@ class Shape(BackendGeom):
         f = ifc_file
         context = f.by_type("IfcGeometricRepresentationContext")[0]
 
-        opening_axis_placement = create_ifcaxis2placement(f, O, Z, X)
+        opening_axis_placement = create_global_axes(f, O, Z, X)
 
         if type(self) is PrimBox:
             box = self
@@ -3733,9 +3733,9 @@ class Shape(BackendGeom):
             if vector_length(perp_dir) == 0.0:
                 raise ValueError("Perpendicular dir cannot be zero")
 
-            create_ifcaxis2placement(f, to_real(p1), vecdir, to_real(perp_dir))
+            create_global_axes(f, to_real(p1), vecdir, to_real(perp_dir))
 
-            opening_axis_placement = create_ifcaxis2placement(f, to_real(p1), vecdir, to_real(perp_dir))
+            opening_axis_placement = create_global_axes(f, to_real(p1), vecdir, to_real(perp_dir))
 
             depth = vector_length(vec)
             profile = f.createIfcCircleProfileDef("AREA", self.name, None, r)
@@ -3776,7 +3776,7 @@ class Shape(BackendGeom):
         elif type(self) is PrimSphere:
             sphere = self
             assert isinstance(sphere, PrimSphere)
-            opening_axis_placement = create_ifcaxis2placement(f, to_real(sphere.pnt), Z, X)
+            opening_axis_placement = create_global_axes(f, to_real(sphere.pnt), Z, X)
             solid_geom = f.createIfcSphere(opening_axis_placement, float(sphere.radius))
         elif type(self) is PrimSweep:
             sweep = self
@@ -3802,7 +3802,7 @@ class Shape(BackendGeom):
     def _generate_ifc_elem(self):
         import ifcopenshell.geom
 
-        from ada.core.ifc_utils import add_colour, create_ifclocalplacement
+        from ada.core.ifc_utils import add_colour, create_local_placement
 
         if self.parent is None:
             raise ValueError("Parent cannot be None for IFC export")
@@ -3815,7 +3815,7 @@ class Shape(BackendGeom):
         parent = self.parent.ifc_elem
         schema = a.ifc_file.wrapped_data.schema
 
-        shape_placement = create_ifclocalplacement(f, relative_to=parent.ObjectPlacement)
+        shape_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
         if type(self) is not Shape:
             ifc_shape = self.generate_parametric_solid(f)
         else:
@@ -4307,7 +4307,7 @@ class Penetration(BackendGeom):
 
     def _generate_ifc_opening(self):
         from ada.core.constants import O, X, Z
-        from ada.core.ifc_utils import add_properties_to_elem, create_ifclocalplacement
+        from ada.core.ifc_utils import add_properties_to_elem, create_local_placement
 
         if self.parent is None:
             raise ValueError("This penetration has no parent")
@@ -4319,7 +4319,7 @@ class Penetration(BackendGeom):
         owner_history = f.by_type("IfcOwnerHistory")[0]
 
         # Create and associate an opening for the window in the wall
-        opening_placement = create_ifclocalplacement(f, O, Z, X, geom_parent.ObjectPlacement)
+        opening_placement = create_local_placement(f, O, Z, X, geom_parent.ObjectPlacement)
         opening_shape = self.primitive.generate_parametric_solid(f)
 
         opening_element = f.createIfcOpeningElement(

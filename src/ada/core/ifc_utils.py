@@ -12,39 +12,52 @@ from ada.core.utils import Counter, create_guid, get_list_of_files, roundoff
 name_gen = Counter(1, "IfcEl")
 
 
-def create_ifcaxis2placement(ifcfile, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X):
+def ifc_p(f, p):
+    """
+
+    :param f:
+    :param p:
+    :type f: ifcopenshell.file.file
+    :return:
+    """
+    return f.create_entity("IfcCartesianPoint", to_real(p))
+
+
+def create_global_axes(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X):
     """
     Creates an IfcAxis2Placement3D from Location, Axis and RefDirection specified as Python tuples
 
-    :param ifcfile:
+    :param f:
     :param origin:
     :param loc_z:
     :param loc_x:
+    :type f: ifcopenshell.file.file
     :return:
     """
 
-    ifc_origin = ifcfile.createIfcCartesianPoint(to_real(origin))
-    ifc_loc_z = ifcfile.createIfcDirection(to_real(loc_z))
-    ifc_loc_x = ifcfile.createIfcDirection(to_real(loc_x))
-    axis2placement = ifcfile.createIfcAxis2Placement3D(ifc_origin, ifc_loc_z, ifc_loc_x)
+    ifc_origin = ifc_p(f, origin)
+    ifc_loc_z = f.createIfcDirection(to_real(loc_z))
+    ifc_loc_x = f.createIfcDirection(to_real(loc_x))
+    axis2placement = f.createIfcAxis2Placement3D(ifc_origin, ifc_loc_z, ifc_loc_x)
     return axis2placement
 
 
-def create_ifclocalplacement(ifcfile, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X, relative_to=None):
+def create_local_placement(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X, relative_to=None):
     """
     Creates an IfcLocalPlacement from Location, Axis and RefDirection,
     specified as Python tuples, and relative placement
 
-    :param ifcfile:
+    :param f:
     :param origin:
     :param loc_z:
     :param loc_x:
     :param relative_to:
+    :type f: ifcopenshell.file.file
     :return: IFC local placement
     """
 
-    axis2placement = create_ifcaxis2placement(ifcfile, origin, loc_z, loc_x)
-    ifclocalplacement2 = ifcfile.createIfcLocalPlacement(relative_to, axis2placement)
+    axis2placement = create_global_axes(f, origin, loc_z, loc_x)
+    ifclocalplacement2 = f.createIfcLocalPlacement(relative_to, axis2placement)
     return ifclocalplacement2
 
 
@@ -524,8 +537,8 @@ def add_negative_extrusion(f, origin, loc_z, loc_x, depth, points, parent):
     owner_history = f.by_type("IfcOwnerHistory")[0]
 
     # Create and associate an opening for the window in the wall
-    opening_placement = create_ifclocalplacement(f, origin, loc_z, loc_x, parent.ObjectPlacement)
-    opening_axis_placement = create_ifcaxis2placement(f, origin, loc_z, loc_x)
+    opening_placement = create_local_placement(f, origin, loc_z, loc_x, parent.ObjectPlacement)
+    opening_axis_placement = create_global_axes(f, origin, loc_z, loc_x)
     polyline = create_ifcpolyline(f, points)
     ifcclosedprofile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
 
@@ -794,3 +807,45 @@ def convert_bm_jusl_to_ifc(bm):
         return 5
 
     return jusl_val
+
+
+def create_owner_history(f, role="engineer", user_info=None, organization=None):
+    """
+
+    :param f:
+    :param role:
+    :param user_info:
+    :param organization:
+    :type f: ifcopenshell.file.file
+    :return:
+    """
+    import getpass
+    from datetime import datetime
+
+    user_info = getpass.getuser() if user_info is None else user_info
+
+    actor = f.create_entity("IfcActorRole", role.upper(), None, None)
+    person = f.create_entity("IfcPerson", user_info, None, "First Name", None, None, None, (actor,))
+    organization = f.create_entity(
+        "IfcOrganization",
+        None,
+        organization,
+        "Description",
+    )
+    p_o = f.createIfcPersonAndOrganization(person, organization)
+    application = f.createIfcApplication(organization, "XXX", "ADA", "ADA")
+    timestamp = int(datetime.now().timestamp())
+
+    return f.createIfcOwnerHistory(p_o, application, "READWRITE", None, None, None, None, timestamp)
+
+
+def create_reference_subrep(f, global_axes):
+    model_rep = f.createIfcGeometricRepresentationContext(None, "Model", 3, 1.0e-05, global_axes, None)
+    body_sub_rep = f.createIfcGeometricRepresentationSubContext(
+        "Body", "Model", None, None, None, None, model_rep, None, "MODEL_VIEW", None
+    )
+    ref_sub_rep = f.createIfcGeometricRepresentationSubContext(
+        "Reference", "Model", None, None, None, None, model_rep, None, "GRAPH_VIEW", None
+    )
+
+    return {"model": model_rep, "body": body_sub_rep, "reference": ref_sub_rep}
