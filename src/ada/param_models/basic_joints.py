@@ -1,9 +1,6 @@
 import logging
 
-import numpy as np
-
-from ada import Part, PrimBox
-from ada.core.containers import Beams
+from ada import JointBase
 from ada.core.utils import beam_cross_check
 
 
@@ -41,46 +38,6 @@ def joint_map(name, members):
     member_types = [m.section.type for m in members]
     logging.error(f'Unable to find matching Joint using joint map for members "{member_types}"')
     return None
-
-
-class JointBase(Part):
-    beamtypes: list
-    mem_types: list
-    num_mem: int
-
-    def __init__(self, name, members):
-        super(JointBase, self).__init__(name)
-        self._init_check(members)
-        self._beams = Beams(members)
-        for m in members:
-            m._ifc_elem = None
-
-    def _init_check(self, members):
-        if self.num_mem != len(members):
-            raise ValueError(f"This joint only supports {self.num_mem} members")
-
-        mem_types = [m for m in self.mem_types]
-
-        for m in members:
-            if m.member_type in mem_types:
-                mem_types.pop(mem_types.index(m.member_type))
-
-        if len(mem_types) != 0:
-            raise ValueError(f"Not all Pre-requisite member types {self.mem_types} are found for JointB")
-
-    def _cut_intersecting_member(self, mem_base, mem_incoming):
-        """
-
-        :param mem_base:
-        :param mem_incoming:
-        :type mem_base: ada.Beam
-        :type mem_incoming: ada.Beam
-        """
-        h_vec = np.array(mem_incoming.up) * mem_incoming.section.h * 2
-        p1, p2 = mem_base.bbox
-        p1 = np.array(p1) - h_vec
-        p2 = np.array(p2) + h_vec
-        mem_incoming.add_penetration(PrimBox(f"{self.name}_neg", p1, p2))
 
 
 class JointB(JointBase):

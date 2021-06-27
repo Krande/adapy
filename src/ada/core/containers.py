@@ -352,7 +352,7 @@ class Connections(BaseCollections):
         :param joint_func: Pass a function for mapping the generic Connection classes to a specific reinforced Joints
         """
         from ada import Beam, Connection
-        from ada.core.utils import beam_cross_check
+        from ada.core.utils import beam_cross_check, roundoff
 
         ass = self._parent.get_assembly()
         bm_res = ass.beam_clash_check()
@@ -379,22 +379,24 @@ class Connections(BaseCollections):
                 self._eval_joint_ends(bm1, bm2, t, point)
 
                 if point is not None:
-                    tp = tuple(point)
+                    tp = tuple([roundoff(p) for p in point])
                     if tp not in cross_beams.keys():
                         cross_beams[tp] = []
                     cross_beams[tp].append(bm2)
 
             for p, mem in cross_beams.items():
+                res_mem = [bm1] + mem
                 if p in point_tuples:
                     continue
-                point_tuples.append(p)
+
                 if joint_func is not None:
-                    joint = joint_func(next(self.counter), [bm1] + mem)
+                    joint = joint_func(next(self.counter), res_mem)
                     if joint is None:
                         continue
                 else:
-                    joint = Connection(next(self.counter), [bm1] + mem)
+                    joint = Connection(next(self.counter), res_mem)
 
+                point_tuples.append(p)
                 bm1.connected_from.append(joint)
                 for m in mem:
                     m.connected_to.append(joint)
