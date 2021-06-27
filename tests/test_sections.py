@@ -21,14 +21,13 @@ class VisualizeSections(unittest.TestCase):
         sec = Section("MyTUB", from_str="TUB200x10")
         sec._repr_html_()
 
-    # TODO: Add support for visualizing circular and channel profiles
-    # def test_circular(self):
-    #     sec = Section('MyCirc', from_str='CIRC200')
-    #     sec._repr_html_()
-    #
-    # def test_channel(self):
-    #     sec = Section('MyUNP', from_str='UNP200x10')
-    #     sec._repr_html_()
+    def test_channel(self):
+        sec = Section("MyUNP", from_str="UNP200x10")
+        sec._repr_html_()
+
+    def test_circular(self):
+        sec = Section("MyCirc", from_str="CIRC200")
+        sec._repr_html_()
 
 
 class PropertiesTestCase(unittest.TestCase):

@@ -3227,3 +3227,22 @@ def sweep_pipe(edge, xvec, r, wt):
     if boolean_result.IsNull():
         logging.debug("Boolean returns None")
     return boolean_result
+
+
+def make_name_fem_ready(value):
+    """
+    Based on typically allowed names in FEM, this function will try to rename objects to comply without significant
+    changes to the original name
+
+    :param value:
+    :return: Fixed name
+    """
+    logging.debug("Converting bad name")
+    value = value.replace("/", "_").replace("=", "")
+    if str.isnumeric(value[0]):
+        value = "_" + value
+
+    if "/" in value:
+        logging.error(f'Character "/" found in {value}')
+
+    return value.strip()

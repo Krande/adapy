@@ -68,13 +68,7 @@ def add_fem_to_cache(fem, part_group):
     coo.attrs.create("NBR", len(points))
 
     # Add elements
-    def get_node_ids_from_element(el_):
-        return [int(n.id) for n in el_.nodes]
-
     elements_group = fem_group.create_group("MESH")
-
     for group, elements in groupby(sorted(fem.elements, key=attrgetter("type")), key=attrgetter("type")):
-        elements = list(elements)
-        elements_formatted = [[int(el.id), *get_node_ids_from_element(el)] for el in elements]
         med_cells = elements_group.create_group(group)
-        med_cells.create_dataset("ELEMENTS", data=elements_formatted)
+        med_cells.create_dataset("ELEMENTS", data=[[int(el.id), *[int(n.id) for n in el.nodes]] for el in elements])

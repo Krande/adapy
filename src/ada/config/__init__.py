@@ -26,6 +26,7 @@ class Settings:
     valid_units = ["m", "mm"]
 
     convert_bad_names = False
+    convert_bad_names_for_fem = True
     use_occ_bounding_box_algo = False
     use_oriented_bbox = True  # This is only relevant if OCC bounding box is True
     make_param_elbows = False

@@ -1038,7 +1038,7 @@ class Assembly(Part):
         oval = calculate_unit_scale(self.ifc_file)
         nval = calculate_unit_scale(f)
         if oval != nval:
-            logging.debug("Running Unit Conversion. This is still highly unstable")
+            logging.error("Running Unit Conversion on IFC import. This is still highly unstable")
             new_file = scale_ifc_file_object(f, nval)
             f = new_file
 
@@ -1057,7 +1057,7 @@ class Assembly(Part):
                     "IfcBuildingStorey",
                     "IfcSpatialZone",
                 ]:
-                    new_part = Part(name, ifc_elem=product)
+                    new_part = Part(name, ifc_elem=product, metadata=dict(original_name=name))
                     if parent_type in [
                         "IfcSite",
                         "IfcSpace",
@@ -1093,7 +1093,7 @@ class Assembly(Part):
                         imported = True
                     else:
                         for p in self.get_all_parts_in_assembly():
-                            if p.name == pp.Name:
+                            if p.name == pp.Name or p.metadata.get("original_name") == pp.Name:
                                 p.add_beam(bm)
                                 imported = True
                                 break
@@ -1278,7 +1278,7 @@ class Assembly(Part):
                     exit_on_complete,
                 )
             except IOError as e:
-                logging.info(e)
+                logging.error(e)
         else:
             print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
 
@@ -1299,6 +1299,7 @@ class Assembly(Part):
 
         :param destination_file:
         """
+        from ada.fem.io.ifc_fem.writer import to_ifc_fem
 
         f = self.ifc_file
         owner_history = f.by_type("IfcOwnerHistory")[0]
@@ -1349,6 +1350,10 @@ class Assembly(Part):
                 else:
                     f.add(shp.ifc_elem)
                     physical_objects.append(shp.ifc_elem)
+
+            if len(p.fem.nodes) > 0:
+                to_ifc_fem(p.fem, f)
+
             if len(physical_objects) == 0:
                 continue
 
@@ -1705,7 +1710,7 @@ class Beam(BackendGeom):
         """
         from .sections import SectionCat
 
-        if SectionCat.is_circular_profile(self.section.type):
+        if SectionCat.is_circular_profile(self.section.type) or SectionCat.is_tubular_profile(self.section.type):
             d = self.section.r * 2
             dummy_beam = Beam("dummy", self.n1.p, self.n2.p, Section("DummySec", "BG", h=d, w_btn=d, w_top=d))
             outer_curve = dummy_beam.get_outer_points()
@@ -2229,9 +2234,11 @@ class Beam(BackendGeom):
         return self._ifc_elem
 
     def __repr__(self):
-        return "Beam(id: {}, Name: {}\nN1: {}, N2: {}\nSection: {}\nMaterial: {})".format(
-            self.guid, self.name, self.n1, self.n2, self.section, self.material
-        )
+        p1s = self.n1.p.tolist()
+        p2s = self.n2.p.tolist()
+        secn = self.section.sec_str
+        matn = self.material.name
+        return f'Beam("{self.name}", {p1s}, {p2s}, {secn}, {matn})'
 
 
 class Plate(BackendGeom):
@@ -4967,17 +4974,19 @@ class Material(Backend):
         from ada.materials.metals import CarbonSteel, Metal
 
         mat_psets = ifc_mat.HasProperties
-        yield_stress = None
+        scale_pascal = 1 if self.units == "mm" else 1e6
+        scale_volume = 1 if self.units == "m" else 1e-9
         props = {entity.Name: entity.NominalValue[0] for entity in mat_psets[0].Properties}
 
         mat_props = dict(
-            E=props["YoungModulus"],
-            v=props["PoissonRatio"],
-            rho=props["MassDensity"],
-            alpha=props["ThermalExpansionCoefficient"],
-            zeta=props["SpecificHeatCapacity"],
-            sig_y=yield_stress,
+            E=props.get("YoungModulus", 210000 * scale_pascal),
+            sig_y=props.get("YieldStress", 355 * scale_pascal),
+            rho=props.get("MassDensity", 7850 * scale_volume),
+            v=props.get("PoissonRatio", 0.3),
+            alpha=props.get("ThermalExpansionCoefficient", 1.2e-5),
+            zeta=props.get("SpecificHeatCapacity", 1.15),
         )
+
         if "StrengthGrade" in props:
             mat_model = CarbonSteel(grade=props["StrengthGrade"], **mat_props)
         else:
@@ -5175,6 +5184,54 @@ class Connection(Part):
 
     def __repr__(self):
         return 'Joint Name: "{}", center: "{}"'.format(self._name, self._center)
+
+
+class JointBase(Part):
+    beamtypes: list
+    mem_types: list
+    num_mem: int
+
+    def __init__(self, name, members, centre):
+        super(JointBase, self).__init__(name)
+        self._init_check(members)
+        self._centre = centre
+        self._beams = Beams(members)
+        for m in members:
+            m._ifc_elem = None
+
+    def _init_check(self, members):
+        if self.num_mem != len(members):
+            raise ValueError(f"This joint only supports {self.num_mem} members")
+
+        mem_types = [m for m in self.mem_types]
+
+        for m in members:
+            if m.member_type in mem_types:
+                mem_types.pop(mem_types.index(m.member_type))
+
+        if len(mem_types) != 0:
+            raise ValueError(f"Not all Pre-requisite member types {self.mem_types} are found for JointB")
+
+    def _cut_intersecting_member(self, mem_base, mem_incoming):
+        """
+
+        :param mem_base:
+        :param mem_incoming:
+        :type mem_base: ada.Beam
+        :type mem_incoming: ada.Beam
+        """
+        h_vec = np.array(mem_incoming.up) * mem_incoming.section.h * 2
+        p1, p2 = mem_base.bbox
+        p1 = np.array(p1) - h_vec
+        p2 = np.array(p2) + h_vec
+        mem_incoming.add_penetration(PrimBox(f"{self.name}_neg", p1, p2))
+
+    @property
+    def centre(self):
+        return self._centre
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}("{self.name}", members:{len(self.beams)})'
 
 
 class Bolts(Backend):
