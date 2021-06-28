@@ -18,7 +18,7 @@ def to_ifc_fem(fem, f):
     from ada.core.ifc_utils import create_global_axes, create_reference_subrep
 
     owner_history = f.by_type("IfcOwnerHistory")[0]
-    model = f.create_entity(
+    f.create_entity(
         "IfcStructuralAnalysisModel",
         create_guid(),
         owner_history,
@@ -59,7 +59,7 @@ def elem_to_ifc(elem, f, subref):
         "IfcStructuralCurveMember",
         create_guid(),
         owner_history,
-        elem.name,
+        f"E{elem.name}",
         None,
         None,
         create_local_placement(f),

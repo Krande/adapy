@@ -4,7 +4,7 @@ from ada import JointBase
 from ada.core.utils import beam_cross_check
 
 
-def joint_map(name, members):
+def joint_map(name, members, centre):
     """
     :param name: Name of joint
     :param members: Number of members
@@ -33,7 +33,7 @@ def joint_map(name, members):
 
     for joint in joints:
         if eval_joint_req(joint):
-            return joint(name, members)
+            return joint(name, members, centre)
 
     member_types = [m.section.type for m in members]
     logging.error(f'Unable to find matching Joint using joint map for members "{member_types}"')
@@ -45,8 +45,8 @@ class JointB(JointBase):
     beamtypes = ["IG", "IG", "IG"]
     num_mem = 3
 
-    def __init__(self, name, members):
-        super(JointB, self).__init__(name, members)
+    def __init__(self, name, members, centre):
+        super(JointB, self).__init__(name, members, centre)
 
         column = None
         gi1 = None

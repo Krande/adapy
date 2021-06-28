@@ -33,6 +33,7 @@ class Settings:
 
     # IFC export settings
     include_ecc = True
+    ifc_include_fem = False  # False while in experimental mode
 
     # FEM analysis settings
     if os.getenv("ADA_execute_dir", None) is not None:

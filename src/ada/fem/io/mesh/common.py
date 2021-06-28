@@ -246,23 +246,56 @@ class GMesh:
         """
         import gmsh
 
+        from ada.core.utils import unit_vector, vector_length
+
+        def add_line(li):
+            if li in self._bm_map.keys():
+                raise ValueError("This should not happen!")
+            self._bm_map[li] = bm
+
         p1, p2 = bm.n1.p, bm.n2.p
 
         s = self.get_point(p1)
         e = self.get_point(p2)
         if len(s) == 0:
             s = [(0, gmsh.model.geo.addPoint(*p1.tolist(), size))]
+
         if len(e) == 0:
             e = [(0, gmsh.model.geo.addPoint(*p2.tolist(), size))]
 
-        line = gmsh.model.geo.addLine(s[0][1], e[0][1])
-        if line in self._bm_map.keys():
-            raise ValueError("This should not happen!")
-        self._bm_map[line] = bm
+        xvec = bm.xvec
 
         if len(bm.connected_from) > 0:
-            for con in bm.connected_from:
-                gmsh.model.geo.addPoint(*con.centre, size)
+            prev_p = None
+            for i, con in enumerate(bm.connected_from):
+                el_len = np.array(con.centre) - p1
+                if abs(vector_length(el_len)) < 1e-4:
+                    continue
+                vec_diff = vector_length(unit_vector(el_len) - xvec)
+                if vec_diff > 1e-1:
+                    print("something is going on")
+                    continue
+                midp = self.get_point(con.centre)
+                if len(midp) == 0:
+                    midp = [(0, gmsh.model.geo.addPoint(*con.centre, size))]
+                if prev_p is None:
+                    line = gmsh.model.geo.addLine(s[0][1], midp[0][1])
+                    add_line(line)
+                    prev_p = midp
+                    continue
+
+                line = gmsh.model.geo.addLine(prev_p[0][1], midp[0][1])
+                add_line(line)
+                prev_p = midp
+
+            if prev_p is None:
+                line = gmsh.model.geo.addLine(s[0][1], e[0][1])
+            else:
+                line = gmsh.model.geo.addLine(prev_p[0][1], e[0][1])
+            add_line(line)
+        else:
+            line = gmsh.model.geo.addLine(s[0][1], e[0][1])
+            add_line(line)
 
     def get_beam_elements(self, li, order):
         """
@@ -273,12 +306,17 @@ class GMesh:
         """
         import gmsh
 
+        from ada.core.utils import make_name_fem_ready
+
         model = gmsh.model
         bm = self._bm_map[li]
         segments = model.mesh.getElements(1, li)[1][0]
         fem_nodes = model.mesh.getElements(1, li)[2][0]
         elem_types, elem_tags, elem_node_tags = gmsh.model.mesh.getElements(1, li)
         face, dim, morder, numv, parv, _ = gmsh.model.mesh.getElementProperties(elem_types[0])
+
+        set_name = make_name_fem_ready(f"el{bm.name}_set")
+        fem = self._part.fem
 
         def make_elem(j):
             no = []
@@ -294,20 +332,27 @@ class GMesh:
             return Elem(segments[j], no, bm_el_type, parent=self._part.fem)
 
         elements = list(map(make_elem, range(len(segments))))
+        fem_sec_name = f"d{bm.name}_sec"
 
-        femset = FemSet(f"el{bm.name}_set", elements, "elset", parent=self._part.fem)
-        self._part.fem.sets.add(femset)
-        self._part.fem.add_section(
-            FemSection(
-                f"d{bm.name}_sec",
-                "beam",
-                femset,
-                bm.material,
-                bm.section,
-                bm.ori[2],
-                metadata=dict(beam=bm, numel=len(elements)),
+        if set_name in fem.elsets.keys():
+            fem_set = fem.elsets[set_name]
+            for el in elements:
+                el.fem_sec = fem_set.members[0].fem_sec
+            fem_set.add_members(elements)
+        else:
+            fem_set = FemSet(set_name, elements, "elset", parent=fem)
+            fem.sets.add(fem_set)
+            fem.add_section(
+                FemSection(
+                    fem_sec_name,
+                    "beam",
+                    fem_set,
+                    bm.material,
+                    bm.section,
+                    bm.ori[2],
+                    metadata=dict(beam=bm, numel=len(elements)),
+                )
             )
-        )
         return elements
 
     def get_shell_elements(self, sh, order):

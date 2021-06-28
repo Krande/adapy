@@ -791,3 +791,5 @@ class FemSets:
         if fe_set.parent is None:
             fe_set.parent = self._fem_obj
         self._instantiate_all_members(fe_set)
+
+        return fe_set

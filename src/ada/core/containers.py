@@ -8,7 +8,7 @@ import numpy as np
 import toolz
 from pyquaternion import Quaternion
 
-from ada.config import Settings
+from ada.config import Settings as _Settings
 
 from .utils import Counter, points_in_cylinder, vector_length
 
@@ -296,6 +296,7 @@ class Connections(BaseCollections):
         super().__init__(parent)
         self._connections = connections
         self._dmap = {j.id: j for j in self._connections}
+        self._nmap = Nodes()
 
     def __contains__(self, item):
         return item.id in self._dmap.keys()
@@ -334,30 +335,34 @@ class Connections(BaseCollections):
         Add a joint
 
         :param joint:
-        :type joint: ada.Connection
+        :type joint: ada.JointBase
         """
+        from ada import Node
+
         if joint.name is None:
             raise Exception("Name is not allowed to be None.")
+        new_node = Node(joint.centre)
+        node = self._nmap.add(new_node)
+        if node != new_node:
+            print("Joint centre already exists. Should merge")
 
         if joint.name in self._dmap.keys():
             return self._dmap[joint.name]
 
         self._connections.append(joint)
 
-    def find(self, out_of_plane_tol=0.1, joint_func=None):
+    def find(self, out_of_plane_tol=0.1, joint_func=None, point_tol=_Settings.point_tol):
         """
         Find all connections between beams in all parts using a simple clash check.
 
         :param out_of_plane_tol:
         :param joint_func: Pass a function for mapping the generic Connection classes to a specific reinforced Joints
         """
-        from ada import Beam, JointBase
-        from ada.core.utils import beam_cross_check, roundoff
+        from ada import Beam, JointBase, Node
+        from ada.core.utils import beam_cross_check
 
         ass = self._parent.get_assembly()
         bm_res = ass.beam_clash_check()
-
-        point_tuples = []
 
         def are_beams_connected(beams):
             """
@@ -368,6 +373,7 @@ class Connections(BaseCollections):
             bm1 = beams[0]
             assert isinstance(bm1, Beam)
             cross_beams = dict()
+            nodes = Nodes()
             for bm2 in beams[1]:
                 if bm1 == bm2:
                     continue
@@ -376,70 +382,34 @@ class Connections(BaseCollections):
                 if res is None:
                     continue
                 point, s, t = res
-                self._eval_joint_ends(bm1, bm2, t, point)
-
-                if point is not None:
-                    tp = tuple([roundoff(p) for p in point])
-                    if tp not in cross_beams.keys():
-                        cross_beams[tp] = []
-                    cross_beams[tp].append(bm2)
-
-            for p, mem in cross_beams.items():
-                res_mem = [bm1] + mem
-                if p in point_tuples:
+                tlen = (abs(t) - 1) * bm2.length
+                slen = (abs(s) - 1) * bm1.length
+                if tlen > bm2.length / 3 or slen > bm1.length / 3:
                     continue
+                if point is not None:
+                    new_node = Node(point)
+                    node = nodes.add(new_node, point_tol=point_tol)
+                    n_index = nodes.index(node)
+                    if n_index not in cross_beams.keys():
+                        cross_beams[n_index] = []
+                    cross_beams[n_index].append(bm2)
 
+            for n_index, mem in cross_beams.items():
+                res_mem = [bm1] + mem
+                n = nodes[n_index]
                 if joint_func is not None:
-                    joint = joint_func(next(self.counter), res_mem, p)
+                    joint = joint_func(next(self.counter), res_mem, n.p)
                     if joint is None:
                         continue
                 else:
-                    joint = JointBase(next(self.counter), res_mem, p)
+                    joint = JointBase(next(self.counter), res_mem, n.p)
 
-                point_tuples.append(p)
                 bm1.connected_from.append(joint)
                 for m in mem:
                     m.connected_to.append(joint)
                 self.add(joint)
 
         list(map(are_beams_connected, bm_res))
-
-    def _eval_joint_ends(self, bm1, bm2, t_, intersect_point):
-        """
-        Evaluate the  use AB_ to ensure that the node lands on the beam
-
-        :param bm1:
-        :param bm2:
-        :param t_:
-        :param intersect_point:
-        :return:
-        """
-
-        from ada import Node
-
-        def eval_node(ab, n1=True):
-            n = Node(ab)
-            n_old = self._parent.nodes.add(n)
-
-            # TODO: Evaluate if the following is necessary!
-            if n_old is not None:
-                n = n_old
-            if n.id not in [bm2.n1.id, bm2.n2.id]:
-                if n1 is True:
-                    bm2.n1 = n
-                    bm2.n1.Free = False
-                else:
-                    bm2.n2 = n
-                    bm2.n2.Free = False
-            else:
-                logging.debug("Midnode on n1")
-
-        if t_ <= 0:
-            eval_node(intersect_point, n1=True)
-        elif t_ >= 1:
-            eval_node(intersect_point, n1=False)
-        else:
-            logging.error('bm1 "{}", bm2 "{}", t: "{}"'.format(bm1.name, bm2.name, t_))
 
 
 class Materials(BaseCollections):
@@ -571,6 +541,8 @@ class Materials(BaseCollections):
         self._dmap[material.name] = material
         self._materials.append(material)
 
+        return material
+
 
 class Sections:
     """
@@ -691,6 +663,8 @@ class Sections:
         self._sections.append(section)
         self._idmap[section.id] = section
         self._nmap[section.name] = section
+
+        return section
 
 
 class Nodes:
@@ -922,7 +896,7 @@ class Nodes:
         else:
             return list(simplesearch)
 
-    def add(self, node, point_tol=Settings.point_tol, allow_coincident=False):
+    def add(self, node, point_tol=_Settings.point_tol, allow_coincident=False):
         """
         Insert node into sorted list.
 
@@ -945,9 +919,12 @@ class Nodes:
 
         index = bisect_left(self._nodes, node)
 
-        if (index != len(self._nodes)) and (self._nodes[index] == node) and allow_coincident is False:
-            old_node = self._nodes[index]
-            vlen = vector_length(old_node.p - node.p)
+        if (0 != len(self._nodes)) and allow_coincident is False:
+            if index > len(self._nodes) - 1:
+                nearest_node = self._nodes[-1]
+            else:
+                nearest_node = self._nodes[index]
+            vlen = vector_length(nearest_node.p - node.p)
             if vlen < point_tol:
                 logging.debug(f'Replaced new node with node id "{self._nodes[index].id}" found within point tolerances')
                 return self._nodes[index]
@@ -956,4 +933,4 @@ class Nodes:
         else:
             insert_node(node, index)
 
-        return None
+        return node

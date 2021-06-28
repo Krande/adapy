@@ -59,6 +59,7 @@ class FemBase:
 
         if str.isnumeric(value[0]):
             raise ValueError("Name cannot start with numeric")
+
         if _Settings.convert_bad_names_for_fem:
             self._name = make_name_fem_ready(value)
         else:

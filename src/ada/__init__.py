@@ -133,23 +133,23 @@ class Part(BackendGeom):
             beam.units = self.units
         beam.parent = self
         mat = self.add_material(beam.material)
-        if mat is not None:
+        if mat != beam.material:
             beam.material = mat
 
         sec = self.add_section(beam.section)
-        if sec is not None:
+        if sec != beam.section:
             beam.section = sec
 
         tap = self.add_section(beam.taper)
-        if tap is not None:
+        if tap != beam.taper:
             beam.taper = tap
 
         old_node = self.nodes.add(beam.n1)
-        if old_node is not None:
+        if old_node != beam.n1:
             beam.n1 = old_node
 
         old_node = self.nodes.add(beam.n2)
-        if old_node is not None:
+        if old_node != beam.n2:
             beam.n2 = old_node
 
         self.beams.add(beam)
@@ -1301,7 +1301,7 @@ class Assembly(Part):
 
         :param destination_file:
         """
-        from ada.fem.io.ifc_fem.writer import to_ifc_fem
+        from ada.fem.io.ifc.writer import to_ifc_fem
 
         f = self.ifc_file
         owner_history = f.by_type("IfcOwnerHistory")[0]
@@ -1354,7 +1354,8 @@ class Assembly(Part):
                     physical_objects.append(shp.ifc_elem)
 
             if len(p.fem.nodes) > 0:
-                to_ifc_fem(p.fem, f)
+                if _Settings.ifc_include_fem is True:
+                    to_ifc_fem(p.fem, f)
 
             if len(physical_objects) == 0:
                 continue
@@ -5200,6 +5201,9 @@ class JointBase(Part):
             m._ifc_elem = None
 
     def _init_check(self, members):
+        if self.__class__.__name__ == "JointBase":
+            return None
+
         if self.num_mem != len(members):
             raise ValueError(f"This joint only supports {self.num_mem} members")
 

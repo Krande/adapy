@@ -150,7 +150,8 @@ class BackendGeom(Backend):
 
         pen.parent = self
         if type(pen) in (PrimExtrude, PrimRevolve, PrimCyl, PrimBox):
-            self._penetrations.append(Penetration(pen, parent=self))
+            pen = Penetration(pen, parent=self)
+            self._penetrations.append(pen)
         else:
             self._penetrations.append(pen)
 
