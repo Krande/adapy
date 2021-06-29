@@ -35,7 +35,7 @@ __all__ = [
     "face_to_wires",
     "vector_length",
     "roundoff",
-    "parallel_check",
+    "is_parallel",
     "intersect_calc",
     "get_list_of_files",
     "is_occ_shape",
@@ -298,7 +298,18 @@ def distfunc(x, point, A, B):
     return vector_length(point - (A + x * AB))
 
 
-def parallel_check(ab, cd, tol=0.0001):
+def sort_points_by_dist(p, points):
+    return sorted(points, key=lambda x: vector_length(x - p))
+
+
+def is_point_on_line(a, b, p):
+    ap = p - a
+    ab = b - a
+    result = a + np.dot(ap, ab) / np.dot(ab, ab) * ab
+    return result
+
+
+def is_parallel(ab, cd, tol=0.0001):
     """
     Check if vectors AB and CD are parallel
 
@@ -376,7 +387,7 @@ def beam_cross_check(bm1, bm2, outofplane_tol=0.1):
     :type bm2: ada.Beam
     """
 
-    p_check = parallel_check
+    p_check = is_parallel
     i_check = intersect_calc
     v_len = vector_length
     a = bm1.n1.p
@@ -1539,11 +1550,11 @@ def normal_to_points_in_plane(points):
     v1 = p3 - p1
     v2 = p2 - p1
 
-    if parallel_check(v1, v2) is True:
+    if is_parallel(v1, v2) is True:
         for i in range(3, len(points)):
             p3 = points[i]
             v1 = p3 - p1
-            if parallel_check(v1, v2) is False:
+            if is_parallel(v1, v2) is False:
                 break
 
     # the cross product is a vector normal to the plane
@@ -3229,12 +3240,13 @@ def sweep_pipe(edge, xvec, r, wt):
     return boolean_result
 
 
-def make_name_fem_ready(value):
+def make_name_fem_ready(value, no_dot=False):
     """
     Based on typically allowed names in FEM, this function will try to rename objects to comply without significant
     changes to the original name
 
     :param value:
+    :param no_dot:
     :return: Fixed name
     """
     logging.debug("Converting bad name")
@@ -3244,5 +3256,8 @@ def make_name_fem_ready(value):
 
     if "/" in value:
         logging.error(f'Character "/" found in {value}')
+
+    if no_dot:
+        value = value.replace(".", "_")
 
     return value.strip()

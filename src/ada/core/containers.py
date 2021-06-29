@@ -282,7 +282,7 @@ class Plates(BaseCollections):
 
 
 class Connections(BaseCollections):
-    counter = Counter(1, "C")
+    _counter = Counter(1, "C")
     """
     Connections Collection.
 
@@ -296,7 +296,12 @@ class Connections(BaseCollections):
         super().__init__(parent)
         self._connections = connections
         self._dmap = {j.id: j for j in self._connections}
-        self._nmap = Nodes()
+        self._joint_centre_nodes = Nodes([c.centre for c in self._connections])
+        self._nmap = {self._joint_centre_nodes.index(c.centre): c for c in self._connections}
+
+    @property
+    def joint_centre_nodes(self):
+        return self._joint_centre_nodes
 
     def __contains__(self, item):
         return item.id in self._dmap.keys()
@@ -309,7 +314,7 @@ class Connections(BaseCollections):
 
     def __getitem__(self, index):
         result = self._connections[index]
-        return Materials(result) if isinstance(index, slice) else result
+        return Connections(result) if isinstance(index, slice) else result
 
     def __eq__(self, other):
         if not isinstance(other, Beams):
@@ -330,25 +335,30 @@ class Connections(BaseCollections):
         rpr.maxlevel = 1
         return f"Connections({rpr.repr(self._connections) if self._connections else ''})"
 
-    def add(self, joint):
+    def add(self, joint, point_tol=_Settings.point_tol):
         """
         Add a joint
 
         :param joint:
+        :param point_tol: Point Tolerance
         :type joint: ada.JointBase
         """
         from ada import Node
 
         if joint.name is None:
             raise Exception("Name is not allowed to be None.")
-        new_node = Node(joint.centre)
-        node = self._nmap.add(new_node)
-        if node != new_node:
-            print("Joint centre already exists. Should merge")
 
         if joint.name in self._dmap.keys():
-            return self._dmap[joint.name]
+            raise ValueError("Joint Exists with same name")
 
+        new_node = Node(joint.centre)
+        node = self._joint_centre_nodes.add(new_node, point_tol=point_tol)
+        if node != new_node:
+            return self._nmap[node]
+        else:
+            self._nmap[node] = joint
+
+        self._dmap[joint.name] = joint
         self._connections.append(joint)
 
     def find(self, out_of_plane_tol=0.1, joint_func=None, point_tol=_Settings.point_tol):
@@ -357,12 +367,16 @@ class Connections(BaseCollections):
 
         :param out_of_plane_tol:
         :param joint_func: Pass a function for mapping the generic Connection classes to a specific reinforced Joints
+        :param point_tol:
         """
         from ada import Beam, JointBase, Node
         from ada.core.utils import beam_cross_check
 
         ass = self._parent.get_assembly()
         bm_res = ass.beam_clash_check()
+
+        nodes = Nodes()
+        nmap = dict()
 
         def are_beams_connected(beams):
             """
@@ -372,8 +386,7 @@ class Connections(BaseCollections):
             """
             bm1 = beams[0]
             assert isinstance(bm1, Beam)
-            cross_beams = dict()
-            nodes = Nodes()
+
             for bm2 in beams[1]:
                 if bm1 == bm2:
                     continue
@@ -388,28 +401,25 @@ class Connections(BaseCollections):
                     continue
                 if point is not None:
                     new_node = Node(point)
-                    node = nodes.add(new_node, point_tol=point_tol)
-                    n_index = nodes.index(node)
-                    if n_index not in cross_beams.keys():
-                        cross_beams[n_index] = []
-                    cross_beams[n_index].append(bm2)
-
-            for n_index, mem in cross_beams.items():
-                res_mem = [bm1] + mem
-                n = nodes[n_index]
-                if joint_func is not None:
-                    joint = joint_func(next(self.counter), res_mem, n.p)
-                    if joint is None:
-                        continue
-                else:
-                    joint = JointBase(next(self.counter), res_mem, n.p)
-
-                bm1.connected_from.append(joint)
-                for m in mem:
-                    m.connected_to.append(joint)
-                self.add(joint)
+                    n = nodes.add(new_node, point_tol=point_tol)
+                    if n not in nmap.keys():
+                        nmap[n] = [bm1]
+                    if bm1 not in nmap[n]:
+                        nmap[n].append(bm1)
+                    if bm2 not in nmap[n]:
+                        nmap[n].append(bm2)
 
         list(map(are_beams_connected, bm_res))
+
+        for node, mem in nmap.items():
+            if joint_func is not None:
+                joint = joint_func(next(self._counter), mem, node.p)
+                if joint is None:
+                    continue
+            else:
+                joint = JointBase(next(self._counter), mem, node.p)
+
+            self.add(joint, point_tol=point_tol)
 
 
 class Materials(BaseCollections):
@@ -915,21 +925,18 @@ class Nodes:
             self._idmap[n.id] = n
             self._bbox = None
             self._maxid = n.id if n.id > self._maxid else self._maxid
-            # self._bbox = self._get_bbox()
 
         index = bisect_left(self._nodes, node)
+        if (len(self._nodes) != 0) and allow_coincident is False:
+            res = self.get_by_volume(node.p, tol=point_tol)
+            if len(res) == 1:
+                nearest_node = res[0]
+                vlen = vector_length(nearest_node.p - node.p)
+                if vlen < point_tol:
+                    logging.debug(f'Replaced new node with node id "{nearest_node.id}" found within point tolerances')
+                    return nearest_node
 
-        if (0 != len(self._nodes)) and allow_coincident is False:
-            if index > len(self._nodes) - 1:
-                nearest_node = self._nodes[-1]
-            else:
-                nearest_node = self._nodes[index]
-            vlen = vector_length(nearest_node.p - node.p)
-            if vlen < point_tol:
-                logging.debug(f'Replaced new node with node id "{self._nodes[index].id}" found within point tolerances')
-                return self._nodes[index]
-            else:
-                insert_node(node, index)
+            insert_node(node, index)
         else:
             insert_node(node, index)
 

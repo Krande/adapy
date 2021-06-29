@@ -6,6 +6,7 @@ from itertools import chain
 import numpy as np
 
 from ada import Node, Plate
+from ada.config import Settings as _Settings
 from ada.core.containers import Nodes
 from ada.core.utils import clockwise, intersect_calc, roundoff, vector_length
 from ada.fem import Elem, FemSection, FemSet
@@ -42,6 +43,7 @@ class GMesh:
         interactive=False,
         mesh_algo=8,
         sh_int_points=5,
+        point_tol=_Settings.point_tol,
     ):
         """
 
@@ -51,6 +53,7 @@ class GMesh:
         :param interactive:
         :param mesh_algo:
         :param sh_int_points:
+        :param point_tol:
         :return:
         """
         import gmsh
@@ -62,6 +65,7 @@ class GMesh:
             gmsh.finalize()
         except BaseException as e:
             logging.debug(e)
+
         gmsh.initialize()
         gmsh.option.setNumber("General.Terminal", 1)
         gmsh.option.setNumber("Mesh.SecondOrderIncomplete", 1)
@@ -83,7 +87,7 @@ class GMesh:
 
         list(
             map(
-                functools.partial(self._create_bm_geom, size=size),
+                functools.partial(self._create_bm_geom, size=size, point_tol=point_tol),
                 filter(lambda x: x not in [b for b in self._bm_map.values()], bm_in),
             )
         )
@@ -238,7 +242,7 @@ class GMesh:
         self._pl_map[surf] = pl
         self._bm_map.update({i: j for i, j in zip(intersec_geom, crossing_beams)})
 
-    def _create_bm_geom(self, bm, size):
+    def _create_bm_geom(self, bm, size, point_tol):
         """
 
         :param bm:
@@ -255,29 +259,35 @@ class GMesh:
 
         p1, p2 = bm.n1.p, bm.n2.p
 
+        midpoints = bm.calc_con_points()
+
+        if bm._connected_end1 is not None:
+            p1 = bm._connected_end1.centre
+        if bm._connected_end2 is not None:
+            p2 = bm._connected_end2.centre
+
         s = self.get_point(p1)
         e = self.get_point(p2)
+
         if len(s) == 0:
             s = [(0, gmsh.model.geo.addPoint(*p1.tolist(), size))]
-
         if len(e) == 0:
             e = [(0, gmsh.model.geo.addPoint(*p2.tolist(), size))]
 
         xvec = bm.xvec
-
-        if len(bm.connected_from) > 0:
+        if len(midpoints) > 0:
             prev_p = None
-            for i, con in enumerate(bm.connected_from):
-                el_len = np.array(con.centre) - p1
+            for i, con_centre in enumerate(midpoints):
+                el_len = np.array(con_centre) - p1
                 if abs(vector_length(el_len)) < 1e-4:
                     continue
                 vec_diff = vector_length(unit_vector(el_len) - xvec)
                 if vec_diff > 1e-1:
                     print("something is going on")
                     continue
-                midp = self.get_point(con.centre)
+                midp = self.get_point(con_centre)
                 if len(midp) == 0:
-                    midp = [(0, gmsh.model.geo.addPoint(*con.centre, size))]
+                    midp = [(0, gmsh.model.geo.addPoint(*con_centre, size))]
                 if prev_p is None:
                     line = gmsh.model.geo.addLine(s[0][1], midp[0][1])
                     add_line(line)
@@ -332,7 +342,7 @@ class GMesh:
             return Elem(segments[j], no, bm_el_type, parent=self._part.fem)
 
         elements = list(map(make_elem, range(len(segments))))
-        fem_sec_name = f"d{bm.name}_sec"
+        fem_sec_name = make_name_fem_ready(f"d{bm.name}_sec")
 
         if set_name in fem.elsets.keys():
             fem_set = fem.elsets[set_name]

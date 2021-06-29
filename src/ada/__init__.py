@@ -1606,6 +1606,8 @@ class Beam(BackendGeom):
 
         self._connected_to = []
         self._connected_from = []
+        self._connected_end1 = None
+        self._connected_end2 = None
         self._tos = None
         self._e1 = e1
         self._e2 = e2
@@ -1961,6 +1963,34 @@ class Beam(BackendGeom):
             guid=ifc_elem.GlobalId,
         )
 
+    def calc_con_points(self, point_tol=_Settings.point_tol):
+        from ada.core.utils import sort_points_by_dist
+
+        a = self.n1.p
+        b = self.n2.p
+        points = [tuple(con.centre) for con in self.connected_from]
+        midpoints = []
+        for p in sort_points_by_dist(a, points):
+            p = np.array(p)
+            if vector_length(p - a) < point_tol:
+                self._connected_end1 = self.connected_from[points.index(tuple(p))]
+                continue
+
+            if vector_length(p - b) < point_tol:
+                self._connected_end2 = self.connected_from[points.index(tuple(p))]
+                continue
+            midpoints += [p]
+
+        tpoints = [tuple(con.centre) for con in self.connected_to]
+        for p in sort_points_by_dist(a, tpoints):
+            p = np.array(p)
+            if vector_length(p - a) < point_tol:
+                self._connected_end1 = self.connected_to[tpoints.index(tuple(p))]
+            if vector_length(p - b) < point_tol:
+                self._connected_end2 = self.connected_to[tpoints.index(tuple(p))]
+
+        return midpoints
+
     @property
     def units(self):
         return self._units
@@ -2017,8 +2047,10 @@ class Beam(BackendGeom):
 
     @property
     def member_type(self):
+        from ada.core.utils import is_parallel
+
         xvec = self.xvec
-        if list(xvec) == [0.0, 0.0, 1.0] or list(xvec) == [0.0, 0.0, -1.0]:
+        if is_parallel(xvec, [0.0, 0.0, 1.0], tol=1e-1):
             mtype = "Column"
         elif xvec[2] == 0.0:
             mtype = "Girder"
@@ -3511,7 +3543,7 @@ class Wall(BackendGeom):
 
     @property
     def extrusion_area(self):
-        from ada.core.utils import intersect_calc, parallel_check
+        from ada.core.utils import intersect_calc, is_parallel
 
         area_points = []
         vpo = [np.array(p) for p in self.points]
@@ -3526,7 +3558,7 @@ class Wall(BackendGeom):
             yvec = unit_vector(np.cross(zvec, xvec))
             new_point = p1 + yvec * (self._thickness / 2) + yvec * self.offset
             if prev_xvec is not None:
-                if parallel_check(xvec, prev_xvec) is False:
+                if is_parallel(xvec, prev_xvec) is False:
                     prev_p = area_points[-1]
                     # next_point = p2 + yvec * (self._thickness / 2) + yvec * self.offset
                     # c_p = prev_yvec * (self._thickness / 2) + prev_yvec * self.offset
@@ -3552,7 +3584,7 @@ class Wall(BackendGeom):
             yvec = unit_vector(np.cross(xvec, np.array([0, 0, 1])))
             new_point = p1 - yvec * (self._thickness / 2) + yvec * self.offset
             if prev_xvec is not None:
-                if parallel_check(xvec, prev_xvec) is False:
+                if is_parallel(xvec, prev_xvec) is False:
                     prev_p = reverse_points[-1]
                     c_p = prev_yvec * (self._thickness / 2) - prev_yvec * self.offset
                     new_point -= c_p
@@ -5163,6 +5195,9 @@ class Node:
             return NotImplemented
         return tuple(self.p) != tuple(other.p)
 
+    def __hash__(self):
+        return self.id
+
     def __repr__(self):
         return f"Node([{self.x}, {self.y}, {self.z}], {self.id})"
 
@@ -5197,6 +5232,12 @@ class JointBase(Part):
         self._init_check(members)
         self._centre = centre
         self._beams = Beams(members)
+        main_mem = self._get_landing_member(members)
+        main_mem.connected_from.append(self)
+        for m in members:
+            if m != main_mem:
+                m.connected_to.append(self)
+
         for m in members:
             m._ifc_elem = None
 
@@ -5229,6 +5270,15 @@ class JointBase(Part):
         p1 = np.array(p1) - h_vec
         p2 = np.array(p2) + h_vec
         mem_incoming.add_penetration(PrimBox(f"{self.name}_neg", p1, p2))
+
+    def _get_landing_member(self, members):
+        member_types = [m.member_type for m in members]
+        if member_types.count("Column") >= 1:
+            return members[member_types.index("Column")]
+        elif member_types.count("Girder") >= 1:
+            return members[member_types.index("Girder")]
+        else:
+            return members[0]
 
     @property
     def centre(self):

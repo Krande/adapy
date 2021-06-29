@@ -524,11 +524,6 @@ class GeneralProperties:
 
         return True
 
-    # def __getattribute__(self, item):
-    #     if item in ["Iy"]:
-    #         print('hello')
-    #     return getattr(self, item)
-
 
 class ProfileBuilder:
     origin = (0.0, 0.0, 0.0)

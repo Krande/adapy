@@ -438,7 +438,10 @@ def get_representation(ifc_elem, settings):
 
     geom = get_geom(ifc_elem, settings)
     r, g, b, alpha = pdct_shape.styles[0]  # the shape color
-    return geom, (r, g, b), alpha
+
+    colour = None if (r, g, b) == (-1, -1, -1) else (r, g, b)
+
+    return geom, colour, alpha
 
 
 def get_geom(ifc_elem, settings):

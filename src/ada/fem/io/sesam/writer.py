@@ -139,7 +139,7 @@ USER:     {user}            ACCOUNT:     \n"""
 
         :return:
         """
-        from ada.core.utils import Counter
+        from ada.core.utils import Counter, make_name_fem_ready
         from ada.sections import SectionCat
 
         sec_str = ""
@@ -158,12 +158,13 @@ USER:     {user}            ACCOUNT:     \n"""
                 section = fem_sec.section
                 if section not in sec_ids:
                     secid = next(bmid)
+                    sec_name = make_name_fem_ready(fem_sec.section.name, no_dot=True)
                     section.metadata["numid"] = secid
                     names_str += self.write_ff(
                         "TDSECT",
                         [
-                            (4, secid, 100 + len(fem_sec.section.name), 0),
-                            (fem_sec.section.name,),
+                            (4, secid, 100 + len(sec_name), 0),
+                            (sec_name,),
                         ],
                     )
                     sec_ids.append(fem_sec.section)
@@ -172,9 +173,10 @@ USER:     {user}            ACCOUNT:     \n"""
                         beam = fem_sec.metadata["beam"]
                         numel = fem_sec.metadata["numel"]
                         fem_sec.metadata["ircon"] = next(ircon)
+                        bm_name = make_name_fem_ready(beam.name, no_dot=True)
                         concept_str += self.write_ff(
                             "TDSCONC",
-                            [(4, fem_sec.metadata["ircon"], 100 + len(beam.guid), 0), (beam.guid,)],
+                            [(4, fem_sec.metadata["ircon"], 100 + len(bm_name), 0), (bm_name,)],
                         )
                         concept_str += self.write_ff("SCONCEPT", [(8, next(c), 7, 0), (0, 1, 0, 2)])
                         sconc_ref = next(c)
