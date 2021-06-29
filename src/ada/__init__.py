@@ -1980,10 +1980,6 @@ class Beam(BackendGeom):
                 if vector_length(p - prev_p) < point_tol:
                     continue
 
-            if vlena > bmlen or vlenb > bmlen:
-                prev_p = p
-                continue
-
             if vlena < point_tol:
                 self._connected_end1 = self.connected_to[points.index(tuple(p))]
                 prev_p = p
@@ -1991,6 +1987,10 @@ class Beam(BackendGeom):
 
             if vlenb < point_tol:
                 self._connected_end2 = self.connected_to[points.index(tuple(p))]
+                prev_p = p
+                continue
+
+            if vlena > bmlen or vlenb > bmlen:
                 prev_p = p
                 continue
 
