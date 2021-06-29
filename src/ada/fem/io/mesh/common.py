@@ -250,8 +250,6 @@ class GMesh:
         """
         import gmsh
 
-        from ada.core.utils import unit_vector, vector_length
-
         def add_line(li):
             if li in self._bm_map.keys():
                 raise ValueError("This should not happen!")
@@ -274,17 +272,9 @@ class GMesh:
         if len(e) == 0:
             e = [(0, gmsh.model.geo.addPoint(*p2.tolist(), size))]
 
-        xvec = bm.xvec
         if len(midpoints) > 0:
             prev_p = None
             for i, con_centre in enumerate(midpoints):
-                el_len = np.array(con_centre) - p1
-                if abs(vector_length(el_len)) < 1e-4:
-                    continue
-                vec_diff = vector_length(unit_vector(el_len) - xvec)
-                if vec_diff > 1e-1:
-                    print("something is going on")
-                    continue
                 midp = self.get_point(con_centre)
                 if len(midp) == 0:
                     midp = [(0, gmsh.model.geo.addPoint(*con_centre, size))]

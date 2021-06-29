@@ -403,11 +403,6 @@ def beam_cross_check(bm1, bm2, outofplane_tol=0.1):
     ab_ = a + s * ab
     cd_ = c + t * cd
 
-    t_ = roundoff(t)
-    if 0 < t_ < 1:
-        logging.debug(f"Beam cross-check indicates that the beams {bm1} and {bm2} are most probably parallel")
-        return None
-
     if p_check(ab, cd):
         logging.debug(f"beams {bm1} {bm2} are parallel")
         return None

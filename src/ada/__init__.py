@@ -1969,25 +1969,44 @@ class Beam(BackendGeom):
         a = self.n1.p
         b = self.n2.p
         points = [tuple(con.centre) for con in self.connected_from]
+        tpoints = [tuple(con.centre) for con in self.connected_to]
         midpoints = []
+        prev_p = None
         for p in sort_points_by_dist(a, points):
             p = np.array(p)
-            if vector_length(p - a) < point_tol:
+            bmlen = self.length
+            vlena = vector_length(p - a)
+            vlenb = vector_length(p - b)
+
+            if prev_p is not None:
+                if vector_length(p - prev_p) < point_tol:
+                    continue
+
+            if vlena > bmlen or vlenb > bmlen:
+                prev_p = p
+                continue
+
+            if vlena < point_tol:
                 self._connected_end1 = self.connected_from[points.index(tuple(p))]
+                prev_p = p
                 continue
 
-            if vector_length(p - b) < point_tol:
+            if vlenb < point_tol:
                 self._connected_end2 = self.connected_from[points.index(tuple(p))]
+                prev_p = p
                 continue
-            midpoints += [p]
 
-        tpoints = [tuple(con.centre) for con in self.connected_to]
+            midpoints += [p]
+            prev_p = p
+
         for p in sort_points_by_dist(a, tpoints):
             p = np.array(p)
             if vector_length(p - a) < point_tol:
                 self._connected_end1 = self.connected_to[tpoints.index(tuple(p))]
+                continue
             if vector_length(p - b) < point_tol:
                 self._connected_end2 = self.connected_to[tpoints.index(tuple(p))]
+                continue
 
         return midpoints
 

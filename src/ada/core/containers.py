@@ -395,9 +395,9 @@ class Connections(BaseCollections):
                 if res is None:
                     continue
                 point, s, t = res
-                tlen = (abs(t) - 1) * bm2.length
-                slen = (abs(s) - 1) * bm1.length
-                if tlen > bm2.length / 3 or slen > bm1.length / 3:
+                t_len = (abs(t) - 1) * bm2.length
+                s_len = (abs(s) - 1) * bm1.length
+                if t_len > bm2.length / 2 or s_len > bm1.length / 2:
                     continue
                 if point is not None:
                     new_node = Node(point)
