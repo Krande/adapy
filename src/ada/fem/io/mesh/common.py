@@ -257,7 +257,7 @@ class GMesh:
 
         p1, p2 = bm.n1.p, bm.n2.p
 
-        midpoints = bm.calc_con_points()
+        midpoints = bm.calc_con_points(point_tol=point_tol)
 
         if bm._connected_end1 is not None:
             p1 = bm._connected_end1.centre

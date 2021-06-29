@@ -1605,7 +1605,6 @@ class Beam(BackendGeom):
         self._jusl = jusl
 
         self._connected_to = []
-        self._connected_from = []
         self._connected_end1 = None
         self._connected_end2 = None
         self._tos = None
@@ -1968,8 +1967,7 @@ class Beam(BackendGeom):
 
         a = self.n1.p
         b = self.n2.p
-        points = [tuple(con.centre) for con in self.connected_from]
-        tpoints = [tuple(con.centre) for con in self.connected_to]
+        points = [tuple(con.centre) for con in self.connected_to]
         midpoints = []
         prev_p = None
         for p in sort_points_by_dist(a, points):
@@ -1987,26 +1985,17 @@ class Beam(BackendGeom):
                 continue
 
             if vlena < point_tol:
-                self._connected_end1 = self.connected_from[points.index(tuple(p))]
+                self._connected_end1 = self.connected_to[points.index(tuple(p))]
                 prev_p = p
                 continue
 
             if vlenb < point_tol:
-                self._connected_end2 = self.connected_from[points.index(tuple(p))]
+                self._connected_end2 = self.connected_to[points.index(tuple(p))]
                 prev_p = p
                 continue
 
             midpoints += [p]
             prev_p = p
-
-        for p in sort_points_by_dist(a, tpoints):
-            p = np.array(p)
-            if vector_length(p - a) < point_tol:
-                self._connected_end1 = self.connected_to[tpoints.index(tuple(p))]
-                continue
-            if vector_length(p - b) < point_tol:
-                self._connected_end2 = self.connected_to[tpoints.index(tuple(p))]
-                continue
 
         return midpoints
 
@@ -2081,10 +2070,6 @@ class Beam(BackendGeom):
     @property
     def connected_to(self):
         return self._connected_to
-
-    @property
-    def connected_from(self):
-        return self._connected_from
 
     @property
     def length(self):
@@ -5251,13 +5236,10 @@ class JointBase(Part):
         self._init_check(members)
         self._centre = centre
         self._beams = Beams(members)
-        main_mem = self._get_landing_member(members)
-        main_mem.connected_from.append(self)
-        for m in members:
-            if m != main_mem:
-                m.connected_to.append(self)
+        self._main_mem = self._get_landing_member(members)
 
         for m in members:
+            m.connected_to.append(self)
             m._ifc_elem = None
 
     def _init_check(self, members):
