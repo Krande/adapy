@@ -243,7 +243,7 @@ class Part(BackendGeom):
         If not it will create a new joint based on these two members.
 
         :param joint:
-        :type joint: Connection
+        :type joint: JointBase
         """
 
         """
@@ -3839,7 +3839,11 @@ class Shape(BackendGeom):
     def _generate_ifc_elem(self):
         import ifcopenshell.geom
 
-        from ada.core.ifc_utils import add_colour, create_local_placement
+        from ada.core.ifc_utils import (
+            add_colour,
+            create_local_placement,
+            create_property_set,
+        )
 
         if self.parent is None:
             raise ValueError("Parent cannot be None for IFC export")
@@ -3902,6 +3906,16 @@ class Shape(BackendGeom):
             ifc_shape,
             None,
             None,
+        )
+
+        props = create_property_set("Properties", f, self.metadata)
+        f.createIfcRelDefinesByProperties(
+            create_guid(),
+            owner_history,
+            "Properties",
+            None,
+            [ifc_elem],
+            props,
         )
 
         return ifc_elem
