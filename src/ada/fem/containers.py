@@ -429,6 +429,26 @@ class FemElements:
         self._group_by_types()
         self.renumber()
 
+    def merge_with_coincident_nodes(self):
+        from ada.core.containers import Nodes
+
+        def remove_duplicate_nodes():
+            new_nodes = [n for n in elem.nodes if len(n.refs) > 0]
+            elem.nodes.clear()
+            elem.nodes.extend(new_nodes)
+
+        """
+        This does not work according to plan. It seems like it is deleting more and more from the model for each 
+        iteration
+        """
+        elem_list = list(filter(lambda x: len(x.nodes) > len([n for n in x.nodes if len(n.refs) > 0]), self._elements))
+        for elem in elem_list:
+            remove_duplicate_nodes()
+            if len(elem.nodes) < 2:
+                self.remove(elem)
+            else:
+                elem._shape = None
+
 
 class FemSections:
     """
