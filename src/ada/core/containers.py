@@ -859,7 +859,7 @@ class Nodes:
     def min_nid(self):
         return min(self.dmap.keys()) if len(self.dmap.keys()) > 0 else 0
 
-    def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=1e-4):
+    def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=Settings.point_tol):
         """
 
         :param p: Point
@@ -979,7 +979,7 @@ class Nodes:
         for node in list(filter(lambda x: len(x.refs) == 0, self._nodes)):
             self.remove(node)
 
-    def merge_coincident(self):
+    def merge_coincident(self, tol=Settings.point_tol):
         """
         Merge nodes which are within the standard default of Nodes.get_by_volume. Nodes merged into the node connected
         to most elements.
@@ -996,7 +996,7 @@ class Nodes:
                     self.remove(duplicate_node)
 
         for node in list(filter(lambda x: len(x.refs) > 0, self._nodes)):
-            duplicate_nodes = list(filter(lambda x: x.id != node.id, self.get_by_volume(node.p)))
+            duplicate_nodes = list(filter(lambda x: x.id != node.id, self.get_by_volume(node.p, tol=tol)))
             replace_duplicate_nodes(duplicate_nodes, node)
 
         self._sort()

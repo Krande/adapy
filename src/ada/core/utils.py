@@ -3215,3 +3215,15 @@ def sweep_pipe(edge, xvec, r, wt):
     if boolean_result.IsNull():
         logging.debug("Boolean returns None")
     return boolean_result
+
+
+def closest_val_in_dict(val, dct):
+    """
+    When mapping using a dictionary and value do not match with the keys in the dictionary.
+    :param val: Value a number, usually float
+    :param dct: Dictionary with number keys (int o float)
+    :return: Dictionary-value corresponding to the keys nearest the input value
+    """
+    table_looksups = np.array(list(dct))
+    dct_index = table_looksups[np.abs(table_looksups - val).argmin()]
+    return dct[dct_index]
