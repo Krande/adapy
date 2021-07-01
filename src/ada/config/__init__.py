@@ -31,6 +31,8 @@ class Settings:
     use_oriented_bbox = True  # This is only relevant if OCC bounding box is True
     make_param_elbows = False
 
+    use_experimental_cache = False
+
     # IFC export settings
     include_ecc = True
     ifc_include_fem = False  # False while in experimental mode

@@ -1,4 +1,5 @@
 # coding=utf-8
+import json
 import logging
 import os
 import pathlib
@@ -1012,7 +1013,76 @@ class Assembly(Part):
 
         Part.__init__(self, name=name, props=props, metadata=metadata, units=units)
 
-    def read_ifc(self, ifc_file, data_only=False, elements2part=None):
+        self._state_file = (pathlib.Path(".state") / self.name).with_suffix(".json")
+        self._cache_file = (pathlib.Path(".state") / self.name).with_suffix(".h5")
+        self._cache_loaded = False
+
+    def _from_cache(self, input_file):
+        from ada._cache.reader import read_assembly_from_cache
+
+        should_update = False
+        state = self._get_file_state()
+        curr_in_file = pathlib.Path(input_file)
+        if curr_in_file.name not in state.keys():
+            should_update = True
+
+        for name, props in state.items():
+            in_file = pathlib.Path(props.get("fp"))
+            last_modified_state = props.get("lm")
+            if in_file.exists() is False:
+                should_update = True
+                break
+
+            last_modified = os.path.getmtime(in_file)
+            if last_modified != last_modified_state:
+                should_update = True
+                break
+
+        if self._cache_file.exists() is False:
+            logging.debug("Cache file not found")
+            should_update = True
+
+        if should_update is False and self._cache_loaded is False:
+            read_assembly_from_cache(self._cache_file, self)
+            self._cache_loaded = True
+            print(f'Loading model from cache {self._cache_file}')
+            return True
+        elif should_update is False and self._cache_loaded is True:
+            return True
+        else:
+            return False
+
+    def _get_file_state(self):
+        state_file = self._state_file
+        if state_file.exists() is True:
+            with open(state_file, "r") as f:
+                state = json.load(f)
+                return state
+        return dict()
+
+    def _update_file_state(self, input_file):
+        in_file = pathlib.Path(input_file)
+        fna = in_file.name
+        last_modified = os.path.getmtime(in_file)
+        state_file = self._state_file
+        state = self._get_file_state()
+
+        state.get(fna, dict())
+        state[fna] = dict(lm=last_modified, fp=str(in_file))
+
+        os.makedirs(state_file.parent, exist_ok=True)
+
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=4)
+
+    def _to_cache(self, input_file, write_to_cache: bool):
+        from ada._cache.writer import write_assembly_to_cache
+
+        self._update_file_state(input_file)
+        if write_to_cache:
+            write_assembly_to_cache(self, self._cache_file)
+
+    def read_ifc(self, ifc_file, data_only=False, elements2part=None, cache_model_now=False):
         """
         Import from IFC file.
 
@@ -1022,6 +1092,7 @@ class Assembly(Part):
         :param ifc_file:
         :param data_only: Set True if data is relevant, not geometry
         :param elements2part: Grab all physical elements from ifc and import it to the parsed in Part object.
+        :param cache_model_now:
         """
         import ifcopenshell
 
@@ -1032,6 +1103,10 @@ class Assembly(Part):
             getIfcPropertySets,
             scale_ifc_file_object,
         )
+
+        if _Settings.use_experimental_cache:
+            if self._from_cache(ifc_file) is True:
+                return None
 
         f = ifcopenshell.open(ifc_file)
 
@@ -1155,16 +1230,15 @@ class Assembly(Part):
                     if imported is False:
                         self.add_shape(shp)
                         logging.debug(f'Shape "{product.Name}" was added below Assembly Level -> No owner found')
+
         print(f'Import of IFC file "{ifc_file}" is complete')
+
+        if _Settings.use_experimental_cache:
+            self._to_cache(ifc_file, cache_model_now)
 
     @io.femio
     def read_fem(
-        self,
-        fem_file,
-        fem_format=None,
-        name=None,
-        fem_converter="default",
-        convert_func=None,
+        self, fem_file, fem_format=None, name=None, fem_converter="default", convert_func=None, cache_model_now=False
     ):
         """
         Import a Finite Element model.
@@ -1176,6 +1250,7 @@ class Assembly(Part):
         :param name:
         :param fem_converter: Set desired fem converter. Use either 'default' or 'meshio'.
         :param convert_func:
+        :param cache_model_now:
         :type fem_file: Union[str, os.PathLike]
         :type fem_format: str
         :type name: str
@@ -1186,7 +1261,15 @@ class Assembly(Part):
         if fem_file.exists() is False:
             raise FileNotFoundError(fem_file)
 
+        if _Settings.use_experimental_cache:
+            if self._from_cache(fem_file) is True:
+
+                return None
+
         convert_func(self, fem_file, name)
+
+        if _Settings.use_experimental_cache:
+            self._to_cache(fem_file, cache_model_now)
 
     @io.femio
     def to_fem(
@@ -3091,13 +3174,6 @@ class PipeSegElbow(BackendGeom):
         self.material = material
         self._arc_seg = arc_seg
         self._ifc_elem = None
-
-    @property
-    def parent(self):
-        """
-        :rtype: Pipe
-        """
-        return self._parent
 
     @property
     def xvec1(self):
@@ -5206,12 +5282,12 @@ class Node:
     def __eq__(self, other):
         if not isinstance(other, Node):
             return NotImplemented
-        return tuple(self.p) == tuple(other.p)
+        return (*self.p, self.id) == (*other.p, other.id)
 
     def __ne__(self, other):
         if not isinstance(other, Node):
             return NotImplemented
-        return tuple(self.p) != tuple(other.p)
+        return (*self.p, self.id) != (*other.p, other.id)
 
     def __hash__(self):
         return self.id

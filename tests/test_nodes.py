@@ -182,7 +182,7 @@ class TestSequenceProtocol(unittest.TestCase):
 
     def test_slice_arbitrary(self):
         n1, n2, n3, n4, n5, n6, n7, n8, n9, n10 = get_nodes()
-        self.assertEqual(self.n[2:4], Nodes([n9, n4]))
+        self.assertEqual(self.n[2:4], Nodes([n9, n1]))
 
     def test_slice_full(self):
         self.assertEqual(self.n[:], self.n)

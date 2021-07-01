@@ -569,6 +569,7 @@ class Sections:
 
         if unique_ids:
             sections = list(toolz.unique(sections, key=attrgetter("name")))
+
         self._sections = sorted(sections, key=attrgetter("name"))
         self._nmap = {n.name: n for n in self._sections}
         self._idmap = {n.id: n for n in self._sections}
@@ -576,7 +577,7 @@ class Sections:
             raise ValueError("Non-unique ids or name are observed..")
 
     def __contains__(self, item):
-        return item.id in self._nmap.keys()
+        return item.name in self._nmap.keys()
 
     def __len__(self):
         return len(self._sections)
