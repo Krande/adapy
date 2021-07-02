@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import pathlib
@@ -46,13 +47,14 @@ def write_assembly_to_cache(assembly, cache_file_path):
 
 def walk_parts(cache_p, part):
     for p in part.parts.values():
-
         part_group = add_part_to_cache(p, cache_p)
         walk_parts(part_group, p)
 
 
 def add_part_to_cache(part: Part, parts_group):
     part_group = parts_group.create_group(to_safe_name(part.name))
+
+    part_group.attrs.create("METADATA", json.dumps(part.metadata))
 
     if len(part.nodes) > 0:
         add_nodes_to_cache(part.nodes, part_group)
@@ -139,7 +141,7 @@ def add_beams_to_cache(part: Part, parts_group):
         return nids
 
     def add_str_cache(bm: Beam):
-        return [bm.guid, bm.name, bm.section.name, bm.material.name]
+        return [bm.guid, bm.name, bm.section.name, bm.material.name, json.dumps(bm.metadata)]
 
     parts_group.create_dataset(f"{prefix}_INT", data=[add_int_cache(bm) for bm in part.beams])
     parts_group.create_dataset(f"{prefix}_STR", data=[add_str_cache(bm) for bm in part.beams])

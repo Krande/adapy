@@ -646,7 +646,10 @@ class Part(BackendGeom):
             self._flatten_list_of_subparts(value, list_of_parts)
 
     def _generate_ifc_elem(self):
-        from ada.core.ifc_utils import create_local_placement, create_property_set
+        from ada.core.ifc_utils import (
+            add_multiple_props_to_elem,
+            create_local_placement,
+        )
 
         if self.parent is None:
             raise ValueError("Cannot build ifc element without parent")
@@ -732,15 +735,7 @@ class Part(BackendGeom):
             [ifc_elem],
         )
 
-        props = create_property_set("Properties", f, self.metadata)
-        f.createIfcRelDefinesByProperties(
-            create_guid(),
-            owner_history,
-            "Properties",
-            None,
-            [ifc_elem],
-            props,
-        )
+        add_multiple_props_to_elem(self.metadata.get("props", dict()), ifc_elem, f)
 
         return ifc_elem
 
@@ -993,6 +988,8 @@ class Assembly(Part):
         metadata=None,
         units="m",
         ifc_settings=None,
+        clear_cache=False,
+        enable_experimental_cache=_Settings.use_experimental_cache,
     ):
 
         from ada.core.ifc_utils import generate_tpl_ifc_file
@@ -1015,39 +1012,50 @@ class Assembly(Part):
 
         self._state_file = (pathlib.Path(".state") / self.name).with_suffix(".json")
         self._cache_file = (pathlib.Path(".state") / self.name).with_suffix(".h5")
+
+        if self._cache_file.exists() and clear_cache:
+            os.remove(self._cache_file)
+        if self._state_file.exists() and clear_cache:
+            os.remove(self._state_file)
+
         self._cache_loaded = False
+        self._enable_experimental_cache = enable_experimental_cache
+        if self._enable_experimental_cache is True:
+            self._from_cache()
 
-    def _from_cache(self, input_file):
-        from ada._cache.reader import read_assembly_from_cache
-
-        should_update = False
+    def _from_cache(self, input_file=None):
+        cache_is_outdated = False
         state = self._get_file_state()
-        curr_in_file = pathlib.Path(input_file)
-        if curr_in_file.name not in state.keys():
-            should_update = True
 
         for name, props in state.items():
             in_file = pathlib.Path(props.get("fp"))
             last_modified_state = props.get("lm")
             if in_file.exists() is False:
-                should_update = True
+                cache_is_outdated = True
                 break
 
             last_modified = os.path.getmtime(in_file)
             if last_modified != last_modified_state:
-                should_update = True
+                cache_is_outdated = True
                 break
 
         if self._cache_file.exists() is False:
             logging.debug("Cache file not found")
-            should_update = True
+            cache_is_outdated = True
 
-        if should_update is False and self._cache_loaded is False:
-            read_assembly_from_cache(self._cache_file, self)
-            self._cache_loaded = True
-            print(f'Loading model from cache {self._cache_file}')
+        if input_file is not None:
+            curr_in_file = pathlib.Path(input_file)
+            if curr_in_file.name not in state.keys():
+                cache_is_outdated = True
+        else:
+            if cache_is_outdated is False:
+                self._read_cache()
+                return True
+
+        if cache_is_outdated is False and self._cache_loaded is False:
+            self._read_cache()
             return True
-        elif should_update is False and self._cache_loaded is True:
+        elif cache_is_outdated is False and self._cache_loaded is True:
             return True
         else:
             return False
@@ -1060,7 +1068,7 @@ class Assembly(Part):
                 return state
         return dict()
 
-    def _update_file_state(self, input_file):
+    def _update_file_state(self, input_file=None):
         in_file = pathlib.Path(input_file)
         fna = in_file.name
         last_modified = os.path.getmtime(in_file)
@@ -1076,11 +1084,21 @@ class Assembly(Part):
             json.dump(state, f, indent=4)
 
     def _to_cache(self, input_file, write_to_cache: bool):
-        from ada._cache.writer import write_assembly_to_cache
-
         self._update_file_state(input_file)
         if write_to_cache:
-            write_assembly_to_cache(self, self._cache_file)
+            self.update_cache()
+
+    def _read_cache(self):
+        from ada._cache.reader import read_assembly_from_cache
+
+        read_assembly_from_cache(self._cache_file, self)
+        self._cache_loaded = True
+        print(f"Loading model from cache {self._cache_file}")
+
+    def update_cache(self):
+        from ada._cache.writer import write_assembly_to_cache
+
+        write_assembly_to_cache(self, self._cache_file)
 
     def read_ifc(self, ifc_file, data_only=False, elements2part=None, cache_model_now=False):
         """
@@ -1104,7 +1122,7 @@ class Assembly(Part):
             scale_ifc_file_object,
         )
 
-        if _Settings.use_experimental_cache:
+        if self._enable_experimental_cache is True:
             if self._from_cache(ifc_file) is True:
                 return None
 
@@ -1134,7 +1152,8 @@ class Assembly(Part):
                     "IfcBuildingStorey",
                     "IfcSpatialZone",
                 ]:
-                    new_part = Part(name, ifc_elem=product, metadata=dict(original_name=name))
+                    props = getIfcPropertySets(product)
+                    new_part = Part(name, ifc_elem=product, metadata=dict(original_name=name, props=props))
                     if parent_type in [
                         "IfcSite",
                         "IfcSpace",
@@ -1233,7 +1252,7 @@ class Assembly(Part):
 
         print(f'Import of IFC file "{ifc_file}" is complete')
 
-        if _Settings.use_experimental_cache:
+        if self._enable_experimental_cache is True:
             self._to_cache(ifc_file, cache_model_now)
 
     @io.femio
@@ -1261,14 +1280,14 @@ class Assembly(Part):
         if fem_file.exists() is False:
             raise FileNotFoundError(fem_file)
 
-        if _Settings.use_experimental_cache:
+        if self._enable_experimental_cache is True:
             if self._from_cache(fem_file) is True:
 
                 return None
 
         convert_func(self, fem_file, name)
 
-        if _Settings.use_experimental_cache:
+        if self._enable_experimental_cache is True:
             self._to_cache(fem_file, cache_model_now)
 
     @io.femio
@@ -1818,11 +1837,11 @@ class Beam(BackendGeom):
         from ada.core.constants import O, X, Z
         from ada.core.ifc_utils import (
             add_colour,
+            add_multiple_props_to_elem,
             convert_bm_jusl_to_ifc,
             create_global_axes,
             create_ifcrevolveareasolid,
             create_local_placement,
-            create_property_set,
         )
         from ada.core.utils import angle_between
 
@@ -1961,15 +1980,8 @@ class Beam(BackendGeom):
             beam_type,
         )
 
-        props = create_property_set("Properties", f, self.metadata)
-        f.createIfcRelDefinesByProperties(
-            create_guid(),
-            owner_history,
-            "Properties",
-            None,
-            [ifc_beam],
-            props,
-        )
+        add_multiple_props_to_elem(self.metadata.get("props", dict()), ifc_beam, f)
+
         # Material
         ifc_mat = a.ifc_materials[self.material.name]
         mat_profile = f.createIfcMaterialProfile(sec.name, "A material profile", ifc_mat, profile, None, "LoadBearing")
@@ -4434,7 +4446,10 @@ class Penetration(BackendGeom):
 
     def _generate_ifc_opening(self):
         from ada.core.constants import O, X, Z
-        from ada.core.ifc_utils import add_properties_to_elem, create_local_placement
+        from ada.core.ifc_utils import (
+            add_multiple_props_to_elem,
+            create_local_placement,
+        )
 
         if self.parent is None:
             raise ValueError("This penetration has no parent")
@@ -4460,14 +4475,7 @@ class Penetration(BackendGeom):
             None,
         )
 
-        if "props" in self.metadata.keys():
-            pro = self.metadata["props"]
-            if len(pro.keys()) > 0:
-                if type(list(pro.values())[0]) is dict:
-                    for pro_id, prop_ in pro.items():
-                        add_properties_to_elem(pro_id, f, opening_element, prop_)
-                else:
-                    add_properties_to_elem("Properties", f, opening_element, pro)
+        add_multiple_props_to_elem(self.metadata.get("props", dict()), opening_element, f)
 
         return opening_element
 

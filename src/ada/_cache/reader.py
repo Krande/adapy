@@ -1,3 +1,5 @@
+import json
+
 import h5py
 
 from ada import Assembly, Beam, Material, Node, Part, Section
@@ -30,7 +32,12 @@ def walk_parts(cache_p, parent):
 
 
 def get_part_from_cache(name, part_cache):
-    p = Part(name)
+    meta_str = part_cache.attrs.get("METADATA")
+    metadata = None
+    if meta_str is not None:
+        metadata = json.loads(meta_str)
+
+    p = Part(name, metadata=metadata)
     fem = part_cache.get("FEM")
     if fem is not None:
         p._fem = get_fem_from_cache(fem)
@@ -63,12 +70,15 @@ def get_beams_from_cache(part_cache, parent: Part):
 
     def bm_from_cache(bm_str, bm_int):
         nid1, nid2 = [parent.nodes.from_id(nid) for nid in bm_int]
-        guid, name, sec_name, mat_name = str_fix(bm_str)
+        guid, name, sec_name, mat_name, meta_str = str_fix(bm_str)
         sec = parent.sections.get_by_name(sec_name)
         mat = parent.materials.get_by_name(mat_name)
-        return Beam(name, nid1, nid2, sec=sec, mat=mat, guid=guid, parent=parent)
+        metadata = None
+        if meta_str is not None:
+            metadata = json.loads(meta_str)
+        return Beam(name, nid1, nid2, sec=sec, mat=mat, guid=guid, parent=parent, metadata=metadata)
 
-    return Beams([bm_from_cache(sec_str, sec_int) for sec_str, sec_int in zip(beams_str[()], beams_int)], parent=parent)
+    return Beams([bm_from_cache(sec_str, sec_int) for sec_str, sec_int in zip(beams_str, beams_int)], parent=parent)
 
 
 def get_sections_from_cache(part_cache, parent):
@@ -97,7 +107,7 @@ def get_sections_from_cache(part_cache, parent):
         )
 
     return Sections(
-        [sec_from_list(sec_str, sec_int) for sec_str, sec_int in zip(sections_str[()], sections_int)], parent=parent
+        [sec_from_list(sec_str, sec_int) for sec_str, sec_int in zip(sections_str, sections_int)], parent=parent
     )
 
 
@@ -115,9 +125,7 @@ def get_materials_from_cache(part_cache, parent):
             name=name, guid=guid, units=units, mat_model=CarbonSteel(E=E, rho=rho, sig_y=sigy), parent=parent
         )
 
-    return Materials(
-        [mat_from_list(mat_int, mat_str) for mat_int, mat_str in zip(mat_int[()], mat_str[()])], parent=parent
-    )
+    return Materials([mat_from_list(mat_int, mat_str) for mat_int, mat_str in zip(mat_int, mat_str)], parent=parent)
 
 
 def get_fem_from_cache(cache_fem):

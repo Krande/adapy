@@ -305,7 +305,7 @@ def create_property_set(name, ifc_file, metadata_props):
 
 def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props):
     """
-
+    :param name:
     :param ifc_file:
     :param ifc_elem:
     :param elem_props:
@@ -321,6 +321,15 @@ def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props):
         [ifc_elem],
         props,
     )
+
+
+def add_multiple_props_to_elem(metadata_props, elem, f):
+    if len(metadata_props.keys()) > 0:
+        if type(list(metadata_props.values())[0]) is dict:
+            for pro_id, prop_ in metadata_props.items():
+                add_properties_to_elem(pro_id, f, elem, prop_)
+        else:
+            add_properties_to_elem("Properties", f, elem, metadata_props)
 
 
 def to_real(v):
