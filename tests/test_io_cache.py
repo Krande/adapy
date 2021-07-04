@@ -1,5 +1,5 @@
 import unittest
-
+import time
 from ada import Assembly
 from ada.config import Settings
 from ada.param_models.basic_module import SimpleStru
@@ -30,20 +30,26 @@ def cache_validation(a, b):
     print(b)
 
 
-class MyTestCase(unittest.TestCase):
-    def test_something(self):
+class ModelCacheTests(unittest.TestCase):
+    def test_simplestru_fem_cache(self):
 
         model_name = "ParamAssembly"
 
+        start = time.time()
         a = Assembly(model_name, clear_cache=True, enable_experimental_cache=True) / SimpleStru("ParamModel")
 
         pfem = a.get_by_name("ParamModel")
         pfem.gmsh.mesh()
+        time1 = time.time() - start
+        print(time1)
         a.update_cache()
-
+        start = time.time()
         b = Assembly(model_name, enable_experimental_cache=True)
-
+        time2 = time.time() - start
+        print(time2)
         cache_validation(a, b)
+
+        print(f"Model generation time reduced from {time1:.2f}s to {time2:.2f}s -> {time1 / time2:.2f} x Improvement")
 
 
 if __name__ == "__main__":

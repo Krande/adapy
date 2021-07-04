@@ -24,7 +24,8 @@ from .core.utils import (
     unit_vector,
     vector_length,
 )
-from .fem import FEM, Elem, FemSet, io
+from .fem import FEM, Elem, FemSet
+from .fem.io import femio
 from .materials.metals import CarbonSteel
 from .sections import GeneralProperties, SectionCat
 
@@ -1255,7 +1256,7 @@ class Assembly(Part):
         if self._enable_experimental_cache is True:
             self._to_cache(ifc_file, cache_model_now)
 
-    @io.femio
+    @femio
     def read_fem(
         self, fem_file, fem_format=None, name=None, fem_converter="default", convert_func=None, cache_model_now=False
     ):
@@ -1290,11 +1291,11 @@ class Assembly(Part):
         if self._enable_experimental_cache is True:
             self._to_cache(fem_file, cache_model_now)
 
-    @io.femio
+    @femio
     def to_fem(
         self,
-        name,
-        fem_format,
+        name: str,
+        fem_format: str,
         scratch_dir=None,
         metadata=None,
         execute=False,
