@@ -19,16 +19,17 @@ def fundamental_eigenfrequency(bm: Beam):
 
 
 def test_bm():
-    return Beam("MyBeam", (0, 0.5, 0.5), (5, 0.5, 0.5), "IPE400", Material("S420", CarbonSteel("S420")))
+    bm = Beam("MyBeam", (0, 0.5, 0.5), (5, 0.5, 0.5), "IPE400", Material("S420", CarbonSteel("S420")))
+    f1 = fundamental_eigenfrequency(bm)
+    f2 = 6.268 * f1
+    f3 = 17.456 * f1
+    print(f"Fundamental Eigenfrequencies\n\n1: {f1}\n2: {f2}\n3: {f3}")
+    return bm
 
 
 class CodeAsterTests(unittest.TestCase):
     def test_bm_eigenfrequency_beam(self):
         bm = test_bm()
-        f1 = fundamental_eigenfrequency(bm)
-        f2 = 6.268 * f1
-        f3 = 17.456 * f1
-        print(f"1: {f1}\n2: {f2}\n3: {f3}")
 
         p = Part("MyPart")
         a = Assembly("MyAssembly") / [p / bm]
@@ -52,10 +53,6 @@ class CodeAsterTests(unittest.TestCase):
 
     def test_bm_eigenfrequency_shell(self):
         bm = test_bm()
-        f1 = fundamental_eigenfrequency(bm)
-        f2 = 6.268 * f1
-        f3 = 17.456 * f1
-        print(f"Fundamental Eigenfrequencies\n\n1: {f1}\n2: {f2}\n3: {f3}")
 
         p = Part("MyPart")
         a = Assembly("MyAssembly") / [p / bm]
