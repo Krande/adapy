@@ -22,6 +22,8 @@ def get_edges_and_faces_from_mesh(mesh):
         for elem in cell_block.data:
             res = ElemShapes(el_type, elem)
             edges += res.edges
+            if res.type in res.beam:
+                continue
             faces += res.faces
     return edges, faces
 

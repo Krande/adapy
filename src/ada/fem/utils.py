@@ -1,3 +1,6 @@
+import numpy as np
+
+
 def get_eldata(fem_source):
     """
 
@@ -76,7 +79,10 @@ def get_beam_end_nodes(bm, end=1, part=None):
     nodes = p.fem.nodes
     w = bm.section.w_btn
     h = bm.section.h
-    members = [
-        e for e in nodes.get_by_volume((-0.1, -(w / 2) * 1.1, -(h / 2) * 1.1), (0.02, (w / 2) * 1.1, (h / 2) * 1.1))
-    ]
+
+    min_np = np.array([-0.1, -(w / 2) * 1.1, -(h / 2) * 1.1])
+    max_np = np.array([0.02, (w / 2) * 1.1, (h / 2) * 1.1])
+    n = bm.n1.p if end == 1 else bm.n2.p
+
+    members = [e for e in nodes.get_by_volume(n + min_np, n + max_np)]
     return members

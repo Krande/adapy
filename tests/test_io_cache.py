@@ -1,5 +1,6 @@
-import unittest
 import time
+import unittest
+
 from ada import Assembly
 from ada.config import Settings
 from ada.param_models.basic_module import SimpleStru
