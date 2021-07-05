@@ -36,9 +36,12 @@ class CodeAsterTests(unittest.TestCase):
         p.gmsh.mesh(0.1)
 
         fix_set = p.fem.add_set(FemSet("bc_nodes", get_beam_end_nodes(bm), "nset"))
-        a.fem.add_bc(Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
+        p.fem.add_bc(Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
 
         a.fem.add_step(Step("Eigen", "eigenfrequency"))
+
+        a.to_fem("Cantilever_aba_EIG_bm", "abaqus", overwrite=True)
+        a.to_fem("Cantilever_ses_EIG_bm", "sesam", overwrite=True)
 
         res = a.to_fem("Cantilever_CA_EIG_bm", "code_aster", overwrite=True, execute=True)
 
@@ -62,6 +65,9 @@ class CodeAsterTests(unittest.TestCase):
         a.fem.add_bc(Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
 
         a.fem.add_step(Step("Eigen", "eigenfrequency"))
+
+        a.to_fem("Cantilever_CA_EIG_sh", "abaqus", overwrite=True)
+        a.to_fem("Cantilever_CA_EIG_sh", "sesam", overwrite=True)
 
         res = a.to_fem("Cantilever_CA_EIG_sh", "code_aster", overwrite=True, execute=True)
 

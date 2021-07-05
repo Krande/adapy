@@ -5,7 +5,7 @@ from operator import attrgetter
 import numpy as np
 
 from ada.config import Settings as _Settings
-from ada.fem import ElemShapes, FemSection
+from ada.fem import ElemShapes, FemSection, Step
 from ada.fem.containers import FemSections
 
 from ..utils import _folder_prep, get_fem_model_from_assembly
@@ -90,7 +90,7 @@ def write_to_comm(assembly, part):
 
     materials_str = "\n".join([write_material(mat) for mat in part.materials])
     sections_str = write_sections(part.fem.sections)
-    bc_str = "\n".join([write_boundary_condition(bc) for bc in assembly.fem.bcs])
+    bc_str = "\n".join([write_boundary_condition(bc) for bc in assembly.fem.bcs + part.fem.bcs])
     step_str = "\n".join([write_step(s, part) for s in assembly.fem.steps])
     model_type_str = ""
     if len(part.fem.sections.beams) > 0:
@@ -390,10 +390,18 @@ IMPR_RESU(
 )"""
 
 
-def step_eig_str(step, part):
-    if len(part.get_assembly().fem.bcs) != 1:
+def step_eig_str(step: Step, part):
+    if len(part.fem.bcs) == 1:
+        bcs = part.fem.bcs
+    elif len(part.get_assembly().fem.bcs) == 1:
+        bcs = part.get_assembly().fem.bcs
+    else:
         raise NotImplementedError("Number of BC sets is for now limited to 1 for eigenfrequency analysis")
-    bc = part.get_assembly().fem.bcs[0]
+
+    eig_map = dict(sorensen="SORENSEN", lanczos="TRI_DIAG")
+    eig_type = step.metadata.get("eig_method", "sorensen")
+    eig_method = eig_map[eig_type]
+    bc = bcs[0]
     return f"""
 #modal analysis
 ASSEMBLAGE(
@@ -407,9 +415,13 @@ ASSEMBLAGE(
         _F(MATRICE=CO('mass'), OPTION ='MASS_MECA', ),
     ),
 )
+# Using Subspace Iteration method ('SORENSEN' AND 'PLUS_PETITE')
+# See https://www.code-aster.org/V2/UPLOAD/DOC/Formations/01-modal-analysis.pdf for more information
+#
+
 modes = CALC_MODES(
     CALC_FREQ=_F(NMAX_FREQ={step.eigenmodes}, ) ,
-    SOLVEUR_MODAL=_F(METHODE='SORENSEN'),
+    SOLVEUR_MODAL=_F(METHODE='{eig_method}'),
     MATR_MASS=mass,
     MATR_RIGI=stiff,
     OPTION='PLUS_PETITE',
