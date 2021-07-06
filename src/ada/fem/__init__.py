@@ -187,16 +187,10 @@ class ElemShapes:
             raise ValueError(f'element type "{el_name}" is not yet supported')
 
     def __init__(self, el_type, nodes):
-        self.type = el_type.upper()
-        if ElemShapes.is_valid_elem(el_type) is False:
-            raise ValueError(f'Currently unsupported element type "{el_type}".')
-
-        num_nodes = ElemShapes.num_nodes(self.type)
-        if len(nodes) != num_nodes:
-            raise ValueError(f'Number of passed nodes "{len(nodes)}" does not match expected "{num_nodes}" ')
-
-        self.nodes = nodes
+        self.type = None
+        self.nodes = None
         self._edges = None
+        self.update(el_type, nodes)
 
     @property
     def edges(self):
@@ -214,6 +208,20 @@ class ElemShapes:
 
         else:
             return self._edges
+
+    def update(self, el_type=None, nodes=None):
+        if el_type is not None:
+            self.type = el_type.upper()
+            if ElemShapes.is_valid_elem(el_type) is False:
+                raise ValueError(f'Currently unsupported element type "{el_type}".')
+
+        nodes = self.nodes if nodes is None else nodes
+        num_nodes = ElemShapes.num_nodes(self.type)
+        if len(nodes) != num_nodes:
+            raise ValueError(f'Number of passed nodes "{len(nodes)}" does not match expected "{num_nodes}" ')
+
+        self.nodes = nodes
+        self._edges = None
 
     @property
     def faces(self):
@@ -491,6 +499,9 @@ v
             return [[0, 2, 3], [0, 1, 2], [1, 2, 3], [0, 2, 3]]
         else:
             logging.error(f"Element type {self.type} is currently not supported for visualization")
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}(Type: {self.type}, NodeIds: "{self.nodes}")'
 
 
 class FEM(FemBase):
@@ -1455,7 +1466,7 @@ class Elem(FemBase):
         self.type = el_type.upper()
         self._el_id = el_id
 
-        self._shape = ElemShapes(self.type, nodes)
+        self._shape = None
 
         if type(nodes[0]) is Node:
             for node in nodes:
@@ -1544,11 +1555,22 @@ class Elem(FemBase):
         :return:
         :rtype: ada.fem.ElemShapes
         """
+        if self._shape is None:
+            self._shape = ElemShapes(self.type, self.nodes)
         return self._shape
 
     @property
     def refs(self):
         return self._refs
+
+    def update(self):
+        from toolz import unique
+
+        self._nodes = list(unique(self.nodes))
+        if len(self.nodes) <= 1:
+            self._el_id = None
+        else:
+            self._shape = None
 
     def __repr__(self):
         return f'Elem(ID: {self._el_id}, Type: {self.type}, NodeIds: "{self.nodes}")'

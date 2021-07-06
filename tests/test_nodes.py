@@ -220,16 +220,24 @@ class TestSequenceProtocol(unittest.TestCase):
 
         self.assertEqual(s, Nodes([n2, n20, n1, n21, n22, n3]))
 
+    def test_remove_from_list(self):
+        n1, n2, n3, n4, n5, n6, n7, n8, n9, n10 = get_nodes()
+        s = Nodes([n1, n2, n3])
+        s.remove(n3)
+        s.remove(n7)
+
+        self.assertEqual(s, Nodes([n1, n2]))
+
 
 class TestReprProtocol(unittest.TestCase):
     def test_repr_empty(self):
         s = Nodes()
-        self.assertEqual(repr(s), "Nodes(0, max_id: 0, min_id: 0)")
+        self.assertEqual(repr(s), "Nodes(0, min_id: 0, max_id: 0)")
 
     def test_repr_some(self):
         n1, n2, n3, n4, n5, n6, n7, n8, n9, n10 = get_nodes()
         s = Nodes([n1, n2, n3])
-        self.assertEqual(repr(s), "Nodes(3, max_id: 3, min_id: 1)")
+        self.assertEqual(repr(s), "Nodes(3, min_id: 1, max_id: 3)")
 
 
 class TestGetByVolume(unittest.TestCase):

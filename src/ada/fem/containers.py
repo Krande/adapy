@@ -1,3 +1,4 @@
+import logging
 from bisect import bisect_left
 from dataclasses import dataclass
 from itertools import chain, groupby
@@ -32,10 +33,7 @@ class FemElements:
         self._elements = list(elements) if elements is not None else []
         self._idmap = {e.id: e for e in self._elements} if len(self._elements) > 0 else dict()
 
-        if len(self._elements) > 0:
-            self._by_types = groupby(self._elements, key=attrgetter("type", "elset"))
-        else:
-            self._by_types = dict()
+        self._group_by_types()
 
     def renumber(self):
         from ada.core.utils import Counter
@@ -54,10 +52,7 @@ class FemElements:
         list(map(mapid2, self._elements))
         self._idmap = {e.id: e for e in self._elements} if len(self._elements) > 0 else dict()
 
-        if len(self._elements) > 0:
-            self._by_types = groupby(self._elements, key=attrgetter("type", "elset"))
-        else:
-            self._by_types = dict()
+        self._group_by_types()
 
     def link_nodes(self):
         """
@@ -133,9 +128,8 @@ class FemElements:
         :type elset: ada.fem.FemSet
         """
         for el in elset.members:
-            self._idmap.pop(el.id)
-        self._elements = list(self._idmap.values())
-        self._by_types = groupby(self._elements, key=attrgetter("type", "elset"))
+            self.remove(el)
+        self._sort()
         p = elset.parent
         p.sets.elements.pop(elset.name)
 
@@ -149,14 +143,12 @@ class FemElements:
         from collections.abc import Iterable
 
         ids = list(ids) if isinstance(ids, Iterable) else [ids]
-        for id in ids:
-            if id in self._idmap.keys():
-                self._idmap.pop(id)
-        self._elements = list(self._idmap.values())
-        self._by_types = groupby(self._elements, key=attrgetter("type", "elset"))
+        for elem_id in ids:
+            self.remove(self._idmap[elem_id])
+        self._sort()
 
     def __contains__(self, item):
-        return item.id in self._idmap.keys()
+        return item in self._elements
 
     def __len__(self):
         return len(self._elements)
@@ -410,7 +402,53 @@ class FemElements:
         self._elements.append(elem)
         self._idmap[elem.id] = elem
 
-        self._by_types = groupby(self._elements, key=attrgetter("type", "elset"))
+        self._group_by_types()
+
+    def remove(self, elems):
+        """
+        Remove node from the nodes container
+        :param elems: Element-object to be removed
+        :type elems:ada.fem.Elem or List[ada.fem.Elem]
+        :return:
+        """
+        from collections.abc import Iterable
+
+        elems = list(elems) if isinstance(elems, Iterable) else [elems]
+        for elem in elems:
+            if elem in self._elements:
+                logging.error(f"Removing element {elem}")
+                self._elements.pop(self._elements.index(elem))
+            else:
+                logging.error(f"'{elem}' not found in {self.__class__.__name__}-container.")
+        self._sort()
+
+    def _group_by_types(self):
+        if len(self._elements) > 0:
+            self._by_types = groupby(self._elements, key=attrgetter("type", "elset"))
+        else:
+            self._by_types = dict()
+
+    def _sort(self):
+        self._elements = sorted(self._elements, key=attrgetter("id"))
+        self._group_by_types()
+        self.renumber()
+
+    def merge_with_coincident_nodes(self):
+        def remove_duplicate_nodes():
+            new_nodes = [n for n in elem.nodes if len(n.refs) > 0]
+            elem.nodes.clear()
+            elem.nodes.extend(new_nodes)
+
+        """
+        This does not work according to plan. It seems like it is deleting more and more from the model for each
+        iteration
+        """
+        for elem in filter(lambda x: len(x.nodes) > len([n for n in x.nodes if len(n.refs) > 0]), self._elements):
+            remove_duplicate_nodes()
+            elem.update()
+
+    def update(self):
+        self.remove(list(filter(lambda x: x.id is None, self._elements)))
 
 
 class FemSections:

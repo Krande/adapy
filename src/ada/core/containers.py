@@ -703,7 +703,8 @@ class Nodes:
         if unique_ids is True:
             nodes = toolz.unique(nodes, key=attrgetter("id"))
 
-        self._nodes = sorted(nodes, key=attrgetter("x", "y", "z"))
+        self._nodes = nodes
+        self._sort()
         self._idmap = {n.id: n for n in sorted(self._nodes, key=attrgetter("id"))}
         self._maxid = max(self._idmap.keys()) if len(self._nodes) > 0 else 0
         self._bbox = self._get_bbox() if len(self._nodes) > 0 else None
@@ -730,7 +731,7 @@ class Nodes:
         return np.array([(n.id, *n) for n in nlist])
 
     def __contains__(self, item):
-        return item.id in self._idmap.keys()
+        return item in self._nodes
 
     def __len__(self):
         return len(self._nodes)
@@ -756,7 +757,7 @@ class Nodes:
         return Nodes(chain(self._nodes, other._nodes))
 
     def __repr__(self):
-        return f"Nodes({len(self._nodes)}, max_id: {self.max_nid}, min_id: {self.min_nid})"
+        return f"Nodes({len(self._nodes)}, min_id: {self.min_nid}, max_id: {self.max_nid})"
 
     def index(self, item):
         index = bisect_left(self._nodes, item)
@@ -796,7 +797,7 @@ class Nodes:
             move = np.array(move)
             list(map(moving, self._nodes))
 
-        self._nodes = sorted(self._nodes, key=attrgetter("x", "y", "z"))
+        self._sort()
 
     def from_id(self, nid):
         """
@@ -850,7 +851,7 @@ class Nodes:
     def min_nid(self):
         return min(self.dmap.keys()) if len(self.dmap.keys()) > 0 else 0
 
-    def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=1e-4):
+    def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=Settings.point_tol):
         """
 
         :param p: Point
@@ -942,8 +943,56 @@ class Nodes:
                     logging.debug(f'Replaced new node with node id "{nearest_node.id}" found within point tolerances')
                     return nearest_node
 
-            insert_node(node, index)
-        else:
-            insert_node(node, index)
-
+        insert_node(node, index)
         return node
+
+    def remove(self, nodes):
+        """
+        Remove node from the nodes container
+        :param node: Node-object to be removed
+        :type node: ada.Node or List[ada.Node]
+        :return:
+        """
+        from collections.abc import Iterable
+
+        nodes = list(nodes) if isinstance(nodes, Iterable) else [nodes]
+        for node in nodes:
+            if node in self._nodes:
+                logging.debug(f"Removing {node}")
+                self._nodes.pop(self._nodes.index(node))
+                self.renumber()
+            else:
+                logging.error(f"'{node}' not found in node-container.")
+
+    def remove_standalones(self):
+        """
+        Remove elements without any element references
+        :return:
+        """
+        self.remove(filter(lambda x: len(x.refs) == 0, self._nodes))
+
+    def merge_coincident(self, tol=Settings.point_tol):
+        """
+        Merge nodes which are within the standard default of Nodes.get_by_volume. Nodes merged into the node connected
+        to most elements.
+        :return:
+        """
+        from ada.core.utils import replace_node
+
+        def replace_duplicate_nodes(duplicates, new_node):
+            if duplicates and len(new_node.refs) >= np.max(list(map(lambda x: len(x.refs), duplicates))):
+                for duplicate_node in duplicates:
+                    replace_node(duplicate_node, new_node)
+                    new_node.refs.extend(duplicate_node.refs)
+                    duplicate_node.refs.clear()
+                    self.remove(duplicate_node)
+
+        for node in list(filter(lambda x: len(x.refs) > 0, self._nodes)):
+            duplicate_nodes = list(filter(lambda x: x.id != node.id, self.get_by_volume(node.p, tol=tol)))
+            replace_duplicate_nodes(duplicate_nodes, node)
+
+        self._sort()
+
+    def _sort(self):
+        self._nodes = sorted(self._nodes, key=attrgetter("x", "y", "z"))
+        self._idmap = {n.id: n for n in sorted(self._nodes, key=attrgetter("id"))}
