@@ -1556,6 +1556,15 @@ class Elem(FemBase):
     def refs(self):
         return self._refs
 
+    def update(self):
+        from toolz import unique
+
+        self._nodes = list(unique(self.nodes))
+        if len(self.nodes) <= 1:
+            self._el_id = None
+        else:
+            self._shape = None
+
     def __repr__(self):
         return f'Elem(ID: {self._el_id}, Type: {self.type}, NodeIds: "{self.nodes}")'
 

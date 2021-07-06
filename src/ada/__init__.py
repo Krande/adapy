@@ -5097,13 +5097,7 @@ class Node:
     def units(self, value):
         if value != self._units:
             scale_factor = Backend._unit_conversion(self._units, value)
-            self.p = np.array(
-                [
-                    self.p[0] * scale_factor,
-                    self.p[1] * scale_factor,
-                    self.p[2] * scale_factor,
-                ]
-            )
+            self.p *= scale_factor
             if self._r is not None:
                 self._r *= scale_factor
             self._units = value
@@ -5144,6 +5138,9 @@ class Node:
         if not isinstance(other, Node):
             return NotImplemented
         return (*self.p, self.id) != (*other.p, other.id)
+
+    def __hash__(self):
+        return hash((*self.p, self.id))
 
     def __repr__(self):
         return f"Node([{self.x}, {self.y}, {self.z}], {self.id})"

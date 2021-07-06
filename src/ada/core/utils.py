@@ -3079,18 +3079,18 @@ def replace_node(old_node, new_node):
     :type new_node: ada.Node
     """
     for elem in old_node.refs.copy():
-        try:
-            node_index = elem.nodes.index(old_node)
-        except ValueError:
-            logging.error(f"Could not find {old_node} in {elem}")
-            return
+        node_index = elem.nodes.index(old_node)
+
         elem.nodes.pop(node_index)
         elem.nodes.insert(node_index, new_node)
-        elem._shape = None
+        elem.update()
+        # new_node.refs.extend(old_node.refs)
+        old_node.refs.pop(old_node.refs.index(elem))
+        new_node.refs.append(elem)
         logging.debug(f"{old_node} exchanged with {new_node} --> {elem}")
 
 
-def replace_nodes_by_tol(nodes, decimals=0, tol=1e-4):
+def replace_nodes_by_tol(nodes, decimals=0, tol=_Settings.point_tol):
     """
 
     :param nodes:

@@ -402,21 +402,25 @@ class FemElements:
         self._elements.append(elem)
         self._idmap[elem.id] = elem
 
-        self._by_types = groupby(self._elements, key=attrgetter("type", "elset"))
+        self._group_by_types()
 
-    def remove(self, elem):
+    def remove(self, elems):
         """
         Remove node from the nodes container
-        :param elem: Element-object to be removed
-        :type elem: ada.Elem
+        :param elems: Element-object to be removed
+        :type elems:ada.fem.Elem or List[ada.fem.Elem]
         :return:
         """
-        if elem in self._elements:
-            logging.debug(f"Removing element {elem}")
-            self._elements.pop(self._elements.index(elem))
-            self._sort()
-        else:
-            logging.error(f"'{elem}' not found in {self.__class__.__name__}-container.")
+        from collections.abc import Iterable
+
+        elems = list(elems) if isinstance(elems, Iterable) else [elems]
+        for elem in elems:
+            if elem in self._elements:
+                logging.error(f"Removing element {elem}")
+                self._elements.pop(self._elements.index(elem))
+            else:
+                logging.error(f"'{elem}' not found in {self.__class__.__name__}-container.")
+        self._sort()
 
     def _group_by_types(self):
         if len(self._elements) > 0:
@@ -430,24 +434,21 @@ class FemElements:
         self.renumber()
 
     def merge_with_coincident_nodes(self):
-        from ada.core.containers import Nodes
-
         def remove_duplicate_nodes():
             new_nodes = [n for n in elem.nodes if len(n.refs) > 0]
             elem.nodes.clear()
             elem.nodes.extend(new_nodes)
 
         """
-        This does not work according to plan. It seems like it is deleting more and more from the model for each 
+        This does not work according to plan. It seems like it is deleting more and more from the model for each
         iteration
         """
-        elem_list = list(filter(lambda x: len(x.nodes) > len([n for n in x.nodes if len(n.refs) > 0]), self._elements))
-        for elem in elem_list:
+        for elem in filter(lambda x: len(x.nodes) > len([n for n in x.nodes if len(n.refs) > 0]), self._elements):
             remove_duplicate_nodes()
-            if len(elem.nodes) < 2:
-                self.remove(elem)
-            else:
-                elem._shape = None
+            elem.update()
+
+    def update(self):
+        self.remove(list(filter(lambda x: x.id is None, self._elements)))
 
 
 class FemSections:

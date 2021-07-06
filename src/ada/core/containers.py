@@ -950,34 +950,34 @@ class Nodes:
             if vlen < point_tol:
                 logging.debug(f'Replaced new node with node id "{self._nodes[index].id}" found within point tolerances')
                 return self._nodes[index]
-            else:
-                insert_node(node, index)
-        else:
-            insert_node(node, index)
 
+        insert_node(node, index)
         return None
 
-    def remove(self, node):
+    def remove(self, nodes):
         """
         Remove node from the nodes container
         :param node: Node-object to be removed
-        :type node: ada.Node
+        :type node: ada.Node or List[ada.Node]
         :return:
         """
-        if node in self._nodes:
-            logging.debug(f"Removing {node}")
-            self._nodes.pop(self._nodes.index(node))
-            self.renumber()
-        else:
-            logging.error(f"'{node}' not found in node-container.")
+        from collections.abc import Iterable
+
+        nodes = list(nodes) if isinstance(nodes, Iterable) else [nodes]
+        for node in nodes:
+            if node in self._nodes:
+                logging.debug(f"Removing {node}")
+                self._nodes.pop(self._nodes.index(node))
+                self.renumber()
+            else:
+                logging.error(f"'{node}' not found in node-container.")
 
     def remove_standalones(self):
         """
         Remove elements without any element references
         :return:
         """
-        for node in list(filter(lambda x: len(x.refs) == 0, self._nodes)):
-            self.remove(node)
+        self.remove(filter(lambda x: len(x.refs) == 0, self._nodes))
 
     def merge_coincident(self, tol=Settings.point_tol):
         """
