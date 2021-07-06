@@ -5,7 +5,8 @@ from operator import attrgetter
 import numpy as np
 
 from ada.config import Settings as _Settings
-from ada.fem import ElemShapes
+from ada.fem import ElemShapes, FemSection, Step
+from ada.fem.containers import FemSections
 
 from ..utils import _folder_prep, get_fem_model_from_assembly
 from .common import abaqus_to_med_type
@@ -87,10 +88,18 @@ def write_to_comm(assembly, part):
     :return: COMM input file str
     """
 
-    materials_str = "\n".join(list(map(write_material, part.materials)))
+    materials_str = "\n".join([write_material(mat) for mat in part.materials])
     sections_str = write_sections(part.fem.sections)
-    bc_str = "\n".join(list(map(write_boundary_condition, assembly.fem.bcs)))
+    bc_str = "\n".join([write_boundary_condition(bc) for bc in assembly.fem.bcs + part.fem.bcs])
     step_str = "\n".join([write_step(s, part) for s in assembly.fem.steps])
+    model_type_str = ""
+    if len(part.fem.sections.beams) > 0:
+        bm_elset_str = ",".join([f"'{bm_fs.elset.name}'" for bm_fs in part.fem.sections.beams])
+        model_type_str += f"_F(GROUP_MA=({bm_elset_str}),PHENOMENE='MECANIQUE', MODELISATION='POU_D_E',),"
+
+    if len(part.fem.sections.shells) > 0:
+        sh_elset_str = ",".join([f"'{bm_fs.elset.name}'" for bm_fs in part.fem.sections.shells])
+        model_type_str += f"_F(GROUP_MA=({sh_elset_str}),PHENOMENE='MECANIQUE', MODELISATION='DKT',),"
 
     comm_str = f"""#
 #   COMM file created by ADA (Assembly for Design and Analysis)
@@ -103,7 +112,10 @@ DEBUT(LANG="EN")
 mesh = LIRE_MAILLAGE(FORMAT="MED", UNITE=20)
 
 model = AFFE_MODELE(
-    AFFE=_F(MODELISATION=("DKT",), PHENOMENE="MECANIQUE", TOUT="OUI"), MAILLAGE=mesh
+    AFFE=(
+        {model_type_str}
+    ),
+    MAILLAGE=mesh
 )
 
 # Materials
@@ -160,7 +172,7 @@ def write_material(material):
 """
 
 
-def write_sections(fem_sections):
+def write_sections(fem_sections: FemSections):
     """
 
     :param fem_sections:
@@ -168,21 +180,30 @@ def write_sections(fem_sections):
     :return:
     """
     mat_assign_str = ""
-    shell_sections_str = ""
 
     if len(fem_sections.shells) > 0:
         mat_assign_str, shell_sections_str = [
-            "".join(x) for x in zip(*list(map(write_shell_section, fem_sections.shells)))
+            "".join(x) for x in zip(*[write_shell_section(sh) for sh in fem_sections.shells])
         ]
+        shell_sections_str = f"\n        COQUE=(\n{shell_sections_str}\n        ),"
+    else:
+        shell_sections_str = "\n        COQUE=(),"
 
     if len(fem_sections.beams) > 0:
-        logging.error("Beam section export to Code Aster is not yet supported")
+        mat_assign_str, beam_sections_str, orientations_str = [
+            "".join(x) for x in zip(*[write_beam_section(bm) for bm in fem_sections.beams])
+        ]
+        beam_sections_str = f"\n        POUTRE=(\n{beam_sections_str}\n        ),"
+        beam_sections_str += f"\n        ORIENTATION=(\n{orientations_str}\n        ),"
+    else:
+        beam_sections_str = "\n        POUTRE=(),"
 
     if len(fem_sections.solids) > 0:
         logging.error("Solid section export to Code Aster is not yet supported")
+        solid_sections_str = ""
+    else:
+        solid_sections_str = ""
 
-    beam_sections_str = ""
-    solid_sections_str = ""
     return f"""
 material = AFFE_MATERIAU(MODELE=model, AFFE=(
 {mat_assign_str}
@@ -195,22 +216,12 @@ material = AFFE_MATERIAU(MODELE=model, AFFE=(
 #   VECTEUR: a direction of reference in the tangent plan
 
 element = AFFE_CARA_ELEM(
-        MODELE=model,
-        COQUE=(
-{shell_sections_str}{beam_sections_str}{solid_sections_str}
-        ),
+        MODELE=model,{shell_sections_str}{beam_sections_str}{solid_sections_str}
     )
 """
 
 
-def write_shell_section(fem_sec):
-    """
-
-
-    :param fem_sec:
-    :type fem_sec: ada.fem.FemSection
-    :return:
-    """
+def write_shell_section(fem_sec: FemSection):
     mat_name = fem_sec.material.name
     sec_name = fem_sec.elset.name
     #
@@ -223,6 +234,33 @@ def write_shell_section(fem_sec):
             ),
 """
     return mat_, sec_str
+
+
+def write_beam_section(fem_sec: FemSection):
+    mat_name = fem_sec.material.name
+    sec_name = fem_sec.elset.name
+    p = fem_sec.section.properties
+
+    values = ",".join([str(x) for x in [p.Ax, p.Iy, p.Iz, p.Ix]])
+
+    local_vec = str(tuple(fem_sec.local_y))
+
+    mat_ = f'		_F(MATER=({mat_name},), GROUP_MA="{sec_name}"),\n'
+    sec_str = f"""            _F(
+                GROUP_MA=("{sec_name}"),
+                SECTION = 'GENERALE',
+                CARA = ('A', 'IY', 'IZ', 'JX'),
+                VALE = ({values})
+            ),
+"""
+    orientations = f"""            _F(
+                GROUP_MA = '{sec_name}',
+                CARA = 'VECT_Y',
+                VALE = {local_vec}
+            ),
+"""
+
+    return mat_, sec_str, orientations
 
 
 def write_boundary_condition(bc):
@@ -267,22 +305,11 @@ def write_load(load):
         raise NotImplementedError(f'Load type "{load.type}"')
 
 
-def write_step(step, part):
-    """
-
-    :param step:
-    :type step: ada.fem.Step
-    :param part:
-    :type part: ada.Part
-    :return:
-    :rtype: str
-    """
-
+def step_static_str(step, part):
     load_str = "\n".join(list(map(write_load, step.loads)))
     load = step.loads[0]
     bc = part.get_assembly().fem.bcs[0]
-    if step.type == "static":
-        return f"""
+    return f"""
 {load_str}
 
 timeReel = DEFI_LIST_REEL(DEBUT=0.0, INTERVALLE=_F(JUSQU_A=1.0, NOMBRE=10))
@@ -361,6 +388,67 @@ IMPR_RESU(
     ),
     UNITE=80,
 )"""
+
+
+def step_eig_str(step: Step, part):
+    if len(part.fem.bcs) == 1:
+        bcs = part.fem.bcs
+    elif len(part.get_assembly().fem.bcs) == 1:
+        bcs = part.get_assembly().fem.bcs
+    else:
+        raise NotImplementedError("Number of BC sets is for now limited to 1 for eigenfrequency analysis")
+
+    eig_map = dict(sorensen="SORENSEN", lanczos="TRI_DIAG")
+    eig_type = step.metadata.get("eig_method", "sorensen")
+    eig_method = eig_map[eig_type]
+    bc = bcs[0]
+    return f"""
+#modal analysis
+ASSEMBLAGE(
+    MODELE=model,
+    CHAM_MATER=material,
+    CARA_ELEM=element,
+    CHARGE= {bc.name}_bc,
+    NUME_DDL=CO('dofs' ),
+    MATR_ASSE = (
+        _F(MATRICE=CO('stiff'), OPTION ='RIGI_MECA',),
+        _F(MATRICE=CO('mass'), OPTION ='MASS_MECA', ),
+    ),
+)
+# Using Subspace Iteration method ('SORENSEN' AND 'PLUS_PETITE')
+# See https://www.code-aster.org/V2/UPLOAD/DOC/Formations/01-modal-analysis.pdf for more information
+#
+
+modes = CALC_MODES(
+    CALC_FREQ=_F(NMAX_FREQ={step.eigenmodes}, ) ,
+    SOLVEUR_MODAL=_F(METHODE='{eig_method}'),
+    MATR_MASS=mass,
+    MATR_RIGI=stiff,
+    OPTION='PLUS_PETITE',
+)
+
+IMPR_RESU(
+    RESU=_F(RESULTAT=modes, TOUT_CHAM='OUI'),
+    UNITE=80
+)
+"""
+
+
+def write_step(step, part):
+    """
+
+    :param step:
+    :type step: ada.fem.Step
+    :param part:
+    :type part: ada.Part
+    :return:
+    :rtype: str
+    """
+
+    if step.type == "static":
+        return step_static_str(step, part)
+    elif step.type == "eigenfrequency":
+        return step_eig_str(step, part)
     else:
         raise NotImplementedError(f'Step stype "{step.type}" is not yet supported')
 

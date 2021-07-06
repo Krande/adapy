@@ -343,6 +343,8 @@ class GeneralProperties:
 
         :return: Area of cross section
         """
+        if self._Ax is None:
+            self.calculate()
         return self._Ax
 
     @property
@@ -351,6 +353,8 @@ class GeneralProperties:
         Torsional moment of inertia about shear centre
         :return:
         """
+        if self._Ix is None:
+            self.calculate()
         return self._Ix
 
     @Ix.setter
@@ -365,6 +369,8 @@ class GeneralProperties:
 
         :return: Moment of inertia about y-axis
         """
+        if self._Iy is None:
+            self.calculate()
         return self._Iy
 
     @Iy.setter
@@ -379,6 +385,8 @@ class GeneralProperties:
 
         :return: Moment of inertia about z-axis
         """
+        if self._Iz is None:
+            self.calculate()
         return self._Iz
 
     @Iz.setter
@@ -393,6 +401,8 @@ class GeneralProperties:
 
         :return: Product of inertia about y- and z-axes
         """
+        if self._Iyz is None:
+            self.calculate()
         return self._Iyz
 
     @Iyz.setter
@@ -407,6 +417,8 @@ class GeneralProperties:
 
         :return: Minimum torsional sectional modulus about shear centre
         """
+        if self._Wxmin is None:
+            self.calculate()
         return self._Wxmin
 
     @property
@@ -415,6 +427,8 @@ class GeneralProperties:
 
         :return: Minimum sectional modulus about y-axis
         """
+        if self._Wymin is None:
+            self.calculate()
         return self._Wymin
 
     @property
@@ -423,7 +437,8 @@ class GeneralProperties:
 
         :return: Minimum sectional modulus about z-axis
         """
-
+        if self._Wzmin is None:
+            self.calculate()
         return self._Wzmin
 
     @property
@@ -432,6 +447,8 @@ class GeneralProperties:
 
         :return: Shear area in the direction of y-axis
         """
+        if self._Shary is None:
+            self.calculate()
         return self._Shary
 
     @property
@@ -440,6 +457,8 @@ class GeneralProperties:
 
         :return: Shear area in the direction of z-axis
         """
+        if self._Sharz is None:
+            self.calculate()
         return self._Sharz
 
     @property
@@ -448,6 +467,8 @@ class GeneralProperties:
 
         :return: Shear centre location y-component
         """
+        if self._Scheny is None:
+            self.calculate()
         return self._Scheny
 
     @property
@@ -456,6 +477,8 @@ class GeneralProperties:
 
         :return: Shear centre location z-component
         """
+        if self._Scheny is None:
+            self.calculate()
         return self._Schenz
 
     @property
@@ -767,7 +790,7 @@ class SectionCat:
     shs = ["SHS"]
     rhs = ["RHS", "URHS"]
     tubular = ["TUB", "PIPE", "OD"]
-    iprofiles = ["HEA", "HEB", "IPE"]
+    iprofiles = ["HEA", "HEB", "HEM", "IPE"]
     igirders = ["IG"]
     tprofiles = ["TG"]
     angular = ["HP"]
@@ -800,5 +823,23 @@ class SectionCat:
         return True if bmtype.upper() in cls.tubular + cls.circular else False
 
     @classmethod
+    def is_tubular_profile(cls, bmtype):
+        return True if bmtype.upper() in cls.tubular else False
+
+    @classmethod
+    def is_channel_profile(cls, bmtype):
+        return True if bmtype.upper() in cls.channels else False
+
+    @classmethod
     def is_flatbar(cls, bmtype):
         return True if bmtype.upper() in cls.flatbar else False
+
+    @classmethod
+    def is_strong_axis_symmetric(cls, section):
+        """
+
+        :param section:
+        :type section: ada.Section
+        :return:
+        """
+        return section.w_top == section.w_btn and section.t_ftop == section.t_fbtn

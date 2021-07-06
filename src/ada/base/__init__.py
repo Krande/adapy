@@ -9,7 +9,7 @@ from ada.core.constants import color_map as _cmap
 class Backend:
     def __init__(self, name, guid=None, metadata=None, units="m", parent=None, ifc_settings=None):
         self.name = name
-        self._parent = parent
+        self.parent = parent
         self._ifc_settings = ifc_settings
         from ada.core.utils import create_guid
 
@@ -105,7 +105,7 @@ class Backend:
         """
 
         :return:
-        :rtype: Assembly
+        :rtype: ada.Assembly
         """
         from ada import Assembly
 
@@ -123,6 +123,24 @@ class Backend:
             if a > max_levels:
                 break
         return parent
+
+    def remove(self):
+        """
+        Remove this element/part from assembly/part
+        """
+        from ada import Beam, Part, Shape
+
+        if self.parent is None:
+            logging.error(f"Unable to delete {self.name} as it does not have a parent")
+
+        if type(self) is Part:
+            self.parent.parts.pop(self.name)
+        elif issubclass(type(self), Shape):
+            self.parent.shapes.pop(self.parent.shapes.index(self))
+        elif type(self) is Beam:
+            self.parent.beams.remove(self)
+        else:
+            raise NotImplementedError()
 
 
 class BackendGeom(Backend):
@@ -150,7 +168,8 @@ class BackendGeom(Backend):
 
         pen.parent = self
         if type(pen) in (PrimExtrude, PrimRevolve, PrimCyl, PrimBox):
-            self._penetrations.append(Penetration(pen, parent=self))
+            pen = Penetration(pen, parent=self)
+            self._penetrations.append(pen)
         else:
             self._penetrations.append(pen)
 

@@ -1,4 +1,5 @@
 # coding=utf-8
+import json
 import logging
 import os
 import pathlib
@@ -9,6 +10,7 @@ import numpy as np
 
 from .base import Backend, BackendGeom
 from .config import Settings as _Settings
+from .config import User
 from .core.containers import Beams, Connections, Materials, Nodes, Plates, Sections
 from .core.utils import (
     Counter,
@@ -16,14 +18,14 @@ from .core.utils import (
     calc_yvec,
     calc_zvec,
     create_guid,
-    get_current_user,
     get_list_of_files,
     make_wire_from_points,
     roundoff,
     unit_vector,
     vector_length,
 )
-from .fem import FEM, Elem, FemSet, io
+from .fem import FEM, Elem, FemSet
+from .fem.io import femio
 from .materials.metals import CarbonSteel
 from .sections import GeneralProperties, SectionCat
 
@@ -53,6 +55,7 @@ __all__ = [
     "CurveRevolve",
     "LineSegment",
     "ArcSegment",
+    "User",
 ]
 
 
@@ -66,9 +69,9 @@ class Part(BackendGeom):
     :param lx: Local X
     :param ly: Local Y
     :param lz: Local Z
-    :param props: A properties object
+    :param settings: A properties object
     :param metadata: A dict for containing metadata
-    :type props: Settings
+    :type settings: Settings
     :type fem: FEM
     """
 
@@ -80,8 +83,8 @@ class Part(BackendGeom):
         lx=(1, 0, 0),
         ly=(0, 1, 0),
         lz=(0, 0, 1),
-        fem=None,
-        props=_Settings(),
+        fem: FEM = None,
+        settings: _Settings = _Settings(),
         metadata=None,
         parent=None,
         units="m",
@@ -116,7 +119,7 @@ class Part(BackendGeom):
 
         self._ifc_elem = None
 
-        self._props = props
+        self._props = settings
         if fem is not None:
             fem.parent = self
 
@@ -133,23 +136,23 @@ class Part(BackendGeom):
             beam.units = self.units
         beam.parent = self
         mat = self.add_material(beam.material)
-        if mat is not None:
+        if mat != beam.material:
             beam.material = mat
 
         sec = self.add_section(beam.section)
-        if sec is not None:
+        if sec != beam.section:
             beam.section = sec
 
         tap = self.add_section(beam.taper)
-        if tap is not None:
+        if tap != beam.taper:
             beam.taper = tap
 
         old_node = self.nodes.add(beam.n1)
-        if old_node is not None:
+        if old_node != beam.n1:
             beam.n1 = old_node
 
         old_node = self.nodes.add(beam.n2)
-        if old_node is not None:
+        if old_node != beam.n2:
             beam.n2 = old_node
 
         self.beams.add(beam)
@@ -243,7 +246,7 @@ class Part(BackendGeom):
         If not it will create a new joint based on these two members.
 
         :param joint:
-        :type joint: Connection
+        :type joint: JointBase
         """
 
         """
@@ -593,6 +596,9 @@ class Part(BackendGeom):
                 if mat.name == name:
                     return mat
 
+        logging.error(f'Unable to find"{name}". Check if the element type is evaluated in the algorithm')
+        return None
+
     def get_all_parts_in_assembly(self, include_self=False):
         parent = self.get_assembly()
         list_of_ps = []
@@ -645,7 +651,10 @@ class Part(BackendGeom):
             self._flatten_list_of_subparts(value, list_of_parts)
 
     def _generate_ifc_elem(self):
-        from ada.core.ifc_utils import create_ifclocalplacement, create_property_set
+        from ada.core.ifc_utils import (
+            add_multiple_props_to_elem,
+            create_local_placement,
+        )
 
         if self.parent is None:
             raise ValueError("Cannot build ifc element without parent")
@@ -653,74 +662,40 @@ class Part(BackendGeom):
         a = self.get_assembly()
         f = a.ifc_file
 
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
+
         itype = self.metadata["ifctype"]
         parent = self.parent.ifc_elem
-        placement = create_ifclocalplacement(
+        placement = create_local_placement(
             f,
             origin=self.origin,
             loc_x=self._lx,
             loc_z=self._lz,
             relative_to=parent.ObjectPlacement,
         )
+        type_map = dict(building="IfcBuilding", space="IfcSpace", spatial="IfcSpatialZone", storey="IfcBuildingStorey")
 
-        if itype == "building":
-            ifc_elem = f.createIfcBuilding(
-                self.guid,
-                owner_history,
-                self.name,
-                None,
-                None,
-                placement,
-                None,
-                None,
-                "ELEMENT",
-                None,
-                None,
-                None,
-            )
-        elif itype == "space":
-            ifc_elem = f.createIfcSpace(
-                self.guid,
-                owner_history,
-                self.name,
-                "Description",
-                None,
-                placement,
-                None,
-                None,
-                "ELEMENT",
-                None,
-                None,
-            )
-        elif itype == "spatial":
-            ifc_elem = f.createIfcSpatialZone(
-                self.guid,
-                owner_history,
-                self.name,
-                "Description",
-                None,
-                placement,
-                None,
-                None,
-                None,
-            )
-        elif itype == "storey":
-            elevation = self.origin[2]
-            ifc_elem = f.createIfcBuildingStorey(
-                self.guid,
-                owner_history,
-                self.name,
-                None,
-                None,
-                placement,
-                None,
-                None,
-                "ELEMENT",
-                elevation,
-            )
-        else:
+        if itype not in type_map.keys() and itype not in type_map.values():
             raise ValueError(f'Currently not supported "{itype}"')
+
+        ifc_type = type_map[itype] if itype not in type_map.values() else itype
+
+        props = dict(
+            GlobalId=self.guid,
+            OwnerHistory=owner_history,
+            Name=self.name,
+            Description=self.metadata.get("Description", None),
+            ObjectType=None,
+            ObjectPlacement=placement,
+            Representation=None,
+            LongName=self.metadata.get("LongName", None),
+            CompositionType=self.metadata.get("CompositionType", "ELEMENT"),
+        )
+
+        if ifc_type == "IfcBuildingStorey":
+            props["Elevation"] = self.origin[2]
+
+        ifc_elem = f.create_entity(ifc_type, **props)
 
         f.createIfcRelAggregates(
             create_guid(),
@@ -731,15 +706,7 @@ class Part(BackendGeom):
             [ifc_elem],
         )
 
-        props = create_property_set("Properties", f, self.metadata)
-        f.createIfcRelDefinesByProperties(
-            create_guid(),
-            owner_history,
-            "Properties",
-            None,
-            [ifc_elem],
-            props,
-        )
+        add_multiple_props_to_elem(self.metadata.get("props", dict()), ifc_elem, f)
 
         return ifc_elem
 
@@ -915,16 +882,10 @@ class Part(BackendGeom):
             self.materials.units = value
             self._units = value
             if type(self) is Assembly:
-                from ada.core.ifc_utils import generate_tpl_ifc_file
+                assert isinstance(self, Assembly)
+                from ada.core.ifc_utils import assembly_to_ifc_file
 
-                self._ifc_file = generate_tpl_ifc_file(
-                    self.name,
-                    self.metadata["project"],
-                    self.metadata["organization"],
-                    self.metadata["creator"],
-                    self.metadata["schema"],
-                    value,
-                )
+                self._ifc_file = assembly_to_ifc_file(self)
 
     @property
     def ifc_elem(self):
@@ -985,34 +946,135 @@ class Assembly(Part):
         self,
         name="Ada",
         project="AdaProject",
-        organization="AdaOrganization",
-        creator="AdaCreator",
+        user: User = User(),
         schema="IFC4",
-        props=_Settings(),
+        settings=_Settings(),
         metadata=None,
         units="m",
         ifc_settings=None,
+        clear_cache=False,
+        enable_experimental_cache=None,
     ):
 
-        from ada.core.ifc_utils import generate_tpl_ifc_file
+        from ada.core.ifc_utils import assembly_to_ifc_file
 
-        creator = get_current_user() if creator is None else creator
-        self._ifc_file = generate_tpl_ifc_file(name, project, organization, creator, schema, units)
-        if metadata is None:
-            metadata = dict()
+        metadata = dict() if metadata is None else metadata
         metadata["project"] = project
-        metadata["organization"] = organization
-        metadata["creator"] = creator
         metadata["schema"] = schema
+
+        Part.__init__(self, name=name, settings=settings, metadata=metadata, units=units)
+
+        user.parent = self
+        self._user = user
+
+        self._ifc_file = assembly_to_ifc_file(self)
+
         self._ifc_sections = None
         self._ifc_materials = None
         self._source_ifc_files = dict()
         self._ifc_settings = ifc_settings
         self._presentation_layers = []
 
-        Part.__init__(self, name=name, props=props, metadata=metadata, units=units)
+        # Model Cache
+        if enable_experimental_cache is None:
+            enable_experimental_cache = _Settings.use_experimental_cache
+        self._enable_experimental_cache = enable_experimental_cache
 
-    def read_ifc(self, ifc_file, data_only=False, elements2part=None):
+        if self._enable_experimental_cache is True:
+            state_path = pathlib.Path("").parent.resolve().absolute() / ".state" / self.name
+            self._state_file = state_path.with_suffix(".json")
+            self._cache_file = state_path.with_suffix(".h5")
+
+            if self._cache_file.exists() and clear_cache:
+                os.remove(self._cache_file)
+            if self._state_file.exists() and clear_cache:
+                os.remove(self._state_file)
+
+            self._cache_loaded = False
+            self._from_cache()
+
+    def is_cache_outdated(self, input_file=None):
+        is_cache_outdated = False
+        state = self._get_file_state()
+
+        for name, props in state.items():
+            in_file = pathlib.Path(props.get("fp"))
+            last_modified_state = props.get("lm")
+            if in_file.exists() is False:
+                is_cache_outdated = True
+                break
+
+            last_modified = os.path.getmtime(in_file)
+            if last_modified != last_modified_state:
+                is_cache_outdated = True
+                break
+
+        if self._cache_file.exists() is False:
+            logging.debug("Cache file not found")
+            is_cache_outdated = True
+
+        if input_file is not None:
+            curr_in_file = pathlib.Path(input_file)
+            if curr_in_file.name not in state.keys():
+                is_cache_outdated = True
+
+        return is_cache_outdated
+
+    def _from_cache(self, input_file=None):
+        is_cache_outdated = self.is_cache_outdated(input_file)
+        if input_file is None and is_cache_outdated is False:
+            self._read_cache()
+            return True
+
+        if is_cache_outdated is False and self._cache_loaded is False:
+            self._read_cache()
+            return True
+        elif is_cache_outdated is False and self._cache_loaded is True:
+            return True
+        else:
+            return False
+
+    def _get_file_state(self):
+        state_file = self._state_file
+        if state_file.exists() is True:
+            with open(state_file, "r") as f:
+                state = json.load(f)
+                return state
+        return dict()
+
+    def _update_file_state(self, input_file=None):
+        in_file = pathlib.Path(input_file)
+        fna = in_file.name
+        last_modified = os.path.getmtime(in_file)
+        state_file = self._state_file
+        state = self._get_file_state()
+
+        state.get(fna, dict())
+        state[fna] = dict(lm=last_modified, fp=str(in_file))
+
+        os.makedirs(state_file.parent, exist_ok=True)
+
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=4)
+
+    def _to_cache(self, input_file, write_to_cache: bool):
+        self._update_file_state(input_file)
+        if write_to_cache:
+            self.update_cache()
+
+    def _read_cache(self):
+        from ada._cache.reader import read_assembly_from_cache
+
+        read_assembly_from_cache(self._cache_file, self)
+        self._cache_loaded = True
+        print(f"Loading model from cache {self._cache_file}")
+
+    def update_cache(self):
+        from ada._cache.writer import write_assembly_to_cache
+
+        write_assembly_to_cache(self, self._cache_file)
+
+    def read_ifc(self, ifc_file, data_only=False, elements2part=None, cache_model_now=False):
         """
         Import from IFC file.
 
@@ -1022,6 +1084,7 @@ class Assembly(Part):
         :param ifc_file:
         :param data_only: Set True if data is relevant, not geometry
         :param elements2part: Grab all physical elements from ifc and import it to the parsed in Part object.
+        :param cache_model_now:
         """
         import ifcopenshell
 
@@ -1033,12 +1096,18 @@ class Assembly(Part):
             scale_ifc_file_object,
         )
 
+        if self._enable_experimental_cache is True:
+            if self._from_cache(ifc_file) is True:
+                return None
+
         f = ifcopenshell.open(ifc_file)
 
         oval = calculate_unit_scale(self.ifc_file)
         nval = calculate_unit_scale(f)
         if oval != nval:
-            logging.debug("Running Unit Conversion. This is still highly unstable")
+            logging.error("Running Unit Conversion on IFC import. This is still highly unstable")
+            # length_unit = f.createIfcSIUnit(None, "LENGTHUNIT", None, "METRE")
+            # unit_assignment = f.createIfcUnitAssignment((length_unit,))
             new_file = scale_ifc_file_object(f, nval)
             f = new_file
 
@@ -1057,7 +1126,8 @@ class Assembly(Part):
                     "IfcBuildingStorey",
                     "IfcSpatialZone",
                 ]:
-                    new_part = Part(name, ifc_elem=product)
+                    props = getIfcPropertySets(product)
+                    new_part = Part(name, ifc_elem=product, metadata=dict(original_name=name, props=props))
                     if parent_type in [
                         "IfcSite",
                         "IfcSpace",
@@ -1093,7 +1163,7 @@ class Assembly(Part):
                         imported = True
                     else:
                         for p in self.get_all_parts_in_assembly():
-                            if p.name == pp.Name:
+                            if p.name == pp.Name or p.metadata.get("original_name") == pp.Name:
                                 p.add_beam(bm)
                                 imported = True
                                 break
@@ -1153,30 +1223,30 @@ class Assembly(Part):
                     if imported is False:
                         self.add_shape(shp)
                         logging.debug(f'Shape "{product.Name}" was added below Assembly Level -> No owner found')
+
         print(f'Import of IFC file "{ifc_file}" is complete')
 
-    @io.femio
+        if self._enable_experimental_cache is True:
+            self._to_cache(ifc_file, cache_model_now)
+
+    @femio
     def read_fem(
-        self,
-        fem_file,
-        fem_format=None,
-        fem_name=None,
-        fem_converter="default",
-        convert_func=None,
+        self, fem_file, fem_format=None, name=None, fem_converter="default", convert_func=None, cache_model_now=False
     ):
         """
         Import a Finite Element model.
 
         Currently supported FEM formats: Abaqus, Sesam and Calculix
 
-        :param fem_file: A
-        :param fem_format:
-        :param fem_name:
+        :param fem_file: Path to fem file
+        :param fem_format: Fem Format
+        :param name:
         :param fem_converter: Set desired fem converter. Use either 'default' or 'meshio'.
         :param convert_func:
+        :param cache_model_now:
         :type fem_file: Union[str, os.PathLike]
         :type fem_format: str
-        :type fem_name: str
+        :type name: str
 
         Note! The meshio fem converter implementation currently only supports reading elements and nodes.
         """
@@ -1184,13 +1254,20 @@ class Assembly(Part):
         if fem_file.exists() is False:
             raise FileNotFoundError(fem_file)
 
-        convert_func(self, fem_file, fem_name)
+        if self._enable_experimental_cache is True:
+            if self._from_cache(fem_file) is True:
+                return None
 
-    @io.femio
+        convert_func(self, fem_file, name)
+
+        if self._enable_experimental_cache is True:
+            self._to_cache(fem_file, cache_model_now)
+
+    @femio
     def to_fem(
         self,
-        name,
-        fem_format,
+        name: str,
+        fem_format: str,
         scratch_dir=None,
         metadata=None,
         execute=False,
@@ -1248,14 +1325,22 @@ class Assembly(Part):
         """
 
         base_path = _Settings.scratch_dir / name / name
-        fem_res_paths = dict(code_aster=base_path.with_suffix(".rmed"))
+        fem_res_paths = dict(code_aster=base_path.with_suffix(".rmed"), abaqus=base_path.with_suffix(".odb"))
 
-        res_path = fem_res_paths.get(fem_format, pathlib.Path(""))
+        res_path = fem_res_paths.get(fem_format, None)
 
         # Update all global materials and sections before writing input file
         # self.materials
         # self.sections
-        if res_path.exists() is False or overwrite is True:
+        run_convert = True
+        if res_path is None:
+            pass
+        elif res_path.exists() is True:
+            run_convert = False
+        else:
+            pass
+
+        if run_convert is True or overwrite is True:
             try:
                 convert_func(
                     self,
@@ -1270,7 +1355,7 @@ class Assembly(Part):
                     exit_on_complete,
                 )
             except IOError as e:
-                logging.info(e)
+                logging.error(e)
         else:
             print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
 
@@ -1291,9 +1376,11 @@ class Assembly(Part):
 
         :param destination_file:
         """
+        from ada.fem.io.ifc.writer import to_ifc_fem
 
         f = self.ifc_file
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+
+        owner_history = self.user.to_ifc()
 
         dest = pathlib.Path(destination_file).with_suffix(".ifc")
 
@@ -1341,6 +1428,11 @@ class Assembly(Part):
                 else:
                     f.add(shp.ifc_elem)
                     physical_objects.append(shp.ifc_elem)
+
+            if len(p.fem.nodes) > 0:
+                if _Settings.ifc_include_fem is True:
+                    to_ifc_fem(p.fem, f)
+
             if len(physical_objects) == 0:
                 continue
 
@@ -1413,12 +1505,13 @@ class Assembly(Part):
         bimcon.pull(project, checkout)
 
     def _generate_ifc_elem(self):
-        from ada.core.ifc_utils import create_ifclocalplacement, create_property_set
+        from ada.core.ifc_utils import create_local_placement, create_property_set
 
         f = self.ifc_file
-        owner_history = f.by_type("IfcOwnerHistory")[0]
-        site_placement = create_ifclocalplacement(f)
-        site = f.createIfcSite(
+        owner_history = self.user.to_ifc()
+        site_placement = create_local_placement(f)
+        site = f.create_entity(
+            "IfcSite",
             self.guid,
             owner_history,
             self.name,
@@ -1512,6 +1605,10 @@ class Assembly(Part):
     def presentation_layers(self):
         return self._presentation_layers
 
+    @property
+    def user(self) -> User:
+        return self._user
+
     def __repr__(self):
         nbms = len([bm for p in self.get_all_subparts() for bm in p.beams]) + len(self.beams)
         npls = len([pl for p in self.get_all_subparts() for pl in p.plates]) + len(self.plates)
@@ -1589,7 +1686,8 @@ class Beam(BackendGeom):
         self._jusl = jusl
 
         self._connected_to = []
-        self._connected_from = []
+        self._connected_end1 = None
+        self._connected_end2 = None
         self._tos = None
         self._e1 = e1
         self._e2 = e2
@@ -1697,7 +1795,7 @@ class Beam(BackendGeom):
         """
         from .sections import SectionCat
 
-        if SectionCat.is_circular_profile(self.section.type):
+        if SectionCat.is_circular_profile(self.section.type) or SectionCat.is_tubular_profile(self.section.type):
             d = self.section.r * 2
             dummy_beam = Beam("dummy", self.n1.p, self.n2.p, Section("DummySec", "BG", h=d, w_btn=d, w_top=d))
             outer_curve = dummy_beam.get_outer_points()
@@ -1718,11 +1816,11 @@ class Beam(BackendGeom):
         from ada.core.constants import O, X, Z
         from ada.core.ifc_utils import (
             add_colour,
+            add_multiple_props_to_elem,
             convert_bm_jusl_to_ifc,
-            create_ifcaxis2placement,
-            create_ifclocalplacement,
+            create_global_axes,
             create_ifcrevolveareasolid,
-            create_property_set,
+            create_local_placement,
         )
         from ada.core.utils import angle_between
 
@@ -1734,7 +1832,7 @@ class Beam(BackendGeom):
         f = a.ifc_file
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
         parent = self.parent.ifc_elem
 
         if Settings.include_ecc and self.e1 is not None:
@@ -1766,7 +1864,7 @@ class Beam(BackendGeom):
         else:
             profile_e = None
 
-        global_placement = create_ifclocalplacement(f, O, Z, X)
+        global_placement = create_local_placement(f, O, Z, X)
 
         if self.curve is not None:
             # TODO: Fix Sweeped Curve definition. Currently not working as intended (or maybe input is wrong.. )
@@ -1793,9 +1891,9 @@ class Beam(BackendGeom):
             circle = f.createIfcCircle(curve_axis2plac3d, curve.radius)
             ifc_polyline = f.createIfcTrimmedCurve(circle, [p1_ifc], [p2_ifc], True, "CARTESIAN")
 
-            revolve_placement = create_ifcaxis2placement(f, p1, profile_x, profile_y)
+            revolve_placement = create_global_axes(f, p1, profile_x, profile_y)
             extrude_area_solid = create_ifcrevolveareasolid(f, profile, revolve_placement, corigin, xvec, a3)
-            loc_plac = create_ifclocalplacement(f, O, Z, X, parent.ObjectPlacement)
+            loc_plac = create_local_placement(f, O, Z, X, parent.ObjectPlacement)
         else:
             ifc_polyline = f.createIfcPolyLine([p1_ifc, p2_ifc])
             ifc_axis2plac3d = f.createIfcAxis2Placement3D(f.createIfcCartesianPoint(O), None, None)
@@ -1861,15 +1959,8 @@ class Beam(BackendGeom):
             beam_type,
         )
 
-        props = create_property_set("Properties", f, self.metadata)
-        f.createIfcRelDefinesByProperties(
-            create_guid(),
-            owner_history,
-            "Properties",
-            None,
-            [ifc_beam],
-            props,
-        )
+        add_multiple_props_to_elem(self.metadata.get("props", dict()), ifc_beam, f)
+
         # Material
         ifc_mat = a.ifc_materials[self.material.name]
         mat_profile = f.createIfcMaterialProfile(sec.name, "A material profile", ifc_mat, profile, None, "LoadBearing")
@@ -1945,6 +2036,43 @@ class Beam(BackendGeom):
             guid=ifc_elem.GlobalId,
         )
 
+    def calc_con_points(self, point_tol=_Settings.point_tol):
+        from ada.core.utils import sort_points_by_dist
+
+        a = self.n1.p
+        b = self.n2.p
+        points = [tuple(con.centre) for con in self.connected_to]
+        midpoints = []
+        prev_p = None
+        for p in sort_points_by_dist(a, points):
+            p = np.array(p)
+            bmlen = self.length
+            vlena = vector_length(p - a)
+            vlenb = vector_length(p - b)
+
+            if prev_p is not None:
+                if vector_length(p - prev_p) < point_tol:
+                    continue
+
+            if vlena < point_tol:
+                self._connected_end1 = self.connected_to[points.index(tuple(p))]
+                prev_p = p
+                continue
+
+            if vlenb < point_tol:
+                self._connected_end2 = self.connected_to[points.index(tuple(p))]
+                prev_p = p
+                continue
+
+            if vlena > bmlen or vlenb > bmlen:
+                prev_p = p
+                continue
+
+            midpoints += [p]
+            prev_p = p
+
+        return midpoints
+
     @property
     def units(self):
         return self._units
@@ -2001,8 +2129,10 @@ class Beam(BackendGeom):
 
     @property
     def member_type(self):
+        from ada.core.utils import is_parallel
+
         xvec = self.xvec
-        if list(xvec) == [0.0, 0.0, 1.0] or list(xvec) == [0.0, 0.0, -1.0]:
+        if is_parallel(xvec, [0.0, 0.0, 1.0], tol=1e-1):
             mtype = "Column"
         elif xvec[2] == 0.0:
             mtype = "Girder"
@@ -2014,10 +2144,6 @@ class Beam(BackendGeom):
     @property
     def connected_to(self):
         return self._connected_to
-
-    @property
-    def connected_from(self):
-        return self._connected_from
 
     @property
     def length(self):
@@ -2221,9 +2347,11 @@ class Beam(BackendGeom):
         return self._ifc_elem
 
     def __repr__(self):
-        return "Beam(id: {}, Name: {}\nN1: {}, N2: {}\nSection: {}\nMaterial: {})".format(
-            self.guid, self.name, self.n1, self.n2, self.section, self.material
-        )
+        p1s = self.n1.p.tolist()
+        p2s = self.n2.p.tolist()
+        secn = self.section.sec_str
+        matn = self.material.name
+        return f'Beam("{self.name}", {p1s}, {p2s}, {secn}, {matn})'
 
 
 class Plate(BackendGeom):
@@ -2317,10 +2445,10 @@ class Plate(BackendGeom):
         from ada.core.constants import O, X, Z
         from ada.core.ifc_utils import (
             add_colour,
-            create_ifcaxis2placement,
+            create_global_axes,
             create_ifcindexpolyline,
-            create_ifclocalplacement,
             create_ifcpolyline,
+            create_local_placement,
             create_property_set,
         )
 
@@ -2331,7 +2459,7 @@ class Plate(BackendGeom):
         f = a.ifc_file
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
         parent = self.parent.ifc_elem
 
         xvec = self.poly.xdir
@@ -2339,14 +2467,14 @@ class Plate(BackendGeom):
         yvec = np.cross(zvec, xvec)
 
         # Wall creation: Define the wall shape as a polyline axis and an extruded area solid
-        plate_placement = create_ifclocalplacement(f, relative_to=parent.ObjectPlacement)
+        plate_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
         tra_mat = np.array([xvec, yvec, zvec])
         t_vec = [0, 0, self.t]
         origin = np.array(self.poly.origin)
         res = origin + np.dot(tra_mat, t_vec)
         polyline = create_ifcpolyline(f, [origin.astype(float).tolist(), res.tolist()])
         axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve2D", [polyline])
-        extrusion_placement = create_ifcaxis2placement(f, O, Z, X)
+        extrusion_placement = create_global_axes(f, O, Z, X)
         points = [(float(n[0]), float(n[1]), float(n[2])) for n in self.poly.seg_global_points]
         seg_index = self.poly.seg_index
         polyline = create_ifcindexpolyline(f, points, seg_index)
@@ -2808,7 +2936,7 @@ class Pipe(BackendGeom):
 
     def _generate_ifc_pipe(self):
         from ada.core.constants import X, Z
-        from ada.core.ifc_utils import create_ifclocalplacement, create_property_set
+        from ada.core.ifc_utils import create_local_placement, create_property_set
 
         if self.parent is None:
             raise ValueError("Cannot build ifc element without parent")
@@ -2816,10 +2944,10 @@ class Pipe(BackendGeom):
         a = self.get_assembly()
         f = a.ifc_file
 
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
         parent = self.parent.ifc_elem
 
-        placement = create_ifclocalplacement(
+        placement = create_local_placement(
             f,
             origin=self.n1.p.astype(float).tolist(),
             loc_x=X,
@@ -2868,7 +2996,7 @@ class Pipe(BackendGeom):
             a = self.get_assembly()
             f = a.ifc_file
 
-            owner_history = f.by_type("IfcOwnerHistory")[0]
+            owner_history = a.user.to_ifc()
 
             segments = []
             for param_seg in self._segments:
@@ -2940,7 +3068,7 @@ class PipeSegStraight(BackendGeom):
     def _to_ifc_elem(self):
         from ada.core.constants import O, X, Z
         from ada.core.ifc_utils import (  # create_ifcrevolveareasolid,
-            create_ifcaxis2placement,
+            create_global_axes,
             create_ifcpolyline,
             to_real,
         )
@@ -2952,7 +3080,7 @@ class PipeSegStraight(BackendGeom):
         f = a.ifc_file
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
 
         p1 = self.p1
         p2 = self.p2
@@ -2967,7 +3095,7 @@ class PipeSegStraight(BackendGeom):
         yvec = unit_vector(np.cross(zvec, xvec))
         seg_l = vector_length(p2.p - p1.p)
 
-        extrusion_placement = create_ifcaxis2placement(f, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+        extrusion_placement = create_global_axes(f, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
 
         solid = f.createIfcExtrudedAreaSolid(self.section.ifc_profile, extrusion_placement, ifcdir, seg_l)
 
@@ -3039,13 +3167,6 @@ class PipeSegElbow(BackendGeom):
         self._ifc_elem = None
 
     @property
-    def parent(self):
-        """
-        :rtype: Pipe
-        """
-        return self._parent
-
-    @property
     def xvec1(self):
         return self.p2.p - self.p1.p
 
@@ -3057,9 +3178,9 @@ class PipeSegElbow(BackendGeom):
     def geom(self):
         from ada.core.utils import make_edges_and_fillet_from_3points, sweep_pipe
 
-        i = self.parent._segments.index(self)
+        i = self.parent.segments.index(self)
         if i != 0:
-            pseg = self.parent._segments[i - 1]
+            pseg = self.parent.segments[i - 1]
             xvec = pseg.xvec1
         else:
             xvec = self.xvec1
@@ -3114,7 +3235,7 @@ class PipeSegElbow(BackendGeom):
 
     def _elbow_revolved_solid(self, f, context):
         from ada.core.constants import O, X, Z
-        from ada.core.ifc_utils import create_ifcaxis2placement
+        from ada.core.ifc_utils import create_global_axes
         from ada.core.utils import (
             get_center_from_3_points_and_radius,
             normal_to_points_in_plane,
@@ -3122,7 +3243,7 @@ class PipeSegElbow(BackendGeom):
 
         center, _, _, _ = get_center_from_3_points_and_radius(self.p1.p, self.p2.p, self.p3.p, self.bend_radius)
 
-        opening_axis_placement = create_ifcaxis2placement(f, O, Z, X)
+        opening_axis_placement = create_global_axes(f, O, Z, X)
 
         profile = self.section.ifc_profile
         normal = normal_to_points_in_plane([self.arc_seg.p1, self.arc_seg.p2, self.arc_seg.midpoint])
@@ -3143,7 +3264,7 @@ class PipeSegElbow(BackendGeom):
         return prod_def_shp
 
     def _to_ifc_elem(self):
-        from ada.core.ifc_utils import create_ifclocalplacement
+        from ada.core.ifc_utils import create_local_placement
 
         if self.parent is None:
             raise ValueError("Parent cannot be None for IFC export")
@@ -3152,7 +3273,7 @@ class PipeSegElbow(BackendGeom):
         f = a.ifc_file
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
         schema = a.ifc_file.wrapped_data.schema
 
         if _Settings.make_param_elbows is False:
@@ -3163,7 +3284,7 @@ class PipeSegElbow(BackendGeom):
         else:
             ifc_elbow = self._elbow_revolved_solid(f, context)
 
-        pfitting_placement = create_ifclocalplacement(f)
+        pfitting_placement = create_local_placement(f)
 
         pfitting = f.createIfcPipeFitting(
             create_guid(),
@@ -3318,10 +3439,10 @@ class Wall(BackendGeom):
         from ada.core.constants import O, X, Z
         from ada.core.ifc_utils import (
             add_negative_extrusion,
-            create_ifcaxis2placement,
+            create_global_axes,
             create_ifcextrudedareasolid,
-            create_ifclocalplacement,
             create_ifcpolyline,
+            create_local_placement,
             create_property_set,
         )
 
@@ -3332,20 +3453,18 @@ class Wall(BackendGeom):
         f = a.ifc_file
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
         parent = self.parent.ifc_elem
         elevation = self.origin[2]
 
         # Wall creation: Define the wall shape as a polyline axis and an extruded area solid
-        wall_placement = create_ifclocalplacement(f, relative_to=parent.ObjectPlacement)
+        wall_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
 
         # polyline = self.create_ifcpolyline(f, [(0.0, 0.0, 0.0), (5.0, 0.0, 0.0)])
         polyline = create_ifcpolyline(f, self.points)
         axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve2D", [polyline])
 
-        extrusion_placement = create_ifcaxis2placement(
-            f, (0.0, 0.0, float(elevation)), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0)
-        )
+        extrusion_placement = create_global_axes(f, (0.0, 0.0, float(elevation)), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
 
         polyline = create_ifcpolyline(f, self.extrusion_area)
         profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
@@ -3408,17 +3527,17 @@ class Wall(BackendGeom):
         import ifcopenshell.geom
 
         from ada.core.constants import O, X, Z
-        from ada.core.ifc_utils import create_ifclocalplacement
+        from ada.core.ifc_utils import create_local_placement
 
         a = self.parent.get_assembly()
         f = a.ifc_file
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
         schema = a.ifc_file.wrapped_data.schema
 
         # Create a simplified representation for the Window
-        insert_placement = create_ifclocalplacement(f, O, Z, X, wall_el.ObjectPlacement)
+        insert_placement = create_local_placement(f, O, Z, X, wall_el.ObjectPlacement)
         if len(insert.shapes) > 1:
             raise ValueError("More than 1 shape is currently not allowed for Wall inserts")
         shape = insert.shapes[0].geom
@@ -3495,7 +3614,7 @@ class Wall(BackendGeom):
 
     @property
     def extrusion_area(self):
-        from ada.core.utils import intersect_calc, parallel_check
+        from ada.core.utils import intersect_calc, is_parallel
 
         area_points = []
         vpo = [np.array(p) for p in self.points]
@@ -3510,7 +3629,7 @@ class Wall(BackendGeom):
             yvec = unit_vector(np.cross(zvec, xvec))
             new_point = p1 + yvec * (self._thickness / 2) + yvec * self.offset
             if prev_xvec is not None:
-                if parallel_check(xvec, prev_xvec) is False:
+                if is_parallel(xvec, prev_xvec) is False:
                     prev_p = area_points[-1]
                     # next_point = p2 + yvec * (self._thickness / 2) + yvec * self.offset
                     # c_p = prev_yvec * (self._thickness / 2) + prev_yvec * self.offset
@@ -3536,7 +3655,7 @@ class Wall(BackendGeom):
             yvec = unit_vector(np.cross(xvec, np.array([0, 0, 1])))
             new_point = p1 - yvec * (self._thickness / 2) + yvec * self.offset
             if prev_xvec is not None:
-                if parallel_check(xvec, prev_xvec) is False:
+                if is_parallel(xvec, prev_xvec) is False:
                     prev_p = reverse_points[-1]
                     c_p = prev_yvec * (self._thickness / 2) - prev_yvec * self.offset
                     new_point -= c_p
@@ -3668,7 +3787,7 @@ class Shape(BackendGeom):
     def generate_parametric_solid(self, ifc_file):
         from ada.core.constants import O, X, Z
         from ada.core.ifc_utils import (
-            create_ifcaxis2placement,
+            create_global_axes,
             create_ifcextrudedareasolid,
             create_IfcFixedReferenceSweptAreaSolid,
             create_ifcindexpolyline,
@@ -3680,7 +3799,7 @@ class Shape(BackendGeom):
         f = ifc_file
         context = f.by_type("IfcGeometricRepresentationContext")[0]
 
-        opening_axis_placement = create_ifcaxis2placement(f, O, Z, X)
+        opening_axis_placement = create_global_axes(f, O, Z, X)
 
         if type(self) is PrimBox:
             box = self
@@ -3718,9 +3837,9 @@ class Shape(BackendGeom):
             if vector_length(perp_dir) == 0.0:
                 raise ValueError("Perpendicular dir cannot be zero")
 
-            create_ifcaxis2placement(f, to_real(p1), vecdir, to_real(perp_dir))
+            create_global_axes(f, to_real(p1), vecdir, to_real(perp_dir))
 
-            opening_axis_placement = create_ifcaxis2placement(f, to_real(p1), vecdir, to_real(perp_dir))
+            opening_axis_placement = create_global_axes(f, to_real(p1), vecdir, to_real(perp_dir))
 
             depth = vector_length(vec)
             profile = f.createIfcCircleProfileDef("AREA", self.name, None, r)
@@ -3761,7 +3880,7 @@ class Shape(BackendGeom):
         elif type(self) is PrimSphere:
             sphere = self
             assert isinstance(sphere, PrimSphere)
-            opening_axis_placement = create_ifcaxis2placement(f, to_real(sphere.pnt), Z, X)
+            opening_axis_placement = create_global_axes(f, to_real(sphere.pnt), Z, X)
             solid_geom = f.createIfcSphere(opening_axis_placement, float(sphere.radius))
         elif type(self) is PrimSweep:
             sweep = self
@@ -3787,7 +3906,11 @@ class Shape(BackendGeom):
     def _generate_ifc_elem(self):
         import ifcopenshell.geom
 
-        from ada.core.ifc_utils import add_colour, create_ifclocalplacement
+        from ada.core.ifc_utils import (
+            add_colour,
+            create_local_placement,
+            create_property_set,
+        )
 
         if self.parent is None:
             raise ValueError("Parent cannot be None for IFC export")
@@ -3796,11 +3919,11 @@ class Shape(BackendGeom):
         f = a.ifc_file
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
         parent = self.parent.ifc_elem
         schema = a.ifc_file.wrapped_data.schema
 
-        shape_placement = create_ifclocalplacement(f, relative_to=parent.ObjectPlacement)
+        shape_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
         if type(self) is not Shape:
             ifc_shape = self.generate_parametric_solid(f)
         else:
@@ -3850,6 +3973,16 @@ class Shape(BackendGeom):
             ifc_shape,
             None,
             None,
+        )
+
+        props = create_property_set("Properties", f, self.metadata)
+        f.createIfcRelDefinesByProperties(
+            create_guid(),
+            owner_history,
+            "Properties",
+            None,
+            [ifc_elem],
+            props,
         )
 
         return ifc_elem
@@ -4292,7 +4425,10 @@ class Penetration(BackendGeom):
 
     def _generate_ifc_opening(self):
         from ada.core.constants import O, X, Z
-        from ada.core.ifc_utils import add_properties_to_elem, create_ifclocalplacement
+        from ada.core.ifc_utils import (
+            add_multiple_props_to_elem,
+            create_local_placement,
+        )
 
         if self.parent is None:
             raise ValueError("This penetration has no parent")
@@ -4301,10 +4437,10 @@ class Penetration(BackendGeom):
         f = a.ifc_file
 
         geom_parent = self.parent.parent.ifc_elem
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
 
         # Create and associate an opening for the window in the wall
-        opening_placement = create_ifclocalplacement(f, O, Z, X, geom_parent.ObjectPlacement)
+        opening_placement = create_local_placement(f, O, Z, X, geom_parent.ObjectPlacement)
         opening_shape = self.primitive.generate_parametric_solid(f)
 
         opening_element = f.createIfcOpeningElement(
@@ -4318,14 +4454,7 @@ class Penetration(BackendGeom):
             None,
         )
 
-        if "props" in self.metadata.keys():
-            pro = self.metadata["props"]
-            if len(pro.keys()) > 0:
-                if type(list(pro.values())[0]) is dict:
-                    for pro_id, prop_ in pro.items():
-                        add_properties_to_elem(pro_id, f, opening_element, prop_)
-                else:
-                    add_properties_to_elem("Properties", f, opening_element, pro)
+        add_multiple_props_to_elem(self.metadata.get("props", dict()), opening_element, f)
 
         return opening_element
 
@@ -4469,57 +4598,107 @@ class Section(Backend):
         a = self.parent.parent.get_assembly()
         f = a.ifc_file
 
+        sec_props = dict(ProfileType="AREA", ProfileName=self.name)
+
         if SectionCat.is_i_profile(self.type):
-            outer_curve, inner_curve, disconnected = self.cross_sec(True)
-            polyline = create_ifcpolyline(f, outer_curve)
-            profile = f.createIfcArbitraryClosedProfileDef("AREA", self.name, polyline)
-            # profile = f.createIfcIShapeProfileDef('AREA', self.name, None, self.w_top, self.h, self.t_w, self.t_ftop)
+            if _Settings.use_param_profiles is False:
+                outer_curve, inner_curve, disconnected = self.cross_sec(True)
+                polyline = create_ifcpolyline(f, outer_curve)
+
+                ifc_sec_type = "IfcArbitraryClosedProfileDef"
+                sec_props.update(dict(OuterCurve=polyline))
+            else:
+                if SectionCat.is_strong_axis_symmetric(self) is False:
+                    logging.error(
+                        "Note! Not using IfcAsymmetricIShapeProfileDef as it is not supported by ifcopenshell"
+                    )
+                    # ifc_sec_type = "IfcAsymmetricIShapeProfileDef"
+                    # sec_props.update(
+                    #     dict(
+                    #         TopFlangeWidth=self.w_top,
+                    #         BottomFlangeWidth=self.w_btn,
+                    #         OverallDepth=self.h,
+                    #         WebThickness=self.t_w,
+                    #         TopFlangeThickness=self.t_ftop,
+                    #         BottomFlangeThickness=self.t_fbtn,
+                    #     )
+                    # )
+
+                ifc_sec_type = "IfcIShapeProfileDef"
+                sec_props.update(
+                    dict(
+                        OverallWidth=self.w_top,
+                        OverallDepth=self.h,
+                        WebThickness=self.t_w,
+                        FlangeThickness=self.t_ftop,
+                    )
+                )
+
         elif SectionCat.is_hp_profile(self.type):
             outer_curve, inner_curve, disconnected = self.cross_sec(True)
             points = [f.createIfcCartesianPoint(p) for p in outer_curve]
             ifc_polyline = f.createIfcPolyLine(points)
-            profile = f.createIfcArbitraryClosedProfileDef("AREA", self.name, ifc_polyline)
+            ifc_sec_type = "IfcArbitraryClosedProfileDef"
+            sec_props.update(dict(OuterCurve=ifc_polyline))
         elif SectionCat.is_box_profile(self.type):
             outer_curve, inner_curve, disconnected = self.cross_sec(True)
             outer_points = [f.createIfcCartesianPoint(p) for p in outer_curve + [outer_curve[0]]]
             inner_points = [f.createIfcCartesianPoint(p) for p in inner_curve + [inner_curve[0]]]
             inner_curve = f.createIfcPolyLine(inner_points)
             outer_curve = f.createIfcPolyLine(outer_points)
-            profile = f.createIfcArbitraryProfileDefWithVoids("AREA", self.name, outer_curve, [inner_curve])
+            ifc_sec_type = "IfcArbitraryProfileDefWithVoids"
+            sec_props.update(dict(OuterCurve=outer_curve, InnerCurves=[inner_curve]))
         elif self.type in SectionCat.circular:
-            profile = f.createIfcCircleProfileDef("AREA", self.name, None, self.r)
+            ifc_sec_type = "IfcCircleProfileDef"
+            sec_props.update(dict(Radius=self.r))
         elif self.type in SectionCat.tubular:
-            profile = f.createIfcCircleHollowProfileDef("AREA", self.name, None, self.r, self.wt)
+            ifc_sec_type = "IfcCircleHollowProfileDef"
+            sec_props.update(dict(Radius=self.r, WallThickness=self.wt))
         elif self.type in SectionCat.general:
+            logging.error("Note! Creating a Circle profile from general section (just for visual inspection as of now)")
             r = np.sqrt(self.properties.Ax / np.pi)
-            profile = f.createIfcCircleProfileDef("AREA", self.name, None, r)
+            ifc_sec_type = "IfcCircleProfileDef"
+            sec_props.update(dict(Radius=r))
         elif self.type in SectionCat.flatbar:
             outer_curve, inner_curve, disconnected = self.cross_sec(True)
             polyline = create_ifcpolyline(f, outer_curve)
-            profile = f.createIfcArbitraryClosedProfileDef("AREA", self.name, polyline)
+            ifc_sec_type = "IfcArbitraryClosedProfileDef"
+            sec_props.update(dict(OuterCurve=polyline))
         elif self.type in SectionCat.channels:
-            outer_curve, inner_curve, disconnected = self.cross_sec(True)
-            polyline = create_ifcpolyline(f, outer_curve)
-            profile = f.createIfcArbitraryClosedProfileDef("AREA", self.name, polyline)
+            if _Settings.use_param_profiles is False:
+                outer_curve, inner_curve, disconnected = self.cross_sec(True)
+                polyline = create_ifcpolyline(f, outer_curve)
+                ifc_sec_type = "IfcArbitraryClosedProfileDef"
+                sec_props.update(dict(OuterCurve=polyline))
+            else:
+                ifc_sec_type = "IfcUShapeProfileDef"
+                sec_props.update(
+                    dict(Depth=self.h, FlangeWidth=self.w_top, WebThickness=self.t_w, FlangeThickness=self.t_ftop)
+                )
         elif self.type == "poly":
             opoly = self.poly_outer
             opoints = [(float(n[0]), float(n[1]), float(n[2])) for n in opoly.seg_global_points]
             opolyline = create_ifcindexpolyline(f, opoints, opoly.seg_index)
             if self.poly_inner is None:
-                profile = f.createIfcArbitraryClosedProfileDef("AREA", self.name, opolyline)
+                ifc_sec_type = "IfcArbitraryClosedProfileDef"
+                sec_props.update(dict(OuterCurve=opolyline))
             else:
                 ipoly = self.poly_inner
                 ipoints = [(float(n[0]), float(n[1]), float(n[2])) for n in ipoly.seg_global_points]
                 ipolyline = create_ifcindexpolyline(f, ipoints, ipoly.seg_index)
-                profile = f.createIfcArbitraryProfileDefWithVoids("AREA", self.name, opolyline, [ipolyline])
+                ifc_sec_type = "IfcArbitraryProfileDefWithVoids"
+                sec_props.update(dict(OuterCurve=opolyline, InnerCurves=[ipolyline]))
         else:
             raise ValueError(f'Have yet to implement section type "{self.type}"')
+
         if self.name is None:
             raise ValueError("Name cannot be None!")
 
+        profile = f.create_entity(ifc_sec_type, **sec_props)
+
         beamtype = f.createIfcBeamType(
             create_guid(),
-            f.by_type("IfcOwnerHistory")[0],
+            a.user.to_ifc(),
             self.name,
             self.sec_str,
             None,
@@ -4559,6 +4738,9 @@ class Section(Backend):
                     r=ifc_elem.Radius,
                     wt=ifc_elem.WallThickness,
                 )
+            elif ifc_elem.is_a("IfcUShapeProfileDef"):
+                raise NotImplementedError(f'IFC section type "{ifc_elem}" is not yet implemented')
+                # sec = Section(ifc_elem.ProfileName)
             else:
                 raise NotImplementedError(f'IFC section type "{ifc_elem}" is not yet implemented')
         return sec
@@ -4890,7 +5072,7 @@ class Material(Backend):
         a = self.parent.get_assembly()
         f = a.ifc_file
 
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
 
         ifc_mat = f.createIfcMaterial(self.name, None, "Steel")
         properties = []
@@ -4959,17 +5141,19 @@ class Material(Backend):
         from ada.materials.metals import CarbonSteel, Metal
 
         mat_psets = ifc_mat.HasProperties
-        yield_stress = None
+        scale_pascal = 1 if self.units == "mm" else 1e6
+        scale_volume = 1 if self.units == "m" else 1e-9
         props = {entity.Name: entity.NominalValue[0] for entity in mat_psets[0].Properties}
 
         mat_props = dict(
-            E=props["YoungModulus"],
-            v=props["PoissonRatio"],
-            rho=props["MassDensity"],
-            alpha=props["ThermalExpansionCoefficient"],
-            zeta=props["SpecificHeatCapacity"],
-            sig_y=yield_stress,
+            E=props.get("YoungModulus", 210000 * scale_pascal),
+            sig_y=props.get("YieldStress", 355 * scale_pascal),
+            rho=props.get("MassDensity", 7850 * scale_volume),
+            v=props.get("PoissonRatio", 0.3),
+            alpha=props.get("ThermalExpansionCoefficient", 1.2e-5),
+            zeta=props.get("SpecificHeatCapacity", 1.15),
         )
+
         if "StrengthGrade" in props:
             mat_model = CarbonSteel(grade=props["StrengthGrade"], **mat_props)
         else:
@@ -5164,6 +5348,69 @@ class Connection(Part):
 
     def __repr__(self):
         return 'Joint Name: "{}", center: "{}"'.format(self._name, self._center)
+
+
+class JointBase(Part):
+    beamtypes: list
+    mem_types: list
+    num_mem: int
+
+    def __init__(self, name, members, centre):
+        super(JointBase, self).__init__(name)
+        self._init_check(members)
+        self._centre = centre
+        self._beams = Beams(members)
+        self._main_mem = self._get_landing_member(members)
+
+        for m in members:
+            m.connected_to.append(self)
+            m._ifc_elem = None
+
+    def _init_check(self, members):
+        if self.__class__.__name__ == "JointBase":
+            return None
+
+        if self.num_mem != len(members):
+            raise ValueError(f"This joint only supports {self.num_mem} members")
+
+        mem_types = [m for m in self.mem_types]
+
+        for m in members:
+            if m.member_type in mem_types:
+                mem_types.pop(mem_types.index(m.member_type))
+
+        if len(mem_types) != 0:
+            raise ValueError(f"Not all Pre-requisite member types {self.mem_types} are found for JointB")
+
+    def _cut_intersecting_member(self, mem_base, mem_incoming):
+        """
+
+        :param mem_base:
+        :param mem_incoming:
+        :type mem_base: ada.Beam
+        :type mem_incoming: ada.Beam
+        """
+        h_vec = np.array(mem_incoming.up) * mem_incoming.section.h * 2
+        p1, p2 = mem_base.bbox
+        p1 = np.array(p1) - h_vec
+        p2 = np.array(p2) + h_vec
+        mem_incoming.add_penetration(PrimBox(f"{self.name}_neg", p1, p2))
+
+    def _get_landing_member(self, members):
+        member_types = [m.member_type for m in members]
+        if member_types.count("Column") >= 1:
+            return members[member_types.index("Column")]
+        elif member_types.count("Girder") >= 1:
+            return members[member_types.index("Girder")]
+        else:
+            return members[0]
+
+    @property
+    def centre(self):
+        return self._centre
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}("{self.name}", members:{len(self.beams)})'
 
 
 class Bolts(Backend):

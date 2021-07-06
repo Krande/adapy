@@ -8,7 +8,7 @@ import numpy as np
 import toolz
 from pyquaternion import Quaternion
 
-from ada.config import Settings
+from ada.config import Settings as _Settings
 
 from .utils import Counter, points_in_cylinder, vector_length
 
@@ -117,6 +117,11 @@ class Beams(BaseCollections):
             return self._dmap[beam.name]
         self._dmap[beam.name] = beam
         self._beams.append(beam)
+
+    def remove(self, beam):
+        i = self._beams.index(beam)
+        self._beams.pop(i)
+        self._dmap = {n.name: n for n in self._beams}
 
     def get_beams_within_volume(self, vol_, margins=None):
         """
@@ -282,7 +287,7 @@ class Plates(BaseCollections):
 
 
 class Connections(BaseCollections):
-    counter = Counter(1, "C")
+    _counter = Counter(1, "C")
     """
     Connections Collection.
 
@@ -296,6 +301,12 @@ class Connections(BaseCollections):
         super().__init__(parent)
         self._connections = connections
         self._dmap = {j.id: j for j in self._connections}
+        self._joint_centre_nodes = Nodes([c.centre for c in self._connections])
+        self._nmap = {self._joint_centre_nodes.index(c.centre): c for c in self._connections}
+
+    @property
+    def joint_centre_nodes(self):
+        return self._joint_centre_nodes
 
     def __contains__(self, item):
         return item.id in self._dmap.keys()
@@ -308,7 +319,7 @@ class Connections(BaseCollections):
 
     def __getitem__(self, index):
         result = self._connections[index]
-        return Materials(result) if isinstance(index, slice) else result
+        return Connections(result) if isinstance(index, slice) else result
 
     def __eq__(self, other):
         if not isinstance(other, Beams):
@@ -329,35 +340,48 @@ class Connections(BaseCollections):
         rpr.maxlevel = 1
         return f"Connections({rpr.repr(self._connections) if self._connections else ''})"
 
-    def add(self, joint):
+    def add(self, joint, point_tol=_Settings.point_tol):
         """
         Add a joint
 
         :param joint:
-        :type joint: ada.Connection
+        :param point_tol: Point Tolerance
+        :type joint: ada.JointBase
         """
+        from ada import Node
+
         if joint.name is None:
             raise Exception("Name is not allowed to be None.")
 
         if joint.name in self._dmap.keys():
-            return self._dmap[joint.name]
+            raise ValueError("Joint Exists with same name")
 
+        new_node = Node(joint.centre)
+        node = self._joint_centre_nodes.add(new_node, point_tol=point_tol)
+        if node != new_node:
+            return self._nmap[node]
+        else:
+            self._nmap[node] = joint
+
+        self._dmap[joint.name] = joint
         self._connections.append(joint)
 
-    def find(self, out_of_plane_tol=0.1, joint_func=None):
+    def find(self, out_of_plane_tol=0.1, joint_func=None, point_tol=_Settings.point_tol):
         """
         Find all connections between beams in all parts using a simple clash check.
 
         :param out_of_plane_tol:
         :param joint_func: Pass a function for mapping the generic Connection classes to a specific reinforced Joints
+        :param point_tol:
         """
-        from ada import Beam, Connection
+        from ada import Beam, JointBase, Node
         from ada.core.utils import beam_cross_check
 
         ass = self._parent.get_assembly()
         bm_res = ass.beam_clash_check()
 
-        point_tuples = []
+        nodes = Nodes()
+        nmap = dict()
 
         def are_beams_connected(beams):
             """
@@ -367,7 +391,7 @@ class Connections(BaseCollections):
             """
             bm1 = beams[0]
             assert isinstance(bm1, Beam)
-            cross_beams = dict()
+
             for bm2 in beams[1]:
                 if bm1 == bm2:
                     continue
@@ -376,68 +400,31 @@ class Connections(BaseCollections):
                 if res is None:
                     continue
                 point, s, t = res
-                self._eval_joint_ends(bm1, bm2, t, point)
-
-                if point is not None:
-                    tp = tuple(point)
-                    if tp not in cross_beams.keys():
-                        cross_beams[tp] = []
-                    cross_beams[tp].append(bm2)
-
-            for p, mem in cross_beams.items():
-                if p in point_tuples:
+                t_len = (abs(t) - 1) * bm2.length
+                s_len = (abs(s) - 1) * bm1.length
+                if t_len > bm2.length / 2 or s_len > bm1.length / 2:
                     continue
-                point_tuples.append(p)
-                if joint_func is not None:
-                    joint = joint_func(next(self.counter), [bm1] + mem)
-                    if joint is None:
-                        continue
-                else:
-                    joint = Connection(next(self.counter), [bm1] + mem)
-
-                bm1.connected_from.append(joint)
-                for m in mem:
-                    m.connected_to.append(joint)
-                self.add(joint)
+                if point is not None:
+                    new_node = Node(point)
+                    n = nodes.add(new_node, point_tol=point_tol)
+                    if n not in nmap.keys():
+                        nmap[n] = [bm1]
+                    if bm1 not in nmap[n]:
+                        nmap[n].append(bm1)
+                    if bm2 not in nmap[n]:
+                        nmap[n].append(bm2)
 
         list(map(are_beams_connected, bm_res))
 
-    def _eval_joint_ends(self, bm1, bm2, t_, intersect_point):
-        """
-        Evaluate the  use AB_ to ensure that the node lands on the beam
-
-        :param bm1:
-        :param bm2:
-        :param t_:
-        :param intersect_point:
-        :return:
-        """
-
-        from ada import Node
-
-        def eval_node(ab, n1=True):
-            n = Node(ab)
-            n_old = self._parent.nodes.add(n)
-
-            # TODO: Evaluate if the following is necessary!
-            if n_old is not None:
-                n = n_old
-            if n.id not in [bm2.n1.id, bm2.n2.id]:
-                if n1 is True:
-                    bm2.n1 = n
-                    bm2.n1.Free = False
-                else:
-                    bm2.n2 = n
-                    bm2.n2.Free = False
+        for node, mem in nmap.items():
+            if joint_func is not None:
+                joint = joint_func(next(self._counter), mem, node.p)
+                if joint is None:
+                    continue
             else:
-                logging.debug("Midnode on n1")
+                joint = JointBase(next(self._counter), mem, node.p)
 
-        if t_ <= 0:
-            eval_node(intersect_point, n1=True)
-        elif t_ >= 1:
-            eval_node(intersect_point, n1=False)
-        else:
-            logging.error('bm1 "{}", bm2 "{}", t: "{}"'.format(bm1.name, bm2.name, t_))
+            self.add(joint, point_tol=point_tol)
 
 
 class Materials(BaseCollections):
@@ -569,6 +556,8 @@ class Materials(BaseCollections):
         self._dmap[material.name] = material
         self._materials.append(material)
 
+        return material
+
 
 class Sections:
     """
@@ -585,6 +574,7 @@ class Sections:
 
         if unique_ids:
             sections = list(toolz.unique(sections, key=attrgetter("name")))
+
         self._sections = sorted(sections, key=attrgetter("name"))
         self._nmap = {n.name: n for n in self._sections}
         self._idmap = {n.id: n for n in self._sections}
@@ -592,7 +582,7 @@ class Sections:
             raise ValueError("Non-unique ids or name are observed..")
 
     def __contains__(self, item):
-        return item.id in self._nmap.keys()
+        return item.name in self._nmap.keys()
 
     def __len__(self):
         return len(self._sections)
@@ -689,6 +679,8 @@ class Sections:
         self._sections.append(section)
         self._idmap[section.id] = section
         self._nmap[section.name] = section
+
+        return section
 
 
 class Nodes:
@@ -859,7 +851,7 @@ class Nodes:
     def min_nid(self):
         return min(self.dmap.keys()) if len(self.dmap.keys()) > 0 else 0
 
-    def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=Settings.point_tol):
+    def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=_Settings.point_tol):
         """
 
         :param p: Point
@@ -921,7 +913,7 @@ class Nodes:
         else:
             return list(simplesearch)
 
-    def add(self, node, point_tol=Settings.point_tol, allow_coincident=False):
+    def add(self, node, point_tol=_Settings.point_tol, allow_coincident=False):
         """
         Insert node into sorted list.
 
@@ -940,19 +932,19 @@ class Nodes:
             self._idmap[n.id] = n
             self._bbox = None
             self._maxid = n.id if n.id > self._maxid else self._maxid
-            # self._bbox = self._get_bbox()
 
         index = bisect_left(self._nodes, node)
-
-        if (index != len(self._nodes)) and (self._nodes[index] == node) and allow_coincident is False:
-            old_node = self._nodes[index]
-            vlen = vector_length(old_node.p - node.p)
-            if vlen < point_tol:
-                logging.debug(f'Replaced new node with node id "{self._nodes[index].id}" found within point tolerances')
-                return self._nodes[index]
+        if (len(self._nodes) != 0) and allow_coincident is False:
+            res = self.get_by_volume(node.p, tol=point_tol)
+            if len(res) == 1:
+                nearest_node = res[0]
+                vlen = vector_length(nearest_node.p - node.p)
+                if vlen < point_tol:
+                    logging.debug(f'Replaced new node with node id "{nearest_node.id}" found within point tolerances')
+                    return nearest_node
 
         insert_node(node, index)
-        return None
+        return node
 
     def remove(self, nodes):
         """
@@ -979,7 +971,7 @@ class Nodes:
         """
         self.remove(filter(lambda x: len(x.refs) == 0, self._nodes))
 
-    def merge_coincident(self, tol=Settings.point_tol):
+    def merge_coincident(self, tol=_Settings.point_tol):
         """
         Merge nodes which are within the standard default of Nodes.get_by_volume. Nodes merged into the node connected
         to most elements.

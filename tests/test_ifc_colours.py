@@ -1,6 +1,6 @@
 import unittest
 
-from ada import Assembly, Beam, Part
+from ada import Assembly, Beam, Part, User
 from ada.config import Settings
 from ada.core.constants import color_map
 
@@ -17,7 +17,7 @@ class MyColourTestCases(unittest.TestCase):
             beams += [Beam(f"bm{a}", (a, a, a), (a + 1, a + 1, a + 1), "TUB300/200x20", colour=color)]
             a += 1
 
-        a = Assembly("SiteTest", project="projA", creator="krande") / (Part("TestBldg") / beams)
+        a = Assembly("SiteTest", project="projA", user=User("krande")) / (Part("TestBldg") / beams)
         a.to_ifc(test_folder / "colours.ifc")
 
 

@@ -2,6 +2,7 @@ import logging
 
 import numpy as np
 
+from ..config import Settings as _Settings
 from . import constants as co
 from .containers import FemElements, FemSections, FemSets
 
@@ -54,9 +55,15 @@ class FemBase:
 
     @name.setter
     def name(self, value):
+        from ada.core.utils import make_name_fem_ready
+
         if str.isnumeric(value[0]):
             raise ValueError("Name cannot start with numeric")
-        self._name = value
+
+        if _Settings.convert_bad_names_for_fem:
+            self._name = make_name_fem_ready(value)
+        else:
+            self._name = value.strip()
 
     @property
     def parent(self):
@@ -797,7 +804,7 @@ class FEM(FemBase):
         from ada.core.utils import vector_length
 
         edited_nodes = dict()
-        tol = 1e-3
+        tol = _Settings.point_tol
 
         def build_mpc(fs):
             """
@@ -2454,7 +2461,7 @@ class Step(FemBase):
     :param stabilize: Default=None.
     :param dyn_type: Dynamic analysis type 'TRANSIENT FIDELITY' | 'QUASI-STATIC'
     :param init_accel_calc: Initial acceleration calculation
-    :param eigenmodes: Eigenmodes
+    :param eigenmodes: Number of requested Eigenmodes
     :param alpha: Rayleigh Damping for use in Steady State analysis
     :param beta: Rayleigh Damping for use in Steady State analysis
     :param nodeid: Node ID for use in Steady State analysis

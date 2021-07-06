@@ -97,6 +97,29 @@ creates an Ifc file containing an IfcBeam with the following hierarchy
 The resulting IfcBeam (and corresponding hierarchy) shown in the figure above is taken from the awesome 
 [blender](https://blender.org) plugin [blenderbim](https://blenderbim.org/).
 
+### Convert between FEM formats
+
+Here is an example showing the code for converting a sesam FEM file to abaqus and code aster
+
+_Note! Reading FEM load and step information is not supported, but might be added in the future._
+
+```python
+from ada import Assembly
+
+my_fem_file = 'path_to_your_sesam_file.FEM'
+
+a = Assembly()
+a.read_fem(my_fem_file)
+a.to_fem('nam_of_my_analysis_file_deck_directory', 'abaqus')
+a.to_fem('nam_of_my_analysis_file_deck_directory_code_aster', 'code_aster')
+
+# Note! If you are in a Jupyter Notebook\lab environment 
+# this will generate a pythreejs 3D visualization of your FEM mesh
+a
+```
+
+Current read support is: abaqus, code aster and sesam  
+Current write support is: abaqus, code aster and sesam, calculix and usfos
 
 ### Create and execute a FEM analysis in Calculix, Code Aster and Abaqus
 
@@ -147,16 +170,17 @@ print('Code Aster:',ca_mesh.point_data['DISP[10] - 1'][-1][:3])
 
 The above example assumes you have installed Abaqus, Calculix and Code Aster locally on your computer.
 
-To set correct paths to your installations of Abaqus or Calculix you wish to use there are a few ways of doing so.
+To set correct paths to your installations of FE software you wish to use there are a few ways of doing so.
 
-1. Add directory path of abaqus.bat or ccx.exe to your system path.
-2. Add directory paths to system environment variables. This can be done by using the control panel or running the following from a cmd prompt with administrator rights:
+1. Add directory path of FE executable/batch to your system path.
+2. Add directory paths to system environment variables. This can be done by using the control panel or 
+   running the following from a cmd prompt with administrator rights:
     
 ```cmd
 :: Windows
-setx ADA_abaqus_exe <path to your abaqus.bat>
-setx ADA_ccx_exe <path to your ccx.exe>
-setx ADA_code_aster_exe <path to your ccx.exe>
+setx ADA_abaqus_exe <directory of your abaqus.bat>
+setx ADA_ccx_exe <directory of your ccx.exe>
+setx ADA_code_aster_exe <directory of your as_run.bat>
 
 :: Linux?
 
@@ -166,16 +190,18 @@ setx ADA_code_aster_exe <path to your ccx.exe>
 
 ```python
 import os
-os.environ["ADA_ccx_exe"] = "<path to your ccx.exe>"
-os.environ["ADA_abaqus_exe"] = "<path to your abaqus.bat>"
+os.environ["ADA_ccx_exe"] = "<directory of your ccx.exe>"
+os.environ["ADA_abaqus_exe"] = "<directory of your abaqus.bat>"
+os.environ["ADA_code_aster_exe"] = "<directory of your as_run.bat>"
 ```
 
 or
 
 ```python
 from ada.config import Settings
-Settings.fem_exe_paths["ccx"] = "<path to your ccx.exe>"
-Settings.fem_exe_paths["abaqus"] = "<path to your abaqus.bat>"
+Settings.fem_exe_paths["ccx"] = "<directory of your ccx.exe>"
+Settings.fem_exe_paths["abaqus"] = "<directory of your abaqus.bat>"
+Settings.fem_exe_paths["code_aster"] = "<directory of your as_run.bat>"
 ```
 
 For installation files of open source FEM software such as Calculix and Code Aster, here are some links:

@@ -6,6 +6,7 @@ from itertools import chain
 import numpy as np
 
 from ada import Node, Plate
+from ada.config import Settings as _Settings
 from ada.core.containers import Nodes
 from ada.core.utils import clockwise, intersect_calc, roundoff, vector_length
 from ada.fem import Elem, FemSection, FemSet
@@ -42,6 +43,7 @@ class GMesh:
         interactive=False,
         mesh_algo=8,
         sh_int_points=5,
+        point_tol=_Settings.point_tol,
     ):
         """
 
@@ -51,6 +53,7 @@ class GMesh:
         :param interactive:
         :param mesh_algo:
         :param sh_int_points:
+        :param point_tol:
         :return:
         """
         import gmsh
@@ -62,6 +65,7 @@ class GMesh:
             gmsh.finalize()
         except BaseException as e:
             logging.debug(e)
+
         gmsh.initialize()
         gmsh.option.setNumber("General.Terminal", 1)
         gmsh.option.setNumber("Mesh.SecondOrderIncomplete", 1)
@@ -83,7 +87,7 @@ class GMesh:
 
         list(
             map(
-                functools.partial(self._create_bm_geom, size=size),
+                functools.partial(self._create_bm_geom, size=size, point_tol=point_tol),
                 filter(lambda x: x not in [b for b in self._bm_map.values()], bm_in),
             )
         )
@@ -238,7 +242,7 @@ class GMesh:
         self._pl_map[surf] = pl
         self._bm_map.update({i: j for i, j in zip(intersec_geom, crossing_beams)})
 
-    def _create_bm_geom(self, bm, size):
+    def _create_bm_geom(self, bm, size, point_tol):
         """
 
         :param bm:
@@ -246,18 +250,52 @@ class GMesh:
         """
         import gmsh
 
+        def add_line(li):
+            if li in self._bm_map.keys():
+                raise ValueError("This should not happen!")
+            self._bm_map[li] = bm
+
         p1, p2 = bm.n1.p, bm.n2.p
+
+        midpoints = bm.calc_con_points(point_tol=point_tol)
+
+        if bm._connected_end1 is not None:
+            p1 = bm._connected_end1.centre
+        if bm._connected_end2 is not None:
+            p2 = bm._connected_end2.centre
+
         s = self.get_point(p1)
         e = self.get_point(p2)
+
         if len(s) == 0:
             s = [(0, gmsh.model.geo.addPoint(*p1.tolist(), size))]
         if len(e) == 0:
             e = [(0, gmsh.model.geo.addPoint(*p2.tolist(), size))]
 
-        line = gmsh.model.geo.addLine(s[0][1], e[0][1])
-        if line in self._bm_map.keys():
-            raise ValueError("This should not happen!")
-        self._bm_map[line] = bm
+        if len(midpoints) > 0:
+            prev_p = None
+            for i, con_centre in enumerate(midpoints):
+                midp = self.get_point(con_centre)
+                if len(midp) == 0:
+                    midp = [(0, gmsh.model.geo.addPoint(*con_centre, size))]
+                if prev_p is None:
+                    line = gmsh.model.geo.addLine(s[0][1], midp[0][1])
+                    add_line(line)
+                    prev_p = midp
+                    continue
+
+                line = gmsh.model.geo.addLine(prev_p[0][1], midp[0][1])
+                add_line(line)
+                prev_p = midp
+
+            if prev_p is None:
+                line = gmsh.model.geo.addLine(s[0][1], e[0][1])
+            else:
+                line = gmsh.model.geo.addLine(prev_p[0][1], e[0][1])
+            add_line(line)
+        else:
+            line = gmsh.model.geo.addLine(s[0][1], e[0][1])
+            add_line(line)
 
     def get_beam_elements(self, li, order):
         """
@@ -268,12 +306,17 @@ class GMesh:
         """
         import gmsh
 
+        from ada.core.utils import make_name_fem_ready
+
         model = gmsh.model
         bm = self._bm_map[li]
         segments = model.mesh.getElements(1, li)[1][0]
         fem_nodes = model.mesh.getElements(1, li)[2][0]
         elem_types, elem_tags, elem_node_tags = gmsh.model.mesh.getElements(1, li)
         face, dim, morder, numv, parv, _ = gmsh.model.mesh.getElementProperties(elem_types[0])
+
+        set_name = make_name_fem_ready(f"el{bm.name}_set")
+        fem = self._part.fem
 
         def make_elem(j):
             no = []
@@ -289,20 +332,27 @@ class GMesh:
             return Elem(segments[j], no, bm_el_type, parent=self._part.fem)
 
         elements = list(map(make_elem, range(len(segments))))
+        fem_sec_name = make_name_fem_ready(f"d{bm.name}_sec")
 
-        femset = FemSet(f"el{bm.name}_set", elements, "elset", parent=self._part.fem)
-        self._part.fem.sets.add(femset)
-        self._part.fem.add_section(
-            FemSection(
-                f"d{bm.name}_sec",
-                "beam",
-                femset,
-                bm.material,
-                bm.section,
-                bm.ori[2],
-                metadata=dict(beam=bm, numel=len(elements)),
+        if set_name in fem.elsets.keys():
+            fem_set = fem.elsets[set_name]
+            for el in elements:
+                el.fem_sec = fem_set.members[0].fem_sec
+            fem_set.add_members(elements)
+        else:
+            fem_set = FemSet(set_name, elements, "elset", parent=fem)
+            fem.sets.add(fem_set)
+            fem.add_section(
+                FemSection(
+                    fem_sec_name,
+                    "beam",
+                    fem_set,
+                    bm.material,
+                    bm.section,
+                    bm.ori[2],
+                    metadata=dict(beam=bm, numel=len(elements)),
+                )
             )
-        )
         return elements
 
     def get_shell_elements(self, sh, order):
@@ -458,7 +508,7 @@ def eval_thick_normal_from_cog_of_beam_plate(beam, cog):
     from ada.core.utils import vector_length
     from ada.sections import SectionCat
 
-    if SectionCat.is_circular_profile(beam.section.type):
+    if SectionCat.is_circular_profile(beam.section.type) or SectionCat.is_tubular_profile(beam.section.type):
         tol = beam.section.r / 8
     else:
         tol = beam.section.h / 8

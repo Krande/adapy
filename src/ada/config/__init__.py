@@ -1,5 +1,7 @@
+import getpass
 import os
 import pathlib
+from dataclasses import dataclass
 
 
 def _get_platform_home():
@@ -26,12 +28,17 @@ class Settings:
     valid_units = ["m", "mm"]
 
     convert_bad_names = False
+    convert_bad_names_for_fem = True
     use_occ_bounding_box_algo = False
     use_oriented_bbox = True  # This is only relevant if OCC bounding box is True
     make_param_elbows = False
+    use_param_profiles = True
+
+    use_experimental_cache = False
 
     # IFC export settings
     include_ecc = True
+    ifc_include_fem = False  # False while in experimental mode
 
     # FEM analysis settings
     if os.getenv("ADA_execute_dir", None) is not None:
@@ -71,3 +78,50 @@ class Settings:
         ifc_settings.set(ifc_settings.USE_WORLD_COORDS, True)
         ifc_settings.set(ifc_settings.VALIDATE_QUANTITIES, True)
         return ifc_settings
+
+
+@dataclass
+class User:
+    user_id: str = getpass.getuser()
+    given_name: str = None
+    family_name: str = None
+    middle_names: str = None
+    prefix_titles: str = None
+    suffix_titles: str = None
+    org_id: str = "ADA"
+    org_name: str = "Assembly For Design and Analysis"
+    org_description: str = None
+    role: str = "Engineer"
+    parent = None
+
+    def to_ifc(self):
+        from datetime import datetime
+
+        from ada.core.ifc_utils import get_org, get_person
+
+        f = self.parent.ifc_file
+        actor = f.create_entity("IfcActorRole", self.role.upper(), None, None)
+        user_props = dict(
+            Identification=self.user_id,
+            FamilyName=self.family_name,
+            GivenName=self.given_name,
+            MiddleNames=self.middle_names,
+            PrefixTitles=self.prefix_titles,
+            SuffixTitles=self.suffix_titles,
+        )
+        person = get_person(f, self.user_id)
+        if person is None:
+            person = f.create_entity("IfcPerson", **user_props, Roles=(actor,))
+        organization = get_org(f, self.org_id)
+        if organization is None:
+            organization = f.create_entity(
+                "IfcOrganization",
+                Identification=self.org_id,
+                Name=self.org_name,
+                Description=self.org_description,
+            )
+        p_o = f.create_entity("IfcPersonAndOrganization", person, organization)
+        application = f.create_entity("IfcApplication", organization, "XXX", "ADA", "ADA")
+        timestamp = int(datetime.now().timestamp())
+
+        return f.create_entity("IfcOwnerHistory", p_o, application, "READWRITE", None, None, None, None, timestamp)

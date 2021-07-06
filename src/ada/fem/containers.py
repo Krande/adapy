@@ -165,7 +165,7 @@ class FemElements:
 
     def __repr__(self):
         data = {}
-        for key, val in groupby(self._elements, key=attrgetter("type")):
+        for key, val in groupby(sorted(self._elements, key=attrgetter("type")), key=attrgetter("type")):
             if key not in data.keys():
                 data[key] = len(list(val))
             else:
@@ -829,3 +829,5 @@ class FemSets:
         if fe_set.parent is None:
             fe_set.parent = self._fem_obj
         self._instantiate_all_members(fe_set)
+
+        return fe_set

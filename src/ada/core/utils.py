@@ -35,7 +35,7 @@ __all__ = [
     "face_to_wires",
     "vector_length",
     "roundoff",
-    "parallel_check",
+    "is_parallel",
     "intersect_calc",
     "get_list_of_files",
     "is_occ_shape",
@@ -298,7 +298,18 @@ def distfunc(x, point, A, B):
     return vector_length(point - (A + x * AB))
 
 
-def parallel_check(ab, cd, tol=0.0001):
+def sort_points_by_dist(p, points):
+    return sorted(points, key=lambda x: vector_length(x - p))
+
+
+def is_point_on_line(a, b, p):
+    ap = p - a
+    ab = b - a
+    result = a + np.dot(ap, ab) / np.dot(ab, ab) * ab
+    return result
+
+
+def is_parallel(ab, cd, tol=0.0001):
     """
     Check if vectors AB and CD are parallel
 
@@ -376,7 +387,7 @@ def beam_cross_check(bm1, bm2, outofplane_tol=0.1):
     :type bm2: ada.Beam
     """
 
-    p_check = parallel_check
+    p_check = is_parallel
     i_check = intersect_calc
     v_len = vector_length
     a = bm1.n1.p
@@ -391,11 +402,6 @@ def beam_cross_check(bm1, bm2, outofplane_tol=0.1):
 
     ab_ = a + s * ab
     cd_ = c + t * cd
-
-    t_ = roundoff(t)
-    if 0 < t_ < 1:
-        logging.debug(f"Beam cross-check indicates that the beams {bm1} and {bm2} are most probably parallel")
-        return None
 
     if p_check(ab, cd):
         logging.debug(f"beams {bm1} {bm2} are parallel")
@@ -1539,11 +1545,11 @@ def normal_to_points_in_plane(points):
     v1 = p3 - p1
     v2 = p2 - p1
 
-    if parallel_check(v1, v2) is True:
+    if is_parallel(v1, v2) is True:
         for i in range(3, len(points)):
             p3 = points[i]
             v1 = p3 - p1
-            if parallel_check(v1, v2) is False:
+            if is_parallel(v1, v2) is False:
                 break
 
     # the cross product is a vector normal to the plane
@@ -3215,6 +3221,35 @@ def sweep_pipe(edge, xvec, r, wt):
     if boolean_result.IsNull():
         logging.debug("Boolean returns None")
     return boolean_result
+
+
+def make_name_fem_ready(value, no_dot=False):
+    """
+    Based on typically allowed names in FEM, this function will try to rename objects to comply without significant
+    changes to the original name
+
+    :param value:
+    :param no_dot:
+    :return: Fixed name
+    """
+    logging.debug("Converting bad name")
+    value = value.replace("/", "_").replace("=", "")
+    if str.isnumeric(value[0]):
+        value = "_" + value
+
+    if "/" in value:
+        logging.error(f'Character "/" found in {value}')
+
+    if no_dot:
+        value = value.replace(".", "_")
+
+    return value.strip()
+
+
+def get_version():
+    from importlib.metadata import version
+
+    return version("ada-py")
 
 
 def closest_val_in_dict(val, dct):

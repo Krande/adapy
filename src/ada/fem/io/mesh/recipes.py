@@ -97,7 +97,7 @@ def create_plate_mesh(
 
 
 def create_beam_mesh(
-    beam, fem, geom_repr="solid", max_size=0.1, order=1, algo=8, tol=1e-3, interactive=False, gmsh_session=None
+    beam, fem, geom_repr="shell", max_size=0.1, order=1, algo=8, tol=1e-3, interactive=False, gmsh_session=None
 ):
     """
     :param beam:
@@ -137,8 +137,6 @@ def create_beam_mesh(
     model.add(name)
 
     if geom_repr in ["shell", "solid"]:
-        # geom_so = beam.solid
-        # geom_sh = beam.shell
         beam.to_stp(temp_dir / name, geom_repr=geom_repr)
         gmsh_session.open(str(temp_dir / f"{name}.stp"))
     else:  # beam
@@ -149,8 +147,6 @@ def create_beam_mesh(
             s = [(0, model.geo.addPoint(*p1.tolist(), max_size))]
         if len(e) == 0:
             e = [(0, model.geo.addPoint(*p2.tolist(), max_size))]
-
-        # line = model.geo.addLine(s[0][1], e[0][1])
 
     model.geo.synchronize()
     model.mesh.setRecombine(3, 1)

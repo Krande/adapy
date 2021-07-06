@@ -7,6 +7,9 @@ import ada.core.utils
 
 from . import SectionCat
 
+digit = r"\d{0,5}\.?\d{0,5}|\d{0,5}|\d{0,5}\/\d{0,5}"
+flex = r"?:\.|[A-Z]|"
+
 
 def profile_db_collect(sec_type, dim, units="m"):
     """
@@ -86,8 +89,6 @@ def interpret_section_str(in_str, s=0.001, units="m"):
 
     rdoff = ada.core.utils.roundoff
 
-    digit = r"\d{0,5}\.?\d{0,5}|\d{0,5}|\d{0,5}\/\d{0,5}"
-    flex = r"?:\.|[A-Z]|"
     re_in = re.IGNORECASE | re.DOTALL
     for box in SectionCat.box:
         res = re.search(
@@ -247,7 +248,7 @@ def interpret_section_str(in_str, s=0.001, units="m"):
     for tub in SectionCat.tubular:
         res = re.search("({tub})({digit})x({digit})".format(tub=tub, digit=digit), in_str, re_in)
         if res is not None:
-            fac = 0.5 if tub == "OD" else 1.0
+            fac = 0.5 if tub in ["OD", "O"] else 1.0
             r = [rdoff(float(x) * s * fac) for x in res.group(2).split("/")]
             wt = [rdoff(float(x) * s) for x in res.group(3).split("/")]
             sec = Section(
@@ -284,6 +285,12 @@ def interpret_section_str(in_str, s=0.001, units="m"):
                 metadata=dict(cad_str=in_str),
                 units=units,
             )
+            return sec, sec
+
+    for cha in SectionCat.channels:
+        res = re.search("({ang})({digit})".format(ang=cha, digit=digit), in_str, re_in)
+        if res is not None:
+            sec = profile_db_collect(cha, res.group(2), units=units)
             return sec, sec
 
     raise ValueError(f'Unable to interpret section str "{in_str}"')

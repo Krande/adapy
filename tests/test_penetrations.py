@@ -12,7 +12,7 @@ from ada import (
     PrimRevolve,
     Section,
 )
-from ada.config import Settings
+from ada.config import Settings, User
 
 test_folder = Settings.test_dir / "penetrations"
 
@@ -21,7 +21,7 @@ class TestPenetrations(unittest.TestCase):
     def test_mix_extrude(self):
 
         bm = Beam("MyBeam", (0, 0, 0), (1.5, 0, 0), Section("myIPE", from_str="IPE400"))
-        a = Assembly("Test", creator="Kristoffer H. Andersen") / [Part("MyPart") / bm]
+        a = Assembly("Test", user=User("krande")) / [Part("MyPart") / bm]
 
         h = 0.2
         r = 0.02

@@ -71,6 +71,10 @@ class Results:
         self._deformed_mesh = None
 
     @property
+    def results_file_path(self):
+        return self._results_file_path
+
+    @property
     def mesh(self):
         return self._mesh
 

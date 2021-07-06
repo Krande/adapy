@@ -1,7 +1,7 @@
 import unittest
 
 from ada import Assembly, Beam, CurvePoly, Material, Part, Section
-from ada.config import Settings
+from ada.config import Settings, User
 from ada.materials.metals import CarbonSteel
 
 test_folder = Settings.test_dir / "beams"
@@ -231,7 +231,7 @@ class BeamIO(unittest.TestCase):
         section_e = Section("MyEndCrossSection", "poly", outer_poly=poly_e_o, inner_poly=poly_e_i, units="mm")
 
         bm = Beam("MyCone", (2, 2, 2), (4, 4, 4), sec=section_s, tap=section_e)
-        a = Assembly("Level1", project="Project0", creator="krande", units="mm") / (Part("Level2") / bm)
+        a = Assembly("Level1", project="Project0", user=User("krande"), units="mm") / (Part("Level2") / bm)
         a.to_ifc(test_folder / "cone_ex.ifc")
 
     # def test_revolved_beam(self):

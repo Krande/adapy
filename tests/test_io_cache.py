@@ -1,32 +1,56 @@
+import time
 import unittest
 
 from ada import Assembly
-from ada._cache.reader import read_assembly_from_cache
-from ada._cache.writer import write_assembly_to_cache
 from ada.config import Settings
 from ada.param_models.basic_module import SimpleStru
 
-test_folder = Settings.test_dir / "cache"
+test_dir = Settings.test_dir / "cache"
 
 
-class MyTestCase(unittest.TestCase):
-    def test_something(self):
-        a = Assembly("ParametricSite") / SimpleStru("ParametricModel")
-        a.gmsh.mesh()
+def cache_validation(a, b):
+    amats = [mat for p in a.get_all_parts_in_assembly(True) for mat in p.materials]
+    bmats = [mat for p in b.get_all_parts_in_assembly(True) for mat in p.materials]
+    assert len(amats) == len(bmats)
 
-        cache_file = (test_folder / a.name).with_suffix(".h5")
+    bsecs = [sec for p in b.get_all_parts_in_assembly(True) for sec in p.sections]
+    asecs = [sec for p in a.get_all_parts_in_assembly(True) for sec in p.sections]
+    assert len(asecs) == len(bsecs)
 
-        write_assembly_to_cache(a, cache_file)
-        a2 = read_assembly_from_cache(cache_file)
+    bbeams = [bm for p in b.get_all_parts_in_assembly(True) for bm in p.beams]
+    abeams = [bm for p in a.get_all_parts_in_assembly(True) for bm in p.beams]
+    assert len(abeams) == len(bbeams)
 
-        for nA, nB in zip(a.fem.nodes, a2.fem.nodes):
-            assert nA == nB
+    for nA, nB in zip(a.fem.nodes, b.fem.nodes):
+        assert nA == nB
 
-        for nA, nB in zip(a.fem.elements, a2.fem.elements):
-            assert nA == nB
+    for nA, nB in zip(a.fem.elements, b.fem.elements):
+        assert nA == nB
 
-        print(a)
-        print(a2)
+    print(a)
+    print(b)
+
+
+class ModelCacheTests(unittest.TestCase):
+    def test_simplestru_fem_cache(self):
+
+        model_name = "ParamAssembly"
+
+        start = time.time()
+        a = Assembly(model_name, clear_cache=True, enable_experimental_cache=True) / SimpleStru("ParamModel")
+
+        pfem = a.get_by_name("ParamModel")
+        pfem.gmsh.mesh()
+        time1 = time.time() - start
+        print(time1)
+        a.update_cache()
+        start = time.time()
+        b = Assembly(model_name, enable_experimental_cache=True)
+        time2 = time.time() - start
+        print(time2)
+        cache_validation(a, b)
+
+        print(f"Model generation time reduced from {time1:.2f}s to {time2:.2f}s -> {time1 / time2:.2f} x Improvement")
 
 
 if __name__ == "__main__":

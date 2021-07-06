@@ -12,8 +12,20 @@ fem_executables = dict(abaqus=abaqus.run_abaqus, calculix=calculix.run_calculix,
 
 
 def femio(f):
+    """
+
+    :param f: dsd
+    :return:
+    """
+
     @wraps(f)
     def convert_fem_wrapper(*args, **kwargs):
+        """
+
+        :param args:
+        :param kwargs:
+        :return:
+        """
         from .io_meshio import meshio_read_fem, meshio_to_fem
 
         f_name = f.__name__
