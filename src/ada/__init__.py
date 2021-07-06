@@ -5043,7 +5043,7 @@ class Node:
         :param units:
         """
         self._id = nid
-        self.p = np.array([p[0], p[1], p[2]], dtype=np.float64) if type(p) != np.ndarray else p
+        self.p = np.array([*p], dtype=np.float64) if type(p) != np.ndarray else p
         if len(self.p) != 3:
             raise ValueError("Node object must have exactly 3 coordinates (x, y, z).")
         self._bc = bc
@@ -5097,13 +5097,7 @@ class Node:
     def units(self, value):
         if value != self._units:
             scale_factor = Backend._unit_conversion(self._units, value)
-            self.p = np.array(
-                [
-                    self.p[0] * scale_factor,
-                    self.p[1] * scale_factor,
-                    self.p[2] * scale_factor,
-                ]
-            )
+            self.p *= scale_factor
             if self._r is not None:
                 self._r *= scale_factor
             self._units = value
@@ -5138,12 +5132,15 @@ class Node:
     def __eq__(self, other):
         if not isinstance(other, Node):
             return NotImplemented
-        return tuple(self.p) == tuple(other.p)
+        return (*self.p, self.id) == (*other.p, other.id)
 
     def __ne__(self, other):
         if not isinstance(other, Node):
             return NotImplemented
-        return tuple(self.p) != tuple(other.p)
+        return (*self.p, self.id) != (*other.p, other.id)
+
+    def __hash__(self):
+        return hash((*self.p, self.id))
 
     def __repr__(self):
         return f"Node([{self.x}, {self.y}, {self.z}], {self.id})"
