@@ -1,6 +1,6 @@
 import numpy as np
 
-from ada import Assembly, Beam, Material, Part, PrimBox, PrimCyl, PrimExtrude
+from ada import Assembly, Beam, Material, Part, PrimBox, PrimCyl, PrimExtrude, User
 from ada.fem import Bc, FemSet, Load, Step
 from ada.fem.io.mesh.recipes import create_beam_mesh
 from ada.fem.utils import get_beam_end_nodes
@@ -13,7 +13,7 @@ def beam_ex1(p1=(0, 0, 0), p2=(1.5, 0, 0), profile="IPE400"):
     :rtype: ada.Assembly
     """
     bm = Beam("MyBeam", p1, p2, profile, Material("S355"))
-    a = Assembly("Test", creator="Kristoffer H. Andersen") / [Part("MyPart") / bm]
+    a = Assembly("Test", user=User("krande")) / [Part("MyPart") / bm]
 
     h = 0.2
     r = 0.02

@@ -10,6 +10,7 @@ import numpy as np
 
 from .base import Backend, BackendGeom
 from .config import Settings as _Settings
+from .config import User
 from .core.containers import Beams, Connections, Materials, Nodes, Plates, Sections
 from .core.utils import (
     Counter,
@@ -17,7 +18,6 @@ from .core.utils import (
     calc_yvec,
     calc_zvec,
     create_guid,
-    get_current_user,
     get_list_of_files,
     make_wire_from_points,
     roundoff,
@@ -55,6 +55,7 @@ __all__ = [
     "CurveRevolve",
     "LineSegment",
     "ArcSegment",
+    "User",
 ]
 
 
@@ -68,9 +69,9 @@ class Part(BackendGeom):
     :param lx: Local X
     :param ly: Local Y
     :param lz: Local Z
-    :param props: A properties object
+    :param settings: A properties object
     :param metadata: A dict for containing metadata
-    :type props: Settings
+    :type settings: Settings
     :type fem: FEM
     """
 
@@ -82,8 +83,8 @@ class Part(BackendGeom):
         lx=(1, 0, 0),
         ly=(0, 1, 0),
         lz=(0, 0, 1),
-        fem=None,
-        props=_Settings(),
+        fem: FEM = None,
+        settings: _Settings = _Settings(),
         metadata=None,
         parent=None,
         units="m",
@@ -118,7 +119,7 @@ class Part(BackendGeom):
 
         self._ifc_elem = None
 
-        self._props = props
+        self._props = settings
         if fem is not None:
             fem.parent = self
 
@@ -595,6 +596,9 @@ class Part(BackendGeom):
                 if mat.name == name:
                     return mat
 
+        logging.error(f'Unable to find"{name}". Check if the element type is evaluated in the algorithm')
+        return None
+
     def get_all_parts_in_assembly(self, include_self=False):
         parent = self.get_assembly()
         list_of_ps = []
@@ -658,7 +662,8 @@ class Part(BackendGeom):
         a = self.get_assembly()
         f = a.ifc_file
 
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
+
         itype = self.metadata["ifctype"]
         parent = self.parent.ifc_elem
         placement = create_local_placement(
@@ -668,64 +673,29 @@ class Part(BackendGeom):
             loc_z=self._lz,
             relative_to=parent.ObjectPlacement,
         )
+        type_map = dict(building="IfcBuilding", space="IfcSpace", spatial="IfcSpatialZone", storey="IfcBuildingStorey")
 
-        if itype == "building":
-            ifc_elem = f.createIfcBuilding(
-                self.guid,
-                owner_history,
-                self.name,
-                None,
-                None,
-                placement,
-                None,
-                None,
-                "ELEMENT",
-                None,
-                None,
-                None,
-            )
-        elif itype == "space":
-            ifc_elem = f.createIfcSpace(
-                self.guid,
-                owner_history,
-                self.name,
-                "Description",
-                None,
-                placement,
-                None,
-                None,
-                "ELEMENT",
-                None,
-                None,
-            )
-        elif itype == "spatial":
-            ifc_elem = f.createIfcSpatialZone(
-                self.guid,
-                owner_history,
-                self.name,
-                "Description",
-                None,
-                placement,
-                None,
-                None,
-                None,
-            )
-        elif itype == "storey":
-            elevation = self.origin[2]
-            ifc_elem = f.createIfcBuildingStorey(
-                self.guid,
-                owner_history,
-                self.name,
-                None,
-                None,
-                placement,
-                None,
-                None,
-                "ELEMENT",
-                elevation,
-            )
-        else:
+        if itype not in type_map.keys() and itype not in type_map.values():
             raise ValueError(f'Currently not supported "{itype}"')
+
+        ifc_type = type_map[itype] if itype not in type_map.values() else itype
+
+        props = dict(
+            GlobalId=self.guid,
+            OwnerHistory=owner_history,
+            Name=self.name,
+            Description=self.metadata.get("Description", None),
+            ObjectType=None,
+            ObjectPlacement=placement,
+            Representation=None,
+            LongName=self.metadata.get("LongName", None),
+            CompositionType=self.metadata.get("CompositionType", "ELEMENT"),
+        )
+
+        if ifc_type == "IfcBuildingStorey":
+            props["Elevation"] = self.origin[2]
+
+        ifc_elem = f.create_entity(ifc_type, **props)
 
         f.createIfcRelAggregates(
             create_guid(),
@@ -912,16 +882,10 @@ class Part(BackendGeom):
             self.materials.units = value
             self._units = value
             if type(self) is Assembly:
-                from ada.core.ifc_utils import generate_tpl_ifc_file
+                assert isinstance(self, Assembly)
+                from ada.core.ifc_utils import assembly_to_ifc_file
 
-                self._ifc_file = generate_tpl_ifc_file(
-                    self.name,
-                    self.metadata["project"],
-                    self.metadata["organization"],
-                    self.metadata["creator"],
-                    self.metadata["schema"],
-                    value,
-                )
+                self._ifc_file = assembly_to_ifc_file(self)
 
     @property
     def ifc_elem(self):
@@ -982,81 +946,90 @@ class Assembly(Part):
         self,
         name="Ada",
         project="AdaProject",
-        organization="AdaOrganization",
-        creator="AdaCreator",
+        user: User = User(),
         schema="IFC4",
-        props=_Settings(),
+        settings=_Settings(),
         metadata=None,
         units="m",
         ifc_settings=None,
         clear_cache=False,
-        enable_experimental_cache=_Settings.use_experimental_cache,
+        enable_experimental_cache=None,
     ):
 
-        from ada.core.ifc_utils import generate_tpl_ifc_file
+        from ada.core.ifc_utils import assembly_to_ifc_file
 
-        creator = get_current_user() if creator is None else creator
-        self._ifc_file = generate_tpl_ifc_file(name, project, organization, creator, schema, units)
-        if metadata is None:
-            metadata = dict()
+        metadata = dict() if metadata is None else metadata
         metadata["project"] = project
-        metadata["organization"] = organization
-        metadata["creator"] = creator
         metadata["schema"] = schema
+
+        Part.__init__(self, name=name, settings=settings, metadata=metadata, units=units)
+
+        user.parent = self
+        self._user = user
+
+        self._ifc_file = assembly_to_ifc_file(self)
+
         self._ifc_sections = None
         self._ifc_materials = None
         self._source_ifc_files = dict()
         self._ifc_settings = ifc_settings
         self._presentation_layers = []
 
-        Part.__init__(self, name=name, props=props, metadata=metadata, units=units)
-
-        self._state_file = (pathlib.Path(".state") / self.name).with_suffix(".json")
-        self._cache_file = (pathlib.Path(".state") / self.name).with_suffix(".h5")
-
-        if self._cache_file.exists() and clear_cache:
-            os.remove(self._cache_file)
-        if self._state_file.exists() and clear_cache:
-            os.remove(self._state_file)
-
-        self._cache_loaded = False
+        # Model Cache
+        if enable_experimental_cache is None:
+            enable_experimental_cache = _Settings.use_experimental_cache
         self._enable_experimental_cache = enable_experimental_cache
+
         if self._enable_experimental_cache is True:
+            state_path = pathlib.Path("").parent.resolve().absolute() / ".state" / self.name
+            self._state_file = state_path.with_suffix(".json")
+            self._cache_file = state_path.with_suffix(".h5")
+
+            if self._cache_file.exists() and clear_cache:
+                os.remove(self._cache_file)
+            if self._state_file.exists() and clear_cache:
+                os.remove(self._state_file)
+
+            self._cache_loaded = False
             self._from_cache()
 
-    def _from_cache(self, input_file=None):
-        cache_is_outdated = False
+    def is_cache_outdated(self, input_file=None):
+        is_cache_outdated = False
         state = self._get_file_state()
 
         for name, props in state.items():
             in_file = pathlib.Path(props.get("fp"))
             last_modified_state = props.get("lm")
             if in_file.exists() is False:
-                cache_is_outdated = True
+                is_cache_outdated = True
                 break
 
             last_modified = os.path.getmtime(in_file)
             if last_modified != last_modified_state:
-                cache_is_outdated = True
+                is_cache_outdated = True
                 break
 
         if self._cache_file.exists() is False:
             logging.debug("Cache file not found")
-            cache_is_outdated = True
+            is_cache_outdated = True
 
         if input_file is not None:
             curr_in_file = pathlib.Path(input_file)
             if curr_in_file.name not in state.keys():
-                cache_is_outdated = True
-        else:
-            if cache_is_outdated is False:
-                self._read_cache()
-                return True
+                is_cache_outdated = True
 
-        if cache_is_outdated is False and self._cache_loaded is False:
+        return is_cache_outdated
+
+    def _from_cache(self, input_file=None):
+        is_cache_outdated = self.is_cache_outdated(input_file)
+        if input_file is None and is_cache_outdated is False:
             self._read_cache()
             return True
-        elif cache_is_outdated is False and self._cache_loaded is True:
+
+        if is_cache_outdated is False and self._cache_loaded is False:
+            self._read_cache()
+            return True
+        elif is_cache_outdated is False and self._cache_loaded is True:
             return True
         else:
             return False
@@ -1283,7 +1256,6 @@ class Assembly(Part):
 
         if self._enable_experimental_cache is True:
             if self._from_cache(fem_file) is True:
-
                 return None
 
         convert_func(self, fem_file, name)
@@ -1407,7 +1379,8 @@ class Assembly(Part):
         from ada.fem.io.ifc.writer import to_ifc_fem
 
         f = self.ifc_file
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+
+        owner_history = self.user.to_ifc()
 
         dest = pathlib.Path(destination_file).with_suffix(".ifc")
 
@@ -1535,9 +1508,10 @@ class Assembly(Part):
         from ada.core.ifc_utils import create_local_placement, create_property_set
 
         f = self.ifc_file
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = self.user.to_ifc()
         site_placement = create_local_placement(f)
-        site = f.createIfcSite(
+        site = f.create_entity(
+            "IfcSite",
             self.guid,
             owner_history,
             self.name,
@@ -1630,6 +1604,10 @@ class Assembly(Part):
     @property
     def presentation_layers(self):
         return self._presentation_layers
+
+    @property
+    def user(self) -> User:
+        return self._user
 
     def __repr__(self):
         nbms = len([bm for p in self.get_all_subparts() for bm in p.beams]) + len(self.beams)
@@ -1854,7 +1832,7 @@ class Beam(BackendGeom):
         f = a.ifc_file
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
         parent = self.parent.ifc_elem
 
         if Settings.include_ecc and self.e1 is not None:
@@ -2481,7 +2459,7 @@ class Plate(BackendGeom):
         f = a.ifc_file
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
         parent = self.parent.ifc_elem
 
         xvec = self.poly.xdir
@@ -2966,7 +2944,7 @@ class Pipe(BackendGeom):
         a = self.get_assembly()
         f = a.ifc_file
 
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
         parent = self.parent.ifc_elem
 
         placement = create_local_placement(
@@ -3018,7 +2996,7 @@ class Pipe(BackendGeom):
             a = self.get_assembly()
             f = a.ifc_file
 
-            owner_history = f.by_type("IfcOwnerHistory")[0]
+            owner_history = a.user.to_ifc()
 
             segments = []
             for param_seg in self._segments:
@@ -3102,7 +3080,7 @@ class PipeSegStraight(BackendGeom):
         f = a.ifc_file
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
 
         p1 = self.p1
         p2 = self.p2
@@ -3200,9 +3178,9 @@ class PipeSegElbow(BackendGeom):
     def geom(self):
         from ada.core.utils import make_edges_and_fillet_from_3points, sweep_pipe
 
-        i = self.parent._segments.index(self)
+        i = self.parent.segments.index(self)
         if i != 0:
-            pseg = self.parent._segments[i - 1]
+            pseg = self.parent.segments[i - 1]
             xvec = pseg.xvec1
         else:
             xvec = self.xvec1
@@ -3295,7 +3273,7 @@ class PipeSegElbow(BackendGeom):
         f = a.ifc_file
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
         schema = a.ifc_file.wrapped_data.schema
 
         if _Settings.make_param_elbows is False:
@@ -3475,7 +3453,7 @@ class Wall(BackendGeom):
         f = a.ifc_file
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
         parent = self.parent.ifc_elem
         elevation = self.origin[2]
 
@@ -3555,7 +3533,7 @@ class Wall(BackendGeom):
         f = a.ifc_file
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
         schema = a.ifc_file.wrapped_data.schema
 
         # Create a simplified representation for the Window
@@ -3941,7 +3919,7 @@ class Shape(BackendGeom):
         f = a.ifc_file
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
         parent = self.parent.ifc_elem
         schema = a.ifc_file.wrapped_data.schema
 
@@ -4459,7 +4437,7 @@ class Penetration(BackendGeom):
         f = a.ifc_file
 
         geom_parent = self.parent.parent.ifc_elem
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
 
         # Create and associate an opening for the window in the wall
         opening_placement = create_local_placement(f, O, Z, X, geom_parent.ObjectPlacement)
@@ -5041,7 +5019,7 @@ class Material(Backend):
         a = self.parent.get_assembly()
         f = a.ifc_file
 
-        owner_history = f.by_type("IfcOwnerHistory")[0]
+        owner_history = a.user.to_ifc()
 
         ifc_mat = f.createIfcMaterial(self.name, None, "Steel")
         properties = []

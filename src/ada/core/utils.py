@@ -3256,3 +3256,9 @@ def make_name_fem_ready(value, no_dot=False):
         value = value.replace(".", "_")
 
     return value.strip()
+
+
+def get_version():
+    from importlib.metadata import version
+
+    return version("ada-py")

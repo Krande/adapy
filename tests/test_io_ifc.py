@@ -1,6 +1,6 @@
 import unittest
 
-from ada import Assembly, Beam, Part, Pipe, Plate, Section, Wall
+from ada import Assembly, Beam, Part, Pipe, Plate, Section, User, Wall
 from ada.config import Settings
 from ada.core.utils import download_to
 from ada.param_models.basic_module import SimpleStru
@@ -19,7 +19,9 @@ class IfcExport(unittest.TestCase):
             metadata=dict(hidden=True),
         )
 
-        a = Assembly("MyFirstIfcFile") / (Part("MyBldg", metadata=dict(ifctype="building")) / bm)
+        user = User(user_id="krande", org_id="ADA", org_name="Assembly Test")
+
+        a = Assembly("MyFirstIfcFile", user=user) / (Part("MyBldg", metadata=dict(ifctype="building")) / bm)
         a.to_ifc(test_folder / "MyTest.ifc")
 
     def test_export_layers(self):

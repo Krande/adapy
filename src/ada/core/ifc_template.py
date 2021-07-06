@@ -12,12 +12,12 @@ from ifcopenshell.guid import compress
 TEMPLATE = """ISO-10303-21;
 HEADER;
 FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');
-FILE_NAME('%(filename)s','%(timestring)s',('%(creator)s'),('%(organization)s'),'%(application)s','%(application)s','');
+FILE_NAME('%(filename)s','%(timestring)s',('%(user_id)s'),('%(organization)s'),'%(application)s','%(application)s','');
 FILE_SCHEMA(('%(schema_identifier)s'));
 ENDSEC;
 DATA;
-#1=IFCPERSON($,$,'%(creator)s',$,$,$,$,$);
-#2=IFCORGANIZATION($,'%(organization)s',$,$,$);
+#1=IFCPERSON('%(user_id)s',$,$,$,$,$,$,$);
+#2=IFCORGANIZATION('%(organization)s','%(org_name)s',$,$,$);
 #3=IFCPERSONANDORGANIZATION(#1,#2,$);
 #4=IFCAPPLICATION(#2,'%(application_version)s','%(application)s','');
 #5=IFCOWNERHISTORY(#3,#4,$,.ADDED.,$,#3,#4,%(timestamp)s);
@@ -54,7 +54,7 @@ def tpl_create(
     filename=None,
     timestring=None,
     organization=None,
-    creator=None,
+    user_id=None,
     schema_identifier=None,
     application_version=None,
     timestamp=None,
@@ -62,6 +62,7 @@ def tpl_create(
     project_globalid=None,
     project_name=None,
     units_str=None,
+    org_name=None,
 ):
     d = dict(locals())
 

@@ -61,15 +61,47 @@ def create_local_placement(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X, relativ
     return ifclocalplacement2
 
 
-def generate_tpl_ifc_file(file_name, project, organization, creator, schema, units):
+def create_new_ifc_file(file_name, schema):
+    import datetime
+    from .utils import get_version
+
+    f = ifcopenshell.file(schema=schema)
+    ada_ver = get_version()
+    f.wrapped_data.header.file_name.name = file_name
+    f.wrapped_data.header.file_name.time_stamp = (
+        datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).astimezone().replace(microsecond=0).isoformat()
+    )
+
+    ver_str = f'IfcOpenShell: "{ifcopenshell.version}", ADA: "{ada_ver}"'
+
+    f.wrapped_data.header.file_name.preprocessor_version = ver_str
+    f.wrapped_data.header.file_name.originating_system = ver_str
+    f.wrapped_data.header.file_name.authorization = "Nobody"
+    length_unit = f.createIfcSIUnit(None, "LENGTHUNIT", None, "METRE")
+    unit_assignment = f.createIfcUnitAssignment((length_unit,))
+    # f.wrapped_data.header.file_description.description = ("ViewDefinition[DesignTransferView]",)
+    return f
+
+
+def assembly_to_ifc_file(a):
+    """
+
+    :param a:
+    :type a: ada.Assembly
+    :return:
+    """
+    return generate_tpl_ifc_file(a.name, a.metadata["project"], a.metadata["schema"], a.units, a.user)
+
+
+def generate_tpl_ifc_file(file_name, project, schema, units, user):
     """
 
     :param file_name:
     :param project:
-    :param organization:
-    :param creator:
     :param schema:
     :param units:
+    :param user:
+    :type user: ada.config.User
     :return:
     """
 
@@ -90,8 +122,8 @@ def generate_tpl_ifc_file(file_name, project, organization, creator, schema, uni
     ifc_file = tpl_create(
         file_name + ".ifc",
         timestring,
-        organization,
-        creator,
+        user.org_name,
+        user.user_id,
         schema,
         application_version,
         int(timestamp),
@@ -99,6 +131,7 @@ def generate_tpl_ifc_file(file_name, project, organization, creator, schema, uni
         project_globalid,
         project,
         units_str,
+        user.org_name,
     )
 
     return ifc_file
@@ -821,34 +854,18 @@ def convert_bm_jusl_to_ifc(bm):
     return jusl_val
 
 
-def create_owner_history(f, role="engineer", user_info=None, organization=None):
-    """
+def get_person(f, user_id):
+    for p in f.by_type("IfcPerson"):
+        if p.Identification == user_id:
+            return p
+    return None
 
-    :param f:
-    :param role:
-    :param user_info:
-    :param organization:
-    :type f: ifcopenshell.file.file
-    :return:
-    """
-    import getpass
-    from datetime import datetime
 
-    user_info = getpass.getuser() if user_info is None else user_info
-
-    actor = f.create_entity("IfcActorRole", role.upper(), None, None)
-    person = f.create_entity("IfcPerson", user_info, None, "First Name", None, None, None, (actor,))
-    organization = f.create_entity(
-        "IfcOrganization",
-        None,
-        organization,
-        "Description",
-    )
-    p_o = f.createIfcPersonAndOrganization(person, organization)
-    application = f.createIfcApplication(organization, "XXX", "ADA", "ADA")
-    timestamp = int(datetime.now().timestamp())
-
-    return f.createIfcOwnerHistory(p_o, application, "READWRITE", None, None, None, None, timestamp)
+def get_org(f, org_id):
+    for p in f.by_type("IfcOrganization"):
+        if p.Identification == org_id:
+            return p
+    return None
 
 
 def create_reference_subrep(f, global_axes):

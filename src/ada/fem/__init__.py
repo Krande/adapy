@@ -793,7 +793,7 @@ class FEM(FemBase):
         from ada.core.utils import vector_length
 
         edited_nodes = dict()
-        tol = 1e-3
+        tol = _Settings.point_tol
 
         def build_mpc(fs):
             """
