@@ -833,3 +833,13 @@ class SectionCat:
     @classmethod
     def is_flatbar(cls, bmtype):
         return True if bmtype.upper() in cls.flatbar else False
+
+    @classmethod
+    def is_strong_axis_symmetric(cls, section):
+        """
+
+        :param section:
+        :type section: ada.Section
+        :return:
+        """
+        return section.w_top == section.w_btn and section.t_ftop == section.t_fbtn

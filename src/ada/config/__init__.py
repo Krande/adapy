@@ -32,6 +32,7 @@ class Settings:
     use_occ_bounding_box_algo = False
     use_oriented_bbox = True  # This is only relevant if OCC bounding box is True
     make_param_elbows = False
+    use_param_profiles = True
 
     use_experimental_cache = False
 

@@ -118,6 +118,11 @@ class Beams(BaseCollections):
         self._dmap[beam.name] = beam
         self._beams.append(beam)
 
+    def remove(self, beam):
+        i = self._beams.index(beam)
+        self._beams.pop(i)
+        self._dmap = {n.name: n for n in self._beams}
+
     def get_beams_within_volume(self, vol_, margins=None):
         """
         :param vol_: List or tuple of tuples [(xmin, xmax), (ymin, ymax), (zmin, zmax)]

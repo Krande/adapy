@@ -4598,57 +4598,107 @@ class Section(Backend):
         a = self.parent.parent.get_assembly()
         f = a.ifc_file
 
+        sec_props = dict(ProfileType="AREA", ProfileName=self.name)
+
         if SectionCat.is_i_profile(self.type):
-            outer_curve, inner_curve, disconnected = self.cross_sec(True)
-            polyline = create_ifcpolyline(f, outer_curve)
-            profile = f.createIfcArbitraryClosedProfileDef("AREA", self.name, polyline)
-            # profile = f.createIfcIShapeProfileDef('AREA', self.name, None, self.w_top, self.h, self.t_w, self.t_ftop)
+            if _Settings.use_param_profiles is False:
+                outer_curve, inner_curve, disconnected = self.cross_sec(True)
+                polyline = create_ifcpolyline(f, outer_curve)
+
+                ifc_sec_type = "IfcArbitraryClosedProfileDef"
+                sec_props.update(dict(OuterCurve=polyline))
+            else:
+                if SectionCat.is_strong_axis_symmetric(self) is False:
+                    logging.error(
+                        "Note! Not using IfcAsymmetricIShapeProfileDef as it is not supported by ifcopenshell"
+                    )
+                    # ifc_sec_type = "IfcAsymmetricIShapeProfileDef"
+                    # sec_props.update(
+                    #     dict(
+                    #         TopFlangeWidth=self.w_top,
+                    #         BottomFlangeWidth=self.w_btn,
+                    #         OverallDepth=self.h,
+                    #         WebThickness=self.t_w,
+                    #         TopFlangeThickness=self.t_ftop,
+                    #         BottomFlangeThickness=self.t_fbtn,
+                    #     )
+                    # )
+
+                ifc_sec_type = "IfcIShapeProfileDef"
+                sec_props.update(
+                    dict(
+                        OverallWidth=self.w_top,
+                        OverallDepth=self.h,
+                        WebThickness=self.t_w,
+                        FlangeThickness=self.t_ftop,
+                    )
+                )
+
         elif SectionCat.is_hp_profile(self.type):
             outer_curve, inner_curve, disconnected = self.cross_sec(True)
             points = [f.createIfcCartesianPoint(p) for p in outer_curve]
             ifc_polyline = f.createIfcPolyLine(points)
-            profile = f.createIfcArbitraryClosedProfileDef("AREA", self.name, ifc_polyline)
+            ifc_sec_type = "IfcArbitraryClosedProfileDef"
+            sec_props.update(dict(OuterCurve=ifc_polyline))
         elif SectionCat.is_box_profile(self.type):
             outer_curve, inner_curve, disconnected = self.cross_sec(True)
             outer_points = [f.createIfcCartesianPoint(p) for p in outer_curve + [outer_curve[0]]]
             inner_points = [f.createIfcCartesianPoint(p) for p in inner_curve + [inner_curve[0]]]
             inner_curve = f.createIfcPolyLine(inner_points)
             outer_curve = f.createIfcPolyLine(outer_points)
-            profile = f.createIfcArbitraryProfileDefWithVoids("AREA", self.name, outer_curve, [inner_curve])
+            ifc_sec_type = "IfcArbitraryProfileDefWithVoids"
+            sec_props.update(dict(OuterCurve=outer_curve, InnerCurves=[inner_curve]))
         elif self.type in SectionCat.circular:
-            profile = f.createIfcCircleProfileDef("AREA", self.name, None, self.r)
+            ifc_sec_type = "IfcCircleProfileDef"
+            sec_props.update(dict(Radius=self.r))
         elif self.type in SectionCat.tubular:
-            profile = f.createIfcCircleHollowProfileDef("AREA", self.name, None, self.r, self.wt)
+            ifc_sec_type = "IfcCircleHollowProfileDef"
+            sec_props.update(dict(Radius=self.r, WallThickness=self.wt))
         elif self.type in SectionCat.general:
+            logging.error("Note! Creating a Circle profile from general section (just for visual inspection as of now)")
             r = np.sqrt(self.properties.Ax / np.pi)
-            profile = f.createIfcCircleProfileDef("AREA", self.name, None, r)
+            ifc_sec_type = "IfcCircleProfileDef"
+            sec_props.update(dict(Radius=r))
         elif self.type in SectionCat.flatbar:
             outer_curve, inner_curve, disconnected = self.cross_sec(True)
             polyline = create_ifcpolyline(f, outer_curve)
-            profile = f.createIfcArbitraryClosedProfileDef("AREA", self.name, polyline)
+            ifc_sec_type = "IfcArbitraryClosedProfileDef"
+            sec_props.update(dict(OuterCurve=polyline))
         elif self.type in SectionCat.channels:
-            outer_curve, inner_curve, disconnected = self.cross_sec(True)
-            polyline = create_ifcpolyline(f, outer_curve)
-            profile = f.createIfcArbitraryClosedProfileDef("AREA", self.name, polyline)
+            if _Settings.use_param_profiles is False:
+                outer_curve, inner_curve, disconnected = self.cross_sec(True)
+                polyline = create_ifcpolyline(f, outer_curve)
+                ifc_sec_type = "IfcArbitraryClosedProfileDef"
+                sec_props.update(dict(OuterCurve=polyline))
+            else:
+                ifc_sec_type = "IfcUShapeProfileDef"
+                sec_props.update(
+                    dict(Depth=self.h, FlangeWidth=self.w_top, WebThickness=self.t_w, FlangeThickness=self.t_ftop)
+                )
         elif self.type == "poly":
             opoly = self.poly_outer
             opoints = [(float(n[0]), float(n[1]), float(n[2])) for n in opoly.seg_global_points]
             opolyline = create_ifcindexpolyline(f, opoints, opoly.seg_index)
             if self.poly_inner is None:
-                profile = f.createIfcArbitraryClosedProfileDef("AREA", self.name, opolyline)
+                ifc_sec_type = "IfcArbitraryClosedProfileDef"
+                sec_props.update(dict(OuterCurve=opolyline))
             else:
                 ipoly = self.poly_inner
                 ipoints = [(float(n[0]), float(n[1]), float(n[2])) for n in ipoly.seg_global_points]
                 ipolyline = create_ifcindexpolyline(f, ipoints, ipoly.seg_index)
-                profile = f.createIfcArbitraryProfileDefWithVoids("AREA", self.name, opolyline, [ipolyline])
+                ifc_sec_type = "IfcArbitraryProfileDefWithVoids"
+                sec_props.update(dict(OuterCurve=opolyline, InnerCurves=[ipolyline]))
         else:
             raise ValueError(f'Have yet to implement section type "{self.type}"')
+
         if self.name is None:
             raise ValueError("Name cannot be None!")
 
+        profile = f.create_entity(ifc_sec_type, **sec_props)
+
         beamtype = f.createIfcBeamType(
             create_guid(),
-            f.by_type("IfcOwnerHistory")[0],
+            a.user.to_ifc(),
             self.name,
             self.sec_str,
             None,
@@ -4688,6 +4738,9 @@ class Section(Backend):
                     r=ifc_elem.Radius,
                     wt=ifc_elem.WallThickness,
                 )
+            elif ifc_elem.is_a("IfcUShapeProfileDef"):
+                raise NotImplementedError(f'IFC section type "{ifc_elem}" is not yet implemented')
+                # sec = Section(ifc_elem.ProfileName)
             else:
                 raise NotImplementedError(f'IFC section type "{ifc_elem}" is not yet implemented')
         return sec
