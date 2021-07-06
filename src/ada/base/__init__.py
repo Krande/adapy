@@ -128,7 +128,7 @@ class Backend:
         """
         Remove this element/part from assembly/part
         """
-        from ada import Part, Shape, Beam
+        from ada import Beam, Part, Shape
 
         if self.parent is None:
             logging.error(f"Unable to delete {self.name} as it does not have a parent")

@@ -851,7 +851,7 @@ class Nodes:
     def min_nid(self):
         return min(self.dmap.keys()) if len(self.dmap.keys()) > 0 else 0
 
-    def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=Settings.point_tol):
+    def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=_Settings.point_tol):
         """
 
         :param p: Point
@@ -971,7 +971,7 @@ class Nodes:
         """
         self.remove(filter(lambda x: len(x.refs) == 0, self._nodes))
 
-    def merge_coincident(self, tol=Settings.point_tol):
+    def merge_coincident(self, tol=_Settings.point_tol):
         """
         Merge nodes which are within the standard default of Nodes.get_by_volume. Nodes merged into the node connected
         to most elements.

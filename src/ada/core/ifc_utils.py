@@ -63,6 +63,7 @@ def create_local_placement(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X, relativ
 
 def create_new_ifc_file(file_name, schema):
     import datetime
+
     from .utils import get_version
 
     f = ifcopenshell.file(schema=schema)
@@ -78,7 +79,7 @@ def create_new_ifc_file(file_name, schema):
     f.wrapped_data.header.file_name.originating_system = ver_str
     f.wrapped_data.header.file_name.authorization = "Nobody"
     length_unit = f.createIfcSIUnit(None, "LENGTHUNIT", None, "METRE")
-    unit_assignment = f.createIfcUnitAssignment((length_unit,))
+    f.createIfcUnitAssignment((length_unit,))
     # f.wrapped_data.header.file_description.description = ("ViewDefinition[DesignTransferView]",)
     return f
 
