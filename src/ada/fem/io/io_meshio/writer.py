@@ -47,9 +47,9 @@ def meshio_to_fem(
     os.makedirs(analysis_dir, exist_ok=True)
 
     for p in assembly.get_all_parts_in_assembly(include_self=True):
-        mesh = fem_to_meshio(p.fem)
-        if mesh is None:
+        if len(p.fem.nodes) == 0:
             continue
+        mesh = fem_to_meshio(p.fem)
         prefix_mapper = dict(abaqus="inp")
         if mesh_format in ["abaqus"]:
             prefix = prefix_mapper[mesh_format]

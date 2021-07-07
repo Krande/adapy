@@ -276,7 +276,7 @@ USER:     {user}            ACCOUNT:     \n"""
 
         :return:
         """
-        from .reader import SesamReader
+        from .reader import eltype_2_sesam
 
         elements = self._gelements
 
@@ -285,7 +285,7 @@ USER:     {user}            ACCOUNT:     \n"""
                 self.write_ff(
                     "GELMNT1",
                     [
-                        (el.id, el.id, SesamReader.eltype_2_sesam(el.type), 0),
+                        (el.id, el.id, eltype_2_sesam(el.type), 0),
                         ([n.id for n in el.nodes]),
                     ],
                 )

@@ -474,7 +474,7 @@ v
             #     (0,8), (8,1), (3,13), (13,2)
             # ]
         else:
-            print("Element type {} is currently not supported".format(self.type))
+            logging.error(f"Element type {self.type} is currently not supported")
 
     @property
     def _cube_faces(self):
@@ -886,6 +886,10 @@ class FEM(FemBase):
                 elem.parent.nodes.add(n2, allow_coincident=True)
                 i = elem.nodes.index(n)
                 elem.nodes[i] = n2
+                if elem.fem_sec.offset is not None:
+                    if n in [x[0] for x in elem.fem_sec.offset]:
+                        elem.fem_sec.offset[i] = (n2, elem.fem_sec.offset[i][1])
+
                 s_set = FemSet(f"el{elem.id}_hinge{i + 1}_s", [n], "nset")
                 m_set = FemSet(f"el{elem.id}_hinge{i + 1}_m", [n2], "nset")
                 elem.parent.add_set(m_set)
@@ -1511,7 +1515,7 @@ class Elem(FemBase):
     @id.setter
     def id(self, value):
         if type(value) not in (np.int32, int, np.uint64) and issubclass(type(self), Connector) is False:
-            raise ValueError(f'Element name type "{type(value)}" must be numeric')
+            raise ValueError(f'Element ID "{type(value)}" must be numeric')
         self._el_id = value
 
     @property

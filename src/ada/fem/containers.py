@@ -538,9 +538,7 @@ class FemSections:
         return FemSections(chain(self._sections, other._sections))
 
     def __repr__(self):
-        return (
-            f"FemSectionsCollection(Beams: {len(self.beams)}, Shells: {len(self.shells)}, Solids: {len(self.solids)})"
-        )
+        return f"FemSections(Beams: {len(self.beams)}, Shells: {len(self.shells)}, Solids: {len(self.solids)})"
 
     @property
     def beams(self):
@@ -666,7 +664,7 @@ class FemSets:
                 raise ValueError("Elref is not recognized")
 
         def eval_set(fset):
-            if fset.type == 'elset':
+            if fset.type == "elset":
                 el_type = Elem
                 get_func = get_elset
             else:
@@ -835,8 +833,10 @@ class FemSets:
             self._elmap[fe_set.name] = fe_set
         else:
             self._nomap[fe_set.name] = fe_set
+
         if fe_set.parent is None:
             fe_set.parent = self._fem_obj
+
         self._instantiate_all_members(fe_set)
 
         return fe_set
