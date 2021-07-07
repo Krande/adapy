@@ -231,7 +231,8 @@ def get_part_from_bulk_str(name, bulk_str, parent, instance_name=None, metadata=
     fem.nodes.move(move=fem.metadata["move"], rotate=fem.metadata["rotate"])
     fem._elements = get_elem_from_inp(bulk_str, fem)
     fem.elements.build_sets()
-    fem._sets = fem.sets + get_sets_from_bulk(bulk_str, fem)
+    bulk_sets = get_sets_from_bulk(bulk_str, fem)
+    fem._sets = fem.sets + bulk_sets
     fem._sections = get_sections_from_inp(bulk_str, fem)
     fem._bcs += get_bcs_from_bulk(bulk_str, fem)
     fem._masses = get_mass_from_bulk(bulk_str, fem)

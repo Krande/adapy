@@ -538,9 +538,7 @@ class FemSections:
         return FemSections(chain(self._sections, other._sections))
 
     def __repr__(self):
-        return (
-            f"FemSectionsCollection(Beams: {len(self.beams)}, Shells: {len(self.shells)}, Solids: {len(self.solids)})"
-        )
+        return f"FemSections(Beams: {len(self.beams)}, Shells: {len(self.shells)}, Solids: {len(self.solids)})"
 
     @property
     def beams(self):
@@ -665,6 +663,17 @@ class FemSets:
             else:
                 raise ValueError("Elref is not recognized")
 
+        def eval_set(fset):
+            if fset.type == "elset":
+                el_type = Elem
+                get_func = get_elset
+            else:
+                el_type = Node
+                get_func = get_nset
+            res = list(filter(lambda x: type(x) != el_type, fset.members))
+            if len(res) > 0:
+                fset._members = [get_func(m) for m in fset.members]
+
         if "generate" in fem_set.metadata.keys():
             if fem_set.metadata["generate"] is True and len(fem_set.members) == 0:
                 gen_mem = fem_set.metadata["gen_mem"]
@@ -674,13 +683,11 @@ class FemSets:
         if fem_set.type == "nset":
             if len(fem_set.members) == 1 and type(fem_set.members[0]) is str and type(fem_set.members[0]) is not Node:
                 fem_set._members = self.nodes[fem_set.members[0]]
-            else:
-                fem_set._members = list(map(get_nset, fem_set.members))
-            fem_set.parent = self._fem_obj
-        else:
-            fem_set._members = list(map(get_elset, fem_set.members))
-            fem_set.parent = self._fem_obj
+                fem_set.parent = self._fem_obj
+                return fem_set
 
+        eval_set(fem_set)
+        fem_set.parent = self._fem_obj
         return fem_set
 
     def link_data(self):
@@ -826,8 +833,10 @@ class FemSets:
             self._elmap[fe_set.name] = fe_set
         else:
             self._nomap[fe_set.name] = fe_set
+
         if fe_set.parent is None:
             fe_set.parent = self._fem_obj
+
         self._instantiate_all_members(fe_set)
 
         return fe_set
