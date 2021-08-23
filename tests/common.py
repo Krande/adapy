@@ -7,7 +7,6 @@ from ada.param_models.basic_module import SimpleStru
 
 this_dir = pathlib.Path(__file__).resolve().absolute().parent
 example_files = this_dir / ".." / "files"
-Settings.gmsh_suppress_printout = True
 is_printed = False
 
 
