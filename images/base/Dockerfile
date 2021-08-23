@@ -151,19 +151,9 @@ ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /usr/
 RUN chmod +x /usr/bin/tini
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
-RUN mkdir /tmp/adapy
-
-COPY src /tmp/adapy/src
-COPY setup.cfg /tmp/adapy/setup.cfg
-COPY pyproject.toml /tmp/adapy/pyproject.toml
-COPY MANIFEST.in /tmp/adapy/MANIFEST.in
-COPY LICENSE /tmp/adapy/LICENSE
-COPY README.md /tmp/adapy/README.md
-
-RUN cd /tmp/adapy && pip install . --no-cache-dir
 RUN conda clean -a
 
-LABEL python="3.8.8"
+LABEL python="3.9"
 
 CMD ["jupyter", "notebook", "--port=8888", "--no-browser", "--ip=0.0.0.0", "--allow-root"]
 
