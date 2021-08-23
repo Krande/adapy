@@ -1,7 +1,5 @@
-import functools
 import logging
 import os
-from itertools import chain
 
 import numpy as np
 
@@ -34,6 +32,7 @@ class GMesh:
         self._tol = tol
         self._bm_map = dict()
         self._pl_map = dict()
+        self._el_ids = []
 
     def mesh(
         self,
@@ -58,7 +57,11 @@ class GMesh:
         """
         import gmsh
 
+        from ada.core.utils import flatten
+
         part = self._part
+        fem = part.fem
+
         pl_in = [pl_ for p in part.get_all_subparts() for pl_ in p.plates] + [pl for pl in part.plates]
         bm_in = [bm_ for p in part.get_all_subparts() for bm_ in p.beams] + [bm for bm in part.beams]
         try:
@@ -66,31 +69,21 @@ class GMesh:
         except BaseException as e:
             logging.debug(e)
 
+        gmsh_print = 1 if _Settings.gmsh_suppress_printout is False else 0
         gmsh.initialize()
-        gmsh.option.setNumber("General.Terminal", 1)
+        gmsh.option.setNumber("General.Terminal", gmsh_print)
         gmsh.option.setNumber("Mesh.SecondOrderIncomplete", 1)
         gmsh.option.setNumber("Mesh.Algorithm", mesh_algo)
         gmsh.option.setNumber("Mesh.ElementOrder", order)
 
-        list(
-            map(
-                functools.partial(
-                    self._create_plate_geom,
-                    beams=bm_in,
-                    size=size,
-                    interactive=interactive,
-                ),
-                pl_in,
-            )
-        )
+        for pl in pl_in:
+            self._create_plate_geom(pl, beams=bm_in, size=size, interactive=interactive)
+
         gmsh.model.geo.synchronize()
 
-        list(
-            map(
-                functools.partial(self._create_bm_geom, size=size, point_tol=point_tol),
-                filter(lambda x: x not in [b for b in self._bm_map.values()], bm_in),
-            )
-        )
+        for bm in filter(lambda x: x not in [b for b in self._bm_map.values()], bm_in):
+            self._create_bm_geom(bm, size=size, point_tol=point_tol)
+
         gmsh.model.geo.synchronize()
 
         if len(pl_in) > 0:
@@ -102,16 +95,21 @@ class GMesh:
         if interactive:
             gmsh.fltk.run()
 
-        nodes = list(gmsh.model.mesh.getNodes(-1, -1))
-
         # Extract Gmsh model information and import the data into a FEM model
-        self._part.fem._nodes = Nodes(list(map(self.get_mesh_nodes, nodes[0])), parent=self._part.fem)
-        bm_elems = map(functools.partial(self.get_beam_elements, order=order), self._bm_map.keys())
-        pl_elems = map(functools.partial(self.get_shell_elements, order=order), self._pl_map.keys())
-        self._part.fem._elements = FemElements(
-            chain.from_iterable(list(bm_elems) + list(pl_elems)), fem_obj=self._part.fem
-        )
-        self._part.fem.elements.renumber()
+        n_i, n_coords_flat, _ = gmsh.model.mesh.getNodes()
+        n_coords = n_coords_flat.reshape(len(n_i), 3)
+        nodes = np.c_[n_i, n_coords]
+        fem._nodes = Nodes(from_np_array=nodes, parent=fem)
+
+        # Strange Error. When solving this loop using list comprehension it resulted in doubly defined elements...
+        bm_elems = []
+        for line_index in self._bm_map.keys():
+            bm_elems += self.get_beam_elements(line_index, order=order)
+
+        pl_elems = flatten([self.get_shell_elements(pl_index, order=order) for pl_index in self._pl_map.keys()])
+
+        fem._elements = FemElements(bm_elems + pl_elems, fem_obj=fem)
+        fem.elements.renumber()
 
         gmsh.finalize()
 
@@ -297,10 +295,10 @@ class GMesh:
             line = gmsh.model.geo.addLine(s[0][1], e[0][1])
             add_line(line)
 
-    def get_beam_elements(self, li, order):
+    def get_beam_elements(self, line_index, order):
         """
 
-        :param li:
+        :param line_index:
         :param order:
         :return:
         """
@@ -309,30 +307,34 @@ class GMesh:
         from ada.core.utils import make_name_fem_ready
 
         model = gmsh.model
-        bm = self._bm_map[li]
-        segments = model.mesh.getElements(1, li)[1][0]
-        fem_nodes = model.mesh.getElements(1, li)[2][0]
-        elem_types, elem_tags, elem_node_tags = gmsh.model.mesh.getElements(1, li)
-        face, dim, morder, numv, parv, _ = gmsh.model.mesh.getElementProperties(elem_types[0])
+        bm = self._bm_map[line_index]
+
+        segments = model.mesh.getElements(1, line_index)[1][0]
+        fem_nodes = model.mesh.getElements(1, line_index)[2][0]
+        elem_types, elem_tags, elem_node_tags = gmsh.model.mesh.getElements(1, line_index)
+        face, dim, _, numv, _, _ = gmsh.model.mesh.getElementProperties(elem_types[0])
 
         set_name = make_name_fem_ready(f"el{bm.name}_set")
+        fem_sec_name = make_name_fem_ready(f"d{bm.name}_sec")
+
         fem = self._part.fem
+        bm_el_type = "B31" if order == 1 else "B32"
 
         def make_elem(j):
             no = []
+            el_id = int(segments[j])
+
             for i in range(numv):
                 p1 = fem_nodes[numv * j + i]
-                p1_co = gmsh.model.mesh.getNode(p1)[0]
-                no.append(Node(p1_co, p1))
+                no.append(fem.nodes.from_id(p1))
+
             if len(no) == 3:
                 myorder = [0, 2, 1]
                 no = [no[i] for i in myorder]
-            bm_el_type = "B31" if order == 1 else "B32"
 
-            return Elem(segments[j], no, bm_el_type, parent=self._part.fem)
+            return Elem(el_id, no, bm_el_type, parent=fem)
 
-        elements = list(map(make_elem, range(len(segments))))
-        fem_sec_name = make_name_fem_ready(f"d{bm.name}_sec")
+        elements = [make_elem(elem_index) for elem_index in range(len(segments))]
 
         if set_name in fem.elsets.keys():
             fem_set = fem.elsets[set_name]
@@ -353,6 +355,14 @@ class GMesh:
                     metadata=dict(beam=bm, numel=len(elements)),
                 )
             )
+
+        for el in elements:
+            sid = el.id
+            if sid not in self._el_ids:
+                self._el_ids.append(sid)
+            else:
+                raise ValueError("Doubly Defined Element IDS")
+
         return elements
 
     def get_shell_elements(self, sh, order):
@@ -557,6 +567,7 @@ def eval_thick_normal_from_cog_of_beam_plate(beam, cog):
 
 
 def _init_gmsh_session():
+    print("Starting GMSH session")
     import gmsh
 
     gmsh_session = gmsh
@@ -565,7 +576,9 @@ def _init_gmsh_session():
     except BaseException as e:
         logging.debug(e)
     gmsh_session.initialize()
-    gmsh_session.option.setNumber("General.Terminal", 1)
+
+    gmsh_print = 1 if _Settings.gmsh_suppress_printout is False else 0
+    gmsh_session.option.setNumber("General.Terminal", gmsh_print)
     return gmsh_session
 
 

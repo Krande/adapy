@@ -5,17 +5,19 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'conda/**'
       - '.github/workflows/ci.yml'
     branches:
     - main
-    - dev
   pull_request:
     branches:
     - main
 
 jobs:
   activate:
-    if: github.repository == 'krande/adapy'
+    if: |
+      github.repository == 'krande/adapy' &&
+      !contains(github.event.head_commit.message, '[skip ci]')
     runs-on: ubuntu-latest
     steps:
       - run: echo ok go
@@ -27,66 +29,91 @@ jobs:
       with:
         python-version: "3.x"
     - uses: actions/checkout@v2
+    - name: Install lint packages
+      run: pip install isort flake8 black
     - name: Lint with isort
-      run: |
-        pip install isort
-        isort --check .
+      run: isort --check .
     - name: Lint with flake8
-      run: |
-        pip install flake8
-        flake8 .
+      run: flake8 .
     - name: Lint with black
-      run: |
-        pip install black
-        black --config pyproject.toml --check .
+      run: black --config pyproject.toml --check .
   test:
     needs: lint
     name: ${{ matrix.platform.name }}-${{ matrix.pyver.name }}
     runs-on: ${{ matrix.platform.distver }}
+    env:
+      CONDAENV: base
+      PKG_VERSION: nothing
+      CONDAROOT: nothing
     strategy:
       fail-fast: false
       matrix:
-        pyver: [ { name: py38, distver: '3.8.8' }]
+        pyver: [ { name: py38, distver: '3.8' }, { name: py39, distver: '3.9'}]
         platform: [
-          { name: Windows, distver: windows-latest },
-          { name: Linux, distver: ubuntu-latest },
-          { name: macOS, distver: macos-latest }
+          { name: Windows, distver: windows-latest, short: 'win-64' },
+          { name: Linux, distver: ubuntu-latest, short: 'linux-64' },
+          { name: macOS, distver: macos-latest, short: 'osx-64' }
         ]
     steps:
       - uses: actions/checkout@v2
-      - uses: conda-incubator/setup-miniconda@v2 # https://github.com/conda-incubator/setup-miniconda
+      - name: Cache conda
+        uses: actions/cache@v2
+        env:
+          # Increase this value to reset cache if etc/example-environment.yml has not changed
+          CACHE_NUMBER: 0
         with:
-          activate-environment: "adaenv"
-          environment-file: environment.yml
+          path: ~/conda_pkgs_dir
+          key:
+            ${{ runner.os }}-conda-${{ env.CACHE_NUMBER }}-${{
+            hashFiles('conda/environment.yml') }}
+      - uses: conda-incubator/setup-miniconda@v2  # https://github.com/conda-incubator/setup-miniconda
+        with:
+          activate-environment: ${{ env.CONDAENV }}
           python-version: ${{ matrix.pyver.distver }}
-          auto-activate-base: false
-      - name: Install package in env
+          channel-priority: strict
+          environment-file: conda/environment.yml
+          auto-update-conda: true
+          use-only-tar-bz2: true # IMPORTANT: This needs to be set for caching to work properly!
+      - name: build
         shell: bash -l {0}
         run: |
-          pip install .
-      - name: test Package
+          conda activate ${{ env.CONDAENV }}
+          conda-build -c krande -c conda-forge conda --python=${{ matrix.pyver.distver }} --override-channels --keep-old-work --dirty
+      - name: install
         shell: bash -l {0}
         run: |
-          cd tests
-          pip install pytest pytest-cov
-          pytest --doctest-modules --junitxml=junit/test-results.xml --cov=. --cov-report=xml --cov-report=html
-  publish:
-    needs: test
-    name: Build and Publish
-    runs-on: ubuntu-latest
-    steps:
+          conda activate ${{ env.CONDAENV }}
+          conda create -n testenv -c local -c krande -c conda-forge ada-py pytest pytest-cov --strict-channel-priority
+      - name: get package version into env variable
+        shell: bash -l {0}
+        run: |
+          echo "CONDAROOT=$CONDA_PREFIX" >> $GITHUB_ENV
+          conda activate testenv
+          python conda/getversion.py
+          cat version.txt >> $GITHUB_ENV
+      - name: test
+        shell: bash -l {0}
+        run: |
+          conda activate testenv
+          pytest tests
+      - name: upload to conda -c krande
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash -l {0}
+        run: |
+          conda activate ${{ env.CONDAENV }}
+          anaconda -t=${{ secrets.ANACONDA_TOKEN }} upload ${{ env.CONDAROOT }}/conda-bld/${{ matrix.platform.short }}/ada-py-${{ env.PKG_VERSION }}-${{ matrix.pyver.name }}_0.tar.bz2 --user krande
       - uses: actions/checkout@v2
-      - name: Build package
+      - name: Build package for pypi
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           pip install build
           python -m build
-      - name: Publish package
-        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[Release]') && github.ref == 'refs/heads/main'
+      - name: upload to pypi
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           user: __token__
           password: ${{ secrets.PYPI_API_TOKEN }}
-
 
 
 

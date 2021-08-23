@@ -33,8 +33,9 @@ class Settings:
     use_oriented_bbox = True  # This is only relevant if OCC bounding box is True
     make_param_elbows = False
     use_param_profiles = True
-
+    silence_display = False
     use_experimental_cache = False
+    gmsh_suppress_printout = False
 
     # IFC export settings
     include_ecc = True

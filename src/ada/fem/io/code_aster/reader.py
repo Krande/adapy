@@ -18,7 +18,17 @@ def read_fem(assembly, fem_file, fem_name=None):
     :param fem_name:
     :return:
     """
-    from ada import Node, Part
+    from ada import Part
+
+    fem = med_to_fem(fem_file, fem_name)
+    if fem_name is None:
+        fem_name = fem.name
+    assembly.add_part(Part(fem_name, fem=fem))
+    return
+
+
+def med_to_fem(fem_file, fem_name):
+    from ada import Node
 
     f = h5py.File(fem_file, "r")
 
@@ -35,7 +45,7 @@ def read_fem(assembly, fem_file, fem_name=None):
     fem_name = fem_name if fem_name is not None else mesh_name
 
     # Initialize FEM object
-    fem = FEM(mesh_name)
+    fem = FEM(fem_name)
 
     # Possible time-stepping
     if "NOE" not in mesh:
@@ -120,9 +130,7 @@ def read_fem(assembly, fem_file, fem_name=None):
         elsets.append(FemSet(name, values, "elset", parent=fem))
 
     fem._sets = FemSets(elsets + point_sets, fem_obj=fem)
-
-    assembly.add_part(Part(fem_name, fem=fem))
-    return
+    return fem
 
 
 def _cell_tag_to_set(cell_data_array, cell_tags):

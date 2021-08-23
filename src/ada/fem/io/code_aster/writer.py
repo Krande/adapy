@@ -1,12 +1,11 @@
 import logging
-from itertools import groupby
-from operator import attrgetter
 
 import numpy as np
 
 from ada.config import Settings as _Settings
-from ada.fem import ElemShapes, FemSection, Step
+from ada.fem import FemSection, Step
 from ada.fem.containers import FemSections
+from ada.fem.shapes import ElemShapes
 
 from ..utils import _folder_prep, get_fem_model_from_assembly
 from .common import abaqus_to_med_type
@@ -409,7 +408,7 @@ ASSEMBLAGE(
     CHAM_MATER=material,
     CARA_ELEM=element,
     CHARGE= {bc.name}_bc,
-    NUME_DDL=CO('dofs' ),
+    NUME_DDL=CO('dofs_eig'),
     MATR_ASSE = (
         _F(MATRICE=CO('stiff'), OPTION ='RIGI_MECA',),
         _F(MATRICE=CO('mass'), OPTION ='MASS_MECA', ),
@@ -587,7 +586,7 @@ def _write_elements(part, time_step, profile, families):
 
     elements_group = time_step.create_group("MAI")
     elements_group.attrs.create("CGT", 1)
-    for group, elements in groupby(part.fem.elements, key=attrgetter("type")):
+    for group, elements in part.fem.elements.group_by_type():
         if group in ElemShapes.masses + ElemShapes.springs:
             logging.error("NotImplemented: Skipping Mass or Spring Elements")
             continue
@@ -714,7 +713,7 @@ def _add_cell_sets(cells_group, part, families):
     def get_node_ids_from_element(el_):
         return [int(n.id - 1) for n in el_.nodes]
 
-    for group, elements in groupby(part.fem.elements, key=attrgetter("type")):
+    for group, elements in part.fem.elements.group_by_type():
         if group in ElemShapes.masses + ElemShapes.springs:
             logging.error("NotImplemented: Skipping Mass or Spring Elements")
             continue

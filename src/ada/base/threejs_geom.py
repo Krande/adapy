@@ -6,11 +6,14 @@ from pythreejs import (
     LineSegments,
     Mesh,
     MeshBasicMaterial,
+    MeshPhongMaterial,
     Points,
     PointsMaterial,
 )
 
-from .common import format_color
+
+def format_color(r, g, b):
+    return "#%02x%02x%02x" % (r, g, b)
 
 
 def edges_to_mesh(name, np_edge_vertices, np_edge_indices, edge_color, linewidth=1):
@@ -26,8 +29,8 @@ def edges_to_mesh(name, np_edge_vertices, np_edge_indices, edge_color, linewidth
     """
     edge_geometry = BufferGeometry(
         attributes={
-            "position": BufferAttribute(np_edge_vertices),
-            "index": BufferAttribute(np_edge_indices),
+            "position": BufferAttribute(np_edge_vertices, normalized=False),
+            "index": BufferAttribute(np_edge_indices, normalized=False),
         }
     )
     edge_material = LineBasicMaterial(color=format_color(*edge_color), linewidth=linewidth)
@@ -90,3 +93,26 @@ def faces_to_mesh(name, vertices, faces, colors, opacity=None):
         material=material,
     )
     return mesh
+
+
+def animate_mesh(mesh, norm_displ_verts, displ_time, displ_magn):
+    from pythreejs import (
+        AnimationAction,
+        AnimationClip,
+        AnimationMixer,
+        NumberKeyframeTrack,
+    )
+
+    mesh.morphAttributes = {
+        "position": [
+            BufferAttribute(norm_displ_verts),
+        ]
+    }
+
+    morphed_mesh = Mesh(mesh, MeshPhongMaterial(color="#ff3333", shininess=150, morphTargets=True))
+
+    pill_track = NumberKeyframeTrack(name=".morphTargetInfluences[0]", times=displ_time, values=displ_magn)
+    pill_clip = AnimationClip(tracks=[pill_track])
+    pill_action = AnimationAction(AnimationMixer(morphed_mesh), pill_clip, morphed_mesh)
+
+    return pill_action

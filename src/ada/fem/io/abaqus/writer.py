@@ -882,21 +882,24 @@ class AbaSection:
     def section_data(self):
         if "section_type" in self.fem_sec.metadata.keys():
             return self.fem_sec.metadata["section_type"]
-
-        if self.fem_sec.section.type in SectionCat.circular:
+        sec_type = self.fem_sec.section.type
+        if SectionCat.is_circular_profile(sec_type):
             return "CIRC"
-        elif self.fem_sec.section.type in SectionCat.igirders or self.fem_sec.section.type in SectionCat.iprofiles:
+        elif SectionCat.is_i_profile(sec_type):
             return "I"
-        elif self.fem_sec.section.type in SectionCat.box:
+        elif SectionCat.is_box_profile(sec_type):
             return "BOX"
-        elif self.fem_sec.section.type in SectionCat.general:
+        elif SectionCat.is_general(sec_type):
             return "GENERAL"
-        elif self.fem_sec.section.type in SectionCat.tubular:
+        elif SectionCat.is_tubular_profile(sec_type):
             return "PIPE"
-        elif self.fem_sec.section.type in SectionCat.angular:
+        elif SectionCat.is_angular(sec_type):
             return "L"
+        elif SectionCat.is_channel_profile(sec_type):
+            logging.error(f'Profile type "{sec_type}" is not supported by Abaqus. Using a General Section instead')
+            return "GENERAL"
         else:
-            raise Exception(f'Section type "{self.fem_sec.section.type}" is not added to Abaqus beam export yet')
+            raise Exception(f'Section type "{sec_type}" is not added to Abaqus beam export yet')
 
     @property
     def props(self):
