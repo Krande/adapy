@@ -1,3 +1,4 @@
+import logging
 import math
 
 from ada.core.utils import roundoff as rd
@@ -285,6 +286,8 @@ class GeneralProperties:
             self._Scheny = -(y - ty / 2 + q)
             self._Cy = by - y
 
+        self._Schenz = 0
+
     def calculate(self):
         """
         Calculates the cross section properties based on the parent section.
@@ -310,12 +313,13 @@ class GeneralProperties:
         elif SectionCat.is_box_profile(self.parent.type):
             self._calc_box()
         elif self.parent.type in SectionCat.general:
+            logging.error("Calculation of general section")
             pass  # it is known
         elif self.parent.type in SectionCat.tubular:
             self._calc_tubular()
         elif SectionCat.is_hp_profile(self.parent.type):
             self._calc_angular()
-        elif self.parent.type in SectionCat.channels:
+        elif SectionCat.is_channel_profile(self.parent):
             self._calc_channel()
         elif SectionCat.is_flatbar(self.parent.type):
             self._calc_flatbar()
@@ -806,33 +810,56 @@ class SectionCat:
                 return True
         return False
 
+    @staticmethod
+    def _get_sec_type(section_ref):
+        from ada import Beam, Section
+
+        if type(section_ref) is Section:
+            return section_ref.type.upper()
+        if type(section_ref) is Beam:
+            return section_ref.section.type.upper()
+        else:
+            return section_ref.upper()
+
     @classmethod
     def is_i_profile(cls, bmtype):
-        return True if bmtype.upper() in cls.igirders + cls.iprofiles + cls.tprofiles else False
+        return True if cls._get_sec_type(bmtype) in cls.igirders + cls.iprofiles else False
+
+    @classmethod
+    def is_t_profile(cls, bmtype):
+        return True if cls._get_sec_type(bmtype) in cls.tprofiles else False
 
     @classmethod
     def is_box_profile(cls, bmtype):
-        return True if bmtype.upper() in cls.box + cls.shs + cls.rhs else False
+        return True if cls._get_sec_type(bmtype) in cls.box + cls.shs + cls.rhs else False
 
     @classmethod
     def is_hp_profile(cls, bmtype):
-        return True if bmtype.upper() in cls.angular else False
+        return True if cls._get_sec_type(bmtype) in cls.angular else False
 
     @classmethod
     def is_circular_profile(cls, bmtype):
-        return True if bmtype.upper() in cls.tubular + cls.circular else False
+        return True if cls._get_sec_type(bmtype) in cls.circular else False
 
     @classmethod
     def is_tubular_profile(cls, bmtype):
-        return True if bmtype.upper() in cls.tubular else False
+        return True if cls._get_sec_type(bmtype) in cls.tubular else False
 
     @classmethod
     def is_channel_profile(cls, bmtype):
-        return True if bmtype.upper() in cls.channels else False
+        return True if cls._get_sec_type(bmtype) in cls.channels else False
 
     @classmethod
     def is_flatbar(cls, bmtype):
-        return True if bmtype.upper() in cls.flatbar else False
+        return True if cls._get_sec_type(bmtype) in cls.flatbar else False
+
+    @classmethod
+    def is_general(cls, bmtype):
+        return True if cls._get_sec_type(bmtype) in cls.general else False
+
+    @classmethod
+    def is_angular(cls, bmtype):
+        return True if cls._get_sec_type(bmtype) in cls.angular else False
 
     @classmethod
     def is_strong_axis_symmetric(cls, section):

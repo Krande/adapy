@@ -1,5 +1,7 @@
 import unittest
 
+from common import dummy_display
+
 from ada import Assembly, Part, Wall
 from ada.config import Settings
 from ada.param_models.basic_structural_components import Door, Window
@@ -23,7 +25,8 @@ class Walls(unittest.TestCase):
         a.add_part(p)
         p.add_wall(w)
         a.to_ifc(test_folder / "my_wall_wDoorsWindows.ifc")
-        a._repr_html_()
+
+        dummy_display(a)
 
 
 if __name__ == "__main__":

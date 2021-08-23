@@ -96,7 +96,6 @@ def interpret_section_str(in_str, s=0.001, units="m"):
             in_str,
             re_in,
         )
-
         if res is not None:
             h = [rdoff(float(x) * s) for x in res.group(2).split("/")]
             width = [rdoff(float(x) * s) for x in res.group(3).split("/")]
@@ -244,6 +243,14 @@ def interpret_section_str(in_str, s=0.001, units="m"):
             if res is not None:
                 sec = profile_db_collect(ipe, res.group(2), units=units)
                 return sec, sec
+            else:
+                if "HE" not in ipe:
+                    continue
+                shuffle = "({ipe})({digit}){end}".format(ipe=ipe[:2], digit=digit, end=ipe[2:])
+                res = re.search(shuffle, in_str, re_in)
+                if res is not None:
+                    sec = profile_db_collect(ipe, res.group(2), units=units)
+                    return sec, sec
 
     for tub in SectionCat.tubular:
         res = re.search("({tub})({digit})x({digit})".format(tub=tub, digit=digit), in_str, re_in)

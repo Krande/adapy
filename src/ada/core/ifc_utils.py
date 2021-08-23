@@ -718,36 +718,6 @@ def scale_ifc_file_object(ifc_file, scale_factor):
     return ifc_file
 
 
-def add_fem(ifc_file, part):
-    """
-    :param ifc_file:
-    :param part:
-    :type part: ada.Part
-    :return:
-    """
-    from itertools import groupby
-    from operator import attrgetter
-
-    from ada.fem import ElemShapes
-
-    ifc_file.createIfcStructuralAnalysisModel(
-        create_guid(),
-        ifc_file.by_type("IfcOwnerHistory")[0],
-        "Structural Analysis",
-        "Example analysis",
-        ".NOTDEFINED.",
-        "LOADING_3D",
-    )
-    fem = part.fem
-
-    for el_type, elements in groupby(fem.elements, key=attrgetter("type")):
-
-        if el_type in ElemShapes.beam:
-            for elem in elements:
-                # TODO: add_fem_elem_beam(elem, parent)
-                pass
-
-
 def merge_existing(original_file, source_file, new_file):
     source = ifcopenshell.open(source_file)
     f = ifcopenshell.open(original_file)

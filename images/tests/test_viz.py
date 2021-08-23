@@ -3,9 +3,10 @@ import unittest
 import meshio
 import numpy as np
 
-from ada.base.common import get_bounding_box, get_vertices_from_fem
-from ada.base.render_fem import Results, render_mesh, viz_fem
+from ada.base.render_fem import render_mesh, viz_meshio_mesh
 from ada.config import Settings
+from ada.fem.results import Results
+from ada.fem.visualize import get_bounding_box, get_vertices_from_fem
 from ada.param_models.fem_models import beam_ex1
 
 vertices = np.asarray(
@@ -64,7 +65,7 @@ class MyTestCase(unittest.TestCase):
 
     def test_fem_cantilever(self):
         mesh = meshio.read(rmed, "med")
-        viz_fem(p.fem, mesh, "DISP[10] - 1")
+        viz_meshio_mesh(p.fem, mesh, "DISP[10] - 1")
 
     def test_bounding_box(self):
         vertices = get_vertices_from_fem(p.fem)

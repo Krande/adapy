@@ -7,7 +7,7 @@ from ada.core.constants import color_map as _cmap
 
 
 class Backend:
-    def __init__(self, name, guid=None, metadata=None, units="m", parent=None, ifc_settings=None):
+    def __init__(self, name, guid=None, metadata=None, units="m", parent=None, ifc_settings=None, ifc_elem=None):
         self.name = name
         self.parent = parent
         self._ifc_settings = ifc_settings
@@ -18,7 +18,10 @@ class Backend:
         if units not in _Settings.valid_units:
             raise ValueError(f'Unit type "{units}"')
         self._units = units
-        self._metadata = metadata if metadata is not None else dict()
+        self._metadata = metadata if metadata is not None else dict(props=dict())
+        self._ifc_elem = ifc_elem
+        # TODO: Currently not able to keep and edit imported ifc_elem objects
+        self._ifc_elem = None
 
     @property
     def name(self):
@@ -101,6 +104,12 @@ class Backend:
     def ifc_settings(self, value):
         self._ifc_settings = value
 
+    @property
+    def ifc_elem(self):
+        if self._ifc_elem is None:
+            self._ifc_elem = self._generate_ifc_elem()
+        return self._ifc_elem
+
     def get_assembly(self):
         """
 
@@ -121,8 +130,12 @@ class Backend:
             a += 1
             parent = parent.parent
             if a > max_levels:
+                logging.info(f"Max levels reached. {self} is highest level element")
                 break
         return parent
+
+    def _generate_ifc_elem(self):
+        raise NotImplementedError("")
 
     def remove(self):
         """
@@ -132,6 +145,13 @@ class Backend:
 
         if self.parent is None:
             logging.error(f"Unable to delete {self.name} as it does not have a parent")
+            return
+
+        # if self._ifc_elem is not None:
+        #     a = self.parent.get_assembly()
+        # f = a.ifc_file
+        # This returns results in a failure error
+        # f.remove(self.ifc_elem)
 
         if type(self) is Part:
             self.parent.parts.pop(self.name)
@@ -151,8 +171,8 @@ class BackendGeom(Backend):
 
     _renderer = None
 
-    def __init__(self, name, guid=None, metadata=None, units="m", parent=None, colour=None):
-        super().__init__(name, guid, metadata, units, parent)
+    def __init__(self, name, guid=None, metadata=None, units="m", parent=None, colour=None, ifc_elem=None):
+        super().__init__(name, guid, metadata, units, parent, ifc_elem=ifc_elem)
         self._penetrations = []
         self.colour = colour
 

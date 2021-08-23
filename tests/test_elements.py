@@ -41,9 +41,9 @@ class TestConstruction(unittest.TestCase):
 
     def test_with_duplicates(self):
         el1, el2, el3, el4 = get_elems()
-        n = FemElements([el1, el2, el1])
 
-        assert len(n) == 3
+        with self.assertRaises(ValueError):
+            FemElements([el1, el2, el1])
 
     def test_from_iterables(self):
         el1, el2, el3, el4 = get_elems()

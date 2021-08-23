@@ -48,11 +48,12 @@ def write_assembly_to_cache(assembly, cache_file_path):
 def walk_parts(cache_p, part):
     for p in part.parts.values():
         part_group = add_part_to_cache(p, cache_p)
+        part_group.attrs.create("PARENT", to_safe_name(p.parent.name))
         walk_parts(part_group, p)
 
 
-def add_part_to_cache(part: Part, parts_group):
-    part_group = parts_group.create_group(to_safe_name(part.name))
+def add_part_to_cache(part: Part, parent_part_group):
+    part_group = parent_part_group.create_group(to_safe_name(part.name))
 
     part_group.attrs.create("METADATA", json.dumps(part.metadata))
 
@@ -106,7 +107,7 @@ def add_materials_to_cache(part, parts_group):
 
     def add_ints_to_cache(e: Material):
         m = e.model
-        return [m.E, m.rho, m.sig_y]
+        return [m.E, m.rho, m.sig_y, e.id]
 
     def add_strings_to_cache(e: Material):
         return [e.guid, e.name, e.units]
@@ -134,8 +135,11 @@ def add_walls_to_cache():
 def add_beams_to_cache(part: Part, parts_group):
     prefix = "BEAMS"
 
-    def add_int_cache(bm: Beam):
-        nids = [bm.n1.id, bm.n2.id]
+    def add_int_cache(bm: Beam, up=False):
+        if up is True:
+            nids = bm.up.tolist()
+        else:
+            nids = [bm.n1.id, bm.n2.id]
         if None in nids:
             raise ValueError()
         return nids
@@ -145,6 +149,7 @@ def add_beams_to_cache(part: Part, parts_group):
 
     parts_group.create_dataset(f"{prefix}_INT", data=[add_int_cache(bm) for bm in part.beams])
     parts_group.create_dataset(f"{prefix}_STR", data=[add_str_cache(bm) for bm in part.beams])
+    parts_group.create_dataset(f"{prefix}_UP", data=[add_int_cache(bm, True) for bm in part.beams])
 
 
 def add_fem_to_cache(fem, part_group):

@@ -70,6 +70,7 @@ __all__ = [
     "calc_yvec",
     "calc_zvec",
     "visualize_elem_ori",
+    "unzip_it",
 ]
 
 
@@ -3233,12 +3234,19 @@ def make_name_fem_ready(value, no_dot=False):
     :return: Fixed name
     """
     logging.debug("Converting bad name")
+
+    if value[0] == "/":
+        value = value[1:]
+
     value = value.replace("/", "_").replace("=", "")
     if str.isnumeric(value[0]):
         value = "_" + value
 
     if "/" in value:
         logging.error(f'Character "/" found in {value}')
+
+    # if "-" in value:
+    #     value = value.replace("-", "_")
 
     if no_dot:
         value = value.replace(".", "_")
@@ -3262,3 +3270,7 @@ def closest_val_in_dict(val, dct):
     table_looksups = np.array(list(dct))
     dct_index = table_looksups[np.abs(table_looksups - val).argmin()]
     return dct[dct_index]
+
+
+def flatten(t):
+    return [item for sublist in t for item in sublist]

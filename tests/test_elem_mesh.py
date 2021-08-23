@@ -1,13 +1,15 @@
-import logging
 import unittest
 
 from ada import Assembly, Beam, Part, Plate, PrimCyl, PrimExtrude
 from ada.config import Settings
 from ada.core.utils import align_to_plate
 from ada.fem import Load, Step
+from ada.fem.io.mesh.common import _init_gmsh_session
 from ada.fem.io.mesh.recipes import create_beam_mesh, create_plate_mesh
 
 test_folder = Settings.test_dir / "mesh"
+
+Settings.gmsh_suppress_printout = True
 
 atts = dict(origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1))
 atts2 = dict(origin=(1, 0, -0.1), xdir=(0, 0, 1), normal=(-1, 0, 0))
@@ -15,13 +17,6 @@ atts2 = dict(origin=(1, 0, -0.1), xdir=(0, 0, 1), normal=(-1, 0, 0))
 
 class BeamIO(unittest.TestCase):
     def test_beam_mesh(self):
-        import gmsh
-
-        try:
-            gmsh.finalize()
-        except BaseException as e:
-            logging.error(e)
-            pass
         bm = Beam("bm1", n1=[0, 0, 0], n2=[1, 0, 0], sec="IPE220")
 
         bm.add_penetration(PrimCyl("Cylinder", (0.5, -0.5, 0), (0.5, 0.5, 0), 0.05))
@@ -34,15 +29,8 @@ class BeamIO(unittest.TestCase):
         a.to_fem("my_test", "xdmf", scratch_dir=test_folder, fem_converter="meshio", overwrite=True)
 
     def test_plate_mesh(self):
-        import gmsh
 
-        try:
-            gmsh.finalize()
-        except BaseException as e:
-            logging.error(e)
-            pass
-        gmsh.initialize()
-        gmsh.option.setNumber("General.Terminal", 1)
+        gmsh = _init_gmsh_session()
         gmsh.option.setNumber("Mesh.SecondOrderIncomplete", 1)
         gmsh.option.setNumber("Mesh.Algorithm", 8)
         gmsh.option.setNumber("Mesh.ElementOrder", 1)

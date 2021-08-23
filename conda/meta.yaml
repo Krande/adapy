@@ -1,24 +1,45 @@
-{% set name = "ada" %}
-{% set version = "0.0.2" %}
+{% set data = load_setup_py_data() %}
 
 package:
-  name: "{{ name|lower }}"
-  version: "{{ version }}"
+  name: ada-py
+  version: {{ data.get('version') }}
 
 source:
-  url: https://pypi.io/packages/source/{{ name[0] }}/{{ name }}/{{ name }}-{{ version }}.tar.gz
+  path: ../
 
 build:
   number: 0
-  script: "{{ PYTHON }} -m pip install . --no-deps --ignore-installed -vv "
+  script: "{{ PYTHON }} -m pip install . -vv"
 
 requirements:
   build:
-    - ifcopenshell
-    - pythonocc-core
+    - python
   run:
     - python
+    - ifcopenshell
+    - pythonocc-core 7.5.1
+    - occt 7.5.1
+    - vtk
+    - meshio[all]
+    - toolz
+    - lmfit
+    - gmsh
+    - pyquaternion
+    - ccx2paraview
+    - jupyterlab
+    - pythreejs
+    - pyparsing
+    - plotly
+    - python-kaleido
+    - ipygany
 
 about:
   home: https://github.com/krande/adapy
-  license: GPLv3
+  license: "GNU General Public v3 (GPLv3)"
+  license_family: GPL3
+  summary: "A python library for structural analysis and design"
+  doc_url: https://adapy.readthedocs.io/en/latest/
+
+extra:
+  recipe-maintainers:
+    - Krande

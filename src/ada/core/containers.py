@@ -141,7 +141,7 @@ class Beams(BaseCollections):
             vol_new = vol_
         vol = vol_new
 
-        def sort_bms(bms):
+        def sort_beams(bms):
             xkeys = [key[1] for key in bms]
             xmin = bisect_left(xkeys, vol[0][0])
             xmax = bisect_right(xkeys, vol[0][1])
@@ -164,7 +164,7 @@ class Beams(BaseCollections):
         bm_list1 = [(bm.name, bm.n1.x, bm.n1.y, bm.n1.z) for bm in sorted(self._beams, key=lambda bm: bm.n1.x)]
         bm_list2 = [(bm.name, bm.n2.x, bm.n2.y, bm.n2.z) for bm in sorted(self._beams, key=lambda bm: bm.n2.x)]
 
-        return list(set([self._dmap[bm_id] for bms_ in (bm_list1, bm_list2) for bm_id in sort_bms(bms_)]))
+        return set([self._dmap[bm_id] for bms_ in (bm_list1, bm_list2) for bm_id in sort_beams(bms_)])
 
     @property
     def dmap(self):
@@ -662,6 +662,8 @@ class Sections:
         :param section:
         :type section: ada.Section
         """
+        from ada import section_counter
+
         if section.name is None:
             raise Exception("Name is not allowed to be None.")
 
@@ -672,9 +674,13 @@ class Sections:
         if section.name in self._nmap.keys():
             return self._nmap[section.name]
 
-        if section.id is None or section.id in self._idmap.keys():
-            new_sec_id = len(self._sections) + 1
-            section.edit(sec_id=new_sec_id)
+        if section.id is None:
+            section.id = next(section_counter)
+
+        if len(self._sections) > 0:
+            if section.id is None or section.id in self._idmap.keys():
+                new_sec_id = next(section_counter)
+                section.id = new_sec_id
 
         self._sections.append(section)
         self._idmap[section.id] = section
@@ -689,7 +695,7 @@ class Nodes:
     :param nodes:
     :param unique_ids:
     :param parent:
-    :param from_np_array:
+    :param from_np_array: Valid numpy array with rows containing (id, x, y, z)
     """
 
     def __init__(self, nodes=None, unique_ids=True, parent=None, from_np_array=None):
@@ -729,6 +735,12 @@ class Nodes:
 
     def nlist_to_np_array(self, nlist):
         return np.array([(n.id, *n) for n in nlist])
+
+    def to_np_array(self, include_id=False):
+        if include_id:
+            return np.array([(n.id, *n.p) for n in self._nodes])
+        else:
+            return np.array([n.p for n in self._nodes])
 
     def __contains__(self, item):
         return item in self._nodes
@@ -850,6 +862,10 @@ class Nodes:
     @property
     def min_nid(self):
         return min(self.dmap.keys()) if len(self.dmap.keys()) > 0 else 0
+
+    @property
+    def nodes(self):
+        return self._nodes
 
     def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=_Settings.point_tol):
         """

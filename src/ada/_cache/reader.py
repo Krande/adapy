@@ -1,4 +1,5 @@
 import json
+import logging
 
 import h5py
 
@@ -27,6 +28,9 @@ def walk_parts(cache_p, parent):
         if type(p) is h5py.Dataset:
             continue
         unsafe_name = from_safe_name(name)
+        parent_name = from_safe_name(p.attrs.get("PARENT", ""))
+        if parent.name != parent_name:
+            logging.error("Unable to retrieve proper Hierarchy from HDF5 cache")
         curr_p = parent.add_part(get_part_from_cache(unsafe_name, p))
         walk_parts(p, curr_p)
 
@@ -65,10 +69,11 @@ def get_beams_from_cache(part_cache, parent: Part):
     prefix = "BEAMS"
     beams_str = part_cache.get(f"{prefix}_STR")
     beams_int = part_cache.get(f"{prefix}_INT")
+    beams_up = part_cache.get(f"{prefix}_UP")
     if beams_str is None:
         return None
 
-    def bm_from_cache(bm_str, bm_int):
+    def bm_from_cache(bm_str, bm_int, bm_up):
         nid1, nid2 = [parent.nodes.from_id(nid) for nid in bm_int]
         guid, name, sec_name, mat_name, meta_str = str_fix(bm_str)
         sec = parent.sections.get_by_name(sec_name)
@@ -76,9 +81,11 @@ def get_beams_from_cache(part_cache, parent: Part):
         metadata = None
         if meta_str is not None:
             metadata = json.loads(meta_str)
-        return Beam(name, nid1, nid2, sec=sec, mat=mat, guid=guid, parent=parent, metadata=metadata)
+        return Beam(name, nid1, nid2, sec=sec, mat=mat, guid=guid, parent=parent, metadata=metadata, up=bm_up)
 
-    return Beams([bm_from_cache(sec_str, sec_int) for sec_str, sec_int in zip(beams_str, beams_int)], parent=parent)
+    bm_zip = zip(beams_str, beams_int, beams_up)
+
+    return Beams([bm_from_cache(bm_str, bm_int, bm_up) for bm_str, bm_int, bm_up in bm_zip], parent=parent)
 
 
 def get_sections_from_cache(part_cache, parent):
@@ -120,9 +127,14 @@ def get_materials_from_cache(part_cache, parent):
 
     def mat_from_list(mat_int, mat_str):
         guid, name, units = str_fix(mat_str)
-        E, rho, sigy = mat_int
+        E, rho, sigy, mat_id = mat_int
         return Material(
-            name=name, guid=guid, units=units, mat_model=CarbonSteel(E=E, rho=rho, sig_y=sigy), parent=parent
+            name=name,
+            guid=guid,
+            mat_id=mat_id,
+            units=units,
+            mat_model=CarbonSteel(E=E, rho=rho, sig_y=sigy),
+            parent=parent,
         )
 
     return Materials([mat_from_list(mat_int, mat_str) for mat_int, mat_str in zip(mat_int, mat_str)], parent=parent)

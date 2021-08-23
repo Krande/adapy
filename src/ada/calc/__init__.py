@@ -87,6 +87,8 @@ class BeamCalc:
         return equation_compiler(moment, True)
 
     def _repr_html_(self):
+        from ada.config import Settings
+
         # Create Plotly diagrams for displacement, shear and moment UDL's
         dt_points = 50
         displacements = np.zeros((2, dt_points))
@@ -138,7 +140,8 @@ class BeamCalc:
             ylbl="Moment [Nm]",
             return_widget=True,
         )
-        display(VBox([plot_displ, plot_moment, plot_shear]))
+        if Settings.silence_display is True:
+            display(VBox([plot_displ, plot_moment, plot_shear]))
         return ""
 
 

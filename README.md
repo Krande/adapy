@@ -1,7 +1,24 @@
 # ADA - Assembly for Design & Analysis
 
+[![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/version.svg)](https://anaconda.org/krande/ada-py)
+[![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/latest_release_date.svg)](https://anaconda.org/krande/ada-py)
+[![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/platforms.svg)](https://anaconda.org/krande/ada-py)
+[![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/downloads.svg)](https://anaconda.org/krande/ada-py)
+
 A python library for working with structural analysis and design delivering an object-oriented framework for modelling 
 and Finite Element (FE) model conversion, editing, analysis and postprocessing. 
+
+To install the ada-py package into an existing conda environment write the following in an open conda prompt
+
+```
+conda install -c krande -c conda-forge ada-py
+```
+
+**Alternatively** you can create a new isolated environment for the installation like so:
+
+```
+conda create -n adaenv -c krande -c conda-forge ada-py 
+```
 
 With `ada` you can (among other things) convert your FE models to IFC, create your own recipes for creating FE mesh from
 your IFC models, or build your design from the ground up using fully customizable and extendible python classes and 
@@ -26,49 +43,15 @@ This library is still undergoing significant development so expect there to be o
 
 ## Quick Links
 
-Clicking the link below will open a jupyter notebook client in the cloud using the latest version of adapy with 
-Code Aster and Calculix pre-installed.
+Try ada-py online (main branch / dev branch) with code-aster and calculix pre-installed
 
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Krande/adapy/main)
+[![Binder-main](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Krande/adapy/main) / [![Binder-dev](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Krande/adapy/dev)
 
 ![img.png](docs/_static/figures/jupyter-example.png)
 
 
 * Feel free to start/join any informal topic related to adapy [here](https://github.com/Krande/adapy/discussions).
 * Issues related to adapy can be raised [here](https://github.com/Krande/adapy/issues)
-
-
-## Installation
-Here are the steps necessary to install the ada package
-
-Note that it is recommended to create an isolated environment for the installation. You can create a new environment
-like so:
-
-```
-conda create -n adaenv 
-activate adaenv
-```
-
-### Using Pypi
-To install ada using pip
-
-First you need to have installed `ifcopenshell` and `pythonocc-core` from conda-forge. 
-
-`conda -c conda-forge ifcopenshell pythonocc-core==7.5.1 occt==7.5.1`
-
-After the conda-forge dependencies are installed you can install ada using 
-
-`pip install ada-py`
-
-(which will automatically include all dependencies from PyPi)
-
-
-### Using Conda (Note! Work in progress)
-Note! Conda installation is not yet set up.
-
-[comment]: <> (To install using conda you can use)
-
-[comment]: <> (`conda install -c krande -conda-forge ada`)
 
 
 ## Usage
@@ -211,12 +194,31 @@ For installation files of open source FEM software such as Calculix and Code Ast
 * https://www.code-aster.org/spip.php?rubrique21 (Code Aster for Linux)
 * https://salome-platform.org/downloads/current-version (Salome v9.6.0 for windows/linux)
 
+## Alternative Installation methods
+If you rather\must want to use pip you can do:
+
+```
+pip install ada-py
+```
+
+**Note!** Pip will not install the required conda packages. Therefore you would also have to do
+
+```
+conda install -c conda-forge ifcopenshell pythonocc-core==7.5.1 occt==7.5.1
+```
+
+**Note!** pip is not a recommended installation method due to an unstable behaviour often 
+manifested as DLL import errors related to the vtk package.
+
 ## For developers
 
 For developers interested in contributing to this project feel free to 
-make a fork, experiment and create a pull request when you have something you would like to add/change/remove. 
+make a fork, experiment and create a pull request when you have something you 
+would like to add/change/remove. 
 
-Before making a pull request you need to lint with, isort, flake8 and black. 
+Before making a pull request you need to lint with, isort, flake8 and black.
+Assuming you have a cmd terminal open in the adapy package directory you can
+run
 
 ````
 pip install black isort flake8
@@ -225,6 +227,8 @@ flake8 .
 black .
 ````
 
+Or if you have make installed you can just run `make format` 
+to run all three tools at once.
 
 ## Project Responsible ###
 

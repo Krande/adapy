@@ -794,13 +794,13 @@ class SectionRenderer:
 
     """
 
-    def display(self, sec):
+    def build_display(self, sec):
         """
 
         :type sec: ada.Section
         """
-        from IPython.display import display
-        from ipywidgets import HTML, HBox
+
+        from ipywidgets import HTML
 
         from ada.core.utils import easy_plotly
         from ada.sections import SectionCat
@@ -916,9 +916,7 @@ class SectionRenderer:
             return_widget=True,
         )
         fig["layout"]["yaxis"]["scaleanchor"] = "x"
-
-        display(HBox([fig, html]))
-
+        return fig, HTML
         # display(widgets.VBox([widgets.HBox([testb]), center, self._fig]))
 
 

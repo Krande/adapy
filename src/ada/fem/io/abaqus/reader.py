@@ -17,7 +17,6 @@ from ada.fem import (
     Constraint,
     Csys,
     Elem,
-    ElemShapes,
     FemSection,
     FemSet,
     Interaction,
@@ -28,6 +27,7 @@ from ada.fem import (
 )
 from ada.fem.containers import FemElements, FemSections, FemSets
 from ada.fem.io.abaqus.common import AbaCards
+from ada.fem.shapes import ElemShapes
 from ada.materials.metals import CarbonSteel
 
 from ..utils import str_to_int

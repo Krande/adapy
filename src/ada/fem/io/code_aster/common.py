@@ -1,5 +1,7 @@
 import logging
 
+from ada.fem import Step
+
 
 def abaqus_to_med_type(value):
     if value in _abaqus_to_med_type.keys():
@@ -42,3 +44,8 @@ _abaqus_to_med_type = {
     "C3D6": "PE6",
     # "wedge15": "P15",
 }
+
+
+class CAStep(Step):
+    def __init__(self, **kwargs):
+        super(CAStep, self).__init__(**kwargs)

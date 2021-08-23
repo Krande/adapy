@@ -4,6 +4,7 @@ from itertools import chain
 
 from ada.fem import Constraint, Csys, Elem, FemSection, FemSet, Mass, Spring
 from ada.fem.io.utils import get_ff_regex, str_to_int
+from ada.fem.shapes import ElemShapes
 from ada.materials.metals import CarbonSteel
 from ada.sections import GeneralProperties
 
@@ -404,7 +405,6 @@ def get_sections(bulk_str, fem):
     from ada import Section
     from ada.core.containers import Sections
     from ada.core.utils import roundoff, unit_vector, vector_length
-    from ada.fem import ElemShapes
     from ada.fem.containers import FemSections
 
     # Get section names
@@ -822,13 +822,10 @@ def get_constraints(bulk_str, fem):
 
 
 def get_springs(bulk_str, fem):
-    from itertools import groupby
-    from operator import attrgetter
-
     import numpy as np
 
     gr_spr_elements = None
-    for eltype, elements in groupby(fem.elements, key=attrgetter("type")):
+    for eltype, elements in fem.elements.group_by_type():
         if eltype == "SPRING1":
             gr_spr_elements = {el.metadata["matno"]: el for el in elements}
 
