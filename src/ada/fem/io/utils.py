@@ -35,19 +35,21 @@ class LocalExecute:
         self._inp_path = pathlib.Path(inp_path)
         self._cpus = cpus
         self._gpus = gpus
-        self._run_ext = run_ext
+        self.run_ext = run_ext
         self._metadata = metadata
-        self._auto_execute = auto_execute
-        self._local_execute = excute_locally
+        self.auto_execute = auto_execute
+        self.local_execute = excute_locally
 
     def _run_local(self, run_command, stop_command=None, exit_on_complete=True):
 
         if sys.platform == "linux" or sys.platform == "linux2":
-            run_linux(self, run_command)
+            out = run_linux(self, run_command)
         elif sys.platform == "darwin":
-            run_macOS(self, run_command)
+            out = run_macOS(self, run_command)
         else:  # sys.platform == "win32":
-            run_windows(self, run_command, stop_command, exit_on_complete)
+            out = run_windows(self, run_command, stop_command, exit_on_complete)
+
+        return out
 
     def run(self):
         raise NotImplementedError("The run function is not implemented")
@@ -219,7 +221,7 @@ def _lock_check(analysis_dir):
         )
 
 
-def _folder_prep(scratch_dir, analysis_name, overwrite):
+def folder_prep(scratch_dir, analysis_name, overwrite):
 
     if scratch_dir is None:
         scratch_dir = pathlib.Path(_Settings.scratch_dir)
@@ -238,7 +240,7 @@ def _folder_prep(scratch_dir, analysis_name, overwrite):
     return analysis_dir
 
 
-def run_windows(exe, run_command, stop_command=None, exit_on_complete=True):
+def run_windows(exe: LocalExecute, run_command, stop_command=None, exit_on_complete=True):
     """
 
     :param exe:
@@ -276,24 +278,30 @@ echo ON\ncall {run_command}"""
 
     print(80 * "-")
     print(f'starting {fem_tool} simulation "{exe.analysis_name}"')
-    if exe._auto_execute is True:
-        if exe._run_ext is True:
-            subprocess.run(
+    out = None
+    if exe.auto_execute is True:
+        if exe.run_ext is True:
+            out = subprocess.run(
                 "start " + start_bat,
                 cwd=exe.execute_dir,
                 shell=True,
                 env=os.environ,
+                capture_output=True,
+                universal_newlines=True,
             )
             print(f"Note! This starts {fem_tool} in an external window on a separate thread.")
         else:
-            subprocess.run(
+            out = subprocess.run(
                 "start /wait " + start_bat,
                 cwd=exe.execute_dir,
                 shell=True,
                 env=os.environ,
+                capture_output=True,
+                universal_newlines=True,
             )
             print(f'Finished {fem_tool} simulation "{exe.analysis_name}"')
     print(80 * "-")
+    return out
 
 
 def run_linux(exe, run_command):
@@ -307,24 +315,29 @@ def run_linux(exe, run_command):
 
     print(80 * "-")
     print(f'starting {fem_tool} simulation "{exe.analysis_name}" (on Linux)')
-    if exe._auto_execute is True:
-        if exe._run_ext is True:
-            subprocess.run(
+    if exe.auto_execute is True:
+        if exe.run_ext is True:
+            out = subprocess.run(
                 run_command,
                 cwd=exe.execute_dir,
                 shell=True,
                 env=os.environ,
+                capture_output=True,
+                universal_newlines=True,
             )
             print(f"Note! This starts {fem_tool} in an external window on a separate thread.")
         else:
-            subprocess.run(
+            out = subprocess.run(
                 run_command,
                 cwd=exe.execute_dir,
                 shell=True,
                 env=os.environ,
+                capture_output=True,
+                universal_newlines=True,
             )
             print(f'Finished {fem_tool} simulation "{exe.analysis_name}"')
     print(80 * "-")
+    return out
 
 
 def run_macOS(exe, run_command):
@@ -338,3 +351,14 @@ def interpret_fem(fem_ref):
     elif ".inp" in str(fem_ref).lower():
         fem_type = "abaqus"
     return fem_type
+
+
+def should_convert(res_path, overwrite):
+    run_convert = True
+    if res_path is not None:
+        if res_path.exists() is True:
+            run_convert = False
+    if run_convert is True or overwrite is True:
+        return True
+    else:
+        return False

@@ -2,39 +2,11 @@ import pathlib
 from operator import attrgetter
 
 from ada import Assembly, Beam, Part
-from ada.config import Settings
 from ada.param_models.basic_module import SimpleStru
 
 this_dir = pathlib.Path(__file__).resolve().absolute().parent
 example_files = this_dir / ".." / "files"
 is_printed = False
-
-
-def init_tests():
-    """The OCC packages are imported here to eliminate dll import errors during testing"""
-    import pprint
-    import sys
-
-    # from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeShape
-    # from OCC.Core.IGESControl import IGESControl_Reader, IGESControl_Writer
-    # from OCC.Core.StlAPI import StlAPI_Reader, StlAPI_Writer
-    # from OCC.Core.TDocStd import TDocStd_Document
-    # from OCC.Core.XCAFDoc import XCAFDoc_DocumentTool_ShapeTool
-    #
-    # _ = [
-    #     IGESControl_Reader,
-    #     IGESControl_Writer,
-    #     StlAPI_Reader,
-    #     StlAPI_Writer,
-    #     TDocStd_Document,
-    #     XCAFDoc_DocumentTool_ShapeTool,
-    #     BRepBuilderAPI_MakeShape,
-    # ]
-
-    global is_printed
-    if is_printed is False:
-        pprint.pprint(sys.path)
-        is_printed = True
 
 
 def dummy_display(ada_obj):
@@ -54,7 +26,7 @@ def build_test_model():
     param_model = SimpleStru("ParametricModel")
     a = Assembly("ParametricSite")
     a.add_part(param_model)
-    param_model.gmsh.mesh(max_dim=2, interactive=False)
+    param_model.gmsh.mesh(max_dim=2, interactive=False, gmsh_silent=True)
     param_model.add_bcs()
 
     return a

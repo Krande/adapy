@@ -50,9 +50,10 @@ class Calculix(LocalExecute):
             except FileNotFoundError as e:
                 logging.error(e)
                 return
-            self._run_local(f"{exe_path} -i {self.analysis_name}", exit_on_complete=exit_on_complete)
+            out = self._run_local(f"{exe_path} -i {self.analysis_name}", exit_on_complete=exit_on_complete)
         else:
-            self._run_docker()
+            out = self._run_docker()
+        return out
 
     def _run_docker(self):
         try:
@@ -100,14 +101,14 @@ class Calculix(LocalExecute):
         self._inp_path = pathlib.Path(value)
 
 
-def run_calculix(inp_path, cpus=2, gpus=None, run_ext=False, manifest=None, execute=True, exit_on_complete=True):
+def run_calculix(inp_path, cpus=2, gpus=None, run_ext=False, metadata=None, execute=True, exit_on_complete=True):
     """
 
     :param inp_path: Destination path for Calculix input file
     :param cpus: Number of CPUS to use for analysis
     :param gpus: Number of GPUs to use for analysis
     :param run_ext: Run externally
-    :param manifest:
+    :param metadata:
     :param execute:
     :param exit_on_complete:
     :return:
@@ -121,7 +122,7 @@ def run_calculix(inp_path, cpus=2, gpus=None, run_ext=False, manifest=None, exec
         cpus=cpus,
         gpus=gpus,
         run_ext=run_ext,
-        metadata=manifest,
+        metadata=metadata,
         execute=execute,
     )
     ccx.run(exit_on_complete=exit_on_complete)

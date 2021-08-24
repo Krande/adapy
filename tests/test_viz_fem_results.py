@@ -1,6 +1,6 @@
 import unittest
 
-from common import example_files, init_tests
+from common import example_files
 
 from ada.core.utils import traverse_hdf_datasets
 from ada.fem.io.code_aster.results import get_eigen_frequency_deformed_meshes
@@ -13,9 +13,6 @@ rmed_sh_eig = code_aster_files / "Cantilever_CA_EIG_sh.rmed"
 
 
 class FemResults(unittest.TestCase):
-    def setUp(self) -> None:
-        init_tests()
-
     def test_hdf5_file_structure(self):
         traverse_hdf_datasets(rmed_bm_eig)
 

@@ -1,14 +1,11 @@
 import unittest
 
-from common import init_tests
-
 from ada import Assembly, Beam, Part
 from ada.fem.visualize import get_edges_from_fem, get_faces_from_fem
 
 
 class FemBeam(unittest.TestCase):
     def setUp(self) -> None:
-        init_tests()
         a = Assembly() / (Part("BeamFEM") / Beam("bm1", n1=[0, 0, 0], n2=[2, 0, 0], sec="IPE220", colour="red"))
         pfem = a.get_by_name("BeamFEM")
         pfem.gmsh.mesh(0.1)

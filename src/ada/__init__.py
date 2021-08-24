@@ -25,7 +25,6 @@ from .core.utils import (
     vector_length,
 )
 from .fem import FEM, Elem, FemSet
-from .fem.io import femio
 from .materials.metals import CarbonSteel
 from .sections import GeneralProperties, SectionCat
 
@@ -1228,10 +1227,7 @@ class Assembly(Part):
         if self._enable_experimental_cache is True:
             self._to_cache(ifc_file, cache_model_now)
 
-    @femio
-    def read_fem(
-        self, fem_file, fem_format=None, name=None, fem_converter="default", convert_func=None, cache_model_now=False
-    ):
+    def read_fem(self, fem_file, fem_format=None, name=None, fem_converter="default", cache_model_now=False):
         """
         Import a Finite Element model.
 
@@ -1249,6 +1245,8 @@ class Assembly(Part):
 
         Note! The meshio fem converter implementation currently only supports reading elements and nodes.
         """
+        from ada.fem.io import get_fem_converters
+
         fem_file = pathlib.Path(fem_file)
         if fem_file.exists() is False:
             raise FileNotFoundError(fem_file)
@@ -1257,12 +1255,12 @@ class Assembly(Part):
             if self._from_cache(fem_file) is True:
                 return None
 
-        convert_func(self, fem_file, name)
+        fem_importer, _ = get_fem_converters(fem_file, fem_format, fem_converter)
+        fem_importer(self, fem_file, name)
 
         if self._enable_experimental_cache is True:
             self._to_cache(fem_file, cache_model_now)
 
-    @femio
     def to_fem(
         self,
         name: str,
@@ -1275,7 +1273,6 @@ class Assembly(Part):
         gpus=None,
         overwrite=False,
         fem_converter="default",
-        convert_func=None,
         exit_on_complete=True,
     ):
         """
@@ -1307,7 +1304,6 @@ class Assembly(Part):
         :param gpus: Number of gpus for running the analysis (wherever relevant)
         :param overwrite: Overwrite existing input file deck
         :param fem_converter: Set desired fem converter. Use either 'default' or 'meshio'.
-        :param convert_func:
         :param exit_on_complete:
         :rtype: ada.base.render_fem.Results
 
@@ -1322,50 +1318,52 @@ class Assembly(Part):
             If this proves to create issues regarding performance this should be evaluated further.
 
         """
+        from ada.fem.io import fem_executables, get_fem_converters
+        from ada.fem.io.utils import folder_prep, should_convert
 
         base_path = _Settings.scratch_dir / name / name
-        fem_res_paths = dict(code_aster=base_path.with_suffix(".rmed"), abaqus=base_path.with_suffix(".odb"))
+        fem_res_files = dict(code_aster=base_path.with_suffix(".rmed"), abaqus=base_path.with_suffix(".odb"))
+        res_path = fem_res_files.get(fem_format, None)
+        metadata = dict() if metadata is None else metadata
+        metadata["fem_format"] = fem_format
 
-        res_path = fem_res_paths.get(fem_format, None)
+        out = None
+        if should_convert(res_path, overwrite):
+            analysis_dir = folder_prep(scratch_dir, name, overwrite)
+            _, fem_exporter = get_fem_converters("", fem_format, fem_converter)
+            fem_inp_files = dict(
+                code_aster=(analysis_dir / name).with_suffix(".export"),
+                abaqus=(analysis_dir / name).with_suffix(".inp"),
+                calculix=(analysis_dir / name).with_suffix(".inp"),
+            )
+            fem_exporter(self, name, analysis_dir, metadata)
 
-        # Update all global materials and sections before writing input file
-        # self.materials
-        # self.sections
-        run_convert = True
-        if res_path is None:
-            pass
-        elif res_path.exists() is True:
-            run_convert = False
-        else:
-            pass
+            if execute is True:
+                exe_func = fem_executables.get(fem_format, None)
+                inp_path = fem_inp_files.get(fem_format, None)
+                if exe_func is None:
+                    raise NotImplementedError(f'The FEM format "{fem_format}" has no execute function')
 
-        if run_convert is True or overwrite is True:
-            try:
-                convert_func(
-                    self,
-                    name,
-                    scratch_dir,
-                    metadata,
-                    execute,
-                    run_ext,
-                    cpus,
-                    gpus,
-                    overwrite,
-                    exit_on_complete,
+                out = exe_func(
+                    inp_path=inp_path,
+                    cpus=cpus,
+                    gpus=gpus,
+                    run_ext=run_ext,
+                    metadata=metadata,
+                    execute=execute,
+                    exit_on_complete=exit_on_complete,
                 )
-            except IOError as e:
-                logging.error(e)
         else:
             print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
 
-        if fem_format not in fem_res_paths.keys():
-            logging.error(f'FEM format "{fem_format}" is not yet supported for results processing')
+        if fem_format not in fem_res_files.keys():
+            logging.info(f'FEM format "{fem_format}" is not yet supported for results processing')
             return None
 
         if res_path.exists():
             from ada.fem.results import Results
 
-            return Results(res_path)
+            return Results(res_path, output=out)
         else:
             logging.info(f'Result file "{res_path}" was not found')
 

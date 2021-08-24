@@ -14,7 +14,7 @@ from .visualize import (
 
 
 class Results:
-    def __init__(self, result_file_path, part=None, palette=None):
+    def __init__(self, result_file_path, part=None, palette=None, output=None):
         self.palette = [(0, 149 / 255, 239 / 255), (1, 0, 0)] if palette is None else palette
         self._analysis_type = None
         self._point_data = []
@@ -26,6 +26,11 @@ class Results:
         self._render_sets = None
         self._undeformed_mesh = None
         self._deformed_mesh = None
+        self._output = output
+
+    @property
+    def output(self):
+        return self._output
 
     @property
     def results_file_path(self):

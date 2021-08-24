@@ -1,5 +1,7 @@
 import unittest
 
+from common import dummy_display
+
 from ada import Assembly, Part, Pipe, Section
 from ada.config import Settings
 
@@ -23,7 +25,7 @@ class PipeIO(unittest.TestCase):
         pipe1 = Pipe("Pipe1", [(0, y0, 0), (0, y0, z)], Section("PSec", "PIPE", r=0.10, wt=5e-3))
         p.add_pipe(pipe1)
         a.to_ifc(test_folder / "pipe_straight.ifc")
-        a._repr_html_()
+        dummy_display(a)
 
     def test_pipe_bend(self):
         a = Assembly("MyTest")
@@ -42,7 +44,9 @@ class PipeIO(unittest.TestCase):
         )
         p.add_pipe(pipe1)
         a.to_ifc(test_folder / "pipe_bend.ifc")
-        # a.to_stp(test_folder / "pipe_bend.stp")
+        a.to_stp(test_folder / "pipe_bend.stp")
+        dummy_display(a)
+
         # a._repr_html_()
 
     # def test_ifc_elbow(self):

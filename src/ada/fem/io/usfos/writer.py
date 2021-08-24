@@ -2,7 +2,7 @@ import os
 from operator import attrgetter
 
 from ada.core.utils import roundoff
-from ada.fem.io.utils import _folder_prep
+from ada.fem.io.utils import folder_prep
 
 
 def to_fem(
@@ -40,7 +40,7 @@ def to_fem(
         raise ValueError("Usfos writer currently only works for a single part")
     part = parts[0]
 
-    analysis_dir = _folder_prep(scratch_dir, name, overwrite)
+    analysis_dir = folder_prep(scratch_dir, name, overwrite)
 
     head = """ HEAD\n\n\n"""
     eccen = []
