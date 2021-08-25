@@ -5,8 +5,6 @@ import pathlib
 import traceback
 from itertools import chain
 
-import numpy as np
-
 from ada.base import BackendGeom
 from ada.concepts.piping import Pipe
 from ada.concepts.primitives import (
@@ -17,11 +15,11 @@ from ada.concepts.primitives import (
     PrimRevolve,
     Shape,
 )
-from ada.concepts.structural import Beam, Plate, Wall
+from ada.concepts.structural import Beam, Material, Plate, Section, Wall
 from ada.config import Settings as _Settings
 from ada.config import User
 from ada.core.containers import Beams, Connections, Materials, Nodes, Plates, Sections
-from ada.core.utils import create_guid, get_list_of_files
+from ada.core.utils import create_guid
 from ada.fem import FEM, Elem, FemSet
 
 
@@ -89,13 +87,7 @@ class Part(BackendGeom):
 
         self._fem = FEM(name + "-1", parent=self) if fem is None else fem
 
-    def add_beam(self, beam):
-        """
-        Add beam to the assembly
-
-        :param beam: Beam object
-        :type beam: Beam
-        """
+    def add_beam(self, beam: Beam):
         if beam.units != self.units:
             beam.units = self.units
         beam.parent = self
@@ -122,13 +114,7 @@ class Part(BackendGeom):
         self.beams.add(beam)
         return beam
 
-    def add_plate(self, plate):
-        """
-        Add a plate
-
-        :param plate:
-        :type plate: Plate
-        """
+    def add_plate(self, plate: Plate):
         if plate.units != self.units:
             plate.units = self.units
 
@@ -140,12 +126,7 @@ class Part(BackendGeom):
 
         self._plates.add(plate)
 
-    def add_pipe(self, pipe):
-        """
-
-        :param pipe:
-        :type pipe: ada.Pipe
-        """
+    def add_pipe(self, pipe: Pipe):
         if pipe.units != self.units:
             pipe.units = self.units
         pipe.parent = self
@@ -156,35 +137,23 @@ class Part(BackendGeom):
 
         self._pipes.append(pipe)
 
-    def add_wall(self, wall):
-        """
-
-        :param wall:
-        :type wall: ada.Wall
-        """
+    def add_wall(self, wall: Wall):
         if wall.units != self.units:
             wall.units = self.units
         wall.parent = self
         self._walls.append(wall)
 
-    def add_shape(self, shape):
-        """
-        Add a shape
-
-        :param shape:
-        :type shape: ada.Shape
-        """
+    def add_shape(self, shape: Shape):
         if shape.units != self.units:
             logging.info(f'shape "{shape}" has different units. changing from "{shape.units}" to "{self.units}"')
             shape.units = self.units
         shape.parent = self
         self._shapes.append(shape)
 
-    def add_part(self, part, auto_merge=True):
+    def add_part(self, part):
         """
 
         :param part:
-        :param auto_merge: Automatically merge parts with existing name
         :type part: Part
         """
         if issubclass(type(part), Part) is False:
@@ -226,25 +195,13 @@ class Part(BackendGeom):
             joint.units = self.units
         self._connections.add(joint)
 
-    def add_material(self, material):
-        """
-        This method will add a Material element. First it will check if the material exists in the db already.
-
-        :param material:
-        :type material: Material
-        """
+    def add_material(self, material: Material):
         if material.units != self.units:
             material.units = self.units
         material.parent = self
         return self._materials.add(material)
 
-    def add_section(self, section):
-        """
-        This method will add a Section element. First it will check if the section exists in the db already.
-
-        :param section:
-        :type section: Section
-        """
+    def add_section(self, section: Section):
         if section.units != self.units:
             section.units = self.units
         return self._sections.add(section)
@@ -334,50 +291,9 @@ class Part(BackendGeom):
         :param opacity: Assign Opacity upon import
         :param units: Unit of the imported STEP file. Default is 'm'
         """
-        import math
+        from ..core.step_utils import extract_shapes
 
-        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
-        from OCC.Core.gp import gp_Ax1, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
-        from OCC.Extend.DataExchange import read_step_file
-        from OCC.Extend.TopologyUtils import TopologyExplorer
-
-        def transform_shape(shp_):
-            trsf = gp_Trsf()
-            if scale is not None:
-                trsf.SetScaleFactor(scale)
-            if transform is not None:
-                trsf.SetTranslation(gp_Vec(transform[0], transform[1], transform[2]))
-            if rotate is not None:
-                pt = gp_Pnt(rotate[0][0], rotate[0][1], rotate[0][2])
-                dire = gp_Dir(rotate[1][0], rotate[1][1], rotate[1][2])
-                revolve_axis = gp_Ax1(pt, dire)
-                trsf.SetRotation(revolve_axis, math.radians(rotate[2]))
-            return BRepBuilderAPI_Transform(shp_, trsf, True).Shape()
-
-        def walk_shapes(dir_path):
-            shps = []
-            for stp_file in get_list_of_files(dir_path, ".stp"):
-                shps += extract_subshapes(read_step_file(stp_file))
-            return shps
-
-        def extract_subshapes(shp_):
-            s = []
-            t = TopologyExplorer(shp_)
-            for solid in t.solids():
-                s.append(solid)
-            return s
-
-        shapes = []
-
-        cad_file_path = pathlib.Path(step_path)
-        if cad_file_path.is_file():
-            shapes += extract_subshapes(read_step_file(str(cad_file_path)))
-        elif cad_file_path.is_dir():
-            shapes += walk_shapes(cad_file_path)
-        else:
-            raise Exception(f'step_ref "{step_path}" does not represent neither file or folder found on system')
-
-        shapes = [transform_shape(s) for s in shapes]
+        shapes = extract_shapes(step_path, scale, transform, rotate)
         if len(shapes) > 0:
             ada_name = name if name is not None else "CAD" + str(len(self.shapes) + 1)
             for i, shp in enumerate(shapes):
@@ -497,32 +413,32 @@ class Part(BackendGeom):
         """
         from ada.fem import FemSection
 
-        if type(obj) is Beam:
-            el_type = "B31" if el_type is None else el_type
-
-            res = self.fem.nodes.add(obj.n1)
-            if res is not None:
-                obj.n1 = res
-            res = self.fem.nodes.add(obj.n2)
-            if res is not None:
-                obj.n2 = res
-
-            elem = Elem(None, [obj.n1, obj.n2], el_type)
-            self.fem.add_elem(elem)
-            femset = FemSet(f"{obj.name}_set", [elem.id], "elset")
-            self.fem.add_set(femset)
-            self.fem.add_section(
-                FemSection(
-                    f"d{obj.name}_sec",
-                    "beam",
-                    femset,
-                    obj.material,
-                    obj.section,
-                    obj.ori[1],
-                )
-            )
-        else:
+        if type(obj) is not Beam:
             raise NotImplementedError(f'Object type "{type(obj)}" is not yet supported')
+
+        el_type = "B31" if el_type is None else el_type
+
+        res = self.fem.nodes.add(obj.n1)
+        if res is not None:
+            obj.n1 = res
+        res = self.fem.nodes.add(obj.n2)
+        if res is not None:
+            obj.n2 = res
+
+        elem = Elem(None, [obj.n1, obj.n2], el_type)
+        self.fem.add_elem(elem)
+        femset = FemSet(f"{obj.name}_set", [elem.id], "elset")
+        self.fem.add_set(femset)
+        self.fem.add_section(
+            FemSection(
+                f"d{obj.name}_sec",
+                "beam",
+                femset,
+                obj.material,
+                obj.section,
+                obj.ori[1],
+            )
+        )
 
     def get_part(self, name):
         """
@@ -1032,14 +948,14 @@ class Assembly(Part):
             self.update_cache()
 
     def _read_cache(self):
-        from ada._cache.reader import read_assembly_from_cache
+        from ada.cache.reader import read_assembly_from_cache
 
         read_assembly_from_cache(self._cache_file, self)
         self._cache_loaded = True
         print(f"Finished Loading model from cache {self._cache_file}")
 
     def update_cache(self):
-        from ada._cache.writer import write_assembly_to_cache
+        from ada.cache.writer import write_assembly_to_cache
 
         write_assembly_to_cache(self, self._cache_file)
 
@@ -1058,11 +974,9 @@ class Assembly(Part):
         import ifcopenshell
 
         from ada.core.ifc_utils import (
-            calculate_unit_scale,
-            get_name,
-            get_parent,
-            getIfcPropertySets,
-            scale_ifc_file_object,
+            import_ifc_hierarchy,
+            import_physical_ifc,
+            scale_ifc_file,
         )
 
         if self._enable_experimental_cache is True:
@@ -1071,120 +985,27 @@ class Assembly(Part):
 
         f = ifcopenshell.open(ifc_file)
 
-        oval = calculate_unit_scale(self.ifc_file)
-        nval = calculate_unit_scale(f)
-        if oval != nval:
-            logging.error("Running Unit Conversion on IFC import. This is still highly unstable")
-            # length_unit = f.createIfcSIUnit(None, "LENGTHUNIT", None, "METRE")
-            # unit_assignment = f.createIfcUnitAssignment((length_unit,))
-            new_file = scale_ifc_file_object(f, nval)
-            f = new_file
+        scaled_ifc = scale_ifc_file(self.ifc_file, f)
+        if scaled_ifc is not None:
+            f = scaled_ifc
 
         # Get hierarchy
         if elements2part is None:
             for product in f.by_type("IfcProduct"):
-                pr_type = product.is_a()
-                pp = get_parent(product)
-                if pp is None:
+                res, new_part = import_ifc_hierarchy(self, product)
+                if new_part is None:
                     continue
-                name = get_name(product)
-                if pr_type in [
-                    "IfcBuilding",
-                    "IfcSpace",
-                    "IfcBuildingStorey",
-                    "IfcSpatialZone",
-                ]:
-                    props = getIfcPropertySets(product)
-                    new_part = Part(name, ifc_elem=product, metadata=dict(original_name=name, props=props))
-                    res = self.get_by_name(pp.Name)
-                    if res is None:
-                        self.add_part(new_part)
-                    elif type(res) is not Part:
-                        raise NotImplementedError()
-                    else:
-                        res.add_part(new_part)
+                if res is None:
+                    self.add_part(new_part)
+                elif type(res) is not Part:
+                    raise NotImplementedError()
+                else:
+                    res.add_part(new_part)
 
         # Get physical elements
         for product in f.by_type("IfcProduct"):
             if product.Representation is not None and data_only is False:
-                pr_type = product.is_a()
-                pp = get_parent(product)
-                props = getIfcPropertySets(product)
-                name = get_name(product)
-                logging.info(f"importing {name}")
-                if pr_type in ["IfcBeamStandardCase", "IfcBeam"]:
-                    try:
-                        bm = Beam(name, ifc_elem=product)
-                    except NotImplementedError as e:
-                        logging.error(e)
-                        continue
-                    bm.metadata["props"] = props
-                    imported = False
-                    if elements2part is not None:
-                        elements2part.add_beam(bm)
-                        imported = True
-                    else:
-                        for p in self.get_all_parts_in_assembly():
-                            if p.name == pp.Name or p.metadata.get("original_name") == pp.Name:
-                                p.add_beam(bm)
-                                imported = True
-                                break
-                    if imported is False:
-                        raise ValueError(f'Unable to import beam "{bm.name}"')
-                elif pr_type in ["IfcPlateStandardCase", "IfcPlate"]:
-                    try:
-                        pl = Plate(name, None, None, ifc_elem=product)
-                    except np.linalg.LinAlgError as g:
-                        logging.error(g)
-                        continue
-                    except IndexError as f:
-                        logging.error(f)
-                        continue
-                    except ValueError as e:
-                        logging.error(e)
-                        continue
-                    pl.metadata["props"] = props
-                    imported = False
-                    if elements2part is not None:
-                        elements2part.add_plate(pl)
-                        imported = True
-                    else:
-                        all_parts = self.get_all_parts_in_assembly()
-                        for p in all_parts:
-                            if p.name == pp.Name:
-                                p.add_plate(pl)
-                                imported = True
-                                break
-                    if imported is False:
-                        raise ValueError(f'Unable to import plate "{pl.name}"')
-                else:
-                    if product.is_a("IfcOpeningElement") is True:
-                        continue
-                    # new_product = self.ifc_file.add(product)
-                    props = getIfcPropertySets(product)
-
-                    shp = Shape(
-                        name,
-                        None,
-                        guid=product.GlobalId,
-                        # ifc_elem=product,
-                        metadata=dict(ifc_file=ifc_file, props=props),
-                    )
-                    if shp is None:
-                        continue
-                    imported = False
-                    if elements2part is not None:
-                        elements2part.add_shape(shp)
-                        imported = True
-                    else:
-                        if pp is not None:
-                            for p in self.get_all_parts_in_assembly():
-                                if p.name == pp.Name:
-                                    p.add_shape(shp)
-                                    imported = True
-                    if imported is False:
-                        self.add_shape(shp)
-                        logging.debug(f'Shape "{product.Name}" was added below Assembly Level -> No owner found')
+                import_physical_ifc(product, ifc_file, self, elements2part)
 
         print(f'Import of IFC file "{ifc_file}" is complete')
 
@@ -1201,7 +1022,6 @@ class Assembly(Part):
         :param fem_format: Fem Format
         :param name:
         :param fem_converter: Set desired fem converter. Use either 'default' or 'meshio'.
-        :param convert_func:
         :param cache_model_now:
         :type fem_file: Union[str, os.PathLike]
         :type fem_format: str

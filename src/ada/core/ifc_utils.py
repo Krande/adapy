@@ -869,3 +869,135 @@ def create_reference_subrep(f, global_axes):
     )
 
     return {"model": model_rep, "body": body_sub_rep, "reference": ref_sub_rep}
+
+
+def scale_ifc_file(current_ifc, new_ifc):
+    from ada.core.ifc_utils import calculate_unit_scale, scale_ifc_file_object
+
+    oval = calculate_unit_scale(current_ifc)
+    nval = calculate_unit_scale(new_ifc)
+    if oval != nval:
+        logging.error("Running Unit Conversion on IFC import. This is still highly unstable")
+        # length_unit = f.createIfcSIUnit(None, "LENGTHUNIT", None, "METRE")
+        # unit_assignment = f.createIfcUnitAssignment((length_unit,))
+        new_file = scale_ifc_file_object(new_ifc, nval)
+        return new_file
+
+
+def import_ifc_hierarchy(assembly, product):
+    from ada.concepts.levels import Part
+
+    pr_type = product.is_a()
+    pp = get_parent(product)
+    if pp is None:
+        return None, None
+    name = get_name(product)
+    if pr_type not in [
+        "IfcBuilding",
+        "IfcSpace",
+        "IfcBuildingStorey",
+        "IfcSpatialZone",
+    ]:
+        return None, None
+    props = getIfcPropertySets(product)
+    new_part = Part(name, ifc_elem=product, metadata=dict(original_name=name, props=props))
+    res = assembly.get_by_name(pp.Name)
+    return res, new_part
+
+
+def import_ifc_beam(product, name, props):
+    from ada.concepts.structural import Beam
+
+    try:
+        bm = Beam(name, ifc_elem=product)
+    except NotImplementedError as e:
+        logging.error(e)
+        return None
+    bm.metadata["props"] = props
+    return bm
+
+
+def import_ifc_plate(product, name, props):
+    from ada.concepts.structural import Plate
+
+    try:
+        pl = Plate(name, None, None, ifc_elem=product)
+    except (IndexError, ValueError, np.linalg.LinAlgError) as f:
+        logging.error(f)
+        return None
+    pl.metadata["props"] = props
+    return pl
+
+
+def import_general_shape(product, name, props):
+    from ada.concepts.primitives import Shape
+
+    shp = Shape(
+        name,
+        None,
+        guid=product.GlobalId,
+        metadata=dict(props=props),
+    )
+    return shp
+
+
+def add_to_parent(parent, obj):
+    from ada.concepts.primitives import Shape
+    from ada.concepts.structural import Beam, Plate
+
+    if type(obj) is Beam:
+        parent.add_beam(obj)
+    elif type(obj) is Plate:
+        parent.add_plate(obj)
+    elif type(obj) is Shape:
+        parent.add_shape(obj)
+    else:
+        raise NotImplementedError("")
+
+
+def add_to_assembly(assembly, obj, parent, elements2part):
+    """
+
+    :param assembly:
+    :param obj:
+    :param parent:
+    :param elements2part:
+    """
+    imported = False
+    if elements2part is not None:
+        add_to_parent(parent, obj)
+        imported = True
+    else:
+        all_parts = assembly.get_all_parts_in_assembly()
+        for p in all_parts:
+            if p.name == parent.Name or p.metadata.get("original_name") == parent.Name:
+                add_to_parent(p, obj)
+                imported = True
+                break
+    if imported is False:
+        raise ValueError(f'Unable to import {type(obj)} "{obj.name}"')
+
+
+def import_physical_ifc(product, ifc_file, self, elements2part=None):
+    from ada.core.ifc_utils import get_name, get_parent, getIfcPropertySets
+
+    pr_type = product.is_a()
+    parent = get_parent(product)
+    props = getIfcPropertySets(product)
+    name = get_name(product)
+    logging.info(f"importing {name}")
+    if pr_type in ["IfcBeamStandardCase", "IfcBeam"]:
+        obj = import_ifc_beam(product, name, props)
+        if obj is not None:
+            add_to_assembly(self, obj, parent, elements2part)
+    elif pr_type in ["IfcPlateStandardCase", "IfcPlate"]:
+        obj = import_ifc_plate(product, name, props)
+        if obj is not None:
+            add_to_assembly(self, obj, parent, elements2part)
+    else:
+        if product.is_a("IfcOpeningElement") is True:
+            return None
+        shp = import_general_shape(product, name, props)
+        shp.metadata["ifc_file"] = ifc_file
+        if shp is not None:
+            add_to_assembly(self, shp, parent, elements2part)
