@@ -1,6 +1,6 @@
 import logging
 
-from ada.core.utils import create_guid
+from ada.ifc.utils import create_guid
 
 
 def to_ifc_fem(fem, f):
@@ -12,7 +12,7 @@ def to_ifc_fem(fem, f):
     :type f: ifcopenshell.file.file
     :return:
     """
-    from ada.core.ifc_utils import create_global_axes, create_reference_subrep
+    from ada.ifc.utils import create_global_axes, create_reference_subrep
 
     owner_history = fem.parent.get_assembly().user.to_ifc()
     f.create_entity(
@@ -47,7 +47,7 @@ def elem_to_ifc(elem, f, subref, owner_history):
     :type f: ifcopenshell.file.file
     :return:
     """
-    from ada.core.ifc_utils import create_local_placement, ifc_p, to_real
+    from ada.ifc.utils import create_local_placement, ifc_p, to_real
 
     local_z = f.createIfcDirection(to_real(elem.fem_sec.local_z))
     p1 = elem.nodes[0].p

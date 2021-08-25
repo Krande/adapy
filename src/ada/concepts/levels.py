@@ -19,8 +19,8 @@ from ada.concepts.structural import Beam, Material, Plate, Section, Wall
 from ada.config import Settings as _Settings
 from ada.config import User
 from ada.core.containers import Beams, Connections, Materials, Nodes, Plates, Sections
-from ada.core.utils import create_guid
 from ada.fem import FEM, Elem, FemSet
+from ada.ifc.utils import create_guid
 
 
 class Part(BackendGeom):
@@ -291,7 +291,7 @@ class Part(BackendGeom):
         :param opacity: Assign Opacity upon import
         :param units: Unit of the imported STEP file. Default is 'm'
         """
-        from ..core.step_utils import extract_shapes
+        from ..step.utils import extract_shapes
 
         shapes = extract_shapes(step_path, scale, transform, rotate)
         if len(shapes) > 0:
@@ -531,10 +531,7 @@ class Part(BackendGeom):
             self._flatten_list_of_subparts(value, list_of_parts)
 
     def _generate_ifc_elem(self):
-        from ada.core.ifc_utils import (
-            add_multiple_props_to_elem,
-            create_local_placement,
-        )
+        from ada.ifc.utils import add_multiple_props_to_elem, create_local_placement
 
         if self.parent is None:
             raise ValueError("Cannot build ifc element without parent")
@@ -765,7 +762,7 @@ class Part(BackendGeom):
             self._units = value
             if type(self) is Assembly:
                 assert isinstance(self, Assembly)
-                from ada.core.ifc_utils import assembly_to_ifc_file
+                from ada.ifc.utils import assembly_to_ifc_file
 
                 self._ifc_file = assembly_to_ifc_file(self)
 
@@ -831,7 +828,7 @@ class Assembly(Part):
         clear_cache=False,
         enable_experimental_cache=None,
     ):
-        from ada.core.ifc_utils import assembly_to_ifc_file
+        from ada.ifc.utils import assembly_to_ifc_file
 
         metadata = dict() if metadata is None else metadata
         metadata["project"] = project
@@ -896,7 +893,7 @@ class Assembly(Part):
         return is_cache_outdated
 
     def reset_ifc_file(self):
-        from ada.core.ifc_utils import assembly_to_ifc_file
+        from ada.ifc.utils import assembly_to_ifc_file
 
         self._ifc_file = assembly_to_ifc_file(self)
 
@@ -973,7 +970,7 @@ class Assembly(Part):
         """
         import ifcopenshell
 
-        from ada.core.ifc_utils import (
+        from ada.ifc.utils import (
             import_ifc_hierarchy,
             import_physical_ifc,
             scale_ifc_file,
@@ -1288,7 +1285,7 @@ class Assembly(Part):
         bimcon.pull(project, checkout)
 
     def _generate_ifc_elem(self):
-        from ada.core.ifc_utils import create_local_placement, create_property_set
+        from ada.ifc.utils import create_local_placement, create_property_set
 
         f = self.ifc_file
         owner_history = self.user.to_ifc()

@@ -2,9 +2,11 @@ import logging
 
 import numpy as np
 
+from ada.core.utils import Counter, roundoff, unit_vector, vector_length
+from ada.ifc.utils import create_guid
+
 from ..base import BackendGeom
 from ..config import Settings as _Settings
-from ..core.utils import Counter, create_guid, roundoff, unit_vector, vector_length
 from .curves import CurvePoly
 
 
@@ -48,7 +50,7 @@ class Shape(BackendGeom):
 
     def generate_parametric_solid(self, ifc_file):
         from ada.core.constants import O, X, Z
-        from ada.core.ifc_utils import (
+        from ada.ifc.utils import (
             create_global_axes,
             create_ifcextrudedareasolid,
             create_IfcFixedReferenceSweptAreaSolid,
@@ -168,7 +170,7 @@ class Shape(BackendGeom):
     def _generate_ifc_elem(self):
         import ifcopenshell.geom
 
-        from ada.core.ifc_utils import (
+        from ada.ifc.utils import (
             add_colour,
             create_local_placement,
             create_property_set,
@@ -261,7 +263,7 @@ class Shape(BackendGeom):
         return ifc_elem
 
     def _import_from_ifc_elem(self, ifc_elem):
-        from ada.core.ifc_utils import getIfcPropertySets
+        from ada.ifc.utils import getIfcPropertySets
 
         props = getIfcPropertySets(ifc_elem)
         if props is None:
@@ -310,7 +312,7 @@ class Shape(BackendGeom):
 
         returns xmin, ymin, zmin, xmax, ymax, zmax, xmax - xmin, ymax - ymin, zmax - zmin
         """
-        from ada.core.utils import get_boundingbox
+        from ada.step.utils import get_boundingbox
 
         return get_boundingbox(self.geom, use_mesh=True)
 
@@ -326,7 +328,7 @@ class Shape(BackendGeom):
         :rtype:
         """
         if self._geom is None:
-            from ada.core.ifc_utils import get_representation
+            from ada.ifc.utils import get_representation
 
             if self._ifc_elem is not None:
                 ifc_elem = self._ifc_elem
@@ -366,7 +368,7 @@ class Shape(BackendGeom):
 
 class PrimSphere(Shape):
     def __init__(self, name, pnt, radius, colour=None, opacity=1.0, metadata=None, units="m"):
-        from ada.core.utils import make_sphere
+        from ada.step.utils import make_sphere
 
         self.pnt = pnt
         self.radius = radius
@@ -386,7 +388,7 @@ class PrimSphere(Shape):
     @units.setter
     def units(self, value):
         if value != self._units:
-            from ada.core.utils import make_sphere
+            from ada.step.utils import make_sphere
 
             scale_factor = self._unit_conversion(self._units, value)
             self.pnt = tuple([x * scale_factor for x in self.pnt])
@@ -400,7 +402,7 @@ class PrimSphere(Shape):
 
 class PrimBox(Shape):
     def __init__(self, name, p1, p2, colour=None, opacity=1.0, metadata=None, units="m"):
-        from ada.core.utils import make_box_by_points
+        from ada.step.utils import make_box_by_points
 
         self.p1 = p1
         self.p2 = p2
@@ -420,7 +422,7 @@ class PrimBox(Shape):
     @units.setter
     def units(self, value):
         if value != self._units:
-            from ada.core.utils import make_box_by_points
+            from ada.step.utils import make_box_by_points
 
             scale_factor = self._unit_conversion(self._units, value)
             self.p1 = tuple([x * scale_factor for x in self.p1])
@@ -434,7 +436,7 @@ class PrimBox(Shape):
 
 class PrimCyl(Shape):
     def __init__(self, name, p1, p2, r, colour=None, opacity=1.0, metadata=None, units="m"):
-        from ada.core.utils import make_cylinder_from_points
+        from ada.step.utils import make_cylinder_from_points
 
         self.p1 = np.array(p1)
         self.p2 = np.array(p2)
@@ -447,7 +449,7 @@ class PrimCyl(Shape):
 
     @units.setter
     def units(self, value):
-        from ada.core.utils import make_cylinder_from_points
+        from ada.step.utils import make_cylinder_from_points
 
         if value != self._units:
             scale_factor = self._unit_conversion(self._units, value)
@@ -690,10 +692,7 @@ class Penetration(BackendGeom):
 
     def _generate_ifc_opening(self):
         from ada.core.constants import O, X, Z
-        from ada.core.ifc_utils import (
-            add_multiple_props_to_elem,
-            create_local_placement,
-        )
+        from ada.ifc.utils import add_multiple_props_to_elem, create_local_placement
 
         if self.parent is None:
             raise ValueError("This penetration has no parent")

@@ -13,14 +13,14 @@ from ada.core.utils import (
     angle_between,
     calc_yvec,
     calc_zvec,
-    create_guid,
-    make_wire_from_points,
     roundoff,
     unit_vector,
     vector_length,
 )
+from ada.ifc.utils import create_guid
 from ada.materials.metals import CarbonSteel
 from ada.sections import GeneralProperties, SectionCat
+from ada.step.utils import make_wire_from_points
 
 section_counter = Counter(1)
 material_counter = Counter(1)
@@ -218,7 +218,8 @@ class Beam(BackendGeom):
     def _generate_ifc_elem(self):
         from ada.config import Settings
         from ada.core.constants import O, X, Z
-        from ada.core.ifc_utils import (
+        from ada.core.utils import angle_between
+        from ada.ifc.utils import (
             add_colour,
             add_multiple_props_to_elem,
             convert_bm_jusl_to_ifc,
@@ -226,7 +227,6 @@ class Beam(BackendGeom):
             create_ifcrevolveareasolid,
             create_local_placement,
         )
-        from ada.core.utils import angle_between
 
         sec = self.section
         if self.parent is None:
@@ -388,7 +388,7 @@ class Beam(BackendGeom):
         return ifc_beam
 
     def _import_from_ifc_beam(self, ifc_elem):
-        from ada.core.ifc_utils import (
+        from ada.ifc.utils import (
             get_association,
             get_name,
             get_representation,
@@ -897,7 +897,7 @@ class Plate(BackendGeom):
 
     def _generate_ifc_elem(self):
         from ada.core.constants import O, X, Z
-        from ada.core.ifc_utils import (
+        from ada.ifc.utils import (
             add_colour,
             create_global_axes,
             create_ifcindexpolyline,
@@ -990,7 +990,7 @@ class Plate(BackendGeom):
         return ifc_plate
 
     def _import_from_ifc_plate(self, ifc_elem, ifc_settings=None):
-        from ada.core.ifc_utils import (
+        from ada.ifc.utils import (
             get_name,
             get_representation,
             import_indexedpolycurve,
@@ -1311,7 +1311,7 @@ class Wall(BackendGeom):
     def _generate_ifc_elem(self):
         from ada.concepts.levels import Part
         from ada.core.constants import O, X, Z
-        from ada.core.ifc_utils import (
+        from ada.ifc.utils import (
             add_negative_extrusion,
             create_global_axes,
             create_ifcextrudedareasolid,
@@ -1401,7 +1401,7 @@ class Wall(BackendGeom):
         import ifcopenshell.geom
 
         from ada.core.constants import O, X, Z
-        from ada.core.ifc_utils import create_local_placement
+        from ada.ifc.utils import create_local_placement
 
         a = self.parent.get_assembly()
         f = a.ifc_file
@@ -1713,7 +1713,7 @@ class Section(Backend):
         return True
 
     def _generate_ifc_section_data(self):
-        from ada.core.ifc_utils import create_ifcindexpolyline, create_ifcpolyline
+        from ada.ifc.utils import create_ifcindexpolyline, create_ifcpolyline
 
         a = self.parent.parent.get_assembly()
         f = a.ifc_file
@@ -2085,8 +2085,8 @@ class Section(Backend):
         """
         from OCC.Extend.ShapeFactory import make_face, make_wire
 
-        from ada.core.utils import (
-            local_2_global_nodes,
+        from ada.core.utils import local_2_global_nodes
+        from ada.step.utils import (
             make_circle,
             make_face_w_cutout,
             make_wire_from_points,

@@ -209,7 +209,7 @@ class CurvePoly:
         from OCC.Core.GC import GC_MakeArcOfCircle
         from OCC.Core.gp import gp_Pnt
 
-        from ada.core.utils import make_edge
+        from ada.step.utils import make_edge
 
         edges = []
         for seg in segments:
@@ -234,11 +234,8 @@ class CurvePoly:
         :param tol:
         :return:
         """
-        from ada.core.utils import (
-            build_polycurve,
-            local_2_global_nodes,
-            segments_to_indexed_lists,
-        )
+        from ada.core.curve_utils import build_polycurve, segments_to_indexed_lists
+        from ada.core.utils import local_2_global_nodes
 
         debug_name = self._parent.name if self._parent is not None else "PolyCurveDebugging"
 

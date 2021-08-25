@@ -5,8 +5,8 @@ import meshio
 
 from ada import Part
 from ada.config import Settings as _Settings
-from ada.core.utils import create_guid
 from ada.fem import FemSection, FemSet
+from ada.ifc.utils import create_guid
 
 from .common import (
     _init_gmsh_session,

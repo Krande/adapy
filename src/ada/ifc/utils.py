@@ -7,9 +7,27 @@ import numpy as np
 from ifcopenshell.util.unit import get_prefix_multiplier
 
 import ada.core.constants as ifco
-from ada.core.utils import Counter, create_guid, get_list_of_files, roundoff
+from ada.core.utils import Counter, get_list_of_files, roundoff
 
 name_gen = Counter(1, "IfcEl")
+
+
+def create_guid(name=None):
+    import hashlib
+    import uuid
+
+    import ifcopenshell
+
+    if name is None:
+        hexdig = uuid.uuid1().hex
+    else:
+        if type(name) != bytes:
+            n = name.encode()
+        else:
+            n = name
+        hexdig = hashlib.md5(n).hexdigest()
+    result = ifcopenshell.guid.compress(hexdig)
+    return result
 
 
 def ifc_p(f, p):
@@ -64,7 +82,7 @@ def create_local_placement(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X, relativ
 def create_new_ifc_file(file_name, schema):
     import datetime
 
-    from .utils import get_version
+    from ..core.utils import get_version
 
     f = ifcopenshell.file(schema=schema)
     ada_ver = get_version()
@@ -108,7 +126,7 @@ def generate_tpl_ifc_file(file_name, project, schema, units, user):
 
     import time
 
-    from ada.core.ifc_template import tpl_create
+    from .ifc_template import tpl_create
 
     timestamp = time.time()
     timestring = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(timestamp))
@@ -530,7 +548,8 @@ def import_indexedpolycurve(ipoly, normal, xdir, origin):
     :return:
     """
     from ada import ArcSegment, LineSegment
-    from ada.core.utils import global_2_local_nodes, segments_to_local_points
+    from ada.core.curve_utils import segments_to_local_points
+    from ada.core.utils import global_2_local_nodes
 
     ydir = np.cross(normal, xdir)
     nodes3d = [p for p in ipoly.Points.CoordList]
@@ -872,8 +891,6 @@ def create_reference_subrep(f, global_axes):
 
 
 def scale_ifc_file(current_ifc, new_ifc):
-    from ada.core.ifc_utils import calculate_unit_scale, scale_ifc_file_object
-
     oval = calculate_unit_scale(current_ifc)
     nval = calculate_unit_scale(new_ifc)
     if oval != nval:
@@ -979,8 +996,6 @@ def add_to_assembly(assembly, obj, parent, elements2part):
 
 
 def import_physical_ifc(product, ifc_file, self, elements2part=None):
-    from ada.core.ifc_utils import get_name, get_parent, getIfcPropertySets
-
     pr_type = product.is_a()
     parent = get_parent(product)
     props = getIfcPropertySets(product)

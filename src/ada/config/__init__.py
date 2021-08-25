@@ -97,7 +97,7 @@ class User:
     def to_ifc(self):
         from datetime import datetime
 
-        from ada.core.ifc_utils import get_org, get_person
+        from ada.ifc.utils import get_org, get_person
 
         f = self.parent.ifc_file
         actor = f.create_entity("IfcActorRole", self.role.upper(), None, None)

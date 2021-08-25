@@ -2,16 +2,11 @@ import logging
 
 import numpy as np
 
+from ada.ifc.utils import create_guid
+
 from ..base import BackendGeom
 from ..config import Settings as _Settings
-from ..core.utils import (
-    Counter,
-    angle_between,
-    create_guid,
-    roundoff,
-    unit_vector,
-    vector_length,
-)
+from ..core.utils import Counter, angle_between, roundoff, unit_vector, vector_length
 from ..materials.metals import CarbonSteel
 from .points import Node
 from .structural import Material
@@ -64,7 +59,7 @@ class Pipe(BackendGeom):
 
         :return:
         """
-        from ada.core.utils import make_arc_segment
+        from ada.core.curve_utils import make_arc_segment
 
         segs = []
         for p1, p2 in zip(self.points[:-1], self.points[1:]):
@@ -231,7 +226,7 @@ class Pipe(BackendGeom):
 
     def _generate_ifc_pipe(self):
         from ada.core.constants import X, Z
-        from ada.core.ifc_utils import create_local_placement, create_property_set
+        from ada.ifc.utils import create_local_placement, create_property_set
 
         if self.parent is None:
             raise ValueError("Cannot build ifc element without parent")
@@ -348,7 +343,7 @@ class PipeSegStraight(BackendGeom):
 
     @property
     def geom(self):
-        from ada.core.utils import make_edge, sweep_pipe
+        from ada.step.utils import make_edge, sweep_pipe
 
         edge = make_edge(self.p1, self.p2)
 
@@ -356,7 +351,7 @@ class PipeSegStraight(BackendGeom):
 
     def _generate_ifc_elem(self):
         from ada.core.constants import O, X, Z
-        from ada.core.ifc_utils import (  # create_ifcrevolveareasolid,
+        from ada.ifc.utils import (  # create_ifcrevolveareasolid,
             create_global_axes,
             create_ifcpolyline,
             to_real,
@@ -464,7 +459,8 @@ class PipeSegElbow(BackendGeom):
 
     @property
     def geom(self):
-        from ada.core.utils import make_edges_and_fillet_from_3points, sweep_pipe
+        from ada.core.curve_utils import make_edges_and_fillet_from_3points
+        from ada.step.utils import sweep_pipe
 
         i = self.parent.segments.index(self)
         if i != 0:
@@ -517,11 +513,9 @@ class PipeSegElbow(BackendGeom):
 
     def _elbow_revolved_solid(self, f, context):
         from ada.core.constants import O, X, Z
-        from ada.core.ifc_utils import create_global_axes
-        from ada.core.utils import (
-            get_center_from_3_points_and_radius,
-            normal_to_points_in_plane,
-        )
+        from ada.core.curve_utils import get_center_from_3_points_and_radius
+        from ada.core.utils import normal_to_points_in_plane
+        from ada.ifc.utils import create_global_axes
 
         center, _, _, _ = get_center_from_3_points_and_radius(self.p1.p, self.p2.p, self.p3.p, self.bend_radius)
 
@@ -546,7 +540,7 @@ class PipeSegElbow(BackendGeom):
         return prod_def_shp
 
     def _generate_ifc_elem(self):
-        from ada.core.ifc_utils import create_local_placement
+        from ada.ifc.utils import create_local_placement
 
         if self.parent is None:
             raise ValueError("Parent cannot be None for IFC export")

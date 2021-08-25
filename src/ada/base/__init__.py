@@ -11,7 +11,7 @@ class Backend:
         self.name = name
         self.parent = parent
         self._ifc_settings = ifc_settings
-        from ada.core.utils import create_guid
+        from ada.ifc.utils import create_guid
 
         self.guid = create_guid() if guid is None else guid
         units = units.lower()
