@@ -1513,7 +1513,7 @@ def local_2_global_nodes(nodes, origin, xdir, normal):
     :param xdir: Local X-direction
     :return:
     """
-    from ada import Node
+    from ada.concepts.points import Node
     from ada.core.constants import X, Y
 
     if type(origin) is Node:

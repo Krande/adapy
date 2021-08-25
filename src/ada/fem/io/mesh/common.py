@@ -43,7 +43,7 @@ class GMesh:
         mesh_algo=8,
         sh_int_points=5,
         point_tol=_Settings.point_tol,
-        gmsh_silent=False,
+        gmsh_silent=True,
     ):
         """
 

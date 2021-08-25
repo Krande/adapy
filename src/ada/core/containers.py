@@ -662,7 +662,7 @@ class Sections:
         :param section:
         :type section: ada.Section
         """
-        from ada import section_counter
+        from ada.concepts.structural import section_counter
 
         if section.name is None:
             raise Exception("Name is not allowed to be None.")
