@@ -842,11 +842,11 @@ class Assembly(Part):
         import ifcopenshell
 
         from ada.ifc.utils import (
+            add_to_assembly,
+            get_parent,
             import_ifc_hierarchy,
             import_physical_ifc_elem,
             scale_ifc_file,
-            get_parent,
-            add_to_assembly,
         )
 
         if self._enable_experimental_cache is True:
