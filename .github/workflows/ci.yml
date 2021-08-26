@@ -104,12 +104,23 @@ jobs:
         run: |
           conda activate ${{ env.CONDAENV }}
           anaconda -t=${{ secrets.ANACONDA_TOKEN }} upload ${{ env.CONDAROOT }}/conda-bld/${{ matrix.platform.short }}/ada-py-${{ env.PKG_VERSION }}-${{ matrix.pyver.name }}_0.tar.bz2 --user krande --skip-existing
+  pypi:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    name: Publish to PYPI
+    runs-on: ubuntu-latest
+    steps:
       - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
       - name: Build and upload package for pypi
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash -l {0}
         run: |
-          conda activate ${{ env.CONDAENV }}
-          pip install build twine
+          pip install build
           python -m build
-          twine upload -u ada dist/*
+      - name: Publish a Python distribution to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
