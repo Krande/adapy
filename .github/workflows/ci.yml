@@ -42,6 +42,7 @@ jobs:
     name: ${{ matrix.platform.name }}-${{ matrix.pyver.name }}
     runs-on: ${{ matrix.platform.distver }}
     env:
+      TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
       CONDAENV: base
       PKG_VERSION: nothing
       CONDAROOT: nothing
@@ -101,19 +102,12 @@ jobs:
         shell: bash -l {0}
         run: |
           conda activate ${{ env.CONDAENV }}
-          anaconda -t=${{ secrets.ANACONDA_TOKEN }} upload ${{ env.CONDAROOT }}/conda-bld/${{ matrix.platform.short }}/ada-py-${{ env.PKG_VERSION }}-${{ matrix.pyver.name }}_0.tar.bz2 --user krande
+          anaconda -t=${{ secrets.ANACONDA_TOKEN }} upload ${{ env.CONDAROOT }}/conda-bld/${{ matrix.platform.short }}/ada-py-${{ env.PKG_VERSION }}-${{ matrix.pyver.name }}_0.tar.bz2 --user krande --skip-existing
       - uses: actions/checkout@v2
-      - name: Build package for pypi
+      - name: Build and upload package for pypi
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          pip install build
+          conda activate ${{ env.CONDAENV }}
+          pip install build twine
           python -m build
-      - name: upload to pypi
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
-
-
-
+          twine upload -u ada dist/*
