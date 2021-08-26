@@ -4,7 +4,7 @@ import numpy as np
 from IPython.display import display
 from ipywidgets import Dropdown, HBox, VBox
 
-from .visualize import (
+from ada.visualize.fem import (
     get_edges_and_faces_from_meshio,
     get_edges_from_fem,
     get_faces_from_fem,
@@ -125,8 +125,12 @@ class Results:
         :type renderer: ada.base.renderer.MyRenderer
         :return:
         """
-        from ada.base.renderer import MyRenderer
-        from ada.base.threejs_geom import edges_to_mesh, faces_to_mesh, vertices_to_mesh
+        from ada.visualize.renderer import MyRenderer
+        from ada.visualize.threejs_geom import (
+            edges_to_mesh,
+            faces_to_mesh,
+            vertices_to_mesh,
+        )
 
         default_vertex_color = (8, 8, 8)
 
@@ -190,7 +194,7 @@ class Results:
                 self.create_viz_geom(data, renderer=self.renderer)
 
     def _repr_html_(self):
-        from ada.base.renderer import MyRenderer
+        from ada.visualize.renderer import MyRenderer
 
         if self._renderer is None:
             self._renderer = MyRenderer()

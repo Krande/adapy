@@ -1,6 +1,7 @@
 import numpy as np
 
 from ada.base import Backend
+from ada.fem import Bc
 
 
 class Node:
@@ -15,15 +16,6 @@ class Node:
     """
 
     def __init__(self, p, nid=None, bc=None, r=None, parent=None, units="m"):
-        """
-
-        :param p:
-        :param nid:
-        :param bc:
-        :param r:
-        :param parent:
-        :param units:
-        """
         self._id = nid
         self.p = np.array([*p], dtype=np.float64) if type(p) != np.ndarray else p
         if len(self.p) != 3:
@@ -55,12 +47,7 @@ class Node:
         return self.p[2]
 
     @property
-    def bc(self):
-        """
-
-        :return:
-        :rtype: ada.fem.Bc
-        """
+    def bc(self) -> Bc:
         return self._bc
 
     @bc.setter

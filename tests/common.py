@@ -11,7 +11,7 @@ is_printed = False
 
 def dummy_display(ada_obj):
     from ada import Section
-    from ada.base.renderer import MyRenderer, SectionRenderer
+    from ada.visualize.renderer import MyRenderer, SectionRenderer
 
     if type(ada_obj) is Section:
         sec_render = SectionRenderer()

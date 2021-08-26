@@ -734,8 +734,8 @@ class ProfileBuilder:
         from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Wire
 
         from ada.core.utils import tuple_minus
+        from ada.occ.utils import face_to_wires
         from ada.sections import SectionCat
-        from ada.step.utils import face_to_wires
 
         xdir, ydir, zdir = beam.ori
         ydir_neg = tuple_minus(ydir) if beam.section.type not in SectionCat.angular else tuple(ydir)

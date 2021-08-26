@@ -26,11 +26,8 @@ class CurveRevolve:
 
         if self._point_on is not None:
             from ada.core.constants import O, X, Y, Z
-            from ada.core.utils import (
-                calc_arc_radius_center_from_3points,
-                global_2_local_nodes,
-                local_2_global_nodes,
-            )
+            from ada.core.curve_utils import calc_arc_radius_center_from_3points
+            from ada.core.utils import global_2_local_nodes, local_2_global_nodes
 
             p1, p2 = self.p1, self.p2
 
@@ -209,7 +206,7 @@ class CurvePoly:
         from OCC.Core.GC import GC_MakeArcOfCircle
         from OCC.Core.gp import gp_Pnt
 
-        from ada.step.utils import make_edge
+        from ada.occ.utils import make_edge
 
         edges = []
         for seg in segments:

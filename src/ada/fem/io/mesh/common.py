@@ -4,8 +4,8 @@ import os
 import numpy as np
 
 from ada import Node, Plate
+from ada.concepts.containers import Nodes
 from ada.config import Settings as _Settings
-from ada.core.containers import Nodes
 from ada.core.utils import clockwise, intersect_calc, roundoff, vector_length
 from ada.fem import Elem, FemSection, FemSet
 from ada.fem.containers import FemElements

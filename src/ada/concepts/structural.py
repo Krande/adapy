@@ -19,8 +19,8 @@ from ada.core.utils import (
 )
 from ada.ifc.utils import create_guid
 from ada.materials.metals import CarbonSteel
+from ada.occ.utils import make_wire_from_points
 from ada.sections import GeneralProperties, SectionCat
-from ada.step.utils import make_wire_from_points
 
 section_counter = Counter(1)
 material_counter = Counter(1)
@@ -390,8 +390,8 @@ class Beam(BackendGeom):
     def _import_from_ifc_beam(self, ifc_elem):
         from ada.ifc.utils import (
             get_association,
+            get_ifc_shape,
             get_name,
-            get_representation,
             getIfcPropertySets,
         )
 
@@ -415,7 +415,7 @@ class Beam(BackendGeom):
         zvec = np.cross(xvec, yvec)
 
         # pdct_shape = ifcopenshell.geom.create_shape(self.settings, inst=ifc_elem)
-        pdct_shape, colour, alpha = get_representation(ifc_elem, self.ifc_settings)
+        pdct_shape, colour, alpha = get_ifc_shape(ifc_elem, self.ifc_settings)
 
         bodies = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Body"]
         if len(bodies) != 1:
@@ -991,8 +991,8 @@ class Plate(BackendGeom):
 
     def _import_from_ifc_plate(self, ifc_elem, ifc_settings=None):
         from ada.ifc.utils import (
+            get_ifc_shape,
             get_name,
-            get_representation,
             import_indexedpolycurve,
             import_polycurve,
         )
@@ -1004,7 +1004,7 @@ class Plate(BackendGeom):
         else:
             ifc_settings = a.ifc_settings
 
-        pdct_shape, color, alpha = get_representation(ifc_elem, ifc_settings)
+        pdct_shape, color, alpha = get_ifc_shape(ifc_elem, ifc_settings)
         atts = dict(ifc_geom=pdct_shape, colour=color, opacity=alpha)
 
         # TODO: Fix interpretation of IfcIndexedPolyCurve. Should pass origin to get actual 2d coordinates.
@@ -2086,11 +2086,7 @@ class Section(Backend):
         from OCC.Extend.ShapeFactory import make_face, make_wire
 
         from ada.core.utils import local_2_global_nodes
-        from ada.step.utils import (
-            make_circle,
-            make_face_w_cutout,
-            make_wire_from_points,
-        )
+        from ada.occ.utils import make_circle, make_face_w_cutout, make_wire_from_points
 
         def points2wire(curve):
             poly = CurvePoly(points2d=curve, origin=origin, xdir=xdir, normal=normal, parent=self)
@@ -2139,7 +2135,7 @@ class Section(Backend):
         from IPython.display import display
         from ipywidgets import HBox
 
-        from ..base.renderer import SectionRenderer
+        from ada.visualize.renderer import SectionRenderer
 
         sec_render = SectionRenderer()
         fig, html = sec_render.build_display(self)

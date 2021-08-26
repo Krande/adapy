@@ -3,7 +3,7 @@ import os
 import numpy as np
 
 from ..config import Settings as _Settings
-from ..step.utils import get_midpoint_of_arc
+from ..occ.utils import get_midpoint_of_arc
 from .utils import (
     angle_between,
     calc_yvec,
@@ -22,7 +22,7 @@ from .utils import (
 def make_arc_segment(p1, p2, p3, radius):
     from ada import ArcSegment, LineSegment
 
-    from ..step.utils import get_edge_points
+    from ..occ.utils import get_edge_points
 
     ed1, ed2, fillet = make_edges_and_fillet_from_3points(p1, p2, p3, radius)
 
@@ -833,7 +833,7 @@ def build_polycurve(local_points2d, tol=1e-3, debug=False, debug_name=None, is_c
 
 
 def make_edges_and_fillet_from_3points(p1, p2, p3, radius):
-    from ..step.utils import make_edge, make_fillet
+    from ..occ.utils import make_edge, make_fillet
 
     edge1 = make_edge(p1[:3], p2[:3])
     edge2 = make_edge(p2[:3], p3[:3])

@@ -1,11 +1,22 @@
+from __future__ import annotations
+
 import json
 import logging
 import os
 import pathlib
 import traceback
 from itertools import chain
+from typing import List
 
 from ada.base import BackendGeom
+from ada.concepts.containers import (
+    Beams,
+    Connections,
+    Materials,
+    Nodes,
+    Plates,
+    Sections,
+)
 from ada.concepts.piping import Pipe
 from ada.concepts.primitives import (
     Penetration,
@@ -18,7 +29,6 @@ from ada.concepts.primitives import (
 from ada.concepts.structural import Beam, Material, Plate, Section, Wall
 from ada.config import Settings as _Settings
 from ada.config import User
-from ada.core.containers import Beams, Connections, Materials, Nodes, Plates, Sections
 from ada.fem import FEM, Elem, FemSet
 from ada.ifc.utils import create_guid
 
@@ -87,7 +97,7 @@ class Part(BackendGeom):
 
         self._fem = FEM(name + "-1", parent=self) if fem is None else fem
 
-    def add_beam(self, beam: Beam):
+    def add_beam(self, beam: Beam) -> Beam:
         if beam.units != self.units:
             beam.units = self.units
         beam.parent = self
@@ -114,7 +124,7 @@ class Part(BackendGeom):
         self.beams.add(beam)
         return beam
 
-    def add_plate(self, plate: Plate):
+    def add_plate(self, plate: Plate) -> Plate:
         if plate.units != self.units:
             plate.units = self.units
 
@@ -125,8 +135,9 @@ class Part(BackendGeom):
             plate.material = mat
 
         self._plates.add(plate)
+        return plate
 
-    def add_pipe(self, pipe: Pipe):
+    def add_pipe(self, pipe: Pipe) -> Pipe:
         if pipe.units != self.units:
             pipe.units = self.units
         pipe.parent = self
@@ -136,26 +147,24 @@ class Part(BackendGeom):
             pipe.material = mat
 
         self._pipes.append(pipe)
+        return pipe
 
-    def add_wall(self, wall: Wall):
+    def add_wall(self, wall: Wall) -> Wall:
         if wall.units != self.units:
             wall.units = self.units
         wall.parent = self
         self._walls.append(wall)
+        return wall
 
-    def add_shape(self, shape: Shape):
+    def add_shape(self, shape: Shape) -> Shape:
         if shape.units != self.units:
             logging.info(f'shape "{shape}" has different units. changing from "{shape.units}" to "{self.units}"')
             shape.units = self.units
         shape.parent = self
         self._shapes.append(shape)
+        return shape
 
-    def add_part(self, part):
-        """
-
-        :param part:
-        :type part: Part
-        """
+    def add_part(self, part: Part) -> Part:
         if issubclass(type(part), Part) is False:
             raise ValueError("Added Part must be a subclass or instance of Part")
         if part.units != self.units:
@@ -179,7 +188,7 @@ class Part(BackendGeom):
         If not it will create a new joint based on these two members.
 
         :param joint:
-        :type joint: JointBase
+        :type joint: ada.JointBase
         """
 
         """
@@ -195,24 +204,18 @@ class Part(BackendGeom):
             joint.units = self.units
         self._connections.add(joint)
 
-    def add_material(self, material: Material):
+    def add_material(self, material: Material) -> Material:
         if material.units != self.units:
             material.units = self.units
         material.parent = self
         return self._materials.add(material)
 
-    def add_section(self, section: Section):
+    def add_section(self, section: Section) -> Section:
         if section.units != self.units:
             section.units = self.units
         return self._sections.add(section)
 
-    def add_penetration(self, pen, include_subparts=True):
-        """
-
-        :param pen:
-        :param include_subparts:
-        :return:
-        """
+    def add_penetration(self, pen: Penetration, add_pen_to_subparts=True) -> None:
         if type(pen) in (PrimExtrude, PrimRevolve, PrimCyl, PrimBox):
             pen = Penetration(pen, parent=self)
 
@@ -231,18 +234,13 @@ class Part(BackendGeom):
         for wall in self.walls:
             wall.add_penetration(pen)
 
-        for p in self.get_all_subparts():
-            p.add_penetration(pen, False)
+        if add_pen_to_subparts:
+            for p in self.get_all_subparts():
+                p.add_penetration(pen, False)
 
-    def add_elements_from_ifc(self, ifc_file, data_only=False):
-        """
-
-        :param ifc_file:
-        :param data_only:
-        :return:
-        """
+    def add_elements_from_ifc(self, ifc_file_path: str, data_only=False):
         a = Assembly("temp")
-        a.read_ifc(ifc_file, data_only=data_only)
+        a.read_ifc(ifc_file_path, data_only=data_only)
         all_shapes = [shp for p in a.get_all_subparts() for shp in p.shapes] + a.shapes
         for shp in all_shapes:
             self.add_shape(shp)
@@ -278,7 +276,7 @@ class Part(BackendGeom):
             self.add_wall(wall)
 
     def read_step_file(
-        self, step_path, name=None, scale=None, transform=None, rotate=None, colour=None, opacity=1.0, units="m"
+        self, step_path, name=None, scale=None, transform=None, rotate=None, colour=None, opacity=1.0, source_units="m"
     ):
         """
 
@@ -289,128 +287,32 @@ class Part(BackendGeom):
         :param rotate: Rotate step content upon import
         :param colour: Assign a specific colour upon import
         :param opacity: Assign Opacity upon import
-        :param units: Unit of the imported STEP file. Default is 'm'
+        :param source_units: Unit of the imported STEP file. Default is 'm'
         """
-        from ..step.utils import extract_shapes
+        from ..occ.utils import extract_shapes
 
         shapes = extract_shapes(step_path, scale, transform, rotate)
         if len(shapes) > 0:
             ada_name = name if name is not None else "CAD" + str(len(self.shapes) + 1)
             for i, shp in enumerate(shapes):
-                ada_shape = Shape(ada_name + "_" + str(i), shp, colour, opacity, units=units)
+                ada_shape = Shape(ada_name + "_" + str(i), shp, colour, opacity, units=source_units)
                 self.add_shape(ada_shape)
 
-    def create_objects_from_fem(self, skip_plates=False, skip_beams=False):
-        """
-        Build Beams and PLates from the contents of the local FEM object
-
-        :return:
-        """
-
-        from ..core.utils import is_coplanar
-
-        def convert_shell_elements_to_object(elem, parent):
-            """
-            TODO: Evaluate merging elements by proximity and equal section and normals.
-
-            :param elem: Finite Element object
-            :param parent: Parent Part object
-            :type elem: ada.fem.Elem
-            """
-            plates = []
-            fem_sec = elem.fem_sec
-            fem_sec.material.parent = parent
-            if len(elem.nodes) == 4:
-                if is_coplanar(
-                    *elem.nodes[0].p,
-                    *elem.nodes[1].p,
-                    *elem.nodes[2].p,
-                    *elem.nodes[3].p,
-                ):
-                    plates.append(Plate(f"sh{elem.id}", elem.nodes, fem_sec.thickness, use3dnodes=True, parent=parent))
-                else:
-                    plates.append(
-                        Plate(f"sh{elem.id}", elem.nodes[:2], fem_sec.thickness, use3dnodes=True, parent=parent)
-                    )
-                    plates.append(
-                        Plate(
-                            f"sh{elem.id}_1",
-                            [elem.nodes[0], elem.nodes[2], elem.nodes[3]],
-                            fem_sec.thickness,
-                            use3dnodes=True,
-                            parent=parent,
-                        )
-                    )
-            else:
-                plates.append(Plate(f"sh{elem.id}", elem.nodes, fem_sec.thickness, use3dnodes=True, parent=parent))
-            return plates
-
-        def elem_to_beam(elem, parent):
-            """
-            TODO: Evaluate merging elements by proximity and equal section and normals.
-
-            :param elem:
-            :param parent: Parent Part object
-            :type elem: ada.fem.Elem
-            """
-
-            n1 = elem.nodes[0]
-            n2 = elem.nodes[-1]
-            offset = elem.fem_sec.offset
-            e1 = None
-            e2 = None
-            elem.fem_sec.material.parent = parent
-            if offset is not None:
-                for no, ecc in offset:
-                    if no.id == n1.id:
-                        e1 = ecc
-                    if no.id == n2.id:
-                        e2 = ecc
-
-            if elem.fem_sec.section.type == "GENBEAM":
-                logging.error(f"Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section")
-
-            return Beam(
-                f"bm{elem.id}",
-                n1,
-                n2,
-                elem.fem_sec.section,
-                elem.fem_sec.material,
-                up=elem.fem_sec.local_z,
-                e1=e1,
-                e2=e2,
-                parent=parent,
-            )
-
-        def convert_part_objects(p):
-            """
-
-            :param p:
-            :type p: Part
-            """
-            if skip_plates is False:
-                p._plates = Plates(
-                    list(chain.from_iterable([convert_shell_elements_to_object(sh, p) for sh in p.fem.elements.shell]))
-                )
-            if skip_beams is False:
-                p._beams = Beams([elem_to_beam(bm, p) for bm in p.fem.elements.beams])
+    def create_objects_from_fem(self, skip_plates=False, skip_beams=False) -> None:
+        """Build Beams and Plates from the contents of the local FEM object"""
+        from ada.fem.io.utils import convert_part_objects
 
         if type(self) is Assembly:
             for p_ in self.get_all_parts_in_assembly():
                 logging.info(f'Beginning conversion from fem to structural objects for "{p_.name}"')
-                convert_part_objects(p_)
+                convert_part_objects(p_, skip_plates, skip_beams)
         else:
             logging.info(f'Beginning conversion from fem to structural objects for "{self.name}"')
-            convert_part_objects(self)
+            convert_part_objects(self, skip_plates, skip_beams)
         logging.info("Conversion complete")
 
-    def create_fem_from_obj(self, obj, el_type=None):
-        """
-
-        :param obj: ADA object. Currently only BEAM is supported
-        :param el_type:
-        :return:
-        """
+    def create_fem_elem_from_obj(self, obj, el_type=None) -> Elem:
+        """Converts structural object to FEM elements. Currently only BEAM is supported"""
         from ada.fem import FemSection
 
         if type(obj) is not Beam:
@@ -439,6 +341,7 @@ class Part(BackendGeom):
                 obj.ori[1],
             )
         )
+        return elem
 
     def get_part(self, name):
         """
@@ -614,45 +517,27 @@ class Part(BackendGeom):
         return self._shapes
 
     @property
-    def beams(self):
-        """
-
-        :rtype: Beams
-        """
+    def beams(self) -> Beams:
         return self._beams
 
     @property
-    def plates(self):
-        """
-
-        :rtype: Plates
-        """
+    def plates(self) -> Plates:
         return self._plates
 
     @property
-    def pipes(self):
+    def pipes(self) -> List[Pipe]:
         return self._pipes
 
     @property
-    def walls(self):
+    def walls(self) -> List[Wall]:
         return self._walls
 
     @property
-    def nodes(self):
-        """
-
-        :return:
-        :rtype: Nodes
-        """
+    def nodes(self) -> Nodes:
         return self._nodes
 
     @property
-    def fem(self):
-        """
-
-        :return:
-        :rtype: ada.fem.FEM
-        """
+    def fem(self) -> FEM:
         return self._fem
 
     @property
@@ -665,29 +550,15 @@ class Part(BackendGeom):
         return self._gmsh
 
     @property
-    def connections(self):
-        """
-
-        :rtype: Connections
-        """
+    def connections(self) -> Connections:
         return self._connections
 
     @property
-    def sections(self):
-        """
-
-        :return:
-        :rtype: Sections
-        """
+    def sections(self) -> Sections:
         return self._sections
 
     @property
-    def materials(self):
-        """
-
-        :return:
-        :rtype: Materials
-        """
+    def materials(self) -> Materials:
         return self._materials
 
     @property
@@ -1154,76 +1025,18 @@ class Assembly(Part):
 
         :param destination_file:
         """
-        from ada.fem.io.ifc.writer import to_ifc_fem
+        from ada.ifc.export import add_part_objects_to_ifc
 
         f = self.ifc_file
 
-        owner_history = self.user.to_ifc()
-
         dest = pathlib.Path(destination_file).with_suffix(".ifc")
-
-        # TODO: Consider having all of these operations happen upon import of elements as opposed to one big operation
-        #  on export
 
         for s in self.sections.nmap.values():
             f.add(s.ifc_profile)
             f.add(s.ifc_beam_type)
 
         for p in self.get_all_parts_in_assembly(include_self=True):
-            assert issubclass(type(p), Part)
-            part_ifc = p.ifc_elem
-
-            physical_objects = []
-            for m in p.materials.dmap.values():
-                f.add(m.ifc_mat)
-
-            for bm in p.beams:
-                assert isinstance(bm, Beam)
-                f.add(bm.ifc_elem)
-                physical_objects.append(bm.ifc_elem)
-
-            for pl in p.plates:
-                assert isinstance(pl, Plate)
-                f.add(pl.ifc_elem)
-                physical_objects.append(pl.ifc_elem)
-
-            for pi in p.pipes:
-                assert isinstance(pi, Pipe)
-                logging.debug(f'Creating IFC Elem for PIPE "{pi.name}"')
-                f.add(pi.ifc_elem)
-
-            for wall in p.walls:
-                assert isinstance(wall, Wall)
-                f.add(wall.ifc_elem)
-                physical_objects.append(wall.ifc_elem)
-
-            for shp in p.shapes:
-                assert isinstance(shp, Shape)
-                if "ifc_file" in shp.metadata.keys():
-                    ifc_file = shp.metadata["ifc_file"]
-                    ifc_f = self.get_ifc_source_by_name(ifc_file)
-                    ifc_elem = ifc_f.by_guid(shp.guid)
-                    f.add(ifc_elem)
-                    physical_objects.append(ifc_elem)
-                else:
-                    f.add(shp.ifc_elem)
-                    physical_objects.append(shp.ifc_elem)
-
-            if len(p.fem.nodes) > 0:
-                if _Settings.ifc_include_fem is True:
-                    to_ifc_fem(p.fem, f)
-
-            if len(physical_objects) == 0:
-                continue
-
-            f.createIfcRelContainedInSpatialStructure(
-                create_guid(),
-                owner_history,
-                "Physical model",
-                None,
-                physical_objects,
-                part_ifc,
-            )
+            add_part_objects_to_ifc(p, f, self)
 
         if len(self.presentation_layers) > 0:
             presentation_style = f.createIfcPresentationStyle("HiddenLayers")

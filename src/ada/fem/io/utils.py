@@ -1,3 +1,4 @@
+import logging
 import os
 import pathlib
 import re
@@ -6,14 +7,13 @@ import subprocess
 import sys
 import time
 from contextlib import contextmanager
+from itertools import chain
+from os import PathLike
 
+from ada.concepts.containers import Beams, Plates
+from ada.concepts.levels import Part
+from ada.concepts.structural import Beam, Plate
 from ada.config import Settings as _Settings
-
-try:
-    # Python 3.6+
-    from os import PathLike
-except ImportError:
-    from pathlib import PurePath as PathLike
 
 
 class LocalExecute:
@@ -362,3 +362,87 @@ def should_convert(res_path, overwrite):
         return True
     else:
         return False
+
+
+def convert_shell_elem_to_plates(elem, parent) -> [Plate]:
+    from ada.core.utils import is_coplanar
+
+    plates = []
+    fem_sec = elem.fem_sec
+    fem_sec.material.parent = parent
+    if len(elem.nodes) == 4:
+        if is_coplanar(
+            *elem.nodes[0].p,
+            *elem.nodes[1].p,
+            *elem.nodes[2].p,
+            *elem.nodes[3].p,
+        ):
+            plates.append(Plate(f"sh{elem.id}", elem.nodes, fem_sec.thickness, use3dnodes=True, parent=parent))
+        else:
+            plates.append(Plate(f"sh{elem.id}", elem.nodes[:2], fem_sec.thickness, use3dnodes=True, parent=parent))
+            plates.append(
+                Plate(
+                    f"sh{elem.id}_1",
+                    [elem.nodes[0], elem.nodes[2], elem.nodes[3]],
+                    fem_sec.thickness,
+                    use3dnodes=True,
+                    parent=parent,
+                )
+            )
+    else:
+        plates.append(Plate(f"sh{elem.id}", elem.nodes, fem_sec.thickness, use3dnodes=True, parent=parent))
+    return plates
+
+
+def convert_part_shell_elements_to_plates(p) -> Plates:
+
+    return Plates(list(chain.from_iterable([convert_shell_elem_to_plates(sh, p) for sh in p.fem.elements.shell])))
+
+
+def convert_part_elem_bm_to_beams(p) -> Beams:
+    return Beams([elem_to_beam(bm, p) for bm in p.fem.elements.beams])
+
+
+def elem_to_beam(elem, parent):
+    """
+    TODO: Evaluate merging elements by proximity and equal section and normals.
+
+    :param elem:
+    :param parent: Parent Part object
+    :type elem: ada.fem.Elem
+    """
+
+    n1 = elem.nodes[0]
+    n2 = elem.nodes[-1]
+    offset = elem.fem_sec.offset
+    e1 = None
+    e2 = None
+    elem.fem_sec.material.parent = parent
+    if offset is not None:
+        for no, ecc in offset:
+            if no.id == n1.id:
+                e1 = ecc
+            if no.id == n2.id:
+                e2 = ecc
+
+    if elem.fem_sec.section.type == "GENBEAM":
+        logging.error(f"Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section")
+
+    return Beam(
+        f"bm{elem.id}",
+        n1,
+        n2,
+        elem.fem_sec.section,
+        elem.fem_sec.material,
+        up=elem.fem_sec.local_z,
+        e1=e1,
+        e2=e2,
+        parent=parent,
+    )
+
+
+def convert_part_objects(p: Part, skip_plates, skip_beams):
+    if skip_plates is False:
+        p._plates = convert_part_shell_elements_to_plates(p)
+    if skip_beams is False:
+        p._beams = convert_part_elem_bm_to_beams(p)

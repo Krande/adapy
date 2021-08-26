@@ -3,7 +3,7 @@ import unittest
 from common import dummy_display
 
 from ada import Section
-from ada.core.containers import Sections
+from ada.concepts.containers import Sections
 
 
 class VisualizeSections(unittest.TestCase):

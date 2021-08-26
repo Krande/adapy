@@ -8,8 +8,8 @@ import zipfile
 from decimal import ROUND_HALF_EVEN, Decimal
 
 import numpy as np
-import plotly.graph_objs as go
-from plotly import io as pio
+
+from ..config import Settings
 
 
 def align_to_plate(plate):
@@ -66,7 +66,7 @@ def are_plates_touching(pl1, pl2, tol=1e-3):
     :param tol:
     :return:
     """
-    from ..step.utils import compute_minimal_distance_between_shapes
+    from ..occ.utils import compute_minimal_distance_between_shapes
 
     dss = compute_minimal_distance_between_shapes(pl1.solid, pl2.solid)
     if dss.Value() <= tol:
@@ -374,45 +374,6 @@ def intersection_point(v1, v2):
         return res[0], res[1]
     else:
         return res
-
-
-def beam_cross_check(bm1, bm2, outofplane_tol=0.1):
-    """
-    Find intersection point between two beams
-
-    :param bm1:
-    :param bm2:
-    :param outofplane_tol:
-
-    :type bm1: ada.Beam
-    :type bm2: ada.Beam
-    """
-
-    p_check = is_parallel
-    i_check = intersect_calc
-    v_len = vector_length
-    a = bm1.n1.p
-    b = bm1.n2.p
-    c = bm2.n1.p
-    d = bm2.n2.p
-
-    ab = b - a
-    cd = d - c
-
-    s, t = i_check(a, c, ab, cd)
-
-    ab_ = a + s * ab
-    cd_ = c + t * cd
-
-    if p_check(ab, cd):
-        logging.debug(f"beams {bm1} {bm2} are parallel")
-        return None
-
-    if v_len(ab_ - cd_) > outofplane_tol:
-        logging.debug("The two lines do not intersect within given tolerances")
-        return None
-
-    return ab_, s, t
 
 
 def normalize(curve):
@@ -1084,150 +1045,6 @@ def tuple_minus(t):
     return tuple([-roundoff(x) if x != 0.0 else 0.0 for x in t])
 
 
-def easy_plotly(
-    title,
-    in_data,
-    xlbl="X-axis",
-    ylbl="Y-axis",
-    xrange=None,
-    yrange=None,
-    yaxformat="E",
-    legend=None,
-    autoreverse=False,
-    save_filename=None,
-    mode="lines",
-    marker="circle",
-    traces=None,
-    template="plotly_white",
-    annotations=None,
-    shapes=None,
-    renderer="notebook_connected",
-    return_widget=True,
-):
-    """
-    A Plotly template for quick and easy interactive scatter plotting using some pre-defined values. If you need more
-    control of the plotly plot, you are probably better off using plotly directly
-
-    See https://plot.ly/python/reference/#scatter for a complete list of input for
-
-    :param title: Plot title
-    :param in_data: tuple (x, y) for single plots or dict {'var1':{'x': [..], 'y': [..] }, 'var2': {..}, etc..}
-    :param xlbl: X-axis label
-    :param ylbl: Y-axis label
-    :param xrange: min and max values of x-axis
-    :param yrange: min and max values of y-axis
-    :param yaxformat: "none" | "e" | "E" | "power" | "SI" | "B" (default) exponent format of y-axis.
-    :param legend: dict(x=-.1, y=1.2)
-    :param autoreverse: Autoreverse the X-axis (opposed to inputting the reversed x-list)
-    :param save_filename: Abs path to file location or file name of figure.
-    :param mode:
-    :param marker:
-    :param traces: Add plotly traces manually
-    :param template: Which plot template. Default is 'plotly_white'. Alternatives are shown below
-    :param annotations:
-    :param renderer: Which renderer should be used. Default is 'notebook_connected'. See below for alternatives
-    :param return_widget:
-    :type title: str
-    :type xlbl: str
-    :type ylbl: str
-    :type xrange: list
-    :type yrange: list
-    :type yaxformat: str
-    :type save_filename: str
-    :type mode: str
-
-    Templates:
-                'ggplot2', 'seaborn', 'plotly', 'plotly_white', 'plotly_dark', 'presentation', 'xgridoff', 'none'
-
-    renderers:
-                'plotly_mimetype', 'jupyterlab', 'nteract', 'vscode', 'notebook', 'notebook_connected', 'kaggle',
-                'azure', 'colab', 'cocalc', 'databricks', 'json', 'png', 'jpeg', 'jpg', 'svg', 'pdf', 'browser',
-                'firefox', 'chrome', 'chromium', 'iframe', 'iframe_connected', 'sphinx_gallery'
-
-    """
-
-    plot_data = []
-    if type(in_data) is dict:
-        for key in in_data.keys():
-            if type(in_data[key]) is dict:
-                x_ = in_data[key]["x"]
-                y_ = in_data[key]["y"]
-            elif type(in_data[key]) is tuple:
-                x_ = in_data[key][0]
-                y_ = in_data[key][1]
-            else:
-                raise Exception('unrecognized input in dict "{}"'.format(type(in_data[key])))
-
-            trace = go.Scatter(
-                x=x_,
-                y=y_,
-                name=key,
-                mode=mode,
-                marker=dict(symbol=marker),
-            )
-            plot_data.append(trace)
-    elif type(in_data) in [list, tuple]:
-        x, y = in_data
-        trace = go.Scatter(
-            x=x,
-            y=y,
-            mode=mode,
-            marker=dict(symbol=marker),
-        )
-        plot_data.append(trace)
-    else:
-        if traces is None:
-            raise Exception('No Recognized input type found for "in_data" or "traces"')
-    if traces is not None:
-        plot_data += traces
-    autorange = "reversed" if autoreverse is True else None
-    layout = go.Layout(
-        title=title,
-        xaxis=dict(
-            title=xlbl,
-            titlefont=dict(family="Arial, monospace", size=18, color="#7f7f7f"),
-            autorange=autorange,
-            range=xrange,
-        ),
-        yaxis=dict(
-            title=ylbl,
-            titlefont=dict(family="Arial, monospace", size=18, color="#7f7f7f"),
-            range=yrange,
-            exponentformat=yaxformat,
-        ),
-        legend=legend,
-        template=template,
-        shapes=shapes,
-    )
-    if annotations is not None:
-        layout["annotations"] = annotations
-    fig = go.FigureWidget(data=plot_data, layout=layout)
-    # plotly.offline.init_notebook_mode(connected=True)
-    if save_filename is not None:
-        # fig.show(renderer=renderer)
-        filepath = save_filename
-        if ".png" not in filepath:
-            filepath += ".png"
-
-        dirpath = os.path.dirname(filepath)
-        print('Saving "{}" to "{}"'.format(os.path.basename(filepath), dirpath))
-        filename = os.path.splitext(filepath)[0].replace(dirpath + "\\", "")
-        if os.path.isdir(dirpath) is False:
-            os.makedirs(dirpath)
-        pio.write_image(fig, save_filename, width=1600, height=800)
-        if "\\" not in save_filename:
-            output_file = pathlib.Path(f"C:/ADA/temp/{filename}.png")
-            if os.path.isfile(output_file) is True:
-                shutil.move(output_file, dirpath + "\\" + filename + ".png")
-            else:
-                print("{} not found".format(output_file))
-
-    else:
-        if return_widget is True:
-            return fig
-        fig.show(renderer=renderer)
-
-
 def get_current_user():
     """
 
@@ -1596,3 +1413,55 @@ def faceted_tol(units):
         return 1e-2
     else:
         return 1
+
+
+def replace_node(old_node, new_node):
+    """
+
+    :param old_node:
+    :param new_node:
+    :type old_node: ada.Node
+    :type new_node: ada.Node
+    """
+    for elem in old_node.refs.copy():
+        node_index = elem.nodes.index(old_node)
+
+        elem.nodes.pop(node_index)
+        elem.nodes.insert(node_index, new_node)
+        elem.update()
+        # new_node.refs.extend(old_node.refs)
+        old_node.refs.pop(old_node.refs.index(elem))
+        new_node.refs.append(elem)
+        logging.debug(f"{old_node} exchanged with {new_node} --> {elem}")
+
+
+def replace_nodes_by_tol(nodes, decimals=0, tol=Settings.point_tol):
+    """
+
+    :param nodes:
+    :param decimals:
+    :param tol:
+    :type nodes: ada.core.containers.Nodes
+    """
+
+    def rounding(vec, decimals_):
+        return np.around(vec, decimals=decimals_)
+
+    def n_is_most_precise(n, nearby_nodes_, decimals_=0):
+        most_precise = [np.array_equal(n.p, rounding(n.p, decimals_)) for n in [node] + nearby_nodes_]
+
+        if most_precise[0] and not np.all(most_precise[1:]):
+            return True
+        elif not most_precise[0] and np.any(most_precise[1:]):
+            return False
+        elif decimals_ == 10:
+            logging.error(f"Recursion started at 0 decimals, but are now at {decimals_} decimals. Will proceed with n.")
+            return True
+        else:
+            return n_is_most_precise(n, nearby_nodes_, decimals_ + 1)
+
+    for node in nodes:
+        nearby_nodes = list(filter(lambda x: x != node, nodes.get_by_volume(node.p, tol=tol)))
+        if nearby_nodes and n_is_most_precise(node, nearby_nodes, decimals):
+            for nearby_node in nearby_nodes:
+                replace_node(nearby_node, node)

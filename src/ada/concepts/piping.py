@@ -8,6 +8,7 @@ from ..base import BackendGeom
 from ..config import Settings as _Settings
 from ..core.utils import Counter, angle_between, roundoff, unit_vector, vector_length
 from ..materials.metals import CarbonSteel
+from .curves import ArcSegment
 from .points import Node
 from .structural import Material
 
@@ -343,7 +344,7 @@ class PipeSegStraight(BackendGeom):
 
     @property
     def geom(self):
-        from ada.step.utils import make_edge, sweep_pipe
+        from ada.occ.utils import make_edge, sweep_pipe
 
         edge = make_edge(self.p1, self.p2)
 
@@ -450,6 +451,14 @@ class PipeSegElbow(BackendGeom):
         self._arc_seg = arc_seg
 
     @property
+    def parent(self) -> Pipe:
+        return self._parent
+
+    @parent.setter
+    def parent(self, value):
+        self._parent = value
+
+    @property
     def xvec1(self):
         return self.p2.p - self.p1.p
 
@@ -460,7 +469,7 @@ class PipeSegElbow(BackendGeom):
     @property
     def geom(self):
         from ada.core.curve_utils import make_edges_and_fillet_from_3points
-        from ada.step.utils import sweep_pipe
+        from ada.occ.utils import sweep_pipe
 
         i = self.parent.segments.index(self)
         if i != 0:
@@ -478,35 +487,19 @@ class PipeSegElbow(BackendGeom):
         return sweep_pipe(edge, xvec, self.section.r, self.section.wt)
 
     @property
-    def arc_seg(self):
-        """
-
-        :return:
-        :rtype: ArcSegment
-        """
+    def arc_seg(self) -> ArcSegment:
         return self._arc_seg
 
-    def _elbow_tesselated(self, f, schema, a, context):
-        import ifcopenshell.geom
+    def _elbow_tesselated(self, f, schema, a):
+        from ada.ifc.utils import get_tolerance, tesselate_shape
 
         shape = self.geom
+
         if shape is None:
             logging.error(f"Unable to create geometry for Branch {self.name}")
             return None
 
-        if a.units == "mm":
-            tol = _Settings.mmtol
-        elif a.units == "m":
-            tol = _Settings.mtol
-        else:
-            raise ValueError(f'Unrecognized unit "{a.units}"')
-
-        occ_string = ifcopenshell.geom.occ_utils.serialize_shape(shape)
-        serialized_geom = ifcopenshell.geom.serialise(schema, occ_string)
-
-        if serialized_geom is None:
-            logging.debug("Starting serialization of geometry")
-            serialized_geom = ifcopenshell.geom.tesselate(schema, occ_string, tol)
+        serialized_geom = tesselate_shape(shape, schema, get_tolerance(a.units))
         ifc_shape = f.add(serialized_geom)
 
         return ifc_shape
@@ -553,7 +546,7 @@ class PipeSegElbow(BackendGeom):
         schema = a.ifc_file.wrapped_data.schema
 
         if _Settings.make_param_elbows is False:
-            ifc_elbow = self._elbow_tesselated(f, schema, a, context)
+            ifc_elbow = self._elbow_tesselated(f, schema, a)
             # Link to representation context
             for rep in ifc_elbow.Representations:
                 rep.ContextOfItems = context

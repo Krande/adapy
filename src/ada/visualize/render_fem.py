@@ -2,8 +2,7 @@ import numpy as np
 from IPython.display import display
 from ipywidgets import HBox, VBox
 
-from ada.fem.visualize import get_faces_from_fem, magnitude
-
+from .fem import get_faces_from_fem, magnitude
 from .renderer import MyRenderer
 from .threejs_geom import faces_to_mesh
 

@@ -6,7 +6,6 @@ from ada.core.utils import Counter, roundoff, unit_vector, vector_length
 from ada.ifc.utils import create_guid
 
 from ..base import BackendGeom
-from ..config import Settings as _Settings
 from .curves import CurvePoly
 
 
@@ -168,12 +167,12 @@ class Shape(BackendGeom):
         return ifc_shape
 
     def _generate_ifc_elem(self):
-        import ifcopenshell.geom
-
         from ada.ifc.utils import (
             add_colour,
             create_local_placement,
             create_property_set,
+            get_tolerance,
+            tesselate_shape,
         )
 
         if self.parent is None:
@@ -191,33 +190,16 @@ class Shape(BackendGeom):
         if type(self) is not Shape:
             ifc_shape = self.generate_parametric_solid(f)
         else:
-            occ_string = ifcopenshell.geom.occ_utils.serialize_shape(self.geom)
-            serialized_geom = ifcopenshell.geom.serialise(schema, occ_string)
-
-            if serialized_geom is None:
-                if a.units == "mm":
-                    tol = _Settings.mmtol
-                elif a.units == "m":
-                    tol = _Settings.mtol
-                else:
-                    raise ValueError(f'Unrecognized unit "{a.units}"')
-                logging.debug("Starting serialization of geometry")
-                serialized_geom = ifcopenshell.geom.tesselate(schema, occ_string, tol)
+            tol = get_tolerance(a.units)
+            serialized_geom = tesselate_shape(self.geom, schema, tol)
             ifc_shape = f.add(serialized_geom)
 
         # Link to representation context
         for rep in ifc_shape.Representations:
             rep.ContextOfItems = context
 
-        if "guid" in self.metadata.keys():
-            guid = self.metadata["guid"]
-        else:
-            guid = create_guid()
-
-        if "description" in self.metadata.keys():
-            description = self.metadata["description"]
-        else:
-            description = None
+        guid = self.metadata.get("guid", create_guid())
+        description = self.metadata.get("description", None)
 
         if "hidden" in self.metadata.keys():
             if self.metadata["hidden"] is True:
@@ -290,10 +272,7 @@ class Shape(BackendGeom):
 
     @property
     def transparent(self):
-        if self.opacity == 1.0:
-            return False
-        else:
-            return True
+        return False if self.opacity == 1.0 else True
 
     @property
     def opacity(self):
@@ -312,7 +291,7 @@ class Shape(BackendGeom):
 
         returns xmin, ymin, zmin, xmax, ymax, zmax, xmax - xmin, ymax - ymin, zmax - zmin
         """
-        from ada.step.utils import get_boundingbox
+        from ada.occ.utils import get_boundingbox
 
         return get_boundingbox(self.geom, use_mesh=True)
 
@@ -325,10 +304,10 @@ class Shape(BackendGeom):
         """
 
         :return:
-        :rtype:
+        :rtype: OCC.Core.TopoDS.TopoDS_Shape
         """
         if self._geom is None:
-            from ada.ifc.utils import get_representation
+            from ada.ifc.utils import get_ifc_shape
 
             if self._ifc_elem is not None:
                 ifc_elem = self._ifc_elem
@@ -339,7 +318,7 @@ class Shape(BackendGeom):
                 ifc_elem = ifc_f.by_guid(self.guid)
             else:
                 raise ValueError("No geometry information attached to this element")
-            geom, color, alpha = get_representation(ifc_elem, self.ifc_settings)
+            geom, color, alpha = get_ifc_shape(ifc_elem, self.ifc_settings)
             self._geom = geom
             self.colour = color
             self._opacity = alpha
@@ -368,7 +347,7 @@ class Shape(BackendGeom):
 
 class PrimSphere(Shape):
     def __init__(self, name, pnt, radius, colour=None, opacity=1.0, metadata=None, units="m"):
-        from ada.step.utils import make_sphere
+        from ada.occ.utils import make_sphere
 
         self.pnt = pnt
         self.radius = radius
@@ -388,7 +367,7 @@ class PrimSphere(Shape):
     @units.setter
     def units(self, value):
         if value != self._units:
-            from ada.step.utils import make_sphere
+            from ada.occ.utils import make_sphere
 
             scale_factor = self._unit_conversion(self._units, value)
             self.pnt = tuple([x * scale_factor for x in self.pnt])
@@ -402,7 +381,7 @@ class PrimSphere(Shape):
 
 class PrimBox(Shape):
     def __init__(self, name, p1, p2, colour=None, opacity=1.0, metadata=None, units="m"):
-        from ada.step.utils import make_box_by_points
+        from ada.occ.utils import make_box_by_points
 
         self.p1 = p1
         self.p2 = p2
@@ -422,7 +401,7 @@ class PrimBox(Shape):
     @units.setter
     def units(self, value):
         if value != self._units:
-            from ada.step.utils import make_box_by_points
+            from ada.occ.utils import make_box_by_points
 
             scale_factor = self._unit_conversion(self._units, value)
             self.p1 = tuple([x * scale_factor for x in self.p1])
@@ -436,7 +415,7 @@ class PrimBox(Shape):
 
 class PrimCyl(Shape):
     def __init__(self, name, p1, p2, r, colour=None, opacity=1.0, metadata=None, units="m"):
-        from ada.step.utils import make_cylinder_from_points
+        from ada.occ.utils import make_cylinder_from_points
 
         self.p1 = np.array(p1)
         self.p2 = np.array(p2)
@@ -449,7 +428,7 @@ class PrimCyl(Shape):
 
     @units.setter
     def units(self, value):
-        from ada.step.utils import make_cylinder_from_points
+        from ada.occ.utils import make_cylinder_from_points
 
         if value != self._units:
             scale_factor = self._unit_conversion(self._units, value)

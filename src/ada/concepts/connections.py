@@ -1,30 +1,10 @@
 import numpy as np
 
 from ada.base import Backend
+from ada.concepts.containers import Beams
 from ada.concepts.levels import Part
 from ada.concepts.primitives import PrimBox
 from ada.concepts.structural import Beam
-from ada.core.containers import Beams
-
-
-class Connection(Part):
-    """
-
-    TODO: Build something with this class
-
-    A basic Connection class
-    """
-
-    def __init__(self, name, incoming_beams, center=None, s=None, t=None):
-        super(Connection, self).__init__(name)
-        self._beams = incoming_beams
-        self._clines = list()
-        self._center = center
-        self._s = s
-        self._t = t
-
-    def __repr__(self):
-        return 'Joint Name: "{}", center: "{}"'.format(self._name, self._center)
 
 
 class JointBase(Part):

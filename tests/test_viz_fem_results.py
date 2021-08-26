@@ -4,7 +4,7 @@ from common import example_files
 
 from ada.core.utils import traverse_hdf_datasets
 from ada.fem.io.code_aster.results import get_eigen_frequency_deformed_meshes
-from ada.fem.visualize import visualize_it
+from ada.visualize.fem import visualize_it
 
 code_aster_files = example_files / "fem_files" / "code_aster"
 

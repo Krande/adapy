@@ -38,7 +38,6 @@ from OCC.Extend.DataExchange import read_step_file
 from OCC.Extend.ShapeFactory import make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
-from ..config import Settings as _Settings
 from ..core.utils import roundoff, unit_vector, vector_length
 
 
@@ -146,7 +145,7 @@ def make_wire_from_points(points):
     return make_wire([BRepBuilderAPI_MakeEdge(gp_Pnt(*p1), gp_Pnt(*p2)).Edge()])
 
 
-def get_boundingbox(shape, tol=1e-6, use_mesh=True):
+def get_boundingbox(shape: TopoDS_Shape, tol=1e-6, use_mesh=True):
     """
 
     :param shape: TopoDS_Shape or a subclass such as TopoDS_Face the shape to compute the bounding box from
@@ -657,58 +656,6 @@ def compute_minimal_distance_between_shapes(shp1, shp2):
     logging.info("Minimal distance between shapes: ", dss.Value())
 
     return dss
-
-
-def replace_node(old_node, new_node):
-    """
-
-    :param old_node:
-    :param new_node:
-    :type old_node: ada.Node
-    :type new_node: ada.Node
-    """
-    for elem in old_node.refs.copy():
-        node_index = elem.nodes.index(old_node)
-
-        elem.nodes.pop(node_index)
-        elem.nodes.insert(node_index, new_node)
-        elem.update()
-        # new_node.refs.extend(old_node.refs)
-        old_node.refs.pop(old_node.refs.index(elem))
-        new_node.refs.append(elem)
-        logging.debug(f"{old_node} exchanged with {new_node} --> {elem}")
-
-
-def replace_nodes_by_tol(nodes, decimals=0, tol=_Settings.point_tol):
-    """
-
-    :param nodes:
-    :param decimals:
-    :param tol:
-    :type nodes: ada.core.containers.Nodes
-    """
-
-    def rounding(vec, decimals_):
-        return np.around(vec, decimals=decimals_)
-
-    def n_is_most_precise(n, nearby_nodes_, decimals_=0):
-        most_precise = [np.array_equal(n.p, rounding(n.p, decimals_)) for n in [node] + nearby_nodes_]
-
-        if most_precise[0] and not np.all(most_precise[1:]):
-            return True
-        elif not most_precise[0] and np.any(most_precise[1:]):
-            return False
-        elif decimals_ == 10:
-            logging.error(f"Recursion started at 0 decimals, but are now at {decimals_} decimals. Will proceed with n.")
-            return True
-        else:
-            return n_is_most_precise(n, nearby_nodes_, decimals_ + 1)
-
-    for node in nodes:
-        nearby_nodes = list(filter(lambda x: x != node, nodes.get_by_volume(node.p, tol=tol)))
-        if nearby_nodes and n_is_most_precise(node, nearby_nodes, decimals):
-            for nearby_node in nearby_nodes:
-                replace_node(nearby_node, node)
 
 
 def make_sec_face(point, direction, radius):

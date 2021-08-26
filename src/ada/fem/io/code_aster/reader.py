@@ -3,7 +3,7 @@ import logging
 import h5py
 import numpy as np
 
-from ada.core.containers import Nodes
+from ada.concepts.containers import Nodes
 from ada.fem import FEM, Elem, FemSet
 from ada.fem.containers import FemElements, FemSets
 

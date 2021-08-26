@@ -3,14 +3,16 @@ import reprlib
 from bisect import bisect_left, bisect_right
 from itertools import chain
 from operator import attrgetter
+from typing import Iterable
 
 import numpy as np
 import toolz
 from pyquaternion import Quaternion
 
-from ada.config import Settings as _Settings
+from ada.config import Settings
 
-from .utils import Counter, points_in_cylinder, vector_length
+from ..core.utils import Counter, points_in_cylinder, roundoff, vector_length
+from .structural import Beam, Material, Plate, Section
 
 __all__ = [
     "Nodes",
@@ -57,7 +59,7 @@ class Beams(BaseCollections):
     def __len__(self):
         return len(self._beams)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterable[Beam]:
         return iter(self._beams)
 
     def __getitem__(self, index):
@@ -131,8 +133,6 @@ class Beams(BaseCollections):
         """
         from bisect import bisect_left, bisect_right
 
-        from .utils import roundoff
-
         if margins is not None:
             vol_new = []
             for p in vol_:
@@ -201,7 +201,7 @@ class Plates(BaseCollections):
     def __len__(self):
         return len(self._plates)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterable[Plate]:
         return iter(self._plates)
 
     def __getitem__(self, index):
@@ -340,7 +340,7 @@ class Connections(BaseCollections):
         rpr.maxlevel = 1
         return f"Connections({rpr.repr(self._connections) if self._connections else ''})"
 
-    def add(self, joint, point_tol=_Settings.point_tol):
+    def add(self, joint, point_tol=Settings.point_tol):
         """
         Add a joint
 
@@ -366,7 +366,7 @@ class Connections(BaseCollections):
         self._dmap[joint.name] = joint
         self._connections.append(joint)
 
-    def find(self, out_of_plane_tol=0.1, joint_func=None, point_tol=_Settings.point_tol):
+    def find(self, out_of_plane_tol=0.1, joint_func=None, point_tol=Settings.point_tol):
         """
         Find all connections between beams in all parts using a simple clash check.
 
@@ -374,8 +374,8 @@ class Connections(BaseCollections):
         :param joint_func: Pass a function for mapping the generic Connection classes to a specific reinforced Joints
         :param point_tol:
         """
-        from ada import Beam, JointBase, Node
-        from ada.core.utils import beam_cross_check
+        from ada import JointBase
+        from ada.core.clash_check import are_beams_connected
 
         ass = self._parent.get_assembly()
         bm_res = ass.beam_clash_check()
@@ -383,38 +383,10 @@ class Connections(BaseCollections):
         nodes = Nodes()
         nmap = dict()
 
-        def are_beams_connected(beams):
-            """
-
-            :param beams: Tuple containing beam and list of beams found using clash check
-            :return:
-            """
-            bm1 = beams[0]
-            assert isinstance(bm1, Beam)
-
-            for bm2 in beams[1]:
-                if bm1 == bm2:
-                    continue
-                assert isinstance(bm2, Beam)
-                res = beam_cross_check(bm1, bm2, out_of_plane_tol)
-                if res is None:
-                    continue
-                point, s, t = res
-                t_len = (abs(t) - 1) * bm2.length
-                s_len = (abs(s) - 1) * bm1.length
-                if t_len > bm2.length / 2 or s_len > bm1.length / 2:
-                    continue
-                if point is not None:
-                    new_node = Node(point)
-                    n = nodes.add(new_node, point_tol=point_tol)
-                    if n not in nmap.keys():
-                        nmap[n] = [bm1]
-                    if bm1 not in nmap[n]:
-                        nmap[n].append(bm1)
-                    if bm2 not in nmap[n]:
-                        nmap[n].append(bm2)
-
-        list(map(are_beams_connected, bm_res))
+        for bm1_, beams_ in bm_res:
+            nmap_, nodes_ = are_beams_connected(bm1_, beams_, out_of_plane_tol, point_tol)
+            nmap.update(nmap_)
+            nodes += nodes_
 
         for node, mem in nmap.items():
             if joint_func is not None:
@@ -541,12 +513,7 @@ class Materials(BaseCollections):
                 m.units = value
             self._units = value
 
-    def add(self, material):
-        """
-
-        :param material:
-        :type material: ada.Material
-        """
+    def add(self, material) -> Material:
         if material in self:
             return self._dmap[material.name]
 
@@ -656,7 +623,7 @@ class Sections:
         """
         return self._idmap
 
-    def add(self, section):
+    def add(self, section: Section):
         """
 
         :param section:
@@ -867,7 +834,7 @@ class Nodes:
     def nodes(self):
         return self._nodes
 
-    def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=_Settings.point_tol):
+    def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=Settings.point_tol):
         """
 
         :param p: Point
@@ -929,7 +896,7 @@ class Nodes:
         else:
             return list(simplesearch)
 
-    def add(self, node, point_tol=_Settings.point_tol, allow_coincident=False):
+    def add(self, node, point_tol=Settings.point_tol, allow_coincident=False):
         """
         Insert node into sorted list.
 
@@ -965,8 +932,8 @@ class Nodes:
     def remove(self, nodes):
         """
         Remove node from the nodes container
-        :param node: Node-object to be removed
-        :type node: ada.Node or List[ada.Node]
+        :param nodes: Node-object to be removed
+        :type nodes: ada.Node or List[ada.Node]
         :return:
         """
         from collections.abc import Iterable
@@ -987,7 +954,7 @@ class Nodes:
         """
         self.remove(filter(lambda x: len(x.refs) == 0, self._nodes))
 
-    def merge_coincident(self, tol=_Settings.point_tol):
+    def merge_coincident(self, tol=Settings.point_tol):
         """
         Merge nodes which are within the standard default of Nodes.get_by_volume. Nodes merged into the node connected
         to most elements.

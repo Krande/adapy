@@ -7,9 +7,17 @@ import numpy as np
 from ifcopenshell.util.unit import get_prefix_multiplier
 
 import ada.core.constants as ifco
+from ada.config import Settings
 from ada.core.utils import Counter, get_list_of_files, roundoff
 
 name_gen = Counter(1, "IfcEl")
+tol_map = dict(m=Settings.mtol, mm=Settings.mmtol)
+
+
+def get_tolerance(units):
+    if units not in tol_map.keys():
+        raise ValueError(f'Unrecognized unit "{units}"')
+    return tol_map[units]
 
 
 def create_guid(name=None):
@@ -484,7 +492,7 @@ def get_name(ifc_elem):
     return name
 
 
-def get_representation(ifc_elem, settings):
+def get_ifc_shape(ifc_elem, settings):
     """
 
     :param ifc_elem:
@@ -1016,3 +1024,13 @@ def import_physical_ifc(product, ifc_file, self, elements2part=None):
         shp.metadata["ifc_file"] = ifc_file
         if shp is not None:
             add_to_assembly(self, shp, parent, elements2part)
+
+
+def tesselate_shape(shape, schema, tol):
+    occ_string = ifcopenshell.geom.occ_utils.serialize_shape(shape)
+    serialized_geom = ifcopenshell.geom.serialise(schema, occ_string)
+
+    if serialized_geom is None:
+        logging.debug("Starting serialization of geometry")
+        serialized_geom = ifcopenshell.geom.tesselate(schema, occ_string, tol)
+    return serialized_geom
