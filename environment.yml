@@ -1,7 +1,6 @@
-name: adaenv
+name: ada
 channels:
+  - krande
   - conda-forge
 dependencies:
-  - pythonocc-core==7.5.1
-  - occt==7.5.1
-  - ifcopenshell
+  - ada-py

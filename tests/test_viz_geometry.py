@@ -1,15 +1,12 @@
 import unittest
 
-from common import dummy_display, init_tests
+from common import dummy_display
 
 from ada import Assembly, Beam, Plate
 from ada.param_models.basic_module import SimpleStru
 
 
 class VisualizeTests(unittest.TestCase):
-    def setUp(self) -> None:
-        init_tests()
-
     def test_viz(self):
         a = Assembly("my_test_assembly")
         a.add_beam(Beam("bm1", n1=[0, 0, 0], n2=[2, 0, 0], sec="IPE220", colour="red"))

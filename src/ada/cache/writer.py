@@ -8,7 +8,7 @@ from operator import attrgetter
 import numpy as np
 
 from ada import Beam, Material, Part, Section
-from ada.core.containers import Nodes
+from ada.concepts.containers import Nodes
 
 from .utils import to_safe_name
 

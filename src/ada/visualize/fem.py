@@ -6,9 +6,8 @@ from dataclasses import dataclass
 import numpy as np
 from pythreejs import Group
 
-from ada.base.threejs_geom import edges_to_mesh, faces_to_mesh, vertices_to_mesh
-
-from . import FEM
+from ..fem import FEM
+from .threejs_geom import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
 
 @dataclass
@@ -28,8 +27,6 @@ class BBox:
 def fem_to_mesh(
     fem: FEM, face_colors=None, vertex_colors=(8, 8, 8), edge_color=(8, 8, 8), edge_width=1, vertex_width=1
 ):
-    from ada.base.threejs_geom import faces_to_mesh
-
     vertices, faces, edges = get_vertices_from_fem(fem), get_faces_from_fem(fem), get_edges_from_fem(fem)
 
     name = fem.name
@@ -116,7 +113,7 @@ def get_faces_from_fem(fem, convert_bm_to_shell=False):
     :return:
     :rtype: list
     """
-    from .shapes import ElemShapes
+    from ..fem.shapes import ElemShapes
 
     ids = []
     for el in fem.elements.elements:

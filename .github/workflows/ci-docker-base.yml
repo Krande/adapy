@@ -3,10 +3,11 @@ name: ci-ada-docker-base
 on:
   push:
     paths:
-      - 'images/base/Dockerfile'
+      - 'images/**'
       - '.github/workflows/ci-docker-base.yml'
     branches:
       - main
+      - dev
 
 jobs:
   docker:

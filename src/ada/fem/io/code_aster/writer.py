@@ -7,22 +7,11 @@ from ada.fem import FemSection, Step
 from ada.fem.containers import FemSections
 from ada.fem.shapes import ElemShapes
 
-from ..utils import _folder_prep, get_fem_model_from_assembly
+from ..utils import get_fem_model_from_assembly
 from .common import abaqus_to_med_type
 
 
-def to_fem(
-    assembly,
-    name,
-    scratch_dir=None,
-    description=None,
-    execute=False,
-    run_ext=False,
-    cpus=2,
-    gpus=None,
-    overwrite=False,
-    exit_on_complete=True,
-):
+def to_fem(assembly, name, analysis_dir, metadata=None):
     """
     Write Code_Aster .med, .export and .comm file from Assembly data
 
@@ -31,22 +20,12 @@ def to_fem(
 
     :param assembly:
     :param name:
-    :param scratch_dir:
-    :param description:
-    :param execute:
-    :param run_ext:
-    :param cpus:
-    :param gpus:
-    :param overwrite:
-    :param exit_on_complete:
+    :param analysis_dir:
+    :param metadata:
     """
 
-    analysis_dir = _folder_prep(scratch_dir, name, overwrite)
-
-    if "info" not in assembly.metadata:
-        assembly.metadata["info"] = dict(description="")
-
-    assembly.metadata["info"]["description"] = description
+    if "info" not in metadata:
+        metadata["info"] = dict(description="")
 
     p = get_fem_model_from_assembly(assembly)
 
@@ -54,25 +33,10 @@ def to_fem(
     # for p in filter(lambda x: len(x.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)):
     write_to_med(name, p, analysis_dir)
 
-    with open((analysis_dir / name).with_suffix(".export"), "w") as f:
-        f.write(write_export_file(name, cpus))
-
     with open((analysis_dir / name).with_suffix(".comm"), "w") as f:
         f.write(write_to_comm(assembly, p))
 
     print(f'Created a Code_Aster input deck at "{analysis_dir}"')
-
-    from .execute import run_code_aster
-
-    run_code_aster(
-        (analysis_dir / name).with_suffix(".export"),
-        cpus=cpus,
-        gpus=gpus,
-        run_ext=run_ext,
-        metadata=assembly.metadata,
-        execute=execute,
-        exit_on_complete=exit_on_complete,
-    )
 
 
 # COMM File input

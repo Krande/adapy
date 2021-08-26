@@ -5,7 +5,7 @@ import shutil
 import subprocess
 
 
-class Blender(object):
+class Blender:
     """
     A class wrapping around Blender
 
@@ -30,23 +30,6 @@ class Blender(object):
         self.work_dir = work_dir
         self._project_name = project_name
         self.exe_path = self.__exe_path if exe_path is None else pathlib.Path(exe_path)
-
-        # from ada.core.utils import getfileprop
-        # self._bl_ver = getfileprop(self.exe_path)['FileVersion']
-        # if os.path.isdir(self.project_path) is False:
-        #     os.makedirs(self.project_path)
-        # if os.path.isdir(self.assets_path) is False:
-        #     os.makedirs(self.assets_path)
-        # project_file = self.project_path + '\\Assembly.blend'
-        # self._py_script = 'import bpy\n'
-        # # self._py_script += 'bpy.context.user_preferences.view.show_splash = False\n'
-        # if os.path.isfile(project_file):
-        #     if self._check_if_blender_file_version_match(project_file, self._bl_ver):
-        #         print('Existing "Assembly.Blend" file found. Opening file')
-        #         self._py_script += 'bpy.ops.wm.open_mainfile(filepath=r"{}")'.format(project_file)
-        # else:
-        #     self._py_script += 'bpy.ops.wm.save_as_mainfile(filepath=r"{}")'.format(project_file)
-        #     print('No blend file found. Creating a new file "Assembly.blend"')
 
     def run(self, script_path=None, run_silent=True):
         """

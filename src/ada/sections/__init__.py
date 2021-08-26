@@ -733,7 +733,8 @@ class ProfileBuilder:
         from OCC.Core.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
         from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Wire
 
-        from ada.core.utils import face_to_wires, tuple_minus
+        from ada.core.utils import tuple_minus
+        from ada.occ.utils import face_to_wires
         from ada.sections import SectionCat
 
         xdir, ydir, zdir = beam.ori

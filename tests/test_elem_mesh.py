@@ -9,8 +9,6 @@ from ada.fem.io.mesh.recipes import create_beam_mesh, create_plate_mesh
 
 test_folder = Settings.test_dir / "mesh"
 
-Settings.gmsh_suppress_printout = True
-
 atts = dict(origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1))
 atts2 = dict(origin=(1, 0, -0.1), xdir=(0, 0, 1), normal=(-1, 0, 0))
 
@@ -24,13 +22,12 @@ class BeamIO(unittest.TestCase):
         p = Part("MyFem")
         p.add_beam(bm)
 
-        create_beam_mesh(bm, p.fem, "solid", interactive=False)
+        create_beam_mesh(bm, p.fem, "solid", interactive=False, gmsh_silent=True)
         a = Assembly("Test") / p
         a.to_fem("my_test", "xdmf", scratch_dir=test_folder, fem_converter="meshio", overwrite=True)
 
     def test_plate_mesh(self):
-
-        gmsh = _init_gmsh_session()
+        gmsh = _init_gmsh_session(silent=True)
         gmsh.option.setNumber("Mesh.SecondOrderIncomplete", 1)
         gmsh.option.setNumber("Mesh.Algorithm", 8)
         gmsh.option.setNumber("Mesh.ElementOrder", 1)
@@ -44,8 +41,8 @@ class BeamIO(unittest.TestCase):
 
         p = Part("MyFem") / [pl1, pl2]
 
-        create_plate_mesh(pl1, "shell", fem=p.fem, interactive=False, gmsh_session=gmsh)
-        create_plate_mesh(pl2, "shell", fem=p.fem, interactive=False, gmsh_session=gmsh)
+        create_plate_mesh(pl1, "shell", fem=p.fem, interactive=False, gmsh_session=gmsh, gmsh_silent=True)
+        create_plate_mesh(pl2, "shell", fem=p.fem, interactive=False, gmsh_session=gmsh, gmsh_silent=True)
 
         a = Assembly("Test") / p
         a.to_ifc(test_folder / "ADA_pl_mesh_ifc")

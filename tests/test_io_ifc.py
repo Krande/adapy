@@ -202,7 +202,7 @@ class IfcExternal(unittest.TestCase):
     def test_import_arcboundary(self):
 
         url = url_root + "master/IFC%204.0/NURBS/Bentley%20Building%20Designer/SolidsAndSheets/WithArcBoundary.ifc"
-        dest = "c:/temp/ifc_files/WithArcBoundary.ifc"
+        dest = test_folder / "WithArcBoundary.ifc"
         download_to(dest, url)
 
         a = Assembly("MyAssembly")

@@ -8,31 +8,13 @@ from ada.config import Settings as _Settings
 from ada.fem.shapes import ElemShapes
 
 
-def meshio_to_fem(
-    assembly,
-    name,
-    scratch_dir=None,
-    metadata=None,
-    execute=False,
-    run_ext=False,
-    cpus=2,
-    gpus=None,
-    overwrite=False,
-    exit_on_complete=True,
-):
+def meshio_to_fem(assembly, name, scratch_dir=None, metadata=None):
     """
 
     :param assembly:
     :param name:
     :param scratch_dir:
     :param metadata:
-    :param execute:
-    :param run_ext:
-    :param cpus:
-    :param gpus:
-    :param overwrite:
-    :param exit_on_complete:
-
     :type assembly: ada.Assembly
     :return:
     """

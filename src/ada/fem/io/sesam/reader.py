@@ -232,7 +232,7 @@ def get_nodes(bulk_str, parent):
 
     """
     from ada import Node
-    from ada.core.containers import Nodes
+    from ada.concepts.containers import Nodes
 
     def get_node(m):
         d = m.groupdict()
@@ -299,7 +299,7 @@ def get_materials(bulk_str, part):
     :return:
     """
     from ada import Material
-    from ada.core.containers import Materials
+    from ada.concepts.containers import Materials
     from ada.core.utils import roundoff
 
     def grab_name(m):
@@ -403,7 +403,7 @@ def get_sections(bulk_str, fem):
     import numpy as np
 
     from ada import Section
-    from ada.core.containers import Sections
+    from ada.concepts.containers import Sections
     from ada.core.utils import roundoff, unit_vector, vector_length
     from ada.fem.containers import FemSections
 

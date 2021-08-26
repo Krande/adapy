@@ -49,7 +49,7 @@ def beam_ex1(p1=(0, 0, 0), p2=(1.5, 0, 0), profile="IPE400"):
 
     # Create a FEM analysis of the beam as a cantilever subjected to gravity loads
     p = a.get_part("MyPart")
-    create_beam_mesh(bm, p.fem, "shell")
+    create_beam_mesh(bm, p.fem, "shell", gmsh_silent=True)
 
     # Add a set containing ALL elements (necessary for Calculix loads).
     fs = p.fem.add_set(FemSet("Eall", [el for el in p.fem.elements], "elset"))

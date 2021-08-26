@@ -1,7 +1,7 @@
 import unittest
 
 from ada import Node
-from ada.core.containers import Nodes
+from ada.concepts.containers import Nodes
 
 
 def get_nodes():
