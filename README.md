@@ -11,13 +11,13 @@ and Finite Element (FE) model conversion, editing, analysis and postprocessing.
 To install the ada-py package into an existing conda environment
 
 ```
-conda install -c krande ada-py
+conda install -c krande -c conda-forge ada-py
 ```
 
 **Alternatively** create a new isolated environment for the installation like so:
 
 ```
-conda create -n ada -c krande ada-py 
+conda create -n ada -c krande -c conda-forge ada-py
 ```
 
 With `ada-py` you can (among other things) convert your FE models to IFC, create your own recipes for creating FE mesh from
