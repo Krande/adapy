@@ -6,6 +6,8 @@ import plotly.graph_objs as go
 import scipy.optimize
 from IPython.display import display
 
+from ada.visualize.plots import easy_plotly
+
 
 class Calibrate(object):
     """
@@ -29,7 +31,6 @@ class Calibrate(object):
         interpolate=True,
         incompressible=True,
     ):
-        from ada.core.utils import easy_plotly
 
         self._mat_data = mat_data
         self._num_int = num_int
@@ -209,8 +210,6 @@ class Calibrate(object):
         ]
         traces = self._build_test_data(eng_plot)
         traces += self._build_plot(model, params, eng_plot)
-        from ada.core.utils import easy_plotly
-
         return easy_plotly(
             self.mat_data.name + f" ({model_name})",
             ([], []),
@@ -372,8 +371,6 @@ class Calibrate(object):
         self._fig.layout["title"] = "ADA OpenSim: " + self._model.__name__
 
     def _repr_html_(self):
-        from ada.core.utils import easy_plotly
-
         self._fig = easy_plotly("ADA OpenSim", ([], []), return_widget=True)
         opt_models = list(self._models_d.keys())
         self._selected_models = ["Yeoh"]

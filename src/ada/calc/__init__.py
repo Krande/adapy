@@ -5,7 +5,8 @@ from IPython.display import display
 from ipywidgets import VBox
 
 from ada import Beam
-from ada.core.utils import Counter, easy_plotly
+from ada.core.utils import Counter
+from ada.visualize.plots import easy_plotly
 
 
 class ResType:
@@ -174,7 +175,14 @@ def simply_supported(x, w, beam: Beam, res_type: Union[ResType.displ, ResType.sh
 def equation_compiler(f, print_latex=False, print_formula=False):
     from inspect import getsourcelines
 
-    import pytexit
+    try:
+        import pytexit
+    except ModuleNotFoundError as e:
+        raise ModuleNotFoundError(
+            "To use the equation compiler you will need to install pytexit first.\n"
+            'Use "pip install pytexit"\n\n'
+            f'Original error message: "{e}"'
+        )
 
     lines = getsourcelines(f)
     final_line = lines[0][-1]

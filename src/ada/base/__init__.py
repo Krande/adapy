@@ -4,6 +4,7 @@ import pathlib
 
 from ada.config import Settings as _Settings
 from ada.core.constants import color_map as _cmap
+from ada.visualize.renderer import MyRenderer
 
 
 class Backend:
@@ -11,7 +12,7 @@ class Backend:
         self.name = name
         self.parent = parent
         self._ifc_settings = ifc_settings
-        from ada.core.utils import create_guid
+        from ada.ifc.utils import create_guid
 
         self.guid = create_guid() if guid is None else guid
         units = units.lower()
@@ -177,10 +178,6 @@ class BackendGeom(Backend):
         self.colour = colour
 
     def add_penetration(self, pen):
-        """
-
-        :param pen:
-        """
         from ada import Penetration, PrimBox, PrimCyl, PrimExtrude, PrimRevolve
 
         if type(pen) not in [Penetration, PrimExtrude, PrimRevolve, PrimCyl, PrimBox]:
@@ -307,8 +304,6 @@ class BackendGeom(Backend):
         else:  # Assume THREEJS
             from ipywidgets.embed import embed_minimal_html
 
-            from ada.base.renderer import MyRenderer
-
             _path = pathlib.Path("temp/index.html").resolve().absolute()
 
             renderer = MyRenderer(resolution)
@@ -324,8 +319,6 @@ class BackendGeom(Backend):
         Return the html snippet containing threejs renderer
         """
         from ipywidgets.embed import embed_snippet
-
-        from ada.base.renderer import MyRenderer
 
         renderer = MyRenderer()
         renderer.DisplayObj(self)
@@ -370,8 +363,6 @@ class BackendGeom(Backend):
     def _repr_html_(self):
         from IPython.display import display
         from ipywidgets import HBox, VBox
-
-        from ada.base.renderer import MyRenderer
 
         renderer = MyRenderer()
 

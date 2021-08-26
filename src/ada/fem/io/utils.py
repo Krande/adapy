@@ -1,3 +1,4 @@
+import logging
 import os
 import pathlib
 import re
@@ -6,14 +7,13 @@ import subprocess
 import sys
 import time
 from contextlib import contextmanager
+from itertools import chain
+from os import PathLike
 
+from ada.concepts.containers import Beams, Plates
+from ada.concepts.levels import Part
+from ada.concepts.structural import Beam, Plate
 from ada.config import Settings as _Settings
-
-try:
-    # Python 3.6+
-    from os import PathLike
-except ImportError:
-    from pathlib import PurePath as PathLike
 
 
 class LocalExecute:
@@ -35,19 +35,21 @@ class LocalExecute:
         self._inp_path = pathlib.Path(inp_path)
         self._cpus = cpus
         self._gpus = gpus
-        self._run_ext = run_ext
+        self.run_ext = run_ext
         self._metadata = metadata
-        self._auto_execute = auto_execute
-        self._local_execute = excute_locally
+        self.auto_execute = auto_execute
+        self.local_execute = excute_locally
 
     def _run_local(self, run_command, stop_command=None, exit_on_complete=True):
 
         if sys.platform == "linux" or sys.platform == "linux2":
-            run_linux(self, run_command)
+            out = run_linux(self, run_command)
         elif sys.platform == "darwin":
-            run_macOS(self, run_command)
+            out = run_macOS(self, run_command)
         else:  # sys.platform == "win32":
-            run_windows(self, run_command, stop_command, exit_on_complete)
+            out = run_windows(self, run_command, stop_command, exit_on_complete)
+
+        return out
 
     def run(self):
         raise NotImplementedError("The run function is not implemented")
@@ -219,7 +221,7 @@ def _lock_check(analysis_dir):
         )
 
 
-def _folder_prep(scratch_dir, analysis_name, overwrite):
+def folder_prep(scratch_dir, analysis_name, overwrite):
 
     if scratch_dir is None:
         scratch_dir = pathlib.Path(_Settings.scratch_dir)
@@ -238,7 +240,7 @@ def _folder_prep(scratch_dir, analysis_name, overwrite):
     return analysis_dir
 
 
-def run_windows(exe, run_command, stop_command=None, exit_on_complete=True):
+def run_windows(exe: LocalExecute, run_command, stop_command=None, exit_on_complete=True):
     """
 
     :param exe:
@@ -276,24 +278,30 @@ echo ON\ncall {run_command}"""
 
     print(80 * "-")
     print(f'starting {fem_tool} simulation "{exe.analysis_name}"')
-    if exe._auto_execute is True:
-        if exe._run_ext is True:
-            subprocess.run(
+    out = None
+    if exe.auto_execute is True:
+        if exe.run_ext is True:
+            out = subprocess.run(
                 "start " + start_bat,
                 cwd=exe.execute_dir,
                 shell=True,
                 env=os.environ,
+                capture_output=True,
+                universal_newlines=True,
             )
             print(f"Note! This starts {fem_tool} in an external window on a separate thread.")
         else:
-            subprocess.run(
+            out = subprocess.run(
                 "start /wait " + start_bat,
                 cwd=exe.execute_dir,
                 shell=True,
                 env=os.environ,
+                capture_output=True,
+                universal_newlines=True,
             )
             print(f'Finished {fem_tool} simulation "{exe.analysis_name}"')
     print(80 * "-")
+    return out
 
 
 def run_linux(exe, run_command):
@@ -307,24 +315,29 @@ def run_linux(exe, run_command):
 
     print(80 * "-")
     print(f'starting {fem_tool} simulation "{exe.analysis_name}" (on Linux)')
-    if exe._auto_execute is True:
-        if exe._run_ext is True:
-            subprocess.run(
+    if exe.auto_execute is True:
+        if exe.run_ext is True:
+            out = subprocess.run(
                 run_command,
                 cwd=exe.execute_dir,
                 shell=True,
                 env=os.environ,
+                capture_output=True,
+                universal_newlines=True,
             )
             print(f"Note! This starts {fem_tool} in an external window on a separate thread.")
         else:
-            subprocess.run(
+            out = subprocess.run(
                 run_command,
                 cwd=exe.execute_dir,
                 shell=True,
                 env=os.environ,
+                capture_output=True,
+                universal_newlines=True,
             )
             print(f'Finished {fem_tool} simulation "{exe.analysis_name}"')
     print(80 * "-")
+    return out
 
 
 def run_macOS(exe, run_command):
@@ -338,3 +351,98 @@ def interpret_fem(fem_ref):
     elif ".inp" in str(fem_ref).lower():
         fem_type = "abaqus"
     return fem_type
+
+
+def should_convert(res_path, overwrite):
+    run_convert = True
+    if res_path is not None:
+        if res_path.exists() is True:
+            run_convert = False
+    if run_convert is True or overwrite is True:
+        return True
+    else:
+        return False
+
+
+def convert_shell_elem_to_plates(elem, parent) -> [Plate]:
+    from ada.core.utils import is_coplanar
+
+    plates = []
+    fem_sec = elem.fem_sec
+    fem_sec.material.parent = parent
+    if len(elem.nodes) == 4:
+        if is_coplanar(
+            *elem.nodes[0].p,
+            *elem.nodes[1].p,
+            *elem.nodes[2].p,
+            *elem.nodes[3].p,
+        ):
+            plates.append(Plate(f"sh{elem.id}", elem.nodes, fem_sec.thickness, use3dnodes=True, parent=parent))
+        else:
+            plates.append(Plate(f"sh{elem.id}", elem.nodes[:2], fem_sec.thickness, use3dnodes=True, parent=parent))
+            plates.append(
+                Plate(
+                    f"sh{elem.id}_1",
+                    [elem.nodes[0], elem.nodes[2], elem.nodes[3]],
+                    fem_sec.thickness,
+                    use3dnodes=True,
+                    parent=parent,
+                )
+            )
+    else:
+        plates.append(Plate(f"sh{elem.id}", elem.nodes, fem_sec.thickness, use3dnodes=True, parent=parent))
+    return plates
+
+
+def convert_part_shell_elements_to_plates(p) -> Plates:
+
+    return Plates(list(chain.from_iterable([convert_shell_elem_to_plates(sh, p) for sh in p.fem.elements.shell])))
+
+
+def convert_part_elem_bm_to_beams(p) -> Beams:
+    return Beams([elem_to_beam(bm, p) for bm in p.fem.elements.beams])
+
+
+def elem_to_beam(elem, parent):
+    """
+    TODO: Evaluate merging elements by proximity and equal section and normals.
+
+    :param elem:
+    :param parent: Parent Part object
+    :type elem: ada.fem.Elem
+    """
+
+    n1 = elem.nodes[0]
+    n2 = elem.nodes[-1]
+    offset = elem.fem_sec.offset
+    e1 = None
+    e2 = None
+    elem.fem_sec.material.parent = parent
+    if offset is not None:
+        for no, ecc in offset:
+            if no.id == n1.id:
+                e1 = ecc
+            if no.id == n2.id:
+                e2 = ecc
+
+    if elem.fem_sec.section.type == "GENBEAM":
+        logging.error(f"Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section")
+
+    return Beam(
+        f"bm{elem.id}",
+        n1,
+        n2,
+        elem.fem_sec.section,
+        elem.fem_sec.material,
+        up=elem.fem_sec.local_z,
+        e1=e1,
+        e2=e2,
+        parent=parent,
+    )
+
+
+def convert_part_objects(p: Part, skip_plates, skip_beams):
+    if skip_plates is False:
+        p._plates = convert_part_shell_elements_to_plates(p)
+    if skip_beams is False:
+        p._beams = convert_part_elem_bm_to_beams(p)

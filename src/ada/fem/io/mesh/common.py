@@ -4,8 +4,8 @@ import os
 import numpy as np
 
 from ada import Node, Plate
+from ada.concepts.containers import Nodes
 from ada.config import Settings as _Settings
-from ada.core.containers import Nodes
 from ada.core.utils import clockwise, intersect_calc, roundoff, vector_length
 from ada.fem import Elem, FemSection, FemSet
 from ada.fem.containers import FemElements
@@ -43,6 +43,7 @@ class GMesh:
         mesh_algo=8,
         sh_int_points=5,
         point_tol=_Settings.point_tol,
+        gmsh_silent=True,
     ):
         """
 
@@ -53,6 +54,7 @@ class GMesh:
         :param mesh_algo:
         :param sh_int_points:
         :param point_tol:
+        :param gmsh_silent:
         :return:
         """
         import gmsh
@@ -69,7 +71,7 @@ class GMesh:
         except BaseException as e:
             logging.debug(e)
 
-        gmsh_print = 1 if _Settings.gmsh_suppress_printout is False else 0
+        gmsh_print = 1 if gmsh_silent is False else 0
         gmsh.initialize()
         gmsh.option.setNumber("General.Terminal", gmsh_print)
         gmsh.option.setNumber("Mesh.SecondOrderIncomplete", 1)
@@ -566,7 +568,7 @@ def eval_thick_normal_from_cog_of_beam_plate(beam, cog):
     return t, n, c
 
 
-def _init_gmsh_session():
+def _init_gmsh_session(silent=False):
     print("Starting GMSH session")
     import gmsh
 
@@ -577,7 +579,7 @@ def _init_gmsh_session():
         logging.debug(e)
     gmsh_session.initialize()
 
-    gmsh_print = 1 if _Settings.gmsh_suppress_printout is False else 0
+    gmsh_print = 1 if silent is False else 0
     gmsh_session.option.setNumber("General.Terminal", gmsh_print)
     return gmsh_session
 

@@ -42,12 +42,11 @@ class ModelCacheTests(unittest.TestCase):
         pfem = a.get_by_name("ParamModel")
         pfem.gmsh.mesh()
         time1 = time.time() - start
-        print(time1)
+
         a.update_cache()
         start = time.time()
         b = Assembly(model_name, enable_experimental_cache=True)
         time2 = time.time() - start
-        print(time2)
         cache_validation(a, b)
 
         print(f"Model generation time reduced from {time1:.2f}s to {time2:.2f}s -> {time1 / time2:.2f} x Improvement")

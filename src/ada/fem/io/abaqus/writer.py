@@ -8,7 +8,6 @@ import numpy as np
 
 from ada.core.utils import NewLine, bool2text
 from ada.fem import FemSet, HistOutput, Load, Step, Surface
-from ada.fem.io.utils import _folder_prep
 from ada.sections import SectionCat
 
 __all__ = ["main_inp_str", "to_fem"]
@@ -81,34 +80,14 @@ _valid_aba_bcs = list(_aba_bc_map.values()) + [
 ]
 
 
-def to_fem(
-    assembly,
-    name,
-    scratch_dir=None,
-    metadata=None,
-    execute=False,
-    run_ext=False,
-    cpus=2,
-    gpus=None,
-    overwrite=False,
-    exit_on_complete=True,
-):
+def to_fem(assembly, name, analysis_dir=None, metadata=None):
     """
 
     :param assembly:
     :param name:
-    :param scratch_dir:
+    :param analysis_dir:
     :param metadata:
-    :param execute:
-    :param run_ext:
-    :param cpus:
-    :param gpus:
-    :param overwrite:
-    :param exit_on_complete:
-
     """
-    from .execute import run_abaqus
-
     if metadata is None:
         metadata = dict()
 
@@ -119,22 +98,8 @@ def to_fem(
         metadata["hinges_to_coupling"] = True
 
     a = AbaqusWriter(assembly)
-    a.write(name, scratch_dir, metadata, overwrite=overwrite)
+    a.write(name, analysis_dir, metadata)
     print(f'Created an Abaqus input deck at "{a.analysis_path}"')
-    # Create run batch files and if execute=True run the analysis
-    inp_path = (a.analysis_path / name).with_suffix(".inp")
-
-    run_abaqus(
-        inp_path,
-        cpus=cpus,
-        gpus=gpus,
-        run_ext=run_ext,
-        manifest=metadata,
-        subr_path=a._subr_path,
-        execute=execute,
-        exit_on_complete=exit_on_complete,
-    )
-    return a.analysis_path
 
 
 class AbaqusWriter:
@@ -155,21 +120,19 @@ class AbaqusWriter:
     def __init__(self, assembly):
         self.assembly = assembly
 
-    def write(self, name, scratch_dir=None, metadata=None, overwrite=False):
+    def write(self, name, analysis_dir, metadata=None):
         """
         Build the Abaqus Analysis folder (and optionally start the analysis)
 
         :param name: Give your analysis a name.
         :param metadata: Attach additional info to this specific analysis
-        :param overwrite: Allow folder overwrite. Will delete folder before trying to build stack.
-        :param scratch_dir: Set the scratch dir
+        :param analysis_dir: Set the scratch dir
         :type metadata: str
         :type name: str
-        :type overwrite: bool
         """
         print("creating: {0}".format(name))
 
-        self.analysis_path = _folder_prep(scratch_dir, name, overwrite)
+        self.analysis_path = analysis_dir
 
         self.assembly.metadata["info"] = metadata
 

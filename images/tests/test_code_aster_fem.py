@@ -59,7 +59,7 @@ class CodeAsterTests(unittest.TestCase):
 
         p = Part("MyPart")
         a = Assembly("MyAssembly") / [p / bm]
-        create_beam_mesh(bm, p.fem, "shell")
+        create_beam_mesh(bm, p.fem, "shell", gmsh_silent=True)
 
         fix_set = p.fem.add_set(FemSet("bc_nodes", get_beam_end_nodes(bm), "nset"))
         a.fem.add_bc(Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))

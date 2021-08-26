@@ -1,4 +1,5 @@
 import logging
+import pathlib
 
 from ada.config import Settings
 from ada.fem.io.utils import get_exe_path
@@ -35,7 +36,9 @@ def run_code_aster(
     :param return_bat_str:
     :param exit_on_complete:
     """
+    from .writer import write_export_file
 
+    name = pathlib.Path(inp_path).stem
     ca = CodeAsterAnalysis(
         inp_path,
         cpus=cpus,
@@ -43,7 +46,11 @@ def run_code_aster(
         metadata=metadata,
         execute=execute,
     )
-    ca.run(exit_on_complete=exit_on_complete)
+    with open(inp_path, "w") as f:
+        f.write(write_export_file(name, cpus))
+
+    out = ca.run(exit_on_complete=exit_on_complete)
+    return out
 
 
 class CodeAsterAnalysis(LocalExecute):
@@ -107,6 +114,7 @@ class CodeAsterAnalysis(LocalExecute):
                 logging.error(e)
                 return
 
-            self._run_local(f'"{exe_path}" {self.analysis_name}.export', exit_on_complete=exit_on_complete)
+            out = self._run_local(f'"{exe_path}" {self.analysis_name}.export', exit_on_complete=exit_on_complete)
         else:
-            self._run_docker()
+            out = self._run_docker()
+        return out

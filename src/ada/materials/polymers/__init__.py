@@ -1,5 +1,7 @@
 import numpy as np
 
+from ada.visualize.plots import easy_plotly
+
 
 class MatDataSheet:
     """
@@ -55,7 +57,6 @@ class MatDataSheet:
 
     @property
     def visualize_eng(self):
-        from ada.core.utils import easy_plotly
 
         in_data = {}
         for d in self.test_data:
@@ -71,7 +72,6 @@ class MatDataSheet:
     @property
     def visualize_true(self):
         in_data = dict()
-        from ada.core.utils import easy_plotly
 
         for test in self.test_data:
             in_data[test.title] = (test.eps, test.sig)
@@ -235,8 +235,6 @@ class TestData:
 
     @property
     def visualize(self):
-        from ada.core.utils import easy_plotly
-
         in_data = {"Engineering": (self.e, self.S), "True": (self.eps, self.sig)}
         return easy_plotly(self.title, in_data, xlbl="Strain [-]", ylbl="Stress [Pa]")
 

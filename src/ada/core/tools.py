@@ -36,3 +36,7 @@ def download_ifc_convert(install_path=IFCCONVERT.parent, ifc_convert_v="v0.6.0-5
 
     with open(v_file, "w") as f:
         f.write(ifc_convert_v)
+
+
+def download_code_aster():
+    raise NotImplementedError()

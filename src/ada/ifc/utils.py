@@ -7,9 +7,35 @@ import numpy as np
 from ifcopenshell.util.unit import get_prefix_multiplier
 
 import ada.core.constants as ifco
-from ada.core.utils import Counter, create_guid, get_list_of_files, roundoff
+from ada.config import Settings
+from ada.core.utils import Counter, get_list_of_files, roundoff
 
 name_gen = Counter(1, "IfcEl")
+tol_map = dict(m=Settings.mtol, mm=Settings.mmtol)
+
+
+def get_tolerance(units):
+    if units not in tol_map.keys():
+        raise ValueError(f'Unrecognized unit "{units}"')
+    return tol_map[units]
+
+
+def create_guid(name=None):
+    import hashlib
+    import uuid
+
+    import ifcopenshell
+
+    if name is None:
+        hexdig = uuid.uuid1().hex
+    else:
+        if type(name) != bytes:
+            n = name.encode()
+        else:
+            n = name
+        hexdig = hashlib.md5(n).hexdigest()
+    result = ifcopenshell.guid.compress(hexdig)
+    return result
 
 
 def ifc_p(f, p):
@@ -64,7 +90,7 @@ def create_local_placement(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X, relativ
 def create_new_ifc_file(file_name, schema):
     import datetime
 
-    from .utils import get_version
+    from ..core.utils import get_version
 
     f = ifcopenshell.file(schema=schema)
     ada_ver = get_version()
@@ -108,7 +134,7 @@ def generate_tpl_ifc_file(file_name, project, schema, units, user):
 
     import time
 
-    from ada.core.ifc_template import tpl_create
+    from .ifc_template import tpl_create
 
     timestamp = time.time()
     timestring = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(timestamp))
@@ -404,11 +430,6 @@ def getIfcPropertySets(ifcelem):
 
 
 def get_parent(instance):
-    """
-
-    :param instance:
-    :return:
-    """
     if instance.is_a("IfcOpeningElement"):
         return instance.VoidsElements[0].RelatingBuildingElement
     if instance.is_a("IfcElement"):
@@ -466,7 +487,7 @@ def get_name(ifc_elem):
     return name
 
 
-def get_representation(ifc_elem, settings):
+def get_ifc_shape(ifc_elem, settings):
     """
 
     :param ifc_elem:
@@ -530,7 +551,8 @@ def import_indexedpolycurve(ipoly, normal, xdir, origin):
     :return:
     """
     from ada import ArcSegment, LineSegment
-    from ada.core.utils import global_2_local_nodes, segments_to_local_points
+    from ada.core.curve_utils import segments_to_local_points
+    from ada.core.utils import global_2_local_nodes
 
     ydir = np.cross(normal, xdir)
     nodes3d = [p for p in ipoly.Points.CoordList]
@@ -869,3 +891,132 @@ def create_reference_subrep(f, global_axes):
     )
 
     return {"model": model_rep, "body": body_sub_rep, "reference": ref_sub_rep}
+
+
+def scale_ifc_file(current_ifc, new_ifc):
+    oval = calculate_unit_scale(current_ifc)
+    nval = calculate_unit_scale(new_ifc)
+    if oval != nval:
+        logging.error("Running Unit Conversion on IFC import. This is still highly unstable")
+        # length_unit = f.createIfcSIUnit(None, "LENGTHUNIT", None, "METRE")
+        # unit_assignment = f.createIfcUnitAssignment((length_unit,))
+        new_file = scale_ifc_file_object(new_ifc, nval)
+        return new_file
+
+
+def import_ifc_hierarchy(assembly, product):
+    from ada.concepts.levels import Part
+
+    pr_type = product.is_a()
+    pp = get_parent(product)
+    if pp is None:
+        return None, None
+    name = get_name(product)
+    if pr_type not in [
+        "IfcBuilding",
+        "IfcSpace",
+        "IfcBuildingStorey",
+        "IfcSpatialZone",
+    ]:
+        return None, None
+    props = getIfcPropertySets(product)
+    new_part = Part(name, ifc_elem=product, metadata=dict(original_name=name, props=props))
+    res = assembly.get_by_name(pp.Name)
+    return res, new_part
+
+
+def import_ifc_beam(product, name, props):
+    from ada.concepts.structural import Beam
+
+    try:
+        bm = Beam(name, ifc_elem=product)
+    except NotImplementedError as e:
+        logging.error(e)
+        return None
+    bm.metadata["props"] = props
+    return bm
+
+
+def import_ifc_plate(product, name, props):
+    from ada.concepts.structural import Plate
+
+    try:
+        pl = Plate(name, None, None, ifc_elem=product)
+    except (IndexError, ValueError, np.linalg.LinAlgError) as f:
+        logging.error(f)
+        return None
+    pl.metadata["props"] = props
+    return pl
+
+
+def import_general_shape(product, name, props):
+    from ada.concepts.primitives import Shape
+
+    shp = Shape(
+        name,
+        None,
+        guid=product.GlobalId,
+        metadata=dict(props=props),
+    )
+    return shp
+
+
+def add_to_parent(parent, obj):
+    from ada.concepts.primitives import Shape
+    from ada.concepts.structural import Beam, Plate
+
+    if type(obj) is Beam:
+        parent.add_beam(obj)
+    elif type(obj) is Plate:
+        parent.add_plate(obj)
+    elif issubclass(type(obj), Shape):
+        parent.add_shape(obj)
+    else:
+        raise NotImplementedError("")
+
+
+def add_to_assembly(assembly, obj, ifc_parent, elements2part):
+    parent_name = ifc_parent.Name if ifc_parent.Name is not None else get_name(ifc_parent)
+    imported = False
+    if elements2part is not None:
+        add_to_parent(assembly, obj)
+        imported = True
+    else:
+        all_parts = assembly.get_all_parts_in_assembly()
+        for p in all_parts:
+            if p.name == parent_name or p.metadata.get("original_name") == parent_name:
+                add_to_parent(p, obj)
+                imported = True
+                break
+
+    if imported is False:
+        logging.info(f'Unable to find parent "{parent_name}" for {type(obj)} "{obj.name}". Adding to Assembly')
+        assembly.add_shape(obj)
+
+
+def import_physical_ifc_elem(product):
+    pr_type = product.is_a()
+
+    props = getIfcPropertySets(product)
+    name = get_name(product)
+    logging.info(f"importing {name}")
+    if pr_type in ["IfcBeamStandardCase", "IfcBeam"]:
+        obj = import_ifc_beam(product, name, props)
+    elif pr_type in ["IfcPlateStandardCase", "IfcPlate"]:
+        obj = import_ifc_plate(product, name, props)
+    else:
+        if product.is_a("IfcOpeningElement") is True:
+            return None
+        obj = import_general_shape(product, name, props)
+
+    return obj
+
+
+def tesselate_shape(shape, schema, tol):
+    occ_string = ifcopenshell.geom.occ_utils.serialize_shape(shape)
+    serialized_geom = ifcopenshell.geom.serialise(schema, occ_string)
+
+    if serialized_geom is None:
+        logging.debug("Starting serialization of geometry")
+        serialized_geom = ifcopenshell.geom.tesselate(schema, occ_string, tol)
+    return serialized_geom

@@ -119,7 +119,7 @@ class FEM(FemBase):
     """
 
     def __init__(self, name=None, parent=None, metadata=None):
-        from ada.core.containers import Nodes
+        from ada.concepts.containers import Nodes
 
         metadata = metadata if metadata is not None else dict()
         metadata["sensor_data"] = dict()

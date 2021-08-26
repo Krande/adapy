@@ -7,7 +7,7 @@ RUN apt-get update && \
 #region install Calculix
 FROM base AS calculix
 RUN apt-get install ffmpeg libsm6 libxext6 libxft2 -y
-
+ENV CCXVER "2.17"
 # Installing necessary dependecies for Calculix
 RUN apt-get install -y \
     build-essential \
@@ -22,8 +22,8 @@ RUN apt-get install -y \
 
 WORKDIR ${TOOLS}
 
-# Downloading CalculiX 2.16
-RUN curl -s http://www.dhondt.de/ccx_2.16.src.tar.bz2 | tar -xj
+# Downloading CalculiX
+RUN curl -s http://www.dhondt.de/ccx_${CCXVER}.src.tar.bz2 | tar -xj
 
 # Installing spooles
 WORKDIR ${TOOLS}
@@ -48,7 +48,7 @@ RUN curl -s https://www.caam.rice.edu//software/ARPACK/SRC/arpack96.tar.gz | tar
     && sed -i 's/      EXTERNAL           ETIME/*     EXTERNAL           ETIME/g' UTIL/second.f \
     && make all
 
-WORKDIR ${TOOLS}/CalculiX/ccx_2.16/src
+WORKDIR ${TOOLS}/CalculiX/ccx_${CCXVER}/src
 
 # replace hardcoded paths in CalculiX
 RUN  sed -i -e 's|\.\./\.\./\.\./SPOOLES.2.2|${TOOLS}/spooles.2.2|g' \
@@ -57,11 +57,11 @@ RUN  sed -i -e 's|\.\./\.\./\.\./SPOOLES.2.2|${TOOLS}/spooles.2.2|g' \
 
 ENV nproc=2
 RUN make -j $(nproc) --warn-undefined-variables
-RUN cp ccx_2.16 /usr/local/bin
-RUN chmod a+rx /usr/local/bin/ccx_2.16
+RUN cp ccx_${CCXVER} /usr/local/bin
+RUN chmod a+rx /usr/local/bin/ccx_${CCXVER}
 
-LABEL calculix="2.16"
-ENV ADA_ccx_exe=/usr/local/bin/ccx_2.16
+LABEL calculix=${CCXVER}
+ENV ADA_ccx_exe=/usr/local/bin/ccx_${CCXVER}
 #endregion
 
 #region Code Aster
@@ -151,19 +151,9 @@ ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /usr/
 RUN chmod +x /usr/bin/tini
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
-RUN mkdir /tmp/adapy
-
-COPY src /tmp/adapy/src
-COPY setup.cfg /tmp/adapy/setup.cfg
-COPY pyproject.toml /tmp/adapy/pyproject.toml
-COPY MANIFEST.in /tmp/adapy/MANIFEST.in
-COPY LICENSE /tmp/adapy/LICENSE
-COPY README.md /tmp/adapy/README.md
-
-RUN cd /tmp/adapy && pip install . --no-cache-dir
 RUN conda clean -a
 
-LABEL python="3.8.8"
+LABEL python="3.9"
 
 CMD ["jupyter", "notebook", "--port=8888", "--no-browser", "--ip=0.0.0.0", "--allow-root"]
 

@@ -5,8 +5,8 @@ import meshio
 
 from ada import Part
 from ada.config import Settings as _Settings
-from ada.core.utils import create_guid
 from ada.fem import FemSection, FemSet
+from ada.ifc.utils import create_guid
 
 from .common import (
     _init_gmsh_session,
@@ -17,7 +17,16 @@ from .common import (
 
 
 def create_plate_mesh(
-    plate, geom_repr="solid", max_size=0.1, order=1, algo=8, tol=1e-3, fem=None, interactive=False, gmsh_session=None
+    plate,
+    geom_repr="solid",
+    max_size=0.1,
+    order=1,
+    algo=8,
+    tol=1e-3,
+    fem=None,
+    interactive=False,
+    gmsh_session=None,
+    gmsh_silent=False,
 ):
     """
 
@@ -30,6 +39,7 @@ def create_plate_mesh(
     :param tol: Maximum geometry tolerance
     :param fem:
     :param interactive:
+    :param gmsh_silent:
 
     :type plate: ada.Plate
     :type fem: ada.fem.FEM
@@ -37,7 +47,7 @@ def create_plate_mesh(
     """
     temp_dir = _Settings.temp_dir
     if gmsh_session is None:
-        gmsh_session = _init_gmsh_session()
+        gmsh_session = _init_gmsh_session(gmsh_silent)
 
     option = gmsh_session.option
     model = gmsh_session.model
@@ -97,7 +107,16 @@ def create_plate_mesh(
 
 
 def create_beam_mesh(
-    beam, fem, geom_repr="shell", max_size=0.1, order=1, algo=8, tol=1e-3, interactive=False, gmsh_session=None
+    beam,
+    fem,
+    geom_repr="shell",
+    max_size=0.1,
+    order=1,
+    algo=8,
+    tol=1e-3,
+    interactive=False,
+    gmsh_session=None,
+    gmsh_silent=False,
 ):
     """
     :param beam:
@@ -108,12 +127,13 @@ def create_beam_mesh(
     :param algo: Mesh algorithm
     :param tol: Maximum geometry tolerance
     :param interactive:
+    :param gmsh_silent:
     :type beam: ada.Beam
     :type fem: ada.fem.FEM
     :type gmsh_session: gmsh
     """
     if gmsh_session is None:
-        gmsh_session = _init_gmsh_session()
+        gmsh_session = _init_gmsh_session(gmsh_silent)
 
     temp_dir = _Settings.temp_dir
     name = beam.name.replace("/", "") + f"_{create_guid()}"
@@ -223,7 +243,16 @@ def create_beam_mesh(
 
 
 def generalized_mesher(
-    elements, fem, geom_repr="solid", max_size=0.1, order=1, algo=8, tol=1e-3, interactive=False, gmsh_session=None
+    elements,
+    fem,
+    geom_repr="solid",
+    max_size=0.1,
+    order=1,
+    algo=8,
+    tol=1e-3,
+    interactive=False,
+    gmsh_session=None,
+    gmsh_silent=False,
 ):
     """
     :param elements:
@@ -234,6 +263,8 @@ def generalized_mesher(
     :param algo: Mesh algorithm
     :param tol: Maximum geometry tolerance
     :param interactive:
+    :param gmsh_silent:
+
     :type elements: list
     :type fem: ada.fem.FEM
     :type gmsh_session: gmsh
@@ -241,7 +272,7 @@ def generalized_mesher(
     from ada import Beam
 
     if gmsh_session is None:
-        gmsh_session = _init_gmsh_session()
+        gmsh_session = _init_gmsh_session(gmsh_silent)
 
     temp_dir = _Settings.temp_dir
     name = fem.parent.name.replace("/", "") + f"_{create_guid()}"

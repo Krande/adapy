@@ -8,19 +8,19 @@
 A python library for working with structural analysis and design delivering an object-oriented framework for modelling 
 and Finite Element (FE) model conversion, editing, analysis and postprocessing. 
 
-To install the ada-py package into an existing conda environment write the following in an open conda prompt
+To install the ada-py package into an existing conda environment
 
 ```
 conda install -c krande -c conda-forge ada-py
 ```
 
-**Alternatively** you can create a new isolated environment for the installation like so:
+**Alternatively** create a new isolated environment for the installation like so:
 
 ```
-conda create -n adaenv -c krande -c conda-forge ada-py 
+conda create -n ada -c krande -c conda-forge ada-py
 ```
 
-With `ada` you can (among other things) convert your FE models to IFC, create your own recipes for creating FE mesh from
+With `ada-py` you can (among other things) convert your FE models to IFC, create your own recipes for creating FE mesh from
 your IFC models, or build your design from the ground up using fully customizable and extendible python classes and 
 functions to build parametric designs with rules for automated joint/penetration identification and steel detailing. 
 

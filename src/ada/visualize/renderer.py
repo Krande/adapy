@@ -1,5 +1,7 @@
 import logging
 import uuid
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from itertools import chain
 from random import randint
 
@@ -27,6 +29,21 @@ from pythreejs import (
 )
 
 __all__ = ["MyRenderer", "SectionRenderer"]
+
+
+@dataclass
+class BaseRenderer(ABC):
+    render_objects: [object]
+
+    def add_object_to_renderer(self, obj):
+        self.render_objects.append(obj)
+
+    def build_displayable_objects(self):
+        """Build all elements for visualization"""
+
+    @abstractmethod
+    def display(self):
+        """Display graphic on screen depending on context"""
 
 
 class MyRenderer(JupyterRenderer):
@@ -211,12 +228,12 @@ class MyRenderer(JupyterRenderer):
 
         try:
             if "ifc_file" in beam.metadata.keys():
-                from ada.core.ifc_utils import get_representation
+                from ada.ifc.utils import get_ifc_shape
 
                 a = beam.parent.get_assembly()
                 ifc_f = a.get_ifc_source_by_name(beam.metadata["ifc_file"])
                 ifc_elem = ifc_f.by_guid(beam.guid)
-                geom, color, alpha = get_representation(ifc_elem, a.ifc_settings)
+                geom, color, alpha = get_ifc_shape(ifc_elem, a.ifc_settings)
             else:
                 geom = beam.solid
             res = self.DisplayShape(geom, shape_color=beam.colour, render_edges=True)
@@ -802,8 +819,8 @@ class SectionRenderer:
 
         from ipywidgets import HTML
 
-        from ada.core.utils import easy_plotly
         from ada.sections import SectionCat
+        from ada.visualize.plots import easy_plotly
 
         # testb = Button(
         #     description="plot",

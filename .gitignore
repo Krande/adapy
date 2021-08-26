@@ -4,6 +4,7 @@
 build/
 dist/
 docs/_build/
+output/
 *.egg-info/
 .pytest_cache/
 # Other

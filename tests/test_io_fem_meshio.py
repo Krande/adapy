@@ -9,12 +9,12 @@ class TestMeshio(unittest.TestCase):
     def test_read_write_code_aster_to_xdmf(self):
         a = Assembly("meshio_from_ca", "temp")
         a.read_fem(example_files / "fem_files/meshes/med/box.med", fem_converter="meshio")
-        a.to_fem("box_analysis_xdmf", fem_format="xdmf", fem_converter="meshio")
+        a.to_fem("box_analysis_xdmf", fem_format="xdmf", fem_converter="meshio", overwrite=True)
 
     def test_read_write_code_aster_to_abaqus(self):
         a = Assembly("meshio_from_ca", "temp")
         a.read_fem(example_files / "fem_files/meshes/med/box.med", fem_converter="meshio")
-        a.to_fem("box_analysis_abaqus", fem_format="abaqus", fem_converter="meshio")
+        a.to_fem("box_analysis_abaqus", fem_format="abaqus", fem_converter="meshio", overwrite=True)
 
     def test_read_C3D20(self):
         from ada import Assembly

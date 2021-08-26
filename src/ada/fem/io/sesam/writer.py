@@ -5,7 +5,7 @@ import numpy as np
 
 from ada.core.utils import get_current_user
 from ada.fem import FemSection, Load
-from ada.fem.io.utils import _folder_prep
+from ada.fem.io.utils import folder_prep
 
 
 def to_fem(
@@ -35,7 +35,7 @@ def to_fem(
     part = parts[0]
     thick_map = dict()
 
-    analysis_dir = _folder_prep(scratch_dir, name, overwrite)
+    analysis_dir = folder_prep(scratch_dir, name, overwrite)
 
     now = datetime.datetime.now()
     date_str = now.strftime("%d-%b-%Y")
