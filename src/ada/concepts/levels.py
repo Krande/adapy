@@ -843,8 +843,10 @@ class Assembly(Part):
 
         from ada.ifc.utils import (
             import_ifc_hierarchy,
-            import_physical_ifc,
+            import_physical_ifc_elem,
             scale_ifc_file,
+            get_parent,
+            add_to_assembly,
         )
 
         if self._enable_experimental_cache is True:
@@ -873,7 +875,11 @@ class Assembly(Part):
         # Get physical elements
         for product in f.by_type("IfcProduct"):
             if product.Representation is not None and data_only is False:
-                import_physical_ifc(product, ifc_file, self, elements2part)
+                parent = get_parent(product)
+                obj = import_physical_ifc_elem(product)
+                obj.metadata["ifc_file"] = ifc_file
+                if obj is not None:
+                    add_to_assembly(self, obj, parent, elements2part)
 
         print(f'Import of IFC file "{ifc_file}" is complete')
 

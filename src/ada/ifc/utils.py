@@ -430,11 +430,6 @@ def getIfcPropertySets(ifcelem):
 
 
 def get_parent(instance):
-    """
-
-    :param instance:
-    :return:
-    """
     if instance.is_a("IfcOpeningElement"):
         return instance.VoidsElements[0].RelatingBuildingElement
     if instance.is_a("IfcElement"):
@@ -974,56 +969,47 @@ def add_to_parent(parent, obj):
         parent.add_beam(obj)
     elif type(obj) is Plate:
         parent.add_plate(obj)
-    elif type(obj) is Shape:
+    elif issubclass(type(obj), Shape):
         parent.add_shape(obj)
     else:
         raise NotImplementedError("")
 
 
-def add_to_assembly(assembly, obj, parent, elements2part):
-    """
-
-    :param assembly:
-    :param obj:
-    :param parent:
-    :param elements2part:
-    """
+def add_to_assembly(assembly, obj, ifc_parent, elements2part):
+    parent_name = ifc_parent.Name if ifc_parent.Name is not None else get_name(ifc_parent)
     imported = False
     if elements2part is not None:
-        add_to_parent(parent, obj)
+        add_to_parent(assembly, obj)
         imported = True
     else:
         all_parts = assembly.get_all_parts_in_assembly()
         for p in all_parts:
-            if p.name == parent.Name or p.metadata.get("original_name") == parent.Name:
+            if p.name == parent_name or p.metadata.get("original_name") == parent_name:
                 add_to_parent(p, obj)
                 imported = True
                 break
+
     if imported is False:
-        raise ValueError(f'Unable to import {type(obj)} "{obj.name}"')
+        logging.info(f'Unable to find parent "{parent_name}" for {type(obj)} "{obj.name}". Adding to Assembly')
+        assembly.add_shape(obj)
 
 
-def import_physical_ifc(product, ifc_file, self, elements2part=None):
+def import_physical_ifc_elem(product):
     pr_type = product.is_a()
-    parent = get_parent(product)
+
     props = getIfcPropertySets(product)
     name = get_name(product)
     logging.info(f"importing {name}")
     if pr_type in ["IfcBeamStandardCase", "IfcBeam"]:
         obj = import_ifc_beam(product, name, props)
-        if obj is not None:
-            add_to_assembly(self, obj, parent, elements2part)
     elif pr_type in ["IfcPlateStandardCase", "IfcPlate"]:
         obj = import_ifc_plate(product, name, props)
-        if obj is not None:
-            add_to_assembly(self, obj, parent, elements2part)
     else:
         if product.is_a("IfcOpeningElement") is True:
             return None
-        shp = import_general_shape(product, name, props)
-        shp.metadata["ifc_file"] = ifc_file
-        if shp is not None:
-            add_to_assembly(self, shp, parent, elements2part)
+        obj = import_general_shape(product, name, props)
+
+    return obj
 
 
 def tesselate_shape(shape, schema, tol):
