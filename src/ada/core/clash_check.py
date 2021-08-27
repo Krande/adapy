@@ -1,10 +1,27 @@
 import logging
-from typing import List, Tuple
+import traceback
+from itertools import chain
+from typing import List
 
-from ..concepts.containers import Nodes
 from ..concepts.points import Node
 from ..concepts.structural import Beam
 from .utils import intersect_calc, is_parallel, vector_length
+
+
+def basic_intersect(bm: Beam, margins, all_parts):
+    if bm.section.type == "gensec":
+        return bm, []
+    try:
+        vol = bm.bbox
+    except ValueError as e:
+        logging.error(f"Intersect bbox skipped: {e}\n{traceback.format_exc()}")
+        return None
+    vol_in = [x for x in zip(vol[0], vol[1])]
+    beams = filter(
+        lambda x: x != bm,
+        chain.from_iterable([p.beams.get_beams_within_volume(vol_in, margins=margins) for p in all_parts]),
+    )
+    return bm, beams
 
 
 def beam_cross_check(bm1: Beam, bm2: Beam, outofplane_tol=0.1):
@@ -36,9 +53,7 @@ def beam_cross_check(bm1: Beam, bm2: Beam, outofplane_tol=0.1):
     return ab_, s, t
 
 
-def are_beams_connected(bm1: Beam, beams: List[Beam], out_of_plane_tol, point_tol) -> Tuple[dict, Nodes]:
-    nodes = Nodes()
-    nmap = dict()
+def are_beams_connected(bm1: Beam, beams: List[Beam], out_of_plane_tol, point_tol, nodes, nmap) -> None:
     for bm2 in beams:
         if bm1 == bm2:
             continue
@@ -59,4 +74,3 @@ def are_beams_connected(bm1: Beam, beams: List[Beam], out_of_plane_tol, point_to
                 nmap[n].append(bm1)
             if bm2 not in nmap[n]:
                 nmap[n].append(bm2)
-    return nmap, nodes

@@ -2,7 +2,7 @@ import numpy as np
 
 from ada import Assembly, Beam, Material, Part, PrimBox, PrimCyl, PrimExtrude, User
 from ada.fem import Bc, FemSet, Load, Step
-from ada.fem.io.mesh.recipes import create_beam_mesh
+from ada.fem.mesh.recipes import create_beam_mesh
 from ada.fem.utils import get_beam_end_nodes
 
 

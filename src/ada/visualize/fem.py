@@ -88,7 +88,7 @@ def get_edges_and_faces_from_meshio(mesh):
     :type mesh: meshio.Mesh
     :return:
     """
-    from ada.fem.io.io_meshio import meshio_to_ada_type
+    from ada.fem.io_meshio import meshio_to_ada_type
     from ada.fem.shapes import ElemShapes
 
     edges = []

@@ -4,11 +4,11 @@ import json
 import logging
 import os
 import pathlib
-import traceback
 from itertools import chain
 from typing import List
 
 from ada.base import BackendGeom
+from ada.concepts.connections import JointBase
 from ada.concepts.containers import (
     Beams,
     Connections,
@@ -27,8 +27,7 @@ from ada.concepts.primitives import (
     Shape,
 )
 from ada.concepts.structural import Beam, Material, Plate, Section, Wall
-from ada.config import Settings as _Settings
-from ada.config import User
+from ada.config import Settings, User
 from ada.fem import FEM, Elem, FemSet
 from ada.ifc.utils import create_guid
 
@@ -58,7 +57,7 @@ class Part(BackendGeom):
         ly=(0, 1, 0),
         lz=(0, 0, 1),
         fem: FEM = None,
-        settings: _Settings = _Settings(),
+        settings: Settings = Settings(),
         metadata=None,
         parent=None,
         units="m",
@@ -66,7 +65,7 @@ class Part(BackendGeom):
         guid=None,
     ):
         super().__init__(name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_elem=ifc_elem)
-        from ada.fem.io.mesh import GMesh
+        from ada.fem.mesh import GMesh
 
         self._nodes = Nodes(parent=self)
         self._beams = Beams(parent=self)
@@ -175,7 +174,7 @@ class Part(BackendGeom):
         self._parts[part.name] = part
         return part
 
-    def add_joint(self, joint):
+    def add_joint(self, joint: JointBase) -> JointBase:
         """
         This method takes a Joint element containing two intersecting beams. It will check with the existing
         list of joints to see whether or not it is part of a larger more complex joint. It usese primarily
@@ -186,23 +185,11 @@ class Part(BackendGeom):
         Criteria 2: If the intersecting point coincides within a specified tolerance (currently 10mm)
         with an exisiting joint intersecting point. If so it will add the elements to this joint.
         If not it will create a new joint based on these two members.
-
-        :param joint:
-        :type joint: ada.JointBase
-        """
-
-        """
-        Notes
-        Evaluate if possible to have an additional self check on parallel beam if either of the two end nodes
-        are in proximity to already established joint. If so move the Centre Point to one of the two ends!
-
-        A Counter-point would be that it would depend on when the intersection was made. Maybe it is best to do this
-        on an algorithm running after
-
         """
         if joint.units != self.units:
             joint.units = self.units
         self._connections.add(joint)
+        return joint
 
     def add_material(self, material: Material) -> Material:
         if material.units != self.units:
@@ -215,7 +202,7 @@ class Part(BackendGeom):
             section.units = self.units
         return self._sections.add(section)
 
-    def add_penetration(self, pen: Penetration, add_pen_to_subparts=True) -> None:
+    def add_penetration(self, pen: Penetration, add_pen_to_subparts=True) -> Penetration:
         if type(pen) in (PrimExtrude, PrimRevolve, PrimCyl, PrimBox):
             pen = Penetration(pen, parent=self)
 
@@ -237,6 +224,7 @@ class Part(BackendGeom):
         if add_pen_to_subparts:
             for p in self.get_all_subparts():
                 p.add_penetration(pen, False)
+        return pen
 
     def add_elements_from_ifc(self, ifc_file_path: str, data_only=False):
         a = Assembly("temp")
@@ -343,13 +331,7 @@ class Part(BackendGeom):
         )
         return elem
 
-    def get_part(self, name):
-        """
-
-        :param name: Name of part
-        :return:
-        :rtype: Part
-        """
+    def get_part(self, name) -> Part:
         return self.parts[name]
 
     def get_by_name(self, name):
@@ -403,30 +385,12 @@ class Part(BackendGeom):
         :param margins: Add margins to the volume box (equal in all directions). Input is in meters. Can be negative.
         :return: A map generator for the list of beams and resulting intersecting beams
         """
+        from ada.core.clash_check import basic_intersect
+
         all_parts = self.get_all_subparts() + [self]
         all_beams = [bm for p in all_parts for bm in p.beams]
 
-        def intersect(bm):
-            """
-
-            :param bm:
-            :type bm: ada.Beam
-            """
-            if bm.section.type == "gensec":
-                return bm, []
-            try:
-                vol = bm.bbox
-            except ValueError as e:
-                logging.error(f"Intersect bbox skipped: {e}\n{traceback.format_exc()}")
-                return None
-            vol_in = [x for x in zip(vol[0], vol[1])]
-            beams = filter(
-                lambda x: x != bm,
-                chain.from_iterable([p.beams.get_beams_within_volume(vol_in, margins=margins) for p in all_parts]),
-            )
-            return bm, beams
-
-        return filter(None, map(intersect, all_beams))
+        return filter(None, [basic_intersect(bm, margins, all_parts) for bm in all_beams])
 
     def _flatten_list_of_subparts(self, p, list_of_parts=None):
         for value in p.parts.values():
@@ -692,10 +656,10 @@ class Assembly(Part):
         project="AdaProject",
         user: User = User(),
         schema="IFC4",
-        settings=_Settings(),
+        settings=Settings(),
         metadata=None,
         units="m",
-        ifc_settings=None,
+        ifcSettings=None,
         clear_cache=False,
         enable_experimental_cache=None,
     ):
@@ -715,12 +679,12 @@ class Assembly(Part):
         self._ifc_sections = None
         self._ifc_materials = None
         self._source_ifc_files = dict()
-        self._ifc_settings = ifc_settings
+        self._ifcSettings = ifcSettings
         self._presentation_layers = []
 
         # Model Cache
         if enable_experimental_cache is None:
-            enable_experimental_cache = _Settings.use_experimental_cache
+            enable_experimental_cache = Settings.use_experimental_cache
         self._enable_experimental_cache = enable_experimental_cache
 
         state_path = pathlib.Path("").parent.resolve().absolute() / ".state" / self.name
@@ -979,7 +943,7 @@ class Assembly(Part):
         from ada.fem.io import fem_executables, get_fem_converters
         from ada.fem.io.utils import folder_prep, should_convert
 
-        base_path = _Settings.scratch_dir / name / name
+        base_path = Settings.scratch_dir / name / name
         fem_res_files = dict(code_aster=base_path.with_suffix(".rmed"), abaqus=base_path.with_suffix(".odb"))
         res_path = fem_res_files.get(fem_format, None)
         metadata = dict() if metadata is None else metadata

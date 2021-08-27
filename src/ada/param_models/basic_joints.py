@@ -1,67 +1,47 @@
 import logging
+from typing import Union
 
-from ada import JointBase
-from ada.concepts.structural import Beam
+from ada import Beam, JointBase
+from ada.concepts.connections import JointReqChecker
 from ada.core.clash_check import beam_cross_check
 
 
-def joint_map(name, members, centre):
-    """
-    :param name: Name of joint
-    :param members: Number of members
-    :param centre: Centre of joint
-    :return: Joint
-    """
+def eval_joint_req(joint: JointBase, intersecting_members):
+    jrc = JointReqChecker(intersecting_members, joint)
+    return jrc.eval_joint_req()
 
-    def mem_type_check(joint):
-        mem_types = [m for m in joint.mem_types]
 
-        for m in members:
-            if m.member_type in mem_types:
-                mem_types.pop(mem_types.index(m.member_type))
+def joint_map(joint_name, intersecting_members, centre) -> Union[JointBase, None]:
+    joints = [JointB, JointIXZ]
 
-        if len(mem_types) != 0:
-            return False
-        else:
-            return True
+    for joint in joints:
+        if eval_joint_req(joint, intersecting_members):
+            return joint(joint_name, intersecting_members, centre)
 
-    def eval_joint_req(joint):
-        if len(members) == joint.num_mem and mem_type_check(joint) is True:
-            return True
-        else:
-            return False
-
-    joints = [JointB, JointI90deg]
-
-    for j in joints:
-        if eval_joint_req(j):
-            return j(name, members, centre)
-
-    member_types = [m.section.type for m in members]
+    member_types = [m.section.type for m in intersecting_members]
     logging.error(f'Unable to find matching Joint using joint map for members "{member_types}"')
     return None
 
 
-class JointI90deg(JointBase):
-    mem_types = ["Column", "Girder"]
+class JointIXZ(JointBase):
+    mem_types = ["Column|Brace", "Girder"]
     beamtypes = ["IPE", "IPE"]
     num_mem = 2
 
     def __init__(self, name, members, centre):
-        super(JointI90deg, self).__init__(name, members, centre)
+        super(JointIXZ, self).__init__(name, members, centre)
 
-        column = None
+        non_girder = None
         gi1 = None
         for m in members:
-            if m.member_type == "Column":
-                column = m
+            if m.member_type == "Column" or m.member_type == "Brace":
+                non_girder = m
             else:
                 gi1 = m
 
-        self._cut_intersecting_member(gi1, column)
-
-        center, s, t = beam_cross_check(column, gi1)
-        self.adjust_column(column, gi1, s)
+        self._cut_intersecting_member(gi1, non_girder)
+        center, s, t = beam_cross_check(non_girder, gi1)
+        self.adjust_column(non_girder, gi1, s)
 
     def adjust_column(self, column: Beam, gi1: Beam, s):
         dist = gi1.section.h / 2

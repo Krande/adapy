@@ -6,11 +6,6 @@ from . import Elem
 
 
 class ElemShapes:
-    """
-
-    :param el_type:
-    """
-
     # 2D elements
     tri = ["S3", "S3R", "R3D3"]
     quad = ["S4", "S4R", "R3D4"]

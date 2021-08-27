@@ -384,9 +384,7 @@ class Connections(BaseCollections):
         nmap = dict()
 
         for bm1_, beams_ in bm_res:
-            nmap_, nodes_ = are_beams_connected(bm1_, beams_, out_of_plane_tol, point_tol)
-            nmap.update(nmap_)
-            nodes += nodes_
+            are_beams_connected(bm1_, beams_, out_of_plane_tol, point_tol, nodes, nmap)
 
         for node, mem in nmap.items():
             if joint_func is not None:

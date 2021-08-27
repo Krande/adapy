@@ -1,13 +1,46 @@
-import numpy as np
+from __future__ import annotations
 
-from ada.base import Backend
+from abc import ABC
+from dataclasses import dataclass
+from typing import List
+
+from ada.base import Backend, BackendGeom
 from ada.concepts.containers import Beams
-from ada.concepts.levels import Part
 from ada.concepts.primitives import PrimBox
 from ada.concepts.structural import Beam
 
 
-class JointBase(Part):
+@dataclass
+class JointReqChecker:
+    intersecting_members: List[Beam]
+    joint: JointBase
+
+    @property
+    def is_equal_num(self):
+        return len(self.intersecting_members) == self.joint.num_mem
+
+    @property
+    def correct_member_types(self):
+        mem_types = [m.member_type for m in self.intersecting_members]
+        req_types = [mt.split("|") for mt in self.joint.mem_types]
+        for m in req_types:
+            found = False
+            for sub_m in m:
+                if sub_m in mem_types:
+                    found = True
+                    mem_types.pop(mem_types.index(sub_m))
+                    break
+            if found is False:
+                return False
+
+        return True
+
+    def eval_joint_req(self):
+        res = all([self.is_equal_num, self.correct_member_types])
+        return res
+
+
+class JointBase(BackendGeom, ABC):
     beamtypes: list
     mem_types: list
     num_mem: int
@@ -29,28 +62,12 @@ class JointBase(Part):
 
         if self.num_mem != len(members):
             raise ValueError(f"This joint only supports {self.num_mem} members")
-
-        mem_types = [m for m in self.mem_types]
-
-        for m in members:
-            if m.member_type in mem_types:
-                mem_types.pop(mem_types.index(m.member_type))
-
-        if len(mem_types) != 0:
+        jrc = JointReqChecker(members, self)
+        if jrc.eval_joint_req() is False:
             raise ValueError(f"Not all Pre-requisite member types {self.mem_types} are found for JointB")
 
-    def _cut_intersecting_member(self, mem_base, mem_incoming):
-        """
-
-        :param mem_base:
-        :param mem_incoming:
-        :type mem_base: ada.Beam
-        :type mem_incoming: ada.Beam
-        """
-        h_vec = np.array(mem_incoming.up) * mem_incoming.section.h * 2
+    def _cut_intersecting_member(self, mem_base: Beam, mem_incoming: Beam):
         p1, p2 = mem_base.bbox
-        p1 = np.array(p1) - h_vec
-        p2 = np.array(p2) + h_vec
         mem_incoming.add_penetration(PrimBox(f"{self.name}_neg", p1, p2))
 
     def _get_landing_member(self, members) -> Beam:
@@ -65,6 +82,10 @@ class JointBase(Part):
     @property
     def main_mem(self) -> Beam:
         return self._main_mem
+
+    @property
+    def beams(self) -> Beams:
+        return self._beams
 
     @property
     def centre(self):
