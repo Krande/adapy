@@ -637,12 +637,7 @@ class Beam(BackendGeom):
         return self._up
 
     @property
-    def n1(self):
-        """
-
-        :return:
-        :rtype: Node
-        """
+    def n1(self) -> Node:
         return self._n1
 
     @n1.setter
@@ -650,12 +645,7 @@ class Beam(BackendGeom):
         self._n1 = value
 
     @property
-    def n2(self):
-        """
-
-        :return:
-        :rtype: Node
-        """
+    def n2(self) -> Node:
         return self._n2
 
     @n2.setter

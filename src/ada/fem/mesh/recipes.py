@@ -8,7 +8,7 @@ from ada.config import Settings as _Settings
 from ada.fem import FemSection, FemSet
 from ada.ifc.utils import create_guid
 
-from .common import (
+from .gmshapi import (
     _init_gmsh_session,
     eval_thick_normal_from_cog_of_beam_plate,
     get_nodes_and_elements,

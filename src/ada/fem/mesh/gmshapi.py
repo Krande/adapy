@@ -7,7 +7,7 @@ from ada import Node, Plate
 from ada.concepts.containers import Nodes
 from ada.config import Settings as _Settings
 from ada.core.utils import clockwise, intersect_calc, roundoff, vector_length
-from ada.fem import Elem, FemSection, FemSet
+from ada.fem import FEM, Elem, FemSection, FemSet
 from ada.fem.containers import FemElements
 
 gmsh_map = {"Triangle 3": "S3", "Quadrilateral 4": "S4R"}
@@ -461,7 +461,7 @@ def get_point(gmsh, p, tol=1e-5):
     return gmsh.model.getEntitiesInBoundingBox(*lower.tolist(), *upper.tolist(), 0)
 
 
-def get_nodes_and_elements(gmsh, fem=None, fem_set_name="all_elements"):
+def get_nodes_and_elements(gmsh, fem=None, fem_set_name="all_elements") -> FEM:
     """
 
     :param gmsh:
@@ -471,7 +471,6 @@ def get_nodes_and_elements(gmsh, fem=None, fem_set_name="all_elements"):
     :param fem_set_name:
     :type fem_set_name: str
     """
-    from ada.fem import FEM
 
     fem = FEM("AdaFEM") if fem is None else fem
 
@@ -507,6 +506,7 @@ def get_nodes_and_elements(gmsh, fem=None, fem_set_name="all_elements"):
     fem._elements = FemElements(elements, fem_obj=fem)
     femset = FemSet(fem_set_name, elements, "elset")
     fem.sets.add(femset)
+    return fem
 
 
 def eval_thick_normal_from_cog_of_beam_plate(beam, cog):
@@ -582,39 +582,3 @@ def _init_gmsh_session(silent=False):
     gmsh_print = 1 if silent is False else 0
     gmsh_session.option.setNumber("General.Terminal", gmsh_print)
     return gmsh_session
-
-
-class GmshSession:
-    def __init__(self, persist=True, geom_repr="shall", settings=None):
-        print("init method called")
-        self.gmsh = None
-        self.settings = settings
-        self.geom_repr = geom_repr
-        self.persist = persist
-
-    def run(self, function, *args, **kwargs):
-        print("run function")
-        res = function(self.gmsh, *args, **kwargs)
-        if self.persist is False:
-            self.gmsh.finalize()
-            self.gmsh.initialize()
-            self._add_settings()
-        return res
-
-    def _add_settings(self):
-        if self.settings is not None:
-            for setting, value in self.settings.items():
-                self.gmsh.option.setNumber(setting, value)
-
-    def __enter__(self):
-        print("Starting GMSH session")
-        import gmsh
-
-        self.gmsh = gmsh
-        self.gmsh.initialize()
-        self._add_settings()
-        return self
-
-    def __exit__(self, exc_type, exc_value, exc_traceback):
-        print("Closing GMSH")
-        self.gmsh.finalize()

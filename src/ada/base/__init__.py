@@ -192,7 +192,7 @@ class BackendGeom(Backend):
 
         return pen
 
-    def to_stp(self, destination_file, geom_repr="solid", schema="AP242"):
+    def to_stp(self, destination_file, geom_repr="solid", schema="AP242", silent=False):
         """
         Write current assembly to STEP file
 
@@ -204,6 +204,7 @@ class BackendGeom(Backend):
         :param destination_file:
         :param geom_repr:
         :param schema: STEP Schemas.
+        :param silent:
         """
 
         from OCC.Core.IFSelect import IFSelect_RetError
@@ -284,8 +285,8 @@ class BackendGeom(Backend):
         status = writer.Write(str(destination_file))
         if int(status) > int(IFSelect_RetError):
             raise Exception("Error during write operation")
-
-        print(f'step file created at "{destination_file}"')
+        if silent is False:
+            print(f'step file created at "{destination_file}"')
 
     def render_locally(
         self, addr="localhost", server_port=8080, open_webbrowser=False, render_engine="threejs", resolution=(1800, 900)

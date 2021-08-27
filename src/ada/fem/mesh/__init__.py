@@ -1,3 +1,3 @@
-from .common import GMesh
+from .gmshapi import GMesh
 
 __all__ = ["GMesh"]
