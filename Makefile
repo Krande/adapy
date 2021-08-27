@@ -6,3 +6,6 @@ run:
 
 format:
 	black . && isort . && flake8 .
+
+test:
+	cd tests && pytest --doctest-modules --junitxml=junit/test-results.xml --cov=../src --cov-report=xml --cov-report=html
