@@ -476,7 +476,7 @@ class FemSections:
         self._fem_obj = fem_obj
         self._sections = list(sections) if sections is not None else []
         by_types = self._groupby()
-        self._beams = by_types["beams"]
+        self._lines = by_types["lines"]
         self._shells = by_types["shells"]
         self._solids = by_types["solids"]
         self._dmap = {e.name: e for e in self._sections} if len(self._sections) > 0 else dict()
@@ -524,7 +524,7 @@ class FemSections:
 
     def _groupby(self):
         return dict(
-            beams=list(filter(lambda x: x.type == "beam", self._sections)),
+            lines=list(filter(lambda x: x.type == "lines", self._sections)),
             shells=list(filter(lambda x: x.type == "shell", self._sections)),
             solids=list(filter(lambda x: x.type == "solid", self._sections)),
         )
@@ -551,11 +551,11 @@ class FemSections:
         return FemSections(chain(self._sections, other._sections))
 
     def __repr__(self):
-        return f"FemSections(Beams: {len(self.beams)}, Shells: {len(self.shells)}, Solids: {len(self.solids)})"
+        return f"FemSections(Beams: {len(self.lines)}, Shells: {len(self.shells)}, Solids: {len(self.solids)})"
 
     @property
-    def beams(self):
-        return self._beams
+    def lines(self):
+        return self._lines
 
     @property
     def shells(self):
@@ -600,8 +600,8 @@ class FemSections:
             # sec._name = sec.name+'_1'
 
         self._sections.append(sec)
-        if sec.type == "beam":
-            self._beams.append(sec)
+        if sec.type == "line":
+            self._lines.append(sec)
         elif sec.type == "shell":
             self._shells.append(sec)
         else:

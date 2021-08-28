@@ -378,7 +378,7 @@ def sections_str(fem):
     cha_str = f"' Channels\n'{space}Geom ID     H     T-web    W-top   T-top    W-bot   T-bot Sh_y Sh_z\n"
     gens_str = f"' General Beams\n'{space}Geom ID     \n"
 
-    sections = {fs.section.id: fs.section for fs in fem.sections.beams}
+    sections = {fs.section.id: fs.section for fs in fem.sections.lines}
     for s_id in sorted(sections.keys()):
         s = sections[s_id]
         gp = s.properties

@@ -531,27 +531,16 @@ class FEM(FemBase):
     def nodes(self):
         """
 
-        :return:
-        :rtype: ada.core.containers.Nodes
+        :rtype: ada.concepts.containers.Nodes
         """
         return self._nodes
 
     @property
-    def elements(self):
-        """
-
-        :return:
-        :rtype: FemElements
-        """
+    def elements(self) -> FemElements:
         return self._elements
 
     @property
-    def sections(self):
-        """
-
-        :return:
-        :rtype: FemSections
-        """
+    def sections(self) -> FemSections:
         return self._sections
 
     @property

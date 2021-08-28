@@ -506,7 +506,7 @@ class AbaqusPartWriter:
 
     @property
     def beam_sec_str(self):
-        beam_secs = [AbaSection(sec, self).str for sec in self.part.fem.sections.beams]
+        beam_secs = [AbaSection(sec, self).str for sec in self.part.fem.sections.lines]
         return "\n".join(beam_secs).rstrip() if len(beam_secs) > 0 else "** No beam sections"
 
     @property

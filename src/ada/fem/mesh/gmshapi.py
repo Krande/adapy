@@ -3,7 +3,7 @@ import os
 
 import numpy as np
 
-from ada import Node, Plate
+from ada import Node, Part, Plate
 from ada.concepts.containers import Nodes
 from ada.config import Settings as _Settings
 from ada.core.utils import clockwise, intersect_calc, roundoff, vector_length
@@ -26,7 +26,7 @@ class GMesh:
 
     mesh_map = {"bm1", "B31", "bm2", "B32"}
 
-    def __init__(self, part, work_dir="gmsh", tol=1e-5):
+    def __init__(self, part: Part, work_dir="gmsh", tol=1e-5):
         self._part = part
         self._work_dir = os.path.abspath(work_dir)
         self._tol = tol
@@ -65,7 +65,7 @@ class GMesh:
         fem = part.fem
 
         pl_in = [pl_ for p in part.get_all_subparts() for pl_ in p.plates] + [pl for pl in part.plates]
-        bm_in = [bm_ for p in part.get_all_subparts() for bm_ in p.lines] + [bm for bm in part.lines]
+        bm_in = [bm_ for p in part.get_all_subparts() for bm_ in p.beams] + [bm for bm in part.beams]
         try:
             gmsh.finalize()
         except BaseException as e:

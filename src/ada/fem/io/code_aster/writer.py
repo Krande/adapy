@@ -56,8 +56,8 @@ def write_to_comm(assembly, part):
     bc_str = "\n".join([write_boundary_condition(bc) for bc in assembly.fem.bcs + part.fem.bcs])
     step_str = "\n".join([write_step(s, part) for s in assembly.fem.steps])
     model_type_str = ""
-    if len(part.fem.sections.beams) > 0:
-        bm_elset_str = ",".join([f"'{bm_fs.elset.name}'" for bm_fs in part.fem.sections.beams])
+    if len(part.fem.sections.lines) > 0:
+        bm_elset_str = ",".join([f"'{bm_fs.elset.name}'" for bm_fs in part.fem.sections.lines])
         model_type_str += f"_F(GROUP_MA=({bm_elset_str}),PHENOMENE='MECANIQUE', MODELISATION='POU_D_E',),"
 
     if len(part.fem.sections.shells) > 0:
@@ -152,9 +152,9 @@ def write_sections(fem_sections: FemSections):
     else:
         shell_sections_str = "\n        COQUE=(),"
 
-    if len(fem_sections.beams) > 0:
+    if len(fem_sections.lines) > 0:
         mat_assign_str, beam_sections_str, orientations_str = [
-            "".join(x) for x in zip(*[write_beam_section(bm) for bm in fem_sections.beams])
+            "".join(x) for x in zip(*[write_beam_section(bm) for bm in fem_sections.lines])
         ]
         beam_sections_str = f"\n        POUTRE=(\n{beam_sections_str}\n        ),"
         beam_sections_str += f"\n        ORIENTATION=(\n{orientations_str}\n        ),"

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from itertools import chain
 
@@ -7,7 +9,7 @@ from ada.base import Backend, BackendGeom
 from ada.concepts.curves import CurvePoly
 from ada.concepts.points import Node
 from ada.concepts.primitives import PrimBox
-from ada.config import Settings as _Settings
+from ada.config import Settings
 from ada.core.utils import (
     Counter,
     angle_between,
@@ -447,7 +449,7 @@ class Beam(BackendGeom):
             props=props,
         )
 
-    def calc_con_points(self, point_tol=_Settings.point_tol):
+    def calc_con_points(self, point_tol=Settings.point_tol):
         from ada.core.utils import sort_points_by_dist
 
         a = self.n1.p
@@ -468,7 +470,7 @@ class Beam(BackendGeom):
         if len(self.connected_to) == 1:
             con = self.connected_to[0]
             if con.main_mem == self:
-                for m in con.lines:
+                for m in con.beams:
                     if m != self:
                         is_ecc, end = is_mem_eccentric(m, con.centre)
                         if is_ecc:
@@ -522,12 +524,7 @@ class Beam(BackendGeom):
             self._units = value
 
     @property
-    def section(self):
-        """
-
-        :return:
-        :rtype: Section
-        """
+    def section(self) -> Section:
         return self._section
 
     @section.setter
@@ -535,12 +532,7 @@ class Beam(BackendGeom):
         self._section = value
 
     @property
-    def taper(self):
-        """
-
-        :return:
-        :rtype: Section
-        """
+    def taper(self) -> Section:
         return self._taper
 
     @taper.setter
@@ -548,12 +540,7 @@ class Beam(BackendGeom):
         self._taper = value
 
     @property
-    def material(self):
-        """
-
-        :return:
-        :rtype: Material
-        """
+    def material(self) -> Material:
         return self._material
 
     @material.setter
@@ -576,6 +563,7 @@ class Beam(BackendGeom):
 
     @property
     def connected_to(self):
+        """:rtype: List[ada.concepts.connections.JointBase]"""
         return self._connected_to
 
     @property
@@ -587,13 +575,8 @@ class Beam(BackendGeom):
         return self._connected_end2
 
     @property
-    def length(self):
-        """
-        This property returns the length of the beam
-
-        :return: length of beam
-        :rtype: float
-        """
+    def length(self) -> float:
+        """Returns the length of the beam"""
         p1 = self.n1.p
         p2 = self.n2.p
 
@@ -605,10 +588,7 @@ class Beam(BackendGeom):
 
     @property
     def jusl(self):
-        """
-
-        :return: Justification line
-        """
+        """Justification line"""
         return self._jusl
 
     @property
@@ -667,14 +647,14 @@ class Beam(BackendGeom):
 
         """
         if self._bbox is None:
-            if _Settings.use_occ_bounding_box_algo:
+            if Settings.use_occ_bounding_box_algo:
                 raise NotImplementedError()
                 # from OCC.Core.Bnd import Bnd_OBB
                 # from OCC.Core.BRepBndLib import brepbndlib_AddOBB
                 #
                 # obb = Bnd_OBB()
                 # brepbndlib_AddOBB(self.solid, obb)
-                # if _Settings.use_oriented_bbox:
+                # if Settings.use_oriented_bbox:
                 #     # converts the bounding box to a shape
                 #     aBaryCenter = obb.Center()
                 #     aXDir = obb.XDirection()
@@ -870,9 +850,9 @@ class Plate(BackendGeom):
 
         if tol is None:
             if units == "mm":
-                tol = _Settings.mmtol
+                tol = Settings.mmtol
             elif units == "m":
-                tol = _Settings.mtol
+                tol = Settings.mtol
             else:
                 raise ValueError(f'Unknown unit "{units}"')
 
@@ -998,7 +978,7 @@ class Plate(BackendGeom):
         a = self.get_assembly()
         if a is None:
             # use default ifc_settings
-            ifc_settings = _Settings.default_ifc_settings()
+            ifc_settings = Settings.default_ifc_settings()
         else:
             ifc_settings = a.ifc_settings
 
@@ -1169,7 +1149,7 @@ class Plate(BackendGeom):
     def units(self, value):
         if self._units != value:
             scale_factor = self._unit_conversion(self._units, value)
-            tol = _Settings.mmtol if value == "mm" else _Settings.mtol
+            tol = Settings.mmtol if value == "mm" else Settings.mtol
             self._t *= scale_factor
             self.poly.scale(scale_factor, tol)
             for pen in self.penetrations:
@@ -1719,7 +1699,7 @@ class Section(Backend):
         sec_props = dict(ProfileType="AREA", ProfileName=self.name)
 
         if SectionCat.is_i_profile(self.type):
-            if _Settings.use_param_profiles is False:
+            if Settings.use_param_profiles is False:
                 outer_curve, inner_curve, disconnected = self.cross_sec(True)
                 polyline = create_ifcpolyline(f, outer_curve)
 
@@ -1759,7 +1739,7 @@ class Section(Backend):
             ifc_sec_type = "IfcArbitraryClosedProfileDef"
             sec_props.update(dict(OuterCurve=ifc_polyline))
 
-            if _Settings.use_param_profiles is True:
+            if Settings.use_param_profiles is True:
                 logging.error(f'Export of "{self.type}" profile to parametric IFC profile is not yet added')
 
         elif SectionCat.is_box_profile(self.type):
@@ -1771,7 +1751,7 @@ class Section(Backend):
             ifc_sec_type = "IfcArbitraryProfileDefWithVoids"
             sec_props.update(dict(OuterCurve=outer_curve, InnerCurves=[inner_curve]))
 
-            if _Settings.use_param_profiles is True:
+            if Settings.use_param_profiles is True:
                 logging.error(f'Export of "{self.type}" profile to parametric IFC profile is not yet added')
 
         elif self.type in SectionCat.circular:
@@ -1791,11 +1771,11 @@ class Section(Backend):
             ifc_sec_type = "IfcArbitraryClosedProfileDef"
             sec_props.update(dict(OuterCurve=polyline))
 
-            if _Settings.use_param_profiles is True:
+            if Settings.use_param_profiles is True:
                 logging.error(f'Export of "{self.type}" profile to parametric IFC profile is not yet added')
 
         elif self.type in SectionCat.channels:
-            if _Settings.use_param_profiles is False:
+            if Settings.use_param_profiles is False:
                 outer_curve, inner_curve, disconnected = self.cross_sec(True)
                 polyline = create_ifcpolyline(f, outer_curve)
                 ifc_sec_type = "IfcArbitraryClosedProfileDef"
@@ -1989,10 +1969,10 @@ class Section(Backend):
             scale_factor = self._unit_conversion(self._units, value)
 
             if self.poly_inner is not None:
-                self.poly_inner.scale(scale_factor, _Settings.point_tol)
+                self.poly_inner.scale(scale_factor, Settings.point_tol)
 
             if self.poly_outer is not None:
-                self.poly_outer.scale(scale_factor, _Settings.point_tol)
+                self.poly_outer.scale(scale_factor, Settings.point_tol)
 
             vals = ["h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "wt"]
 

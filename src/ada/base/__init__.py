@@ -263,7 +263,7 @@ class BackendGeom(Backend):
             assert isinstance(self, Part)
 
             for p in self.get_all_subparts() + [self]:
-                for obj in list(p.plates) + list(p.lines) + list(p.shapes) + list(p.pipes) + list(p.walls):
+                for obj in list(p.plates) + list(p.beams) + list(p.shapes) + list(p.pipes) + list(p.walls):
                     if type(obj) in (Plate, Beam, Wall):
                         try:
                             if geom_repr == "shell":
