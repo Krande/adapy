@@ -11,14 +11,14 @@ class SmartAppends(unittest.TestCase):
     def test_ex1(self):
         a = Assembly("MyAssembly") / [Part("MyPart") / bm1, bm2]
         p = a.parts["MyPart"]
-        assert p.beams.from_name("Bm1")
-        assert a.beams.from_name("Bm2")
+        assert p.lines.from_name("Bm1")
+        assert a.lines.from_name("Bm2")
 
     def test_ex2(self):
         a = Assembly("MyAssembly") / (Part("MyPart") / [bm1, bm2, bm3])
         p = a.parts["MyPart"]
-        assert p.beams.from_name("Bm1")
-        assert p.beams.from_name("Bm2")
+        assert p.lines.from_name("Bm1")
+        assert p.lines.from_name("Bm2")
 
 
 if __name__ == "__main__":

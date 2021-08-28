@@ -98,7 +98,7 @@ def get_edges_and_faces_from_meshio(mesh):
         for elem in cell_block.data:
             res = ElemShapes(el_type, elem)
             edges += res.edges
-            if res.type in res.beam:
+            if res.type in res.lines:
                 continue
             faces += res.faces
     return edges, faces
@@ -117,7 +117,7 @@ def get_faces_from_fem(fem, convert_bm_to_shell=False):
 
     ids = []
     for el in fem.elements.elements:
-        if ElemShapes.is_beam_elem(el):
+        if ElemShapes.is_line_elem(el):
             continue
         for f in el.shape.faces:
             # Convert to indices, not id

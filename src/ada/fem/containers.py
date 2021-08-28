@@ -246,7 +246,7 @@ class FemElements:
             return mass, el.nodes[0].p, vol_
 
         sh = list(chain(map(calc_sh_elem, self.shell)))
-        bm = list(chain(map(calc_bm_elem, self.beams)))
+        bm = list(chain(map(calc_bm_elem, self.lines)))
         ma = list(chain(map(calc_mass_elem, self.masses)))
 
         tot_mass = 0.0
@@ -275,6 +275,13 @@ class FemElements:
         return self._elements
 
     @property
+    def solids(self):
+        from ada.fem.shapes import ElemShapes
+
+        skipel = ["MASS", "SPRING1"]
+        return filter(lambda x: x.type not in skipel and x.type in ElemShapes.volume, self._elements)
+
+    @property
     def shell(self):
         from ada.fem.shapes import ElemShapes
 
@@ -282,11 +289,11 @@ class FemElements:
         return filter(lambda x: x.type not in skipel and x.type in ElemShapes.shell, self._elements)
 
     @property
-    def beams(self):
+    def lines(self):
         from ada.fem.shapes import ElemShapes
 
         skipel = ["MASS", "SPRING1"]
-        return filter(lambda x: x.type not in skipel and x.type in ElemShapes.beam, self._elements)
+        return filter(lambda x: x.type not in skipel and x.type in ElemShapes.lines, self._elements)
 
     @property
     def connectors(self):

@@ -1,13 +1,12 @@
 import logging
 
 from ada.concepts.levels import Assembly, Part
-from ada.config import Settings
 from ada.fem.io.ifc.writer import to_ifc_fem
 
 from .utils import create_guid
 
 
-def add_part_objects_to_ifc(p: Part, f, assembly: Assembly):
+def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=False):
     # TODO: Consider having all of these operations happen upon import of elements as opposed to one big operation
     #  on export
 
@@ -44,9 +43,8 @@ def add_part_objects_to_ifc(p: Part, f, assembly: Assembly):
             f.add(shp.ifc_elem)
             physical_objects.append(shp.ifc_elem)
 
-    if len(p.fem.nodes) > 0:
-        if Settings.ifc_include_fem is True:
-            to_ifc_fem(p.fem, f)
+    if len(p.fem.nodes) > 0 and ifc_include_fem is True:
+        to_ifc_fem(p.fem, f)
 
     if len(physical_objects) == 0:
         return

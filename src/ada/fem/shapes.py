@@ -24,7 +24,7 @@ class ElemShapes:
     volume = cube8 + cube20 + tetrahedron10 + tetrahedron + pyramid5 + prism15 + prism6
     # 1D/0D elements
     bm2 = ["B31", "B32"]
-    beam = bm2
+    lines = bm2
     spring1n = ["SPRING1"]
     spring2n = ["SPRING2"]
     springs = spring1n + spring2n
@@ -34,8 +34,8 @@ class ElemShapes:
     other = other2n
 
     @staticmethod
-    def is_beam_elem(elem: Elem):
-        if elem.type in ElemShapes.beam:
+    def is_line_elem(elem: Elem):
+        if elem.type in ElemShapes.lines:
             return True
         else:
             return False
@@ -47,7 +47,7 @@ class ElemShapes:
             value
             not in ElemShapes.shell
             + ElemShapes.volume
-            + ElemShapes.beam
+            + ElemShapes.lines
             + ElemShapes.springs
             + ElemShapes.masses
             + ElemShapes.other
@@ -164,7 +164,7 @@ class ElemShapes:
             edges = self._volume_edges
         elif self.type in self.shell:
             edges = self._shell_edges
-        elif self.type in self.beam:
+        elif self.type in self.lines:
             edges = self._beam_edges
         elif self.type in self.masses + self.spring1n:
             # These are point elements and have no edges
@@ -199,7 +199,7 @@ class ElemShapes:
         0-----+-----1 --> u   0----2----1     0---2---3---1
 
         """
-        if self.type not in self.beam:
+        if self.type not in self.lines:
             logging.error("A call was made to beam edges even though type is not beam")
             return None
         if self.type in ["B31", "SPRING2"]:

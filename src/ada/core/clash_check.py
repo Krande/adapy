@@ -19,7 +19,7 @@ def basic_intersect(bm: Beam, margins, all_parts):
     vol_in = [x for x in zip(vol[0], vol[1])]
     beams = filter(
         lambda x: x != bm,
-        chain.from_iterable([p.beams.get_beams_within_volume(vol_in, margins=margins) for p in all_parts]),
+        chain.from_iterable([p.lines.get_beams_within_volume(vol_in, margins=margins) for p in all_parts]),
     )
     return bm, beams
 

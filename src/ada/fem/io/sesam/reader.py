@@ -580,7 +580,7 @@ def get_sections(bulk_str, fem):
             return None
 
         mat = fem.parent.materials.get_by_id(matno)
-        if elem.type in ElemShapes.beam:
+        if elem.type in ElemShapes.lines:
             next(importedgeom_counter)
             sec = fem.parent.sections.get_by_id(geono)
             n1, n2 = elem.nodes

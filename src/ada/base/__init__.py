@@ -215,7 +215,7 @@ class BackendGeom(Backend):
 
         from ada.core.utils import Counter
 
-        if geom_repr not in ["shell", "solid"]:
+        if geom_repr not in ["shell", "solid", "line"]:
             raise ValueError('Geometry representation can only accept either "solid" or "shell" as input')
 
         destination_file = pathlib.Path(destination_file).with_suffix(".stp")
@@ -251,6 +251,8 @@ class BackendGeom(Backend):
             assert isinstance(self, (Beam, Plate, Wall))
             if geom_repr == "shell":
                 add_geom(self.shell, self)
+            elif geom_repr == "line":
+                add_geom(self.line, self)
             else:
                 add_geom(self.solid, self)
         elif type(self) is Pipe:
@@ -261,7 +263,7 @@ class BackendGeom(Backend):
             assert isinstance(self, Part)
 
             for p in self.get_all_subparts() + [self]:
-                for obj in list(p.plates) + list(p.beams) + list(p.shapes) + list(p.pipes) + list(p.walls):
+                for obj in list(p.plates) + list(p.lines) + list(p.shapes) + list(p.pipes) + list(p.walls):
                     if type(obj) in (Plate, Beam, Wall):
                         try:
                             if geom_repr == "shell":

@@ -1,10 +1,12 @@
 import unittest
 
+from common import dummy_display
+
 from ada import Assembly, Part, Plate
 from ada.config import Settings
 from ada.core.constants import O, X, Z
 
-test_folder = Settings.test_dir / "plates"
+test_dir = Settings.test_dir / "plates"
 
 
 atts = dict(origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1))
@@ -13,11 +15,11 @@ atts = dict(origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1))
 class TestPlates(unittest.TestCase):
     def test_3dinit(self):
         pl1 = Plate("MyPl", [(0, 0, 0), (5, 0, 0), (5, 5, 0), (0, 5, 0)], 20e-3, use3dnodes=True)
-        pl1._repr_html_()
+        dummy_display(pl1)
 
     def test_2dinit(self):
         pl1 = Plate("MyPl", [(0, 0, 0.2), (5, 0), (5, 5), (0, 5)], 20e-3, **atts)
-        pl1._repr_html_()
+        dummy_display(pl1)
 
     def test_roundtrip_fillets(self):
         a = Assembly("ExportedPlates")
@@ -30,11 +32,11 @@ class TestPlates(unittest.TestCase):
         pl2 = Plate("MyPl2", [(0, 0, 0.2), (5, 0, 0.2), (5, 5), (0, 5)], 20e-3, **atts2)
         p.add_plate(pl2)
 
-        a.to_ifc(test_folder / "my_plate_simple.ifc")
+        a.to_ifc(test_dir / "my_plate_simple.ifc")
 
         b = Assembly("MyReimport")
-        b.read_ifc(test_folder / "my_plate_simple.ifc")
-        b.to_ifc(test_folder / "my_plate_simple_re_exported.ifc")
+        b.read_ifc(test_dir / "my_plate_simple.ifc")
+        b.to_ifc(test_dir / "my_plate_simple_re_exported.ifc")
 
     def test_2ifc_simple(self):
         a = Assembly("ExportedPlates")
@@ -44,7 +46,7 @@ class TestPlates(unittest.TestCase):
         atts2 = dict(origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, -1, 0))
         pl2 = Plate("MyPl2", [(0, 0, 0.2), (5, 0, 0.2), (5, 5), (0, 5)], 20e-3, **atts2)
         p.add_plate(pl2)
-        a.to_ifc(test_folder / "my_plate_poly.ifc")
+        a.to_ifc(test_dir / "my_plate_poly.ifc")
 
 
 class BasicShapes(unittest.TestCase):
@@ -53,7 +55,7 @@ class BasicShapes(unittest.TestCase):
         pl = Plate("test", local_points2d, 20e-3, origin=O, normal=Z, xdir=X)
 
         a = Assembly() / [Part("te") / pl]
-        a.to_ifc(test_folder / "triangle_plate.ifc")
+        a.to_ifc(test_dir / "triangle_plate.ifc")
 
 
 class Plate2dIn(unittest.TestCase):
@@ -81,7 +83,7 @@ class Plate2dIn(unittest.TestCase):
         pl = Plate("test", local_points2d, thick, origin=origin, normal=csys[2], xdir=csys[0], units="mm")
 
         a = Assembly() / [Part("te") / pl]
-        a.to_ifc(test_folder / "error_plate.ifc")
+        a.to_ifc(test_dir / "error_plate.ifc")
 
     def test_ex2(self):
         origin = [362857.44778571784, 100000.0, 561902.5557556185]
@@ -107,7 +109,7 @@ class Plate2dIn(unittest.TestCase):
         pl = Plate("test2", local_points2d, thick, origin=origin, normal=csys[2], xdir=csys[0], units="mm")
 
         a = Assembly(units="mm") / [Part("te", units="mm") / pl]
-        a.to_ifc(test_folder / "error_plate2.ifc")
+        a.to_ifc(test_dir / "error_plate2.ifc")
 
 
 if __name__ == "__main__":

@@ -344,7 +344,7 @@ def beam_str(fem, eccen):
             ecc2_str = ""
         return f" BEAM{el.id:>15}{n1.id:>8}{n2.id:>9}{mat_id:>11}{sec.id:>7}{locid + 1:>9}{ecc1_str}{ecc2_str}"
 
-    bm_str += "\n".join(list(map(write_elem, fem.elements.beams)))
+    bm_str += "\n".join(list(map(write_elem, fem.elements.lines)))
 
     for i, loc in enumerate(locvecs):
         loc_str += " UNITVEC{:>13}{:<10}\n".format(i + 1, loc)

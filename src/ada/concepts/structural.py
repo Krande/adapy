@@ -468,7 +468,7 @@ class Beam(BackendGeom):
         if len(self.connected_to) == 1:
             con = self.connected_to[0]
             if con.main_mem == self:
-                for m in con.beams:
+                for m in con.lines:
                     if m != self:
                         is_ecc, end = is_mem_eccentric(m, con.centre)
                         if is_ecc:

@@ -364,7 +364,7 @@ class Part(BackendGeom):
         logging.debug(f'Unable to find"{name}". Check if the element type is evaluated in the algorithm')
         return None
 
-    def get_all_parts_in_assembly(self, include_self=False):
+    def get_all_parts_in_assembly(self, include_self=False) -> List[Part]:
         parent = self.get_assembly()
         list_of_ps = []
         self._flatten_list_of_subparts(parent, list_of_ps)
@@ -372,7 +372,7 @@ class Part(BackendGeom):
             list_of_ps += [self]
         return list_of_ps
 
-    def get_all_subparts(self):
+    def get_all_subparts(self) -> List[Part]:
         list_of_parts = []
         self._flatten_list_of_subparts(self, list_of_parts)
         return list_of_parts
@@ -989,12 +989,7 @@ class Assembly(Part):
         else:
             logging.info(f'Result file "{res_path}" was not found')
 
-    def to_ifc(self, destination_file):
-        """
-        Export Model Assembly to a specified IFC file.
-
-        :param destination_file:
-        """
+    def to_ifc(self, destination_file, include_fem=False) -> None:
         from ada.ifc.export import add_part_objects_to_ifc
 
         f = self.ifc_file
@@ -1006,7 +1001,7 @@ class Assembly(Part):
             f.add(s.ifc_beam_type)
 
         for p in self.get_all_parts_in_assembly(include_self=True):
-            add_part_objects_to_ifc(p, f, self)
+            add_part_objects_to_ifc(p, f, self, include_fem)
 
         if len(self.presentation_layers) > 0:
             presentation_style = f.createIfcPresentationStyle("HiddenLayers")

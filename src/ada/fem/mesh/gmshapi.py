@@ -65,7 +65,7 @@ class GMesh:
         fem = part.fem
 
         pl_in = [pl_ for p in part.get_all_subparts() for pl_ in p.plates] + [pl for pl in part.plates]
-        bm_in = [bm_ for p in part.get_all_subparts() for bm_ in p.beams] + [bm for bm in part.beams]
+        bm_in = [bm_ for p in part.get_all_subparts() for bm_ in p.lines] + [bm for bm in part.lines]
         try:
             gmsh.finalize()
         except BaseException as e:

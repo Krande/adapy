@@ -17,8 +17,8 @@ def cache_validation(a, b):
     asecs = [sec for p in a.get_all_parts_in_assembly(True) for sec in p.sections]
     assert len(asecs) == len(bsecs)
 
-    bbeams = [bm for p in b.get_all_parts_in_assembly(True) for bm in p.beams]
-    abeams = [bm for p in a.get_all_parts_in_assembly(True) for bm in p.beams]
+    bbeams = [bm for p in b.get_all_parts_in_assembly(True) for bm in p.lines]
+    abeams = [bm for p in a.get_all_parts_in_assembly(True) for bm in p.lines]
     assert len(abeams) == len(bbeams)
 
     for nA, nB in zip(a.fem.nodes, b.fem.nodes):
