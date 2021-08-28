@@ -10,7 +10,7 @@ from ada.core.utils import clockwise, intersect_calc, roundoff, vector_length
 from ada.fem import FEM, Elem, FemSection, FemSet
 from ada.fem.containers import FemElements
 
-gmsh_map = {"Triangle 3": "S3", "Quadrilateral 4": "S4R"}
+gmsh_map = {"Triangle 3": "S3", "Quadrilateral 4": "S4R", "Line 2": "B31", "Tetrahedron 4": "C3D4"}
 
 
 class GMesh:
@@ -462,16 +462,6 @@ def get_point(gmsh, p, tol=1e-5):
 
 
 def get_nodes_and_elements(gmsh, fem=None, fem_set_name="all_elements") -> FEM:
-    """
-
-    :param gmsh:
-    :type gmsh: gmsh
-    :param fem:
-    :type fem: ada.fem.FEM
-    :param fem_set_name:
-    :type fem_set_name: str
-    """
-
     fem = FEM("AdaFEM") if fem is None else fem
 
     nodes = list(gmsh.model.mesh.getNodes(-1, -1))
@@ -489,10 +479,12 @@ def get_nodes_and_elements(gmsh, fem=None, fem_set_name="all_elements") -> FEM:
     )
 
     # Get elements
-    elemTypes, elemTags, elemNodeTags = gmsh.model.mesh.getElements(2, -1)
+    elemTypes, elemTags, elemNodeTags = gmsh.model.mesh.getElements(-1, -1)
     elements = []
     for k, element_list in enumerate(elemTags):
         face, dim, morder, numv, parv, _ = gmsh.model.mesh.getElementProperties(elemTypes[k])
+        if face == "Point":
+            continue
         elem_type = gmsh_map[face]
         for j, eltag in enumerate(element_list):
             nodes = []

@@ -579,6 +579,14 @@ class Beam(BackendGeom):
         return self._connected_to
 
     @property
+    def connected_end1(self):
+        return self._connected_end1
+
+    @property
+    def connected_end2(self):
+        return self._connected_end2
+
+    @property
     def length(self):
         """
         This property returns the length of the beam
