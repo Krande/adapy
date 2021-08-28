@@ -1,3 +1,4 @@
+import logging
 import os
 from dataclasses import dataclass
 from itertools import chain
@@ -48,21 +49,19 @@ class GmshSession:
         self.persist = persist
         self.model_map = dict()
 
-    def add_obj(self, obj: Union[Shape, Beam, Plate], geom_repr, el_order=1):
+    def add_obj(self, obj: Union[Shape, Beam, Plate], geom_repr, el_order=1, silent=True):
         temp_dir = Settings.temp_dir
         os.makedirs(temp_dir, exist_ok=True)
         name = f"{obj.name}_{create_guid()}"
 
-        if geom_repr == "line" and type(obj) is Beam:
-            obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=True)
-            entities = self.model.occ.importShapes(str(temp_dir / f"{name}.stp"))
-            self.model.occ.synchronize()
-            self.model_map[obj] = GmshData(entities, geom_repr, el_order)
-        else:
-            obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=True)
-            entities = self.model.occ.importShapes(str(temp_dir / f"{name}.stp"))
-            self.model.occ.synchronize()
-            self.model_map[obj] = GmshData(entities, geom_repr, el_order)
+        if issubclass(type(obj), Shape) and geom_repr != "solid":
+            logging.info(f"geom_repr for object type {type(obj)} must be solid. Changing to that now")
+            geom_repr = "solid"
+
+        obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent)
+        entities = self.model.occ.importShapes(str(temp_dir / f"{name}.stp"))
+        self.model.occ.synchronize()
+        self.model_map[obj] = GmshData(entities, geom_repr, el_order)
 
     def mesh(self, size: float = None):
         if size is not None:

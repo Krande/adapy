@@ -244,7 +244,7 @@ class BackendGeom(Backend):
             else:
                 item.SetName(TCollection_HAsciiString(name))
 
-        if type(self) is Shape:
+        if issubclass(type(self), Shape):
             assert isinstance(self, Shape)
             add_geom(self.geom, self)
         elif type(self) in (Beam, Plate, Wall):

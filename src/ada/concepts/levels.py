@@ -377,6 +377,12 @@ class Part(BackendGeom):
         self._flatten_list_of_subparts(self, list_of_parts)
         return list_of_parts
 
+    def get_all_physical_objects(self):
+        physical_objects = []
+        for p in self.get_all_subparts() + [self]:
+            physical_objects += list(p.plates) + list(p.beams) + list(p.shapes) + list(p.pipes) + list(p.walls)
+        return physical_objects
+
     def beam_clash_check(self, margins=5e-5):
         """
         For all beams in a Assembly get all beams touching or within the beam. Essentially a clash check is performed
@@ -477,7 +483,7 @@ class Part(BackendGeom):
         return self._parts
 
     @property
-    def shapes(self):
+    def shapes(self) -> List[Shape]:
         return self._shapes
 
     @property
