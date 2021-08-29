@@ -105,13 +105,16 @@ class MyRenderer(JupyterRenderer):
         self._fem_refs = dict()
 
     def visible_check(self, obj, obj_type="geom"):
-        from ada import Beam, Part, Plate
+        from ada import Beam, Part, Pipe, Plate, Shape
 
         if obj.name not in self._refs.keys():
             raise ValueError(f'object "{obj.name}" not found')
         adaobj = self._refs[obj.name]
 
-        if obj_type == "geom" and type(adaobj) in (Beam, Plate):
+        if obj_type == "geom" and type(adaobj) in (Beam, Plate, Pipe):
+            obj.visible = not obj.visible
+
+        if obj_type == "geom" and issubclass(type(adaobj), Shape):
             obj.visible = not obj.visible
 
         if obj_type == "mesh" and issubclass(type(adaobj), Part) is True:
@@ -271,7 +274,7 @@ class MyRenderer(JupyterRenderer):
         # self.AddShapeToScene(geom)
         res = []
 
-        for i, geom in enumerate(pipe.geometries):
+        for i, geom in enumerate([x.solid for x in pipe.segments]):
             try:
                 res += self.DisplayShape(geom, shape_color=pipe.colour_webgl, opacity=0.5)
             except BaseException as e:

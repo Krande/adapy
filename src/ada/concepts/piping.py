@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from typing import List, Union
 
 import numpy as np
 
@@ -14,20 +17,6 @@ from .structural import Material
 
 
 class Pipe(BackendGeom):
-    """
-
-    :param name:
-    :param points:
-    :param sec:
-    :param mat:
-    :param content:
-    :param metadata:
-    :param colour:
-    :param units:
-    :param guid:
-    :param ifc_elem:
-    """
-
     def __init__(
         self,
         name,
@@ -56,10 +45,6 @@ class Pipe(BackendGeom):
         self._build_pipe()
 
     def _build_pipe(self):
-        """
-
-        :return:
-        """
         from ada.core.curve_utils import make_arc_segment
 
         segs = []
@@ -140,12 +125,7 @@ class Pipe(BackendGeom):
                 )
 
     @property
-    def segments(self):
-        """
-
-        :return: List of either PipeSegStraight or PipeSegElbow
-        :rtype: list
-        """
+    def segments(self) -> List[Union[PipeSegStraight, PipeSegElbow]]:
         return self._segments
 
     @property
@@ -171,10 +151,6 @@ class Pipe(BackendGeom):
     @property
     def metadata(self):
         return self._metadata
-
-    @property
-    def geometries(self):
-        return [x.geom for x in self._segments]
 
     @property
     def pipe_bend_radius(self):
@@ -343,12 +319,22 @@ class PipeSegStraight(BackendGeom):
         return self.p2.p - self.p1.p
 
     @property
-    def geom(self):
-        from ada.occ.utils import make_edge, sweep_pipe
+    def line(self):
+        from ada.occ.utils import make_edge
 
-        edge = make_edge(self.p1, self.p2)
+        return make_edge(self.p1, self.p2)
 
-        return sweep_pipe(edge, self.xvec1, self.section.r, self.section.wt)
+    @property
+    def shell(self):
+        from ada.occ.utils import sweep_pipe
+
+        return sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, "shell")
+
+    @property
+    def solid(self):
+        from ada.occ.utils import sweep_pipe
+
+        return sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, "solid")
 
     def _generate_ifc_elem(self):
         from ada.core.constants import O, X, Z
@@ -467,8 +453,18 @@ class PipeSegElbow(BackendGeom):
         return self.p3.p - self.p2.p
 
     @property
-    def geom(self):
+    def line(self):
         from ada.core.curve_utils import make_edges_and_fillet_from_3points
+
+        if self.arc_seg.edge_geom is None:
+            _, _, fillet = make_edges_and_fillet_from_3points(self.p1, self.p2, self.p3, self.bend_radius)
+            edge = fillet
+        else:
+            edge = self.arc_seg.edge_geom
+        return edge
+
+    @property
+    def shell(self):
         from ada.occ.utils import sweep_pipe
 
         i = self.parent.segments.index(self)
@@ -478,13 +474,20 @@ class PipeSegElbow(BackendGeom):
         else:
             xvec = self.xvec1
 
-        if self.arc_seg.edge_geom is None:
-            _, _, fillet = make_edges_and_fillet_from_3points(self.p1, self.p2, self.p3, self.bend_radius)
-            edge = fillet
-        else:
-            edge = self.arc_seg.edge_geom
+        return sweep_pipe(self.line, xvec, self.section.r, self.section.wt, "shell")
 
-        return sweep_pipe(edge, xvec, self.section.r, self.section.wt)
+    @property
+    def solid(self):
+        from ada.occ.utils import sweep_pipe
+
+        i = self.parent.segments.index(self)
+        if i != 0:
+            pseg = self.parent.segments[i - 1]
+            xvec = pseg.xvec1
+        else:
+            xvec = self.xvec1
+
+        return sweep_pipe(self.line, xvec, self.section.r, self.section.wt, "solid")
 
     @property
     def arc_seg(self) -> ArcSegment:
@@ -493,7 +496,7 @@ class PipeSegElbow(BackendGeom):
     def _elbow_tesselated(self, f, schema, a):
         from ada.ifc.utils import get_tolerance, tesselate_shape
 
-        shape = self.geom
+        shape = self.solid
 
         if shape is None:
             logging.error(f"Unable to create geometry for Branch {self.name}")

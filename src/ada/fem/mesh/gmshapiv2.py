@@ -36,6 +36,7 @@ class GmshData:
     entities: Iterable
     geom_repr: str
     order: int
+    mesh_size: float = None
 
 
 class GmshSession:
@@ -49,7 +50,7 @@ class GmshSession:
         self.persist = persist
         self.model_map = dict()
 
-    def add_obj(self, obj: Union[Shape, Beam, Plate], geom_repr, el_order=1, silent=True):
+    def add_obj(self, obj: Union[Shape, Beam, Plate], geom_repr="solid", el_order=1, silent=True, mesh_size=None):
         temp_dir = Settings.temp_dir
         os.makedirs(temp_dir, exist_ok=True)
         name = f"{obj.name}_{create_guid()}"
@@ -61,7 +62,7 @@ class GmshSession:
         obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent)
         entities = self.model.occ.importShapes(str(temp_dir / f"{name}.stp"))
         self.model.occ.synchronize()
-        self.model_map[obj] = GmshData(entities, geom_repr, el_order)
+        self.model_map[obj] = GmshData(entities, geom_repr, el_order, mesh_size=mesh_size)
 
     def mesh(self, size: float = None):
         if size is not None:

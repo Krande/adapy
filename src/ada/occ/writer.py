@@ -1,7 +1,6 @@
 import logging
 import os
 import pathlib
-from dataclasses import dataclass
 from typing import Union
 
 from OCC.Core.IFSelect import IFSelect_RetError
@@ -10,150 +9,95 @@ from OCC.Core.STEPConstruct import stepconstruct_FindEntity
 from OCC.Core.STEPControl import STEPControl_AsIs, STEPControl_Writer
 from OCC.Core.TCollection import TCollection_HAsciiString
 
+from ada.base import BackendGeom
 from ada.concepts.levels import Assembly, Part
 from ada.concepts.piping import Pipe
 from ada.concepts.primitives import Shape
 from ada.concepts.structural import Beam, Plate, Wall
 from ada.core.utils import Counter
 
-# OpenCascade reference: https://www.opencascade.com/doc/occt-7.4.0/overview/html/occt_user_guides__step.html#occt_step_3
-shp_names = Counter(1, "shp")
+# Reference: https://www.opencascade.com/doc/occt-7.4.0/overview/html/occt_user_guides__step.html#occt_step_3
 
-intypes = Union[Beam, Plate, Wall, Part, Assembly, Shape]
+shp_names = Counter(1, "shp")
+valid_types = Union[BackendGeom, Beam, Plate, Wall, Part, Assembly, Shape, Pipe]
 
 
 class StepExporter:
-    def __init__(self):
-        writer = STEPControl_Writer()
-        fp = writer.WS().TransferWriter().FinderProcess()
+    def __init__(self, schema="AP242", assembly_mode=1):
+        self.writer = STEPControl_Writer()
+        fp = self.writer.WS().TransferWriter().FinderProcess()
+        self.fp = fp
+
         Interface_Static_SetCVal("write.step.schema", schema)
         # Interface_Static_SetCVal('write.precision.val', '1e-5')
         Interface_Static_SetCVal("write.precision.mode", "1")
         Interface_Static_SetCVal("write.step.assembly", str(assembly_mode))
-        self.fp = fp
 
-    def to_stp(
-        self,
-        obj: Union[Beam, Plate, Wall, Part, Assembly, Shape],
-        destination_file,
-        geom_repr="solid",
-        schema="AP242",
-        silent=False,
-    ):
+    def add_to_step_writer(self, obj: valid_types, geom_repr="solid"):
         """Write current assembly to STEP file"""
 
         if geom_repr not in ["shell", "solid", "line"]:
             raise ValueError('Geometry representation can only accept either "solid", "shell" or "lines" as input')
 
-        destination_file = pathlib.Path(destination_file).with_suffix(".stp")
-
-        assembly_mode = 1
-        shp_names = Counter(1, "shp")
-
-        def add_geom(geo, o):
-            name = o.name if o.name is not None else next(shp_names)
-            Interface_Static_SetCVal("write.step.product.name", name)
-            stat = writer.Transfer(geo, STEPControl_AsIs)
-            if int(stat) > int(IFSelect_RetError):
-                raise Exception("Some Error occurred")
-
-            item = stepconstruct_FindEntity(fp, geo)
-            if not item:
-                logging.debug("STEP item not found for FindEntity")
-            else:
-                item.SetName(TCollection_HAsciiString(name))
-
         if issubclass(type(obj), Shape):
-            assert isinstance(obj, Shape)
-            add_geom(obj.geom, obj)
+            self.add_geom(obj.geom, obj)
         elif type(obj) in (Beam, Plate, Wall):
-            assert isinstance(obj, (Beam, Plate, Wall))
-            if geom_repr == "shell":
-                add_geom(obj.shell, obj)
-            elif geom_repr == "line":
-                add_geom(obj.line, obj)
-            else:
-                add_geom(obj.solid, obj)
+            self.export_structural(obj, geom_repr)
         elif type(obj) is Pipe:
-            assert isinstance(obj, Pipe)
-            for geom in obj.geometries:
-                add_geom(geom, obj)
+            self.export_piping(obj, geom_repr)
         elif type(obj) in (Part, Assembly):
-            assert isinstance(obj, Part)
+            for obj in obj.get_all_physical_objects():
+                if type(obj) in (Plate, Beam, Wall):
+                    self.export_structural(obj, geom_repr)
+                elif type(obj) in (Pipe,):
+                    self.export_piping(obj, geom_repr)
+                elif type(obj) is Shape:
+                    self.add_geom(obj.geom, obj)
+                else:
+                    raise ValueError("Unkown Geometry type")
 
-            for p in obj.get_all_subparts() + [obj]:
-                for obj in list(p.plates) + list(p.beams) + list(p.shapes) + list(p.pipes) + list(p.walls):
-                    if type(obj) in (Plate, Beam, Wall):
-                        try:
-                            if geom_repr == "shell":
-                                add_geom(obj.shell, obj)
-                            else:
-                                add_geom(obj.solid, obj)
-                        except BaseException as e:
-                            logging.info(f'passing pl "{obj.name}" due to {e}')
-                            continue
-                    elif type(obj) in (Pipe,):
-                        assert isinstance(obj, Pipe)
-                        for geom in obj.geometries:
-                            add_geom(geom, obj)
-                    elif type(obj) is Shape:
-                        add_geom(obj.geom, obj)
-                    else:
-                        raise ValueError("Unkown Geometry type")
-
+    def write_to_file(self, destination_file, silent):
+        destination_file = pathlib.Path(destination_file).with_suffix(".stp")
         os.makedirs(destination_file.parent, exist_ok=True)
 
-        status = writer.Write(str(destination_file))
+        status = self.writer.Write(str(destination_file))
         if int(status) > int(IFSelect_RetError):
             raise Exception("Error during write operation")
         if silent is False:
             print(f'step file created at "{destination_file}"')
 
+    def add_geom(self, geom, obj):
+        name = obj.name if obj.name is not None else next(shp_names)
+        Interface_Static_SetCVal("write.step.product.name", name)
 
-def add_geom(fp, writer, geom, obj):
-    # Transfer geom
-    stat = writer.Transfer(geom, STEPControl_AsIs)
-    if int(stat) > int(IFSelect_RetError):
-        raise Exception("Some Error occurred")
+        try:
+            stat = self.writer.Transfer(geom, STEPControl_AsIs)
+        except BaseException as e:
+            logging.info(f"Passing {obj} due to {e}")
+            return None
 
-    # Try to set name
-    name = obj.name if obj.name is not None else next(shp_names)
-    Interface_Static_SetCVal("write.step.product.name", name)
+        if int(stat) > int(IFSelect_RetError):
+            raise Exception("Some Error occurred")
 
-    item = stepconstruct_FindEntity(fp, geom)
-    if not item:
-        logging.debug("STEP item not found for FindEntity")
-    else:
-        item.SetName(TCollection_HAsciiString(name))
+        item = stepconstruct_FindEntity(self.fp, geom)
+        if not item:
+            logging.debug("STEP item not found for FindEntity")
+        else:
+            item.SetName(TCollection_HAsciiString(name))
 
-
-def export_structural(stru: Union[Plate, Beam, Wall], geom_repr):
-    try:
+    def export_structural(self, stru_obj: Union[Plate, Beam, Wall], geom_repr):
         if geom_repr == "shell":
-            add_geom(stru.shell, stru)
+            self.add_geom(stru_obj.shell, stru_obj)
+        elif geom_repr == "line":
+            self.add_geom(stru_obj.line, stru_obj)
         else:
-            add_geom(stru.solid, stru)
-    except BaseException as e:
-        logging.info(f'passing structural object "{stru.name}" due to {e}')
-        return None
+            self.add_geom(stru_obj.solid, stru_obj)
 
-
-def add_part_obj_to_writer(level_obj: Union[Part, Assembly], geom_repr):
-    for obj in level_obj.get_all_physical_objects():
-        if type(obj) in (Plate, Beam, Wall):
-            try:
-                if geom_repr == "shell":
-                    add_geom(obj.shell, obj)
-                else:
-                    add_geom(obj.solid, obj)
-            except BaseException as e:
-                logging.info(f'passing pl "{obj.name}" due to {e}')
-                continue
-        elif type(obj) in (Pipe,):
-            assert isinstance(obj, Pipe)
-            for geom in obj.geometries:
-                add_geom(geom, obj)
-        elif type(obj) is Shape:
-            add_geom(obj.geom, obj)
-        else:
-            raise ValueError("Unkown Geometry type")
+    def export_piping(self, pipe: Pipe, geom_repr):
+        for pipe_seg in pipe.segments:
+            if geom_repr == "line":
+                self.add_geom(pipe_seg.line, pipe)
+            elif geom_repr == "shell":
+                self.add_geom(pipe_seg.shell, pipe)
+            else:
+                self.add_geom(pipe_seg.solid, pipe)

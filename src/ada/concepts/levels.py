@@ -475,11 +475,7 @@ class Part(BackendGeom):
         return opposite[pr_type]
 
     @property
-    def parts(self):
-        """
-
-        :return: Dictionary of parts belonging to this part
-        """
+    def parts(self) -> dict[str, Part]:
         return self._parts
 
     @property

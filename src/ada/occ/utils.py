@@ -667,14 +667,14 @@ def make_sec_face(point, direction, radius):
     return profile_face
 
 
-def sweep_pipe(edge, xvec, r, wt):
+def sweep_pipe(edge, xvec, r, wt, geom_repr="solid"):
+    if geom_repr not in ["solid", "shell"]:
+        raise ValueError("Sweeping pipe must be either 'solid' or 'shell'")
     t = TopologyExplorer(edge)
     points = [v for v in t.vertices()]
     point = BRep_Tool_Pnt(points[0])
     # x, y, z = point.X(), point.Y(), point.Z()
     direction = gp_Dir(*unit_vector(xvec).astype(float).tolist())
-    o = make_sec_face(point, direction, r)
-    i = make_sec_face(point, direction, r - wt)
 
     # pipe
     makeWire = BRepBuilderAPI_MakeWire()
@@ -682,15 +682,24 @@ def sweep_pipe(edge, xvec, r, wt):
     makeWire.Build()
     wire = makeWire.Wire()
     try:
+        if geom_repr == "solid":
+            i = make_sec_face(point, direction, r - wt)
+            elbow_i = BRepOffsetAPI_MakePipe(wire, i).Shape()
+        else:
+            elbow_i = None
+
+        o = make_sec_face(point, direction, r)
         elbow_o = BRepOffsetAPI_MakePipe(wire, o).Shape()
-        elbow_i = BRepOffsetAPI_MakePipe(wire, i).Shape()
     except RuntimeError as e:
         logging.error(f'Elbow creation failed: "{e}"')
         return wire
+    if geom_repr == "solid":
+        boolean_result = BRepAlgoAPI_Cut(elbow_o, elbow_i).Shape()
+        if boolean_result.IsNull():
+            logging.debug("Boolean returns None")
+    else:
+        boolean_result = elbow_i
 
-    boolean_result = BRepAlgoAPI_Cut(elbow_o, elbow_i).Shape()
-    if boolean_result.IsNull():
-        logging.debug("Boolean returns None")
     return boolean_result
 
 

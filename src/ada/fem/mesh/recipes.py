@@ -296,7 +296,7 @@ def generalized_mesher(
     model.add(name)
     p = Part("DummyPart") / elements
     if geom_repr in ["shell", "solid"]:
-        p.to_stp(temp_dir / name, geom_repr=geom_repr)
+        p.add_to_step_writer(temp_dir / name, geom_repr=geom_repr)
         gmsh_session.open(str(temp_dir / f"{name}.stp"))
     else:  # beam
         for el in elements:
