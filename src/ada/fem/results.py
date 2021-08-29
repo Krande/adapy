@@ -126,7 +126,7 @@ class Results:
         :return:
         """
         from ada.visualize.renderer import MyRenderer
-        from ada.visualize.threejs_geom import (
+        from ada.visualize.threejs_utils import (
             edges_to_mesh,
             faces_to_mesh,
             vertices_to_mesh,

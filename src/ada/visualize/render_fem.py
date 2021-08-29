@@ -4,7 +4,7 @@ from ipywidgets import HBox, VBox
 
 from .fem import get_faces_from_fem, magnitude
 from .renderer import MyRenderer
-from .threejs_geom import faces_to_mesh
+from .threejs_utils import faces_to_mesh
 
 
 def render_mesh(vertices, faces, colors):
