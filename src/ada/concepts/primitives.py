@@ -10,17 +10,6 @@ from .curves import CurvePoly
 
 
 class Shape(BackendGeom):
-    """
-    A shape object
-
-
-    :param name:
-    :param geom:
-    :param colour:
-    :param opacity:
-    :param metadata:
-    """
-
     def __init__(
         self,
         name,

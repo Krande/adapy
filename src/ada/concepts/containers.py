@@ -10,9 +10,11 @@ import toolz
 from pyquaternion import Quaternion
 
 from ada.config import Settings
+from ada.materials import Material
 
 from ..core.utils import Counter, points_in_cylinder, roundoff, vector_length
-from .structural import Beam, Material, Plate, Section
+from .points import Node
+from .structural import Beam, Plate, Section
 
 __all__ = [
     "Nodes",
@@ -36,15 +38,9 @@ class BaseCollections:
 
 
 class Beams(BaseCollections):
-    """
-    A collections of Beam objects
+    """A collections of Beam objects"""
 
-    :param beams:
-    :param unique_ids:
-    :param parent:
-    """
-
-    def __init__(self, beams=None, unique_ids=True, parent=None):
+    def __init__(self, beams: Iterable[Beam] = None, unique_ids=True, parent=None):
 
         super().__init__(parent)
         beams = [] if beams is None else beams
@@ -257,23 +253,13 @@ class Plates(BaseCollections):
         """
         return self._dmap
 
-    def _add_node_to_global(self, pnt):
-        """
-
-        :param pnt:
-        :type pnt: ada.Node
-        """
+    def _add_node_to_global(self, pnt: Node):
         old_node = self._parent.nodes.add(pnt)
         if old_node is not None:
             pnt = old_node
         return pnt
 
-    def add(self, plate):
-        """
-
-        :param plate:
-        :type plate: ada.Plate
-        """
+    def add(self, plate: Plate):
         if plate.name is None:
             raise Exception("Name is not allowed to be None.")
 
@@ -374,7 +360,7 @@ class Connections(BaseCollections):
         :param joint_func: Pass a function for mapping the generic Connection classes to a specific reinforced Joints
         :param point_tol:
         """
-        from ada import JointBase
+        from ada.concepts.connections import JointBase
         from ada.core.clash_check import are_beams_connected
 
         ass = self._parent.get_assembly()
@@ -398,15 +384,9 @@ class Connections(BaseCollections):
 
 
 class Materials(BaseCollections):
-    """
-    Collection of materials
+    """Collection of materials"""
 
-    :param materials:
-    :param unique_ids:
-    :param parent:
-    """
-
-    def __init__(self, materials=None, unique_ids=True, parent=None, units="m"):
+    def __init__(self, materials: Iterable[Material] = None, unique_ids=True, parent=None, units="m"):
         super().__init__(parent)
         self._materials = sorted(materials, key=attrgetter("name")) if materials is not None else []
         self._unique_ids = unique_ids

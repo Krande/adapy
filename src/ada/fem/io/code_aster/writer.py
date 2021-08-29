@@ -2,8 +2,9 @@ import logging
 
 import numpy as np
 
+from ada.concepts.levels import Assembly, Part
 from ada.config import Settings as _Settings
-from ada.fem import FemSection, Step
+from ada.fem import Bc, FemSection, Step
 from ada.fem.containers import FemSections
 from ada.fem.shapes import ElemShapes
 
@@ -11,18 +12,8 @@ from ..utils import get_fem_model_from_assembly
 from .common import abaqus_to_med_type
 
 
-def to_fem(assembly, name, analysis_dir, metadata=None):
-    """
-    Write Code_Aster .med, .export and .comm file from Assembly data
-
-
-    MED writer modified and based on meshio implementation..
-
-    :param assembly:
-    :param name:
-    :param analysis_dir:
-    :param metadata:
-    """
+def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
+    """Write Code_Aster .med, .export and .comm file from Assembly data"""
 
     if "info" not in metadata:
         metadata["info"] = dict(description="")
@@ -34,27 +25,19 @@ def to_fem(assembly, name, analysis_dir, metadata=None):
     write_to_med(name, p, analysis_dir)
 
     with open((analysis_dir / name).with_suffix(".comm"), "w") as f:
-        f.write(write_to_comm(assembly, p))
+        f.write(create_comm_str(assembly, p))
 
     print(f'Created a Code_Aster input deck at "{analysis_dir}"')
 
 
 # COMM File input
-def write_to_comm(assembly, part):
-    """
-    Create COMM file input str
-
-    :param assembly:
-    :type assembly: ada.Assembly
-    :param part:
-    :type part: ada.Part
-    :return: COMM input file str
-    """
+def create_comm_str(assembly: Assembly, part: Part) -> str:
+    """Create COMM file input str"""
 
     materials_str = "\n".join([write_material(mat) for mat in part.materials])
     sections_str = write_sections(part.fem.sections)
-    bc_str = "\n".join([write_boundary_condition(bc) for bc in assembly.fem.bcs + part.fem.bcs])
-    step_str = "\n".join([write_step(s, part) for s in assembly.fem.steps])
+    bc_str = "\n".join([create_bc_str(bc) for bc in assembly.fem.bcs + part.fem.bcs])
+    step_str = "\n".join([create_step_str(s, part) for s in assembly.fem.steps])
     model_type_str = ""
     if len(part.fem.sections.lines) > 0:
         bm_elset_str = ",".join([f"'{bm_fs.elset.name}'" for bm_fs in part.fem.sections.lines])
@@ -136,12 +119,6 @@ def write_material(material):
 
 
 def write_sections(fem_sections: FemSections):
-    """
-
-    :param fem_sections:
-    :type fem_sections: ada.fem.containers.FemSections
-    :return:
-    """
     mat_assign_str = ""
 
     if len(fem_sections.shells) > 0:
@@ -226,14 +203,7 @@ def write_beam_section(fem_sec: FemSection):
     return mat_, sec_str, orientations
 
 
-def write_boundary_condition(bc):
-    """
-
-    :param bc:
-    :type bc: ada.fem.Bc
-    :return:
-    :rtype: str
-    """
+def create_bc_str(bc: Bc) -> str:
     set_name = bc.fem_set.name
     bc_str = ""
     for i, n in enumerate(["DX", "DY", "DZ", "DRX", "DRY", "DRZ"], start=1):
@@ -268,7 +238,7 @@ def write_load(load):
         raise NotImplementedError(f'Load type "{load.type}"')
 
 
-def step_static_str(step, part):
+def step_static_str(step: Step, part: Part):
     load_str = "\n".join(list(map(write_load, step.loads)))
     load = step.loads[0]
     bc = part.get_assembly().fem.bcs[0]
@@ -353,7 +323,7 @@ IMPR_RESU(
 )"""
 
 
-def step_eig_str(step: Step, part):
+def step_eig_str(step: Step, part: Part):
     if len(part.fem.bcs) == 1:
         bcs = part.fem.bcs
     elif len(part.get_assembly().fem.bcs) == 1:
@@ -397,17 +367,7 @@ IMPR_RESU(
 """
 
 
-def write_step(step, part):
-    """
-
-    :param step:
-    :type step: ada.fem.Step
-    :param part:
-    :type part: ada.Part
-    :return:
-    :rtype: str
-    """
-
+def create_step_str(step: Step, part: Part) -> str:
     if step.type == "static":
         return step_static_str(step, part)
     elif step.type == "eigenfrequency":
@@ -440,16 +400,8 @@ F rmed {name}.rmed R 80"""
 
 
 # MED file input
-def write_to_med(name, part, analysis_dir):
-    """
-    Custom Method for writing a part directly based on meshio
-
-    :param name:
-    :param part:
-    :param analysis_dir:
-    :type part: ada.Part
-    :return:
-    """
+def write_to_med(name, part: Part, analysis_dir):
+    """Custom Method for writing a part directly based on meshio"""
     import pathlib
 
     import h5py

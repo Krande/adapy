@@ -78,12 +78,7 @@ class FemElements:
         list(map(grab_nodes, self._elements))
 
     def _build_sets_from_elsets(self, elset, elem_iter):
-        """
-
-        :param elset:
-        :param elem_iter:
-        """
-        from ada.fem import FemSet
+        from ..fem import FemSet
 
         if elset is not None and type(elset) == str:
 
@@ -820,9 +815,8 @@ class FemSets:
     def add(self, fe_set, append_suffix_on_exist=False):
         """
 
-        :param fe_set:
-        :param append_suffix_on_exist:
         :type fe_set: ada.fem.FemSet
+        :param append_suffix_on_exist:
         """
         if fe_set.type == "nset":
             if fe_set.name in self._nomap.keys():

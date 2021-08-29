@@ -119,8 +119,10 @@ def animate_mesh(mesh, norm_displ_verts, displ_time, displ_magn):
 
 
 def create_material(color, transparent=False, opacity=1.0):
-    material = MeshPhongMaterial()
-    # material = CustomMaterial("standard")
+    from OCC.Display.WebGl.jupyter_renderer import CustomMaterial
+
+    # material = MeshPhongMaterial()
+    material = CustomMaterial("standard")
     material.color = color
     material.clipping = True
     material.side = "DoubleSide"

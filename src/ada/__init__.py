@@ -1,5 +1,5 @@
 # coding=utf-8
-from ada.concepts.connections import Bolts, JointBase, Weld
+from ada.concepts.connections import Bolts, Weld
 from ada.concepts.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
 from ada.concepts.levels import Assembly, Part
 from ada.concepts.piping import Pipe, PipeSegElbow, PipeSegStraight

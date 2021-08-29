@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import logging
 
 import numpy as np
+
+from ada.materials import Material
 
 from ..config import Settings as _Settings
 from . import constants as co
@@ -651,26 +655,12 @@ class FEM(FemBase):
 
 
 class FemSection(FemBase):
-    """
-
-    :param name:
-    :param sec_type:
-    :param elset:
-    :param material:
-    :param section:
-    :param thickness:
-    :param int_points:
-    :type elset: FemSet
-    :type material: ada.Material
-    :type section: ada.Section
-    """
-
     def __init__(
         self,
         name,
         sec_type,
-        elset,
-        material,
+        elset: FemSet,
+        material: Material,
         section=None,
         local_z=None,
         local_y=None,
@@ -734,6 +724,10 @@ class FemSection(FemBase):
     @property
     def elset(self):
         return self._elset
+
+    @elset.setter
+    def elset(self, value):
+        self._elset = value
 
     @property
     def local_z(self):

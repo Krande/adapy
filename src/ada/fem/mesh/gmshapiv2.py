@@ -143,14 +143,14 @@ def get_sh_sections(model: gmsh.model, model_obj: Union[Beam, Plate], ent, fem: 
     _, tags, _ = model.mesh.getElements(2, ent)
     r = model.occ.getCenterOfMass(2, ent)
     if type(model_obj) is Beam:
-        t, n, _ = eval_thick_normal_from_cog_of_beam_plate(model_obj, r)
+        t, n, c = eval_thick_normal_from_cog_of_beam_plate(model_obj, r)
     else:
-        t, n = model_obj.t, model_obj.n
+        t, n, c = model_obj.t, model_obj.n, "pl"
 
-    set_name = make_name_fem_ready(f"el{model_obj.name}e{ent}")
-    fem_sec_name = make_name_fem_ready(f"d{model_obj.name}e{ent}")
+    set_name = make_name_fem_ready(f"el{model_obj.name}_e{ent}_{c}_sh")
+    fem_sec_name = make_name_fem_ready(f"d{model_obj.name}_e{ent}_{c}_sh")
 
-    fem_set = fem.add_set(FemSet(set_name, [fem.elements.from_id(x) for x in chain.from_iterable(tags)], "elset"))
+    fem_set = FemSet(set_name, [fem.elements.from_id(x) for x in chain.from_iterable(tags)], "elset")
     props = dict(local_z=n, thickness=t, int_points=5)
     fem_sec = FemSection(fem_sec_name, "shell", fem_set, model_obj.material, **props)
     add_sec_to_fem(fem, fem_sec, fem_set)
@@ -161,8 +161,8 @@ def get_bm_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
     elem_types, elem_tags, elem_node_tags = model.mesh.getElements(1, ent)
     elements = [fem.elements.from_id(tag) for tag in elem_tags[0]]
 
-    set_name = make_name_fem_ready(f"el{beam.name}_set")
-    fem_sec_name = make_name_fem_ready(f"d{beam.name}_sec")
+    set_name = make_name_fem_ready(f"el{beam.name}_set_bm")
+    fem_sec_name = make_name_fem_ready(f"d{beam.name}_sec_bm")
     fem_set = FemSet(set_name, elements, "elset", parent=fem)
     fem_sec = FemSection(fem_sec_name, "beam", fem_set, beam.material, beam.section, beam.ori[2])
 
@@ -172,25 +172,21 @@ def get_bm_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
 def get_so_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
     _, tags, _ = model.mesh.getElements(3, ent)
 
-    set_name = make_name_fem_ready(f"el{beam.name}_set")
-    fem_sec_name = make_name_fem_ready(f"d{beam.name}_sec")
+    set_name = make_name_fem_ready(f"el{beam.name}_set_so")
+    fem_sec_name = make_name_fem_ready(f"d{beam.name}_sec_so")
 
     elements = [fem.elements.from_id(tag) for tag in tags[0]]
-    fem_set = fem.sets.add(FemSet(set_name, elements, "elset", parent=fem))
+
+    fem_set = FemSet(set_name, elements, "elset", parent=fem)
     fem_sec = FemSection(fem_sec_name, "solid", fem_set, beam.material)
 
     add_sec_to_fem(fem, fem_sec, fem_set)
 
 
 def add_sec_to_fem(fem: FEM, fem_section: FemSection, fem_set: FemSet):
-    if fem_set.name in fem.elsets.keys():
-        fem_set = fem.elsets[fem_set.name]
-        for el in fem_set.members:
-            el.fem_sec = fem_set.members[0].fem_sec
-        fem_set.add_members(fem_set.members)
-    else:
-        fem.sets.add(fem_set)
-        fem.add_section(fem_section)
+    fem_set_ = fem.sets.add(fem_set)
+    fem_section.elset = fem_set_
+    fem.add_section(fem_section)
 
 
 def get_point(gmsh_session: gmsh, p, tol):

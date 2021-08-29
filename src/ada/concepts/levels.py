@@ -44,8 +44,6 @@ class Part(BackendGeom):
     :param lz: Local Z
     :param settings: A properties object
     :param metadata: A dict for containing metadata
-    :type settings: Settings
-    :type fem: FEM
     """
 
     def __init__(
@@ -1033,32 +1031,13 @@ class Assembly(Part):
         merge=False,
         sync=False,
     ):
-        """
-        Push current assembly to BimServer with a comment tag that defines the revision name
-
-        :param comment: A comment describing the model changes
-        :param bimserver_url:
-        :param username:
-        :param password:
-        :param project:
-        :param merge:
-        :param sync:
-        """
+        """Push current assembly to BimServer with a comment tag that defines the revision name"""
         from ada.core.bimserver import BimServerConnect
 
         bimcon = BimServerConnect(bimserver_url, username, password, self)
         bimcon.push(project, comment, merge, sync)
 
     def pull(self, bimserver_url, username, password, project, checkout=False):
-        """
-
-        :param bimserver_url:
-        :param username:
-        :param password:
-        :param project:
-        :param checkout:
-        :return:
-        """
         from ada.core.bimserver import BimServerConnect
 
         bimcon = BimServerConnect(bimserver_url, username, password, self)
