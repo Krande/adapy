@@ -1088,10 +1088,6 @@ class Elem(FemBase):
 
     @property
     def name(self):
-        """
-
-        :return:
-        """
         return self._name
 
     @name.setter

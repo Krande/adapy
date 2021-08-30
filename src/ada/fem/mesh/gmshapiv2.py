@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import os
 from dataclasses import dataclass
@@ -15,20 +17,45 @@ from ada.config import Settings
 from ada.core.utils import make_name_fem_ready
 from ada.fem import FEM, Elem, FemSection, FemSet
 from ada.fem.containers import FemElements
+from ada.fem.io_meshio import ada_to_meshio_type, meshio_ordering
 from ada.ifc.utils import create_guid
 
 from .gmshapi import eval_thick_normal_from_cog_of_beam_plate, gmsh_map
 
-GmshOptions = {
-    "Mesh.Algorithm": 1,
-    "Mesh.MeshSizeFromCurvature": True,
-    "Mesh.MinimumElementsPerTwoPi": 12,
-    "Mesh.MeshSizeMax": 0.1,
-    "Mesh.ElementOrder": 1,
-    "Mesh.SecondOrderIncomplete": 1,
-    "Mesh.Smoothing": 3,
-    "Geometry.Tolerance": 1e-3,
-}
+
+@dataclass
+class GmshOptions:
+    Mesh_Algorithm: int = 1
+    Mesh_MeshSizeMin: float = None
+    Mesh_MeshSizeMax: float = 0.1
+    Mesh_ElementOrder: int = 1
+    Mesh_SecondOrderIncomplete: int = 1
+    Mesh_Smoothing: int = 3
+    Mesh_RecombinationAlgorithm: int = None
+    Geometry_Tolerance: float = 1e-5
+    General_Terminal: int = 1
+
+    def get_as_dict(self):
+        return {key.replace("_", "."): value for key, value in vars(self).items() if value is not None}
+
+
+@dataclass
+class GmshTask:
+    ada_obj: List[Union[Shape, Beam, Plate]]
+    geom_repr: str
+    mesh_size: float
+    options: GmshOptions = GmshOptions()
+
+
+@dataclass
+class CutPlane:
+    origin: tuple
+    dx: float = 10
+    dy: float = 10
+    plane: str = "XY"
+    normal: tuple = None
+    cut_objects: List[GmshData] = None
+    gmsh_id: int = None
 
 
 @dataclass
@@ -40,17 +67,19 @@ class GmshData:
 
 
 class GmshSession:
-    def __init__(self, silent=False, persist=True, geom_repr="shall", settings: dict = None):
-        print("init method called")
+    def __init__(self, silent=False, persist=True, options: GmshOptions = GmshOptions()):
+        logging.debug("init method called")
         self._gmsh = None
-        self.settings = settings if settings is not None else GmshOptions
+        self.options = options
+        self.cutting_planes: List[CutPlane] = []
+        self.silent = silent
         if silent is True:
-            self.settings["General.Terminal"] = 0
-        self.geom_repr = geom_repr
+            self.options.General_Terminal = 0
         self.persist = persist
         self.model_map = dict()
 
     def add_obj(self, obj: Union[Shape, Beam, Plate], geom_repr="solid", el_order=1, silent=True, mesh_size=None):
+        self._add_settings()
         temp_dir = Settings.temp_dir
         os.makedirs(temp_dir, exist_ok=True)
         name = f"{obj.name}_{create_guid()}"
@@ -62,9 +91,35 @@ class GmshSession:
         obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent)
         entities = self.model.occ.importShapes(str(temp_dir / f"{name}.stp"))
         self.model.occ.synchronize()
-        self.model_map[obj] = GmshData(entities, geom_repr, el_order, mesh_size=mesh_size)
+
+        gmsh_data = GmshData(entities, geom_repr, el_order, mesh_size=mesh_size)
+        self.model_map[obj] = gmsh_data
+        return gmsh_data
+
+    def add_cutting_plane(self, cut_plane: CutPlane, cut_objects: List[GmshData] = None):
+        if cut_objects is not None:
+            if cut_plane.cut_objects is None:
+                cut_plane.cut_objects = []
+            cut_plane.cut_objects += cut_objects
+        self.cutting_planes.append(cut_plane)
+
+    def make_cuts(self):
+        for cut in self.cutting_planes:
+            x, y, z = cut.origin
+            rect = self.model.occ.addRectangle(x, y, z, cut.dx, cut.dy)
+            cut.gmsh_id = rect
+            for obj in cut.cut_objects:
+                res = self.model.occ.fragment(obj.entities, [(2, rect)], removeTool=True)
+                obj.entities = [(dim, r) for dim, r in res[0] if dim == 3]
+
+        rem_ids = [(2, c.gmsh_id) for c in self.cutting_planes]
+        self.model.occ.remove(rem_ids, True)
+        self.model.occ.synchronize()
 
     def mesh(self, size: float = None):
+        if self.silent is True:
+            self.options.General_Terminal = 0
+        self._add_settings()
         if size is not None:
             self.gmsh.option.setNumber("Mesh.MeshSizeMax", size)
 
@@ -76,29 +131,31 @@ class GmshSession:
 
     def get_fem(self) -> FEM:
         fem = FEM("AdaFEM")
-        fem._nodes = Nodes(get_nodes_from_gmsh(self.model, fem), parent=fem)
-        elements = []
+        gmsh_nodes = get_nodes_from_gmsh(self.model, fem)
+        fem._nodes = Nodes(gmsh_nodes, parent=fem)
 
         # Get Elements
-        for model_obj, gmsh_data in self.model_map.items():
-            elements += get_bm_elements(self.model, fem, gmsh_data)
+        elements = []
+        for gmsh_data in self.model_map.values():
+            elements += get_elements_from_entities(self.model, gmsh_data.entities, fem)
         fem._elements = FemElements(elements, fem_obj=fem)
+
         # Add FEM sections
         for model_obj, gmsh_data in self.model_map.items():
-            if type(model_obj) is Beam:
-                add_fem_sections(self.model, fem, model_obj, gmsh_data)
+            add_fem_sections(self.model, fem, model_obj, gmsh_data)
+
         return fem
 
     def _add_settings(self):
-        if self.settings is not None:
-            for setting, value in self.settings.items():
+        if self.options is not None:
+            for setting, value in self.options.get_as_dict().items():
                 self.gmsh.option.setNumber(setting, value)
 
     def open_gui(self):
         self.gmsh.fltk.run()
 
     def __enter__(self):
-        print("Starting GMSH session")
+        logging.debug("Starting GMSH session")
 
         self._gmsh = gmsh
         self.gmsh.initialize()
@@ -107,7 +164,7 @@ class GmshSession:
         return self
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
-        print("Closing GMSH")
+        logging.debug("Closing GMSH")
         self.gmsh.finalize()
 
     @property
@@ -119,7 +176,7 @@ class GmshSession:
         return self.gmsh.model
 
 
-def get_bm_elements(model: gmsh.model, fem: FEM, gmsh_data: GmshData):
+def get_elements(model: gmsh.model, fem: FEM, gmsh_data: GmshData):
     if gmsh_data.geom_repr == "shell":
         elements = get_elements_from_entities(model, gmsh_data.entities, fem)
     elif gmsh_data.geom_repr == "solid":
@@ -172,8 +229,8 @@ def get_bm_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
 def get_so_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
     _, tags, _ = model.mesh.getElements(3, ent)
 
-    set_name = make_name_fem_ready(f"el{beam.name}_set_so")
-    fem_sec_name = make_name_fem_ready(f"d{beam.name}_sec_so")
+    set_name = make_name_fem_ready(f"el{beam.name}_e{ent}_so")
+    fem_sec_name = make_name_fem_ready(f"d{beam.name}_e{ent}_so")
 
     elements = [fem.elements.from_id(tag) for tag in tags[0]]
 
@@ -207,7 +264,7 @@ def get_elements_from_entity(model: gmsh.model, ent, fem: FEM, dim) -> List[Elem
     elem_types, elem_tags, elem_node_tags = model.mesh.getElements(dim, ent)
     elements = []
     for k, element_list in enumerate(elem_tags):
-        el_name, dim, _, numv, _, _ = model.mesh.getElementProperties(elem_types[k])
+        el_name, _, _, numv, _, _ = model.mesh.getElementProperties(elem_types[k])
         if el_name == "Point":
             continue
         elem_type = gmsh_map[el_name]
@@ -217,6 +274,10 @@ def get_elements_from_entity(model: gmsh.model, ent, fem: FEM, dim) -> List[Elem
                 idtag = numv * j + i
                 p1 = elem_node_tags[k][idtag]
                 nodes.append(fem.nodes.from_id(p1))
+
+            new_nodes = node_reordering(elem_type, nodes)
+            if new_nodes is not None:
+                nodes = new_nodes
 
             el = Elem(eltag, nodes, elem_type, parent=fem)
             elements.append(el)
@@ -228,3 +289,34 @@ def get_elements_from_entities(model: gmsh.model, entities, fem: FEM) -> List[El
     for dim, ent in entities:
         elements += get_elements_from_entity(model, ent, fem, dim)
     return elements
+
+
+def multisession_gmsh_tasker(gmsh_tasks: List[GmshTask]):
+    fem = FEM("AdaFEM")
+    for gtask in gmsh_tasks:
+        with GmshSession(silent=True) as gs:
+            gs.options = gtask.options
+            for obj in gtask.ada_obj:
+                gs.add_obj(obj, gtask.geom_repr)
+            gs.mesh(gtask.mesh_size)
+            # TODO: Add operand type += for FEM
+            # fem += gs.get_fem()
+    return fem
+
+
+def is_reorder_necessary(elem_type):
+    meshio_type = ada_to_meshio_type[elem_type]
+    if meshio_type in meshio_ordering.keys():
+        return True
+    else:
+        return False
+
+
+def node_reordering(elem_type, nodes):
+    """Based on work in meshio"""
+    meshio_type = ada_to_meshio_type[elem_type]
+    order = meshio_ordering.get(meshio_type, None)
+    if order is None:
+        return None
+
+    return [nodes[i] for i in order]

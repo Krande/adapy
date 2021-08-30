@@ -720,7 +720,7 @@ class Beam(BackendGeom):
         """
 
         :return:
-        :rtype: OCC.Core.TopoDS.TopoDS_Compound
+        :rtype: OCC.Core.TopoDS.TopoDS_Shape
         """
         from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
 
@@ -738,7 +738,7 @@ class Beam(BackendGeom):
         """
 
         :return:
-        :rtype: OCC.Core.TopoDS.TopoDS_Compound
+        :rtype: OCC.Core.TopoDS.TopoDS_Shape
         """
         from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
 
@@ -2134,3 +2134,23 @@ class Section(Backend):
                 f"Section({self.name}, {self.type}, h: {self.h}, w_btn: {self.w_btn}, "
                 f"w_top: {self.w_top}, t_fbtn: {self.t_fbtn}, t_ftop: {self.t_ftop}, t_w: {self.t_w})"
             )
+
+
+def get_bm_section_curve(bm: Beam, origin=None) -> CurvePoly:
+    origin = origin if origin is not None else bm.n1.p
+    outer_curve, inner_curve, disconnected = bm.section.cross_sec(True)
+    return CurvePoly(points2d=outer_curve, origin=origin, xdir=bm.yvec, normal=bm.xvec, parent=bm.parent)
+
+
+def make_ig_cutplanes(bm: Beam):
+    from ..fem.mesh.gmshapiv2 import CutPlane
+
+    bm1_sec_curve = get_bm_section_curve(bm)
+    minz = min([x[2] for x in bm1_sec_curve.points3d])
+    maxz = max([x[2] for x in bm1_sec_curve.points3d])
+    pmin, pmax = bm.bbox
+    dx, dy, dz = (np.array(pmax) - np.array(pmin)) * 1.3
+    x, y, _ = pmin
+    cut1 = CutPlane((x, y, minz + bm.section.t_fbtn), dx=dx, dy=dy)
+    cut2 = CutPlane((x, y, maxz - bm.section.t_fbtn), dx=dx, dy=dy)
+    return [cut1, cut2]

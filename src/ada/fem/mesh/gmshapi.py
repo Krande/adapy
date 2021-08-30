@@ -10,7 +10,16 @@ from ada.core.utils import clockwise, intersect_calc, roundoff, vector_length
 from ada.fem import FEM, Elem, FemSection, FemSet
 from ada.fem.containers import FemElements
 
-gmsh_map = {"Triangle 3": "S3", "Quadrilateral 4": "S4R", "Line 2": "B31", "Tetrahedron 4": "C3D4"}
+gmsh_map = {
+    "Triangle 3": "S3",
+    "Triangle 6": "STRI65",
+    "Quadrilateral 4": "S4R",
+    "Quadrilateral 8": "S8R",
+    "Line 2": "B31",
+    "Line 3": "B32",
+    "Tetrahedron 4": "C3D4",
+    "Tetrahedron 10": "C3D10",
+}
 
 
 class GMesh:

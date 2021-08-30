@@ -178,17 +178,17 @@ class BackendGeom(Backend):
         self.colour = colour
 
     def add_penetration(self, pen):
-        from ada import Penetration, PrimBox, PrimCyl, PrimExtrude, PrimRevolve
-
-        if type(pen) not in [Penetration, PrimExtrude, PrimRevolve, PrimCyl, PrimBox]:
-            raise ValueError(f'Unsupported penetration type "{type(pen)}"')
+        from ada import Penetration, Shape
 
         pen.parent = self
-        if type(pen) in (PrimExtrude, PrimRevolve, PrimCyl, PrimBox):
+
+        if issubclass(type(pen), Shape) is True:
             pen = Penetration(pen, parent=self)
             self._penetrations.append(pen)
-        else:
+        elif type(pen) is Penetration:
             self._penetrations.append(pen)
+        else:
+            raise ValueError("")
 
         return pen
 

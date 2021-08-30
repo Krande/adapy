@@ -1,6 +1,7 @@
 import uuid
 from dataclasses import dataclass
 from enum import Enum
+from typing import Union
 
 import numpy as np
 from OCC.Core.Tesselator import ShapeTesselator
@@ -14,6 +15,10 @@ from pythreejs import (
     Mesh,
 )
 
+from ada.concepts.piping import Pipe
+from ada.concepts.primitives import Shape
+from ada.concepts.structural import Beam, Plate, Wall
+
 from .threejs_utils import create_material
 
 
@@ -23,11 +28,26 @@ class NORMAL(Enum):
 
 
 @dataclass
+class ThreeJSVizObj:
+    obj: Union[Beam, Plate, Wall, Shape, Pipe]
+    edge_color: tuple
+    mesh: Mesh = None
+    edges: LineSegments2 = None
+
+    def convert_to_mesh(self):
+        o = OccToThreejs()
+        self.mesh, self.edges = o.occ_shape_to_threejs(
+            self.obj.solid, self.obj.colour, self.edge_color, self.obj.transparent, self.obj.opacity
+        )
+
+
+@dataclass
 class OccToThreejs:
     parallel = True
     compute_normals_mode = NORMAL.SERVER_SIDE
     render_edges = True
     quality = 1.0
+    mesh_id: str = None
 
     def occ_shape_to_threejs(self, shp: TopoDS_Shape, shape_color, edge_color, transparency, opacity):
         # first, compute the tesselation
@@ -58,6 +78,7 @@ class OccToThreejs:
         # and to the dict of shapes, to have a mapping between meshes and shapes
         mesh_id = "%s" % uuid.uuid4().hex
 
+        self.mesh_id = mesh_id
         # finally create the mesh
         shape_mesh = Mesh(geometry=shape_geometry, material=shp_material, name=mesh_id)
 
