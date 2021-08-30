@@ -5,15 +5,23 @@ from typing import List, Union
 
 import numpy as np
 
+from ada.base import BackendGeom
+from ada.config import Settings as _Settings
+from ada.core.utils import (
+    Counter,
+    angle_between,
+    calc_zvec,
+    roundoff,
+    unit_vector,
+    vector_length,
+)
 from ada.ifc.utils import create_guid
+from ada.materials.utils import get_material
+from ada.occ.utils import make_edge, sweep_pipe
+from ada.sections.utils import get_section
 
-from ..base import BackendGeom
-from ..config import Settings as _Settings
-from ..core.utils import Counter, angle_between, roundoff, unit_vector, vector_length
-from ..materials.metals import CarbonSteel
 from .curves import ArcSegment
 from .points import Node
-from .structural import Material
 
 
 class Pipe(BackendGeom):
@@ -32,9 +40,9 @@ class Pipe(BackendGeom):
     ):
         super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem)
 
-        self._section = sec
-        sec.parent = self
-        self._material = mat if isinstance(mat, Material) else Material(name=name + "_mat", mat_model=CarbonSteel(mat))
+        self._section, _ = get_section(sec)
+        self._section.parent = self
+        self._material = get_material(mat)
         self._content = content
         self.colour = colour
 
@@ -70,6 +78,7 @@ class Pipe(BackendGeom):
             if vlen1 < len_tol or vlen2 == len_tol:
                 logging.error(f'Segment Length is below point tolerance for unit "{self.units}". Skipping')
                 continue
+
             xvec1 = unit_vector(p12.p - p11.p)
             xvec2 = unit_vector(p22.p - p21.p)
             a = angle_between(xvec1, xvec2)
@@ -154,9 +163,6 @@ class Pipe(BackendGeom):
 
     @property
     def pipe_bend_radius(self):
-        if self.section.type != "PIPE":
-            return None
-
         wt = self.section.wt
         r = self.section.r
         d = r * 2
@@ -319,21 +325,19 @@ class PipeSegStraight(BackendGeom):
         return self.p2.p - self.p1.p
 
     @property
-    def line(self):
-        from ada.occ.utils import make_edge
+    def zvec(self):
+        return calc_zvec(self.xvec1)
 
+    @property
+    def line(self):
         return make_edge(self.p1, self.p2)
 
     @property
     def shell(self):
-        from ada.occ.utils import sweep_pipe
-
         return sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, "shell")
 
     @property
     def solid(self):
-        from ada.occ.utils import sweep_pipe
-
         return sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, "solid")
 
     def _generate_ifc_elem(self):
@@ -451,6 +455,10 @@ class PipeSegElbow(BackendGeom):
     @property
     def xvec2(self):
         return self.p3.p - self.p2.p
+
+    @property
+    def zvec(self):
+        return calc_zvec(self.xvec1)
 
     @property
     def line(self):

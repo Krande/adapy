@@ -2,10 +2,12 @@ import json
 import pathlib
 import re
 from collections import OrderedDict
+from typing import Tuple, Union
 
 import ada.core.utils
 
-from . import SectionCat
+from . import Section
+from .categories import SectionCat
 
 digit = r"\d{0,5}\.?\d{0,5}|\d{0,5}|\d{0,5}\/\d{0,5}"
 flex = r"?:\.|[A-Z]|"
@@ -23,8 +25,6 @@ def profile_db_collect(sec_type, dim, units="m"):
     :type dim: str
     :type units: str
     """
-    from ada import Section
-
     if units == "mm":
         scale_factor = 1000
     elif units == "m":
@@ -85,8 +85,6 @@ def interpret_section_str(in_str, s=0.001, units="m"):
     :param units: The desired units after applied scale factor
     :return: Two section (to account for potential beam tapering)
     """
-    from ada import Section
-
     rdoff = ada.core.utils.roundoff
 
     re_in = re.IGNORECASE | re.DOTALL
@@ -301,3 +299,12 @@ def interpret_section_str(in_str, s=0.001, units="m"):
             return sec, sec
 
     raise ValueError(f'Unable to interpret section str "{in_str}"')
+
+
+def get_section(sec: Union[Section, str]) -> Tuple[Section, Section]:
+    if type(sec) is Section:
+        return sec, sec
+    elif type(sec) is str:
+        return interpret_section_str(sec)
+    else:
+        raise ValueError("Unable to find beam section based on input: {}".format(sec))

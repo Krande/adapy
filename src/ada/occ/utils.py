@@ -637,6 +637,7 @@ def make_sec_face(point, direction, radius):
 def sweep_pipe(edge, xvec, r, wt, geom_repr="solid"):
     if geom_repr not in ["solid", "shell"]:
         raise ValueError("Sweeping pipe must be either 'solid' or 'shell'")
+
     t = TopologyExplorer(edge)
     points = [v for v in t.vertices()]
     point = BRep_Tool_Pnt(points[0])
@@ -665,7 +666,7 @@ def sweep_pipe(edge, xvec, r, wt, geom_repr="solid"):
         if boolean_result.IsNull():
             logging.debug("Boolean returns None")
     else:
-        boolean_result = elbow_i
+        boolean_result = elbow_o
 
     return boolean_result
 

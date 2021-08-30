@@ -14,8 +14,10 @@ from ada.concepts.primitives import (
     PrimSweep,
     Shape,
 )
-from ada.concepts.structural import Beam, Material, Plate, Section, Wall
+from ada.concepts.structural import Beam, Plate, Wall
 from ada.config import User
+from ada.materials import Material
+from ada.sections import Section
 
 __author__ = "Kristoffer H. Andersen"
 __all__ = [

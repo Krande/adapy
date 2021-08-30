@@ -10,6 +10,7 @@ import gmsh
 import numpy as np
 
 from ada.concepts.containers import Nodes
+from ada.concepts.piping import Pipe
 from ada.concepts.points import Node
 from ada.concepts.primitives import Shape
 from ada.concepts.structural import Beam, Plate
@@ -76,9 +77,9 @@ class GmshSession:
         if silent is True:
             self.options.General_Terminal = 0
         self.persist = persist
-        self.model_map = dict()
+        self.model_map: dict[Union[Shape, Beam, Plate, Pipe], GmshData] = dict()
 
-    def add_obj(self, obj: Union[Shape, Beam, Plate], geom_repr="solid", el_order=1, silent=True, mesh_size=None):
+    def add_obj(self, obj: Union[Shape, Beam, Plate, Pipe], geom_repr="solid", el_order=1, silent=True, mesh_size=None):
         self._add_settings()
         temp_dir = Settings.temp_dir
         os.makedirs(temp_dir, exist_ok=True)
@@ -176,17 +177,7 @@ class GmshSession:
         return self.gmsh.model
 
 
-def get_elements(model: gmsh.model, fem: FEM, gmsh_data: GmshData):
-    if gmsh_data.geom_repr == "shell":
-        elements = get_elements_from_entities(model, gmsh_data.entities, fem)
-    elif gmsh_data.geom_repr == "solid":
-        elements = get_elements_from_entities(model, gmsh_data.entities, fem)
-    else:  # beam
-        elements = get_elements_from_entities(model, gmsh_data.entities, fem)
-    return elements
-
-
-def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Union[Beam, Plate], gmsh_data: GmshData):
+def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Union[Beam, Plate, Pipe], gmsh_data: GmshData):
     for _, ent in gmsh_data.entities:
         if gmsh_data.geom_repr == "shell":
             get_sh_sections(model, model_obj, ent, fem)
@@ -196,11 +187,13 @@ def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Union[Beam, Plate],
             get_bm_sections(model, model_obj, ent, fem)
 
 
-def get_sh_sections(model: gmsh.model, model_obj: Union[Beam, Plate], ent, fem: FEM):
+def get_sh_sections(model: gmsh.model, model_obj: Union[Beam, Plate, Pipe], ent, fem: FEM):
     _, tags, _ = model.mesh.getElements(2, ent)
     r = model.occ.getCenterOfMass(2, ent)
     if type(model_obj) is Beam:
         t, n, c = eval_thick_normal_from_cog_of_beam_plate(model_obj, r)
+    elif type(model_obj) is Pipe:
+        t, n, c = model_obj.section.wt, model_obj.segments[0].zvec, "pipe"
     else:
         t, n, c = model_obj.t, model_obj.n, "pl"
 

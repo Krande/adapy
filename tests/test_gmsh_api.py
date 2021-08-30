@@ -1,6 +1,6 @@
 import unittest
 
-from ada import Assembly, Beam, Part, Plate, PrimBox, PrimSphere
+from ada import Assembly, Beam, Part, Pipe, Plate, PrimBox, PrimSphere
 from ada.concepts.structural import make_ig_cutplanes
 from ada.config import Settings
 from ada.fem.mesh.gmshapiv2 import (
@@ -24,11 +24,21 @@ class GmshApiV2(unittest.TestCase):
         pl_points = [(0, 0), (1, 0), (1, 1), (0, 1)]
         self.pl1 = Plate("MyPlate", pl_points, 10e-3, **pl_atts)
 
-        p1, p2 = (1, -2, 0), (2, -1, 1)
+        self.pipe = Pipe("MyPipe", [(0, 0.5, 0), (1, 0.5, 0), (1.2, 0.7, 0.2), (1.5, 0.7, 0.2)], "OD120x6")
 
+        p1, p2 = (1, -2, 0), (2, -1, 1)
         self.shp1 = PrimBox("MyBox", p1, p2)
         self.shp1.add_penetration(PrimSphere("MyCutout", p1, 0.5))
         self.cut_planes = make_ig_cutplanes(self.bm2)
+
+    def test_second_order_pipe(self):
+        with GmshSession(silent=True, options=GmshOptions(Mesh_ElementOrder=2)) as gs:
+            gs.add_obj(self.pipe, "solid")
+            gs.mesh(0.02)
+            fem = gs.get_fem()
+
+        a = Assembly() / (Part("MyFemObjects", fem=fem) / [self.bm1])
+        a.to_fem("my_xdmf_test", "xdmf", overwrite=True, scratch_dir=test_dir, fem_converter="meshio")
 
     def test_second_order_bm(self):
         with GmshSession(silent=True, options=GmshOptions(Mesh_ElementOrder=2)) as gs:
@@ -45,6 +55,8 @@ class GmshApiV2(unittest.TestCase):
             gs.add_obj(self.bm3, "line")
             gs.add_obj(self.pl1, "shell")
             gs.add_obj(self.shp1, "solid")
+            # TODO: Fix gmsh shell element extraction
+            # gs.add_obj(self.pipe, "shell")
 
             for cutp in self.cut_planes:
                 gs.add_cutting_plane(cutp, [solid_bm])
@@ -53,7 +65,9 @@ class GmshApiV2(unittest.TestCase):
             gs.mesh(0.1)
             fem = gs.get_fem()
 
-        a = Assembly() / (Part("MyFemObjects", fem=fem) / [self.bm1, self.bm2, self.bm3, self.pl1, self.shp1])
+        a = Assembly() / (
+            Part("MyFemObjects", fem=fem) / [self.bm1, self.bm2, self.bm3, self.pl1, self.shp1, self.pipe]
+        )
 
         a.to_fem("my_ca_analysis", "code_aster", overwrite=True, scratch_dir=test_dir)
         a.to_fem("my_aba_analysis", "abaqus", overwrite=True, scratch_dir=test_dir)
