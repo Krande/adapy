@@ -7,7 +7,7 @@ import numpy as np
 from pythreejs import Group
 
 from ..fem import FEM
-from .threejs_geom import edges_to_mesh, faces_to_mesh, vertices_to_mesh
+from .threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
 
 @dataclass
@@ -88,7 +88,7 @@ def get_edges_and_faces_from_meshio(mesh):
     :type mesh: meshio.Mesh
     :return:
     """
-    from ada.fem.io.io_meshio import meshio_to_ada_type
+    from ada.fem.io_meshio import meshio_to_ada_type
     from ada.fem.shapes import ElemShapes
 
     edges = []
@@ -98,7 +98,7 @@ def get_edges_and_faces_from_meshio(mesh):
         for elem in cell_block.data:
             res = ElemShapes(el_type, elem)
             edges += res.edges
-            if res.type in res.beam:
+            if res.type in res.lines:
                 continue
             faces += res.faces
     return edges, faces
@@ -117,7 +117,7 @@ def get_faces_from_fem(fem, convert_bm_to_shell=False):
 
     ids = []
     for el in fem.elements.elements:
-        if ElemShapes.is_beam_elem(el):
+        if ElemShapes.is_line_elem(el):
             continue
         for f in el.shape.faces:
             # Convert to indices, not id

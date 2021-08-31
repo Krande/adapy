@@ -178,114 +178,26 @@ class BackendGeom(Backend):
         self.colour = colour
 
     def add_penetration(self, pen):
-        from ada import Penetration, PrimBox, PrimCyl, PrimExtrude, PrimRevolve
-
-        if type(pen) not in [Penetration, PrimExtrude, PrimRevolve, PrimCyl, PrimBox]:
-            raise ValueError(f'Unsupported penetration type "{type(pen)}"')
+        from ada import Penetration, Shape
 
         pen.parent = self
-        if type(pen) in (PrimExtrude, PrimRevolve, PrimCyl, PrimBox):
+
+        if issubclass(type(pen), Shape) is True:
             pen = Penetration(pen, parent=self)
             self._penetrations.append(pen)
-        else:
+        elif type(pen) is Penetration:
             self._penetrations.append(pen)
+        else:
+            raise ValueError("")
 
         return pen
 
-    def to_stp(self, destination_file, geom_repr="solid", schema="AP242"):
-        """
-        Write current assembly to STEP file
+    def to_stp(self, destination_file, geom_repr="solid", schema="AP242", silent=False, fuse_piping=False):
+        from ada.occ.writer import StepExporter
 
-        OpenCascade reference:
-
-            https://www.opencascade.com/doc/occt-7.4.0/overview/html/occt_user_guides__step.html#occt_step_3
-
-
-        :param destination_file:
-        :param geom_repr:
-        :param schema: STEP Schemas.
-        """
-
-        from OCC.Core.IFSelect import IFSelect_RetError
-        from OCC.Core.Interface import Interface_Static_SetCVal
-        from OCC.Core.STEPConstruct import stepconstruct_FindEntity
-        from OCC.Core.STEPControl import STEPControl_AsIs, STEPControl_Writer
-        from OCC.Core.TCollection import TCollection_HAsciiString
-
-        from ada.core.utils import Counter
-
-        if geom_repr not in ["shell", "solid"]:
-            raise ValueError('Geometry representation can only accept either "solid" or "shell" as input')
-
-        destination_file = pathlib.Path(destination_file).with_suffix(".stp")
-
-        assembly_mode = 1
-        shp_names = Counter(1, "shp")
-        writer = STEPControl_Writer()
-        fp = writer.WS().TransferWriter().FinderProcess()
-        Interface_Static_SetCVal("write.step.schema", schema)
-        # Interface_Static_SetCVal('write.precision.val', '1e-5')
-        Interface_Static_SetCVal("write.precision.mode", "1")
-        Interface_Static_SetCVal("write.step.assembly", str(assembly_mode))
-
-        from ada import Assembly, Beam, Part, Pipe, Plate, Shape, Wall
-
-        def add_geom(geo, o):
-            name = o.name if o.name is not None else next(shp_names)
-            Interface_Static_SetCVal("write.step.product.name", name)
-            stat = writer.Transfer(geo, STEPControl_AsIs)
-            if int(stat) > int(IFSelect_RetError):
-                raise Exception("Some Error occurred")
-
-            item = stepconstruct_FindEntity(fp, geo)
-            if not item:
-                logging.debug("STEP item not found for FindEntity")
-            else:
-                item.SetName(TCollection_HAsciiString(name))
-
-        if type(self) is Shape:
-            assert isinstance(self, Shape)
-            add_geom(self.geom, self)
-        elif type(self) in (Beam, Plate, Wall):
-            assert isinstance(self, (Beam, Plate, Wall))
-            if geom_repr == "shell":
-                add_geom(self.shell, self)
-            else:
-                add_geom(self.solid, self)
-        elif type(self) is Pipe:
-            assert isinstance(self, Pipe)
-            for geom in self.geometries:
-                add_geom(geom, self)
-        elif type(self) in (Part, Assembly):
-            assert isinstance(self, Part)
-
-            for p in self.get_all_subparts() + [self]:
-                for obj in list(p.plates) + list(p.beams) + list(p.shapes) + list(p.pipes) + list(p.walls):
-                    if type(obj) in (Plate, Beam, Wall):
-                        try:
-                            if geom_repr == "shell":
-                                add_geom(obj.shell, self)
-                            else:
-                                add_geom(obj.solid, self)
-                        except BaseException as e:
-                            logging.info(f'passing pl "{obj.name}" due to {e}')
-                            continue
-                    elif type(obj) in (Pipe,):
-                        assert isinstance(obj, Pipe)
-                        for geom in obj.geometries:
-                            add_geom(geom, self)
-                    elif type(obj) is Shape:
-                        add_geom(obj.geom, self)
-                    else:
-                        raise ValueError("Unkown Geometry type")
-
-        os.makedirs(destination_file.parent, exist_ok=True)
-
-        status = writer.Write(str(destination_file))
-        if int(status) > int(IFSelect_RetError):
-            raise Exception("Error during write operation")
-
-        print(f'step file created at "{destination_file}"')
+        step_export = StepExporter(schema)
+        step_export.add_to_step_writer(self, geom_repr, fuse_piping=fuse_piping)
+        step_export.write_to_file(destination_file, silent)
 
     def render_locally(
         self, addr="localhost", server_port=8080, open_webbrowser=False, render_engine="threejs", resolution=(1800, 900)

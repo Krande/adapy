@@ -6,17 +6,12 @@ from . import Elem
 
 
 class ElemShapes:
-    """
-
-    :param el_type:
-    """
-
     # 2D elements
     tri = ["S3", "S3R", "R3D3"]
     quad = ["S4", "S4R", "R3D4"]
     quad8 = ["S8", "S8R"]
-    quad6 = ["STRI65"]
-    shell = tri + quad + quad8 + quad6
+    tri6 = ["STRI65"]
+    shell = tri + quad + quad8 + tri6
     # 3D elements
     cube8 = ["C3D8", "C3D8R", "C3D8H"]
     cube20 = ["C3D20", "C3D20R", "C3D20RH"]
@@ -28,8 +23,9 @@ class ElemShapes:
     prism15 = ["C3D15"]
     volume = cube8 + cube20 + tetrahedron10 + tetrahedron + pyramid5 + prism15 + prism6
     # 1D/0D elements
-    bm2 = ["B31", "B32"]
-    beam = bm2
+    bm2 = ["B31"]
+    bm3 = ["B32"]
+    lines = bm2 + bm3
     spring1n = ["SPRING1"]
     spring2n = ["SPRING2"]
     springs = spring1n + spring2n
@@ -39,8 +35,8 @@ class ElemShapes:
     other = other2n
 
     @staticmethod
-    def is_beam_elem(elem: Elem):
-        if elem.type in ElemShapes.beam:
+    def is_line_elem(elem: Elem):
+        if elem.type in ElemShapes.lines:
             return True
         else:
             return False
@@ -52,7 +48,7 @@ class ElemShapes:
             value
             not in ElemShapes.shell
             + ElemShapes.volume
-            + ElemShapes.beam
+            + ElemShapes.lines
             + ElemShapes.springs
             + ElemShapes.masses
             + ElemShapes.other
@@ -67,13 +63,13 @@ class ElemShapes:
             return 1
         elif el_name in ElemShapes.bm2 + ElemShapes.spring2n + ElemShapes.other2n:
             return 2
-        elif el_name in ElemShapes.tri:
+        elif el_name in ElemShapes.tri + ElemShapes.bm3:
             return 3
         elif el_name in ElemShapes.quad + ElemShapes.tetrahedron:
             return 4
         elif el_name in ElemShapes.pyramid5:
             return 5
-        elif el_name in ElemShapes.quad6 + ElemShapes.prism6:
+        elif el_name in ElemShapes.tri6 + ElemShapes.prism6:
             return 6
         elif el_name in ElemShapes.quad8 + ElemShapes.cube8:
             return 8
@@ -169,7 +165,7 @@ class ElemShapes:
             edges = self._volume_edges
         elif self.type in self.shell:
             edges = self._shell_edges
-        elif self.type in self.beam:
+        elif self.type in self.lines:
             edges = self._beam_edges
         elif self.type in self.masses + self.spring1n:
             # These are point elements and have no edges
@@ -204,7 +200,7 @@ class ElemShapes:
         0-----+-----1 --> u   0----2----1     0---2---3---1
 
         """
-        if self.type not in self.beam:
+        if self.type not in self.lines:
             logging.error("A call was made to beam edges even though type is not beam")
             return None
         if self.type in ["B31", "SPRING2"]:
@@ -249,6 +245,10 @@ v
             return [[0, 1], [1, 2], [2, 3], [3, 0]]
         elif self.type in ["S3", "S3R"]:
             return [[0, 1], [1, 2], [2, 0]]
+        elif self.type in ["STRI65"]:
+            # logging.debug(f'Element shape for "{self.type}" is visually simplifed to 1 order')
+            return [[0, 1], [1, 2], [2, 0]]
+            # return [[0, 3], [3, 5], [5, 0], [3, 1], [1, 4], [4, 3], [5, 4], [4, 2], [2, 5]]
         else:
             raise ValueError(f'Elem type "{self.type}" is not yet supported')
 
@@ -325,20 +325,13 @@ v
         elif self.type in ["C3D5"]:
             return [(0, 1), (1, 2), (2, 3), (3, 0), (0, 4), (1, 4), (2, 4), (3, 4)]
         elif self.type == "C3D10":
-            return [
-                [0, 7],
-                [7, 3],
-                [3, 9],
-                [9, 1],
-                [1, 4],
-                [4, 0],
-                [0, 6],
-                [6, 2],
-                [2, 5],
-                [5, 1],
-                [3, 8],
-                [8, 2],
-            ]
+            from .io_meshio.common import gmsh_to_meshio_ordering
+
+            # Use Abaqus/meshio nodal numbering
+            mo = gmsh_to_meshio_ordering["tetra10"]
+            gmsh_n = [[0, 7], [7, 3], [3, 9], [9, 1], [1, 4], [4, 0], [0, 6], [6, 2], [2, 5], [5, 1], [3, 8], [8, 2]]
+            norm_n = [(mo[a], mo[b]) for a, b in gmsh_n]
+            return norm_n
         elif self.type in ["C3D20", "C3D20R"]:
             # Abaqus
             return [

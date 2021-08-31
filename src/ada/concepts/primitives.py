@@ -4,23 +4,14 @@ import numpy as np
 
 from ada.core.utils import Counter, roundoff, unit_vector, vector_length
 from ada.ifc.utils import create_guid
+from ada.materials import Material
+from ada.materials.metals import CarbonSteel
 
 from ..base import BackendGeom
 from .curves import CurvePoly
 
 
 class Shape(BackendGeom):
-    """
-    A shape object
-
-
-    :param name:
-    :param geom:
-    :param colour:
-    :param opacity:
-    :param metadata:
-    """
-
     def __init__(
         self,
         name,
@@ -31,6 +22,7 @@ class Shape(BackendGeom):
         units="m",
         ifc_elem=None,
         guid=None,
+        material=None,
     ):
 
         super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem)
@@ -46,6 +38,12 @@ class Shape(BackendGeom):
         self._geom = geom
         self.colour = colour
         self._opacity = opacity
+        if isinstance(material, Material):
+            self._material = material
+        else:
+            if material is None:
+                material = "S355"
+            self._material = Material(name=material, mat_model=CarbonSteel(material, plasticity_model=None))
 
     def generate_parametric_solid(self, ifc_file):
         from ada.core.constants import O, X, Z
@@ -306,6 +304,8 @@ class Shape(BackendGeom):
         :return:
         :rtype: OCC.Core.TopoDS.TopoDS_Shape
         """
+        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+
         if self._geom is None:
             from ada.ifc.utils import get_ifc_shape
 
@@ -322,7 +322,12 @@ class Shape(BackendGeom):
             self._geom = geom
             self.colour = color
             self._opacity = alpha
-        return self._geom
+
+        geom = self._geom
+        for pen in self.penetrations:
+            geom = BRepAlgoAPI_Cut(geom, pen.geom).Shape()
+
+        return geom
 
     @property
     def units(self):
@@ -343,6 +348,10 @@ class Shape(BackendGeom):
                 logging.info("do something")
 
             self._units = value
+
+    @property
+    def material(self) -> Material:
+        return self._material
 
 
 class PrimSphere(Shape):
@@ -661,8 +670,8 @@ class Penetration(BackendGeom):
     """
 
     def __init__(self, primitive, metadata=None, parent=None, units="m", guid=None):
-        if type(primitive) not in [PrimRevolve, PrimCyl, PrimExtrude, PrimBox]:
-            raise ValueError(f'Unsupported primitive "{type(primitive)}"')
+        if issubclass(type(primitive), Shape) is False:
+            raise ValueError(f'Unsupported primitive type "{type(primitive)}"')
 
         super(Penetration, self).__init__(primitive.name, guid=guid, metadata=metadata, units=units)
         self._primitive = primitive

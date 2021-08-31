@@ -24,7 +24,6 @@ from OCC.Core.GeomAbs import GeomAbs_C0
 
 # Check to see if loading all this on the top affects speed negatively in usability terms
 from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Circ, gp_Dir, gp_Pln, gp_Pnt, gp_Trsf, gp_Vec
-from OCC.Core.Tesselator import ShapeTesselator
 from OCC.Core.TopoDS import (
     TopoDS_Compound,
     TopoDS_Edge,
@@ -85,38 +84,6 @@ def extract_subshapes(shp_):
     for solid in t.solids():
         s.append(solid)
     return s
-
-
-def occ_shape_to_faces(shape, quality=1.0, render_edges=False, parallel=True):
-    """
-
-    :param shape:
-    :param quality:
-    :param render_edges:
-    :param parallel:
-    :return:
-    """
-    # first, compute the tesselation
-    tess = ShapeTesselator(shape)
-    tess.Compute(compute_edges=render_edges, mesh_quality=quality, parallel=parallel)
-
-    # get vertices and normals
-    vertices_position = tess.GetVerticesPositionAsTuple()
-    number_of_triangles = tess.ObjGetTriangleCount()
-    number_of_vertices = len(vertices_position)
-
-    # number of vertices should be a multiple of 3
-    if number_of_vertices % 3 != 0:
-        raise AssertionError("Wrong number of vertices")
-    if number_of_triangles * 9 != number_of_vertices:
-        raise AssertionError("Wrong number of triangles")
-
-    # then we build the vertex and faces collections as numpy ndarrays
-    np_vertices = np.array(vertices_position, dtype="float32").reshape(int(number_of_vertices / 3), 3)
-    # Note: np_faces is just [0, 1, 2, 3, 4, 5, ...], thus arange is used
-    np_faces = np.arange(np_vertices.shape[0], dtype="uint32")
-
-    return np_vertices, np_faces
 
 
 def is_edges_ok(edge1, fillet, edge2):
@@ -628,11 +595,8 @@ def rotate_shp_3_axis(shape, revolve_axis, rotation):
     @param revolve_axis : rotation axis gp_Ax1
     @return : the rotated shape.
     """
-    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
-    from OCC.Core.gp import gp_Trsf
-
     alpha = gp_Trsf()
-    alpha.SetRotation(revolve_axis, np.radians(rotation))
+    alpha.SetRotation(revolve_axis, np.deg2rad(rotation))
     brep_trns = BRepBuilderAPI_Transform(shape, alpha, False)
     shp = brep_trns.Shape()
     return shp
@@ -658,23 +622,27 @@ def compute_minimal_distance_between_shapes(shp1, shp2):
     return dss
 
 
-def make_sec_face(point, direction, radius):
-
+def make_circular_sec_wire(point, direction, radius):
     circle = gp_Circ(gp_Ax2(point, direction), radius)
     profile_edge = BRepBuilderAPI_MakeEdge(circle).Edge()
-    profile_wire = BRepBuilderAPI_MakeWire(profile_edge).Wire()
+    return BRepBuilderAPI_MakeWire(profile_edge).Wire()
+
+
+def make_circular_sec_face(point, direction, radius):
+    profile_wire = make_circular_sec_wire(point, direction, radius)
     profile_face = BRepBuilderAPI_MakeFace(profile_wire).Face()
     return profile_face
 
 
-def sweep_pipe(edge, xvec, r, wt):
+def sweep_pipe(edge, xvec, r, wt, geom_repr="solid"):
+    if geom_repr not in ["solid", "shell"]:
+        raise ValueError("Sweeping pipe must be either 'solid' or 'shell'")
+
     t = TopologyExplorer(edge)
     points = [v for v in t.vertices()]
     point = BRep_Tool_Pnt(points[0])
     # x, y, z = point.X(), point.Y(), point.Z()
     direction = gp_Dir(*unit_vector(xvec).astype(float).tolist())
-    o = make_sec_face(point, direction, r)
-    i = make_sec_face(point, direction, r - wt)
 
     # pipe
     makeWire = BRepBuilderAPI_MakeWire()
@@ -682,15 +650,25 @@ def sweep_pipe(edge, xvec, r, wt):
     makeWire.Build()
     wire = makeWire.Wire()
     try:
-        elbow_o = BRepOffsetAPI_MakePipe(wire, o).Shape()
-        elbow_i = BRepOffsetAPI_MakePipe(wire, i).Shape()
+        if geom_repr == "solid":
+            i = make_circular_sec_face(point, direction, r - wt)
+            elbow_i = BRepOffsetAPI_MakePipe(wire, i).Shape()
+            o = make_circular_sec_face(point, direction, r)
+            elbow_o = BRepOffsetAPI_MakePipe(wire, o).Shape()
+        else:
+            elbow_i = None
+            o = make_circular_sec_wire(point, direction, r)
+            elbow_o = BRepOffsetAPI_MakePipe(wire, o).Shape()
     except RuntimeError as e:
-        logging.error(f'Elbow creation failed: "{e}"')
+        logging.error(f'Pipe sweep failed: "{e}"')
         return wire
+    if geom_repr == "solid":
+        boolean_result = BRepAlgoAPI_Cut(elbow_o, elbow_i).Shape()
+        if boolean_result.IsNull():
+            logging.debug("Boolean returns None")
+    else:
+        boolean_result = elbow_o
 
-    boolean_result = BRepAlgoAPI_Cut(elbow_o, elbow_i).Shape()
-    if boolean_result.IsNull():
-        logging.debug("Boolean returns None")
     return boolean_result
 
 

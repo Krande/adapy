@@ -25,7 +25,7 @@ fem_executables = dict(
 
 
 def get_fem_converters(fem_file, fem_format, fem_converter):
-    from .io_meshio import meshio_read_fem, meshio_to_fem
+    from ..io_meshio import meshio_read_fem, meshio_to_fem
 
     if fem_format is None:
         fem_format = interpret_fem(fem_file)

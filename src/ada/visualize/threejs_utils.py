@@ -116,3 +116,21 @@ def animate_mesh(mesh, norm_displ_verts, displ_time, displ_magn):
     pill_action = AnimationAction(AnimationMixer(morphed_mesh), pill_clip, morphed_mesh)
 
     return pill_action
+
+
+def create_material(color, transparent=False, opacity=1.0):
+    from OCC.Display.WebGl.jupyter_renderer import CustomMaterial
+
+    # material = MeshPhongMaterial()
+    material = CustomMaterial("standard")
+    material.color = color
+    material.clipping = True
+    material.side = "DoubleSide"
+    material.polygonOffset = True
+    material.polygonOffsetFactor = 1
+    material.polygonOffsetUnits = 1
+    material.transparent = transparent
+    material.opacity = opacity
+    material.update("metalness", 0.3)
+    material.update("roughness", 0.8)
+    return material

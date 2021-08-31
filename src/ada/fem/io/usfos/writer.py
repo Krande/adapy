@@ -344,7 +344,7 @@ def beam_str(fem, eccen):
             ecc2_str = ""
         return f" BEAM{el.id:>15}{n1.id:>8}{n2.id:>9}{mat_id:>11}{sec.id:>7}{locid + 1:>9}{ecc1_str}{ecc2_str}"
 
-    bm_str += "\n".join(list(map(write_elem, fem.elements.beams)))
+    bm_str += "\n".join(list(map(write_elem, fem.elements.lines)))
 
     for i, loc in enumerate(locvecs):
         loc_str += " UNITVEC{:>13}{:<10}\n".format(i + 1, loc)
@@ -378,7 +378,7 @@ def sections_str(fem):
     cha_str = f"' Channels\n'{space}Geom ID     H     T-web    W-top   T-top    W-bot   T-bot Sh_y Sh_z\n"
     gens_str = f"' General Beams\n'{space}Geom ID     \n"
 
-    sections = {fs.section.id: fs.section for fs in fem.sections.beams}
+    sections = {fs.section.id: fs.section for fs in fem.sections.lines}
     for s_id in sorted(sections.keys()):
         s = sections[s_id]
         gp = s.properties

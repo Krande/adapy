@@ -4,11 +4,11 @@ import json
 import logging
 import os
 import pathlib
-import traceback
 from itertools import chain
-from typing import List
+from typing import List, Union
 
 from ada.base import BackendGeom
+from ada.concepts.connections import JointBase
 from ada.concepts.containers import (
     Beams,
     Connections,
@@ -27,9 +27,8 @@ from ada.concepts.primitives import (
     Shape,
 )
 from ada.concepts.structural import Beam, Material, Plate, Section, Wall
-from ada.config import Settings as _Settings
-from ada.config import User
-from ada.fem import FEM, Elem, FemSet
+from ada.config import Settings, User
+from ada.fem import FEM
 from ada.ifc.utils import create_guid
 
 
@@ -45,8 +44,6 @@ class Part(BackendGeom):
     :param lz: Local Z
     :param settings: A properties object
     :param metadata: A dict for containing metadata
-    :type settings: Settings
-    :type fem: FEM
     """
 
     def __init__(
@@ -58,7 +55,7 @@ class Part(BackendGeom):
         ly=(0, 1, 0),
         lz=(0, 0, 1),
         fem: FEM = None,
-        settings: _Settings = _Settings(),
+        settings: Settings = Settings(),
         metadata=None,
         parent=None,
         units="m",
@@ -66,7 +63,7 @@ class Part(BackendGeom):
         guid=None,
     ):
         super().__init__(name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_elem=ifc_elem)
-        from ada.fem.io.mesh import GMesh
+        from ada.fem.mesh import GMesh
 
         self._nodes = Nodes(parent=self)
         self._beams = Beams(parent=self)
@@ -175,7 +172,7 @@ class Part(BackendGeom):
         self._parts[part.name] = part
         return part
 
-    def add_joint(self, joint):
+    def add_joint(self, joint: JointBase) -> JointBase:
         """
         This method takes a Joint element containing two intersecting beams. It will check with the existing
         list of joints to see whether or not it is part of a larger more complex joint. It usese primarily
@@ -186,23 +183,11 @@ class Part(BackendGeom):
         Criteria 2: If the intersecting point coincides within a specified tolerance (currently 10mm)
         with an exisiting joint intersecting point. If so it will add the elements to this joint.
         If not it will create a new joint based on these two members.
-
-        :param joint:
-        :type joint: ada.JointBase
-        """
-
-        """
-        Notes
-        Evaluate if possible to have an additional self check on parallel beam if either of the two end nodes
-        are in proximity to already established joint. If so move the Centre Point to one of the two ends!
-
-        A Counter-point would be that it would depend on when the intersection was made. Maybe it is best to do this
-        on an algorithm running after
-
         """
         if joint.units != self.units:
             joint.units = self.units
         self._connections.add(joint)
+        return joint
 
     def add_material(self, material: Material) -> Material:
         if material.units != self.units:
@@ -215,7 +200,7 @@ class Part(BackendGeom):
             section.units = self.units
         return self._sections.add(section)
 
-    def add_penetration(self, pen: Penetration, add_pen_to_subparts=True) -> None:
+    def add_penetration(self, pen: Penetration, add_pen_to_subparts=True) -> Penetration:
         if type(pen) in (PrimExtrude, PrimRevolve, PrimCyl, PrimBox):
             pen = Penetration(pen, parent=self)
 
@@ -237,8 +222,9 @@ class Part(BackendGeom):
         if add_pen_to_subparts:
             for p in self.get_all_subparts():
                 p.add_penetration(pen, False)
+        return pen
 
-    def add_elements_from_ifc(self, ifc_file_path: str, data_only=False):
+    def add_elements_from_ifc(self, ifc_file_path: os.PathLike, data_only=False):
         a = Assembly("temp")
         a.read_ifc(ifc_file_path, data_only=data_only)
         all_shapes = [shp for p in a.get_all_subparts() for shp in p.shapes] + a.shapes
@@ -311,45 +297,7 @@ class Part(BackendGeom):
             convert_part_objects(self, skip_plates, skip_beams)
         logging.info("Conversion complete")
 
-    def create_fem_elem_from_obj(self, obj, el_type=None) -> Elem:
-        """Converts structural object to FEM elements. Currently only BEAM is supported"""
-        from ada.fem import FemSection
-
-        if type(obj) is not Beam:
-            raise NotImplementedError(f'Object type "{type(obj)}" is not yet supported')
-
-        el_type = "B31" if el_type is None else el_type
-
-        res = self.fem.nodes.add(obj.n1)
-        if res is not None:
-            obj.n1 = res
-        res = self.fem.nodes.add(obj.n2)
-        if res is not None:
-            obj.n2 = res
-
-        elem = Elem(None, [obj.n1, obj.n2], el_type)
-        self.fem.add_elem(elem)
-        femset = FemSet(f"{obj.name}_set", [elem.id], "elset")
-        self.fem.add_set(femset)
-        self.fem.add_section(
-            FemSection(
-                f"d{obj.name}_sec",
-                "beam",
-                femset,
-                obj.material,
-                obj.section,
-                obj.ori[1],
-            )
-        )
-        return elem
-
-    def get_part(self, name):
-        """
-
-        :param name: Name of part
-        :return:
-        :rtype: Part
-        """
+    def get_part(self, name) -> Part:
         return self.parts[name]
 
     def get_by_name(self, name):
@@ -382,7 +330,7 @@ class Part(BackendGeom):
         logging.debug(f'Unable to find"{name}". Check if the element type is evaluated in the algorithm')
         return None
 
-    def get_all_parts_in_assembly(self, include_self=False):
+    def get_all_parts_in_assembly(self, include_self=False) -> List[Part]:
         parent = self.get_assembly()
         list_of_ps = []
         self._flatten_list_of_subparts(parent, list_of_ps)
@@ -390,10 +338,16 @@ class Part(BackendGeom):
             list_of_ps += [self]
         return list_of_ps
 
-    def get_all_subparts(self):
+    def get_all_subparts(self) -> List[Part]:
         list_of_parts = []
         self._flatten_list_of_subparts(self, list_of_parts)
         return list_of_parts
+
+    def get_all_physical_objects(self) -> List[Union[Beam, Plate, Wall, Pipe, Shape]]:
+        physical_objects = []
+        for p in self.get_all_subparts() + [self]:
+            physical_objects += list(p.plates) + list(p.beams) + list(p.shapes) + list(p.pipes) + list(p.walls)
+        return physical_objects
 
     def beam_clash_check(self, margins=5e-5):
         """
@@ -403,30 +357,12 @@ class Part(BackendGeom):
         :param margins: Add margins to the volume box (equal in all directions). Input is in meters. Can be negative.
         :return: A map generator for the list of beams and resulting intersecting beams
         """
+        from ada.core.clash_check import basic_intersect
+
         all_parts = self.get_all_subparts() + [self]
         all_beams = [bm for p in all_parts for bm in p.beams]
 
-        def intersect(bm):
-            """
-
-            :param bm:
-            :type bm: ada.Beam
-            """
-            if bm.section.type == "gensec":
-                return bm, []
-            try:
-                vol = bm.bbox
-            except ValueError as e:
-                logging.error(f"Intersect bbox skipped: {e}\n{traceback.format_exc()}")
-                return None
-            vol_in = [x for x in zip(vol[0], vol[1])]
-            beams = filter(
-                lambda x: x != bm,
-                chain.from_iterable([p.beams.get_beams_within_volume(vol_in, margins=margins) for p in all_parts]),
-            )
-            return bm, beams
-
-        return filter(None, map(intersect, all_beams))
+        return filter(None, [basic_intersect(bm, margins, all_parts) for bm in all_beams])
 
     def _flatten_list_of_subparts(self, p, list_of_parts=None):
         for value in p.parts.values():
@@ -505,15 +441,11 @@ class Part(BackendGeom):
         return opposite[pr_type]
 
     @property
-    def parts(self):
-        """
-
-        :return: Dictionary of parts belonging to this part
-        """
+    def parts(self) -> dict[str, Part]:
         return self._parts
 
     @property
-    def shapes(self):
+    def shapes(self) -> List[Shape]:
         return self._shapes
 
     @property
@@ -692,7 +624,7 @@ class Assembly(Part):
         project="AdaProject",
         user: User = User(),
         schema="IFC4",
-        settings=_Settings(),
+        settings=Settings(),
         metadata=None,
         units="m",
         ifc_settings=None,
@@ -720,7 +652,7 @@ class Assembly(Part):
 
         # Model Cache
         if enable_experimental_cache is None:
-            enable_experimental_cache = _Settings.use_experimental_cache
+            enable_experimental_cache = Settings.use_experimental_cache
         self._enable_experimental_cache = enable_experimental_cache
 
         state_path = pathlib.Path("").parent.resolve().absolute() / ".state" / self.name
@@ -827,7 +759,7 @@ class Assembly(Part):
 
         write_assembly_to_cache(self, self._cache_file)
 
-    def read_ifc(self, ifc_file, data_only=False, elements2part=None, cache_model_now=False):
+    def read_ifc(self, ifc_file: os.PathLike, data_only=False, elements2part=None, cache_model_now=False):
         """
         Import from IFC file.
 
@@ -886,7 +818,9 @@ class Assembly(Part):
         if self._enable_experimental_cache is True:
             self._to_cache(ifc_file, cache_model_now)
 
-    def read_fem(self, fem_file, fem_format=None, name=None, fem_converter="default", cache_model_now=False):
+    def read_fem(
+        self, fem_file: os.PathLike, fem_format=None, name=None, fem_converter="default", cache_model_now=False
+    ):
         """
         Import a Finite Element model.
 
@@ -979,7 +913,7 @@ class Assembly(Part):
         from ada.fem.io import fem_executables, get_fem_converters
         from ada.fem.io.utils import folder_prep, should_convert
 
-        base_path = _Settings.scratch_dir / name / name
+        base_path = Settings.scratch_dir / name / name
         fem_res_files = dict(code_aster=base_path.with_suffix(".rmed"), abaqus=base_path.with_suffix(".odb"))
         res_path = fem_res_files.get(fem_format, None)
         metadata = dict() if metadata is None else metadata
@@ -989,6 +923,8 @@ class Assembly(Part):
         if should_convert(res_path, overwrite):
             analysis_dir = folder_prep(scratch_dir, name, overwrite)
             _, fem_exporter = get_fem_converters("", fem_format, fem_converter)
+            if fem_exporter is None:
+                raise ValueError(f'FEM export for "{fem_format}" using "{fem_converter}" is currently not supported')
             fem_inp_files = dict(
                 code_aster=(analysis_dir / name).with_suffix(".export"),
                 abaqus=(analysis_dir / name).with_suffix(".inp"),
@@ -1025,12 +961,7 @@ class Assembly(Part):
         else:
             logging.info(f'Result file "{res_path}" was not found')
 
-    def to_ifc(self, destination_file):
-        """
-        Export Model Assembly to a specified IFC file.
-
-        :param destination_file:
-        """
+    def to_ifc(self, destination_file, include_fem=False) -> None:
         from ada.ifc.export import add_part_objects_to_ifc
 
         f = self.ifc_file
@@ -1042,7 +973,7 @@ class Assembly(Part):
             f.add(s.ifc_beam_type)
 
         for p in self.get_all_parts_in_assembly(include_self=True):
-            add_part_objects_to_ifc(p, f, self)
+            add_part_objects_to_ifc(p, f, self, include_fem)
 
         if len(self.presentation_layers) > 0:
             presentation_style = f.createIfcPresentationStyle("HiddenLayers")
@@ -1072,32 +1003,13 @@ class Assembly(Part):
         merge=False,
         sync=False,
     ):
-        """
-        Push current assembly to BimServer with a comment tag that defines the revision name
-
-        :param comment: A comment describing the model changes
-        :param bimserver_url:
-        :param username:
-        :param password:
-        :param project:
-        :param merge:
-        :param sync:
-        """
+        """Push current assembly to BimServer with a comment tag that defines the revision name"""
         from ada.core.bimserver import BimServerConnect
 
         bimcon = BimServerConnect(bimserver_url, username, password, self)
         bimcon.push(project, comment, merge, sync)
 
     def pull(self, bimserver_url, username, password, project, checkout=False):
-        """
-
-        :param bimserver_url:
-        :param username:
-        :param password:
-        :param project:
-        :param checkout:
-        :return:
-        """
         from ada.core.bimserver import BimServerConnect
 
         bimcon = BimServerConnect(bimserver_url, username, password, self)

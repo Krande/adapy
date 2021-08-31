@@ -105,13 +105,16 @@ class MyRenderer(JupyterRenderer):
         self._fem_refs = dict()
 
     def visible_check(self, obj, obj_type="geom"):
-        from ada import Beam, Part, Plate
+        from ada import Beam, Part, Pipe, Plate, Shape
 
         if obj.name not in self._refs.keys():
             raise ValueError(f'object "{obj.name}" not found')
         adaobj = self._refs[obj.name]
 
-        if obj_type == "geom" and type(adaobj) in (Beam, Plate):
+        if obj_type == "geom" and type(adaobj) in (Beam, Plate, Pipe):
+            obj.visible = not obj.visible
+
+        if obj_type == "geom" and issubclass(type(adaobj), Shape):
             obj.visible = not obj.visible
 
         if obj_type == "mesh" and issubclass(type(adaobj), Part) is True:
@@ -171,7 +174,7 @@ class MyRenderer(JupyterRenderer):
         geom = BufferGeometry(attributes=attributes)
         points_geom = Points(geometry=geom, material=mat, name=pmesh_id)
         lmesh_id = "%s" % uuid.uuid4().hex
-        edges_nodes = list(chain.from_iterable(filter(None, [grab_nodes(el, part.fem) for el in part.fem.elements])))
+        edges_nodes = list(chain.from_iterable(filter(None, [get_vertices_from_elem(el) for el in part.fem.elements])))
         np_edge_vertices = np.array(edges_nodes, dtype=np.float32)
         np_edge_indices = np.arange(np_edge_vertices.shape[0], dtype=np.uint32)
         vertex_col = tuple([x / 255 for x in rgb])
@@ -271,7 +274,7 @@ class MyRenderer(JupyterRenderer):
         # self.AddShapeToScene(geom)
         res = []
 
-        for i, geom in enumerate(pipe.geometries):
+        for i, geom in enumerate([x.solid for x in pipe.segments]):
             try:
                 res += self.DisplayShape(geom, shape_color=pipe.colour_webgl, opacity=0.5)
             except BaseException as e:
@@ -754,7 +757,7 @@ class MyRenderer(JupyterRenderer):
         setref = tmp_data[1]
         fem = self._fem_refs[pref][0]
         edge_geom = self._fem_refs[pref][1]
-        edges_nodes = list(chain.from_iterable(filter(None, [grab_nodes(el, fem, True) for el in fem.elements])))
+        edges_nodes = list(chain.from_iterable(filter(None, [get_vertices_from_elem(el, True) for el in fem.elements])))
         dark_grey = (0.66, 0.66, 0.66)
         color_array = np.array([dark_grey for x in edge_geom.attributes["color"].array], dtype="float32")
 
@@ -762,7 +765,7 @@ class MyRenderer(JupyterRenderer):
         if setref in fem.elsets.keys():
             fem_set = fem.elsets[setref]
             set_edges_nodes = list(
-                chain.from_iterable(filter(None, [grab_nodes(el, fem, True) for el in fem_set.members]))
+                chain.from_iterable(filter(None, [get_vertices_from_elem(el, True) for el in fem_set.members]))
             )
 
             res1 = [locate(edges_nodes, i) for i in set_edges_nodes]
@@ -786,15 +789,17 @@ class MyRenderer(JupyterRenderer):
         edge_geom = self._fem_refs[fem_name][1]
         if type(elem_id) is int:
             el = fem.elements.from_id(elem_id)
-            elem_nodes = grab_nodes(el, fem, True)
+            elem_nodes = get_vertices_from_elem(el, True)
         elif type(elem_id) in (tuple, list):
             elem_nodes = list(
-                chain.from_iterable(filter(None, [grab_nodes(fem.elements.from_id(el), fem, True) for el in elem_id]))
+                chain.from_iterable(
+                    filter(None, [get_vertices_from_elem(fem.elements.from_id(el), True) for el in elem_id])
+                )
             )
         else:
             raise ValueError(f'Unrecognized type "{type(elem_id)}"')
 
-        edges_nodes = list(chain.from_iterable(filter(None, [grab_nodes(el, fem, True) for el in fem.elements])))
+        edges_nodes = list(chain.from_iterable(filter(None, [get_vertices_from_elem(el, True) for el in fem.elements])))
         res1 = [locate(edges_nodes, i) for i in elem_nodes]
         set_edges_indices = chain.from_iterable(res1)
         dark_grey = (0.66, 0.66, 0.66)
@@ -937,15 +942,14 @@ class SectionRenderer:
         # display(widgets.VBox([widgets.HBox([testb]), center, self._fig]))
 
 
-def grab_nodes(el, fem, return_ids=False):
+def get_vertices_from_elem(el, return_ids=False):
     """
 
     :param el:
-    :param fem:
     :param return_ids:
     :type el: ada.fem.Elem
-    :type fem: ada.fem.FEM
     """
+    fem = el.parent
     if el.shape.edges_seq is None:
         return None
     if return_ids:

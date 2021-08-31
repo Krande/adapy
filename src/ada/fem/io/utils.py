@@ -400,7 +400,7 @@ def convert_part_shell_elements_to_plates(p) -> Plates:
 
 
 def convert_part_elem_bm_to_beams(p) -> Beams:
-    return Beams([elem_to_beam(bm, p) for bm in p.fem.elements.beams])
+    return Beams([elem_to_beam(bm, p) for bm in p.fem.elements.lines])
 
 
 def elem_to_beam(elem, parent):

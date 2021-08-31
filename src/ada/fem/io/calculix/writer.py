@@ -284,7 +284,7 @@ def shell_sec_str(part):
 
 
 def beam_sec_str(part):
-    beam_secs = [CcxSection(sec, part).str for sec in part.fem.sections.beams]
+    beam_secs = [CcxSection(sec, part).str for sec in part.fem.sections.lines]
     return "\n".join(beam_secs).rstrip() if len(beam_secs) > 0 else "** No beam sections"
 
 

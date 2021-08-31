@@ -2,8 +2,9 @@ import os
 
 import numpy as np
 
-from ..config import Settings as _Settings
-from ..occ.utils import get_midpoint_of_arc
+from ada.config import Settings as _Settings
+from ada.occ.utils import get_midpoint_of_arc
+
 from .utils import (
     angle_between,
     calc_yvec,

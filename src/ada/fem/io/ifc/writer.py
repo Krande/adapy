@@ -26,7 +26,7 @@ def to_ifc_fem(fem, f):
     )
     subref = create_reference_subrep(f, create_global_axes(f))
     el_ids = []
-    for elem in fem.elements.beams:
+    for elem in fem.elements.lines:
         if elem.id not in el_ids:
             el_ids.append(elem.id)
         else:

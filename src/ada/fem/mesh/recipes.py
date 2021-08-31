@@ -8,7 +8,7 @@ from ada.config import Settings as _Settings
 from ada.fem import FemSection, FemSet
 from ada.ifc.utils import create_guid
 
-from .common import (
+from .gmshapi import (
     _init_gmsh_session,
     eval_thick_normal_from_cog_of_beam_plate,
     get_nodes_and_elements,
@@ -296,7 +296,7 @@ def generalized_mesher(
     model.add(name)
     p = Part("DummyPart") / elements
     if geom_repr in ["shell", "solid"]:
-        p.to_stp(temp_dir / name, geom_repr=geom_repr)
+        p.add_to_step_writer(temp_dir / name, geom_repr=geom_repr)
         gmsh_session.open(str(temp_dir / f"{name}.stp"))
     else:  # beam
         for el in elements:

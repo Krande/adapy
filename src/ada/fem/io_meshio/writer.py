@@ -1,23 +1,19 @@
 import logging
 import os
+from typing import Union
 
 import meshio
 import numpy as np
+from meshio.abaqus._abaqus import abaqus_to_meshio_type
 
+from ada.concepts.levels import Assembly
 from ada.config import Settings as _Settings
+from ada.fem.containers import FEM
 from ada.fem.shapes import ElemShapes
 
 
-def meshio_to_fem(assembly, name, scratch_dir=None, metadata=None):
-    """
-
-    :param assembly:
-    :param name:
-    :param scratch_dir:
-    :param metadata:
-    :type assembly: ada.Assembly
-    :return:
-    """
+def meshio_to_fem(assembly: Assembly, name: str, scratch_dir=None, metadata=None) -> None:
+    """Convert Assembly information to FEM using Meshio"""
     if scratch_dir is None:
         scratch_dir = _Settings.scratch_dir
 
@@ -27,9 +23,9 @@ def meshio_to_fem(assembly, name, scratch_dir=None, metadata=None):
     os.makedirs(analysis_dir, exist_ok=True)
 
     for p in assembly.get_all_parts_in_assembly(include_self=True):
-        if len(p.fem.nodes) == 0:
-            continue
         mesh = fem_to_meshio(p.fem)
+        if mesh is None:
+            continue
         prefix_mapper = dict(abaqus="inp")
         if mesh_format in ["abaqus"]:
             prefix = prefix_mapper[mesh_format]
@@ -46,18 +42,9 @@ def meshio_to_fem(assembly, name, scratch_dir=None, metadata=None):
         print(f'Exported "{mesh_format}" using meshio to "{analysis_dir}"')
 
 
-def fem_to_meshio(fem):
-    """
-
-    :param fem: Ada FEM object
-    :type fem: ada.fem.FEM
-    :return: Meshio MESH object
-    :rtype: meshio.Mesh
-    """
-    from meshio.abaqus._abaqus import abaqus_to_meshio_type
-
+def fem_to_meshio(fem: FEM) -> Union[meshio.Mesh, None]:
     if len(fem.nodes) == 0:
-        logging.error(f"Attempt to convert empty FEM mesh for ({fem.name}) aborted")
+        logging.debug(f"Attempt to convert empty FEM mesh for ({fem.name}) aborted")
         return None
 
     # Points

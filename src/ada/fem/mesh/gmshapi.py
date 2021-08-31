@@ -3,14 +3,23 @@ import os
 
 import numpy as np
 
-from ada import Node, Plate
+from ada import Node, Part, Plate
 from ada.concepts.containers import Nodes
 from ada.config import Settings as _Settings
 from ada.core.utils import clockwise, intersect_calc, roundoff, vector_length
-from ada.fem import Elem, FemSection, FemSet
+from ada.fem import FEM, Elem, FemSection, FemSet
 from ada.fem.containers import FemElements
 
-gmsh_map = {"Triangle 3": "S3", "Quadrilateral 4": "S4R"}
+gmsh_map = {
+    "Triangle 3": "S3",
+    "Triangle 6": "STRI65",
+    "Quadrilateral 4": "S4R",
+    "Quadrilateral 8": "S8R",
+    "Line 2": "B31",
+    "Line 3": "B32",
+    "Tetrahedron 4": "C3D4",
+    "Tetrahedron 10": "C3D10",
+}
 
 
 class GMesh:
@@ -26,7 +35,7 @@ class GMesh:
 
     mesh_map = {"bm1", "B31", "bm2", "B32"}
 
-    def __init__(self, part, work_dir="gmsh", tol=1e-5):
+    def __init__(self, part: Part, work_dir="gmsh", tol=1e-5):
         self._part = part
         self._work_dir = os.path.abspath(work_dir)
         self._tol = tol
@@ -461,18 +470,7 @@ def get_point(gmsh, p, tol=1e-5):
     return gmsh.model.getEntitiesInBoundingBox(*lower.tolist(), *upper.tolist(), 0)
 
 
-def get_nodes_and_elements(gmsh, fem=None, fem_set_name="all_elements"):
-    """
-
-    :param gmsh:
-    :type gmsh: gmsh
-    :param fem:
-    :type fem: ada.fem.FEM
-    :param fem_set_name:
-    :type fem_set_name: str
-    """
-    from ada.fem import FEM
-
+def get_nodes_and_elements(gmsh, fem=None, fem_set_name="all_elements") -> FEM:
     fem = FEM("AdaFEM") if fem is None else fem
 
     nodes = list(gmsh.model.mesh.getNodes(-1, -1))
@@ -490,10 +488,12 @@ def get_nodes_and_elements(gmsh, fem=None, fem_set_name="all_elements"):
     )
 
     # Get elements
-    elemTypes, elemTags, elemNodeTags = gmsh.model.mesh.getElements(2, -1)
+    elemTypes, elemTags, elemNodeTags = gmsh.model.mesh.getElements(-1, -1)
     elements = []
     for k, element_list in enumerate(elemTags):
         face, dim, morder, numv, parv, _ = gmsh.model.mesh.getElementProperties(elemTypes[k])
+        if face == "Point":
+            continue
         elem_type = gmsh_map[face]
         for j, eltag in enumerate(element_list):
             nodes = []
@@ -507,6 +507,7 @@ def get_nodes_and_elements(gmsh, fem=None, fem_set_name="all_elements"):
     fem._elements = FemElements(elements, fem_obj=fem)
     femset = FemSet(fem_set_name, elements, "elset")
     fem.sets.add(femset)
+    return fem
 
 
 def eval_thick_normal_from_cog_of_beam_plate(beam, cog):
@@ -582,39 +583,3 @@ def _init_gmsh_session(silent=False):
     gmsh_print = 1 if silent is False else 0
     gmsh_session.option.setNumber("General.Terminal", gmsh_print)
     return gmsh_session
-
-
-class GmshSession:
-    def __init__(self, persist=True, geom_repr="shall", settings=None):
-        print("init method called")
-        self.gmsh = None
-        self.settings = settings
-        self.geom_repr = geom_repr
-        self.persist = persist
-
-    def run(self, function, *args, **kwargs):
-        print("run function")
-        res = function(self.gmsh, *args, **kwargs)
-        if self.persist is False:
-            self.gmsh.finalize()
-            self.gmsh.initialize()
-            self._add_settings()
-        return res
-
-    def _add_settings(self):
-        if self.settings is not None:
-            for setting, value in self.settings.items():
-                self.gmsh.option.setNumber(setting, value)
-
-    def __enter__(self):
-        print("Starting GMSH session")
-        import gmsh
-
-        self.gmsh = gmsh
-        self.gmsh.initialize()
-        self._add_settings()
-        return self
-
-    def __exit__(self, exc_type, exc_value, exc_traceback):
-        print("Closing GMSH")
-        self.gmsh.finalize()
