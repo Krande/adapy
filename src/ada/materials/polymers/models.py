@@ -9,7 +9,7 @@ from IPython.display import display
 from ada.visualize.plots import easy_plotly
 
 
-class Calibrate(object):
+class Calibrate:
     """
 
 
@@ -385,7 +385,6 @@ class Calibrate(object):
         display(widgets.VBox([widgets.HBox([widgets.VBox([opts_odb, center])]), self._fig]))
 
 
-# region Incompressible
 def neo_hookean(strain, mu, load_type="uniaxial"):
     """
     Neo-Hookean incompressible uniaxial
@@ -431,9 +430,6 @@ def yeoh(strain, c10, c20, c30, load_type="uniaxial"):
         return None
 
 
-# endregion
-
-# region Compressible
 def NH_3D(stretch, param):
     """
     Neo-Hookean. 3D loading specified by stretches.
@@ -538,6 +534,3 @@ def planar_stress(model, trueStrainVec, params):
         lam3 = scipy.optimize.fmin(calc_s33_abs, x0=1 / np.sqrt(lam1), xtol=1e-9, ftol=1e-9, disp=False)
         stress[i] = model([lam1, 1.0, lam3], params)[0, 0]
     return stress
-
-
-# endregion

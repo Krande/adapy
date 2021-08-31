@@ -4,6 +4,7 @@ import pathlib
 
 from ada.config import Settings as _Settings
 from ada.core.constants import color_map as _cmap
+from ada.ifc.utils import create_guid
 from ada.visualize.renderer import MyRenderer
 
 
@@ -12,8 +13,6 @@ class Backend:
         self.name = name
         self.parent = parent
         self._ifc_settings = ifc_settings
-        from ada.ifc.utils import create_guid
-
         self.guid = create_guid() if guid is None else guid
         units = units.lower()
         if units not in _Settings.valid_units:
