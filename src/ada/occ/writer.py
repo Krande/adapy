@@ -3,6 +3,7 @@ import os
 import pathlib
 from typing import Union
 
+from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse
 from OCC.Core.IFSelect import IFSelect_RetError
 from OCC.Core.Interface import Interface_Static_SetCVal
 from OCC.Core.STEPConstruct import stepconstruct_FindEntity
@@ -33,7 +34,7 @@ class StepExporter:
         Interface_Static_SetCVal("write.precision.mode", "1")
         Interface_Static_SetCVal("write.step.assembly", str(assembly_mode))
 
-    def add_to_step_writer(self, obj: valid_types, geom_repr="solid"):
+    def add_to_step_writer(self, obj: valid_types, geom_repr="solid", fuse_piping=False):
         """Write current assembly to STEP file"""
 
         if geom_repr not in ["shell", "solid", "line"]:
@@ -44,13 +45,13 @@ class StepExporter:
         elif type(obj) in (Beam, Plate, Wall):
             self.export_structural(obj, geom_repr)
         elif type(obj) is Pipe:
-            self.export_piping(obj, geom_repr)
+            self.export_piping(obj, geom_repr, fuse_piping)
         elif type(obj) in (Part, Assembly):
             for obj in obj.get_all_physical_objects():
                 if type(obj) in (Plate, Beam, Wall):
                     self.export_structural(obj, geom_repr)
                 elif type(obj) in (Pipe,):
-                    self.export_piping(obj, geom_repr)
+                    self.export_piping(obj, geom_repr, fuse_piping)
                 elif type(obj) is Shape:
                     self.add_geom(obj.geom, obj)
                 else:
@@ -93,11 +94,23 @@ class StepExporter:
         else:
             self.add_geom(stru_obj.solid, stru_obj)
 
-    def export_piping(self, pipe: Pipe, geom_repr):
+    def export_piping(self, pipe: Pipe, geom_repr, fuse_shapes=False):
+        result = None
         for pipe_seg in pipe.segments:
             if geom_repr == "line":
-                self.add_geom(pipe_seg.line, pipe)
+                geom = pipe_seg.line
             elif geom_repr == "shell":
-                self.add_geom(pipe_seg.shell, pipe)
+                geom = pipe_seg.shell
             else:
-                self.add_geom(pipe_seg.solid, pipe)
+                geom = pipe_seg.solid
+
+            if fuse_shapes is True:
+                if result is None:
+                    result = geom
+                else:
+                    result = BRepAlgoAPI_Fuse(result, geom).Shape()
+            else:
+                self.add_geom(geom, pipe)
+
+        if fuse_shapes is True:
+            self.add_geom(result, pipe)

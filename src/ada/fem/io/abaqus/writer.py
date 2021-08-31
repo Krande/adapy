@@ -8,6 +8,9 @@ import numpy as np
 
 from ada.core.utils import NewLine, bool2text
 from ada.fem import FemSet, HistOutput, Load, Step, Surface
+from ada.fem.common import Amplitude
+from ada.fem.elements import Connector
+from ada.materials import Material
 from ada.sections import SectionCat
 
 __all__ = ["main_inp_str", "to_fem"]
@@ -1169,14 +1172,7 @@ def interaction_str(interaction, fem_writer):
  ,  , {interaction.interaction_property.name}"""
 
 
-def material_str(material):
-    """
-
-    :param material:
-    :type material: ada.Material
-    :return:
-    """
-
+def material_str(material: Material) -> str:
     if "aba_inp" in material.metadata.keys():
         return material.metadata["aba_inp"]
     if "rayleigh_damping" in material.metadata.keys():
@@ -1215,13 +1211,7 @@ def material_str(material):
 {density},{exp_str}{d_str}{pl_str}"""
 
 
-def amplitude_str(amplitude):
-    """
-    Create an amplitude string for abaqus input-files
-
-    :param amplitude:
-    :type amplitude: ada.fem.Amplitude
-    """
+def amplitude_str(amplitude: Amplitude) -> str:
     name, x, y, smooth = amplitude.name, amplitude.x, amplitude.y, amplitude.smooth
     a = 1
     data = ""
@@ -1241,15 +1231,7 @@ def amplitude_str(amplitude):
     return amplitude.rstrip()
 
 
-def connector_str(connector, fem_writer):
-    """
-
-    :param connector:
-    :param fem_writer:
-    :type connector: ada.fem.Connector
-    :return:
-    """
-
+def connector_str(connector: Connector, fem_writer) -> str:
     csys_ref = "" if connector.csys is None else f'\n "{connector.csys.name}",'
 
     end1 = get_instance_name(connector.n1, fem_writer)

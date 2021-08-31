@@ -159,7 +159,7 @@ class Section(Backend):
             sec_props.update(dict(OuterCurve=ifc_polyline))
 
             if Settings.use_param_profiles is True:
-                logging.error(f'Export of "{self.type}" profile to parametric IFC profile is not yet added')
+                logging.debug(f'Export of "{self.type}" profile to parametric IFC profile is not yet added')
 
         elif SectionCat.is_box_profile(self.type):
             outer_curve, inner_curve, disconnected = self.cross_sec(True)
@@ -171,7 +171,7 @@ class Section(Backend):
             sec_props.update(dict(OuterCurve=outer_curve, InnerCurves=[inner_curve]))
 
             if Settings.use_param_profiles is True:
-                logging.error(f'Export of "{self.type}" profile to parametric IFC profile is not yet added')
+                logging.debug(f'Export of "{self.type}" profile to parametric IFC profile is not yet added')
 
         elif self.type in SectionCat.circular:
             ifc_sec_type = "IfcCircleProfileDef"
@@ -191,7 +191,7 @@ class Section(Backend):
             sec_props.update(dict(OuterCurve=polyline))
 
             if Settings.use_param_profiles is True:
-                logging.error(f'Export of "{self.type}" profile to parametric IFC profile is not yet added')
+                logging.debug(f'Export of "{self.type}" profile to parametric IFC profile is not yet added')
 
         elif self.type in SectionCat.channels:
             if Settings.use_param_profiles is False:
@@ -298,10 +298,12 @@ class Section(Backend):
 
     @w_top.setter
     def w_top(self, value):
+        """Width of top flange"""
         self._w_top = value
 
     @property
     def w_btn(self):
+        """Width of bottom flange"""
         return self._w_btn
 
     @w_btn.setter
@@ -310,36 +312,27 @@ class Section(Backend):
 
     @property
     def t_w(self):
+        """Thickness of web"""
         return self._t_w
 
     @property
     def t_ftop(self):
+        """Thickness of top flange"""
         return self._t_ftop
 
     @property
     def t_fbtn(self):
-        """
-        Thickness of bottom flange
-
-        :return:
-        """
+        """Thickness of bottom flange"""
         return self._t_fbtn
 
     @property
-    def r(self):
-        """
-        Radius (Outer)
-
-        :return:
-        """
+    def r(self) -> float:
+        """Radius (Outer)"""
         return self._r
 
     @property
-    def wt(self):
-        """
-        Wall thickness
-        :return:
-        """
+    def wt(self) -> float:
+        """Wall thickness"""
         return self._wt
 
     @property
@@ -370,12 +363,7 @@ class Section(Backend):
         return sec_str.replace(".", "_") if sec_str is not None else None
 
     @property
-    def properties(self):
-        """
-
-        :return:
-        :rtype: GeneralProperties
-        """
+    def properties(self) -> GeneralProperties:
         return self._genprops
 
     @property
@@ -414,21 +402,11 @@ class Section(Backend):
         return self._ifc_beam_type
 
     @property
-    def poly_outer(self):
-        """
-
-        :return:
-        :rtype: CurvePoly
-        """
+    def poly_outer(self) -> CurvePoly:
         return self._outer_poly
 
     @property
-    def poly_inner(self):
-        """
-
-        :return:
-        :rtype: CurvePoly
-        """
+    def poly_inner(self) -> CurvePoly:
         return self._inner_poly
 
     def cross_sec(self, solid_repre=True):

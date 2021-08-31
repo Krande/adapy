@@ -35,8 +35,14 @@ class JointReqChecker:
 
         return True
 
-    def eval_joint_req(self):
-        res = all([self.is_equal_num, self.correct_member_types])
+    def eval_joint_req(self, silent=False):
+        is_equal_num = self.is_equal_num
+        correct_mem_types = self.correct_member_types
+
+        res = all([is_equal_num, correct_mem_types])
+        if res is True and silent is False and self.joint.__class__.__name__ != "ABCMeta":
+            mtyp = self.joint.mem_types
+            print(f'Joint match for "{self.joint.__class__.__name__}", Req: types, "{mtyp}"')
         return res
 
 

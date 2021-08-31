@@ -595,11 +595,8 @@ def rotate_shp_3_axis(shape, revolve_axis, rotation):
     @param revolve_axis : rotation axis gp_Ax1
     @return : the rotated shape.
     """
-    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
-    from OCC.Core.gp import gp_Trsf
-
     alpha = gp_Trsf()
-    alpha.SetRotation(revolve_axis, np.radians(rotation))
+    alpha.SetRotation(revolve_axis, np.deg2rad(rotation))
     brep_trns = BRepBuilderAPI_Transform(shape, alpha, False)
     shp = brep_trns.Shape()
     return shp
@@ -625,11 +622,14 @@ def compute_minimal_distance_between_shapes(shp1, shp2):
     return dss
 
 
-def make_sec_face(point, direction, radius):
-
+def make_circular_sec_wire(point, direction, radius):
     circle = gp_Circ(gp_Ax2(point, direction), radius)
     profile_edge = BRepBuilderAPI_MakeEdge(circle).Edge()
-    profile_wire = BRepBuilderAPI_MakeWire(profile_edge).Wire()
+    return BRepBuilderAPI_MakeWire(profile_edge).Wire()
+
+
+def make_circular_sec_face(point, direction, radius):
+    profile_wire = make_circular_sec_wire(point, direction, radius)
     profile_face = BRepBuilderAPI_MakeFace(profile_wire).Face()
     return profile_face
 
@@ -651,15 +651,16 @@ def sweep_pipe(edge, xvec, r, wt, geom_repr="solid"):
     wire = makeWire.Wire()
     try:
         if geom_repr == "solid":
-            i = make_sec_face(point, direction, r - wt)
+            i = make_circular_sec_face(point, direction, r - wt)
             elbow_i = BRepOffsetAPI_MakePipe(wire, i).Shape()
+            o = make_circular_sec_face(point, direction, r)
+            elbow_o = BRepOffsetAPI_MakePipe(wire, o).Shape()
         else:
             elbow_i = None
-
-        o = make_sec_face(point, direction, r)
-        elbow_o = BRepOffsetAPI_MakePipe(wire, o).Shape()
+            o = make_circular_sec_wire(point, direction, r)
+            elbow_o = BRepOffsetAPI_MakePipe(wire, o).Shape()
     except RuntimeError as e:
-        logging.error(f'Elbow creation failed: "{e}"')
+        logging.error(f'Pipe sweep failed: "{e}"')
         return wire
     if geom_repr == "solid":
         boolean_result = BRepAlgoAPI_Cut(elbow_o, elbow_i).Shape()

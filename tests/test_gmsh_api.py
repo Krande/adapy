@@ -3,6 +3,7 @@ import unittest
 from ada import Assembly, Beam, Part, Pipe, Plate, PrimBox, PrimSphere
 from ada.concepts.structural import make_ig_cutplanes
 from ada.config import Settings
+from ada.fem import Step
 from ada.fem.mesh.gmshapiv2 import (
     GmshOptions,
     GmshSession,
@@ -31,16 +32,18 @@ class GmshApiV2(unittest.TestCase):
         self.shp1.add_penetration(PrimSphere("MyCutout", p1, 0.5))
         self.cut_planes = make_ig_cutplanes(self.bm2)
 
-    def test_second_order_pipe(self):
+        self.step = Step("MyStep", "static")
+
+    def test_pipe(self):
         with GmshSession(silent=True, options=GmshOptions(Mesh_ElementOrder=2)) as gs:
             gs.add_obj(self.pipe, "solid")
             gs.mesh(0.02)
             fem = gs.get_fem()
 
         a = Assembly() / (Part("MyFemObjects", fem=fem) / [self.bm1])
-        a.to_fem("my_xdmf_test", "xdmf", overwrite=True, scratch_dir=test_dir, fem_converter="meshio")
+        a.to_fem("my_xdmf_pipe", "xdmf", overwrite=True, scratch_dir=test_dir, fem_converter="meshio")
 
-    def test_second_order_bm(self):
+    def test_beam(self):
         with GmshSession(silent=True, options=GmshOptions(Mesh_ElementOrder=2)) as gs:
             gs.add_obj(self.bm1, "solid")
             gs.mesh(0.1)
@@ -55,8 +58,7 @@ class GmshApiV2(unittest.TestCase):
             gs.add_obj(self.bm3, "line")
             gs.add_obj(self.pl1, "shell")
             gs.add_obj(self.shp1, "solid")
-            # TODO: Fix gmsh shell element extraction
-            # gs.add_obj(self.pipe, "shell")
+            gs.add_obj(self.pipe, "shell")
 
             for cutp in self.cut_planes:
                 gs.add_cutting_plane(cutp, [solid_bm])
@@ -76,11 +78,13 @@ class GmshApiV2(unittest.TestCase):
         print(fem.elements)
 
     def test_diff_geom_repr_in_separate_sessions(self):
-        t1 = GmshTask([self.bm1], "solid", 0.05, options=GmshOptions(Mesh_ElementOrder=2))
-        t2 = GmshTask([self.bm2], "shell", 0.05, options=GmshOptions(Mesh_ElementOrder=2))
-        _ = multisession_gmsh_tasker([t1, t2])
-        # a = Assembly() / (Part("MyFemObjects", fem=fem) / [self.bm1, self.bm2])
-        # a.to_fem("my_aba_analysis", "abaqus", overwrite=True, scratch_dir=test_dir)
+        t1 = GmshTask([self.bm1], "solid", 0.02, options=GmshOptions(Mesh_ElementOrder=2))
+        t2 = GmshTask([self.bm2], "shell", 0.05, options=GmshOptions(Mesh_ElementOrder=1))
+        fem = multisession_gmsh_tasker([t1, t2])
+        print(fem.elements)
+        a = Assembly() / (Part("MyFemObjects", fem=fem) / [self.bm1, self.bm2])
+        a.fem.add_step(self.step)
+        a.to_fem("aba_mixed_order", "abaqus", overwrite=True, scratch_dir=test_dir)
 
 
 if __name__ == "__main__":

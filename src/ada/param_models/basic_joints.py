@@ -19,7 +19,7 @@ def joint_map(joint_name, intersecting_members, centre) -> Union[JointBase, None
             return joint(joint_name, intersecting_members, centre)
 
     member_types = [m.section.type for m in intersecting_members]
-    logging.error(f'Unable to find matching Joint using joint map for members "{member_types}"')
+    logging.debug(f'Unable to find matching Joint using joint map for members "{member_types}"')
     return None
 
 

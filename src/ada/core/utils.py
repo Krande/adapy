@@ -9,7 +9,7 @@ from decimal import ROUND_HALF_EVEN, Decimal
 
 import numpy as np
 
-from ..config import Settings
+from ada.config import Settings
 
 
 def align_to_plate(plate):

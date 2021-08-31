@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # coding=utf-8
 from ada.concepts.connections import Bolts, Weld
 from ada.concepts.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
@@ -46,6 +48,5 @@ __all__ = [
     "ArcSegment",
     "User",
     "Bolts",
-    "JointBase",
     "Weld",
 ]

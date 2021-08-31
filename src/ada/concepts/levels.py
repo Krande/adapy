@@ -5,7 +5,7 @@ import logging
 import os
 import pathlib
 from itertools import chain
-from typing import List
+from typing import List, Union
 
 from ada.base import BackendGeom
 from ada.concepts.connections import JointBase
@@ -28,7 +28,7 @@ from ada.concepts.primitives import (
 )
 from ada.concepts.structural import Beam, Material, Plate, Section, Wall
 from ada.config import Settings, User
-from ada.fem import FEM, Elem, FemSet
+from ada.fem import FEM
 from ada.ifc.utils import create_guid
 
 
@@ -224,7 +224,7 @@ class Part(BackendGeom):
                 p.add_penetration(pen, False)
         return pen
 
-    def add_elements_from_ifc(self, ifc_file_path: str, data_only=False):
+    def add_elements_from_ifc(self, ifc_file_path: os.PathLike, data_only=False):
         a = Assembly("temp")
         a.read_ifc(ifc_file_path, data_only=data_only)
         all_shapes = [shp for p in a.get_all_subparts() for shp in p.shapes] + a.shapes
@@ -297,38 +297,6 @@ class Part(BackendGeom):
             convert_part_objects(self, skip_plates, skip_beams)
         logging.info("Conversion complete")
 
-    def create_fem_elem_from_obj(self, obj, el_type=None) -> Elem:
-        """Converts structural object to FEM elements. Currently only BEAM is supported"""
-        from ada.fem import FemSection
-
-        if type(obj) is not Beam:
-            raise NotImplementedError(f'Object type "{type(obj)}" is not yet supported')
-
-        el_type = "B31" if el_type is None else el_type
-
-        res = self.fem.nodes.add(obj.n1)
-        if res is not None:
-            obj.n1 = res
-        res = self.fem.nodes.add(obj.n2)
-        if res is not None:
-            obj.n2 = res
-
-        elem = Elem(None, [obj.n1, obj.n2], el_type)
-        self.fem.add_elem(elem)
-        femset = FemSet(f"{obj.name}_set", [elem.id], "elset")
-        self.fem.add_set(femset)
-        self.fem.add_section(
-            FemSection(
-                f"d{obj.name}_sec",
-                "beam",
-                femset,
-                obj.material,
-                obj.section,
-                obj.ori[1],
-            )
-        )
-        return elem
-
     def get_part(self, name) -> Part:
         return self.parts[name]
 
@@ -375,7 +343,7 @@ class Part(BackendGeom):
         self._flatten_list_of_subparts(self, list_of_parts)
         return list_of_parts
 
-    def get_all_physical_objects(self):
+    def get_all_physical_objects(self) -> List[Union[Beam, Plate, Wall, Pipe, Shape]]:
         physical_objects = []
         for p in self.get_all_subparts() + [self]:
             physical_objects += list(p.plates) + list(p.beams) + list(p.shapes) + list(p.pipes) + list(p.walls)
@@ -659,7 +627,7 @@ class Assembly(Part):
         settings=Settings(),
         metadata=None,
         units="m",
-        ifcSettings=None,
+        ifc_settings=None,
         clear_cache=False,
         enable_experimental_cache=None,
     ):
@@ -679,7 +647,7 @@ class Assembly(Part):
         self._ifc_sections = None
         self._ifc_materials = None
         self._source_ifc_files = dict()
-        self._ifcSettings = ifcSettings
+        self._ifc_settings = ifc_settings
         self._presentation_layers = []
 
         # Model Cache
@@ -791,7 +759,7 @@ class Assembly(Part):
 
         write_assembly_to_cache(self, self._cache_file)
 
-    def read_ifc(self, ifc_file, data_only=False, elements2part=None, cache_model_now=False):
+    def read_ifc(self, ifc_file: os.PathLike, data_only=False, elements2part=None, cache_model_now=False):
         """
         Import from IFC file.
 
@@ -850,7 +818,9 @@ class Assembly(Part):
         if self._enable_experimental_cache is True:
             self._to_cache(ifc_file, cache_model_now)
 
-    def read_fem(self, fem_file, fem_format=None, name=None, fem_converter="default", cache_model_now=False):
+    def read_fem(
+        self, fem_file: os.PathLike, fem_format=None, name=None, fem_converter="default", cache_model_now=False
+    ):
         """
         Import a Finite Element model.
 

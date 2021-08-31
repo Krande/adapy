@@ -192,11 +192,11 @@ class BackendGeom(Backend):
 
         return pen
 
-    def to_stp(self, destination_file, geom_repr="solid", schema="AP242", silent=False):
+    def to_stp(self, destination_file, geom_repr="solid", schema="AP242", silent=False, fuse_piping=False):
         from ada.occ.writer import StepExporter
 
         step_export = StepExporter(schema)
-        step_export.add_to_step_writer(self, geom_repr)
+        step_export.add_to_step_writer(self, geom_repr, fuse_piping=fuse_piping)
         step_export.write_to_file(destination_file, silent)
 
     def render_locally(

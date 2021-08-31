@@ -1,7 +1,8 @@
+from __future__ import annotations
+
 import numpy as np
 
 from ada.base import Backend
-from ada.fem import Bc
 
 
 class Node:
@@ -47,7 +48,8 @@ class Node:
         return self.p[2]
 
     @property
-    def bc(self) -> Bc:
+    def bc(self):
+        """:rtype: ada.fem.Bc"""
         return self._bc
 
     @bc.setter

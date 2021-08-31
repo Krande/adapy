@@ -18,7 +18,7 @@ from ada.config import Settings
 from ada.core.utils import make_name_fem_ready
 from ada.fem import FEM, Elem, FemSection, FemSet
 from ada.fem.containers import FemElements
-from ada.fem.io_meshio import ada_to_meshio_type, meshio_ordering
+from ada.fem.io_meshio import ada_to_meshio_type, gmsh_to_meshio_ordering
 from ada.ifc.utils import create_guid
 
 from .gmshapi import eval_thick_normal_from_cog_of_beam_plate, gmsh_map
@@ -89,7 +89,7 @@ class GmshSession:
             logging.info(f"geom_repr for object type {type(obj)} must be solid. Changing to that now")
             geom_repr = "solid"
 
-        obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent)
+        obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent, fuse_piping=True)
         entities = self.model.occ.importShapes(str(temp_dir / f"{name}.stp"))
         self.model.occ.synchronize()
 
@@ -112,6 +112,7 @@ class GmshSession:
             for obj in cut.cut_objects:
                 res = self.model.occ.fragment(obj.entities, [(2, rect)], removeTool=True)
                 obj.entities = [(dim, r) for dim, r in res[0] if dim == 3]
+            self.model.occ.remove([(2, rect)], True)
 
         rem_ids = [(2, c.gmsh_id) for c in self.cutting_planes]
         self.model.occ.remove(rem_ids, True)
@@ -284,6 +285,24 @@ def get_elements_from_entities(model: gmsh.model, entities, fem: FEM) -> List[El
     return elements
 
 
+def is_reorder_necessary(elem_type):
+    meshio_type = ada_to_meshio_type[elem_type]
+    if meshio_type in gmsh_to_meshio_ordering.keys():
+        return True
+    else:
+        return False
+
+
+def node_reordering(elem_type, nodes):
+    """Based on work in meshio"""
+    meshio_type = ada_to_meshio_type[elem_type]
+    order = gmsh_to_meshio_ordering.get(meshio_type, None)
+    if order is None:
+        return None
+
+    return [nodes[i] for i in order]
+
+
 def multisession_gmsh_tasker(gmsh_tasks: List[GmshTask]):
     fem = FEM("AdaFEM")
     for gtask in gmsh_tasks:
@@ -293,23 +312,6 @@ def multisession_gmsh_tasker(gmsh_tasks: List[GmshTask]):
                 gs.add_obj(obj, gtask.geom_repr)
             gs.mesh(gtask.mesh_size)
             # TODO: Add operand type += for FEM
-            # fem += gs.get_fem()
+            tmp_fem = gs.get_fem()
+            fem += tmp_fem
     return fem
-
-
-def is_reorder_necessary(elem_type):
-    meshio_type = ada_to_meshio_type[elem_type]
-    if meshio_type in meshio_ordering.keys():
-        return True
-    else:
-        return False
-
-
-def node_reordering(elem_type, nodes):
-    """Based on work in meshio"""
-    meshio_type = ada_to_meshio_type[elem_type]
-    order = meshio_ordering.get(meshio_type, None)
-    if order is None:
-        return None
-
-    return [nodes[i] for i in order]

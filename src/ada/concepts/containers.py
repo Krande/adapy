@@ -1,18 +1,20 @@
+from __future__ import annotations
+
 import logging
 import reprlib
 from bisect import bisect_left, bisect_right
 from itertools import chain
 from operator import attrgetter
-from typing import Iterable
+from typing import Iterable, List, Union
 
 import numpy as np
 import toolz
 from pyquaternion import Quaternion
 
 from ada.config import Settings
+from ada.core.utils import Counter, points_in_cylinder, roundoff, vector_length
 from ada.materials import Material
 
-from ..core.utils import Counter, points_in_cylinder, roundoff, vector_length
 from .points import Node
 from .structural import Beam, Plate, Section
 
@@ -660,12 +662,12 @@ class Nodes:
         self._maxid = max(self._idmap.keys()) if len(self._nodes) > 0 else 0
         self._bbox = self._get_bbox() if len(self._nodes) > 0 else None
 
-    def renumber(self):
+    def renumber(self, start_id: int = 1):
         """
         Ensures that the node numberings starts at 1 and has no holes in its numbering.
 
         """
-        for i, n in enumerate(sorted(self._nodes, key=attrgetter("id")), start=1):
+        for i, n in enumerate(sorted(self._nodes, key=attrgetter("id")), start=start_id):
             if i != n.id:
                 n.id = i
 
@@ -907,11 +909,10 @@ class Nodes:
         insert_node(node, index)
         return node
 
-    def remove(self, nodes):
+    def remove(self, nodes: Union[Node, List[Node]]):
         """
         Remove node from the nodes container
         :param nodes: Node-object to be removed
-        :type nodes: ada.Node or List[ada.Node]
         :return:
         """
         from collections.abc import Iterable
