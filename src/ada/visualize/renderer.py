@@ -1,7 +1,5 @@
 import logging
 import uuid
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from itertools import chain
 from random import randint
 
@@ -29,21 +27,6 @@ from pythreejs import (
 )
 
 __all__ = ["MyRenderer", "SectionRenderer"]
-
-
-@dataclass
-class BaseRenderer(ABC):
-    render_objects: [object]
-
-    def add_object_to_renderer(self, obj):
-        self.render_objects.append(obj)
-
-    def build_displayable_objects(self):
-        """Build all elements for visualization"""
-
-    @abstractmethod
-    def display(self):
-        """Display graphic on screen depending on context"""
 
 
 class MyRenderer(JupyterRenderer):

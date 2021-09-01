@@ -15,18 +15,18 @@ from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeWire,
     BRepBuilderAPI_Transform,
 )
+from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
 from OCC.Core.BRepFill import BRepFill_Filling
 from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
 from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder
 from OCC.Core.ChFi2d import ChFi2d_AnaFilletAlgo
 from OCC.Core.GeomAbs import GeomAbs_C0
-
-# Check to see if loading all this on the top affects speed negatively in usability terms
 from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Circ, gp_Dir, gp_Pln, gp_Pnt, gp_Trsf, gp_Vec
 from OCC.Core.TopoDS import (
     TopoDS_Compound,
     TopoDS_Edge,
+    TopoDS_Face,
     TopoDS_Shape,
     TopoDS_Shell,
     TopoDS_Solid,
@@ -602,13 +602,8 @@ def rotate_shp_3_axis(shape, revolve_axis, rotation):
     return shp
 
 
-def compute_minimal_distance_between_shapes(shp1, shp2):
-    """
-    compute the minimal distance between 2 shapes
-
-    :rtype: OCC.Core.BRepExtrema.BRepExtrema_DistShapeShape
-    """
-    from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
+def compute_minimal_distance_between_shapes(shp1, shp2) -> BRepExtrema_DistShapeShape:
+    """Compute the minimal distance between 2 shapes"""
 
     dss = BRepExtrema_DistShapeShape()
     dss.LoadS1(shp1)
@@ -622,16 +617,15 @@ def compute_minimal_distance_between_shapes(shp1, shp2):
     return dss
 
 
-def make_circular_sec_wire(point, direction, radius):
+def make_circular_sec_wire(point: gp_Pnt, direction: gp_Dir, radius) -> TopoDS_Wire:
     circle = gp_Circ(gp_Ax2(point, direction), radius)
     profile_edge = BRepBuilderAPI_MakeEdge(circle).Edge()
     return BRepBuilderAPI_MakeWire(profile_edge).Wire()
 
 
-def make_circular_sec_face(point, direction, radius):
+def make_circular_sec_face(point: gp_Pnt, direction: gp_Dir, radius) -> TopoDS_Face:
     profile_wire = make_circular_sec_wire(point, direction, radius)
-    profile_face = BRepBuilderAPI_MakeFace(profile_wire).Face()
-    return profile_face
+    return BRepBuilderAPI_MakeFace(profile_wire).Face()
 
 
 def sweep_pipe(edge, xvec, r, wt, geom_repr="solid"):

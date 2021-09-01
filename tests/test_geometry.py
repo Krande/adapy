@@ -14,16 +14,17 @@ from ada.core.utils import (
     roundoff,
 )
 
-# Arbitrary global coordinates
-pA = (1, 1, 0)
-# Global axis
-globx = (1, 0, 0)
-globy = (0, 1, 0)
-globz = (0, 0, 1)
-csysA = np.array([np.array(globx).astype(float), np.array(globy).astype(float), np.array(globz).astype(float)])
-
 
 class BasicTransforms(unittest.TestCase):
+    def setUp(self) -> None:
+        # Arbitrary global coordinates
+        self.pA = (1, 1, 0)
+        # Global axis
+        globx = (1, 0, 0)
+        globy = (0, 1, 0)
+        globz = (0, 0, 1)
+        self.csysA = np.array([np.array(x).astype(float) for x in [globx, globy, globz]])
+
     def test_rotate_about_Z(self):
         origin = (0, 0, 0)
         normal = (0, 0, 1)
@@ -32,7 +33,7 @@ class BasicTransforms(unittest.TestCase):
         xvec = (0, 1, 0)  # Rotate
         yvec = np.cross(normal, xvec).astype(float)
         csys2 = np.array([np.array(xvec).astype(float), yvec, np.array(normal).astype(float)])
-        rp2 = np.array(origin) + np.dot(rotation_matrix_csys_rotate(csysA, csys2), pA)
+        rp2 = np.array(origin) + np.dot(rotation_matrix_csys_rotate(self.csysA, csys2), self.pA)
         assert tuple([roundoff(x) for x in rp2]) == (1.0, -1.0, 0.0)
 
         # Rotate another 90 degrees counter-clockwise
@@ -40,11 +41,11 @@ class BasicTransforms(unittest.TestCase):
         yvec = np.cross(normal, xvec).astype(float)
         csys3 = np.array([np.array(xvec).astype(float), yvec, np.array(normal).astype(float)])
 
-        rp3 = np.array(origin) + np.dot(rotation_matrix_csys_rotate(csysA, csys3), pA)
+        rp3 = np.array(origin) + np.dot(rotation_matrix_csys_rotate(self.csysA, csys3), self.pA)
         assert tuple([roundoff(x) for x in rp3]) == (-1.0, -1.0, 0)
 
-        rp4 = np.array(origin) + np.dot(rotation_matrix_csys_rotate(csys3, csysA), rp3)
-        assert tuple([roundoff(x) for x in rp4]) == tuple([float(x) for x in pA])
+        rp4 = np.array(origin) + np.dot(rotation_matrix_csys_rotate(csys3, self.csysA), rp3)
+        assert tuple([roundoff(x) for x in rp4]) == tuple([float(x) for x in self.pA])
 
 
 class CoordinateSystems(unittest.TestCase):

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import List, Union
 
@@ -8,7 +8,7 @@ from ada.concepts.piping import Pipe
 from ada.concepts.primitives import Shape
 from ada.concepts.structural import Beam, Plate, Wall
 
-from .occ_to_threejs import ThreeJSVizObj
+from .occ_to_threejs import VizObj
 
 
 class Renderer(Enum):
@@ -26,12 +26,17 @@ class Camera:
 
 @dataclass
 class Visualize:
-    renderer = Renderer.VTK
+    renderer = Renderer.PYTHREEJS
     camera: Camera = Camera()
-    objects: List[ThreeJSVizObj] = field(init=False)
+    objects: List[VizObj] = None
+    edge_color = (32, 32, 32)
 
-    def add_obj(self, obj: Union[Beam, Plate, Wall, Shape, Pipe], edge_color, transparency, opacity):
-        self.objects.append(ThreeJSVizObj(obj, edge_color, transparency, opacity))
+    def __post_init__(self):
+        if self.objects is None:
+            self.objects = []
+
+    def add_obj(self, obj: Union[Beam, Plate, Wall, Shape, Pipe], geom_repr: str = "solid"):
+        self.objects.append(VizObj(obj, geom_repr, self.edge_color))
 
     def set_camera(self, origin, target, fov):
         self.camera.origin = origin
@@ -39,4 +44,9 @@ class Visualize:
         self.camera.fov = fov
 
     def display(self):
-        raise NotImplementedError()
+        from ipygany import Scene
+
+        meshes = []
+        for obj in self.objects:
+            meshes.append(obj.convert_to_ipygany_mesh())
+        return Scene(meshes)

@@ -6,15 +6,16 @@ from ada.materials.metals import CarbonSteel
 
 test_folder = Settings.test_dir / "beams"
 
-# Rotational Relationships
-section = "HP200x10"
-angles = [0, 90, 180, 270]
-vectorX = [(0, 0, 1), (0, -1, 0), (0, 0, -1), (0, 1, 0)]
-vectorY = [(0, 0, 1), (1, 0, 0), (0, 0, -1), (-1, 0, 0)]
-vectorZ = [(0, 1, 0), (-1, 0, 0), (0, -1, 0), (1, 0, 0)]
-
 
 class BeamIO(unittest.TestCase):
+    def setUp(self) -> None:
+        # Rotational Relationships
+        self.section = "HP200x10"
+        self.angles = [0, 90, 180, 270]
+        self.vectorX = [(0, 0, 1), (0, -1, 0), (0, 0, -1), (0, 1, 0)]
+        self.vectorY = [(0, 0, 1), (1, 0, 0), (0, 0, -1), (-1, 0, 0)]
+        self.vectorZ = [(0, 1, 0), (-1, 0, 0), (0, -1, 0), (1, 0, 0)]
+
     def test_beam_to_from_ifc(self):
 
         bm = Beam(
@@ -95,25 +96,26 @@ class BeamIO(unittest.TestCase):
         p = Part("Part")
         a.add_part(p)
 
-        for i, angle in enumerate(angles):
+        for i, angle in enumerate(self.angles):
             # Along X-Axis
             bm = Beam(
                 f"bmX_n{i}_a",
                 n1=[0, 0, 0],
                 n2=[5, 0, 0],
-                sec=section,
+                sec=self.section,
                 angle=angle,
                 metadata=dict(props=dict(axis="X", angle=angle, vector=None)),
             )
-            assert tuple(bm.up.tolist()) == vectorX[i]
+
+            assert tuple(bm.up.tolist()) == self.vectorX[i]
             p.add_beam(bm)
             bm = Beam(
                 f"bmX_n{i}_v",
                 n1=[0, 0, 0],
                 n2=[5, 0, 0],
-                sec=section,
-                up=vectorX[i],
-                metadata=dict(props=dict(axis="X", angle=None, vector=vectorX[i])),
+                sec=self.section,
+                up=self.vectorX[i],
+                metadata=dict(props=dict(axis="X", angle=None, vector=self.vectorX[i])),
             )
             p.add_beam(bm)
             # Must fix error in 270 deg angle calculation
@@ -124,19 +126,19 @@ class BeamIO(unittest.TestCase):
                 f"bmY_n{i}_a",
                 n1=[0, 0, 0],
                 n2=[0, 5, 0],
-                sec=section,
+                sec=self.section,
                 angle=angle,
                 metadata=dict(props=dict(axis="Y", angle=angle, vector=None)),
             )
             p.add_beam(bm)
-            assert tuple(bm.up.tolist()) == vectorY[i]
+            assert tuple(bm.up.tolist()) == self.vectorY[i]
             bm = Beam(
                 f"bmY_n{i}_v",
                 n1=[0, 0, 0],
                 n2=[0, 5, 0],
-                sec=section,
-                up=vectorY[i],
-                metadata=dict(props=dict(axis="Y", angle=None, vector=vectorY[i])),
+                sec=self.section,
+                up=self.vectorY[i],
+                metadata=dict(props=dict(axis="Y", angle=None, vector=self.vectorY[i])),
             )
             p.add_beam(bm)
             # assert bm._angle == angle
@@ -146,19 +148,19 @@ class BeamIO(unittest.TestCase):
                 f"bmZ_n{i}_a",
                 n1=[0, 0, 0],
                 n2=[0, 0, 5],
-                sec=section,
+                sec=self.section,
                 angle=angle,
                 metadata=dict(props=dict(axis="Z", angle=angle, vector=None)),
             )
             p.add_beam(bm)
-            assert tuple(bm.up.tolist()) == vectorZ[i]
+            assert tuple(bm.up.tolist()) == self.vectorZ[i]
             bm = Beam(
                 f"bmZ_n{i}_v",
                 n1=[0, 0, 0],
                 n2=[0, 0, 5],
-                sec=section,
-                up=vectorZ[i],
-                metadata=dict(props=dict(axis="Z", angle=None, vector=vectorZ[i])),
+                sec=self.section,
+                up=self.vectorZ[i],
+                metadata=dict(props=dict(axis="Z", angle=None, vector=self.vectorZ[i])),
             )
             p.add_beam(bm)
             # assert bm._angle == angle
@@ -178,7 +180,7 @@ class BeamIO(unittest.TestCase):
                 "bm_test2X0",
                 n1=[0, 0, 0],
                 n2=[5, 0, 0],
-                sec=section,
+                sec=self.section,
                 angle=0,
                 metadata=dict(props=props),
             )
@@ -188,7 +190,7 @@ class BeamIO(unittest.TestCase):
                 "bm_test2X90",
                 n1=[0, 0, 1],
                 n2=[5, 0, 1],
-                sec=section,
+                sec=self.section,
                 angle=90,
                 metadata=dict(props=props),
             )
@@ -198,7 +200,7 @@ class BeamIO(unittest.TestCase):
                 "bm_test2Y0",
                 n1=[0, 0, 2],
                 n2=[0, 5, 2],
-                sec=section,
+                sec=self.section,
                 angle=0,
                 metadata=dict(props=props),
             )
@@ -208,7 +210,7 @@ class BeamIO(unittest.TestCase):
                 "bm_test2Y90",
                 n1=[0, 0, 3],
                 n2=[0, 5, 3],
-                sec=section,
+                sec=self.section,
                 angle=90,
                 metadata=dict(props=props),
             )
