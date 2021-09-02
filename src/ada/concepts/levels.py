@@ -1150,28 +1150,27 @@ class FEM:
     metadata: dict = field(default_factory=dict)
     parent: Part = field(init=True, default=None)
 
-    masses: dict = field(init=False, default_factory=dict)
-    surfaces: dict = field(init=False, default_factory=dict)
-    amplitudes: dict = field(init=False, default_factory=dict)
-    connectors: dict = field(init=False, default_factory=dict)
-    connector_sections: dict = field(init=False, default_factory=dict)
-    springs: dict = field(init=False, default_factory=dict)
-    intprops: dict = field(init=False, default_factory=dict)
-    interactions: dict = field(init=False, default_factory=dict)
-    sensors: dict = field(init=False, default_factory=dict)
-    predefined_fields: dict = field(init=False, default_factory=dict)
-    lcsys: dict = field(init=False, default_factory=dict)
+    masses: dict[str, Mass] = field(init=False, default_factory=dict)
+    surfaces: dict[str, Surface] = field(init=False, default_factory=dict)
+    amplitudes: dict[str, Amplitude] = field(init=False, default_factory=dict)
+    connectors: dict[str, Connector] = field(init=False, default_factory=dict)
+    connector_sections: dict[str, ConnectorSection] = field(init=False, default_factory=dict)
+    springs: dict[str, Spring] = field(init=False, default_factory=dict)
+    intprops: dict[str, InteractionProperty] = field(init=False, default_factory=dict)
+    interactions: dict[str, Interaction] = field(init=False, default_factory=dict)
+    predefined_fields: dict[str, PredefinedField] = field(init=False, default_factory=dict)
+    lcsys: dict[str, Csys] = field(init=False, default_factory=dict)
 
-    bcs: list = field(init=False, default_factory=list)
-    constraints: list = field(init=False, default_factory=list)
-    steps: list = field(init=False, default_factory=list)
+    bcs: List[Bc] = field(init=False, default_factory=list)
+    constraints: List[Constraint] = field(init=False, default_factory=list)
+    steps: List[Step] = field(init=False, default_factory=list)
 
-    nodes: Nodes = Nodes()
-    elements: FemElements = FemElements()
-    sets: FemSets = FemSets()
-    sections: FemSections = FemSections()
-    subroutine: str = None
+    nodes: Nodes = field(default_factory=Nodes, init=True)
+    elements: FemElements = field(default_factory=FemElements, init=True)
+    sets: FemSets = field(default_factory=FemSets, init=True)
+    sections: FemSections = field(default_factory=FemSections, init=True)
     initial_state: PredefinedField = field(default=None, init=True)
+    subroutine: str = field(default=None, init=True)
 
     def __post_init__(self):
         self.nodes.parent = self
@@ -1318,22 +1317,6 @@ class FEM:
     def add_amplitude(self, amplitude: Amplitude):
         amplitude.parent = self
         self.amplitudes[amplitude.name] = amplitude
-
-    def add_sensor(self, name, point, comment, tol=1e-2):
-        """
-
-        :param name: Name of coordinate set
-        :param point: Sensor Coordinate
-        :param comment: Comment
-        :param tol:
-        """
-        fem_set = FemSet(name, [], "nset", metadata=dict(comment=comment))
-        self.add_set(fem_set, p=point, tol=tol, single_member=True)
-        if name in self.sensors.keys():
-            raise Exception("{} exists in sensor sets and will be overwritten. Please change name.".format(name))
-
-        self.sensors[name] = fem_set
-        # self._cad[name].add_shape(ada.cad.utils.make_sphere(point, tol), colour='red', transparency=0.5)
 
     def add_predefined_field(self, pre_field: PredefinedField):
         pre_field.parent = self

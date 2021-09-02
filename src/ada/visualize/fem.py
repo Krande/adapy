@@ -6,7 +6,8 @@ from dataclasses import dataclass
 import numpy as np
 from pythreejs import Group
 
-from ..fem import FEM
+from ada.concepts.levels import FEM
+
 from .threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
 

@@ -3,12 +3,14 @@ from __future__ import annotations
 import logging
 from bisect import bisect_left
 from dataclasses import dataclass
+from functools import partial
 from itertools import chain, groupby
 from operator import attrgetter
 from typing import Iterable, List
 
 import numpy as np
 
+from ada.concepts.containers import Materials
 from ada.concepts.points import Node
 from ada.core.utils import Counter
 
@@ -429,14 +431,8 @@ class FemElements:
 
 
 class FemSections:
-    """
-
-    :param sections:
-    :param fem_obj:
-    :type fem_obj: ada.fem.FEM
-    """
-
     def __init__(self, sections=None, fem_obj=None):
+        """:type fem_obj: ada.FEM"""
         self._fem_obj = fem_obj
         self._sections = list(sections) if sections is not None else []
         by_types = self._groupby()
@@ -448,15 +444,7 @@ class FemSections:
         if len(self._sections) > 0 and fem_obj is not None:
             self._link_data()
 
-    def _map_materials(self, fem_sec, mat_repo):
-        """
-
-        :param fem_sec:
-        :type fem_sec: ada.fem.FemSection
-        :param mat_repo:
-        :type mat_repo: ada.core.containers.Materials
-        """
-
+    def _map_materials(self, fem_sec: FemSection, mat_repo: Materials):
         if type(fem_sec.material) is str:
             fem_sec._material = mat_repo.get_by_name(fem_sec.material)
 
@@ -471,8 +459,6 @@ class FemSections:
             raise ValueError("Invalid element set has been attached to this fem section")
 
     def _link_data(self):
-        from functools import partial
-
         mat_repo = self._fem_obj.parent.get_assembly().materials
         list(map(partial(self._map_materials, mat_repo=mat_repo), self._sections))
 
@@ -487,12 +473,7 @@ class FemSections:
             solids=list(filter(lambda x: x.type == "solid", self._sections)),
         )
 
-    def __contains__(self, item):
-        """
-
-        :param item:
-        :type item: ada.fem.FemSection
-        """
+    def __contains__(self, item: FemSection):
         return item in self._sections
 
     def __len__(self):
@@ -548,23 +529,10 @@ class FemSections:
             return index
         raise ValueError(f"{repr(item)} not found")
 
-    def _map_femsec_to_elem(self, elem, fem_sec):
-        """
-
-        :param elem:
-        :type elem: ada.fem.Elem
-        """
+    def _map_femsec_to_elem(self, elem: Elem, fem_sec: FemSection):
         elem.fem_sec = fem_sec
 
-    def add(self, sec):
-        """
-
-        :param sec:
-        :type sec: ada.fem.FemSection
-        :return:
-        """
-        from functools import partial
-
+    def add(self, sec: FemSection):
         if sec.name in self.dmap.keys() or sec.name is None:
             raise ValueError(f'Section name "{sec.name}" already exists')
             # sec._name = sec.name+'_1'
@@ -582,14 +550,8 @@ class FemSections:
 
 
 class FemSets:
-    """
-
-    :param sets:
-    :param fem_obj:
-    :type fem_obj: ada.fem.FEM
-    """
-
-    def __init__(self, sets=None, fem_obj=None):
+    def __init__(self, sets: List[FemSet] = None, fem_obj=None):
+        """:type fem_obj: ada.FEM"""
         self._fem_obj = fem_obj
         self._sets = sorted(sets, key=attrgetter("type", "name")) if sets is not None else []
         # Merge same name sets
@@ -599,12 +561,8 @@ class FemSets:
         if len(self._sets) > 0:
             self.link_data()
 
-    def add_references(self):
-        """
-        Add reference to the containing FemSet for each member (node or element)
-
-        :return:
-        """
+    def add_references(self) -> None:
+        """Add reference to the containing FemSet for each member (node or element)"""
 
         def _map_ref(el, fem_set):
             el.refs.append(fem_set)
@@ -713,23 +671,13 @@ class FemSets:
         return self
         # return FemSetsCollection(chain(self.sets, other.sets), fem_obj=self._fem_obj)
 
-    def get_elset_from_name(self, name):
-        """
-
-        :param name:
-        :rtype: ada.fem.classes.Elem
-        """
+    def get_elset_from_name(self, name) -> FemSet:
         if name not in self._elmap.keys():
             raise ValueError(f'The elem id "{name}" is not found')
         else:
             return self._elmap[name]
 
-    def get_nset_from_name(self, name):
-        """
-
-        :param name:
-        :rtype: ada.fem.classes.Elem
-        """
+    def get_nset_from_name(self, name) -> FemSet:
         if name not in self._nomap.keys():
             raise ValueError(f'The node id "{name}" is not found')
         else:
@@ -737,18 +685,10 @@ class FemSets:
 
     @property
     def elements(self):
-        """
-
-        :return:
-        """
         return self._elmap
 
     @property
     def nodes(self):
-        """
-
-        :return:
-        """
         return self._nomap
 
     @property

@@ -1,25 +1,18 @@
 import logging
+import os
 
 import h5py
 import numpy as np
 
 from ada.concepts.containers import Nodes
-from ada.concepts.levels import FEM, Part
+from ada.concepts.levels import FEM, Assembly, Part
 from ada.fem import Elem, FemSet
 from ada.fem.containers import FemElements, FemSets
 
 from .common import med_to_abaqus_type
 
 
-def read_fem(assembly, fem_file, fem_name=None):
-    """
-
-    :param assembly:
-    :param fem_file:
-    :param fem_name:
-    :return:
-    """
-
+def read_fem(assembly: Assembly, fem_file: os.PathLike, fem_name: str = None):
     fem = med_to_fem(fem_file, fem_name)
     if fem_name is None:
         fem_name = fem.name
@@ -123,13 +116,13 @@ def med_to_fem(fem_file, fem_name):
                     element_sets[key] = []
                 element_sets[key] += [element_block[i] for i in val]
 
-    fem._elements = FemElements(elements, fem)
+    fem.elements = FemElements(elements, fem)
 
     elsets = []
     for name, values in element_sets.items():
         elsets.append(FemSet(name, values, "elset", parent=fem))
 
-    fem._sets = FemSets(elsets + point_sets, fem_obj=fem)
+    fem.sets = FemSets(elsets + point_sets, fem_obj=fem)
     return fem
 
 
