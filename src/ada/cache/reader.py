@@ -3,9 +3,11 @@ import logging
 
 import h5py
 
-from ada import Assembly, Beam, Material, Node, Part, Section
 from ada.concepts.containers import Beams, Materials, Nodes, Sections
-from ada.fem import FEM, Elem
+from ada.concepts.levels import FEM, Assembly, Part
+from ada.concepts.points import Node
+from ada.concepts.structural import Beam, Material, Section
+from ada.fem import Elem
 from ada.fem.containers import FemElements
 from ada.materials.metals import CarbonSteel
 
@@ -143,12 +145,12 @@ def get_materials_from_cache(part_cache, parent):
 def get_fem_from_cache(cache_fem):
     node_groups = cache_fem["NODES"]
     fem = FEM(cache_fem.attrs["NAME"])
-    fem._nodes = get_nodes_from_cache(node_groups, fem)
+    fem.nodes = get_nodes_from_cache(node_groups, fem)
     elements = []
     for eltype, mesh in cache_fem["MESH"].items():
         el_ids = mesh["ELEMENTS"][()]
         elements += [Elem(el_id[0], [fem.nodes.from_id(eli) for eli in el_id[1:]], eltype) for el_id in el_ids]
-    fem._elements = FemElements(elements, fem)
+    fem.elements = FemElements(elements, fem)
 
     return fem
 

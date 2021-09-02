@@ -758,12 +758,7 @@ class Nodes:
 
         self._sort()
 
-    def from_id(self, nid):
-        """
-
-        :param nid:
-        :return:
-        """
+    def from_id(self, nid: int):
         if nid not in self._idmap.keys():
             raise ValueError(f'The node id "{nid}" is not found')
         else:

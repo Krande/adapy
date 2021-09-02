@@ -3,10 +3,10 @@ from itertools import chain
 import meshio
 
 from ada.concepts.containers import Nodes
-from ada.concepts.levels import Assembly, Part
+from ada.concepts.levels import FEM, Assembly, Part
 from ada.concepts.points import Node
 from ada.core.utils import Counter
-from ada.fem import FEM, Elem
+from ada.fem import Elem
 from ada.fem.containers import FemElements
 
 from .common import meshio_to_ada_type
@@ -30,7 +30,7 @@ def meshio_read_fem(assembly: Assembly, fem_file, fem_name=None):
         if "cells_id" in mesh.__dict__.keys()
         else [[next(elem_counter) for cell in cellblock.data] for cellblock in mesh.cells]
     )
-    fem._nodes = Nodes([to_node(p) for p in zip(point_ids, mesh.points)])
+    fem.nodes = Nodes([to_node(p) for p in zip(point_ids, mesh.points)])
 
     cell_block_counter = Counter(0)
 

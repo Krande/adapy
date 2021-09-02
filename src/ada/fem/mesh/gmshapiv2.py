@@ -9,6 +9,7 @@ from typing import Iterable, List, Union
 import gmsh
 import numpy as np
 
+from ada import FEM
 from ada.concepts.containers import Nodes
 from ada.concepts.piping import Pipe
 from ada.concepts.points import Node
@@ -16,7 +17,7 @@ from ada.concepts.primitives import Shape
 from ada.concepts.structural import Beam, Plate
 from ada.config import Settings
 from ada.core.utils import make_name_fem_ready
-from ada.fem import FEM, Elem, FemSection, FemSet
+from ada.fem import Elem, FemSection, FemSet
 from ada.fem.containers import FemElements
 from ada.fem.io_meshio import ada_to_meshio_type, gmsh_to_meshio_ordering
 from ada.ifc.utils import create_guid
@@ -134,13 +135,13 @@ class GmshSession:
     def get_fem(self) -> FEM:
         fem = FEM("AdaFEM")
         gmsh_nodes = get_nodes_from_gmsh(self.model, fem)
-        fem._nodes = Nodes(gmsh_nodes, parent=fem)
+        fem.nodes = Nodes(gmsh_nodes, parent=fem)
 
         # Get Elements
         elements = []
         for gmsh_data in self.model_map.values():
             elements += get_elements_from_entities(self.model, gmsh_data.entities, fem)
-        fem._elements = FemElements(elements, fem_obj=fem)
+        fem.elements = FemElements(elements, fem_obj=fem)
 
         # Add FEM sections
         for model_obj, gmsh_data in self.model_map.items():

@@ -6,6 +6,7 @@ from operator import attrgetter
 
 import numpy as np
 
+from ada.concepts.levels import FEM, Part
 from ada.core.utils import NewLine, bool2text
 from ada.fem import FemSet, HistOutput, Load, Step, Surface
 from ada.fem.common import Amplitude
@@ -283,7 +284,7 @@ class AbaqusWriter:
             name=part.name, inp_file="aba_bulk.inp"
         )
 
-    def inst_inp_str(self, part):
+    def inst_inp_str(self, part: Part):
         """
 
         :param part:
@@ -1488,7 +1489,7 @@ def get_instance_name(obj, fem_writer):
             assembly_level = False
     else:
         obj_ref = obj.name
-        assembly_level = obj.on_assembly_level
+        assembly_level = on_assembly_level(obj)
 
     if fem_writer in (Step, Load) and assembly_level is False:
         return f"{obj.parent.instance_name}.{obj_ref}"
@@ -1498,14 +1499,14 @@ def get_instance_name(obj, fem_writer):
         return str(obj_ref)
 
 
-def aba_set_str(aba_set, fem_writer=None):
-    """
+def on_assembly_level(obj: FEM):
+    # TODO: This is not really working correctly. This must be fixed
+    from ada import Assembly
 
-    :param aba_set:
-    :param fem_writer: Which level is the set str written at
-    :type aba_set: FemSet
-    :return:
-    """
+    return True if type(obj.parent.parent) is Assembly else False
+
+
+def aba_set_str(aba_set: FemSet, fem_writer=None):
     if len(aba_set.members) == 0:
         if "generate" in aba_set.metadata.keys():
             if aba_set.metadata["generate"] is False:

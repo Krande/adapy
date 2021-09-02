@@ -25,39 +25,16 @@ class FemBase:
 
     @property
     def parent(self):
-        """
-
-        :rtype: ada.fem.FEM
-        """
+        """:rtype: ada.FEM"""
         return self._parent
 
     @parent.setter
     def parent(self, value):
-        # if type(value) not in (FEM, Step):
-        #     raise ValueError(f'Parent type "{type(value)}" is not supported')
         self._parent = value
 
     @property
     def metadata(self):
         return self._metadata
-
-    @property
-    def on_assembly_level(self):
-        """
-
-        :return:
-        """
-        # TODO: This is not really working correctly. This must be fixed
-        from ada import Assembly
-
-        return True if type(self.parent.parent) is Assembly else False
-
-    @property
-    def instance_name(self):
-        if self.on_assembly_level is False:
-            return self.name
-        else:
-            return self.parent.instance_name + "." + self.name
 
 
 class Csys(FemBase):

@@ -1,16 +1,19 @@
+from __future__ import annotations
 import logging
 import mmap
 import os
 import pathlib
 import re
 from itertools import chain
-
+from typing import List
+from dataclasses import dataclass
 import numpy as np
 
 from ada.concepts.containers import Nodes
+from ada.concepts.points import Node
+from ada.concepts.levels import FEM, Assembly, Part
 from ada.core.utils import Counter, roundoff
 from ada.fem import (
-    FEM,
     Bc,
     Connector,
     ConnectorSection,
@@ -32,19 +35,23 @@ from ada.materials.metals import CarbonSteel
 
 from ..utils import str_to_int
 
+from . import cards
+
 part_name_counter = Counter(1, "Part")
 _re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 
 
-def read_fem(assembly, fem_file, fem_name=None):
-    """
-    This will create and add an AbaqusPart object based on a path reference to a Abaqus input file.
+@dataclass
+class InstanceData:
+    part_ref: str
+    instance_name: str
+    instance_bulk: str
+    metadata: dict
 
-    :param assembly: Assembly object
-    :param fem_file: Absolute or relative path to Abaqus *.inp file. See below for further explanation
-    :param fem_name: Currently not in use.
-    :type assembly: ada.Assembly
-    """
+
+def read_fem(assembly: Assembly, fem_file, fem_name=None):
+    """This will create and add an AbaqusPart object based on a path reference to a Abaqus input file."""
+
     print("Starting import of Abaqus input file")
 
     if fem_name is not None:
@@ -72,33 +79,31 @@ def read_fem(assembly, fem_file, fem_name=None):
 
     inst_end = assembly_str.lower().rfind("\n*end instance")
     inst_end = inst_end + 15 if inst_end != -1 else inst_end
+
     get_materials_from_bulk(assembly, props_str)
     get_intprop_from_lines(assembly, props_str)
 
-    inst_matches = re.compile(r"\*Instance, name=(.*?), part=(.*?)\n(.*?)\*End Instance", _re_in)
-    ass_data = {}
-    for ad in map(get_instance_data, inst_matches.finditer(assembly_str[:inst_end])):
-        if ad[0] not in ass_data.keys():
-            ass_data[ad[0]] = []
-        ass_data[ad[0]].append(ad[1:])
+    ass_data = extract_instance_data(assembly_str[:inst_end])
 
-    import_parts(assembly, bulk_str[:ass_start], ass_data)
+    part_list = import_parts(bulk_str[:ass_start], ass_data, assembly)
+    if len(part_list) == 0:
+        p = get_fem_without_assembly(bulk_str)
+        assembly.add_part(p)
 
-    ass_sets = assembly_str[inst_end:]
-
-    ass_fem = assembly.fem
+        print(8 * "-" + f'Imported "{p.fem.instance_name}"')
 
     if uses_assembly_parts is True:
-        assembly.fem._nodes += get_nodes_from_inp(ass_sets, ass_fem)
-        assembly.fem.lcsys.update(get_lcsys_from_bulk(ass_sets, ass_fem))
-        assembly.fem._elements += get_elem_from_inp(ass_sets, ass_fem)
-        assembly.fem._sets += get_sets_from_bulk(ass_sets, ass_fem)
+        ass_sets = assembly_str[inst_end:]
+        assembly.fem.nodes += get_nodes_from_inp(ass_sets, assembly.fem)
+        assembly.fem.lcsys.update(get_lcsys_from_bulk(ass_sets, assembly.fem))
+        assembly.fem.elements += get_elem_from_inp(ass_sets, assembly.fem)
+        assembly.fem.sets += get_sets_from_bulk(ass_sets, assembly.fem)
         assembly.fem.sets.link_data()
-        assembly.fem.surfaces.update(get_surfaces_from_bulk(ass_sets, ass_fem))
-        assembly.fem._constraints += get_constraints_from_inp(ass_sets, ass_fem)
-        assembly.fem.connector_sections.update(get_connector_sections_from_bulk(props_str, ass_fem))
-        assembly.fem.connectors.update(get_connectors_from_inp(ass_sets, ass_fem))
-        assembly.fem._bcs += get_bcs_from_bulk(props_str, ass_fem)
+        assembly.fem.surfaces.update(get_surfaces_from_bulk(ass_sets, assembly.fem))
+        assembly.fem.constraints += get_constraints_from_inp(ass_sets, assembly.fem)
+        assembly.fem.connector_sections.update(get_connector_sections_from_bulk(props_str, assembly.fem))
+        assembly.fem.connectors.update(get_connectors_from_inp(ass_sets, assembly.fem))
+        assembly.fem.bcs += get_bcs_from_bulk(props_str, assembly.fem)
 
     get_interactions_from_bulk_str(props_str, assembly)
     get_initial_conditions_from_lines(assembly, props_str)
@@ -136,111 +141,87 @@ def import_bulk2(file_path, buffer_function):
             return buffer_function(m)
 
 
-def import_parts(assembly, bulk_str, ass_data):
-    """
-    Import parts from an assembly
+def extract_instance_data(assembly_bulk) -> dict[str:InstanceData]:
+    ass_data = {}
+    for m in cards.inst_matches.finditer(assembly_bulk):
+        d = m.groupdict()
+        inst_name, part_name, bulk_str = d["inst_name"], d["part_name"], d["bulk_str"]
+        inst_data = get_instance_data(inst_name, part_name, bulk_str)
+        if inst_data.part_ref not in ass_data.keys():
+            ass_data[inst_data.part_ref] = []
+        ass_data[inst_data.part_ref].append(inst_data)
 
-    :param assembly:
-    :param bulk_str:
-    :param ass_data:
-    :type assembly: ada.Assembly
-    """
-
-    parts_matches = re.compile(r"\*Part, name=(.*?)\n(.*?)\*End Part", _re_in)
-    part_names = re.compile(r"\*\*\s*PART INSTANCE:\s*(.*?)\n(.*)", _re_in)
-
-    def grab_instance_data(name):
-        if name in ass_data:
-            return ass_data[name]
-        else:
-            return None, None, None
-
-    def get_part(m):
-        name = m.group(1)
-        part_bulk_str = m.group(2)
-        instances = grab_instance_data(name)
-        parts = []
-        for instance in instances:
-            inst_name, inst_bulk, inst_metadata = instance
-            part_bulk_str = inst_bulk if part_bulk_str == "" and inst_bulk != "" else part_bulk_str
-            part = get_part_from_bulk_str(name, part_bulk_str, assembly, inst_name, inst_metadata)
-            parts.append(part)
-        return parts
-
-    def get_part_without_assembly():
-        part_name_matches = list(part_names.finditer(bulk_str))
-        p_nmatch = tuple(part_name_matches)
-
-        if len(p_nmatch) != 1:
-            p_bulk = bulk_str
-            p_name = None
-        else:
-            p_name = p_nmatch[0].group(1)
-            p_bulk = p_nmatch[0].group(2)
-
-        p_name = next(part_name_counter) if p_name is None else p_name
-        return get_part_from_bulk_str(p_name, p_bulk, assembly)
-
-    # import concurrent.futures
-    # with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-    #     futures = []
-    #     for number in parts_matches.finditer(bulk_str):
-    #         future = executor.submit(get_part, number)
-    #         futures.append(future)
-    #
-    #     if len(futures) == 0:
-    #         future = executor.submit(get_part_without_assembly)
-    #         futures.append(future)
-    #
-    #     for future in concurrent.futures.as_completed(futures):
-    #         p = future.result()
-    #         self.assembly.add_part(p)
-    #         print(8 * '-' + f'Imported "{p.fem.instance_name}"')
-    #
-    new_parts = 0
-    from itertools import count
-
-    ncounter = count(1)
-    part_list = list(chain.from_iterable(map(get_part, parts_matches.finditer(bulk_str))))
-    for p in part_list:
-        if p.name is None:
-            p.name = f"Part{next(ncounter)}"
-        if p.name in assembly.parts.keys():
-            p.name = p.fem.name
-        assembly.add_part(p)
-        new_parts += 1
-        print(8 * "-" + f'Imported "{p.fem.instance_name}"')
-    if new_parts == 0:
-        p = get_part_without_assembly()
-        if p.name is None:
-            p.name = f"Part{next(ncounter)}"
-        assembly.add_part(p)
-        print(8 * "-" + f'Imported "{p.fem.instance_name}"')
+    return ass_data
 
 
-def get_part_from_bulk_str(name, bulk_str, parent, instance_name=None, metadata=None):
-    from ada import Part
+def grab_instance_data(ass_data, name):
+    if name in ass_data:
+        return ass_data[name]
+    else:
+        return None, None, None
 
+
+def get_fem_objects(name, part_bulk_str, instances: dict[str, List[InstanceData]]):
+    parts = []
+    for i in instances[name]:
+        p_bulk_str = i.instance_bulk if part_bulk_str == "" and i.instance_bulk != "" else part_bulk_str
+        fem = get_fem_from_bulk_str(name, p_bulk_str, i.instance_name, i.metadata)
+        parts.append(fem)
+    return parts
+
+
+def import_parts(bulk_str, instance_data, assembly) -> List[Part]:
+    part_list = []
+
+    for m in cards.parts_matches.finditer(bulk_str):
+        d = m.groupdict()
+        name = d.get("name")
+        part_bulk_str = d.get("bulk_str")
+        fem_objects = get_fem_objects(name, part_bulk_str, instance_data)
+        for fem in fem_objects:
+            part = Part(name, fem=fem)
+            part = assembly.add_part(part)
+            part_list.append(part)
+            print(8 * "-" + f'Imported "{part.fem.instance_name}"')
+    return part_list
+
+
+def get_fem_without_assembly(bulk_str) -> Part:
+    part_name_matches = list(cards.part_names.finditer(bulk_str))
+    p_nmatch = tuple(part_name_matches)
+
+    if len(p_nmatch) != 1:
+        p_bulk = bulk_str
+        p_name = None
+    else:
+        p_name = p_nmatch[0].group(1)
+        p_bulk = p_nmatch[0].group(2)
+
+    p_name = next(part_name_counter) if p_name is None else p_name
+    fem = get_fem_from_bulk_str(p_name, p_bulk)
+    return Part(p_name, fem=fem)
+
+
+def get_fem_from_bulk_str(name, bulk_str, instance_name=None, metadata=None):
     metadata = dict(move=None, rotate=None) if metadata is None else metadata
     instance_name = name if instance_name is None else instance_name
     if instance_name is None:
         instance_name = "Temp"
-    fem = FEM(name=instance_name, metadata=metadata)
-    part = Part(name, fem=fem, parent=parent)
-    fem._nodes = get_nodes_from_inp(bulk_str, fem)
-    fem.nodes.move(move=fem.metadata["move"], rotate=fem.metadata["rotate"])
-    fem._elements = get_elem_from_inp(bulk_str, fem)
-    fem.elements.build_sets()
-    bulk_sets = get_sets_from_bulk(bulk_str, fem)
-    fem._sets = fem.sets + bulk_sets
-    fem._sections = get_sections_from_inp(bulk_str, fem)
-    fem._bcs += get_bcs_from_bulk(bulk_str, fem)
-    fem._masses = get_mass_from_bulk(bulk_str, fem)
-    fem.surfaces.update(get_surfaces_from_bulk(bulk_str, fem))
-    fem._lcsys = get_lcsys_from_bulk(bulk_str, fem)
-    fem._constraints = get_constraints_from_inp(bulk_str, fem)
 
-    return part
+    fem = FEM(name=instance_name, metadata=metadata)
+    fem.nodes = get_nodes_from_inp(bulk_str, fem)
+    fem.nodes.move(move=fem.metadata["move"], rotate=fem.metadata["rotate"])
+    fem.elements = get_elem_from_inp(bulk_str, fem)
+    fem.elements.build_sets()
+    fem.sets += get_sets_from_bulk(bulk_str, fem)
+    fem.sections = get_sections_from_inp(bulk_str, fem)
+    fem.bcs += get_bcs_from_bulk(bulk_str, fem)
+    fem.masses = get_mass_from_bulk(bulk_str, fem)
+    fem.surfaces.update(get_surfaces_from_bulk(bulk_str, fem))
+    fem.lcsys = get_lcsys_from_bulk(bulk_str, fem)
+    fem.constraints = get_constraints_from_inp(bulk_str, fem)
+
+    return fem
 
 
 def get_initial_conditions_from_lines(assembly, bulk_str):
@@ -351,7 +332,7 @@ def get_intprop_from_lines(assembly, bulk_str):
         assembly.fem.add_interaction_property(InteractionProperty(**props))
 
 
-def get_instance_data(m):
+def get_instance_data(inst_name, p_ref, inst_bulk) -> InstanceData:
     """
 
     Move/rotate data lines are specified here:
@@ -362,9 +343,6 @@ def get_instance_data(m):
 
     move_rot = re.compile(r"(?:^\s*(.*?),\s*(.*?),\s*(.*?)$)", _re_in)
     metadata = dict(move=None, rotate=None)
-    inst_name = m.group(1)
-    p_ref = m.group(2)
-    inst_bulk = m.group(3)
     move = None
     rotate = None
     mr = move_rot.finditer(inst_bulk)
@@ -394,7 +372,7 @@ def get_instance_data(m):
                     tuple(rotate[3:-1]),
                     rotate[-1],
                 )
-    return p_ref, inst_name, inst_bulk, metadata
+    return InstanceData(p_ref, inst_name, inst_bulk, metadata)
 
 
 def mat_str_to_mat_obj(mat_str):
@@ -479,8 +457,6 @@ def get_nodes_from_inp(bulk_str, parent):
     Extract node information from abaqus input file string
 
     """
-    from ada import Node
-
     re_no = re.compile(
         r"^\*Node\s*(?:,\s*nset=(?P<nset>.*?)\n|\n)(?P<members>(?:.*?)(?=\*|\Z))",
         _re_in,
@@ -594,37 +570,21 @@ def get_sections_from_inp(bulk_str, fem):
     return FemSections(chain.from_iterable([iter_beams, iter_shell, iter_solid]), fem)
 
 
-def get_sets_from_bulk(bulk_str, fem):
-    """
+def str_to_ints(instr):
+    try:
+        return [int(x.strip()) for l in instr.splitlines() for x in l.split(",") if x.strip() != ""]
+    except ValueError:
+        return [str(x.strip()) for l in instr.splitlines() for x in l.split(",") if x.strip() != ""]
 
-    :param bulk_str:
-    :param fem:
-    :type fem: ada.fem.FEM
-    :return: Collection of sets
-    :rtype: FemSets
-    """
-    from ada import Assembly
 
-    re_sets = re.compile(
-        r"(?:\*(nset|elset),\s*(?:nset|elset))=(.*?)(?:,\s*(internal\s*)|(?:))"
-        r"(?:,\s*instance=(.*?)|(?:))(?:,\s*(generate)|(?:))\s*\n(?<=)((?:.*?)(?=\*|\Z))",
-        _re_in,
-    )
+def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
+    if fem.parent is not None:
+        all_parts = fem.parent.get_all_parts_in_assembly()
+    else:
+        all_parts = []
 
-    all_parts = fem.parent.get_all_parts_in_assembly()
-
-    def str_to_ints(instr):
-        try:
-            return [int(x.strip()) for l in instr.splitlines() for x in l.split(",") if x.strip() != ""]
-        except ValueError:
-            return [str(x.strip()) for l in instr.splitlines() for x in l.split(",") if x.strip() != ""]
-
-    def get_parent_instance(instance):
-        """
-
-        :rtype: ada.fem.FEM
-        """
-        if instance is None:
+    def get_parent_instance(instance) -> FEM:
+        if instance is None or fem.parent is None:
             return fem
         elif instance is not None and type(fem.parent) is Assembly:
             for p in filter(lambda x: x.fem.instance_name == instance, all_parts):
@@ -654,7 +614,7 @@ def get_sets_from_bulk(bulk_str, fem):
         )
         return fem_set
 
-    return FemSets(list(map(get_set, re_sets.finditer(bulk_str))), fem)
+    return FemSets([get_set(x) for x in cards.re_sets.finditer(bulk_str)], fem)
 
     # import concurrent.futures
     # with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
@@ -667,22 +627,8 @@ def get_sets_from_bulk(bulk_str, fem):
     # return FemSetsCollection(sets, parent)
 
 
-def get_bcs_from_bulk(bulk_str, fem):
-    """
-
-    :param bulk_str:
-    :param fem:
-    :type fem: ada.fem.FEM
-    :return:
-    """
-
+def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
     bc_counter = Counter(1, "bc")
-
-    re_bcs = re.compile(
-        r"(?:\*\*\s*Name:\s*(?P<name>.*?)\s*Type:\s*(?P<type>.*?)\n|)"
-        r"\*Boundary\n(?<=)(?P<content>(?:.*?)(?=\*|\Z))",
-        _re_in,
-    )
 
     def get_dofs(content):
         set_name = None
@@ -752,7 +698,7 @@ def get_bcs_from_bulk(bulk_str, fem):
 
         return Bc(bc_name, fem_set, dofs, parent=fem, **props)
 
-    return [get_bc(match_in) for match_in in re_bcs.finditer(bulk_str)]
+    return [get_bc(match_in) for match_in in cards.re_bcs.finditer(bulk_str)]
 
 
 def get_mass_from_bulk(bulk_str, parent):

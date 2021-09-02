@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import logging
 
 import numpy as np
 
+from ada.concepts.points import Node
 from ada.materials import Material
 
 from .common import Csys, FemBase
@@ -9,19 +12,7 @@ from .sets import FemSet
 
 
 class Elem(FemBase):
-    """
-    Node numbering of elements is based on GMSH doc here http://gmsh.info/doc/texinfo/gmsh.html#Node-ordering
-
-    :param el_id:
-    :param nodes:
-    :param el_type:
-    :param elset:
-    :param fem_sec:
-    :param mass_props:
-    :param parent:
-    :param metadata:
-    :type fem_sec: FemSection
-    """
+    """Node numbering of elements is based on GMSH doc here http://gmsh.info/doc/texinfo/gmsh.html#Node-ordering"""
 
     def __init__(
         self,
@@ -29,17 +20,14 @@ class Elem(FemBase):
         nodes,
         el_type,
         elset=None,
-        fem_sec=None,
+        fem_sec: FemSection = None,
         mass_props=None,
         parent=None,
         metadata=None,
     ):
-        from ada import Node
-
-        super().__init__(el_id, metadata, parent)
+        super(Elem, self).__init__(el_id, metadata, parent)
         self.type = el_type.upper()
         self._el_id = el_id
-
         self._shape = None
 
         if type(nodes[0]) is Node:
@@ -95,12 +83,7 @@ class Elem(FemBase):
         return self._elset
 
     @property
-    def fem_sec(self):
-        """
-
-        :return:
-        :rtype: ada.fem.FemSection
-        """
+    def fem_sec(self) -> FemSection:
         return self._fem_sec
 
     @fem_sec.setter

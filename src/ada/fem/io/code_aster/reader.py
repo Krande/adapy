@@ -4,7 +4,8 @@ import h5py
 import numpy as np
 
 from ada.concepts.containers import Nodes
-from ada.fem import FEM, Elem, FemSet
+from ada.concepts.levels import FEM, Part
+from ada.fem import Elem, FemSet
 from ada.fem.containers import FemElements, FemSets
 
 from .common import med_to_abaqus_type
@@ -18,7 +19,6 @@ def read_fem(assembly, fem_file, fem_name=None):
     :param fem_name:
     :return:
     """
-    from ada import Part
 
     fem = med_to_fem(fem_file, fem_name)
     if fem_name is None:
@@ -67,7 +67,7 @@ def med_to_fem(fem_file, fem_name):
         logging.warning("No node information is found on MED file")
         point_num = np.arange(1, len(points) + 1)
 
-    fem._nodes = Nodes([Node(p, point_num[i]) for i, p in enumerate(points)], parent=fem)
+    fem.nodes = Nodes([Node(p, point_num[i]) for i, p in enumerate(points)], parent=fem)
 
     # Point tags
     tags = None

@@ -3,7 +3,7 @@ from __future__ import annotations
 # coding=utf-8
 from ada.concepts.connections import Bolts, Weld
 from ada.concepts.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
-from ada.concepts.levels import Assembly, Part
+from ada.concepts.levels import FEM, Assembly, Part
 from ada.concepts.piping import Pipe, PipeSegElbow, PipeSegStraight
 from ada.concepts.points import Node
 from ada.concepts.primitives import (
@@ -25,6 +25,7 @@ __author__ = "Kristoffer H. Andersen"
 __all__ = [
     "Assembly",
     "Part",
+    "FEM",
     "Beam",
     "Plate",
     "Pipe",

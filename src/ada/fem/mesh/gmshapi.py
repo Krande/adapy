@@ -3,11 +3,11 @@ import os
 
 import numpy as np
 
-from ada import Node, Part, Plate
+from ada import FEM, Node, Part, Plate
 from ada.concepts.containers import Nodes
 from ada.config import Settings as _Settings
 from ada.core.utils import clockwise, intersect_calc, roundoff, vector_length
-from ada.fem import FEM, Elem, FemSection, FemSet
+from ada.fem import Elem, FemSection, FemSet
 from ada.fem.containers import FemElements
 
 gmsh_map = {
@@ -54,18 +54,6 @@ class GMesh:
         point_tol=_Settings.point_tol,
         gmsh_silent=True,
     ):
-        """
-
-        :param size:
-        :param order:
-        :param max_dim:
-        :param interactive:
-        :param mesh_algo:
-        :param sh_int_points:
-        :param point_tol:
-        :param gmsh_silent:
-        :return:
-        """
         import gmsh
 
         from ada.core.utils import flatten
@@ -110,7 +98,7 @@ class GMesh:
         n_i, n_coords_flat, _ = gmsh.model.mesh.getNodes()
         n_coords = n_coords_flat.reshape(len(n_i), 3)
         nodes = np.c_[n_i, n_coords]
-        fem._nodes = Nodes(from_np_array=nodes, parent=fem)
+        fem.nodes = Nodes(from_np_array=nodes, parent=fem)
 
         # Strange Error. When solving this loop using list comprehension it resulted in doubly defined elements...
         bm_elems = []
@@ -119,7 +107,7 @@ class GMesh:
 
         pl_elems = flatten([self.get_shell_elements(pl_index, order=order) for pl_index in self._pl_map.keys()])
 
-        fem._elements = FemElements(bm_elems + pl_elems, fem_obj=fem)
+        fem.elements = FemElements(bm_elems + pl_elems, fem_obj=fem)
         fem.elements.renumber()
 
         gmsh.finalize()
@@ -470,12 +458,12 @@ def get_point(gmsh, p, tol=1e-5):
     return gmsh.model.getEntitiesInBoundingBox(*lower.tolist(), *upper.tolist(), 0)
 
 
-def get_nodes_and_elements(gmsh, fem=None, fem_set_name="all_elements") -> FEM:
+def get_nodes_and_elements(gmsh, fem: FEM = None, fem_set_name="all_elements") -> FEM:
     fem = FEM("AdaFEM") if fem is None else fem
 
     nodes = list(gmsh.model.mesh.getNodes(-1, -1))
     # Get nodes
-    fem._nodes = Nodes(
+    fem.nodes = Nodes(
         [
             Node(
                 [roundoff(x) for x in gmsh.model.mesh.getNode(n)[0]],
@@ -504,7 +492,7 @@ def get_nodes_and_elements(gmsh, fem=None, fem_set_name="all_elements") -> FEM:
 
             el = Elem(eltag, nodes, elem_type, parent=fem)
             elements.append(el)
-    fem._elements = FemElements(elements, fem_obj=fem)
+    fem.elements = FemElements(elements, fem_obj=fem)
     femset = FemSet(fem_set_name, elements, "elset")
     fem.sets.add(femset)
     return fem

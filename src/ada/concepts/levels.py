@@ -4,8 +4,11 @@ import json
 import logging
 import os
 import pathlib
+from dataclasses import dataclass, field
 from itertools import chain
 from typing import List, Union
+
+import numpy as np
 
 from ada.base import BackendGeom
 from ada.concepts.connections import JointBase
@@ -18,6 +21,7 @@ from ada.concepts.containers import (
     Sections,
 )
 from ada.concepts.piping import Pipe
+from ada.concepts.points import Node
 from ada.concepts.primitives import (
     Penetration,
     PrimBox,
@@ -28,7 +32,15 @@ from ada.concepts.primitives import (
 )
 from ada.concepts.structural import Beam, Material, Plate, Section, Wall
 from ada.config import Settings, User
-from ada.fem import FEM
+from ada.core.utils import vector_length
+from ada.fem.common import Amplitude, Csys
+from ada.fem.constraints import Bc, Constraint, PredefinedField
+from ada.fem.containers import FemElements, FemSections, FemSets
+from ada.fem.elements import Connector, ConnectorSection, Elem, FemSection, Mass, Spring
+from ada.fem.interactions import Interaction, InteractionProperty
+from ada.fem.sets import FemSet
+from ada.fem.steps import Step
+from ada.fem.surfaces import Surface
 from ada.ifc.utils import create_guid
 
 
@@ -92,7 +104,7 @@ class Part(BackendGeom):
         if fem is not None:
             fem.parent = self
 
-        self._fem = FEM(name + "-1", parent=self) if fem is None else fem
+        self.fem = FEM(name + "-1", parent=self) if fem is None else fem
 
     def add_beam(self, beam: Beam) -> Beam:
         if beam.units != self.units:
@@ -200,7 +212,9 @@ class Part(BackendGeom):
             section.units = self.units
         return self._sections.add(section)
 
-    def add_penetration(self, pen: Penetration, add_pen_to_subparts=True) -> Penetration:
+    def add_penetration(
+        self, pen: Union[Penetration, PrimExtrude, PrimRevolve, PrimCyl, PrimBox], add_pen_to_subparts=True
+    ) -> Penetration:
         if type(pen) in (PrimExtrude, PrimRevolve, PrimCyl, PrimBox):
             pen = Penetration(pen, parent=self)
 
@@ -275,7 +289,7 @@ class Part(BackendGeom):
         :param opacity: Assign Opacity upon import
         :param source_units: Unit of the imported STEP file. Default is 'm'
         """
-        from ..occ.utils import extract_shapes
+        from ada.occ.utils import extract_shapes
 
         shapes = extract_shapes(step_path, scale, transform, rotate)
         if len(shapes) > 0:
@@ -300,13 +314,8 @@ class Part(BackendGeom):
     def get_part(self, name) -> Part:
         return self.parts[name]
 
-    def get_by_name(self, name):
-        """
-        Get element of any type by its name.
-
-        :param name:
-        :return:
-        """
+    def get_by_name(self, name) -> Union[Part, Plate, Beam, Shape, Material, None]:
+        """Get element of any type by its name."""
         for p in self.get_all_subparts() + [self]:
             if p.name == name:
                 return p
@@ -472,13 +481,13 @@ class Part(BackendGeom):
     def fem(self) -> FEM:
         return self._fem
 
+    @fem.setter
+    def fem(self, value):
+        self._fem = value
+
     @property
     def gmsh(self):
-        """
-
-        :return:
-        :rtype: ada.fem.io.mesh.GMesh
-        """
+        """:rtype: ada.fem.mesh.GMesh"""
         return self._gmsh
 
     @property
@@ -819,7 +828,12 @@ class Assembly(Part):
             self._to_cache(ifc_file, cache_model_now)
 
     def read_fem(
-        self, fem_file: os.PathLike, fem_format=None, name=None, fem_converter="default", cache_model_now=False
+        self,
+        fem_file: os.PathLike,
+        fem_format: str = None,
+        name: str = None,
+        fem_converter="default",
+        cache_model_now=False,
     ):
         """
         Import a Finite Element model.
@@ -831,9 +845,6 @@ class Assembly(Part):
         :param name:
         :param fem_converter: Set desired fem converter. Use either 'default' or 'meshio'.
         :param cache_model_now:
-        :type fem_file: Union[str, os.PathLike]
-        :type fem_format: str
-        :type name: str
 
         Note! The meshio fem converter implementation currently only supports reading elements and nodes.
         """
@@ -1131,3 +1142,382 @@ class Assembly(Part):
             f'Assembly("{self.name}": Beams: {nbms}, Plates: {npls}, Pipes: {npipes}, '
             f"Shapes: {nshps}, Elements: {nels}, Nodes: {nns})"
         )
+
+
+@dataclass
+class FEM:
+    name: str
+    metadata: dict = field(default_factory=dict)
+    parent: Part = field(init=True, default=None)
+
+    masses: dict = field(init=False, default_factory=dict)
+    surfaces: dict = field(init=False, default_factory=dict)
+    amplitudes: dict = field(init=False, default_factory=dict)
+    connectors: dict = field(init=False, default_factory=dict)
+    connector_sections: dict = field(init=False, default_factory=dict)
+    springs: dict = field(init=False, default_factory=dict)
+    intprops: dict = field(init=False, default_factory=dict)
+    interactions: dict = field(init=False, default_factory=dict)
+    sensors: dict = field(init=False, default_factory=dict)
+    predefined_fields: dict = field(init=False, default_factory=dict)
+    lcsys: dict = field(init=False, default_factory=dict)
+
+    bcs: list = field(init=False, default_factory=list)
+    constraints: list = field(init=False, default_factory=list)
+    steps: list = field(init=False, default_factory=list)
+
+    nodes: Nodes = Nodes()
+    elements: FemElements = FemElements()
+    sets: FemSets = FemSets()
+    sections: FemSections = FemSections()
+    subroutine: str = None
+    initial_state: PredefinedField = field(default=None, init=True)
+
+    def __post_init__(self):
+        self.nodes.parent = self
+        self.elements.parent = self
+        self.sets.parent = self
+        self.sections.parent = self
+
+    def add_elem(self, elem: Elem):
+        elem.parent = self
+        self.elements.add(elem)
+
+    def add_section(self, section: FemSection):
+        section.parent = self
+        self.sections.add(section)
+
+    def add_bc(self, bc: Bc):
+        if bc.name in [b.name for b in self.bcs]:
+            raise Exception('BC with name "{bc_id}" already exists'.format(bc_id=bc.name))
+
+        bc.parent = self
+        if bc.fem_set.parent is None:
+            # TODO: look over this implementation. Is this okay?
+            logging.debug("Bc FemSet has no parent. Adding to self")
+            self.sets.add(bc.fem_set)
+
+        self.bcs.append(bc)
+
+    def add_mass(self, mass: Mass):
+        mass.parent = self
+        self.masses[mass.name] = mass
+
+    def add_set(
+        self,
+        fem_set: FemSet,
+        ids=None,
+        p=None,
+        vol_box=None,
+        vol_cyl=None,
+        single_member=False,
+        tol=1e-4,
+    ) -> FemSet:
+        """
+        Simple method that creates a set string based on a set name, node or element ids and adds it to the assembly str
+
+        :param fem_set: A fem set object
+        :param ids: List of integers
+        :param p: Single point (x,y,z)
+        :param vol_box: Search by quadratic volume. Where p is (xmin, ymin, zmin) and vol_box is (xmax, ymax, zmax)
+        :param vol_cyl: Search by cylindrical volume. Used together with p to find
+                        nodes within cylinder inputted by [radius, height, thickness]
+        :param single_member: Set True if you wish to keep only a single member
+        :param tol: Point Tolerances. Default is 1e-4
+        """
+        if ids is not None:
+            fem_set.add_members(ids)
+
+        fem_set.parent = self
+
+        def append_members(nodelist):
+            if single_member is True:
+                fem_set.add_members([nodelist[0]])
+            else:
+                fem_set.add_members(nodelist)
+
+        if fem_set.type == "nset":
+            if p is not None or vol_box is not None or vol_cyl is not None:
+                nodes = self.nodes.get_by_volume(p, vol_box, vol_cyl, tol)
+                if len(nodes) == 0 and self.parent is not None:
+                    assembly = self.parent.get_assembly()
+                    list_of_ps = assembly.get_all_subparts() + [assembly]
+                    for part in list_of_ps:
+                        nodes = part.fem.nodes.get_by_volume(p, vol_box, vol_cyl, tol)
+                        if len(nodes) > 0:
+                            fem_set.parent = part.fem
+                            append_members(nodes)
+                            part.fem.add_set(fem_set)
+                            return fem_set
+
+                    raise Exception(f'No nodes found for fem set "{fem_set.name}"')
+                elif nodes is not None and len(nodes) > 0:
+                    append_members(nodes)
+                else:
+                    raise Exception(f'No nodes found for femset "{fem_set.name}"')
+
+        self.sets.add(fem_set)
+        return fem_set
+
+    def add_step(self, step: Step) -> Step:
+        """Add an analysis step to the assembly"""
+        if len(self.steps) > 0:
+            if self.steps[-1].type != "eigenfrequency" and step.type == "complex_eig":
+                raise Exception(
+                    "complex eigenfrequency analysis step needs to follow eigenfrequency step. Check your input"
+                )
+        step.parent = self
+        self.steps.append(step)
+
+        return step
+
+    def add_interaction_property(self, int_prop: InteractionProperty) -> InteractionProperty:
+        int_prop.parent = self
+        self.intprops[int_prop.name] = int_prop
+        return int_prop
+
+    def add_interaction(self, interaction: Interaction) -> Interaction:
+        interaction.parent = self
+        self.interactions[interaction.name] = interaction
+        return interaction
+
+    def add_constraint(self, constraint: Constraint) -> Constraint:
+        constraint.parent = self
+        self.constraints.append(constraint)
+        return constraint
+
+    def add_lcsys(self, lcsys: Csys) -> Csys:
+        if lcsys.name in self.lcsys.keys():
+            raise ValueError("Local Coordinate system cannot have duplicate name")
+        lcsys.parent = self
+        self.lcsys[lcsys.name] = lcsys
+        return lcsys
+
+    def add_connector_section(self, connector_section: ConnectorSection):
+        connector_section.parent = self
+        self.connector_sections[connector_section.name] = connector_section
+
+    def add_connector(self, connector: Connector):
+        connector.parent = self
+        self.connectors[connector.name] = connector
+        connector.csys.parent = self
+        self.elements.add(connector)
+        self.add_set(FemSet(name=connector.name, members=[connector.id], set_type="elset"))
+
+    def add_rp(self, name, node: Node):
+        """Adds a reference point in assembly with a specific name"""
+        node.parent = self
+        self.nodes.add(node)
+        fem_set = self.add_set(FemSet(name, [node], "nset"))
+        return node, fem_set
+
+    def add_surface(self, surface: Surface):
+        surface.parent = self
+        self.surfaces[surface.name] = surface
+
+    def add_amplitude(self, amplitude: Amplitude):
+        amplitude.parent = self
+        self.amplitudes[amplitude.name] = amplitude
+
+    def add_sensor(self, name, point, comment, tol=1e-2):
+        """
+
+        :param name: Name of coordinate set
+        :param point: Sensor Coordinate
+        :param comment: Comment
+        :param tol:
+        """
+        fem_set = FemSet(name, [], "nset", metadata=dict(comment=comment))
+        self.add_set(fem_set, p=point, tol=tol, single_member=True)
+        if name in self.sensors.keys():
+            raise Exception("{} exists in sensor sets and will be overwritten. Please change name.".format(name))
+
+        self.sensors[name] = fem_set
+        # self._cad[name].add_shape(ada.cad.utils.make_sphere(point, tol), colour='red', transparency=0.5)
+
+    def add_predefined_field(self, pre_field: PredefinedField):
+        pre_field.parent = self
+
+        self.predefined_fields[pre_field.name] = pre_field
+
+    def add_spring(self, spring: Spring):
+        # self.elements.add(spring)
+
+        if spring.fem_set.parent is None:
+            self.sets.add(spring.fem_set)
+        self.springs[spring.name] = spring
+
+    def convert_ecc_to_mpc(self):
+        """Converts beam offsets to MPC constraints"""
+
+        edited_nodes = dict()
+        tol = Settings.point_tol
+
+        def build_mpc(fs):
+            """
+
+            :param fs:
+            :type fs: FemSection
+            :return:
+            """
+            if fs.offset is None or fs.type != "beam":
+                return
+            elem = fs.elset.members[0]
+            for n_old, ecc in fs.offset:
+                i = elem.nodes.index(n_old)
+                if n_old.id in edited_nodes.keys():
+                    n_new = edited_nodes[n_old.id]
+                    mat = np.eye(3)
+                    new_p = np.dot(mat, ecc) + n_old.p
+                    n_new_ = Node(new_p, parent=elem.parent)
+                    if vector_length(n_new_.p - n_new.p) > tol:
+                        elem.parent.nodes.add(n_new_, allow_coincident=True)
+                        m_set = FemSet(f"el{elem.id}_mpc{i + 1}_m", [n_new_], "nset")
+                        s_set = FemSet(f"el{elem.id}_mpc{i + 1}_s", [n_old], "nset")
+                        c = Constraint(
+                            f"el{elem.id}_mpc{i + 1}_co",
+                            "mpc",
+                            m_set,
+                            s_set,
+                            mpc_type="Beam",
+                            parent=elem.parent,
+                        )
+                        elem.parent.add_constraint(c)
+                        elem.nodes[i] = n_new_
+                        edited_nodes[n_old.id] = n_new_
+
+                    else:
+                        elem.nodes[i] = n_new
+                        edited_nodes[n_old.id] = n_new
+                else:
+                    mat = np.eye(3)
+                    new_p = np.dot(mat, ecc) + n_old.p
+                    n_new = Node(new_p, parent=elem.parent)
+                    elem.parent.nodes.add(n_new, allow_coincident=True)
+                    m_set = FemSet(f"el{elem.id}_mpc{i + 1}_m", [n_new], "nset")
+                    s_set = FemSet(f"el{elem.id}_mpc{i + 1}_s", [n_old], "nset")
+                    c = Constraint(
+                        f"el{elem.id}_mpc{i + 1}_co",
+                        "mpc",
+                        m_set,
+                        s_set,
+                        mpc_type="Beam",
+                        parent=elem.parent,
+                    )
+                    elem.parent.add_constraint(c)
+
+                    elem.nodes[i] = n_new
+                    edited_nodes[n_old.id] = n_new
+
+        list(map(build_mpc, filter(lambda x: x.offset is not None, self.sections)))
+
+    def convert_hinges_2_couplings(self):
+        """
+        Convert beam hinges to coupling constraints
+        """
+        from ada import Node
+
+        def converthinges(fs):
+            """
+
+            :param fs:
+            :type fs: ada.fem.FemSection
+            """
+            if fs.hinges is None or fs.type != "beam":
+                return
+            elem = fs.elset.members[0]
+            assert isinstance(elem, Elem)
+
+            for n, d, csys in fs.hinges:
+                n2 = Node(n.p, None, parent=elem.parent)
+                elem.parent.nodes.add(n2, allow_coincident=True)
+                i = elem.nodes.index(n)
+                elem.nodes[i] = n2
+                if elem.fem_sec.offset is not None:
+                    if n in [x[0] for x in elem.fem_sec.offset]:
+                        elem.fem_sec.offset[i] = (n2, elem.fem_sec.offset[i][1])
+
+                s_set = FemSet(f"el{elem.id}_hinge{i + 1}_s", [n], "nset")
+                m_set = FemSet(f"el{elem.id}_hinge{i + 1}_m", [n2], "nset")
+                elem.parent.add_set(m_set)
+                elem.parent.add_set(s_set)
+                c = Constraint(
+                    f"el{elem.id}_hinge{i + 1}_co",
+                    "coupling",
+                    m_set,
+                    s_set,
+                    d,
+                    csys=csys,
+                )
+                elem.parent.add_constraint(c)
+
+        list(map(converthinges, filter(lambda x: x.hinges is not None, self.sections)))
+
+    def create_fem_elem_from_obj(self, obj, el_type=None) -> Elem:
+        """Converts structural object to FEM elements. Currently only BEAM is supported"""
+
+        if type(obj) is not Beam:
+            raise NotImplementedError(f'Object type "{type(obj)}" is not yet supported')
+
+        el_type = "B31" if el_type is None else el_type
+
+        res = self.nodes.add(obj.n1)
+        if res is not None:
+            obj.n1 = res
+        res = self.nodes.add(obj.n2)
+        if res is not None:
+            obj.n2 = res
+
+        elem = Elem(None, [obj.n1, obj.n2], el_type)
+        self.add_elem(elem)
+        femset = FemSet(f"{obj.name}_set", [elem.id], "elset")
+        self.add_set(femset)
+        self.add_section(
+            FemSection(
+                f"d{obj.name}_sec",
+                "beam",
+                femset,
+                obj.material,
+                obj.section,
+                obj.ori[1],
+            )
+        )
+        return elem
+
+    @property
+    def instance_name(self):
+        return self.name if self.name is not None else f"{self.parent.name}-1"
+
+    @property
+    def nsets(self):
+        return self.sets.nodes
+
+    @property
+    def elsets(self):
+        return self.sets.elements
+
+    def __add__(self, other: FEM):
+        # Nodes
+        nodid_max = self.nodes.max_nid if len(self.nodes) > 0 else 0
+        if nodid_max > other.nodes.min_nid:
+            other.nodes.renumber(int(nodid_max + 10))
+
+        self.nodes += other.nodes
+
+        # Elements
+        elid_max = self.elements.max_el_id if len(self.elements) > 0 else 0
+
+        if elid_max > other.elements.min_el_id:
+            other.elements.renumber(int(elid_max + 10))
+
+        logging.info("FEM operand type += is still ")
+
+        self.elements += other.elements
+        self.sections += other.sections
+        self.sets += other.sets
+        self.lcsys.update(other.lcsys)
+
+        return self
+
+    def __repr__(self):
+        return f"FEM({self.name}, Elements: {len(self.elements)}, Nodes: {len(self.nodes)})"
