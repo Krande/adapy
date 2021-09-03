@@ -908,7 +908,7 @@ class Assembly(Part):
         :param overwrite: Overwrite existing input file deck
         :param fem_converter: Set desired fem converter. Use either 'default' or 'meshio'.
         :param exit_on_complete:
-        :rtype: ada.base.render_fem.Results
+        :rtype: ada.fem.results.Results
 
             Note! Meshio implementation currently only supports reading & writing elements and nodes.
 
@@ -925,7 +925,11 @@ class Assembly(Part):
         from ada.fem.io.utils import folder_prep, should_convert
 
         base_path = Settings.scratch_dir / name / name
-        fem_res_files = dict(code_aster=base_path.with_suffix(".rmed"), abaqus=base_path.with_suffix(".odb"))
+        fem_res_files = dict(
+            code_aster=base_path.with_suffix(".rmed"),
+            abaqus=base_path.with_suffix(".odb"),
+            calculix=base_path.with_suffix(".frd"),
+        )
         res_path = fem_res_files.get(fem_format, None)
         metadata = dict() if metadata is None else metadata
         metadata["fem_format"] = fem_format
@@ -971,7 +975,8 @@ class Assembly(Part):
 
             return Results(res_path, output=out)
         else:
-            logging.info(f'Result file "{res_path}" was not found')
+            logging.error(f'Result file "{res_path}" was not found')
+            return None
 
     def to_ifc(self, destination_file, include_fem=False) -> None:
         from ada.ifc.export import add_part_objects_to_ifc

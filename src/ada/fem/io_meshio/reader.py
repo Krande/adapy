@@ -8,8 +8,7 @@ from ada.concepts.points import Node
 from ada.core.utils import Counter
 from ada.fem import Elem
 from ada.fem.containers import FemElements
-
-from .common import meshio_to_ada_type
+from ada.fem.shapes.mesh_types import meshio_to_abaqus_type
 
 
 def meshio_read_fem(assembly: Assembly, fem_file, fem_name=None):
@@ -40,10 +39,10 @@ def meshio_read_fem(assembly: Assembly, fem_file, fem_name=None):
             Elem(
                 cell_ids[block_id][i],
                 [fem.nodes.from_id(point_ids[c]) for c in cell],
-                meshio_to_ada_type[cellblock.type],
+                meshio_to_abaqus_type[cellblock.type],
             )
             for i, cell in enumerate(cellblock.data)
         ]
 
-    fem._elements = FemElements(chain.from_iterable(map(to_elem, mesh.cells)))
+    fem.elements = FemElements(chain.from_iterable(map(to_elem, mesh.cells)))
     assembly.add_part(Part(name, fem=fem))

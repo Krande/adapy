@@ -2,6 +2,7 @@ import traceback
 from itertools import groupby
 from operator import attrgetter
 
+from ada import Assembly
 from ada.core.utils import NewLine, bool2text, get_current_user
 from ada.fem.io.utils import get_fem_model_from_assembly
 
@@ -19,15 +20,8 @@ main_header_str = """*Heading
 """
 
 
-def to_fem(assembly, name, analysis_dir, metadata=None):
-    """
-    Write a Calculix input file stack
-
-    :param assembly:
-    :param name:
-    :param analysis_dir:
-    :param metadata:
-    """
+def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
+    """Write a Calculix input file stack"""
 
     inp_file = (analysis_dir / name).with_suffix(".inp")
 
@@ -183,7 +177,7 @@ def step_str(step):
 
 
 def nodes_str(fem_nodes):
-    f = "{nid:>7}, {x:>13}, {y:>13}, {z:>13}"
+    f = "{nid:>7}, {x:>13.6f}, {y:>13.6f}, {z:>13.6f}"
     return (
         "*NODE\n"
         + "\n".join(

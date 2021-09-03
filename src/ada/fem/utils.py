@@ -3,7 +3,9 @@ from typing import List, Union
 import numpy as np
 
 from ada import FEM, Assembly, Beam, Node, Part
-from ada.fem import Bc, Connector, ConnectorSection, FemSet
+from ada.fem import Bc, Connector, ConnectorSection, Elem, FemSet
+
+from .shapes import ElemShapes
 
 
 def get_eldata(fem_source: Union[Assembly, Part, FEM]):
@@ -67,3 +69,8 @@ def get_beam_end_nodes(bm: Beam, end=1) -> List[Node]:
 
     members = [e for e in nodes.get_by_volume(n + min_np, n + max_np)]
     return members
+
+
+def is_line_elem(elem: Elem):
+
+    return True if elem.type in ElemShapes.lines else False

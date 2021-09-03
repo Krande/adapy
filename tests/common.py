@@ -1,8 +1,10 @@
 import pathlib
+import unittest
 from operator import attrgetter
 
-from ada import Assembly, Beam, Part
+from ada import FEM, Assembly, Beam, Part, Section
 from ada.param_models.basic_module import SimpleStru
+from ada.visualize.renderer import MyRenderer, SectionRenderer
 
 this_dir = pathlib.Path(__file__).resolve().absolute().parent
 example_files = this_dir / ".." / "files"
@@ -10,8 +12,6 @@ is_printed = False
 
 
 def dummy_display(ada_obj):
-    from ada import Section
-    from ada.visualize.renderer import MyRenderer, SectionRenderer
 
     if type(ada_obj) is Section:
         sec_render = SectionRenderer()
@@ -41,24 +41,17 @@ def build_test_beam():
     return a
 
 
-def compare_fem_objects(fem_a, fem_b):
-    """
-    Compare FEM objects
-
-    :param fem_a:
-    :param fem_b:
-    :return:
-    """
+def compare_fem_objects(fem_a: FEM, fem_b: FEM, test_class: unittest.TestCase):
     for na, nb in zip(fem_a.elements, fem_b.elements):
-        assert na.id == nb.id
+        test_class.assertEqual(na.id, nb.id)
         for nma, nmb in zip(na.nodes, nb.nodes):
-            assert nma == nmb
+            test_class.assertEqual(nma, nmb)
 
     for na, nb in zip(fem_a.nodes, fem_b.nodes):
-        assert na.id == nb.id
-        assert na.x == nb.x
-        assert na.y == nb.y
-        assert na.z == nb.z
+        test_class.assertEqual(na.id, nb.id)
+        test_class.assertEqual(na.x, nb.x)
+        test_class.assertEqual(na.y, nb.y)
+        test_class.assertEqual(na.z, nb.z)
 
     def assert_sets(s1, s2):
         for m1, m2 in zip(
@@ -66,9 +59,9 @@ def compare_fem_objects(fem_a, fem_b):
             sorted(s2, key=attrgetter("name")),
         ):
             for ma, mb in zip(sorted(m1.members, key=attrgetter("id")), sorted(m2.members, key=attrgetter("id"))):
-                assert ma.id == mb.id
+                test_class.assertEqual(ma.id, mb.id)
 
-        assert len(s1) == len(s2)
+        test_class.assertEqual(len(s1), len(s2))
 
     assert_sets(fem_a.sets.elements.values(), fem_b.sets.elements.values())
     assert_sets(fem_a.sets.nodes.values(), fem_b.sets.nodes.values())

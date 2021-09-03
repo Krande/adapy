@@ -1,5 +1,7 @@
 import unittest
 
+from common import dummy_display
+
 from ada import Assembly, Beam, Part, Pipe, Plate, PrimBox, PrimSphere
 from ada.concepts.structural import make_ig_cutplanes
 from ada.config import Settings
@@ -50,6 +52,8 @@ class GmshApiV2(unittest.TestCase):
             fem = gs.get_fem()
         a = Assembly() / (Part("MyFemObjects", fem=fem) / [self.bm1])
         a.to_fem("aba_2nd_order_bm", "abaqus", overwrite=True, scratch_dir=test_dir)
+
+        dummy_display(a)
 
     def test_mix_geom_repr_in_same_session(self):
         with GmshSession(silent=True, options=GmshOptions(Mesh_ElementOrder=2)) as gs:

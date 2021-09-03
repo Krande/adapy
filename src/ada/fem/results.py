@@ -5,7 +5,7 @@ import numpy as np
 from IPython.display import display
 from ipywidgets import Dropdown, HBox, VBox
 
-from ada.visualize.fem import (
+from ada.visualize.femviz import (
     get_edges_and_faces_from_meshio,
     get_edges_from_fem,
     get_faces_from_fem,
@@ -60,12 +60,27 @@ class Results:
     def _get_mesh(self, file_ref):
         import meshio
 
+        from ada.core.utils import get_list_of_files
+
         file_ref = pathlib.Path(file_ref)
-        if file_ref.suffix.lower() == ".rmed":
+        suffix = file_ref.suffix.lower()
+        if suffix in ".rmed":
             mesh = meshio.read(file_ref, "med")
             self._analysis_type = "code_aster"
+        elif suffix == ".frd":
+            self._analysis_type = "calculix"
+            result_files = get_list_of_files(file_ref.parent, ".vtu")
+            if len(result_files) == 0:
+                logging.error("No VTU files found. Check if analysis was successfully completed")
+                return None
+            if len(result_files) > 1:
+                logging.error("Currently only reading last step for multi-step Calculix analysis results")
+            result_file = result_files[-1]
+            self._results_file_path = pathlib.Path(result_file)
+            print(f'Reading result from "{result_file}"')
+            mesh = meshio.read(result_file)
         else:
-            logging.error(f'Results class currently does not support filetype "{file_ref.suffix.lower()}"')
+            logging.error(f'Results class currently does not support filetype "{suffix}"')
             return None
 
         return mesh
@@ -176,29 +191,38 @@ class Results:
     def on_changed_point_data_set(self, p):
         data = p["new"]
         if self._analysis_type == "code_aster":
+            is_displ = True if "DISP" in data else False
             if "point_tags" in data:
                 print("\r" + "Point Tags are not a valid display value" + 10 * " ", end="")
                 return None
-            if "DISP" in data:
-                self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
-            else:
-                self.create_viz_geom(data, renderer=self.renderer)
+        elif self._analysis_type == "calculix":
+            is_displ = True if "U" in data else False
+        else:
+            return None
+
+        if is_displ:
+            self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
+        else:
+            self.create_viz_geom(data, renderer=self.renderer)
 
     def _repr_html_(self):
         if self._renderer is None:
             self._renderer = MyRenderer()
             if self._analysis_type == "code_aster":
                 data = [x for x in self._point_data if "DISP" in x][-1]
-                self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
-                i = self._point_data.index(data)
-                self._render_sets = Dropdown(
-                    options=self._point_data, value=self._point_data[i], tooltip="Select a set", disabled=False
-                )
-                self._render_sets.observe(self.on_changed_point_data_set, "value")
-                self.renderer._controls.pop()
-                self.renderer._controls.append(self._render_sets)
+            elif self._analysis_type == "calculix":
+                data = [x for x in self._point_data if "U" in x][-1]
             else:
                 raise NotImplementedError(f'Support for analysis_type "{self._analysis_type}"')
+
+            self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
+            i = self._point_data.index(data)
+            self._render_sets = Dropdown(
+                options=self._point_data, value=self._point_data[i], tooltip="Select a set", disabled=False
+            )
+            self._render_sets.observe(self.on_changed_point_data_set, "value")
+            self.renderer._controls.pop()
+            self.renderer._controls.append(self._render_sets)
 
         display(HBox([VBox([HBox(self.renderer._controls), self.renderer._renderer]), self.renderer.html]))
 

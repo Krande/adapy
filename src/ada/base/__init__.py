@@ -5,7 +5,6 @@ import pathlib
 from ada.config import Settings as _Settings
 from ada.core.constants import color_map as _cmap
 from ada.ifc.utils import create_guid
-from ada.visualize.renderer import MyRenderer
 
 
 class Backend:
@@ -203,6 +202,8 @@ class BackendGeom(Backend):
     ):
         from OCC.Display.WebGl.simple_server import start_server
 
+        from ada.visualize.renderer import MyRenderer
+
         if render_engine == "xdom":
             from OCC.Display.WebGl import x3dom_renderer
 
@@ -230,6 +231,8 @@ class BackendGeom(Backend):
         Return the html snippet containing threejs renderer
         """
         from ipywidgets.embed import embed_snippet
+
+        from ada.visualize.renderer import MyRenderer
 
         renderer = MyRenderer()
         renderer.DisplayObj(self)
@@ -274,6 +277,8 @@ class BackendGeom(Backend):
     def _repr_html_(self):
         from IPython.display import display
         from ipywidgets import HBox, VBox
+
+        from ada.visualize.renderer import MyRenderer
 
         renderer = MyRenderer()
 

@@ -9,6 +9,7 @@ from ada.materials import Material
 
 from .common import Csys, FemBase
 from .sets import FemSet
+from .shapes import ElemShapes, ElemType
 
 
 class Elem(FemBase):
@@ -104,13 +105,7 @@ class Elem(FemBase):
         self._mass_props = value
 
     @property
-    def shape(self):
-        """
-
-        :return:
-        :rtype: ada.fem.ElemShapes
-        """
-        from .shapes import ElemShapes
+    def shape(self) -> ElemShapes:
 
         if self._shape is None:
             self._shape = ElemShapes(self.type, self.nodes)
@@ -218,7 +213,7 @@ class FemSection(FemBase):
         from ada.core.utils import roundoff, unit_vector, vector_length
 
         if self._local_z is None:
-            if self.type == "beam":
+            if self.type == ElemType.LINE:
                 n1, n2 = self.elset.members[0].nodes[0], self.elset.members[0].nodes[-1]
                 v = n2.p - n1.p
                 if vector_length(v) == 0.0:
@@ -249,7 +244,7 @@ class FemSection(FemBase):
         from ada.core.utils import roundoff, unit_vector, vector_length
 
         if self._local_y is None:
-            if self.type in ("beam", "shell"):
+            if self.type in ("line", "shell"):
                 n1, n2 = self.elset.members[0].nodes[0], self.elset.members[0].nodes[-1]
                 v = n2.p - n1.p
                 if vector_length(v) == 0.0:
@@ -266,7 +261,7 @@ class FemSection(FemBase):
 
     @property
     def local_x(self):
-        if self.type == "beam":
+        if self.type == "line":
             from ada.core.utils import unit_vector
 
             el = self.elset.members[0]

@@ -19,7 +19,7 @@ from ada.config import Settings
 from ada.core.utils import make_name_fem_ready
 from ada.fem import Elem, FemSection, FemSet
 from ada.fem.containers import FemElements
-from ada.fem.io_meshio import ada_to_meshio_type, gmsh_to_meshio_ordering
+from ada.fem.shapes.mesh_types import abaqus_to_meshio_type, gmsh_to_meshio_ordering
 from ada.ifc.utils import create_guid
 
 from .gmshapi import eval_thick_normal_from_cog_of_beam_plate, gmsh_map
@@ -147,6 +147,7 @@ class GmshSession:
         for model_obj, gmsh_data in self.model_map.items():
             add_fem_sections(self.model, fem, model_obj, gmsh_data)
 
+        fem.nodes.renumber()
         return fem
 
     def _add_settings(self):
@@ -216,7 +217,7 @@ def get_bm_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
     set_name = make_name_fem_ready(f"el{beam.name}_set_bm")
     fem_sec_name = make_name_fem_ready(f"d{beam.name}_sec_bm")
     fem_set = FemSet(set_name, elements, "elset", parent=fem)
-    fem_sec = FemSection(fem_sec_name, "beam", fem_set, beam.material, beam.section, beam.ori[2])
+    fem_sec = FemSection(fem_sec_name, "line", fem_set, beam.material, beam.section, beam.ori[2])
 
     add_sec_to_fem(fem, fem_sec, fem_set)
 
@@ -287,7 +288,7 @@ def get_elements_from_entities(model: gmsh.model, entities, fem: FEM) -> List[El
 
 
 def is_reorder_necessary(elem_type):
-    meshio_type = ada_to_meshio_type[elem_type]
+    meshio_type = abaqus_to_meshio_type[elem_type]
     if meshio_type in gmsh_to_meshio_ordering.keys():
         return True
     else:
@@ -296,7 +297,7 @@ def is_reorder_necessary(elem_type):
 
 def node_reordering(elem_type, nodes):
     """Based on work in meshio"""
-    meshio_type = ada_to_meshio_type[elem_type]
+    meshio_type = abaqus_to_meshio_type[elem_type]
     order = gmsh_to_meshio_ordering.get(meshio_type, None)
     if order is None:
         return None

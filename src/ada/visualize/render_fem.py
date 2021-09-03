@@ -2,7 +2,7 @@ import numpy as np
 from IPython.display import display
 from ipywidgets import HBox, VBox
 
-from .fem import get_faces_from_fem, magnitude
+from .femviz import get_faces_from_fem, magnitude
 from .renderer import MyRenderer
 from .threejs_utils import faces_to_mesh
 

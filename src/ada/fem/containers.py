@@ -270,7 +270,7 @@ class FemElements:
         return min(self._idmap.keys())
 
     @property
-    def elements(self):
+    def elements(self) -> List[Elem]:
         return self._elements
 
     @property
@@ -468,7 +468,7 @@ class FemSections:
 
     def _groupby(self):
         return dict(
-            lines=list(filter(lambda x: x.type == "lines", self._sections)),
+            lines=list(filter(lambda x: x.type == "line", self._sections)),
             shells=list(filter(lambda x: x.type == "shell", self._sections)),
             solids=list(filter(lambda x: x.type == "solid", self._sections)),
         )

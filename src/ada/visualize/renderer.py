@@ -26,6 +26,8 @@ from pythreejs import (
     PointsMaterial,
 )
 
+from ada.fem import Elem
+
 __all__ = ["MyRenderer", "SectionRenderer"]
 
 
@@ -925,13 +927,7 @@ class SectionRenderer:
         # display(widgets.VBox([widgets.HBox([testb]), center, self._fig]))
 
 
-def get_vertices_from_elem(el, return_ids=False):
-    """
-
-    :param el:
-    :param return_ids:
-    :type el: ada.fem.Elem
-    """
+def get_vertices_from_elem(el: Elem, return_ids=False):
     fem = el.parent
     if el.shape.edges_seq is None:
         return None
