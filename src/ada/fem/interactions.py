@@ -94,15 +94,12 @@ class Interaction(FemBase):
 
     @property
     def parent(self):
-        """
-
-        :rtype: ada.fem.FEM
-        """
+        """:rtype: ada.FEM"""
         return self._parent
 
     @parent.setter
     def parent(self, value):
-        from . import FEM
+        from ada import FEM
 
         if type(value) not in (FEM, Step) and value is not None:
             raise ValueError(f'Parent type "{type(value)}" is not supported')

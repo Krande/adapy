@@ -10,14 +10,9 @@ test_folder = Settings.test_dir / "beams"
 class BeamIO(unittest.TestCase):
     def setUp(self) -> None:
         # Rotational Relationships
-        self.section = "HP200x10"
-        self.angles = [0, 90, 180, 270]
-        self.vectorX = [(0, 0, 1), (0, -1, 0), (0, 0, -1), (0, 1, 0)]
-        self.vectorY = [(0, 0, 1), (1, 0, 0), (0, 0, -1), (-1, 0, 0)]
-        self.vectorZ = [(0, 1, 0), (-1, 0, 0), (0, -1, 0), (1, 0, 0)]
+        self.hp_sec = "HP200x10"
 
     def test_beam_to_from_ifc(self):
-
         bm = Beam(
             "bm1",
             n1=[0, 0, 0],
@@ -92,129 +87,46 @@ class BeamIO(unittest.TestCase):
 
     def test_beam_rotation_by_angle(self):
         # Define beam rotations using vectors
+        angles = [0, 90, 180, 270]
+        vectorX = [(0, 0, 1), (0, -1, 0), (0, 0, -1), (0, 1, 0)]
+        vectorY = [(0, 0, 1), (1, 0, 0), (0, 0, -1), (-1, 0, 0)]
+        vectorZ = [(0, 1, 0), (-1, 0, 0), (0, -1, 0), (1, 0, 0)]
+
         a = Assembly("AdaRotatedProfiles")
-        p = Part("Part")
-        a.add_part(p)
+        p = a.add_part(Part("RotatedBeams"))
+        d1 = dict(n1=(0, 0, 0), n2=(5, 0, 0), sec=self.hp_sec)
+        d2 = dict(n1=(0, 0, 0), n2=(0, 5, 0), sec=self.hp_sec)
+        d3 = dict(n1=(0, 0, 0), n2=(0, 0, 5), sec=self.hp_sec)
 
-        for i, angle in enumerate(self.angles):
+        for i, angle in enumerate(angles):
             # Along X-Axis
-            bm = Beam(
-                f"bmX_n{i}_a",
-                n1=[0, 0, 0],
-                n2=[5, 0, 0],
-                sec=self.section,
-                angle=angle,
-                metadata=dict(props=dict(axis="X", angle=angle, vector=None)),
-            )
-
-            assert tuple(bm.up.tolist()) == self.vectorX[i]
-            p.add_beam(bm)
-            bm = Beam(
-                f"bmX_n{i}_v",
-                n1=[0, 0, 0],
-                n2=[5, 0, 0],
-                sec=self.section,
-                up=self.vectorX[i],
-                metadata=dict(props=dict(axis="X", angle=None, vector=self.vectorX[i])),
-            )
-            p.add_beam(bm)
-            # Must fix error in 270 deg angle calculation
-            # assert bm._angle == angle
+            bm = p.add_beam(Beam(f"bmX_n{i}_a", **d1, angle=angle))
+            self.assertTrue(all([x == y for x, y in zip(bm.up, vectorX[i])]))
+            p.add_beam(Beam(f"bmX_n{i}_v", **d1, up=vectorX[i]))
 
             # Along Y-Axis
-            bm = Beam(
-                f"bmY_n{i}_a",
-                n1=[0, 0, 0],
-                n2=[0, 5, 0],
-                sec=self.section,
-                angle=angle,
-                metadata=dict(props=dict(axis="Y", angle=angle, vector=None)),
-            )
-            p.add_beam(bm)
-            assert tuple(bm.up.tolist()) == self.vectorY[i]
-            bm = Beam(
-                f"bmY_n{i}_v",
-                n1=[0, 0, 0],
-                n2=[0, 5, 0],
-                sec=self.section,
-                up=self.vectorY[i],
-                metadata=dict(props=dict(axis="Y", angle=None, vector=self.vectorY[i])),
-            )
-            p.add_beam(bm)
-            # assert bm._angle == angle
+            bm = p.add_beam(Beam(f"bmY_n{i}_a", **d2, angle=angle))
+            self.assertTrue(all([x == y for x, y in zip(bm.up, vectorY[i])]))
+            p.add_beam(Beam(f"bmY_n{i}_v", **d2, up=vectorY[i]))
 
             # Along Z-Axis
-            bm = Beam(
-                f"bmZ_n{i}_a",
-                n1=[0, 0, 0],
-                n2=[0, 0, 5],
-                sec=self.section,
-                angle=angle,
-                metadata=dict(props=dict(axis="Z", angle=angle, vector=None)),
-            )
-            p.add_beam(bm)
-            assert tuple(bm.up.tolist()) == self.vectorZ[i]
-            bm = Beam(
-                f"bmZ_n{i}_v",
-                n1=[0, 0, 0],
-                n2=[0, 0, 5],
-                sec=self.section,
-                up=self.vectorZ[i],
-                metadata=dict(props=dict(axis="Z", angle=None, vector=self.vectorZ[i])),
-            )
-            p.add_beam(bm)
-            # assert bm._angle == angle
+            bm = p.add_beam(Beam(f"bmZ_n{i}_a", **d3, angle=angle))
+            self.assertTrue(all([x == y for x, y in zip(bm.up, vectorZ[i])]))
+            p.add_beam(Beam(f"bmZ_n{i}_v", **d3, up=vectorZ[i]))
 
         p.to_stp(test_folder / "my_angle_rotated_profiles.stp")
         a.to_ifc(test_folder / "my_angle_rotated_profiles.ifc")
 
     def test_beam_directions(self):
         a = Assembly("AdaRotatedProfiles")
-        p = Part("Part")
-        a.add_part(p)
+        p = a.add_part(Part("Part"))
 
         props = dict(spre="/JSB_VA-DIN-SPEC/Y26IPE400", matr="/GR.355-II(Y26)_jsb_va")
-
-        p.add_beam(
-            Beam(
-                "bm_test2X0",
-                n1=[0, 0, 0],
-                n2=[5, 0, 0],
-                sec=self.section,
-                angle=0,
-                metadata=dict(props=props),
-            )
-        )
-        p.add_beam(
-            Beam(
-                "bm_test2X90",
-                n1=[0, 0, 1],
-                n2=[5, 0, 1],
-                sec=self.section,
-                angle=90,
-                metadata=dict(props=props),
-            )
-        )
-        p.add_beam(
-            Beam(
-                "bm_test2Y0",
-                n1=[0, 0, 2],
-                n2=[0, 5, 2],
-                sec=self.section,
-                angle=0,
-                metadata=dict(props=props),
-            )
-        )
-        p.add_beam(
-            Beam(
-                "bm_test2Y90",
-                n1=[0, 0, 3],
-                n2=[0, 5, 3],
-                sec=self.section,
-                angle=90,
-                metadata=dict(props=props),
-            )
-        )
+        data = dict(sec=self.hp_sec, metadata=dict(props))
+        p.add_beam(Beam("bm_test2X0", n1=[0, 0, 0], n2=[5, 0, 0], angle=0, **data))
+        p.add_beam(Beam("bm_test2X90", n1=[0, 0, 1], n2=[5, 0, 1], angle=90, **data))
+        p.add_beam(Beam("bm_test2Y0", n1=[0, 0, 2], n2=[0, 5, 2], angle=0, **data))
+        p.add_beam(Beam("bm_test2Y90", n1=[0, 0, 3], n2=[0, 5, 3], angle=90, **data))
 
         a.to_ifc(test_folder / "my_angled_profiles.ifc")
 

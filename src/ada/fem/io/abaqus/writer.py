@@ -6,11 +6,9 @@ from operator import attrgetter
 
 import numpy as np
 
-from ada.concepts.levels import FEM, Part
+from ada.concepts.levels import FEM, Assembly, Part
 from ada.core.utils import NewLine, bool2text
-from ada.fem import FemSet, Load, Step, Surface
-from ada.fem.common import Amplitude
-from ada.fem.elements import Connector
+from ada.fem import Amplitude, Connector, FemSet, Load, Step, Surface
 from ada.materials import Material
 from ada.sections import SectionCat
 
@@ -31,14 +29,7 @@ _valid_aba_bcs = list(_aba_bc_map.values()) + [
 ]
 
 
-def to_fem(assembly, name, analysis_dir=None, metadata=None):
-    """
-
-    :param assembly:
-    :param name:
-    :param analysis_dir:
-    :param metadata:
-    """
+def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None):
     if metadata is None:
         metadata = dict()
 
@@ -54,11 +45,6 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None):
 
 
 class AbaqusWriter:
-    """
-
-    :type assembly: ada.Assembly
-    """
-
     _subr_path = None
     _subroutine = None
     _imperfections = str()
@@ -68,7 +54,7 @@ class AbaqusWriter:
     analysis_path = None
     parts_and_assemblies = True
 
-    def __init__(self, assembly):
+    def __init__(self, assembly: Assembly):
         self.assembly = assembly
 
     def write(self, name, analysis_dir, metadata=None):
@@ -170,24 +156,14 @@ class AbaqusWriter:
                 d.write(self.interact_str)
                 d.write("\n")
 
-    def write_step(self, step_in):
-        """
-
-        :param step_in:
-        :type step_in: Step
-        """
+    def write_step(self, step_in: Step):
         step_str = AbaStep(step_in).str
         with open(self.analysis_path / "core_input_files" / f"step_{step_in.name}.inp", "w") as d:
             d.write(step_str)
             if "*End Step" not in step_str:
                 d.write("*End Step\n")
 
-    def write_part_bulk(self, part_in):
-        """
-
-        :param part_in:
-        :type part_in: Part
-        """
+    def write_part_bulk(self, part_in: Part):
         bulk_path = self.analysis_path / f"bulk_{part_in.name}"
         bulk_file = bulk_path / "aba_bulk.inp"
         os.makedirs(bulk_path, exist_ok=True)
@@ -199,18 +175,6 @@ class AbaqusWriter:
             fempart = AbaqusPartWriter(part_in)
             with open(bulk_file, "w") as d:
                 d.write(fempart.bulk_str)
-
-    @staticmethod
-    def part_inp_str(part):
-        """
-
-        :param part:
-        :type part: Part
-        :return: str
-        """
-        return """**\n*Part, name={name}\n*INCLUDE,INPUT=bulk_{name}\\{inp_file}\n*End Part\n**""".format(
-            name=part.name, inp_file="aba_bulk.inp"
-        )
 
     def inst_inp_str(self, part: Part):
         """
@@ -239,16 +203,6 @@ class AbaqusWriter:
         else:
             return f"""**\n*Instance, name={part.fem.instance_name}, part={part.name}\n*End Instance"""
 
-    @staticmethod
-    def step_inp_str(step):
-        """
-
-        :param step:
-        :type step: Step
-        :return: str
-        """
-        return f"""*INCLUDE,INPUT=core_input_files\\step_{step.name}.inp"""
-
     @property
     def constraint_control(self):
         constraint_ctrl_on = True
@@ -274,10 +228,10 @@ class AbaqusWriter:
                 return True
             return len(p.fem.elements) + len(p.fem.connectors) != 0
 
-        part_str = "\n".join(map(self.part_inp_str, filter(skip_if_this, self.assembly.get_all_subparts())))
+        part_str = "\n".join(map(part_inp_str, filter(skip_if_this, self.assembly.get_all_subparts())))
         instance_str = "\n".join(map(self.inst_inp_str, filter(inst_skip, self.assembly.get_all_subparts())))
         step_str = (
-            "\n".join(list(map(self.step_inp_str, self.assembly.fem.steps))).rstrip()
+            "\n".join(list(map(step_inp_str, self.assembly.fem.steps))).rstrip()
             if len(self.assembly.fem.steps) > 0
             else "** No Steps added"
         )
@@ -1003,6 +957,22 @@ class AbaConstraint:
             return self._shell2solid
         else:
             raise NotImplementedError(f"{self.constraint.type}")
+
+
+def step_inp_str(step: Step):
+    """
+
+    :param step:
+    :type step: Step
+    :return: str
+    """
+    return f"""*INCLUDE,INPUT=core_input_files\\step_{step.name}.inp"""
+
+
+def part_inp_str(part: Part):
+    return """**\n*Part, name={name}\n*INCLUDE,INPUT=bulk_{name}\\{inp_file}\n*End Part\n**""".format(
+        name=part.name, inp_file="aba_bulk.inp"
+    )
 
 
 def _tie(constraint):

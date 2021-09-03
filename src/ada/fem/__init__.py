@@ -23,7 +23,6 @@ __all__ = [
     "Constraint",
     "PredefinedField",
     "FemSet",
-    "FEM",
     "Mass",
     "HistOutput",
     "FieldOutput",

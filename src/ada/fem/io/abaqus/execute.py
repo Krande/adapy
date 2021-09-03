@@ -13,7 +13,7 @@ def run_abaqus(
     cpus=2,
     gpus=None,
     run_ext=False,
-    manifest=None,
+    metadata=None,
     subr_path=None,
     execute=True,
     return_bat_str=False,
@@ -25,7 +25,7 @@ def run_abaqus(
     :param cpus: Number of CPUs to run the analysis on. Default is 2.
     :param gpus: Number of GPUs to run the analysis on. Default is none.
     :param run_ext: If False the process will wait for the abaqus analysis to finish. Default is False
-    :param manifest: Dictionary containing various metadata relevant for the analysis
+    :param metadata: Dictionary containing various metadata relevant for the analysis
     :param subr_path: Path to fortran subroutine file (optional).
     :param execute: Automatically starts Abaqus analysis. Default is True
     :param return_bat_str:
@@ -89,9 +89,9 @@ echo ON
     with open(inp_path.parent / stop_bat, "w") as d:
         d.write(f"cd /d {inp_path.parent}\nabaqus terminate job={analysis_name}")
 
-    if manifest is not None:
+    if metadata is not None:
         with open(inp_path.parent / "analysis_manifest.json", "w") as fp:
-            json.dump(manifest, fp, indent=4)
+            json.dump(metadata, fp, indent=4)
 
     execute_path = _Settings.execute_dir if _Settings.execute_dir is not None else inp_path.parent
 

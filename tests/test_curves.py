@@ -13,7 +13,6 @@ class SweepTests(unittest.TestCase):
         curve = CurvePoly(points3d=self.sweep_curve, is_closed=False)
         my_renderer = x3dom_renderer.X3DomRenderer()
         my_renderer.DisplayShape(curve.wire, export_edges=True)
-
         # my_renderer.render()
 
 

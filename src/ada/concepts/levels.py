@@ -934,6 +934,7 @@ class Assembly(Part):
         if should_convert(res_path, overwrite):
             analysis_dir = folder_prep(scratch_dir, name, overwrite)
             _, fem_exporter = get_fem_converters("", fem_format, fem_converter)
+
             if fem_exporter is None:
                 raise ValueError(f'FEM export for "{fem_format}" using "{fem_converter}" is currently not supported')
             fem_inp_files = dict(

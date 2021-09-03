@@ -14,6 +14,7 @@ import numpy as np
 from ada.concepts.containers import Nodes
 from ada.concepts.levels import FEM, Assembly, Part
 from ada.concepts.points import Node
+from ada.concepts.structural import Material
 from ada.core.utils import Counter, roundoff
 from ada.fem import (
     Bc,
@@ -152,13 +153,6 @@ def extract_instance_data(assembly_bulk) -> dict[str:InstanceData]:
     return ass_data
 
 
-def grab_instance_data(ass_data, name):
-    if name in ass_data:
-        return ass_data[name]
-    else:
-        return None, None, None
-
-
 def import_parts(bulk_str, instance_data, assembly: Assembly) -> List[Part]:
     part_list = []
 
@@ -212,7 +206,7 @@ def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_name=None
     return part
 
 
-def get_initial_conditions_from_lines(assembly, bulk_str):
+def get_initial_conditions_from_lines(assembly: Assembly, bulk_str):
     """
     TODO: Optimize this function
 
@@ -268,7 +262,7 @@ def get_initial_conditions_from_lines(assembly, bulk_str):
         assembly.fem.add_predefined_field(grab_init_props(match))
 
 
-def get_materials_from_bulk(assembly, bulk_str):
+def get_materials_from_bulk(assembly: Assembly, bulk_str):
     re_str = (
         r"(\*Material,\s*name=.*?)(?=\*|\Z)(?!\*Elastic|\*Density|\*Plastic|"
         r"\*Damage Initiation|\*Damage Evolution|\*Expansion)"
@@ -279,7 +273,7 @@ def get_materials_from_bulk(assembly, bulk_str):
         assembly.add_material(mat)
 
 
-def get_intprop_from_lines(assembly, bulk_str):
+def get_intprop_from_lines(assembly: Assembly, bulk_str):
     """
     *Surface Interaction, name=contactProp
     *Friction
@@ -322,7 +316,6 @@ def get_intprop_from_lines(assembly, bulk_str):
 
 def get_instance_data(inst_name, p_ref, inst_bulk) -> InstanceData:
     """
-
     Move/rotate data lines are specified here:
 
     https://abaqus-docs.mit.edu/2017/English/SIMACAEKEYRefMap/simakey-r-instance.htm
@@ -363,15 +356,7 @@ def get_instance_data(inst_name, p_ref, inst_bulk) -> InstanceData:
     return InstanceData(p_ref, inst_name, inst_bulk, metadata)
 
 
-def mat_str_to_mat_obj(mat_str):
-    """
-    Converts a Abaqus materials str into a ADA Materials object
-
-    :param mat_str:
-    :return:
-    """
-    from ada import Material
-
+def mat_str_to_mat_obj(mat_str) -> Material:
     rd = roundoff
 
     # Name
@@ -440,11 +425,8 @@ def import_multiple_inps(input_files_dir):
     return "".join([x for x in map(read_inp, os.listdir(input_files_dir)) if x is not None])
 
 
-def get_nodes_from_inp(bulk_str, parent):
-    """
-    Extract node information from abaqus input file string
-
-    """
+def get_nodes_from_inp(bulk_str, parent: FEM) -> Nodes:
+    """Extract node information from abaqus input file string"""
     re_no = re.compile(
         r"^\*Node\s*(?:,\s*nset=(?P<nset>.*?)\n|\n)(?P<members>(?:.*?)(?=\*|\Z))",
         _re_in,
@@ -461,10 +443,7 @@ def get_nodes_from_inp(bulk_str, parent):
 
     nodes = list(chain.from_iterable(map(getnodes, re_no.finditer(bulk_str))))
 
-    return Nodes(
-        nodes,
-        parent=parent,
-    )
+    return Nodes(nodes, parent=parent)
 
 
 def get_elem_from_inp(bulk_str, fem: FEM) -> FemElements:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# coding=utf-8
 from ada.concepts.connections import Bolts, Weld
 from ada.concepts.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
 from ada.concepts.levels import FEM, Assembly, Part

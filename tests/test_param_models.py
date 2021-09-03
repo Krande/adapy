@@ -24,7 +24,6 @@ class ParamModelsTestCase(unittest.TestCase):
         # a.to_stp('param1', geom_type='solid')
 
     def test_to_fem(self):
-
         param_model = SimpleStru("ParametricModel")
         param_model.gmsh.mesh(order=1, size=0.1, max_dim=2, interactive=False)
         param_model.add_bcs()
@@ -39,7 +38,7 @@ class ParamModelsTestCase(unittest.TestCase):
         my_step.add_load(Load("Gravity", "gravity", -9.81))
         a.fem.add_step(my_step)
 
-        a.to_fem("SimpleStru", fem_format="abaqus", overwrite=True)
+        a.to_fem("SimpleStru", fem_format="abaqus", overwrite=False, execute=True)
 
     def test_add_piping(self):
         a = make_it_complex()

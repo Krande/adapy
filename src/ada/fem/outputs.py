@@ -1,4 +1,7 @@
+from typing import List
+
 from .common import FemBase
+from .sets import FemSet
 
 
 class HistOutput(FemBase):
@@ -9,10 +12,7 @@ class HistOutput(FemBase):
     :param set_type:
     :param variables:
     :param int_type: Interval type
-    :type name: str
-    :type set_type: str
-    :type variables: list
-
+    :type parent: ada.FEM
     """
 
     default_hist = [
@@ -37,10 +37,10 @@ class HistOutput(FemBase):
 
     def __init__(
         self,
-        name,
-        fem_set,
-        set_type,
-        variables,
+        name: str,
+        fem_set: FemSet,
+        set_type: str,
+        variables: List[str],
         int_value=1,
         int_type="frequency",
         metadata=None,
@@ -92,6 +92,7 @@ class FieldOutput(FemBase):
     :param int_type:
     :param metadata:
     :param parent:
+    :type parent: ada.FEM
     """
 
     _valid_fstep_type = ["FREQUENCY", "NUMBER INTERVAL"]

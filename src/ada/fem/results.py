@@ -1,3 +1,4 @@
+import logging
 import pathlib
 
 import numpy as np
@@ -11,6 +12,8 @@ from ada.visualize.fem import (
     get_vertices_from_fem,
     magnitude,
 )
+from ada.visualize.renderer import MyRenderer
+from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
 
 class Results:
@@ -42,11 +45,7 @@ class Results:
 
     @property
     def renderer(self):
-        """
-
-        :return:
-        :rtype: ada.base.renderer.MyRenderer
-        """
+        """:rtype: ada.visualize.renderer.MyRenderer"""
         return self._renderer
 
     @property
@@ -55,11 +54,7 @@ class Results:
 
     @property
     def mesh_deformed(self):
-        """
-
-        :return:
-        :rtype: pythreejs.Mesh
-        """
+        """:rtype: pythreejs.Mesh"""
         return self._deformed_mesh
 
     def _get_mesh(self, file_ref):
@@ -70,7 +65,8 @@ class Results:
             mesh = meshio.read(file_ref, "med")
             self._analysis_type = "code_aster"
         else:
-            mesh = meshio.read(file_ref)
+            logging.error(f'Results class currently does not support filetype "{file_ref.suffix.lower()}"')
+            return None
 
         return mesh
 
@@ -89,6 +85,8 @@ class Results:
 
     def _read_result_file(self, file_ref):
         mesh = self._get_mesh(file_ref)
+        if mesh is None:
+            return None
         self._mesh = mesh
         self._vertices = np.asarray(mesh.points, dtype="float32")
 
@@ -117,20 +115,13 @@ class Results:
         colors = np.asarray([curr_p(x) for x in res], dtype="float32")
         return colors
 
-    def create_viz_geom(self, data_type, displ_data=False, renderer=None):
+    def create_viz_geom(self, data_type, displ_data=False, renderer: MyRenderer = None) -> None:
         """
 
         :param data_type:
         :param displ_data:
-        :type renderer: ada.base.renderer.MyRenderer
-        :return:
+        :param renderer:
         """
-        from ada.visualize.renderer import MyRenderer
-        from ada.visualize.threejs_utils import (
-            edges_to_mesh,
-            faces_to_mesh,
-            vertices_to_mesh,
-        )
 
         default_vertex_color = (8, 8, 8)
 
@@ -194,8 +185,6 @@ class Results:
                 self.create_viz_geom(data, renderer=self.renderer)
 
     def _repr_html_(self):
-        from ada.visualize.renderer import MyRenderer
-
         if self._renderer is None:
             self._renderer = MyRenderer()
             if self._analysis_type == "code_aster":

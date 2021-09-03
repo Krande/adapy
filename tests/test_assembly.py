@@ -30,7 +30,7 @@ class TestEqualityProtocol(unittest.TestCase):
         self.assertTrue(sec1 in list_of_secs)
         self.assertFalse(Section(name="sec4", **self.secvar) in list_of_secs)
 
-    def test_parts_list(self):
+    def test_parts_hierarchy(self):
         a = Assembly("MyAssembly")
 
         # Level 1

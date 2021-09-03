@@ -1,13 +1,13 @@
+from typing import List, Union
+
 import numpy as np
 
+from ada import FEM, Assembly, Beam, Node, Part
+from ada.fem import Bc, Connector, ConnectorSection, FemSet
 
-def get_eldata(fem_source):
-    """
 
-    :return: A dictionary of basic mesh statistics
-    """
-    from ada import Assembly, Part
-    from ada.fem import FEM
+def get_eldata(fem_source: Union[Assembly, Part, FEM]):
+    """Return a dictionary of basic mesh statistics"""
 
     el_types = dict()
 
@@ -19,9 +19,7 @@ def get_eldata(fem_source):
                 el_types[el.type] += 1
 
     if type(fem_source) is Assembly:
-        assert isinstance(fem_source, Assembly)
         for p in fem_source.parts.values():
-            assert issubclass(type(p), Part)
             scan_elem(p.fem)
     elif issubclass(type(fem_source), Part):
         scan_elem(fem_source.fem)
@@ -32,18 +30,8 @@ def get_eldata(fem_source):
     return el_types
 
 
-def convert_springs_to_connectors(assembly):
-    """
-    Converts all single noded springs to connector elements
-
-    :param assembly:
-    :type assembly: ada.Assembly
-    """
-    import numpy as np
-
-    from ada import Node
-    from ada.fem import Bc, Connector, ConnectorSection, FemSet
-
+def convert_springs_to_connectors(assembly: Assembly):
+    """Converts all single noded springs to connector elements"""
     for p in assembly.get_all_subparts():
         for spring in p.fem.springs.values():
             n1 = spring.nodes[0]
@@ -66,15 +54,8 @@ def convert_springs_to_connectors(assembly):
         p.fem.elements.filter_elements(delete_elem=["SPRING1"])
 
 
-def get_beam_end_nodes(bm, end=1, part=None):
-    """
-
-    :param bm:
-    :param end:
-    :param part: Optional if beam parent is not where fem nodes are stored
-    :type bm: ada.Beam
-    :return: list of nodes
-    """
+def get_beam_end_nodes(bm: Beam, end=1) -> List[Node]:
+    """Get list of nodes from end of beam"""
     p = bm.parent
     nodes = p.fem.nodes
     w = bm.section.w_btn

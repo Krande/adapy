@@ -5,18 +5,6 @@ from .sets import FemSet
 
 
 class Bc(FemBase):
-    """
-
-    :param name:
-    :param fem_set:
-    :param dofs:
-    :param magnitudes:
-    :param bc_type:
-    :param amplitude_name:
-    :param init_condition: List of tuples [(dof1, magnitude1), (dof2, magnitude2)]
-    :type fem_set: FemSet
-    """
-
     _valid_types = [
         "displacement",
         "velocity",

@@ -33,7 +33,7 @@ class FemElements:
 
     :param elements:
     :param fem_obj:
-    :type fem_obj: ada.fem.FEM
+    :type fem_obj: ada.FEM
     """
 
     def __init__(self, elements=None, fem_obj=None, from_np_array=None):

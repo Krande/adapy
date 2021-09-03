@@ -3,6 +3,7 @@ from ada.config import Settings
 
 class FemBase:
     def __init__(self, name, metadata, parent):
+        """:type parent: ada.FEM"""
         self.name = name
         self.parent = parent
         self._metadata = metadata if metadata is not None else dict()
@@ -51,6 +52,7 @@ class Csys(FemBase):
         metadata=None,
         parent=None,
     ):
+        """:type parent: ada.FEM"""
         super().__init__(name, metadata, parent)
         self._definition = definition
         self._system = system
@@ -80,6 +82,7 @@ class Csys(FemBase):
 
 class Amplitude(FemBase):
     def __init__(self, name, x, y, smooth=None, metadata=None, parent=None):
+        """:type parent: ada.FEM"""
         super().__init__(name, metadata, parent)
         self._x = x
         self._y = y
