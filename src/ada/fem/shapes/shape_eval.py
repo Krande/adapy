@@ -1,5 +1,4 @@
 import logging
-from enum import Enum, auto
 from typing import Union
 
 import numpy as np
@@ -9,15 +8,17 @@ from .abaqus_sh_el import shell_edges, shell_faces
 from .abaqus_vol_el import volume_edges, volume_faces
 from .mesh_types import abaqus_to_meshio_type
 
-
-class ElemType(Enum):
-    SHELL = auto()
-    VOLUME = auto()
-    LINE = auto()
+# Node numbering of elements is based on GMSH doc here http://gmsh.info/doc/texinfo/gmsh.html#Node-ordering
 
 
-edge_map = {ElemType.LINE: line_edges, ElemType.SHELL: shell_edges, ElemType.VOLUME: volume_edges}
-face_map = {ElemType.LINE: None, ElemType.SHELL: shell_faces, ElemType.VOLUME: volume_faces}
+class ElemType:
+    SHELL = "shell"
+    SOLID = "solid"
+    LINE = "line"
+
+
+edge_map = {ElemType.LINE: line_edges, ElemType.SHELL: shell_edges, ElemType.SOLID: volume_edges}
+face_map = {ElemType.LINE: None, ElemType.SHELL: shell_faces, ElemType.SOLID: volume_faces}
 
 
 class ElemShapes:
@@ -117,7 +118,7 @@ class ElemShapes:
     @property
     def elem_type_group(self):
         if self.type in ElemShapes.volume:
-            return ElemType.VOLUME
+            return ElemType.SOLID
         elif self.type in ElemShapes.shell:
             return ElemType.SHELL
         elif self.type in ElemShapes.lines:

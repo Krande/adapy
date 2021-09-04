@@ -9,6 +9,7 @@ from ada.config import Settings as _Settings
 from ada.core.utils import clockwise, intersect_calc, roundoff, vector_length
 from ada.fem import Elem, FemSection, FemSet
 from ada.fem.containers import FemElements
+from ada.fem.shapes import ElemType
 
 gmsh_map = {
     "Triangle 3": "S3",
@@ -346,7 +347,7 @@ class GMesh:
             fem.add_section(
                 FemSection(
                     fem_sec_name,
-                    "beam",
+                    ElemType.LINE,
                     fem_set,
                     bm.material,
                     bm.section,
@@ -407,7 +408,7 @@ class GMesh:
         self._part.fem.add_section(
             FemSection(
                 f"sh{pl.name}_sec",
-                "shell",
+                ElemType.SHELL,
                 femset,
                 pl.material,
                 local_z=pl.n,

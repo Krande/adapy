@@ -7,6 +7,7 @@ from typing import List, Union
 from ada.concepts.piping import Pipe
 from ada.concepts.primitives import Shape
 from ada.concepts.structural import Beam, Plate, Wall
+from ada.fem.shapes import ElemType
 
 from .occ_to_threejs import VizObj
 
@@ -35,7 +36,7 @@ class Visualize:
         if self.objects is None:
             self.objects = []
 
-    def add_obj(self, obj: Union[Beam, Plate, Wall, Shape, Pipe], geom_repr: str = "solid"):
+    def add_obj(self, obj: Union[Beam, Plate, Wall, Shape, Pipe], geom_repr: str = ElemType.SOLID):
         self.objects.append(VizObj(obj, geom_repr, self.edge_color))
 
     def set_camera(self, origin, target, fov):

@@ -37,7 +37,8 @@ from OCC.Extend.DataExchange import read_step_file
 from OCC.Extend.ShapeFactory import make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
-from ..core.utils import roundoff, unit_vector, vector_length
+from ada.core.utils import roundoff, unit_vector, vector_length
+from ada.fem.shapes import ElemType
 
 
 def extract_shapes(step_path, scale, transform, rotate):
@@ -628,8 +629,8 @@ def make_circular_sec_face(point: gp_Pnt, direction: gp_Dir, radius) -> TopoDS_F
     return BRepBuilderAPI_MakeFace(profile_wire).Face()
 
 
-def sweep_pipe(edge, xvec, r, wt, geom_repr="solid"):
-    if geom_repr not in ["solid", "shell"]:
+def sweep_pipe(edge, xvec, r, wt, geom_repr=ElemType.SOLID):
+    if geom_repr not in [ElemType.SOLID, ElemType.SHELL]:
         raise ValueError("Sweeping pipe must be either 'solid' or 'shell'")
 
     t = TopologyExplorer(edge)
@@ -644,7 +645,7 @@ def sweep_pipe(edge, xvec, r, wt, geom_repr="solid"):
     makeWire.Build()
     wire = makeWire.Wire()
     try:
-        if geom_repr == "solid":
+        if geom_repr == ElemType.SOLID:
             i = make_circular_sec_face(point, direction, r - wt)
             elbow_i = BRepOffsetAPI_MakePipe(wire, i).Shape()
             o = make_circular_sec_face(point, direction, r)
@@ -656,7 +657,7 @@ def sweep_pipe(edge, xvec, r, wt, geom_repr="solid"):
     except RuntimeError as e:
         logging.error(f'Pipe sweep failed: "{e}"')
         return wire
-    if geom_repr == "solid":
+    if geom_repr == ElemType.SOLID:
         boolean_result = BRepAlgoAPI_Cut(elbow_o, elbow_i).Shape()
         if boolean_result.IsNull():
             logging.debug("Boolean returns None")

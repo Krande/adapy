@@ -16,6 +16,7 @@ from ada.core.utils import Counter
 
 from .elements import Elem, FemSection, Mass
 from .sets import FemSet
+from .shapes import ElemType
 
 
 @dataclass
@@ -468,9 +469,9 @@ class FemSections:
 
     def _groupby(self):
         return dict(
-            lines=list(filter(lambda x: x.type == "line", self._sections)),
-            shells=list(filter(lambda x: x.type == "shell", self._sections)),
-            solids=list(filter(lambda x: x.type == "solid", self._sections)),
+            lines=list(filter(lambda x: x.type == ElemType.LINE, self._sections)),
+            shells=list(filter(lambda x: x.type == ElemType.SHELL, self._sections)),
+            solids=list(filter(lambda x: x.type == ElemType.SOLID, self._sections)),
         )
 
     def __contains__(self, item: FemSection):
@@ -479,7 +480,7 @@ class FemSections:
     def __len__(self):
         return len(self._sections)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterable[FemSection]:
         return iter(self._sections)
 
     def __getitem__(self, index):
@@ -538,9 +539,9 @@ class FemSections:
             # sec._name = sec.name+'_1'
 
         self._sections.append(sec)
-        if sec.type == "line":
+        if sec.type == ElemType.LINE:
             self._lines.append(sec)
-        elif sec.type == "shell":
+        elif sec.type == ElemType.SHELL:
             self._shells.append(sec)
         else:
             self._solids.append(sec)

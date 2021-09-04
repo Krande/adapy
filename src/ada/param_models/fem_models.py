@@ -3,6 +3,7 @@ import numpy as np
 from ada import Assembly, Beam, Material, Part, PrimBox, PrimCyl, PrimExtrude, User
 from ada.fem import Bc, FemSet, Load, Step
 from ada.fem.mesh.gmshapiv2 import GmshSession
+from ada.fem.shapes import ElemType
 from ada.fem.utils import get_beam_end_nodes
 
 
@@ -39,7 +40,7 @@ def add_random_cutouts(bm: Beam):
     bm.add_penetration(PrimBox("box", (x, -0.1, -0.1), (x + 0.2, 0.1, 0.1)))
 
 
-def beam_ex1(p1=(0, 0, 0), p2=(1.5, 0, 0), profile="IPE400", geom_repr="shell") -> Assembly:
+def beam_ex1(p1=(0, 0, 0), p2=(1.5, 0, 0), profile="IPE400", geom_repr=ElemType.SHELL) -> Assembly:
     bm = Beam("MyBeam", p1, p2, profile, Material("S355"))
     a = Assembly("Test", user=User("krande")) / [Part("MyPart") / bm]
 

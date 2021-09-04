@@ -1,4 +1,7 @@
+from typing import List
+
 from .common import FemBase
+from .loads import Load
 from .outputs import FieldOutput, HistOutput
 
 
@@ -266,7 +269,7 @@ class Step(FemBase):
         return self._restart_int
 
     @property
-    def loads(self):
+    def loads(self) -> List[Load]:
         return self._loads
 
     @property

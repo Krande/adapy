@@ -8,7 +8,20 @@ import numpy as np
 
 from ada.concepts.levels import FEM, Assembly, Part
 from ada.core.utils import NewLine, bool2text
-from ada.fem import Amplitude, Connector, FemSet, Load, Step, Surface
+from ada.fem import (
+    Amplitude,
+    Connector,
+    FemSet,
+    FieldOutput,
+    HistOutput,
+    Load,
+    PredefinedField,
+    Spring,
+    Step,
+    Surface,
+)
+from ada.fem.shapes import ElemType
+from ada.fem.utils import convert_ecc_to_mpc, convert_hinges_2_couplings
 from ada.materials import Material
 from ada.sections import SectionCat
 
@@ -77,8 +90,8 @@ class AbaqusWriter:
             if len(part.fem.elements) + len(part.fem.connectors) == 0:
                 continue
 
-            part.fem.convert_hinges_2_couplings()
-            part.fem.convert_ecc_to_mpc()
+            convert_hinges_2_couplings(part.fem)
+            convert_ecc_to_mpc(part.fem)
 
             self.write_part_bulk(part)
 
@@ -325,12 +338,7 @@ class AbaqusWriter:
 
     @property
     def predefined_fields_str(self):
-        def eval_fields(pre_field):
-            """
-
-            :param pre_field:
-            :type pre_field: ada.fem.PredefinedField
-            """
+        def eval_fields(pre_field: PredefinedField):
             return True if pre_field.type != "INITIAL STATE" else False
 
         return "\n".join(
@@ -394,7 +402,7 @@ class AbaqusPartWriter:
     @property
     def beam_sec_str(self):
         beam_secs = [AbaSection(sec, self).str for sec in self.part.fem.sections.lines]
-        return "\n".join(beam_secs).rstrip() if len(beam_secs) > 0 else "** No beam sections"
+        return "\n".join(beam_secs).rstrip() if len(beam_secs) > 0 else "** No line sections"
 
     @property
     def elsets_str(self):
@@ -863,12 +871,14 @@ class AbaSection:
 
     @property
     def str(self):
-        if self.fem_sec.type == "solid":
+        if self.fem_sec.type == ElemType.SOLID:
             return self.solid_str
-        elif self.fem_sec.type == "shell":
+        elif self.fem_sec.type == ElemType.SHELL:
             return self.shell_str
-        elif self.fem_sec.type == "beam":
+        elif self.fem_sec.type == ElemType.LINE:
             return self.beam_str
+        else:
+            raise ValueError()
 
 
 class AbaConstraint:
@@ -1500,13 +1510,7 @@ def csys_str(csys, fem_writer):
     return ori_str
 
 
-def hist_output_str(hist_output):
-    """
-
-    :param hist_output:
-    :type hist_output: ada.fem.HistOutput
-    :return:
-    """
+def hist_output_str(hist_output: HistOutput) -> str:
     hist_map = dict(
         connector="*Element Output, elset=",
         node="*Node Output, nset=",
@@ -1534,13 +1538,7 @@ def hist_output_str(hist_output):
 {var_str}"""
 
 
-def field_output_str(field_output):
-    """
-
-    :param field_output:
-    :type field_output: ada.fem.FieldOutput
-    :return:
-    """
+def field_output_str(field_output: FieldOutput) -> str:
     if len(field_output.nodal) > 0:
         nodal_str = "*Node Output\n "
         nodal_str += ", ".join([str(val) for val in field_output.nodal])
@@ -1607,13 +1605,7 @@ def predefined_field_str(pre_field):
 {dofs_str}"""
 
 
-def spring_str(spring):
-    """
-
-    :param spring:
-    :type spring: Spring
-    :return:
-    """
+def spring_str(spring: Spring):
     if spring.type == "SPRING1":
         _str = f'** Spring El "{spring.name}"\n\n'
         for dof, row in enumerate(spring.stiff):

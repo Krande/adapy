@@ -8,8 +8,6 @@ from dataclasses import dataclass, field
 from itertools import chain
 from typing import List, Union
 
-import numpy as np
-
 from ada.base import BackendGeom
 from ada.concepts.connections import JointBase
 from ada.concepts.containers import (
@@ -32,15 +30,25 @@ from ada.concepts.primitives import (
 )
 from ada.concepts.structural import Beam, Material, Plate, Section, Wall
 from ada.config import Settings, User
-from ada.core.utils import vector_length
-from ada.fem.common import Amplitude, Csys
-from ada.fem.constraints import Bc, Constraint, PredefinedField
+from ada.fem import (
+    Amplitude,
+    Bc,
+    Connector,
+    ConnectorSection,
+    Constraint,
+    Csys,
+    Elem,
+    FemSection,
+    FemSet,
+    Interaction,
+    InteractionProperty,
+    Mass,
+    PredefinedField,
+    Spring,
+    Step,
+    Surface,
+)
 from ada.fem.containers import FemElements, FemSections, FemSets
-from ada.fem.elements import Connector, ConnectorSection, Elem, FemSection, Mass, Spring
-from ada.fem.interactions import Interaction, InteractionProperty
-from ada.fem.sets import FemSet
-from ada.fem.steps import Step
-from ada.fem.surfaces import Surface
 from ada.ifc.utils import create_guid
 
 
@@ -1336,114 +1344,9 @@ class FEM:
             self.sets.add(spring.fem_set)
         self.springs[spring.name] = spring
 
-    def convert_ecc_to_mpc(self):
-        """Converts beam offsets to MPC constraints"""
-
-        edited_nodes = dict()
-        tol = Settings.point_tol
-
-        def build_mpc(fs):
-            """
-
-            :param fs:
-            :type fs: FemSection
-            :return:
-            """
-            if fs.offset is None or fs.type != "beam":
-                return
-            elem = fs.elset.members[0]
-            for n_old, ecc in fs.offset:
-                i = elem.nodes.index(n_old)
-                if n_old.id in edited_nodes.keys():
-                    n_new = edited_nodes[n_old.id]
-                    mat = np.eye(3)
-                    new_p = np.dot(mat, ecc) + n_old.p
-                    n_new_ = Node(new_p, parent=elem.parent)
-                    if vector_length(n_new_.p - n_new.p) > tol:
-                        elem.parent.nodes.add(n_new_, allow_coincident=True)
-                        m_set = FemSet(f"el{elem.id}_mpc{i + 1}_m", [n_new_], "nset")
-                        s_set = FemSet(f"el{elem.id}_mpc{i + 1}_s", [n_old], "nset")
-                        c = Constraint(
-                            f"el{elem.id}_mpc{i + 1}_co",
-                            "mpc",
-                            m_set,
-                            s_set,
-                            mpc_type="Beam",
-                            parent=elem.parent,
-                        )
-                        elem.parent.add_constraint(c)
-                        elem.nodes[i] = n_new_
-                        edited_nodes[n_old.id] = n_new_
-
-                    else:
-                        elem.nodes[i] = n_new
-                        edited_nodes[n_old.id] = n_new
-                else:
-                    mat = np.eye(3)
-                    new_p = np.dot(mat, ecc) + n_old.p
-                    n_new = Node(new_p, parent=elem.parent)
-                    elem.parent.nodes.add(n_new, allow_coincident=True)
-                    m_set = FemSet(f"el{elem.id}_mpc{i + 1}_m", [n_new], "nset")
-                    s_set = FemSet(f"el{elem.id}_mpc{i + 1}_s", [n_old], "nset")
-                    c = Constraint(
-                        f"el{elem.id}_mpc{i + 1}_co",
-                        "mpc",
-                        m_set,
-                        s_set,
-                        mpc_type="Beam",
-                        parent=elem.parent,
-                    )
-                    elem.parent.add_constraint(c)
-
-                    elem.nodes[i] = n_new
-                    edited_nodes[n_old.id] = n_new
-
-        list(map(build_mpc, filter(lambda x: x.offset is not None, self.sections)))
-
-    def convert_hinges_2_couplings(self):
-        """
-        Convert beam hinges to coupling constraints
-        """
-        from ada import Node
-
-        def converthinges(fs):
-            """
-
-            :param fs:
-            :type fs: ada.fem.FemSection
-            """
-            if fs.hinges is None or fs.type != "beam":
-                return
-            elem = fs.elset.members[0]
-            assert isinstance(elem, Elem)
-
-            for n, d, csys in fs.hinges:
-                n2 = Node(n.p, None, parent=elem.parent)
-                elem.parent.nodes.add(n2, allow_coincident=True)
-                i = elem.nodes.index(n)
-                elem.nodes[i] = n2
-                if elem.fem_sec.offset is not None:
-                    if n in [x[0] for x in elem.fem_sec.offset]:
-                        elem.fem_sec.offset[i] = (n2, elem.fem_sec.offset[i][1])
-
-                s_set = FemSet(f"el{elem.id}_hinge{i + 1}_s", [n], "nset")
-                m_set = FemSet(f"el{elem.id}_hinge{i + 1}_m", [n2], "nset")
-                elem.parent.add_set(m_set)
-                elem.parent.add_set(s_set)
-                c = Constraint(
-                    f"el{elem.id}_hinge{i + 1}_co",
-                    "coupling",
-                    m_set,
-                    s_set,
-                    d,
-                    csys=csys,
-                )
-                elem.parent.add_constraint(c)
-
-        list(map(converthinges, filter(lambda x: x.hinges is not None, self.sections)))
-
     def create_fem_elem_from_obj(self, obj, el_type=None) -> Elem:
         """Converts structural object to FEM elements. Currently only BEAM is supported"""
+        from ada.fem.shapes import ElemType
 
         if type(obj) is not Beam:
             raise NotImplementedError(f'Object type "{type(obj)}" is not yet supported')
@@ -1464,7 +1367,7 @@ class FEM:
         self.add_section(
             FemSection(
                 f"d{obj.name}_sec",
-                "beam",
+                ElemType.LINE,
                 femset,
                 obj.material,
                 obj.section,

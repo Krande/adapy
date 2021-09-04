@@ -19,6 +19,7 @@ from ada.config import Settings
 from ada.core.utils import make_name_fem_ready
 from ada.fem import Elem, FemSection, FemSet
 from ada.fem.containers import FemElements
+from ada.fem.shapes import ElemType
 from ada.fem.shapes.mesh_types import abaqus_to_meshio_type, gmsh_to_meshio_ordering
 from ada.ifc.utils import create_guid
 
@@ -80,15 +81,17 @@ class GmshSession:
         self.persist = persist
         self.model_map: dict[Union[Shape, Beam, Plate, Pipe], GmshData] = dict()
 
-    def add_obj(self, obj: Union[Shape, Beam, Plate, Pipe], geom_repr="solid", el_order=1, silent=True, mesh_size=None):
+    def add_obj(
+        self, obj: Union[Shape, Beam, Plate, Pipe], geom_repr=ElemType.SOLID, el_order=1, silent=True, mesh_size=None
+    ):
         self._add_settings()
         temp_dir = Settings.temp_dir
         os.makedirs(temp_dir, exist_ok=True)
         name = f"{obj.name}_{create_guid()}"
 
-        if issubclass(type(obj), Shape) and geom_repr != "solid":
+        if issubclass(type(obj), Shape) and geom_repr != ElemType.SOLID:
             logging.info(f"geom_repr for object type {type(obj)} must be solid. Changing to that now")
-            geom_repr = "solid"
+            geom_repr = ElemType.SOLID
 
         obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent, fuse_piping=True)
         entities = self.model.occ.importShapes(str(temp_dir / f"{name}.stp"))
@@ -182,11 +185,11 @@ class GmshSession:
 
 def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Union[Beam, Plate, Pipe], gmsh_data: GmshData):
     for _, ent in gmsh_data.entities:
-        if gmsh_data.geom_repr == "shell":
+        if gmsh_data.geom_repr == ElemType.SHELL:
             get_sh_sections(model, model_obj, ent, fem)
-        elif gmsh_data.geom_repr == "solid":
+        elif gmsh_data.geom_repr == ElemType.SOLID:
             get_so_sections(model, model_obj, ent, fem)
-        else:  # beam
+        else:
             get_bm_sections(model, model_obj, ent, fem)
 
 
@@ -205,7 +208,7 @@ def get_sh_sections(model: gmsh.model, model_obj: Union[Beam, Plate, Pipe], ent,
 
     fem_set = FemSet(set_name, [fem.elements.from_id(x) for x in chain.from_iterable(tags)], "elset")
     props = dict(local_z=n, thickness=t, int_points=5)
-    fem_sec = FemSection(fem_sec_name, "shell", fem_set, model_obj.material, **props)
+    fem_sec = FemSection(fem_sec_name, ElemType.SHELL, fem_set, model_obj.material, **props)
     add_sec_to_fem(fem, fem_sec, fem_set)
 
 
@@ -217,7 +220,7 @@ def get_bm_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
     set_name = make_name_fem_ready(f"el{beam.name}_set_bm")
     fem_sec_name = make_name_fem_ready(f"d{beam.name}_sec_bm")
     fem_set = FemSet(set_name, elements, "elset", parent=fem)
-    fem_sec = FemSection(fem_sec_name, "line", fem_set, beam.material, beam.section, beam.ori[2])
+    fem_sec = FemSection(fem_sec_name, ElemType.LINE, fem_set, beam.material, beam.section, beam.ori[2])
 
     add_sec_to_fem(fem, fem_sec, fem_set)
 
@@ -231,7 +234,7 @@ def get_so_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
     elements = [fem.elements.from_id(tag) for tag in tags[0]]
 
     fem_set = FemSet(set_name, elements, "elset", parent=fem)
-    fem_sec = FemSection(fem_sec_name, "solid", fem_set, beam.material)
+    fem_sec = FemSection(fem_sec_name, ElemType.SOLID, fem_set, beam.material)
 
     add_sec_to_fem(fem, fem_sec, fem_set)
 

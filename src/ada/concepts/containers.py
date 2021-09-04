@@ -5,7 +5,7 @@ import reprlib
 from bisect import bisect_left, bisect_right
 from itertools import chain
 from operator import attrgetter
-from typing import Iterable, List, Union
+from typing import Iterable, Union
 
 import numpy as np
 import toolz
@@ -904,14 +904,8 @@ class Nodes:
         insert_node(node, index)
         return node
 
-    def remove(self, nodes: Union[Node, List[Node]]):
-        """
-        Remove node from the nodes container
-        :param nodes: Node-object to be removed
-        :return:
-        """
-        from collections.abc import Iterable
-
+    def remove(self, nodes: Union[Node, Iterable[Node]]):
+        """Remove node(s) from the nodes container"""
         nodes = list(nodes) if isinstance(nodes, Iterable) else [nodes]
         for node in nodes:
             if node in self._nodes:
@@ -922,10 +916,7 @@ class Nodes:
                 logging.error(f"'{node}' not found in node-container.")
 
     def remove_standalones(self):
-        """
-        Remove elements without any element references
-        :return:
-        """
+        """Remove elements without any element references"""
         self.remove(filter(lambda x: len(x.refs) == 0, self._nodes))
 
     def merge_coincident(self, tol=Settings.point_tol):

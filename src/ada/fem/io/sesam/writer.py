@@ -3,9 +3,11 @@ from operator import attrgetter
 
 import numpy as np
 
+from ada.concepts.levels import FEM, Part
 from ada.core.utils import get_current_user
-from ada.fem import FemSection, Load
+from ada.fem import Elem, Load
 from ada.fem.io.utils import folder_prep
+from ada.fem.shapes import ElemType
 
 
 def to_fem(
@@ -68,7 +70,7 @@ USER:     {user}            ACCOUNT:     \n"""
     print(f'Created an Sesam input deck at "{analysis_dir}"')
 
 
-def materials_str(part):
+def materials_str(part: Part):
     """
 
     'TDMATER', 'nfield', 'geo_no', 'codnam', 'codtxt', 'name'
@@ -97,7 +99,7 @@ def materials_str(part):
     return out_str
 
 
-def sections_str(fem, thick_map):
+def sections_str(fem: FEM, thick_map) -> str:
     """
 
     'TDSECT', 'nfield', 'geono', 'codnam', 'codtxt', 'set_name'
@@ -121,8 +123,7 @@ def sections_str(fem, thick_map):
     sec_n = Counter(1, "_V")
     sec_names = []
     for fem_sec in fem.sections:
-        assert isinstance(fem_sec, FemSection)
-        if fem_sec.type == "beam":
+        if fem_sec.type == ElemType.LINE:
             sec = fem_sec.section
             if sec not in sec_ids:
                 secid = next(bmid)
@@ -165,7 +166,6 @@ def sections_str(fem, thick_map):
                         i += 1
                     if len(elid_bulk) != 0:
                         elids.append(tuple(elid_bulk))
-                        elid_bulk = []
 
                     mesh_args = [(5 + numel, sconc_ref, 1, 2)] + elids
                     concept_str += write_ff("SCONMESH", mesh_args)
@@ -223,7 +223,7 @@ def sections_str(fem, thick_map):
                 else:
                     logging.error(f'Unable to convert "{sec}". This will be exported as general section only')
 
-        elif fem_sec.type == "shell":
+        elif fem_sec.type == ElemType.SHELL:
             if fem_sec.thickness not in thick_map.keys():
                 sh_id = next(shid)
                 thick_map[fem_sec.thickness] = sh_id
@@ -235,7 +235,7 @@ def sections_str(fem, thick_map):
     return names_str + sec_str + concept_str
 
 
-def elem_str(fem, thick_map):
+def elem_str(fem: FEM, thick_map):
     """
 
     'GELREF1',  ('elno', 'matno', 'addno', 'intno'), ('mintno', 'strano', 'streno', 'strepono'), ('geono', 'fixno',
@@ -263,18 +263,11 @@ def elem_str(fem, thick_map):
         ]
     )
 
-    def write_elem(el):
-        """
-
-        :param el:
-        :type el: ada.fem.Elem
-        :return: input str for Elem
-        """
+    def write_elem(el: Elem) -> str:
         fem_sec = el.fem_sec
-        assert isinstance(fem_sec, FemSection)
-        if fem_sec.type == "beam":
+        if fem_sec.type == ElemType.LINE:
             sec_id = fem_sec.section.metadata["numid"]
-        elif fem_sec.type == "shell":
+        elif fem_sec.type == ElemType.SHELL:
             sec_id = thick_map[fem_sec.thickness]
         else:
             raise ValueError(f'Unsupported elem type "{fem_sec.type}"')
@@ -302,12 +295,7 @@ def elem_str(fem, thick_map):
     return out_str
 
 
-def nodes_str(fem):
-    """
-    GNODE: GNODE NODEX NODENO NDOF ODOF NODEX
-
-    """
-
+def nodes_str(fem: FEM) -> str:
     nodes = sorted(fem.nodes, key=attrgetter("id"))
 
     nids = []
@@ -325,7 +313,7 @@ def nodes_str(fem):
         return out_str
 
 
-def mass_str(fem):
+def mass_str(fem: FEM):
     out_str = ""
 
     for mass in fem.masses.values():
@@ -339,13 +327,7 @@ def mass_str(fem):
     return out_str
 
 
-def bc_str(fem):
-    """
-
-    :param fem:
-    :type fem: ada.fem.FEM
-    :return:
-    """
+def bc_str(fem: FEM):
     out_str = ""
     for bc in fem.bcs:
         for m in bc.fem_set.members:

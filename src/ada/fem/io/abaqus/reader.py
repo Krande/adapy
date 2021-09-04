@@ -33,7 +33,7 @@ from ada.fem import (
 )
 from ada.fem.containers import FemElements, FemSections, FemSets
 from ada.fem.io.abaqus.common import AbaCards
-from ada.fem.shapes import ElemShapes
+from ada.fem.shapes import ElemShapes, ElemType
 from ada.materials.metals import CarbonSteel
 
 from ..utils import str_to_int
@@ -1109,7 +1109,7 @@ def get_beam_sections_from_inp(bulk_str, fem):
             sec = res
         return FemSection(
             name.strip(),
-            sec_type="beam",
+            sec_type=ElemType.LINE,
             elset=elset,
             section=sec,
             local_y=beam_y,
@@ -1138,7 +1138,7 @@ def get_solid_sections_from_inp(bulk_str, fem: FEM):
         material = m_in.group(3)
         return FemSection(
             name=name,
-            sec_type="solid",
+            sec_type=ElemType.SOLID,
             elset=elset,
             material=material,
             parent=fem,
@@ -1173,7 +1173,7 @@ def get_shell_sections_from_inp(bulk_str, fem: FEM) -> Iterable[FemSection]:
         metadata = dict(controls=d["controls"])
         return FemSection(
             name=name,
-            sec_type="shell",
+            sec_type=ElemType.SHELL,
             thickness=thickness,
             elset=elset,
             material=material,
@@ -1186,14 +1186,7 @@ def get_shell_sections_from_inp(bulk_str, fem: FEM) -> Iterable[FemSection]:
     return map(grab_shell, re_shell.finditer(bulk_str))
 
 
-def add_interactions_from_bulk_str(bulk_str, assembly):
-    """
-
-    :param bulk_str:
-    :param assembly:
-    :type assembly: ada.Assembly
-    :return:
-    """
+def add_interactions_from_bulk_str(bulk_str, assembly: Assembly) -> None:
     gen_name = Counter(1, "general")
 
     if bulk_str.find("** Interaction") == -1 and bulk_str.find("*Contact") == -1:

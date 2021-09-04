@@ -18,6 +18,7 @@ from pythreejs import (
 from ada.concepts.piping import Pipe
 from ada.concepts.primitives import Shape
 from ada.concepts.structural import Beam, Plate, Wall
+from ada.fem.shapes import ElemType
 
 from .threejs_utils import create_material
 
@@ -30,17 +31,17 @@ class NORMAL(Enum):
 @dataclass
 class VizObj:
     obj: Union[Beam, Plate, Wall, Shape, Pipe]
-    geom_repr: str = "solid"
+    geom_repr: str = ElemType.SOLID
     edge_color: tuple = None
     mesh: Mesh = None
     edges: LineSegments2 = None
 
     def get_geom(self, geom_repr):
-        if geom_repr == "solid":
+        if geom_repr == ElemType.SOLID:
             return self.obj.solid
-        elif geom_repr == "shell":
+        elif geom_repr == ElemType.SHELL:
             return self.obj.shell
-        elif geom_repr == "line":
+        elif geom_repr == ElemType.LINE:
             return self.obj.line
         else:
             raise ValueError(f'Unrecognized "{geom_repr}".')

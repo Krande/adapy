@@ -13,7 +13,7 @@ from ada.core.utils import roundoff, unit_vector, vector_length
 from ada.fem import Bc, Constraint, Csys, Elem, FemSection, FemSet, Mass, Spring
 from ada.fem.containers import FemElements, FemSections
 from ada.fem.io.utils import str_to_int
-from ada.fem.shapes import ElemShapes
+from ada.fem.shapes import ElemShapes, ElemType
 from ada.materials import Material
 from ada.materials.metals import CarbonSteel
 from ada.sections import GeneralProperties
@@ -468,7 +468,7 @@ def get_sections(bulk_str, fem):
             fem.sets.add(fem_set, append_suffix_on_exist=True)
             fem_sec = FemSection(
                 name=sec.name,
-                sec_type="beam",
+                sec_type=ElemType.LINE,
                 elset=fem_set,
                 section=sec,
                 local_z=zvec,
@@ -487,7 +487,7 @@ def get_sections(bulk_str, fem):
             fem.sets.add(fem_set)
             fem_sec = FemSection(
                 name=sec_name,
-                sec_type="shell",
+                sec_type=ElemType.SHELL,
                 thickness=roundoff(thicknesses[geono]),
                 elset=fem_set,
                 material=mat,

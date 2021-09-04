@@ -1,4 +1,11 @@
+from __future__ import annotations
+
+from typing import List, Union
+
+from ada.concepts.points import Node
+
 from .common import FemBase
+from .elements import Elem
 
 
 class FemSet(FemBase):
@@ -29,13 +36,7 @@ class FemSet(FemBase):
     def __getitem__(self, index):
         return self._members[index]
 
-    def __add__(self, other):
-        """
-
-        :param other:
-        :type other: FemSet
-        :return:
-        """
+    def __add__(self, other: FemSet) -> FemSet:
         self.add_members(other.members)
         return self
 
@@ -57,23 +58,12 @@ class FemSet(FemBase):
         return self._set_type.lower()
 
     @property
-    def members(self):
+    def members(self) -> List[Union[Elem, Node]]:
         """
 
         :return: Members of set
         """
         return self._members
-
-    @property
-    def instance_num(self):
-        """
-
-        :return:
-        """
-        if self.on_assembly_level is True:
-            return ",".join([f"{m}" for m in self.members])
-        else:
-            return ",".join(["{}.{}".format(self.parent.instance_name, m) for m in self.members])
 
     def __repr__(self):
         return f'FemSet({self.name}, type: "{self.type}", members: "{len(self.members)}")'
