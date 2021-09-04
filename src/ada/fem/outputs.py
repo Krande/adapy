@@ -4,6 +4,15 @@ from .common import FemBase
 from .sets import FemSet
 
 
+class HistTypes:
+    NODE = "node"
+    ENERGY = "energy"
+    CONTACT = "contact"
+    CONNECTOR = "connector"
+
+    all = [NODE, ENERGY, CONTACT, CONNECTOR]
+
+
 class HistOutput(FemBase):
     """
 
@@ -12,7 +21,6 @@ class HistOutput(FemBase):
     :param set_type:
     :param variables:
     :param int_type: Interval type
-    :type parent: ada.FEM
     """
 
     default_hist = [
@@ -33,7 +41,6 @@ class HistOutput(FemBase):
         "ALLWK",
         "ETOTAL",
     ]
-    _valid_types = ["node", "energy", "contact", "connector"]
 
     def __init__(
         self,
@@ -48,9 +55,9 @@ class HistOutput(FemBase):
     ):
         super().__init__(name, metadata, parent)
 
-        if set_type not in self._valid_types:
+        if set_type not in HistTypes.all:
             raise ValueError(
-                f'set_type "{set_type}" is not yet supported. Currently supported types are "{self._valid_types}"'
+                f'set_type "{set_type}" is not yet supported. Currently supported types are "{HistTypes.all}"'
             )
 
         self._fem_set = fem_set
@@ -58,6 +65,15 @@ class HistOutput(FemBase):
         self._variables = variables
         self._int_value = int_value
         self._int_type = int_type
+
+    @property
+    def parent(self):
+        """:rtype: ada.fem.Step"""
+        return self._parent
+
+    @parent.setter
+    def parent(self, value):
+        self._parent = value
 
     @property
     def type(self):
@@ -117,6 +133,15 @@ class FieldOutput(FemBase):
         self._contact = FieldOutput.default_co if contact is None else contact
         self._int_value = int_value
         self._int_type = int_type
+
+    @property
+    def parent(self):
+        """:rtype: ada.fem.Step"""
+        return self._parent
+
+    @parent.setter
+    def parent(self, value):
+        self._parent = value
 
     @property
     def nodal(self):

@@ -1,8 +1,26 @@
 from typing import List
 
 from .common import FemBase
+from .constraints import Bc
+from .interactions import Interaction
 from .loads import Load
 from .outputs import FieldOutput, HistOutput
+
+
+class StepTypes:
+    STATIC = "static"
+    EIGEN = "eigenfrequency"
+    COMPLEX_EIG = "complex_eig"
+    RESP = "response_analysis"
+    DYNAMIC = "dynamic"
+    EXPLICIT = "explicit"
+    all = [STATIC, EIGEN, RESP, DYNAMIC, COMPLEX_EIG, EXPLICIT]
+
+
+class DynStepType:
+    QUASI_STATIC = "QUASI-STATIC"
+    TRANSIENT_FIDELITY = "TRANSIENT FIDELITY"
+    all = [QUASI_STATIC, TRANSIENT_FIDELITY]
 
 
 class Step(FemBase):
@@ -27,37 +45,7 @@ class Step(FemBase):
     :param nodeid: Node ID for use in Steady State analysis
     :param fmin: Minimum frequency for use in Steady State analysis
     :param fmax: Maximum frequency for use in Steady State analysis
-
-    :type name: str
-    :type step_type: str
-    :type nl_geom: bool
-    :type total_incr: int
-    :type init_incr: float
-    :type total_time: float
-    :type min_incr: float
-    :type max_incr: float
-    :type unsymm: bool
-    :type stabilize: dict
-    :type dyn_type: str
-    :type init_accel_calc: bool
-    :type eigenmodes: int
-    :type alpha: float
-    :type beta: float
-    :type nodeid: int
-    :type fmin: float
-    :type fmax: float
-
     """
-
-    _valid_steps = [
-        "static",
-        "eigenfrequency",
-        "response_analysis",
-        "dynamic",
-        "complex_eig",
-        "explicit",
-    ]
-    _valid_dyn_type = ["QUASI-STATIC", "TRANSIENT FIDELITY"]
 
     default_hist = HistOutput("default_hist", None, "energy", HistOutput.default_hist)
     default_field = FieldOutput("default_fields", int_type="FREQUENCY", int_value=1)
@@ -88,14 +76,14 @@ class Step(FemBase):
         parent=None,
     ):
         super().__init__(name, metadata, parent)
-        if step_type not in self._valid_steps:
+        if step_type not in StepTypes.all:
             raise ValueError(f'Step type "{step_type}" is currently not supported')
         if total_time is not None:
-            if init_incr > total_time and step_type != "explicit" and nl_geom is True:
+            if init_incr > total_time and step_type != StepTypes.EXPLICIT and nl_geom is True:
                 raise ValueError(f"Initial increment ({init_incr}) must be smaller than total time ({total_time})")
         else:
             total_time = init_incr
-        if dyn_type not in Step._valid_dyn_type:
+        if dyn_type not in DynStepType.all:
             raise ValueError(f'Dynamic input type "{dyn_type}" is not supported')
 
         self._restart_int = restart_int
@@ -125,54 +113,25 @@ class Step(FemBase):
         self._hist_outputs = [self.default_hist]
         self._field_outputs = [self.default_field]
 
-    def add_load(self, load):
-        """
-
-        :param load:
-        :type load: Load
-        """
+    def add_load(self, load: Load):
         self._loads.append(load)
 
-    def add_bc(self, bc):
-        """
-        Adds a BC move
-
-        :param bc: Boundary condition object
-        :type bc: ada.fem.Bc
-
-        """
+    def add_bc(self, bc: Bc):
         bc.parent = self
         self._bcs[bc.name] = bc
 
         if bc.fem_set not in self.parent.sets and bc.fem_set.parent is None:
             self.parent.sets.add(bc.fem_set)
 
-    def add_history_output(self, hist_output):
-        """
-        Adds history output requests
-
-        :param hist_output: Unique History Output
-        :type hist_output: HistOutput
-        """
+    def add_history_output(self, hist_output: HistOutput):
+        hist_output.parent = self
         self._hist_outputs.append(hist_output)
 
-    def add_field_output(self, field_output):
-        """
-        Adds field output requests
-
-        :param field_output: Unique field output
-        :type field_output: FieldOutput
-
-        """
+    def add_field_output(self, field_output: FieldOutput):
+        field_output.parent = self
         self._field_outputs.append(field_output)
 
-    def add_interaction(self, interaction):
-        """
-
-        :param interaction:
-        :type interaction: Interaction
-        :return:
-        """
+    def add_interaction(self, interaction: Interaction):
         interaction.parent = self
         self._interactions[interaction.name] = interaction
 
@@ -210,10 +169,6 @@ class Step(FemBase):
 
     @property
     def stabilize(self):
-        """
-
-        :return:
-        """
         return self._stabilize
 
     @property
@@ -262,10 +217,7 @@ class Step(FemBase):
 
     @property
     def restart_int(self):
-        """
-
-        :return: Restart request intervals
-        """
+        """Restart request intervals"""
         return self._restart_int
 
     @property
@@ -273,11 +225,11 @@ class Step(FemBase):
         return self._loads
 
     @property
-    def field_outputs(self):
+    def field_outputs(self) -> List[FieldOutput]:
         return self._field_outputs
 
     @property
-    def hist_outputs(self):
+    def hist_outputs(self) -> List[HistOutput]:
         return self._hist_outputs
 
     def __repr__(self):

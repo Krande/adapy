@@ -3,14 +3,18 @@ import os
 from collections.abc import Iterable
 from itertools import chain, groupby
 from operator import attrgetter
+from typing import Union
 
 import numpy as np
 
 from ada.concepts.levels import FEM, Assembly, Part
+from ada.concepts.points import Node
 from ada.core.utils import NewLine, bool2text
 from ada.fem import (
     Amplitude,
     Connector,
+    Csys,
+    FemSection,
     FemSet,
     FieldOutput,
     HistOutput,
@@ -20,7 +24,9 @@ from ada.fem import (
     Step,
     Surface,
 )
+from ada.fem.loads import LoadTypes
 from ada.fem.shapes import ElemType
+from ada.fem.steps import StepTypes
 from ada.fem.utils import convert_ecc_to_mpc, convert_hinges_2_couplings
 from ada.materials import Material
 from ada.sections import SectionCat
@@ -71,15 +77,7 @@ class AbaqusWriter:
         self.assembly = assembly
 
     def write(self, name, analysis_dir, metadata=None):
-        """
-        Build the Abaqus Analysis folder (and optionally start the analysis)
-
-        :param name: Give your analysis a name.
-        :param metadata: Attach additional info to this specific analysis
-        :param analysis_dir: Set the scratch dir
-        :type metadata: str
-        :type name: str
-        """
+        """Build the Abaqus Analysis folder"""
         print("creating: {0}".format(name))
 
         self.analysis_path = analysis_dir
@@ -646,20 +644,20 @@ UT, AT, TU, TA
 
     @property
     def step_data_str(self):
-        if self.step.type.lower() == "static":
+        if self.step.type.lower() == StepTypes.STATIC:
             return self.static_str
-        elif self.step.type.lower() in ["quasi_static", "dynamic"]:
+        elif self.step.type.lower() == StepTypes.DYNAMIC:
             return self.dynamic_implicit_str
-        elif self.step.type.lower() == "explicit":
+        elif self.step.type.lower() == StepTypes.EXPLICIT:
             return self.explicit_str
 
-        elif self.step.type.lower() == "eigenfrequency":
+        elif self.step.type.lower() == StepTypes.EIGEN:
             return self.eigenfrequency_str
 
-        elif self.step.type.lower() == "response_analysis":
+        elif self.step.type.lower() == StepTypes.RESP:
             return self.steady_state_response_str
 
-        elif self.step.type.lower() == "complex_eig":
+        elif self.step.type.lower() == StepTypes.COMPLEX_EIG:
             return self.complex_eig_str
 
         else:
@@ -690,8 +688,8 @@ UT, AT, TU, TA
     def str(self):
         if "aba_inp" in self.step.metadata.keys():
             return self.step.metadata["aba_inp"]
-        load_str = "** No Loads" if self.load_str == "" else self.load_str.rstrip()
-        bc_str = "** No BCs" if self.bc_str == "" else self.bc_str.rstrip()
+        loads_str = "** No Loads" if self.load_str == "" else self.load_str.rstrip()
+        bcs_str = "** No BCs" if self.bc_str == "" else self.bc_str.rstrip()
         int_str = "** No Interactions" if len(self.step.interactions) == 0 else self.interactions_str
         app_str = self.step.metadata["append"] if "append" in self.step.metadata.keys() else "**"
 
@@ -702,11 +700,11 @@ UT, AT, TU, TA
 **
 ** BOUNDARY CONDITIONS
 **
-{bc_str}
+{bcs_str}
 **
 ** LOADS
 **
-{load_str}
+{loads_str}
 **
 ** INTERACTIONS
 **
@@ -727,7 +725,7 @@ class AbaSection:
     :type fem_sec: ada.fem.FemSection
     """
 
-    def __init__(self, fem_sec, fem_writer):
+    def __init__(self, fem_sec: FemSection, fem_writer):
         self.fem_sec = fem_sec
         self._fem_writer = fem_writer
 
@@ -1335,25 +1333,18 @@ def mass_str(mass):
         raise ValueError(f'Mass type "{mass.type}" is not supported by Abaqus')
 
 
-def load_str(load):
-    """
-
-    :param load:
-    :type load: ada.fem.Load
-    :return:
-    """
-
-    if load.type == "gravity":
+def load_str(load: Load) -> str:
+    if load.type == LoadTypes.GRAVITY:
         dof = [0, 0, 1] if load.dof is None else load.dof
         dof_str = ", ".join([str(x) for x in dof[:3]])
         return f"""** Name: gravity   Type: Gravity\n*Dload\n, GRAV, {load.magnitude}, {dof_str}"""
-    elif load.type == "force":
+    elif load.type == LoadTypes.FORCE:
         lstr = ""
         bc_text_f = ""
         bc_text_m = ""
 
         fo = 0
-        instance_name = get_instance_name(load.fem_set, Load)
+        instance_name = get_instance_name(load.fem_set, load)
         for i, bc in enumerate(load.dof[:3]):
             if bc == 0.0 or bc is None:
                 continue
@@ -1381,15 +1372,13 @@ def load_str(load):
         raise ValueError("Unsupported load type", load.type)
 
 
-def get_instance_name(obj, fem_writer):
+def get_instance_name(obj, fem_writer: Union[Step, Load, AbaqusWriter, AbaConstraint, AbaStep, PredefinedField]):
     """
 
     :param obj:
     :param fem_writer:
     :return:
     """
-    from ada import Assembly, Node
-
     if type(obj) is Node:
         obj_ref = obj.id
         if type(obj.parent.parent) is Assembly:
@@ -1410,8 +1399,6 @@ def get_instance_name(obj, fem_writer):
 
 def on_assembly_level(obj: FEM):
     # TODO: This is not really working correctly. This must be fixed
-    from ada import Assembly
-
     return True if type(obj.parent.parent) is Assembly else False
 
 
@@ -1456,45 +1443,32 @@ def aba_set_str(aba_set: FemSet, fem_writer=None):
     return set_str.rstrip()
 
 
-def orientations_str(assembly, fem_writer):
-    """
-    Add orientations associated with loads
-
-
-    :param assembly:
-    :param fem_writer:
-    :type assembly: ada.Assembly
-    """
+def orientations_str(assembly: Assembly, fem_writer) -> str:
+    """Add orientations associated with loads"""
     cstr = "** Orientations associated with Loads"
     for step in assembly.fem.steps:
         for load in step.loads:
-            if load.csys is not None:
-                cstr += "\n"
-                coord_str = ", ".join([str(x) for x in chain.from_iterable(load.csys.coords)])[:-1]
-                name = load.fem_set.name
-                inst_name = get_instance_name(load.fem_set, fem_writer)
-                cstr += f"*Nset, nset=_T-{name}, internal\n{inst_name},\n"
-                cstr += f"*Transform, nset=_T-{name}\n{coord_str}\n"
-                cstr += csys_str(load.csys, fem_writer)
+            if load.csys is None:
+                continue
+            cstr += "\n"
+            coord_str = ", ".join([str(x) for x in chain.from_iterable(load.csys.coords)])[:-1]
+            name = load.fem_set.name
+            inst_name = get_instance_name(load.fem_set, fem_writer)
+            cstr += f"*Nset, nset=_T-{name}, internal\n{inst_name},\n"
+            cstr += f"*Transform, nset=_T-{name}\n{coord_str}\n"
+            cstr += csys_str(load.csys, fem_writer)
 
     return cstr.strip()
 
 
-def csys_str(csys, fem_writer):
-    """
-
-    :param csys:
-    :param fem_writer:
-    :type csys: ada.fem.Csys
-    :return:
-    """
-
+def csys_str(csys: Csys, fem_writer):
     name = csys.name.replace('"', "").upper()
     ori_str = f'*Orientation, name="{name}"'
     if csys.nodes is None and csys.coords is None:
         ori_str += "\n 1.,           0.,           0.,           0.,           1.,           0.\n 1, 0."
     elif csys.nodes is not None:
-        assert len(csys.nodes) == 3
+        if len(csys.nodes) != 3:
+            raise ValueError("CSYS number of nodes must be 3")
         ori_str += ", SYSTEM=RECTANGULAR, DEFINITION=NODES\n {},{},{}".format(
             *[get_instance_name(no, fem_writer) for no in csys.nodes]
         )
@@ -1526,11 +1500,11 @@ def hist_output_str(hist_output: HistOutput) -> str:
     var_str = "".join([" {},".format(val) + next(newline) for val in hist_output.variables])[:-1]
 
     if hist_output.type == "contact":
-        iname1 = get_instance_name(hist_output.fem_set[1], Step)
-        iname2 = get_instance_name(hist_output.fem_set[0], Step)
+        iname1 = get_instance_name(hist_output.fem_set[1], hist_output.parent)
+        iname2 = get_instance_name(hist_output.fem_set[0], hist_output.parent)
         fem_set_str = f", master={iname1}, slave={iname2}"
     else:
-        fem_set_str = "" if hist_output.fem_set is None else get_instance_name(hist_output.fem_set, Step)
+        fem_set_str = "" if hist_output.fem_set is None else get_instance_name(hist_output.fem_set, hist_output.parent)
     return f"""*Output, history, {hist_output.int_type}={hist_output.int_value}
 ** HISTORY OUTPUT: {hist_output.name}
 **
@@ -1585,13 +1559,7 @@ def add_freq_range(fmin, fmax, intervals=100):
     return freq_str
 
 
-def predefined_field_str(pre_field):
-    """
-
-    :param pre_field:
-    :type pre_field: ada.fem.PredefinedField
-    :return:
-    """
+def predefined_field_str(pre_field: PredefinedField) -> str:
     dofs_str = ""
     for dof, magn in zip(pre_field.dofs, pre_field.magnitude):
         if float(magn) == 0.0:
@@ -1605,7 +1573,7 @@ def predefined_field_str(pre_field):
 {dofs_str}"""
 
 
-def spring_str(spring: Spring):
+def spring_str(spring: Spring) -> str:
     if spring.type == "SPRING1":
         _str = f'** Spring El "{spring.name}"\n\n'
         for dof, row in enumerate(spring.stiff):
