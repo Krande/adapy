@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from functools import partial
 from itertools import chain, groupby
 from operator import attrgetter
-from typing import Iterable, List
+from typing import Iterable, List, Union
 
 import numpy as np
 
@@ -14,9 +14,9 @@ from ada.concepts.containers import Materials
 from ada.concepts.points import Node
 from ada.core.utils import Counter
 
-from .elements import Elem, FemSection, Mass
-from .sets import FemSet
-from .shapes import ElemType
+from .elements import Elem, FemSection, MassTypes
+from .sets import FemSet, SetTypes
+from .shapes import ElemShapes, ElemType
 
 
 @dataclass
@@ -38,6 +38,7 @@ class FemElements:
     """
 
     def __init__(self, elements=None, fem_obj=None, from_np_array=None):
+        """:type fem_obj:"""
         self._fem_obj = fem_obj
         if from_np_array is not None:
             elements = self.elements_from_array(from_np_array)
@@ -48,6 +49,7 @@ class FemElements:
         if len(self._idmap) != len(self._elements):
             raise ValueError("Unequal length of idmap and elements. Might indicate doubly defined element id's")
 
+        self._by_types = None
         self._group_by_types()
 
     def renumber(self, start_id=1):
@@ -111,28 +113,16 @@ class FemElements:
                 continue
             self._build_sets_from_elsets(elset, elements)
 
-    def remove_elements_by_set(self, elset):
-        """
-        Remove elements from element set. Will remove element set on completion
-
-        :param elset: Pass in a
-        :type elset: ada.fem.FemSet
-        """
+    def remove_elements_by_set(self, elset: FemSet):
+        """Remove elements from element set. Will remove element set on completion"""
         for el in elset.members:
             self.remove(el)
         self._sort()
         p = elset.parent
         p.sets.elements.pop(elset.name)
 
-    def remove_elements_by_id(self, ids):
-        """
-        Remove elements from element ids. Will remove elements on completion
-
-        :param ids: Pass in a
-        :type ids: int or list of ints
-        """
-        from collections.abc import Iterable
-
+    def remove_elements_by_id(self, ids: Union[int, List[int]]):
+        """Remove elements from element ids. Will remove elements on completion"""
         ids = list(ids) if isinstance(ids, Iterable) else [ids]
         for elem_id in ids:
             self.remove(self._idmap[elem_id])
@@ -185,12 +175,7 @@ class FemElements:
             vector_length,
         )
 
-        def calc_sh_elem(el):
-            """
-
-            :param el:
-            :type el: ada.Elem
-            """
+        def calc_sh_elem(el: Elem):
             locz = el.fem_sec.local_z if el.fem_sec.local_z is not None else normal_to_points_in_plane(el.nodes)
             locx = unit_vector(el.nodes[1].p - el.nodes[0].p)
             locy = np.cross(locz, locx)
@@ -206,12 +191,7 @@ class FemElements:
 
             return mass, center, vol_
 
-        def calc_bm_elem(el):
-            """
-
-            :param el:
-            :type el: ada.Elem
-            """
+        def calc_bm_elem(el: Elem):
             el.fem_sec.section.properties.calculate()
             nodes_ = el.fem_sec.get_offset_coords()
             elem_len = vector_length(nodes_[-1] - nodes_[0])
@@ -221,13 +201,8 @@ class FemElements:
 
             return mass, center, vol_
 
-        def calc_mass_elem(el):
-            """
-
-            :param el:
-            :type el: ada.Elem
-            """
-            if el.mass_props.type != "MASS":
+        def calc_mass_elem(el: Elem):
+            if el.mass_props.type != MassTypes.MASS:
                 raise NotImplementedError(f'Mass type "{el.mass_props.type}" is not yet implemented')
             mass = el.mass_props.mass
             vol_ = 0.0
@@ -276,58 +251,33 @@ class FemElements:
 
     @property
     def solids(self):
-        from ada.fem.shapes import ElemShapes
-
-        skipel = ["MASS", "SPRING1"]
-        return filter(lambda x: x.type not in skipel and x.type in ElemShapes.volume, self._elements)
+        return filter(lambda x: x.type in ElemShapes.volume, self.stru_elements)
 
     @property
     def shell(self):
-        from ada.fem.shapes import ElemShapes
-
-        skipel = ["MASS", "SPRING1"]
-        return filter(lambda x: x.type not in skipel and x.type in ElemShapes.shell, self._elements)
+        return filter(lambda x: x.type in ElemShapes.shell, self.stru_elements)
 
     @property
     def lines(self):
-        from ada.fem.shapes import ElemShapes
-
-        skipel = ["MASS", "SPRING1"]
-        return filter(lambda x: x.type not in skipel and x.type in ElemShapes.lines, self._elements)
+        return filter(lambda x: x.type in ElemShapes.lines, self.stru_elements)
 
     @property
     def connectors(self):
-        """
-
-        :return: Connector elements (lazy iterator)
-        """
-        from ada.fem.shapes import ElemShapes
-
-        skipel = ["MASS", "SPRING1"]
-        return filter(lambda x: x.type not in skipel and x.type in ElemShapes.connectors, self._elements)
+        return filter(lambda x: x.type in ElemShapes.connectors, self.stru_elements)
 
     @property
-    def masses(self):
-        """
-
-        :return: Mass elements (lazy iterator)
-        """
-        return filter(lambda x: x.type in Mass._valid_types, self._elements)
+    def masses(self) -> Iterable[Elem]:
+        return filter(lambda x: x.type in MassTypes.all, self._elements)
 
     @property
     def stru_elements(self) -> Iterable[Elem]:
         return filter(lambda x: x.type not in ["MASS", "SPRING1"], self._elements)
 
-    def from_id(self, el_id):
-        """
-
-        :param el_id:
-        :rtype: ada.fem.Elem
-        """
-        if el_id not in self._idmap.keys():
+    def from_id(self, el_id: int) -> Elem:
+        el = self._idmap.get(el_id, None)
+        if el is None:
             raise ValueError(f'The elem id "{el_id}" is not found')
-        else:
-            return self._idmap[el_id]
+        return el
 
     def filter_elements(self, keep_elem=None, delete_elem=None):
         """
@@ -352,19 +302,9 @@ class FemElements:
 
     @property
     def idmap(self):
-        """
-
-        :return:
-        """
         return self._idmap
 
-    def add(self, elem):
-        """
-
-        :param elem:
-        :type elem: ada.fem.Elem
-        :return:
-        """
+    def add(self, elem: Elem):
         if elem.id is None:
             if len(self._elements) > 0:
                 elem._el_id = self._elements[-1].id + 1
@@ -381,15 +321,8 @@ class FemElements:
 
         self._group_by_types()
 
-    def remove(self, elems):
-        """
-        Remove node from the nodes container
-        :param elems: Element-object to be removed
-        :type elems:ada.fem.Elem or List[ada.fem.Elem]
-        :return:
-        """
-        from collections.abc import Iterable
-
+    def remove(self, elems: Union[Elem, List[Elem]]):
+        """Remove elem or list of elements from container"""
         elems = list(elems) if isinstance(elems, Iterable) else [elems]
         for elem in elems:
             if elem in self._elements:
@@ -404,7 +337,7 @@ class FemElements:
 
     def _group_by_types(self):
         if len(self._elements) > 0:
-            self._by_types = groupby(self._elements, key=attrgetter("type", "elset"))
+            self._by_types = groupby(self._elements, key=attrgetter("type", SetTypes.ELSET))
         else:
             self._by_types = dict()
 
@@ -432,7 +365,7 @@ class FemElements:
 
 
 class FemSections:
-    def __init__(self, sections=None, fem_obj=None):
+    def __init__(self, sections: Iterable[FemSection] = None, fem_obj=None):
         """:type fem_obj: ada.FEM"""
         self._fem_obj = fem_obj
         self._sections = list(sections) if sections is not None else []
@@ -488,7 +421,7 @@ class FemSections:
         return FemSections(result) if isinstance(index, slice) else result
 
     def __add__(self, other: FemSections):
-        return FemSections(chain(self._sections, other.sections))
+        return FemSections(chain(self.sections, other.sections))
 
     def __repr__(self):
         return f"FemSections(Beams: {len(self.lines)}, Shells: {len(self.shells)}, Solids: {len(self.solids)})"
@@ -502,7 +435,7 @@ class FemSections:
         self._fem_obj = value
 
     @property
-    def sections(self) -> List[FemSection]:
+    def sections(self) -> Iterable[FemSection]:
         return self._sections
 
     @property
@@ -516,9 +449,6 @@ class FemSections:
     @property
     def solids(self):
         return self._solids
-
-    def edges(self):
-        return None
 
     @property
     def dmap(self):
@@ -536,7 +466,6 @@ class FemSections:
     def add(self, sec: FemSection):
         if sec.name in self.dmap.keys() or sec.name is None:
             raise ValueError(f'Section name "{sec.name}" already exists')
-            # sec._name = sec.name+'_1'
 
         self._sections.append(sec)
         if sec.type == ElemType.LINE:
@@ -573,6 +502,7 @@ class FemSets:
 
     @property
     def parent(self):
+        """:rtype: ada.FEM"""
         return self._fem_obj
 
     @parent.setter
@@ -581,11 +511,11 @@ class FemSets:
 
     @staticmethod
     def is_nset(fs):
-        return True if fs.type == "nset" else False
+        return True if fs.type == SetTypes.NSET else False
 
     @staticmethod
     def is_elset(fs):
-        return True if fs.type == "elset" else False
+        return True if fs.type == SetTypes.ELSET else False
 
     def _instantiate_all_members(self, fem_set: FemSet):
         def get_nset(nref):
@@ -606,7 +536,7 @@ class FemSets:
                 raise ValueError("Elref is not recognized")
 
         def eval_set(fset):
-            if fset.type == "elset":
+            if fset.type == SetTypes.ELSET:
                 el_type = Elem
                 get_func = get_elset
             else:
@@ -623,7 +553,7 @@ class FemSets:
                 fem_set._members = [i for i in range(gen_mem[0], gen_mem[1] + 1, gen_mem[2])]
                 fem_set.metadata["generate"] = False
 
-        if fem_set.type == "nset":
+        if fem_set.type == SetTypes.NSET:
             if len(fem_set.members) == 1 and type(fem_set.members[0]) is str and type(fem_set.members[0]) is not Node:
                 fem_set._members = self.nodes[fem_set.members[0]]
                 fem_set.parent = self._fem_obj
@@ -670,7 +600,6 @@ class FemSets:
                 raise ValueError("Duplicate element set name. Consider suppressing this error?")
             self.add(_set)
         return self
-        # return FemSetsCollection(chain(self.sets, other.sets), fem_obj=self._fem_obj)
 
     def get_elset_from_name(self, name) -> FemSet:
         if name not in self._elmap.keys():
@@ -705,7 +634,7 @@ class FemSets:
     def remove(self, fe_set: FemSet):
         i = self._sets.index(fe_set)
         self._sets.pop(i)
-        if fe_set.type == "nset":
+        if fe_set.type == SetTypes.NSET:
             self._nomap.pop(fe_set.name)
             if fe_set.name in self._same_names.keys():
                 self._same_names.pop(fe_set.name)
@@ -718,7 +647,7 @@ class FemSets:
         # Against: This is a downstream object. FemSections would point to this set and remove during concatenation.
 
     def add(self, fe_set: FemSet, append_suffix_on_exist=False) -> FemSet:
-        if fe_set.type == "nset":
+        if fe_set.type == SetTypes.NSET:
             if fe_set.name in self._nomap.keys():
                 fem_set = self._nomap[fe_set.name]
                 new_mem = [m for m in fe_set.members if m.id not in fem_set.members]
@@ -734,10 +663,8 @@ class FemSets:
 
                 fe_set.name = f"{fe_set.name}_{self._same_names[fe_set.name]}"
 
-        # if False in list(map(lambda x: type(x) is Node, fe_set.members)):
-        #     self._map_members(fe_set)
         self.sets.append(fe_set)
-        if fe_set.type == "elset":
+        if fe_set.type == SetTypes.ELSET:
             self._elmap[fe_set.name] = fe_set
         else:
             self._nomap[fe_set.name] = fe_set

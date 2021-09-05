@@ -12,18 +12,26 @@ from ada.concepts.points import Node
 from ada.core.utils import NewLine, bool2text
 from ada.fem import (
     Amplitude,
+    Bc,
     Connector,
+    ConnectorSection,
+    Constraint,
     Csys,
+    Elem,
     FemSection,
     FemSet,
     FieldOutput,
     HistOutput,
+    Interaction,
+    InteractionProperty,
     Load,
+    Mass,
     PredefinedField,
     Spring,
     Step,
     Surface,
 )
+from ada.fem.interactions import ContactTypes
 from ada.fem.loads import LoadTypes
 from ada.fem.shapes import ElemType
 from ada.fem.steps import StepTypes
@@ -224,9 +232,7 @@ class AbaqusWriter:
 
     @property
     def main_inp_str(self):
-        """
-        Main input file for Abaqus analysis
-        """
+        """Main input file for Abaqus analysis"""
         from .templates import main_inp_str
 
         def skip_if_this(p):
@@ -983,13 +989,7 @@ def part_inp_str(part: Part):
     )
 
 
-def _tie(constraint):
-    """
-
-    :param constraint:
-    :type constraint: ada.fem.Constraint
-    :return: Constraint string
-    """
+def _tie(constraint: Constraint) -> str:
     num = 80
     pos_tol_str = ""
     if constraint.pos_tol is not None:
@@ -1006,11 +1006,7 @@ def _tie(constraint):
     return coupl_text
 
 
-def aba_write(el):
-    """
-
-    :type el: ada.fem.Elem
-    """
+def aba_write(el: Elem):
     nl = NewLine(10, suffix=7 * " ")
     if len(el.nodes) > 6:
         di = " {}"
@@ -1028,13 +1024,7 @@ def elwriter(eltype_set, elements):
     return f"""*ELEMENT, type={eltype}{el_set_str}\n{el_str}\n"""
 
 
-def interaction_str(interaction, fem_writer):
-    """
-
-    :param interaction:
-    :param fem_writer:
-    :type interaction: ada.fem.Interaction
-    """
+def interaction_str(interaction: Interaction, fem_writer) -> str:
     # Allowing Free text to be parsed directly through interaction class.
     if "aba_bulk" in interaction.metadata.keys():
         return interaction.metadata["aba_bulk"]
@@ -1047,7 +1037,7 @@ def interaction_str(interaction, fem_writer):
     )
 
     top_str = f"**\n** Interaction: {interaction.name}"
-    if interaction.type == "SURFACE":
+    if interaction.type == ContactTypes.SURFACE:
         adjust_par = interaction.metadata.get("adjust", None)
         geometric_correction = interaction.metadata.get("geometric_correction", None)
         small_sliding = interaction.metadata.get("small_sliding", None)
@@ -1057,7 +1047,7 @@ def interaction_str(interaction, fem_writer):
         if type(interaction.parent) is Step:
             step = interaction.parent
             assert isinstance(step, Step)
-            first_line += "" if "explicit" in step.type else f", type={interaction.surface_type}"
+            first_line += "" if StepTypes.EXPLICIT in step.type else f", type={interaction.surface_type}"
         else:
             first_line += f", type={interaction.surface_type}"
 
@@ -1162,7 +1152,7 @@ def connector_str(connector: Connector, fem_writer) -> str:
 **"""
 
 
-def connector_section_str(con_sec):
+def connector_section_str(con_sec: ConnectorSection):
     """
 
     :param con_sec:
@@ -1221,7 +1211,7 @@ def connector_section_str(con_sec):
     return conn_txt
 
 
-def interaction_prop_str(int_prop):
+def interaction_prop_str(int_prop: InteractionProperty):
     """
 
     :param int_prop:
@@ -1244,7 +1234,7 @@ def interaction_prop_str(int_prop):
     return iprop_str.rstrip()
 
 
-def surface_str(surface, fem_writer):
+def surface_str(surface: Surface, fem_writer):
     """
 
     :param surface:
@@ -1268,7 +1258,7 @@ def surface_str(surface, fem_writer):
         return f"""{top_line}\n{id_refs_str}"""
 
 
-def bc_str(bc, fem_writer):
+def bc_str(bc: Bc, fem_writer):
     """
 
     :param bc:
@@ -1312,7 +1302,7 @@ def bc_str(bc, fem_writer):
 {dofs_str}"""
 
 
-def mass_str(mass):
+def mass_str(mass: Mass):
     """
 
     :param mass:

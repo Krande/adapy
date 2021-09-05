@@ -4,23 +4,32 @@ from .common import Csys, FemBase
 from .sets import FemSet
 
 
-class Bc(FemBase):
-    _valid_types = [
-        "displacement",
-        "velocity",
-        "connector_displacement",
-        "symmetry/antisymmetry/encastre",
-        "displacement/rotation",
-        "velocity/angular velocity",
-    ]
+class BcTypes:
+    DISPL = "displacement"
+    VELOCITY = "velocity"
+    CONN_DISPL = "connector_displacement"
+    ENCASTRE = "symmetry/antisymmetry/encastre"
+    DISPL_ROT = "displacement/rotation"
+    VELOCITY_ANGULAR = "velocity/angular velocity"
 
+    all = [DISPL, VELOCITY, CONN_DISPL, ENCASTRE, DISPL_ROT, VELOCITY_ANGULAR]
+
+
+class PreDefTypes:
+    VELOCITY = "VELOCITY"
+    INITIAL_STATE = "INITIAL STATE"
+
+    all = [VELOCITY, INITIAL_STATE]
+
+
+class Bc(FemBase):
     def __init__(
         self,
         name,
         fem_set: FemSet,
         dofs,
         magnitudes=None,
-        bc_type="displacement",
+        bc_type=BcTypes.DISPL,
         amplitude_name=None,
         init_condition=None,
         metadata=None,
@@ -33,7 +42,7 @@ class Bc(FemBase):
             self._magnitudes = [None] * len(self._dofs)
         else:
             self._magnitudes = magnitudes if type(magnitudes) is list else [magnitudes]
-        self.type = bc_type
+        self.type = bc_type.lower()
         self._amplitude_name = amplitude_name
         self._init_condition = init_condition
 
@@ -46,7 +55,7 @@ class Bc(FemBase):
 
     @type.setter
     def type(self, value):
-        if value.lower() not in self._valid_types:
+        if value.lower() not in BcTypes.all:
             raise ValueError(f'BC type "{value}" is not yet supported')
         self._type = value.lower()
 
@@ -126,8 +135,6 @@ class Constraint(FemBase):
 
 
 class PredefinedField(FemBase):
-    valid_types = ["VELOCITY", "INITIAL STATE"]
-
     def __init__(
         self,
         name,
@@ -156,7 +163,7 @@ class PredefinedField(FemBase):
 
     @type.setter
     def type(self, value):
-        if value.upper() not in PredefinedField.valid_types:
+        if value.upper() not in PreDefTypes.all:
             raise ValueError(f'The field type "{value.upper()}" is currently not supported')
         self._type = value.upper()
 

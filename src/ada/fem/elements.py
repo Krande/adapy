@@ -7,7 +7,7 @@ import numpy as np
 from ada.concepts.points import Node
 
 from .common import Csys, FemBase
-from .sections import FemSection
+from .sections import ConnectorSection, FemSection
 from .shapes import ElemShapes
 
 
@@ -43,7 +43,6 @@ class Elem(FemBase):
 
     @property
     def type(self):
-        """Element type"""
         return self._el_type
 
     @type.setter
@@ -89,12 +88,7 @@ class Elem(FemBase):
         self._fem_sec = value
 
     @property
-    def mass_props(self):
-        """
-
-        :return:
-        :rtype: ada.fem.Mass
-        """
+    def mass_props(self) -> Mass:
         return self._mass_props
 
     @mass_props.setter
@@ -113,9 +107,7 @@ class Elem(FemBase):
         return self._refs
 
     def update(self):
-        from toolz import unique
-
-        self._nodes = list(unique(self.nodes))
+        self._nodes = list(set(self.nodes))
         if len(self.nodes) <= 1:
             self._el_id = None
         else:
@@ -174,7 +166,7 @@ class Connector(Elem):
         return self._con_type
 
     @property
-    def con_sec(self):
+    def con_sec(self) -> ConnectorSection:
         """
 
         :return:
@@ -183,30 +175,15 @@ class Connector(Elem):
         return self._con_sec
 
     @property
-    def n1(self):
-        """
-
-        :return:
-        :rtype: ada.Node
-        """
+    def n1(self) -> Node:
         return self._n1
 
     @property
-    def n2(self):
-        """
-
-        :return:
-        :rtype: ada.Node
-        """
+    def n2(self) -> Node:
         return self._n2
 
     @property
-    def csys(self):
-        """
-
-        :return:
-        :rtype: Csys
-        """
+    def csys(self) -> Csys:
         return self._csys
 
     def __repr__(self):
@@ -214,18 +191,6 @@ class Connector(Elem):
 
 
 class Spring(Elem):
-    """
-
-    :param name:
-    :param el_id:
-    :param el_type:
-    :param stiff:
-    :param n1:
-    :param n2:
-    :param metadata:
-    :param parent:
-    """
-
     def __init__(self, name, el_id, el_type, stiff, n1, n2=None, metadata=None, parent=None):
         from .sets import FemSet
 
@@ -253,24 +218,22 @@ class Spring(Elem):
         return f'Spring("{self.name}", type="{self._stiff}")'
 
 
+class MassTypes:
+    MASS = "MASS"
+    NONSTRU = "NONSTRUCTURAL MASS"
+    ROT_INERTIA = "ROTARY INERTIA"
+
+    all = [MASS, NONSTRU, ROT_INERTIA]
+
+
+class MassPType:
+    ISOTROPIC = "ISOTROPIC"
+    ANISOTROPIC = "ANISOTROPIC"
+
+    all = [ISOTROPIC, ANISOTROPIC]
+
+
 class Mass(FemBase):
-    """
-
-    :param name: Name of set
-    :param fem_set: Fem Set (of element or nodal type)
-    :type fem_set: FemSet
-    :param mass: Mass magnitude
-    :param mass_type: Type of mass. See _valid_types. Default is 'MASS'
-    :param ptype: Point mass type. Can be None, 'Isotropic' or 'Anisotropic'
-    :param units:
-    :param metadata:
-    :param parent:
-
-    """
-
-    _valid_types = ["MASS", "NONSTRUCTURAL MASS", "ROTARY INERTIA"]
-    _valid_ptypes = [None, "ISOTROPIC", "ANISOTROPIC"]
-
     def __init__(
         self,
         name,
@@ -282,6 +245,7 @@ class Mass(FemBase):
         metadata=None,
         parent=None,
     ):
+        """:type fem_set: ada.fem.FemSet"""
         super().__init__(name, metadata, parent)
         self._fem_set = fem_set
         if mass is None:
@@ -291,10 +255,10 @@ class Mass(FemBase):
             mass = [mass]
         self._mass = mass
         self._mass_type = mass_type if mass_type is not None else "MASS"
-        if self.type not in Mass._valid_types:
-            raise ValueError(f'Mass type "{self.type}" is not in list of supported types {self._valid_types}')
-        if ptype not in self._valid_ptypes:
-            raise ValueError(f'Mass point type "{ptype}" is not in list of supported types {self._valid_ptypes}')
+        if self.type not in MassTypes.all:
+            raise ValueError(f'Mass type "{self.type}" is not in list of supported types {MassTypes.all}')
+        if ptype not in MassPType.all and ptype is not None:
+            raise ValueError(f'Mass point type "{ptype}" is not in list of supported types {MassPType.all}')
         self.point_mass_type = ptype
         self._units = units
 
@@ -304,27 +268,25 @@ class Mass(FemBase):
 
     @property
     def fem_set(self):
-        """
-        :rtype: FemSet
-        """
+        """:rtype: FemSet"""
         return self._fem_set
 
     @property
     def mass(self):
         if self.point_mass_type is None:
-            if self.type == "MASS":
+            if self.type == MassTypes.MASS:
                 if type(self._mass) in (list, tuple):
                     raise ValueError("Mass can only be a scalar number for Isotropic mass")
                 return float(self._mass[0])
-            elif self.type == "NONSTRUCTURAL MASS":
+            elif self.type == MassTypes.NONSTRU:
                 return self._mass
             else:
                 return float(self._mass)
-        elif self.point_mass_type == "ISOTROPIC":
+        elif self.point_mass_type == MassPType.ISOTROPIC:
             if (len(self._mass) == 1) is False:
                 raise ValueError("Mass can only be a scalar number for Isotropic mass")
             return self._mass[0]
-        elif self.point_mass_type == "ANISOTROPIC":
+        elif self.point_mass_type == MassPType.ANISOTROPIC:
             if (len(self._mass) == 3) is False:
                 raise ValueError("Mass must be specified for 3 dofs for Anisotropic mass")
             return self._mass

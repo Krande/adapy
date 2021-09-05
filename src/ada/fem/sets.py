@@ -8,6 +8,13 @@ from .common import FemBase
 from .elements import Elem
 
 
+class SetTypes:
+    NSET = "nset"
+    ELSET = "elset"
+
+    all = [NSET, ELSET]
+
+
 class FemSet(FemBase):
     """
 
@@ -18,12 +25,10 @@ class FemSet(FemBase):
     :param parent: Parent object
     """
 
-    _valid_types = ["nset", "elset"]
-
     def __init__(self, name, members, set_type, metadata=None, parent=None):
         super().__init__(name, metadata, parent)
         self._set_type = set_type
-        if self.type not in FemSet._valid_types:
+        if self.type not in SetTypes.all:
             raise ValueError(f'set type "{set_type}" is not valid')
         self._members = members
 
@@ -40,29 +45,15 @@ class FemSet(FemBase):
         self.add_members(other.members)
         return self
 
-    def add_members(self, members):
-        """
-
-        :param members:
-        :type members: list
-        """
-
+    def add_members(self, members: List[Union[Elem, Node]]):
         self._members += members
 
     @property
     def type(self):
-        """
-
-        :return: Type of set
-        """
         return self._set_type.lower()
 
     @property
     def members(self) -> List[Union[Elem, Node]]:
-        """
-
-        :return: Members of set
-        """
         return self._members
 
     def __repr__(self):
