@@ -18,7 +18,6 @@ from ada.core.utils import (
 from ada.fem.shapes import ElemType
 from ada.ifc.utils import create_guid
 from ada.materials.utils import get_material
-from ada.occ.utils import make_edge, sweep_pipe
 from ada.sections.utils import get_section
 
 from .curves import ArcSegment
@@ -331,14 +330,20 @@ class PipeSegStraight(BackendGeom):
 
     @property
     def line(self):
+        from ada.occ.utils import make_edge
+
         return make_edge(self.p1, self.p2)
 
     @property
     def shell(self):
+        from ada.occ.utils import sweep_pipe
+
         return sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, ElemType.SHELL)
 
     @property
     def solid(self):
+        from ada.occ.utils import sweep_pipe
+
         return sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, ElemType.SOLID)
 
     def _generate_ifc_elem(self):

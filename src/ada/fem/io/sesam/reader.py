@@ -174,7 +174,7 @@ def get_materials(bulk_str, part) -> Materials:
 
     mat_names = {matid: mat_name for matid, mat_name in map(grab_name, cards.re_matnames.finditer(bulk_str))}
 
-    def get_morsmel(m):
+    def get_morsmel(m) -> Material:
         """
         MORSMEL
 
@@ -203,7 +203,7 @@ def get_materials(bulk_str, part) -> Materials:
             parent=part,
         )
 
-    def get_mat(match):
+    def get_mat(match) -> Material:
         d = match.groupdict()
         matno = str_to_int(d["matno"])
         return Material(
@@ -223,17 +223,12 @@ def get_materials(bulk_str, part) -> Materials:
         )
 
     return Materials(
-        chain.from_iterable(
-            [
-                map(get_mat, cards.re_misosel.finditer(bulk_str)),
-                map(get_morsmel, cards.re_morsmel.finditer(bulk_str)),
-            ]
-        ),
+        chain(map(get_mat, cards.re_misosel.finditer(bulk_str)), map(get_morsmel, cards.re_morsmel.finditer(bulk_str))),
         parent=part,
     )
 
 
-def get_sections(bulk_str, fem):
+def get_sections(bulk_str, fem: FEM) -> FemSections:
     """
 
     General beam:
@@ -259,10 +254,6 @@ def get_sections(bulk_str, fem):
     GIORHR
     GCHANR
     GLSECR
-
-    :param bulk_str:
-    :param fem: Parent object
-    :type fem: ada.fem.FEM
     """
     # Get section names
     def get_section_names(m):
@@ -284,7 +275,7 @@ def get_sections(bulk_str, fem):
     lcsysd = {transno: vec for transno, vec in map(get_lcsys, cards.re_lcsys.finditer(bulk_str))}
 
     # I-beam
-    def get_IBeams(match):
+    def get_IBeams(match) -> Section:
         d = match.groupdict()
         sec_id = str_to_int(d["geono"])
         return Section(
@@ -302,7 +293,7 @@ def get_sections(bulk_str, fem):
         )
 
     # Box-beam
-    def get_BoxBeams(match):
+    def get_BoxBeams(match) -> Section:
         d = match.groupdict()
         sec_id = str_to_int(d["geono"])
         return Section(
@@ -320,7 +311,7 @@ def get_sections(bulk_str, fem):
         )
 
     # General-beam
-    def get_GenBeams(match):
+    def get_GenBeams(match) -> Section:
         d = match.groupdict()
         sec_id = str_to_int(d["geono"])
         gen_props = GeneralProperties(
@@ -349,7 +340,7 @@ def get_sections(bulk_str, fem):
             fem.parent.sections.add(sec)
 
     # Tubular-beam
-    def get_gpipe(match):
+    def get_gpipe(match) -> Section:
         d = match.groupdict()
         sec_id = str_to_int(d["geono"])
         if sec_id not in sect_names:
@@ -403,15 +394,12 @@ def get_sections(bulk_str, fem):
     thicknesses = {geono: t for geono, t in map(get_thicknesses, cards.re_thick.finditer(bulk_str))}
     eccentricities = {eccno: values for eccno, values in map(get_eccentricities, cards.re_geccen.finditer(bulk_str))}
 
-    list_of_sections = list(
-        chain.from_iterable(
-            [
-                map(get_IBeams, cards.re_giorh.finditer(bulk_str)),
-                map(get_BoxBeams, cards.re_gbox.finditer(bulk_str)),
-                map(get_gpipe, cards.re_gpipe.finditer(bulk_str)),
-            ]
-        )
+    list_of_sections = chain(
+        map(get_IBeams, cards.re_giorh.finditer(bulk_str)),
+        map(get_BoxBeams, cards.re_gbox.finditer(bulk_str)),
+        map(get_gpipe, cards.re_gpipe.finditer(bulk_str)),
     )
+
     fem.parent._sections = Sections(list_of_sections)
     list(map(get_GenBeams, cards.re_gbeamg.finditer(bulk_str)))
 
@@ -497,9 +485,10 @@ def get_sections(bulk_str, fem):
         else:
             raise ValueError("Section not added to conversion")
 
-    sections = list(filter(None, map(get_femsecs, cards.re_gelref1.finditer(bulk_str))))
+    sections = filter(lambda x: x is not None, map(get_femsecs, cards.re_gelref1.finditer(bulk_str)))
+    fem_sections = FemSections(sections, fem_obj=fem)
     print(f"Successfully imported {next(importedgeom_counter) - 1} FEM sections out of {next(total_geo) - 1}")
-    return FemSections(sections, fem_obj=fem)
+    return fem_sections
 
 
 def get_sets(bulk_str, parent):
@@ -697,7 +686,7 @@ def get_springs(bulk_str, fem: FEM):
         for row in spring:
             l = abs(len(row) - 6)
             if l > 0:
-                new_s.append([0 for i in range(0, l)] + row)
+                new_s.append([0.0 for i in range(0, l)] + row)
             else:
                 new_s.append(row)
         X = np.array(new_s)

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from typing import Union
+
 from .common import Csys, FemBase
 from .sets import FemSet
+from .surfaces import Surface
 
 
 class BcTypes:
@@ -85,7 +88,7 @@ class Constraint(FemBase):
         name,
         con_type,
         m_set: FemSet,
-        s_set: FemSet,
+        s_set: Union[FemSet, Surface],
         dofs=None,
         pos_tol=None,
         mpc_type=None,

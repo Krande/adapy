@@ -1,11 +1,12 @@
+from dataclasses import dataclass
+
 from ada.core.utils import roundoff as rd
 
 
+@dataclass
 class ProfileBuilder:
-    origin = (0.0, 0.0, 0.0)
-    """
-    A class for creating generalized 2d point curves describing beam section profiles
-    """
+    origin: tuple = (0.0, 0.0, 0.0)
+    """A class for creating generalized 2d point curves describing beam section profiles"""
 
     @classmethod
     def angular(cls, sec, return_solid):
@@ -189,75 +190,3 @@ class ProfileBuilder:
         inner_curve = None
         disconnected = False
         return outer_curve, inner_curve, disconnected
-
-    @staticmethod
-    def build_representation(beam, solid=True):
-        """
-        Build a 3d model by
-
-        :param beam:
-        :param solid:
-        :type beam: ada.Beam
-        :return:
-        """
-        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
-        from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
-        from OCC.Core.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
-        from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Wire
-
-        from ada.core.utils import tuple_minus
-        from ada.occ.utils import face_to_wires
-
-        from .categories import SectionCat
-
-        xdir, ydir, zdir = beam.ori
-        ydir_neg = tuple_minus(ydir) if beam.section.type not in SectionCat.angular else tuple(ydir)
-
-        sec = beam.section.cross_sec_shape(
-            solid,
-            origin=tuple(beam.n1.p.astype(float)),
-            xdir=ydir_neg,
-            normal=tuple(xdir),
-        )
-        tap = beam.taper.cross_sec_shape(
-            solid,
-            origin=tuple(beam.n2.p.astype(float)),
-            xdir=ydir_neg,
-            normal=tuple(xdir),
-        )
-
-        def through_section(sec_a, sec_b, solid_):
-            generator_sec = BRepOffsetAPI_ThruSections(solid_, False)
-            generator_sec.AddWire(sec_a)
-            generator_sec.AddWire(sec_b)
-            generator_sec.Build()
-            return generator_sec.Shape()
-
-        if type(sec) is TopoDS_Face:
-            sec_result = face_to_wires(sec)
-            tap_result = face_to_wires(tap)
-        elif type(sec) is TopoDS_Wire:
-            sec_result = [sec]
-            tap_result = [tap]
-        else:
-            assert isinstance(sec, list)
-            sec_result = sec
-            tap_result = tap
-
-        shapes = list()
-        for s_, t_ in zip(sec_result, tap_result):
-            shapes.append(through_section(s_, t_, solid))
-
-        if beam.section.type in SectionCat.box + SectionCat.tubular + SectionCat.rhs + SectionCat.shs and solid is True:
-            cut_shape = BRepAlgoAPI_Cut(shapes[0], shapes[1]).Shape()
-            shape_upgrade = ShapeUpgrade_UnifySameDomain(cut_shape, False, True, False)
-            shape_upgrade.Build()
-            return shape_upgrade.Shape()
-
-        if len(shapes) == 1:
-            return shapes[0]
-        else:
-            result = shapes[0]
-            for s in shapes[1:]:
-                result = BRepAlgoAPI_Fuse(result, s).Shape()
-            return result

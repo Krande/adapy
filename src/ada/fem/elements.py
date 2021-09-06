@@ -118,38 +118,20 @@ class Elem(FemBase):
 
 
 class Connector(Elem):
-    """
-    A Connector Element
-
-    :param name:
-    :param con_type:
-    :param con_sec:
-    :param el_id:
-    :param n1:
-    :param n2:
-    :param csys:
-
-    :type n1: ada.Node
-    :type n2: ada.Node
-    :type con_sec: ConnectorSection
-    :type csys: Csys
-    """
-
     def __init__(
         self,
         name,
         el_id,
-        n1,
-        n2,
+        n1: Node,
+        n2: Node,
         con_type,
-        con_sec,
+        con_sec: ConnectorSection,
         preload=None,
-        csys=None,
+        csys: Csys = None,
         metadata=None,
         parent=None,
     ):
-        from ada import Node
-
+        """:type parent: ada.FEM"""
         if type(n1) is not Node or type(n2) is not Node:
             raise ValueError("Connector Start\\end must be nodes")
         super(Connector, self).__init__(el_id, [n1, n2], "CONNECTOR")
@@ -167,11 +149,6 @@ class Connector(Elem):
 
     @property
     def con_sec(self) -> ConnectorSection:
-        """
-
-        :return:
-        :rtype: ConnectorSection
-        """
         return self._con_sec
 
     @property
@@ -191,7 +168,7 @@ class Connector(Elem):
 
 
 class Spring(Elem):
-    def __init__(self, name, el_id, el_type, stiff, n1, n2=None, metadata=None, parent=None):
+    def __init__(self, name, el_id, el_type, stiff, n1: Node, n2: Node = None, metadata=None, parent=None):
         from .sets import FemSet
 
         nids = [n1]
@@ -208,6 +185,7 @@ class Spring(Elem):
 
     @property
     def fem_set(self):
+        """:rtype: ada.fem.sets.FemSet"""
         return self._fem_set
 
     @property
@@ -254,7 +232,7 @@ class Mass(FemBase):
             logging.info(f"Mass {type(mass)} converted to list of len=1. Assume equal mass in all 3 transl. DOFs.")
             mass = [mass]
         self._mass = mass
-        self._mass_type = mass_type if mass_type is not None else "MASS"
+        self._mass_type = mass_type.upper() if mass_type is not None else "MASS"
         if self.type not in MassTypes.all:
             raise ValueError(f'Mass type "{self.type}" is not in list of supported types {MassTypes.all}')
         if ptype not in MassPType.all and ptype is not None:
@@ -264,7 +242,7 @@ class Mass(FemBase):
 
     @property
     def type(self):
-        return self._mass_type.upper()
+        return self._mass_type
 
     @property
     def fem_set(self):

@@ -1,9 +1,11 @@
 import logging
+from typing import List
 
 import numpy as np
 
-from .common import Csys, FemBase
+from .common import Amplitude, Csys, FemBase
 from .constants import GRAVITY
+from .sets import FemSet
 
 
 class LoadTypes:
@@ -29,25 +31,22 @@ class Load(FemBase):
     :param follower_force: Should follower force be accounted for
     :param amplitude: Attach an amplitude object to the load
     :param accr_origin: Origin of a rotational Acceleration field (necessary for load_type='acc_rot').
-    :type load_type: str
-    :type magnitude: float
-    :type dof: list
-    :type fem_set: FemSet
+    :type parent: ada.FEM
     """
 
     def __init__(
         self,
-        name,
-        load_type,
-        magnitude,
-        fem_set=None,
-        dof=None,
-        amplitude=None,
+        name: str,
+        load_type: str,
+        magnitude: float,
+        fem_set: FemSet = None,
+        dof: List[int] = None,
+        amplitude: Amplitude = None,
         follower_force=False,
         acc_vector=None,
         accr_origin=None,
         accr_rot_axis=None,
-        csys=None,
+        csys: Csys = None,
         metadata=None,
         parent=None,
     ):
@@ -62,7 +61,7 @@ class Load(FemBase):
         self._accr_origin = accr_origin
         self._accr_rot_axis = accr_rot_axis
         self._csys = csys
-        if self.type == "point_load":
+        if self.type == LoadTypes.FORCE:
             if self._dof is None or self._fem_set is None or self._name is None:
                 raise Exception("self._dofs and nid (Node id) and name needs to be set in order to use point loads")
             if len(self._dof) != 6:

@@ -84,7 +84,7 @@ class GmshSession:
     def add_obj(
         self, obj: Union[Shape, Beam, Plate, Pipe], geom_repr=ElemType.SOLID, el_order=1, silent=True, mesh_size=None
     ):
-        self._add_settings()
+        self.apply_settings()
         temp_dir = Settings.temp_dir
         os.makedirs(temp_dir, exist_ok=True)
         name = f"{obj.name}_{create_guid()}"
@@ -118,20 +118,20 @@ class GmshSession:
                 obj.entities = [(dim, r) for dim, r in res[0] if dim == 3]
             self.model.occ.remove([(2, rect)], True)
 
-        rem_ids = [(2, c.gmsh_id) for c in self.cutting_planes]
-        self.model.occ.remove(rem_ids, True)
+        # rem_ids = [(2, c.gmsh_id) for c in self.cutting_planes]
+        # self.model.occ.remove(rem_ids, True)
         self.model.occ.synchronize()
 
     def mesh(self, size: float = None):
         if self.silent is True:
             self.options.General_Terminal = 0
-        self._add_settings()
+        self.apply_settings()
         if size is not None:
             self.gmsh.option.setNumber("Mesh.MeshSizeMax", size)
 
         model = self.model
         model.geo.synchronize()
-        model.mesh.setRecombine(3, 1)
+        model.mesh.setRecombine(3, -1)
         model.mesh.generate(3)
         model.mesh.removeDuplicateNodes()
 
@@ -153,7 +153,7 @@ class GmshSession:
         fem.nodes.renumber()
         return fem
 
-    def _add_settings(self):
+    def apply_settings(self):
         if self.options is not None:
             for setting, value in self.options.get_as_dict().items():
                 self.gmsh.option.setNumber(setting, value)
@@ -166,7 +166,7 @@ class GmshSession:
 
         self._gmsh = gmsh
         self.gmsh.initialize()
-        self._add_settings()
+        self.apply_settings()
         self.model.add("ada")
         return self
 

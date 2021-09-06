@@ -55,6 +55,21 @@ class GmshApiV2(unittest.TestCase):
 
         dummy_display(a)
 
+    def test_beam_hex(self):
+        with GmshSession(silent=True, options=GmshOptions(Mesh_ElementOrder=2)) as gs:
+            solid_bm = gs.add_obj(self.bm1, "solid")
+
+            for cutp in self.cut_planes:
+                gs.add_cutting_plane(cutp, [solid_bm])
+            gs.make_cuts()
+
+            gs.mesh(0.1)
+            fem = gs.get_fem()
+        a = Assembly() / (Part("MyFemObjects", fem=fem) / [self.bm1])
+        a.to_fem("aba_2nd_order_bm_hex", "abaqus", overwrite=True, scratch_dir=test_dir)
+
+        dummy_display(a)
+
     def test_mix_geom_repr_in_same_session(self):
         with GmshSession(silent=True, options=GmshOptions(Mesh_ElementOrder=2)) as gs:
             gs.add_obj(self.bm1, "shell")

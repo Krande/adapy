@@ -1,3 +1,5 @@
+from typing import Union
+
 from .common import FemBase
 from .constraints import Constraint
 from .surfaces import Surface
@@ -26,7 +28,7 @@ class InteractionProperty(FemBase):
         self,
         name,
         friction=None,
-        pressure_overclosure="HARD",
+        pressure_overclosure=IntPropTypes.HARD,
         tabular=None,
         metadata=None,
         parent=None,
@@ -58,8 +60,8 @@ class Interaction(FemBase):
         self,
         name,
         contact_type,
-        surf1: Surface,
-        surf2: Surface,
+        surf1: Union[Surface, None],
+        surf2: Union[Surface, None],
         int_prop: InteractionProperty,
         constraint: Constraint = None,
         surface_type=SurfTypes.SURF2SURF,

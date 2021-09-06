@@ -7,7 +7,7 @@ import pathlib
 import re
 from dataclasses import dataclass
 from itertools import chain
-from typing import Iterable, List
+from typing import Iterable, List, Union
 
 import numpy as np
 
@@ -32,6 +32,7 @@ from ada.fem import (
     Surface,
 )
 from ada.fem.containers import FemElements, FemSections, FemSets
+from ada.fem.interactions import ContactTypes
 from ada.fem.io.abaqus.common import AbaCards
 from ada.fem.shapes import ElemShapes, ElemType
 from ada.materials.metals import CarbonSteel
@@ -49,6 +50,8 @@ class InstanceData:
     instance_name: str
     instance_bulk: str
     metadata: dict
+    move: Union[tuple, None] = None
+    rotate: Union[tuple, None] = None
 
 
 def read_fem(assembly: Assembly, fem_file, fem_name=None):
@@ -140,7 +143,7 @@ def import_bulk2(file_path, buffer_function):
             return buffer_function(m)
 
 
-def extract_instance_data(assembly_bulk) -> dict[str:InstanceData]:
+def extract_instance_data(assembly_bulk) -> dict[str, List[InstanceData]]:
     ass_data = {}
     for m in cards.inst_matches.finditer(assembly_bulk):
         d = m.groupdict()
@@ -153,7 +156,7 @@ def extract_instance_data(assembly_bulk) -> dict[str:InstanceData]:
     return ass_data
 
 
-def import_parts(bulk_str, instance_data, assembly: Assembly) -> List[Part]:
+def import_parts(bulk_str, instance_data: dict[str, List[InstanceData]], assembly: Assembly) -> List[Part]:
     part_list = []
 
     for m in cards.parts_matches.finditer(bulk_str):
@@ -163,7 +166,7 @@ def import_parts(bulk_str, instance_data, assembly: Assembly) -> List[Part]:
 
         for i in instance_data[name]:
             p_bulk_str = i.instance_bulk if part_bulk_str == "" and i.instance_bulk != "" else part_bulk_str
-            part = get_fem_from_bulk_str(name, p_bulk_str, assembly, i.instance_name, i.metadata)
+            part = get_fem_from_bulk_str(name, p_bulk_str, assembly, i)
             part_list.append(part)
     return part_list
 
@@ -180,17 +183,17 @@ def add_fem_without_assembly(bulk_str, assembly: Assembly) -> Part:
         p_bulk = p_nmatch[0].group(2)
 
     p_name = next(part_name_counter) if p_name is None else p_name
-    return get_fem_from_bulk_str(p_name, p_bulk, assembly)
+    inst = InstanceData("", p_name, "", dict())
+
+    return get_fem_from_bulk_str(p_name, p_bulk, assembly, inst)
 
 
-def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_name=None, metadata=None) -> Part:
-    metadata = dict(move=None, rotate=None) if metadata is None else metadata
-    instance_name = name if instance_name is None else instance_name
-
-    part = assembly.add_part(Part(name, fem=FEM(name=instance_name, metadata=metadata)))
+def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: InstanceData) -> Part:
+    instance_name = name if instance_data.instance_name is None else instance_data.instance_name
+    part = assembly.add_part(Part(name, fem=FEM(name=instance_name)))
     fem = part.fem
     fem.nodes = get_nodes_from_inp(bulk_str, fem)
-    fem.nodes.move(move=fem.metadata["move"], rotate=fem.metadata["rotate"])
+    fem.nodes.move(move=instance_data.move, rotate=instance_data.rotate)
     fem.elements = get_elem_from_inp(bulk_str, fem)
     fem.elements.build_sets()
     fem.sets += get_sets_from_bulk(bulk_str, fem)
@@ -206,7 +209,7 @@ def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_name=None
     return part
 
 
-def get_initial_conditions_from_lines(assembly: Assembly, bulk_str):
+def get_initial_conditions_from_lines(assembly: Assembly, bulk_str: str):
     """
     TODO: Optimize this function
 
@@ -324,8 +327,8 @@ def get_instance_data(inst_name, p_ref, inst_bulk) -> InstanceData:
 
     move_rot = re.compile(r"(?:^\s*(.*?),\s*(.*?),\s*(.*?)$)", _re_in)
     metadata = dict(move=None, rotate=None)
-    move = None
-    rotate = None
+    move: Union[tuple, None] = None
+    rotate: Union[tuple, None] = None
     mr = move_rot.finditer(inst_bulk)
     if mr is not None:
         for j, mo in enumerate(mr):
@@ -333,10 +336,10 @@ def get_instance_data(inst_name, p_ref, inst_bulk) -> InstanceData:
             if "*" in content or j == 2 or content == "":
                 break
             if j == 0:
-                move = [float(mo.group(1)), float(mo.group(2)), float(mo.group(3))]
+                move = (float(mo.group(1)), float(mo.group(2)), float(mo.group(3)))
             if j == 1:
                 r = [float(x) for x in mo.group(3).split(",")]
-                rotate = [
+                rotate_ = [
                     float(mo.group(1)),
                     float(mo.group(2)),
                     r[0],
@@ -345,15 +348,13 @@ def get_instance_data(inst_name, p_ref, inst_bulk) -> InstanceData:
                     r[3],
                     r[4],
                 ]
-            if move is not None:
-                metadata["move"] = tuple(move)
-            if rotate is not None:
-                metadata["rotate"] = (
-                    tuple(rotate[:3]),
-                    tuple(rotate[3:-1]),
-                    rotate[-1],
+                rotate = (
+                    tuple(rotate_[:3]),
+                    tuple(rotate_[3:-1]),
+                    rotate_[-1],
                 )
-    return InstanceData(p_ref, inst_name, inst_bulk, metadata)
+
+    return InstanceData(p_ref, inst_name, inst_bulk, metadata, move, rotate)
 
 
 def mat_str_to_mat_obj(mat_str) -> Material:
@@ -577,7 +578,7 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
 def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
     bc_counter = Counter(1, "bc")
 
-    def get_dofs(content):
+    def get_dofs(content: str):
         set_name = None
         dofs = []
         magn = []
@@ -648,7 +649,7 @@ def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
     return [get_bc(match_in) for match_in in cards.re_bcs.finditer(bulk_str)]
 
 
-def get_mass_from_bulk(bulk_str, parent):
+def get_mass_from_bulk(bulk_str, parent: FEM):
     """
 
     *MASS,ELSET=MASS3001
@@ -663,13 +664,7 @@ def get_mass_from_bulk(bulk_str, parent):
         _re_in,
     )
 
-    def map_element(el_set, mass_prop):
-        """
-
-        :param el_set:
-        :param mass_prop:
-        :type el_set: ada.fem.FemSet
-        """
+    def map_element(el_set: FemSet, mass_prop):
         elem = el_set.members[0]
         elem.mass_prop = mass_prop
 
@@ -678,9 +673,9 @@ def get_mass_from_bulk(bulk_str, parent):
         elset = parent.sets.get_elset_from_name(d["elset"])
         mass_type = d["mass_type"]
         p_type = d["ptype"]
-        mass = [str_to_int(x.strip()) for x in d["mass"].split(",") if x.strip() != ""]
+        mass_ints = [str_to_int(x.strip()) for x in d["mass"].split(",") if x.strip() != ""]
         units = d["units"]
-        mass = Mass(d["elset"], elset, mass, mass_type, p_type, units, parent=parent)
+        mass = Mass(d["elset"], elset, mass_ints, mass_type, p_type, units, parent=parent)
         map_element(elset, mass)
         return mass
 
@@ -695,6 +690,7 @@ def get_surfaces_from_bulk(bulk_str, parent):
 
     :return:
     """
+    from ada.fem.surfaces import SurfTypes
 
     def interpret_member(mem):
         msplit = mem.split(",")
@@ -707,11 +703,12 @@ def get_surfaces_from_bulk(bulk_str, parent):
         return tuple([ref, msplit[1].strip()])
 
     surf_d = dict()
+
     for m in AbaCards.surface.regex.finditer(bulk_str):
         d = m.groupdict()
         name = d["name"].strip()
-        surf_type = d["type"] if d["type"] is not None else "ELEMENT"
-        members_str = d["bulk"]
+        surf_type = d["type"].upper() if d["type"] is not None else "ELEMENT"
+        members_str: str = d["bulk"]
         if members_str.count("\n") >= 1:
             id_refs = [interpret_member(m) for m in members_str.splitlines()]
             set_ref, set_id_ref = None, None
@@ -725,7 +722,7 @@ def get_surfaces_from_bulk(bulk_str, parent):
                 set_id_ref = 1.0
 
         if id_refs is None:
-            if surf_type == "NODE":
+            if surf_type == SurfTypes.NODE:
                 if set_id_ref == "":
                     fem_set = FemSet(f"n{set_ref}_set", [int(set_ref)], "nset")
                     parent.add_set(fem_set)
@@ -767,7 +764,7 @@ def get_surfaces_from_bulk(bulk_str, parent):
     return surf_d
 
 
-def get_lcsys_from_bulk(bulk_str, parent):
+def get_lcsys_from_bulk(bulk_str: str, parent: FEM) -> dict[str, Csys]:
     """
     https://abaqus-docs.mit.edu/2017/English/SIMACAEKEYRefMap/simakey-r-orientation.htm#simakey-r-orientation
 
@@ -776,11 +773,6 @@ def get_lcsys_from_bulk(bulk_str, parent):
     :param parent:
     :return:
     """
-    # re_lcsys = re.compile(
-    #     r"^\*Orientation(:?,\s*definition=(?P<definition>.*?)|)(?:,\s*system=(?P<system>.*?)|)\s*name=(?P<name>.*?)\n(?P<content>.*?)$",
-    #     _re_in,
-    # )
-
     lcsysd = dict()
     for m in AbaCards.orientation.regex.finditer(bulk_str):
         d = m.groupdict()
@@ -801,7 +793,7 @@ def get_lcsys_from_bulk(bulk_str, parent):
     return lcsysd
 
 
-def get_constraints_from_inp(bulk_str, fem):
+def get_constraints_from_inp(bulk_str: str, fem: FEM):
     """
 
     ** Constraint: Container_RigidBody
@@ -810,10 +802,6 @@ def get_constraints_from_inp(bulk_str, fem):
     *MPC
      BEAM,    2007,     161
      BEAM,    2008,     162
-
-    :param bulk_str:
-    :param fem:
-    :type fem: ada.fem.FEM
     """
 
     # Rigid Bodies
@@ -1212,7 +1200,7 @@ def add_interactions_from_bulk_str(bulk_str, assembly: Assembly) -> None:
         surf1 = resolve_surface_ref(d["surf1"])
         surf2 = resolve_surface_ref(d["surf2"])
 
-        assembly.fem.add_interaction(Interaction(d["name"], "surface", surf1, surf2, intprop, metadata=d))
+        assembly.fem.add_interaction(Interaction(d["name"], ContactTypes.SURFACE, surf1, surf2, intprop, metadata=d))
 
     for m in AbaCards.contact_general.regex.finditer(bulk_str):
         s = m.start()
@@ -1232,13 +1220,13 @@ def list_cleanup(membulkstr):
     return membulkstr.replace(",\n", ",").replace("\n", ",")
 
 
-def is_set_in_part(part, set_name, set_type):
+def is_set_in_part(part: Part, set_name: str, set_type) -> Union[FemSet, Surface]:
     """
 
     :param part:
     :param set_name:
     :param set_type:
-    :type part: ada.Part
+
     :return: Set (node, element or surface)
     """
 
@@ -1252,15 +1240,7 @@ def is_set_in_part(part, set_name, set_type):
         return el_map[set_type].from_id(_id)
 
 
-def grab_set_from_assembly(set_str, fem, set_type):
-    """
-
-    :param set_str:
-    :param fem:
-    :param set_type:
-    :type fem: ada.fem.FEM
-    :rtype: Union[ada.fem.FemSet, ada.fem.Surface]
-    """
+def grab_set_from_assembly(set_str: str, fem: FEM, set_type) -> Union[FemSet, Surface]:
     res = set_str.split(".")
     if len(res) == 1:
         set_map = {"nset": fem.nsets, "elset": fem.elsets, "surface": fem.surfaces}

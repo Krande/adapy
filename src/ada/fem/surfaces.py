@@ -1,4 +1,12 @@
 from .common import FemBase
+from .sets import FemSet
+
+
+class SurfTypes:
+    ELEMENT = "ELEMENT"
+    NODE = "NODE"
+
+    all = [ELEMENT, NODE]
 
 
 class Surface(FemBase):
@@ -17,16 +25,14 @@ class Surface(FemBase):
     :param id_refs: Explicitly defined by list of tuple [(elid/nid,spos), ..]
     :param parent:
     :param metadata:
-    :type fem_set: FemSet
+    :type parent: ada.FEM
     """
-
-    _valid_surf_types = ["ELEMENT", "NODE"]
 
     def __init__(
         self,
         name,
         surf_type,
-        fem_set,
+        fem_set: FemSet,
         weight_factor=None,
         face_id_label=None,
         id_refs=None,
@@ -35,10 +41,11 @@ class Surface(FemBase):
     ):
         super().__init__(name, metadata, parent)
 
-        if surf_type not in self._valid_surf_types:
-            raise ValueError(f'Surface type "{surf_type}" is currently not supported\\implemented')
+        self._type = surf_type.upper()
 
-        self._surf_type = surf_type
+        if self.type not in SurfTypes.all:
+            raise ValueError(f'Surface type "{self.type}" is currently not supported\\implemented. Valid types are')
+
         self._fem_set = fem_set
         self._weight_factor = weight_factor
         self._face_id_label = face_id_label
@@ -46,10 +53,10 @@ class Surface(FemBase):
 
     @property
     def type(self):
-        return self._surf_type
+        return self._type
 
     @property
-    def fem_set(self):
+    def fem_set(self) -> FemSet:
         return self._fem_set
 
     @property

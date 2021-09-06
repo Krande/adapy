@@ -1,15 +1,18 @@
 import logging
+from typing import Iterable
 
 import numpy as np
 
 from ada.concepts.levels import Assembly, Part
+from ada.concepts.structural import Material
 from ada.config import Settings as _Settings
-from ada.fem import Bc, FemSection, Step
+from ada.fem import Bc, FemSection, Load, Step
 from ada.fem.containers import FemSections
 from ada.fem.shapes import ElemShapes
 
 from ..utils import get_fem_model_from_assembly
 from .common import abaqus_to_med_type
+from .templates import main_comm_str
 
 
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
@@ -47,42 +50,22 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
         sh_elset_str = ",".join([f"'{bm_fs.elset.name}'" for bm_fs in part.fem.sections.shells])
         model_type_str += f"_F(GROUP_MA=({sh_elset_str}),PHENOMENE='MECANIQUE', MODELISATION='DKT',),"
 
-    comm_str = f"""#
-#   COMM file created by ADA (Assembly for Design and Analysis)
-#
+    if len(part.fem.sections.solids) > 0:
+        so_elset_str = ",".join([f"'{solid_fs.elset.name}'" for solid_fs in part.fem.sections.solids])
+        model_type_str += f"_F(GROUP_MA=({so_elset_str}),PHENOMENE='MECANIQUE', MODELISATION='3D',),"
 
-# Units: N, m
-
-DEBUT(LANG="EN")
-
-mesh = LIRE_MAILLAGE(FORMAT="MED", UNITE=20)
-
-model = AFFE_MODELE(
-    AFFE=(
-        {model_type_str}
-    ),
-    MAILLAGE=mesh
-)
-
-# Materials
-{materials_str}
-
-# Sections
-{sections_str}
-
-# Boundary Conditions
-{bc_str}
-
-# Step Information
-{step_str}
-
-FIN()
-"""
+    comm_str = main_comm_str.format(
+        model_type_str=model_type_str,
+        materials_str=materials_str,
+        sections_str=sections_str,
+        bc_str=bc_str,
+        step_str=step_str,
+    )
 
     return comm_str
 
 
-def write_material(material):
+def write_material(material: Material):
     """
 
     :param material:
@@ -118,31 +101,30 @@ def write_material(material):
 """
 
 
-def write_sections(fem_sections: FemSections):
+def write_sections(fem_sections: FemSections) -> str:
     mat_assign_str = ""
 
+    beam_sections_str = "\n        POUTRE=(),"
+    shell_sections_str = "\n        COQUE=(),"
+    solid_sections_str = ""
+
     if len(fem_sections.shells) > 0:
-        mat_assign_str, shell_sections_str = [
+        mat_assign_str_, shell_sections_str = [
             "".join(x) for x in zip(*[write_shell_section(sh) for sh in fem_sections.shells])
         ]
+        mat_assign_str += mat_assign_str_
         shell_sections_str = f"\n        COQUE=(\n{shell_sections_str}\n        ),"
-    else:
-        shell_sections_str = "\n        COQUE=(),"
 
     if len(fem_sections.lines) > 0:
-        mat_assign_str, beam_sections_str, orientations_str = [
+        mat_assign_str_, beam_sections_str, orientations_str = [
             "".join(x) for x in zip(*[write_beam_section(bm) for bm in fem_sections.lines])
         ]
+        mat_assign_str += mat_assign_str_
         beam_sections_str = f"\n        POUTRE=(\n{beam_sections_str}\n        ),"
         beam_sections_str += f"\n        ORIENTATION=(\n{orientations_str}\n        ),"
-    else:
-        beam_sections_str = "\n        POUTRE=(),"
 
     if len(fem_sections.solids) > 0:
-        logging.error("Solid section export to Code Aster is not yet supported")
-        solid_sections_str = ""
-    else:
-        solid_sections_str = ""
+        mat_assign_str += write_solid_section(fem_sections.solids)
 
     return f"""
 material = AFFE_MATERIAU(MODELE=model, AFFE=(
@@ -161,7 +143,7 @@ element = AFFE_CARA_ELEM(
 """
 
 
-def write_shell_section(fem_sec: FemSection):
+def write_shell_section(fem_sec: FemSection) -> tuple[str, str]:
     mat_name = fem_sec.material.name
     sec_name = fem_sec.elset.name
     #
@@ -176,7 +158,7 @@ def write_shell_section(fem_sec: FemSection):
     return mat_, sec_str
 
 
-def write_beam_section(fem_sec: FemSection):
+def write_beam_section(fem_sec: FemSection) -> tuple[str, str, str]:
     mat_name = fem_sec.material.name
     sec_name = fem_sec.elset.name
     p = fem_sec.section.properties
@@ -203,6 +185,13 @@ def write_beam_section(fem_sec: FemSection):
     return mat_, sec_str, orientations
 
 
+def write_solid_section(fem_sections: Iterable[FemSection]) -> str:
+    mat_ = ""
+    for fsec in fem_sections:
+        mat_ += f'		_F(MATER=({fsec.material.name},), GROUP_MA="{fsec.elset.name}"),\n'
+    return mat_
+
+
 def create_bc_str(bc: Bc) -> str:
     set_name = bc.fem_set.name
     bc_str = ""
@@ -222,7 +211,7 @@ def create_bc_str(bc: Bc) -> str:
     )
 
 
-def write_load(load):
+def write_load(load: Load) -> str:
     """
 
     :param load:
@@ -238,7 +227,7 @@ def write_load(load):
         raise NotImplementedError(f'Load type "{load.type}"')
 
 
-def step_static_str(step: Step, part: Part):
+def step_static_str(step: Step, part: Part) -> str:
     load_str = "\n".join(list(map(write_load, step.loads)))
     load = step.loads[0]
     bc = part.get_assembly().fem.bcs[0]
@@ -323,7 +312,7 @@ IMPR_RESU(
 )"""
 
 
-def step_eig_str(step: Step, part: Part):
+def step_eig_str(step: Step, part: Part) -> str:
     if len(part.fem.bcs) == 1:
         bcs = part.fem.bcs
     elif len(part.get_assembly().fem.bcs) == 1:

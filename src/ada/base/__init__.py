@@ -87,16 +87,9 @@ class Backend:
     @property
     def ifc_settings(self):
         if self._ifc_settings is None:
-            import ifcopenshell.geom
+            from ada.ifc.utils import default_settings
 
-            ifc_settings = ifcopenshell.geom.settings()
-            ifc_settings.set(ifc_settings.USE_PYTHON_OPENCASCADE, True)
-            ifc_settings.set(ifc_settings.SEW_SHELLS, True)
-            ifc_settings.set(ifc_settings.WELD_VERTICES, True)
-            ifc_settings.set(ifc_settings.INCLUDE_CURVES, True)
-            ifc_settings.set(ifc_settings.USE_WORLD_COORDS, True)
-            ifc_settings.set(ifc_settings.VALIDATE_QUANTITIES, True)
-            self._ifc_settings = ifc_settings
+            self._ifc_settings = default_settings()
         return self._ifc_settings
 
     @ifc_settings.setter
@@ -274,6 +267,7 @@ class BackendGeom(Backend):
 
     @property
     def penetrations(self):
+        """:rtype: List[ada.Penetration]"""
         return self._penetrations
 
     def _repr_html_(self):

@@ -1,3 +1,15 @@
+class BaseTypes:
+    BOX = "BOX"
+    TUBULAR = "TUB"
+    IPROFILE = "I"
+    TPROFILE = "T"
+    ANGULAR = "HP"
+    CHANNEL = "UNP"
+    CIRCULAR = "CIRC"
+    GENERAL = "GENERAL"
+    FLATBAR = "FB"
+
+
 class SectionCat:
     box = ["BG", "CG"]
     shs = ["SHS"]

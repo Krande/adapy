@@ -38,15 +38,23 @@ class FemBase:
         return self._metadata
 
 
-class Csys(FemBase):
-    _valid_systems = ["RECTANGULAR"]  # , 'CYLINDRICAL', 'SPHERICAL', 'Z RECTANGULAR', 'USER']
-    _valid_defs = ["COORDINATES", "NODES"]  # ,'OFFSET TO NODES'
+class CsysSystems:
+    RECTANGULAR = "RECTANGULAR"
+    # , 'CYLINDRICAL', 'SPHERICAL', 'Z RECTANGULAR', 'USER']
 
+
+class CsysDefs:
+    COORDINATES = "COORDINATES"
+    NODES = "NODES"
+    # ,'OFFSET TO NODES'
+
+
+class Csys(FemBase):
     def __init__(
         self,
         name,
-        definition="COORDINATES",
-        system="RECTANGULAR",
+        definition=CsysDefs.COORDINATES,
+        system=CsysSystems.RECTANGULAR,
         nodes=None,
         coords=None,
         metadata=None,

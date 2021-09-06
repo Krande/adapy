@@ -23,7 +23,6 @@ from ada.ifc.utils import create_guid
 from ada.materials import Material
 from ada.materials.metals import CarbonSteel
 from ada.materials.utils import get_material
-from ada.occ.utils import make_wire_from_points
 from ada.sections import Section
 from ada.sections.utils import get_section
 
@@ -404,7 +403,6 @@ class Beam(BackendGeom):
         xvec = unit_vector(np.array(p2) - np.array(p1))
         zvec = np.cross(xvec, yvec)
 
-        # pdct_shape = ifcopenshell.geom.create_shape(self.settings, inst=ifc_elem)
         pdct_shape, colour, alpha = get_ifc_shape(ifc_elem, self.ifc_settings)
 
         bodies = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Body"]
@@ -626,23 +624,6 @@ class Beam(BackendGeom):
         if self._bbox is None:
             if Settings.use_occ_bounding_box_algo:
                 raise NotImplementedError()
-                # from OCC.Core.Bnd import Bnd_OBB
-                # from OCC.Core.BRepBndLib import brepbndlib_AddOBB
-                #
-                # obb = Bnd_OBB()
-                # brepbndlib_AddOBB(self.solid, obb)
-                # if Settings.use_oriented_bbox:
-                #     # converts the bounding box to a shape
-                #     aBaryCenter = obb.Center()
-                #     aXDir = obb.XDirection()
-                #     aYDir = obb.YDirection()
-                #     aZDir = obb.ZDirection()
-                #     aHalfX = obb.XHSize()
-                #     aHalfY = obb.YHSize()
-                #     aHalfZ = obb.ZHSize()
-                #
-                #     self._bbox = (), ()
-
             else:
                 self._bbox = self._calc_bbox()
 
@@ -679,6 +660,8 @@ class Beam(BackendGeom):
 
     @property
     def line(self):
+        from ada.occ.utils import make_wire_from_points
+
         return make_wire_from_points([self.n1.p, self.n2.p])
 
     @property
@@ -688,14 +671,9 @@ class Beam(BackendGeom):
         :return:
         :rtype: OCC.Core.TopoDS.TopoDS_Shape
         """
-        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+        from ada.occ.utils import apply_penetrations, create_beam_geom
 
-        from ..sections import ProfileBuilder
-
-        geom = ProfileBuilder.build_representation(self, False)
-
-        for pen in self.penetrations:
-            geom = BRepAlgoAPI_Cut(geom, pen.geom).Shape()
+        geom = apply_penetrations(create_beam_geom(self, False), self.penetrations)
 
         return geom
 
@@ -706,26 +684,16 @@ class Beam(BackendGeom):
         :return:
         :rtype: OCC.Core.TopoDS.TopoDS_Shape
         """
-        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+        from ada.occ.utils import apply_penetrations, create_beam_geom
 
-        from ..sections import ProfileBuilder
-
-        geom = ProfileBuilder.build_representation(self, True)
-
-        for pen in self.penetrations:
-            geom = BRepAlgoAPI_Cut(geom, pen.geom).Shape()
+        geom = apply_penetrations(create_beam_geom(self, True), self.penetrations)
 
         return geom
 
     def __hash__(self):
         return hash(self.guid)
 
-    def __eq__(self, other):
-        """
-
-        :param other:
-        :type other: ada.Beam
-        """
+    def __eq__(self, other: Beam):
         for key, val in self.__dict__.items():
             if "parent" in key or key in ["_ifc_settings", "_ifc_elem"]:
                 continue
@@ -1090,21 +1058,17 @@ class Plate(BackendGeom):
 
     @property
     def shell(self):
-        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+        from ada.occ.utils import apply_penetrations
 
-        geom = self.poly.face
-        for pen in self.penetrations:
-            geom = BRepAlgoAPI_Cut(geom, pen.geom).Shape()
+        geom = apply_penetrations(self.poly.face, self.penetrations)
+
         return geom
 
     @property
     def solid(self):
-        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+        from ada.occ.utils import apply_penetrations
 
-        geom = self._poly.make_extruded_solid(self.t)
-
-        for pen in self.penetrations:
-            geom = BRepAlgoAPI_Cut(geom, pen.geom).Shape()
+        geom = apply_penetrations(self._poly.make_extruded_solid(self.t), self.penetrations)
 
         return geom
 
@@ -1343,10 +1307,8 @@ class Wall(BackendGeom):
         return wall_el
 
     def _add_ifc_insert_elem(self, insert, opening_element, wall_el):
-        import ifcopenshell.geom
-
         from ada.core.constants import O, X, Z
-        from ada.ifc.utils import create_local_placement
+        from ada.ifc.utils import create_local_placement, get_tolerance, tesselate_shape
 
         a = self.parent.get_assembly()
         f = a.ifc_file
@@ -1360,8 +1322,7 @@ class Wall(BackendGeom):
         if len(insert.shapes) > 1:
             raise ValueError("More than 1 shape is currently not allowed for Wall inserts")
         shape = insert.shapes[0].geom
-        insert_shape = f.add(ifcopenshell.geom.serialise(schema=schema, string_or_shape=shape))
-
+        insert_shape = tesselate_shape(shape, schema, get_tolerance(a.units))
         # Link to representation context
         for rep in insert_shape.Representations:
             rep.ContextOfItems = context
@@ -1522,12 +1483,11 @@ class Wall(BackendGeom):
 
     @property
     def solid(self):
-        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+        from ada.occ.utils import apply_penetrations
 
         poly = CurvePoly(points3d=self.extrusion_area, parent=self)
-        geom = poly.make_extruded_solid(self.height)
-        for pen in self.penetrations:
-            geom = BRepAlgoAPI_Cut(geom, pen.geom).Shape()
+
+        geom = apply_penetrations(poly.make_extruded_solid(self.height), self.penetrations)
 
         return geom
 

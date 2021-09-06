@@ -3,6 +3,7 @@ from itertools import chain
 import gmsh
 import meshio
 
+from ada import FEM, Beam
 from ada.config import Settings as _Settings
 from ada.fem import FemSection, FemSet
 from ada.fem.shapes import ElemType
@@ -113,8 +114,8 @@ def create_plate_mesh(
 
 
 def create_beam_mesh(
-    beam,
-    fem,
+    beam: Beam,
+    fem: FEM,
     geom_repr=ElemType.SHELL,
     max_size=0.1,
     order=1,

@@ -788,13 +788,12 @@ class Assembly(Part):
         :param elements2part: Grab all physical elements from ifc and import it to the parsed in Part object.
         :param cache_model_now:
         """
-        import ifcopenshell
-
         from ada.ifc.utils import (
             add_to_assembly,
             get_parent,
             import_ifc_hierarchy,
             import_physical_ifc_elem,
+            open_ifc,
             scale_ifc_file,
         )
 
@@ -802,7 +801,7 @@ class Assembly(Part):
             if self._from_cache(ifc_file) is True:
                 return None
 
-        f = ifcopenshell.open(ifc_file)
+        f = open_ifc(ifc_file)
 
         scaled_ifc = scale_ifc_file(self.ifc_file, f)
         if scaled_ifc is not None:
@@ -837,7 +836,7 @@ class Assembly(Part):
 
     def read_fem(
         self,
-        fem_file: os.PathLike,
+        fem_file: Union[str, os.PathLike],
         fem_format: str = None,
         name: str = None,
         fem_converter="default",
@@ -993,7 +992,7 @@ class Assembly(Part):
 
         dest = pathlib.Path(destination_file).with_suffix(".ifc")
 
-        for s in self.sections.nmap.values():
+        for s in self.sections:
             f.add(s.ifc_profile)
             f.add(s.ifc_beam_type)
 
@@ -1085,15 +1084,11 @@ class Assembly(Part):
         return site
 
     def get_ifc_source_by_name(self, ifc_file):
-        """
-
-        :param ifc_file:
-        :return:
-        """
-        import ifcopenshell
+        from ada.ifc.utils import open_ifc
 
         if ifc_file not in self._source_ifc_files.keys():
-            ifc_f = ifcopenshell.open(ifc_file)
+
+            ifc_f = open_ifc(ifc_file)
             self._source_ifc_files[ifc_file] = ifc_f
         else:
             ifc_f = self._source_ifc_files[ifc_file]
@@ -1119,7 +1114,7 @@ class Assembly(Part):
     def ifc_sections(self):
         if self._ifc_sections is None:
             secrel = dict()
-            for sec in self.sections.nmap.values():
+            for sec in self.sections:
                 secrel[sec.name] = sec.ifc_profile, sec.ifc_beam_type
             self._ifc_sections = secrel
         return self._ifc_sections

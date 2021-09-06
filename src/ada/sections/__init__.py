@@ -8,33 +8,10 @@ from ada.config import Settings
 from ada.ifc.utils import create_guid
 
 from .categories import SectionCat
-from .profiles import ProfileBuilder
 from .properties import GeneralProperties
 
 
 class Section(Backend):
-    """
-    A Section object.
-
-    See the
-
-    :param name:
-    :param h:
-    :param w_top:
-    :param w_btn:
-    :param t_w:
-    :param t_ftop:
-    :param t_fbtn:
-    :param r:
-    :param wt:
-    :param parent:
-    :param sec_type:
-    :param sec_str:
-    :param from_str: Parse a
-    :param genprops:
-    :param metadata:
-    """
-
     def __init__(
         self,
         name,
@@ -409,38 +386,15 @@ class Section(Backend):
     def poly_inner(self) -> CurvePoly:
         return self._inner_poly
 
-    def cross_sec(self, solid_repre=True):
+    def cross_sec(self, is_solid=True):
         """
 
-        :param solid_repre: Solid Representation
+        :param is_solid: Solid Representation
         :return:
         """
+        from .utils import get_profile_props
 
-        if self.type in SectionCat.angular:
-            outer_curve, inner_curve, disconnected = ProfileBuilder.angular(self, solid_repre)
-        elif self.type in SectionCat.iprofiles + SectionCat.igirders:
-            outer_curve, inner_curve, disconnected = ProfileBuilder.iprofiles(self, solid_repre)
-        elif self.type in SectionCat.box + SectionCat.rhs + SectionCat.shs:
-            outer_curve, inner_curve, disconnected = ProfileBuilder.box(self, solid_repre)
-        elif self.type in SectionCat.tubular:
-            outer_curve, inner_curve, disconnected = ProfileBuilder.tubular(self, solid_repre)
-        elif self.type in SectionCat.circular:
-            outer_curve, inner_curve, disconnected = ProfileBuilder.circular(self, solid_repre)
-        elif self.type in SectionCat.flatbar:
-            outer_curve, inner_curve, disconnected = ProfileBuilder.flatbar(self, solid_repre)
-        elif self.type in SectionCat.general:
-            outer_curve, inner_curve, disconnected = ProfileBuilder.gensec(self, solid_repre)
-        elif self.type in SectionCat.channels:
-            outer_curve, inner_curve, disconnected = ProfileBuilder.channel(self, solid_repre)
-        else:
-            if self.poly_outer is not None:
-                return self.poly_outer, None, None
-            else:
-                raise ValueError(
-                    "Currently geometry build is unsupported for profile type {ptype}".format(ptype=self.type)
-                )
-
-        return outer_curve, inner_curve, disconnected
+        return get_profile_props(self, is_solid)
 
     def cross_sec_shape(
         self,

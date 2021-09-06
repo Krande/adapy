@@ -1,8 +1,8 @@
 import unittest
 
-from ada import Assembly, Beam, CurvePoly, Section
+from ada import Beam, CurvePoly, Section
 from ada.config import Settings
-from ada.param_models.basic_module import SimpleStru, make_it_complex
+from ada.param_models.basic_module import make_it_complex
 
 test_folder = Settings.test_dir / "step_basics"
 
@@ -17,16 +17,8 @@ class MyStepCases(unittest.TestCase):
         bm = Beam("MyBeam", (0, 0, 0), (1, 0, 0), Section("MySec", outer_poly=poly))
         bm.to_stp(test_folder / "MySimpleBeamPoly.stp")
 
-    def test_simple_stru(self):
-        a = Assembly("MyTest")
-        p = SimpleStru("MyPart")
-        a.add_part(p)
-        a.to_stp(test_folder / "MySimpleStru.stp")
-
     def test_complex_stru(self):
         a = make_it_complex()
-        p = SimpleStru("MyPart")
-        a.add_part(p)
         a.to_stp(test_folder / "MyComplexStru.stp")
 
 

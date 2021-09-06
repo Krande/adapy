@@ -114,8 +114,9 @@ class BeamIO(unittest.TestCase):
             self.assertTrue(all([x == y for x, y in zip(bm.up, vectorZ[i])]))
             p.add_beam(Beam(f"bmZ_n{i}_v", **d3, up=vectorZ[i]))
 
-        p.to_stp(test_folder / "my_angle_rotated_profiles.stp")
-        a.to_ifc(test_folder / "my_angle_rotated_profiles.ifc")
+        # # Visual Check
+        # p.to_stp(test_folder / "my_angle_rotated_profiles.stp")
+        # a.to_ifc(test_folder / "my_angle_rotated_profiles.ifc")
 
     def test_beam_directions(self):
         a = Assembly("AdaRotatedProfiles")
