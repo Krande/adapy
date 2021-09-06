@@ -841,7 +841,7 @@ def make_revolve_solid(face: TopoDS_Face, axis, angle, origin) -> TopoDS_Shape:
     return revolved_shape
 
 
-def wire_to_face(edges: list[TopoDS_Edge]) -> TopoDS_Face:
+def wire_to_face(edges: List[TopoDS_Edge]) -> TopoDS_Face:
     n_sided = BRepFill_Filling()
     for edg in edges:
         n_sided.Add(edg, GeomAbs_C0)

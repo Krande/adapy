@@ -10,6 +10,6 @@ gmsh_to_meshio_ordering = {
 
 abaqus_to_meshio_type = aba_meshio_original
 
-default = dict(hexahedron="C3D8", triangle="S3", tetra10="C3D10")
+default = dict(hexahedron="C3D8", triangle="S3", tetra10="C3D10", line="B31")
 
 meshio_to_abaqus_type = {v: k if v not in default.keys() else default[v] for k, v in abaqus_to_meshio_type.items()}

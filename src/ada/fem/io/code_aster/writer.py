@@ -1,5 +1,5 @@
 import logging
-from typing import Iterable
+from typing import Iterable, Tuple
 
 import numpy as np
 
@@ -143,7 +143,7 @@ element = AFFE_CARA_ELEM(
 """
 
 
-def write_shell_section(fem_sec: FemSection) -> tuple[str, str]:
+def write_shell_section(fem_sec: FemSection) -> Tuple[str, str]:
     mat_name = fem_sec.material.name
     sec_name = fem_sec.elset.name
     #
