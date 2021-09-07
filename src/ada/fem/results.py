@@ -1,5 +1,6 @@
 import logging
 import pathlib
+import subprocess
 
 import numpy as np
 from IPython.display import display
@@ -33,7 +34,7 @@ class Results:
         self._output = output
 
     @property
-    def output(self):
+    def output(self) -> subprocess.CompletedProcess:
         return self._output
 
     @property

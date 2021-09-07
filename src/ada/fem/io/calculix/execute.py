@@ -1,8 +1,5 @@
 import logging
 import pathlib
-import time
-
-from ada.config import Settings
 
 from ..utils import LocalExecute, get_exe_path
 
@@ -44,45 +41,13 @@ class Calculix(LocalExecute):
         self._local_execute = execute_locally
 
     def run(self, exit_on_complete=True):
-        if Settings.use_docker_execute is False:
-            try:
-                exe_path = get_exe_path("ccx")
-            except FileNotFoundError as e:
-                logging.error(e)
-                return
-            out = self._run_local(f"{exe_path} -i {self.analysis_name}", exit_on_complete=exit_on_complete)
-        else:
-            out = self._run_docker()
-        return out
-
-    def _run_docker(self):
         try:
-            import docker
-        except ModuleNotFoundError as e:
-            raise ModuleNotFoundError(
-                "To use docker functionality you will need to install docker first.\n"
-                'Use "pip install docker"\n\n'
-                f'Original error message: "{e}"'
-            )
-
-        client = docker.from_env()
-
-        start_time = time.time()
-        environment = dict(OMP_NUM_THREADS=f"{self._cpus}")
-        container = client.containers.run(
-            "ada/calculix",
-            f"ccx_2.16 -i {self.analysis_name}",
-            detach=True,
-            working_dir="/home/calc/",
-            environment=environment,
-            cpu_count=self._cpus,
-            volumes={str(self.analysis_dir): {"bind": "/home/calc/", "mode": "rw"}},
-        )
-        for line in container.logs(stream=True):
-            print(line.strip().decode("utf-8"))
-        end_time = time.time()
-        res_str = f"Analysis time {end_time - start_time:.2f}s"
-        print(res_str)
+            exe_path = get_exe_path("ccx")
+        except FileNotFoundError as e:
+            logging.error(e)
+            return
+        out = self._run_local(f"{exe_path} -i {self.analysis_name}", exit_on_complete=exit_on_complete)
+        return out
 
     @property
     def analysis_dir(self):
