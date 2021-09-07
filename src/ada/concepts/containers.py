@@ -346,7 +346,7 @@ class Materials(BaseCollections):
     """Collection of materials"""
 
     def __init__(self, materials: Iterable[Material] = None, unique_ids=True, parent=None, units="m"):
-        """:type parent: Union[ada.Part, ada.Assembly]"""
+        """:type parent: ada.Part | ada.Assembly"""
         super().__init__(parent)
         self._materials = sorted(materials, key=attrgetter("name")) if materials is not None else []
         self._unique_ids = unique_ids

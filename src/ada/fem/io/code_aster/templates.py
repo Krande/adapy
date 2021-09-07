@@ -4,7 +4,7 @@ main_comm_str = """#
 
 # Units: N, m
 
-DEBUT(LANG="EN")
+DEBUT(LANG="EN", INFO=1)
 
 mesh = LIRE_MAILLAGE(FORMAT="MED", UNITE=20)
 

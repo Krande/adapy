@@ -826,7 +826,7 @@ class AbaSection:
         rotary_str = ""
         if len(ass.fem.steps) > 0:
             initial_step = ass.fem.steps[0]
-            if initial_step.type == "explicit":
+            if initial_step.type == Step.TYPES.EXPLICIT:
                 rotary_str = ", ROTARY INERTIA=ISOTROPIC"
 
         if self.section_data != "GENERAL":

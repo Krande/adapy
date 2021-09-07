@@ -33,7 +33,6 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
     print(f'Created a Code_Aster input deck at "{analysis_dir}"')
 
 
-# COMM File input
 def create_comm_str(assembly: Assembly, part: Part) -> str:
     """Create COMM file input str"""
 
@@ -65,13 +64,63 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     return comm_str
 
 
-def write_material(material: Material):
-    """
+def write_export_file(name: str, cpus: int):
+    export_str = f"""P actions make_etude
+P memory_limit 1274
+P time_limit 900
+P version stable
+P mpi_nbcpu 1
+P mode interactif
+P ncpus {cpus}
+F comm {name}.comm D 1
+F mmed {name}.med D 20
+F mess {name}.mess R 6
+F rmed {name}.rmed R 80"""
 
-    :param material:
-    :type material: ada.Material
-    :return: Code Aster COMM Input string
-    """
+    return export_str
+
+
+def write_to_med(name, part: Part, analysis_dir):
+    """Custom Method for writing a part directly based on meshio"""
+    import pathlib
+
+    import h5py
+
+    analysis_dir = pathlib.Path(analysis_dir)
+    filename = (analysis_dir / name).with_suffix(".med")
+
+    f = h5py.File(filename, "w")
+    mesh_name = name if name is not None else part.fem.name
+    # Strangely the version must be 3.0.x
+    # Any version >= 3.1.0 will NOT work with SALOME 8.3
+    info = f.create_group("INFOS_GENERALES")
+    info.attrs.create("MAJ", 3)
+    info.attrs.create("MIN", 0)
+    info.attrs.create("REL", 0)
+
+    time_step = _write_mesh_presets(f, mesh_name)
+
+    profile = "MED_NO_PROFILE_INTERNAL"
+
+    # Node and Element sets (familles in French)
+    fas = f.create_group("FAS")
+    families = fas.create_group(mesh_name)
+    family_zero = families.create_group("FAMILLE_ZERO")  # must be defined in any case
+    family_zero.attrs.create("NUM", 0)
+
+    # Make sure that all member references are updated (TODO: Evaluate if this can be avoided using a smarter algorithm)
+    part.fem.sets.add_references()
+
+    # Nodes and node sets
+    _write_nodes(part, time_step, profile, families)
+
+    # Elements (mailles in French) and element sets
+    _write_elements(part, time_step, profile, families)
+
+    f.close()
+
+
+def write_material(material: Material) -> str:
     from ada.core.utils import NewLine
 
     # Bi-linear hardening ECRO_LINE=_F(D_SIGM_EPSI=2.0e06, SY=2.35e06,)
@@ -127,7 +176,9 @@ def write_sections(fem_sections: FemSections) -> str:
         mat_assign_str += write_solid_section(fem_sections.solids)
 
     return f"""
-material = AFFE_MATERIAU(MODELE=model, AFFE=(
+material = AFFE_MATERIAU(
+    MODELE=model,
+    AFFE=(
 {mat_assign_str}
     )
 )
@@ -340,6 +391,12 @@ modes = CALC_MODES(
     MATR_MASS=mass,
     MATR_RIGI=stiff,
     OPTION='PLUS_PETITE',
+    # VERI_MODE=_F(
+    #     STOP_ERREUR='NON',
+    #     SEUIL=1.E-06,
+    #     PREC_SHIFT=5.E-3,
+    #     STURM='OUI',
+    #     )
 )
 
 IMPR_RESU(
@@ -356,64 +413,6 @@ def create_step_str(step: Step, part: Part) -> str:
         return step_eig_str(step, part)
     else:
         raise NotImplementedError(f'Step stype "{step.type}" is not yet supported')
-
-
-# EXPORT file input
-def write_export_file(name: str, cpus: int):
-    export_str = rf"""P actions make_etude
-P memory_limit 1274
-P time_limit 900
-P version stable
-P mpi_nbcpu 1
-P mode interactif
-P ncpus {cpus}
-F comm {name}.comm D 1
-F mmed {name}.med D 20
-F mess {name}.mess R 6
-F rmed {name}.rmed R 80"""
-
-    return export_str
-
-
-# MED file input
-def write_to_med(name, part: Part, analysis_dir):
-    """Custom Method for writing a part directly based on meshio"""
-    import pathlib
-
-    import h5py
-
-    analysis_dir = pathlib.Path(analysis_dir)
-    filename = (analysis_dir / name).with_suffix(".med")
-
-    f = h5py.File(filename, "w")
-    mesh_name = name if name is not None else part.fem.name
-    # Strangely the version must be 3.0.x
-    # Any version >= 3.1.0 will NOT work with SALOME 8.3
-    info = f.create_group("INFOS_GENERALES")
-    info.attrs.create("MAJ", 3)
-    info.attrs.create("MIN", 0)
-    info.attrs.create("REL", 0)
-
-    time_step = _write_mesh_presets(f, mesh_name)
-
-    profile = "MED_NO_PROFILE_INTERNAL"
-
-    # Node and Element sets (familles in French)
-    fas = f.create_group("FAS")
-    families = fas.create_group(mesh_name)
-    family_zero = families.create_group("FAMILLE_ZERO")  # must be defined in any case
-    family_zero.attrs.create("NUM", 0)
-
-    # Make sure that all member references are updated (TODO: Evaluate if this can be avoided using a smarter algorithm)
-    part.fem.sets.add_references()
-
-    # Nodes and node sets
-    _write_nodes(part, time_step, profile, families)
-
-    # Elements (mailles in French) and element sets
-    _write_elements(part, time_step, profile, families)
-
-    f.close()
 
 
 def _write_nodes(part: Part, time_step, profile, families):
@@ -529,6 +528,7 @@ def _write_mesh_presets(f, mesh_name):
     # component names:
     names = ["X", "Y", "Z"][:dim]
     med_mesh.attrs.create("NOM", np.string_("".join(f"{name:<16}" for name in names)))
+    med_mesh.attrs.create("DES", np.string_("Mesh created with adapy"))
     med_mesh.attrs.create("TYP", 0)  # mesh type (MED_NON_STRUCTURE)
 
     # Time-step

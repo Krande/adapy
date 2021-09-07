@@ -167,7 +167,7 @@ class ElemShapes:
         return springs[self.type]
 
     @property
-    def _cube_faces(self):
+    def _volume_faces(self):
         generalized_type = abaqus_to_meshio_type.get(self.type, self.type)
         if generalized_type not in volume_faces.keys():
             logging.error(f"Element type {self.type} is currently not supported")

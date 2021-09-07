@@ -490,7 +490,8 @@ class Part(BackendGeom):
         return self._fem
 
     @fem.setter
-    def fem(self, value):
+    def fem(self, value: FEM):
+        value.parent = self
         self._fem = value
 
     @property
