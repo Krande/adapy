@@ -18,6 +18,7 @@ from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_t
 
 class Results:
     def __init__(self, result_file_path, part=None, palette=None, output=None):
+        result_file_path = pathlib.Path(result_file_path)
         self.palette = [(0, 149 / 255, 239 / 255), (1, 0, 0)] if palette is None else palette
         self._analysis_type = None
         self._point_data = []
@@ -68,7 +69,13 @@ class Results:
             mesh = meshio.read(file_ref, "med")
             self._analysis_type = "code_aster"
         elif suffix == ".frd":
+            from ccx2paraview import Converter
+
             self._analysis_type = "calculix"
+            if file_ref.exists() is False:
+                return None
+            convert = Converter(str(file_ref), ["vtu"])
+            convert.run()
             result_files = get_list_of_files(file_ref.parent, ".vtu")
             if len(result_files) == 0:
                 logging.error("No VTU files found. Check if analysis was successfully completed")
@@ -99,6 +106,8 @@ class Results:
             self._cell_data.append(n)
 
     def _read_result_file(self, file_ref):
+        if file_ref.exists() is False:
+            return None
         mesh = self._get_mesh(file_ref)
         if mesh is None:
             return None

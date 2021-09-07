@@ -102,19 +102,6 @@ class Calculix(LocalExecute):
 
 
 def run_calculix(inp_path, cpus=2, gpus=None, run_ext=False, metadata=None, execute=True, exit_on_complete=True):
-    """
-
-    :param inp_path: Destination path for Calculix input file
-    :param cpus: Number of CPUS to use for analysis
-    :param gpus: Number of GPUs to use for analysis
-    :param run_ext: Run externally
-    :param metadata:
-    :param execute:
-    :param exit_on_complete:
-    :return:
-    """
-    from ccx2paraview import Converter
-
     inp_path = pathlib.Path(inp_path)
 
     ccx = Calculix(
@@ -125,8 +112,4 @@ def run_calculix(inp_path, cpus=2, gpus=None, run_ext=False, metadata=None, exec
         metadata=metadata,
         execute=execute,
     )
-    ccx.run(exit_on_complete=exit_on_complete)
-
-    frd_file = inp_path.with_suffix(".frd")
-    convert = Converter(str(frd_file), ["vtu"])
-    convert.run()
+    return ccx.run(exit_on_complete=exit_on_complete)

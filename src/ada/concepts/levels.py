@@ -907,6 +907,7 @@ class Assembly(Part):
         """
         from ada.fem.io import fem_executables, get_fem_converters
         from ada.fem.io.utils import folder_prep, should_convert
+        from ada.fem.results import Results
 
         base_path = Settings.scratch_dir / name / name
         fem_res_files = dict(
@@ -949,18 +950,9 @@ class Assembly(Part):
                 )
         else:
             print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
-
-        if fem_format not in fem_res_files.keys():
-            logging.info(f'FEM format "{fem_format}" is not yet supported for results processing')
+        if out is None and res_path is None:
             return None
-
-        if res_path.exists():
-            from ada.fem.results import Results
-
-            return Results(res_path, output=out)
-        else:
-            logging.error(f'Result file "{res_path}" was not found')
-            return None
+        return Results(res_path, output=out)
 
     def to_ifc(self, destination_file, include_fem=False) -> None:
         from ada.ifc.export import add_part_objects_to_ifc
