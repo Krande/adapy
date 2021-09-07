@@ -25,5 +25,4 @@ def test_fem_eig(fem_format, geom_repr, elem_order):
     a.fem.add_step(Step("Eigen", Step.TYPES.EIGEN, eigenmodes=11))
     res = a.to_fem(f"cantilever_EIG_{fem_format}_{geom_repr}_o{elem_order}", fem_format, overwrite=True, execute=True)
     if pathlib.Path(res.results_file_path).exists() is False:
-        pass
-    assert pathlib.Path(res.results_file_path).exists()
+        raise FileNotFoundError(f'FEM analysis was not successful. Result file "{res.results_file_path}" not found.')
