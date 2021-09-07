@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import List, Union, Tuple
+from typing import List, Tuple, Union
 
 from ada.concepts.piping import Pipe
 from ada.concepts.primitives import Shape
