@@ -25,6 +25,8 @@ class FemSet(FemBase):
     :param parent: Parent object
     """
 
+    TYPES = SetTypes
+
     def __init__(self, name, members, set_type, metadata=None, parent=None):
         super().__init__(name, metadata, parent)
         self._set_type = set_type

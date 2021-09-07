@@ -54,11 +54,11 @@ def beam_ex1(p1=(0, 0, 0), p2=(1.5, 0, 0), profile="IPE400", geom_repr=ElemType.
         p.fem = gs.get_fem()
 
     # Add a set containing ALL elements (necessary for Calculix loads).
-    fs = p.fem.add_set(FemSet("Eall", [el for el in p.fem.elements], "elset"))
+    fs = p.fem.add_set(FemSet("Eall", [el for el in p.fem.elements], FemSet.TYPES.ELSET))
 
-    step = a.fem.add_step(Step("gravity", "static", nl_geom=True, init_incr=100.0, total_time=100.0))
-    step.add_load(Load("grav", "gravity", -9.81 * 800, fem_set=fs))
+    step = a.fem.add_step(Step("gravity", Step.TYPES.STATIC, nl_geom=True, init_incr=100.0, total_time=100.0))
+    step.add_load(Load("grav", Load.TYPES.GRAVITY, -9.81 * 800, fem_set=fs))
 
-    fix_set = p.fem.add_set(FemSet("bc_nodes", get_beam_end_nodes(bm), "nset"))
+    fix_set = p.fem.add_set(FemSet("bc_nodes", get_beam_end_nodes(bm), FemSet.TYPES.NSET))
     a.fem.add_bc(Bc("Fixed", fix_set, [1, 2, 3]))
     return a

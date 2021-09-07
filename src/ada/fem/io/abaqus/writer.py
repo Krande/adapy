@@ -32,9 +32,6 @@ from ada.fem import (
     Surface,
 )
 from ada.fem.interactions import ContactTypes
-from ada.fem.loads import LoadTypes
-from ada.fem.shapes import ElemType
-from ada.fem.steps import StepTypes
 from ada.fem.utils import convert_ecc_to_mpc, convert_hinges_2_couplings
 from ada.materials import Material
 from ada.sections import SectionCat
@@ -165,7 +162,7 @@ class AbaqusWriter:
     def eval_interactions(self):
         if len(self.assembly.fem.steps) > 0:
             initial_step = self.assembly.fem.steps[0]
-            if initial_step.type == "explicit":
+            if initial_step.type == Step.TYPES.EXPLICIT:
                 for interact in self.assembly.fem.interactions.values():
                     if interact.name not in initial_step.interactions.keys():
                         initial_step.add_interaction(interact)
@@ -226,7 +223,7 @@ class AbaqusWriter:
     def constraint_control(self):
         constraint_ctrl_on = True
         for step in self.assembly.fem.steps:
-            if step.type == "explicit":
+            if step.type == Step.TYPES.EXPLICIT:
                 constraint_ctrl_on = False
         return "**" if constraint_ctrl_on is False else "*constraint controls, print=yes"
 
@@ -343,7 +340,7 @@ class AbaqusWriter:
     @property
     def predefined_fields_str(self):
         def eval_fields(pre_field: PredefinedField):
-            return True if pre_field.type != "INITIAL STATE" else False
+            return True if pre_field.type != PredefinedField.TYPES.INITIAL_STATE else False
 
         return "\n".join(
             [
@@ -368,12 +365,7 @@ class AbaqusWriter:
 
 
 class AbaqusPartWriter:
-    def __init__(self, part):
-        """
-
-        :param part:
-        :type part: ada.Part
-        """
+    def __init__(self, part: Part):
         self.part = part
 
     @property
@@ -499,11 +491,7 @@ class AbaqusPartWriter:
 
 
 class AbaStep:
-    """
-    :type step: ada.fem.Step
-    """
-
-    def __init__(self, step):
+    def __init__(self, step: Step):
         self.step = step
 
     @property
@@ -572,9 +560,6 @@ class AbaStep:
 
     @property
     def eigenfrequency_str(self):
-        """
-        An eigenfrequency step
-        """
         return f"""** ----------------------------------------------------------------
 **
 ** STEP: eig
@@ -586,9 +571,6 @@ class AbaStep:
 
     @property
     def complex_eig_str(self):
-        """
-        A complex eigenfrequency analysis
-        """
         return f"""** ----------------------------------------------------------------
 **
 ** STEP: complex_eig
@@ -600,10 +582,6 @@ class AbaStep:
 
     @property
     def steady_state_response_str(self):
-        """
-        A Steady state response analysis
-        """
-
         if self.step.nodeid is None:
             raise ValueError("Please define a nodeid for the steady state load")
 
@@ -650,20 +628,20 @@ UT, AT, TU, TA
 
     @property
     def step_data_str(self):
-        if self.step.type.lower() == StepTypes.STATIC:
+        if self.step.type.lower() == Step.TYPES.STATIC:
             return self.static_str
-        elif self.step.type.lower() == StepTypes.DYNAMIC:
+        elif self.step.type.lower() == Step.TYPES.DYNAMIC:
             return self.dynamic_implicit_str
-        elif self.step.type.lower() == StepTypes.EXPLICIT:
+        elif self.step.type.lower() == Step.TYPES.EXPLICIT:
             return self.explicit_str
 
-        elif self.step.type.lower() == StepTypes.EIGEN:
+        elif self.step.type.lower() == Step.TYPES.EIGEN:
             return self.eigenfrequency_str
 
-        elif self.step.type.lower() == StepTypes.RESP:
+        elif self.step.type.lower() == Step.TYPES.RESP:
             return self.steady_state_response_str
 
-        elif self.step.type.lower() == StepTypes.COMPLEX_EIG:
+        elif self.step.type.lower() == Step.TYPES.COMPLEX_EIG:
             return self.complex_eig_str
 
         else:
@@ -875,11 +853,11 @@ class AbaSection:
 
     @property
     def str(self):
-        if self.fem_sec.type == ElemType.SOLID:
+        if self.fem_sec.type == Elem.EL_TYPES.SOLID:
             return self.solid_str
-        elif self.fem_sec.type == ElemType.SHELL:
+        elif self.fem_sec.type == Elem.EL_TYPES.SHELL:
             return self.shell_str
-        elif self.fem_sec.type == ElemType.LINE:
+        elif self.fem_sec.type == Elem.EL_TYPES.LINE:
             return self.beam_str
         else:
             raise ValueError()
@@ -891,10 +869,9 @@ class AbaConstraint:
     Coupling definition:
     https://abaqus-docs.mit.edu/2017/English/SIMACAEKEYRefMap/simakey-r-coupling.htm#simakey-r-coupling
 
-    :type constraint: ada.fem.Constraint
     """
 
-    def __init__(self, constraint, fem_writer):
+    def __init__(self, constraint: Constraint, fem_writer):
         self.constraint = constraint
         self._fem_writer = fem_writer
 
@@ -908,7 +885,7 @@ class AbaConstraint:
             new_surf = surface_str(
                 Surface(
                     f"{self.constraint.name}_surf",
-                    "NODE",
+                    Surface.TYPES.NODE,
                     self.constraint.s_set,
                     1.0,
                     parent=self.constraint.s_set.parent,
@@ -958,32 +935,26 @@ class AbaConstraint:
 
     @property
     def str(self):
-        if self.constraint.type == "coupling":
+        if self.constraint.type == Constraint.TYPES.COUPLING:
             return self._coupling
-        elif self.constraint.type == "tie":
+        elif self.constraint.type == Constraint.TYPES.TIE:
             return _tie(self.constraint)
-        elif self.constraint.type == "rigid body":
+        elif self.constraint.type == Constraint.TYPES.RIGID_BODY:
             rnode = get_instance_name(self.constraint.m_set, self)
             return f"*Rigid Body, ref node={rnode}, elset={get_instance_name(self.constraint.s_set, self)}"
-        elif self.constraint.type == "mpc":
+        elif self.constraint.type == Constraint.TYPES.MPC:
             return self._mpc
-        elif self.constraint.type == "shell2solid":
+        elif self.constraint.type == Constraint.TYPES.SHELL2SOLID:
             return self._shell2solid
         else:
             raise NotImplementedError(f"{self.constraint.type}")
 
 
-def step_inp_str(step: Step):
-    """
-
-    :param step:
-    :type step: Step
-    :return: str
-    """
+def step_inp_str(step: Step) -> str:
     return f"""*INCLUDE,INPUT=core_input_files\\step_{step.name}.inp"""
 
 
-def part_inp_str(part: Part):
+def part_inp_str(part: Part) -> str:
     return """**\n*Part, name={name}\n*INCLUDE,INPUT=bulk_{name}\\{inp_file}\n*End Part\n**""".format(
         name=part.name, inp_file="aba_bulk.inp"
     )
@@ -1047,7 +1018,7 @@ def interaction_str(interaction: Interaction, fem_writer) -> str:
         if type(interaction.parent) is Step:
             step = interaction.parent
             assert isinstance(step, Step)
-            first_line += "" if StepTypes.EXPLICIT in step.type else f", type={interaction.surface_type}"
+            first_line += "" if Step.TYPES.EXPLICIT in step.type else f", type={interaction.surface_type}"
         else:
             first_line += f", type={interaction.surface_type}"
 
@@ -1258,14 +1229,7 @@ def surface_str(surface: Surface, fem_writer):
         return f"""{top_line}\n{id_refs_str}"""
 
 
-def bc_str(bc: Bc, fem_writer):
-    """
-
-    :param bc:
-    :param fem_writer:
-    :type bc: ada.fem.Bc
-    :return:
-    """
+def bc_str(bc: Bc, fem_writer) -> str:
     ampl_ref_str = "" if bc.amplitude_name is None else ", amplitude=" + bc.amplitude_name
     fem_set = bc.fem_set
     inst_name = get_instance_name(fem_set, fem_writer)
@@ -1280,55 +1244,47 @@ def bc_str(bc: Bc, fem_writer):
         if dof is None:
             continue
         magn_str = f", {magn:.6E}" if magn is not None else ""
-        if bc.type in ["connector displacement", "connector velocity"] or type(dof) is str:
+        if bc.type in [Bc.TYPES.CONN_DISPL, Bc.TYPES.CONN_VEL] or type(dof) is str:
             dofs_str += f" {inst_name}, {dof}{magn_str}\n"
         else:
             dofs_str += f" {inst_name}, {dof}, {dof}{magn_str}\n"
 
     dofs_str = dofs_str.rstrip()
     add_map = {
-        "connector displacement": ("*Connector Motion", ", type=DISPLACEMENT"),
-        "connector velocity": ("*Connector Motion", ", type=VELOCITY"),
-        "other": ("*Boundary", ""),
+        Bc.TYPES.CONN_DISPL: ("*Connector Motion", ", type=DISPLACEMENT"),
+        Bc.TYPES.CONN_VEL: ("*Connector Motion", ", type=VELOCITY"),
     }
 
     if bc.type in add_map.keys():
         bcstr, add_str = add_map[bc.type]
     else:
-        bcstr, add_str = add_map["other"]
+        bcstr, add_str = "*Boundary", ""
 
     return f"""** Name: {bc.name} Type: {aba_type}
 {bcstr}{ampl_ref_str}{add_str}
 {dofs_str}"""
 
 
-def mass_str(mass: Mass):
-    """
-
-    :param mass:
-    :type mass: ada.fem.Mass
-    :return:
-    """
-
+def mass_str(mass: Mass) -> str:
     type_str = f", type={mass.point_mass_type}" if mass.point_mass_type is not None else ""
     mstr = ",".join([str(x) for x in mass.mass]) if type(mass.mass) is list else str(mass.mass)
 
-    if mass.type == "MASS":
+    if mass.type == Mass.TYPES.MASS:
         return f"""*Mass, elset={mass.fem_set.name}{type_str}\n {mstr}"""
-    elif mass.type == "NONSTRUCTURAL MASS":
+    elif mass.type == Mass.TYPES.NONSTRU:
         return f"""*Nonstructural Mass, elset={mass.fem_set.name}, units={mass.units}\n  {mstr}"""
-    elif mass.type == "ROTARY INERTIA":
+    elif mass.type == Mass.TYPES.ROT_INERTIA:
         return f"""*Rotary Inertia, elset={mass.fem_set.name}\n  {mstr}"""
     else:
         raise ValueError(f'Mass type "{mass.type}" is not supported by Abaqus')
 
 
 def load_str(load: Load) -> str:
-    if load.type == LoadTypes.GRAVITY:
+    if load.type == Load.TYPES.GRAVITY:
         dof = [0, 0, 1] if load.dof is None else load.dof
         dof_str = ", ".join([str(x) for x in dof[:3]])
         return f"""** Name: gravity   Type: Gravity\n*Dload\n, GRAV, {load.magnitude}, {dof_str}"""
-    elif load.type == LoadTypes.FORCE:
+    elif load.type == Load.TYPES.FORCE:
         lstr = ""
         bc_text_f = ""
         bc_text_m = ""
@@ -1404,7 +1360,7 @@ def aba_set_str(aba_set: FemSet, fem_writer=None):
     internal = aba_set.metadata.get("internal", False)
     newline = NewLine(15)
 
-    el_str = "*Elset, elset" if aba_set.type == "elset" else "*Nset, nset"
+    el_str = "*Elset, elset" if aba_set.type == FemSet.TYPES.ELSET else "*Nset, nset"
 
     el_instances = dict()
 
@@ -1489,7 +1445,7 @@ def hist_output_str(hist_output: HistOutput) -> str:
     newline = NewLine(10)
     var_str = "".join([" {},".format(val) + next(newline) for val in hist_output.variables])[:-1]
 
-    if hist_output.type == "contact":
+    if hist_output.type == HistOutput.TYPES.CONTACT:
         iname1 = get_instance_name(hist_output.fem_set[1], hist_output.parent)
         iname2 = get_instance_name(hist_output.fem_set[0], hist_output.parent)
         fem_set_str = f", master={iname1}, slave={iname2}"
@@ -1564,7 +1520,9 @@ def predefined_field_str(pre_field: PredefinedField) -> str:
 
 
 def spring_str(spring: Spring) -> str:
-    if spring.type == "SPRING1":
+    from ada.fem.shapes import ElemShapes
+
+    if spring.type in ElemShapes.spring1n:
         _str = f'** Spring El "{spring.name}"\n\n'
         for dof, row in enumerate(spring.stiff):
             for j, stiffness in enumerate(row):

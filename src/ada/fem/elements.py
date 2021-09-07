@@ -8,11 +8,13 @@ from ada.concepts.points import Node
 
 from .common import Csys, FemBase
 from .sections import ConnectorSection, FemSection
-from .shapes import ElemShapes
+from .shapes import ElemShapes, ElemType
 
 
 class Elem(FemBase):
     """"""
+
+    EL_TYPES = ElemType
 
     def __init__(
         self,
@@ -179,7 +181,7 @@ class Spring(Elem):
         self._stiff = stiff
         self._n1 = n1
         self._n2 = n2
-        self._fem_set = FemSet(self.name + "_set", [el_id], "elset")
+        self._fem_set = FemSet(self.name + "_set", [el_id], FemSet.TYPES.ELSET)
         if self.parent is not None:
             self.parent.sets.add(self._fem_set)
 
@@ -212,6 +214,9 @@ class MassPType:
 
 
 class Mass(FemBase):
+    TYPES = MassTypes
+    PTYPES = MassPType
+
     def __init__(
         self,
         name,

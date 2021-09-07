@@ -47,6 +47,9 @@ class Step(FemBase):
     :param fmax: Maximum frequency for use in Steady State analysis
     """
 
+    TYPES = StepTypes
+    TYPES_DYNAMIC = DynStepType
+
     default_hist = HistOutput("default_hist", None, "energy", HistOutput.default_hist)
     default_field = FieldOutput("default_fields", int_type="FREQUENCY", int_value=1)
 

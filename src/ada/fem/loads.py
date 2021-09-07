@@ -34,6 +34,8 @@ class Load(FemBase):
     :type parent: ada.FEM
     """
 
+    TYPES = LoadTypes
+
     def __init__(
         self,
         name: str,

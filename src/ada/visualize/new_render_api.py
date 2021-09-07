@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import List, Union
+from typing import List, Union, Tuple
 
 from ada.concepts.piping import Pipe
 from ada.concepts.primitives import Shape
@@ -19,9 +19,9 @@ class Renderer(Enum):
 
 @dataclass
 class Camera:
-    target: tuple[float, float, float] = (0, 0, 0)
-    origin: tuple[float, float, float] = (3, 3, 0)
-    up: tuple[float, float, float] = (0, 0, 1)
+    target: Tuple[float, float, float] = (0, 0, 0)
+    origin: Tuple[float, float, float] = (3, 3, 0)
+    up: Tuple[float, float, float] = (0, 0, 1)
     fov: float = 55.0
 
 

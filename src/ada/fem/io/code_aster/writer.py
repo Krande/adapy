@@ -158,7 +158,7 @@ def write_shell_section(fem_sec: FemSection) -> Tuple[str, str]:
     return mat_, sec_str
 
 
-def write_beam_section(fem_sec: FemSection) -> tuple[str, str, str]:
+def write_beam_section(fem_sec: FemSection) -> Tuple[str, str, str]:
     mat_name = fem_sec.material.name
     sec_name = fem_sec.elset.name
     p = fem_sec.section.properties
@@ -212,14 +212,7 @@ def create_bc_str(bc: Bc) -> str:
 
 
 def write_load(load: Load) -> str:
-    """
-
-    :param load:
-    :type load: ada.fem.Load
-    :return:
-    :rtype: str
-    """
-    if load.type == "gravity":
+    if load.type == Load.TYPES.GRAVITY:
         return f"""{load.name} = AFFE_CHAR_MECA(
     MODELE=model, PESANTEUR=_F(DIRECTION=(0.0, 0.0, -1.0), GRAVITE={-load.magnitude})
 )"""
@@ -357,22 +350,16 @@ IMPR_RESU(
 
 
 def create_step_str(step: Step, part: Part) -> str:
-    if step.type == "static":
+    if step.type == Step.TYPES.STATIC:
         return step_static_str(step, part)
-    elif step.type == "eigenfrequency":
+    elif step.type == Step.TYPES.EIGEN:
         return step_eig_str(step, part)
     else:
         raise NotImplementedError(f'Step stype "{step.type}" is not yet supported')
 
 
 # EXPORT file input
-def write_export_file(name, cpus):
-    """
-
-    :param name:
-    :param cpus:
-    :return:
-    """
+def write_export_file(name: str, cpus: int):
     export_str = rf"""P actions make_etude
 P memory_limit 1274
 P time_limit 900
@@ -429,7 +416,7 @@ def write_to_med(name, part: Part, analysis_dir):
     f.close()
 
 
-def _write_nodes(part, time_step, profile, families):
+def _write_nodes(part: Part, time_step, profile, families):
     """
 
     TODO: Go through each data group and set in HDF5 file and make sure that it writes what was read 1:1.
@@ -472,7 +459,7 @@ def _write_nodes(part, time_step, profile, families):
         _add_node_sets(nodes_group, part, points, families)
 
 
-def _write_elements(part, time_step, profile, families):
+def _write_elements(part: Part, time_step, profile, families):
     """
 
     Add the following ['FAM', 'NOD', 'NUM'] to the 'MAI' group
@@ -542,7 +529,6 @@ def _write_mesh_presets(f, mesh_name):
     # component names:
     names = ["X", "Y", "Z"][:dim]
     med_mesh.attrs.create("NOM", np.string_("".join(f"{name:<16}" for name in names)))
-    med_mesh.attrs.create("DES", np.string_("Mesh created with meshio"))
     med_mesh.attrs.create("TYP", 0)  # mesh type (MED_NON_STRUCTURE)
 
     # Time-step
@@ -593,13 +579,12 @@ def resolve_ids_in_multiple(tags, tags_data, is_elem):
     return fin_data
 
 
-def _add_cell_sets(cells_group, part, families):
+def _add_cell_sets(cells_group, part: Part, families):
     """
 
     :param cells_group:
     :param part:
     :param families:
-    :type part: ada.Part
     """
     cell_id_num = -4
 
@@ -642,31 +627,13 @@ def _add_cell_sets(cells_group, part, families):
     _write_families(element, tags)
 
 
-def _add_node_sets(nodes_group, part, points, families):
+def _add_node_sets(nodes_group, part: Part, points, families):
     """
     :param nodes_group:
     :param part:
     :param families:
-    :type part: ada.Part
     """
     tags = dict()
-
-    # TODO: Simplify this function
-    # tags_data = dict()
-    # cell_id_current = 4
-    # for cell_set in part.fem.nsets.values():
-    #     tags[cell_id_current] = [cell_set.name]
-    #     tags_data[cell_id_current] = cell_set.members
-    #     cell_id_current += 1
-    #
-    # nmap = {n.id: i for i, n in enumerate(part.fem.nodes)}
-    #
-    # res_data = resolve_ids_in_multiple(tags, tags_data, False)
-    # points = np.zeros(len(points), dtype=np.int32)
-    #
-    # for t, rd in res_data.items():
-    #     for r in rd:
-    #         points[nmap[r.id]] = t
     nsets = dict()
     for key, val in part.fem.nsets.items():
         nsets[key] = [int(p.id) for p in val]
@@ -683,15 +650,6 @@ def _add_node_sets(nodes_group, part, points, families):
 
 
 def _resolve_element_in_use_by_other_set(tagged_data, ind, tags, name, is_elem):
-    """
-
-
-    :param tagged_data:
-    :param ind:
-    :param tags:
-    :param name:
-    :param is_elem:
-    """
     existing_id = int(tagged_data[ind])
     current_tags = tags[existing_id]
     all_tags = current_tags + [name]
@@ -759,9 +717,7 @@ def _set_to_tags(sets, data, tag_start_int, tags, id_map=None):
 
 
 def _family_name(set_id, name):
-    """Return the FAM object name corresponding to the unique set id and a list of
-    subset names
-    """
+    """Return the FAM object name corresponding to the unique set id and a list of subset names"""
     return "FAM" + "_" + str(set_id) + "_" + "_".join(name)
 
 

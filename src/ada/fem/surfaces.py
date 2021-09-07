@@ -25,8 +25,9 @@ class Surface(FemBase):
     :param id_refs: Explicitly defined by list of tuple [(elid/nid,spos), ..]
     :param parent:
     :param metadata:
-    :type parent: ada.FEM
     """
+
+    TYPES = SurfTypes
 
     def __init__(
         self,
@@ -39,6 +40,7 @@ class Surface(FemBase):
         parent=None,
         metadata=None,
     ):
+        """:type parent: ada.FEM"""
         super().__init__(name, metadata, parent)
 
         self._type = surf_type.upper()

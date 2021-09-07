@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 
 from .common import FemBase
 from .sets import FemSet
@@ -23,6 +23,8 @@ class HistOutput(FemBase):
     :param int_type: Interval type
     """
 
+    TYPES = HistTypes
+
     default_hist = [
         "ALLAE",
         "ALLCD",
@@ -45,7 +47,7 @@ class HistOutput(FemBase):
     def __init__(
         self,
         name: str,
-        fem_set: FemSet,
+        fem_set: Union[FemSet, None],
         set_type: str,
         variables: List[str],
         int_value=1,

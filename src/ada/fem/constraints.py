@@ -10,12 +10,13 @@ from .surfaces import Surface
 class BcTypes:
     DISPL = "displacement"
     VELOCITY = "velocity"
-    CONN_DISPL = "connector_displacement"
+    CONN_DISPL = "connector displacement"
+    CONN_VEL = "connector velocity"
     ENCASTRE = "symmetry/antisymmetry/encastre"
     DISPL_ROT = "displacement/rotation"
     VELOCITY_ANGULAR = "velocity/angular velocity"
 
-    all = [DISPL, VELOCITY, CONN_DISPL, ENCASTRE, DISPL_ROT, VELOCITY_ANGULAR]
+    all = [DISPL, VELOCITY, CONN_DISPL, CONN_VEL, ENCASTRE, DISPL_ROT, VELOCITY_ANGULAR]
 
 
 class PreDefTypes:
@@ -25,7 +26,17 @@ class PreDefTypes:
     all = [VELOCITY, INITIAL_STATE]
 
 
+class ConstraintTypes:
+    COUPLING = "coupling"
+    TIE = "tie"
+    RIGID_BODY = "rigid body"
+    MPC = "mpc"
+    SHELL2SOLID = "shell2solid"
+
+
 class Bc(FemBase):
+    TYPES = BcTypes
+
     def __init__(
         self,
         name,
@@ -83,6 +94,8 @@ class Bc(FemBase):
 
 
 class Constraint(FemBase):
+    TYPES = ConstraintTypes
+
     def __init__(
         self,
         name,
@@ -138,6 +151,8 @@ class Constraint(FemBase):
 
 
 class PredefinedField(FemBase):
+    TYPES = PreDefTypes
+
     def __init__(
         self,
         name,
