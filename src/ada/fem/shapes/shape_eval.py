@@ -106,7 +106,10 @@ class ElemShapes:
 
     @property
     def faces(self):
-        faces_seq = self.faces_seq
+        if self.type in self.volume:
+            faces_seq = self.volumes_seq
+        else:
+            faces_seq = self.faces_seq
         if faces_seq is None:
             raise ValueError(f"Element type {self.type} is currently not supported for Visualization")
 
@@ -167,7 +170,7 @@ class ElemShapes:
         return springs[self.type]
 
     @property
-    def _volume_faces(self):
+    def volumes_seq(self):
         generalized_type = abaqus_to_meshio_type.get(self.type, self.type)
         if generalized_type not in volume_faces.keys():
             logging.error(f"Element type {self.type} is currently not supported")

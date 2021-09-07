@@ -579,10 +579,7 @@ class Nodes:
         self._bbox = self._get_bbox() if len(self._nodes) > 0 else None
 
     def renumber(self, start_id: int = 1):
-        """
-        Ensures that the node numberings starts at 1 and has no holes in its numbering.
-
-        """
+        """Ensures that the node numberings starts at 1 and has no holes in its numbering."""
         for i, n in enumerate(sorted(self._nodes, key=attrgetter("id")), start=start_id):
             if i != n.id:
                 n.id = i

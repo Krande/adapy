@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import List
 
 import numpy as np
 
@@ -105,7 +106,7 @@ class Elem(FemBase):
         return self._shape
 
     @property
-    def refs(self):
+    def refs(self) -> List[Elem]:
         return self._refs
 
     def update(self):

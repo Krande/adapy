@@ -12,3 +12,7 @@ install:
 
 test:
 	cd tests && pytest --cov=ada --cov-report=xml --cov-report=html .
+
+docker_test:
+	docker build -t ada/testing . && \
+	docker run ada/testing bash -c "pip install pytest && cd /home/tests && pytest"

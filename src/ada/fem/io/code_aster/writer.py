@@ -245,8 +245,19 @@ def write_solid_section(fem_sections: Iterable[FemSection]) -> str:
 
 def create_bc_str(bc: Bc) -> str:
     set_name = bc.fem_set.name
+    is_solid = False
+    for no in bc.fem_set.members:
+        refs = no.refs
+        for elem in refs:
+            if elem.type in ElemShapes.volume:
+                is_solid = True
+                break
+        # print(refs)
+    dofs = ["DX", "DY", "DZ"]
+    if is_solid is False:
+        dofs += ["DRX", "DRY", "DRZ"]
     bc_str = ""
-    for i, n in enumerate(["DX", "DY", "DZ", "DRX", "DRY", "DRZ"], start=1):
+    for i, n in enumerate(dofs, start=1):
         if i in bc.dofs:
             bc_str += f"{n}=0, "
     dofs_str = f"""dofs = dict(

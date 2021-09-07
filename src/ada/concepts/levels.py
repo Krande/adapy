@@ -53,18 +53,7 @@ from ada.ifc.utils import create_guid
 
 
 class Part(BackendGeom):
-    """
-    A Part superclass design to host all relevant information for cad and FEM modelling.
-
-    :param name: Name of Part
-    :param colour: Colour of Part.
-    :param origin: Origin of part.
-    :param lx: Local X
-    :param ly: Local Y
-    :param lz: Local Z
-    :param settings: A properties object
-    :param metadata: A dict for containing metadata
-    """
+    """A Part superclass design to host all relevant information for cad and FEM modelling."""
 
     def __init__(
         self,
@@ -512,22 +501,13 @@ class Part(BackendGeom):
         return self._materials
 
     @property
-    def bbox(self):
-        if len(self.fem.nodes) != 0:
-            return self.fem.nodes.bbox
-        elif len(self.nodes) != 0:
-            return self.nodes.bbox
-        else:
-            raise ValueError("This part contains no Nodes")
-
-    @property
     def colour(self):
         if self._colour is None:
             from random import randint
 
-            return randint(0, 255) / 255, randint(0, 255) / 255, randint(0, 255) / 255
-        else:
-            return self._colour
+            self._colour = randint(0, 255) / 255, randint(0, 255) / 255, randint(0, 255) / 255
+
+        return self._colour
 
     @colour.setter
     def colour(self, value):
@@ -630,11 +610,7 @@ class Part(BackendGeom):
 
 
 class Assembly(Part):
-    """
-    The Assembly object. A top level container of parts, beams, plates, shapes and FEM.
-
-
-    """
+    """The Assembly object. A top level container of parts, beams, plates, shapes and FEM."""
 
     def __init__(
         self,
