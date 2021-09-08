@@ -1,20 +1,25 @@
+import logging
 import pathlib
+import subprocess
 
 import numpy as np
 from IPython.display import display
 from ipywidgets import Dropdown, HBox, VBox
 
-from ada.visualize.fem import (
+from ada.visualize.femviz import (
     get_edges_and_faces_from_meshio,
     get_edges_from_fem,
     get_faces_from_fem,
     get_vertices_from_fem,
     magnitude,
 )
+from ada.visualize.renderer import MyRenderer
+from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
 
 class Results:
     def __init__(self, result_file_path, part=None, palette=None, output=None):
+        result_file_path = pathlib.Path(result_file_path)
         self.palette = [(0, 149 / 255, 239 / 255), (1, 0, 0)] if palette is None else palette
         self._analysis_type = None
         self._point_data = []
@@ -29,7 +34,7 @@ class Results:
         self._output = output
 
     @property
-    def output(self):
+    def output(self) -> subprocess.CompletedProcess:
         return self._output
 
     @property
@@ -42,11 +47,7 @@ class Results:
 
     @property
     def renderer(self):
-        """
-
-        :return:
-        :rtype: ada.base.renderer.MyRenderer
-        """
+        """:rtype: ada.visualize.renderer.MyRenderer"""
         return self._renderer
 
     @property
@@ -55,22 +56,40 @@ class Results:
 
     @property
     def mesh_deformed(self):
-        """
-
-        :return:
-        :rtype: pythreejs.Mesh
-        """
+        """:rtype: pythreejs.Mesh"""
         return self._deformed_mesh
 
     def _get_mesh(self, file_ref):
         import meshio
 
+        from ada.core.utils import get_list_of_files
+
         file_ref = pathlib.Path(file_ref)
-        if file_ref.suffix.lower() == ".rmed":
+        suffix = file_ref.suffix.lower()
+        if suffix in ".rmed":
             mesh = meshio.read(file_ref, "med")
             self._analysis_type = "code_aster"
+        elif suffix == ".frd":
+            from ccx2paraview import Converter
+
+            self._analysis_type = "calculix"
+            if file_ref.exists() is False:
+                return None
+            convert = Converter(str(file_ref), ["vtu"])
+            convert.run()
+            result_files = get_list_of_files(file_ref.parent, ".vtu")
+            if len(result_files) == 0:
+                logging.error("No VTU files found. Check if analysis was successfully completed")
+                return None
+            if len(result_files) > 1:
+                logging.error("Currently only reading last step for multi-step Calculix analysis results")
+            result_file = result_files[-1]
+            self._results_file_path = pathlib.Path(result_file)
+            print(f'Reading result from "{result_file}"')
+            mesh = meshio.read(result_file)
         else:
-            mesh = meshio.read(file_ref)
+            logging.error(f'Results class currently does not support filetype "{suffix}"')
+            return None
 
         return mesh
 
@@ -88,7 +107,11 @@ class Results:
             self._cell_data.append(n)
 
     def _read_result_file(self, file_ref):
+        if file_ref.exists() is False:
+            return None
         mesh = self._get_mesh(file_ref)
+        if mesh is None:
+            return None
         self._mesh = mesh
         self._vertices = np.asarray(mesh.points, dtype="float32")
 
@@ -117,20 +140,13 @@ class Results:
         colors = np.asarray([curr_p(x) for x in res], dtype="float32")
         return colors
 
-    def create_viz_geom(self, data_type, displ_data=False, renderer=None):
+    def create_viz_geom(self, data_type, displ_data=False, renderer: MyRenderer = None) -> None:
         """
 
         :param data_type:
         :param displ_data:
-        :type renderer: ada.base.renderer.MyRenderer
-        :return:
+        :param renderer:
         """
-        from ada.visualize.renderer import MyRenderer
-        from ada.visualize.threejs_utils import (
-            edges_to_mesh,
-            faces_to_mesh,
-            vertices_to_mesh,
-        )
 
         default_vertex_color = (8, 8, 8)
 
@@ -185,31 +201,38 @@ class Results:
     def on_changed_point_data_set(self, p):
         data = p["new"]
         if self._analysis_type == "code_aster":
+            is_displ = True if "DISP" in data else False
             if "point_tags" in data:
                 print("\r" + "Point Tags are not a valid display value" + 10 * " ", end="")
                 return None
-            if "DISP" in data:
-                self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
-            else:
-                self.create_viz_geom(data, renderer=self.renderer)
+        elif self._analysis_type == "calculix":
+            is_displ = True if "U" in data else False
+        else:
+            return None
+
+        if is_displ:
+            self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
+        else:
+            self.create_viz_geom(data, renderer=self.renderer)
 
     def _repr_html_(self):
-        from ada.visualize.renderer import MyRenderer
-
         if self._renderer is None:
             self._renderer = MyRenderer()
             if self._analysis_type == "code_aster":
                 data = [x for x in self._point_data if "DISP" in x][-1]
-                self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
-                i = self._point_data.index(data)
-                self._render_sets = Dropdown(
-                    options=self._point_data, value=self._point_data[i], tooltip="Select a set", disabled=False
-                )
-                self._render_sets.observe(self.on_changed_point_data_set, "value")
-                self.renderer._controls.pop()
-                self.renderer._controls.append(self._render_sets)
+            elif self._analysis_type == "calculix":
+                data = [x for x in self._point_data if "U" in x][-1]
             else:
                 raise NotImplementedError(f'Support for analysis_type "{self._analysis_type}"')
+
+            self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
+            i = self._point_data.index(data)
+            self._render_sets = Dropdown(
+                options=self._point_data, value=self._point_data[i], tooltip="Select a set", disabled=False
+            )
+            self._render_sets.observe(self.on_changed_point_data_set, "value")
+            self.renderer._controls.pop()
+            self.renderer._controls.append(self._render_sets)
 
         display(HBox([VBox([HBox(self.renderer._controls), self.renderer._renderer]), self.renderer.html]))
 

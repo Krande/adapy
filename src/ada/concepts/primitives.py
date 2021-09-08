@@ -304,7 +304,7 @@ class Shape(BackendGeom):
         :return:
         :rtype: OCC.Core.TopoDS.TopoDS_Shape
         """
-        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+        from ada.occ.utils import apply_penetrations
 
         if self._geom is None:
             from ada.ifc.utils import get_ifc_shape
@@ -323,9 +323,7 @@ class Shape(BackendGeom):
             self.colour = color
             self._opacity = alpha
 
-        geom = self._geom
-        for pen in self.penetrations:
-            geom = BRepAlgoAPI_Cut(geom, pen.geom).Shape()
+        geom = apply_penetrations(self._geom, self.penetrations)
 
         return geom
 
@@ -338,12 +336,9 @@ class Shape(BackendGeom):
         if value != self._units:
             scale_factor = self._unit_conversion(self._units, value)
             if self._geom is not None:
-                from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
-                from OCC.Core.gp import gp_Trsf
+                from ada.occ.utils import transform_shape
 
-                trsf = gp_Trsf()
-                trsf.SetScaleFactor(scale_factor)
-                self._geom = BRepBuilderAPI_Transform(self.geom, trsf, True).Shape()
+                self._geom = transform_shape(self.geom, scale_factor)
             if self.metadata.get("ifc_source") is True:
                 logging.info("do something")
 
@@ -630,10 +625,9 @@ class PrimSweep(Shape):
         )
 
     def _sweep_geom(self):
-        from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe
+        from ada.occ.utils import sweep_geom
 
-        pipe = BRepOffsetAPI_MakePipe(self.sweep_curve.wire, self.profile_curve_outer.wire).Shape()
-        return pipe
+        return sweep_geom(self.sweep_curve.wire, self.profile_curve_outer.wire)
 
     @property
     def units(self):

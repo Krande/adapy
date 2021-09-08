@@ -1,4 +1,18 @@
+from __future__ import annotations
+
+from typing import List, Union
+
+from ada.concepts.points import Node
+
 from .common import FemBase
+from .elements import Elem
+
+
+class SetTypes:
+    NSET = "nset"
+    ELSET = "elset"
+
+    all = [NSET, ELSET]
 
 
 class FemSet(FemBase):
@@ -11,12 +25,12 @@ class FemSet(FemBase):
     :param parent: Parent object
     """
 
-    _valid_types = ["nset", "elset"]
+    TYPES = SetTypes
 
     def __init__(self, name, members, set_type, metadata=None, parent=None):
         super().__init__(name, metadata, parent)
         self._set_type = set_type
-        if self.type not in FemSet._valid_types:
+        if self.type not in SetTypes.all:
             raise ValueError(f'set type "{set_type}" is not valid')
         self._members = members
 
@@ -29,51 +43,20 @@ class FemSet(FemBase):
     def __getitem__(self, index):
         return self._members[index]
 
-    def __add__(self, other):
-        """
-
-        :param other:
-        :type other: FemSet
-        :return:
-        """
+    def __add__(self, other: FemSet) -> FemSet:
         self.add_members(other.members)
         return self
 
-    def add_members(self, members):
-        """
-
-        :param members:
-        :type members: list
-        """
-
+    def add_members(self, members: List[Union[Elem, Node]]):
         self._members += members
 
     @property
     def type(self):
-        """
-
-        :return: Type of set
-        """
         return self._set_type.lower()
 
     @property
-    def members(self):
-        """
-
-        :return: Members of set
-        """
+    def members(self) -> List[Union[Elem, Node]]:
         return self._members
-
-    @property
-    def instance_num(self):
-        """
-
-        :return:
-        """
-        if self.on_assembly_level is True:
-            return ",".join([f"{m}" for m in self.members])
-        else:
-            return ",".join(["{}.{}".format(self.parent.instance_name, m) for m in self.members])
 
     def __repr__(self):
         return f'FemSet({self.name}, type: "{self.type}", members: "{len(self.members)}")'

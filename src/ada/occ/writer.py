@@ -16,6 +16,7 @@ from ada.concepts.piping import Pipe
 from ada.concepts.primitives import Shape
 from ada.concepts.structural import Beam, Plate, Wall
 from ada.core.utils import Counter
+from ada.fem.shapes import ElemType
 
 # Reference: https://www.opencascade.com/doc/occt-7.4.0/overview/html/occt_user_guides__step.html#occt_step_3
 
@@ -34,11 +35,11 @@ class StepExporter:
         Interface_Static_SetCVal("write.precision.mode", "1")
         Interface_Static_SetCVal("write.step.assembly", str(assembly_mode))
 
-    def add_to_step_writer(self, obj: valid_types, geom_repr="solid", fuse_piping=False):
+    def add_to_step_writer(self, obj: valid_types, geom_repr=ElemType.SOLID, fuse_piping=False):
         """Write current assembly to STEP file"""
-
-        if geom_repr not in ["shell", "solid", "line"]:
-            raise ValueError('Geometry representation can only accept either "solid", "shell" or "lines" as input')
+        valid_geom_repr = [ElemType.SOLID, ElemType.SHELL, ElemType.LINE]
+        if geom_repr not in valid_geom_repr:
+            raise ValueError(f'Invalid geom_repr: "{geom_repr}". Must be in "{valid_geom_repr}"')
 
         if issubclass(type(obj), Shape):
             self.add_geom(obj.geom, obj)
@@ -87,9 +88,9 @@ class StepExporter:
             item.SetName(TCollection_HAsciiString(name))
 
     def export_structural(self, stru_obj: Union[Plate, Beam, Wall], geom_repr):
-        if geom_repr == "shell":
+        if geom_repr == ElemType.SHELL:
             self.add_geom(stru_obj.shell, stru_obj)
-        elif geom_repr == "line":
+        elif geom_repr == ElemType.LINE:
             self.add_geom(stru_obj.line, stru_obj)
         else:
             self.add_geom(stru_obj.solid, stru_obj)
@@ -97,9 +98,9 @@ class StepExporter:
     def export_piping(self, pipe: Pipe, geom_repr, fuse_shapes=False):
         result = None
         for pipe_seg in pipe.segments:
-            if geom_repr == "line":
+            if geom_repr == ElemType.LINE:
                 geom = pipe_seg.line
-            elif geom_repr == "shell":
+            elif geom_repr == ElemType.SHELL:
                 geom = pipe_seg.shell
             else:
                 geom = pipe_seg.solid

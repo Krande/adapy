@@ -15,9 +15,9 @@ from ada.core.utils import (
     unit_vector,
     vector_length,
 )
+from ada.fem.shapes import ElemType
 from ada.ifc.utils import create_guid
 from ada.materials.utils import get_material
-from ada.occ.utils import make_edge, sweep_pipe
 from ada.sections.utils import get_section
 
 from .curves import ArcSegment
@@ -330,15 +330,21 @@ class PipeSegStraight(BackendGeom):
 
     @property
     def line(self):
+        from ada.occ.utils import make_edge
+
         return make_edge(self.p1, self.p2)
 
     @property
     def shell(self):
-        return sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, "shell")
+        from ada.occ.utils import sweep_pipe
+
+        return sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, ElemType.SHELL)
 
     @property
     def solid(self):
-        return sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, "solid")
+        from ada.occ.utils import sweep_pipe
+
+        return sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, ElemType.SOLID)
 
     def _generate_ifc_elem(self):
         from ada.core.constants import O, X, Z
@@ -482,7 +488,7 @@ class PipeSegElbow(BackendGeom):
         else:
             xvec = self.xvec1
 
-        return sweep_pipe(self.line, xvec, self.section.r, self.section.wt, "shell")
+        return sweep_pipe(self.line, xvec, self.section.r, self.section.wt, ElemType.SHELL)
 
     @property
     def solid(self):
@@ -495,7 +501,7 @@ class PipeSegElbow(BackendGeom):
         else:
             xvec = self.xvec1
 
-        return sweep_pipe(self.line, xvec, self.section.r, self.section.wt, "solid")
+        return sweep_pipe(self.line, xvec, self.section.r, self.section.wt, ElemType.SOLID)
 
     @property
     def arc_seg(self) -> ArcSegment:

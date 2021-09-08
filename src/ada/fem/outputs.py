@@ -1,4 +1,16 @@
+from typing import List, Union
+
 from .common import FemBase
+from .sets import FemSet
+
+
+class HistTypes:
+    NODE = "node"
+    ENERGY = "energy"
+    CONTACT = "contact"
+    CONNECTOR = "connector"
+
+    all = [NODE, ENERGY, CONTACT, CONNECTOR]
 
 
 class HistOutput(FemBase):
@@ -9,11 +21,9 @@ class HistOutput(FemBase):
     :param set_type:
     :param variables:
     :param int_type: Interval type
-    :type name: str
-    :type set_type: str
-    :type variables: list
-
     """
+
+    TYPES = HistTypes
 
     default_hist = [
         "ALLAE",
@@ -33,14 +43,13 @@ class HistOutput(FemBase):
         "ALLWK",
         "ETOTAL",
     ]
-    _valid_types = ["node", "energy", "contact", "connector"]
 
     def __init__(
         self,
-        name,
-        fem_set,
-        set_type,
-        variables,
+        name: str,
+        fem_set: Union[FemSet, None],
+        set_type: str,
+        variables: List[str],
         int_value=1,
         int_type="frequency",
         metadata=None,
@@ -48,9 +57,9 @@ class HistOutput(FemBase):
     ):
         super().__init__(name, metadata, parent)
 
-        if set_type not in self._valid_types:
+        if set_type not in HistTypes.all:
             raise ValueError(
-                f'set_type "{set_type}" is not yet supported. Currently supported types are "{self._valid_types}"'
+                f'set_type "{set_type}" is not yet supported. Currently supported types are "{HistTypes.all}"'
             )
 
         self._fem_set = fem_set
@@ -58,6 +67,15 @@ class HistOutput(FemBase):
         self._variables = variables
         self._int_value = int_value
         self._int_type = int_type
+
+    @property
+    def parent(self):
+        """:rtype: ada.fem.Step"""
+        return self._parent
+
+    @parent.setter
+    def parent(self, value):
+        self._parent = value
 
     @property
     def type(self):
@@ -92,6 +110,7 @@ class FieldOutput(FemBase):
     :param int_type:
     :param metadata:
     :param parent:
+    :type parent: ada.FEM
     """
 
     _valid_fstep_type = ["FREQUENCY", "NUMBER INTERVAL"]
@@ -116,6 +135,15 @@ class FieldOutput(FemBase):
         self._contact = FieldOutput.default_co if contact is None else contact
         self._int_value = int_value
         self._int_type = int_type
+
+    @property
+    def parent(self):
+        """:rtype: ada.fem.Step"""
+        return self._parent
+
+    @parent.setter
+    def parent(self, value):
+        self._parent = value
 
     @property
     def nodal(self):

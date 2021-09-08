@@ -24,8 +24,6 @@ def create_guid(name=None):
     import hashlib
     import uuid
 
-    import ifcopenshell
-
     if name is None:
         hexdig = uuid.uuid1().hex
     else:
@@ -1020,3 +1018,18 @@ def tesselate_shape(shape, schema, tol):
         logging.debug("Starting serialization of geometry")
         serialized_geom = ifcopenshell.geom.tesselate(schema, occ_string, tol)
     return serialized_geom
+
+
+def default_settings():
+    ifc_settings = ifcopenshell.geom.settings()
+    ifc_settings.set(ifc_settings.USE_PYTHON_OPENCASCADE, True)
+    ifc_settings.set(ifc_settings.SEW_SHELLS, True)
+    ifc_settings.set(ifc_settings.WELD_VERTICES, True)
+    ifc_settings.set(ifc_settings.INCLUDE_CURVES, True)
+    ifc_settings.set(ifc_settings.USE_WORLD_COORDS, True)
+    ifc_settings.set(ifc_settings.VALIDATE_QUANTITIES, True)
+    return ifc_settings
+
+
+def open_ifc(ifc_file_path):
+    return ifcopenshell.open(str(ifc_file_path))

@@ -8,7 +8,6 @@ import sys
 import time
 from contextlib import contextmanager
 from itertools import chain
-from os import PathLike
 
 from ada.concepts.containers import Beams, Plates
 from ada.concepts.levels import Part
@@ -82,12 +81,6 @@ def is_buffer(obj, mode):
 def open_file(path_or_buf, mode="r"):
     if is_buffer(path_or_buf, mode):
         yield path_or_buf
-    elif sys.version_info < (3, 6) and isinstance(path_or_buf, PathLike):
-        # TODO remove when python 3.5 is EoL (i.e. 2020-09-13)
-        # https://devguide.python.org/#status-of-python-branches
-        # https://www.python.org/dev/peps/pep-0478/
-        with open(str(path_or_buf), mode) as f:
-            yield f
     else:
         with open(path_or_buf, mode) as f:
             yield f
@@ -273,35 +266,8 @@ echo ON\ncall {run_command}"""
     if _Settings.execute_dir is not None:
         shutil.copy(exe.execute_dir / start_bat, _Settings.execute_dir / start_bat)
         shutil.copy(exe.execute_dir / stop_bat, _Settings.execute_dir / stop_bat)
-
-    fem_tool = type(exe).__name__
-
-    print(80 * "-")
-    print(f'starting {fem_tool} simulation "{exe.analysis_name}"')
-    out = None
-    if exe.auto_execute is True:
-        if exe.run_ext is True:
-            out = subprocess.run(
-                "start " + start_bat,
-                cwd=exe.execute_dir,
-                shell=True,
-                env=os.environ,
-                capture_output=True,
-                universal_newlines=True,
-            )
-            print(f"Note! This starts {fem_tool} in an external window on a separate thread.")
-        else:
-            out = subprocess.run(
-                "start /wait " + start_bat,
-                cwd=exe.execute_dir,
-                shell=True,
-                env=os.environ,
-                capture_output=True,
-                universal_newlines=True,
-            )
-            print(f'Finished {fem_tool} simulation "{exe.analysis_name}"')
-    print(80 * "-")
-    return out
+    run_command = "start " + start_bat if exe.run_ext is True else "call " + start_bat
+    return run_tool(exe, run_command, "Windows")
 
 
 def run_linux(exe, run_command):
@@ -311,30 +277,21 @@ def run_linux(exe, run_command):
     :param run_command:
     :return:
     """
-    fem_tool = type(exe).__name__
+    return run_tool(exe, run_command, "Linux")
 
+
+def run_tool(exe, run_command, platform):
+    fem_tool = type(exe).__name__
+    out = None
     print(80 * "-")
-    print(f'starting {fem_tool} simulation "{exe.analysis_name}" (on Linux)')
+    print(f'starting {fem_tool} simulation "{exe.analysis_name}" (on {platform})')
+    props = dict(shell=True, cwd=exe.execute_dir, env=os.environ, capture_output=True, universal_newlines=True)
     if exe.auto_execute is True:
         if exe.run_ext is True:
-            out = subprocess.run(
-                run_command,
-                cwd=exe.execute_dir,
-                shell=True,
-                env=os.environ,
-                capture_output=True,
-                universal_newlines=True,
-            )
+            out = subprocess.run(run_command, **props)
             print(f"Note! This starts {fem_tool} in an external window on a separate thread.")
         else:
-            out = subprocess.run(
-                run_command,
-                cwd=exe.execute_dir,
-                shell=True,
-                env=os.environ,
-                capture_output=True,
-                universal_newlines=True,
-            )
+            out = subprocess.run(run_command, **props)
             print(f'Finished {fem_tool} simulation "{exe.analysis_name}"')
     print(80 * "-")
     return out

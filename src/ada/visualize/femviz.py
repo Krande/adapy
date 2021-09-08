@@ -3,10 +3,15 @@ import os
 import traceback
 from dataclasses import dataclass
 
+import meshio
 import numpy as np
 from pythreejs import Group
 
-from ..fem import FEM
+from ada.concepts.levels import FEM
+from ada.fem.shapes import ElemShapes
+from ada.fem.shapes.mesh_types import meshio_to_abaqus_type
+from ada.fem.utils import is_line_elem
+
 from .threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
 
@@ -81,43 +86,29 @@ class FemRenderer:
         return mi, ma, center
 
 
-def get_edges_and_faces_from_meshio(mesh):
-    """
-
-    :param mesh:
-    :type mesh: meshio.Mesh
-    :return:
-    """
-    from ada.fem.io_meshio import meshio_to_ada_type
-    from ada.fem.shapes import ElemShapes
-
+def get_edges_and_faces_from_meshio(mesh: meshio.Mesh):
     edges = []
     faces = []
     for cell_block in mesh.cells:
-        el_type = meshio_to_ada_type[cell_block.type]
+        el_type = meshio_to_abaqus_type[cell_block.type]
         for elem in cell_block.data:
-            res = ElemShapes(el_type, elem)
-            edges += res.edges
-            if res.type in res.lines:
+            elem_shape = ElemShapes(el_type, elem)
+            edges += elem_shape.edges
+            if elem_shape.type in elem_shape.lines:
                 continue
-            faces += res.faces
+            faces += elem_shape.faces
     return edges, faces
 
 
-def get_faces_from_fem(fem, convert_bm_to_shell=False):
+def get_faces_from_fem(fem: FEM, convert_bm_to_shell=False):
     """
 
     :param fem:
     :param convert_bm_to_shell: Converts Beam elements to a shell element equivalent
-    :type fem: ada.fem.FEM
-    :return:
-    :rtype: list
     """
-    from ..fem.shapes import ElemShapes
-
     ids = []
     for el in fem.elements.elements:
-        if ElemShapes.is_line_elem(el):
+        if is_line_elem(el):
             continue
         for f in el.shape.faces:
             # Convert to indices, not id
@@ -125,14 +116,7 @@ def get_faces_from_fem(fem, convert_bm_to_shell=False):
     return ids
 
 
-def get_edges_from_fem(fem):
-    """
-
-    :param fem:
-    :type fem: ada.fem.FEM
-    :return:
-    :rtype: list
-    """
+def get_edges_from_fem(fem: FEM):
     ids = []
     for el in fem.elements.elements:
         for f in el.shape.edges_seq:
@@ -171,7 +155,7 @@ def magnitude(u):
     return np.sqrt(u[0] ** 2 + u[1] ** 2 + u[2] ** 2)
 
 
-def visualize_it(res_file, file_format="med", temp_file="temp/foo.vtu", default_index=0):
+def visualize_it(res_file, temp_file="temp/foo.vtu", default_index=0):
     import pathlib
 
     import meshio
@@ -182,10 +166,21 @@ def visualize_it(res_file, file_format="med", temp_file="temp/foo.vtu", default_
     from ada.core.utils import vector_length
 
     res_file = pathlib.Path(res_file).resolve().absolute()
-    imesh = meshio.read(res_file, file_format=file_format)
+    suffix = res_file.suffix.lower()
+
+    suffix_map = {".rmed": "med", ".vtu": None}
+
+    imesh = meshio.read(res_file, file_format=suffix_map[suffix])
     imesh.point_data = {key.replace(" ", "_"): value for key, value in imesh.point_data.items()}
 
-    warp_data = [key for key in imesh.point_data.keys() if key != "point_tags"]
+    def filter_keys(var):
+        if suffix == ".vtu" and var != "U":
+            return False
+        if suffix == ".rmed" and var == "point_tags":
+            return False
+        return True
+
+    warp_data = [key for key in filter(filter_keys, imesh.point_data.keys())]
     magn_data = []
     for d in warp_data:
         res = [vector_length(v[:3]) for v in imesh.point_data[d]]
@@ -193,25 +188,18 @@ def visualize_it(res_file, file_format="med", temp_file="temp/foo.vtu", default_
         magn_data_name = f"{d}_magn"
         imesh.point_data[magn_data_name] = np.array(res_norm, dtype=np.float64)
         magn_data.append(magn_data_name)
+
     imesh.field_data = {key: np.array(value) for key, value in imesh.field_data.items()}
+
     tf = pathlib.Path(temp_file).resolve().absolute()
+
     if tf.exists():
         os.remove(tf)
     os.makedirs(tf.parent, exist_ok=True)
     imesh.write(tf)
 
-    # assert isinstance(imesh, meshio.Mesh)
-    # vertices = imesh.points
-    # indices = imesh.cells
-
     mesh = PolyMesh.from_vtk(str(tf))
     mesh.default_color = "gray"
-
-    # mesh = PolyMesh(
-    #     vertices=vertices,
-    #     triangle_indices=get_ugrid_triangles(grid),
-    #     data=_grid_data_to_data_widget(get_ugrid_data(grid))
-    # )
 
     warp_vec = warp_data[default_index]
     try:
@@ -241,7 +229,7 @@ def visualize_it(res_file, file_format="med", temp_file="temp/foo.vtu", default_
     jslink((colored_mesh, "colormap"), (colormap, "index"))
 
     # EigenValue choice widget
-    eig_map = Dropdown(options=warp_data, description="Eigenvalue:")
+    eig_map = Dropdown(options=warp_data, description="Data Value:")
 
     scene = Scene([warped_mesh])
     app = AppLayout(

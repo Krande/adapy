@@ -18,6 +18,7 @@ from pythreejs import (
 from ada.concepts.piping import Pipe
 from ada.concepts.primitives import Shape
 from ada.concepts.structural import Beam, Plate, Wall
+from ada.fem.shapes import ElemType
 
 from .threejs_utils import create_material
 
@@ -28,17 +29,39 @@ class NORMAL(Enum):
 
 
 @dataclass
-class ThreeJSVizObj:
+class VizObj:
     obj: Union[Beam, Plate, Wall, Shape, Pipe]
-    edge_color: tuple
+    geom_repr: str = ElemType.SOLID
+    edge_color: tuple = None
     mesh: Mesh = None
     edges: LineSegments2 = None
 
-    def convert_to_mesh(self):
+    def get_geom(self, geom_repr):
+        if geom_repr == ElemType.SOLID:
+            return self.obj.solid
+        elif geom_repr == ElemType.SHELL:
+            return self.obj.shell
+        elif geom_repr == ElemType.LINE:
+            return self.obj.line
+        else:
+            raise ValueError(f'Unrecognized "{geom_repr}".')
+
+    def occ_to_verts_and_faces(self, parallel=True, render_edges=True, quality=1.0):
+        geom = self.get_geom(self.geom_repr)
+        np_vertices, np_faces, np_normals, edges = occ_shape_to_faces(geom, quality, render_edges, parallel)
+        return np_vertices, np_faces, np_normals, edges
+
+    def convert_to_pythreejs_mesh(self):
         o = OccToThreejs()
         self.mesh, self.edges = o.occ_shape_to_threejs(
             self.obj.solid, self.obj.colour, self.edge_color, self.obj.transparent, self.obj.opacity
         )
+
+    def convert_to_ipygany_mesh(self):
+        from ipygany import PolyMesh
+
+        np_vertices, np_faces, np_normals, edges = self.occ_to_verts_and_faces()
+        return PolyMesh(vertices=np_vertices, triangle_indices=np_faces)
 
 
 @dataclass

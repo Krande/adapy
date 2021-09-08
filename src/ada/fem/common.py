@@ -3,6 +3,7 @@ from ada.config import Settings
 
 class FemBase:
     def __init__(self, name, metadata, parent):
+        """:type parent: ada.FEM"""
         self.name = name
         self.parent = parent
         self._metadata = metadata if metadata is not None else dict()
@@ -25,55 +26,41 @@ class FemBase:
 
     @property
     def parent(self):
-        """
-
-        :rtype: ada.fem.FEM
-        """
+        """:rtype: ada.FEM"""
         return self._parent
 
     @parent.setter
     def parent(self, value):
-        # if type(value) not in (FEM, Step):
-        #     raise ValueError(f'Parent type "{type(value)}" is not supported')
         self._parent = value
 
     @property
     def metadata(self):
         return self._metadata
 
-    @property
-    def on_assembly_level(self):
-        """
 
-        :return:
-        """
-        # TODO: This is not really working correctly. This must be fixed
-        from ada import Assembly
+class CsysSystems:
+    RECTANGULAR = "RECTANGULAR"
+    # , 'CYLINDRICAL', 'SPHERICAL', 'Z RECTANGULAR', 'USER']
 
-        return True if type(self.parent.parent) is Assembly else False
 
-    @property
-    def instance_name(self):
-        if self.on_assembly_level is False:
-            return self.name
-        else:
-            return self.parent.instance_name + "." + self.name
+class CsysDefs:
+    COORDINATES = "COORDINATES"
+    NODES = "NODES"
+    # ,'OFFSET TO NODES'
 
 
 class Csys(FemBase):
-    _valid_systems = ["RECTANGULAR"]  # , 'CYLINDRICAL', 'SPHERICAL', 'Z RECTANGULAR', 'USER']
-    _valid_defs = ["COORDINATES", "NODES"]  # ,'OFFSET TO NODES'
-
     def __init__(
         self,
         name,
-        definition="COORDINATES",
-        system="RECTANGULAR",
+        definition=CsysDefs.COORDINATES,
+        system=CsysSystems.RECTANGULAR,
         nodes=None,
         coords=None,
         metadata=None,
         parent=None,
     ):
+        """:type parent: ada.FEM"""
         super().__init__(name, metadata, parent)
         self._definition = definition
         self._system = system
@@ -103,6 +90,7 @@ class Csys(FemBase):
 
 class Amplitude(FemBase):
     def __init__(self, name, x, y, smooth=None, metadata=None, parent=None):
+        """:type parent: ada.FEM"""
         super().__init__(name, metadata, parent)
         self._x = x
         self._y = y

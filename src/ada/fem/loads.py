@@ -1,64 +1,25 @@
 import logging
+from typing import List
 
 import numpy as np
 
-from .common import FemBase
+from .common import Amplitude, Csys, FemBase
 from .constants import GRAVITY
+from .sets import FemSet
 
 
-class LoadCase(FemBase):
-    """
-    The base LoadCase object. Defaults lc ids refer to the dictionary of basic loadcases used in ULS analysis.
-    The dict can be changed using add_basic_lc function, but must be same as Genie lc FEMid.
+class LoadTypes:
+    GRAVITY = "gravity"
+    ACC = "acc"
+    ACC_ROT = "acc_rot"
+    FORCE = "force"
+    FORCE_SET = "force_set"
+    MASS = "mass"
 
-    :param name:
-    :param comment:
-    :param loads:
-    :param mass:
-    :param lcsys:
-    :param metadata:
-    :param parent:
-    """
-
-    def __init__(
-        self,
-        name,
-        comment,
-        loads=None,
-        mass=None,
-        lcsys=None,
-        metadata=None,
-        parent=None,
-    ):
-        super().__init__(name, metadata, parent)
-        self._comment = comment
-        self._loads = loads
-        self._mass = mass
-        self._lcsys = lcsys
-
-    @property
-    def loads(self):
-        return self._loads
-
-    @property
-    def mass(self):
-        return self._mass
-
-    @property
-    def comment(self):
-        return self._comment
-
-    @property
-    def csys(self):
-        return (1, 0, 0), (0, 1, 0), (0, 0, 1) if self._lcsys is None else self._lcsys
-
-    def __repr__(self):
-        return f"LC({self.name}, {self.comment})"
+    all = [GRAVITY, ACC, ACC_ROT, FORCE, FORCE_SET, MASS]
 
 
 class Load(FemBase):
-    TYPES = ["gravity", "acc", "acc_rot", "force", "force_set", "mass"]
-
     """
 
 
@@ -70,25 +31,24 @@ class Load(FemBase):
     :param follower_force: Should follower force be accounted for
     :param amplitude: Attach an amplitude object to the load
     :param accr_origin: Origin of a rotational Acceleration field (necessary for load_type='acc_rot').
-    :type load_type: str
-    :type magnitude: float
-    :type dof: list
-    :type fem_set: FemSet
+    :type parent: ada.FEM
     """
+
+    TYPES = LoadTypes
 
     def __init__(
         self,
-        name,
-        load_type,
-        magnitude,
-        fem_set=None,
-        dof=None,
-        amplitude=None,
+        name: str,
+        load_type: str,
+        magnitude: float,
+        fem_set: FemSet = None,
+        dof: List[int] = None,
+        amplitude: Amplitude = None,
         follower_force=False,
         acc_vector=None,
         accr_origin=None,
         accr_rot_axis=None,
-        csys=None,
+        csys: Csys = None,
         metadata=None,
         parent=None,
     ):
@@ -103,7 +63,7 @@ class Load(FemBase):
         self._accr_origin = accr_origin
         self._accr_rot_axis = accr_rot_axis
         self._csys = csys
-        if self.type == "point_load":
+        if self.type == LoadTypes.FORCE:
             if self._dof is None or self._fem_set is None or self._name is None:
                 raise Exception("self._dofs and nid (Node id) and name needs to be set in order to use point loads")
             if len(self._dof) != 6:
@@ -118,8 +78,8 @@ class Load(FemBase):
 
     @type.setter
     def type(self, value):
-        if value.lower() not in self.TYPES:
-            raise ValueError(f'Load type "{value}" is not yet supported or does not exist. Must be "{self.TYPES}"')
+        if value.lower() not in LoadTypes.all:
+            raise ValueError(f'Load type "{value}" is not yet supported or does not exist. Must be "{LoadTypes.all}"')
         self._type = value
 
     @property
@@ -130,14 +90,14 @@ class Load(FemBase):
 
     @property
     def forces(self):
-        if self.type not in ("force",):
+        if self.type not in (LoadTypes.FORCE,):
             return None
 
         return [x * self.magnitude for x in self.dof]
 
     @property
     def forces_global(self):
-        if self.type not in ("force",):
+        if self.type not in (LoadTypes.FORCE,):
             return None
         if self.csys is None:
             return [x * self.magnitude for x in self.dof]
@@ -172,7 +132,7 @@ class Load(FemBase):
 
     @property
     def acc_vector(self):
-        if self.type not in ("acc", "acc_rot"):
+        if self.type not in (LoadTypes.ACC, LoadTypes.ACC_ROT):
             raise ValueError('Acceleration vector only applies for type "acc"')
 
         dir_error = "If acc_vector is not specified, you must pass dof=[int] (int 1-3) for the acc field"
@@ -208,13 +168,46 @@ class Load(FemBase):
         return self._accr_rot_axis
 
     @property
-    def csys(self):
-        """
-
-        :rtype: Csys
-        """
+    def csys(self) -> Csys:
         return self._csys
 
     def __repr__(self):
         forc_str = ",".join(f"{f:.6E}" for f in self.forces)
         return f"Load({self.name}, {self.type}, [{forc_str}])"
+
+
+class LoadCase(FemBase):
+    def __init__(
+        self,
+        name,
+        comment,
+        loads=None,
+        mass=None,
+        lcsys=None,
+        metadata=None,
+        parent=None,
+    ):
+        super().__init__(name, metadata, parent)
+        self._comment = comment
+        self._loads = loads
+        self._mass = mass
+        self._lcsys = lcsys
+
+    @property
+    def loads(self):
+        return self._loads
+
+    @property
+    def mass(self):
+        return self._mass
+
+    @property
+    def comment(self):
+        return self._comment
+
+    @property
+    def csys(self):
+        return (1, 0, 0), (0, 1, 0), (0, 0, 1) if self._lcsys is None else self._lcsys
+
+    def __repr__(self):
+        return f"LC({self.name}, {self.comment})"

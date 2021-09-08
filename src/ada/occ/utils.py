@@ -1,12 +1,12 @@
 import logging
 import math
 import pathlib
-from typing import Union
+from typing import List, Union
 
 import numpy as np
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRep import BRep_Tool_Pnt
-from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCC.Core.BRepBndLib import brepbndlib_Add
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
@@ -15,18 +15,20 @@ from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeWire,
     BRepBuilderAPI_Transform,
 )
+from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
 from OCC.Core.BRepFill import BRepFill_Filling
 from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
-from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe
+from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe, BRepOffsetAPI_ThruSections
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder
 from OCC.Core.ChFi2d import ChFi2d_AnaFilletAlgo
+from OCC.Core.GC import GC_MakeArcOfCircle
 from OCC.Core.GeomAbs import GeomAbs_C0
-
-# Check to see if loading all this on the top affects speed negatively in usability terms
 from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Circ, gp_Dir, gp_Pln, gp_Pnt, gp_Trsf, gp_Vec
+from OCC.Core.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
 from OCC.Core.TopoDS import (
     TopoDS_Compound,
     TopoDS_Edge,
+    TopoDS_Face,
     TopoDS_Shape,
     TopoDS_Shell,
     TopoDS_Solid,
@@ -34,10 +36,13 @@ from OCC.Core.TopoDS import (
     TopoDS_Wire,
 )
 from OCC.Extend.DataExchange import read_step_file
-from OCC.Extend.ShapeFactory import make_wire
+from OCC.Extend.ShapeFactory import make_extrusion, make_face, make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
-from ..core.utils import roundoff, unit_vector, vector_length
+from ada.concepts.primitives import Penetration
+from ada.concepts.structural import Beam
+from ada.core.utils import roundoff, tuple_minus, unit_vector, vector_length
+from ada.fem.shapes import ElemType
 
 
 def extract_shapes(step_path, scale, transform, rotate):
@@ -55,7 +60,7 @@ def extract_shapes(step_path, scale, transform, rotate):
     return shapes
 
 
-def transform_shape(shp_, scale, transform, rotate):
+def transform_shape(shp_, scale=None, transform=None, rotate=None):
     trsf = gp_Trsf()
     if scale is not None:
         trsf.SetScaleFactor(scale)
@@ -135,6 +140,24 @@ def get_boundingbox(shape: TopoDS_Shape, tol=1e-6, use_mesh=True):
 
     xmin, ymin, zmin, xmax, ymax, zmax = bbox.Get()
     return xmin, ymin, zmin, xmax, ymax, zmax, xmax - xmin, ymax - ymin, zmax - zmin
+
+
+def get_bounding_box_alt(geom):
+    from OCC.Core.Bnd import Bnd_OBB
+    from OCC.Core.BRepBndLib import brepbndlib_AddOBB
+
+    obb = Bnd_OBB()
+    brepbndlib_AddOBB(geom, obb)
+
+    # converts the bounding box to a shape
+    # aBaryCenter = obb.Center()
+    # aXDir = obb.XDirection()
+    # aYDir = obb.YDirection()
+    # aZDir = obb.ZDirection()
+    # aHalfX = obb.XHSize()
+    # aHalfY = obb.YHSize()
+    # aHalfZ = obb.ZHSize()
+    return obb
 
 
 def is_occ_shape(shp):
@@ -238,34 +261,6 @@ def make_closed_polygon(*args):
     poly.Close()
     result = poly.Wire()
     return result
-
-
-def make_n_sided(edges: [TopoDS_Edge]):
-    """
-    builds an n-sided patch, respecting the constraints defined by *edges*
-    and *points*
-    a simplified call to the BRepFill_Filling class
-    its simplified in the sense that to all constraining edges and points
-    the same level of *continuity* will be applied
-    *continuity* represents:
-    GeomAbs_C0 : the surface has to pass by 3D representation of the edge
-    GeomAbs_G1 : the surface has to pass by 3D representation of the edge
-    and to respect tangency with the given face
-    GeomAbs_G2 : the surface has to pass by 3D representation of the edge
-    and to respect tangency and curvature with the given face.
-    NOTE: it is not required to set constraining points.
-    just leave the tuple or list empty
-
-    :param edges: the constraining edges
-    :return: TopoDS_Face
-    """
-
-    n_sided = BRepFill_Filling()
-    for edg in edges:
-        n_sided.Add(edg, GeomAbs_C0)
-    n_sided.Build()
-    face = n_sided.Face()
-    return face
 
 
 def make_face_w_cutout(face, wire_cutout):
@@ -602,13 +597,8 @@ def rotate_shp_3_axis(shape, revolve_axis, rotation):
     return shp
 
 
-def compute_minimal_distance_between_shapes(shp1, shp2):
-    """
-    compute the minimal distance between 2 shapes
-
-    :rtype: OCC.Core.BRepExtrema.BRepExtrema_DistShapeShape
-    """
-    from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
+def compute_minimal_distance_between_shapes(shp1, shp2) -> BRepExtrema_DistShapeShape:
+    """Compute the minimal distance between 2 shapes"""
 
     dss = BRepExtrema_DistShapeShape()
     dss.LoadS1(shp1)
@@ -622,20 +612,19 @@ def compute_minimal_distance_between_shapes(shp1, shp2):
     return dss
 
 
-def make_circular_sec_wire(point, direction, radius):
+def make_circular_sec_wire(point: gp_Pnt, direction: gp_Dir, radius) -> TopoDS_Wire:
     circle = gp_Circ(gp_Ax2(point, direction), radius)
     profile_edge = BRepBuilderAPI_MakeEdge(circle).Edge()
     return BRepBuilderAPI_MakeWire(profile_edge).Wire()
 
 
-def make_circular_sec_face(point, direction, radius):
+def make_circular_sec_face(point: gp_Pnt, direction: gp_Dir, radius) -> TopoDS_Face:
     profile_wire = make_circular_sec_wire(point, direction, radius)
-    profile_face = BRepBuilderAPI_MakeFace(profile_wire).Face()
-    return profile_face
+    return BRepBuilderAPI_MakeFace(profile_wire).Face()
 
 
-def sweep_pipe(edge, xvec, r, wt, geom_repr="solid"):
-    if geom_repr not in ["solid", "shell"]:
+def sweep_pipe(edge, xvec, r, wt, geom_repr=ElemType.SOLID):
+    if geom_repr not in [ElemType.SOLID, ElemType.SHELL]:
         raise ValueError("Sweeping pipe must be either 'solid' or 'shell'")
 
     t = TopologyExplorer(edge)
@@ -650,7 +639,7 @@ def sweep_pipe(edge, xvec, r, wt, geom_repr="solid"):
     makeWire.Build()
     wire = makeWire.Wire()
     try:
-        if geom_repr == "solid":
+        if geom_repr == ElemType.SOLID:
             i = make_circular_sec_face(point, direction, r - wt)
             elbow_i = BRepOffsetAPI_MakePipe(wire, i).Shape()
             o = make_circular_sec_face(point, direction, r)
@@ -662,7 +651,7 @@ def sweep_pipe(edge, xvec, r, wt, geom_repr="solid"):
     except RuntimeError as e:
         logging.error(f'Pipe sweep failed: "{e}"')
         return wire
-    if geom_repr == "solid":
+    if geom_repr == ElemType.SOLID:
         boolean_result = BRepAlgoAPI_Cut(elbow_o, elbow_i).Shape()
         if boolean_result.IsNull():
             logging.debug("Boolean returns None")
@@ -670,6 +659,10 @@ def sweep_pipe(edge, xvec, r, wt, geom_repr="solid"):
         boolean_result = elbow_o
 
     return boolean_result
+
+
+def sweep_geom(sweep_wire: TopoDS_Wire, wire_face: TopoDS_Wire):
+    return BRepOffsetAPI_MakePipe(sweep_wire, wire_face).Shape()
 
 
 def build_polycurve_occ(local_points, input_2d_coords=False, tol=1e-3):
@@ -743,3 +736,115 @@ def build_polycurve_occ(local_points, input_2d_coords=False, tol=1e-3):
                 edges.append(edge2)
                 seg_list.append(LineSegment(p1=p21, p2=p22))
     return seg_list
+
+
+def create_beam_geom(beam: Beam, solid=True):
+    from ada.sections.categories import SectionCat
+
+    xdir, ydir, zdir = beam.ori
+    ydir_neg = tuple_minus(ydir) if beam.section.type not in SectionCat.angular else tuple(ydir)
+
+    sec = beam.section.cross_sec_shape(
+        solid,
+        origin=tuple(beam.n1.p.astype(float)),
+        xdir=ydir_neg,
+        normal=tuple(xdir),
+    )
+    tap = beam.taper.cross_sec_shape(
+        solid,
+        origin=tuple(beam.n2.p.astype(float)),
+        xdir=ydir_neg,
+        normal=tuple(xdir),
+    )
+
+    def through_section(sec_a, sec_b, solid_):
+        generator_sec = BRepOffsetAPI_ThruSections(solid_, False)
+        generator_sec.AddWire(sec_a)
+        generator_sec.AddWire(sec_b)
+        generator_sec.Build()
+        return generator_sec.Shape()
+
+    if type(sec) is TopoDS_Face:
+        sec_result = face_to_wires(sec)
+        tap_result = face_to_wires(tap)
+    elif type(sec) is TopoDS_Wire:
+        sec_result = [sec]
+        tap_result = [tap]
+    else:
+        assert isinstance(sec, list)
+        sec_result = sec
+        tap_result = tap
+
+    shapes = list()
+    for s_, t_ in zip(sec_result, tap_result):
+        shapes.append(through_section(s_, t_, solid))
+
+    if beam.section.type in SectionCat.box + SectionCat.tubular + SectionCat.rhs + SectionCat.shs and solid is True:
+        cut_shape = BRepAlgoAPI_Cut(shapes[0], shapes[1]).Shape()
+        shape_upgrade = ShapeUpgrade_UnifySameDomain(cut_shape, False, True, False)
+        shape_upgrade.Build()
+        return shape_upgrade.Shape()
+
+    if len(shapes) == 1:
+        return shapes[0]
+    else:
+        result = shapes[0]
+        for s in shapes[1:]:
+            result = BRepAlgoAPI_Fuse(result, s).Shape()
+        return result
+
+
+def apply_penetrations(geom: TopoDS_Shape, penetrations: List[Penetration]) -> TopoDS_Shape:
+    for pen in penetrations:
+        geom = BRepAlgoAPI_Cut(geom, pen.geom).Shape()
+
+    return geom
+
+
+def segments_to_edges(segments) -> List[TopoDS_Edge]:
+    from ada.concepts.curves import ArcSegment
+
+    edges = []
+    for seg in segments:
+        if type(seg) is ArcSegment:
+            a_arc_of_circle = GC_MakeArcOfCircle(
+                gp_Pnt(*list(seg.p1)),
+                gp_Pnt(*list(seg.midpoint)),
+                gp_Pnt(*list(seg.p2)),
+            )
+            a_edge2 = BRepBuilderAPI_MakeEdge(a_arc_of_circle.Value()).Edge()
+            edges.append(a_edge2)
+        else:
+            edge = make_edge(seg.p1, seg.p2)
+            edges.append(edge)
+
+    return edges
+
+
+def extrude_closed_wire(wire: TopoDS_Wire, origin, normal, height) -> TopoDS_Shape:
+    """Extrude a closed wire into a solid"""
+    p1 = origin + normal * height
+    starting_point = gp_Pnt(origin[0], origin[1], origin[2])
+    end_point = gp_Pnt(*p1.tolist())
+    vec = gp_Vec(starting_point, end_point)
+
+    solid = make_extrusion(make_face(wire), height, vec)
+
+    return solid
+
+
+def make_revolve_solid(face: TopoDS_Face, axis, angle, origin) -> TopoDS_Shape:
+    from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeRevol
+
+    revolve_axis = gp_Ax1(gp_Pnt(origin[0], origin[1], origin[2]), gp_Dir(axis[0], axis[1], axis[2]))
+    revolved_shape = BRepPrimAPI_MakeRevol(face, revolve_axis, np.deg2rad(angle)).Shape()
+    return revolved_shape
+
+
+def wire_to_face(edges: List[TopoDS_Edge]) -> TopoDS_Face:
+    n_sided = BRepFill_Filling()
+    for edg in edges:
+        n_sided.Add(edg, GeomAbs_C0)
+    n_sided.Build()
+    face = n_sided.Face()
+    return face

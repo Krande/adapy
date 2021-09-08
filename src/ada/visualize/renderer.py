@@ -1,7 +1,5 @@
 import logging
 import uuid
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from itertools import chain
 from random import randint
 
@@ -28,22 +26,9 @@ from pythreejs import (
     PointsMaterial,
 )
 
+from ada.fem import Elem
+
 __all__ = ["MyRenderer", "SectionRenderer"]
-
-
-@dataclass
-class BaseRenderer(ABC):
-    render_objects: [object]
-
-    def add_object_to_renderer(self, obj):
-        self.render_objects.append(obj)
-
-    def build_displayable_objects(self):
-        """Build all elements for visualization"""
-
-    @abstractmethod
-    def display(self):
-        """Display graphic on screen depending on context"""
 
 
 class MyRenderer(JupyterRenderer):
@@ -942,13 +927,7 @@ class SectionRenderer:
         # display(widgets.VBox([widgets.HBox([testb]), center, self._fig]))
 
 
-def get_vertices_from_elem(el, return_ids=False):
-    """
-
-    :param el:
-    :param return_ids:
-    :type el: ada.fem.Elem
-    """
+def get_vertices_from_elem(el: Elem, return_ids=False):
     fem = el.parent
     if el.shape.edges_seq is None:
         return None

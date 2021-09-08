@@ -1,0 +1,36 @@
+name: ci-ada-fem
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'images/tests/**'
+      - 'conda/**'
+      - '.github/workflows/ci-FEM.yml'
+    branches:
+    - main
+    - dev
+#  pull_request:
+#    branches:
+#    - main
+
+jobs:
+  activate:
+    if: |
+      github.repository == 'krande/adapy' &&
+      !contains(github.event.head_commit.message, '[skip ci]')
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok go
+  docker-test:
+    name: Test-FEM-analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: satackey/action-docker-layer-caching@v0.0.11
+        # Ignore the failure of a step and avoid terminating the job.
+        continue-on-error: true
+      - name: Build
+        run: docker build -t ada/testing .
+      - name: Test
+        run: docker run ada/testing bash -c "pip install pytest && cd /home/tests && pytest"

@@ -9,23 +9,23 @@ from ada.core.constants import O, X, Z
 test_dir = Settings.test_dir / "plates"
 
 
-atts = dict(origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1))
-
-
 class TestPlates(unittest.TestCase):
+    def setUp(self) -> None:
+        self.atts = dict(origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1))
+
     def test_3dinit(self):
         pl1 = Plate("MyPl", [(0, 0, 0), (5, 0, 0), (5, 5, 0), (0, 5, 0)], 20e-3, use3dnodes=True)
         dummy_display(pl1)
 
     def test_2dinit(self):
-        pl1 = Plate("MyPl", [(0, 0, 0.2), (5, 0), (5, 5), (0, 5)], 20e-3, **atts)
+        pl1 = Plate("MyPl", [(0, 0, 0.2), (5, 0), (5, 5), (0, 5)], 20e-3, **self.atts)
         dummy_display(pl1)
 
     def test_roundtrip_fillets(self):
         a = Assembly("ExportedPlates")
         p = Part("MyPart")
         a.add_part(p)
-        pl1 = Plate("MyPl", [(0, 0, 0.2), (5, 0), (5, 5), (0, 5)], 20e-3, **atts)
+        pl1 = Plate("MyPl", [(0, 0, 0.2), (5, 0), (5, 5), (0, 5)], 20e-3, **self.atts)
         p.add_plate(pl1)
 
         atts2 = dict(origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, -1, 0))

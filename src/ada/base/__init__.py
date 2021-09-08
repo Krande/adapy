@@ -4,7 +4,7 @@ import pathlib
 
 from ada.config import Settings as _Settings
 from ada.core.constants import color_map as _cmap
-from ada.visualize.renderer import MyRenderer
+from ada.ifc.utils import create_guid
 
 
 class Backend:
@@ -12,8 +12,6 @@ class Backend:
         self.name = name
         self.parent = parent
         self._ifc_settings = ifc_settings
-        from ada.ifc.utils import create_guid
-
         self.guid = create_guid() if guid is None else guid
         units = units.lower()
         if units not in _Settings.valid_units:
@@ -89,16 +87,9 @@ class Backend:
     @property
     def ifc_settings(self):
         if self._ifc_settings is None:
-            import ifcopenshell.geom
+            from ada.ifc.utils import default_settings
 
-            ifc_settings = ifcopenshell.geom.settings()
-            ifc_settings.set(ifc_settings.USE_PYTHON_OPENCASCADE, True)
-            ifc_settings.set(ifc_settings.SEW_SHELLS, True)
-            ifc_settings.set(ifc_settings.WELD_VERTICES, True)
-            ifc_settings.set(ifc_settings.INCLUDE_CURVES, True)
-            ifc_settings.set(ifc_settings.USE_WORLD_COORDS, True)
-            ifc_settings.set(ifc_settings.VALIDATE_QUANTITIES, True)
-            self._ifc_settings = ifc_settings
+            self._ifc_settings = default_settings()
         return self._ifc_settings
 
     @ifc_settings.setter
@@ -192,9 +183,11 @@ class BackendGeom(Backend):
 
         return pen
 
-    def to_stp(self, destination_file, geom_repr="solid", schema="AP242", silent=False, fuse_piping=False):
+    def to_stp(self, destination_file, geom_repr=None, schema="AP242", silent=False, fuse_piping=False):
+        from ada.fem.shapes import ElemType
         from ada.occ.writer import StepExporter
 
+        geom_repr = ElemType.SOLID if geom_repr is None else geom_repr
         step_export = StepExporter(schema)
         step_export.add_to_step_writer(self, geom_repr, fuse_piping=fuse_piping)
         step_export.write_to_file(destination_file, silent)
@@ -203,6 +196,8 @@ class BackendGeom(Backend):
         self, addr="localhost", server_port=8080, open_webbrowser=False, render_engine="threejs", resolution=(1800, 900)
     ):
         from OCC.Display.WebGl.simple_server import start_server
+
+        from ada.visualize.renderer import MyRenderer
 
         if render_engine == "xdom":
             from OCC.Display.WebGl import x3dom_renderer
@@ -231,6 +226,8 @@ class BackendGeom(Backend):
         Return the html snippet containing threejs renderer
         """
         from ipywidgets.embed import embed_snippet
+
+        from ada.visualize.renderer import MyRenderer
 
         renderer = MyRenderer()
         renderer.DisplayObj(self)
@@ -270,11 +267,14 @@ class BackendGeom(Backend):
 
     @property
     def penetrations(self):
+        """:rtype: List[ada.Penetration]"""
         return self._penetrations
 
     def _repr_html_(self):
         from IPython.display import display
         from ipywidgets import HBox, VBox
+
+        from ada.visualize.renderer import MyRenderer
 
         renderer = MyRenderer()
 

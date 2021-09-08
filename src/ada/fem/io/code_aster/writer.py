@@ -1,15 +1,18 @@
 import logging
+from typing import Iterable, Tuple
 
 import numpy as np
 
 from ada.concepts.levels import Assembly, Part
+from ada.concepts.structural import Material
 from ada.config import Settings as _Settings
-from ada.fem import Bc, FemSection, Step
+from ada.fem import Bc, FemSection, Load, Step
 from ada.fem.containers import FemSections
 from ada.fem.shapes import ElemShapes
 
 from ..utils import get_fem_model_from_assembly
 from .common import abaqus_to_med_type
+from .templates import main_comm_str
 
 
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
@@ -30,7 +33,6 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
     print(f'Created a Code_Aster input deck at "{analysis_dir}"')
 
 
-# COMM File input
 def create_comm_str(assembly: Assembly, part: Part) -> str:
     """Create COMM file input str"""
 
@@ -47,48 +49,78 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
         sh_elset_str = ",".join([f"'{bm_fs.elset.name}'" for bm_fs in part.fem.sections.shells])
         model_type_str += f"_F(GROUP_MA=({sh_elset_str}),PHENOMENE='MECANIQUE', MODELISATION='DKT',),"
 
-    comm_str = f"""#
-#   COMM file created by ADA (Assembly for Design and Analysis)
-#
+    if len(part.fem.sections.solids) > 0:
+        so_elset_str = ",".join([f"'{solid_fs.elset.name}'" for solid_fs in part.fem.sections.solids])
+        model_type_str += f"_F(GROUP_MA=({so_elset_str}),PHENOMENE='MECANIQUE', MODELISATION='3D',),"
 
-# Units: N, m
-
-DEBUT(LANG="EN")
-
-mesh = LIRE_MAILLAGE(FORMAT="MED", UNITE=20)
-
-model = AFFE_MODELE(
-    AFFE=(
-        {model_type_str}
-    ),
-    MAILLAGE=mesh
-)
-
-# Materials
-{materials_str}
-
-# Sections
-{sections_str}
-
-# Boundary Conditions
-{bc_str}
-
-# Step Information
-{step_str}
-
-FIN()
-"""
+    comm_str = main_comm_str.format(
+        model_type_str=model_type_str,
+        materials_str=materials_str,
+        sections_str=sections_str,
+        bc_str=bc_str,
+        step_str=step_str,
+    )
 
     return comm_str
 
 
-def write_material(material):
-    """
+def write_export_file(name: str, cpus: int):
+    export_str = f"""P actions make_etude
+P memory_limit 1274
+P time_limit 900
+P version stable
+P mpi_nbcpu 1
+P mode interactif
+P ncpus {cpus}
+F comm {name}.comm D 1
+F mmed {name}.med D 20
+F mess {name}.mess R 6
+F rmed {name}.rmed R 80"""
 
-    :param material:
-    :type material: ada.Material
-    :return: Code Aster COMM Input string
-    """
+    return export_str
+
+
+def write_to_med(name, part: Part, analysis_dir):
+    """Custom Method for writing a part directly based on meshio"""
+    import pathlib
+
+    import h5py
+
+    analysis_dir = pathlib.Path(analysis_dir)
+    filename = (analysis_dir / name).with_suffix(".med")
+
+    f = h5py.File(filename, "w")
+    mesh_name = name if name is not None else part.fem.name
+    # Strangely the version must be 3.0.x
+    # Any version >= 3.1.0 will NOT work with SALOME 8.3
+    info = f.create_group("INFOS_GENERALES")
+    info.attrs.create("MAJ", 3)
+    info.attrs.create("MIN", 0)
+    info.attrs.create("REL", 0)
+
+    time_step = _write_mesh_presets(f, mesh_name)
+
+    profile = "MED_NO_PROFILE_INTERNAL"
+
+    # Node and Element sets (familles in French)
+    fas = f.create_group("FAS")
+    families = fas.create_group(mesh_name)
+    family_zero = families.create_group("FAMILLE_ZERO")  # must be defined in any case
+    family_zero.attrs.create("NUM", 0)
+
+    # Make sure that all member references are updated (TODO: Evaluate if this can be avoided using a smarter algorithm)
+    part.fem.sets.add_references()
+
+    # Nodes and node sets
+    _write_nodes(part, time_step, profile, families)
+
+    # Elements (mailles in French) and element sets
+    _write_elements(part, time_step, profile, families)
+
+    f.close()
+
+
+def write_material(material: Material) -> str:
     from ada.core.utils import NewLine
 
     # Bi-linear hardening ECRO_LINE=_F(D_SIGM_EPSI=2.0e06, SY=2.35e06,)
@@ -118,34 +150,35 @@ def write_material(material):
 """
 
 
-def write_sections(fem_sections: FemSections):
+def write_sections(fem_sections: FemSections) -> str:
     mat_assign_str = ""
 
+    beam_sections_str = "\n        POUTRE=(),"
+    shell_sections_str = "\n        COQUE=(),"
+    solid_sections_str = ""
+
     if len(fem_sections.shells) > 0:
-        mat_assign_str, shell_sections_str = [
+        mat_assign_str_, shell_sections_str = [
             "".join(x) for x in zip(*[write_shell_section(sh) for sh in fem_sections.shells])
         ]
+        mat_assign_str += mat_assign_str_
         shell_sections_str = f"\n        COQUE=(\n{shell_sections_str}\n        ),"
-    else:
-        shell_sections_str = "\n        COQUE=(),"
 
     if len(fem_sections.lines) > 0:
-        mat_assign_str, beam_sections_str, orientations_str = [
+        mat_assign_str_, beam_sections_str, orientations_str = [
             "".join(x) for x in zip(*[write_beam_section(bm) for bm in fem_sections.lines])
         ]
+        mat_assign_str += mat_assign_str_
         beam_sections_str = f"\n        POUTRE=(\n{beam_sections_str}\n        ),"
         beam_sections_str += f"\n        ORIENTATION=(\n{orientations_str}\n        ),"
-    else:
-        beam_sections_str = "\n        POUTRE=(),"
 
     if len(fem_sections.solids) > 0:
-        logging.error("Solid section export to Code Aster is not yet supported")
-        solid_sections_str = ""
-    else:
-        solid_sections_str = ""
+        mat_assign_str += write_solid_section(fem_sections.solids)
 
     return f"""
-material = AFFE_MATERIAU(MODELE=model, AFFE=(
+material = AFFE_MATERIAU(
+    MODELE=model,
+    AFFE=(
 {mat_assign_str}
     )
 )
@@ -161,7 +194,7 @@ element = AFFE_CARA_ELEM(
 """
 
 
-def write_shell_section(fem_sec: FemSection):
+def write_shell_section(fem_sec: FemSection) -> Tuple[str, str]:
     mat_name = fem_sec.material.name
     sec_name = fem_sec.elset.name
     #
@@ -176,7 +209,7 @@ def write_shell_section(fem_sec: FemSection):
     return mat_, sec_str
 
 
-def write_beam_section(fem_sec: FemSection):
+def write_beam_section(fem_sec: FemSection) -> Tuple[str, str, str]:
     mat_name = fem_sec.material.name
     sec_name = fem_sec.elset.name
     p = fem_sec.section.properties
@@ -203,10 +236,28 @@ def write_beam_section(fem_sec: FemSection):
     return mat_, sec_str, orientations
 
 
+def write_solid_section(fem_sections: Iterable[FemSection]) -> str:
+    mat_ = ""
+    for fsec in fem_sections:
+        mat_ += f'		_F(MATER=({fsec.material.name},), GROUP_MA="{fsec.elset.name}"),\n'
+    return mat_
+
+
 def create_bc_str(bc: Bc) -> str:
     set_name = bc.fem_set.name
+    is_solid = False
+    for no in bc.fem_set.members:
+        refs = no.refs
+        for elem in refs:
+            if elem.type in ElemShapes.volume:
+                is_solid = True
+                break
+        # print(refs)
+    dofs = ["DX", "DY", "DZ"]
+    if is_solid is False:
+        dofs += ["DRX", "DRY", "DRZ"]
     bc_str = ""
-    for i, n in enumerate(["DX", "DY", "DZ", "DRX", "DRY", "DRZ"], start=1):
+    for i, n in enumerate(dofs, start=1):
         if i in bc.dofs:
             bc_str += f"{n}=0, "
     dofs_str = f"""dofs = dict(
@@ -222,15 +273,8 @@ def create_bc_str(bc: Bc) -> str:
     )
 
 
-def write_load(load):
-    """
-
-    :param load:
-    :type load: ada.fem.Load
-    :return:
-    :rtype: str
-    """
-    if load.type == "gravity":
+def write_load(load: Load) -> str:
+    if load.type == Load.TYPES.GRAVITY:
         return f"""{load.name} = AFFE_CHAR_MECA(
     MODELE=model, PESANTEUR=_F(DIRECTION=(0.0, 0.0, -1.0), GRAVITE={-load.magnitude})
 )"""
@@ -238,7 +282,7 @@ def write_load(load):
         raise NotImplementedError(f'Load type "{load.type}"')
 
 
-def step_static_str(step: Step, part: Part):
+def step_static_str(step: Step, part: Part) -> str:
     load_str = "\n".join(list(map(write_load, step.loads)))
     load = step.loads[0]
     bc = part.get_assembly().fem.bcs[0]
@@ -323,7 +367,7 @@ IMPR_RESU(
 )"""
 
 
-def step_eig_str(step: Step, part: Part):
+def step_eig_str(step: Step, part: Part) -> str:
     if len(part.fem.bcs) == 1:
         bcs = part.fem.bcs
     elif len(part.get_assembly().fem.bcs) == 1:
@@ -358,6 +402,12 @@ modes = CALC_MODES(
     MATR_MASS=mass,
     MATR_RIGI=stiff,
     OPTION='PLUS_PETITE',
+    # VERI_MODE=_F(
+    #     STOP_ERREUR='NON',
+    #     SEUIL=1.E-06,
+    #     PREC_SHIFT=5.E-3,
+    #     STURM='OUI',
+    #     )
 )
 
 IMPR_RESU(
@@ -368,79 +418,15 @@ IMPR_RESU(
 
 
 def create_step_str(step: Step, part: Part) -> str:
-    if step.type == "static":
+    if step.type == Step.TYPES.STATIC:
         return step_static_str(step, part)
-    elif step.type == "eigenfrequency":
+    elif step.type == Step.TYPES.EIGEN:
         return step_eig_str(step, part)
     else:
         raise NotImplementedError(f'Step stype "{step.type}" is not yet supported')
 
 
-# EXPORT file input
-def write_export_file(name, cpus):
-    """
-
-    :param name:
-    :param cpus:
-    :return:
-    """
-    export_str = rf"""P actions make_etude
-P memory_limit 1274
-P time_limit 900
-P version stable
-P mpi_nbcpu 1
-P mode interactif
-P ncpus {cpus}
-F comm {name}.comm D 1
-F mmed {name}.med D 20
-F mess {name}.mess R 6
-F rmed {name}.rmed R 80"""
-
-    return export_str
-
-
-# MED file input
-def write_to_med(name, part: Part, analysis_dir):
-    """Custom Method for writing a part directly based on meshio"""
-    import pathlib
-
-    import h5py
-
-    analysis_dir = pathlib.Path(analysis_dir)
-    filename = (analysis_dir / name).with_suffix(".med")
-
-    f = h5py.File(filename, "w")
-    mesh_name = name if name is not None else part.fem.name
-    # Strangely the version must be 3.0.x
-    # Any version >= 3.1.0 will NOT work with SALOME 8.3
-    info = f.create_group("INFOS_GENERALES")
-    info.attrs.create("MAJ", 3)
-    info.attrs.create("MIN", 0)
-    info.attrs.create("REL", 0)
-
-    time_step = _write_mesh_presets(f, mesh_name)
-
-    profile = "MED_NO_PROFILE_INTERNAL"
-
-    # Node and Element sets (familles in French)
-    fas = f.create_group("FAS")
-    families = fas.create_group(mesh_name)
-    family_zero = families.create_group("FAMILLE_ZERO")  # must be defined in any case
-    family_zero.attrs.create("NUM", 0)
-
-    # Make sure that all member references are updated (TODO: Evaluate if this can be avoided using a smarter algorithm)
-    part.fem.sets.add_references()
-
-    # Nodes and node sets
-    _write_nodes(part, time_step, profile, families)
-
-    # Elements (mailles in French) and element sets
-    _write_elements(part, time_step, profile, families)
-
-    f.close()
-
-
-def _write_nodes(part, time_step, profile, families):
+def _write_nodes(part: Part, time_step, profile, families):
     """
 
     TODO: Go through each data group and set in HDF5 file and make sure that it writes what was read 1:1.
@@ -483,7 +469,7 @@ def _write_nodes(part, time_step, profile, families):
         _add_node_sets(nodes_group, part, points, families)
 
 
-def _write_elements(part, time_step, profile, families):
+def _write_elements(part: Part, time_step, profile, families):
     """
 
     Add the following ['FAM', 'NOD', 'NUM'] to the 'MAI' group
@@ -553,7 +539,7 @@ def _write_mesh_presets(f, mesh_name):
     # component names:
     names = ["X", "Y", "Z"][:dim]
     med_mesh.attrs.create("NOM", np.string_("".join(f"{name:<16}" for name in names)))
-    med_mesh.attrs.create("DES", np.string_("Mesh created with meshio"))
+    med_mesh.attrs.create("DES", np.string_("Mesh created with adapy"))
     med_mesh.attrs.create("TYP", 0)  # mesh type (MED_NON_STRUCTURE)
 
     # Time-step
@@ -604,13 +590,12 @@ def resolve_ids_in_multiple(tags, tags_data, is_elem):
     return fin_data
 
 
-def _add_cell_sets(cells_group, part, families):
+def _add_cell_sets(cells_group, part: Part, families):
     """
 
     :param cells_group:
     :param part:
     :param families:
-    :type part: ada.Part
     """
     cell_id_num = -4
 
@@ -653,31 +638,13 @@ def _add_cell_sets(cells_group, part, families):
     _write_families(element, tags)
 
 
-def _add_node_sets(nodes_group, part, points, families):
+def _add_node_sets(nodes_group, part: Part, points, families):
     """
     :param nodes_group:
     :param part:
     :param families:
-    :type part: ada.Part
     """
     tags = dict()
-
-    # TODO: Simplify this function
-    # tags_data = dict()
-    # cell_id_current = 4
-    # for cell_set in part.fem.nsets.values():
-    #     tags[cell_id_current] = [cell_set.name]
-    #     tags_data[cell_id_current] = cell_set.members
-    #     cell_id_current += 1
-    #
-    # nmap = {n.id: i for i, n in enumerate(part.fem.nodes)}
-    #
-    # res_data = resolve_ids_in_multiple(tags, tags_data, False)
-    # points = np.zeros(len(points), dtype=np.int32)
-    #
-    # for t, rd in res_data.items():
-    #     for r in rd:
-    #         points[nmap[r.id]] = t
     nsets = dict()
     for key, val in part.fem.nsets.items():
         nsets[key] = [int(p.id) for p in val]
@@ -694,15 +661,6 @@ def _add_node_sets(nodes_group, part, points, families):
 
 
 def _resolve_element_in_use_by_other_set(tagged_data, ind, tags, name, is_elem):
-    """
-
-
-    :param tagged_data:
-    :param ind:
-    :param tags:
-    :param name:
-    :param is_elem:
-    """
     existing_id = int(tagged_data[ind])
     current_tags = tags[existing_id]
     all_tags = current_tags + [name]
@@ -770,9 +728,7 @@ def _set_to_tags(sets, data, tag_start_int, tags, id_map=None):
 
 
 def _family_name(set_id, name):
-    """Return the FAM object name corresponding to the unique set id and a list of
-    subset names
-    """
+    """Return the FAM object name corresponding to the unique set id and a list of subset names"""
     return "FAM" + "_" + str(set_id) + "_" + "_".join(name)
 
 

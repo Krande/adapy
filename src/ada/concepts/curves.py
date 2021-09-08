@@ -201,29 +201,6 @@ class CurvePoly:
         segindex = f.createIfcIndexedPolyCurve(ifc_point_list, ifc_segments)
         return segindex
 
-    def _segments_2_edges(self, segments):
-        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge
-        from OCC.Core.GC import GC_MakeArcOfCircle
-        from OCC.Core.gp import gp_Pnt
-
-        from ada.occ.utils import make_edge
-
-        edges = []
-        for seg in segments:
-            if type(seg) is ArcSegment:
-                aArcOfCircle = GC_MakeArcOfCircle(
-                    gp_Pnt(*list(seg.p1)),
-                    gp_Pnt(*list(seg.midpoint)),
-                    gp_Pnt(*list(seg.p2)),
-                )
-                aEdge2 = BRepBuilderAPI_MakeEdge(aArcOfCircle.Value()).Edge()
-                edges.append(aEdge2)
-            else:
-                edge = make_edge(seg.p1, seg.p2)
-                edges.append(edge)
-
-        return edges
-
     def _local2d_to_polycurve(self, local_points2d, tol=1e-3):
         """
 
@@ -256,44 +233,20 @@ class CurvePoly:
         self._seg_global_points, self._seg_index = segments_to_indexed_lists(seg_list)
         self._nodes = [Node(p) if len(p) == 3 else Node(p[:3], r=p[3]) for p in self._points3d]
 
-    def make_extruded_solid(self, height):
-        """
+    def make_extruded_solid(self, height: float):
+        from ada.occ.utils import extrude_closed_wire
 
-        :param height:
-        :return:
-        """
-        from OCC.Core.gp import gp_Pnt, gp_Vec
-        from OCC.Extend.ShapeFactory import make_extrusion, make_face
-
-        p1 = self.origin + self.normal * height
-        olist = self.origin
-        starting_point = gp_Pnt(olist[0], olist[1], olist[2])
-        end_point = gp_Pnt(*p1.tolist())
-        vec = gp_Vec(starting_point, end_point)
-
-        solid = make_extrusion(make_face(self.wire), height, vec)
-
-        return solid
+        return extrude_closed_wire(self.wire, self.origin, self.normal, height)
 
     def make_revolve_solid(self, axis, angle, origin):
-        from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeRevol
-        from OCC.Core.gp import gp_Ax1, gp_Dir, gp_Pnt
+        from ada.occ.utils import make_revolve_solid
 
-        revolve_axis = gp_Ax1(gp_Pnt(origin[0], origin[1], origin[2]), gp_Dir(axis[0], axis[1], axis[2]))
-        face = self.face
-        revolved_shape_ = BRepPrimAPI_MakeRevol(face, revolve_axis, np.deg2rad(angle)).Shape()
-        return revolved_shape_
+        return make_revolve_solid(self.face, axis, angle, origin)
 
     def make_shell(self):
-        from OCC.Core.BRepFill import BRepFill_Filling
-        from OCC.Core.GeomAbs import GeomAbs_C0
+        from ada.occ.utils import wire_to_face
 
-        n_sided = BRepFill_Filling()
-        for edg in self.edges:
-            n_sided.Add(edg, GeomAbs_C0)
-        n_sided.Build()
-        face = n_sided.Face()
-        return face
+        return wire_to_face(self.edges)
 
     def calc_bbox(self, thick):
         """
@@ -386,22 +339,18 @@ class CurvePoly:
 
     @property
     def edges(self):
-        # if self._edges is None:
-        #     self._edges = self._segments_2_edges(self.seg_list)
-        return self._segments_2_edges(self.seg_list)
+        from ada.occ.utils import segments_to_edges
+
+        return segments_to_edges(self.seg_list)
 
     @property
     def wire(self):
-        from OCC.Extend.ShapeFactory import make_wire
+        from ada.occ.utils import make_wire
 
-        # if self._wire is None:
-        #     self._wire = make_wire(self.edges)
         return make_wire(self.edges)
 
     @property
     def face(self):
-        # if self._face is None:
-        #     self._face = self.make_shell()
         return self.make_shell()
 
     @property

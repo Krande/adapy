@@ -1,25 +1,34 @@
+from typing import Union
+
 from .common import FemBase
-from .steps import Step
+from .constraints import Constraint
+from .surfaces import Surface
+
+
+class IntPropTypes:
+    HARD = "HARD"
+    TABULAR = "TABULAR"
+    PENALTY = "PENALTY"
+    all = [HARD, TABULAR, PENALTY]
+
+
+class ContactTypes:
+    SURFACE = "SURFACE"
+    GENERAL = "GENERAL"
+    all = [SURFACE, GENERAL]
+
+
+class SurfTypes:
+    SURF2SURF = "SURFACE TO SURFACE"
+    all = [SURF2SURF]
 
 
 class InteractionProperty(FemBase):
-    """
-
-    :param name:
-    :param friction:
-    :param pressure_overclosure:
-    :param tabular:
-    :param metadata:
-    :param parent:
-    """
-
-    _valid_po = ["HARD", "TABULAR", "PENALTY"]
-
     def __init__(
         self,
         name,
         friction=None,
-        pressure_overclosure="HARD",
+        pressure_overclosure=IntPropTypes.HARD,
         tabular=None,
         metadata=None,
         parent=None,
@@ -27,7 +36,7 @@ class InteractionProperty(FemBase):
         super().__init__(name, metadata, parent)
         self._friction = friction if friction is not None else 0.0
         self._pressure_overclosure = pressure_overclosure
-        if self.pressure_overclosure not in InteractionProperty._valid_po:
+        if self.pressure_overclosure not in IntPropTypes.all:
             raise ValueError(f'Pressure overclosure type "{pressure_overclosure}" is not supported')
         self._tabular = tabular
 
@@ -45,44 +54,20 @@ class InteractionProperty(FemBase):
 
 
 class Interaction(FemBase):
-    """
-    A class representing the physical properties of
-    interaction between solid bodies.
-
-    """
-
-    _valid_contact_types = ["SURFACE", "GENERAL"]
-    _valid_surface_types = ["SURFACE TO SURFACE"]
+    """A class representing the physical properties of interaction between solid bodies."""
 
     def __init__(
         self,
         name,
         contact_type,
-        surf1,
-        surf2,
-        int_prop,
-        constraint=None,
-        surface_type="SURFACE TO SURFACE",
+        surf1: Union[Surface, None],
+        surf2: Union[Surface, None],
+        int_prop: InteractionProperty,
+        constraint: Constraint = None,
+        surface_type=SurfTypes.SURF2SURF,
         parent=None,
         metadata=None,
     ):
-        """
-
-        :param name:
-        :param surf1:
-        :param surf2:
-        :param int_prop:
-        :param constraint:
-        :param surface_type: Interaction type.
-        :type name: str
-        :type int_prop: InteractionProperty
-        :type constraint: str
-        :type surf1: Surface
-        :type surf2: Surface
-        :type surface_type: str
-        :type parent: FEM
-        :type metadata: dict
-        """
         super().__init__(name, metadata, parent)
 
         self.type = contact_type
@@ -94,15 +79,13 @@ class Interaction(FemBase):
 
     @property
     def parent(self):
-        """
-
-        :rtype: ada.fem.FEM
-        """
+        """:rtype: ada.FEM"""
         return self._parent
 
     @parent.setter
     def parent(self, value):
-        from . import FEM
+        from ada import FEM
+        from ada.fem import Step
 
         if type(value) not in (FEM, Step) and value is not None:
             raise ValueError(f'Parent type "{type(value)}" is not supported')
@@ -114,37 +97,24 @@ class Interaction(FemBase):
 
     @type.setter
     def type(self, value):
-        if value.upper() not in self._valid_contact_types:
-            raise ValueError(f'Contact type cannot be "{value}". Must be in {self._valid_contact_types}')
+        if value.upper() not in ContactTypes.all:
+            raise ValueError(f'Contact type cannot be "{value}". Must be in {ContactTypes.all}')
         self._type = value.upper()
 
     @property
-    def surf1(self):
-        """
-
-        :rtype: Surface
-        """
+    def surf1(self) -> Surface:
         return self._surf1
 
     @property
-    def surf2(self):
-        """
-
-        :rtype: Surface
-        """
+    def surf2(self) -> Surface:
         return self._surf2
 
     @property
-    def interaction_property(self):
-        """
-
-        :return:
-        :rtype: InteractionProperty
-        """
+    def interaction_property(self) -> InteractionProperty:
         return self._int_prop
 
     @property
-    def constraint(self):
+    def constraint(self) -> Constraint:
         return self._constraint
 
     @property
@@ -153,6 +123,6 @@ class Interaction(FemBase):
 
     @surface_type.setter
     def surface_type(self, value):
-        if value not in self._valid_surface_types:
-            raise ValueError(f'Surface type cannot be "{value}". Must be in {self._valid_surface_types}')
+        if value not in SurfTypes.all:
+            raise ValueError(f'Surface type cannot be "{value}". Must be in {SurfTypes.all}')
         self._surface_type = value

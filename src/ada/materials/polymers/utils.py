@@ -1,7 +1,6 @@
 import numpy as np
 
 
-# region Curve Fitting Algorithms
 def nmad(e, p):
     r"""
     Normalized Mean Absolute Difference (NMAD)
@@ -58,9 +57,6 @@ def coeff_det(e, p):
     return 1 - sum([(ei - pi) ** 2 for ei, pi in zip(e, p)]) / sum([(ei - em) ** 2 for ei in e])
 
 
-# endregion
-
-# region Coefficient conversions
 def v_from_mu_kappa(mu, kappa):
     return (3 * kappa - 2 * mu) / (6 * kappa + 2 * mu)
 
@@ -99,6 +95,3 @@ def e_from_eps(eps):
     :return: engineering strain
     """
     return np.exp(eps) - 1
-
-
-# endregion

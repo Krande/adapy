@@ -12,7 +12,7 @@ def get_fsec_bm_collection():
     bm = Beam("my_beam", (0, 0, 0), (1, 0, 0), sec, mat)
     elem = Elem(1, [bm.n1, bm.n2], "B31")
     fem_set = FemSet("my_set", [elem], "elset")
-    fem_sec = FemSection("my_sec", "beam", fem_set, mat, sec, local_z=(0, 0, 1))
+    fem_sec = FemSection("my_sec", "line", fem_set, mat, sec, local_z=(0, 0, 1))
 
     p.add_beam(bm)
     p.fem.elements.add(elem)
@@ -51,7 +51,7 @@ class TestContainerProtocol(unittest.TestCase):
         bm = Beam("my_beam", (0, 0, 0), (1, 0, 0), sec, mat)
         elem = Elem(1, [bm.n1, bm.n2], "B31")
         fem_set = FemSet("my_set", [elem], "elset")
-        fem_sec = FemSection("my_sec", "beam", fem_set, mat, sec)
+        fem_sec = FemSection("my_sec", "line", fem_set, mat, sec)
         p = get_fsec_bm_collection()
 
         self.assertFalse(fem_sec in p.fem.sections)
@@ -65,7 +65,7 @@ class TestContainerProtocol(unittest.TestCase):
         bm = Beam("my_beam", (0, 0, 0), (1, 0, 0), sec, mat)
         elem = Elem(1, [bm.n1, bm.n2], "B31")
         fem_set = FemSet("my_set", [elem], "elset")
-        fem_sec = FemSection("my_sec", "beam", fem_set, mat, sec)
+        fem_sec = FemSection("my_sec", "line", fem_set, mat, sec)
         p = get_fsec_bm_collection()
 
         self.assertFalse(fem_sec in p.fem.sections)

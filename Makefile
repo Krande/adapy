@@ -7,5 +7,12 @@ run:
 format:
 	black . && isort . && flake8 .
 
+install:
+	pip install .
+
 test:
-	cd tests && pytest --doctest-modules --junitxml=junit/test-results.xml --cov=../src --cov-report=xml --cov-report=html
+	cd tests && pytest --cov=ada --cov-report=xml --cov-report=html .
+
+docker_test:
+	docker build -t ada/testing . && \
+	docker run ada/testing bash -c "pip install pytest && cd /home/tests && pytest"

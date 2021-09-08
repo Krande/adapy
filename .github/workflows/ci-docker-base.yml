@@ -3,7 +3,7 @@ name: ci-ada-docker-base
 on:
   push:
     paths:
-      - 'images/**'
+      - 'images/base/**'
       - '.github/workflows/ci-docker-base.yml'
     branches:
       - main
@@ -23,6 +23,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Build and push Main Image
         id: docker_build
         uses: docker/build-push-action@v2
@@ -31,5 +32,7 @@ jobs:
           context: .
           push: true
           tags: krande/ada:base
+          cache-from: type=registry,ref=krande/ada:base
+          cache-to: type=inline
       - name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}

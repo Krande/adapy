@@ -75,7 +75,7 @@ class Beams(BaseCollections):
         return self._beams != other._beams
 
     def __add__(self, other):
-        return Beams(chain(self._beams, other._beams))
+        return Beams(chain(self, other))
 
     def __repr__(self):
         rpr = reprlib.Repr()
@@ -92,24 +92,14 @@ class Beams(BaseCollections):
     def count(self, item):
         return int(item in self)
 
-    def from_name(self, name):
-        """
-        Get beam from its name
-
-        :param name: Beam name
-        :return: Beam object
-        """
+    def from_name(self, name: str) -> Beam:
+        """Get beam from its name"""
         if name not in self._dmap.keys():
             raise ValueError(f'The beam "{name}" is not found')
         else:
             return self._dmap[name]
 
-    def add(self, beam):
-        """
-
-        :param beam:
-        :type beam: ada.Beam
-        """
+    def add(self, beam: Beam) -> Beam:
         if beam.name is None:
             raise Exception("Name is not allowed to be None.")
 
@@ -117,13 +107,14 @@ class Beams(BaseCollections):
             return self._dmap[beam.name]
         self._dmap[beam.name] = beam
         self._beams.append(beam)
+        return beam
 
-    def remove(self, beam):
+    def remove(self, beam: Beam):
         i = self._beams.index(beam)
         self._beams.pop(i)
         self._dmap = {n.name: n for n in self._beams}
 
-    def get_beams_within_volume(self, vol_, margins=None):
+    def get_beams_within_volume(self, vol_, margins=None) -> Iterable[Beam]:
         """
         :param vol_: List or tuple of tuples [(xmin, xmax), (ymin, ymax), (zmin, zmax)]
         :param margins: Add margins to the volume box (equal in all directions). Input is in meters. Can be negative.
@@ -165,25 +156,15 @@ class Beams(BaseCollections):
         return set([self._dmap[bm_id] for bms_ in (bm_list1, bm_list2) for bm_id in sort_beams(bms_)])
 
     @property
-    def dmap(self):
-        """
-
-        :return: A dictionary of all beams {int(id1):node1, ..}
-        :rtype: dict
-        """
+    def dmap(self) -> dict[int, Beam]:
         return self._dmap
 
 
 class Plates(BaseCollections):
-    """
-    Plate object collection
+    """Plate object collection"""
 
-    :param plates:
-    :param unique_ids:
-    :param parent:
-    """
-
-    def __init__(self, plates=None, unique_ids=True, parent=None):
+    def __init__(self, plates: Iterable[Plate] = None, unique_ids=True, parent=None):
+        """:type parent: ada.Part"""
 
         plates = [] if plates is None else plates
         super().__init__(parent)
@@ -191,10 +172,10 @@ class Plates(BaseCollections):
         if unique_ids:
             plates = toolz.unique(plates, key=attrgetter("name"))
         self._plates = sorted(plates, key=attrgetter("name"))
-        self._dmap = {n.name: n for n in self._plates}
+        self._idmap = {n.name: n for n in self._plates}
 
-    def __contains__(self, item):
-        return item.id in self._dmap.keys()
+    def __contains__(self, item: Plate):
+        return item.id in self._idmap.keys()
 
     def __len__(self):
         return len(self._plates)
@@ -216,8 +197,8 @@ class Plates(BaseCollections):
             return NotImplemented
         return self._plates != other._plates
 
-    def __add__(self, other):
-        return Plates(chain(self._plates, other._plates))
+    def __add__(self, other: Plates) -> Plates:
+        return Plates(chain(self, other))
 
     def __repr__(self):
         rpr = reprlib.Repr()
@@ -225,63 +206,41 @@ class Plates(BaseCollections):
         rpr.maxlevel = 1
         return f"Plates({rpr.repr(self._plates) if self._plates else ''})"
 
-    def index(self, item):
-        index = bisect_left(self._plates, item)
-        if (index != len(self._plates)) and (self._plates[index] == item):
+    def index(self, plate: Plate):
+        index = bisect_left(self._plates, plate)
+        if (index != len(self._plates)) and (self._plates[index] == plate):
             return index
-        raise ValueError(f"{repr(item)} not found")
+        raise ValueError(f"{repr(plate)} not found")
 
-    def count(self, item):
+    def count(self, item: Plate):
         return int(item in self)
 
-    def get_by_id(self, name):
-        """
-        Get plate by its name
-
-        :param name: Name of plate
-        :return: Plate object
-        """
-        if name not in self._dmap.keys():
-            raise ValueError(f'The node id "{name}" is not found')
-        else:
-            return self._dmap[name]
+    def get_by_id(self, plate_id: int) -> Plate:
+        plate = self._idmap.get(plate_id, None)
+        if plate is None:
+            raise ValueError(f'The node id "{plate_id}" is not found')
+        return plate
 
     @property
-    def dmap(self):
-        """
+    def dmap(self) -> dict[int, Plate]:
+        return self._idmap
 
-        :return: A dictionary of all nodes {int(id1):node1, ..}
-        :rtype: dict
-        """
-        return self._dmap
-
-    def _add_node_to_global(self, pnt: Node):
-        old_node = self._parent.nodes.add(pnt)
-        if old_node is not None:
-            pnt = old_node
-        return pnt
-
-    def add(self, plate: Plate):
+    def add(self, plate: Plate) -> Plate:
         if plate.name is None:
             raise Exception("Name is not allowed to be None.")
 
-        if plate.name in self._dmap.keys():
-            return self._dmap[plate.name]
+        if plate.name in self._idmap.keys():
+            return self._idmap[plate.name]
         mat = self._parent.materials.add(plate.material)
         if mat is not None:
             plate.material = mat
 
         self._plates.append(plate)
+        return plate
 
 
 class Connections(BaseCollections):
     _counter = Counter(1, "C")
-    """
-    Connections Collection.
-
-    :param connections: List of connections
-    :param parent: Parent object
-    """
 
     def __init__(self, connections=None, parent=None):
 
@@ -309,18 +268,18 @@ class Connections(BaseCollections):
         result = self._connections[index]
         return Connections(result) if isinstance(index, slice) else result
 
-    def __eq__(self, other):
-        if not isinstance(other, Beams):
+    def __eq__(self, other: Connections):
+        if not isinstance(other, Connections):
             return NotImplemented
-        return self._connections == other._beams
+        return self._connections == other._connections
 
-    def __ne__(self, other):
-        if not isinstance(other, Beams):
+    def __ne__(self, other: Connections):
+        if not isinstance(other, Connections):
             return NotImplemented
-        return self._connections != other._beams
+        return self._connections != other._connections
 
-    def __add__(self, other):
-        return Beams(chain(self._connections, other._beams))
+    def __add__(self, other: Connections):
+        return Connections(chain(self._connections, other._connections))
 
     def __repr__(self):
         rpr = reprlib.Repr()
@@ -336,8 +295,6 @@ class Connections(BaseCollections):
         :param point_tol: Point Tolerance
         :type joint: ada.JointBase
         """
-        from ada import Node
-
         if joint.name is None:
             raise Exception("Name is not allowed to be None.")
 
@@ -389,6 +346,7 @@ class Materials(BaseCollections):
     """Collection of materials"""
 
     def __init__(self, materials: Iterable[Material] = None, unique_ids=True, parent=None, units="m"):
+        """:type parent: ada.Part | ada.Assembly"""
         super().__init__(parent)
         self._materials = sorted(materials, key=attrgetter("name")) if materials is not None else []
         self._unique_ids = unique_ids
@@ -396,33 +354,31 @@ class Materials(BaseCollections):
         self._idmap = {n.id: n for n in self._materials}
         self._units = units
 
-    def __contains__(self, item):
+    def __contains__(self, item: Material):
         return item.name in self._dmap.keys()
 
     def __len__(self):
         return len(self._materials)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterable[Material]:
         return iter(self._materials)
 
     def __getitem__(self, index):
-        # if index not in self._dmap.keys():
-        #     raise ValueError(f'Material name "{index}" not found')
         result = self._materials[index]
         return Materials(result) if isinstance(index, slice) else result
 
-    def __eq__(self, other):
+    def __eq__(self, other: Materials):
         if not isinstance(other, Materials):
             return NotImplemented
         return self._materials == other._materials
 
-    def __ne__(self, other):
+    def __ne__(self, other: Materials):
         if not isinstance(other, Materials):
             return NotImplemented
         return self._materials != other._materials
 
-    def __add__(self, other):
-        return Materials(chain(self._materials, other._materials))
+    def __add__(self, other: Materials):
+        return Materials(chain(self, other))
 
     def __repr__(self):
         rpr = reprlib.Repr()
@@ -507,15 +463,8 @@ class Materials(BaseCollections):
 
 
 class Sections:
-    """
-
-    :param sections:
-    :param unique_ids:
-    :param parent:
-    """
-
-    def __init__(self, sections=None, unique_ids=True, parent=None):
-
+    def __init__(self, sections: Iterable[Section] = None, unique_ids=True, parent=None):
+        """:type parent: ada.Part"""
         sections = [] if sections is None else sections
         self._parent = parent
 
@@ -534,7 +483,7 @@ class Sections:
     def __len__(self):
         return len(self._sections)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterable[Section]:
         return iter(self._sections)
 
     def __getitem__(self, index):
@@ -542,7 +491,7 @@ class Sections:
         return Sections(result) if isinstance(index, slice) else result
 
     def __add__(self, other):
-        return Sections(chain(self._sections, other._sections))
+        return Sections(chain(self, other))
 
     def __repr__(self):
         rpr = reprlib.Repr()
@@ -550,65 +499,32 @@ class Sections:
         rpr.maxlevel = 1
         return f"Sections({rpr.repr(self._sections) if self._sections else ''})"
 
-    def _change_units(self, scale_factor):
-        for s in self._sections:
-            s._change_units(scale_factor)
-
     def index(self, item):
         index = bisect_left(self._sections, item)
         if (index != len(self._sections)) and (self._sections[index] == item):
             return index
         raise ValueError(f"{repr(item)} not found")
 
-    def count(self, item):
+    def count(self, item: Section) -> int:
         return int(item in self)
 
-    def get_by_name(self, name):
-        """
-
-        :param name: Name of id
-        :rtype: ada.Section
-        """
+    def get_by_name(self, name: str) -> Section:
         if name not in self._nmap.keys():
             raise ValueError(f'The section id "{name}" is not found')
         else:
             return self._nmap[name]
 
-    def get_by_id(self, sec_id):
-        """
-
-        :param sec_id: Section ID
-        :rtype: ada.Section
-        """
+    def get_by_id(self, sec_id: int) -> Section:
         if sec_id not in self._idmap.keys():
             raise ValueError(f'The node id "{sec_id}" is not found')
         else:
             return self._idmap[sec_id]
 
     @property
-    def nmap(self):
-        """
-
-        :return: A dictionary of all nodes {int(id1):node1, ..}
-        :rtype: dict
-        """
-        return self._nmap
-
-    @property
-    def idmap(self):
-        """
-
-        :return: A dictionary of all nodes {name:node1, ..}
-        :rtype: dict
-        """
+    def idmap(self) -> dict[int, Section]:
         return self._idmap
 
-    def add(self, section: Section):
-        """
-
-        :param section:
-        :type section: ada.Section
-        """
+    def add(self, section: Section) -> Section:
         from ada.concepts.structural import section_counter
 
         if section.name is None:
@@ -663,10 +579,7 @@ class Nodes:
         self._bbox = self._get_bbox() if len(self._nodes) > 0 else None
 
     def renumber(self, start_id: int = 1):
-        """
-        Ensures that the node numberings starts at 1 and has no holes in its numbering.
-
-        """
+        """Ensures that the node numberings starts at 1 and has no holes in its numbering."""
         for i, n in enumerate(sorted(self._nodes, key=attrgetter("id")), start=start_id):
             if i != n.id:
                 n.id = i
@@ -758,12 +671,7 @@ class Nodes:
 
         self._sort()
 
-    def from_id(self, nid):
-        """
-
-        :param nid:
-        :return:
-        """
+    def from_id(self, nid: int):
         if nid not in self._idmap.keys():
             raise ValueError(f'The node id "{nid}" is not found')
         else:
@@ -790,10 +698,6 @@ class Nodes:
 
     @property
     def bbox(self):
-        """
-
-        :return:
-        """
         if self._bbox is None:
             self._bbox = self._get_bbox()
         return self._bbox
@@ -811,7 +715,7 @@ class Nodes:
         return min(self.dmap.keys()) if len(self.dmap.keys()) > 0 else 0
 
     @property
-    def nodes(self):
+    def nodes(self) -> List[Node]:
         return self._nodes
 
     def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=Settings.point_tol):
@@ -823,8 +727,6 @@ class Nodes:
         :param tol: Point tolerance
         :return:
         """
-        from ada import Node
-
         p = np.array(p) if type(p) is (list, tuple) else p
         if p is not None and vol_cyl is None and vol_box is None:
             vol = [(coord - tol, coord + tol) for coord in p]
@@ -876,15 +778,8 @@ class Nodes:
         else:
             return list(simplesearch)
 
-    def add(self, node, point_tol=Settings.point_tol, allow_coincident=False):
-        """
-        Insert node into sorted list.
-
-        :param node: Node object
-        :param point_tol: Point Tolerance
-        :param allow_coincident: Disable check for coincident nodes
-        :type node: ada.Node
-        """
+    def add(self, node: Node, point_tol=Settings.point_tol, allow_coincident=False):
+        """Insert node into sorted list"""
 
         def insert_node(n, i):
             new_id = self._maxid + 1 if len(self._nodes) > 0 else 1
@@ -909,14 +804,8 @@ class Nodes:
         insert_node(node, index)
         return node
 
-    def remove(self, nodes: Union[Node, List[Node]]):
-        """
-        Remove node from the nodes container
-        :param nodes: Node-object to be removed
-        :return:
-        """
-        from collections.abc import Iterable
-
+    def remove(self, nodes: Union[Node, Iterable[Node]]):
+        """Remove node(s) from the nodes container"""
         nodes = list(nodes) if isinstance(nodes, Iterable) else [nodes]
         for node in nodes:
             if node in self._nodes:
@@ -927,10 +816,7 @@ class Nodes:
                 logging.error(f"'{node}' not found in node-container.")
 
     def remove_standalones(self):
-        """
-        Remove elements without any element references
-        :return:
-        """
+        """Remove nodes that are without any usage references"""
         self.remove(filter(lambda x: len(x.refs) == 0, self._nodes))
 
     def merge_coincident(self, tol=Settings.point_tol):

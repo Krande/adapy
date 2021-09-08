@@ -1,7 +1,6 @@
 import logging
 import pathlib
 
-from ada.config import Settings
 from ada.fem.io.utils import get_exe_path
 
 from ..utils import LocalExecute
@@ -74,47 +73,13 @@ class CodeAsterAnalysis(LocalExecute):
             auto_execute=execute,
         )
 
-    def _run_docker(self):
-        raise NotImplementedError()
-        # try:
-        #     import docker
-        # except ModuleNotFoundError as e:
-        #     raise ModuleNotFoundError(
-        #         "To use docker functionality you will need to install docker first.\n"
-        #         'Use "pip install docker"\n\n'
-        #         f'Original error message: "{e}"'
-        #     )
-        # cpu_count = 2
-        #
-        # calc_file = pathlib.Path(calc_file)
-        # start_time = time.time()
-        # environment = dict()
-        # client.images.pull("quay.io/tianyikillua/code_aster", "latest")
-        # container = client.containers.run(
-        #     "quay.io/tianyikillua/code_aster",
-        #     f"/home/aster/aster/bin/as_run {calc_file}",
-        #     detach=True,
-        #     working_dir="/home/calc/",
-        #     environment=environment,
-        #     cpu_count=cpu_count,
-        #     volumes={work_dir: {"bind": "/home/calc/", "mode": "rw"}},
-        # )
-        #
-        # for line in container.logs(stream=True):
-        #     print(line.strip().decode("utf-8"))
-        # end_time = time.time()
-        # res_str = f"Analysis time {end_time - start_time:.2f}s"
-        # print(res_str)
-
     def run(self, exit_on_complete=True):
-        if Settings.use_docker_execute is False:
-            try:
-                exe_path = get_exe_path("code_aster")
-            except FileNotFoundError as e:
-                logging.error(e)
-                return
 
-            out = self._run_local(f'"{exe_path}" {self.analysis_name}.export', exit_on_complete=exit_on_complete)
-        else:
-            out = self._run_docker()
+        try:
+            exe_path = get_exe_path("code_aster")
+        except FileNotFoundError as e:
+            logging.error(e)
+            return
+
+        out = self._run_local(f'"{exe_path}" {self.analysis_name}.export', exit_on_complete=exit_on_complete)
         return out

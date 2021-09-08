@@ -9,6 +9,7 @@ from typing import Iterable, List, Union
 import gmsh
 import numpy as np
 
+from ada import FEM
 from ada.concepts.containers import Nodes
 from ada.concepts.piping import Pipe
 from ada.concepts.points import Node
@@ -16,9 +17,10 @@ from ada.concepts.primitives import Shape
 from ada.concepts.structural import Beam, Plate
 from ada.config import Settings
 from ada.core.utils import make_name_fem_ready
-from ada.fem import FEM, Elem, FemSection, FemSet
+from ada.fem import Elem, FemSection, FemSet
 from ada.fem.containers import FemElements
-from ada.fem.io_meshio import ada_to_meshio_type, gmsh_to_meshio_ordering
+from ada.fem.shapes import ElemType
+from ada.fem.shapes.mesh_types import abaqus_to_meshio_type, gmsh_to_meshio_ordering
 from ada.ifc.utils import create_guid
 
 from .gmshapi import eval_thick_normal_from_cog_of_beam_plate, gmsh_map
@@ -79,15 +81,17 @@ class GmshSession:
         self.persist = persist
         self.model_map: dict[Union[Shape, Beam, Plate, Pipe], GmshData] = dict()
 
-    def add_obj(self, obj: Union[Shape, Beam, Plate, Pipe], geom_repr="solid", el_order=1, silent=True, mesh_size=None):
-        self._add_settings()
+    def add_obj(
+        self, obj: Union[Shape, Beam, Plate, Pipe], geom_repr=ElemType.SOLID, el_order=1, silent=True, mesh_size=None
+    ):
+        self.apply_settings()
         temp_dir = Settings.temp_dir
         os.makedirs(temp_dir, exist_ok=True)
         name = f"{obj.name}_{create_guid()}"
 
-        if issubclass(type(obj), Shape) and geom_repr != "solid":
+        if issubclass(type(obj), Shape) and geom_repr != ElemType.SOLID:
             logging.info(f"geom_repr for object type {type(obj)} must be solid. Changing to that now")
-            geom_repr = "solid"
+            geom_repr = ElemType.SOLID
 
         obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent, fuse_piping=True)
         entities = self.model.occ.importShapes(str(temp_dir / f"{name}.stp"))
@@ -114,41 +118,42 @@ class GmshSession:
                 obj.entities = [(dim, r) for dim, r in res[0] if dim == 3]
             self.model.occ.remove([(2, rect)], True)
 
-        rem_ids = [(2, c.gmsh_id) for c in self.cutting_planes]
-        self.model.occ.remove(rem_ids, True)
+        # rem_ids = [(2, c.gmsh_id) for c in self.cutting_planes]
+        # self.model.occ.remove(rem_ids, True)
         self.model.occ.synchronize()
 
     def mesh(self, size: float = None):
         if self.silent is True:
             self.options.General_Terminal = 0
-        self._add_settings()
+        self.apply_settings()
         if size is not None:
             self.gmsh.option.setNumber("Mesh.MeshSizeMax", size)
 
         model = self.model
         model.geo.synchronize()
-        model.mesh.setRecombine(3, 1)
+        model.mesh.setRecombine(3, -1)
         model.mesh.generate(3)
         model.mesh.removeDuplicateNodes()
 
     def get_fem(self) -> FEM:
         fem = FEM("AdaFEM")
         gmsh_nodes = get_nodes_from_gmsh(self.model, fem)
-        fem._nodes = Nodes(gmsh_nodes, parent=fem)
+        fem.nodes = Nodes(gmsh_nodes, parent=fem)
 
         # Get Elements
         elements = []
         for gmsh_data in self.model_map.values():
             elements += get_elements_from_entities(self.model, gmsh_data.entities, fem)
-        fem._elements = FemElements(elements, fem_obj=fem)
+        fem.elements = FemElements(elements, fem_obj=fem)
 
         # Add FEM sections
         for model_obj, gmsh_data in self.model_map.items():
             add_fem_sections(self.model, fem, model_obj, gmsh_data)
 
+        fem.nodes.renumber()
         return fem
 
-    def _add_settings(self):
+    def apply_settings(self):
         if self.options is not None:
             for setting, value in self.options.get_as_dict().items():
                 self.gmsh.option.setNumber(setting, value)
@@ -161,7 +166,7 @@ class GmshSession:
 
         self._gmsh = gmsh
         self.gmsh.initialize()
-        self._add_settings()
+        self.apply_settings()
         self.model.add("ada")
         return self
 
@@ -180,11 +185,11 @@ class GmshSession:
 
 def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Union[Beam, Plate, Pipe], gmsh_data: GmshData):
     for _, ent in gmsh_data.entities:
-        if gmsh_data.geom_repr == "shell":
+        if gmsh_data.geom_repr == ElemType.SHELL:
             get_sh_sections(model, model_obj, ent, fem)
-        elif gmsh_data.geom_repr == "solid":
+        elif gmsh_data.geom_repr == ElemType.SOLID:
             get_so_sections(model, model_obj, ent, fem)
-        else:  # beam
+        else:
             get_bm_sections(model, model_obj, ent, fem)
 
 
@@ -203,7 +208,7 @@ def get_sh_sections(model: gmsh.model, model_obj: Union[Beam, Plate, Pipe], ent,
 
     fem_set = FemSet(set_name, [fem.elements.from_id(x) for x in chain.from_iterable(tags)], "elset")
     props = dict(local_z=n, thickness=t, int_points=5)
-    fem_sec = FemSection(fem_sec_name, "shell", fem_set, model_obj.material, **props)
+    fem_sec = FemSection(fem_sec_name, ElemType.SHELL, fem_set, model_obj.material, **props)
     add_sec_to_fem(fem, fem_sec, fem_set)
 
 
@@ -215,7 +220,7 @@ def get_bm_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
     set_name = make_name_fem_ready(f"el{beam.name}_set_bm")
     fem_sec_name = make_name_fem_ready(f"d{beam.name}_sec_bm")
     fem_set = FemSet(set_name, elements, "elset", parent=fem)
-    fem_sec = FemSection(fem_sec_name, "beam", fem_set, beam.material, beam.section, beam.ori[2])
+    fem_sec = FemSection(fem_sec_name, ElemType.LINE, fem_set, beam.material, beam.section, beam.ori[2])
 
     add_sec_to_fem(fem, fem_sec, fem_set)
 
@@ -229,7 +234,7 @@ def get_so_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
     elements = [fem.elements.from_id(tag) for tag in tags[0]]
 
     fem_set = FemSet(set_name, elements, "elset", parent=fem)
-    fem_sec = FemSection(fem_sec_name, "solid", fem_set, beam.material)
+    fem_sec = FemSection(fem_sec_name, ElemType.SOLID, fem_set, beam.material)
 
     add_sec_to_fem(fem, fem_sec, fem_set)
 
@@ -286,7 +291,7 @@ def get_elements_from_entities(model: gmsh.model, entities, fem: FEM) -> List[El
 
 
 def is_reorder_necessary(elem_type):
-    meshio_type = ada_to_meshio_type[elem_type]
+    meshio_type = abaqus_to_meshio_type[elem_type]
     if meshio_type in gmsh_to_meshio_ordering.keys():
         return True
     else:
@@ -295,7 +300,7 @@ def is_reorder_necessary(elem_type):
 
 def node_reordering(elem_type, nodes):
     """Based on work in meshio"""
-    meshio_type = ada_to_meshio_type[elem_type]
+    meshio_type = abaqus_to_meshio_type[elem_type]
     order = gmsh_to_meshio_ordering.get(meshio_type, None)
     if order is None:
         return None

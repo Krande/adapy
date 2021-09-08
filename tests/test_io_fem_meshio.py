@@ -17,8 +17,6 @@ class TestMeshio(unittest.TestCase):
         a.to_fem("box_analysis_abaqus", fem_format="abaqus", fem_converter="meshio", overwrite=True)
 
     def test_read_C3D20(self):
-        from ada import Assembly
-
         a = Assembly("my_assembly", "temp")
         a.read_fem(example_files / "fem_files/calculix/contact2e.inp", fem_converter="meshio")
 

@@ -6,9 +6,8 @@ import meshio
 import numpy as np
 from meshio.abaqus._abaqus import abaqus_to_meshio_type
 
-from ada.concepts.levels import Assembly
+from ada.concepts.levels import FEM, Assembly
 from ada.config import Settings as _Settings
-from ada.fem.containers import FEM
 from ada.fem.shapes import ElemShapes
 
 

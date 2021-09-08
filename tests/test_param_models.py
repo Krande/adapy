@@ -24,7 +24,6 @@ class ParamModelsTestCase(unittest.TestCase):
         # a.to_stp('param1', geom_type='solid')
 
     def test_to_fem(self):
-
         param_model = SimpleStru("ParametricModel")
         param_model.gmsh.mesh(order=1, size=0.1, max_dim=2, interactive=False)
         param_model.add_bcs()

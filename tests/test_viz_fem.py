@@ -1,7 +1,7 @@
 import unittest
 
 from ada import Assembly, Beam, Part
-from ada.visualize.fem import get_edges_from_fem, get_faces_from_fem
+from ada.visualize.femviz import get_edges_from_fem, get_faces_from_fem
 
 
 class FemBeam(unittest.TestCase):

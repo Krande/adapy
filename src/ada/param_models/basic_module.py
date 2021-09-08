@@ -1,5 +1,8 @@
-from ada import Beam, Part, Plate, Section
+import numpy as np
+
+from ada import Assembly, Beam, Part, Pipe, PipeSegStraight, Plate, PrimCyl, Section
 from ada.core.utils import Counter
+from ada.fem import Bc, FemSet
 
 bm_name = Counter(1, "bm")
 pl_name = Counter(1, "pl")
@@ -7,16 +10,7 @@ floor_name = Counter(1, "floor")
 
 
 class ReinforcedFloor(Part):
-    def __init__(self, name, plate, spacing=0.2, s_type="HP140x8", stringer_dir="X"):
-        """
-
-        :param name:
-        :param plate:
-        :param spacing:
-        :param s_type:
-        :param stringer_dir:
-        :type plate: ada.Plate
-        """
+    def __init__(self, name, plate: Plate, spacing=0.2, s_type="HP140x8", stringer_dir="X"):
         super(ReinforcedFloor, self).__init__(name)
         self.add_plate(plate)
 
@@ -47,10 +41,6 @@ class ReinforcedFloor(Part):
             self.add_beam(Beam(next(bm_name), p1, p2, sec=s_type))
 
     def penetration_check(self):
-        import numpy as np
-
-        from ada import PipeSegStraight, PrimCyl
-
         a = self.get_assembly()
         cog = self.nodes.vol_cog
         normal = self._lz
@@ -112,7 +102,6 @@ class SimpleStru(Part):
         return 0, self.Params.l, z
 
     def add_bcs(self):
-        from ada.fem import Bc, FemSet
 
         for i, bc_loc in enumerate([self.c1, self.c2, self.c3, self.c4]):
             fem_set_btn = FemSet(f"fix{i}", [], "nset")
@@ -121,8 +110,6 @@ class SimpleStru(Part):
 
 
 def make_it_complex():
-    from ada import Assembly, Pipe, Section
-
     a = Assembly("ParametricSite")
 
     pm = SimpleStru("ParametricModel")
