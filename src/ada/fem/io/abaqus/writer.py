@@ -34,7 +34,7 @@ from ada.fem import (
 from ada.fem.interactions import ContactTypes
 from ada.fem.utils import convert_ecc_to_mpc, convert_hinges_2_couplings
 from ada.materials import Material
-from ada.sections import SectionCat
+from ada.sections import GeneralProperties, Section, SectionCat
 
 __all__ = ["to_fem"]
 
@@ -765,29 +765,8 @@ class AbaSection:
                 raise ValueError("Web thickness cannot be larger than section width")
             return f"{sec.w_top}, {sec.h}, {sec.t_w}, {sec.t_ftop}, {sec.t_w}, {sec.t_fbtn}\n {n1}"
         elif self.section_data == "GENERAL":
-            gp = sec.properties
             mat = self.fem_sec.material.model
-            if gp.Ix <= 0.0:
-                gp.Ix = 1
-                logging.error(f"Section {self.fem_sec.name} Ix <= 0.0. Changing to 2. {log_fin}")
-            if gp.Iy <= 0.0:
-                gp.Iy = 2
-                logging.error(f"Section {self.fem_sec.name} Iy <= 0.0. Changing to 2. {log_fin}")
-            if gp.Iz <= 0.0:
-                gp.Iz = 2
-                logging.error(f"Section {self.fem_sec.name} Iz <= 0.0. Changing to 2. {log_fin}")
-            if gp.Iyz <= 0.0:
-                gp.Iyz = (gp.Iy + gp.Iz) / 2
-                logging.error(f"Section {self.fem_sec.name} Iyz <= 0.0. Changing to (Iy + Iz) / 2. {log_fin}")
-            if gp.Iy * gp.Iz - gp.Iyz ** 2 < 0:
-                old_y = str(gp.Iy)
-                gp.Iy = 1.1 * (gp.Iy + (gp.Iyz ** 2) / gp.Iz)
-                logging.error(
-                    f"Warning! Section {self.fem_sec.name}: I(11)*I(22)-I(12)**2 MUST BE POSITIVE. "
-                    f"Mod Iy={old_y} to {gp.Iy}. {log_fin}"
-                )
-            if (-(gp.Iy + gp.Iz) / 2 < gp.Iyz <= (gp.Iy + gp.Iz) / 2) is False:
-                raise ValueError("Iyz must be between -(Iy+Iz)/2 and (Iy+Iz)/2")
+            gp = eval_general_properties(sec)
             return f"{gp.Ax}, {gp.Iy}, {gp.Iyz}, {gp.Iz}, {gp.Ix}\n {n1}\n {mat.E:.3E}, ,{mat.alpha:.2E}"
         elif self.section_data == "PIPE":
             return f"{self.fem_sec.section.r}, {self.fem_sec.section.wt}\n {n1}"
@@ -856,6 +835,32 @@ class AbaSection:
             return self.beam_str
         else:
             raise ValueError()
+
+
+def eval_general_properties(section: Section) -> GeneralProperties:
+    gp = section.properties
+    name = gp.parent.parent.name
+    if gp.Ix <= 0.0:
+        gp.Ix = 1
+        logging.error(f"Section {name} Ix <= 0.0. Changing to 2. {log_fin}")
+    if gp.Iy <= 0.0:
+        gp.Iy = 2
+        logging.error(f"Section {name} Iy <= 0.0. Changing to 2. {log_fin}")
+    if gp.Iz <= 0.0:
+        gp.Iz = 2
+        logging.error(f"Section {name} Iz <= 0.0. Changing to 2. {log_fin}")
+    if gp.Iyz <= 0.0:
+        gp.Iyz = (gp.Iy + gp.Iz) / 2
+        logging.error(f"Section {name} Iyz <= 0.0. Changing to (Iy + Iz) / 2. {log_fin}")
+    if gp.Iy * gp.Iz - gp.Iyz ** 2 < 0:
+        old_y = str(gp.Iy)
+        gp.Iy = 1.1 * (gp.Iy + (gp.Iyz ** 2) / gp.Iz)
+        logging.error(
+            f"Warning! Section {name}: I(11)*I(22)-I(12)**2 MUST BE POSITIVE. " f"Mod Iy={old_y} to {gp.Iy}. {log_fin}"
+        )
+    if (-(gp.Iy + gp.Iz) / 2 < gp.Iyz <= (gp.Iy + gp.Iz) / 2) is False:
+        raise ValueError("Iyz must be between -(Iy+Iz)/2 and (Iy+Iz)/2")
+    return gp
 
 
 class AbaConstraint:

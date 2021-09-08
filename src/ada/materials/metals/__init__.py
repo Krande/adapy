@@ -128,6 +128,10 @@ class Metal:
         """
         return self._plasticitymodel
 
+    @plasticity_model.setter
+    def plasticity_model(self, value):
+        self._plasticitymodel = value
+
     @property
     def eps_p(self):
         if self._eps_p is not None:

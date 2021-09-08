@@ -1,6 +1,7 @@
 import logging
 import pathlib
 import subprocess
+import traceback
 
 import numpy as np
 from IPython.display import display
@@ -109,7 +110,13 @@ class Results:
     def _read_result_file(self, file_ref):
         if file_ref.exists() is False:
             return None
-        mesh = self._get_mesh(file_ref)
+        try:
+            mesh = self._get_mesh(file_ref)
+        except ValueError as e:
+
+            logging.error(f'Error during result file reading. "{e}". {traceback.format_exc()}')
+            return None
+
         if mesh is None:
             return None
         self._mesh = mesh

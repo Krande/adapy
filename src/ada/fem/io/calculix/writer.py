@@ -1,15 +1,18 @@
 import traceback
 from itertools import groupby
 from operator import attrgetter
+from typing import Iterable
 
 from ada import Assembly
 from ada.concepts.containers import Nodes
 from ada.core.utils import NewLine, bool2text, get_current_user
-from ada.fem import Bc, FemSet, Load, Step
+from ada.fem import Bc, Elem, FemSection, FemSet, Load, Step
 from ada.fem.containers import FemElements
 from ada.fem.io.utils import get_fem_model_from_assembly
+from ada.fem.shapes import ElemShapes
+from ada.sections import SectionCat as Sc
 
-from ..abaqus.writer import AbaSection, _aba_bc_map, _valid_aba_bcs
+from ..abaqus.writer import AbaSection
 from .templates import main_header_str
 
 
@@ -27,6 +30,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
         # Part level information
         f.write(nodes_str(p.fem.nodes) + "\n")
         f.write(elements_str(p.fem.elements) + "\n")
+        f.write("*USER ELEMENT,TYPE=U1,NODES=2,INTEGRATION POINTS=2,MAXDOF=6\n")
         f.write(elsets_str(p.fem.elsets) + "\n")
         f.write(elsets_str(assembly.fem.elsets) + "\n")
         f.write(nsets_str(p.fem.nsets) + "\n")
@@ -39,6 +43,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
         f.write("\n".join([material_str(mat) for mat in p.materials]) + "\n")
         f.write("\n".join([bc_str(x) for x in p.fem.bcs + assembly.fem.bcs]) + "\n")
         f.write(step_str(assembly.fem.steps[0]))
+
         # f.write(mass_str)
         # f.write(surfaces_str)
         # f.write(constraints_str)
@@ -47,75 +52,64 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
     print(f'Created a Calculix input deck at "{analysis_dir}"')
 
 
-class CcxSection(AbaSection):
-    def __init__(self, fem_sec, fem_writer):
-        super().__init__(fem_sec, fem_writer)
-
-    @property
-    def section_data(self):
-        sec_type = self.fem_sec.section.type
-        if "section_type" in self.fem_sec.metadata.keys():
-            return self.fem_sec.metadata["section_type"]
-        from ada.sections import SectionCat
-
-        if sec_type in SectionCat.circular:
-            self.fem_sec.section.properties.calculate()
-            return "GENERAL"
-        elif sec_type in SectionCat.igirders or sec_type in SectionCat.iprofiles:
-            self.fem_sec.section.properties.calculate()
-            return "GENERAL"
-        elif sec_type in SectionCat.box:
-            return "BOX"
-        elif sec_type in SectionCat.general:
-            return "GENERAL"
-        elif sec_type in SectionCat.tubular:
-            self.fem_sec.section.properties.calculate()
-            return "PIPE"
-        elif sec_type in SectionCat.angular:
-            self.fem_sec.section.properties.calculate()
-            return "GENERAL"
-        else:
-            raise Exception(f'Section type "{sec_type}" is not added to AbaBeam yet.\n{traceback.format_exc()}')
-
-    @property
-    def beam_str(self):
-        """
-        BOX, CIRC, HEX, I, L, PIPE, RECT, THICK PIPE, and TRAPEZOID sections
-        https://abaqus-docs.mit.edu/2017/English/SIMACAEKEYRefMap/simakey-r-beamsection.htm
+class CcxSecTypes:
+    GENERAL = "GENERAL"
+    BOX = "BOX"
+    PIPE = "PIPE"
 
 
-        General Section
-        https://abaqus-docs.mit.edu/2017/English/SIMACAEKEYRefMap/simakey-r-beamgeneralsection.htm#simakey-r-beamgeneralsection__simakey-r-beamgeneralsection-s-datadesc1
+def must_be_converted_to_general_section(sec_type):
+    if sec_type in Sc.circular + Sc.igirders + Sc.iprofiles + Sc.general + Sc.angular:
+        return True
+    else:
+        return False
 
 
-        Comment regarding Rotary Inertia and Explicit analysis
-        https://abaqus-docs.mit.edu/2017/English/SIMACAEELMRefMap/simaelm-c-beamsectionbehavior.htm#hj-top
+def beam_str(fem_sec: FemSection):
+    top_line = f"** Section: {fem_sec.elset.name}  Profile: {fem_sec.elset.name}"
+    n1 = ", ".join(str(x) for x in fem_sec.local_y)
+    ass = fem_sec.parent.parent.get_assembly()
+    sec_str = get_section_str(fem_sec)
+    rotary_str = ""
+    if len(ass.fem.steps) > 0:
+        initial_step = ass.fem.steps[0]
+        if initial_step.type == Step.TYPES.EXPLICIT:
+            rotary_str = ", ROTARY INERTIA=ISOTROPIC"
 
-        """
-        top_line = f"** Section: {self.fem_sec.elset.name}  Profile: {self.fem_sec.elset.name}"
-        n1 = ", ".join(str(x) for x in self.fem_sec.local_y)
-        ass = self.fem_sec.parent.parent.get_assembly()
-        rotary_str = ""
-        if len(ass.fem.steps) > 0:
-            initial_step = ass.fem.steps[0]
-            if initial_step.type == Step.TYPES.EXPLICIT:
-                rotary_str = ", ROTARY INERTIA=ISOTROPIC"
+    if sec_str == CcxSecTypes.BOX:
+        sec = fem_sec.section
+        if sec.t_w * 2 > min(sec.w_top, sec.w_btn):
+            raise ValueError("Web thickness cannot be larger than section width")
+        return f"{top_line}\n{sec.w_top}, {sec.h}, {sec.t_w}, {sec.t_ftop}, {sec.t_w}, {sec.t_fbtn}\n {n1}"
+    elif sec_str == CcxSecTypes.PIPE:
+        return f"{top_line}\n{fem_sec.section.r}, {fem_sec.section.wt}\n {n1}"
+    elif sec_str == CcxSecTypes.GENERAL:
+        from ada.fem.io.abaqus.writer import eval_general_properties
 
-        second_line = (
-            f"*Beam Section, elset={self.fem_sec.elset.name}, material={self.fem_sec.material.name}, "
-            f"section={self.section_data}{rotary_str}"
-        )
+        gp = eval_general_properties(fem_sec.section)
+        fem_sec.material.model.plasticity_model = None
+        props = f" {gp.Ax}, {gp.Iy}, {0.0}, {gp.Iz}, {gp.Ix}\n {n1}"
+        return f"""{top_line}
+*Beam Section, elset={fem_sec.elset.name}, material={fem_sec.material.name},  section=GENERAL{rotary_str}
+{props}"""
+    else:
+        raise ValueError(f'Unsupported Section type "{sec_str}"')
 
-        if self.section_data != "GENERAL":
-            return f"""{top_line}
-{second_line}
- {self.props}"""
-        elif self.section_data == "PIPE":
-            return f"{self.fem_sec.section.r}, {self.fem_sec.section.wt}\n {n1}"
-        else:
-            return f"""{top_line}
-*Beam Section, elset={self.fem_sec.elset.name}, material={self.fem_sec.material.name},  section=GENERAL{rotary_str}
- {self.props}"""
+
+def get_section_str(fem_sec: FemSection):
+    sec_type = fem_sec.section.type
+    if "section_type" in fem_sec.metadata.keys():
+        return fem_sec.metadata["section_type"]
+    if must_be_converted_to_general_section(sec_type):
+        fem_sec.section.properties.calculate()
+        return CcxSecTypes.GENERAL
+    elif sec_type in Sc.box:
+        return CcxSecTypes.BOX
+    elif sec_type in Sc.tubular:
+        fem_sec.section.properties.calculate()
+        return CcxSecTypes.PIPE
+    else:
+        raise Exception(f'Section "{sec_type}" is not yet supported by Calculix exporter.\n{traceback.format_exc()}')
 
 
 def step_str(step: Step):
@@ -133,6 +127,7 @@ def step_str(step: Step):
     for fi in step.field_outputs:
         nodal += fi.nodal
         elem += fi.element
+
     nodal_str = "*node file\n" + ", ".join(nodal) if len(nodal) > 0 else "** No nodal output"
     elem_str = "*el file\n" + ", ".join(elem) if len(elem) > 0 else "** No elem output"
 
@@ -163,37 +158,45 @@ def step_str(step: Step):
 
 
 def nodes_str(fem_nodes: Nodes) -> str:
+    if len(fem_nodes) == 0:
+        return "** No Nodes"
+
     f = "{nid:>7}, {x:>13.6f}, {y:>13.6f}, {z:>13.6f}"
     n_ = (f.format(nid=no.id, x=no[0], y=no[1], z=no[2]) for no in sorted(fem_nodes, key=attrgetter("id")))
-    if len(fem_nodes) > 0:
-        return "*NODE\n" + "\n".join(n_).rstrip()
-    else:
-        return "** No Nodes"
+
+    return "*NODE\n" + "\n".join(n_).rstrip()
 
 
 def elements_str(fem_elements: FemElements) -> str:
-    el_ = (elwriter(x, elements) for x, elements in groupby(fem_elements, key=attrgetter("type", "elset")))
-    if len(fem_elements) > 0:
-        return "".join(filter(lambda x: x is not None, el_)).rstrip()
-    else:
+    if len(fem_elements) == 0:
         return "** No elements"
 
+    el_str = ""
+    for (el_type, fem_sec), elements in groupby(fem_elements, key=attrgetter("type", "fem_sec")):
+        el_str += elwriter(el_type, fem_sec, elements)
 
-def el_type_sub(el_type):
+    return el_str
+
+
+def el_type_sub(el_type, fem_sec: FemSection) -> str:
     """Substitute Element types specifically Calculix"""
     el_map = dict(STRI65="S6")
+    if el_type in ElemShapes.lines:
+        if must_be_converted_to_general_section(fem_sec.section.type):
+            return "U1"
     return el_map.get(el_type, el_type)
 
 
-def elwriter(eltype_set, elements):
+def elwriter(eltype, fem_sec: FemSection, elements: Iterable[Elem]):
     from ..abaqus.writer import aba_write
 
-    if "connector" in eltype_set:
+    if "connector" in eltype:
         return None
-    eltype, elset = eltype_set
-    sub_eltype = el_type_sub(eltype)
-    el_set_str = f", ELSET={elset.name}" if elset is not None else ""
+
+    sub_eltype = el_type_sub(eltype, fem_sec)
+    el_set_str = f", ELSET={fem_sec.elset.name}" if fem_sec.elset is not None else ""
     el_str = "\n".join(map(aba_write, elements))
+
     return f"""*ELEMENT, type={sub_eltype}{el_set_str}\n{el_str}\n"""
 
 
@@ -258,7 +261,7 @@ def shell_sec_str(part):
 
 
 def beam_sec_str(part):
-    beam_secs = [CcxSection(sec, part).str for sec in part.fem.sections.lines]
+    beam_secs = [beam_str(sec) for sec in part.fem.sections.lines]
     return "\n".join(beam_secs).rstrip() if len(beam_secs) > 0 else "** No beam sections"
 
 
@@ -299,6 +302,8 @@ def material_str(material):
 
 
 def bc_str(bc: Bc) -> str:
+    from ..abaqus.writer import _aba_bc_map, _valid_aba_bcs
+
     ampl_ref_str = "" if bc.amplitude_name is None else ", amplitude=" + bc.amplitude_name
 
     if bc.type in _valid_aba_bcs:
