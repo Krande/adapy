@@ -51,4 +51,29 @@ main_inp_str = r"""*Heading
 ** -------------------------------------------------------
 {step_str}"""
 
-__all__ = ["main_inp_str"]
+step_inp_str = """**
+** STEP: {name}
+**
+{step_input}
+**
+** BOUNDARY CONDITIONS
+**
+{bcs_str}
+**
+** LOADS
+**
+{load_str}
+**
+** INTERACTIONS
+**
+{int_str}
+**
+** OUTPUT REQUESTS
+**
+{restart_request_str}
+{hist_output_str}
+{field_output_str}
+{app_str}
+"""
+
+__all__ = ["main_inp_str", "step_inp_str"]

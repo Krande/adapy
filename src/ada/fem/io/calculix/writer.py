@@ -5,7 +5,7 @@ from typing import Iterable
 
 from ada import Assembly
 from ada.concepts.containers import Nodes
-from ada.core.utils import NewLine, bool2text, get_current_user
+from ada.core.utils import NewLine, get_current_user
 from ada.fem import Bc, Elem, FemSection, FemSet, Load, Step
 from ada.fem.containers import FemElements
 from ada.fem.io.utils import get_fem_model_from_assembly
@@ -14,6 +14,7 @@ from ada.sections import SectionCat as Sc
 
 from ..abaqus.writer import AbaSection
 from .templates import main_header_str
+from .write_steps import step_str
 
 
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
@@ -29,7 +30,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
 
         # Part level information
         f.write(nodes_str(p.fem.nodes) + "\n")
-        f.write(elements_str(p.fem.elements) + "\n")
+        f.write(elements_str(p.fem.elements).strip() + "\n")
         f.write("*USER ELEMENT,TYPE=U1,NODES=2,INTEGRATION POINTS=2,MAXDOF=6\n")
         f.write(elsets_str(p.fem.elsets) + "\n")
         f.write(elsets_str(assembly.fem.elsets) + "\n")
@@ -110,51 +111,6 @@ def get_section_str(fem_sec: FemSection):
         return CcxSecTypes.PIPE
     else:
         raise Exception(f'Section "{sec_type}" is not yet supported by Calculix exporter.\n{traceback.format_exc()}')
-
-
-def step_str(step: Step):
-    bcstr = "\n".join([bc_str(bc) for bc in step.bcs.values()]) if len(step.bcs) > 0 else "** No BCs"
-    lstr = "\n".join([load_str(l) for l in step.loads]) if len(step.loads) > 0 else "** No Loads"
-
-    int_str = (
-        "\n".join([interactions_str(interact) for interact in step.interactions.values()])
-        if len(step.interactions.values()) > 0
-        else "** No Interactions"
-    )
-
-    nodal = []
-    elem = []
-    for fi in step.field_outputs:
-        nodal += fi.nodal
-        elem += fi.element
-
-    nodal_str = "*node file\n" + ", ".join(nodal) if len(nodal) > 0 else "** No nodal output"
-    elem_str = "*el file\n" + ", ".join(elem) if len(elem) > 0 else "** No elem output"
-
-    return f"""**
-** STEP: {step.name}
-**
-*Step, nlgeom={bool2text(step.nl_geom)}, inc={step.total_incr}
-*Static
- {step.init_incr}, {step.total_time}, {step.min_incr}, {step.max_incr}
-**
-** BOUNDARY CONDITIONS
-**
-{bcstr}
-**
-** LOADS
-**
-{lstr}
-**
-** INTERACTIONS
-**
-{int_str}
-**
-** OUTPUT REQUESTS
-**
-{nodal_str}
-{elem_str}
-*End Step"""
 
 
 def nodes_str(fem_nodes: Nodes) -> str:
