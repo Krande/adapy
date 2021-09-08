@@ -35,6 +35,7 @@
 #                 `\.
 #                    ` w
 # """
+# tet10 is modified from GMSH to abaqus. See gmsh_to_meshio_ordering for complete overview
 
 volume_edges = dict(
     hexahedron=[[0, 1], [1, 2], [2, 3], [3, 0], [0, 4], [4, 7], [7, 3], [3, 0], [4, 5], [5, 6], [6, 7], [1, 5], [2, 6]],

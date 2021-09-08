@@ -40,6 +40,7 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     sections_str = write_sections(part.fem.sections)
     bc_str = "\n".join([create_bc_str(bc) for bc in assembly.fem.bcs + part.fem.bcs])
     step_str = "\n".join([create_step_str(s, part) for s in assembly.fem.steps])
+
     model_type_str = ""
     if len(part.fem.sections.lines) > 0:
         bm_elset_str = ",".join([f"'{bm_fs.elset.name}'" for bm_fs in part.fem.sections.lines])
@@ -402,12 +403,7 @@ modes = CALC_MODES(
     MATR_MASS=mass,
     MATR_RIGI=stiff,
     OPTION='PLUS_PETITE',
-    # VERI_MODE=_F(
-    #     STOP_ERREUR='NON',
-    #     SEUIL=1.E-06,
-    #     PREC_SHIFT=5.E-3,
-    #     STURM='OUI',
-    #     )
+    VERI_MODE=_F(STOP_ERREUR='NON')
 )
 
 IMPR_RESU(

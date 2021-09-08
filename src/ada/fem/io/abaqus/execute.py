@@ -1,11 +1,8 @@
-import json
 import logging
-import os
 import pathlib
 import shutil
-import subprocess
 
-from ada.config import Settings as _Settings
+from ada.fem.io.utils import LocalExecute, get_exe_path
 
 
 def run_abaqus(
@@ -18,6 +15,7 @@ def run_abaqus(
     execute=True,
     return_bat_str=False,
     exit_on_complete=True,
+    run_in_shell=False,
 ):
     """
 
@@ -30,91 +28,50 @@ def run_abaqus(
     :param execute: Automatically starts Abaqus analysis. Default is True
     :param return_bat_str:
     :param exit_on_complete:
-
-
-    Note!
-        'analysis_name' be name of input file if 'analysis_path' is pointing to containing folder.
-        Alternatively if name of input file and containing folder shares the same name 'analysis_path' can be set to the
-        top folder and analysis_name will refer to the subfolder and inp-file sharing the same name.
-
+    :param run_in_shell:
     """
-    from ..utils import get_exe_path
-
-    try:
-        aba_dir = get_exe_path("abaqus")
-    except FileNotFoundError as e:
-        logging.error(e)
-        return
-
-    inp_path = pathlib.Path(inp_path)
-
-    if inp_path.exists() is False:
-        raise FileNotFoundError(f'Unable to find inp file "{inp_path}"')
 
     gpus = "" if gpus is None else f"GPUS={gpus}"
-    analysis_name = inp_path.name.replace(".inp", "")
+    run_cmd = None
+    custom_bat_str = None
+    if subr_path is not None:
+        run_cmd, custom_bat_str = create_subroutine_input(inp_path, subr_path, cpus, gpus)
 
-    if subr_path is None:
-        param = ["job=" + analysis_name, "CPUS=" + str(cpus), gpus, "interactive"]
-        call_str = f"call {aba_dir}"
-    else:
-        subr_path = pathlib.Path(subr_path)
-        subr_name = subr_path.with_suffix("").name
-        shutil.copy(subr_path, inp_path.parent / subr_path.name)
-        subr = f"user={subr_name}"
-        param = ["job=" + analysis_name, subr, "CPUS=" + str(cpus), gpus, "interactive"]
-        prog = r"C:\Program Files (x86)"
-        call_str = rf'''
+    aba_exe = AbaqusExecute(
+        inp_path, cpus=cpus, run_ext=run_ext, metadata=metadata, auto_execute=execute, run_in_shell=run_in_shell
+    )
+    return aba_exe.run(exit_on_complete, run_cmd=run_cmd, bat_start_str=custom_bat_str)
+
+
+class AbaqusExecute(LocalExecute):
+    def run(self, exit_on_complete=True, run_cmd=None, bat_start_str=None):
+        try:
+            exe_path = get_exe_path("abaqus")
+        except FileNotFoundError as e:
+            logging.error(e)
+            return
+        gpus = "" if self._gpus is None else f"GPUS={self._gpus}"
+        if run_cmd is None:
+            run_cmd = f"{exe_path} job={self.analysis_name} CPUS={self._cpus}{gpus} interactive"
+        stop_cmd = f"abaqus terminate job={self.analysis_name}"
+        out = self._run_local(run_cmd, stop_cmd, exit_on_complete, bat_start_str)
+        return out
+
+
+def create_subroutine_input(inp_path, subroutine_path, cpus, gpus):
+    inp_path = pathlib.Path(inp_path)
+    if inp_path.exists() is False:
+        raise FileNotFoundError(f'Unable to find inp file "{inp_path}"')
+    analysis_name = inp_path.name.replace(".inp", "")
+    subroutine_path = pathlib.Path(subroutine_path)
+    subr_name = subroutine_path.with_suffix("").name
+    shutil.copy(subroutine_path, inp_path.parent / subroutine_path.name)
+    subr = f"user={subr_name}"
+    param = ["job=" + analysis_name, subr, "CPUS=" + str(cpus), gpus, "interactive"]
+    run_cmd = " ".join([str(val) for val in param if str(val) != ""])
+    prog = r"C:\Program Files (x86)"
+    custom_bat_str = rf'''
 call "{prog}\IntelSWTools\compilers_and_libraries_2018.3.210\windows\bin\ipsxe-comp-vars.bat" intel64 vs2017
 call "{prog}\Microsoft Visual Studio 11.0\VC\bin\amd64\vcvars64.bat" intel 64
 call "C:\SIMULIA\CAE\2017\win_b64\code\bin\ABQLauncher.exe"'''
-    param_str = " ".join([str(val) for val in param if str(val) != ""])
-
-    start_bat = "runABA.bat"
-    stop_bat = "stopABA.bat"
-
-    bat_start_str = f"""echo OFF
-for %%* in (.) do set CurrDirName=%%~nx*
-title %CurrDirName%
-cd /d {inp_path.parent}
-echo ON
-{call_str} {param_str}"""
-
-    if exit_on_complete:
-        bat_start_str += "\nEXIT\nEXIT"
-
-    with open(inp_path.parent / start_bat, "w") as d:
-        d.write(bat_start_str)
-
-    with open(inp_path.parent / stop_bat, "w") as d:
-        d.write(f"cd /d {inp_path.parent}\nabaqus terminate job={analysis_name}")
-
-    if metadata is not None:
-        with open(inp_path.parent / "analysis_manifest.json", "w") as fp:
-            json.dump(metadata, fp, indent=4)
-
-    execute_path = _Settings.execute_dir if _Settings.execute_dir is not None else inp_path.parent
-
-    if inp_path.parent != execute_path:
-        os.makedirs(execute_path, exist_ok=True)
-        shutil.copy(inp_path.parent / start_bat, execute_path / start_bat)
-        shutil.copy(inp_path.parent / stop_bat, execute_path / stop_bat)
-
-    if return_bat_str is True:
-        return bat_start_str
-
-    if execute is True:
-        if run_ext is True:
-            print(80 * "-")
-            print(f'starting Abaqus simulation "{analysis_name}"')
-            print(f"\nUsing the following parameters:\n{param_str}\n")
-            subprocess.call("start " + start_bat, cwd=execute_path, shell=True)
-            print("Note! This starts Abaqus in an external window on a separate thread.")
-            print(80 * "-")
-        else:
-            print(80 * "-")
-            print(f'starting Abaqus simulation "{analysis_name}"')
-            print(f"\nUsing the following parameters:\n{param_str}\n")
-            subprocess.call("start /wait " + start_bat, cwd=execute_path, shell=True)
-            print(f'Finished Abaqus simulation "{analysis_name}"')
-            print(80 * "-")
+    return run_cmd, custom_bat_str

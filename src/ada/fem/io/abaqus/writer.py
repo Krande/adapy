@@ -704,11 +704,6 @@ UT, AT, TU, TA
 
 
 class AbaSection:
-    """
-
-    :type fem_sec: ada.fem.FemSection
-    """
-
     def __init__(self, fem_sec: FemSection, fem_writer):
         self.fem_sec = fem_sec
         self._fem_writer = fem_writer

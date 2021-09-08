@@ -172,13 +172,29 @@ def nodes_str(fem_nodes: Nodes) -> str:
 
 
 def elements_str(fem_elements: FemElements) -> str:
-    from ..abaqus.writer import elwriter
-
     el_ = (elwriter(x, elements) for x, elements in groupby(fem_elements, key=attrgetter("type", "elset")))
     if len(fem_elements) > 0:
-        return "".join(filter(None, el_)).rstrip()
+        return "".join(filter(lambda x: x is not None, el_)).rstrip()
     else:
         return "** No elements"
+
+
+def el_type_sub(el_type):
+    """Substitute Element types specifically Calculix"""
+    el_map = dict(STRI65="S6")
+    return el_map.get(el_type, el_type)
+
+
+def elwriter(eltype_set, elements):
+    from ..abaqus.writer import aba_write
+
+    if "connector" in eltype_set:
+        return None
+    eltype, elset = eltype_set
+    sub_eltype = el_type_sub(eltype)
+    el_set_str = f", ELSET={elset.name}" if elset is not None else ""
+    el_str = "\n".join(map(aba_write, elements))
+    return f"""*ELEMENT, type={sub_eltype}{el_set_str}\n{el_str}\n"""
 
 
 def gen_set_str(fem_set: FemSet):

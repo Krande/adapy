@@ -20,6 +20,7 @@ def run_code_aster(
     execute=True,
     return_bat_str=False,
     exit_on_complete=True,
+    run_in_shell=False,
 ):
     """
 
@@ -34,16 +35,17 @@ def run_code_aster(
     :param execute: Automatically starts Abaqus analysis. Default is True
     :param return_bat_str:
     :param exit_on_complete:
+    :param run_in_shell:
     """
     from .writer import write_export_file
 
     name = pathlib.Path(inp_path).stem
-    ca = CodeAsterAnalysis(
+    ca = CodeAsterExecute(
         inp_path,
         cpus=cpus,
         run_ext=run_ext,
         metadata=metadata,
-        execute=execute,
+        auto_execute=execute,
     )
     with open(inp_path, "w") as f:
         f.write(write_export_file(name, cpus))
@@ -52,29 +54,8 @@ def run_code_aster(
     return out
 
 
-class CodeAsterAnalysis(LocalExecute):
-    def __init__(self, inp_path, cpus=2, execute=True, metadata=None, local_execute=True, run_ext=True):
-        """
-        Code Aster Analysis
-
-        Local Installation from:
-        https://bitbucket.org/siavelis/codeaster-windows-src/downloads/code-aster_v2019_std-win64.zip
-
-        :param inp_path:
-        :param cpus:
-        """
-        super(CodeAsterAnalysis, self).__init__(
-            inp_path,
-            cpus,
-            gpus=None,
-            run_ext=run_ext,
-            metadata=metadata,
-            excute_locally=local_execute,
-            auto_execute=execute,
-        )
-
+class CodeAsterExecute(LocalExecute):
     def run(self, exit_on_complete=True):
-
         try:
             exe_path = get_exe_path("code_aster")
         except FileNotFoundError as e:

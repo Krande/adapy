@@ -125,6 +125,7 @@ class GmshSession:
     def mesh(self, size: float = None):
         if self.silent is True:
             self.options.General_Terminal = 0
+
         self.apply_settings()
         if size is not None:
             self.gmsh.option.setNumber("Mesh.MeshSizeMax", size)
@@ -166,8 +167,8 @@ class GmshSession:
 
         self._gmsh = gmsh
         self.gmsh.initialize()
-        self.apply_settings()
         self.model.add("ada")
+        self.apply_settings()
         return self
 
     def __exit__(self, exc_type, exc_value, exc_traceback):

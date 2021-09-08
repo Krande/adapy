@@ -861,6 +861,7 @@ class Assembly(Part):
         overwrite=False,
         fem_converter="default",
         exit_on_complete=True,
+        run_in_shell=False,
     ):
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
@@ -947,6 +948,7 @@ class Assembly(Part):
                     metadata=metadata,
                     execute=execute,
                     exit_on_complete=exit_on_complete,
+                    run_in_shell=run_in_shell,
                 )
         else:
             print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
