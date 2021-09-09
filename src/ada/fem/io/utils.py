@@ -417,3 +417,13 @@ def convert_part_objects(p: Part, skip_plates, skip_beams):
         p._plates = convert_part_shell_elements_to_plates(p)
     if skip_beams is False:
         p._beams = convert_part_elem_bm_to_beams(p)
+
+
+def default_fem_res_path(name, scratch_dir):
+    base_path = scratch_dir / name / name
+    return dict(
+        code_aster=base_path.with_suffix(".rmed"),
+        abaqus=base_path.with_suffix(".odb"),
+        calculix=base_path.with_suffix(".frd"),
+        sesam=(base_path.parent / f"{name}R1").with_suffix(".SIN"),
+    )

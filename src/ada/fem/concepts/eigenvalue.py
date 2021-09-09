@@ -19,7 +19,7 @@ class EigenMode:
     no: int
     eigenvalue: np.float64
     frequency: np.float64 = field(default=None, repr=False)
-    real: np.float64 = field(default=None, repr=False)
+    real: np.float64 = field(default=None, repr=True)
     imaginary: np.float64 = field(default=None, repr=False)
 
     # Participation factors

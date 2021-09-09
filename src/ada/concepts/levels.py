@@ -912,16 +912,11 @@ class Assembly(Part):
 
         """
         from ada.fem.io import fem_executables, get_fem_converters
-        from ada.fem.io.utils import folder_prep, should_convert
+        from ada.fem.io.utils import default_fem_res_path, folder_prep, should_convert
         from ada.fem.results import Results
 
-        base_path = Settings.scratch_dir / name / name
-        fem_res_files = dict(
-            code_aster=base_path.with_suffix(".rmed"),
-            abaqus=base_path.with_suffix(".odb"),
-            calculix=base_path.with_suffix(".frd"),
-            sesam=(base_path.parent / f"{name}R1").with_suffix(".SIN"),
-        )
+        fem_res_files = default_fem_res_path(name, Settings.scratch_dir)
+
         res_path = fem_res_files.get(fem_format, None)
         metadata = dict() if metadata is None else metadata
         metadata["fem_format"] = fem_format
@@ -963,7 +958,7 @@ class Assembly(Part):
             print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
         if out is None and res_path is None:
             return None
-        return Results(res_path, assembly=self, output=out)
+        return Results(name, res_path, fem_format=fem_format, assembly=self, output=out, overwrite=overwrite)
 
     def to_ifc(self, destination_file, include_fem=False) -> None:
         from ada.ifc.export import add_part_objects_to_ifc

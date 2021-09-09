@@ -21,8 +21,9 @@ from .concepts.eigenvalue import EigenDataSummary
 
 
 class Results:
-    def __init__(self, result_file_path, part=None, assembly=None, palette=None, output=None):
-        result_file_path = pathlib.Path(result_file_path)
+    def __init__(self, name, res_path, fem_format, part=None, assembly=None, palette=None, output=None, overwrite=True):
+        self._name = name
+        self._fem_format = fem_format
         self.palette = [(0, 149 / 255, 239 / 255), (1, 0, 0)] if palette is None else palette
         self._eigen_mode_data = None
         self._analysis_type = None
@@ -35,8 +36,17 @@ class Results:
         self._undeformed_mesh = None
         self._deformed_mesh = None
         self._output = output
-        self._results_file_path = result_file_path
-        self._read_result_file(result_file_path)
+        self._overwrite = overwrite
+        self._results_file_path = pathlib.Path(res_path)
+        self._read_result_file(self._results_file_path)
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def fem_format(self):
+        return self._fem_format
 
     @property
     def output(self) -> subprocess.CompletedProcess:
@@ -99,8 +109,9 @@ class Results:
             self._analysis_type = "calculix"
             if file_ref.exists() is False:
                 return None
-            convert = Converter(str(file_ref), ["vtu"])
-            convert.run()
+            if len(get_list_of_files(file_ref.parent, ".vtu")) == 0 or self._overwrite is True:
+                convert = Converter(str(file_ref), ["vtu"])
+                convert.run()
             result_files = get_list_of_files(file_ref.parent, ".vtu")
             if len(result_files) == 0:
                 logging.error("No VTU files found. Check if analysis was successfully completed")
