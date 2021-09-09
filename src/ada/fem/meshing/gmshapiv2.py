@@ -66,6 +66,7 @@ class GmshData:
     entities: Iterable
     geom_repr: str
     order: int
+    obj: Union[Shape, Beam, Plate, Pipe]
     mesh_size: float = None
 
 
@@ -97,7 +98,7 @@ class GmshSession:
         entities = self.model.occ.importShapes(str(temp_dir / f"{name}.stp"))
         self.model.occ.synchronize()
 
-        gmsh_data = GmshData(entities, geom_repr, el_order, mesh_size=mesh_size)
+        gmsh_data = GmshData(entities, geom_repr, el_order, obj, mesh_size=mesh_size)
         self.model_map[obj] = gmsh_data
         return gmsh_data
 
@@ -141,10 +142,16 @@ class GmshSession:
         gmsh_nodes = get_nodes_from_gmsh(self.model, fem)
         fem.nodes = Nodes(gmsh_nodes, parent=fem)
 
+        def add_obj_to_elem_ref(el: Elem, obj: Union[Shape, Beam, Plate, Pipe]):
+            el.refs.append(obj)
+
         # Get Elements
         elements = []
         for gmsh_data in self.model_map.values():
-            elements += get_elements_from_entities(self.model, gmsh_data.entities, fem)
+            entity_elements = get_elements_from_entities(self.model, gmsh_data.entities, fem)
+            gmsh_data.obj.elem_refs = entity_elements
+            [add_obj_to_elem_ref(el, gmsh_data.obj) for el in entity_elements]
+            elements += entity_elements
         fem.elements = FemElements(elements, fem_obj=fem)
 
         # Add FEM sections

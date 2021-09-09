@@ -1531,7 +1531,7 @@ def get_bm_section_curve(bm: Beam, origin=None) -> CurvePoly:
 
 
 def make_ig_cutplanes(bm: Beam):
-    from ..fem.mesh.gmshapiv2 import CutPlane
+    from ..fem.meshing.gmshapiv2 import CutPlane
 
     bm1_sec_curve = get_bm_section_curve(bm)
     minz = min([x[2] for x in bm1_sec_curve.points3d])

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import logging
-from typing import List
+from typing import List, Union
 
 import numpy as np
 
+from ada.concepts.piping import Pipe
 from ada.concepts.points import Node
+from ada.concepts.primitives import Shape
+from ada.concepts.structural import Beam, Plate, Wall
 
 from .common import Csys, FemBase
 from .sections import ConnectorSection, FemSection
@@ -13,7 +16,6 @@ from .shapes import ElemShapes, ElemType
 
 
 class Elem(FemBase):
-    """"""
 
     EL_TYPES = ElemType
 
@@ -106,7 +108,7 @@ class Elem(FemBase):
         return self._shape
 
     @property
-    def refs(self) -> List[Elem]:
+    def refs(self) -> List[Union[Elem, Beam, Plate, Pipe, Wall, Shape]]:
         return self._refs
 
     def update(self):

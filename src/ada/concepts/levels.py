@@ -72,7 +72,7 @@ class Part(BackendGeom):
         guid=None,
     ):
         super().__init__(name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_elem=ifc_elem)
-        from ada.fem.mesh import GMesh
+        from ada.fem.meshing import GMesh
 
         self._nodes = Nodes(parent=self)
         self._beams = Beams(parent=self)
@@ -349,9 +349,14 @@ class Part(BackendGeom):
         self._flatten_list_of_subparts(self, list_of_parts)
         return list_of_parts
 
-    def get_all_physical_objects(self) -> List[Union[Beam, Plate, Wall, Pipe, Shape]]:
+    def get_all_physical_objects(self, sub_elements_only=True) -> List[Union[Beam, Plate, Wall, Pipe, Shape]]:
         physical_objects = []
-        for p in self.get_all_subparts() + [self]:
+        if sub_elements_only:
+            iter_parts = iter(self.get_all_subparts() + [self])
+        else:
+            iter_parts = iter(self.get_all_parts_in_assembly(True))
+
+        for p in iter_parts:
             physical_objects += list(p.plates) + list(p.beams) + list(p.shapes) + list(p.pipes) + list(p.walls)
         return physical_objects
 
@@ -1172,11 +1177,10 @@ class FEM:
 
     def add_bc(self, bc: Bc):
         if bc.name in [b.name for b in self.bcs]:
-            raise Exception('BC with name "{bc_id}" already exists'.format(bc_id=bc.name))
+            raise ValueError(f'BC with name "{bc.name}" already exists')
 
         bc.parent = self
         if bc.fem_set.parent is None:
-            # TODO: look over this implementation. Is this okay?
             logging.debug("Bc FemSet has no parent. Adding to self")
             self.sets.add(bc.fem_set)
 

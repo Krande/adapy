@@ -458,5 +458,9 @@ def write_sestra_eig_str(name: str, step: Step):
 
 def write_conmesh(fem: FEM):
     num_mem = 35
-    return f"""SCONMESH  {num_mem}  2.00000000E+00  1.00000000E+00  2.00000000E+00
-"""
+    tdsc_str = ""
+    for obj in fem.parent.get_all_physical_objects():
+        # elem_ids = [el.id for el in obj.elem_refs]
+        tdsc_str += f"TDSCONC   4.00000000E+00  1.00000000E+00  1.03000000E+02  0.00000000E+00\n        {obj.name}\n"
+
+    return f"""SCONMESH  {num_mem}  2.00000000E+00  1.00000000E+00  2.00000000E+00"""

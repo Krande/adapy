@@ -121,6 +121,7 @@ class BackendGeom(Backend):
 
     @property
     def elem_refs(self):
+        """:rtype: typing.List[ada.fem.Elem]"""
         return self._elem_refs
 
     @elem_refs.setter

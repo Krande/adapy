@@ -4,6 +4,7 @@ from typing import Iterable, Tuple
 import numpy as np
 
 from ada.concepts.levels import Assembly, Part
+from ada.concepts.points import Node
 from ada.concepts.structural import Material
 from ada.config import Settings as _Settings
 from ada.fem import Bc, FemSection, Load, Step
@@ -247,16 +248,21 @@ def write_solid_section(fem_sections: Iterable[FemSection]) -> str:
     return mat_
 
 
+def is_parent_of_node_solid(no: Node) -> bool:
+    refs = no.refs
+    for elem in refs:
+        if elem.type in ElemShapes.volume:
+            return True
+    return False
+
+
 def create_bc_str(bc: Bc) -> str:
     set_name = bc.fem_set.name
     is_solid = False
     for no in bc.fem_set.members:
-        refs = no.refs
-        for elem in refs:
-            if elem.type in ElemShapes.volume:
-                is_solid = True
-                break
-        # print(refs)
+        is_solid = is_parent_of_node_solid(no)
+        if is_solid:
+            break
     dofs = ["DX", "DY", "DZ"]
     if is_solid is False:
         dofs += ["DRX", "DRY", "DRZ"]

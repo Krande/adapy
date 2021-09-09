@@ -6,7 +6,7 @@ from ada import Assembly, Beam, Part, Pipe, Plate, PrimBox, PrimSphere
 from ada.concepts.structural import make_ig_cutplanes
 from ada.config import Settings
 from ada.fem import Step
-from ada.fem.mesh.gmshapiv2 import (
+from ada.fem.meshing.gmshapiv2 import (
     GmshOptions,
     GmshSession,
     GmshTask,
