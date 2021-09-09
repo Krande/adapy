@@ -88,6 +88,10 @@ class Results:
         suffix = file_ref.suffix.lower()
         if suffix in ".rmed":
             mesh = meshio.read(file_ref, "med")
+            if self.assembly.fem.steps[0].type == Step.TYPES.EIGEN:
+                from .io.code_aster.results import get_eigen_data
+
+                self._eigen_mode_data = get_eigen_data(file_ref)
             self._analysis_type = "code_aster"
         elif suffix == ".frd":
             from ccx2paraview import Converter

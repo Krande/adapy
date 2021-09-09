@@ -10,7 +10,7 @@ from pydantic import validate_arguments
 @dataclass
 class EigenDataSummary:
     modes: List[EigenMode]
-    tot_eff_mass: List[float]
+    tot_eff_mass: List[float] = None
 
 
 @validate_arguments
@@ -18,9 +18,9 @@ class EigenDataSummary:
 class EigenMode:
     no: int
     eigenvalue: np.float64
-    frequency: np.float64
-    real: np.float64 = field(repr=False)
-    imaginary: np.float64 = field(repr=False)
+    frequency: np.float64 = field(default=None, repr=False)
+    real: np.float64 = field(default=None, repr=False)
+    imaginary: np.float64 = field(default=None, repr=False)
 
     # Participation factors
     px: np.float64 = field(default=None, repr=False)

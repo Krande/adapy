@@ -50,8 +50,7 @@ def run_code_aster(
     with open(inp_path, "w") as f:
         f.write(write_export_file(name, cpus))
 
-    out = ca.run(exit_on_complete=exit_on_complete)
-    return out
+    return ca.run(exit_on_complete=exit_on_complete)
 
 
 class CodeAsterExecute(LocalExecute):
