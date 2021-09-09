@@ -5,7 +5,7 @@ from typing import List, Union
 
 import numpy as np
 
-from ada.base import BackendGeom
+from ada.base.physical_objects import BackendGeom
 from ada.config import Settings as _Settings
 from ada.core.utils import (
     Counter,

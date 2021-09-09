@@ -1,19 +1,21 @@
+import datetime
 import logging
 from operator import attrgetter
 
 import numpy as np
 
 from ada.concepts.levels import FEM, Part
-from ada.core.utils import get_current_user
-from ada.fem import Elem, Load
-from ada.fem.io.utils import folder_prep
+from ada.core.utils import Counter, get_current_user, make_name_fem_ready
+from ada.fem import Elem, Load, Step
 from ada.fem.shapes import ElemType
+
+from .templates import sestra_eig_inp_str, top_level_fem_str
 
 
 def to_fem(
     assembly,
     name,
-    scratch_dir=None,
+    analysis_dir=None,
     metadata=None,
     execute=False,
     run_ext=False,
@@ -32,12 +34,12 @@ def to_fem(
     if len(parts) != 1:
         raise ValueError("Sesam writer currently only works for a single part")
 
-    import datetime
+    if len(assembly.fem.steps) > 1:
+        logging.error("Sesam writer currently only supports 1 step. Will only use 1st step")
 
     part = parts[0]
-    thick_map = dict()
 
-    analysis_dir = folder_prep(scratch_dir, name, overwrite)
+    thick_map = dict()
 
     now = datetime.datetime.now()
     date_str = now.strftime("%d-%b-%Y")
@@ -46,21 +48,20 @@ def to_fem(
 
     units = "UNITS     5.00000000E+00  1.00000000E+00  1.00000000E+00  1.00000000E+00\n          1.00000000E+00\n"
 
-    with open((analysis_dir / "T100").with_suffix(".FEM"), "w") as d:
-        d.write(
-            f"""IDENT     1.00000000E+00  1.00000000E+02  3.00000000E+00  0.00000000E+00
-DATE      1.00000000E+00  0.00000000E+00  4.00000000E+00  7.20000000E+01
-DATE:     {date_str}         TIME:          {clock_str}
-PROGRAM:  ADA python          VERSION:       Not Applicable
-COMPUTER: X86 Windows         INSTALLATION:
-USER:     {user}            ACCOUNT:     \n"""
-        )
+    inp_file_path = (analysis_dir / f"{name}T1").with_suffix(".FEM")
+    if len(assembly.fem.steps) > 0:
+        step = assembly.fem.steps[0]
+        with open(analysis_dir / "sestra.inp", "w") as f:
+            f.write(write_sestra_inp(name, step))
+
+    with open(inp_file_path, "w") as d:
+        d.write(top_level_fem_str.format(date_str=date_str, clock_str=clock_str, user=user))
         d.write(units)
         d.write(materials_str(part))
         d.write(sections_str(part.fem, thick_map))
         d.write(nodes_str(part.fem))
         d.write(mass_str(part.fem))
-        d.write(bc_str(part.fem))
+        d.write(bc_str(part.fem) + bc_str(assembly.fem))
         d.write(hinges_str(part.fem))
         d.write(univec_str(part.fem))
         d.write(elem_str(part.fem, thick_map))
@@ -107,7 +108,6 @@ def sections_str(fem: FEM, thick_map) -> str:
 
     :return:
     """
-    from ada.core.utils import Counter, make_name_fem_ready
     from ada.sections import SectionCat
 
     sec_str = ""
@@ -313,7 +313,7 @@ def nodes_str(fem: FEM) -> str:
         return out_str
 
 
-def mass_str(fem: FEM):
+def mass_str(fem: FEM) -> str:
     out_str = ""
 
     for mass in fem.masses.values():
@@ -327,7 +327,7 @@ def mass_str(fem: FEM):
     return out_str
 
 
-def bc_str(fem: FEM):
+def bc_str(fem: FEM) -> str:
     out_str = ""
     for bc in fem.bcs:
         for m in bc.fem_set.members:
@@ -337,15 +337,7 @@ def bc_str(fem: FEM):
     return out_str
 
 
-def hinges_str(fem):
-    """
-
-    :param fem:
-    :type fem: ada.fem.FEM
-    :return:
-    """
-    from ada.core.utils import Counter
-
+def hinges_str(fem: FEM) -> str:
     out_str = ""
     h = Counter(1)
 
@@ -371,33 +363,34 @@ def hinges_str(fem):
     return out_str
 
 
-def univec_str(fem):
-    """
-
-    :param fem:
-    :type fem: ada.fem.FEM
-    :return:
-    """
-    from ada.core.utils import Counter
-
+def univec_str(fem: FEM) -> str:
     out_str = ""
-    unit_vector = Counter(1)
+    uvec_id = Counter(1)
+
+    unit_vecs = dict()
 
     def write_local_z(vec):
-        transno = next(unit_vector)
-        data = [tuple([transno, *vec])]
-        return transno, write_ff("GUNIVEC", data)
+        tvec = tuple(vec)
+        if tvec in unit_vecs.keys():
+            return unit_vecs[tvec], None
+        trans_no = next(uvec_id)
+        data = [tuple([trans_no, *vec])]
+        unit_vecs[tvec] = trans_no
+        return trans_no, write_ff("GUNIVEC", data)
 
     for el in fem.elements:
         local_z = el.fem_sec.local_z
         transno, res_str = write_local_z(local_z)
+        if res_str is None:
+            el.metadata["transno"] = transno
+            continue
         out_str += res_str
         el.metadata["transno"] = transno
 
     return out_str
 
 
-def loads_str(fem):
+def loads_str(fem: FEM) -> str:
     loads = fem.steps[0].loads if len(fem.steps) > 0 else []
     out_str = ""
     for i, l in enumerate(loads):
@@ -443,3 +436,27 @@ def write_ff(flag, data):
         else:
             out_str += "".join(v) + "\n" + 8 * " "
     return out_str
+
+
+def write_sestra_inp(name, step: Step):
+    step_map = {Step.TYPES.EIGEN: write_sestra_eig_str}
+    step_str_writer = step_map.get(step.type, None)
+    if step_str_writer is None:
+        raise ValueError(f'Step type "{step.type}" is not supported yet for Ada-Sestra ')
+    return step_str_writer(name, step)
+
+
+def write_sestra_eig_str(name: str, step: Step):
+    now = datetime.datetime.now()
+    date_str = now.strftime("%d-%b-%Y")
+    clock_str = now.strftime("%H:%M:%S")
+    user = get_current_user()
+    return sestra_eig_inp_str.format(
+        name=name, modes=step.eigenmodes, date_str=date_str, clock_str=clock_str, user=user
+    )
+
+
+def write_conmesh(fem: FEM):
+    num_mem = 35
+    return f"""SCONMESH  {num_mem}  2.00000000E+00  1.00000000E+00  2.00000000E+00
+"""

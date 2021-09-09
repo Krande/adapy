@@ -33,6 +33,7 @@ requirements:
     - plotly
     - python-kaleido
     - ipygany
+    - pydantic
 
 about:
   home: https://github.com/krande/adapy

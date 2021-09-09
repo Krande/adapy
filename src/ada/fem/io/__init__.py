@@ -21,6 +21,7 @@ fem_executables = dict(
     abaqus=abaqus.run_abaqus,
     calculix=calculix.run_calculix,
     code_aster=code_aster.run_code_aster,
+    sesam=sesam.run_sesam,
 )
 
 

@@ -1,0 +1,2 @@
+class UnSupportedElements(Exception):
+    pass

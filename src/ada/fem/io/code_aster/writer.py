@@ -41,18 +41,20 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     bc_str = "\n".join([create_bc_str(bc) for bc in assembly.fem.bcs + part.fem.bcs])
     step_str = "\n".join([create_step_str(s, part) for s in assembly.fem.steps])
 
+    type_tmpl_str = "_F(GROUP_MA=({elset_str}), PHENOMENE='MECANIQUE', MODELISATION='{el_formula}',),"
+
     model_type_str = ""
     if len(part.fem.sections.lines) > 0:
         bm_elset_str = ",".join([f"'{bm_fs.elset.name}'" for bm_fs in part.fem.sections.lines])
-        model_type_str += f"_F(GROUP_MA=({bm_elset_str}),PHENOMENE='MECANIQUE', MODELISATION='POU_D_E',),"
+        model_type_str += type_tmpl_str.format(elset_str=bm_elset_str, el_formula="POU_D_E")
 
     if len(part.fem.sections.shells) > 0:
         sh_elset_str = ",".join([f"'{bm_fs.elset.name}'" for bm_fs in part.fem.sections.shells])
-        model_type_str += f"_F(GROUP_MA=({sh_elset_str}),PHENOMENE='MECANIQUE', MODELISATION='DKT',),"
+        model_type_str += type_tmpl_str.format(elset_str=sh_elset_str, el_formula="DKT")
 
     if len(part.fem.sections.solids) > 0:
         so_elset_str = ",".join([f"'{solid_fs.elset.name}'" for solid_fs in part.fem.sections.solids])
-        model_type_str += f"_F(GROUP_MA=({so_elset_str}),PHENOMENE='MECANIQUE', MODELISATION='3D',),"
+        model_type_str += type_tmpl_str.format(elset_str=so_elset_str, el_formula="3D")
 
     comm_str = main_comm_str.format(
         model_type_str=model_type_str,
@@ -128,25 +130,26 @@ def write_material(material: Material) -> str:
 
     model = material.model
     nl = NewLine(3, suffix="	")
-    nl_mat = "nl_mat=(	\n	"
 
     if model.plasticity_model is not None:
+        nl_mat = "nl_mat=(	\n	"
         eps = [e for e in model.eps_p]
         eps[0] = 1e-5  # Epsilon index=0 cannot be zero
         nl_mat += "".join([f"{e:.4E},{s:.4E}," + next(nl) for e, s in zip(eps, model.sig_p)]) + ")"
-    else:
-        nl_mat += ",)"
-        logging.error(f"No plasticity is defined for material {material.name}")
-
-    hardening_model_str = """Traction=DEFI_FONCTION(
+        nl_mat += """
+Traction=DEFI_FONCTION(
     NOM_PARA='EPSI', NOM_RESU='SIGM', VALE=nl_mat, INTERPOL='LIN', PROL_DROITE='LINEAIRE', PROL_GAUCHE='CONSTANT'
 )"""
+        mat_nl_in = ", TRACTION=_F(SIGM=Traction,)"
+    else:
+        logging.debug(f"No plasticity is defined for material {material.name}")
+        nl_mat = ""
+        mat_nl_in = ""
+
     return f"""{nl_mat}
 
-{hardening_model_str}
-
 {material.name} = DEFI_MATERIAU(
-    ELAS=_F(E={model.E}, NU={model.v}, RHO={model.rho}), TRACTION=_F(SIGM=Traction,),
+    ELAS=_F(E={model.E}, NU={model.v}, RHO={model.rho}){mat_nl_in},
 )
 """
 

@@ -17,22 +17,26 @@ from ada.visualize.femviz import (
 from ada.visualize.renderer import MyRenderer
 from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
+from .concepts.eigenvalue import EigenDataSummary
+
 
 class Results:
-    def __init__(self, result_file_path, part=None, palette=None, output=None):
+    def __init__(self, result_file_path, part=None, assembly=None, palette=None, output=None):
         result_file_path = pathlib.Path(result_file_path)
         self.palette = [(0, 149 / 255, 239 / 255), (1, 0, 0)] if palette is None else palette
+        self._eigen_mode_data = None
         self._analysis_type = None
         self._point_data = []
         self._cell_data = []
-        self._results_file_path = result_file_path
-        self._read_result_file(result_file_path)
+        self._assembly = assembly
         self._part = part
         self._renderer = None
         self._render_sets = None
         self._undeformed_mesh = None
         self._deformed_mesh = None
         self._output = output
+        self._results_file_path = result_file_path
+        self._read_result_file(result_file_path)
 
     @property
     def output(self) -> subprocess.CompletedProcess:
@@ -60,10 +64,25 @@ class Results:
         """:rtype: pythreejs.Mesh"""
         return self._deformed_mesh
 
+    @property
+    def part(self):
+        """:rtype: ada.Part"""
+        return self._part
+
+    @property
+    def assembly(self):
+        """:rtype: ada.Assembly"""
+        return self._assembly
+
+    @property
+    def eigen_mode_data(self) -> EigenDataSummary:
+        return self._eigen_mode_data
+
     def _get_mesh(self, file_ref):
         import meshio
 
         from ada.core.utils import get_list_of_files
+        from ada.fem import Step
 
         file_ref = pathlib.Path(file_ref)
         suffix = file_ref.suffix.lower()
@@ -88,6 +107,11 @@ class Results:
             self._results_file_path = pathlib.Path(result_file)
             print(f'Reading result from "{result_file}"')
             mesh = meshio.read(result_file)
+            dat_file = file_ref.with_suffix(".dat")
+            if dat_file.exists() and self.assembly.fem.steps[0].type == Step.TYPES.EIGEN:
+                from .io.calculix.results import get_eig_from_dat_file
+
+                self._eigen_mode_data = get_eig_from_dat_file(dat_file)
         else:
             logging.error(f'Results class currently does not support filetype "{suffix}"')
             return None

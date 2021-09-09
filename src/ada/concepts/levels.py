@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from itertools import chain
 from typing import List, Union
 
-from ada.base import BackendGeom
+from ada.base.physical_objects import BackendGeom
 from ada.concepts.connections import JointBase
 from ada.concepts.containers import (
     Beams,
@@ -915,6 +915,7 @@ class Assembly(Part):
             code_aster=base_path.with_suffix(".rmed"),
             abaqus=base_path.with_suffix(".odb"),
             calculix=base_path.with_suffix(".frd"),
+            sesam=(base_path.parent / f"{name}R1").with_suffix(".SIN"),
         )
         res_path = fem_res_files.get(fem_format, None)
         metadata = dict() if metadata is None else metadata
@@ -931,7 +932,9 @@ class Assembly(Part):
                 code_aster=(analysis_dir / name).with_suffix(".export"),
                 abaqus=(analysis_dir / name).with_suffix(".inp"),
                 calculix=(analysis_dir / name).with_suffix(".inp"),
+                sesam=(analysis_dir / name).with_suffix(".FEM"),
             )
+
             fem_exporter(self, name, analysis_dir, metadata)
 
             if execute is True:
@@ -939,7 +942,8 @@ class Assembly(Part):
                 inp_path = fem_inp_files.get(fem_format, None)
                 if exe_func is None:
                     raise NotImplementedError(f'The FEM format "{fem_format}" has no execute function')
-
+                if inp_path is None:
+                    raise ValueError("")
                 out = exe_func(
                     inp_path=inp_path,
                     cpus=cpus,
@@ -954,7 +958,7 @@ class Assembly(Part):
             print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
         if out is None and res_path is None:
             return None
-        return Results(res_path, output=out)
+        return Results(res_path, assembly=self, output=out)
 
     def to_ifc(self, destination_file, include_fem=False) -> None:
         from ada.ifc.export import add_part_objects_to_ifc

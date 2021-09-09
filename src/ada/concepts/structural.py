@@ -5,7 +5,7 @@ from itertools import chain
 
 import numpy as np
 
-from ada.base import BackendGeom
+from ada.base.physical_objects import BackendGeom
 from ada.concepts.curves import CurvePoly
 from ada.concepts.points import Node
 from ada.concepts.primitives import PrimBox
@@ -1079,7 +1079,9 @@ class Plate(BackendGeom):
     @units.setter
     def units(self, value):
         if self._units != value:
-            scale_factor = self._unit_conversion(self._units, value)
+            from ada.core.utils import unit_length_conversion
+
+            scale_factor = unit_length_conversion(self._units, value)
             tol = Settings.mmtol if value == "mm" else Settings.mtol
             self._t *= scale_factor
             self.poly.scale(scale_factor, tol)
@@ -1498,7 +1500,9 @@ class Wall(BackendGeom):
     @units.setter
     def units(self, value):
         if value != self._units:
-            scale_factor = self._unit_conversion(self._units, value)
+            from ada.core.utils import unit_length_conversion
+
+            scale_factor = unit_length_conversion(self._units, value)
             self._height *= scale_factor
             self._thickness *= scale_factor
             self._offset *= scale_factor

@@ -1465,3 +1465,17 @@ def replace_nodes_by_tol(nodes, decimals=0, tol=Settings.point_tol):
         if nearby_nodes and n_is_most_precise(node, nearby_nodes, decimals):
             for nearby_node in nearby_nodes:
                 replace_node(nearby_node, node)
+
+
+class UnitTypes:
+    LENGTH = "length"
+
+
+def unit_length_conversion(ori_unit, value):
+    if value == "m" and ori_unit == "mm":
+        scale_factor = 0.001
+    elif value == "mm" and ori_unit == "m":
+        scale_factor = 1000
+    else:
+        raise ValueError(f'Unrecognized unit conversion from "{ori_unit}" to "{value}"')
+    return scale_factor
