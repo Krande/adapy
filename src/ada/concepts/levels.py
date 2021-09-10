@@ -29,6 +29,7 @@ from ada.concepts.primitives import (
     Shape,
 )
 from ada.concepts.structural import Beam, Material, Plate, Section, Wall
+from ada.concepts.transforms import Transform
 from ada.config import Settings, User
 from ada.fem import (
     Amplitude,
@@ -85,6 +86,7 @@ class Part(BackendGeom):
         self._gmsh = GMesh(self)
         self._colour = colour
         self._origin = origin
+        self._instances = []
         self._lx = lx
         self._ly = ly
         self._lz = lz
@@ -234,6 +236,9 @@ class Part(BackendGeom):
             for p in self.get_all_subparts():
                 p.add_penetration(pen, False)
         return pen
+
+    def add_instance(self, element, transform: Transform):
+        self._instances[element] = transform
 
     def add_elements_from_ifc(self, ifc_file_path: os.PathLike, data_only=False):
         a = Assembly("temp")

@@ -114,10 +114,11 @@ class Results:
                 convert.run()
             result_files = get_list_of_files(file_ref.parent, ".vtu")
             if len(result_files) == 0:
-                logging.error("No VTU files found. Check if analysis was successfully completed")
-                return None
+                raise FileNotFoundError("No VTU files found. Check if analysis was successfully completed")
+
             if len(result_files) > 1:
                 logging.error("Currently only reading last step for multi-step Calculix analysis results")
+
             result_file = result_files[-1]
             self._results_file_path = pathlib.Path(result_file)
             print(f'Reading result from "{result_file}"')

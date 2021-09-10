@@ -1,4 +1,5 @@
 import logging
+import pathlib
 
 import numpy as np
 
@@ -26,10 +27,10 @@ class Shape(BackendGeom):
     ):
 
         super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem)
-        if type(geom) is str:
+        if type(geom) in (str, pathlib.WindowsPath, pathlib.PurePath, pathlib.Path):
             from OCC.Extend.DataExchange import read_step_file
 
-            geom = read_step_file(geom)
+            geom = read_step_file(str(geom))
 
         if ifc_elem is not None:
             self.guid = ifc_elem.GlobalId

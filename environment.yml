@@ -4,3 +4,4 @@ channels:
   - conda-forge
 dependencies:
   - ada-py
+  - pydantic

@@ -41,6 +41,7 @@ from OCC.Extend.TopologyUtils import TopologyExplorer
 
 from ada.concepts.primitives import Penetration
 from ada.concepts.structural import Beam
+from ada.concepts.transforms import Rotation
 from ada.core.utils import roundoff, tuple_minus, unit_vector, vector_length
 from ada.fem.shapes import ElemType
 
@@ -60,18 +61,19 @@ def extract_shapes(step_path, scale, transform, rotate):
     return shapes
 
 
-def transform_shape(shp_, scale=None, transform=None, rotate=None):
+def transform_shape(shape: Union[TopoDS_Shape], scale=None, transform=None, rotate: Rotation = None) -> TopoDS_Shape:
+
     trsf = gp_Trsf()
     if scale is not None:
         trsf.SetScaleFactor(scale)
     if transform is not None:
         trsf.SetTranslation(gp_Vec(transform[0], transform[1], transform[2]))
     if rotate is not None:
-        pt = gp_Pnt(rotate[0][0], rotate[0][1], rotate[0][2])
-        dire = gp_Dir(rotate[1][0], rotate[1][1], rotate[1][2])
+        pt = gp_Pnt(*rotate.origin)
+        dire = gp_Dir(*rotate.vector)
         revolve_axis = gp_Ax1(pt, dire)
-        trsf.SetRotation(revolve_axis, math.radians(rotate[2]))
-    return BRepBuilderAPI_Transform(shp_, trsf, True).Shape()
+        trsf.SetRotation(revolve_axis, math.radians(rotate.angle))
+    return BRepBuilderAPI_Transform(shape, trsf, True).Shape()
 
 
 def walk_shapes(dir_path):
