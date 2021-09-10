@@ -27,9 +27,9 @@ class ParamModelsTestCase(unittest.TestCase):
         param_model = SimpleStru("ParametricModel")
         param_model.gmsh.mesh(order=1, size=0.1, max_dim=2, interactive=False)
         param_model.add_bcs()
-        assert len(param_model.fem.bcs) == 4
-        assert len(param_model.fem.elements) == 10420
-        assert len(param_model.fem.nodes) == 5318
+        self.assertEqual(len(param_model.fem.bcs), 4)
+        self.assertEqual(len(param_model.fem.elements), 10420)
+        self.assertEqual(len(param_model.fem.nodes), 5318)
 
         a = Assembly("ParametricSite")
         a.add_part(param_model)

@@ -13,12 +13,15 @@ from ada.fem.shapes import ElemShapes
 from ada.sections import SectionCat as Sc
 
 from ..abaqus.writer import AbaSection
+from .compatibility import check_compatibility
 from .templates import main_header_str
 from .write_steps import step_str
 
 
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
     """Write a Calculix input file stack"""
+
+    check_compatibility(assembly)
 
     inp_file = (analysis_dir / name).with_suffix(".inp")
 

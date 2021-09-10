@@ -70,7 +70,7 @@ class GMesh:
             logging.debug(e)
 
         gmsh_print = 1 if gmsh_silent is False else 0
-        gmsh.initialize()
+        gmsh.initialize(readConfigFiles=False)
         gmsh.option.setNumber("General.Terminal", gmsh_print)
         gmsh.option.setNumber("Mesh.SecondOrderIncomplete", 1)
         gmsh.option.setNumber("Mesh.Algorithm", mesh_algo)
@@ -567,7 +567,7 @@ def _init_gmsh_session(silent=False):
         gmsh_session.finalize()
     except BaseException as e:
         logging.debug(e)
-    gmsh_session.initialize()
+    gmsh_session.initialize(readConfigFiles=False)
 
     gmsh_print = 1 if silent is False else 0
     gmsh_session.option.setNumber("General.Terminal", gmsh_print)

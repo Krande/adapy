@@ -37,7 +37,6 @@ def run_code_aster(
     :param exit_on_complete:
     :param run_in_shell:
     """
-    from .writer import write_export_file
 
     name = pathlib.Path(inp_path).stem
     ca = CodeAsterExecute(
@@ -63,3 +62,19 @@ class CodeAsterExecute(LocalExecute):
 
         out = self._run_local(f'"{exe_path}" {self.analysis_name}.export', exit_on_complete=exit_on_complete)
         return out
+
+
+def write_export_file(name: str, cpus: int):
+    export_str = f"""P actions make_etude
+P memory_limit 1274
+P time_limit 900
+P version stable
+P mpi_nbcpu 1
+P mode interactif
+P ncpus {cpus}
+F comm {name}.comm D 1
+F mmed {name}.med D 20
+F mess {name}.mess R 6
+F rmed {name}.rmed R 80"""
+
+    return export_str

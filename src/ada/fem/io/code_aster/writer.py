@@ -13,11 +13,14 @@ from ada.fem.shapes import ElemShapes
 
 from ..utils import get_fem_model_from_assembly
 from .common import abaqus_to_med_type
+from .compatibility import check_compatibility
 from .templates import main_comm_str
 
 
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
-    """Write Code_Aster .med, .export and .comm file from Assembly data"""
+    """Write Code_Aster .med and .comm file from Assembly data"""
+
+    check_compatibility(assembly)
 
     if "info" not in metadata:
         metadata["info"] = dict(description="")
@@ -66,22 +69,6 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     )
 
     return comm_str
-
-
-def write_export_file(name: str, cpus: int):
-    export_str = f"""P actions make_etude
-P memory_limit 1274
-P time_limit 900
-P version stable
-P mpi_nbcpu 1
-P mode interactif
-P ncpus {cpus}
-F comm {name}.comm D 1
-F mmed {name}.med D 20
-F mess {name}.mess R 6
-F rmed {name}.rmed R 80"""
-
-    return export_str
 
 
 def write_to_med(name, part: Part, analysis_dir):

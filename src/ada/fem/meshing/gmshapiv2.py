@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import chain
 from typing import Iterable, List, Union
 
@@ -28,14 +28,16 @@ from .gmshapi import eval_thick_normal_from_cog_of_beam_plate, gmsh_map
 
 @dataclass
 class GmshOptions:
-    Mesh_Algorithm: int = 1
+    Mesh_Algorithm: int = 6
+    Mesh_Algorithm3D: int = 1
     Mesh_MeshSizeMin: float = None
     Mesh_MeshSizeMax: float = 0.1
     Mesh_ElementOrder: int = 1
-    Mesh_SecondOrderIncomplete: int = 1
+    Mesh_SecondOrderIncomplete: int = field(default=1)
     Mesh_Smoothing: int = 3
     Mesh_RecombinationAlgorithm: int = None
     Geometry_Tolerance: float = 1e-5
+    General_ColorScheme: int = 3
     General_Terminal: int = 1
 
     def get_as_dict(self):
@@ -131,11 +133,10 @@ class GmshSession:
         if size is not None:
             self.gmsh.option.setNumber("Mesh.MeshSizeMax", size)
 
-        model = self.model
-        model.geo.synchronize()
-        model.mesh.setRecombine(3, -1)
-        model.mesh.generate(3)
-        model.mesh.removeDuplicateNodes()
+        self.model.geo.synchronize()
+        self.model.mesh.setRecombine(3, -1)
+        self.model.mesh.generate(3)
+        self.model.mesh.removeDuplicateNodes()
 
     def get_fem(self) -> FEM:
         fem = FEM("AdaFEM")
@@ -165,6 +166,7 @@ class GmshSession:
         if self.options is not None:
             for setting, value in self.options.get_as_dict().items():
                 self.gmsh.option.setNumber(setting, value)
+        self.model.geo.synchronize()
 
     def open_gui(self):
         self.gmsh.fltk.run()
@@ -214,7 +216,7 @@ def get_sh_sections(model: gmsh.model, model_obj: Union[Beam, Plate, Pipe], ent,
     set_name = make_name_fem_ready(f"el{model_obj.name}_e{ent}_{c}_sh")
     fem_sec_name = make_name_fem_ready(f"d{model_obj.name}_e{ent}_{c}_sh")
 
-    fem_set = FemSet(set_name, [fem.elements.from_id(x) for x in chain.from_iterable(tags)], "elset")
+    fem_set = FemSet(set_name, [fem.elements.from_id(x) for x in chain.from_iterable(tags)], FemSet.TYPES.ELSET)
     props = dict(local_z=n, thickness=t, int_points=5)
     fem_sec = FemSection(fem_sec_name, ElemType.SHELL, fem_set, model_obj.material, **props)
     add_sec_to_fem(fem, fem_sec, fem_set)
@@ -227,7 +229,7 @@ def get_bm_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
 
     set_name = make_name_fem_ready(f"el{beam.name}_set_bm")
     fem_sec_name = make_name_fem_ready(f"d{beam.name}_sec_bm")
-    fem_set = FemSet(set_name, elements, "elset", parent=fem)
+    fem_set = FemSet(set_name, elements, FemSet.TYPES.ELSET, parent=fem)
     fem_sec = FemSection(fem_sec_name, ElemType.LINE, fem_set, beam.material, beam.section, beam.ori[2])
 
     add_sec_to_fem(fem, fem_sec, fem_set)
@@ -241,7 +243,7 @@ def get_so_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
 
     elements = [fem.elements.from_id(tag) for tag in tags[0]]
 
-    fem_set = FemSet(set_name, elements, "elset", parent=fem)
+    fem_set = FemSet(set_name, elements, FemSet.TYPES.ELSET, parent=fem)
     fem_sec = FemSection(fem_sec_name, ElemType.SOLID, fem_set, beam.material)
 
     add_sec_to_fem(fem, fem_sec, fem_set)

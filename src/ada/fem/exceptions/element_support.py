@@ -1,2 +1,2 @@
-class UnSupportedElements(Exception):
+class IncompatibleElements(Exception):
     pass

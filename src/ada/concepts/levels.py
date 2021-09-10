@@ -495,7 +495,7 @@ class Part(BackendGeom):
 
     @property
     def gmsh(self):
-        """:rtype: ada.fem.mesh.GMesh"""
+        """:rtype: ada.fem.meshing.GMesh"""
         return self._gmsh
 
     @property
