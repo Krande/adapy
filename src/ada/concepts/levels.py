@@ -763,7 +763,7 @@ class Assembly(Part):
 
         write_assembly_to_cache(self, self._cache_file)
 
-    def read_ifc(self, ifc_file: os.PathLike, data_only=False, elements2part=None, cache_model_now=False):
+    def read_ifc(self, ifc_file: Union[str, os.PathLike], data_only=False, elements2part=None, cache_model_now=False):
         """
         Import from IFC file.
 
