@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Iterable
 
 
 @dataclass
 class Transform:
-    translation: Tuple[float, float, float]
-    rotation: Rotation
+    translation: Iterable[float, float, float] = None
+    rotation: Rotation = None
 
     def to_ifc(self, f):
         from ada.ifc.utils import export_transform
@@ -17,6 +17,6 @@ class Transform:
 
 @dataclass
 class Rotation:
-    origin: Tuple[float, float, float]
-    vector: Tuple[float, float, float]
+    origin: Iterable[float, float, float]
+    vector: Iterable[float, float, float]
     angle: float

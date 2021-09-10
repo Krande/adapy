@@ -5,7 +5,7 @@ import reprlib
 from bisect import bisect_left, bisect_right
 from itertools import chain
 from operator import attrgetter
-from typing import Iterable, List, Union
+from typing import Dict, Iterable, List, Union
 
 import numpy as np
 import toolz
@@ -17,6 +17,7 @@ from ada.materials import Material
 
 from .points import Node
 from .structural import Beam, Plate, Section
+from .transforms import Rotation
 
 __all__ = [
     "Nodes",
@@ -553,14 +554,6 @@ class Sections:
 
 
 class Nodes:
-    """
-
-    :param nodes:
-    :param unique_ids:
-    :param parent:
-    :param from_np_array: Valid numpy array with rows containing (id, x, y, z)
-    """
-
     def __init__(self, nodes=None, unique_ids=True, parent=None, from_np_array=None):
         self._parent = parent
         if from_np_array is not None:
@@ -640,14 +633,8 @@ class Nodes:
     def count(self, item):
         return int(item in self)
 
-    def move(self, move=None, rotate=None):
-        """
-        A method for translating and/or rotating your model.
-
-        :param move: Translate Nodes by parsing a Numpy array containing dX,dY,dZ vector np.array([dx,dy,dz])
-        :param rotate: Rotate Nodes around a specified axis before translation.
-                       Input is a tuple([p1X, p1Y, p1Z], [p2X, p2Y, p2Z], degrees)
-        """
+    def move(self, move: Iterable[float, float, float] = None, rotate: Rotation = None):
+        """A method for translating and/or rotating your model."""
 
         def moving(no):
             no.p = no.p + move
@@ -656,10 +643,8 @@ class Nodes:
             no.p = p
 
         if rotate is not None:
-            p1 = np.array(rotate[0])
-            p2 = np.array(rotate[1])
-            deg = rotate[2]
-            my_quaternion = Quaternion(axis=p2 - p1, degrees=deg)
+            p1 = np.array(rotate.origin)
+            my_quaternion = Quaternion(axis=rotate.vector, degrees=rotate.angle)
             rot_mat = my_quaternion.rotation_matrix
             vectors = np.array([n.p - p1 for n in self._nodes])
             res = np.matmul(vectors, np.transpose(rot_mat))
@@ -688,12 +673,7 @@ class Nodes:
         return (xmin, xmax), (ymin, ymax), (zmin, zmax)
 
     @property
-    def dmap(self):
-        """
-
-        :return: A dictionary of all nodes {int(id1):node1, ..}
-        :rtype: dict
-        """
+    def dmap(self) -> Dict[str, Node]:
         return self._idmap
 
     @property

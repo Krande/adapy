@@ -15,6 +15,7 @@ from ada.concepts.containers import Nodes
 from ada.concepts.levels import FEM, Assembly, Part
 from ada.concepts.points import Node
 from ada.concepts.structural import Material
+from ada.concepts.transforms import Rotation, Transform
 from ada.core.utils import Counter, roundoff
 from ada.fem import (
     Bc,
@@ -50,8 +51,7 @@ class InstanceData:
     instance_name: str
     instance_bulk: str
     metadata: dict
-    move: Union[tuple, None] = None
-    rotate: Union[tuple, None] = None
+    transform: Transform = Transform()
 
 
 def read_fem(assembly: Assembly, fem_file, fem_name=None):
@@ -111,13 +111,7 @@ def read_fem(assembly: Assembly, fem_file, fem_name=None):
     get_initial_conditions_from_lines(assembly, props_str)
 
 
-def read_bulk_w_includes(inp_path):
-    """
-
-    :param inp_path: Absolute path to input file
-    :return: bulk str
-    """
-
+def read_bulk_w_includes(inp_path) -> str:
     re_bulk_include = re.compile(r"\*Include,\s*input=(.*?)$", _re_in)
     bulk_repl = dict()
     with open(inp_path, "r") as inpDeck:
@@ -193,7 +187,7 @@ def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: Ins
     part = assembly.add_part(Part(name, fem=FEM(name=instance_name)))
     fem = part.fem
     fem.nodes = get_nodes_from_inp(bulk_str, fem)
-    fem.nodes.move(move=instance_data.move, rotate=instance_data.rotate)
+    fem.nodes.move(move=instance_data.transform.translation, rotate=instance_data.transform.rotation)
     fem.elements = get_elem_from_inp(bulk_str, fem)
     fem.elements.build_sets()
     fem.sets += get_sets_from_bulk(bulk_str, fem)
@@ -318,17 +312,14 @@ def get_intprop_from_lines(assembly: Assembly, bulk_str):
 
 
 def get_instance_data(inst_name, p_ref, inst_bulk) -> InstanceData:
-    """
-    Move/rotate data lines are specified here:
+    """Move/rotate data lines are specified here:
 
     https://abaqus-docs.mit.edu/2017/English/SIMACAEKEYRefMap/simakey-r-instance.htm
-
     """
 
     move_rot = re.compile(r"(?:^\s*(.*?),\s*(.*?),\s*(.*?)$)", _re_in)
     metadata = dict(move=None, rotate=None)
-    move: Union[tuple, None] = None
-    rotate: Union[tuple, None] = None
+    transform: Union[Transform, None] = Transform()
     mr = move_rot.finditer(inst_bulk)
     if mr is not None:
         for j, mo in enumerate(mr):
@@ -336,25 +327,15 @@ def get_instance_data(inst_name, p_ref, inst_bulk) -> InstanceData:
             if "*" in content or j == 2 or content == "":
                 break
             if j == 0:
-                move = (float(mo.group(1)), float(mo.group(2)), float(mo.group(3)))
+                transform.move = (float(mo.group(1)), float(mo.group(2)), float(mo.group(3)))
             if j == 1:
                 r = [float(x) for x in mo.group(3).split(",")]
-                rotate_ = [
-                    float(mo.group(1)),
-                    float(mo.group(2)),
-                    r[0],
-                    r[1],
-                    r[2],
-                    r[3],
-                    r[4],
-                ]
-                rotate = (
-                    tuple(rotate_[:3]),
-                    tuple(rotate_[3:-1]),
-                    rotate_[-1],
-                )
+                origin = (float(mo.group(1)), float(mo.group(2)), r[0])
+                vector = (r[1], r[2], r[3])
+                angle = r[4]
+                transform.rotate = Rotation(origin, vector, angle)
 
-    return InstanceData(p_ref, inst_name, inst_bulk, metadata, move, rotate)
+    return InstanceData(p_ref, inst_name, inst_bulk, metadata, transform)
 
 
 def mat_str_to_mat_obj(mat_str) -> Material:
