@@ -4,7 +4,7 @@ from abc import ABC
 from dataclasses import dataclass
 from typing import List
 
-from ada.base import Backend, BackendGeom
+from ada.base.physical_objects import BackendGeom
 from ada.concepts.containers import Beams
 from ada.concepts.primitives import PrimBox
 from ada.concepts.structural import Beam
@@ -101,7 +101,7 @@ class JointBase(BackendGeom, ABC):
         return f'{self.__class__.__name__}("{self.name}", members:{len(self.beams)})'
 
 
-class Bolts(Backend):
+class Bolts(BackendGeom):
     """
 
     TODO: Create a bolt class based on the IfcMechanicalFastener concept.
@@ -118,7 +118,7 @@ class Bolts(Backend):
         super(Bolts, self).__init__(name, parent=parent)
 
 
-class Weld(Backend):
+class Weld(BackendGeom):
     """
     TODO: Create a weld class based on the IfcFastener concept.
 

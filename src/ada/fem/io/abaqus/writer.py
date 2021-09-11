@@ -5,11 +5,9 @@ from itertools import chain, groupby
 from operator import attrgetter
 from typing import Union
 
-import numpy as np
-
 from ada.concepts.levels import FEM, Assembly, Part
 from ada.concepts.points import Node
-from ada.core.utils import NewLine, bool2text
+from ada.core.utils import NewLine
 from ada.fem import (
     Amplitude,
     Bc,
@@ -34,7 +32,9 @@ from ada.fem import (
 from ada.fem.interactions import ContactTypes
 from ada.fem.utils import convert_ecc_to_mpc, convert_hinges_2_couplings
 from ada.materials import Material
-from ada.sections import SectionCat
+from ada.sections import GeneralProperties, Section, SectionCat
+
+from .write_steps import AbaStep
 
 __all__ = ["to_fem"]
 
@@ -490,225 +490,7 @@ class AbaqusPartWriter:
         return move_str
 
 
-class AbaStep:
-    def __init__(self, step: Step):
-        self.step = step
-
-    @property
-    def dynamic_implicit_str(self):
-        """
-        Add a dynamic implicit step
-        """
-
-        return f"""*Step, name={self.step.name}, nlgeom={bool2text(self.step.nl_geom)}, inc={self.step.total_incr}
-*Dynamic,application={self.step.dyn_type}, INITIAL={bool2text(self.step.init_accel_calc)}
- {self.step.init_incr},{self.step.total_time},{self.step.min_incr}, {self.step.max_incr}"""
-
-    @property
-    def explicit_str(self):
-
-        return f"""*Step, name={self.step.name}, nlgeom={bool2text(self.step.nl_geom)}
-*Dynamic, Explicit
-, {self.step.total_time}
-*Bulk Viscosity
-    0.06, 1.2"""
-
-    @property
-    def static_str(self):
-        """
-        A static implicit step
-        """
-
-        static_str = ""
-        stabilize = self.step.stabilize
-        if stabilize is None:
-            pass
-        elif type(stabilize) is dict:
-            stabkeys = list(stabilize.keys())
-            if "energy" in stabkeys:
-                static_str += ", stabilize={}, allsdtol={}".format(stabilize["energy"], stabilize["allsdtol"])
-            elif "damping" in stabkeys:
-                static_str += ", stabilize, factor={}, allsdtol={}".format(stabilize["damping"], stabilize["allsdtol"])
-            elif "continue" in stabkeys:
-                if stabilize["continue"] == "YES":
-                    static_str += ", stabilize, continue={}".format(stabilize["continue"])
-            else:
-                static_str += ", stabilize=0.0002, allsdtol=0.05"
-                print(
-                    'Unrecognized stabilization type "{}". Will revert to energy stabilization "{}"'.format(
-                        stabkeys[0], static_str
-                    )
-                )
-        elif stabilize is True:
-            static_str += ", stabilize=0.0002, allsdtol=0.05"
-        elif stabilize is False:
-            pass
-        else:
-            static_str += ", stabilize=0.0002, allsdtol=0.05"
-            logging.error(
-                "Unrecognized stabilize input. Can be bool, dict or None. "
-                'Reverting to default stabilizing type "energy"'
-            )
-        line1 = (
-            f"*Step, name={self.step.name}, nlgeom={bool2text(self.step.nl_geom)}, "
-            f"unsymm={bool2text(self.step.unsymm)}, inc={self.step.total_incr}"
-        )
-
-        return f"""{line1}
-*Static{static_str}
- {self.step.init_incr}, {self.step.total_time}, {self.step.min_incr}, {self.step.max_incr}"""
-
-    @property
-    def eigenfrequency_str(self):
-        return f"""** ----------------------------------------------------------------
-**
-** STEP: eig
-**
-*Step, name=eig, nlgeom=NO, perturbation
-*Frequency, eigensolver=Lanczos, sim=NO, acoustic coupling=on, normalization=displacement
-{self.step.eigenmodes}, , , , ,
-"""
-
-    @property
-    def complex_eig_str(self):
-        return f"""** ----------------------------------------------------------------
-**
-** STEP: complex_eig
-**
-*Step, name=complex_eig, nlgeom=NO, perturbation, unsymm=YES
-*Complex Frequency, friction damping=NO
-{self.step.eigenmodes}, , ,
-"""
-
-    @property
-    def steady_state_response_str(self):
-        if self.step.nodeid is None:
-            raise ValueError("Please define a nodeid for the steady state load")
-
-        return f"""** ----------------------------------------------------------------
-*STEP,NAME=Response_Analysis_{self.step.fmin}_{self.step.fmax}Hz
-*STEADY STATE DYNAMICS, DIRECT, INTERVAL=RANGE
-{add_freq_range(self.step.fmin, self.step.fmax)}
-*GLOBAL DAMPING, ALPHA={self.step.alpha} , BETA={self.step.beta}
-**
-*LOAD CASE, NAME=LC1
-*CLOAD, OP=NEW
-{self.step.nodeid},2, 1
-*END LOAD CASE
-**
-*OUTPUT, FIELD, FREQUENCY=1
-*NODE OUTPUT
-U
-**
-*OUTPUT, HISTORY, FREQUENCY=1
-*NODE OUTPUT, NSET=accel_data_set
-UT, AT, TU, TA
-**
-"""
-
-    @property
-    def _hist_output_str(self):
-        return (
-            "\n".join([hist_output_str(hs) for hs in self.step.hist_outputs])
-            if len(self.step.hist_outputs) > 0
-            else "**"
-        )
-
-    @property
-    def _field_output_str(self):
-        return (
-            "\n".join([field_output_str(fs) for fs in self.step.field_outputs])
-            if len(self.step.field_outputs) > 0
-            else "**"
-        )
-
-    @property
-    def interactions_str(self):
-        return "\n".join([interaction_str(interact, self) for interact in self.step.interactions.values()])
-
-    @property
-    def step_data_str(self):
-        if self.step.type.lower() == Step.TYPES.STATIC:
-            return self.static_str
-        elif self.step.type.lower() == Step.TYPES.DYNAMIC:
-            return self.dynamic_implicit_str
-        elif self.step.type.lower() == Step.TYPES.EXPLICIT:
-            return self.explicit_str
-
-        elif self.step.type.lower() == Step.TYPES.EIGEN:
-            return self.eigenfrequency_str
-
-        elif self.step.type.lower() == Step.TYPES.RESP:
-            return self.steady_state_response_str
-
-        elif self.step.type.lower() == Step.TYPES.COMPLEX_EIG:
-            return self.complex_eig_str
-
-        else:
-            raise ValueError(f"Unrecognized step type {self.step.type}.")
-
-    @property
-    def bc_str(self):
-        bcstr = ""
-        for bcid, bc_ in self.step.bcs.items():
-            bcstr += "\n" if "\n" not in bcstr[-2:] != "" else ""
-            bcstr += bc_str(bc_, self)
-
-        return bcstr
-
-    @property
-    def load_str(self):
-        return "\n".join([load_str(l) for l in self.step.loads])
-
-    @property
-    def restart_request_str(self):
-        return (
-            f"*Restart, write, frequency={self.step.restart_int}"
-            if self.step.restart_int is not None
-            else "** No Restart Requests"
-        )
-
-    @property
-    def str(self):
-        if "aba_inp" in self.step.metadata.keys():
-            return self.step.metadata["aba_inp"]
-        loads_str = "** No Loads" if self.load_str == "" else self.load_str.rstrip()
-        bcs_str = "** No BCs" if self.bc_str == "" else self.bc_str.rstrip()
-        int_str = "** No Interactions" if len(self.step.interactions) == 0 else self.interactions_str
-        app_str = self.step.metadata["append"] if "append" in self.step.metadata.keys() else "**"
-
-        return f"""**
-** STEP: {self.step.name}
-**
-{self.step_data_str}
-**
-** BOUNDARY CONDITIONS
-**
-{bcs_str}
-**
-** LOADS
-**
-{loads_str}
-**
-** INTERACTIONS
-**
-{int_str}
-**
-** OUTPUT REQUESTS
-**
-{self.restart_request_str}
-{self._hist_output_str}
-{self._field_output_str}
-{app_str}
-"""
-
-
 class AbaSection:
-    """
-
-    :type fem_sec: ada.fem.FemSection
-    """
-
     def __init__(self, fem_sec: FemSection, fem_writer):
         self.fem_sec = fem_sec
         self._fem_writer = fem_writer
@@ -770,29 +552,8 @@ class AbaSection:
                 raise ValueError("Web thickness cannot be larger than section width")
             return f"{sec.w_top}, {sec.h}, {sec.t_w}, {sec.t_ftop}, {sec.t_w}, {sec.t_fbtn}\n {n1}"
         elif self.section_data == "GENERAL":
-            gp = sec.properties
             mat = self.fem_sec.material.model
-            if gp.Ix <= 0.0:
-                gp.Ix = 1
-                logging.error(f"Section {self.fem_sec.name} Ix <= 0.0. Changing to 2. {log_fin}")
-            if gp.Iy <= 0.0:
-                gp.Iy = 2
-                logging.error(f"Section {self.fem_sec.name} Iy <= 0.0. Changing to 2. {log_fin}")
-            if gp.Iz <= 0.0:
-                gp.Iz = 2
-                logging.error(f"Section {self.fem_sec.name} Iz <= 0.0. Changing to 2. {log_fin}")
-            if gp.Iyz <= 0.0:
-                gp.Iyz = (gp.Iy + gp.Iz) / 2
-                logging.error(f"Section {self.fem_sec.name} Iyz <= 0.0. Changing to (Iy + Iz) / 2. {log_fin}")
-            if gp.Iy * gp.Iz - gp.Iyz ** 2 < 0:
-                old_y = str(gp.Iy)
-                gp.Iy = 1.1 * (gp.Iy + (gp.Iyz ** 2) / gp.Iz)
-                logging.error(
-                    f"Warning! Section {self.fem_sec.name}: I(11)*I(22)-I(12)**2 MUST BE POSITIVE. "
-                    f"Mod Iy={old_y} to {gp.Iy}. {log_fin}"
-                )
-            if (-(gp.Iy + gp.Iz) / 2 < gp.Iyz <= (gp.Iy + gp.Iz) / 2) is False:
-                raise ValueError("Iyz must be between -(Iy+Iz)/2 and (Iy+Iz)/2")
+            gp = eval_general_properties(sec)
             return f"{gp.Ax}, {gp.Iy}, {gp.Iyz}, {gp.Iz}, {gp.Ix}\n {n1}\n {mat.E:.3E}, ,{mat.alpha:.2E}"
         elif self.section_data == "PIPE":
             return f"{self.fem_sec.section.r}, {self.fem_sec.section.wt}\n {n1}"
@@ -861,6 +622,32 @@ class AbaSection:
             return self.beam_str
         else:
             raise ValueError()
+
+
+def eval_general_properties(section: Section) -> GeneralProperties:
+    gp = section.properties
+    name = gp.parent.parent.name
+    if gp.Ix <= 0.0:
+        gp.Ix = 1
+        logging.error(f"Section {name} Ix <= 0.0. Changing to 2. {log_fin}")
+    if gp.Iy <= 0.0:
+        gp.Iy = 2
+        logging.error(f"Section {name} Iy <= 0.0. Changing to 2. {log_fin}")
+    if gp.Iz <= 0.0:
+        gp.Iz = 2
+        logging.error(f"Section {name} Iz <= 0.0. Changing to 2. {log_fin}")
+    if gp.Iyz <= 0.0:
+        gp.Iyz = (gp.Iy + gp.Iz) / 2
+        logging.error(f"Section {name} Iyz <= 0.0. Changing to (Iy + Iz) / 2. {log_fin}")
+    if gp.Iy * gp.Iz - gp.Iyz ** 2 < 0:
+        old_y = str(gp.Iy)
+        gp.Iy = 1.1 * (gp.Iy + (gp.Iyz ** 2) / gp.Iz)
+        logging.error(
+            f"Warning! Section {name}: I(11)*I(22)-I(12)**2 MUST BE POSITIVE. " f"Mod Iy={old_y} to {gp.Iy}. {log_fin}"
+        )
+    if (-(gp.Iy + gp.Iz) / 2 < gp.Iyz <= (gp.Iy + gp.Iz) / 2) is False:
+        raise ValueError("Iyz must be between -(Iy+Iz)/2 and (Iy+Iz)/2")
+    return gp
 
 
 class AbaConstraint:
@@ -1482,27 +1269,6 @@ def field_output_str(field_output: FieldOutput) -> str:
 {nodal_str}
 {element_str}
 {contact_str}""".strip()
-
-
-def add_freq_range(fmin, fmax, intervals=100):
-    """
-    Return a multiline string of frequency range given by <fmin> and <fmax> at a specific interval.
-
-    :param intervals: Number of intervals for frequency range. Default is 100.
-    :param fmin: Minimum frequency
-    :param fmax: Maximum frequency
-    :return:
-    """
-    freq_list = np.linspace(fmin, fmax, intervals)
-    freq_str = ""
-    for eig in freq_list:
-        if eig == freq_list[-1]:
-            print("last one")
-            freq_str += "{0:.3f},".format(eig)
-        else:
-            freq_str += "{0:.3f},\n".format(eig)
-
-    return freq_str
 
 
 def predefined_field_str(pre_field: PredefinedField) -> str:

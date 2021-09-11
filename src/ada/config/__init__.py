@@ -55,7 +55,7 @@ class Settings:
     test_dir = pathlib.Path(os.getenv("ADA_test_dir", f"{_home}/tests"))
     tools_dir = pathlib.Path(os.getenv("ADA_tools_dir", f"{_home}/tools"))
 
-    fem_exe_paths = dict(abaqus=None, ccx=None, sesam=None, usfos=None, code_aster=None)
+    fem_exe_paths = dict(abaqus=None, ccx=None, sestra=None, usfos=None, code_aster=None)
 
     @classmethod
     def default_ifc_settings(cls):

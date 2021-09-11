@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import pathlib
@@ -30,6 +31,7 @@ class LocalExecute:
         metadata=None,
         auto_execute=True,
         excute_locally=True,
+        run_in_shell=False,
     ):
         self._inp_path = pathlib.Path(inp_path)
         self._cpus = cpus
@@ -38,15 +40,26 @@ class LocalExecute:
         self._metadata = metadata
         self.auto_execute = auto_execute
         self.local_execute = excute_locally
+        self.run_in_shell = run_in_shell
 
-    def _run_local(self, run_command, stop_command=None, exit_on_complete=True):
+    def _run_local(self, run_command, stop_command=None, exit_on_complete=True, bat_start_str=None):
+        if self._metadata is not None:
+            with open(self.inp_path.parent / "analysis_manifest.json", "w") as fp:
+                json.dump(self._metadata, fp, indent=4)
 
         if sys.platform == "linux" or sys.platform == "linux2":
             out = run_linux(self, run_command)
         elif sys.platform == "darwin":
             out = run_macOS(self, run_command)
         else:  # sys.platform == "win32":
-            out = run_windows(self, run_command, stop_command, exit_on_complete)
+            out = run_windows(
+                self,
+                run_command,
+                stop_command,
+                exit_on_complete,
+                bat_start_str=bat_start_str,
+                run_in_shell=self.run_in_shell,
+            )
 
         return out
 
@@ -71,6 +84,10 @@ class LocalExecute:
     @property
     def inp_path(self):
         return pathlib.Path(self._inp_path)
+
+    @inp_path.setter
+    def inp_path(self, value):
+        self._inp_path = pathlib.Path(value)
 
 
 def is_buffer(obj, mode):
@@ -184,7 +201,9 @@ def get_ff_regex(flag, *args):
     if not args:
         pattern_str += add_key("bulk")
 
-    return re.compile(pattern_str + r"(?:(?=^[A-Z]|\Z))", re_in)
+    pattern_str += r"(?:(?=^[A-Z]|\Z))"
+
+    return re.compile(pattern_str, re_in)
 
 
 def _overwrite_dir(analysis_dir):
@@ -233,22 +252,15 @@ def folder_prep(scratch_dir, analysis_name, overwrite):
     return analysis_dir
 
 
-def run_windows(exe: LocalExecute, run_command, stop_command=None, exit_on_complete=True):
-    """
-
-    :param exe:
-    :param run_command:
-    :param stop_command:
-    :param exit_on_complete:
-    :return:
-    """
-    bat_start_str = f"""echo OFF
+def run_windows(exe: LocalExecute, run_cmd, stop_cmd=None, exit_after=True, bat_start_str=None, run_in_shell=False):
+    if bat_start_str is None:
+        bat_start_str = f"""echo OFF
 for %%* in (.) do set CurrDirName=%%~nx*
 title %CurrDirName%
 cd /d {exe.analysis_dir}
-echo ON\ncall {run_command}"""
+echo ON\ncall {run_cmd}"""
 
-    if exit_on_complete is False:
+    if exit_after is False:
         bat_start_str += "\npause"
 
     start_bat = "run.bat"
@@ -259,28 +271,32 @@ echo ON\ncall {run_command}"""
     with open(exe.execute_dir / start_bat, "w") as d:
         d.write(bat_start_str + "\nEXIT")
 
-    if stop_command is not None:
+    if stop_cmd is not None:
         with open(exe.execute_dir / stop_bat, "w") as d:
-            d.write(f"cd /d {exe.analysis_dir}\n{stop_command}")
+            d.write(f"cd /d {exe.analysis_dir}\n{stop_cmd}")
 
     if _Settings.execute_dir is not None:
         shutil.copy(exe.execute_dir / start_bat, _Settings.execute_dir / start_bat)
         shutil.copy(exe.execute_dir / stop_bat, _Settings.execute_dir / stop_bat)
-    run_command = "start " + start_bat if exe.run_ext is True else "call " + start_bat
-    return run_tool(exe, run_command, "Windows")
+
+    if run_in_shell:
+        run_cmd = "start " + start_bat if exe.run_ext is True else "start /wait " + start_bat
+    else:
+        run_cmd = "start " + start_bat if exe.run_ext is True else "call " + start_bat
+    return run_tool(exe, run_cmd, "Windows")
 
 
-def run_linux(exe, run_command):
+def run_linux(exe, run_cmd):
     """
 
     :param exe:
-    :param run_command:
+    :param run_cmd:
     :return:
     """
-    return run_tool(exe, run_command, "Linux")
+    return run_tool(exe, run_cmd, "Linux")
 
 
-def run_tool(exe, run_command, platform):
+def run_tool(exe, run_cmd, platform):
     fem_tool = type(exe).__name__
     out = None
     print(80 * "-")
@@ -288,16 +304,16 @@ def run_tool(exe, run_command, platform):
     props = dict(shell=True, cwd=exe.execute_dir, env=os.environ, capture_output=True, universal_newlines=True)
     if exe.auto_execute is True:
         if exe.run_ext is True:
-            out = subprocess.run(run_command, **props)
+            out = subprocess.run(run_cmd, **props)
             print(f"Note! This starts {fem_tool} in an external window on a separate thread.")
         else:
-            out = subprocess.run(run_command, **props)
+            out = subprocess.run(run_cmd, **props)
             print(f'Finished {fem_tool} simulation "{exe.analysis_name}"')
     print(80 * "-")
     return out
 
 
-def run_macOS(exe, run_command):
+def run_macOS(exe, run_cmd):
     raise NotImplementedError()
 
 
@@ -403,3 +419,13 @@ def convert_part_objects(p: Part, skip_plates, skip_beams):
         p._plates = convert_part_shell_elements_to_plates(p)
     if skip_beams is False:
         p._beams = convert_part_elem_bm_to_beams(p)
+
+
+def default_fem_res_path(name, scratch_dir):
+    base_path = scratch_dir / name / name
+    return dict(
+        code_aster=base_path.with_suffix(".rmed"),
+        abaqus=base_path.with_suffix(".odb"),
+        calculix=base_path.with_suffix(".frd"),
+        sesam=(base_path.parent / f"{name}R1").with_suffix(".SIN"),
+    )

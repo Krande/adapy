@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from itertools import chain
 from typing import List, Union
 
-from ada.base import BackendGeom
+from ada.base.physical_objects import BackendGeom
 from ada.concepts.connections import JointBase
 from ada.concepts.containers import (
     Beams,
@@ -29,6 +29,7 @@ from ada.concepts.primitives import (
     Shape,
 )
 from ada.concepts.structural import Beam, Material, Plate, Section, Wall
+from ada.concepts.transforms import Transform
 from ada.config import Settings, User
 from ada.fem import (
     Amplitude,
@@ -72,7 +73,7 @@ class Part(BackendGeom):
         guid=None,
     ):
         super().__init__(name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_elem=ifc_elem)
-        from ada.fem.mesh import GMesh
+        from ada.fem.meshing import GMesh
 
         self._nodes = Nodes(parent=self)
         self._beams = Beams(parent=self)
@@ -85,6 +86,7 @@ class Part(BackendGeom):
         self._gmsh = GMesh(self)
         self._colour = colour
         self._origin = origin
+        self._instances = []
         self._lx = lx
         self._ly = ly
         self._lz = lz
@@ -235,6 +237,9 @@ class Part(BackendGeom):
                 p.add_penetration(pen, False)
         return pen
 
+    def add_instance(self, element, transform: Transform):
+        self._instances[element] = transform
+
     def add_elements_from_ifc(self, ifc_file_path: os.PathLike, data_only=False):
         a = Assembly("temp")
         a.read_ifc(ifc_file_path, data_only=data_only)
@@ -349,9 +354,14 @@ class Part(BackendGeom):
         self._flatten_list_of_subparts(self, list_of_parts)
         return list_of_parts
 
-    def get_all_physical_objects(self) -> List[Union[Beam, Plate, Wall, Pipe, Shape]]:
+    def get_all_physical_objects(self, sub_elements_only=True) -> List[Union[Beam, Plate, Wall, Pipe, Shape]]:
         physical_objects = []
-        for p in self.get_all_subparts() + [self]:
+        if sub_elements_only:
+            iter_parts = iter(self.get_all_subparts() + [self])
+        else:
+            iter_parts = iter(self.get_all_parts_in_assembly(True))
+
+        for p in iter_parts:
             physical_objects += list(p.plates) + list(p.beams) + list(p.shapes) + list(p.pipes) + list(p.walls)
         return physical_objects
 
@@ -485,7 +495,7 @@ class Part(BackendGeom):
 
     @property
     def gmsh(self):
-        """:rtype: ada.fem.mesh.GMesh"""
+        """:rtype: ada.fem.meshing.GMesh"""
         return self._gmsh
 
     @property
@@ -753,7 +763,7 @@ class Assembly(Part):
 
         write_assembly_to_cache(self, self._cache_file)
 
-    def read_ifc(self, ifc_file: os.PathLike, data_only=False, elements2part=None, cache_model_now=False):
+    def read_ifc(self, ifc_file: Union[str, os.PathLike], data_only=False, elements2part=None, cache_model_now=False):
         """
         Import from IFC file.
 
@@ -861,6 +871,7 @@ class Assembly(Part):
         overwrite=False,
         fem_converter="default",
         exit_on_complete=True,
+        run_in_shell=False,
     ):
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
@@ -906,15 +917,11 @@ class Assembly(Part):
 
         """
         from ada.fem.io import fem_executables, get_fem_converters
-        from ada.fem.io.utils import folder_prep, should_convert
+        from ada.fem.io.utils import default_fem_res_path, folder_prep, should_convert
         from ada.fem.results import Results
 
-        base_path = Settings.scratch_dir / name / name
-        fem_res_files = dict(
-            code_aster=base_path.with_suffix(".rmed"),
-            abaqus=base_path.with_suffix(".odb"),
-            calculix=base_path.with_suffix(".frd"),
-        )
+        fem_res_files = default_fem_res_path(name, Settings.scratch_dir)
+
         res_path = fem_res_files.get(fem_format, None)
         metadata = dict() if metadata is None else metadata
         metadata["fem_format"] = fem_format
@@ -930,7 +937,9 @@ class Assembly(Part):
                 code_aster=(analysis_dir / name).with_suffix(".export"),
                 abaqus=(analysis_dir / name).with_suffix(".inp"),
                 calculix=(analysis_dir / name).with_suffix(".inp"),
+                sesam=(analysis_dir / name).with_suffix(".FEM"),
             )
+
             fem_exporter(self, name, analysis_dir, metadata)
 
             if execute is True:
@@ -938,7 +947,8 @@ class Assembly(Part):
                 inp_path = fem_inp_files.get(fem_format, None)
                 if exe_func is None:
                     raise NotImplementedError(f'The FEM format "{fem_format}" has no execute function')
-
+                if inp_path is None:
+                    raise ValueError("")
                 out = exe_func(
                     inp_path=inp_path,
                     cpus=cpus,
@@ -947,12 +957,13 @@ class Assembly(Part):
                     metadata=metadata,
                     execute=execute,
                     exit_on_complete=exit_on_complete,
+                    run_in_shell=run_in_shell,
                 )
         else:
             print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
         if out is None and res_path is None:
             return None
-        return Results(res_path, output=out)
+        return Results(name, res_path, fem_format=fem_format, assembly=self, output=out, overwrite=overwrite)
 
     def to_ifc(self, destination_file, include_fem=False) -> None:
         from ada.ifc.export import add_part_objects_to_ifc
@@ -1166,11 +1177,10 @@ class FEM:
 
     def add_bc(self, bc: Bc):
         if bc.name in [b.name for b in self.bcs]:
-            raise Exception('BC with name "{bc_id}" already exists'.format(bc_id=bc.name))
+            raise ValueError(f'BC with name "{bc.name}" already exists')
 
         bc.parent = self
         if bc.fem_set.parent is None:
-            # TODO: look over this implementation. Is this okay?
             logging.debug("Bc FemSet has no parent. Adding to self")
             self.sets.add(bc.fem_set)
 

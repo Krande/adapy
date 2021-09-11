@@ -33,4 +33,4 @@ jobs:
       - name: Build
         run: docker build -t ada/testing .
       - name: Test
-        run: docker run ada/testing bash -c "pip install pytest && cd /home/tests && pytest"
+        run: docker run ada/testing bash -c "pip install pytest pydantic && cd /home/tests && pytest"

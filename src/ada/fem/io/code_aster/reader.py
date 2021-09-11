@@ -9,7 +9,7 @@ from ada.concepts.levels import FEM, Assembly, Part
 from ada.fem import Elem, FemSet
 from ada.fem.containers import FemElements, FemSets
 
-from .common import med_to_abaqus_type
+from .common import med_to_ada_type
 
 
 def read_fem(assembly: Assembly, fem_file: os.PathLike, fem_name: str = None):
@@ -91,7 +91,7 @@ def med_to_fem(fem_file, fem_name):
             logging.warning("Point elements are still not supported")
             continue
 
-        cell_type = med_to_abaqus_type(med_cell_type)
+        cell_type = med_to_ada_type(med_cell_type)
         cell_types.append(cell_type)
 
         nod = med_cell_type_group["NOD"]

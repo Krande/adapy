@@ -1,6 +1,7 @@
 import logging
 import pathlib
 import subprocess
+import traceback
 
 import numpy as np
 from IPython.display import display
@@ -16,22 +17,36 @@ from ada.visualize.femviz import (
 from ada.visualize.renderer import MyRenderer
 from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
+from .concepts.eigenvalue import EigenDataSummary
+
 
 class Results:
-    def __init__(self, result_file_path, part=None, palette=None, output=None):
-        result_file_path = pathlib.Path(result_file_path)
+    def __init__(self, name, res_path, fem_format, part=None, assembly=None, palette=None, output=None, overwrite=True):
+        self._name = name
+        self._fem_format = fem_format
         self.palette = [(0, 149 / 255, 239 / 255), (1, 0, 0)] if palette is None else palette
+        self._eigen_mode_data = None
         self._analysis_type = None
         self._point_data = []
         self._cell_data = []
-        self._results_file_path = result_file_path
-        self._read_result_file(result_file_path)
+        self._assembly = assembly
         self._part = part
         self._renderer = None
         self._render_sets = None
         self._undeformed_mesh = None
         self._deformed_mesh = None
         self._output = output
+        self._overwrite = overwrite
+        self._results_file_path = pathlib.Path(res_path)
+        self._read_result_file(self._results_file_path)
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def fem_format(self):
+        return self._fem_format
 
     @property
     def output(self) -> subprocess.CompletedProcess:
@@ -59,34 +74,68 @@ class Results:
         """:rtype: pythreejs.Mesh"""
         return self._deformed_mesh
 
+    @property
+    def part(self):
+        """:rtype: ada.Part"""
+        return self._part
+
+    @property
+    def assembly(self):
+        """:rtype: ada.Assembly"""
+        return self._assembly
+
+    @property
+    def eigen_mode_data(self) -> EigenDataSummary:
+        return self._eigen_mode_data
+
     def _get_mesh(self, file_ref):
         import meshio
 
         from ada.core.utils import get_list_of_files
+        from ada.fem import Step
+        from ada.fem.elements import ElemShapes
 
         file_ref = pathlib.Path(file_ref)
         suffix = file_ref.suffix.lower()
         if suffix in ".rmed":
-            mesh = meshio.read(file_ref, "med")
+            from ada.fem.io.code_aster.reader import med_to_fem
+
             self._analysis_type = "code_aster"
+
+            if self.assembly.fem.steps[0].type == Step.TYPES.EIGEN:
+                from .io.code_aster.results import get_eigen_data
+
+                self._eigen_mode_data = get_eigen_data(file_ref)
+            fem = med_to_fem(file_ref, "temp")
+            if any([x.type in ElemShapes.tri7 for x in fem.elements.shell]):
+                logging.error("Meshio does not support 7 node Triangle elements yet")
+                return None
+            mesh = meshio.read(file_ref, "med")
         elif suffix == ".frd":
             from ccx2paraview import Converter
 
             self._analysis_type = "calculix"
             if file_ref.exists() is False:
                 return None
-            convert = Converter(str(file_ref), ["vtu"])
-            convert.run()
+            if len(get_list_of_files(file_ref.parent, ".vtu")) == 0 or self._overwrite is True:
+                convert = Converter(str(file_ref), ["vtu"])
+                convert.run()
             result_files = get_list_of_files(file_ref.parent, ".vtu")
             if len(result_files) == 0:
-                logging.error("No VTU files found. Check if analysis was successfully completed")
-                return None
+                raise FileNotFoundError("No VTU files found. Check if analysis was successfully completed")
+
             if len(result_files) > 1:
                 logging.error("Currently only reading last step for multi-step Calculix analysis results")
+
             result_file = result_files[-1]
             self._results_file_path = pathlib.Path(result_file)
             print(f'Reading result from "{result_file}"')
             mesh = meshio.read(result_file)
+            dat_file = file_ref.with_suffix(".dat")
+            if dat_file.exists() and self.assembly.fem.steps[0].type == Step.TYPES.EIGEN:
+                from .io.calculix.results import get_eigen_data
+
+                self._eigen_mode_data = get_eigen_data(dat_file)
         else:
             logging.error(f'Results class currently does not support filetype "{suffix}"')
             return None
@@ -109,7 +158,13 @@ class Results:
     def _read_result_file(self, file_ref):
         if file_ref.exists() is False:
             return None
-        mesh = self._get_mesh(file_ref)
+        try:
+            mesh = self._get_mesh(file_ref)
+        except ValueError as e:
+
+            logging.error(f'Error during result file reading. "{e}". {traceback.format_exc()}')
+            return None
+
         if mesh is None:
             return None
         self._mesh = mesh

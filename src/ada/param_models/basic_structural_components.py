@@ -32,7 +32,9 @@ class Window(Part):
     @units.setter
     def units(self, value):
         if value != self._units:
-            scale_factor = self._unit_conversion(self._units, value)
+            from ada.core.utils import unit_length_conversion
+
+            scale_factor = unit_length_conversion(self._units, value)
             self._origin = tuple([x * scale_factor for x in self._origin])
             self._width *= scale_factor
             self._height *= scale_factor
@@ -81,7 +83,9 @@ class Door(Part):
     @units.setter
     def units(self, value):
         if value != self._units:
-            scale_factor = self._unit_conversion(self._units, value)
+            from ada.core.utils import unit_length_conversion
+
+            scale_factor = unit_length_conversion(self._units, value)
             self._origin = tuple([x * scale_factor for x in self._origin])
             self._width *= scale_factor
             self._height *= scale_factor

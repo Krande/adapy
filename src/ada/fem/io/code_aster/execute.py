@@ -20,6 +20,7 @@ def run_code_aster(
     execute=True,
     return_bat_str=False,
     exit_on_complete=True,
+    run_in_shell=False,
 ):
     """
 
@@ -34,47 +35,25 @@ def run_code_aster(
     :param execute: Automatically starts Abaqus analysis. Default is True
     :param return_bat_str:
     :param exit_on_complete:
+    :param run_in_shell:
     """
-    from .writer import write_export_file
 
     name = pathlib.Path(inp_path).stem
-    ca = CodeAsterAnalysis(
+    ca = CodeAsterExecute(
         inp_path,
         cpus=cpus,
         run_ext=run_ext,
         metadata=metadata,
-        execute=execute,
+        auto_execute=execute,
     )
     with open(inp_path, "w") as f:
         f.write(write_export_file(name, cpus))
 
-    out = ca.run(exit_on_complete=exit_on_complete)
-    return out
+    return ca.run(exit_on_complete=exit_on_complete)
 
 
-class CodeAsterAnalysis(LocalExecute):
-    def __init__(self, inp_path, cpus=2, execute=True, metadata=None, local_execute=True, run_ext=True):
-        """
-        Code Aster Analysis
-
-        Local Installation from:
-        https://bitbucket.org/siavelis/codeaster-windows-src/downloads/code-aster_v2019_std-win64.zip
-
-        :param inp_path:
-        :param cpus:
-        """
-        super(CodeAsterAnalysis, self).__init__(
-            inp_path,
-            cpus,
-            gpus=None,
-            run_ext=run_ext,
-            metadata=metadata,
-            excute_locally=local_execute,
-            auto_execute=execute,
-        )
-
+class CodeAsterExecute(LocalExecute):
     def run(self, exit_on_complete=True):
-
         try:
             exe_path = get_exe_path("code_aster")
         except FileNotFoundError as e:
@@ -83,3 +62,19 @@ class CodeAsterAnalysis(LocalExecute):
 
         out = self._run_local(f'"{exe_path}" {self.analysis_name}.export', exit_on_complete=exit_on_complete)
         return out
+
+
+def write_export_file(name: str, cpus: int):
+    export_str = f"""P actions make_etude
+P memory_limit 1274
+P time_limit 900
+P version stable
+P mpi_nbcpu 1
+P mode interactif
+P ncpus {cpus}
+F comm {name}.comm D 1
+F mmed {name}.med D 20
+F mess {name}.mess R 6
+F rmed {name}.rmed R 80"""
+
+    return export_str

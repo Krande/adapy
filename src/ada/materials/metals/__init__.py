@@ -128,6 +128,10 @@ class Metal:
         """
         return self._plasticitymodel
 
+    @plasticity_model.setter
+    def plasticity_model(self, value):
+        self._plasticitymodel = value
+
     @property
     def eps_p(self):
         if self._eps_p is not None:
@@ -357,11 +361,17 @@ class DnvGl16Mat:
         return dict(description="Carbon Steel nonlinear material based on DNVGL-RP-C208 (Sept. 2019)")
 
 
+class CarbonSteelGradeTypes:
+    S355 = "S355"
+    S420 = "S420"
+
+
 class CarbonSteel(Metal):
-    GRADES = dict(
-        S355=dict(name="S355", sigy=355e6, sigu=355e6),
-        S420=dict(name="S420", sigy=420e6, sigu=420e6),
-    )
+    TYPES = CarbonSteelGradeTypes
+    GRADES = {
+        TYPES.S355: dict(name="S355", sigy=355e6, sigu=355e6),
+        TYPES.S420: dict(name="S420", sigy=420e6, sigu=420e6),
+    }
     EC3_TEMP = [20, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200]
     EC3_E_RED = [
         1.0,
@@ -380,27 +390,10 @@ class CarbonSteel(Metal):
     ]
     EC3_S_RED = [1.0, 1.0, 1.0, 1.0, 1.0, 0.78, 0.47, 0.23, 0.11, 0.06, 0.04, 0.02, 0.0]
 
-    """
-
-    :param grade: Material Grade
-    :param plasticity_model: Plasticity model e.g. CarbonSteel
-    :param E: Young's Modulus
-    :param rho: Material Density
-    :param v: Poisson Ratio
-    :param zeta: Material damping coefficient
-    :param alpha: Thermal Expansion coefficient
-    :param sig_y: Yield stress
-    :param sig_u: Ultimate stress
-    :param eps_p: Plastic strain
-    :param sig_p: Plastic stress
-    :param temp_range: Temperature range
-    :param units: Definition of length unit. Default is meter 'm'. Alternative is millimeter 'mm'.
-    """
-
     def __init__(
         self,
         grade="S355",
-        plasticity_model=DnvGl16Mat(t=0.01, grade="S355", mat_def="Low", eps_max=0.3, data_points=200),
+        plasticity_model=None,
         E=2.1e11,
         rho=7850,
         v=0.3,
@@ -413,6 +406,21 @@ class CarbonSteel(Metal):
         temp_range=None,
         units="m",
     ):
+        """
+        :param grade: Material Grade
+        :param plasticity_model: Plasticity model e.g. CarbonSteel
+        :param E: Young's Modulus
+        :param rho: Material Density
+        :param v: Poisson Ratio
+        :param zeta: Material damping coefficient
+        :param alpha: Thermal Expansion coefficient
+        :param sig_y: Yield stress
+        :param sig_u: Ultimate stress
+        :param eps_p: Plastic strain
+        :param sig_p: Plastic stress
+        :param temp_range: Temperature range
+        :param units: Definition of length unit. Default is meter 'm'. Alternative is millimeter 'mm'.
+        """
         self._grade = grade
         sig_y = sig_y if sig_y is not None else CarbonSteel.GRADES[grade]["sigy"]
         sig_u = sig_u if sig_u is not None else CarbonSteel.GRADES[grade]["sigu"]
@@ -443,6 +451,7 @@ class CarbonSteel(Metal):
 
     @property
     def grade(self):
+        """Material Grade"""
         return self._grade
 
     @property

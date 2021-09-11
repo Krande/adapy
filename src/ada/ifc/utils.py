@@ -1,4 +1,5 @@
 import logging
+from typing import Tuple
 
 import ifcopenshell
 import ifcopenshell.geom
@@ -7,11 +8,16 @@ import numpy as np
 from ifcopenshell.util.unit import get_prefix_multiplier
 
 import ada.core.constants as ifco
+from ada.concepts.transforms import Transform
 from ada.config import Settings
 from ada.core.utils import Counter, get_list_of_files, roundoff
 
 name_gen = Counter(1, "IfcEl")
 tol_map = dict(m=Settings.mtol, mm=Settings.mmtol)
+
+
+def ifc_dir(f: ifcopenshell.file, vec: Tuple[float, float, float]):
+    return f.create_entity("IfcDirection", to_real(vec))
 
 
 def get_tolerance(units):
@@ -1033,3 +1039,15 @@ def default_settings():
 
 def open_ifc(ifc_file_path):
     return ifcopenshell.open(str(ifc_file_path))
+
+
+def export_transform(f: ifcopenshell.file, transform: Transform):
+    from ada.core.constants import X
+
+    # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/annex/annex-e/mapped-shape-with-multiple-items.ifc
+    # axis1 = f.create_entity("")
+    f.create_entity(
+        "IfcCartesianTransformationOperator",
+        ifc_dir(f, X),
+    )
+    raise NotImplementedError()

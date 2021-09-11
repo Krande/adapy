@@ -5,7 +5,7 @@ from typing import List, Union
 
 import numpy as np
 
-from ada.base import BackendGeom
+from ada.base.physical_objects import BackendGeom
 from ada.config import Settings as _Settings
 from ada.core.utils import (
     Counter,
@@ -15,7 +15,6 @@ from ada.core.utils import (
     unit_vector,
     vector_length,
 )
-from ada.fem.shapes import ElemType
 from ada.ifc.utils import create_guid
 from ada.materials.utils import get_material
 from ada.sections.utils import get_section
@@ -336,12 +335,14 @@ class PipeSegStraight(BackendGeom):
 
     @property
     def shell(self):
+        from ada.fem.shapes import ElemType
         from ada.occ.utils import sweep_pipe
 
         return sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, ElemType.SHELL)
 
     @property
     def solid(self):
+        from ada.fem.shapes import ElemType
         from ada.occ.utils import sweep_pipe
 
         return sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, ElemType.SOLID)
@@ -479,6 +480,7 @@ class PipeSegElbow(BackendGeom):
 
     @property
     def shell(self):
+        from ada.fem.shapes import ElemType
         from ada.occ.utils import sweep_pipe
 
         i = self.parent.segments.index(self)
@@ -492,6 +494,7 @@ class PipeSegElbow(BackendGeom):
 
     @property
     def solid(self):
+        from ada.fem.shapes import ElemType
         from ada.occ.utils import sweep_pipe
 
         i = self.parent.segments.index(self)

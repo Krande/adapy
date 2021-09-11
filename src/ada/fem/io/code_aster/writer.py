@@ -4,6 +4,7 @@ from typing import Iterable, Tuple
 import numpy as np
 
 from ada.concepts.levels import Assembly, Part
+from ada.concepts.points import Node
 from ada.concepts.structural import Material
 from ada.config import Settings as _Settings
 from ada.fem import Bc, FemSection, Load, Step
@@ -12,11 +13,14 @@ from ada.fem.shapes import ElemShapes
 
 from ..utils import get_fem_model_from_assembly
 from .common import abaqus_to_med_type
-from .templates import main_comm_str
+from .compatibility import check_compatibility
+from .templates import el_convet_str, main_comm_str
 
 
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
-    """Write Code_Aster .med, .export and .comm file from Assembly data"""
+    """Write Code_Aster .med and .comm file from Assembly data"""
+
+    check_compatibility(assembly)
 
     if "info" not in metadata:
         metadata["info"] = dict(description="")
@@ -40,20 +44,63 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     sections_str = write_sections(part.fem.sections)
     bc_str = "\n".join([create_bc_str(bc) for bc in assembly.fem.bcs + part.fem.bcs])
     step_str = "\n".join([create_step_str(s, part) for s in assembly.fem.steps])
+
+    type_tmpl_str = "_F(GROUP_MA={elset_str}, PHENOMENE='MECANIQUE', MODELISATION='{el_formula}',),"
+
     model_type_str = ""
+    section_sets = ""
+    input_mesh = "mesh"
     if len(part.fem.sections.lines) > 0:
         bm_elset_str = ",".join([f"'{bm_fs.elset.name}'" for bm_fs in part.fem.sections.lines])
-        model_type_str += f"_F(GROUP_MA=({bm_elset_str}),PHENOMENE='MECANIQUE', MODELISATION='POU_D_E',),"
+        section_sets += f"bm_sets = ({bm_elset_str})\n"
+        model_type_str += type_tmpl_str.format(elset_str="bm_sets", el_formula="POU_D_E")
 
     if len(part.fem.sections.shells) > 0:
-        sh_elset_str = ",".join([f"'{bm_fs.elset.name}'" for bm_fs in part.fem.sections.shells])
-        model_type_str += f"_F(GROUP_MA=({sh_elset_str}),PHENOMENE='MECANIQUE', MODELISATION='DKT',),"
+        sh_elset_str = ""
+        second_order = ""
+        is_tri6 = False
+        is_quad8 = False
+        for sh_fs in part.fem.sections.shells:
+            tri6_check = [x.type in ElemShapes.tri6 for x in sh_fs.elset.members]
+            quad8_check = [x.type in ElemShapes.quad8 for x in sh_fs.elset.members]
+            is_tri6 = all(tri6_check)
+            is_quad8 = all(quad8_check)
+            if is_tri6 or is_quad8:
+                second_order += f"'{sh_fs.elset.name}',"
+            else:
+                sh_elset_str += f"'{sh_fs.elset.name}',"
+
+        if sh_elset_str != "":
+            elset = "sh_sets"
+            section_sets += f"{elset} = ({sh_elset_str})\n"
+            model_type_str += type_tmpl_str.format(elset_str=elset, el_formula="DKT")
+        if second_order != "":
+            elset = "sh_2nd_order_sets"
+            section_sets += f"{elset} = ({second_order})\n"
+
+            if is_tri6:
+                output_mesh = "ma_tri6"
+                section_sets += el_convet_str.format(
+                    output_mesh=output_mesh, input_mesh=input_mesh, el_set=elset, convert_option="TRIA6_7"
+                )
+                input_mesh = output_mesh
+
+            if is_quad8:
+                output_mesh = "ma_quad8"
+                section_sets += el_convet_str.format(
+                    output_mesh=output_mesh, input_mesh=input_mesh, el_set=elset, convert_option="QUAD8_9"
+                )
+                input_mesh = output_mesh
+            model_type_str += type_tmpl_str.format(elset_str=elset, el_formula="COQUE_3D")
 
     if len(part.fem.sections.solids) > 0:
         so_elset_str = ",".join([f"'{solid_fs.elset.name}'" for solid_fs in part.fem.sections.solids])
-        model_type_str += f"_F(GROUP_MA=({so_elset_str}),PHENOMENE='MECANIQUE', MODELISATION='3D',),"
+        section_sets += f"so_sets = ({so_elset_str})\n"
+        model_type_str += type_tmpl_str.format(elset_str="so_sets", el_formula="3D")
 
     comm_str = main_comm_str.format(
+        section_sets=section_sets,
+        input_mesh=input_mesh,
         model_type_str=model_type_str,
         materials_str=materials_str,
         sections_str=sections_str,
@@ -62,22 +109,6 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     )
 
     return comm_str
-
-
-def write_export_file(name: str, cpus: int):
-    export_str = f"""P actions make_etude
-P memory_limit 1274
-P time_limit 900
-P version stable
-P mpi_nbcpu 1
-P mode interactif
-P ncpus {cpus}
-F comm {name}.comm D 1
-F mmed {name}.med D 20
-F mess {name}.mess R 6
-F rmed {name}.rmed R 80"""
-
-    return export_str
 
 
 def write_to_med(name, part: Part, analysis_dir):
@@ -127,25 +158,26 @@ def write_material(material: Material) -> str:
 
     model = material.model
     nl = NewLine(3, suffix="	")
-    nl_mat = "nl_mat=(	\n	"
 
     if model.plasticity_model is not None:
+        nl_mat = "nl_mat=(	\n	"
         eps = [e for e in model.eps_p]
         eps[0] = 1e-5  # Epsilon index=0 cannot be zero
         nl_mat += "".join([f"{e:.4E},{s:.4E}," + next(nl) for e, s in zip(eps, model.sig_p)]) + ")"
-    else:
-        nl_mat += ",)"
-        logging.error(f"No plasticity is defined for material {material.name}")
-
-    hardening_model_str = """Traction=DEFI_FONCTION(
+        nl_mat += """
+Traction=DEFI_FONCTION(
     NOM_PARA='EPSI', NOM_RESU='SIGM', VALE=nl_mat, INTERPOL='LIN', PROL_DROITE='LINEAIRE', PROL_GAUCHE='CONSTANT'
 )"""
+        mat_nl_in = ", TRACTION=_F(SIGM=Traction,)"
+    else:
+        logging.debug(f"No plasticity is defined for material {material.name}")
+        nl_mat = ""
+        mat_nl_in = ""
+
     return f"""{nl_mat}
 
-{hardening_model_str}
-
 {material.name} = DEFI_MATERIAU(
-    ELAS=_F(E={model.E}, NU={model.v}, RHO={model.rho}), TRACTION=_F(SIGM=Traction,),
+    ELAS=_F(E={model.E}, NU={model.v}, RHO={model.rho}){mat_nl_in},
 )
 """
 
@@ -243,16 +275,21 @@ def write_solid_section(fem_sections: Iterable[FemSection]) -> str:
     return mat_
 
 
+def is_parent_of_node_solid(no: Node) -> bool:
+    refs = no.refs
+    for elem in refs:
+        if elem.type in ElemShapes.volume:
+            return True
+    return False
+
+
 def create_bc_str(bc: Bc) -> str:
     set_name = bc.fem_set.name
     is_solid = False
     for no in bc.fem_set.members:
-        refs = no.refs
-        for elem in refs:
-            if elem.type in ElemShapes.volume:
-                is_solid = True
-                break
-        # print(refs)
+        is_solid = is_parent_of_node_solid(no)
+        if is_solid:
+            break
     dofs = ["DX", "DY", "DZ"]
     if is_solid is False:
         dofs += ["DRX", "DRY", "DRZ"]
@@ -402,12 +439,7 @@ modes = CALC_MODES(
     MATR_MASS=mass,
     MATR_RIGI=stiff,
     OPTION='PLUS_PETITE',
-    # VERI_MODE=_F(
-    #     STOP_ERREUR='NON',
-    #     SEUIL=1.E-06,
-    #     PREC_SHIFT=5.E-3,
-    #     STURM='OUI',
-    #     )
+    VERI_MODE=_F(STOP_ERREUR='NON')
 )
 
 IMPR_RESU(

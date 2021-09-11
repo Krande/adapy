@@ -2,7 +2,7 @@ import numpy as np
 
 from ada import Assembly, Beam, Material, Part, PrimBox, PrimCyl, PrimExtrude, User
 from ada.fem import Bc, FemSet, Load, Step
-from ada.fem.mesh.gmshapiv2 import GmshSession
+from ada.fem.meshing.gmshapiv2 import GmshSession
 from ada.fem.shapes import ElemType
 from ada.fem.utils import get_beam_end_nodes
 

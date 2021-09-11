@@ -10,7 +10,7 @@ from OCC.Core.STEPConstruct import stepconstruct_FindEntity
 from OCC.Core.STEPControl import STEPControl_AsIs, STEPControl_Writer
 from OCC.Core.TCollection import TCollection_HAsciiString
 
-from ada.base import BackendGeom
+from ada.base.physical_objects import BackendGeom
 from ada.concepts.levels import Assembly, Part
 from ada.concepts.piping import Pipe
 from ada.concepts.primitives import Shape

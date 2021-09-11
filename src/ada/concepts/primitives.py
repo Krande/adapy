@@ -1,13 +1,14 @@
 import logging
+import pathlib
 
 import numpy as np
 
+from ada.base.physical_objects import BackendGeom
 from ada.core.utils import Counter, roundoff, unit_vector, vector_length
 from ada.ifc.utils import create_guid
 from ada.materials import Material
 from ada.materials.metals import CarbonSteel
 
-from ..base import BackendGeom
 from .curves import CurvePoly
 
 
@@ -26,10 +27,10 @@ class Shape(BackendGeom):
     ):
 
         super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem)
-        if type(geom) is str:
+        if type(geom) in (str, pathlib.WindowsPath, pathlib.PurePath, pathlib.Path):
             from OCC.Extend.DataExchange import read_step_file
 
-            geom = read_step_file(geom)
+            geom = read_step_file(str(geom))
 
         if ifc_elem is not None:
             self.guid = ifc_elem.GlobalId
@@ -334,7 +335,9 @@ class Shape(BackendGeom):
     @units.setter
     def units(self, value):
         if value != self._units:
-            scale_factor = self._unit_conversion(self._units, value)
+            from ada.core.utils import unit_length_conversion
+
+            scale_factor = unit_length_conversion(self._units, value)
             if self._geom is not None:
                 from ada.occ.utils import transform_shape
 
@@ -371,9 +374,10 @@ class PrimSphere(Shape):
     @units.setter
     def units(self, value):
         if value != self._units:
+            from ada.core.utils import unit_length_conversion
             from ada.occ.utils import make_sphere
 
-            scale_factor = self._unit_conversion(self._units, value)
+            scale_factor = unit_length_conversion(self._units, value)
             self.pnt = tuple([x * scale_factor for x in self.pnt])
             self.radius = self.radius * scale_factor
             self._geom = make_sphere(self.pnt, self.radius)
@@ -405,9 +409,10 @@ class PrimBox(Shape):
     @units.setter
     def units(self, value):
         if value != self._units:
+            from ada.core.utils import unit_length_conversion
             from ada.occ.utils import make_box_by_points
 
-            scale_factor = self._unit_conversion(self._units, value)
+            scale_factor = unit_length_conversion(self._units, value)
             self.p1 = tuple([x * scale_factor for x in self.p1])
             self.p2 = tuple([x * scale_factor for x in self.p2])
             self._geom = make_box_by_points(self.p1, self.p2)
@@ -435,7 +440,9 @@ class PrimCyl(Shape):
         from ada.occ.utils import make_cylinder_from_points
 
         if value != self._units:
-            scale_factor = self._unit_conversion(self._units, value)
+            from ada.core.utils import unit_length_conversion
+
+            scale_factor = unit_length_conversion(self._units, value)
             self.p1 = [x * scale_factor for x in self.p1]
             self.p2 = [x * scale_factor for x in self.p2]
             self.r = self.r * scale_factor
@@ -488,7 +495,9 @@ class PrimExtrude(Shape):
     @units.setter
     def units(self, value):
         if value != self._units:
-            scale_factor = self._unit_conversion(self._units, value)
+            from ada.core.utils import unit_length_conversion
+
+            scale_factor = unit_length_conversion(self._units, value)
             self.poly.origin = [x * scale_factor for x in self.poly.origin]
             self._extrude_depth = self._extrude_depth * scale_factor
             self._units = value
