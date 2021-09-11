@@ -10,10 +10,12 @@ def get_eigen_data(rmed_file) -> EigenDataSummary:
     f = h5py.File(rmed_file)
     modes = f.get("CHA/modes___DEPL")
     eigen_modes = []
+
     for mname, m in modes.items():
         mode = m.attrs["NDT"]
         freq = m.attrs["PDT"]
         eigen_modes.append(EigenMode(mode, freq, real=freq))
+
     return EigenDataSummary(eigen_modes)
 
 

@@ -2,49 +2,71 @@ import os
 import re
 from typing import List, Union
 
-import numpy as np
-
 from ada.fem.concepts.eigenvalue import EigenDataSummary, EigenMode
 
-re_flags = re.MULTILINE | re.DOTALL
 
-re_eig_dat_file = re.compile(r"\(CYCLES\/TIME\(RAD\/TIME\)(.*)", re_flags)
-re_eig_mass_part = re.compile(r"Z-ROTATION(.*)", re_flags)
-re_eff_modal_mass = re.compile(r"Z-ROTATION(.*)", re_flags)
-re_tot_eff_mass = re.compile(r"Z-ROTATION(.*)", re_flags)
+class DatFormatReader:
+    re_flags = re.MULTILINE | re.DOTALL
+    re_int = r"[0-9]"
+    re_decimal = r"[+|-]{0,1}[0-9].[0-9]{7}E[\+|\-][0-9]{2}"
 
-eig_h_str = "E I G E N V A L U E   O U T P U T"
-part_fact_h_str = "P A R T I C I P A T I O N   F A C T O R S"
-eff_mod_mass_h_str = "E F F E C T I V E   M O D A L   M A S S"
-tot_eff_mass_h_str = "T O T A L   E F F E C T I V E   M A S S"
+    def compile_ff_re(self, list_of_types):
+        re_str = r"^\s*("
+        for t in list_of_types:
+            if t is int:
+                re_str += rf"{self.re_int}*\s*"
+            elif t is float:
+                re_str += rf"{self.re_decimal}\s*"
+            else:
+                raise ValueError()
+        re_str += r")\n"
+        return re.compile(re_str, self.re_flags)
 
 
-def get_eig_from_dat_file(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
-    eigen_modes: List[EigenMode] = []
+def get_eigen_data(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
+    dtr = DatFormatReader()
 
+    re_compiled = dtr.compile_ff_re([int] + [float] * 4)
+    re_compiled_2 = dtr.compile_ff_re([int] + [float] * 6)
+    re_compiled_3 = dtr.compile_ff_re([float] * 6)
+
+    tot_eff_mass: Union[List[float], None] = None
+    is_curr_eig_data = False
+    is_tot_eff_mass = False
+    compiler = None
+
+    eig_data = dict()
     with open(dat_file, "r") as f:
-        bulk_str = f.read()
-        mode_data, tot_eff_mass = extract_eig_data_from_bulk_str(bulk_str)
-        for eig_m, eig_pm, eig_mm in mode_data:
-            eigen_modes.append(EigenMode(*eig_m, *eig_pm[1:], *eig_mm[1:]))
+        for line in f.readlines():
+            compact_str = line.replace(" ", "").strip().lower()
+            if "eigenvalueoutput" in compact_str:
+                is_curr_eig_data = True
+                compiler = re_compiled
+
+            if "participationfactors" in compact_str or "effectivemodalmass" in compact_str:
+                is_curr_eig_data = False
+                compiler = re_compiled_2
+
+            if "totaleffectivemass" in compact_str:
+                is_tot_eff_mass = True
+                compiler = re_compiled_3
+
+            if compiler is None:
+                continue
+
+            res = compiler.search(line)
+            if res is not None:
+                res_input = res.group(1).split()
+                if is_curr_eig_data:
+                    eig_data[res_input[0]] = res_input
+                elif is_tot_eff_mass:
+                    tot_eff_mass = [float(x) for x in res_input]
+                else:
+                    eig_data[res_input[0]] += res_input[1:]
+
+        eigen_modes: List[EigenMode] = []
+
+        for mode in eig_data.values():
+            eigen_modes.append(EigenMode(*mode))
 
     return EigenDataSummary(eigen_modes, tot_eff_mass)
-
-
-def extract_eig_data_from_bulk_str(bulk_str):
-    e2, e3, e4 = bulk_str.rfind(part_fact_h_str), bulk_str.rfind(eff_mod_mass_h_str), bulk_str.find(tot_eff_mass_h_str)
-    m_eig = re_eig_dat_file.search(bulk_str[:e2])
-    m_part_mass = re_eig_mass_part.search(bulk_str[e2:e3])
-    m_eff_modal_mass = re_eff_modal_mass.search(bulk_str[e3:])
-    tot_effe_mass = re_tot_eff_mass.search(bulk_str[e4:])
-
-    def to_list(x):
-        return (line.split() for line in x.group(1).strip().splitlines())
-
-    eig_main = to_list(m_eig)
-    eig_part_mass = to_list(m_part_mass)
-    eig_modal_mass = to_list(m_eff_modal_mass)
-
-    tot_eff_mass = [np.float64(x) for x in tot_effe_mass.group(1).strip().split()]
-
-    return zip(eig_main, eig_part_mass, eig_modal_mass), tot_eff_mass

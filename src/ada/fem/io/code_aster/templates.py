@@ -8,11 +8,13 @@ DEBUT(LANG="EN", INFO=1)
 
 mesh = LIRE_MAILLAGE(FORMAT="MED", UNITE=20)
 
+{section_sets}
+
 model = AFFE_MODELE(
     AFFE=(
         {model_type_str}
     ),
-    MAILLAGE=mesh
+    MAILLAGE={input_mesh}
 )
 
 # Materials
@@ -28,4 +30,10 @@ model = AFFE_MODELE(
 {step_str}
 
 FIN()
+"""
+
+el_convet_str = """{output_mesh} = CREA_MAILLAGE(
+    MAILLAGE={input_mesh},
+    MODI_MAILLE = _F(GROUP_MA={el_set}, OPTION='{convert_option}')
+)
 """

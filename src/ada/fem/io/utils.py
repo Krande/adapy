@@ -201,7 +201,9 @@ def get_ff_regex(flag, *args):
     if not args:
         pattern_str += add_key("bulk")
 
-    return re.compile(pattern_str + r"(?:(?=^[A-Z]|\Z))", re_in)
+    pattern_str += r"(?:(?=^[A-Z]|\Z))"
+
+    return re.compile(pattern_str, re_in)
 
 
 def _overwrite_dir(analysis_dir):

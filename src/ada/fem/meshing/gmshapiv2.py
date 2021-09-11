@@ -176,7 +176,7 @@ class GmshSession:
 
         self._gmsh = gmsh
         self.gmsh.initialize()
-        self.model.add("ada")
+        # self.model.add("ada")
         self.apply_settings()
         return self
 

@@ -24,10 +24,11 @@ face_map = {ElemType.LINE: None, ElemType.SHELL: shell_faces, ElemType.SOLID: vo
 class ElemShapes:
     # 2D elements
     tri = ["S3", "S3R", "R3D3", "S3RS"]
+    tri6 = ["STRI65"]
+    tri7 = ["S7"]
     quad = ["S4", "S4R", "R3D4"]
     quad8 = ["S8", "S8R"]
-    tri6 = ["STRI65"]
-    shell = tri + quad + quad8 + tri6
+    shell = tri + quad + quad8 + tri6 + tri7
     # 3D elements
     cube8 = ["C3D8", "C3D8R", "C3D8H"]
     cube20 = ["C3D20", "C3D20R", "C3D20RH"]

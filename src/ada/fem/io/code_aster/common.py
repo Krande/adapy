@@ -4,18 +4,18 @@ from ada.fem import Step
 
 
 def abaqus_to_med_type(value):
-    if value in _abaqus_to_med_type.keys():
-        return _abaqus_to_med_type[value]
+    if value in _ada_to_med_type.keys():
+        return _ada_to_med_type[value]
     else:
-        for key, val in _abaqus_to_med_type.items():
+        for key, val in _ada_to_med_type.items():
             if type(key) is tuple:
                 if value in key:
                     return val
     raise KeyError(f'Unsupported value "{value}"')
 
 
-def med_to_abaqus_type(value):
-    _tmp = {v: k for k, v in _abaqus_to_med_type.items()}
+def med_to_ada_type(value):
+    _tmp = {v: k for k, v in _ada_to_med_type.items()}
 
     if value not in _tmp:
         raise KeyError(f'Unsupported value "{value}"')
@@ -28,11 +28,12 @@ def med_to_abaqus_type(value):
         return res
 
 
-_abaqus_to_med_type = {
+_ada_to_med_type = {
     "B31": "SE2",
     "B32": "SE3",
     "S3": "TR3",
     "STRI65": "TR6",
+    "S7": "TR7",  # Code Aster Specific type
     ("S4", "S4R"): "QU4",
     ("S8R", "S8"): "QU8",
     "C3D4": "TE4",

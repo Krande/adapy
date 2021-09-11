@@ -93,16 +93,24 @@ class Results:
 
         from ada.core.utils import get_list_of_files
         from ada.fem import Step
+        from ada.fem.elements import ElemShapes
 
         file_ref = pathlib.Path(file_ref)
         suffix = file_ref.suffix.lower()
         if suffix in ".rmed":
-            mesh = meshio.read(file_ref, "med")
+            from ada.fem.io.code_aster.reader import med_to_fem
+
+            self._analysis_type = "code_aster"
+
             if self.assembly.fem.steps[0].type == Step.TYPES.EIGEN:
                 from .io.code_aster.results import get_eigen_data
 
                 self._eigen_mode_data = get_eigen_data(file_ref)
-            self._analysis_type = "code_aster"
+            fem = med_to_fem(file_ref, "temp")
+            if any([x.type in ElemShapes.tri7 for x in fem.elements.shell]):
+                logging.error("Meshio does not support 7 node Triangle elements yet")
+                return None
+            mesh = meshio.read(file_ref, "med")
         elif suffix == ".frd":
             from ccx2paraview import Converter
 
@@ -125,9 +133,9 @@ class Results:
             mesh = meshio.read(result_file)
             dat_file = file_ref.with_suffix(".dat")
             if dat_file.exists() and self.assembly.fem.steps[0].type == Step.TYPES.EIGEN:
-                from .io.calculix.results import get_eig_from_dat_file
+                from .io.calculix.results import get_eigen_data
 
-                self._eigen_mode_data = get_eig_from_dat_file(dat_file)
+                self._eigen_mode_data = get_eigen_data(dat_file)
         else:
             logging.error(f'Results class currently does not support filetype "{suffix}"')
             return None

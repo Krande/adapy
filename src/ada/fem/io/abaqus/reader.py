@@ -50,7 +50,6 @@ class InstanceData:
     part_ref: str
     instance_name: str
     instance_bulk: str
-    metadata: dict
     transform: Transform = Transform()
 
 
@@ -177,7 +176,7 @@ def add_fem_without_assembly(bulk_str, assembly: Assembly) -> Part:
         p_bulk = p_nmatch[0].group(2)
 
     p_name = next(part_name_counter) if p_name is None else p_name
-    inst = InstanceData("", p_name, "", dict())
+    inst = InstanceData("", p_name, "")
 
     return get_fem_from_bulk_str(p_name, p_bulk, assembly, inst)
 
@@ -318,7 +317,6 @@ def get_instance_data(inst_name, p_ref, inst_bulk) -> InstanceData:
     """
 
     move_rot = re.compile(r"(?:^\s*(.*?),\s*(.*?),\s*(.*?)$)", _re_in)
-    metadata = dict(move=None, rotate=None)
     transform: Union[Transform, None] = Transform()
     mr = move_rot.finditer(inst_bulk)
     if mr is not None:
@@ -335,7 +333,7 @@ def get_instance_data(inst_name, p_ref, inst_bulk) -> InstanceData:
                 angle = r[4]
                 transform.rotate = Rotation(origin, vector, angle)
 
-    return InstanceData(p_ref, inst_name, inst_bulk, metadata, transform)
+    return InstanceData(p_ref, inst_name, inst_bulk, transform)
 
 
 def mat_str_to_mat_obj(mat_str) -> Material:

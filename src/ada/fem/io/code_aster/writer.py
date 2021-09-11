@@ -14,7 +14,7 @@ from ada.fem.shapes import ElemShapes
 from ..utils import get_fem_model_from_assembly
 from .common import abaqus_to_med_type
 from .compatibility import check_compatibility
-from .templates import main_comm_str
+from .templates import el_convet_str, main_comm_str
 
 
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
@@ -45,22 +45,62 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     bc_str = "\n".join([create_bc_str(bc) for bc in assembly.fem.bcs + part.fem.bcs])
     step_str = "\n".join([create_step_str(s, part) for s in assembly.fem.steps])
 
-    type_tmpl_str = "_F(GROUP_MA=({elset_str}), PHENOMENE='MECANIQUE', MODELISATION='{el_formula}',),"
+    type_tmpl_str = "_F(GROUP_MA={elset_str}, PHENOMENE='MECANIQUE', MODELISATION='{el_formula}',),"
 
     model_type_str = ""
+    section_sets = ""
+    input_mesh = "mesh"
     if len(part.fem.sections.lines) > 0:
         bm_elset_str = ",".join([f"'{bm_fs.elset.name}'" for bm_fs in part.fem.sections.lines])
-        model_type_str += type_tmpl_str.format(elset_str=bm_elset_str, el_formula="POU_D_E")
+        section_sets += f"bm_sets = ({bm_elset_str})\n"
+        model_type_str += type_tmpl_str.format(elset_str="bm_sets", el_formula="POU_D_E")
 
     if len(part.fem.sections.shells) > 0:
-        sh_elset_str = ",".join([f"'{bm_fs.elset.name}'" for bm_fs in part.fem.sections.shells])
-        model_type_str += type_tmpl_str.format(elset_str=sh_elset_str, el_formula="DKT")
+        sh_elset_str = ""
+        second_order = ""
+        is_tri6 = False
+        is_quad8 = False
+        for sh_fs in part.fem.sections.shells:
+            tri6_check = [x.type in ElemShapes.tri6 for x in sh_fs.elset.members]
+            quad8_check = [x.type in ElemShapes.quad8 for x in sh_fs.elset.members]
+            is_tri6 = all(tri6_check)
+            is_quad8 = all(quad8_check)
+            if is_tri6 or is_quad8:
+                second_order += f"'{sh_fs.elset.name}',"
+            else:
+                sh_elset_str += f"'{sh_fs.elset.name}',"
+
+        if sh_elset_str != "":
+            elset = "sh_sets"
+            section_sets += f"{elset} = ({sh_elset_str})\n"
+            model_type_str += type_tmpl_str.format(elset_str=elset, el_formula="DKT")
+        if second_order != "":
+            elset = "sh_2nd_order_sets"
+            section_sets += f"{elset} = ({second_order})\n"
+
+            if is_tri6:
+                output_mesh = "ma_tri6"
+                section_sets += el_convet_str.format(
+                    output_mesh=output_mesh, input_mesh=input_mesh, el_set=elset, convert_option="TRIA6_7"
+                )
+                input_mesh = output_mesh
+
+            if is_quad8:
+                output_mesh = "ma_quad8"
+                section_sets += el_convet_str.format(
+                    output_mesh=output_mesh, input_mesh=input_mesh, el_set=elset, convert_option="QUAD8_9"
+                )
+                input_mesh = output_mesh
+            model_type_str += type_tmpl_str.format(elset_str=elset, el_formula="COQUE_3D")
 
     if len(part.fem.sections.solids) > 0:
         so_elset_str = ",".join([f"'{solid_fs.elset.name}'" for solid_fs in part.fem.sections.solids])
-        model_type_str += type_tmpl_str.format(elset_str=so_elset_str, el_formula="3D")
+        section_sets += f"so_sets = ({so_elset_str})\n"
+        model_type_str += type_tmpl_str.format(elset_str="so_sets", el_formula="3D")
 
     comm_str = main_comm_str.format(
+        section_sets=section_sets,
+        input_mesh=input_mesh,
         model_type_str=model_type_str,
         materials_str=materials_str,
         sections_str=sections_str,
