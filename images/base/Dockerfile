@@ -129,7 +129,6 @@ ARG PATH="${CONDAPATH}/bin:${PATH}"
 RUN mkdir ${CONDABLD}
 WORKDIR ${CONDABLD}
 
-COPY images/environment.yml .
 
 RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh && \
   mkdir /root/.conda && \
@@ -138,6 +137,8 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh &
   echo "Running $(conda --version)" && \
   conda init bash && \
   . /root/.bashrc
+
+COPY images/environment.yml .
 
 RUN conda update conda && \
   conda env update -f environment.yml
