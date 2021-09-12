@@ -1,4 +1,4 @@
-FROM krande/ada@sha256:0b66ced35883413723f862d0030cc919d9490b30b1b640fa8e5ef730aaece42b
+FROM krande/ada@sha256:dc260984f5f329ca45ec21ae0c53c37662b2ddb197dd6a372e9725c64e3e6125
 
 ARG TMPDIR=/tmp/adapy
 ARG TESTDIR=/home/tests
