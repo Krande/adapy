@@ -15,7 +15,7 @@ class VizApiV2(unittest.TestCase):
         os.makedirs(self.test_folder)
         viz = Visualize()
         viz.add_obj(self.bm1)
-        viz.display(off_screen_file=self.test_folder / "MyTest.svg")
+        # viz.display(off_screen_file=self.test_folder / "MyTest.svg")
 
 
 if __name__ == "__main__":
