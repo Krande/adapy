@@ -5,6 +5,7 @@ from ada.fem import Bc, FemSet, Load, Step
 from ada.fem.meshing.gmshapiv2 import GmshSession
 from ada.fem.shapes import ElemType
 from ada.fem.utils import get_beam_end_nodes
+from ada.materials.metals import CarbonSteel, DnvGl16Mat
 
 
 def add_random_cutouts(bm: Beam):
@@ -41,7 +42,9 @@ def add_random_cutouts(bm: Beam):
 
 
 def beam_ex1(p1=(0, 0, 0), p2=(1.5, 0, 0), profile="IPE400", geom_repr=ElemType.SHELL) -> Assembly:
-    bm = Beam("MyBeam", p1, p2, profile, Material("S355"))
+    mat_grade = CarbonSteel.TYPES.S355
+    bm = Beam("MyBeam", p1, p2, profile, Material("S355", mat_model=CarbonSteel(mat_grade)))
+    bm.material.model.plasticity_model = DnvGl16Mat(bm.section.t_w, mat_grade)
     a = Assembly("Test", user=User("krande")) / [Part("MyPart") / bm]
 
     add_random_cutouts(bm)

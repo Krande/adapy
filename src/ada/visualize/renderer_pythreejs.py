@@ -1,10 +1,12 @@
 import logging
 import uuid
+from dataclasses import dataclass
 from itertools import chain
 from random import randint
 
 import numpy as np
 from OCC.Core.Tesselator import ShapeTesselator
+from OCC.Core.TopoDS import TopoDS_Shape
 from OCC.Display.WebGl.jupyter_renderer import (
     NORMAL,
     BoundingBox,
@@ -595,7 +597,17 @@ class MyRenderer(JupyterRenderer):
         )
 
         # Set up Controllers
-        self._controller = OrbitControls(controlling=self._camera, target=camera_target, target0=camera_target)
+        inf = 1e20
+        orbit_controls = OrbitControls(
+            controlling=self._camera,
+            target=camera_target,
+            target0=camera_target,
+            maxAzimuthAngle=inf,
+            maxDistance=inf,
+            maxZoom=inf,
+            minAzimuthAngle=-inf,
+        )
+        self._controller = orbit_controls
         # Update controller to instantiate camera position
         self._camera.zoom = camera_zoom
         self._update()
@@ -939,3 +951,67 @@ def get_vertices_from_elem(el: Elem, return_ids=False):
 
 def locate(data_set, i):
     return [index for index, value in enumerate(data_set) if value == i]
+
+
+@dataclass
+class OccToThreejs:
+    parallel = True
+    compute_normals_mode = NORMAL.SERVER_SIDE
+    render_edges = True
+    quality = 1.0
+    mesh_id: str = None
+
+    def occ_shape_to_threejs(self, shp: TopoDS_Shape, shape_color, edge_color, transparency, opacity):
+        # first, compute the tesselation
+        from .renderer_occ import occ_shape_to_faces
+        from .threejs_utils import create_material
+
+        np_vertices, np_faces, np_normals, edges = occ_shape_to_faces(
+            shp, self.quality, self.render_edges, self.parallel
+        )
+
+        # set geometry properties
+        buffer_geometry_properties = {
+            "position": BufferAttribute(np_vertices),
+            "index": BufferAttribute(np_faces),
+        }
+        if self.compute_normals_mode == NORMAL.SERVER_SIDE:
+            if np_normals.shape != np_vertices.shape:
+                raise AssertionError("Wrong number of normals/shapes")
+            buffer_geometry_properties["normal"] = BufferAttribute(np_normals)
+
+        # build a BufferGeometry instance
+        shape_geometry = BufferGeometry(attributes=buffer_geometry_properties)
+
+        # if the client has to render normals, add the related js instructions
+        if self.compute_normals_mode == NORMAL.CLIENT_SIDE:
+            shape_geometry.exec_three_obj_method("computeVertexNormals")
+
+        # then a default material
+        shp_material = create_material(shape_color, transparent=transparency, opacity=opacity)
+
+        # and to the dict of shapes, to have a mapping between meshes and shapes
+        mesh_id = "%s" % uuid.uuid4().hex
+
+        self.mesh_id = mesh_id
+        # finally create the mesh
+        shape_mesh = Mesh(geometry=shape_geometry, material=shp_material, name=mesh_id)
+
+        # edge rendering, if set to True
+        if self.render_edges:
+            edge_list = flatten(list(map(explode, edges)))
+            lines = LineSegmentsGeometry(positions=edge_list)
+            mat = LineMaterial(linewidth=1, color=edge_color)
+            edge_lines = LineSegments2(lines, mat, name=mesh_id)
+        else:
+            edge_lines = None
+
+        return shape_mesh, edge_lines
+
+
+def explode(edge_list):
+    return [[edge_list[i], edge_list[i + 1]] for i in range(len(edge_list) - 1)]
+
+
+def flatten(nested_dict):
+    return [y for x in nested_dict for y in x]

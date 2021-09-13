@@ -465,7 +465,7 @@ class Section(Backend):
         from IPython.display import display
         from ipywidgets import HBox
 
-        from ada.visualize.renderer import SectionRenderer
+        from ada.visualize.renderer_pythreejs import SectionRenderer
 
         sec_render = SectionRenderer()
         fig, html = sec_render.build_display(self)

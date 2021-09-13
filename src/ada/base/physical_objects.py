@@ -13,9 +13,12 @@ class BackendGeom(Backend):
 
     def __init__(self, name, guid=None, metadata=None, units="m", parent=None, colour=None, ifc_elem=None):
         super().__init__(name, guid, metadata, units, parent, ifc_elem=ifc_elem)
+        from ada.visualize.new_render_api import Visualize
+
         self._penetrations = []
         self.colour = colour
         self._elem_refs = []
+        self._viz = Visualize(self)
 
     def add_penetration(self, pen):
         from ada import Penetration, Shape
@@ -46,7 +49,7 @@ class BackendGeom(Backend):
     ):
         from OCC.Display.WebGl.simple_server import start_server
 
-        from ada.visualize.renderer import MyRenderer
+        from ada.visualize.renderer_pythreejs import MyRenderer
 
         if render_engine == "xdom":
             from OCC.Display.WebGl import x3dom_renderer
@@ -76,7 +79,7 @@ class BackendGeom(Backend):
         """
         from ipywidgets.embed import embed_snippet
 
-        from ada.visualize.renderer import MyRenderer
+        from ada.visualize.renderer_pythreejs import MyRenderer
 
         renderer = MyRenderer()
         renderer.DisplayObj(self)
@@ -129,10 +132,18 @@ class BackendGeom(Backend):
         self._elem_refs = value
 
     def _repr_html_(self):
+        from ada.config import Settings
+
+        if Settings.use_new_visualize_api is True:
+            self._viz.objects = []
+            self._viz.add_obj(self)
+            self._viz.display(return_viewer=False)
+            return ""
+
         from IPython.display import display
         from ipywidgets import HBox, VBox
 
-        from ada.visualize.renderer import MyRenderer
+        from ada.visualize.renderer_pythreejs import MyRenderer
 
         renderer = MyRenderer()
 
@@ -140,6 +151,4 @@ class BackendGeom(Backend):
         renderer.build_display()
         self._renderer = renderer
         display(HBox([VBox([HBox(renderer._controls), renderer._renderer]), renderer.html]))
-        # renderer._reset()
-        # self._renderer.Display()
         return ""

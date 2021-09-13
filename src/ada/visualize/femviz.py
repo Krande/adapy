@@ -10,9 +10,9 @@ from pythreejs import Group
 from ada.concepts.levels import FEM
 from ada.fem.shapes import ElemShapes
 from ada.fem.shapes.mesh_types import meshio_to_abaqus_type
-from ada.fem.utils import is_line_elem
 
 from .threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
+from .utils import get_edges_from_fem, get_faces_from_fem, get_vertices_from_fem
 
 
 @dataclass
@@ -100,31 +100,6 @@ def get_edges_and_faces_from_meshio(mesh: meshio.Mesh):
     return edges, faces
 
 
-def get_faces_from_fem(fem: FEM, convert_bm_to_shell=False):
-    """
-
-    :param fem:
-    :param convert_bm_to_shell: Converts Beam elements to a shell element equivalent
-    """
-    ids = []
-    for el in fem.elements.elements:
-        if is_line_elem(el):
-            continue
-        for f in el.shape.faces:
-            # Convert to indices, not id
-            ids += [[int(e.id - 1) for e in f]]
-    return ids
-
-
-def get_edges_from_fem(fem: FEM):
-    ids = []
-    for el in fem.elements.elements:
-        for f in el.shape.edges_seq:
-            # Convert to indices, not id
-            ids += [[int(el.nodes[e].id - 1) for e in f]]
-    return ids
-
-
 def get_faces_for_bm_elem(elem):
     """
 
@@ -134,17 +109,6 @@ def get_faces_for_bm_elem(elem):
     """
 
     # if ElemShapes.beam
-
-
-def get_vertices_from_fem(fem):
-    """
-
-    :param fem:
-    :type fem: ada.fem.FEM
-    :return:
-    """
-
-    return np.asarray([n.p for n in fem.nodes.nodes], dtype="float32")
 
 
 def get_bounding_box(vertices):

@@ -44,6 +44,9 @@ class Settings:
     else:
         execute_dir = None
 
+    # Visualization Settings
+    use_new_visualize_api = False
+
     # Code Aster conversion specific settings
     ca_experimental_id_numbering = False
 

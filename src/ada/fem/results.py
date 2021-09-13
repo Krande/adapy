@@ -14,7 +14,7 @@ from ada.visualize.femviz import (
     get_vertices_from_fem,
     magnitude,
 )
-from ada.visualize.renderer import MyRenderer
+from ada.visualize.renderer_pythreejs import MyRenderer
 from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
 from .concepts.eigenvalue import EigenDataSummary
@@ -62,7 +62,7 @@ class Results:
 
     @property
     def renderer(self):
-        """:rtype: ada.visualize.renderer.MyRenderer"""
+        """:rtype: ada.visualize.renderer_pythreejs.MyRenderer"""
         return self._renderer
 
     @property
