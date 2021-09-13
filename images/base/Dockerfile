@@ -138,10 +138,10 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh &
   conda init bash && \
   . /root/.bashrc
 
+
 COPY images/environment.yml .
 
-RUN conda update conda && \
-  conda env update -f environment.yml
+RUN conda update conda && conda env update -f environment.yml
 
 #endregion
 
