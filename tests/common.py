@@ -4,7 +4,7 @@ from operator import attrgetter
 
 from ada import FEM, Assembly, Beam, Part, Section
 from ada.param_models.basic_module import SimpleStru
-from ada.visualize.renderer import MyRenderer, SectionRenderer
+from ada.visualize.renderer_pythreejs import MyRenderer, SectionRenderer
 
 this_dir = pathlib.Path(__file__).resolve().absolute().parent
 example_files = this_dir / ".." / "files"

@@ -3,7 +3,7 @@ from IPython.display import display
 from ipywidgets import HBox, VBox
 
 from .femviz import get_faces_from_fem, magnitude
-from .renderer import MyRenderer
+from .renderer_pythreejs import MyRenderer
 from .threejs_utils import faces_to_mesh
 
 
