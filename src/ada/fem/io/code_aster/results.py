@@ -1,7 +1,14 @@
+import logging
+import pathlib
+
 import h5py
+import meshio
 import numpy as np
 
+from ada.fem import Step
 from ada.fem.concepts.eigenvalue import EigenDataSummary, EigenMode
+from ada.fem.elements import ElemShapes
+from ada.fem.results import Results
 
 from .reader import med_to_fem
 
@@ -36,3 +43,13 @@ def get_eigen_frequency_deformed_meshes(rmed_file):
 
     # TODO: Figure out what kind of information is needed for animating frames in threejs/blender
     return fem, eig_deformed_meshes
+
+
+def read_code_aster_results(results: Results, file_ref: pathlib.Path, overwrite):
+    if results.assembly.fem.steps[0].type == Step.TYPES.EIGEN:
+        results.eigen_mode_data = get_eigen_data(file_ref)
+    fem = med_to_fem(file_ref, "temp")
+    if any([x.type in ElemShapes.tri7 for x in fem.elements.shell]):
+        logging.error("Meshio does not support 7 node Triangle elements yet")
+        return None
+    return meshio.read(file_ref, "med")

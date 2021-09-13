@@ -17,16 +17,18 @@ from ada.visualize.femviz import (
 from ada.visualize.renderer_pythreejs import MyRenderer
 from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
+from .common import FEATypes
 from .concepts.eigenvalue import EigenDataSummary
 
 
 class Results:
-    def __init__(self, name, res_path, fem_format, part=None, assembly=None, palette=None, output=None, overwrite=True):
+    def __init__(
+        self, res_path, name=None, fem_format=None, part=None, assembly=None, palette=None, output=None, overwrite=True
+    ):
         self._name = name
-        self._fem_format = fem_format
         self.palette = [(0, 149 / 255, 239 / 255), (1, 0, 0)] if palette is None else palette
         self._eigen_mode_data = None
-        self._analysis_type = None
+        self._fem_format = fem_format
         self._point_data = []
         self._cell_data = []
         self._assembly = assembly
@@ -48,6 +50,12 @@ class Results:
     def fem_format(self):
         return self._fem_format
 
+    @fem_format.setter
+    def fem_format(self, value):
+        if value not in FEATypes:
+            raise ValueError(f'Unsupported FEA Type "{value}"')
+        self._fem_format = value
+
     @property
     def output(self) -> subprocess.CompletedProcess:
         return self._output
@@ -55,6 +63,10 @@ class Results:
     @property
     def results_file_path(self):
         return self._results_file_path
+
+    @results_file_path.setter
+    def results_file_path(self, value):
+        self._results_file_path = value
 
     @property
     def mesh(self):
@@ -88,59 +100,30 @@ class Results:
     def eigen_mode_data(self) -> EigenDataSummary:
         return self._eigen_mode_data
 
-    def _get_mesh(self, file_ref):
-        import meshio
+    @eigen_mode_data.setter
+    def eigen_mode_data(self, value: EigenDataSummary):
+        self._eigen_mode_data = value
 
-        from ada.core.utils import get_list_of_files
-        from ada.fem import Step
-        from ada.fem.elements import ElemShapes
+    def _get_mesh(self, file_ref):
+        from .io.calculix.results import read_calculix_results
+        from .io.code_aster.results import read_code_aster_results
 
         file_ref = pathlib.Path(file_ref)
         suffix = file_ref.suffix.lower()
-        if suffix in ".rmed":
-            from ada.fem.io.code_aster.reader import med_to_fem
 
-            self._analysis_type = "code_aster"
+        res_map = {
+            ".rmed": (read_code_aster_results, FEATypes.CODE_ASTER),
+            ".frd": (read_calculix_results, FEATypes.CALCULIX),
+        }
+        res_reader, fem_format = res_map.get(suffix, (None, None))
 
-            if self.assembly.fem.steps[0].type == Step.TYPES.EIGEN:
-                from .io.code_aster.results import get_eigen_data
-
-                self._eigen_mode_data = get_eigen_data(file_ref)
-            fem = med_to_fem(file_ref, "temp")
-            if any([x.type in ElemShapes.tri7 for x in fem.elements.shell]):
-                logging.error("Meshio does not support 7 node Triangle elements yet")
-                return None
-            mesh = meshio.read(file_ref, "med")
-        elif suffix == ".frd":
-            from ccx2paraview import Converter
-
-            self._analysis_type = "calculix"
-            if file_ref.exists() is False:
-                return None
-            if len(get_list_of_files(file_ref.parent, ".vtu")) == 0 or self._overwrite is True:
-                convert = Converter(str(file_ref), ["vtu"])
-                convert.run()
-            result_files = get_list_of_files(file_ref.parent, ".vtu")
-            if len(result_files) == 0:
-                raise FileNotFoundError("No VTU files found. Check if analysis was successfully completed")
-
-            if len(result_files) > 1:
-                logging.error("Currently only reading last step for multi-step Calculix analysis results")
-
-            result_file = result_files[-1]
-            self._results_file_path = pathlib.Path(result_file)
-            print(f'Reading result from "{result_file}"')
-            mesh = meshio.read(result_file)
-            dat_file = file_ref.with_suffix(".dat")
-            if dat_file.exists() and self.assembly.fem.steps[0].type == Step.TYPES.EIGEN:
-                from .io.calculix.results import get_eigen_data
-
-                self._eigen_mode_data = get_eigen_data(dat_file)
-        else:
+        if res_reader is None:
             logging.error(f'Results class currently does not support filetype "{suffix}"')
             return None
 
-        return mesh
+        self.fem_format = fem_format
+
+        return res_reader(self, file_ref, self._overwrite)
 
     def _read_part(self, file_ref):
         mesh = self._get_mesh(file_ref)
@@ -196,13 +179,6 @@ class Results:
         return colors
 
     def create_viz_geom(self, data_type, displ_data=False, renderer: MyRenderer = None) -> None:
-        """
-
-        :param data_type:
-        :param displ_data:
-        :param renderer:
-        """
-
         default_vertex_color = (8, 8, 8)
 
         data = np.asarray(self.mesh.point_data[data_type], dtype="float32")
@@ -255,12 +231,12 @@ class Results:
 
     def on_changed_point_data_set(self, p):
         data = p["new"]
-        if self._analysis_type == "code_aster":
+        if self.fem_format == FEATypes.CODE_ASTER:
             is_displ = True if "DISP" in data else False
             if "point_tags" in data:
                 print("\r" + "Point Tags are not a valid display value" + 10 * " ", end="")
                 return None
-        elif self._analysis_type == "calculix":
+        elif self.fem_format == FEATypes.CALCULIX:
             is_displ = True if "U" in data else False
         else:
             return None
@@ -273,12 +249,12 @@ class Results:
     def _repr_html_(self):
         if self._renderer is None:
             self._renderer = MyRenderer()
-            if self._analysis_type == "code_aster":
+            if self.fem_format == FEATypes.CODE_ASTER:
                 data = [x for x in self._point_data if "DISP" in x][-1]
-            elif self._analysis_type == "calculix":
+            elif self.fem_format == FEATypes.CALCULIX:
                 data = [x for x in self._point_data if "U" in x][-1]
             else:
-                raise NotImplementedError(f'Support for analysis_type "{self._analysis_type}"')
+                raise NotImplementedError(f'Support for analysis_type "{self.fem_format}"')
 
             self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
             i = self._point_data.index(data)
@@ -292,7 +268,7 @@ class Results:
         display(HBox([VBox([HBox(self.renderer._controls), self.renderer._renderer]), self.renderer.html]))
 
     def __repr__(self):
-        return f"Results({self._analysis_type}, {self._results_file_path.name})"
+        return f"Results({self._fem_format}, {self._results_file_path.name})"
 
 
 def get_fem_stats(fem_file, dest_md_file, data_file="data.json"):

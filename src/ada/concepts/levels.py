@@ -963,7 +963,7 @@ class Assembly(Part):
             print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
         if out is None and res_path is None:
             return None
-        return Results(name, res_path, fem_format=fem_format, assembly=self, output=out, overwrite=overwrite)
+        return Results(res_path, name, fem_format=fem_format, assembly=self, output=out, overwrite=overwrite)
 
     def to_ifc(self, destination_file, include_fem=False) -> None:
         from ada.ifc.export import add_part_objects_to_ifc

@@ -12,7 +12,7 @@ class VizApiV2(unittest.TestCase):
         self.bm1 = Beam("MyBeam", (0, 0, 0), (1, 0, 0), "IPE300")
 
     def test_viz_beam(self):
-        os.makedirs(self.test_folder)
+        os.makedirs(self.test_folder, exist_ok=True)
         viz = Visualize()
         viz.add_obj(self.bm1)
         # viz.display(off_screen_file=self.test_folder / "MyTest.svg")
