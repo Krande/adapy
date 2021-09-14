@@ -105,9 +105,10 @@ class Constraint(FemBase):
         dofs=None,
         pos_tol=None,
         mpc_type=None,
-        csys=None,
+        csys: Csys = None,
         parent=None,
         metadata=None,
+        influence_distance: float = None,
     ):
         super().__init__(name, metadata, parent)
         self._con_type = con_type
@@ -117,6 +118,7 @@ class Constraint(FemBase):
         self._pos_tol = pos_tol
         self._mpc_type = mpc_type
         self._csys = csys
+        self._influence_distance = influence_distance
 
     @property
     def type(self):
@@ -145,6 +147,10 @@ class Constraint(FemBase):
     @property
     def mpc_type(self):
         return self._mpc_type
+
+    @property
+    def influence_distance(self):
+        return self._influence_distance
 
     def __repr__(self):
         return f'Constraint("{self.type}", m: "{self.m_set.name}", s: "{self.s_set.name}", dofs: "{self.dofs}")'

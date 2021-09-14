@@ -794,14 +794,14 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM):
         name = d["name"]
         msurf = grab_set_from_assembly(d["surf1"], fem, "surface")
         ssurf = grab_set_from_assembly(d["surf2"], fem, "surface")
-        constraints.append(Constraint(name, "tie", msurf, ssurf, metadata=dict(adjust=d["adjust"])))
+        constraints.append(Constraint(name, Constraint.TYPES.TIE, msurf, ssurf, metadata=dict(adjust=d["adjust"])))
 
     for m in AbaCards.rigid_bodies.regex.finditer(bulk_str):
         d = m.groupdict()
         name = next(rbnames)
-        ref_node = grab_set_from_assembly(d["ref_node"], fem, "nset")
-        elset = grab_set_from_assembly(d["elset"], fem, "elset")
-        constraints.append(Constraint(name, "rigid body", ref_node, elset, parent=fem))
+        ref_node = grab_set_from_assembly(d["ref_node"], fem, FemSet.TYPES.NSET)
+        elset = grab_set_from_assembly(d["elset"], fem, FemSet.TYPES.ELSET)
+        constraints.append(Constraint(name, Constraint.TYPES.RIGID_BODY, ref_node, elset, parent=fem))
 
     couplings = []
     for m in AbaCards.coupling.regex.finditer(bulk_str):
@@ -810,7 +810,7 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM):
         rn = d["ref_node"].strip()
         sf = d["surface"].strip()
         if rn.isnumeric():
-            ref_set = FemSet(next(conames), [int(rn)], "nset", parent=fem)
+            ref_set = FemSet(next(conames), [int(rn)], FemSet.TYPES.NSET, parent=fem)
             fem.sets.add(ref_set)
         else:
             ref_set = fem.nsets[rn]
@@ -831,16 +831,17 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM):
         else:
             csys = None
 
-        couplings.append(Constraint(name, "coupling", ref_set, surf, csys=csys, dofs=dofs, parent=fem))
+        couplings.append(Constraint(name, Constraint.TYPES.COUPLING, ref_set, surf, csys=csys, dofs=dofs, parent=fem))
 
     # Shell to Solid Couplings
     sh2solids = []
     for m in AbaCards.sh2so_re.regex.finditer(bulk_str):
         d = m.groupdict()
         name = d["constraint_name"]
+        influence = d["influence_distance"]
         surf1 = grab_set_from_assembly(d["surf1"], fem, "surface")
         surf2 = grab_set_from_assembly(d["surf2"], fem, "surface")
-        sh2solids.append(Constraint(name, "shell2solid", surf1, surf2))
+        sh2solids.append(Constraint(name, Constraint.TYPES.SHELL2SOLID, surf1, surf2, influence_distance=influence))
 
     # MPC's
     mpc_dict = dict()
@@ -859,36 +860,29 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM):
                 n1_ = str_to_int(m)
             except BaseException as e:
                 logging.debug(e)
-                n1_ = grab_set_from_assembly(m, fem, "nset")
+                n1_ = grab_set_from_assembly(m, fem, FemSet.TYPES.NSET)
 
             try:
                 n2_ = str_to_int(s)
             except BaseException as e:
                 logging.debug(e)
-                n2_ = grab_set_from_assembly(s, fem, "nset")
+                n2_ = grab_set_from_assembly(s, fem, FemSet.TYPES.NSET)
 
             mpc_dict[mpc_type].append((n1_, n2_))
 
     def get_mpc(mpc_values):
         m_set, s_set = zip(*mpc_values)
         mpc_name = mpc_type + "_mpc"
-        mset = FemSet("mpc_" + mpc_type + "_m", m_set, "nset")
-        sset = FemSet("mpc_" + mpc_type + "_s", s_set, "nset")
-        return Constraint(mpc_name, "mpc", mset, sset, mpc_type=mpc_type, parent=fem)
+        mset = FemSet("mpc_" + mpc_type + "_m", m_set, FemSet.TYPES.NSET)
+        sset = FemSet("mpc_" + mpc_type + "_s", s_set, FemSet.TYPES.NSET)
+        return Constraint(mpc_name, Constraint.TYPES.MPC, mset, sset, mpc_type=mpc_type, parent=fem)
 
     mpcs = [get_mpc(mpc_values_in) for mpc_values_in in mpc_dict.values()]
 
     return list(chain.from_iterable([constraints, couplings, sh2solids, mpcs]))
 
 
-def get_connector_sections_from_bulk(bulk_str, parent: FEM) -> dict[str, ConnectorSection]:
-    """
-
-    :param bulk_str:
-    :param parent:
-    :return:
-    """
-
+def get_connector_sections_from_bulk(bulk_str: str, parent: FEM) -> dict[str, ConnectorSection]:
     consecsd = dict()
 
     for m in AbaCards.connector_behaviour.regex.finditer(bulk_str):

@@ -714,10 +714,11 @@ class AbaConstraint:
     def _shell2solid(self):
         mname = self.constraint.m_set.name
         sname = self.constraint.s_set.name
-
+        influence = self.constraint.influence_distance
+        influence_str = "" if influence is None else f", influence distance={influence}"
         return (
             f"** Constraint: {self.constraint.name}\n*Shell to Solid Coupling, "
-            f"constraint name={self.constraint.name}\n{mname}, {sname}"
+            f"constraint name={self.constraint.name}{influence_str}\n{mname}, {sname}"
         )
 
     @property
@@ -1195,7 +1196,7 @@ def orientations_str(assembly: Assembly, fem_writer) -> str:
 
 
 def csys_str(csys: Csys, fem_writer):
-    name = csys.name.replace('"', "").upper()
+    name = csys.name.replace('"', "")
     ori_str = f'*Orientation, name="{name}"'
     if csys.nodes is None and csys.coords is None:
         ori_str += "\n 1.,           0.,           0.,           0.,           1.,           0.\n 1, 0."

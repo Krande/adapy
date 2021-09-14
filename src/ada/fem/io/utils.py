@@ -17,10 +17,7 @@ from ada.config import Settings as _Settings
 
 
 class LocalExecute:
-    """
-
-    Backend Component for executing local analysis
-    """
+    """Backend Component for executing local analysis"""
 
     def __init__(
         self,
@@ -88,6 +85,10 @@ class LocalExecute:
     @inp_path.setter
     def inp_path(self, value):
         self._inp_path = pathlib.Path(value)
+
+    @property
+    def cpus(self):
+        return self.cpus
 
 
 def is_buffer(obj, mode):
@@ -287,20 +288,14 @@ echo ON\ncall {run_cmd}"""
 
 
 def run_linux(exe, run_cmd):
-    """
-
-    :param exe:
-    :param run_cmd:
-    :return:
-    """
     return run_tool(exe, run_cmd, "Linux")
 
 
-def run_tool(exe, run_cmd, platform):
+def run_tool(exe: LocalExecute, run_cmd, platform):
     fem_tool = type(exe).__name__
     out = None
     print(80 * "-")
-    print(f'starting {fem_tool} simulation "{exe.analysis_name}" (on {platform})')
+    print(f'starting {fem_tool} simulation "{exe.analysis_name}" (on {platform}) using {exe.cpus} cpus')
     props = dict(shell=True, cwd=exe.execute_dir, env=os.environ, capture_output=True, universal_newlines=True)
     if exe.auto_execute is True:
         if exe.run_ext is True:

@@ -133,7 +133,7 @@ class AbaCards:
     connector_section = AbaFF("Connector Section", [("elset=", "behavior="), ("contype",), ("csys",)])
 
     # Constraints
-    sh2so_re = AbaFF("Shell to Solid Coupling", [("constraint name=",), ("surf1", "surf2")])
+    sh2so_re = AbaFF("Shell to Solid Coupling", [("constraint name=", "influence distance=|"), ("surf1", "surf2")])
     rigid_bodies = AbaFF("Rigid Body", [("ref node=", "elset=")])
     coupling = AbaFF(
         "Coupling",
