@@ -88,7 +88,7 @@ class LocalExecute:
 
     @property
     def cpus(self):
-        return self.cpus
+        return self._cpus
 
 
 def is_buffer(obj, mode):
