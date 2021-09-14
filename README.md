@@ -210,25 +210,6 @@ conda install -c conda-forge ifcopenshell pythonocc-core==7.5.1 occt==7.5.1
 **Note!** pip is not a recommended installation method due to an unstable behaviour often 
 manifested as DLL import errors related to the vtk package.
 
-## For developers
-
-For developers interested in contributing to this project feel free to 
-make a fork, experiment and create a pull request when you have something you 
-would like to add/change/remove. 
-
-Before making a pull request you need to lint with, isort, flake8 and black.
-Assuming you have a cmd terminal open in the adapy package directory you can
-run
-
-````
-pip install black isort flake8
-isort .
-flake8 .
-black .
-````
-
-Or if you have make installed you can just run `make format` 
-to run all three tools at once.
 
 ## Project Responsible ###
 
