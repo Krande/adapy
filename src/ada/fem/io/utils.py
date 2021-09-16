@@ -9,11 +9,54 @@ import sys
 import time
 from contextlib import contextmanager
 from itertools import chain
+from typing import Dict
 
 from ada.concepts.containers import Beams, Plates
 from ada.concepts.levels import Part
 from ada.concepts.structural import Beam, Plate
 from ada.config import Settings as _Settings
+
+
+class DatFormatReader:
+    re_flags = re.MULTILINE | re.DOTALL
+    re_int = r"[0-9]{1,9}"
+    re_decimal_float = r"[+|-]{0,1}[0-9]{1,9}\.[0-9]{0,6}"
+    re_decimal_scientific = r"[+|-]{0,1}[0-9]{1,2}\.[0-9]{5,7}E[\+|\-][0-9]{2}"
+
+    def compile_ff_re(self, list_of_types):
+        """Create a compiled regex pattern for a specific combination of floats and ints provided"""
+        re_str = r"^\s*("
+        for t in list_of_types:
+            if t is int:
+                re_str += rf"{self.re_int}\s*"
+            elif t is float:
+                re_str += rf"(?:{self.re_decimal_scientific}|{self.re_decimal_float})\s*"
+            else:
+                raise ValueError()
+        re_str += r")\n"
+        return re.compile(re_str, self.re_flags)
+
+    def read_data_lines(self, dat_file, regex: re.Pattern, start_flag, end_flag=None, split_data=False) -> list:
+        """Reads line by line without any spaces to search for strings while disregarding formatting"""
+        read_data = False
+        results = []
+        with open(dat_file, "r") as f:
+            for line in f.readlines():
+                compact_str = line.replace(" ", "").strip().lower()
+                if start_flag in compact_str:
+                    read_data = True
+                if end_flag is not None and end_flag in compact_str:
+                    return results
+                if read_data is False:
+                    continue
+                res = regex.search(line)
+                if res is not None:
+                    result_data = res.group(1)
+                    if split_data:
+                        result_data = result_data.split()
+                    results.append(result_data)
+
+        return results
 
 
 class LocalExecute:
@@ -292,18 +335,18 @@ def run_linux(exe, run_cmd):
 
 
 def run_tool(exe: LocalExecute, run_cmd, platform):
-    fem_tool = type(exe).__name__
+    fem_tool_name = type(exe).__name__.replace("Execute", "")
     out = None
     print(80 * "-")
-    print(f'starting {fem_tool} simulation "{exe.analysis_name}" (on {platform}) using {exe.cpus} cpus')
+    print(f'Starting {fem_tool_name} simulation "{exe.analysis_name}" (on {platform}) using {exe.cpus} cpus')
     props = dict(shell=True, cwd=exe.execute_dir, env=os.environ, capture_output=True, universal_newlines=True)
     if exe.auto_execute is True:
         if exe.run_ext is True:
             out = subprocess.run(run_cmd, **props)
-            print(f"Note! This starts {fem_tool} in an external window on a separate thread.")
+            print(f"Note! This starts {fem_tool_name} in an external window on a separate thread.")
         else:
             out = subprocess.run(run_cmd, **props)
-            print(f'Finished {fem_tool} simulation "{exe.analysis_name}"')
+            print(f'Finished {fem_tool_name} simulation "{exe.analysis_name}"')
     print(80 * "-")
     return out
 
@@ -416,7 +459,7 @@ def convert_part_objects(p: Part, skip_plates, skip_beams):
         p._beams = convert_part_elem_bm_to_beams(p)
 
 
-def default_fem_res_path(name, scratch_dir):
+def default_fem_res_path(name, scratch_dir) -> Dict[str, pathlib.Path]:
     base_path = scratch_dir / name / name
     return dict(
         code_aster=base_path.with_suffix(".rmed"),

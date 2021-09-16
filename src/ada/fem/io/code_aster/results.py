@@ -21,7 +21,7 @@ def get_eigen_data(rmed_file) -> EigenDataSummary:
     for mname, m in modes.items():
         mode = m.attrs["NDT"]
         freq = m.attrs["PDT"]
-        eigen_modes.append(EigenMode(mode, freq, real=freq))
+        eigen_modes.append(EigenMode(mode, f_cycl=freq))
 
     return EigenDataSummary(eigen_modes)
 

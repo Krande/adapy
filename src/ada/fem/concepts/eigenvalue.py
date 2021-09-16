@@ -12,15 +12,26 @@ class EigenDataSummary:
     modes: List[EigenMode]
     tot_eff_mass: List[float] = None
 
+    def calc_tot_eff_mass(self):
+        tem = np.zeros(6)
+        for m in self.modes:
+            tem[0] += m.efx
+            tem[1] += m.efy
+            tem[2] += m.efz
+            tem[3] += m.efrx
+            tem[4] += m.efry
+            tem[5] += m.efrz
+        return tem.tolist()
+
 
 @validate_arguments
 @dataclass
 class EigenMode:
     no: int
-    eigenvalue: np.float64
-    frequency: np.float64 = field(default=None, repr=False)
-    real: np.float64 = field(default=None, repr=True)
-    imaginary: np.float64 = field(default=None, repr=False)
+    f_cycl: np.float64 = field(default=None, repr=True)
+    eigenvalue: np.float64 = field(default=None, repr=False)
+    f_rad: np.float64 = field(default=None, repr=False)
+    f_imag_rad: np.float64 = field(default=None, repr=False)
 
     # Participation factors
     px: np.float64 = field(default=None, repr=False)

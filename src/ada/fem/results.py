@@ -105,6 +105,7 @@ class Results:
         self._eigen_mode_data = value
 
     def _get_mesh(self, file_ref):
+        from .io.abaqus.results import read_abaqus_results
         from .io.calculix.results import read_calculix_results
         from .io.code_aster.results import read_code_aster_results
 
@@ -114,6 +115,7 @@ class Results:
         res_map = {
             ".rmed": (read_code_aster_results, FEATypes.CODE_ASTER),
             ".frd": (read_calculix_results, FEATypes.CALCULIX),
+            ".odb": (read_abaqus_results, FEATypes.ABAQUS),
         }
         res_reader, fem_format = res_map.get(suffix, (None, None))
 

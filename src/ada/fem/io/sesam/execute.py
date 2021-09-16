@@ -13,6 +13,8 @@ def run_sesam(
     exit_on_complete=True,
     run_in_shell=False,
 ):
+    logging.info("sestra runs on single core only. changing cpus=1")
+    cpus = 1
     aba_exe = SesamExecute(
         inp_path, cpus=cpus, run_ext=run_ext, metadata=metadata, auto_execute=execute, run_in_shell=run_in_shell
     )

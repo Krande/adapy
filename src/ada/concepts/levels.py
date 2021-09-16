@@ -882,14 +882,14 @@ class Assembly(Part):
         * Calculix
         * Code_Aster
 
-        Proprietary
+        not open source
 
         * Abaqus
         * Usfos
         * Sesam
 
 
-        Write support is added on a need-only-basis. Any contributions are welcome!
+        Write support is added on a need-only-basis. Any contributions are welcomed!
 
 
         :param name: Name of FEM analysis input deck
@@ -903,6 +903,7 @@ class Assembly(Part):
         :param overwrite: Overwrite existing input file deck
         :param fem_converter: Set desired fem converter. Use either 'default' or 'meshio'.
         :param exit_on_complete:
+        :param run_in_shell:
         :rtype: ada.fem.results.Results
 
             Note! Meshio implementation currently only supports reading & writing elements and nodes.
@@ -920,7 +921,8 @@ class Assembly(Part):
         from ada.fem.io.utils import default_fem_res_path, folder_prep, should_convert
         from ada.fem.results import Results
 
-        fem_res_files = default_fem_res_path(name, Settings.scratch_dir)
+        scratch_dir = Settings.scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
+        fem_res_files = default_fem_res_path(name, scratch_dir)
 
         res_path = fem_res_files.get(fem_format, None)
         metadata = dict() if metadata is None else metadata
@@ -961,7 +963,9 @@ class Assembly(Part):
                 )
         else:
             print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
+
         if out is None and res_path is None:
+            logging.info("No Result file is created")
             return None
         return Results(res_path, name, fem_format=fem_format, assembly=self, output=out, overwrite=overwrite)
 

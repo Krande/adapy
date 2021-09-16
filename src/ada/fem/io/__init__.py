@@ -25,16 +25,21 @@ fem_executables = dict(
 )
 
 
+class FemConverters:
+    DEFAULT = "default"
+    MESHIO = "meshio"
+
+
 def get_fem_converters(fem_file, fem_format, fem_converter):
     from ada.fem.io.mesh_io import meshio_read_fem, meshio_to_fem
 
     if fem_format is None:
         fem_format = interpret_fem(fem_file)
 
-    if fem_converter == "default":
+    if fem_converter == FemConverters.DEFAULT:
         fem_importer = fem_imports.get(fem_format, None)
         fem_exporter = fem_exports.get(fem_format, None)
-    elif fem_converter.lower() == "meshio":
+    elif fem_converter.lower() == FemConverters.MESHIO:
         fem_importer = meshio_read_fem
         fem_exporter = meshio_to_fem
     else:
