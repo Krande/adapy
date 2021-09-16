@@ -1,12 +1,14 @@
 import datetime
 import logging
 from operator import attrgetter
+from typing import List, Tuple
 
 import numpy as np
 
 from ada.concepts.levels import FEM, Part
+from ada.concepts.structural import Beam
 from ada.core.utils import Counter, get_current_user, make_name_fem_ready
-from ada.fem import Elem, Load, Step
+from ada.fem import Elem, FemSection, Load, Step
 from ada.fem.shapes import ElemType
 
 from .templates import sestra_eig_inp_str, top_level_fem_str
@@ -59,11 +61,11 @@ def to_fem(
         d.write(units)
         d.write(materials_str(part))
         d.write(sections_str(part.fem, thick_map))
+        d.write(univec_str(part.fem))
         d.write(nodes_str(part.fem))
         d.write(mass_str(part.fem))
         d.write(bc_str(part.fem) + bc_str(assembly.fem))
         d.write(hinges_str(part.fem))
-        d.write(univec_str(part.fem))
         d.write(elem_str(part.fem, thick_map))
         d.write(loads_str(part.fem))
         d.write("IEND                0.00            0.00            0.00            0.00")
@@ -108,15 +110,13 @@ def sections_str(fem: FEM, thick_map) -> str:
 
     :return:
     """
-    from ada.sections import SectionCat
+    from .write_sections import write_bm_section
 
     sec_str = ""
     sec_ids = []
     names_str = ""
     concept_str = ""
-    c = Counter(1)
-    g = Counter(1)
-    ircon = Counter(1)
+    tdsconc_str, sconcept_str, scon_mesh = "", "", ""
     shid = Counter(1)
     bmid = Counter(1)
 
@@ -141,88 +141,14 @@ def sections_str(fem: FEM, thick_map) -> str:
                     ],
                 )
                 sec_ids.append(fem_sec.section)
-                if "beam" in fem_sec.metadata.keys():
-                    # Give concept relationship based on inputted values
-                    beam = fem_sec.metadata["beam"]
-                    numel = fem_sec.metadata["numel"]
-                    fem_sec.metadata["ircon"] = next(ircon)
-                    bm_name = make_name_fem_ready(beam.name, no_dot=True)
-                    concept_str += write_ff(
-                        "TDSCONC",
-                        [(4, fem_sec.metadata["ircon"], 100 + len(bm_name), 0), (bm_name,)],
-                    )
-                    concept_str += write_ff("SCONCEPT", [(8, next(c), 7, 0), (0, 1, 0, 2)])
-                    sconc_ref = next(c)
-                    concept_str += write_ff("SCONCEPT", [(5, sconc_ref, 2, 4), (1,)])
-                    elids = []
-                    i = 0
-                    elid_bulk = [numel]
-                    for el in fem_sec.elset.members:
-                        if i == 3:
-                            elids.append(tuple(elid_bulk))
-                            elid_bulk = []
-                            i = -1
-                        elid_bulk.append(el.id)
-                        i += 1
-                    if len(elid_bulk) != 0:
-                        elids.append(tuple(elid_bulk))
+                sec_str += write_bm_section(sec, secid)
 
-                    mesh_args = [(5 + numel, sconc_ref, 1, 2)] + elids
-                    concept_str += write_ff("SCONMESH", mesh_args)
-                    concept_str += write_ff("GUNIVEC", [(next(g), *beam.up)])
-
-                sec.properties.calculate()
-                p = sec.properties
-                sec_str += write_ff(
-                    "GBEAMG",
-                    [
-                        (secid, 0, p.Ax, p.Ix),
-                        (p.Iy, p.Iz, p.Iyz, p.Wxmin),
-                        (p.Wymin, p.Wzmin, p.Shary, p.Sharz),
-                        (p.Scheny, p.Schenz, p.Sy, p.Sz),
-                    ],
-                )
-
-                if SectionCat.is_i_profile(sec.type):
-                    sec_str += write_ff(
-                        "GIORH",
-                        [
-                            (secid, sec.h, sec.t_w, sec.w_top),
-                            (sec.t_ftop, sec.w_btn, sec.t_fbtn, p.Sfy),
-                            (p.Sfz,),
-                        ],
-                    )
-                elif SectionCat.is_hp_profile(sec.type):
-                    sec_str += write_ff(
-                        "GLSEC",
-                        [
-                            (secid, sec.h, sec.t_w, sec.w_btn),
-                            (sec.t_fbtn, p.Sfy, p.Sfz, 1),
-                        ],
-                    )
-                elif SectionCat.is_box_profile(sec.type):
-                    sec_str += write_ff(
-                        "GBOX",
-                        [
-                            (secid, sec.h, sec.t_w, sec.t_fbtn),
-                            (sec.t_ftop, sec.w_btn, p.Sfy, p.Sfz),
-                        ],
-                    )
-                elif SectionCat.is_tubular_profile(sec.type):
-                    sec_str += write_ff(
-                        "GPIPE",
-                        [(secid, (sec.r - sec.wt) * 2, sec.r * 2, sec.wt), (p.Sfy, p.Sfz)],
-                    )
-                elif SectionCat.is_circular_profile(sec.type):
-                    sec_str += write_ff(
-                        "GPIPE",
-                        [(secid, (sec.r - sec.r * 0.99) * 2, sec.r * 2, sec.wt), (p.Sfy, p.Sfz)],
-                    )
-                elif SectionCat.is_flatbar(sec.type):
-                    sec_str += write_ff("GBARM", [(secid, sec.h, sec.w_top, sec.w_btn), (p.Sfy, p.Sfz)])
-                else:
-                    logging.error(f'Unable to convert "{sec}". This will be exported as general section only')
-
+                tdsconc_str_in, sconcept_str_in, scon_mesh_in = write_sconcept(fem_sec)
+                tdsconc_str += tdsconc_str_in
+                sconcept_str += sconcept_str_in
+                scon_mesh += scon_mesh_in
+            else:
+                logging.info(f'Skipping already included section "{sec}"')
         elif fem_sec.type == ElemType.SHELL:
             if fem_sec.thickness not in thick_map.keys():
                 sh_id = next(shid)
@@ -232,7 +158,7 @@ def sections_str(fem: FEM, thick_map) -> str:
             sec_str += write_ff("GELTH", [(sh_id, fem_sec.thickness, 5)])
         else:
             raise ValueError(f"Unknown type {fem_sec.type}")
-    return names_str + sec_str + concept_str
+    return names_str + sec_str + concept_str + tdsconc_str + sconcept_str + scon_mesh
 
 
 def elem_str(fem: FEM, thick_map):
@@ -454,6 +380,45 @@ def write_sestra_eig_str(name: str, step: Step):
     return sestra_eig_inp_str.format(
         name=name, modes=step.eigenmodes, date_str=date_str, clock_str=clock_str, user=user
     )
+
+
+concept = Counter(1)
+concept_ircon = Counter(1)
+
+
+def write_sconcept(fem_sec: FemSection) -> Tuple[str, str, str]:
+    sconcept_str = ""
+    # Give concept relationship based on inputted values
+    beams = [x for x in fem_sec.refs if type(x) is Beam]
+    if len(beams) != 1:
+        raise ValueError("A FemSection cannot be sourced from multiple beams")
+    beam = beams[0]
+    numel = len(beam.elem_refs)
+    fem_sec.metadata["ircon"] = next(concept_ircon)
+    bm_name = make_name_fem_ready(beam.name, no_dot=True)
+    tdsconc_str = write_ff(
+        "TDSCONC",
+        [(4, fem_sec.metadata["ircon"], 100 + len(bm_name), 0), (bm_name,)],
+    )
+    sconcept_str += write_ff("SCONCEPT", [(8, next(concept), 7, 0), (0, 1, 0, 2)])
+    sconc_ref = next(concept)
+    sconcept_str += write_ff("SCONCEPT", [(5, sconc_ref, 2, 4), (1,)])
+    elids: List[tuple] = []
+    i = 0
+    elid_bulk = [numel]
+    for el in fem_sec.elset.members:
+        if i == 3:
+            elids.append(tuple(elid_bulk))
+            elid_bulk = []
+            i = -1
+        elid_bulk.append(el.id)
+        i += 1
+    if len(elid_bulk) != 0:
+        elids.append(tuple(elid_bulk))
+
+    mesh_args = [(5 + numel, sconc_ref, 1, 2)] + elids
+    scon_mesh = write_ff("SCONMESH", mesh_args)
+    return tdsconc_str, sconcept_str, scon_mesh
 
 
 def write_conmesh(fem: FEM):

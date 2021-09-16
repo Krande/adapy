@@ -32,6 +32,7 @@ class FemSection(FemBase):
         hinges=None,
         metadata=None,
         parent=None,
+        refs=None,
     ):
         """:type elset: ada.fem.FemSet"""
         super().__init__(name, metadata, parent)
@@ -50,6 +51,7 @@ class FemSection(FemBase):
         self._int_points = int_points
         self._offset = offset
         self._hinges = hinges
+        self._refs = refs
 
     def link_elements(self):
         from .elements import Elem
@@ -154,6 +156,10 @@ class FemSection(FemBase):
     @property
     def hinges(self):
         return self._hinges
+
+    @property
+    def refs(self):
+        return self._refs
 
     def __eq__(self, other):
         for key, val in self.__dict__.items():

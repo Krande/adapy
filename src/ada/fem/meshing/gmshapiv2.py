@@ -129,10 +129,10 @@ class GmshSession:
         if self.silent is True:
             self.options.General_Terminal = 0
 
-        self.apply_settings()
         if size is not None:
-            self.gmsh.option.setNumber("Mesh.MeshSizeMax", size)
+            self.options.Mesh_MeshSizeMax = size
 
+        self.apply_settings()
         self.model.geo.synchronize()
         self.model.mesh.setRecombine(3, -1)
         self.model.mesh.generate(3)
@@ -230,7 +230,7 @@ def get_bm_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
     set_name = make_name_fem_ready(f"el{beam.name}_set_bm")
     fem_sec_name = make_name_fem_ready(f"d{beam.name}_sec_bm")
     fem_set = FemSet(set_name, elements, FemSet.TYPES.ELSET, parent=fem)
-    fem_sec = FemSection(fem_sec_name, ElemType.LINE, fem_set, beam.material, beam.section, beam.ori[2])
+    fem_sec = FemSection(fem_sec_name, ElemType.LINE, fem_set, beam.material, beam.section, beam.ori[2], refs=[beam])
 
     add_sec_to_fem(fem, fem_sec, fem_set)
 

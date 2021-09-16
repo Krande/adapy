@@ -2,16 +2,25 @@ import unittest
 
 from common import build_test_model
 
-from ada import Assembly
+from ada import Assembly, Beam, Plate
 
 
 class TestSesam(unittest.TestCase):
     def test_write_simple_stru(self):
+        from ada.fem.meshing.gmshapiv2 import GmshSession
         from ada.param_models.basic_module import SimpleStru
 
         a = Assembly("MyTest")
         p = a.add_part(SimpleStru("SimpleStru"))
-        p.gmsh.mesh()
+        with GmshSession(silent=False) as gs:
+            for obj in p.get_all_physical_objects():
+                if type(obj) is Beam:
+                    gs.add_obj(obj, geom_repr="line")
+                elif type(obj) is Plate:
+                    gs.add_obj(obj, geom_repr="shell")
+            gs.mesh()
+            p.fem = gs.get_fem()
+        # TODO: Support mixed plate and beam models. Ensure nodal connectivity
         a.to_fem("MyTest", fem_format="sesam", overwrite=True)
 
     def test_write_ff(self):
