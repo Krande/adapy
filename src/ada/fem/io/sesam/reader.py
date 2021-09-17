@@ -47,24 +47,11 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
     fem.sections = get_sections(bulk_str, fem)
     # part.fem._masses = get_mass(bulk_str, part.fem)
     fem.constraints += get_constraints(bulk_str, fem)
-    fem._springs = get_springs(bulk_str, fem)
+    fem.springs = get_springs(bulk_str, fem)
     fem.bcs += get_bcs(bulk_str, fem)
 
     print(8 * "-" + f'Imported "{fem.instance_name}"')
     return part
-
-
-class SesamReader:
-
-    """
-    :param assembly: Assembly object
-    :type assembly: ada.Assembly
-    """
-
-    def __init__(self, assembly: Assembly, part_name="T1"):
-        self.assembly = assembly
-        self.part = Part(part_name)
-        assembly.add_part(self.part)
 
 
 def sesam_eltype_2_general(eltyp):
@@ -81,7 +68,7 @@ def sesam_eltype_2_general(eltyp):
     raise Exception("Currently unsupported eltype", eltyp)
 
 
-def eltype_2_sesam(eltyp):
+def eltype_2_sesam(eltyp) -> int:
     for ses, gen in sesam_el_map.items():
         if eltyp == gen:
             return ses
@@ -89,21 +76,7 @@ def eltype_2_sesam(eltyp):
     raise Exception("Currently unsupported eltype", eltyp)
 
 
-def get_nodes(bulk_str, parent) -> Nodes:
-    """
-    Imports
-
-    :param bulk_str:
-    :param parent:
-    :return: SortedNodes object
-    :rtype: ada.core.containers.SortedNodes
-    Format of input:
-
-    GNODE     1.00000000E+00  1.00000000E+00  6.00000000E+00  1.23456000E+05
-    GCOORD    1.00000000E+00  2.03000000E+02  7.05000000E+01  5.54650024E+02
-
-    """
-
+def get_nodes(bulk_str: str, parent: FEM) -> Nodes:
     def get_node(m):
         d = m.groupdict()
         return Node(
@@ -115,17 +88,8 @@ def get_nodes(bulk_str, parent) -> Nodes:
     return Nodes(list(map(get_node, cards.re_gcoord_in.finditer(bulk_str))), parent=parent)
 
 
-def get_elements(bulk_str, fem) -> FemElements:
-    """
-    Import elements from Sesam Bulk str
-
-
-    :param bulk_str:
-    :param fem:
-    :type fem: ada.fem.FEM
-    :return: FemElementsCollections
-    :rtype: ada.fem.containers.FemElements
-    """
+def get_elements(bulk_str: str, fem: FEM) -> FemElements:
+    """Import elements from Sesam Bulk str"""
 
     def grab_elements(match):
         d = match.groupdict()

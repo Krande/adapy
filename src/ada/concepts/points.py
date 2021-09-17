@@ -26,7 +26,7 @@ class Node:
         self._refs = []
 
     @property
-    def id(self):
+    def id(self) -> int:
         return self._id
 
     @id.setter

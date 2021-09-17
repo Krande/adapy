@@ -21,16 +21,19 @@ class DatFormatReader:
     re_flags = re.MULTILINE | re.DOTALL
     re_int = r"[0-9]{1,9}"
     re_decimal_float = r"[+|-]{0,1}[0-9]{1,9}\.[0-9]{0,6}"
-    re_decimal_scientific = r"[+|-]{0,1}[0-9]{1,2}\.[0-9]{5,7}E[\+|\-][0-9]{2}"
+    re_decimal_scientific = r"[+|-]{0,1}[0-9]{1,2}\.[0-9]{5,7}[E|e][\+|\-][0-9]{2}"
 
-    def compile_ff_re(self, list_of_types):
+    def compile_ff_re(self, list_of_types, separator=None):
         """Create a compiled regex pattern for a specific combination of floats and ints provided"""
         re_str = r"^\s*("
-        for t in list_of_types:
+        sep_str = "" if separator is None else separator
+        for i, t in enumerate(list_of_types):
+            if i == len(list_of_types) - 1:
+                sep_str = ""
             if t is int:
-                re_str += rf"{self.re_int}\s*"
+                re_str += rf"{self.re_int}{sep_str}\s*"
             elif t is float:
-                re_str += rf"(?:{self.re_decimal_scientific}|{self.re_decimal_float})\s*"
+                re_str += rf"(?:{self.re_decimal_scientific}|{self.re_decimal_float}){sep_str}\s*"
             else:
                 raise ValueError()
         re_str += r")\n"

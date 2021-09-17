@@ -108,6 +108,7 @@ class Results:
         from .io.abaqus.results import read_abaqus_results
         from .io.calculix.results import read_calculix_results
         from .io.code_aster.results import read_code_aster_results
+        from .io.sesam.results import read_sesam_results
 
         file_ref = pathlib.Path(file_ref)
         suffix = file_ref.suffix.lower()
@@ -116,6 +117,7 @@ class Results:
             ".rmed": (read_code_aster_results, FEATypes.CODE_ASTER),
             ".frd": (read_calculix_results, FEATypes.CALCULIX),
             ".odb": (read_abaqus_results, FEATypes.ABAQUS),
+            ".sin": (read_sesam_results, FEATypes.SESAM),
         }
         res_reader, fem_format = res_map.get(suffix, (None, None))
 

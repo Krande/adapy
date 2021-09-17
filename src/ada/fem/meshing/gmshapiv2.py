@@ -160,6 +160,7 @@ class GmshSession:
             add_fem_sections(self.model, fem, model_obj, gmsh_data)
 
         fem.nodes.renumber()
+        fem.elements.renumber()
         return fem
 
     def apply_settings(self):

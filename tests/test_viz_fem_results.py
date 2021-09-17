@@ -20,14 +20,14 @@ class FemResults(unittest.TestCase):
     def test_ca_bm_eig(self):
         eig_res = get_eigen_data(rmed_bm_eig)
         self.assertEqual(type(eig_res), EigenDataSummary)
-        self.assertAlmostEqual(eig_res.modes[0].f_cycl, 4.672562038746128)
-        self.assertAlmostEqual(eig_res.modes[14].f_cycl, 131.94191888574105)
+        self.assertAlmostEqual(eig_res.modes[0].f_hz, 4.672562038746128)
+        self.assertAlmostEqual(eig_res.modes[14].f_hz, 131.94191888574105)
 
     def test_ca_sh_eig(self):
         eig_res = get_eigen_data(rmed_sh_eig)
         self.assertEqual(type(eig_res), EigenDataSummary)
-        self.assertAlmostEqual(eig_res.modes[0].f_cycl, 6.18343412480713)
-        self.assertAlmostEqual(eig_res.modes[19].f_cycl, 258.92237110772226)
+        self.assertAlmostEqual(eig_res.modes[0].f_hz, 6.18343412480713)
+        self.assertAlmostEqual(eig_res.modes[19].f_hz, 258.92237110772226)
 
     def test_viz_ca_sh_eig(self):
 

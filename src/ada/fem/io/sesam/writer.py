@@ -9,6 +9,7 @@ from ada.concepts.levels import FEM, Part
 from ada.concepts.structural import Beam
 from ada.core.utils import Counter, get_current_user, make_name_fem_ready
 from ada.fem import Elem, FemSection, Load, Step
+from ada.fem.exceptions.element_support import IncompatibleElements
 from ada.fem.shapes import ElemType
 
 from .templates import sestra_eig_inp_str, top_level_fem_str
@@ -157,11 +158,12 @@ def sections_str(fem: FEM, thick_map) -> str:
                 sh_id = thick_map[fem_sec.thickness]
             sec_str += write_ff("GELTH", [(sh_id, fem_sec.thickness, 5)])
         else:
-            raise ValueError(f"Unknown type {fem_sec.type}")
+            raise IncompatibleElements(f"Solid element type {fem_sec.type} is not yet supported for writing to Sesam")
+
     return names_str + sec_str + concept_str + tdsconc_str + sconcept_str + scon_mesh
 
 
-def elem_str(fem: FEM, thick_map):
+def elem_str(fem: FEM, thick_map) -> str:
     """
 
     'GELREF1',  ('elno', 'matno', 'addno', 'intno'), ('mintno', 'strano', 'streno', 'strepono'), ('geono', 'fixno',
@@ -176,14 +178,28 @@ def elem_str(fem: FEM, thick_map):
     """
     from .reader import eltype_2_sesam
 
+    def write_nodal_data(el: Elem) -> List[Tuple[int]]:
+        if len(el.nodes) <= 4:
+            return [tuple([e.id for e in el.nodes])]
+
+        nodes = []
+        curr_tup = []
+        counter = 0
+        for n in el.nodes:
+            curr_tup.append(n.id)
+            counter += 1
+            if counter == 4:
+                counter = 0
+                nodes.append(tuple(curr_tup))
+                curr_tup = []
+
+        return nodes + [tuple(curr_tup)]
+
     out_str = "".join(
         [
             write_ff(
                 "GELMNT1",
-                [
-                    (el.id, el.id, eltype_2_sesam(el.type), 0),
-                    ([n.id for n in el.nodes]),
-                ],
+                [(el.id, el.id, eltype_2_sesam(el.type), 0)] + write_nodal_data(el),
             )
             for el in fem.elements
         ]
@@ -393,7 +409,7 @@ def write_sconcept(fem_sec: FemSection) -> Tuple[str, str, str]:
     if len(beams) != 1:
         raise ValueError("A FemSection cannot be sourced from multiple beams")
     beam = beams[0]
-    numel = len(beam.elem_refs)
+
     fem_sec.metadata["ircon"] = next(concept_ircon)
     bm_name = make_name_fem_ready(beam.name, no_dot=True)
     tdsconc_str = write_ff(
@@ -405,6 +421,8 @@ def write_sconcept(fem_sec: FemSection) -> Tuple[str, str, str]:
     sconcept_str += write_ff("SCONCEPT", [(5, sconc_ref, 2, 4), (1,)])
     elids: List[tuple] = []
     i = 0
+
+    numel = len(beam.elem_refs)
     elid_bulk = [numel]
     for el in fem_sec.elset.members:
         if i == 3:
@@ -419,13 +437,3 @@ def write_sconcept(fem_sec: FemSection) -> Tuple[str, str, str]:
     mesh_args = [(5 + numel, sconc_ref, 1, 2)] + elids
     scon_mesh = write_ff("SCONMESH", mesh_args)
     return tdsconc_str, sconcept_str, scon_mesh
-
-
-def write_conmesh(fem: FEM):
-    num_mem = 35
-    tdsc_str = ""
-    for obj in fem.parent.get_all_physical_objects():
-        # elem_ids = [el.id for el in obj.elem_refs]
-        tdsc_str += f"TDSCONC   4.00000000E+00  1.00000000E+00  1.03000000E+02  0.00000000E+00\n        {obj.name}\n"
-
-    return f"""SCONMESH  {num_mem}  2.00000000E+00  1.00000000E+00  2.00000000E+00"""

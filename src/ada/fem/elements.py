@@ -67,7 +67,7 @@ class Elem(FemBase):
         self._name = value
 
     @property
-    def id(self):
+    def id(self) -> int:
         return self._el_id
 
     @id.setter
@@ -77,7 +77,7 @@ class Elem(FemBase):
         self._el_id = value
 
     @property
-    def nodes(self):
+    def nodes(self) -> List[Node]:
         return self._nodes
 
     @property

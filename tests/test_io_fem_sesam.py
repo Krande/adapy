@@ -12,16 +12,22 @@ class TestSesam(unittest.TestCase):
 
         a = Assembly("MyTest")
         p = a.add_part(SimpleStru("SimpleStru"))
-        with GmshSession(silent=False) as gs:
+
+        with GmshSession(silent=True) as gs:
+            gmap = dict()
             for obj in p.get_all_physical_objects():
                 if type(obj) is Beam:
-                    gs.add_obj(obj, geom_repr="line")
+                    li = gs.add_obj(obj, geom_repr="line")
+                    gmap[obj] = li
                 elif type(obj) is Plate:
-                    gs.add_obj(obj, geom_repr="shell")
+                    pl = gs.add_obj(obj, geom_repr="shell")
+                    gmap[obj] = pl
             gs.mesh()
+            # gs.open_gui()
             p.fem = gs.get_fem()
+
         # TODO: Support mixed plate and beam models. Ensure nodal connectivity
-        a.to_fem("MyTest", fem_format="sesam", overwrite=True)
+        a.to_fem("MySesamStru", fem_format="sesam", overwrite=True)
 
     def test_write_ff(self):
         from ada.fem.io.sesam.writer import write_ff

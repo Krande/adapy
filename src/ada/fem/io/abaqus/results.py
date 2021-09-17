@@ -35,7 +35,7 @@ def get_eigen_data(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
         eig_output = dict(
             eigenvalue=eig_value,
             f_rad=freq_rad,
-            f_cycl=freq_cycl,
+            f_hz=freq_cycl,
         )
         participation_data = {pn: p for pn, p in zip(part_factor_names, part[1:])}
         eff_mass_data = {pn: p for pn, p in zip(eff_mass_names, part[1:])}

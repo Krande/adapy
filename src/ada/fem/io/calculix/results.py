@@ -38,7 +38,7 @@ def get_eigen_data(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
     # Note! participation factors and effective modal mass are each deconstructed into 6 degrees of freedom
     for eig, part, modal in zip(eig_res, part_res, modalmass):
         mode, eig_value, freq_rad, freq_cycl, freq_imag_rad = eig
-        eig_output = dict(eigenvalue=eig_value, f_rad=freq_rad, f_cycl=freq_cycl, f_imag_rad=freq_imag_rad)
+        eig_output = dict(eigenvalue=eig_value, f_rad=freq_rad, f_hz=freq_cycl, f_imag_rad=freq_imag_rad)
         participation_data = {pn: p for pn, p in zip(part_factor_names, part[1:])}
         eff_mass_data = {pn: p for pn, p in zip(eff_mass_names, part[1:])}
         eigen_modes.append(EigenMode(no=mode, **eig_output, **participation_data, **eff_mass_data))
