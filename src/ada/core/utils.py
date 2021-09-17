@@ -13,12 +13,7 @@ from ada.config import Settings
 
 
 def align_to_plate(plate):
-    """
-
-    :param plate:
-    :type plate: ada.Plate
-    :return:
-    """
+    """:type plate: ada.Plate"""
     normal = plate.poly.normal
     h = plate.t * 5
     origin = plate.poly.origin - h * normal * 1.1 / 2
@@ -27,12 +22,7 @@ def align_to_plate(plate):
 
 
 def align_to_beam(beam):
-    """
-
-    :param beam:
-    :type beam: ada.Beam
-    :return:
-    """
+    """:type beam: ada.Beam"""
     ymin = beam.yvec * np.array(beam.bbox[0])
     ymax = beam.yvec * np.array(beam.bbox[1])
     origin = beam.n1.p - ymin * 1.1
@@ -53,26 +43,6 @@ def split_beam(bm, fraction):
     """
     raise NotImplementedError()
     # nmid = bm.n1.p + bm.xvec * bm.length * fraction
-
-
-def are_plates_touching(pl1, pl2, tol=1e-3):
-    """
-    Check if two plates are within tolerance of eachother.
-
-    This uses the OCC shape representation of the plate.
-
-    :param pl1:
-    :param pl2:
-    :param tol:
-    :return:
-    """
-    from ..occ.utils import compute_minimal_distance_between_shapes
-
-    dss = compute_minimal_distance_between_shapes(pl1.solid, pl2.solid)
-    if dss.Value() <= tol:
-        return dss
-    else:
-        return None
 
 
 def linear_2dtransform_rotate(origin, point, degrees):
@@ -1479,3 +1449,24 @@ def unit_length_conversion(ori_unit, value):
     else:
         raise ValueError(f'Unrecognized unit conversion from "{ori_unit}" to "{value}"')
     return scale_factor
+
+
+def is_on_line(data):
+    """Evaluate intersection point between two lines"""
+    l, bm = data
+    A, B = np.array(l[0]), np.array(l[1])
+    AB = B - A
+    C = bm.n1.p
+    D = bm.n2.p
+    CD = D - C
+
+    if (vector_length(A - C) < 1e-5) is True and (vector_length(B - D) < 1e-5) is True:
+        return None
+
+    s, t = intersect_calc(A, C, AB, CD)
+    AB_ = A + s * AB
+    CD_ = C + t * CD
+    if (vector_length(AB_ - CD_) < 1e-4) is True and s not in (0.0, 1.0):
+        return list(AB_), bm
+    else:
+        return None

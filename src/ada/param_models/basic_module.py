@@ -1,3 +1,5 @@
+from typing import Callable, List
+
 import numpy as np
 
 from ada import Assembly, Beam, Part, Pipe, PipeSegStraight, Plate, PrimCyl, Section
@@ -89,22 +91,22 @@ class SimpleStru(Part):
         for p1, p2 in columns:
             self.add_beam(Beam(next(bm_name), n1=p1, n2=p2, sec=csec))
 
-    def c1(self, z):
+    def c1(self, z) -> tuple:
         return 0, 0, z
 
-    def c2(self, z):
+    def c2(self, z) -> tuple:
         return self.Params.w, 0, z
 
-    def c3(self, z):
+    def c3(self, z) -> tuple:
         return self.Params.w, self.Params.l, z
 
-    def c4(self, z):
+    def c4(self, z) -> tuple:
         return 0, self.Params.l, z
 
     def add_bcs(self):
-
-        for i, bc_loc in enumerate([self.c1, self.c2, self.c3, self.c4]):
-            fem_set_btn = FemSet(f"fix{i}", [], "nset")
+        funcs: List[Callable] = [self.c1, self.c2, self.c3, self.c4]
+        for i, bc_loc in enumerate(funcs):
+            fem_set_btn = FemSet(f"fix{i}", [], FemSet.TYPES.NSET)
             self.fem.add_set(fem_set_btn, p=bc_loc(self._origin[2]))
             self.fem.add_bc(Bc(f"bc_fix{i}", fem_set_btn, [1, 2, 3]))
 

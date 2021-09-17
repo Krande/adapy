@@ -6,7 +6,7 @@ import os
 import pathlib
 from dataclasses import dataclass, field
 from itertools import chain
-from typing import List, Union
+from typing import Iterable, List, Union
 
 from ada.base.physical_objects import BackendGeom
 from ada.concepts.connections import JointBase
@@ -354,7 +354,9 @@ class Part(BackendGeom):
         self._flatten_list_of_subparts(self, list_of_parts)
         return list_of_parts
 
-    def get_all_physical_objects(self, sub_elements_only=True) -> List[Union[Beam, Plate, Wall, Pipe, Shape]]:
+    def get_all_physical_objects(
+        self, sub_elements_only=True, by_type=None
+    ) -> Iterable[Union[Beam, Plate, Wall, Pipe, Shape]]:
         physical_objects = []
         if sub_elements_only:
             iter_parts = iter(self.get_all_subparts() + [self])
@@ -362,8 +364,13 @@ class Part(BackendGeom):
             iter_parts = iter(self.get_all_parts_in_assembly(True))
 
         for p in iter_parts:
-            physical_objects += list(p.plates) + list(p.beams) + list(p.shapes) + list(p.pipes) + list(p.walls)
-        return physical_objects
+            all_as_iterable = chain(p.plates, p.beams, p.shapes, p.pipes, p.walls)
+            physical_objects.append(all_as_iterable)
+        if by_type is not None:
+            res = filter(lambda x: type(x) is by_type, chain.from_iterable(physical_objects))
+        else:
+            res = chain.from_iterable(physical_objects)
+        return res
 
     def beam_clash_check(self, margins=5e-5):
         """

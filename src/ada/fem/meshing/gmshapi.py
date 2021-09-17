@@ -6,7 +6,7 @@ import numpy as np
 from ada import FEM, Node, Part, Plate
 from ada.concepts.containers import Nodes
 from ada.config import Settings as _Settings
-from ada.core.utils import clockwise, intersect_calc, roundoff, vector_length
+from ada.core.utils import clockwise, roundoff, vector_length
 from ada.fem import Elem, FemSection, FemSet
 from ada.fem.containers import FemElements
 from ada.fem.shapes import ElemType
@@ -163,35 +163,12 @@ class GMesh:
         """
         import gmsh
 
+        from ada.core.utils import is_on_line
+
         corners = [n for n in pl.poly.points3d]
         corners += [corners[0]]
         if clockwise:
             corners.reverse()
-
-        def is_on_line(data):
-            """
-            Evaluate intersection point between two lines
-
-            :param data:
-            :return:
-            """
-            l, bm = data
-            A, B = np.array(l[0]), np.array(l[1])
-            AB = B - A
-            C = bm.n1.p
-            D = bm.n2.p
-            CD = D - C
-
-            if (vector_length(A - C) < 1e-5) is True and (vector_length(B - D) < 1e-5) is True:
-                return None
-
-            s, t = intersect_calc(A, C, AB, CD)
-            AB_ = A + s * AB
-            CD_ = C + t * CD
-            if (vector_length(AB_ - CD_) < 1e-4) is True and s not in (0.0, 1.0):
-                return list(AB_), bm
-            else:
-                return None
 
         # Evalute Corner Points
         all_points = []

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from itertools import chain
+from typing import List
 
 import numpy as np
 
@@ -662,7 +663,14 @@ class Beam(BackendGeom):
     def line(self):
         from ada.occ.utils import make_wire_from_points
 
-        return make_wire_from_points([self.n1.p, self.n2.p])
+        # midpoints = self.calc_con_points()
+        # points = [self.n1.p]
+        # points += midpoints
+        # points += [self.n2.p]
+
+        points = [self.n1.p, self.n2.p]
+
+        return make_wire_from_points(points)
 
     @property
     def shell(self):
@@ -1007,29 +1015,17 @@ class Plate(BackendGeom):
         return self.poly.normal
 
     @property
-    def nodes(self):
-        """
-
-        :return:
-        :rtype: list
-        """
+    def nodes(self) -> List[Node]:
         return self.poly.nodes
 
     @property
     def poly(self):
-        """
-
-        :return:
-        :rtype: ada.core.containers.PolyCurve
-        """
+        """:rtype: ada.concepts.curves.CurvePoly"""
         return self._poly
 
     @property
     def bbox(self):
-        """
-
-        :return: Bounding box of plate
-        """
+        """Bounding box of plate"""
         if self._bbox is None:
             self._bbox = self.poly.calc_bbox(self.t)
         return self._bbox

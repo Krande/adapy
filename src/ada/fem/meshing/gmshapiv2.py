@@ -85,8 +85,17 @@ class GmshSession:
         self.model_map: dict[Union[Shape, Beam, Plate, Pipe], GmshData] = dict()
 
     def add_obj(
-        self, obj: Union[Shape, Beam, Plate, Pipe], geom_repr=ElemType.SOLID, el_order=1, silent=True, mesh_size=None
+        self,
+        obj: Union[Shape, Beam, Plate, Pipe],
+        geom_repr=ElemType.SOLID,
+        el_order=1,
+        silent=True,
+        mesh_size=None,
+        build_native_lines=False,
+        point_tol=Settings.point_tol,
     ):
+        from ada.core.utils import Counter
+
         self.apply_settings()
         temp_dir = Settings.temp_dir
         os.makedirs(temp_dir, exist_ok=True)
@@ -96,9 +105,17 @@ class GmshSession:
             logging.info(f"geom_repr for object type {type(obj)} must be solid. Changing to that now")
             geom_repr = ElemType.SOLID
 
-        obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent, fuse_piping=True)
-        entities = self.model.occ.importShapes(str(temp_dir / f"{name}.stp"))
-        self.model.occ.synchronize()
+        if build_native_lines is True and geom_repr == ElemType.LINE and type(obj) is Beam:
+            entities = build_bm_lines(self.gmsh, obj, point_tol)
+            self.model.geo.synchronize()
+        else:
+            obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent, fuse_piping=True)
+            entities = self.model.occ.importShapes(str(temp_dir / f"{name}.stp"))
+            self.model.occ.synchronize()
+
+        obj_name = Counter(1, obj.name)
+        for dim, ent in entities:
+            self.model.set_entity_name(dim, ent, next(obj_name))
 
         gmsh_data = GmshData(entities, geom_repr, el_order, obj, mesh_size=mesh_size)
         self.model_map[obj] = gmsh_data
@@ -331,3 +348,51 @@ def multisession_gmsh_tasker(gmsh_tasks: List[GmshTask]):
             tmp_fem = gs.get_fem()
             fem += tmp_fem
     return fem
+
+
+def build_bm_lines(gmsh_session: gmsh, bm: Beam, point_tol):
+    p1, p2 = bm.n1.p, bm.n2.p
+
+    midpoints = bm.calc_con_points(point_tol=point_tol)
+
+    if bm.connected_end1 is not None:
+        p1 = bm.connected_end1.centre
+    if bm.connected_end2 is not None:
+        p2 = bm.connected_end2.centre
+
+    s = get_point(gmsh_session, p1, point_tol)
+    e = get_point(gmsh_session, p2, point_tol)
+
+    if len(s) == 0:
+        s = [(0, gmsh_session.model.geo.addPoint(*p1.tolist()))]
+    if len(e) == 0:
+        e = [(0, gmsh_session.model.geo.addPoint(*p2.tolist()))]
+
+    if len(midpoints) == 0:
+        line = gmsh_session.model.geo.addLine(s[0][1], e[0][1])
+        return [(1, line)]
+
+    prev_p = None
+    entities = []
+    for i, con_centre in enumerate(midpoints):
+        midp = get_point(gmsh_session, con_centre, point_tol)
+        if len(midp) == 0:
+            midp = [(0, gmsh.model.geo.addPoint(*con_centre))]
+        if prev_p is None:
+            line = gmsh.model.geo.addLine(s[0][1], midp[0][1])
+            entities += [(1, line)]
+            prev_p = midp
+            continue
+
+        line = gmsh.model.geo.addLine(prev_p[0][1], midp[0][1])
+        entities += [(1, line)]
+        prev_p = midp
+
+    if prev_p is None:
+        line = gmsh_session.model.geo.addLine(s[0][1], e[0][1])
+        entities += [(1, line)]
+    else:
+        line = gmsh_session.model.geo.addLine(prev_p[0][1], e[0][1])
+        entities += [(1, line)]
+
+    return entities

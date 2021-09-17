@@ -696,7 +696,7 @@ class Nodes:
     def nodes(self) -> List[Node]:
         return self._nodes
 
-    def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=Settings.point_tol):
+    def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=Settings.point_tol) -> List[Node]:
         """
 
         :param p: Point

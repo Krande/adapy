@@ -1,3 +1,5 @@
+from typing import List
+
 import numpy as np
 
 from .points import Node
@@ -322,7 +324,7 @@ class CurvePoly:
         return self._points3d
 
     @property
-    def nodes(self):
+    def nodes(self) -> List[Node]:
         return self._nodes
 
     @property
