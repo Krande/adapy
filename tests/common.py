@@ -12,7 +12,6 @@ is_printed = False
 
 
 def dummy_display(ada_obj):
-
     if type(ada_obj) is Section:
         sec_render = SectionRenderer()
         _, _ = sec_render.build_display(ada_obj)
@@ -22,22 +21,20 @@ def dummy_display(ada_obj):
         renderer.build_display()
 
 
-def build_test_model():
-    param_model = SimpleStru("ParametricModel")
-    a = Assembly("ParametricSite")
-    a.add_part(param_model)
-    param_model.gmsh.mesh(max_dim=2, interactive=False, gmsh_silent=True)
-    param_model.add_bcs()
+def build_test_simplestru_fem(mesh_size=0.1):
+    p = SimpleStru("ParametricModel")
+    a = Assembly("ParametricSite") / p
+    p.fem = p.to_fem_obj(mesh_size)
+    p.add_bcs()
 
     return a
 
 
-def build_test_beam():
+def build_test_beam_fem(geom_repr):
     a = Assembly("MyAssembly")
-    p = Part("MyPart")
-    p.add_beam(Beam("Bm", (0, 0, 0), (1, 0, 0), "IPE300"))
-    p.gmsh.mesh(0.5)
-    a.add_part(p)
+    p = a.add_part(Part("MyPart"))
+    bm = p.add_beam(Beam("Bm", (0, 0, 0), (1, 0, 0), "IPE300"))
+    p.fem = bm.to_fem_obj(0.5, geom_repr)
     return a
 
 

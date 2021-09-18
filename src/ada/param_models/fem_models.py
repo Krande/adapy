@@ -2,7 +2,6 @@ import numpy as np
 
 from ada import Assembly, Beam, Material, Part, PrimBox, PrimCyl, PrimExtrude, User
 from ada.fem import Bc, FemSet, Load, Step
-from ada.fem.meshing.gmshapiv2 import GmshSession
 from ada.fem.shapes import ElemType
 from ada.fem.utils import get_beam_end_nodes
 from ada.materials.metals import CarbonSteel, DnvGl16Mat
@@ -50,12 +49,7 @@ def beam_ex1(p1=(0, 0, 0), p2=(1.5, 0, 0), profile="IPE400", geom_repr=ElemType.
     add_random_cutouts(bm)
     # Create a FEM analysis of the beam as a cantilever subjected to gravity loads
     p = a.get_part("MyPart")
-
-    with GmshSession(silent=True) as gs:
-        gs.add_obj(bm, geom_repr)
-        gs.mesh(0.1)
-        p.fem = gs.get_fem()
-
+    p.fem = bm.to_fem_obj(0.1, geom_repr)
     # Add a set containing ALL elements (necessary for Calculix loads).
     fs = p.fem.add_set(FemSet("Eall", [el for el in p.fem.elements], FemSet.TYPES.ELSET))
 

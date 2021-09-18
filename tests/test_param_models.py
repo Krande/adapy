@@ -1,5 +1,7 @@
 import unittest
 
+from common import build_test_simplestru_fem
+
 from ada import Assembly
 from ada.config import Settings
 from ada.fem import Load, Step
@@ -24,12 +26,11 @@ class ParamModelsTestCase(unittest.TestCase):
         # a.to_stp('param1', geom_type='solid')
 
     def test_to_fem(self):
-        param_model = SimpleStru("ParametricModel")
-        param_model.gmsh.mesh(order=1, size=0.1, max_dim=2, interactive=False)
-        param_model.add_bcs()
-        self.assertEqual(len(param_model.fem.bcs), 4)
-        self.assertEqual(len(param_model.fem.elements), 10420)
-        self.assertEqual(len(param_model.fem.nodes), 5318)
+        a = build_test_simplestru_fem()
+        param_model = a.get_by_name("ParametricModel")
+        self.assertEqual(len(param_model.fem.bcs), 1)
+        self.assertEqual(len(param_model.fem.elements), 12920)
+        self.assertEqual(len(param_model.fem.nodes), 5331)
 
         a = Assembly("ParametricSite")
         a.add_part(param_model)

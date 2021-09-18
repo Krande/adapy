@@ -50,6 +50,7 @@ from ada.fem import (
     Surface,
 )
 from ada.fem.containers import FemElements, FemSections, FemSets
+from ada.fem.elements import ElemType
 from ada.ifc.utils import create_guid
 
 
@@ -73,8 +74,6 @@ class Part(BackendGeom):
         guid=None,
     ):
         super().__init__(name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_elem=ifc_elem)
-        from ada.fem.meshing import GMesh
-
         self._nodes = Nodes(parent=self)
         self._beams = Beams(parent=self)
         self._plates = Plates(parent=self)
@@ -83,7 +82,6 @@ class Part(BackendGeom):
         self._connections = Connections(parent=self)
         self._materials = Materials(parent=self)
         self._sections = Sections(parent=self)
-        self._gmsh = GMesh(self)
         self._colour = colour
         self._origin = origin
         self._instances = []
@@ -463,6 +461,25 @@ class Part(BackendGeom):
         pr_type = ifc_elem.is_a()
         return opposite[pr_type]
 
+    def to_fem_obj(
+        self, mesh_size: float, bm_repr=ElemType.LINE, pl_repr=ElemType.SHELL, options=None, silent=True
+    ) -> FEM:
+        """:type options: ada.fem.meshing.GmshOptions"""
+        from ada.fem.meshing import GmshOptions, GmshSession
+
+        options = GmshOptions(Mesh_Algorithm=8) if options is None else options
+        with GmshSession(silent=silent, options=options) as gs:
+            # TODO: Beam and plate nodes (and nodes at intersecting beams) are still not properly represented
+            for obj in self.get_all_physical_objects():
+                if type(obj) is Beam:
+                    gs.add_obj(obj, geom_repr=bm_repr, build_native_lines=False)
+                elif type(obj) is Plate:
+                    gs.add_obj(obj, geom_repr=pl_repr)
+                else:
+                    logging.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
+            gs.mesh(mesh_size)
+            return gs.get_fem()
+
     @property
     def parts(self) -> dict[str, Part]:
         return self._parts
@@ -499,11 +516,6 @@ class Part(BackendGeom):
     def fem(self, value: FEM):
         value.parent = self
         self._fem = value
-
-    @property
-    def gmsh(self):
-        """:rtype: ada.fem.meshing.GMesh"""
-        return self._gmsh
 
     @property
     def connections(self) -> Connections:

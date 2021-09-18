@@ -9,12 +9,9 @@ from typing import Iterable, List, Union
 import gmsh
 import numpy as np
 
-from ada import FEM
+from ada import FEM, Beam, Node, Pipe, Plate, Shape
+from ada.base.physical_objects import BackendGeom
 from ada.concepts.containers import Nodes
-from ada.concepts.piping import Pipe
-from ada.concepts.points import Node
-from ada.concepts.primitives import Shape
-from ada.concepts.structural import Beam, Plate
 from ada.config import Settings
 from ada.core.utils import make_name_fem_ready
 from ada.fem import Elem, FemSection, FemSet
@@ -88,7 +85,7 @@ class GmshSession:
 
     def add_obj(
         self,
-        obj: Union[Shape, Beam, Plate, Pipe],
+        obj: Union[BackendGeom, Shape, Beam, Plate, Pipe],
         geom_repr=ElemType.SOLID,
         el_order=1,
         silent=True,

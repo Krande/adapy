@@ -1,6 +1,6 @@
 import unittest
 
-from common import build_test_model, example_files
+from common import build_test_simplestru_fem, example_files
 
 from ada import Assembly
 from ada.fem import FemSet, Load, Step
@@ -15,7 +15,7 @@ class TestCalculix(unittest.TestCase):
         assert vol == (0.49999999627471, 1.2499999925494, 3.9999999701977)
 
     def test_write_test_model(self):
-        a = build_test_model()
+        a = build_test_simplestru_fem()
         fs = a.fem.add_set(
             FemSet("Eall", [el for el in a.get_by_name("ParametricModel").fem.elements.elements], "elset")
         )

@@ -1,6 +1,6 @@
 import unittest
 
-from common import build_test_model
+from common import build_test_simplestru_fem
 
 from ada import Assembly, Beam, Plate
 
@@ -51,7 +51,7 @@ class TestSesam(unittest.TestCase):
 
 class TestUsfos(unittest.TestCase):
     def test_write_usfos(self):
-        a = build_test_model()
+        a = build_test_simplestru_fem()
         a.to_fem("my_usfos", fem_format="usfos", overwrite=True)
 
 

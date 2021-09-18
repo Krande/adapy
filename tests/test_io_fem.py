@@ -1,6 +1,6 @@
 import unittest
 
-from common import build_test_model
+from common import build_test_simplestru_fem
 
 from ada.core.utils import roundoff
 
@@ -8,7 +8,7 @@ from ada.core.utils import roundoff
 class TestFemProperties(unittest.TestCase):
     def test_calc_cog(self):
 
-        a = build_test_model()
+        a = build_test_simplestru_fem()
         p = a.parts["ParametricModel"]
         cog = p.fem.elements.calc_cog()
         tol = 0.01

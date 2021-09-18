@@ -1,9 +1,8 @@
 import unittest
 
-from common import dummy_display
+from common import build_test_simplestru_fem, dummy_display
 
 from ada import Assembly, Beam, Plate
-from ada.param_models.basic_module import SimpleStru
 
 
 class VisualizeTests(unittest.TestCase):
@@ -25,12 +24,8 @@ class VisualizeTests(unittest.TestCase):
         dummy_display(a)
 
     def test_module(self):
-        param_model = SimpleStru("ParametricModel")
-        param_model.gmsh.mesh(size=0.1, max_dim=2)
-        param_model.add_bcs()
-        a = Assembly("ParametricSite")
-        a.add_part(param_model)
-
+        param_model = build_test_simplestru_fem()
+        a = Assembly("ParametricSite") / param_model
         dummy_display(a)
 
 

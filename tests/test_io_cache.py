@@ -40,7 +40,7 @@ class ModelCacheTests(unittest.TestCase):
         a = Assembly(model_name, clear_cache=True, enable_experimental_cache=True) / SimpleStru("ParamModel")
 
         pfem = a.get_by_name("ParamModel")
-        pfem.gmsh.mesh()
+        pfem.fem = pfem.to_fem_obj(0.1)
         time1 = time.time() - start
 
         a.update_cache()

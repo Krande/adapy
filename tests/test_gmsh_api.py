@@ -56,6 +56,7 @@ class GmshApiV2(unittest.TestCase):
         dummy_display(a)
 
     def test_beam_hex(self):
+        # TODO: this test is not yet producing HEX elements.
         with GmshSession(silent=True, options=GmshOptions(Mesh_ElementOrder=2)) as gs:
             solid_bm = gs.add_obj(self.bm1, "solid")
 
