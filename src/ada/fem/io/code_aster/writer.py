@@ -1,4 +1,5 @@
 import logging
+from itertools import chain
 from typing import Iterable, Tuple
 
 import numpy as np
@@ -39,8 +40,9 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
 
 def create_comm_str(assembly: Assembly, part: Part) -> str:
     """Create COMM file input str"""
-
-    materials_str = "\n".join([write_material(mat) for mat in part.materials])
+    all_mat = chain.from_iterable([p.materials for p in assembly.get_all_parts_in_assembly(True)])
+    all_mat_unique = {x.name: x for x in all_mat}
+    materials_str = "\n".join([write_material(mat) for mat in all_mat_unique.values()])
     sections_str = write_sections(part.fem.sections)
     bc_str = "\n".join([create_bc_str(bc) for bc in assembly.fem.bcs + part.fem.bcs])
     step_str = "\n".join([create_step_str(s, part) for s in assembly.fem.steps])
@@ -304,7 +306,7 @@ def create_bc_str(bc: Bc) -> str:
 
     return (
         dofs_str
-        + f"""{bc.name}_bc = AFFE_CHAR_MECA(
+        + f"""{bc.name} = AFFE_CHAR_MECA(
     MODELE=model, DDL_IMPO=_F(**dofs)
 )"""
     )
@@ -320,9 +322,14 @@ def write_load(load: Load) -> str:
 
 
 def step_static_str(step: Step, part: Part) -> str:
+    from ada.fem.exceptions.model_definition import NoBoundaryConditionsApplied
+
     load_str = "\n".join(list(map(write_load, step.loads)))
     load = step.loads[0]
-    bc = part.get_assembly().fem.bcs[0]
+    all_boundary_conditions = part.get_assembly().fem.bcs + part.fem.bcs
+    if len(all_boundary_conditions) == 0:
+        raise NoBoundaryConditionsApplied("No boundary condition is found for the specified model")
+    bc = all_boundary_conditions[0]
     return f"""
 {load_str}
 
@@ -336,7 +343,7 @@ result = STAT_NON_LINE(
     CARA_ELEM=element,
     COMPORTEMENT=(_F(DEFORMATION="PETIT", RELATION="VMIS_ISOT_TRAC", TOUT="OUI")),
     CONVERGENCE=_F(ARRET="OUI", ITER_GLOB_MAXI=8,),
-    EXCIT=(_F(CHARGE={bc.name}_bc), _F(CHARGE={load.name}, FONC_MULT=rampFunc)),
+    EXCIT=(_F(CHARGE={bc.name}), _F(CHARGE={load.name}, FONC_MULT=rampFunc)),
     INCREMENT=_F(LIST_INST=timeInst),
     ARCHIVAGE=_F(LIST_INST=timeReel),
 )
@@ -422,7 +429,7 @@ ASSEMBLAGE(
     MODELE=model,
     CHAM_MATER=material,
     CARA_ELEM=element,
-    CHARGE= {bc.name}_bc,
+    CHARGE= {bc.name},
     NUME_DDL=CO('dofs_eig'),
     MATR_ASSE = (
         _F(MATRICE=CO('stiff'), OPTION ='RIGI_MECA',),

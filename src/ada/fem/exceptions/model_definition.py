@@ -1,0 +1,2 @@
+class NoBoundaryConditionsApplied(Exception):
+    pass

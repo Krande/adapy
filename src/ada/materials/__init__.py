@@ -59,6 +59,9 @@ class Material(Backend):
 
         return True
 
+    def __hash__(self):
+        return hash(self.guid)
+
     def _generate_ifc_mat(self):
 
         if self.parent is None:

@@ -36,8 +36,10 @@ class GmshOptions:
     Mesh_SecondOrderIncomplete: int = field(default=1)
     Mesh_Smoothing: int = 3
     Mesh_RecombinationAlgorithm: int = None
+
     Geometry_Tolerance: float = 1e-5
     General_ColorScheme: int = 3
+    General_Orthographic: int = 0  # 0 Means perspective projection
     General_Terminal: int = 1
 
     def get_as_dict(self):
@@ -101,21 +103,34 @@ class GmshSession:
         os.makedirs(temp_dir, exist_ok=True)
         name = f"{obj.name}_{create_guid()}"
 
+        def export_as_step(export_obj):
+            export_obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent, fuse_piping=True)
+            ents = self.model.occ.importShapes(str(temp_dir / f"{name}.stp"))
+            return ents
+
         if issubclass(type(obj), Shape) and geom_repr != ElemType.SOLID:
             logging.info(f"geom_repr for object type {type(obj)} must be solid. Changing to that now")
             geom_repr = ElemType.SOLID
 
         if build_native_lines is True and geom_repr == ElemType.LINE and type(obj) is Beam:
-            entities = build_bm_lines(self.gmsh, obj, point_tol)
-            self.model.geo.synchronize()
+            # midpoints = obj.calc_con_points()
+            entities = build_bm_lines(self.model, obj, point_tol)
+            # if len(midpoints) > 0:
+            #
+            # else:
+            #     entities = export_as_step(obj)
         else:
-            obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent, fuse_piping=True)
-            entities = self.model.occ.importShapes(str(temp_dir / f"{name}.stp"))
-            self.model.occ.synchronize()
-
-        obj_name = Counter(1, obj.name)
+            entities = export_as_step(obj)
+        #
+        # self.model.geo.synchronize()
+        # self.model.occ.synchronize()
+        obj_name = Counter(1, f"{obj.name}_")
         for dim, ent in entities:
-            self.model.set_entity_name(dim, ent, next(obj_name))
+            ent_name = next(obj_name)
+            self.model.set_physical_name(dim, ent, ent_name)
+            self.model.set_entity_name(dim, ent, ent_name)
+        self.model.occ.synchronize()
+        self.model.geo.synchronize()
 
         gmsh_data = GmshData(entities, geom_repr, el_order, obj, mesh_size=mesh_size)
         self.model_map[obj] = gmsh_data
@@ -273,11 +288,11 @@ def add_sec_to_fem(fem: FEM, fem_section: FemSection, fem_set: FemSet):
     fem.add_section(fem_section)
 
 
-def get_point(gmsh_session: gmsh, p, tol):
+def get_point(model: gmsh.model, p, tol):
     tol_vec = np.array([tol, tol, tol])
     lower = np.array(p) - tol_vec
     upper = np.array(p) + tol_vec
-    return gmsh_session.model.getEntitiesInBoundingBox(*lower.tolist(), *upper.tolist(), 0)
+    return model.getEntitiesInBoundingBox(*lower.tolist(), *upper.tolist(), 0)
 
 
 def get_nodes_from_gmsh(model: gmsh.model, fem: FEM) -> List[Node]:
@@ -350,7 +365,7 @@ def multisession_gmsh_tasker(gmsh_tasks: List[GmshTask]):
     return fem
 
 
-def build_bm_lines(gmsh_session: gmsh, bm: Beam, point_tol):
+def build_bm_lines(model: gmsh.model, bm: Beam, point_tol):
     p1, p2 = bm.n1.p, bm.n2.p
 
     midpoints = bm.calc_con_points(point_tol=point_tol)
@@ -360,39 +375,49 @@ def build_bm_lines(gmsh_session: gmsh, bm: Beam, point_tol):
     if bm.connected_end2 is not None:
         p2 = bm.connected_end2.centre
 
-    s = get_point(gmsh_session, p1, point_tol)
-    e = get_point(gmsh_session, p2, point_tol)
+    s = get_point(model, p1, point_tol)
+    e = get_point(model, p2, point_tol)
+
+    if len(s) > 1:
+        raise ValueError("Multiple nodes")
 
     if len(s) == 0:
-        s = [(0, gmsh_session.model.geo.addPoint(*p1.tolist()))]
+        s = add_point(model, p1.tolist())
     if len(e) == 0:
-        e = [(0, gmsh_session.model.geo.addPoint(*p2.tolist()))]
+        e = add_point(model, p2.tolist())
 
     if len(midpoints) == 0:
-        line = gmsh_session.model.geo.addLine(s[0][1], e[0][1])
-        return [(1, line)]
+        return add_line(model, s, e)
 
     prev_p = None
     entities = []
     for i, con_centre in enumerate(midpoints):
-        midp = get_point(gmsh_session, con_centre, point_tol)
+        midp = get_point(model, con_centre, point_tol)
         if len(midp) == 0:
-            midp = [(0, gmsh.model.geo.addPoint(*con_centre))]
+            midp = add_point(model, con_centre)
+
         if prev_p is None:
-            line = gmsh.model.geo.addLine(s[0][1], midp[0][1])
-            entities += [(1, line)]
+            entities += add_line(model, s, midp)
             prev_p = midp
             continue
-
-        line = gmsh.model.geo.addLine(prev_p[0][1], midp[0][1])
-        entities += [(1, line)]
+        entities += add_line(model, prev_p, midp)
         prev_p = midp
 
     if prev_p is None:
-        line = gmsh_session.model.geo.addLine(s[0][1], e[0][1])
-        entities += [(1, line)]
+        entities += add_line(model, s, e)
     else:
-        line = gmsh_session.model.geo.addLine(prev_p[0][1], e[0][1])
-        entities += [(1, line)]
+        entities += add_line(model, prev_p, e)
 
     return entities
+
+
+def add_line(model: gmsh.model, s, e):
+    line = gmsh.model.geo.addLine(s[0][1], e[0][1])
+    model.geo.synchronize()
+    return [(1, line)]
+
+
+def add_point(model: gmsh.model, p):
+    point = [(0, model.geo.addPoint(*p))]
+    model.geo.synchronize()
+    return point

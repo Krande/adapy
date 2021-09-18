@@ -2,7 +2,17 @@ from typing import Callable, List
 
 import numpy as np
 
-from ada import Assembly, Beam, Part, Pipe, PipeSegStraight, Plate, PrimCyl, Section
+from ada import (
+    Assembly,
+    Beam,
+    Node,
+    Part,
+    Pipe,
+    PipeSegStraight,
+    Plate,
+    PrimCyl,
+    Section,
+)
 from ada.core.utils import Counter
 from ada.fem import Bc, FemSet
 
@@ -105,10 +115,12 @@ class SimpleStru(Part):
 
     def add_bcs(self):
         funcs: List[Callable] = [self.c1, self.c2, self.c3, self.c4]
-        for i, bc_loc in enumerate(funcs):
-            fem_set_btn = FemSet(f"fix{i}", [], FemSet.TYPES.NSET)
-            self.fem.add_set(fem_set_btn, p=bc_loc(self._origin[2]))
-            self.fem.add_bc(Bc(f"bc_fix{i}", fem_set_btn, [1, 2, 3]))
+        fem_set_btn = self.fem.add_set(FemSet("fix", [], FemSet.TYPES.NSET))
+        nodes: List[Node] = []
+        for bc_loc in funcs:
+            nodes += self.fem.nodes.get_by_volume(bc_loc(self._origin[2]))
+        fem_set_btn.add_members(nodes)
+        self.fem.add_bc(Bc("bc_fix", fem_set_btn, [1, 2, 3]))
 
 
 def make_it_complex():
