@@ -3,10 +3,14 @@ import traceback
 from itertools import chain
 from typing import Iterable, List
 
-from ada.concepts.levels import Part
+import numpy as np
 
-from ..concepts.points import Node
-from ..concepts.structural import Beam, Plate
+from ada.concepts.levels import Part
+from ada.concepts.piping import PipeSegStraight
+from ada.concepts.points import Node
+from ada.concepts.primitives import PrimCyl
+from ada.concepts.structural import Beam, Plate
+
 from .utils import Counter, intersect_calc, is_parallel, vector_length
 
 
@@ -119,3 +123,21 @@ def find_beams_connected_to_plate(pl: Plate, beams: List[Beam]):
     all_beams_within = list(chain.from_iterable([r.refs for r in res]))
     filtered_beams = filter_beams_along_plate_edges(pl, all_beams_within)
     return filtered_beams
+
+
+def penetration_check(part: Part):
+    a = part.get_assembly()
+    cog = part.nodes.vol_cog
+    normal = part.placement.zv
+    for p in a.get_all_subparts():
+        for pipe in p.pipes:
+            for segment in pipe.segments:
+                if type(segment) is PipeSegStraight:
+                    assert isinstance(segment, PipeSegStraight)
+                    p1, p2 = segment.p1, segment.p2
+                    v1 = (p1.p - cog) * normal
+                    v2 = (p2.p - cog) * normal
+                    if np.dot(v1, v2) < 0:
+                        part.add_penetration(
+                            PrimCyl(f"{p.name}_{pipe.name}_{segment.name}_pen", p1.p, p2.p, pipe.section.r + 0.1)
+                        )

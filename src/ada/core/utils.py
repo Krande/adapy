@@ -541,7 +541,7 @@ def global_2_local_nodes(csys, origin, nodes):
 
     res = [np.dot(rmat, p) + origin for p in nodes]
 
-    return [r for r in res]
+    return res
 
 
 def local_2_global_nodes(nodes, origin, xdir, normal):

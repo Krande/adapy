@@ -10,6 +10,7 @@ from ada.base.physical_objects import BackendGeom
 from ada.concepts.curves import CurvePoly
 from ada.concepts.points import Node
 from ada.concepts.primitives import PrimBox
+from ada.concepts.transforms import Placement
 from ada.config import Settings
 from ada.core.utils import (
     Counter,
@@ -1108,7 +1109,7 @@ class Wall(BackendGeom):
         points,
         height,
         thickness,
-        origin=(0.0, 0.0, 0.0),
+        placement=Placement(),
         offset="CENTER",
         metadata=None,
         colour=None,
@@ -1122,7 +1123,7 @@ class Wall(BackendGeom):
             self._import_from_ifc(ifc_elem)
 
         self._name = name
-        self._origin = origin
+        self.placement = placement
         self.colour = colour
         new_points = []
         for p in points:
@@ -1151,13 +1152,14 @@ class Wall(BackendGeom):
                 raise ValueError("Offset can only be string or float, int")
             self._offset = offset
 
-    def add_insert(self, insert, wall_segment, off_x, off_z):
+    def add_insert(self, insert, wall_segment: int, off_x, off_z):
         """
 
         :param insert:
         :param wall_segment:
         :param off_x:
         :param off_z:
+        :type insert: ada.param_models.basic_structural_components.Window
         :return:
         """
         from OCC.Extend.ShapeFactory import get_oriented_boundingbox
@@ -1167,10 +1169,7 @@ class Wall(BackendGeom):
 
         start = p1 + yvec * (self._thickness / 2 + self.offset) + xvec * off_x + zvec * off_z
         insert._depth = self._thickness
-        insert._origin = start
-        insert._lx = xvec
-        insert._ly = zvec
-        insert._lz = yvec
+        insert.placement = Placement(origin=start, xv=xvec, yv=zvec, zv=yvec)
         insert.build_geom()
 
         frame = insert.shapes[0]
@@ -1192,8 +1191,8 @@ class Wall(BackendGeom):
         tol = 0.4
         wi = insert
 
-        p1 = wi.origin - yvec * (wi.depth / 2 + tol)
-        p2 = wi.origin + yvec * (wi.depth / 2 + tol) + xvec * wi.width + zvec * wi.height
+        p1 = wi.placement.origin - yvec * (wi.depth / 2 + tol)
+        p2 = wi.placement.origin + yvec * (wi.depth / 2 + tol) + xvec * wi.width + zvec * wi.height
 
         self._penetrations.append(PrimBox("my_pen", p1, p2))
 
@@ -1236,7 +1235,7 @@ class Wall(BackendGeom):
         context = f.by_type("IfcGeometricRepresentationContext")[0]
         owner_history = a.user.to_ifc()
         parent = self.parent.ifc_elem
-        elevation = self.origin[2]
+        elevation = self.placement.origin[2]
 
         # Wall creation: Define the wall shape as a polyline axis and an extruded area solid
         wall_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
@@ -1374,8 +1373,12 @@ class Wall(BackendGeom):
         return self._thickness
 
     @property
-    def origin(self):
-        return self._origin
+    def placement(self) -> Placement:
+        return self._placement
+
+    @placement.setter
+    def placement(self, value: Placement):
+        self._placement = value
 
     @property
     def points(self):
@@ -1463,7 +1466,7 @@ class Wall(BackendGeom):
             ws, wi, mi, ma = op
             xvec, yvec, zvec = self.get_segment_props(ws)
             assert issubclass(type(wi), Part)
-            p1 = wi.origin - yvec * (wi.depth / 2 + tol)
+            p1 = wi.placement.origin - yvec * (wi.depth / 2 + tol)
             p2 = p1 + yvec * (wi.depth + tol * 2)
             p3 = p2 + xvec * wi.width
             p4 = p3 - yvec * (wi.depth + tol * 2)
@@ -1502,7 +1505,7 @@ class Wall(BackendGeom):
             self._height *= scale_factor
             self._thickness *= scale_factor
             self._offset *= scale_factor
-            self._origin = tuple([x * scale_factor for x in self._origin])
+            self.placement.origin = np.array([x * scale_factor for x in self.placement.origin])
             self._points = [tuple([x * scale_factor for x in p]) for p in self.points]
             self._segments = list(zip(self._points[:-1], self.points[1:]))
             for pen in self._penetrations:
@@ -1527,7 +1530,7 @@ def get_bm_section_curve(bm: Beam, origin=None) -> CurvePoly:
 
 
 def make_ig_cutplanes(bm: Beam):
-    from ..fem.meshing.gmshapiv2 import CutPlane
+    from ..fem.meshing.concepts import CutPlane
 
     bm1_sec_curve = get_bm_section_curve(bm)
     minz = min([x[2] for x in bm1_sec_curve.points3d])

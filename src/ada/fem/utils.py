@@ -2,7 +2,7 @@ from typing import List, Union
 
 import numpy as np
 
-from ada import FEM, Assembly, Beam, Node, Part
+from ada import FEM, Assembly, Beam, Node, Part, Plate
 from ada.config import Settings
 from ada.core.utils import vector_length
 from ada.fem import (
@@ -80,6 +80,19 @@ def get_beam_end_nodes(bm: Beam, end=1, tol=1e-3) -> List[Node]:
     n1_max = bm.n1.p + xv * tol + (h / 2 + tol) * zv + (w / 2 + tol) * yv
     members = [e for e in nodes.get_by_volume(n1_min, n1_max)]
     return members
+
+
+def get_nodes_along_plate_edges(pl: Plate, fem: FEM, edge_indices=None, tol=1e-4) -> List[Node]:
+    """Return FEM nodes from edges of a plate"""
+    edge_indices = () if edge_indices is None else edge_indices
+    res = []
+    for i, (ps, pe) in enumerate(zip(pl.poly.nodes[:1], pl.poly.nodes[1:])):
+        if i in edge_indices:
+            continue
+        pmin = ps.p - np.array([1, 1, 1]) * tol
+        pmax = pe.p + np.array([1, 1, 1]) * tol
+        res += fem.nodes.get_by_volume(pmin, pmax)
+    return res
 
 
 def is_line_elem(elem: Elem):

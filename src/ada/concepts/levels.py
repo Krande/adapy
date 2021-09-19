@@ -29,7 +29,7 @@ from ada.concepts.primitives import (
     Shape,
 )
 from ada.concepts.structural import Beam, Material, Plate, Section, Wall
-from ada.concepts.transforms import Transform
+from ada.concepts.transforms import Placement, Transform
 from ada.config import Settings, User
 from ada.fem import (
     Amplitude,
@@ -61,10 +61,7 @@ class Part(BackendGeom):
         self,
         name,
         colour=None,
-        origin=(0, 0, 0),
-        lx=(1, 0, 0),
-        ly=(0, 1, 0),
-        lz=(0, 0, 1),
+        placement=Placement(),
         fem: FEM = None,
         settings: Settings = Settings(),
         metadata=None,
@@ -83,11 +80,8 @@ class Part(BackendGeom):
         self._materials = Materials(parent=self)
         self._sections = Sections(parent=self)
         self._colour = colour
-        self._origin = origin
+        self._placement = placement
         self._instances = []
-        self._lx = lx
-        self._ly = ly
-        self._lz = lz
         self._shapes = []
         self._parts = dict()
 
@@ -405,9 +399,9 @@ class Part(BackendGeom):
         parent = self.parent.ifc_elem
         placement = create_local_placement(
             f,
-            origin=self.origin,
-            loc_x=self._lx,
-            loc_z=self._lz,
+            origin=self.placement.origin,
+            loc_x=self.placement.xv,
+            loc_z=self.placement.zv,
             relative_to=parent.ObjectPlacement,
         )
         type_map = dict(building="IfcBuilding", space="IfcSpace", spatial="IfcSpatialZone", storey="IfcBuildingStorey")
@@ -432,7 +426,7 @@ class Part(BackendGeom):
             props["CompositionType"] = self.metadata.get("CompositionType", "ELEMENT")
 
         if ifc_type == "IfcBuildingStorey":
-            props["Elevation"] = self.origin[2]
+            props["Elevation"] = self.placement.origin[2]
 
         ifc_elem = f.create_entity(ifc_type, **props)
 
@@ -547,12 +541,12 @@ class Part(BackendGeom):
         return self._props
 
     @property
-    def origin(self):
-        return self._origin
+    def placement(self) -> Placement:
+        return self._placement
 
-    @origin.setter
-    def origin(self, value):
-        self._origin = value
+    @placement.setter
+    def placement(self, value: Placement):
+        self._placement = value
 
     @property
     def units(self):

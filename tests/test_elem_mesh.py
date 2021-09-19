@@ -3,9 +3,7 @@ import unittest
 from ada import Assembly, Beam, Part, Plate, PrimCyl, PrimExtrude
 from ada.config import Settings
 from ada.core.utils import align_to_plate
-from ada.fem import Load, Step
-from ada.fem.meshing.gmshapi import _init_gmsh_session
-from ada.fem.meshing.recipes import create_beam_mesh, create_plate_mesh
+from ada.fem.meshing import GmshOptions
 
 test_folder = Settings.test_dir / "mesh"
 
@@ -18,39 +16,35 @@ class BeamIO(unittest.TestCase):
         bm = Beam("bm1", n1=[0, 0, 0], n2=[1, 0, 0], sec="IPE220")
 
         bm.add_penetration(PrimCyl("Cylinder", (0.5, -0.5, 0), (0.5, 0.5, 0), 0.05))
+        a = Assembly("Test") / (Part("MyFem") / bm)
 
-        p = Part("MyFem")
-        p.add_beam(bm)
+        bm.parent.fem = bm.to_fem_obj(0.1, "solid", options=GmshOptions(Mesh_ElementOrder=2))
+        print(a)
+        self.assertEqual(len(bm.parent.fem.elements), 744)
+        self.assertEqual(len(bm.parent.fem.nodes), 1626)
 
-        create_beam_mesh(bm, p.fem, "solid", interactive=False, gmsh_silent=True)
-        a = Assembly("Test") / p
-        a.to_fem("my_test", "xdmf", scratch_dir=test_folder, fem_converter="meshio", overwrite=True)
+        # a.to_fem("my_test", "xdmf", scratch_dir=test_folder, fem_converter="meshio", overwrite=True)
 
     def test_plate_mesh(self):
-        gmsh = _init_gmsh_session(silent=True)
-        gmsh.option.setNumber("Mesh.SecondOrderIncomplete", 1)
-        gmsh.option.setNumber("Mesh.Algorithm", 8)
-        gmsh.option.setNumber("Mesh.ElementOrder", 1)
-
         pl1 = Plate("MyPl", [(0, 0, 0.2), (5, 0, 0.2), (5, 5), (0, 5)], 20e-3, **atts)
         pl2 = Plate("MyPl2", [(0, 0, 0.2), (5, 0, 0.2), (5, 5), (0, 5)], 20e-3, **atts2)
         points = [(1, 1, 0.2), (2, 1, 0.2), (2, 2, 0.2), (1, 2, 0.2)]
         pl1.add_penetration(PrimExtrude("poly_extrude", points, **align_to_plate(pl1)))
         pl1.add_penetration(PrimExtrude("poly_extrude2", points, **align_to_plate(pl2)))
-        gmsh.model.add("Test")
 
-        p = Part("MyFem") / [pl1, pl2]
+        a = Assembly("Test") / (Part("MyFem") / [pl1, pl2])
+        print(a)
 
-        create_plate_mesh(pl1, "shell", fem=p.fem, interactive=False, gmsh_session=gmsh, gmsh_silent=True)
-        create_plate_mesh(pl2, "shell", fem=p.fem, interactive=False, gmsh_session=gmsh, gmsh_silent=True)
+        parent = pl1.parent
+        parent.fem = pl1.to_fem_obj(0.3, "shell")
+        parent.fem += pl2.to_fem_obj(0.3, "shell")
 
-        a = Assembly("Test") / p
-        a.to_ifc(test_folder / "ADA_pl_mesh_ifc")
+        self.assertEqual(len(parent.fem.elements), 1809)
+        self.assertEqual(len(parent.fem.nodes), 998)
 
-        step = a.fem.add_step(Step("gravity", "static", nl_geom=True))
-        step.add_load(Load("grav", "gravity", -9.81))
-
-        a.to_fem("ADA_pl_mesh", "abaqus", scratch_dir=test_folder, overwrite=True)
+        # a.to_ifc(test_folder / "ADA_pl_mesh_ifc")
+        # a.to_fem("ADA_pl_mesh_code_aster", "code_aster", scratch_dir=test_folder, overwrite=True)
+        # a.to_fem("ADA_pl_mesh", "abaqus", scratch_dir=test_folder, overwrite=True)
 
 
 if __name__ == "__main__":

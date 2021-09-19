@@ -3,12 +3,12 @@ import unittest
 from common import build_test_simplestru_fem
 
 from ada import Assembly, Beam, Plate
+from ada.fem.meshing.concepts import GmshSession
+from ada.param_models.basic_module import SimpleStru
 
 
 class TestSesam(unittest.TestCase):
     def test_write_simple_stru(self):
-        from ada.fem.meshing.gmshapiv2 import GmshSession
-        from ada.param_models.basic_module import SimpleStru
 
         a = Assembly("MyTest")
         p = a.add_part(SimpleStru("SimpleStru"))

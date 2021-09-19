@@ -6,7 +6,7 @@ import pytest
 from ada import Assembly, Beam, Material, Part
 from ada.fem import Bc, FemSet, Step
 from ada.fem.exceptions.element_support import IncompatibleElements
-from ada.fem.meshing.gmshapiv2 import GmshOptions, GmshSession
+from ada.fem.meshing.concepts import GmshOptions, GmshSession
 from ada.fem.utils import get_beam_end_nodes
 from ada.materials.metals import CarbonSteel
 

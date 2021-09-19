@@ -167,22 +167,17 @@ class FemElements:
         """
         from itertools import chain
 
-        from ada.core.utils import (
-            global_2_local_nodes,
-            normal_to_points_in_plane,
-            poly_area,
-            unit_vector,
-            vector_length,
-        )
+        from ada.core.utils import global_2_local_nodes, poly_area, vector_length
 
         def calc_sh_elem(el: Elem):
-            locz = el.fem_sec.local_z if el.fem_sec.local_z is not None else normal_to_points_in_plane(el.nodes)
-            locx = unit_vector(el.nodes[1].p - el.nodes[0].p)
-            locy = np.cross(locz, locx)
+            locx = el.fem_sec.local_x
+            locy = el.fem_sec.local_y
+            locz = el.fem_sec.local_z
             origin = el.nodes[0]
             t = el.fem_sec.thickness
 
-            ln = global_2_local_nodes([locx, locy], origin, el.nodes)
+            ln = global_2_local_nodes([locx, locy, locz], origin, el.nodes)
+
             x, y, z = list(zip(*ln))
             area = poly_area(x, y)
             vol_ = t * area

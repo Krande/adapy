@@ -1,18 +1,7 @@
 from typing import Callable, List
 
-import numpy as np
-
-from ada import (
-    Assembly,
-    Beam,
-    Node,
-    Part,
-    Pipe,
-    PipeSegStraight,
-    Plate,
-    PrimCyl,
-    Section,
-)
+from ada import Assembly, Beam, Node, Part, Pipe, Plate, Section
+from ada.core.clash_check import penetration_check
 from ada.core.utils import Counter
 from ada.fem import Bc, FemSet
 
@@ -22,15 +11,14 @@ floor_name = Counter(1, "floor")
 
 
 class ReinforcedFloor(Part):
-    def __init__(self, name, plate: Plate, spacing=0.2, s_type="HP140x8", stringer_dir="X"):
+    def __init__(self, name, points: List[tuple], pl_thick: float, spacing=0.2, s_type="HP140x8", stringer_dir="X"):
         super(ReinforcedFloor, self).__init__(name)
-        self.add_plate(plate)
+        plate = self.add_plate(Plate(name + "_pl", points, pl_thick, use3dnodes=True))
 
         # Calculate number of stringers
         bbox = plate.bbox
         xmin, xmax = bbox[0]
         ymin, ymax = bbox[1]
-        zmin, zmax = bbox[2]
 
         if stringer_dir == "Y":
             snum = int((xmax - xmin) / spacing) - 1
@@ -51,23 +39,6 @@ class ReinforcedFloor(Part):
                 p2 = (xmax, y, z)
                 y += spacing
             self.add_beam(Beam(next(bm_name), p1, p2, sec=s_type))
-
-    def penetration_check(self):
-        a = self.get_assembly()
-        cog = self.nodes.vol_cog
-        normal = self._lz
-        for p in a.get_all_subparts():
-            for pipe in p.pipes:
-                for segment in pipe.segments:
-                    if type(segment) is PipeSegStraight:
-                        assert isinstance(segment, PipeSegStraight)
-                        p1, p2 = segment.p1, segment.p2
-                        v1 = (p1.p - cog) * normal
-                        v2 = (p2.p - cog) * normal
-                        if np.dot(v1, v2) < 0:
-                            self.add_penetration(
-                                PrimCyl(f"{p.name}_{pipe.name}_{segment.name}_pen", p1.p, p2.p, pipe.section.r + 0.1)
-                            )
 
 
 class SimpleStru(Part):
@@ -93,8 +64,8 @@ class SimpleStru(Part):
         for elev in [z0, h]:
             for p1, p2 in beams:
                 self.add_beam(Beam(next(bm_name), n1=p1(elev), n2=p2(elev), sec=sec, jusl="TOP"))
-            plate = Plate(next(pl_name), [c1(elev), c2(elev), c3(elev), c4(elev)], pl_thick, use3dnodes=True)
-            self.add_part(ReinforcedFloor(next(floor_name), plate))
+            points = [c1(elev), c2(elev), c3(elev), c4(elev)]
+            self.add_part(ReinforcedFloor(next(floor_name), points, pl_thick))
 
         # Columns
         columns = [(c1(z0), c1(h)), (c2(z0), c2(h)), (c3(z0), c3(h)), (c4(z0), c4(h))]
@@ -118,16 +89,14 @@ class SimpleStru(Part):
         fem_set_btn = self.fem.add_set(FemSet("fix", [], FemSet.TYPES.NSET))
         nodes: List[Node] = []
         for bc_loc in funcs:
-            nodes += self.fem.nodes.get_by_volume(bc_loc(self._origin[2]))
+            nodes += self.fem.nodes.get_by_volume(bc_loc(self.placement.origin[2]))
         fem_set_btn.add_members(nodes)
         self.fem.add_bc(Bc("bc_fix", fem_set_btn, [1, 2, 3]))
 
 
 def make_it_complex():
-    a = Assembly("ParametricSite")
-
     pm = SimpleStru("ParametricModel")
-    a.add_part(pm)
+    a = Assembly("ParametricSite") / pm
 
     elev = pm.Params.h - 0.4
     offset_y = 0.4
@@ -158,6 +127,6 @@ def make_it_complex():
     pm.add_part(Part("Piping") / [pipe1, pipe2])
     for p in pm.parts.values():
         if type(p) is ReinforcedFloor:
-            p.penetration_check()
+            penetration_check(p)
 
     return a

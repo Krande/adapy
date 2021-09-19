@@ -47,6 +47,7 @@ class FemSection(FemBase):
         self._section = section
         self._local_z = local_z
         self._local_y = local_y
+        self._local_x = None
         self._thickness = thickness
         self._int_points = int_points
         self._offset = offset
@@ -90,44 +91,61 @@ class FemSection(FemBase):
     @property
     def local_z(self):
         """Local Z describes the up vector of the cross section"""
-        if self._local_z is None:
-            if self.type == ElemType.LINE:
-                n1, n2 = self.elset.members[0].nodes[0], self.elset.members[0].nodes[-1]
-                v = n2.p - n1.p
-                if vector_length(v) == 0.0:
-                    logging.error(f"Element {self.elset.members[0].id} has zero length")
-                    xvec = [1, 0, 0]
-                else:
-                    xvec = unit_vector(v)
-                self._local_z = calc_zvec(xvec, self.local_y)
+        if self._local_z is not None:
+            return self._local_z
+
+        if self.type == ElemType.LINE:
+            n1, n2 = self.elset.members[0].nodes[0], self.elset.members[0].nodes[-1]
+            v = n2.p - n1.p
+            if vector_length(v) == 0.0:
+                logging.error(f"Element {self.elset.members[0].id} has zero length")
+                xvec = [1, 0, 0]
             else:
-                self._local_z = normal_to_points_in_plane([n.p for n in self.elset.members[0].nodes])
-                # raise NotImplementedError("Local Z is not implemented for shell elements, yet.")
+                xvec = unit_vector(v)
+            self._local_z = calc_zvec(xvec, self.local_y)
+        elif self.type == ElemType.SHELL:
+            self._local_z = normal_to_points_in_plane([n.p for n in self.elset.members[0].nodes])
+        else:
+            raise NotImplementedError("Local Z is not implemented for solid elements, yet.")
+
         return self._local_z
 
     @property
     def local_y(self):
         """Local y describes the cross vector of the beams X and Z axis"""
-        if self._local_y is None:
-            if self.type in (ElemType.LINE, ElemType.SHELL):
-                n1, n2 = self.elset.members[0].nodes[0], self.elset.members[0].nodes[-1]
-                v = n2.p - n1.p
+        if self._local_y is not None:
+            return self._local_y
 
-                xvec = [1, 0, 0] if vector_length(v) == 0.0 else unit_vector(v)
+        if self.type == ElemType.LINE:
+            n1, n2 = self.elset.members[0].nodes[0], self.elset.members[0].nodes[-1]
+            v = n2.p - n1.p
 
-                # See https://en.wikipedia.org/wiki/Cross_product#Coordinate_notation for order of cross product
-                self._local_y = calc_yvec(xvec, self.local_z)
-            else:
-                raise NotImplementedError("Local Y is not implemented for solid elements.")
+            xvec = [1, 0, 0] if vector_length(v) == 0.0 else unit_vector(v)
+
+            # See https://en.wikipedia.org/wiki/Cross_product#Coordinate_notation for order of cross product
+            self._local_y = calc_yvec(xvec, self.local_z)
+        elif self.type == ElemType.SHELL:
+            self._local_y = calc_yvec(self.local_x, self.local_z)
+        else:
+            raise NotImplementedError("Local Y is not implemented for solid elements.")
+
         return self._local_y
 
     @property
     def local_x(self):
+        if self._local_x is not None:
+            return self._local_x
+
         if self.type == ElemType.LINE:
             el = self.elset.members[0]
-            return unit_vector(el.nodes[-1].p - el.nodes[0].p)
+            self._local_x = unit_vector(el.nodes[-1].p - el.nodes[0].p)
+        elif self.type == ElemType.SHELL:
+            el = self.elset.members[0]
+            self._local_x = unit_vector(el.nodes[1].p - el.nodes[0].p)
         else:
             logging.error(f"X-vector not defined for {self.type}")
+
+        return self._local_x
 
     @property
     def csys(self):

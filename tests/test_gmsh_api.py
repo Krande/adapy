@@ -1,17 +1,11 @@
 import unittest
 
-from common import dummy_display
-
 from ada import Assembly, Beam, Part, Pipe, Plate, PrimBox, PrimSphere
 from ada.concepts.structural import make_ig_cutplanes
 from ada.config import Settings
 from ada.fem import Step
-from ada.fem.meshing.gmshapiv2 import (
-    GmshOptions,
-    GmshSession,
-    GmshTask,
-    multisession_gmsh_tasker,
-)
+from ada.fem.meshing.concepts import GmshOptions, GmshSession, GmshTask
+from ada.fem.meshing.multisession import multisession_gmsh_tasker
 
 test_dir = Settings.test_dir / "gmsh_api_v2"
 
@@ -43,7 +37,8 @@ class GmshApiV2(unittest.TestCase):
             fem = gs.get_fem()
 
         a = Assembly() / (Part("MyFemObjects", fem=fem) / [self.bm1])
-        a.to_fem("my_xdmf_pipe", "xdmf", overwrite=True, scratch_dir=test_dir, fem_converter="meshio")
+        print(a)
+        # a.to_fem("my_xdmf_pipe", "xdmf", overwrite=True, scratch_dir=test_dir, fem_converter="meshio")
 
     def test_beam(self):
         with GmshSession(silent=True, options=GmshOptions(Mesh_ElementOrder=2)) as gs:
@@ -52,8 +47,7 @@ class GmshApiV2(unittest.TestCase):
             fem = gs.get_fem()
         a = Assembly() / (Part("MyFemObjects", fem=fem) / [self.bm1])
         a.to_fem("aba_2nd_order_bm", "abaqus", overwrite=True, scratch_dir=test_dir)
-
-        dummy_display(a)
+        print(a)
 
     def test_beam_hex(self):
         # TODO: this test is not yet producing HEX elements.
@@ -66,10 +60,10 @@ class GmshApiV2(unittest.TestCase):
 
             gs.mesh(0.1)
             fem = gs.get_fem()
-        a = Assembly() / (Part("MyFemObjects", fem=fem) / [self.bm1])
-        a.to_fem("aba_2nd_order_bm_hex", "abaqus", overwrite=True, scratch_dir=test_dir)
 
-        dummy_display(a)
+        a = Assembly() / (Part("MyFemObjects", fem=fem) / [self.bm1])
+        print(a)
+        # a.to_fem("aba_2nd_order_bm_hex", "abaqus", overwrite=True, scratch_dir=test_dir)
 
     def test_mix_geom_repr_in_same_session(self):
         with GmshSession(silent=True, options=GmshOptions(Mesh_ElementOrder=2)) as gs:
@@ -87,19 +81,26 @@ class GmshApiV2(unittest.TestCase):
             gs.mesh(0.1)
             fem = gs.get_fem()
 
+        print(fem.elements)
+
         a = Assembly() / (
             Part("MyFemObjects", fem=fem) / [self.bm1, self.bm2, self.bm3, self.pl1, self.shp1, self.pipe]
         )
 
-        a.to_fem("my_ca_analysis", "code_aster", overwrite=True, scratch_dir=test_dir)
-        a.to_fem("my_aba_analysis", "abaqus", overwrite=True, scratch_dir=test_dir)
-        a.to_fem("my_xdmf_test", "xdmf", overwrite=True, scratch_dir=test_dir, fem_converter="meshio")
-        a.to_ifc(test_dir / "gmsh_api_v2", include_fem=True)
-        print(fem.elements)
+        map_assert = dict(B32=9, C3D10=5311, STRI65=2094)
+
+        for key, val in a.get_part("MyFemObjects").fem.elements.group_by_type():
+            num_el = len(list(val))
+            self.assertEqual(map_assert[key], num_el)
+
+        # a.to_fem("my_ca_analysis", "code_aster", overwrite=True, scratch_dir=test_dir)
+        # a.to_fem("my_aba_analysis", "abaqus", overwrite=True, scratch_dir=test_dir)
+        # a.to_fem("my_xdmf_test", "xdmf", overwrite=True, scratch_dir=test_dir, fem_converter="meshio")
+        # a.to_ifc(test_dir / "gmsh_api_v2", include_fem=True)
 
     def test_diff_geom_repr_in_separate_sessions(self):
-        t1 = GmshTask([self.bm1], "solid", 0.02, options=GmshOptions(Mesh_ElementOrder=2))
-        t2 = GmshTask([self.bm2], "shell", 0.05, options=GmshOptions(Mesh_ElementOrder=1))
+        t1 = GmshTask([self.bm1], "solid", 0.1, options=GmshOptions(Mesh_ElementOrder=2))
+        t2 = GmshTask([self.bm2], "shell", 0.1, options=GmshOptions(Mesh_ElementOrder=1))
         fem = multisession_gmsh_tasker([t1, t2])
         print(fem.elements)
         a = Assembly() / (Part("MyFemObjects", fem=fem) / [self.bm1, self.bm2])
