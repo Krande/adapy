@@ -17,7 +17,7 @@ from ada.visualize.femviz import (
 from ada.visualize.renderer_pythreejs import MyRenderer
 from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
-from .common import FEATypes
+from ada.fem.io import FEATypes
 from .concepts.eigenvalue import EigenDataSummary
 
 

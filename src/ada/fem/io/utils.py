@@ -14,7 +14,8 @@ from typing import Dict
 from ada.concepts.containers import Beams, Plates
 from ada.concepts.levels import Part
 from ada.concepts.structural import Beam, Plate
-from ada.config import Settings as _Settings
+from ada.config import Settings
+from ada.fem.exceptions import FEASolverNotInstalled
 
 
 class DatFormatReader:
@@ -106,6 +107,16 @@ class LocalExecute:
 
         return out
 
+    def get_exe(self, fea_software):
+        from ada.fem.io import fem_solver_map
+
+        solver_exe_name = fem_solver_map.get(fea_software, fea_software)
+        try:
+            exe_path = get_exe_path(solver_exe_name)
+        except FileNotFoundError as e:
+            raise FEASolverNotInstalled(e)
+        return exe_path
+
     def run(self):
         raise NotImplementedError("The run function is not implemented")
 
@@ -115,10 +126,10 @@ class LocalExecute:
 
     @property
     def execute_dir(self):
-        if _Settings.execute_dir is None:
+        if Settings.execute_dir is None:
             return self.analysis_dir
         else:
-            return _Settings.execute_dir / self.analysis_name
+            return Settings.execute_dir / self.analysis_name
 
     @property
     def analysis_name(self):
@@ -170,16 +181,7 @@ def get_fem_model_from_assembly(assembly):
     return parts[0]
 
 
-def get_exe_path(exe_name):
-    """
-
-    :param exe_name:
-    :return:
-    """
-    import shutil
-
-    from ada.config import Settings
-
+def get_exe_path(exe_name: str):
     if Settings.fem_exe_paths[exe_name]:
         exe_path = Settings.fem_exe_paths[exe_name]
     elif os.getenv(f"ADA_{exe_name}_exe"):
@@ -283,7 +285,7 @@ def _lock_check(analysis_dir):
 def folder_prep(scratch_dir, analysis_name, overwrite):
 
     if scratch_dir is None:
-        scratch_dir = pathlib.Path(_Settings.scratch_dir)
+        scratch_dir = pathlib.Path(Settings.scratch_dir)
     else:
         scratch_dir = pathlib.Path(scratch_dir)
 
@@ -322,9 +324,9 @@ echo ON\ncall {run_cmd}"""
         with open(exe.execute_dir / stop_bat, "w") as d:
             d.write(f"cd /d {exe.analysis_dir}\n{stop_cmd}")
 
-    if _Settings.execute_dir is not None:
-        shutil.copy(exe.execute_dir / start_bat, _Settings.execute_dir / start_bat)
-        shutil.copy(exe.execute_dir / stop_bat, _Settings.execute_dir / stop_bat)
+    if Settings.execute_dir is not None:
+        shutil.copy(exe.execute_dir / start_bat, Settings.execute_dir / start_bat)
+        shutil.copy(exe.execute_dir / stop_bat, Settings.execute_dir / stop_bat)
 
     if run_in_shell:
         run_cmd = "start " + start_bat if exe.run_ext is True else "start /wait " + start_bat

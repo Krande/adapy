@@ -1,14 +1,4 @@
-from enum import Enum
-
 from ada.config import Settings
-
-
-class FEATypes(str, Enum):
-    CODE_ASTER = "code_aster"
-    CALCULIX = "calculix"
-    ABAQUS = "abaqus"
-    SESAM = "sesam"
-    USFOS = "usfos"
 
 
 class FemBase:

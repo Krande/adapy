@@ -1,8 +1,7 @@
-import logging
 import pathlib
 import shutil
 
-from ada.fem.io.utils import LocalExecute, get_exe_path
+from ada.fem.io.utils import LocalExecute
 
 
 def run_abaqus(
@@ -31,11 +30,9 @@ def run_abaqus(
 
 class AbaqusExecute(LocalExecute):
     def run(self, exit_on_complete=True, run_cmd=None, bat_start_str=None):
-        try:
-            exe_path = get_exe_path("abaqus")
-        except FileNotFoundError as e:
-            logging.error(e)
-            return
+        from ada.fem.io import FEATypes
+
+        exe_path = self.get_exe(FEATypes.ABAQUS)
         gpus = "" if self._gpus is None else f"GPUS={self._gpus}"
         if run_cmd is None:
             run_cmd = f"{exe_path} job={self.analysis_name} CPUS={self._cpus}{gpus} interactive"

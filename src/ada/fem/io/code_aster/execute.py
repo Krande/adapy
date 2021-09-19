@@ -1,7 +1,4 @@
-import logging
 import pathlib
-
-from ada.fem.io.utils import get_exe_path
 
 from ..utils import LocalExecute
 
@@ -54,12 +51,9 @@ def run_code_aster(
 
 class CodeAsterExecute(LocalExecute):
     def run(self, exit_on_complete=True):
-        try:
-            exe_path = get_exe_path("code_aster")
-        except FileNotFoundError as e:
-            logging.error(e)
-            return
+        from ada.fem.io import FEATypes
 
+        exe_path = self.get_exe(FEATypes.CODE_ASTER)
         out = self._run_local(f'"{exe_path}" {self.analysis_name}.export', exit_on_complete=exit_on_complete)
         return out
 

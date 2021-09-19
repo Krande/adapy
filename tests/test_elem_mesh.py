@@ -20,8 +20,8 @@ class BeamIO(unittest.TestCase):
 
         bm.parent.fem = bm.to_fem_obj(0.1, "solid", options=GmshOptions(Mesh_ElementOrder=2))
         print(a)
-        self.assertAlmostEqual(len(bm.parent.fem.elements), 680, delta=5)
-        self.assertAlmostEqual(len(bm.parent.fem.nodes), 1484, delta=5)
+        self.assertAlmostEqual(len(bm.parent.fem.elements), 680, delta=10)
+        self.assertAlmostEqual(len(bm.parent.fem.nodes), 1484, delta=10)
 
         # a.to_fem("my_test", "xdmf", scratch_dir=test_folder, fem_converter="meshio", overwrite=True)
 
