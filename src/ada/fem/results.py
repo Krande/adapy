@@ -7,6 +7,7 @@ import numpy as np
 from IPython.display import display
 from ipywidgets import Dropdown, HBox, VBox
 
+from ada.fem.io import FEATypes
 from ada.visualize.femviz import (
     get_edges_and_faces_from_meshio,
     get_edges_from_fem,
@@ -17,7 +18,6 @@ from ada.visualize.femviz import (
 from ada.visualize.renderer_pythreejs import MyRenderer
 from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
-from ada.fem.io import FEATypes
 from .concepts.eigenvalue import EigenDataSummary
 
 
