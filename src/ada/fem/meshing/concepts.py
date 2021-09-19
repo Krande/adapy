@@ -163,6 +163,7 @@ class GmshSession:
 
         if size is not None:
             self.options.Mesh_MeshSizeMax = size
+            self.options.Mesh_MeshSizeMin = size
 
         self.apply_settings()
         self.model.geo.synchronize()

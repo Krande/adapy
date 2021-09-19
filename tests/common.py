@@ -21,11 +21,12 @@ def dummy_display(ada_obj):
         renderer.build_display()
 
 
-def build_test_simplestru_fem(mesh_size=0.1):
+def build_test_simplestru_fem(mesh_size=0.1, make_fem=True):
     p = SimpleStru("ParametricModel")
     a = Assembly("ParametricSite") / p
-    p.fem = p.to_fem_obj(mesh_size)
-    p.add_bcs()
+    if make_fem:
+        p.fem = p.to_fem_obj(mesh_size)
+        p.add_bcs()
 
     return a
 

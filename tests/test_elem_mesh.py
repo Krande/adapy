@@ -20,8 +20,8 @@ class BeamIO(unittest.TestCase):
 
         bm.parent.fem = bm.to_fem_obj(0.1, "solid", options=GmshOptions(Mesh_ElementOrder=2))
         print(a)
-        self.assertAlmostEqual(len(bm.parent.fem.elements), 744, delta=20)
-        self.assertAlmostEqual(len(bm.parent.fem.nodes), 1626, delta=20)
+        self.assertAlmostEqual(len(bm.parent.fem.elements), 680, delta=5)
+        self.assertAlmostEqual(len(bm.parent.fem.nodes), 1484, delta=5)
 
         # a.to_fem("my_test", "xdmf", scratch_dir=test_folder, fem_converter="meshio", overwrite=True)
 
@@ -39,12 +39,13 @@ class BeamIO(unittest.TestCase):
         parent.fem = pl1.to_fem_obj(0.3, "shell")
         parent.fem += pl2.to_fem_obj(0.3, "shell")
 
-        self.assertEqual(len(parent.fem.elements), 1809)
-        self.assertEqual(len(parent.fem.nodes), 998)
-
         # a.to_ifc(test_folder / "ADA_pl_mesh_ifc")
+        # a.to_fem("my_xdmf_plate", "xdmf", overwrite=True, scratch_dir=test_folder, fem_converter="meshio")
         # a.to_fem("ADA_pl_mesh_code_aster", "code_aster", scratch_dir=test_folder, overwrite=True)
         # a.to_fem("ADA_pl_mesh", "abaqus", scratch_dir=test_folder, overwrite=True)
+
+        self.assertEqual(len(parent.fem.elements), 1412)
+        self.assertEqual(len(parent.fem.nodes), 786)
 
 
 if __name__ == "__main__":
