@@ -1,18 +1,19 @@
 import unittest
 
-from common import build_test_simplestru_fem
+from common import build_reinforced_floor
 
-from ada import Assembly, Beam, Plate
+from ada import Beam, Plate
+from ada.config import Settings
 from ada.fem.meshing.concepts import GmshSession
-from ada.param_models.basic_module import SimpleStru
+
+test_folder = Settings.test_dir / "sesam"
 
 
 class TestSesam(unittest.TestCase):
     def test_write_simple_stru(self):
 
-        a = Assembly("MyTest")
-        p = a.add_part(SimpleStru("SimpleStru"))
-
+        a = build_reinforced_floor()
+        p = a.get_part("PartReinforcedPlate")
         with GmshSession(silent=True) as gs:
             gmap = dict()
             for obj in p.get_all_physical_objects():
@@ -27,7 +28,7 @@ class TestSesam(unittest.TestCase):
             p.fem = gs.get_fem()
 
         # TODO: Support mixed plate and beam models. Ensure nodal connectivity
-        a.to_fem("MySesamStru", fem_format="sesam", overwrite=True)
+        a.to_fem("MySesamFloor", fem_format="sesam", overwrite=True)
 
     def test_write_ff(self):
         from ada.fem.io.sesam.writer import write_ff
@@ -51,8 +52,11 @@ class TestSesam(unittest.TestCase):
 
 class TestUsfos(unittest.TestCase):
     def test_write_usfos(self):
-        a = build_test_simplestru_fem()
+        a = build_reinforced_floor()
+        p = a.get_part("PartReinforcedPlate")
+        p.fem = p.to_fem_obj(0.1, bm_repr="line")
         a.to_fem("my_usfos", fem_format="usfos", overwrite=True)
+        # a.to_fem("my_xdmf_plate", "xdmf", overwrite=True, scratch_dir=test_folder, fem_converter="meshio")
 
 
 if __name__ == "__main__":

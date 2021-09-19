@@ -3,7 +3,7 @@ import unittest
 from operator import attrgetter
 
 from ada import FEM, Assembly, Beam, Part, Section
-from ada.param_models.basic_module import SimpleStru
+from ada.param_models.basic_module import ReinforcedFloor, SimpleStru
 from ada.visualize.renderer_pythreejs import MyRenderer, SectionRenderer
 
 this_dir = pathlib.Path(__file__).resolve().absolute().parent
@@ -19,6 +19,19 @@ def dummy_display(ada_obj):
         renderer = MyRenderer()
         renderer.DisplayObj(ada_obj)
         renderer.build_display()
+
+
+def build_reinforced_floor():
+    rf = ReinforcedFloor(
+        "TestPlate",
+        [(0, 0), (5, 0), (5, 5), (0, 5)],
+        12e-3,
+        use3dnodes=False,
+        origin=(0, 0, 0),
+        xdir=(1, 0, 0),
+        normal=(0, 0, 1),
+    )
+    return Assembly("SiteReinforcedPlate") / (Part("PartReinforcedPlate") / rf)
 
 
 def build_test_simplestru_fem(mesh_size=0.1, make_fem=True):

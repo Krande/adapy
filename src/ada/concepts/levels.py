@@ -1184,15 +1184,17 @@ class FEM:
         self.sets.parent = self
         self.sections.parent = self
 
-    def add_elem(self, elem: Elem):
+    def add_elem(self, elem: Elem) -> Elem:
         elem.parent = self
         self.elements.add(elem)
+        return elem
 
-    def add_section(self, section: FemSection):
+    def add_section(self, section: FemSection) -> FemSection:
         section.parent = self
         self.sections.add(section)
+        return section
 
-    def add_bc(self, bc: Bc):
+    def add_bc(self, bc: Bc) -> Bc:
         if bc.name in [b.name for b in self.bcs]:
             raise ValueError(f'BC with name "{bc.name}" already exists')
 
@@ -1202,15 +1204,16 @@ class FEM:
             self.sets.add(bc.fem_set)
 
         self.bcs.append(bc)
+        return bc
 
-    def add_mass(self, mass: Mass):
+    def add_mass(self, mass: Mass) -> Mass:
         mass.parent = self
         self.masses[mass.name] = mass
+        return mass
 
     def add_set(
         self,
         fem_set: FemSet,
-        ids=None,
         p=None,
         vol_box=None,
         vol_cyl=None,
@@ -1218,20 +1221,14 @@ class FEM:
         tol=1e-4,
     ) -> FemSet:
         """
-        Simple method that creates a set string based on a set name, node or element ids and adds it to the assembly str
-
         :param fem_set: A fem set object
-        :param ids: List of integers
         :param p: Single point (x,y,z)
-        :param vol_box: Search by quadratic volume. Where p is (xmin, ymin, zmin) and vol_box is (xmax, ymax, zmax)
+        :param vol_box: Search by a box volume. Where p is (xmin, ymin, zmin) and vol_box is (xmax, ymax, zmax)
         :param vol_cyl: Search by cylindrical volume. Used together with p to find
                         nodes within cylinder inputted by [radius, height, thickness]
         :param single_member: Set True if you wish to keep only a single member
         :param tol: Point Tolerances. Default is 1e-4
         """
-        if ids is not None:
-            fem_set.add_members(ids)
-
         fem_set.parent = self
 
         def append_members(nodelist):
@@ -1240,36 +1237,35 @@ class FEM:
             else:
                 fem_set.add_members(nodelist)
 
-        if fem_set.type == "nset":
-            if p is not None or vol_box is not None or vol_cyl is not None:
-                nodes = self.nodes.get_by_volume(p, vol_box, vol_cyl, tol)
-                if len(nodes) == 0 and self.parent is not None:
-                    assembly = self.parent.get_assembly()
-                    list_of_ps = assembly.get_all_subparts() + [assembly]
-                    for part in list_of_ps:
-                        nodes = part.fem.nodes.get_by_volume(p, vol_box, vol_cyl, tol)
-                        if len(nodes) > 0:
-                            fem_set.parent = part.fem
-                            append_members(nodes)
-                            part.fem.add_set(fem_set)
-                            return fem_set
+        if fem_set.type != fem_set.TYPES.NSET or all(x is None for x in [p, vol_box, vol_cyl]):
+            self.sets.add(fem_set)
+            return fem_set
 
-                    raise Exception(f'No nodes found for fem set "{fem_set.name}"')
-                elif nodes is not None and len(nodes) > 0:
-                    append_members(nodes)
-                else:
-                    raise Exception(f'No nodes found for femset "{fem_set.name}"')
+        nodes = self.nodes.get_by_volume(p, vol_box, vol_cyl, tol)
+        if len(nodes) > 0:
+            append_members(nodes)
+            self.sets.add(fem_set)
+            return fem_set
 
-        self.sets.add(fem_set)
-        return fem_set
+        if len(nodes) == 0 and self.parent is not None:
+            assembly = self.parent.get_assembly()
+            list_of_ps = assembly.get_all_subparts() + [assembly]
+            for part in list_of_ps:
+                nodes = part.fem.nodes.get_by_volume(p, vol_box, vol_cyl, tol)
+                if len(nodes) == 0:
+                    continue
+                fem_set.parent = part.fem
+                append_members(nodes)
+                part.fem.add_set(fem_set)
+                return fem_set
+
+        raise Exception(f'No nodes found for femset "{fem_set.name}"')
 
     def add_step(self, step: Step) -> Step:
         """Add an analysis step to the assembly"""
         if len(self.steps) > 0:
-            if self.steps[-1].type != "eigenfrequency" and step.type == "complex_eig":
-                raise Exception(
-                    "complex eigenfrequency analysis step needs to follow eigenfrequency step. Check your input"
-                )
+            if self.steps[-1].type != Step.TYPES.EIGEN and step.type == Step.TYPES.COMPLEX_EIG:
+                raise Exception("Complex eigenfrequency analysis step needs to follow eigenfrequency step.")
         step.parent = self
         self.steps.append(step)
 
@@ -1297,16 +1293,18 @@ class FEM:
         self.lcsys[lcsys.name] = lcsys
         return lcsys
 
-    def add_connector_section(self, connector_section: ConnectorSection):
+    def add_connector_section(self, connector_section: ConnectorSection) -> ConnectorSection:
         connector_section.parent = self
         self.connector_sections[connector_section.name] = connector_section
+        return connector_section
 
-    def add_connector(self, connector: Connector):
+    def add_connector(self, connector: Connector) -> Connector:
         connector.parent = self
         self.connectors[connector.name] = connector
         connector.csys.parent = self
         self.elements.add(connector)
         self.add_set(FemSet(name=connector.name, members=[connector.id], set_type="elset"))
+        return connector
 
     def add_rp(self, name, node: Node):
         """Adds a reference point in assembly with a specific name"""
@@ -1315,25 +1313,27 @@ class FEM:
         fem_set = self.add_set(FemSet(name, [node], "nset"))
         return node, fem_set
 
-    def add_surface(self, surface: Surface):
+    def add_surface(self, surface: Surface) -> Surface:
         surface.parent = self
         self.surfaces[surface.name] = surface
+        return surface
 
-    def add_amplitude(self, amplitude: Amplitude):
+    def add_amplitude(self, amplitude: Amplitude) -> Amplitude:
         amplitude.parent = self
         self.amplitudes[amplitude.name] = amplitude
+        return amplitude
 
-    def add_predefined_field(self, pre_field: PredefinedField):
+    def add_predefined_field(self, pre_field: PredefinedField) -> PredefinedField:
         pre_field.parent = self
-
         self.predefined_fields[pre_field.name] = pre_field
+        return pre_field
 
-    def add_spring(self, spring: Spring):
+    def add_spring(self, spring: Spring) -> Spring:
         # self.elements.add(spring)
-
         if spring.fem_set.parent is None:
             self.sets.add(spring.fem_set)
         self.springs[spring.name] = spring
+        return spring
 
     def create_fem_elem_from_obj(self, obj, el_type=None) -> Elem:
         """Converts structural object to FEM elements. Currently only BEAM is supported"""

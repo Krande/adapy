@@ -11,9 +11,19 @@ floor_name = Counter(1, "floor")
 
 
 class ReinforcedFloor(Part):
-    def __init__(self, name, points: List[tuple], pl_thick: float, spacing=0.2, s_type="HP140x8", stringer_dir="X"):
+    def __init__(
+        self,
+        name,
+        points: List[tuple],
+        pl_thick: float,
+        spacing=0.2,
+        s_type="HP140x8",
+        stringer_dir="X",
+        use3dnodes=True,
+        **kwargs
+    ):
         super(ReinforcedFloor, self).__init__(name)
-        plate = self.add_plate(Plate(name + "_pl", points, pl_thick, use3dnodes=True))
+        plate = self.add_plate(Plate(name + "_pl", points, pl_thick, use3dnodes=use3dnodes, **kwargs))
 
         # Calculate number of stringers
         bbox = plate.bbox

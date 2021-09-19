@@ -1,7 +1,7 @@
 import pprint
 import unittest
 
-from common import build_test_beam_fem, build_test_simplestru_fem, example_files
+from common import build_test_beam_fem, example_files
 
 from ada import Assembly
 from ada.fem.io.abaqus.common import AbaCards
@@ -187,10 +187,6 @@ class TestAbaqus(unittest.TestCase):
     def test_write_bm(self):
         a = build_test_beam_fem("line")
         a.to_fem("my_beam", fem_format="abaqus", overwrite=True)
-
-    def test_write_test_model(self):
-        a = build_test_simplestru_fem()
-        a.to_fem("my_abaqus", fem_format="abaqus", overwrite=True)
 
     def test_read_C3D20(self):
         a = Assembly("my_assembly", "temp")
