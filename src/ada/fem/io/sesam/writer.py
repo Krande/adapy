@@ -20,12 +20,6 @@ def to_fem(
     name,
     analysis_dir=None,
     metadata=None,
-    execute=False,
-    run_ext=False,
-    cpus=2,
-    gpus=None,
-    overwrite=False,
-    exit_on_complete=False,
 ):
     if metadata is None:
         metadata = dict()

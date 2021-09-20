@@ -128,7 +128,7 @@ def find_beams_connected_to_plate(pl: Plate, beams: List[Beam]):
 def penetration_check(part: Part):
     a = part.get_assembly()
     cog = part.nodes.vol_cog
-    normal = part.placement.zv
+    normal = part.placement.zdir
     for p in a.get_all_subparts():
         for pipe in p.pipes:
             for segment in pipe.segments:

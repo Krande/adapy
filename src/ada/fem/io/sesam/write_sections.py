@@ -28,7 +28,7 @@ def write_bm_section(sec: Section, sec_id: int) -> str:
                 (p.Sfz,),
             ],
         )
-    elif SectionCat.is_hp_profile(sec.type):
+    elif SectionCat.is_angular(sec.type):
         sec_str += write_ff(
             "GLSEC",
             [

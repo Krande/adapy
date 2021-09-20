@@ -17,6 +17,11 @@ from .concepts import GmshData
 
 
 def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Union[Beam, Plate, Pipe], gmsh_data: GmshData):
+    # if type(model_obj) is Beam and gmsh_data.geom_repr == ElemType.SHELL:
+    #     cogs = [model.occ.getCenterOfMass(dim, ent) for dim, ent in gmsh_data.entities]
+    #     section_profile = model_obj.section.get_section_profile()
+    #     section_profile.get_thickness_assignments_for_cogs(cogs)
+
     for _, ent in gmsh_data.entities:
         if gmsh_data.geom_repr == ElemType.SHELL:
             get_sh_sections(model, model_obj, ent, fem)
@@ -27,6 +32,8 @@ def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Union[Beam, Plate, 
 
 
 def get_sh_sections(model: gmsh.model, model_obj: Union[Beam, Plate, Pipe], ent, fem: FEM):
+    from .bm_sh_ident import eval_thick_normal_from_cog_of_beam_plate
+
     _, tags, _ = model.mesh.getElements(2, ent)
     r = model.occ.getCenterOfMass(2, ent)
     if type(model_obj) is Beam:
@@ -197,62 +204,3 @@ def add_point(model: gmsh.model, p):
     point = [(0, model.geo.addPoint(*p))]
     model.geo.synchronize()
     return point
-
-
-def eval_thick_normal_from_cog_of_beam_plate(beam, cog):
-    """
-
-    :param beam:
-    :param cog:
-    :type beam: ada.Beam
-    :return:
-    """
-    from ada.core.utils import vector_length
-    from ada.sections import SectionCat
-
-    if SectionCat.is_circular_profile(beam.section.type) or SectionCat.is_tubular_profile(beam.section.type):
-        tol = beam.section.r / 8
-    else:
-        tol = beam.section.h / 8
-    t, n, c = None, None, None
-    xdir, ydir, zdir = beam.ori
-
-    n1 = beam.n1.p
-    n2 = beam.n2.p
-    h = beam.section.h
-    w_btn = beam.section.w_btn
-    w_top = beam.section.w_top
-
-    if beam.section.type in SectionCat.iprofiles + SectionCat.igirders:
-        p11 = n1 + zdir * h / 2
-        p12 = p11 + ydir * w_top / 2
-        p21 = n2 + zdir * h / 2
-        p22 = p21 + ydir * w_top / 2
-
-        p11btn = n1 - zdir * h / 2 + ydir * w_btn / 2
-        p12btn = p11btn - ydir * w_top / 2
-        p21btn = n2 - zdir * h / 2
-        p22btn = p21btn + ydir * w_btn / 2
-
-        web = (n1 + n2) / 2
-
-        fl_top_right = (p11 + p12 + p21 + p22) / 4
-        fl_top_left = fl_top_right - ydir * w_top / 2
-        fl_btn_right = (p11btn + p12btn + p21btn + p22btn) / 4
-        fl_btn_left = fl_btn_right - ydir * w_btn / 2
-
-        if vector_length(web - cog) < tol:
-            t, n, c = beam.section.t_w, ydir, "web"
-
-        for x in [fl_top_right, fl_top_left]:
-            if vector_length(x - cog) < tol:
-                t, n, c = beam.section.t_ftop, zdir, "top_fl"
-
-        for x in [fl_btn_right, fl_btn_left]:
-            if vector_length(x - cog) < tol:
-                t, n, c = beam.section.t_fbtn, zdir, "btn_fl"
-
-        if t is None:
-            raise ValueError("The thickness is not valid")
-
-    return t, n, c

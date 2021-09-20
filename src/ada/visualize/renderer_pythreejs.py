@@ -821,6 +821,7 @@ class SectionRenderer:
 
         from ipywidgets import HTML
 
+        from ada.concepts.curves import CurvePoly
         from ada.sections import SectionCat
         from ada.visualize.plots import easy_plotly
 
@@ -834,12 +835,12 @@ class SectionRenderer:
         #     button_style="",  # 'success', 'info', 'warning', 'danger' or ''
         # )
         html = HTML("<b>Section Properties</b></br></br>")
-        outer_curve, inner_curve, disconnected = sec.cross_sec(True)
+        section_profile = sec.get_section_profile(True)
 
-        def get_data(curve):
+        def get_data(curve: CurvePoly):
             x = []
             y = []
-            for edge in curve + [curve[0]]:
+            for edge in curve.points2d + [curve.points2d[0]]:
                 x.append(edge[0])
                 y.append(edge[1])
             return x, y
@@ -847,15 +848,15 @@ class SectionRenderer:
         xrange, yrange = None, None
         plot_data = dict()
 
-        if outer_curve is not None and type(outer_curve) is not float:
-            outer = get_data(outer_curve)
+        if section_profile.outer_curve is not None and type(section_profile.outer_curve) is not float:
+            outer = get_data(section_profile.outer_curve)
             plot_data["outer"] = outer
             max_dim = max(max(outer[0]), max(outer[1]))
             min_dim = min(min(outer[0]), min(outer[1]))
             xrange = [min_dim, max_dim]
             yrange = [min_dim, max_dim]
-        if inner_curve is not None:
-            inner = get_data(inner_curve)
+        if section_profile.inner_curve is not None:
+            inner = get_data(section_profile.inner_curve)
             plot_data["inner"] = inner
 
         sp = sec.properties

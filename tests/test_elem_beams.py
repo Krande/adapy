@@ -122,8 +122,7 @@ class BeamIO(unittest.TestCase):
         a = Assembly("AdaRotatedProfiles")
         p = a.add_part(Part("Part"))
 
-        props = dict(spre="/JSB_VA-DIN-SPEC/Y26IPE400", matr="/GR.355-II(Y26)_jsb_va")
-        data = dict(sec=self.hp_sec, metadata=dict(props))
+        data = dict(sec=self.hp_sec)
         p.add_beam(Beam("bm_test2X0", n1=[0, 0, 0], n2=[5, 0, 0], angle=0, **data))
         p.add_beam(Beam("bm_test2X90", n1=[0, 0, 1], n2=[5, 0, 1], angle=90, **data))
         p.add_beam(Beam("bm_test2Y0", n1=[0, 0, 2], n2=[0, 5, 2], angle=0, **data))

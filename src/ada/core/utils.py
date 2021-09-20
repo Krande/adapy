@@ -16,8 +16,8 @@ def align_to_plate(plate):
     """:type plate: ada.Plate"""
     normal = plate.poly.normal
     h = plate.t * 5
-    origin = plate.poly.origin - h * normal * 1.1 / 2
-    xdir = plate.poly.xdir
+    origin = plate.poly.placement.origin - h * normal * 1.1 / 2
+    xdir = plate.poly.placement.xdir
     return dict(h=h, normal=normal, origin=origin, xdir=xdir)
 
 
@@ -1339,21 +1339,18 @@ def flatten(t):
     return [item for sublist in t for item in sublist]
 
 
-def calc_yvec(x_vec, z_vec=None):
-    """
+def calc_xvec(y_vec, z_vec):
+    return np.cross()
 
-    :param x_vec:
-    :param z_vec:
-    :return:
-    """
 
+def calc_yvec(x_vec, z_vec=None) -> np.ndarray:
     if z_vec is None:
         calc_zvec(x_vec)
 
     return np.cross(z_vec, x_vec)
 
 
-def calc_zvec(x_vec, y_vec=None):
+def calc_zvec(x_vec, y_vec=None) -> np.ndarray:
     """
     Calculate Z-vector (up) from an x-vector (along beam) only.
 

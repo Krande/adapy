@@ -8,7 +8,6 @@ import ada.core.utils
 
 from . import Section
 from .categories import SectionCat
-from .profiles import ProfileBuilder
 
 digit = r"\d{0,5}\.?\d{0,5}|\d{0,5}|\d{0,5}\/\d{0,5}"
 flex = r"?:\.|[A-Z]|"
@@ -309,32 +308,3 @@ def get_section(sec: Union[Section, str]) -> Tuple[Section, Section]:
         return interpret_section_str(sec)
     else:
         raise ValueError("Unable to find beam section based on input: {}".format(sec))
-
-
-def get_profile_props(section: Section, is_solid: bool):
-
-    profile_builder = ProfileBuilder()
-    if section.type in SectionCat.angular:
-        outer_curve, inner_curve, disconnected = profile_builder.angular(section, is_solid)
-    elif section.type in SectionCat.iprofiles + SectionCat.igirders:
-        outer_curve, inner_curve, disconnected = profile_builder.iprofiles(section, is_solid)
-    elif section.type in SectionCat.box + SectionCat.rhs + SectionCat.shs:
-        outer_curve, inner_curve, disconnected = profile_builder.box(section, is_solid)
-    elif section.type in SectionCat.tubular:
-        outer_curve, inner_curve, disconnected = profile_builder.tubular(section, is_solid)
-    elif section.type in SectionCat.circular:
-        outer_curve, inner_curve, disconnected = profile_builder.circular(section, is_solid)
-    elif section.type in SectionCat.flatbar:
-        outer_curve, inner_curve, disconnected = profile_builder.flatbar(section, is_solid)
-    elif section.type in SectionCat.general:
-        outer_curve, inner_curve, disconnected = profile_builder.gensec(section, is_solid)
-    elif section.type in SectionCat.channels:
-        outer_curve, inner_curve, disconnected = profile_builder.channel(section, is_solid)
-    else:
-        if section.poly_outer is not None:
-            return section.poly_outer, None, None
-        else:
-            raise ValueError(
-                "Currently geometry build is unsupported for profile type {ptype}".format(ptype=section.type)
-            )
-    return outer_curve, inner_curve, disconnected

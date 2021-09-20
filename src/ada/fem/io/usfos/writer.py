@@ -1,46 +1,16 @@
 import os
 from operator import attrgetter
 
+from ada import Assembly
 from ada.core.utils import roundoff
-from ada.fem.io.utils import folder_prep
 
 
-def to_fem(
-    assembly,
-    name,
-    scratch_dir=None,
-    metadata=None,
-    execute=False,
-    run_ext=False,
-    cpus=2,
-    gpus=None,
-    overwrite=False,
-    exit_on_complete=True,
-):
-    """
-
-    :param assembly:
-    :param name:
-    :param scratch_dir:
-    :param metadata:
-    :param execute:
-    :param run_ext:
-    :param cpus:
-    :param gpus:
-    :param overwrite:
-    :param exit_on_complete:
-    """
-    if metadata is None:
-        metadata = dict()
-    if "control_file" not in metadata.keys():
-        metadata["control_file"] = None
-
+def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None):
+    metadata = dict() if metadata is None else metadata
     parts = list(filter(lambda x: len(x.fem.nodes) > 0, assembly.get_all_subparts()))
     if len(parts) != 1:
         raise ValueError("Usfos writer currently only works for a single part")
     part = parts[0]
-
-    analysis_dir = folder_prep(scratch_dir, name, overwrite)
 
     head = """ HEAD\n\n\n"""
     eccen = []
@@ -208,6 +178,8 @@ def shell_str(part):
     thick = []
     for el in sorted(part.fem.elements.shell, key=attrgetter("id")):
         t = el.fem_sec.thickness
+        if t is None:
+            raise ValueError("Thickness cannot be None")
         if t not in thick:
             thick.append(t)
             locid = thick.index(t)

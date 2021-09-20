@@ -42,10 +42,10 @@ class Window(Part):
             self._units = value
 
     def build_geom(self):
-        normal = self.placement.zv
-        origin = self.placement.origin - self.placement.zv * self.depth
+        normal = self.placement.zdir
+        origin = self.placement.origin - self.placement.zdir * self.depth
         points = [(0, 0), (self.width, 0), (self.width, self.height), (0, self.height)]
-        poly = CurvePoly(points2d=points, origin=origin, normal=normal, xdir=self.placement.xv, parent=self)
+        poly = CurvePoly(points2d=points, origin=origin, normal=normal, xdir=self.placement.xdir, parent=self)
         geom = poly.make_extruded_solid(self.depth)
         self.add_shape(Shape(self.name, geom, metadata=self.metadata))
 
@@ -89,8 +89,10 @@ class Door(Part):
             self._units = value
 
     def build_geom(self):
-        origin = self.placement.origin - self.placement.zv * self.depth
+        origin = self.placement.origin - self.placement.zdir * self.depth
         points = [(0, 0), (self.width, 0), (self.width, self.height), (0, self.height)]
-        poly = CurvePoly(points2d=points, origin=origin, normal=self.placement.zv, xdir=self.placement.xv, parent=self)
+        poly = CurvePoly(
+            points2d=points, origin=origin, normal=self.placement.zdir, xdir=self.placement.xdir, parent=self
+        )
         geom = poly.make_extruded_solid(self.depth)
         self.add_shape(Shape(self.name, geom, metadata=self.metadata))

@@ -11,6 +11,9 @@ class BaseTypes:
 
 
 class SectionCat:
+
+    BASETYPES = BaseTypes
+
     box = ["BG", "CG"]
     shs = ["SHS"]
     rhs = ["RHS", "URHS"]
@@ -43,6 +46,24 @@ class SectionCat:
             return section_ref.upper()
 
     @classmethod
+    def get_shape_type(cls, bmtype):
+        type_map = [
+            (cls.is_i_profile, cls.BASETYPES.IPROFILE),
+            (cls.is_angular, cls.BASETYPES.ANGULAR),
+            (cls.is_flatbar, cls.BASETYPES.FLATBAR),
+            (cls.is_box_profile, cls.BASETYPES.BOX),
+            (cls.is_t_profile, cls.BASETYPES.TPROFILE),
+            (cls.is_channel_profile, cls.BASETYPES.CHANNEL),
+            (cls.is_tubular_profile, cls.BASETYPES.TUBULAR),
+            (cls.is_circular_profile, cls.BASETYPES.CIRCULAR),
+            (cls.is_general, cls.BASETYPES.GENERAL),
+        ]
+
+        for type_func, return_type in type_map:
+            if type_func(bmtype):
+                return return_type
+
+    @classmethod
     def is_i_profile(cls, bmtype):
         return True if cls._get_sec_type(bmtype) in cls.igirders + cls.iprofiles else False
 
@@ -53,10 +74,6 @@ class SectionCat:
     @classmethod
     def is_box_profile(cls, bmtype):
         return True if cls._get_sec_type(bmtype) in cls.box + cls.shs + cls.rhs else False
-
-    @classmethod
-    def is_hp_profile(cls, bmtype):
-        return True if cls._get_sec_type(bmtype) in cls.angular else False
 
     @classmethod
     def is_circular_profile(cls, bmtype):

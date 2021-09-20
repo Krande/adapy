@@ -498,7 +498,7 @@ class PrimExtrude(Shape):
             from ada.core.utils import unit_length_conversion
 
             scale_factor = unit_length_conversion(self._units, value)
-            self.poly.origin = [x * scale_factor for x in self.poly.origin]
+            self.poly.placement.origin = [x * scale_factor for x in self.poly.placement.origin]
             self._extrude_depth = self._extrude_depth * scale_factor
             self._units = value
 
@@ -614,7 +614,7 @@ class PrimSweep(Shape):
             sweep_curve = CurvePoly(points3d=sweep_curve, is_closed=False)
 
         if type(profile_curve_outer) is list:
-            origin = sweep_curve.origin if origin is None else origin
+            origin = sweep_curve.placement.origin if origin is None else origin
             profile_curve_outer = CurvePoly(profile_curve_outer, origin=origin, normal=normal, xdir=xdir)
 
         sweep_curve.parent = self

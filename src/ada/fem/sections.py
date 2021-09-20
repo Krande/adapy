@@ -36,18 +36,23 @@ class FemSection(FemBase):
     ):
         """:type elset: ada.fem.FemSet"""
         super().__init__(name, metadata, parent)
-        _valid_secs = [ElemType.LINE, ElemType.SHELL, ElemType.SOLID]
-        self._sec_type = sec_type
         if sec_type is None:
             raise ValueError("Section type cannot be None")
+
+        _valid_secs = [ElemType.LINE, ElemType.SHELL, ElemType.SOLID]
         if sec_type not in _valid_secs:
             raise ValueError(f'Element section type "{sec_type}" is not supported. Must be in {_valid_secs}')
+
+        self._sec_type = sec_type
         self._elset = elset
         self._material = material
         self._section = section
         self._local_z = local_z
         self._local_y = local_y
         self._local_x = None
+        if self._sec_type == ElemType.SHELL:
+            if thickness is None:
+                raise ValueError("Thickness of shell cannot be None")
         self._thickness = thickness
         self._int_points = int_points
         self._offset = offset

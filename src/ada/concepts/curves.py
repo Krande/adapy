@@ -3,6 +3,7 @@ from typing import List
 import numpy as np
 
 from .points import Node
+from .transforms import Placement
 
 
 class CurveRevolve:
@@ -116,6 +117,7 @@ class CurvePoly:
         self._debug = debug
 
         from ada.core.utils import (
+            calc_yvec,
             clockwise,
             global_2_local_nodes,
             local_2_global_nodes,
@@ -141,17 +143,16 @@ class CurvePoly:
                     )
                 else:
                     points3d[i] = tuple(points3d[i].tolist())
-            self._xdir = xdir
-            self._normal = np.array(normal)
-            self._origin = np.array(origin).astype(float)
-            self._ydir = np.cross(self._normal, self._xdir)
+            ydir = calc_yvec(xdir, normal)
+            placement = Placement(origin, xdir=xdir, ydir=ydir, zdir=normal)
         else:
-            self._normal = normal_to_points_in_plane([np.array(x[:3]) for x in points3d])
-            self._origin = np.array(points3d[0][:3]).astype(float)
-            self._xdir = unit_vector(np.array(points3d[1][:3]) - np.array(points3d[0][:3]))
-            self._ydir = np.cross(self._normal, self._xdir)
-            csys = [self._xdir, self._ydir]
-            points2d = global_2_local_nodes(csys, self._origin, [np.array(x[:3]) for x in points3d])
+            normal = normal_to_points_in_plane([np.array(x[:3]) for x in points3d])
+            origin = np.array(points3d[0][:3]).astype(float)
+            xdir = unit_vector(np.array(points3d[1][:3]) - np.array(points3d[0][:3]))
+            ydir = np.cross(normal, xdir)
+            placement = Placement(origin, xdir=xdir, ydir=ydir, zdir=normal)
+            csys = [xdir, ydir]
+            points2d = global_2_local_nodes(csys, origin, [np.array(x[:3]) for x in points3d])
             points3d = [x.p if type(x) is Node else x for x in points3d]
             for i, p in enumerate(points3d):
                 if len(p) == 4:
@@ -167,11 +168,12 @@ class CurvePoly:
                 points2d = [p for p in reversed(points2d)]
                 points3d = [p for p in reversed(points3d)]
 
+        self._placement = placement
         self._points3d = points3d
         self._points2d = points2d
 
         if flip_normal:
-            self._normal *= -1
+            self.placement.zdir *= -1
 
         self._seg_list = None
         self._seg_index = None
@@ -216,18 +218,18 @@ class CurvePoly:
         debug_name = self._parent.name if self._parent is not None else "PolyCurveDebugging"
 
         seg_list = build_polycurve(local_points2d, tol, self._debug, debug_name)
-
+        origin, xdir, normal = self.placement.origin, self.placement.xdir, self.placement.zdir
         # # Convert from local to global coordinates
         for i, seg in enumerate(seg_list):
             if type(seg) is ArcSegment:
                 lpoints = [seg.p1, seg.p2, seg.midpoint]
-                gp = local_2_global_nodes(lpoints, self.origin, self.xdir, self.normal)
+                gp = local_2_global_nodes(lpoints, origin, xdir, normal)
                 seg.p1 = gp[0]
                 seg.p2 = gp[1]
                 seg.midpoint = gp[2]
             else:
                 lpoints = [seg.p1, seg.p2]
-                gp = local_2_global_nodes(lpoints, self.origin, self.xdir, self.normal)
+                gp = local_2_global_nodes(lpoints, origin, xdir, normal)
                 seg.p1 = gp[0]
                 seg.p2 = gp[1]
 
@@ -235,10 +237,23 @@ class CurvePoly:
         self._seg_global_points, self._seg_index = segments_to_indexed_lists(seg_list)
         self._nodes = [Node(p) if len(p) == 3 else Node(p[:3], r=p[3]) for p in self._points3d]
 
+    def _update_curves(self):
+        from ada.core.utils import local_2_global_nodes
+
+        points2d_no_r = [n[:2] for n in self.points2d]
+        points3d = local_2_global_nodes(points2d_no_r, self.placement.origin, self.placement.xdir, self.placement.zdir)
+        for i, p in enumerate(self.points2d):
+            if len(p) == 3:
+                points3d[i] = (points3d[i][0], points3d[i][1], points3d[i][2], p[-1])
+            else:
+                points3d[i] = tuple(points3d[i].tolist())
+        self._points3d = points3d
+        self._local2d_to_polycurve(self.points2d, tol=self._tol)
+
     def make_extruded_solid(self, height: float):
         from ada.occ.utils import extrude_closed_wire
 
-        return extrude_closed_wire(self.wire, self.origin, self.normal, height)
+        return extrude_closed_wire(self.wire, self.placement.origin, self.placement.zdir, height)
 
     def make_revolve_solid(self, axis, angle, origin):
         from ada.occ.utils import make_revolve_solid
@@ -287,29 +302,19 @@ class CurvePoly:
         return tuple([(x, y) for x, y in zip(list(bbox_min), list(bbox_max))])
 
     def scale(self, scale_factor, tol):
-        self._origin = np.array([x * scale_factor for x in self.origin])
+        self.placement.origin = np.array([x * scale_factor for x in self.placement.origin])
         self._points2d = [tuple([x * scale_factor for x in p]) for p in self._points2d]
         self._points3d = [tuple([x * scale_factor for x in p]) for p in self._points3d]
         self._local2d_to_polycurve(self.points2d, tol=tol)
 
     @property
-    def origin(self):
-        return self._origin
+    def placement(self) -> Placement:
+        return self._placement
 
-    @origin.setter
-    def origin(self, value):
-        from ada.core.utils import local_2_global_nodes
-
-        self._origin = value
-        points2d_no_r = [n[:2] for n in self.points2d]
-        points3d = local_2_global_nodes(points2d_no_r, self._origin, self.xdir, self.normal)
-        for i, p in enumerate(self.points2d):
-            if len(p) == 3:
-                points3d[i] = (points3d[i][0], points3d[i][1], points3d[i][2], p[-1])
-            else:
-                points3d[i] = tuple(points3d[i].tolist())
-        self._points3d = points3d
-        self._local2d_to_polycurve(self.points2d, tol=self._tol)
+    @placement.setter
+    def placement(self, value: Placement):
+        self._placement = value
+        self._update_curves()
 
     @property
     def seg_global_points(self):
@@ -329,15 +334,15 @@ class CurvePoly:
 
     @property
     def normal(self):
-        return self._normal
+        return self.placement.zdir
 
     @property
     def xdir(self):
-        return self._xdir
+        return self.placement.xdir
 
     @property
     def ydir(self):
-        return self._ydir
+        return self.placement.ydir
 
     @property
     def edges(self):

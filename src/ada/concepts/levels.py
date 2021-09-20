@@ -400,8 +400,8 @@ class Part(BackendGeom):
         placement = create_local_placement(
             f,
             origin=self.placement.origin,
-            loc_x=self.placement.xv,
-            loc_z=self.placement.zv,
+            loc_x=self.placement.xdir,
+            loc_z=self.placement.zdir,
             relative_to=parent.ObjectPlacement,
         )
         type_map = dict(building="IfcBuilding", space="IfcSpace", spatial="IfcSpatialZone", storey="IfcBuildingStorey")

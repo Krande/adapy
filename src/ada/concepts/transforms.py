@@ -32,6 +32,25 @@ class Rotation:
 @dataclass
 class Placement:
     origin: np.ndarray = np.array([0, 0, 0], dtype=float)
-    xv: np.ndarray = np.array([1, 0, 0], dtype=float)
-    yv: np.ndarray = np.array([0, 1, 0], dtype=float)
-    zv: np.ndarray = np.array([0, 0, 1], dtype=float)
+    xdir: np.ndarray = None
+    ydir: np.ndarray = None
+    zdir: np.ndarray = None
+
+    def __post_init__(self):
+        from ada.core.utils import calc_yvec
+
+        all_dir = [self.xdir, self.ydir, self.zdir]
+        if all(x is None for x in all_dir):
+            self.xdir = np.array([1, 0, 0], dtype=float)
+            self.ydir = np.array([0, 1, 0], dtype=float)
+            self.zdir = np.array([0, 0, 1], dtype=float)
+
+        if self.ydir is None and all(x is not None for x in [self.xdir, self.zdir]):
+            self.ydir = calc_yvec(self.xdir, self.zdir)
+
+        all_dir = [self.xdir, self.ydir, self.zdir]
+        if all(x is None for x in all_dir):
+            raise ValueError("Placement orientation needs all 3 vectors")
+        self.xdir = np.array(self.xdir)
+        self.ydir = np.array(self.ydir)
+        self.zdir = np.array(self.zdir)

@@ -52,12 +52,11 @@ class GmshApiV2(unittest.TestCase):
     def test_beam_hex(self):
         # TODO: this test is not yet producing HEX elements.
         with GmshSession(silent=True, options=GmshOptions(Mesh_ElementOrder=2)) as gs:
-            solid_bm = gs.add_obj(self.bm1, "solid")
+            solid_bm = gs.add_obj(self.bm1, "shell")
 
             for cutp in self.cut_planes:
                 gs.add_cutting_plane(cutp, [solid_bm])
             gs.make_cuts()
-
             gs.mesh(0.1)
             fem = gs.get_fem()
 
@@ -66,7 +65,8 @@ class GmshApiV2(unittest.TestCase):
         # a.to_fem("aba_2nd_order_bm_hex", "abaqus", overwrite=True, scratch_dir=test_dir)
 
     def test_mix_geom_repr_in_same_session(self):
-        with GmshSession(silent=True, options=GmshOptions(Mesh_ElementOrder=2)) as gs:
+        options = GmshOptions(Mesh_ElementOrder=2)
+        with GmshSession(silent=True, options=options) as gs:
             gs.add_obj(self.bm1, "shell")
             solid_bm = gs.add_obj(self.bm2, "solid")
             gs.add_obj(self.bm3, "line")

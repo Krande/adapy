@@ -1,4 +1,5 @@
 import os
+from typing import List
 
 import numpy as np
 
@@ -795,15 +796,11 @@ def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius):
     return center, start, end, midp
 
 
-def build_polycurve(local_points2d, tol=1e-3, debug=False, debug_name=None, is_closed=True):
-    """
+def build_polycurve(local_points2d: List[tuple], tol=1e-3, debug=False, debug_name=None, is_closed=True):
+    from ada.concepts.curves import LineSegment
 
-    :param local_points2d:
-    :param tol:
-    :param debug:
-    :param debug_name:
-    :return:
-    """
+    if len(local_points2d) == 2:
+        return [LineSegment(p1=local_points2d[0], p2=local_points2d[1])]
 
     segc = SegCreator(local_points2d, tol=tol, debug=debug, debug_name=debug_name, is_closed=is_closed)
     in_loop = True

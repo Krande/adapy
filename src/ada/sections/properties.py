@@ -318,7 +318,7 @@ class GeneralProperties:
             pass  # it is known
         elif self.parent.type in SectionCat.tubular:
             self._calc_tubular()
-        elif SectionCat.is_hp_profile(self.parent.type):
+        elif SectionCat.is_angular(self.parent.type):
             self._calc_angular()
         elif SectionCat.is_channel_profile(self.parent):
             self._calc_channel()

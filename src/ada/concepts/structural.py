@@ -153,23 +153,15 @@ class Beam(BackendGeom):
         self._opacity = opacity
 
     def get_outer_points(self):
-        """
-
-        :return:
-        """
         from itertools import chain
 
         from ada.core.utils import local_2_global_nodes
 
-        outer_curve, inner_curve, disconnected = self.section.cross_sec(False)
-        if disconnected:
-            ot = list(chain.from_iterable(outer_curve))
+        section_profile = self.section.get_section_profile(False)
+        if section_profile.disconnected:
+            ot = list(chain.from_iterable([x.points2d for x in section_profile.outer_curve_disconnected]))
         else:
-            ot = outer_curve
-
-        if type(ot) is CurvePoly:
-            assert isinstance(ot, CurvePoly)
-            ot = ot.points2d
+            ot = section_profile.outer_curve.points2d
 
         yv = self.yvec
         xv = self.xvec
@@ -846,7 +838,7 @@ class Plate(BackendGeom):
         plate_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
         tra_mat = np.array([xvec, yvec, zvec])
         t_vec = [0, 0, self.t]
-        origin = np.array(self.poly.origin)
+        origin = np.array(self.poly.placement.origin)
         res = origin + np.dot(tra_mat, t_vec)
         polyline = create_ifcpolyline(f, [origin.astype(float).tolist(), res.tolist()])
         axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve2D", [polyline])
@@ -1169,7 +1161,7 @@ class Wall(BackendGeom):
 
         start = p1 + yvec * (self._thickness / 2 + self.offset) + xvec * off_x + zvec * off_z
         insert._depth = self._thickness
-        insert.placement = Placement(origin=start, xv=xvec, yv=zvec, zv=yvec)
+        insert.placement = Placement(origin=start, xdir=xvec, ydir=zvec, zdir=yvec)
         insert.build_geom()
 
         frame = insert.shapes[0]
@@ -1525,8 +1517,9 @@ class Wall(BackendGeom):
 
 def get_bm_section_curve(bm: Beam, origin=None) -> CurvePoly:
     origin = origin if origin is not None else bm.n1.p
-    outer_curve, inner_curve, disconnected = bm.section.cross_sec(True)
-    return CurvePoly(points2d=outer_curve, origin=origin, xdir=bm.yvec, normal=bm.xvec, parent=bm.parent)
+    section_profile = bm.section.get_section_profile(True)
+    points2d = section_profile.outer_curve.points2d
+    return CurvePoly(points2d=points2d, origin=origin, xdir=bm.yvec, normal=bm.xvec, parent=bm.parent)
 
 
 def make_ig_cutplanes(bm: Beam):

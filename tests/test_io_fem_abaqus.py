@@ -185,7 +185,7 @@ class TestAbaCards(unittest.TestCase):
 
 class TestAbaqus(unittest.TestCase):
     def test_write_bm(self):
-        a = build_test_beam_fem("line")
+        a = build_test_beam_fem("shell")
         a.to_fem("my_beam", fem_format="abaqus", overwrite=True)
 
     def test_read_C3D20(self):
