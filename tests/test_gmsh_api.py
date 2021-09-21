@@ -13,9 +13,9 @@ test_dir = Settings.test_dir / "gmsh_api_v2"
 class GmshApiV2(unittest.TestCase):
     def setUp(self) -> None:
 
-        self.bm1 = Beam("MyBeam", (0, 0, 1), (1, 0, 1), "IPE300")
-        self.bm2 = Beam("MySecondBeam", (1.1, 0, 1), (2, 0, 1), "IPE300")
-        self.bm3 = Beam("MyThirdBeam", (2.1, 0, 1), (3, 0, 1), "IPE300")
+        self.bm1 = Beam("bm1", (0, 0, 1), (1, 0, 1), "IPE300")
+        self.bm2 = Beam("bm2", (1.1, 0, 1), (2, 0, 1), "IPE300")
+        self.bm3 = Beam("bm3", (2.1, 0, 1), (3, 0, 1), "IPE300")
 
         pl_atts = dict(origin=(1, 1, 1), xdir=(1, 0, 0), normal=(0, 0, 1))
         pl_points = [(0, 0), (1, 0), (1, 1), (0, 1)]

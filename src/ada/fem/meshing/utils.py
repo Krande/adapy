@@ -7,6 +7,7 @@ import gmsh
 import numpy as np
 
 from ada import FEM, Beam, Node, Pipe, Plate
+from ada.concepts.transforms import Placement
 from ada.core.utils import make_name_fem_ready
 from ada.fem import Elem, FemSection, FemSet
 from ada.fem.shapes import ElemType
@@ -34,30 +35,22 @@ def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Union[Beam, Plate, 
             get_bm_sections(model, model_obj, ent, fem)
 
 
-def get_sh_sections_for_beam_obj(model: gmsh.model, model_obj: Beam, gmsh_data: GmshData, fem: FEM):
-    cogs_n_normals = []
+def get_sh_sections_for_beam_obj(model: gmsh.model, beam: Beam, gmsh_data: GmshData, fem: FEM):
+    from ada.sections.bm_sh_ident import eval_thick_normal_from_cog_of_beam_plate
 
+    pl1 = Placement(beam.n1.p, beam.yvec, beam.up, beam.xvec)
     for _, ent in gmsh_data.entities:
         _, _, param = model.mesh.getNodes(2, ent, True)
         normal = model.getNormal(ent, param)[:3]
         cog = model.occ.getCenterOfMass(2, ent)
-        cogs_n_normals.append((cog, normal))
+        pc = eval_thick_normal_from_cog_of_beam_plate(beam.section, cog, normal, pl1)
 
-    section_profile = model_obj.section.get_section_profile(False)
-    from ada.concepts.transforms import Placement
-
-    pl1 = Placement(model_obj.n1.p, model_obj.yvec, model_obj.up, model_obj.xvec)
-    pl2 = Placement(model_obj.n2.p, model_obj.yvec, model_obj.up, model_obj.xvec)
-
-    thick_assignment = section_profile.get_thickness_assignments_for_cogs(cogs_n_normals, pl1, pl2)
-
-    for i, (_, ent) in enumerate(gmsh_data.entities):
         _, tags, _ = model.mesh.getElements(2, ent)
-        (bm_part, thickness), normal = thick_assignment[i]
 
-        set_name = make_name_fem_ready(f"el{model_obj.name}_e{ent}_{bm_part}_sh")
-        fem_sec_name = make_name_fem_ready(f"d{model_obj.name}_e{ent}_{bm_part}_sh")
-        add_shell_section(set_name, fem_sec_name, normal, thickness, tags, model_obj, fem)
+        set_name = make_name_fem_ready(f"el{beam.name}_e{ent}_{pc.type}_sh")
+        fem_sec_name = make_name_fem_ready(f"d{beam.name}_e{ent}_{pc.type}_sh")
+
+        add_shell_section(set_name, fem_sec_name, normal, pc.thick, tags, beam, fem)
 
 
 def get_sh_sections_for_pipe_obj(model: gmsh.model, model_obj: Pipe, gmsh_data: GmshData, fem: FEM):

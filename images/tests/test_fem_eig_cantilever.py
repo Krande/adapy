@@ -42,3 +42,7 @@ def test_fem_eig(fem_format, geom_repr, elem_order):
 
     if pathlib.Path(res.results_file_path).exists() is False:
         raise FileNotFoundError(f'FEM analysis was not successful. Result file "{res.results_file_path}" not found.')
+
+
+if __name__ == "__main__":
+    test_fem_eig("code_aster", "shell", 1)

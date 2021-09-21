@@ -70,13 +70,11 @@ def iprofiles(sec: Section, return_solid) -> SectionProfile:
     shell_thick_map = None
     if return_solid is False:
         disconnected = True
-        input_curve = [(c1, p3), (p3, c2), (p3, p4), (c3, p4), (p4, c4)]
+        input_curve = [(c1, c2), (p3, p4), (c3, c4)]
         outer_curve_disconnected = build_disconnected(input_curve)
         shell_thick_map = [
             (SectionParts.TOP_FLANGE, sec.t_ftop),
-            (SectionParts.TOP_FLANGE, sec.t_ftop),
             (SectionParts.WEB, sec.t_w),
-            (SectionParts.BTN_FLANGE, sec.t_fbtn),
             (SectionParts.BTN_FLANGE, sec.t_fbtn),
         ]
     else:
