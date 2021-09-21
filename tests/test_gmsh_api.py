@@ -56,6 +56,7 @@ class GmshApiV2(unittest.TestCase):
 
             for cutp in self.cut_planes:
                 gs.add_cutting_plane(cutp, [solid_bm])
+
             gs.make_cuts()
             gs.mesh(0.1)
             fem = gs.get_fem()
@@ -76,6 +77,7 @@ class GmshApiV2(unittest.TestCase):
 
             for cutp in self.cut_planes:
                 gs.add_cutting_plane(cutp, [solid_bm])
+
             gs.make_cuts()
 
             gs.mesh(0.1)

@@ -144,13 +144,17 @@ class GmshSession:
         self.cutting_planes.append(cut_plane)
 
     def make_cuts(self):
+        geom_repr_map = {ElemType.SOLID: 3, ElemType.SHELL: 2, ElemType.LINE: 1}
+
         for cut in self.cutting_planes:
             x, y, z = cut.origin
             rect = self.model.occ.addRectangle(x, y, z, cut.dx, cut.dy)
             cut.gmsh_id = rect
             for obj in cut.cut_objects:
-                res = self.model.occ.fragment(obj.entities, [(2, rect)], removeTool=True)
-                obj.entities = [(dim, r) for dim, r in res[0] if dim == 3]
+                res, _ = self.model.occ.fragment(obj.entities, [(2, rect)], removeTool=True)
+                cut_geom_dim = geom_repr_map[obj.geom_repr]
+                replaced_entities = [(dim, r) for dim, r in res if r != rect and dim == cut_geom_dim]
+                obj.entities = replaced_entities
             self.model.occ.remove([(2, rect)], True)
 
         # rem_ids = [(2, c.gmsh_id) for c in self.cutting_planes]

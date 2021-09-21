@@ -48,6 +48,7 @@ def get_thick_normal_from_ig_beams(beam: Beam, cog, tol):
 
 def get_thick_normal_from_angular_beams(beam: Beam, cog, tol):
     section_profile = beam.section.get_section_profile(False)
+    # section_profile.get_thickness_assignments_for_cogs()
     print(section_profile)
     raise NotImplementedError()
 

@@ -54,7 +54,7 @@ class TestUsfos(unittest.TestCase):
     def test_write_usfos(self):
         a = build_reinforced_floor()
         p = a.get_part("PartReinforcedPlate")
-        p.fem = p.to_fem_obj(0.1, bm_repr="line")
+        p.fem = p.to_fem_obj(0.1, bm_repr="shell")
         a.to_fem("my_usfos", fem_format="usfos", overwrite=True)
         # a.to_fem("my_xdmf_plate", "xdmf", overwrite=True, scratch_dir=test_folder, fem_converter="meshio")
 

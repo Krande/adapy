@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import copy
 import logging
 from dataclasses import dataclass
 from typing import List, Tuple
 
+import numpy as np
+
 from ada.base.non_phyical_objects import Backend
 from ada.concepts.curves import CurvePoly
+from ada.concepts.transforms import Placement
 from ada.config import Settings
+from ada.core.utils import is_parallel, vector_length
 
 from .categories import SectionCat
 from .properties import GeneralProperties
@@ -281,9 +286,75 @@ class SectionProfile:
     disconnected: bool = None
     shell_thickness_map: List[Tuple[str, float]] = None
 
-    def get_thickness_assignments_for_cogs(self, cogs: List[Tuple[float]]):
-        for cog in cogs:
-            print(cog)
+    def get_cog_from_two_curves(self, c1: CurvePoly, c2: CurvePoly) -> List[Tuple[np.ndarray, np.ndarray]]:
+        from ada.core.utils import normal_to_points_in_plane
+
+        cogs = []
+        for l1, l2 in zip(c1.seg_list, c2.seg_list):
+            points = [l1.p1, l1.p2, l2.p1, l2.p2]
+            normal = normal_to_points_in_plane(points)
+            cog = (l1.p1 + l1.p2 + l2.p1 + l2.p2) / 4
+            cogs.append((cog, normal))
+
+        return cogs
+
+    def get_thickness_assignments_for_cogs(
+        self,
+        cogs_n_normals: List[Tuple[Tuple[float], Tuple[float]]],
+        placement_1: Placement,
+        placement_2: Placement,
+        tol=1e-2,
+    ):
+
+        if self.disconnected is False:
+            ot = [self.outer_curve]
+        else:
+            ot = self.outer_curve_disconnected
+
+        res_map = []
+
+        for i, curve in enumerate(ot):
+            c1 = copy.deepcopy(curve)
+            c2 = copy.deepcopy(curve)
+            c1.placement = placement_1
+            c2.placement = placement_2
+
+            cogs_profile = self.get_cog_from_two_curves(c1, c2)
+            res = self.get_coincident_cog(cogs_n_normals, cogs_profile, tol, i, placement_1)
+
+            if res is None:
+                raise ValueError("Unable to find coincident COG for ")
+            res_map.append(res)
+
+        return res_map
+
+    def get_coincident_cog(self, cogs_and_normals, cogs_profile, tol, index, placement: Placement):
+        for c, normal in cogs_and_normals:
+            if SectionCat.is_i_profile(self.sec):
+                parallel = is_parallel(normal, placement.xdir)
+                if parallel:
+                    for bm_part, thick in self.shell_thickness_map:
+                        if bm_part == SectionParts.WEB:
+                            return (bm_part, thick), normal
+                # else:
+                #     is_flange = is_parallel(normal, placement.ydir)
+                #     if is_flange:
+                #         cog_vec = placement.origin - np.array(c)
+                #         res = np.dot(placement.zdir, cog_vec)
+                #         if res < 0:
+                #             flange = SectionParts.TOP_FLANGE
+                #         else:
+                #             flange = SectionParts.BTN_FLANGE
+                #
+                #         for bm_part, thick in self.shell_thickness_map:
+                #             if bm_part == flange:
+                #                 return (bm_part, thick), normal
+
+            for c_, normal in cogs_profile:
+                vlen = vector_length(np.array(c) - c_)
+                if vlen < tol:
+                    return self.shell_thickness_map[index], normal
+        return None
 
 
 def build_section_profile(sec: Section, is_solid) -> SectionProfile:

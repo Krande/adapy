@@ -1,4 +1,6 @@
-from typing import List
+from __future__ import annotations
+
+from typing import List, Union
 
 import numpy as np
 
@@ -325,7 +327,7 @@ class CurvePoly:
         return self._points2d
 
     @property
-    def points3d(self):
+    def points3d(self) -> List[float]:
         return self._points3d
 
     @property
@@ -365,7 +367,7 @@ class CurvePoly:
         return self._seg_index
 
     @property
-    def seg_list(self):
+    def seg_list(self) -> List[Union[LineSegment, ArcSegment]]:
         return self._seg_list
 
     @property
@@ -390,7 +392,7 @@ class LineSegment:
         self._edge_geom = edge_geom
 
     @property
-    def p1(self):
+    def p1(self) -> np.ndarray:
         if type(self._p1) is not np.ndarray:
             self._p1 = np.array(self._p1)
         return self._p1
@@ -400,7 +402,7 @@ class LineSegment:
         self._p1 = value
 
     @property
-    def p2(self):
+    def p2(self) -> np.ndarray:
         if type(self._p2) is not np.ndarray:
             self._p2 = np.array(self._p2)
         return self._p2
