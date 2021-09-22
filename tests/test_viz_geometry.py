@@ -1,6 +1,6 @@
 import unittest
 
-from common import build_test_simplestru_fem, dummy_display
+from common import build_reinforced_floor, dummy_display
 
 from ada import Assembly, Beam, Plate
 
@@ -24,8 +24,7 @@ class VisualizeTests(unittest.TestCase):
         dummy_display(a)
 
     def test_module(self):
-        param_model = build_test_simplestru_fem()
-        a = Assembly("ParametricSite") / param_model
+        a = build_reinforced_floor(True)
         dummy_display(a)
 
 

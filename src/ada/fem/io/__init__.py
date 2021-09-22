@@ -1,16 +1,19 @@
+from __future__ import annotations
+
 import logging
-from enum import Enum
 
 from . import abaqus, calculix, code_aster, sesam, usfos
 from .utils import interpret_fem
 
 
-class FEATypes(str, Enum):
+class FEATypes:
     CODE_ASTER = "code_aster"
     CALCULIX = "calculix"
     ABAQUS = "abaqus"
     SESAM = "sesam"
     USFOS = "usfos"
+
+    all = [CODE_ASTER, CALCULIX, ABAQUS, SESAM, USFOS]
 
 
 fem_imports = {

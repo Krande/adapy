@@ -41,7 +41,7 @@ def get_sh_sections_for_beam_obj(model: gmsh.model, beam: Beam, gmsh_data: GmshD
     pl1 = Placement(beam.n1.p, beam.yvec, beam.up, beam.xvec)
     for _, ent in gmsh_data.entities:
         _, _, param = model.mesh.getNodes(2, ent, True)
-        normal = model.getNormal(ent, param)[:3]
+        normal = np.array([0.0 if abs(x) == 0.0 else x for x in model.getNormal(ent, param)[:3]])
         cog = model.occ.getCenterOfMass(2, ent)
         pc = eval_thick_normal_from_cog_of_beam_plate(beam.section, cog, normal, pl1)
 

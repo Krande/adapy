@@ -52,7 +52,7 @@ class Results:
 
     @fem_format.setter
     def fem_format(self, value):
-        if value not in FEATypes:
+        if value not in FEATypes.all:
             raise ValueError(f'Unsupported FEA Type "{value}"')
         self._fem_format = value
 
