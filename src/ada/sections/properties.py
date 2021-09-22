@@ -302,7 +302,7 @@ class GeneralProperties:
             bt.TUBULAR: self._calc_tubular,
             bt.ANGULAR: self._calc_angular,
             bt.CHANNEL: self._calc_channel,
-            bt.FLATBAR: self._calc_flatbar
+            bt.FLATBAR: self._calc_flatbar,
         }
 
         base_type = SectionCat.get_shape_type(self.parent)
