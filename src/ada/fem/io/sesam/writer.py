@@ -1,26 +1,20 @@
 import datetime
 import logging
 from operator import attrgetter
-from typing import List, Tuple
 
 import numpy as np
 
 from ada.concepts.levels import FEM, Part
-from ada.concepts.structural import Beam
-from ada.core.utils import Counter, get_current_user, make_name_fem_ready
-from ada.fem import Elem, FemSection, Load, Step
-from ada.fem.exceptions.element_support import IncompatibleElements
-from ada.fem.shapes import ElemType
+from ada.core.utils import Counter, get_current_user
+from ada.fem import Load, Step
 
 from .templates import sestra_eig_inp_str, top_level_fem_str
 
 
-def to_fem(
-    assembly,
-    name,
-    analysis_dir=None,
-    metadata=None,
-):
+def to_fem(assembly, name, analysis_dir=None, metadata=None):
+    from .write_elements import elem_str
+    from .write_sections import sections_str
+
     if metadata is None:
         metadata = dict()
 
@@ -69,15 +63,6 @@ def to_fem(
 
 
 def materials_str(part: Part):
-    """
-
-    'TDMATER', 'nfield', 'geo_no', 'codnam', 'codtxt', 'name'
-    'MISOSEL', 'matno', 'young', 'poiss', 'rho', 'damp', 'alpha', 'iyield', 'yield'
-
-    :type part: ada.Part
-    :return:
-    """
-
     out_str = "".join(
         [write_ff("TDMATER", [(4, mat.id, 100 + len(mat.name), 0), (mat.name,)]) for mat in part.materials]
     )
@@ -94,140 +79,6 @@ def materials_str(part: Part):
             for mat in part.materials
         ]
     )
-    return out_str
-
-
-def sections_str(fem: FEM, thick_map) -> str:
-    """
-
-    'TDSECT', 'nfield', 'geono', 'codnam', 'codtxt', 'set_name'
-    'GIORH ', 'geono', 'hz', 'ty', 'bt', 'tt', 'bb', 'tb', 'sfy', 'sfz', 'NLOBYT|', 'NLOBYB|', 'NLOBZ|'
-
-    :return:
-    """
-    from .write_sections import write_bm_section
-
-    sec_str = ""
-    sec_ids = []
-    names_str = ""
-    concept_str = ""
-    tdsconc_str, sconcept_str, scon_mesh = "", "", ""
-    shid = Counter(1)
-    bmid = Counter(1)
-
-    sec_n = Counter(1, "_V")
-    sec_names = []
-    for fem_sec in fem.sections:
-        if fem_sec.type == ElemType.LINE:
-            sec = fem_sec.section
-            if sec not in sec_ids:
-                secid = next(bmid)
-                sec_name = make_name_fem_ready(fem_sec.section.name, no_dot=True)
-                if sec_name not in sec_names:
-                    sec_names.append(sec_name)
-                else:
-                    sec_name += next(sec_n)
-                sec.metadata["numid"] = secid
-                names_str += write_ff(
-                    "TDSECT",
-                    [
-                        (4, secid, 100 + len(sec_name), 0),
-                        (sec_name,),
-                    ],
-                )
-                sec_ids.append(fem_sec.section)
-                sec_str += write_bm_section(sec, secid)
-
-                tdsconc_str_in, sconcept_str_in, scon_mesh_in = write_sconcept(fem_sec)
-                tdsconc_str += tdsconc_str_in
-                sconcept_str += sconcept_str_in
-                scon_mesh += scon_mesh_in
-            else:
-                logging.info(f'Skipping already included section "{sec}"')
-        elif fem_sec.type == ElemType.SHELL:
-            if fem_sec.thickness not in thick_map.keys():
-                sh_id = next(shid)
-                thick_map[fem_sec.thickness] = sh_id
-            else:
-                sh_id = thick_map[fem_sec.thickness]
-            sec_str += write_ff("GELTH", [(sh_id, fem_sec.thickness, 5)])
-        else:
-            raise IncompatibleElements(f"Solid element type {fem_sec.type} is not yet supported for writing to Sesam")
-
-    return names_str + sec_str + concept_str + tdsconc_str + sconcept_str + scon_mesh
-
-
-def elem_str(fem: FEM, thick_map) -> str:
-    """
-
-    'GELREF1',  ('elno', 'matno', 'addno', 'intno'), ('mintno', 'strano', 'streno', 'strepono'), ('geono', 'fixno',
-                'eccno', 'transno'), 'members|'
-
-    'GELMNT1', 'elnox', 'elno', 'eltyp', 'eltyad', 'nids'
-
-    :type fem: ada.fem.FEM
-    :param thick_map:
-
-    :return:
-    """
-    from .reader import eltype_2_sesam
-
-    def write_nodal_data(el: Elem) -> List[Tuple[int]]:
-        if len(el.nodes) <= 4:
-            return [tuple([e.id for e in el.nodes])]
-
-        nodes = []
-        curr_tup = []
-        counter = 0
-        for n in el.nodes:
-            curr_tup.append(n.id)
-            counter += 1
-            if counter == 4:
-                counter = 0
-                nodes.append(tuple(curr_tup))
-                curr_tup = []
-
-        return nodes + [tuple(curr_tup)]
-
-    out_str = "".join(
-        [
-            write_ff(
-                "GELMNT1",
-                [(el.id, el.id, eltype_2_sesam(el.type), 0)] + write_nodal_data(el),
-            )
-            for el in fem.elements
-        ]
-    )
-
-    def write_elem(el: Elem) -> str:
-        fem_sec = el.fem_sec
-        if fem_sec.type == ElemType.LINE:
-            sec_id = fem_sec.section.metadata["numid"]
-        elif fem_sec.type == ElemType.SHELL:
-            sec_id = thick_map[fem_sec.thickness]
-        else:
-            raise ValueError(f'Unsupported elem type "{fem_sec.type}"')
-
-        fixno = el.metadata.get("fixno", None)
-        transno = el.metadata.get("transno")
-        if fixno is None:
-            last_tuples = [(sec_id, 0, 0, transno)]
-        else:
-            h1_fix, h2_fix = fixno
-            last_tuples = [(sec_id, -1, 0, transno), (h1_fix, h2_fix)]
-
-        return write_ff(
-            "GELREF1",
-            [
-                (el.id, el.fem_sec.material.id, 0, 0),
-                (0, 0, 0, 0),
-            ]
-            + last_tuples,
-        )
-
-    for el in fem.elements:
-        out_str += write_elem(el)
-
     return out_str
 
 
@@ -390,44 +241,3 @@ def write_sestra_eig_str(name: str, step: Step):
     return sestra_eig_inp_str.format(
         name=name, modes=step.eigenmodes, date_str=date_str, clock_str=clock_str, user=user
     )
-
-
-concept = Counter(1)
-concept_ircon = Counter(1)
-
-
-def write_sconcept(fem_sec: FemSection) -> Tuple[str, str, str]:
-    sconcept_str = ""
-    # Give concept relationship based on inputted values
-    beams = [x for x in fem_sec.refs if type(x) is Beam]
-    if len(beams) != 1:
-        raise ValueError("A FemSection cannot be sourced from multiple beams")
-    beam = beams[0]
-
-    fem_sec.metadata["ircon"] = next(concept_ircon)
-    bm_name = make_name_fem_ready(beam.name, no_dot=True)
-    tdsconc_str = write_ff(
-        "TDSCONC",
-        [(4, fem_sec.metadata["ircon"], 100 + len(bm_name), 0), (bm_name,)],
-    )
-    sconcept_str += write_ff("SCONCEPT", [(8, next(concept), 7, 0), (0, 1, 0, 2)])
-    sconc_ref = next(concept)
-    sconcept_str += write_ff("SCONCEPT", [(5, sconc_ref, 2, 4), (1,)])
-    elids: List[tuple] = []
-    i = 0
-
-    numel = len(beam.elem_refs)
-    elid_bulk = [numel]
-    for el in fem_sec.elset.members:
-        if i == 3:
-            elids.append(tuple(elid_bulk))
-            elid_bulk = []
-            i = -1
-        elid_bulk.append(el.id)
-        i += 1
-    if len(elid_bulk) != 0:
-        elids.append(tuple(elid_bulk))
-
-    mesh_args = [(5 + numel, sconc_ref, 1, 2)] + elids
-    scon_mesh = write_ff("SCONMESH", mesh_args)
-    return tdsconc_str, sconcept_str, scon_mesh

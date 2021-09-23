@@ -16,6 +16,8 @@ class ElemType:
     SOLID = "solid"
     LINE = "line"
 
+    all = [SHELL, SOLID, LINE]
+
 
 edge_map = {ElemType.LINE: line_edges, ElemType.SHELL: shell_edges, ElemType.SOLID: volume_edges}
 face_map = {ElemType.LINE: None, ElemType.SHELL: shell_faces, ElemType.SOLID: volume_faces}

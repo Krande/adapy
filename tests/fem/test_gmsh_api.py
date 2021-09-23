@@ -6,6 +6,7 @@ from ada.config import Settings
 from ada.fem import Step
 from ada.fem.meshing.concepts import GmshOptions, GmshSession, GmshTask
 from ada.fem.meshing.multisession import multisession_gmsh_tasker
+from ada.param_models.basic_module import ReinforcedFloor
 
 test_dir = Settings.test_dir / "gmsh_api_v2"
 
@@ -112,6 +113,34 @@ class GmshApiV2(unittest.TestCase):
         a = Assembly() / (Part("MyFemObjects", fem=fem) / [self.bm1, self.bm2])
         a.fem.add_step(self.step)
         a.to_fem("aba_mixed_order", "abaqus", overwrite=True, scratch_dir=test_dir)
+
+    def test_mixed_lines_and_shell(self):
+        p = ReinforcedFloor(
+            "TestPlate",
+            [(0, 0), (5, 0), (5, 5), (0, 5)],
+            12e-3,
+            use3dnodes=False,
+            origin=(0, 0, 0),
+            xdir=(1, 0, 0),
+            normal=(0, 0, 1),
+        )
+
+        with GmshSession(silent=True) as gs:
+            gmap = dict()
+            for obj in p.get_all_physical_objects():
+                if type(obj) is Beam:
+                    li = gs.add_obj(obj, geom_repr="line")
+                    gmap[obj] = li
+                elif type(obj) is Plate:
+                    pl = gs.add_obj(obj, geom_repr="shell")
+                    gmap[obj] = pl
+            gs.mesh()
+            # gs.open_gui()
+            p.fem = gs.get_fem()
+
+        # TODO: Support mixed plate and beam models. Ensure nodal connectivity
+        a = Assembly() / p
+        a.to_fem("MySesamFloor", fem_format="sesam", overwrite=True)
 
 
 if __name__ == "__main__":

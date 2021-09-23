@@ -8,27 +8,27 @@ test_dir = Settings.test_dir / "shapes"
 
 
 class TestShapesExport(unittest.TestCase):
-    def test_export_primbox(self):
-        p1 = (0.2, 0.2, 2)
-        p2 = (1.2, 1.2, 4)
-
+    def test_export_primitives(self):
         a = Assembly("Site") / [
             SimpleStru("SimpleStru"),
-            PrimBox("VolBox", p1, p2),
+            PrimBox("VolBox", (0.2, 0.2, 2), (1.2, 1.2, 4)),
             PrimCyl("VolCyl", (2, 2, 2), (4, 4, 4), 0.2),
             PrimExtrude("VolExtrude", [(0, 0), (1, 0), (0.5, 1)], 2, (0, 0, 1), (2, 2, 2), (1, 0, 0)),
+            PrimRevolve(
+                "VolRevolve",
+                points2d=[(0, 0), (1, 0), (0.5, 1)],
+                origin=(2, 2, 3),
+                xdir=(0, 0, 1),
+                normal=(1, 0, 0),
+                rev_angle=275,
+            ),
         ]
         a.to_ifc(test_dir / "world_of_shapes.ifc")
 
-    def test_export_primrevolve(self):
-        a = Assembly("Site") / SimpleStru("SimpleStru")
-        points = [(0, 0), (1, 0), (0.5, 1)]
-        origin = (2, 2, 3)
-        xdir = (0, 0, 1)
-        normal = (1, 0, 0)
-        rev_angle = 275
-        a.add_shape(PrimRevolve("VolRevolve", points, origin, xdir, normal, rev_angle))
-        a.to_ifc(test_dir / "world_shape_revolve.ifc")
+        b = Assembly()
+        b.read_ifc(test_dir / "world_of_shapes.ifc")
+        self.assertEqual(len(b.shapes), 4)
+        print(b)
 
     def test_sweep_shape(self):
         sweep_curve = [(0, 0, 0), (5, 5.0, 0.0, 1), (10, 0, 0)]

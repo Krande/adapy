@@ -1,34 +1,20 @@
 import unittest
 
-from common import build_reinforced_floor
+from common import build_test_beam_fem
 
-from ada import Beam, Plate
 from ada.config import Settings
-from ada.fem.meshing.concepts import GmshSession
 
 test_folder = Settings.test_dir / "sesam"
 
 
 class TestSesam(unittest.TestCase):
-    def test_write_simple_stru(self):
+    def test_simple_beam_fem_shell(self):
+        a = build_test_beam_fem("shell")
+        a.to_fem("beam_sh", "sesam", overwrite=True)
 
-        a = build_reinforced_floor()
-        p = a.get_part("PartReinforcedPlate")
-        with GmshSession(silent=True) as gs:
-            gmap = dict()
-            for obj in p.get_all_physical_objects():
-                if type(obj) is Beam:
-                    li = gs.add_obj(obj, geom_repr="line")
-                    gmap[obj] = li
-                elif type(obj) is Plate:
-                    pl = gs.add_obj(obj, geom_repr="shell")
-                    gmap[obj] = pl
-            gs.mesh()
-            # gs.open_gui()
-            p.fem = gs.get_fem()
-
-        # TODO: Support mixed plate and beam models. Ensure nodal connectivity
-        a.to_fem("MySesamFloor", fem_format="sesam", overwrite=True)
+    def test_simple_beam_fem_line(self):
+        a = build_test_beam_fem("line")
+        a.to_fem("beam_line", "sesam", overwrite=True)
 
     def test_write_ff(self):
         from ada.fem.io.sesam.writer import write_ff
@@ -51,11 +37,14 @@ class TestSesam(unittest.TestCase):
 
 
 class TestUsfos(unittest.TestCase):
-    def test_write_usfos(self):
-        a = build_reinforced_floor()
-        p = a.get_part("PartReinforcedPlate")
-        p.fem = p.to_fem_obj(0.1, bm_repr="shell")
-        a.to_fem("my_usfos", fem_format="usfos", overwrite=True)
+    def test_write_usfos_bm(self):
+        a = build_test_beam_fem("line")
+        a.to_fem("my_usfos_bm_shell", fem_format="usfos", overwrite=True)
+        # a.to_fem("my_xdmf_plate", "xdmf", overwrite=True, scratch_dir=test_folder, fem_converter="meshio")
+
+    def test_write_usfos_sh(self):
+        a = build_test_beam_fem("shell")
+        a.to_fem("my_usfos_bm_line", fem_format="usfos", overwrite=True)
         # a.to_fem("my_xdmf_plate", "xdmf", overwrite=True, scratch_dir=test_folder, fem_converter="meshio")
 
 

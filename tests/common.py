@@ -3,8 +3,7 @@ import unittest
 from operator import attrgetter
 
 from ada import FEM, Assembly, Beam, Part, Section
-from ada.fem.elements import ElemType
-from ada.param_models.basic_module import ReinforcedFloor, SimpleStru
+from ada.param_models.basic_module import SimpleStru
 from ada.visualize.renderer_pythreejs import MyRenderer, SectionRenderer
 
 this_dir = pathlib.Path(__file__).resolve().absolute().parent
@@ -12,46 +11,9 @@ example_files = this_dir / ".." / "files"
 is_printed = False
 
 
-def dummy_display(ada_obj):
-    if type(ada_obj) is Section:
-        sec_render = SectionRenderer()
-        _, _ = sec_render.build_display(ada_obj)
-    else:
-        renderer = MyRenderer()
-        renderer.DisplayObj(ada_obj)
-        renderer.build_display()
-
-
-def build_reinforced_floor(make_fem=False, mesh_size=0.1, bm_repr=ElemType.LINE, pl_repr=ElemType.SHELL):
-    rf = ReinforcedFloor(
-        "TestPlate",
-        [(0, 0), (5, 0), (5, 5), (0, 5)],
-        12e-3,
-        use3dnodes=False,
-        origin=(0, 0, 0),
-        xdir=(1, 0, 0),
-        normal=(0, 0, 1),
-    )
-    if make_fem is True:
-        rf.fem = rf.to_fem_obj(mesh_size, bm_repr=bm_repr, pl_repr=pl_repr)
-
-    return Assembly("SiteReinforcedPlate") / (Part("PartReinforcedPlate") / rf)
-
-
-def build_test_simplestru_fem(mesh_size=0.1, make_fem=True):
-    p = SimpleStru("ParametricModel")
-    a = Assembly("ParametricSite") / p
-    if make_fem:
-        p.fem = p.to_fem_obj(mesh_size)
-        p.add_bcs()
-
-    return a
-
-
-def build_test_beam_fem(geom_repr):
+def build_test_beam_fem(geom_repr) -> Assembly:
     bm = Beam("Bm", (0, 0, 0), (1, 0, 0), "IPE300")
-    a = Assembly("MyAssembly") / (Part("MyPart", fem=bm.to_fem_obj(0.5, geom_repr)) / bm)
-    return a
+    return Assembly("MyAssembly") / (Part("MyPart", fem=bm.to_fem_obj(0.1, geom_repr)) / bm)
 
 
 def compare_fem_objects(fem_a: FEM, fem_b: FEM, test_class: unittest.TestCase):
@@ -80,3 +42,23 @@ def compare_fem_objects(fem_a: FEM, fem_b: FEM, test_class: unittest.TestCase):
     assert_sets(fem_a.sets.nodes.values(), fem_b.sets.nodes.values())
 
     print(f"No differences found for FEM objects\nA:{fem_a}\nB:{fem_b}")
+
+
+def dummy_display(ada_obj):
+    if type(ada_obj) is Section:
+        sec_render = SectionRenderer()
+        _, _ = sec_render.build_display(ada_obj)
+    else:
+        renderer = MyRenderer()
+        renderer.DisplayObj(ada_obj)
+        renderer.build_display()
+
+
+def build_test_simplestru_fem(mesh_size=0.1, make_fem=True) -> Assembly:
+    p = SimpleStru("ParametricModel")
+
+    if make_fem:
+        p.fem = p.to_fem_obj(mesh_size)
+        p.add_bcs()
+
+    return Assembly("ParametricSite") / p

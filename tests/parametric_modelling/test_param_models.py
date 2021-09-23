@@ -4,6 +4,7 @@ from common import build_test_simplestru_fem
 
 from ada import Assembly
 from ada.config import Settings
+from ada.core.utils import roundoff
 from ada.fem import Load, Step
 from ada.param_models.basic_module import make_it_complex
 
@@ -27,11 +28,19 @@ class ParamModelsTestCase(unittest.TestCase):
         self.assertEqual(len(param_model.fem.elements), 12920)
         self.assertAlmostEqual(len(param_model.fem.nodes), 5331, delta=80)
 
-        my_step = Step("static", "static", total_time=1, max_incr=1, init_incr=1, nl_geom=True)
-        my_step.add_load(Load("Gravity", "gravity", -9.81))
-        a.fem.add_step(my_step)
+        cog = param_model.fem.elements.calc_cog()
+        tol = 0.01
 
-        a.to_fem("SimpleStru", fem_format="abaqus", overwrite=True)
+        self.assertLess(abs(roundoff(cog.p[0]) - 2.5), tol)
+        self.assertLess(abs(roundoff(cog.p[1]) - 2.5), tol)
+        self.assertLess(abs(roundoff(cog.p[2]) - 1.5), tol)
+        self.assertLess(abs(roundoff(cog.tot_mass) - 7854.90), tol)
+        self.assertLess(abs(roundoff(cog.tot_vol) - 1.001), tol)
+
+        my_step = a.fem.add_step(Step("static", "static", total_time=1, max_incr=1, init_incr=1, nl_geom=True))
+        my_step.add_load(Load("Gravity", "gravity", -9.81))
+
+        # a.to_fem("SimpleStru", fem_format="abaqus", overwrite=True)
 
     def test_add_piping(self):
         a = make_it_complex()

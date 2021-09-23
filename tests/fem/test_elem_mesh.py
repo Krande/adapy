@@ -12,6 +12,9 @@ atts2 = dict(origin=(1, 0, -0.1), xdir=(0, 0, 1), normal=(-1, 0, 0))
 
 
 class BeamIO(unittest.TestCase):
+    def setUp(self) -> None:
+        self.profiles = [("IPE220", 680, 1484)]
+
     def test_beam_mesh(self):
         bm = Beam("bm1", n1=[0, 0, 0], n2=[1, 0, 0], sec="IPE220")
 
