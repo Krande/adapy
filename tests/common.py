@@ -3,6 +3,7 @@ import unittest
 from operator import attrgetter
 
 from ada import FEM, Assembly, Beam, Part, Section
+from ada.fem.elements import ElemType
 from ada.param_models.basic_module import ReinforcedFloor, SimpleStru
 from ada.visualize.renderer_pythreejs import MyRenderer, SectionRenderer
 
@@ -21,7 +22,7 @@ def dummy_display(ada_obj):
         renderer.build_display()
 
 
-def build_reinforced_floor():
+def build_reinforced_floor(make_fem=False, mesh_size=0.1, bm_repr=ElemType.LINE, pl_repr=ElemType.SHELL):
     rf = ReinforcedFloor(
         "TestPlate",
         [(0, 0), (5, 0), (5, 5), (0, 5)],
@@ -31,6 +32,9 @@ def build_reinforced_floor():
         xdir=(1, 0, 0),
         normal=(0, 0, 1),
     )
+    if make_fem is True:
+        rf.fem = rf.to_fem_obj(mesh_size, bm_repr=bm_repr, pl_repr=pl_repr)
+
     return Assembly("SiteReinforcedPlate") / (Part("PartReinforcedPlate") / rf)
 
 
@@ -45,10 +49,8 @@ def build_test_simplestru_fem(mesh_size=0.1, make_fem=True):
 
 
 def build_test_beam_fem(geom_repr):
-    a = Assembly("MyAssembly")
-    p = a.add_part(Part("MyPart"))
-    bm = p.add_beam(Beam("Bm", (0, 0, 0), (1, 0, 0), "IPE300"))
-    p.fem = bm.to_fem_obj(0.5, geom_repr)
+    bm = Beam("Bm", (0, 0, 0), (1, 0, 0), "IPE300")
+    a = Assembly("MyAssembly") / (Part("MyPart", fem=bm.to_fem_obj(0.5, geom_repr)) / bm)
     return a
 
 

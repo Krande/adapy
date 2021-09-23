@@ -1,11 +1,18 @@
 import os
 import pathlib
 
-from ada.config import Settings as _Settings
+from ada.config import Settings
+from ada.core.utils import download_to, unzip_it
 
-from .utils import download_to, unzip_it
+IFCCONVERT = Settings.tools_dir / "IfcConvert" / "IfcConvert.exe"
+CODE_ASTER = Settings.tools_dir / "code_aster"
+CALCULIX = Settings.tools_dir / "calculix"
 
-IFCCONVERT = _Settings.tools_dir / "IfcConvert" / "IfcConvert.exe"
+
+def download_tool(url, download_path):
+    os.makedirs(download_path.parent, exist_ok=True)
+    download_to(download_path, url)
+    unzip_it(download_path, download_path.parent)
 
 
 def download_ifc_convert(install_path=IFCCONVERT.parent, ifc_convert_v="v0.6.0-517b819-win64"):
@@ -29,14 +36,26 @@ def download_ifc_convert(install_path=IFCCONVERT.parent, ifc_convert_v="v0.6.0-5
                 return None
 
     download_path = install_path / "ifc_convert.zip"
-    os.makedirs(install_path, exist_ok=True)
     url = f"https://s3.amazonaws.com/ifcopenshell-builds/IfcConvert-{ifc_convert_v}.zip"
-    download_to(download_path, url)
-    unzip_it(download_path, download_path.parent)
+
+    download_tool(url, download_path)
 
     with open(v_file, "w") as f:
         f.write(ifc_convert_v)
 
 
-def download_code_aster():
-    raise NotImplementedError()
+def download_code_aster_win(install_path=CODE_ASTER, code_aster_v="code-aster_v2019_std-win64"):
+    download_path = install_path / "code_aster.zip"
+    url = f"https://simulease.com/wp-content/uploads/2020/08/{code_aster_v}.zip"
+    download_tool(url, download_path)
+
+
+def download_calculix_win(install_path=CALCULIX, calculix_cae_version="v0.8.0/cae_20200725_windows"):
+    download_path = install_path / "calculix.zip"
+    url = f"https://github.com/calculix/cae/releases/download/{calculix_cae_version}.zip"
+    download_tool(url, download_path)
+
+
+if __name__ == "__main__":
+    download_calculix_win()
+    download_code_aster_win()

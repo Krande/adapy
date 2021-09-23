@@ -705,7 +705,7 @@ def _resolve_element_in_use_by_other_set(tagged_data, ind, tags, name, is_elem):
     all_tags = current_tags + [name]
 
     if name in current_tags:
-        raise ValueError("Unexpected error. Name already exists in set during resolving set members.")
+        logging.error("Unexpected error. Name already exists in set during resolving set members.")
 
     new_int = None
     for i_, t_ in tags.items():

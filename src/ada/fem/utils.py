@@ -82,17 +82,16 @@ def get_beam_end_nodes(bm: Beam, end=1, tol=1e-3) -> List[Node]:
     return members
 
 
-def get_nodes_along_plate_edges(pl: Plate, fem: FEM, edge_indices=None, tol=1e-4) -> List[Node]:
+def get_nodes_along_plate_edges(pl: Plate, fem: FEM, edge_indices=None, tol=1e-3) -> List[Node]:
     """Return FEM nodes from edges of a plate"""
-    edge_indices = () if edge_indices is None else edge_indices
+
     res = []
-    for i, (ps, pe) in enumerate(zip(pl.poly.nodes[:1], pl.poly.nodes[1:])):
-        if i in edge_indices:
-            continue
-        pmin = ps.p - np.array([1, 1, 1]) * tol
-        pmax = pe.p + np.array([1, 1, 1]) * tol
-        res += fem.nodes.get_by_volume(pmin, pmax)
-    return res
+    bmin, bmax = list(zip(*pl.bbox))
+    bmin_smaller = np.array(bmin) + pl.poly.xdir * tol + pl.poly.ydir * tol
+    bmax_smaller = np.array(bmax) - pl.poly.xdir * tol - pl.poly.ydir * tol
+    all_res = fem.nodes.get_by_volume(bmin, bmax)
+    res = [n.id for n in fem.nodes.get_by_volume(bmin_smaller, bmax_smaller)]
+    return list(filter(lambda x: x.id not in res, all_res))
 
 
 def is_line_elem(elem: Elem):

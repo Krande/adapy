@@ -1,11 +1,6 @@
 import unittest
 
-from common import (
-    build_test_beam_fem,
-    build_test_simplestru_fem,
-    compare_fem_objects,
-    example_files,
-)
+from common import build_test_beam_fem, compare_fem_objects, example_files
 
 from ada import Assembly
 from ada.config import Settings
@@ -82,9 +77,9 @@ class TestCodeAster(unittest.TestCase):
         a = build_test_beam_fem("line")
         a.to_fem("my_code_aster_bm", fem_format="code_aster", overwrite=True)
 
-    def test_write_test_model(self):
-        a = build_test_simplestru_fem()
-        a.to_fem("simple_stru", fem_format="code_aster", overwrite=True)
+    def test_write_bm_shell(self):
+        a = build_test_beam_fem("shell")
+        a.to_fem("my_code_aster_bm_shell", fem_format="code_aster", overwrite=True)
 
 
 if __name__ == "__main__":

@@ -162,7 +162,7 @@ To set correct paths to your installations of FE software you wish to use there 
 ```cmd
 :: Windows
 setx ADA_abaqus_exe <absolute path to abaqus.bat>
-setx ADA_ccx_exe <absolute path to ccx.exe>
+setx ADA_calculix_exe <absolute path to ccx.exe>
 setx ADA_code_aster_exe <absolute path to as_run.bat>
 
 :: Linux?
@@ -173,7 +173,7 @@ setx ADA_code_aster_exe <absolute path to as_run.bat>
 
 ```python
 import os
-os.environ["ADA_ccx_exe"] = "<absolute path to ccx.exe>"
+os.environ["ADA_calculix_exe"] = "<absolute path to ccx.exe>"
 os.environ["ADA_abaqus_exe"] = "<absolute path to abaqus.bat>"
 os.environ["ADA_code_aster_exe"] = "<absolute path to as_run.bat>"
 ```
@@ -182,10 +182,13 @@ or
 
 ```python
 from ada.config import Settings
-Settings.fem_exe_paths["ccx"] = "<absolute path to ccx.exe>"
+Settings.fem_exe_paths["calculix"] = "<absolute path to ccx.exe>"
 Settings.fem_exe_paths["abaqus"] = "<absolute path to abaqus.bat>"
 Settings.fem_exe_paths["code_aster"] = "<absolute path to as_run.bat>"
 ```
+
+Note! It is very important that any paths containing whitespaces be converted to "shortened paths". To shorten a path
+on windows you can use the utility [pathcopycopy](https://pathcopycopy.github.io/).
 
 For installation files of open source FEM software such as Calculix and Code Aster, here are some links:
 

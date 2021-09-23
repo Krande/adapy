@@ -52,9 +52,7 @@ class GeneralProperties:
         self._parent = parent
 
     def _calc_box(self):
-        """
-        Calculate box cross section properties
-        """
+        """Calculate box cross section properties"""
 
         sfy = 1.0
         sfz = 1.0
@@ -93,9 +91,7 @@ class GeneralProperties:
         self._Cz = h
 
     def _calc_isec(self):
-        """
-        Calculate I/H cross section properties
-        """
+        """Calculate I/H cross section properties"""
 
         sfy = 1.0
         sfz = 1.0
@@ -107,14 +103,15 @@ class GeneralProperties:
         bb = s.w_btn
         tb = s.t_fbtn
 
-        self._Ax = bt * tt + ty * (hz - (tb + tt)) + bb * tb
+        self.Ax = bt * tt + ty * (hz - (tb + tt)) + bb * tb
         hw = hz - tt - tb
         a = tb + hw + tt / 2
         b = tb + hw / 2
         c = tb / 2
 
-        z = (tb * tt * a + hw * ty * b + bb * tb * c) / self.Ax
-        tra = (bb * tb ** 3) / 12 + bt * tt * (hz - tt / 2 - z) ** 2
+        z = (bt * tt * a + hw * ty * b + bb * tb * c) / self.Ax
+
+        tra = (bt * tb ** 3) / 12 + bt * tt * (hz - tt / 2 - z) ** 2
         trb = (ty * hw ** 3) / 12 + ty * hw * (tb + hw / 2 - z) ** 2
         trc = (bb * tb ** 3) / 12 + bb * tb * (tb / 2 - z) ** 2
 
@@ -142,9 +139,7 @@ class GeneralProperties:
         self._Cz = z
 
     def _calc_angular(self):
-        """
-        Calculate L cross section properties
-        """
+        """Calculate L cross section properties"""
         s = self.parent
         posweb = True
         hz = s.h
@@ -201,9 +196,7 @@ class GeneralProperties:
         self._Cz = z
 
     def _calc_tubular(self):
-        """
-        Calculate Tubular cross section properties
-        """
+        """Calculate Tubular cross section properties"""
         s = self.parent
         dy = s.r * 2
         t = s.wt
@@ -226,7 +219,6 @@ class GeneralProperties:
         self._Schenz = 0
 
     def _calc_circular(self):
-
         s = self.parent
         self._Ax = np.pi * s.r ** 2
         self._Iy = (np.pi * s.r ** 4) / 4
@@ -239,10 +231,6 @@ class GeneralProperties:
         self._Iz = s.h * s.w_top ** 3 / 12
 
     def _calc_channel(self):
-        """
-
-        :return:
-        """
         posweb = True
         s = self.parent
         hz = s.h
@@ -306,36 +294,35 @@ class GeneralProperties:
               Van Nostrand Company Inc.
 
         """
+        bt = SectionCat.BASETYPES
+        section_map = {
+            bt.CIRCULAR: self._calc_circular,
+            bt.IPROFILE: self._calc_isec,
+            bt.BOX: self._calc_box,
+            bt.TUBULAR: self._calc_tubular,
+            bt.ANGULAR: self._calc_angular,
+            bt.CHANNEL: self._calc_channel,
+            bt.FLATBAR: self._calc_flatbar,
+        }
 
-        if self.parent.type in SectionCat.circular:
-            self._calc_circular()
-        elif SectionCat.is_i_profile(self.parent.type):
-            self._calc_isec()
-        elif SectionCat.is_box_profile(self.parent.type):
-            self._calc_box()
-        elif self.parent.type in SectionCat.general:
+        base_type = SectionCat.get_shape_type(self.parent)
+
+        if base_type == bt.GENERAL:
             logging.error("Calculation of general section")
-            pass  # it is known
-        elif self.parent.type in SectionCat.tubular:
-            self._calc_tubular()
-        elif SectionCat.is_angular(self.parent.type):
-            self._calc_angular()
-        elif SectionCat.is_channel_profile(self.parent):
-            self._calc_channel()
-        elif SectionCat.is_flatbar(self.parent.type):
-            self._calc_flatbar()
-        else:
+            return
+
+        calc_func = section_map.get(base_type, None)
+
+        if calc_func is None:
             raise Exception(
-                f'section type "{self.parent.type}" is not yet supported in the cross section parameter calculations'
+                f'Section type "{self.parent.type}" is not yet supported in the cross section parameter calculations'
             )
+
+        calc_func()
 
     @property
     def parent(self):
-        """
-
-        :return:
-        :rtype: ada.Section
-        """
+        """:rtype: ada.Section"""
         return self._parent
 
     @parent.setter
@@ -344,20 +331,20 @@ class GeneralProperties:
 
     @property
     def Ax(self):
-        """
-
-        :return: Area of cross section
-        """
+        """Area of cross section"""
         if self._Ax is None:
             self.calculate()
         return self._Ax
 
+    @Ax.setter
+    def Ax(self, value):
+        if value <= 0.0:
+            raise ValueError("Area of section cannot be less than or equal to 0")
+        self._Ax = value
+
     @property
     def Ix(self):
-        """
-        Torsional moment of inertia about shear centre
-        :return:
-        """
+        """Torsional moment of inertia about shear centre"""
         if self._Ix is None:
             self.calculate()
         return self._Ix
@@ -370,10 +357,7 @@ class GeneralProperties:
 
     @property
     def Iy(self):
-        """
-
-        :return: Moment of inertia about y-axis
-        """
+        """Moment of inertia about y-axis"""
         if self._Iy is None:
             self.calculate()
         return self._Iy
@@ -386,10 +370,7 @@ class GeneralProperties:
 
     @property
     def Iz(self):
-        """
-
-        :return: Moment of inertia about z-axis
-        """
+        """Moment of inertia about z-axis"""
         if self._Iz is None:
             self.calculate()
         return self._Iz
@@ -402,10 +383,7 @@ class GeneralProperties:
 
     @property
     def Iyz(self):
-        """
-
-        :return: Product of inertia about y- and z-axes
-        """
+        """Product of inertia about y- and z-axes"""
         if self._Iyz is None:
             self.calculate()
         return self._Iyz
@@ -418,88 +396,61 @@ class GeneralProperties:
 
     @property
     def Wxmin(self):
-        """
-
-        :return: Minimum torsional sectional modulus about shear centre
-        """
+        """Minimum torsional sectional modulus about shear centre"""
         if self._Wxmin is None:
             self.calculate()
         return self._Wxmin
 
     @property
     def Wymin(self):
-        """
-
-        :return: Minimum sectional modulus about y-axis
-        """
+        """Minimum sectional modulus about y-axis"""
         if self._Wymin is None:
             self.calculate()
         return self._Wymin
 
     @property
     def Wzmin(self):
-        """
-
-        :return: Minimum sectional modulus about z-axis
-        """
+        """Minimum sectional modulus about z-axis"""
         if self._Wzmin is None:
             self.calculate()
         return self._Wzmin
 
     @property
     def Shary(self):
-        """
-
-        :return: Shear area in the direction of y-axis
-        """
+        """Shear area in the direction of y-axis"""
         if self._Shary is None:
             self.calculate()
         return self._Shary
 
     @property
     def Sharz(self):
-        """
-
-        :return: Shear area in the direction of z-axis
-        """
+        """Shear area in the direction of z-axis"""
         if self._Sharz is None:
             self.calculate()
         return self._Sharz
 
     @property
     def Scheny(self):
-        """
-
-        :return: Shear centre location y-component
-        """
+        """Shear centre location y-component"""
         if self._Scheny is None:
             self.calculate()
         return self._Scheny
 
     @property
     def Schenz(self):
-        """
-
-        :return: Shear centre location z-component
-        """
+        """Shear centre location z-component"""
         if self._Scheny is None:
             self.calculate()
         return self._Schenz
 
     @property
     def Sy(self):
-        """
-
-        :return: Static area moment about y-axis
-        """
+        """Static area moment about y-axis"""
         return self._Sy
 
     @property
     def Sz(self):
-        """
-
-        :return: Static area moment about z-axis
-        """
+        """Static area moment about z-axis"""
         return self._Sz
 
     @property
@@ -508,16 +459,12 @@ class GeneralProperties:
 
     @property
     def Sfy(self):
-        """
-        :return: Centroid location from bottom right corner y-component
-        """
+        """Centroid location from bottom right corner y-component"""
         return self._Sfy
 
     @property
     def Sfz(self):
-        """
-        :return: Centroid location from bottom right corner z-component
-        """
+        """Centroid location from bottom right corner z-component"""
         return self._Sfz
 
     def __eq__(self, other):

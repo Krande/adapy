@@ -111,10 +111,24 @@ class LocalExecute:
         from ada.fem.io import fem_solver_map
 
         solver_exe_name = fem_solver_map.get(fea_software, fea_software)
-        try:
-            exe_path = get_exe_path(solver_exe_name)
-        except FileNotFoundError as e:
-            raise FEASolverNotInstalled(e)
+        exe_path = None
+        for exe_test in [fea_software, solver_exe_name]:
+            try:
+                exe_path = get_exe_path(exe_test)
+            except FileNotFoundError:
+                continue
+            if exe_path is not None:
+                break
+
+        if exe_path is None:
+            msg = (
+                f'FEA Solver executable for "{solver_exe_name}" is not found. '
+                f"Please make sure that an executable exists at the specified location.\n"
+                f"See section about adding FEA solvers to paths "
+                f"so that adapy finds them in the readme at https://github.com/Krande/adapy"
+            )
+            raise FEASolverNotInstalled(msg)
+
         return exe_path
 
     def run(self):
@@ -182,7 +196,7 @@ def get_fem_model_from_assembly(assembly):
 
 
 def get_exe_path(exe_name: str):
-    if Settings.fem_exe_paths[exe_name]:
+    if Settings.fem_exe_paths.get(exe_name, None) is not None:
         exe_path = Settings.fem_exe_paths[exe_name]
     elif os.getenv(f"ADA_{exe_name}_exe"):
         exe_path = os.getenv(f"ADA_{exe_name}_exe")
@@ -196,7 +210,7 @@ def get_exe_path(exe_name: str):
     exe_path = pathlib.Path(exe_path)
 
     if exe_path.exists() is False:
-        raise FileNotFoundError(exe_path)
+        return None
 
     return exe_path
 
