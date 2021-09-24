@@ -3,7 +3,7 @@ import logging
 from ada import Section
 from ada.sections import SectionCat
 
-from .writer import write_ff
+from .write_utils import write_ff
 
 
 def general_beam(sec: Section, sec_id) -> str:

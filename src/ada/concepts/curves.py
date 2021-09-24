@@ -118,49 +118,23 @@ class CurvePoly:
         self._is_closed = is_closed
         self._debug = debug
 
-        from ada.core.utils import (
-            calc_yvec,
-            clockwise,
-            global_2_local_nodes,
-            local_2_global_nodes,
-            normal_to_points_in_plane,
-            unit_vector,
-        )
+        from ada.core.utils import clockwise, normal_to_points_in_plane, unit_vector
 
         if points2d is None and points3d is None:
             raise ValueError("Either points2d or points3d must be set")
 
-        if points2d is not None:
-            if origin is None or normal is None or xdir is None:
-                raise ValueError("You must supply origin, xdir and normal when passing in 2d points")
-            points2d_no_r = [n[:2] for n in points2d]
-            points3d = local_2_global_nodes(points2d_no_r, origin, xdir, normal)
-            for i, p in enumerate(points2d):
-                if len(p) == 3:
-                    points3d[i] = (
-                        points3d[i][0],
-                        points3d[i][1],
-                        points3d[i][2],
-                        p[-1],
-                    )
-                else:
-                    points3d[i] = tuple(points3d[i].tolist())
-            ydir = calc_yvec(xdir, normal)
-            placement = Placement(origin, xdir=xdir, ydir=ydir, zdir=normal)
-        else:
+        if points2d is None:
             normal = normal_to_points_in_plane([np.array(x[:3]) for x in points3d])
-            origin = np.array(points3d[0][:3]).astype(float)
-            xdir = unit_vector(np.array(points3d[1][:3]) - np.array(points3d[0][:3]))
-            ydir = np.cross(normal, xdir)
-            placement = Placement(origin, xdir=xdir, ydir=ydir, zdir=normal)
-            csys = [xdir, ydir]
-            points2d = global_2_local_nodes(csys, origin, [np.array(x[:3]) for x in points3d])
-            points3d = [x.p if type(x) is Node else x for x in points3d]
-            for i, p in enumerate(points3d):
-                if len(p) == 4:
-                    points2d[i] = (points2d[i][0], points2d[i][1], p[-1])
-                else:
-                    points2d[i] = (points2d[i][0], points2d[i][1])
+            p1 = np.array(points3d[0][:3]).astype(float)
+            p2 = np.array(points3d[1][:3]).astype(float)
+            origin = p1
+            xdir = unit_vector(p2 - p1)
+
+        self._placement = Placement(origin, xdir=xdir, zdir=normal)
+        if points2d is not None:
+            points3d = self._from_2d_points(points2d)
+        else:
+            points2d = self._from_3d_points(points3d)
 
         if clockwise(points2d) is False:
             if is_closed:
@@ -170,7 +144,6 @@ class CurvePoly:
                 points2d = [p for p in reversed(points2d)]
                 points3d = [p for p in reversed(points3d)]
 
-        self._placement = placement
         self._points3d = points3d
         self._points2d = points2d
 
@@ -186,6 +159,38 @@ class CurvePoly:
         self._nodes = None
         self._ifc_elem = None
         self._local2d_to_polycurve(points2d, tol)
+
+    def _from_2d_points(self, points2d) -> List[tuple]:
+        from ada.core.utils import local_2_global_nodes
+
+        place = self.placement
+
+        points2d_no_r = [n[:2] for n in points2d]
+        points3d = local_2_global_nodes(points2d_no_r, place.origin, place.xdir, place.zdir)
+        for i, p in enumerate(points2d):
+            if len(p) == 3:
+                points3d[i] = (
+                    points3d[i][0],
+                    points3d[i][1],
+                    points3d[i][2],
+                    p[-1],
+                )
+            else:
+                points3d[i] = tuple(points3d[i].tolist())
+        return points3d
+
+    def _from_3d_points(self, points3d) -> List[tuple]:
+        from ada.core.utils import global_2_local_nodes
+
+        csys = [self.placement.xdir, self.placement.ydir]
+        points2d = global_2_local_nodes(csys, self.placement.origin, [np.array(x[:3]) for x in points3d])
+        points3d = [x.p if type(x) is Node else x for x in points3d]
+        for i, p in enumerate(points3d):
+            if len(p) == 4:
+                points2d[i] = (points2d[i][0], points2d[i][1], p[-1])
+            else:
+                points2d[i] = (points2d[i][0], points2d[i][1])
+        return points2d
 
     def _generate_ifc_elem(self):
         a = self.parent.parent.get_assembly()
@@ -208,12 +213,6 @@ class CurvePoly:
         return segindex
 
     def _local2d_to_polycurve(self, local_points2d, tol=1e-3):
-        """
-
-        :param local_points2d:
-        :param tol:
-        :return:
-        """
         from ada.core.curve_utils import build_polycurve, segments_to_indexed_lists
         from ada.core.utils import local_2_global_nodes
 
@@ -267,7 +266,7 @@ class CurvePoly:
 
         return wire_to_face(self.edges)
 
-    def calc_bbox(self, thick):
+    def calc_bbox(self, tol):
         """
         Calculate the Bounding Box of the plate
 
@@ -291,11 +290,11 @@ class CurvePoly:
         matr = {0: "X", 1: "Y", 2: "Z"}
         orient = matr[pv[0]]
         if orient == "X" or orient == "Y":
-            delta_vec = abs(n * thick / 2.0)
+            delta_vec = abs(n * tol / 2.0)
             bbox_min -= delta_vec
             bbox_max += delta_vec
         elif orient == "Z":
-            delta_vec = abs(n * thick).astype(np.float64)
+            delta_vec = abs(n * tol).astype(np.float64)
             bbox_min -= delta_vec
 
         else:
@@ -437,7 +436,7 @@ class ArcSegment(LineSegment):
         self._midpoint = value
 
     @property
-    def radius(self):
+    def radius(self) -> float:
         return self._radius
 
     @radius.setter

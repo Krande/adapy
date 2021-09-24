@@ -49,8 +49,10 @@ class Placement:
             self.ydir = calc_yvec(self.xdir, self.zdir)
 
         all_dir = [self.xdir, self.ydir, self.zdir]
+
         if all(x is None for x in all_dir):
             raise ValueError("Placement orientation needs all 3 vectors")
+
         self.xdir = np.array(self.xdir)
         self.ydir = np.array(self.ydir)
         self.zdir = np.array(self.zdir)

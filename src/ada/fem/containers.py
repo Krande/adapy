@@ -434,15 +434,15 @@ class FemSections:
         return self._sections
 
     @property
-    def lines(self):
+    def lines(self) -> List[FemSection]:
         return self._lines
 
     @property
-    def shells(self):
+    def shells(self) -> List[FemSection]:
         return self._shells
 
     @property
-    def solids(self):
+    def solids(self) -> List[FemSection]:
         return self._solids
 
     @property

@@ -9,6 +9,7 @@ from ada.core.utils import Counter, get_current_user
 from ada.fem import Load, Step
 
 from .templates import sestra_eig_inp_str, top_level_fem_str
+from .write_utils import write_ff
 
 
 def to_fem(assembly, name, analysis_dir=None, metadata=None):
@@ -189,39 +190,6 @@ def loads_str(fem: FEM) -> str:
                 "BGRAV",
                 [(lid, 0, 0, 0), tuple([x * l.magnitude for x in l.acc_vector])],
             )
-    return out_str
-
-
-def write_ff(flag, data):
-    """
-    flag = NCOD
-    data = [(int, float, int, float), (float, int)]
-
-    ->> NCOD    INT     FLOAT       INT     FLOAT
-                FLOAT   INT
-
-    :param flag:
-    :param data:
-    :return:
-    """
-
-    def write_data(d):
-        if type(d) in (np.float64, float, int, np.uint64, np.int32) and d >= 0:
-            return f"  {d:<14.8E}"
-        elif type(d) in (np.float64, float, int, np.uint64, np.int32) and d < 0:
-            return f" {d:<15.8E}"
-        elif type(d) is str:
-            return d
-        else:
-            raise ValueError(f"Unknown input {type(d)} {d}")
-
-    out_str = f"{flag:<8}"
-    for row in data:
-        v = [write_data(x) for x in row]
-        if row == data[-1]:
-            out_str += "".join(v) + "\n"
-        else:
-            out_str += "".join(v) + "\n" + 8 * " "
     return out_str
 
 

@@ -1,11 +1,14 @@
 import logging
-from typing import List, Tuple
+from dataclasses import dataclass
+from typing import List, Tuple, Union
 
 from ada import FEM, Beam, Section
 from ada.core.utils import Counter, make_name_fem_ready
 from ada.fem import FemSection
 from ada.fem.exceptions.element_support import IncompatibleElements
 from ada.fem.shapes import ElemType
+
+from .write_utils import write_ff
 
 shid = Counter(1)
 bmid = Counter(1)
@@ -14,8 +17,16 @@ concept = Counter(1)
 concept_ircon = Counter(1)
 
 
+@dataclass
+class BmSectionStr:
+    sec_str: str
+    names_str: str
+    tdsconc_str: str
+    sconcept_str: str
+    scon_mesh: str
+
+
 def sections_str(fem: FEM, thick_map) -> str:
-    from .writer import write_ff
 
     sec_ids = []
     sec_str = ""
@@ -26,30 +37,35 @@ def sections_str(fem: FEM, thick_map) -> str:
     sec_names = []
     for fem_sec in fem.sections:
         if fem_sec.type == ElemType.LINE:
-            res = write_line_section(fem_sec, sec_names, sec_ids)
+            res = create_line_section(fem_sec, sec_names, sec_ids)
             if res is None:
                 continue
-            names_str += res[0]
-            sec_str += res[1]
-            tdsconc_str += res[2][0]
-            sconcept_str += res[2][1]
-            scon_mesh += res[2][2]
+            names_str += res.names_str
+            sec_str += res.sec_str
+            tdsconc_str += res.tdsconc_str
+            sconcept_str += res.sconcept_str
+            scon_mesh += res.scon_mesh
         elif fem_sec.type == ElemType.SHELL:
-            if fem_sec.thickness not in thick_map.keys():
-                sh_id = next(shid)
-                thick_map[fem_sec.thickness] = sh_id
-            else:
-                sh_id = thick_map[fem_sec.thickness]
-            sec_str += write_ff("GELTH", [(sh_id, fem_sec.thickness, 5)])
+            sec_str += create_shell_section_str(fem_sec, thick_map)
+        elif fem_sec.type == ElemType.SOLID:
+            sec_str += create_solid_section(fem_sec)
         else:
             raise IncompatibleElements(f"Solid element type {fem_sec.type} is not yet supported for writing to Sesam")
 
     return names_str + sec_str + concept_str + tdsconc_str + sconcept_str + scon_mesh
 
 
-def write_line_section(fem_sec: FemSection, sec_names: List[str], sec_ids: List[Section]):
+def create_shell_section_str(fem_sec: FemSection, thick_map) -> str:
+    if fem_sec.thickness not in thick_map.keys():
+        sh_id = next(shid)
+        thick_map[fem_sec.thickness] = sh_id
+    else:
+        sh_id = thick_map[fem_sec.thickness]
+    return write_ff("GELTH", [(sh_id, fem_sec.thickness, 5)])
+
+
+def create_line_section(fem_sec: FemSection, sec_names: List[str], sec_ids: List[Section]) -> Union[BmSectionStr, None]:
     from .write_bm_profiles import write_bm_section
-    from .writer import write_ff
 
     sec = fem_sec.section
     if sec in sec_ids:
@@ -73,13 +89,19 @@ def write_line_section(fem_sec: FemSection, sec_names: List[str], sec_ids: List[
             (sec_name,),
         ],
     )
+    sec_str = write_bm_section(sec, secid)
+    tdsconc_str, sconcept_str, scon_mesh = create_sconcept_str(fem_sec)
 
-    return names_str, write_bm_section(sec, secid), write_sconcept(fem_sec)
+    return BmSectionStr(
+        sec_str=sec_str, names_str=names_str, tdsconc_str=tdsconc_str, sconcept_str=sconcept_str, scon_mesh=scon_mesh
+    )
 
 
-def write_sconcept(fem_sec: FemSection) -> Tuple[str, str, str]:
-    from .writer import write_ff
+def create_solid_section(fem_sec: FemSection):
+    raise IncompatibleElements(f"Solid element type {fem_sec.type} is not yet supported for writing to Sesam")
 
+
+def create_sconcept_str(fem_sec: FemSection) -> Tuple[str, str, str]:
     sconcept_str = ""
     # Give concept relationship based on inputted values
     beams = [x for x in fem_sec.refs if type(x) is Beam]

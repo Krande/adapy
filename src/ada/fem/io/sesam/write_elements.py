@@ -3,6 +3,8 @@ from typing import List, Tuple
 from ada import FEM
 from ada.fem import Elem
 
+from .write_utils import write_ff
+
 
 def elem_str(fem: FEM, thick_map) -> str:
     """
@@ -12,7 +14,6 @@ def elem_str(fem: FEM, thick_map) -> str:
     'GELMNT1', 'elnox', 'elno', 'eltyp', 'eltyad', 'nids'
     """
     from .reader import eltype_2_sesam
-    from .writer import write_ff
 
     out_str = "".join(
         [
@@ -50,8 +51,6 @@ def write_nodal_data(el: Elem) -> List[Tuple[int]]:
 
 def write_elem(el: Elem, thick_map) -> str:
     from ada.fem.elements import ElemType
-
-    from .writer import write_ff
 
     fem_sec = el.fem_sec
     if fem_sec.type == ElemType.LINE:
