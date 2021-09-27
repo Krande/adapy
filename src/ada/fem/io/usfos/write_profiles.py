@@ -3,11 +3,6 @@ from ada.sections import SectionCat
 
 
 def sections_str(fem: FEM):
-    """
-    This method takes in a section object and returns the sesam_lib string for use in js-files.
-    :type fem: ada.fem.FEM
-    """
-
     space = 20 * " "
 
     box = " BOX{id:>16}{h:>6.3f}{t_w:>10.3f}{t_ftop:>8.3f}{t_fbtn:>8.3f}{w_top:>8.3f}\n"

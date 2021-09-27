@@ -2,9 +2,9 @@ import logging
 import os
 from operator import attrgetter
 
-from ada import Assembly
-from ada.core.utils import roundoff
-from ada.fem import Elem
+from ada import FEM, Assembly, Material, Node, Part
+from ada.core.utils import Counter, NewLine, roundoff
+from ada.fem import Bc, Elem, FemSet
 
 from .write_profiles import sections_str
 
@@ -40,27 +40,12 @@ def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None):
     print(f'Created an Usfos input deck at "{analysis_dir}"')
 
 
-def create_usfos_set_str(fem, nonstrus):
-    """
-    From USFOS documentation `GroupDef <http://usfos.no/manuals/usfos/users/documents/Usfos_UM_06.pdf#page=119>`_
-
-    :param fem:
-    :param nonstrus:
-    :type fem: ada.fem.FEM
-    :return:
-    """
-
-    from ada.core.utils import Counter, NewLine
+def create_usfos_set_str(fem: FEM, nonstrus):
+    """USFOS documentation `GroupDef <https://usfos.no/manuals/usfos/users/documents/Usfos_UM_06.pdf#page=119>`_"""
 
     gr_ids = Counter(1)
 
-    def create_groupdef_str(elset):
-        """
-
-        :param elset:
-        :type elset: ada.fem.FemSet
-        """
-
+    def create_groupdef_str(elset: FemSet):
         if "include" not in elset.metadata.keys():
             return None
         if "unique_id" in elset.metadata.keys():
@@ -88,19 +73,8 @@ def create_usfos_set_str(fem, nonstrus):
     return gelset + gnset
 
 
-def mass_str(fem):
-    """
-
-    :param fem:
-    :type fem: ada.fem.FEM
-    """
-
-    def mstr(elem):
-        """
-
-        :param elem:
-        :type elem: ada.fem.Elem
-        """
+def mass_str(fem: FEM):
+    def mstr(elem: Elem):
         mass = elem.mass_props
         if mass.point_mass_type is not None or mass.point_mass_type == "anisotropic":
             raise ValueError("UsfosWriter currently only supports point masses")
@@ -142,19 +116,12 @@ def eccent_str(eccen):
     return eccent_str
 
 
-def materials_str(part):
-    """
-    :type part: ada.Part
-    :return: Usfos material definition string
-    """
+def materials_str(part: Part):
+    """Usfos material definition string"""
 
     mat_str = """'            Mat ID     E-mod       Poiss     Yield      Density     ThermX\n"""
 
-    def write_mat(m):
-        """
-        :param m: Material
-        :type m: ada.Material
-        """
+    def write_mat(m: Material):
         return " MISOIEP{:>11}{:>10.3E}{:>12}{:>10.3E}{:>13}{:>11}".format(
             m.id,
             m.model.E,
@@ -168,13 +135,7 @@ def materials_str(part):
     return mat_str + "\n".join(write_mat(mat) for mat in materials.values())
 
 
-def shell_str(part):
-    """
-
-    :param part:
-    :type part: ada.Part
-    :return:
-    """
+def shell_str(part: Part):
 
     pl_str = "'            Elem ID      np1      np2      np3      np4    mater   geom      ec1    ec2    ec3    ec4\n"
     sec_str = """'            Geom ID     Thick"""
@@ -191,12 +152,7 @@ def shell_str(part):
 
     sec_str += "\n"
 
-    def write_elem(el):
-        """
-
-        :param el:
-        :type el: ada.fem.Elem
-        """
+    def write_elem(el: Elem):
         t = el.fem_sec.thickness
         if len(el.nodes) > 4:
             raise ValueError(f'Shell id "{el.id}" consist of {len(el.nodes)} nodes')
@@ -220,20 +176,11 @@ def shell_str(part):
     return sec_str + pl_str + "\n".join(list(map(write_elem, sorted(part.fem.elements.shell, key=attrgetter("id")))))
 
 
-def nodal_str(fem):
-    """
-    :type fem: ada.fem.FEM
-    :return: str
-    """
+def nodal_str(fem: FEM) -> str:
     node_str = "'            Node ID            X              Y              Z    Boundary code\n"
     f = " NODE {nid:>15} {x:>13.3f} {y:>13.3f} {z:>13.3f}{bc}"
 
-    def write_bc(bc):
-        """
-
-        :param bc:
-        :type bc: ada.fem.Bc
-        """
+    def write_bc(bc: Bc):
         bcs_str = ""
         for dof in range(1, 7):
             if dof in bc.dofs:
@@ -243,12 +190,7 @@ def nodal_str(fem):
 
         return bcs_str
 
-    def write_node(no):
-        """
-
-        :param no:
-        :type no: ada.Node
-        """
+    def write_node(no: Node):
         bc_str = "" if no.bc is None else write_bc(no.bc)
         return f.format(nid=no.id, x=no[0], y=no[1], z=no[2], bc=bc_str)
 
@@ -259,7 +201,7 @@ def nodal_str(fem):
     )
 
 
-def beam_str(fem, eccen):
+def beam_str(fem: FEM, eccen):
     """
 
     # USFOS Strings
@@ -273,8 +215,6 @@ def beam_str(fem, eccen):
     UNITVEC    60000001        0.00000        0.00000        1.00000
 
     """
-    from ada.core.utils import Counter
-
     locvecs = []
     eccen_counter = Counter(1)
     loc_str = "'\n'            Loc-Coo           dx             dy             dz\n"

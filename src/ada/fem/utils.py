@@ -192,3 +192,13 @@ def convert_hinges_2_couplings(fem: FEM):
             elem.parent.add_constraint(c)
 
     list(map(converthinges, filter(lambda x: x.hinges is not None, fem.sections)))
+
+
+def is_tri6_shell_elem(sh_fs):
+    elem_check = [x.type in ElemShapes.tri6 for x in sh_fs.elset.members]
+    return all(elem_check)
+
+
+def is_quad8_shell_elem(sh_fs):
+    elem_check = [x.type in ElemShapes.quad8 for x in sh_fs.elset.members]
+    return all(elem_check)
