@@ -1283,6 +1283,12 @@ class FEM:
 
     def add_constraint(self, constraint: Constraint) -> Constraint:
         constraint.parent = self
+        if constraint.m_set.parent is None:
+            self.add_set(constraint.m_set)
+
+        if constraint.s_set.parent is None:
+            self.add_set(constraint.s_set)
+
         self.constraints.append(constraint)
         return constraint
 

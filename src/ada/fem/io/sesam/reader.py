@@ -9,7 +9,7 @@ from ada.concepts.containers import Materials, Nodes, Sections
 from ada.concepts.levels import FEM, Assembly, Part
 from ada.concepts.points import Node
 from ada.concepts.structural import Section
-from ada.core.utils import roundoff, unit_vector, vector_length
+from ada.core.utils import Counter, roundoff, unit_vector, vector_length
 from ada.fem import Bc, Constraint, Csys, Elem, FemSection, FemSet, Mass, Spring
 from ada.fem.containers import FemElements, FemSections
 from ada.fem.io.utils import str_to_int
@@ -21,12 +21,14 @@ from ada.sections import GeneralProperties
 from . import cards
 from .common import sesam_el_map
 
+_counter_part_name = Counter(prefix="T")
+
 
 def read_fem(assembly: Assembly, fem_file: os.PathLike, fem_name: str = None):
     """Import contents from a Sesam fem file into an assembly object"""
 
     print("Starting import of Sesam input file")
-    part_name = "T1" if fem_name is None else fem_name
+    part_name = next(_counter_part_name) if fem_name is None else fem_name
     with open(fem_file, "r") as d:
         part = read_sesam_fem(d.read(), part_name)
 

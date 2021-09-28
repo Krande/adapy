@@ -83,6 +83,7 @@ class Node:
 
     @property
     def refs(self):
+        """:rtype: list[ada.fem.Elem | ada.Beam]"""
         return self._refs
 
     def __getitem__(self, index):
