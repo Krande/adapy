@@ -5,8 +5,9 @@
 [![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/platforms.svg)](https://anaconda.org/krande/ada-py)
 [![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/downloads.svg)](https://anaconda.org/krande/ada-py)
 
-A python library for working with structural analysis and design delivering an object-oriented framework for modelling 
-and Finite Element (FE) model conversion, editing, analysis and postprocessing. 
+A python library for working with structural analysis and design. `Ada-py` delivers an object-oriented framework for 
+CAD/BIM/FEM modelling, interoperability and Finite Elements (FE) post-processing.
+
 
 To install the ada-py package into an existing conda environment
 
@@ -201,7 +202,7 @@ For installation files of open source FEM software such as Calculix and Code Ast
 If you rather\must want to use pip you can do:
 
 ```
-pip install ada-py
+pip install ada-py gmsh
 ```
 
 **Note!** Pip will not install the required conda packages. Therefore you would also have to do
@@ -212,6 +213,29 @@ conda install -c conda-forge ifcopenshell pythonocc-core==7.5.1 occt==7.5.1
 
 **Note!** pip is not a recommended installation method due to an unstable behaviour often 
 manifested as DLL import errors related to the vtk package.
+
+## Acknowledgements
+
+This project would never have been possible without the existing open source python and c++ libraries. 
+Although listed in the package dependencies (which is a long list), here are some of the packages that are at the very 
+core of adapy;
+
+* Ifcopenshell
+* Pythonocc-core
+* Gmsh
+
+And the following packages are integral in the interoperability and visualization of FEM results.
+
+* Vtk
+* Pythreejs
+* Meshio
+* Ccx2paraview
+
+A huge thanks to all involved in the development of the packages mentioned here and in the list of packages adapy
+depends on (it goes without saying that packages such as numpy ).
+
+If you feel that a certain package listed in the adapy dependencies should be listed here please let me know and I will 
+update the list :)
 
 
 ## Project Responsible ###

@@ -1,7 +1,7 @@
 import unittest
 
 from ada import Beam
-from ada.calc import BeamCalc
+from ada.calc.beams import BeamCalc
 
 
 class TestCalculations(unittest.TestCase):

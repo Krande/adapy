@@ -278,10 +278,7 @@ class Calibrate:
 
     @property
     def uni_eps(self):
-        """
-
-        :return: Interpolated or original array of uniaxial strain test data
-        """
+        """Interpolated or original array of uniaxial strain test data"""
         if self._interpolate is True:
             return np.linspace(self.uniaxial.eps[0], self.uniaxial.eps[-1], self._num_int)
         else:
@@ -296,10 +293,7 @@ class Calibrate:
 
     @property
     def bia_eps(self):
-        """
-
-        :return: Interpolated array of biaxial strain test data
-        """
+        """Interpolated array of biaxial strain test data"""
         if self._interpolate is True:
             return np.linspace(self.biaxial.eps[0], self.biaxial.eps[-1], self._num_int)
         else:
@@ -314,10 +308,7 @@ class Calibrate:
 
     @property
     def pla_eps(self):
-        """
-
-        :return: Interpolated array of planar strain test data
-        """
+        """Interpolated array of planar strain test data"""
         if self._interpolate is True:
             return np.linspace(self.planar.eps[0], self.planar.eps[-1], self._num_int)
         else:
@@ -407,16 +398,7 @@ def neo_hookean(strain, mu, load_type="uniaxial"):
 
 
 def yeoh(strain, c10, c20, c30, load_type="uniaxial"):
-    """
-    Yeoh incompressible
-
-    :param strain:
-    :param c10:
-    :param c20:
-    :param c30:
-    :param load_type:
-    :return:
-    """
+    """Yeoh incompressible"""
     lam = np.exp(strain)
     i1 = lam ** 2 + 2.0 / lam
     if load_type == "uniaxial":
@@ -450,8 +432,7 @@ def NH_3D(stretch, param):
 
 
 def Yeoh_3D(stretch, param):
-    """Yeoh. 3D loading specified by stretches.
-    param: [C10, C20, C30, kappa]. Returns true stress."""
+    """Yeoh. 3D loading specified by stretches. param: [C10, C20, C30, kappa]. Returns true stress."""
     L1 = stretch[0]
     L2 = stretch[1]
     L3 = stretch[2]
@@ -466,14 +447,7 @@ def Yeoh_3D(stretch, param):
 
 
 def uniaxial_stress(model, true_strain, params):
-    """
-    Compressible uniaxial loading. Returns true stress.
-
-    :param model:
-    :param true_strain: numpy array
-    :param params:
-    :return:
-    """
+    """Compressible uniaxial loading. Returns true stress."""
 
     stress = np.zeros(len(true_strain))
     for i in range(len(true_strain)):
@@ -491,14 +465,7 @@ def uniaxial_stress(model, true_strain, params):
 
 
 def biaxial_stress(model, trueStrainVec, params):
-    """
-    Compressible biaxial loading. Returns true stress.
-
-    :param model:
-    :param trueStrainVec:
-    :param params:
-    :return:
-    """
+    """Compressible biaxial loading. Returns true stress."""
 
     stress = np.zeros(len(trueStrainVec))
     for i in range(len(trueStrainVec)):
@@ -515,14 +482,7 @@ def biaxial_stress(model, trueStrainVec, params):
 
 
 def planar_stress(model, trueStrainVec, params):
-    """
-    Compressible planar loading. Returns true stress.
-
-    :param model:
-    :param trueStrainVec:
-    :param params:
-    :return:
-    """
+    """Compressible planar loading. Returns true stress."""
     stress = np.zeros(len(trueStrainVec))
     for i in range(len(trueStrainVec)):
         lam1 = np.exp(trueStrainVec[i])
