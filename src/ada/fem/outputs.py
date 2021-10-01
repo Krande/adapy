@@ -13,6 +13,10 @@ class HistTypes:
     all = [NODE, ENERGY, CONTACT, CONNECTOR]
 
 
+class IntervalTypes:
+    FREQUENCY = "frequency"
+
+
 class HistOutput(FemBase):
     """
 
@@ -24,6 +28,7 @@ class HistOutput(FemBase):
     """
 
     TYPES = HistTypes
+    TYPES_INTERVAL = IntervalTypes
 
     default_hist = [
         "ALLAE",
@@ -51,7 +56,7 @@ class HistOutput(FemBase):
         set_type: str,
         variables: List[str],
         int_value=1,
-        int_type="frequency",
+        int_type=TYPES_INTERVAL.FREQUENCY,
         metadata=None,
         parent=None,
     ):

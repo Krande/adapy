@@ -1125,6 +1125,8 @@ def get_instance_name(obj, fem_writer: Union[Step, Load, AbaqusWriter, AbaConstr
 
     if fem_writer in (Step, Load) and assembly_level is False:
         return f"{obj.parent.instance_name}.{obj_ref}"
+    elif issubclass(type(fem_writer), Step) and assembly_level is False:
+        return f"{obj.parent.instance_name}.{obj_ref}"
     elif type(obj.parent.parent) != Assembly and type(fem_writer) in (AbaqusWriter, AbaConstraint, AbaStep):
         return f"{obj.parent.instance_name}.{obj_ref}"
     else:
@@ -1186,7 +1188,7 @@ def orientations_str(assembly: Assembly, fem_writer) -> str:
                 continue
             cstr += "\n"
             coord_str = ", ".join([str(x) for x in chain.from_iterable(load.csys.coords)])[:-1]
-            name = load.fem_set.name
+            name = load.fem_set.name.upper()
             inst_name = get_instance_name(load.fem_set, fem_writer)
             cstr += f"*Nset, nset=_T-{name}, internal\n{inst_name},\n"
             cstr += f"*Transform, nset=_T-{name}\n{coord_str}\n"

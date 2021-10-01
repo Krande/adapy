@@ -11,10 +11,10 @@ class StepTypes:
     STATIC = "static"
     EIGEN = "eigenfrequency"
     COMPLEX_EIG = "complex_eig"
-    RESP = "response_analysis"
+    STEADY_STATE = "steady_state"
     DYNAMIC = "dynamic"
     EXPLICIT = "explicit"
-    all = [STATIC, EIGEN, RESP, DYNAMIC, COMPLEX_EIG, EXPLICIT]
+    all = [STATIC, EIGEN, STEADY_STATE, DYNAMIC, COMPLEX_EIG, EXPLICIT]
 
 
 class DynStepType:
@@ -128,6 +128,8 @@ class Step(FemBase):
 
     def add_history_output(self, hist_output: HistOutput):
         hist_output.parent = self
+        if hist_output.fem_set.parent is None and self.parent is not None:
+            self.parent.add_set(hist_output.fem_set)
         self._hist_outputs.append(hist_output)
 
     def add_field_output(self, field_output: FieldOutput):
@@ -237,3 +239,15 @@ class Step(FemBase):
 
     def __repr__(self):
         return f"Step({self.name}, type={self.type}, nl_geom={self.nl_geom})"
+
+
+class StepSteadyState(Step):
+    def __init__(self, name, load: Load, fmin, fmax, alpha, beta):
+        super(StepSteadyState, self).__init__(
+            name, Step.TYPES.STEADY_STATE, fmin=fmin, fmax=fmax, alpha=alpha, beta=beta
+        )
+        self._unit_load = load
+
+    @property
+    def unit_load(self):
+        return self._unit_load

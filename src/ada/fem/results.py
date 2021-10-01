@@ -42,6 +42,14 @@ class Results:
         self._results_file_path = pathlib.Path(res_path)
         self._read_result_file(self._results_file_path)
 
+    def save_output(self, dest_file) -> None:
+        if self.output.stdout is None:
+            print("No output is found")
+            return
+
+        with open(dest_file, "w") as f:
+            f.write(self.output.stdout)
+
     @property
     def name(self):
         return self._name

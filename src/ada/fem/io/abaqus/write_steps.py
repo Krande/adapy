@@ -3,7 +3,7 @@ import logging
 import numpy as np
 
 from ada.core.utils import bool2text
-from ada.fem import Step
+from ada.fem.steps import Step, StepSteadyState
 
 from .templates import step_inp_str
 
@@ -82,7 +82,7 @@ class AbaStep:
             st.DYNAMIC: dynamic_implicit_str,
             st.EXPLICIT: explicit_str,
             st.EIGEN: eigenfrequency_str,
-            st.RESP: steady_state_response_str,
+            st.STEADY_STATE: steady_state_response_str,
             st.COMPLEX_EIG: complex_eig_str,
         }
         step_str_writer = step_map.get(self.step.type, None)
@@ -179,30 +179,35 @@ def complex_eig_str(step: Step):
 """
 
 
-def steady_state_response_str(step: Step):
-    if step.nodeid is None:
-        raise ValueError("Please define a nodeid for the steady state load")
+def steady_state_response_str(step: StepSteadyState) -> str:
+    from .writer import get_instance_name
+
+    load = step.unit_load
+    direction = load.dof[0]
+    magnitude = load.magnitude
+    node_ref = get_instance_name(load.fem_set.members[0], step)
 
     return f"""** ----------------------------------------------------------------
-*STEP,NAME=Response_Analysis_{step.fmin}_{step.fmax}Hz
+*STEP,NAME={step.name}_{step.fmin}_{step.fmax}Hz
 *STEADY STATE DYNAMICS, DIRECT, INTERVAL=RANGE
 {add_freq_range(step.fmin, step.fmax)}
 *GLOBAL DAMPING, ALPHA={step.alpha} , BETA={step.beta}
 **
 *LOAD CASE, NAME=LC1
 *CLOAD, OP=NEW
-{step.nodeid},2, 1
+{node_ref}, {direction}, {magnitude}
 *END LOAD CASE
-**
-*OUTPUT, FIELD, FREQUENCY=1
-*NODE OUTPUT
-U
-**
-*OUTPUT, HISTORY, FREQUENCY=1
-*NODE OUTPUT, NSET=accel_data_set
-UT, AT, TU, TA
-**
 """
+
+
+# **
+# *OUTPUT, FIELD, FREQUENCY=1
+# *NODE OUTPUT
+# U
+# **
+# ** *OUTPUT, HISTORY, FREQUENCY=1
+# ** *NODE OUTPUT, NSET=accel_data_set
+# ** UT, AT, TU, TA
 
 
 def add_freq_range(fmin, fmax, intervals=100):
@@ -218,7 +223,6 @@ def add_freq_range(fmin, fmax, intervals=100):
     freq_str = ""
     for eig in freq_list:
         if eig == freq_list[-1]:
-            print("last one")
             freq_str += "{0:.3f},".format(eig)
         else:
             freq_str += "{0:.3f},\n".format(eig)

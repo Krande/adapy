@@ -50,11 +50,14 @@ class CsysDefs:
 
 
 class Csys(FemBase):
+    TYPES_SYSTEM = CsysSystems
+    TYPES_DEFINITIONS = CsysDefs
+
     def __init__(
         self,
         name,
-        definition=CsysDefs.COORDINATES,
-        system=CsysSystems.RECTANGULAR,
+        definition=TYPES_DEFINITIONS.COORDINATES,
+        system=TYPES_SYSTEM.RECTANGULAR,
         nodes=None,
         coords=None,
         metadata=None,

@@ -94,36 +94,37 @@ def interpret_section_str(in_str, s=0.001, units="m"):
             in_str,
             re_in,
         )
-        if res is not None:
-            h = [rdoff(float(x) * s) for x in res.group(2).split("/")]
-            width = [rdoff(float(x) * s) for x in res.group(3).split("/")]
-            tw = [rdoff(float(x) * s) for x in res.group(4).split("/")]
-            tf = [rdoff(float(x) * s) for x in res.group(5).split("/")]
-            sec = Section(
-                in_str,
-                h=h[0],
-                sec_type=box,
-                w_btn=width[0],
-                w_top=width[0],
-                t_fbtn=tf[0],
-                t_ftop=tf[0],
-                t_w=tw[0],
-                metadata=dict(cad_str=in_str),
-                units=units,
-            )
-            tap = Section(
-                in_str + "_e",
-                h=h[-1],
-                sec_type=box,
-                w_btn=width[-1],
-                w_top=width[-1],
-                t_fbtn=tf[-1],
-                t_ftop=tf[-1],
-                t_w=tw[-1],
-                metadata=dict(cad_str=in_str),
-                units=units,
-            )
-            return sec, tap
+        if res is None:
+            continue
+        h = [rdoff(float(x) * s) for x in res.group(2).split("/")]
+        width = [rdoff(float(x) * s) for x in res.group(3).split("/")]
+        tw = [rdoff(float(x) * s) for x in res.group(4).split("/")]
+        tf = [rdoff(float(x) * s) for x in res.group(5).split("/")]
+        sec = Section(
+            in_str,
+            h=h[0],
+            sec_type=box,
+            w_btn=width[0],
+            w_top=width[0],
+            t_fbtn=tf[0],
+            t_ftop=tf[0],
+            t_w=tw[0],
+            metadata=dict(cad_str=in_str),
+            units=units,
+        )
+        tap = Section(
+            in_str + "_e",
+            h=h[-1],
+            sec_type=box,
+            w_btn=width[-1],
+            w_top=width[-1],
+            t_fbtn=tf[-1],
+            t_ftop=tf[-1],
+            t_w=tw[-1],
+            metadata=dict(cad_str=in_str),
+            units=units,
+        )
+        return sec, tap
 
     for shs in SectionCat.shs:
         res = re.search(
@@ -132,34 +133,36 @@ def interpret_section_str(in_str, s=0.001, units="m"):
             re_in,
         )
 
-        if res is not None:
-            h = [rdoff(float(x) * s) for x in res.group(2).split("/")]
-            width = [rdoff(float(x) * s) for x in res.group(3).split("/")]
-            sec = Section(
-                in_str,
-                h=h[0],
-                sec_type=shs,
-                w_btn=h[0],
-                w_top=h[0],
-                t_fbtn=width[0],
-                t_ftop=width[0],
-                t_w=width[0],
-                metadata=dict(cad_str=in_str),
-                units=units,
-            )
-            tap = Section(
-                in_str + "_e",
-                h=h[-1],
-                sec_type=shs,
-                w_btn=h[-1],
-                w_top=h[-1],
-                t_fbtn=width[-1],
-                t_ftop=width[-1],
-                t_w=width[-1],
-                metadata=dict(cad_str=in_str),
-                units=units,
-            )
-            return sec, tap
+        if res is None:
+            continue
+
+        h = [rdoff(float(x) * s) for x in res.group(2).split("/")]
+        width = [rdoff(float(x) * s) for x in res.group(3).split("/")]
+        sec = Section(
+            in_str,
+            h=h[0],
+            sec_type=shs,
+            w_btn=h[0],
+            w_top=h[0],
+            t_fbtn=width[0],
+            t_ftop=width[0],
+            t_w=width[0],
+            metadata=dict(cad_str=in_str),
+            units=units,
+        )
+        tap = Section(
+            in_str + "_e",
+            h=h[-1],
+            sec_type=shs,
+            w_btn=h[-1],
+            w_top=h[-1],
+            t_fbtn=width[-1],
+            t_ftop=width[-1],
+            t_w=width[-1],
+            metadata=dict(cad_str=in_str),
+            units=units,
+        )
+        return sec, tap
 
     for rhs in SectionCat.rhs:
         res = re.search(
@@ -168,35 +171,36 @@ def interpret_section_str(in_str, s=0.001, units="m"):
             re_in,
         )
 
-        if res is not None:
-            h = [rdoff(float(x) * s) for x in res.group(2).split("/")]
-            width = [rdoff(float(x) * s) for x in res.group(3).split("/")]
-            tw = [rdoff(float(x) * s) for x in res.group(4).split("/")]
-            sec = Section(
-                in_str,
-                h=h[0],
-                sec_type=rhs,
-                w_btn=width[0],
-                w_top=width[0],
-                t_fbtn=tw[0],
-                t_ftop=tw[0],
-                t_w=tw[0],
-                metadata=dict(cad_str=in_str),
-                units=units,
-            )
-            tap = Section(
-                in_str + "_e",
-                h=h[-1],
-                sec_type=rhs,
-                w_btn=width[-1],
-                w_top=width[-1],
-                t_fbtn=tw[-1],
-                t_ftop=tw[-1],
-                t_w=tw[-1],
-                metadata=dict(cad_str=in_str),
-                units=units,
-            )
-            return sec, tap
+        if res is None:
+            continue
+        h = [rdoff(float(x) * s) for x in res.group(2).split("/")]
+        width = [rdoff(float(x) * s) for x in res.group(3).split("/")]
+        tw = [rdoff(float(x) * s) for x in res.group(4).split("/")]
+        sec = Section(
+            in_str,
+            h=h[0],
+            sec_type=rhs,
+            w_btn=width[0],
+            w_top=width[0],
+            t_fbtn=tw[0],
+            t_ftop=tw[0],
+            t_w=tw[0],
+            metadata=dict(cad_str=in_str),
+            units=units,
+        )
+        tap = Section(
+            in_str + "_e",
+            h=h[-1],
+            sec_type=rhs,
+            w_btn=width[-1],
+            w_top=width[-1],
+            t_fbtn=tw[-1],
+            t_ftop=tw[-1],
+            t_w=tw[-1],
+            metadata=dict(cad_str=in_str),
+            units=units,
+        )
+        return sec, tap
 
     for ig in SectionCat.igirders:
         res = re.search(
@@ -204,36 +208,37 @@ def interpret_section_str(in_str, s=0.001, units="m"):
             in_str,
             re_in,
         )
-        if res is not None:
-            h = [rdoff(float(x) * s) for x in res.group(2).split("/")]
-            wt = [rdoff(float(x) * s) for x in res.group(3).split("/")]
-            tw = [rdoff(float(x) * s) for x in res.group(4).split("/")]
-            tf = [rdoff(float(x) * s) for x in res.group(5).split("/")]
-            sec = Section(
-                in_str,
-                h=h[0],
-                sec_type=ig,
-                w_btn=wt[0],
-                w_top=wt[0],
-                t_fbtn=tf[0],
-                t_ftop=tf[0],
-                t_w=tw[0],
-                metadata=dict(cad_str=in_str),
-                units=units,
-            )
-            tap = Section(
-                in_str + "_e",
-                h=h[-1],
-                sec_type=ig,
-                w_btn=wt[-1],
-                w_top=wt[-1],
-                t_fbtn=tf[-1],
-                t_ftop=tf[-1],
-                t_w=tw[-1],
-                metadata=dict(cad_str=in_str),
-                units=units,
-            )
-            return sec, tap
+        if res is None:
+            continue
+        h = [rdoff(float(x) * s) for x in res.group(2).split("/")]
+        wt = [rdoff(float(x) * s) for x in res.group(3).split("/")]
+        tw = [rdoff(float(x) * s) for x in res.group(4).split("/")]
+        tf = [rdoff(float(x) * s) for x in res.group(5).split("/")]
+        sec = Section(
+            in_str,
+            h=h[0],
+            sec_type=ig,
+            w_btn=wt[0],
+            w_top=wt[0],
+            t_fbtn=tf[0],
+            t_ftop=tf[0],
+            t_w=tw[0],
+            metadata=dict(cad_str=in_str),
+            units=units,
+        )
+        tap = Section(
+            in_str + "_e",
+            h=h[-1],
+            sec_type=ig,
+            w_btn=wt[-1],
+            w_top=wt[-1],
+            t_fbtn=tf[-1],
+            t_ftop=tf[-1],
+            t_w=tw[-1],
+            metadata=dict(cad_str=in_str),
+            units=units,
+        )
+        return sec, tap
 
     if "pipe" not in in_str.lower():
         for ipe in SectionCat.iprofiles:
@@ -252,51 +257,55 @@ def interpret_section_str(in_str, s=0.001, units="m"):
 
     for tub in SectionCat.tubular:
         res = re.search("({tub})({digit})x({digit})".format(tub=tub, digit=digit), in_str, re_in)
-        if res is not None:
-            fac = 0.5 if tub in ["OD", "O"] else 1.0
-            r = [rdoff(float(x) * s * fac) for x in res.group(2).split("/")]
-            wt = [rdoff(float(x) * s) for x in res.group(3).split("/")]
-            sec = Section(
-                in_str,
-                sec_type=tub,
-                r=r[0],
-                wt=wt[0],
-                metadata=dict(cad_str=in_str),
-                units=units,
-            )
-            tap = Section(
-                in_str + "_e",
-                sec_type=tub,
-                r=r[-1],
-                wt=wt[-1],
-                metadata=dict(cad_str=in_str),
-                units=units,
-            )
-            return sec, tap
+        if res is None:
+            continue
+        fac = 0.5 if tub in ["OD", "O"] else 1.0
+        r = [rdoff(float(x) * s * fac) for x in res.group(2).split("/")]
+        wt = [rdoff(float(x) * s) for x in res.group(3).split("/")]
+        sec = Section(
+            in_str,
+            sec_type=tub,
+            r=r[0],
+            wt=wt[0],
+            metadata=dict(cad_str=in_str),
+            units=units,
+        )
+        tap = Section(
+            in_str + "_e",
+            sec_type=tub,
+            r=r[-1],
+            wt=wt[-1],
+            metadata=dict(cad_str=in_str),
+            units=units,
+        )
+        return sec, tap
 
     for ang in SectionCat.angular:
         res = re.search("({ang})({digit})x({digit})".format(ang=ang, digit=digit), in_str, re_in)
-        if res is not None:
-            sec = profile_db_collect(ang, "{}x{}".format(res.group(2), res.group(3)), units=units)
-            return sec, sec
+        if res is None:
+            continue
+        sec = profile_db_collect(ang, "{}x{}".format(res.group(2), res.group(3)), units=units)
+        return sec, sec
 
     for circ in SectionCat.circular:
         res = re.search("{circ}(.*?)$".format(circ=circ), in_str, re_in)
-        if res is not None:
-            sec = Section(
-                in_str,
-                sec_type=circ,
-                r=rdoff(float(res.group(1)) * s),
-                metadata=dict(cad_str=in_str),
-                units=units,
-            )
-            return sec, sec
+        if res is None:
+            continue
+        sec = Section(
+            in_str,
+            sec_type=circ,
+            r=rdoff(float(res.group(1)) * s),
+            metadata=dict(cad_str=in_str),
+            units=units,
+        )
+        return sec, sec
 
     for cha in SectionCat.channels:
         res = re.search("({ang})({digit})".format(ang=cha, digit=digit), in_str, re_in)
-        if res is not None:
-            sec = profile_db_collect(cha, res.group(2), units=units)
-            return sec, sec
+        if res is None:
+            continue
+        sec = profile_db_collect(cha, res.group(2), units=units)
+        return sec, sec
 
     raise ValueError(f'Unable to interpret section str "{in_str}"')
 

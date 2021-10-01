@@ -33,10 +33,13 @@ def from_ifc(ifc_file: Union[str, pathlib.Path]) -> Assembly:
 
 
 def from_fem(
-    fem_file: Union[str, list, pathlib.Path], fem_format: Union[str, list] = None, name: Union[str, list] = None
+    fem_file: Union[str, list, pathlib.Path],
+    fem_format: Union[str, list] = None,
+    name: Union[str, list] = None,
+    enable_experimental_cache=False,
 ) -> Assembly:
-    a = Assembly()
-    if type(fem_file) is str:
+    a = Assembly(enable_experimental_cache=enable_experimental_cache)
+    if type(fem_file) in (str, pathlib.WindowsPath):
         a.read_fem(fem_file, fem_format, name)
     elif type(fem_file) is list:
         for i, f in enumerate(fem_file):
