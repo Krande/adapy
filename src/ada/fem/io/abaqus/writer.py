@@ -1199,7 +1199,7 @@ def orientations_str(assembly: Assembly, fem_writer) -> str:
 
 
 def csys_str(csys: Csys, fem_writer):
-    name = csys.name.replace('"', "")
+    name = csys.name.replace('"', "").upper()
     ori_str = f'*Orientation, name="{name}"'
     if csys.nodes is None and csys.coords is None:
         ori_str += "\n 1.,           0.,           0.,           0.,           1.,           0.\n 1, 0."

@@ -1,3 +1,4 @@
+import logging
 from typing import List, Union
 
 import numpy as np
@@ -161,6 +162,7 @@ def convert_hinges_2_couplings(fem: FEM):
     """
     Convert beam hinges to coupling constraints
     """
+    constrain_ids = []
 
     def converthinges(fs: FemSection):
         if fs.hinges is None or fs.type != ElemType.LINE:
@@ -177,8 +179,20 @@ def convert_hinges_2_couplings(fem: FEM):
                 if n in [x[0] for x in elem.fem_sec.offset]:
                     elem.fem_sec.offset[i] = (n2, elem.fem_sec.offset[i][1])
 
+            if n.id not in constrain_ids:
+                constrain_ids.append(n.id)
+            else:
+                logging.error(f"Hinged node {n} cannot be added twice to different couplings")
+                return None
+            if n2.id not in constrain_ids:
+                constrain_ids.append(n2.id)
+            else:
+                logging.error(f"Hinged node {n2} cannot be added twice to different couplings")
+                return None
+
             s_set = FemSet(f"el{elem.id}_hinge{i + 1}_s", [n], "nset")
             m_set = FemSet(f"el{elem.id}_hinge{i + 1}_m", [n2], "nset")
+
             elem.parent.add_set(m_set)
             elem.parent.add_set(s_set)
             c = Constraint(

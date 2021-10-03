@@ -4,7 +4,7 @@ import pathlib
 import pytest
 
 from ada import Assembly, Beam, Material, Part
-from ada.fem import Bc, FemSet, Step
+from ada.fem import Bc, FemSet, StepEigen
 from ada.fem.exceptions.element_support import IncompatibleElements
 from ada.fem.meshing.concepts import GmshOptions, GmshSession
 from ada.fem.utils import get_beam_end_nodes
@@ -27,7 +27,7 @@ def test_fem_eig(fem_format, geom_repr, elem_order):
 
     fix_set = a.get_part("MyPart").fem.add_set(FemSet("bc_nodes", get_beam_end_nodes(beam), FemSet.TYPES.NSET))
     a.fem.add_bc(Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
-    a.fem.add_step(Step("Eigen", Step.TYPES.EIGEN, eigenmodes=11))
+    a.fem.add_step(StepEigen("Eigen", num_eigen_modes=11))
 
     try:
         res = a.to_fem(name, fem_format, overwrite=True, execute=True)

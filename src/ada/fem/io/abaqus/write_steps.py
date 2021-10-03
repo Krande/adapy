@@ -184,7 +184,10 @@ def steady_state_response_str(step: StepSteadyState) -> str:
     from .writer import get_instance_name
 
     load = step.unit_load
-    direction = load.dof[0]
+    directions = [dof for dof in load.dof if dof is not None]
+    if len(directions) != 1:
+        raise ValueError("Unit load in a steady state analysis can only work in a single direction")
+    direction = directions[0]
     magnitude = load.magnitude
     node_ref = get_instance_name(load.fem_set.members[0], step)
 
