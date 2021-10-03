@@ -1,15 +1,16 @@
 import logging
+from typing import Union
 
 import numpy as np
 
 from ada.core.utils import bool2text
-from ada.fem.steps import Step, StepSteadyState
+from ada.fem.steps import Step, StepEigen, StepExplicit, StepImplicit, StepSteadyState
 
 from .templates import step_inp_str
 
 
 class AbaStep:
-    def __init__(self, step: Step):
+    def __init__(self, step: Union[Step.TYPES]):
         self.step = step
 
     @property
@@ -103,13 +104,13 @@ class AbaStep:
         )
 
 
-def dynamic_implicit_str(step: Step):
+def dynamic_implicit_str(step: StepImplicit):
     return f"""*Step, name={step.name}, nlgeom={bool2text(step.nl_geom)}, inc={step.total_incr}
 *Dynamic,application={step.dyn_type}, INITIAL={bool2text(step.init_accel_calc)}
 {step.init_incr},{step.total_time},{step.min_incr}, {step.max_incr}"""
 
 
-def explicit_str(step: Step):
+def explicit_str(step: StepExplicit):
     return f"""*Step, name={step.name}, nlgeom={bool2text(step.nl_geom)}
 *Dynamic, Explicit
 , {step.total_time}
@@ -117,7 +118,7 @@ def explicit_str(step: Step):
 0.06, 1.2"""
 
 
-def static_step_str(step: Step):
+def static_step_str(step: StepImplicit):
     static_str = ""
     stabilize = step.stabilize
     if stabilize is None:
@@ -157,25 +158,25 @@ def static_step_str(step: Step):
 {step.init_incr}, {step.total_time}, {step.min_incr}, {step.max_incr}"""
 
 
-def eigenfrequency_str(step: Step):
+def eigenfrequency_str(step: StepEigen):
     return f"""** ----------------------------------------------------------------
 **
 ** STEP: eig
 **
 *Step, name=eig, nlgeom=NO, perturbation
 *Frequency, eigensolver=Lanczos, sim=NO, acoustic coupling=on, normalization=displacement
-{step.eigenmodes}, , , , ,
+{step.num_eigen_modes}, , , , ,
 """
 
 
-def complex_eig_str(step: Step):
+def complex_eig_str(step: StepEigen):
     return f"""** ----------------------------------------------------------------
 **
 ** STEP: complex_eig
 **
 *Step, name=complex_eig, nlgeom=NO, perturbation, unsymm=YES
 *Complex Frequency, friction damping=NO
-{step.eigenmodes}, , ,
+{step.num_eigen_modes}, , ,
 """
 
 

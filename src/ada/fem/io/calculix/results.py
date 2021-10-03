@@ -7,7 +7,7 @@ import meshio
 from ccx2paraview import Converter
 
 from ada.core.utils import get_list_of_files
-from ada.fem import Step
+from ada.fem import StepEigen
 from ada.fem.concepts.eigenvalue import EigenDataSummary, EigenMode
 from ada.fem.io.utils import DatFormatReader
 from ada.fem.results import Results
@@ -64,7 +64,7 @@ def read_calculix_results(results: Results, file_ref: pathlib.Path, overwrite):
     print(f'Reading result from "{result_file}"')
 
     dat_file = file_ref.with_suffix(".dat")
-    if dat_file.exists() and results.assembly.fem.steps[0].type == Step.TYPES.EIGEN:
+    if dat_file.exists() and type(results.assembly.fem.steps[0]) == StepEigen:
         results.eigen_mode_data = get_eigen_data(dat_file)
 
     return meshio.read(result_file)

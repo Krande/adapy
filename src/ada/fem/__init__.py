@@ -8,7 +8,7 @@ from .loads import Load, LoadCase
 from .outputs import FieldOutput, HistOutput
 from .sections import ConnectorSection, FemSection
 from .sets import FemSet
-from .steps import Step
+from .steps import StepEigen, StepExplicit, StepImplicit, StepSteadyState
 from .surfaces import Surface
 
 __all__ = [
@@ -17,7 +17,10 @@ __all__ = [
     "Csys",
     "InteractionProperty",
     "Interaction",
-    "Step",
+    StepSteadyState,
+    StepEigen,
+    StepImplicit,
+    StepExplicit,
     "Surface",
     "Elem",
     "Connector",

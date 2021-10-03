@@ -1,4 +1,5 @@
 import logging
+import os
 import pathlib
 import subprocess
 import traceback
@@ -46,7 +47,9 @@ class Results:
         if self.output.stdout is None:
             print("No output is found")
             return
+        dest_file = pathlib.Path(dest_file)
 
+        os.makedirs(dest_file.parent, exist_ok=True)
         with open(dest_file, "w") as f:
             f.write(self.output.stdout)
 

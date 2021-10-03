@@ -1,6 +1,6 @@
 import logging
 from itertools import chain
-from typing import Iterable, Tuple
+from typing import Iterable, Tuple, Union
 
 import numpy as np
 
@@ -8,7 +8,7 @@ from ada.concepts.levels import Assembly, Part
 from ada.concepts.points import Node
 from ada.concepts.structural import Material
 from ada.config import Settings as _Settings
-from ada.fem import Bc, FemSection, Load, Step
+from ada.fem import Bc, FemSection, Load, StepEigen, StepImplicit
 from ada.fem.containers import FemSections
 from ada.fem.shapes import ElemShapes
 from ada.fem.utils import is_quad8_shell_elem, is_tri6_shell_elem
@@ -321,7 +321,7 @@ def write_load(load: Load) -> str:
         raise NotImplementedError(f'Load type "{load.type}"')
 
 
-def step_static_str(step: Step, part: Part) -> str:
+def step_static_str(step: StepImplicit, part: Part) -> str:
     from ada.fem.exceptions.model_definition import NoBoundaryConditionsApplied
 
     load_str = "\n".join(list(map(write_load, step.loads)))
@@ -411,7 +411,7 @@ IMPR_RESU(
 )"""
 
 
-def step_eig_str(step: Step, part: Part) -> str:
+def step_eig_str(step: StepEigen, part: Part) -> str:
     bcs = part.fem.bcs + part.get_assembly().fem.bcs
 
     if len(bcs) > 1 or len(bcs) == 0:
@@ -455,7 +455,7 @@ ASSEMBLAGE(
 #
 
 modes = CALC_MODES(
-    CALC_FREQ=_F(NMAX_FREQ={step.eigenmodes}, ) ,
+    CALC_FREQ=_F(NMAX_FREQ={step.num_eigen_modes}, ) ,
     SOLVEUR_MODAL=_F(METHODE='{eig_method}'),
     MATR_MASS=mass,
     MATR_RIGI=stiff,
@@ -472,8 +472,8 @@ IMPR_RESU(
 """
 
 
-def create_step_str(step: Step, part: Part) -> str:
-    st = Step.TYPES
+def create_step_str(step: Union[StepEigen, StepImplicit], part: Part) -> str:
+    st = StepEigen.TYPES
     step_map = {st.STATIC: step_static_str, st.EIGEN: step_eig_str}
 
     step_writer = step_map.get(step.type, None)

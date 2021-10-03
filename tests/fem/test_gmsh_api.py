@@ -3,9 +3,9 @@ import unittest
 from ada import Assembly, Beam, Part, Pipe, Plate, PrimBox, PrimSphere
 from ada.concepts.structural import make_ig_cutplanes
 from ada.config import Settings
-from ada.fem import Step
 from ada.fem.meshing.concepts import GmshOptions, GmshSession, GmshTask
 from ada.fem.meshing.multisession import multisession_gmsh_tasker
+from ada.fem.steps import StepImplicit
 from ada.param_models.basic_module import ReinforcedFloor
 
 test_dir = Settings.test_dir / "gmsh_api_v2"
@@ -28,8 +28,6 @@ class GmshApiV2(unittest.TestCase):
         self.shp1 = PrimBox("MyBox", p1, p2)
         self.shp1.add_penetration(PrimSphere("MyCutout", p1, 0.5))
         self.cut_planes = make_ig_cutplanes(self.bm2)
-
-        self.step = Step("MyStep", "static")
 
     def test_pipe(self):
         with GmshSession(silent=True, options=GmshOptions(Mesh_ElementOrder=2)) as gs:
@@ -111,7 +109,7 @@ class GmshApiV2(unittest.TestCase):
         fem = multisession_gmsh_tasker([t1, t2])
         print(fem.elements)
         a = Assembly() / (Part("MyFemObjects", fem=fem) / [self.bm1, self.bm2])
-        a.fem.add_step(self.step)
+        a.fem.add_step(StepImplicit("MyStep"))
         a.to_fem("aba_mixed_order", "abaqus", overwrite=True, scratch_dir=test_dir)
 
     def test_mixed_lines_and_shell(self):

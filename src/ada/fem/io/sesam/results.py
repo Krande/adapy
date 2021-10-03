@@ -3,7 +3,7 @@ import os
 import pathlib
 from typing import List, Union
 
-from ada.fem import Step
+from ada.fem import StepEigen
 from ada.fem.concepts.eigenvalue import EigenDataSummary, EigenMode
 from ada.fem.io.utils import DatFormatReader
 from ada.fem.results import Results
@@ -31,7 +31,7 @@ def get_eigen_data(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
 
 def read_sesam_results(results: Results, file_ref: pathlib.Path, overwrite):
     dat_file = (file_ref.parent / "SESTRA").with_suffix(".LIS")
-    if dat_file.exists() and results.assembly.fem.steps[0].type == Step.TYPES.EIGEN:
+    if dat_file.exists() and type(results.assembly.fem.steps[0]) == StepEigen:
         results.eigen_mode_data = get_eigen_data(dat_file)
 
     logging.error("Result mesh data extraction is not supported for sesam")

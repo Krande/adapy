@@ -46,12 +46,17 @@ from ada.fem import (
     Mass,
     PredefinedField,
     Spring,
-    Step,
+    StepEigen,
+    StepExplicit,
+    StepImplicit,
+    StepSteadyState,
     Surface,
 )
 from ada.fem.containers import FemElements, FemSections, FemSets
 from ada.fem.elements import ElemType
 from ada.ifc.utils import create_guid
+
+_step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 
 
 class Part(BackendGeom):
@@ -1169,7 +1174,7 @@ class FEM:
 
     bcs: List[Bc] = field(init=False, default_factory=list)
     constraints: List[Constraint] = field(init=False, default_factory=list)
-    steps: List[Step] = field(init=False, default_factory=list)
+    steps: List[Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]] = field(init=False, default_factory=list)
 
     nodes: Nodes = field(default_factory=Nodes, init=True)
     elements: FemElements = field(default_factory=FemElements, init=True)
@@ -1261,10 +1266,10 @@ class FEM:
 
         raise Exception(f'No nodes found for femset "{fem_set.name}"')
 
-    def add_step(self, step: Step) -> Step:
+    def add_step(self, step: _step_types) -> _step_types:
         """Add an analysis step to the assembly"""
         if len(self.steps) > 0:
-            if self.steps[-1].type != Step.TYPES.EIGEN and step.type == Step.TYPES.COMPLEX_EIG:
+            if self.steps[-1].type != StepEigen.TYPES.EIGEN and step.type == StepEigen.TYPES.COMPLEX_EIG:
                 raise Exception("Complex eigenfrequency analysis step needs to follow eigenfrequency step.")
         step.parent = self
         self.steps.append(step)

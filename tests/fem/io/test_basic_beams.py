@@ -4,10 +4,11 @@ import pytest
 
 from ada import Assembly, Beam, Part
 from ada.config import Settings
-from ada.fem import Bc, FemSet, Step
+from ada.fem import Bc, FemSet
 from ada.fem.elements import ElemType
 from ada.fem.exceptions import IncompatibleElements
 from ada.fem.io import FEATypes
+from ada.fem.steps import StepEigen
 from ada.fem.utils import get_beam_end_nodes
 
 
@@ -47,7 +48,7 @@ def test_beam_eig(
     name = f"bm_{fem_format}_{geom_repr}_o{elem_order}"
     fix_set = a.get_part("MyPart").fem.add_set(FemSet("bc_nodes", get_beam_end_nodes(bm), FemSet.TYPES.NSET))
     a.fem.add_bc(Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
-    a.fem.add_step(Step("Eigen", Step.TYPES.EIGEN, eigenmodes=11))
+    a.fem.add_step(StepEigen("Eigen", num_eigen_modes=11))
 
     scratch_dir = Settings.scratch_dir / "basic_beam_validate"
 

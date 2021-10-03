@@ -1,12 +1,14 @@
 import datetime
 import logging
 from operator import attrgetter
+from typing import Union
 
 import numpy as np
 
 from ada.concepts.levels import FEM, Part
 from ada.core.utils import Counter, get_current_user
-from ada.fem import Load, Step
+from ada.fem.loads import Load
+from ada.fem.steps import Step, StepEigen
 
 from .templates import sestra_eig_inp_str, top_level_fem_str
 from .write_utils import write_ff
@@ -193,7 +195,7 @@ def loads_str(fem: FEM) -> str:
     return out_str
 
 
-def write_sestra_inp(name, step: Step):
+def write_sestra_inp(name, step: Union[StepEigen]):
     step_map = {Step.TYPES.EIGEN: write_sestra_eig_str}
     step_str_writer = step_map.get(step.type, None)
     if step_str_writer is None:
@@ -201,11 +203,11 @@ def write_sestra_inp(name, step: Step):
     return step_str_writer(name, step)
 
 
-def write_sestra_eig_str(name: str, step: Step):
+def write_sestra_eig_str(name: str, step: StepEigen):
     now = datetime.datetime.now()
     date_str = now.strftime("%d-%b-%Y")
     clock_str = now.strftime("%H:%M:%S")
     user = get_current_user()
     return sestra_eig_inp_str.format(
-        name=name, modes=step.eigenmodes, date_str=date_str, clock_str=clock_str, user=user
+        name=name, modes=step.num_eigen_modes, date_str=date_str, clock_str=clock_str, user=user
     )

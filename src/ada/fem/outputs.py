@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import List, Union
 
 from .common import FemBase
@@ -17,6 +19,44 @@ class IntervalTypes:
     FREQUENCY = "frequency"
 
 
+class HistDataTypes:
+    ALLAE = "ALLAE"
+    ALLCD = "ALLCD"
+    ALLDMD = "ALLDMD"
+    ALLEE = "ALLEE"
+    ALLFD = "ALLFD"
+    ALLIE = "ALLIE"
+    ALLJD = "ALLJD"
+    ALLKE = "ALLKE"
+    ALLKL = "ALLKL"
+    ALLPD = "ALLPD"
+    ALLQB = "ALLQB"
+    ALLSD = "ALLSD"
+    ALLSE = "ALLSE"
+    ALLVD = "ALLVD"
+    ALLWK = "ALLWK"
+    ETOTAL = "ETOTAL"
+
+    all = [
+        ALLAE,
+        ALLCD,
+        ALLDMD,
+        ALLEE,
+        ALLFD,
+        ALLIE,
+        ALLJD,
+        ALLKE,
+        ALLKL,
+        ALLPD,
+        ALLQB,
+        ALLSD,
+        ALLSE,
+        ALLVD,
+        ALLWK,
+        ETOTAL,
+    ]
+
+
 class HistOutput(FemBase):
     """
 
@@ -29,25 +69,7 @@ class HistOutput(FemBase):
 
     TYPES = HistTypes
     TYPES_INTERVAL = IntervalTypes
-
-    default_hist = [
-        "ALLAE",
-        "ALLCD",
-        "ALLDMD",
-        "ALLEE",
-        "ALLFD",
-        "ALLIE",
-        "ALLJD",
-        "ALLKE",
-        "ALLKL",
-        "ALLPD",
-        "ALLQB",
-        "ALLSD",
-        "ALLSE",
-        "ALLVD",
-        "ALLWK",
-        "ETOTAL",
-    ]
+    TYPES_DATA = HistDataTypes
 
     def __init__(
         self,
@@ -182,3 +204,8 @@ class FieldOutput(FemBase):
         if value.upper() not in FieldOutput._valid_fstep_type:
             raise ValueError(f'Field output step type "{value}" is not supported')
         self._int_type = value.upper()
+
+
+class Defaults:
+    history_output = HistOutput("default_hist", None, HistOutput.TYPES.ENERGY, HistOutput.TYPES_DATA.all)
+    field_output = FieldOutput("default_fields", int_type=HistOutput.TYPES_INTERVAL.FREQUENCY, int_value=1)

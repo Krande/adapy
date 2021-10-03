@@ -26,10 +26,10 @@ from ada.fem import (
     Mass,
     PredefinedField,
     Spring,
-    Step,
     Surface,
 )
 from ada.fem.interactions import ContactTypes
+from ada.fem.steps import Step, StepEigen, StepExplicit, StepImplicit, StepSteadyState
 from ada.fem.utils import convert_ecc_to_mpc, convert_hinges_2_couplings
 from ada.materials import Material
 from ada.sections import GeneralProperties, Section, SectionCat
@@ -51,6 +51,8 @@ _valid_aba_bcs = list(_aba_bc_map.values()) + [
     "displacement/rotation",
     "velocity/angular velocity",
 ]
+
+_step_types = Union[StepEigen, StepImplicit, StepExplicit, StepSteadyState]
 
 
 def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None):
@@ -162,7 +164,7 @@ class AbaqusWriter:
     def eval_interactions(self):
         if len(self.assembly.fem.steps) > 0:
             initial_step = self.assembly.fem.steps[0]
-            if initial_step.type == Step.TYPES.EXPLICIT:
+            if type(initial_step) is StepExplicit:
                 for interact in self.assembly.fem.interactions.values():
                     if interact.name not in initial_step.interactions.keys():
                         initial_step.add_interaction(interact)
@@ -172,7 +174,7 @@ class AbaqusWriter:
                 d.write(self.interact_str)
                 d.write("\n")
 
-    def write_step(self, step_in: Step):
+    def write_step(self, step_in: _step_types):
         step_str = AbaStep(step_in).str
         with open(self.analysis_path / "core_input_files" / f"step_{step_in.name}.inp", "w") as d:
             d.write(step_str)
@@ -223,7 +225,7 @@ class AbaqusWriter:
     def constraint_control(self):
         constraint_ctrl_on = True
         for step in self.assembly.fem.steps:
-            if step.type == Step.TYPES.EXPLICIT:
+            if type(step) == StepExplicit:
                 constraint_ctrl_on = False
         return "**" if constraint_ctrl_on is False else "*constraint controls, print=yes"
 
@@ -587,7 +589,7 @@ class AbaSection:
         rotary_str = ""
         if len(ass.fem.steps) > 0:
             initial_step = ass.fem.steps[0]
-            if initial_step.type == Step.TYPES.EXPLICIT:
+            if type(initial_step) is StepExplicit:
                 rotary_str = ", ROTARY INERTIA=ISOTROPIC"
 
         if self.section_data != "GENERAL":
@@ -738,7 +740,7 @@ class AbaConstraint:
             raise NotImplementedError(f"{self.constraint.type}")
 
 
-def step_inp_str(step: Step) -> str:
+def step_inp_str(step: _step_types) -> str:
     return f"""*INCLUDE,INPUT=core_input_files\\step_{step.name}.inp"""
 
 
@@ -803,10 +805,9 @@ def interaction_str(interaction: Interaction, fem_writer) -> str:
 
         first_line = "" if small_sliding is None else f", {small_sliding}"
 
-        if type(interaction.parent) is Step:
+        if issubclass(type(interaction.parent), Step):
             step = interaction.parent
-            assert isinstance(step, Step)
-            first_line += "" if Step.TYPES.EXPLICIT in step.type else f", type={interaction.surface_type}"
+            first_line += "" if type(step) is StepExplicit else f", type={interaction.surface_type}"
         else:
             first_line += f", type={interaction.surface_type}"
 

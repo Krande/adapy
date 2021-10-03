@@ -5,7 +5,7 @@ from common import build_test_simplestru_fem
 from ada import Assembly
 from ada.config import Settings
 from ada.core.utils import roundoff
-from ada.fem import Load, Step
+from ada.fem import Load, StepImplicit
 from ada.param_models.basic_module import make_it_complex
 
 test_folder = Settings.test_dir / "param_models"
@@ -37,7 +37,7 @@ class ParamModelsTestCase(unittest.TestCase):
         self.assertLess(abs(roundoff(cog.tot_mass) - 7854.90), tol)
         self.assertLess(abs(roundoff(cog.tot_vol) - 1.001), tol)
 
-        my_step = a.fem.add_step(Step("static", "static", total_time=1, max_incr=1, init_incr=1, nl_geom=True))
+        my_step = a.fem.add_step(StepImplicit("static", total_time=1, max_incr=1, init_incr=1, nl_geom=True))
         my_step.add_load(Load("Gravity", "gravity", -9.81))
 
         # a.to_fem("SimpleStru", fem_format="abaqus", overwrite=True)

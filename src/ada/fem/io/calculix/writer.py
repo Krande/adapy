@@ -6,10 +6,11 @@ from typing import Iterable
 from ada import Assembly
 from ada.concepts.containers import Nodes
 from ada.core.utils import NewLine, get_current_user
-from ada.fem import Bc, Elem, FemSection, FemSet, Load, Step
+from ada.fem import Bc, Elem, FemSection, FemSet, Load
 from ada.fem.containers import FemElements
 from ada.fem.io.utils import get_fem_model_from_assembly
 from ada.fem.shapes import ElemShapes
+from ada.fem.steps import StepExplicit
 from ada.sections import SectionCat as Sc
 
 from ..abaqus.writer import AbaSection
@@ -77,7 +78,7 @@ def beam_str(fem_sec: FemSection):
     rotary_str = ""
     if len(ass.fem.steps) > 0:
         initial_step = ass.fem.steps[0]
-        if initial_step.type == Step.TYPES.EXPLICIT:
+        if type(initial_step) is StepExplicit:
             rotary_str = ", ROTARY INERTIA=ISOTROPIC"
 
     if sec_str == CcxSecTypes.BOX:
@@ -342,7 +343,7 @@ def interactions_str(interaction):
     :type interaction: ada.fem.Interaction
     :return:
     """
-    from ada.fem import Step
+    from ada.fem.steps import Step
 
     if interaction.type == "SURFACE":
         adjust_par = interaction.metadata.get("adjust", None)
@@ -354,10 +355,10 @@ def interactions_str(interaction):
         if small_sliding is not None:
             stpstr += f", {small_sliding}"
 
-        if type(interaction.parent) is Step:
+        if issubclass(type(interaction.parent), Step):
             step = interaction.parent
             assert isinstance(step, Step)
-            stpstr += "" if "explicit" in step.type else f", type={interaction.surface_type}"
+            stpstr += "" if type(step) is StepExplicit else f", type={interaction.surface_type}"
         else:
             stpstr += f", type={interaction.surface_type}"
 

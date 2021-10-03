@@ -3,7 +3,7 @@ import unittest
 from common import build_test_beam_fem, example_files
 
 from ada import Assembly
-from ada.fem import FemSet, Load, Step
+from ada.fem import FemSet, Load, StepImplicit
 
 
 class TestCalculix(unittest.TestCase):
@@ -17,7 +17,7 @@ class TestCalculix(unittest.TestCase):
     def test_write_test_model(self):
         a = build_test_beam_fem("shell")
         fs = a.fem.add_set(FemSet("Eall", [el for el in a.get_by_name("MyPart").fem.elements.elements], "elset"))
-        my_step = Step("static", "static", total_time=1, max_incr=1, init_incr=1, nl_geom=True, restart_int=1)
+        my_step = StepImplicit("static", total_time=1, max_incr=1, init_incr=1, nl_geom=True, restart_int=1)
         my_step.add_load(Load("Gravity", "gravity", -9.81, fem_set=fs))
         a.fem.add_step(my_step)
 
