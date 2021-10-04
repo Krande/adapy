@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import List, Union
 
 import numpy as np
 
@@ -42,7 +42,7 @@ class Load(FemBase):
         load_type: str,
         magnitude: float,
         fem_set: FemSet = None,
-        dof: List[int] = None,
+        dof: Union[int, List[int]] = None,
         amplitude: Amplitude = None,
         follower_force=False,
         acc_vector=None,
@@ -56,16 +56,25 @@ class Load(FemBase):
         self.type = load_type
         self._magnitude = magnitude
         self._fem_set = fem_set
-        self._dof = dof
+
+        if type(dof) is int:
+            dofs = [None, None, None, None, None, None]
+            dofs[dof - 1] = 1
+            self._dof = dofs
+        else:
+            self._dof = dof
+
         self._amplitude = amplitude
         self._follower_force = follower_force
         self._acc_vector = acc_vector
         self._accr_origin = accr_origin
         self._accr_rot_axis = accr_rot_axis
         self._csys = csys
+
         if self.type == LoadTypes.FORCE:
             if self._dof is None or self._fem_set is None or self._name is None:
                 raise Exception("self._dofs and nid (Node id) and name needs to be set in order to use point loads")
+
             if len(self._dof) != 6:
                 raise Exception(
                     "You need to include all 6 dofs even though forces are not applied in all 6 dofs. "

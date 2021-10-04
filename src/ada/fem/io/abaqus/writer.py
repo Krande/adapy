@@ -29,7 +29,14 @@ from ada.fem import (
     Surface,
 )
 from ada.fem.interactions import ContactTypes
-from ada.fem.steps import Step, StepEigen, StepExplicit, StepImplicit, StepSteadyState
+from ada.fem.steps import (
+    Step,
+    StepEigen,
+    StepEigenComplex,
+    StepExplicit,
+    StepImplicit,
+    StepSteadyState,
+)
 from ada.fem.utils import convert_ecc_to_mpc, convert_hinges_2_couplings
 from ada.materials import Material
 from ada.sections import GeneralProperties, Section, SectionCat
@@ -52,19 +59,10 @@ _valid_aba_bcs = list(_aba_bc_map.values()) + [
     "velocity/angular velocity",
 ]
 
-_step_types = Union[StepEigen, StepImplicit, StepExplicit, StepSteadyState]
+_step_types = Union[StepEigen, StepImplicit, StepExplicit, StepSteadyState, StepEigenComplex]
 
 
 def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None):
-    if metadata is None:
-        metadata = dict()
-
-    if "ecc_to_mpc" not in metadata.keys():
-        metadata["ecc_to_mpc"] = True
-
-    if "hinges_to_coupling" not in metadata.keys():
-        metadata["hinges_to_coupling"] = True
-
     a = AbaqusWriter(assembly)
     a.write(name, analysis_dir, metadata)
     print(f'Created an Abaqus input deck at "{a.analysis_path}"')
@@ -89,14 +87,13 @@ class AbaqusWriter:
 
         self.analysis_path = analysis_dir
 
-        self.assembly.metadata["info"] = metadata
-
         for part in self.assembly.get_all_subparts():
             if len(part.fem.elements) + len(part.fem.connectors) == 0:
                 continue
-
-            convert_hinges_2_couplings(part.fem)
-            convert_ecc_to_mpc(part.fem)
+            if self.assembly.convert_options.hinges_to_coupling is True:
+                convert_hinges_2_couplings(part.fem)
+            if self.assembly.convert_options.ecc_to_mpc is True:
+                convert_ecc_to_mpc(part.fem)
 
             self.write_part_bulk(part)
 
@@ -194,13 +191,7 @@ class AbaqusWriter:
             with open(bulk_file, "w") as d:
                 d.write(fempart.bulk_str)
 
-    def inst_inp_str(self, part: Part):
-        """
-
-        :param part:
-        :type part: ada.Part
-        :return: str
-        """
+    def inst_inp_str(self, part: Part) -> str:
         if part.fem.initial_state is not None:
             import shutil
 
@@ -507,23 +498,28 @@ class AbaSection:
         if "section_type" in self.fem_sec.metadata.keys():
             return self.fem_sec.metadata["section_type"]
         sec_type = self.fem_sec.section.type
-        if SectionCat.is_circular_profile(sec_type):
-            return "CIRC"
-        elif SectionCat.is_i_profile(sec_type):
-            return "I"
-        elif SectionCat.is_box_profile(sec_type):
-            return "BOX"
-        elif SectionCat.is_general(sec_type):
-            return "GENERAL"
-        elif SectionCat.is_tubular_profile(sec_type):
-            return "PIPE"
-        elif SectionCat.is_angular(sec_type):
-            return "L"
-        elif SectionCat.is_channel_profile(sec_type):
-            logging.error(f'Profile type "{sec_type}" is not supported by Abaqus. Using a General Section instead')
-            return "GENERAL"
-        else:
+        from ada.sections.categories import BaseTypes
+
+        bt = BaseTypes
+        base_type = SectionCat.get_shape_type(self.fem_sec.section)
+        sec_map = {
+            bt.CIRCULAR: "CIRC",
+            bt.IPROFILE: "I",
+            bt.BOX: "BOX",
+            bt.GENERAL: "GENERAL",
+            bt.TUBULAR: "PIPE",
+            bt.ANGULAR: "L",
+            bt.CHANNEL: "GENERAL",
+            bt.FLATBAR: "RECT",
+        }
+        sec_str = sec_map.get(base_type, None)
+        if sec_str is None:
             raise Exception(f'Section type "{sec_type}" is not added to Abaqus beam export yet')
+
+        if base_type in [bt.CHANNEL]:
+            logging.error(f'Profile type "{sec_type}" is not supported by Abaqus. Using a General Section instead')
+
+        return sec_str
 
     @property
     def props(self):
@@ -538,9 +534,11 @@ class AbaSection:
             return self.fem_sec.metadata["line1"] + f"\n{n1}"
 
         sec = self.fem_sec.section
-        if self.section_data == "CIRC":
+        sec_data = self.section_data
+
+        if sec_data == "CIRC":
             return f"{sec.r}\n {n1}"
-        elif self.section_data == "I":
+        elif sec_data == "I":
             if sec.t_fbtn + sec.t_w > min(sec.w_top, sec.w_btn):
                 new_width = sec.t_fbtn + sec.t_w + 5e-3
                 if sec.w_btn == min(sec.w_top, sec.w_btn):
@@ -549,23 +547,22 @@ class AbaSection:
                     sec.w_top = new_width
                 logging.error(f"For {self.fem_sec.name}: t_fbtn + t_w > min(w_top, w_btn). {log_fin}")
             return f"{sec.h / 2}, {sec.h}, {sec.w_btn}, {sec.w_top}, {sec.t_fbtn}, {sec.t_ftop}, {sec.t_w}\n {n1}"
-        elif self.section_data == "BOX":
+        elif sec_data == "BOX":
             if sec.t_w * 2 > min(sec.w_top, sec.w_btn):
                 raise ValueError("Web thickness cannot be larger than section width")
             return f"{sec.w_top}, {sec.h}, {sec.t_w}, {sec.t_ftop}, {sec.t_w}, {sec.t_fbtn}\n {n1}"
-        elif self.section_data == "GENERAL":
+        elif sec_data == "GENERAL":
             mat = self.fem_sec.material.model
             gp = eval_general_properties(sec)
             return f"{gp.Ax}, {gp.Iy}, {gp.Iyz}, {gp.Iz}, {gp.Ix}\n {n1}\n {mat.E:.3E}, ,{mat.alpha:.2E}"
-        elif self.section_data == "PIPE":
-            return f"{self.fem_sec.section.r}, {self.fem_sec.section.wt}\n {n1}"
-        elif self.section_data == "L":
-            return (
-                f"{self.fem_sec.section.w_btn}, {self.fem_sec.section.h}, {self.fem_sec.section.t_fbtn}, "
-                f"{self.fem_sec.section.t_w}\n {n1}"
-            )
+        elif sec_data == "PIPE":
+            return f"{sec.r}, {sec.wt}\n {n1}"
+        elif sec_data == "L":
+            return f"{sec.w_btn}, {sec.h}, {sec.t_fbtn}, {sec.t_w}\n {n1}"
+        elif sec_data == "RECT":
+            return f"{sec.w_btn}, {sec.h}\n {n1}"
         else:
-            raise NotImplementedError(f'section type "{self.fem_sec.section.type}" is not added to Abaqus export yet')
+            raise NotImplementedError(f'section type "{sec.type}" is not added to Abaqus export yet')
 
     @property
     def beam_str(self):
@@ -591,11 +588,11 @@ class AbaSection:
             initial_step = ass.fem.steps[0]
             if type(initial_step) is StepExplicit:
                 rotary_str = ", ROTARY INERTIA=ISOTROPIC"
-
-        if self.section_data != "GENERAL":
+        sec_data = self.section_data
+        if sec_data != "GENERAL":
             return (
                 f"{top_line}\n*Beam Section, elset={self.fem_sec.elset.name}, material={self.fem_sec.material.name}, "
-                f"temperature={self._temp_str}, section={self.section_data}{rotary_str}\n{self.props}"
+                f"temperature={self._temp_str}, section={sec_data}{rotary_str}\n{self.props}"
             )
         else:
             return f"""{top_line}
@@ -1068,77 +1065,6 @@ def mass_str(mass: Mass) -> str:
         raise ValueError(f'Mass type "{mass.type}" is not supported by Abaqus')
 
 
-def load_str(load: Load) -> str:
-    if load.type == Load.TYPES.GRAVITY:
-        dof = [0, 0, 1] if load.dof is None else load.dof
-        dof_str = ", ".join([str(x) for x in dof[:3]])
-        return f"""** Name: gravity   Type: Gravity\n*Dload\n, GRAV, {load.magnitude}, {dof_str}"""
-    elif load.type == Load.TYPES.FORCE:
-        lstr = ""
-        bc_text_f = ""
-        bc_text_m = ""
-
-        fo = 0
-        instance_name = get_instance_name(load.fem_set, load)
-        for i, bc in enumerate(load.dof[:3]):
-            if bc == 0.0 or bc is None:
-                continue
-            bc_text_f += f" {instance_name}, {i + 1}, {bc}\n"
-            fo += 1
-
-        mom = 0
-        for i, bc in enumerate(load.dof[3:]):
-            if bc == 0.0 or bc is None:
-                continue
-            mom += 1
-            bc_text_m += f" {instance_name}, {i+4}, {bc}\n"
-
-        lstr += "\n" if "\n" not in lstr[-2:] != "" else ""
-        follower_str = "" if load.follower_force is False else ", follower"
-        follower_str += ", amplitude={}".format(load.amplitude) if load.amplitude is not None else ""
-        if fo != 0:
-            lstr += "** Name: {}   Type: Concentrated force\n*Cload{}\n{}".format(
-                load.name + "_F", follower_str, bc_text_f
-            )
-        if mom != 0:
-            lstr += "** Name: {}   Type: Moment\n*Cload{}\n{}".format(load.name + "_M", follower_str, bc_text_m)
-        return lstr.strip()
-    else:
-        raise ValueError("Unsupported load type", load.type)
-
-
-def get_instance_name(obj, fem_writer: Union[Step, Load, AbaqusWriter, AbaConstraint, AbaStep, PredefinedField]):
-    """
-
-    :param obj:
-    :param fem_writer:
-    :return:
-    """
-    if type(obj) is Node:
-        obj_ref = obj.id
-        if type(obj.parent.parent) is Assembly:
-            assembly_level = True
-        else:
-            assembly_level = False
-    else:
-        obj_ref = obj.name
-        assembly_level = on_assembly_level(obj)
-
-    if fem_writer in (Step, Load) and assembly_level is False:
-        return f"{obj.parent.instance_name}.{obj_ref}"
-    elif issubclass(type(fem_writer), Step) and assembly_level is False:
-        return f"{obj.parent.instance_name}.{obj_ref}"
-    elif type(obj.parent.parent) != Assembly and type(fem_writer) in (AbaqusWriter, AbaConstraint, AbaStep):
-        return f"{obj.parent.instance_name}.{obj_ref}"
-    else:
-        return str(obj_ref)
-
-
-def on_assembly_level(obj: FEM):
-    # TODO: This is not really working correctly. This must be fixed
-    return True if type(obj.parent.parent) is Assembly else False
-
-
 def aba_set_str(aba_set: FemSet, fem_writer=None):
     if len(aba_set.members) == 0:
         if "generate" in aba_set.metadata.keys():
@@ -1304,3 +1230,29 @@ def spring_str(spring: Spring) -> str:
         return _str.rstrip()
     else:
         raise ValueError(f'Currently unsupported spring type "{spring.type}"')
+
+
+def get_instance_name(obj, fem_writer: Union[Step, Load, AbaqusWriter, AbaConstraint, AbaStep, PredefinedField]) -> str:
+    if type(obj) is Node:
+        obj_ref = obj.id
+        if type(obj.parent.parent) is Assembly:
+            assembly_level = True
+        else:
+            assembly_level = False
+    else:
+        obj_ref = obj.name
+        assembly_level = on_assembly_level(obj)
+
+    if fem_writer is Load and assembly_level is False:
+        return f"{obj.parent.instance_name}.{obj_ref}"
+    elif issubclass(type(fem_writer), Step) and assembly_level is False:
+        return f"{obj.parent.instance_name}.{obj_ref}"
+    elif type(obj.parent.parent) != Assembly and type(fem_writer) in (AbaqusWriter, AbaConstraint, AbaStep):
+        return f"{obj.parent.instance_name}.{obj_ref}"
+    else:
+        return str(obj_ref)
+
+
+def on_assembly_level(obj: FEM):
+    # TODO: This is not really working correctly. This must be fixed
+    return True if type(obj.parent.parent) is Assembly else False

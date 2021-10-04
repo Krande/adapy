@@ -48,9 +48,6 @@ class GeneralProperties:
         self._Cz = cz
         self._parent = parent
 
-    def edit(self, parent):
-        self._parent = parent
-
     def _calc_box(self):
         """Calculate box cross section properties"""
 
@@ -308,7 +305,7 @@ class GeneralProperties:
         base_type = SectionCat.get_shape_type(self.parent)
 
         if base_type == bt.GENERAL:
-            logging.error("Calculation of general section")
+            logging.error("Re-Calculating a general section")
             return
 
         calc_func = section_map.get(base_type, None)

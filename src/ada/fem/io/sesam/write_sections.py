@@ -90,7 +90,10 @@ def create_line_section(fem_sec: FemSection, sec_names: List[str], sec_ids: List
         ],
     )
     sec_str = write_bm_section(sec, secid)
-    tdsconc_str, sconcept_str, scon_mesh = create_sconcept_str(fem_sec)
+    if fem_sec.refs is not None:
+        tdsconc_str, sconcept_str, scon_mesh = create_sconcept_str(fem_sec)
+    else:
+        tdsconc_str, sconcept_str, scon_mesh = "", "", ""
 
     return BmSectionStr(
         sec_str=sec_str, names_str=names_str, tdsconc_str=tdsconc_str, sconcept_str=sconcept_str, scon_mesh=scon_mesh
@@ -104,6 +107,7 @@ def create_solid_section(fem_sec: FemSection):
 def create_sconcept_str(fem_sec: FemSection) -> Tuple[str, str, str]:
     sconcept_str = ""
     # Give concept relationship based on inputted values
+
     beams = [x for x in fem_sec.refs if type(x) is Beam]
     if len(beams) != 1:
         raise ValueError("A FemSection cannot be sourced from multiple beams")

@@ -887,6 +887,14 @@ class Counter:
     def set_i(self, i):
         self.i = i
 
+    @property
+    def prefix(self):
+        return self._prefix
+
+    @prefix.setter
+    def prefix(self, value):
+        self._prefix = value
+
     def __iter__(self):
         return self
 

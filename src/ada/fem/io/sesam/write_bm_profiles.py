@@ -75,8 +75,6 @@ def flatbar(sec: Section, sec_id) -> str:
 
 
 def write_bm_section(sec: Section, sec_id: int) -> str:
-    sec.properties.calculate()
-
     bt = SectionCat.BASETYPES
     base_type = SectionCat.get_shape_type(sec)
     sec_map = {
@@ -88,11 +86,18 @@ def write_bm_section(sec: Section, sec_id: int) -> str:
         bt.FLATBAR: flatbar,
     }
 
+    if base_type != bt.GENERAL:
+        sec.properties.calculate()
+
+    sec_str = general_beam(sec, sec_id)
+
     sec_str_writer = sec_map.get(base_type, None)
+    if base_type == bt.GENERAL:
+        return sec_str
 
     if sec_str_writer is None:
         logging.error(f'Unable to convert "{sec}". This will be exported as general section only')
 
-    sec_str = general_beam(sec, sec_id)
+    sec_str += sec_str_writer(sec, sec_id)
 
-    return sec_str + sec_str_writer(sec, sec_id)
+    return sec_str

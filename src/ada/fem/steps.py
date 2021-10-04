@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import List
+from dataclasses import dataclass
+from typing import Dict, List
 
 from .common import FemBase
 from .constraints import Bc
@@ -16,6 +17,7 @@ class _StepTypes:
     STEADY_STATE = "steady_state"
     DYNAMIC = "dynamic"
     EXPLICIT = "explicit"
+
     all = [STATIC, EIGEN, STEADY_STATE, DYNAMIC, COMPLEX_EIG, EXPLICIT]
 
 
@@ -25,6 +27,13 @@ class _DynStepType:
     all = [QUASI_STATIC, TRANSIENT_FIDELITY]
 
 
+@dataclass
+class SolverOptions:
+    """A class for FE solver specific options. Each solver will inherit this base class."""
+
+    solver: str = None
+
+
 class Step(FemBase):
     """
     A FEM analysis step object
@@ -32,9 +41,6 @@ class Step(FemBase):
     :param name: Name of step
     :param step_type: Step type: | 'static' | 'eigenfrequency' |  'response_analysis' | 'dynamic' | 'complex_eig' |
     :param nl_geom: Include or ignore the nonlinear effects of large deformations and displacements (default=False)
-    :param unsymm: Unsymmetric Matrix storage (default=False)
-    :param stabilize: Default=None.
-    :param init_accel_calc: Initial acceleration calculation
     """
 
     TYPES = _StepTypes
@@ -45,13 +51,9 @@ class Step(FemBase):
         step_type,
         nl_geom=False,
         total_time=None,
-        unsymm=False,
-        stabilize=None,
-        init_accel_calc=True,
-        restart_int=None,
-        visco=None,
+        solver_options=None,
+        use_default_outputs=True,
         metadata=None,
-        use_default_output_vars=True,
         parent=None,
     ):
         super().__init__(name, metadata, parent)
@@ -59,21 +61,16 @@ class Step(FemBase):
             raise ValueError(f'Step type "{step_type}" is currently not supported')
 
         self._total_time = total_time
-        self._restart_int = restart_int
         self._step_type = step_type
         self._nl_geom = nl_geom
-        self._unsymm = unsymm
-        self._stabilize = stabilize
-        self._init_accel_calc = init_accel_calc
-        self._visco = visco
-        # Not-initialized parameters
+        self._solver_options = solver_options
         self._bcs = dict()
         self._loads = []
         self._interactions = dict()
         self._hist_outputs = []
         self._field_outputs = []
 
-        if use_default_output_vars:
+        if use_default_outputs:
             hist, field = self.get_default_output_variables()
             self._hist_outputs += [hist]
             self._field_outputs += [field]
@@ -116,37 +113,24 @@ class Step(FemBase):
         return self._nl_geom
 
     @property
+    def solver_options(self):
+        return self._solver_options
+
+    @solver_options.setter
+    def solver_options(self, value):
+        self._solver_options = value
+
+    @property
     def total_time(self):
         return self._total_time
 
     @property
-    def unsymm(self):
-        return self._unsymm
-
-    @property
-    def stabilize(self):
-        return self._stabilize
-
-    @property
-    def init_accel_calc(self):
-        return self._init_accel_calc
-
-    @property
-    def visco(self):
-        return self._visco
-
-    @property
-    def interactions(self):
+    def interactions(self) -> Dict[str, Interaction]:
         return self._interactions
 
     @property
-    def bcs(self):
+    def bcs(self) -> Dict[str, Bc]:
         return self._bcs
-
-    @property
-    def restart_int(self):
-        """Restart request intervals"""
-        return self._restart_int
 
     @property
     def loads(self) -> List[Load]:
@@ -161,7 +145,7 @@ class Step(FemBase):
         return self._hist_outputs
 
     def __repr__(self):
-        return f"Step({self.name}, type={self.type}, nl_geom={self.nl_geom})"
+        return f"{self.__class__.name}({self.name}, type={self.type}, nl_geom={self.nl_geom})"
 
 
 class StepImplicit(Step):
@@ -232,14 +216,24 @@ class StepExplicit(Step):
 
 
 class StepEigen(Step):
-    def __init__(self, name, num_eigen_modes, eig_type=Step.TYPES.EIGEN, **kwargs):
-        super(StepEigen, self).__init__(name, eig_type, **kwargs)
+    def __init__(self, name, num_eigen_modes, **kwargs):
+        super(StepEigen, self).__init__(name, Step.TYPES.EIGEN, **kwargs)
         self._num_eigen_modes = num_eigen_modes
 
     @property
     def num_eigen_modes(self):
         """Number of requested Eigen modes"""
         return self._num_eigen_modes
+
+
+class StepEigenComplex(StepEigen):
+    def __init__(self, name, num_eigen_modes, friction_damping=False, **kwargs):
+        super(StepEigenComplex, self).__init__(name, num_eigen_modes, **kwargs)
+        self._friction_damping = friction_damping
+
+    @property
+    def friction_damping(self):
+        return self._friction_damping
 
 
 class StepSteadyState(Step):

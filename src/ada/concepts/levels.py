@@ -59,6 +59,12 @@ from ada.ifc.utils import create_guid
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 
 
+@dataclass
+class _ConvertOptions:
+    ecc_to_mpc: bool = True
+    hinges_to_coupling: bool = True
+
+
 class Part(BackendGeom):
     """A Part superclass design to host all relevant information for cad and FEM modelling."""
 
@@ -665,7 +671,7 @@ class Assembly(Part):
         self._user = user
 
         self._ifc_file = assembly_to_ifc_file(self)
-
+        self._convert_options = _ConvertOptions()
         self._ifc_sections = None
         self._ifc_materials = None
         self._source_ifc_files = dict()
@@ -1141,6 +1147,10 @@ class Assembly(Part):
     @property
     def user(self) -> User:
         return self._user
+
+    @property
+    def convert_options(self) -> _ConvertOptions:
+        return self._convert_options
 
     def __repr__(self):
         nbms = len([bm for p in self.get_all_subparts() for bm in p.beams]) + len(self.beams)

@@ -14,18 +14,18 @@ class SectionCat:
 
     BASETYPES = BaseTypes
 
-    box = ["BG", "CG"]
+    box = [BASETYPES.BOX, "BG", "CG"]
     shs = ["SHS"]
     rhs = ["RHS", "URHS"]
-    tubular = ["TUB", "PIPE", "OD"]
+    tubular = [BASETYPES.TUBULAR, "PIPE", "OD"]
     iprofiles = ["HEA", "HEB", "HEM", "IPE"]
-    igirders = ["IG"]
-    tprofiles = ["TG"]
-    angular = ["HP"]
-    channels = ["UNP"]
-    circular = ["CIRC"]
-    general = ["GENBEAM"]
-    flatbar = ["FB"]
+    igirders = [BASETYPES.IPROFILE, "IG"]
+    tprofiles = [BASETYPES.TPROFILE, "TG"]
+    angular = [BASETYPES.ANGULAR]
+    channels = [BASETYPES.CHANNEL]
+    circular = [BASETYPES.CIRCULAR]
+    general = [BASETYPES.GENERAL, "GENBEAM"]
+    flatbar = [BASETYPES.FLATBAR]
 
     @classmethod
     def isbeam(cls, bmtype):

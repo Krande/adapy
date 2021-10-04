@@ -8,11 +8,13 @@ from ada.base.non_phyical_objects import Backend
 from ada.concepts.curves import CurvePoly
 from ada.config import Settings
 
-from .categories import SectionCat
+from .categories import BaseTypes, SectionCat
 from .properties import GeneralProperties
 
 
 class Section(Backend):
+    TYPES = BaseTypes
+
     def __init__(
         self,
         name,
@@ -75,7 +77,7 @@ class Section(Backend):
             self._type = "poly"
 
         self._genprops = GeneralProperties() if genprops is None else genprops
-        self._genprops.edit(parent=self)
+        self._genprops.parent = self
 
     def __eq__(self, other):
         for key, val in self.__dict__.items():
