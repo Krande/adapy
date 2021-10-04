@@ -76,10 +76,13 @@ def get_beam_end_nodes(bm: Beam, end=1, tol=1e-3) -> List[Node]:
     xv = np.array(bm.xvec)
     yv = np.array(bm.yvec)
     zv = np.array(bm.up)
-
-    n1_min = bm.n1.p - xv * tol - (h / 2 + tol) * zv - (w / 2 + tol) * yv
-    n1_max = bm.n1.p + xv * tol + (h / 2 + tol) * zv + (w / 2 + tol) * yv
-    members = [e for e in nodes.get_by_volume(n1_min, n1_max)]
+    if end == 1:
+        p = bm.n1.p
+    else:
+        p = bm.n2.p
+    n_min = p - xv * tol - (h / 2 + tol) * zv - (w / 2 + tol) * yv
+    n_max = p + xv * tol + (h / 2 + tol) * zv + (w / 2 + tol) * yv
+    members = [e for e in nodes.get_by_volume(n_min, n_max)]
     return members
 
 

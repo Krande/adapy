@@ -102,7 +102,7 @@ class Load(FemBase):
         if self.type not in (LoadTypes.FORCE,):
             return None
 
-        return [x * self.magnitude for x in self.dof]
+        return [x * self.magnitude if x is not None else 0.0 for x in self.dof]
 
     @property
     def forces_global(self):

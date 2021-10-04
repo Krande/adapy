@@ -6,7 +6,6 @@ import numpy as np
 
 from ada.concepts.levels import FEM, Part
 from ada.core.utils import Counter, get_current_user
-from ada.fem.loads import Load
 
 from .templates import top_level_fem_str
 from .write_steps import write_sestra_inp
@@ -15,6 +14,7 @@ from .write_utils import write_ff
 
 def to_fem(assembly, name, analysis_dir=None, metadata=None):
     from .write_elements import elem_str
+    from .write_loads import loads_str
     from .write_sections import sections_str
 
     if metadata is None:
@@ -58,7 +58,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None):
         d.write(bc_str(part.fem) + bc_str(assembly.fem))
         d.write(hinges_str(part.fem))
         d.write(elem_str(part.fem, thick_map))
-        d.write(loads_str(part.fem))
+        d.write(loads_str(assembly.fem) + loads_str(part.fem))
         d.write("IEND                0.00            0.00            0.00            0.00")
 
     print(f'Created an Sesam input deck at "{analysis_dir}"')
@@ -176,19 +176,4 @@ def univec_str(fem: FEM) -> str:
         out_str += res_str
         el.metadata["transno"] = transno
 
-    return out_str
-
-
-def loads_str(fem: FEM) -> str:
-    loads = fem.steps[0].loads if len(fem.steps) > 0 else []
-    out_str = ""
-    for i, l in enumerate(loads):
-        assert isinstance(l, Load)
-        lid = i + 1
-        out_str += write_ff("TDLOAD", [(4, lid, 100 + len(l.name), 0), (l.name,)])
-        if l.type in ["acc", "grav"]:
-            out_str += write_ff(
-                "BGRAV",
-                [(lid, 0, 0, 0), tuple([x * l.magnitude for x in l.acc_vector])],
-            )
     return out_str
