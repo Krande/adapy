@@ -5,8 +5,9 @@ from typing import Dict, List
 
 from .common import FemBase
 from .constraints import Bc
+from .formulations.lines import BeamFormulations
 from .interactions import Interaction
-from .loads import Load
+from .loads import Load, LoadCase
 from .outputs import FieldOutput, HistOutput
 
 
@@ -32,6 +33,7 @@ class SolverOptions:
     """A class for FE solver specific options. Each solver will inherit this base class."""
 
     solver: str = None
+    beam_formulation: str = BeamFormulations.EULER_BERNOULLI
 
 
 class Step(FemBase):
@@ -64,8 +66,9 @@ class Step(FemBase):
         self._step_type = step_type
         self._nl_geom = nl_geom
         self._solver_options = solver_options
-        self._bcs = dict()
-        self._loads = []
+        self._bcs: Dict[str, Bc] = dict()
+        self._loads: List[Load] = []
+        self._load_cases = dict()
         self._interactions = dict()
         self._hist_outputs = []
         self._field_outputs = []
@@ -82,6 +85,14 @@ class Step(FemBase):
 
     def add_load(self, load: Load):
         self._loads.append(load)
+
+    def add_loadcase(self, load_case: LoadCase):
+        for load in load_case.loads:
+            if load not in self.loads:
+                self.loads.append(load)
+                load.parent = self
+        load_case.parent = self
+        self._load_cases[load_case.name] = load_case
 
     def add_bc(self, bc: Bc):
         bc.parent = self
@@ -135,6 +146,10 @@ class Step(FemBase):
     @property
     def loads(self) -> List[Load]:
         return self._loads
+
+    @property
+    def load_cases(self) -> Dict[str, LoadCase]:
+        return self._load_cases
 
     @property
     def field_outputs(self) -> List[FieldOutput]:

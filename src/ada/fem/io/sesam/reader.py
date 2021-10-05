@@ -1,6 +1,6 @@
 import os
 from itertools import chain
-from typing import List
+from typing import Dict
 
 import numpy as np
 
@@ -8,7 +8,7 @@ from ada.concepts.containers import Materials, Nodes
 from ada.concepts.levels import FEM, Assembly, Part
 from ada.concepts.points import Node
 from ada.core.utils import Counter, roundoff
-from ada.fem import Bc, Constraint, Elem, FemSet, Mass, Spring
+from ada.fem import Elem, FemSet, Mass, Spring
 from ada.fem.containers import FemElements
 from ada.fem.io.utils import str_to_int
 from ada.materials import Material
@@ -33,6 +33,7 @@ def read_fem(assembly: Assembly, fem_file: os.PathLike, fem_name: str = None):
 
 def read_sesam_fem(bulk_str, part_name) -> Part:
     """Reads the content string of a Sesam input file and converts it to FEM objects"""
+    from .read_constraints import get_bcs, get_constraints
     from .read_sections import get_sections
 
     part = Part(part_name)
@@ -44,7 +45,7 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
     part._materials = get_materials(bulk_str, part)
     fem.sets = part.fem.sets + get_sets(bulk_str, fem)
     fem.sections = get_sections(bulk_str, fem)
-    # part.fem._masses = get_mass(bulk_str, part.fem)
+    fem.masses = get_mass(bulk_str, part.fem)
     fem.constraints += get_constraints(bulk_str, fem)
     fem.springs = get_springs(bulk_str, fem)
     fem.bcs += get_bcs(bulk_str, fem)
@@ -101,6 +102,8 @@ def get_elements(bulk_str: str, fem: FEM) -> FemElements:
         ]
         eltyp = d["eltyp"]
         el_type = sesam_eltype_2_general(eltyp)
+        if el_type == "MASS":
+            return None
         metadata = dict(eltyad=str_to_int(d["eltyad"]), eltyp=eltyp)
         return Elem(
             str_to_int(d["elno"]),
@@ -111,7 +114,9 @@ def get_elements(bulk_str: str, fem: FEM) -> FemElements:
             metadata=metadata,
         )
 
-    return FemElements(list(map(grab_elements, cards.re_gelmnt.finditer(bulk_str))), fem_obj=fem)
+    return FemElements(
+        filter(lambda x: x is not None, map(grab_elements, cards.re_gelmnt.finditer(bulk_str))), fem_obj=fem
+    )
 
 
 def get_materials(bulk_str, part) -> Materials:
@@ -230,15 +235,7 @@ def get_sets(bulk_str, parent):
     return FemSets(list(map(get_femsets, cards.re_setnames.finditer(bulk_str))), fem_obj=parent)
 
 
-def get_mass(bulk_str, fem):
-    """
-
-    :param bulk_str:
-    :param fem:
-    :type fem: ada.fem.FEM
-    :return:
-    """
-
+def get_mass(bulk_str: str, fem: FEM) -> Dict[str, Mass]:
     def checkEqual2(iterator):
         return len(set(iterator)) <= 1
 
@@ -256,40 +253,16 @@ def get_mass(bulk_str, fem):
         ]
         masses = [m for m in mass_in if m != 0.0]
         if checkEqual2(masses):
-            mass_type = None
+            mass_type = Mass.PTYPES.ISOTROPIC
             masses = [masses[0]] if len(masses) > 0 else [0.0]
         else:
-            mass_type = "anisotropic"
+            mass_type = Mass.PTYPES.ANISOTROPIC
+
         no = fem.nodes.from_id(nodeno)
-        fem_set = FemSet(f"m{nodeno}", [], "elset", metadata=dict(internal=True), parent=fem)
-        mass = Mass(f"m{nodeno}", fem_set, masses, "mass", ptype=mass_type, parent=fem)
-        elem = Elem(no.id, [no], "mass", fem_set, mass_props=mass, parent=fem)
-        fem.elements.add(elem)
-        fem_set.add_members([elem])
-        fem.sets.add(fem_set)
+        fem_set = fem.sets.add(FemSet(f"m{nodeno}", [no], FemSet.TYPES.NSET, parent=fem))
         return Mass(f"m{nodeno}", fem_set, masses, "mass", ptype=mass_type, parent=fem)
 
     return {m.name: m for m in map(grab_mass, cards.re_bnmass.finditer(bulk_str))}
-
-
-def get_constraints(bulk_str, fem: FEM) -> List[Constraint]:
-    def grab_constraint(master, data):
-        m = str_to_int(master)
-        m_set = FemSet(f"co{m}_m", [fem.nodes.from_id(m)], "nset")
-        slaves = []
-        for d in data:
-            s = str_to_int(d["slave"])
-            slaves.append(fem.nodes.from_id(s))
-        s_set = FemSet(f"co{m}_m", slaves, "nset")
-        fem.add_set(m_set)
-        fem.add_set(s_set)
-        return Constraint(f"co{m}", "coupling", m_set, s_set, parent=fem)
-
-    con_map = [m.groupdict() for m in cards.re_bldep.finditer(bulk_str)]
-    con_map.sort(key=lambda x: x["master"])
-    from itertools import groupby
-
-    return [grab_constraint(m, d) for m, d in groupby(con_map, key=lambda x: x["master"])]
 
 
 def get_springs(bulk_str, fem: FEM):
@@ -332,25 +305,3 @@ def get_springs(bulk_str, fem: FEM):
         return Spring(spr_name, matno, "SPRING1", n1=n1, stiff=X, parent=fem)
 
     return {c.name: c for c in map(grab_grspring, cards.re_mgsprng.finditer(bulk_str))}
-
-
-def get_bcs(bulk_str, fem: FEM) -> List[Bc]:
-    def grab_bc(match) -> Bc:
-        d = match.groupdict()
-        node = fem.nodes.from_id(str_to_int(d["nodeno"]))
-        assert isinstance(node, Node)
-
-        fem_set = FemSet(f"bc{node.id}_set", [node], "nset")
-        fem.sets.add(fem_set)
-        dofs = []
-        for i, c in enumerate(d["content"].replace("\n", "").split()):
-            bc_sestype = str_to_int(c.strip())
-            if bc_sestype in [0, 4]:
-                continue
-            dofs.append(i + 1)
-        bc = Bc(f"bc{node.id}", fem_set, dofs, parent=fem)
-        node.bc = bc
-
-        return bc
-
-    return list(map(grab_bc, cards.re_bnbcd.finditer(bulk_str)))

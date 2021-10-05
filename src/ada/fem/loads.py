@@ -148,21 +148,24 @@ class Load(FemBase):
 
         if self._acc_vector is not None:
             return self._acc_vector
+
+        dofs = [x for x in self.dof if x is not None]
+        if len(dofs) != 1:
+            raise ValueError(dir_error)
+
+        acc_magnitude = dofs[0]
+        acc_dir = int(self.dof.index(acc_magnitude) + 1)
+        if 1 > acc_dir > 3:
+            raise ValueError(f"Acceleration vector works only on the translational DOFs. DOF={acc_dir} was passed in")
+
+        if acc_dir == 1:
+            dvec = 1, 0, 0
+        elif acc_dir == 2:
+            dvec = 0, 1, 0
         else:
-            if len(self._dof) != 1:
-                raise ValueError(dir_error)
-            acc_dir = self._dof[0]
-            if 1 > acc_dir > 3:
-                raise ValueError(dir_error)
+            dvec = 0, 0, 1
 
-            if acc_dir == 1:
-                dvec = 1, 0, 0
-            elif acc_dir == 2:
-                dvec = 0, 1, 0
-            else:
-                dvec = 0, 0, 1
-
-            return tuple([float(self._magnitude * d) if d != 0 else 0.0 for d in dvec])
+        return tuple([float(self._magnitude * d) if d != 0 else 0.0 for d in dvec])
 
     @property
     def acc_rot_origin(self):

@@ -32,6 +32,12 @@ def from_ifc(ifc_file: Union[str, pathlib.Path]) -> Assembly:
     return a
 
 
+def from_step(step_file: Union[str, pathlib.Path], source_units="m", **kwargs) -> Assembly:
+    a = Assembly()
+    a.read_step_file(step_file, source_units=source_units, **kwargs)
+    return a
+
+
 def from_fem(
     fem_file: Union[str, list, pathlib.Path],
     fem_format: Union[str, list] = None,

@@ -26,10 +26,16 @@ def write_ff(flag: str, data):
 
 def format_data(d):
     if type(d) in (np.float64, float, int, np.uint64, np.int32) and d >= 0:
+        d = make_zero(d)
         return f"  {d:<14.8E}"
     elif type(d) in (np.float64, float, int, np.uint64, np.int32) and d < 0:
+        d = make_zero(d)
         return f" {d:<15.8E}"
     elif type(d) is str:
         return d
     else:
         raise ValueError(f"Unknown input {type(d)} {d}")
+
+
+def make_zero(d):
+    return d if abs(d) != 0.0 else 0.0

@@ -44,8 +44,8 @@ def get_sections(bulk_str, fem: FEM) -> FemSections:
 
     list_of_sections = chain(
         (get_isection(m, sect_names, fem) for m in cards.re_giorh.finditer(bulk_str)),
-        (get_box_sections(m, sect_names, fem) for m in cards.re_gbox.finditer(bulk_str)),
-        (get_gpipe(m, sect_names, fem) for m in cards.re_gpipe.finditer(bulk_str)),
+        (get_box_section(m, sect_names, fem) for m in cards.re_gbox.finditer(bulk_str)),
+        (get_tubular_section(m, sect_names, fem) for m in cards.re_gpipe.finditer(bulk_str)),
         (get_flatbar(m, sect_names, fem) for m in cards.re_gbarm.finditer(bulk_str)),
     )
 
@@ -83,7 +83,7 @@ def get_isection(match, sect_names, fem) -> Section:
     )
 
 
-def get_box_sections(match, sect_names, fem) -> Section:
+def get_box_section(match, sect_names, fem) -> Section:
     d = match.groupdict()
     sec_id = str_to_int(d["geono"])
     return Section(
@@ -146,7 +146,7 @@ def add_general_sections(match, fem) -> None:
         fem.parent.sections.add(sec)
 
 
-def get_gpipe(match, sect_names, fem) -> Section:
+def get_tubular_section(match, sect_names, fem) -> Section:
     d = match.groupdict()
     sec_id = str_to_int(d["geono"])
     if sec_id not in sect_names:

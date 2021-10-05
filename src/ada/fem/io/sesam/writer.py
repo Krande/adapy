@@ -13,6 +13,7 @@ from .write_utils import write_ff
 
 
 def to_fem(assembly, name, analysis_dir=None, metadata=None):
+    from .write_constraints import constraint_str
     from .write_elements import elem_str
     from .write_loads import loads_str
     from .write_sections import sections_str
@@ -56,6 +57,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None):
         d.write(nodes_str(part.fem))
         d.write(mass_str(part.fem))
         d.write(bc_str(part.fem) + bc_str(assembly.fem))
+        d.write(constraint_str(part.fem) + constraint_str(assembly.fem))
         d.write(hinges_str(part.fem))
         d.write(elem_str(part.fem, thick_map))
         d.write(loads_str(assembly.fem) + loads_str(part.fem))

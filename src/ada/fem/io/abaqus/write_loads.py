@@ -2,7 +2,11 @@ from ada.fem import Load
 
 
 def load_str(load: Load) -> str:
-    load_map = {Load.TYPES.GRAVITY: gravity_load_str, Load.TYPES.FORCE: force_load_str}
+    load_map = {
+        Load.TYPES.GRAVITY: acceleration_field_str,
+        Load.TYPES.ACC: acceleration_field_str,
+        Load.TYPES.FORCE: force_load_str,
+    }
     load_str_func = load_map.get(load.type, None)
 
     if load_str_func is None:
@@ -11,7 +15,7 @@ def load_str(load: Load) -> str:
     return load_str_func(load)
 
 
-def gravity_load_str(load: Load) -> str:
+def acceleration_field_str(load: Load) -> str:
     dof = [0, 0, 1] if load.dof is None else load.dof
     dof_str = ", ".join([str(x) for x in dof[:3]])
     return f"""** Name: gravity   Type: Gravity\n*Dload\n, GRAV, {load.magnitude}, {dof_str}"""
