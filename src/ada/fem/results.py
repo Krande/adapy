@@ -1,9 +1,13 @@
+from __future__ import annotations
 import logging
+import meshio
 import os
 import pathlib
+import pythreejs
 import subprocess
 import traceback
-
+from typing import List
+from dataclasses import dataclass
 import numpy as np
 from IPython.display import display
 from ipywidgets import Dropdown, HBox, VBox
@@ -27,17 +31,15 @@ class Results:
         self, res_path, name=None, fem_format=None, part=None, assembly=None, palette=None, output=None, overwrite=True
     ):
         self._name = name
-        self.palette = [(0, 149 / 255, 239 / 255), (1, 0, 0)] if palette is None else palette
+        palette = [(0, 149 / 255, 239 / 255), (1, 0, 0)] if palette is None else palette
+        self._visualizer = VizResults(palette)
         self._eigen_mode_data = None
         self._fem_format = fem_format
         self._point_data = []
         self._cell_data = []
         self._assembly = assembly
         self._part = part
-        self._renderer = None
-        self._render_sets = None
-        self._undeformed_mesh = None
-        self._deformed_mesh = None
+
         self._output = output
         self._overwrite = overwrite
         self._results_file_path = pathlib.Path(res_path)
@@ -80,22 +82,8 @@ class Results:
         self._results_file_path = value
 
     @property
-    def mesh(self):
-        return self._mesh
-
-    @property
-    def renderer(self):
-        """:rtype: ada.visualize.renderer_pythreejs.MyRenderer"""
-        return self._renderer
-
-    @property
-    def mesh_undeformed(self):
-        return self._undeformed_mesh
-
-    @property
-    def mesh_deformed(self):
-        """:rtype: pythreejs.Mesh"""
-        return self._deformed_mesh
+    def visualizer(self) -> VizResults:
+        return self._visualizer
 
     @property
     def part(self):
@@ -114,6 +102,54 @@ class Results:
     @eigen_mode_data.setter
     def eigen_mode_data(self, value: EigenDataSummary):
         self._eigen_mode_data = value
+
+    def _repr_html_(self):
+        if self._renderer is None:
+            self._renderer = MyRenderer()
+            if self.fem_format == FEATypes.CODE_ASTER:
+                data = [x for x in self._point_data if "DISP" in x][-1]
+            elif self.fem_format == FEATypes.CALCULIX:
+                data = [x for x in self._point_data if "U" in x][-1]
+            else:
+                raise NotImplementedError(f'Support for analysis_type "{self.fem_format}"')
+
+            self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
+            i = self._point_data.index(data)
+            self._render_sets = Dropdown(
+                options=self._point_data, value=self._point_data[i], tooltip="Select a set", disabled=False
+            )
+            self._render_sets.observe(self.on_changed_point_data_set, "value")
+            self.renderer._controls.pop()
+            self.renderer._controls.append(self._render_sets)
+
+        display(HBox([VBox([HBox(self.renderer._controls), self.renderer._renderer]), self.renderer.html]))
+
+    def __repr__(self):
+        return f"Results({self._fem_format}, {self._results_file_path.name})"
+
+@dataclass
+class VizResults:
+    palette: List[tuple]
+    renderer: MyRenderer = None
+    render_sets = None
+    mesh: meshio.Mesh = None
+    undeformed_mesh: pythreejs.Mesh = None
+    deformed_mesh: pythreejs.Mesh = None
+
+    def _colorize_data(self, data, func=magnitude):
+        res = [func(d) for d in data]
+        sorte = sorted(res)
+        min_r = sorte[0]
+        max_r = sorte[-1]
+
+        start = np.array(self.palette[0])
+        end = np.array(self.palette[-1])
+
+        def curr_p(t):
+            return start + (end - start) * t / (max_r - min_r)
+
+        colors = np.asarray([curr_p(x) for x in res], dtype="float32")
+        return colors
 
     def _get_mesh(self, file_ref):
         from .io.abaqus.results import read_abaqus_results
@@ -177,21 +213,6 @@ class Results:
 
         for n in mesh.cell_data.keys():
             self._cell_data.append(n)
-
-    def _colorize_data(self, data, func=magnitude):
-        res = [func(d) for d in data]
-        sorte = sorted(res)
-        min_r = sorte[0]
-        max_r = sorte[-1]
-
-        start = np.array(self.palette[0])
-        end = np.array(self.palette[-1])
-
-        def curr_p(t):
-            return start + (end - start) * t / (max_r - min_r)
-
-        colors = np.asarray([curr_p(x) for x in res], dtype="float32")
-        return colors
 
     def create_viz_geom(self, data_type, displ_data=False, renderer: MyRenderer = None) -> None:
         default_vertex_color = (8, 8, 8)
@@ -260,31 +281,6 @@ class Results:
             self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
         else:
             self.create_viz_geom(data, renderer=self.renderer)
-
-    def _repr_html_(self):
-        if self._renderer is None:
-            self._renderer = MyRenderer()
-            if self.fem_format == FEATypes.CODE_ASTER:
-                data = [x for x in self._point_data if "DISP" in x][-1]
-            elif self.fem_format == FEATypes.CALCULIX:
-                data = [x for x in self._point_data if "U" in x][-1]
-            else:
-                raise NotImplementedError(f'Support for analysis_type "{self.fem_format}"')
-
-            self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
-            i = self._point_data.index(data)
-            self._render_sets = Dropdown(
-                options=self._point_data, value=self._point_data[i], tooltip="Select a set", disabled=False
-            )
-            self._render_sets.observe(self.on_changed_point_data_set, "value")
-            self.renderer._controls.pop()
-            self.renderer._controls.append(self._render_sets)
-
-        display(HBox([VBox([HBox(self.renderer._controls), self.renderer._renderer]), self.renderer.html]))
-
-    def __repr__(self):
-        return f"Results({self._fem_format}, {self._results_file_path.name})"
-
 
 def get_fem_stats(fem_file, dest_md_file, data_file="data.json"):
     """
