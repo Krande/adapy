@@ -806,6 +806,18 @@ class MyRenderer(JupyterRenderer):
             color_array[i] = color
         edge_geom.attributes["color"].array = color_array
 
+    @property
+    def controls(self):
+        return self._controls
+
+    @property
+    def renderer(self):
+        return self._renderer
+
+    @property
+    def displayed_pickable_objects(self):
+        return self._displayed_pickable_objects
+
 
 class SectionRenderer:
     """

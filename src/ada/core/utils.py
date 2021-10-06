@@ -1034,14 +1034,7 @@ def get_current_user():
 
 
 def get_list_of_files(dir_path, file_ext=None, strict=False):
-    """
-    Get a list of file and sub directories for a given directory
-
-    :param dir_path: Parent directory in which the recursive search for files will take place
-    :param file_ext: File extension
-    :param strict: If True the function raiser errors when no files are found.
-    :return: list of all found files
-    """
+    """Get a list of files and sub directories for a given directory"""
     all_files = []
     list_of_file = os.listdir(dir_path)
 
@@ -1068,15 +1061,8 @@ def get_list_of_files(dir_path, file_ext=None, strict=False):
     return all_files
 
 
-def getfileprop(filepath):
-    """
-    Read all properties of a given exe file return them as a dictionary.
-
-    :param filepath:
-    :type filepath: str
-    :return:
-    :rtype: dict
-    """
+def getfileprop(filepath: str) -> dict:
+    """Read all properties of a local file and return them as a dictionary"""
     import win32api
 
     filepath = str(filepath)

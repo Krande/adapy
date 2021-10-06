@@ -44,6 +44,7 @@ class ElemShapes:
     # 1D/0D elements
     bm2 = ["B31"]
     bm3 = ["B32"]
+
     lines = bm2 + bm3
     spring1n = ["SPRING1"]
     spring2n = ["SPRING2"]

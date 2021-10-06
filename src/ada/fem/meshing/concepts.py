@@ -29,7 +29,7 @@ class GmshOptions:
     Mesh_Smoothing: int = 3
     Mesh_RecombinationAlgorithm: int = None
     # Curvature Options
-    Mesh_MeshSizeFromCurvature: bool = None
+    Mesh_MeshSizeFromCurvature: bool = False
     Mesh_MinimumElementsPerTwoPi: int = 12
     # Geometry
     Geometry_Tolerance: float = 1e-5
@@ -167,7 +167,8 @@ class GmshSession:
 
         if size is not None:
             self.options.Mesh_MeshSizeMax = size
-            self.options.Mesh_MeshSizeMin = size
+            if self.options.Mesh_MeshSizeFromCurvature is False:
+                self.options.Mesh_MeshSizeMin = size
 
         self.apply_settings()
         self.model.geo.synchronize()
