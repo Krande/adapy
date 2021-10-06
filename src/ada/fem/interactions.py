@@ -85,9 +85,9 @@ class Interaction(FemBase):
     @parent.setter
     def parent(self, value):
         from ada import FEM
-        from ada.fem import Step
+        from ada.fem.steps import Step
 
-        if type(value) not in (FEM, Step) and value is not None:
+        if type(value) is not FEM and value is not None and issubclass(type(value), Step) is False:
             raise ValueError(f'Parent type "{type(value)}" is not supported')
         self._parent = value
 

@@ -1,13 +1,11 @@
+import numpy as np
+
 from ada import CurvePoly, Part, Shape
 
 
 class Window(Part):
     def __init__(self, name, width, height, depth, **kwargs):
-        origin = (0, 0, 0)
-        lx = (1, 0, 0)
-        ly = (0, 1, 0)
-        lz = (0, 0, 1)
-        super().__init__(name, origin=origin, lx=lx, ly=ly, lz=lz, **kwargs)
+        super().__init__(name, **kwargs)
         self._metadata["ifc_type"] = "IfcWindow"
         self._width = width
         self._height = height
@@ -35,7 +33,7 @@ class Window(Part):
             from ada.core.utils import unit_length_conversion
 
             scale_factor = unit_length_conversion(self._units, value)
-            self._origin = tuple([x * scale_factor for x in self._origin])
+            self.placement.origin = np.array([x * scale_factor for x in self.placement.origin])
             self._width *= scale_factor
             self._height *= scale_factor
             self._depth *= scale_factor
@@ -44,21 +42,17 @@ class Window(Part):
             self._units = value
 
     def build_geom(self):
-        normal = self._lz
-        origin = self.origin - self._lz * self.depth
+        normal = self.placement.zdir
+        origin = self.placement.origin - self.placement.zdir * self.depth
         points = [(0, 0), (self.width, 0), (self.width, self.height), (0, self.height)]
-        poly = CurvePoly(points2d=points, origin=origin, normal=normal, xdir=self._lx, parent=self)
+        poly = CurvePoly(points2d=points, origin=origin, normal=normal, xdir=self.placement.xdir, parent=self)
         geom = poly.make_extruded_solid(self.depth)
         self.add_shape(Shape(self.name, geom, metadata=self.metadata))
 
 
 class Door(Part):
     def __init__(self, name, width, height, depth, units="m", **kwargs):
-        origin = (0, 0, 0)
-        lx = (1, 0, 0)
-        ly = (0, 1, 0)
-        lz = (0, 0, 1)
-        super().__init__(name, origin=origin, lx=lx, ly=ly, lz=lz, units=units, **kwargs)
+        super().__init__(name, units=units, **kwargs)
         self._metadata["ifc_type"] = "IfcDoor"
         self._width = width
         self._height = height
@@ -86,7 +80,7 @@ class Door(Part):
             from ada.core.utils import unit_length_conversion
 
             scale_factor = unit_length_conversion(self._units, value)
-            self._origin = tuple([x * scale_factor for x in self._origin])
+            self.placement.origin = np.array([x * scale_factor for x in self.placement.origin])
             self._width *= scale_factor
             self._height *= scale_factor
             self._depth *= scale_factor
@@ -95,9 +89,10 @@ class Door(Part):
             self._units = value
 
     def build_geom(self):
-        origin = self._origin - self._lz * self.depth
-
+        origin = self.placement.origin - self.placement.zdir * self.depth
         points = [(0, 0), (self.width, 0), (self.width, self.height), (0, self.height)]
-        poly = CurvePoly(points2d=points, origin=origin, normal=self._lz, xdir=self._lx, parent=self)
+        poly = CurvePoly(
+            points2d=points, origin=origin, normal=self.placement.zdir, xdir=self.placement.xdir, parent=self
+        )
         geom = poly.make_extruded_solid(self.depth)
         self.add_shape(Shape(self.name, geom, metadata=self.metadata))

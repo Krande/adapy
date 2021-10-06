@@ -35,6 +35,19 @@ class BackendGeom(Backend):
 
         return pen
 
+    def to_fem_obj(self, mesh_size, geom_repr, options=None, silent=True):
+        """
+        :type options: ada.fem.meshing.GmshOptions
+        :rtype: ada.FEM
+        """
+        from ada.fem.meshing import GmshOptions, GmshSession
+
+        options = GmshOptions(Mesh_Algorithm=8) if options is None else options
+        with GmshSession(silent=silent, options=options) as gs:
+            gs.add_obj(self, geom_repr=geom_repr)
+            gs.mesh(mesh_size)
+            return gs.get_fem()
+
     def to_stp(self, destination_file, geom_repr=None, schema="AP242", silent=False, fuse_piping=False):
         from ada.fem.shapes import ElemType
         from ada.occ.writer import StepExporter

@@ -5,8 +5,9 @@
 [![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/platforms.svg)](https://anaconda.org/krande/ada-py)
 [![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/downloads.svg)](https://anaconda.org/krande/ada-py)
 
-A python library for working with structural analysis and design delivering an object-oriented framework for modelling 
-and Finite Element (FE) model conversion, editing, analysis and postprocessing. 
+A python library for working with structural analysis and design. `Ada-py` delivers an object-oriented framework for 
+CAD/BIM/FEM modelling, interoperability and Finite Elements (FE) post-processing.
+
 
 To install the ada-py package into an existing conda environment
 
@@ -162,7 +163,7 @@ To set correct paths to your installations of FE software you wish to use there 
 ```cmd
 :: Windows
 setx ADA_abaqus_exe <absolute path to abaqus.bat>
-setx ADA_ccx_exe <absolute path to ccx.exe>
+setx ADA_calculix_exe <absolute path to ccx.exe>
 setx ADA_code_aster_exe <absolute path to as_run.bat>
 
 :: Linux?
@@ -173,7 +174,7 @@ setx ADA_code_aster_exe <absolute path to as_run.bat>
 
 ```python
 import os
-os.environ["ADA_ccx_exe"] = "<absolute path to ccx.exe>"
+os.environ["ADA_calculix_exe"] = "<absolute path to ccx.exe>"
 os.environ["ADA_abaqus_exe"] = "<absolute path to abaqus.bat>"
 os.environ["ADA_code_aster_exe"] = "<absolute path to as_run.bat>"
 ```
@@ -182,10 +183,13 @@ or
 
 ```python
 from ada.config import Settings
-Settings.fem_exe_paths["ccx"] = "<absolute path to ccx.exe>"
+Settings.fem_exe_paths["calculix"] = "<absolute path to ccx.exe>"
 Settings.fem_exe_paths["abaqus"] = "<absolute path to abaqus.bat>"
 Settings.fem_exe_paths["code_aster"] = "<absolute path to as_run.bat>"
 ```
+
+Note! It is very important that any paths containing whitespaces be converted to "shortened paths". To shorten a path
+on windows you can use the utility [pathcopycopy](https://pathcopycopy.github.io/).
 
 For installation files of open source FEM software such as Calculix and Code Aster, here are some links:
 
@@ -198,7 +202,7 @@ For installation files of open source FEM software such as Calculix and Code Ast
 If you rather\must want to use pip you can do:
 
 ```
-pip install ada-py
+pip install ada-py gmsh
 ```
 
 **Note!** Pip will not install the required conda packages. Therefore you would also have to do
@@ -210,25 +214,29 @@ conda install -c conda-forge ifcopenshell pythonocc-core==7.5.1 occt==7.5.1
 **Note!** pip is not a recommended installation method due to an unstable behaviour often 
 manifested as DLL import errors related to the vtk package.
 
-## For developers
+## Acknowledgements
 
-For developers interested in contributing to this project feel free to 
-make a fork, experiment and create a pull request when you have something you 
-would like to add/change/remove. 
+This project would never have been possible without the existing open source python and c++ libraries. 
+Although listed in the package dependencies (which is a long list), here are some of the packages that are at the very 
+core of adapy;
 
-Before making a pull request you need to lint with, isort, flake8 and black.
-Assuming you have a cmd terminal open in the adapy package directory you can
-run
+* Ifcopenshell
+* Pythonocc-core
+* Gmsh
 
-````
-pip install black isort flake8
-isort .
-flake8 .
-black .
-````
+And the following packages are integral in the interoperability and visualization of FEM results.
 
-Or if you have make installed you can just run `make format` 
-to run all three tools at once.
+* Vtk
+* Pythreejs
+* Meshio
+* Ccx2paraview
+
+A huge thanks to all involved in the development of the packages mentioned here and in the list of packages adapy
+depends on (it goes without saying that packages such as numpy ).
+
+If you feel that a certain package listed in the adapy dependencies should be listed here please let me know and I will 
+update the list :)
+
 
 ## Project Responsible ###
 

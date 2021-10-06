@@ -1,7 +1,6 @@
-import logging
 import pathlib
 
-from ..utils import LocalExecute, get_exe_path
+from ..utils import LocalExecute
 
 
 def run_calculix(
@@ -23,10 +22,8 @@ def run_calculix(
 
 class CalculixExecute(LocalExecute):
     def run(self, exit_on_complete=True):
-        try:
-            exe_path = get_exe_path("ccx")
-        except FileNotFoundError as e:
-            logging.error(e)
-            return
+        from ada.fem.io import FEATypes
+
+        exe_path = self.get_exe(FEATypes.CALCULIX)
         out = self._run_local(f"{exe_path} -i {self.analysis_name}", exit_on_complete=exit_on_complete)
         return out

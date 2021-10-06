@@ -265,13 +265,7 @@ def make_closed_polygon(*args):
     return result
 
 
-def make_face_w_cutout(face, wire_cutout):
-    """
-
-    :param face:
-    :param wire_cutout:
-    :return:
-    """
+def make_face_w_cutout(face: TopoDS_Face, wire_cutout: TopoDS_Wire) -> TopoDS_Face:
     wire_cutout.Reverse()
     from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
 
@@ -741,23 +735,21 @@ def build_polycurve_occ(local_points, input_2d_coords=False, tol=1e-3):
 
 
 def create_beam_geom(beam: Beam, solid=True):
+    from ada.concepts.transforms import Placement
     from ada.sections.categories import SectionCat
+
+    from .section_utils import cross_sec_face
 
     xdir, ydir, zdir = beam.ori
     ydir_neg = tuple_minus(ydir) if beam.section.type not in SectionCat.angular else tuple(ydir)
 
-    sec = beam.section.cross_sec_shape(
-        solid,
-        origin=tuple(beam.n1.p.astype(float)),
-        xdir=ydir_neg,
-        normal=tuple(xdir),
-    )
-    tap = beam.taper.cross_sec_shape(
-        solid,
-        origin=tuple(beam.n2.p.astype(float)),
-        xdir=ydir_neg,
-        normal=tuple(xdir),
-    )
+    section_profile = beam.section.get_section_profile(solid)
+
+    placement_1 = Placement(origin=beam.n1.p, xdir=ydir_neg, zdir=xdir)
+    placement_2 = Placement(origin=beam.n2.p, xdir=ydir_neg, zdir=xdir)
+
+    sec = cross_sec_face(section_profile, placement_1, solid)
+    tap = cross_sec_face(section_profile, placement_2, solid)
 
     def through_section(sec_a, sec_b, solid_):
         generator_sec = BRepOffsetAPI_ThruSections(solid_, False)
@@ -773,7 +765,10 @@ def create_beam_geom(beam: Beam, solid=True):
         sec_result = [sec]
         tap_result = [tap]
     else:
-        assert isinstance(sec, list)
+        try:
+            assert isinstance(sec, list)
+        except AssertionError:
+            print("sd")
         sec_result = sec
         tap_result = tap
 

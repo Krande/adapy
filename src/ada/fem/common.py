@@ -1,3 +1,7 @@
+from dataclasses import dataclass
+
+import numpy as np
+
 from ada.config import Settings
 
 
@@ -50,11 +54,14 @@ class CsysDefs:
 
 
 class Csys(FemBase):
+    TYPES_SYSTEM = CsysSystems
+    TYPES_DEFINITIONS = CsysDefs
+
     def __init__(
         self,
         name,
-        definition=CsysDefs.COORDINATES,
-        system=CsysSystems.RECTANGULAR,
+        definition=TYPES_DEFINITIONS.COORDINATES,
+        system=TYPES_SYSTEM.RECTANGULAR,
         nodes=None,
         coords=None,
         metadata=None,
@@ -107,3 +114,46 @@ class Amplitude(FemBase):
     @property
     def smooth(self):
         return self._smooth
+
+
+@dataclass
+class LinDep:
+    master: np.ndarray
+    slave: np.ndarray
+
+    Xdict: dict = None
+    Ydict: dict = None
+    Zdict: dict = None
+
+    def __post_init__(self):
+        diff = self.slave - self.master
+        dx, dy, dz = diff
+
+        self.X = dict(
+            x=1,
+            xR_z=-dy,
+            xR_y=dz,
+        )
+        self.Y = dict(
+            y=1,
+            yR_z=dx,
+            yR_x=-dz,
+        )
+        self.Z = dict(
+            z=1,
+            zR_x=dy,
+            zR_y=-dx,
+        )
+
+    def to_integer_list(self):
+        return [
+            (1, 1, self.X["x"]),
+            (1, 5, self.X["xR_y"]),
+            (1, 6, self.X["xR_z"]),
+            (2, 2, self.Y["y"]),
+            (2, 4, self.Y["yR_x"]),
+            (2, 6, self.Y["yR_z"]),
+            (3, 3, self.Z["z"]),
+            (3, 4, self.Z["zR_x"]),
+            (3, 5, self.Z["zR_y"]),
+        ]

@@ -55,7 +55,7 @@ class Visualize:
         self.camera.target = target
         self.camera.fov = fov
 
-    def display(self, off_screen_file=False, **kwargs):
+    def display(self, off_screen_file=None, **kwargs):
         from .renderer_ipygany import render_ipyany_scene
         from .renderer_pyvista import render_ipyvista_scene
 

@@ -29,10 +29,12 @@ model = AFFE_MODELE(
 # Step Information
 {step_str}
 
+# Results Information
+
 FIN()
 """
 
-el_convet_str = """{output_mesh} = CREA_MAILLAGE(
+el_convert_str = """{output_mesh} = CREA_MAILLAGE(
     MAILLAGE={input_mesh},
     MODI_MAILLE = _F(GROUP_MA={el_set}, OPTION='{convert_option}')
 )

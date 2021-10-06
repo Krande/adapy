@@ -1,8 +1,10 @@
+from typing import Union
+
 from ada.core.utils import bool2text
-from ada.fem import Step
+from ada.fem.steps import Step, StepEigen, StepImplicit
 
 
-def step_str(step: Step):
+def step_str(step: Union[StepEigen, StepImplicit]):
     from .writer import bc_str, interactions_str, load_str
 
     bcstr = "\n".join([bc_str(bc) for bc in step.bcs.values()]) if len(step.bcs) > 0 else "** No BCs"
@@ -57,13 +59,13 @@ def step_str(step: Step):
 *End Step"""
 
 
-def static_step(step: Step):
+def static_step(step: StepImplicit):
     return f"""*Step, nlgeom={bool2text(step.nl_geom)}, inc={step.total_incr}
 *Static
  {step.init_incr}, {step.total_time}, {step.min_incr}, {step.max_incr}"""
 
 
-def eigen_step(step: Step):
+def eigen_step(step: StepEigen):
     return f"""*Step, name={step.name}
 *Frequency
- {step.eigenmodes}"""
+ {step.num_eigen_modes}"""

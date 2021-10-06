@@ -29,22 +29,6 @@ re_gelref1 = get_ff_regex(
 
 # Beam Sections
 re_sectnames = get_ff_regex("TDSECT", "nfield", "geono", "codnam", "codtxt", "set_name")
-re_giorh = get_ff_regex(
-    "GIORH ",
-    "geono",
-    "hz",
-    "ty",
-    "bt",
-    "tt",
-    "bb",
-    "tb",
-    "sfy",
-    "sfz",
-    "NLOBYT|",
-    "NLOBYB|",
-    "NLOBZ|",
-)
-re_gbox = get_ff_regex("GBOX", "geono", "hz", "ty", "tb", "tt", "by", "sfy", "sfz")
 re_gbeamg = get_ff_regex(
     "GBEAMG",
     "geono",
@@ -67,7 +51,26 @@ re_gbeamg = get_ff_regex(
     "wz|",
     "fabr|",
 )
+re_giorh = get_ff_regex(
+    "GIORH ",
+    "geono",
+    "hz",
+    "ty",
+    "bt",
+    "tt",
+    "bb",
+    "tb",
+    "sfy",
+    "sfz",
+    "NLOBYT|",
+    "NLOBYB|",
+    "NLOBZ|",
+)
+re_gbox = get_ff_regex("GBOX", "geono", "hz", "ty", "tb", "tt", "by", "sfy", "sfz")
 re_gpipe = get_ff_regex("GPIPE", "geono", "di", "dy", "t", "sfy", "sfz")
+re_gbarm = get_ff_regex("GBARM", "geono", "hz", "bt", "bb", "sfy", "sfz")
+
+# Coordinate System
 re_lcsys = get_ff_regex("GUNIVEC", "transno", "unix", "uniy", "uniz")
 
 # Shell section

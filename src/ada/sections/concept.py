@@ -1,17 +1,20 @@
-import logging
+from __future__ import annotations
 
-import numpy as np
+import logging
+from dataclasses import dataclass
+from typing import List, Tuple
 
 from ada.base.non_phyical_objects import Backend
 from ada.concepts.curves import CurvePoly
 from ada.config import Settings
-from ada.ifc.utils import create_guid
 
-from .categories import SectionCat
+from .categories import BaseTypes, SectionCat
 from .properties import GeneralProperties
 
 
 class Section(Backend):
+    TYPES = BaseTypes
+
     def __init__(
         self,
         name,
@@ -74,7 +77,7 @@ class Section(Backend):
             self._type = "poly"
 
         self._genprops = GeneralProperties() if genprops is None else genprops
-        self._genprops.edit(parent=self)
+        self._genprops.parent = self
 
     def __eq__(self, other):
         for key, val in self.__dict__.items():
@@ -87,169 +90,15 @@ class Section(Backend):
         return True
 
     def _generate_ifc_section_data(self):
-        from ada.ifc.utils import create_ifcindexpolyline, create_ifcpolyline
+        from ada.ifc.export_beam_sections import export_beam_section
 
-        a = self.parent.parent.get_assembly()
-        f = a.ifc_file
-
-        sec_props = dict(ProfileType="AREA", ProfileName=self.name)
-
-        if SectionCat.is_i_profile(self.type):
-            if Settings.use_param_profiles is False:
-                outer_curve, inner_curve, disconnected = self.cross_sec(True)
-                polyline = create_ifcpolyline(f, outer_curve)
-
-                ifc_sec_type = "IfcArbitraryClosedProfileDef"
-                sec_props.update(dict(OuterCurve=polyline))
-            else:
-                if SectionCat.is_strong_axis_symmetric(self) is False:
-                    logging.error(
-                        "Note! Not using IfcAsymmetricIShapeProfileDef as it is not supported by ifcopenshell v IFC4"
-                    )
-                    # ifc_sec_type = "IfcAsymmetricIShapeProfileDef"
-                    # sec_props.update(
-                    #     dict(
-                    #         TopFlangeWidth=self.w_top,
-                    #         BottomFlangeWidth=self.w_btn,
-                    #         OverallDepth=self.h,
-                    #         WebThickness=self.t_w,
-                    #         TopFlangeThickness=self.t_ftop,
-                    #         BottomFlangeThickness=self.t_fbtn,
-                    #     )
-                    # )
-
-                ifc_sec_type = "IfcIShapeProfileDef"
-                sec_props.update(
-                    dict(
-                        OverallWidth=self.w_top,
-                        OverallDepth=self.h,
-                        WebThickness=self.t_w,
-                        FlangeThickness=self.t_ftop,
-                    )
-                )
-
-        elif SectionCat.is_hp_profile(self.type):
-            outer_curve, inner_curve, disconnected = self.cross_sec(True)
-            points = [f.createIfcCartesianPoint(p) for p in outer_curve]
-            ifc_polyline = f.createIfcPolyLine(points)
-            ifc_sec_type = "IfcArbitraryClosedProfileDef"
-            sec_props.update(dict(OuterCurve=ifc_polyline))
-
-            if Settings.use_param_profiles is True:
-                logging.debug(f'Export of "{self.type}" profile to parametric IFC profile is not yet added')
-
-        elif SectionCat.is_box_profile(self.type):
-            outer_curve, inner_curve, disconnected = self.cross_sec(True)
-            outer_points = [f.createIfcCartesianPoint(p) for p in outer_curve + [outer_curve[0]]]
-            inner_points = [f.createIfcCartesianPoint(p) for p in inner_curve + [inner_curve[0]]]
-            inner_curve = f.createIfcPolyLine(inner_points)
-            outer_curve = f.createIfcPolyLine(outer_points)
-            ifc_sec_type = "IfcArbitraryProfileDefWithVoids"
-            sec_props.update(dict(OuterCurve=outer_curve, InnerCurves=[inner_curve]))
-
-            if Settings.use_param_profiles is True:
-                logging.debug(f'Export of "{self.type}" profile to parametric IFC profile is not yet added')
-
-        elif self.type in SectionCat.circular:
-            ifc_sec_type = "IfcCircleProfileDef"
-            sec_props.update(dict(Radius=self.r))
-        elif self.type in SectionCat.tubular:
-            ifc_sec_type = "IfcCircleHollowProfileDef"
-            sec_props.update(dict(Radius=self.r, WallThickness=self.wt))
-        elif self.type in SectionCat.general:
-            logging.error("Note! Creating a Circle profile from general section (just for visual inspection as of now)")
-            r = np.sqrt(self.properties.Ax / np.pi)
-            ifc_sec_type = "IfcCircleProfileDef"
-            sec_props.update(dict(Radius=r))
-        elif self.type in SectionCat.flatbar:
-            outer_curve, inner_curve, disconnected = self.cross_sec(True)
-            polyline = create_ifcpolyline(f, outer_curve)
-            ifc_sec_type = "IfcArbitraryClosedProfileDef"
-            sec_props.update(dict(OuterCurve=polyline))
-
-            if Settings.use_param_profiles is True:
-                logging.debug(f'Export of "{self.type}" profile to parametric IFC profile is not yet added')
-
-        elif self.type in SectionCat.channels:
-            if Settings.use_param_profiles is False:
-                outer_curve, inner_curve, disconnected = self.cross_sec(True)
-                polyline = create_ifcpolyline(f, outer_curve)
-                ifc_sec_type = "IfcArbitraryClosedProfileDef"
-                sec_props.update(dict(OuterCurve=polyline))
-            else:
-                ifc_sec_type = "IfcUShapeProfileDef"
-                sec_props.update(
-                    dict(Depth=self.h, FlangeWidth=self.w_top, WebThickness=self.t_w, FlangeThickness=self.t_ftop)
-                )
-        elif self.type == "poly":
-            opoly = self.poly_outer
-            opoints = [(float(n[0]), float(n[1]), float(n[2])) for n in opoly.seg_global_points]
-            opolyline = create_ifcindexpolyline(f, opoints, opoly.seg_index)
-            if self.poly_inner is None:
-                ifc_sec_type = "IfcArbitraryClosedProfileDef"
-                sec_props.update(dict(OuterCurve=opolyline))
-            else:
-                ipoly = self.poly_inner
-                ipoints = [(float(n[0]), float(n[1]), float(n[2])) for n in ipoly.seg_global_points]
-                ipolyline = create_ifcindexpolyline(f, ipoints, ipoly.seg_index)
-                ifc_sec_type = "IfcArbitraryProfileDefWithVoids"
-                sec_props.update(dict(OuterCurve=opolyline, InnerCurves=[ipolyline]))
-        else:
-            raise ValueError(f'Have yet to implement section type "{self.type}"')
-
-        if self.name is None:
-            raise ValueError("Name cannot be None!")
-
-        profile = f.create_entity(ifc_sec_type, **sec_props)
-
-        beamtype = f.createIfcBeamType(
-            create_guid(),
-            a.user.to_ifc(),
-            self.name,
-            self.sec_str,
-            None,
-            None,
-            None,
-            None,
-            None,
-            "BEAM",
-        )
-        return profile, beamtype
+        return export_beam_section(self)
 
     def _import_from_ifc_profile(self, ifc_elem):
-        from ada.sections.utils import interpret_section_str
+        from ada.ifc.import_beam_section import import_section_from_ifc
 
         self._ifc_profile = ifc_elem
-        try:
-            sec, tap = interpret_section_str(ifc_elem.ProfileName)
-        except ValueError as e:
-            logging.debug(f'Unable to process section "{ifc_elem.ProfileName}" -> error: "{e}" ')
-            sec = None
-        if sec is None:
-            if ifc_elem.is_a("IfcIShapeProfileDef"):
-                sec = Section(
-                    name=ifc_elem.ProfileName,
-                    sec_type="IG",
-                    h=ifc_elem.OverallDepth,
-                    w_top=ifc_elem.OverallWidth,
-                    w_btn=ifc_elem.OverallWidth,
-                    t_w=ifc_elem.WebThickness,
-                    t_ftop=ifc_elem.FlangeThickness,
-                    t_fbtn=ifc_elem.FlangeThickness,
-                )
-            elif ifc_elem.is_a("IfcCircleHollowProfileDef"):
-                sec = Section(
-                    name=ifc_elem.ProfileName,
-                    sec_type="TUB",
-                    r=ifc_elem.Radius,
-                    wt=ifc_elem.WallThickness,
-                )
-            elif ifc_elem.is_a("IfcUShapeProfileDef"):
-                raise NotImplementedError(f'IFC section type "{ifc_elem}" is not yet implemented')
-                # sec = Section(ifc_elem.ProfileName)
-            else:
-                raise NotImplementedError(f'IFC section type "{ifc_elem}" is not yet implemented')
-        return sec
+        return import_section_from_ifc(ifc_elem)
 
     @property
     def type(self):
@@ -388,78 +237,8 @@ class Section(Backend):
     def poly_inner(self) -> CurvePoly:
         return self._inner_poly
 
-    def cross_sec(self, is_solid=True):
-        """
-
-        :param is_solid: Solid Representation
-        :return:
-        """
-        from .utils import get_profile_props
-
-        return get_profile_props(self, is_solid)
-
-    def cross_sec_shape(
-        self,
-        solid_repre=True,
-        origin=(0.0, 0.0, 0.0),
-        xdir=(1.0, 0.0, 0.0),
-        normal=(0.0, 0.0, 1.0),
-    ):
-        """
-
-        :param solid_repre: Solid Representation
-        :param origin:
-        :param xdir:
-        :param normal:
-        :return:
-        """
-        from OCC.Extend.ShapeFactory import make_face, make_wire
-
-        from ada.core.utils import local_2_global_nodes
-        from ada.occ.utils import make_circle, make_face_w_cutout, make_wire_from_points
-
-        def points2wire(curve):
-            poly = CurvePoly(points2d=curve, origin=origin, xdir=xdir, normal=normal, parent=self)
-            return poly.wire
-
-        if self.type in SectionCat.tubular:
-            outer_shape = make_wire([make_circle(origin, normal, self.r)])
-            inner_shape = make_wire([make_circle(origin, normal, self.r - self.wt)])
-        elif self.type in SectionCat.circular:
-            outer_shape = make_wire([make_circle(origin, normal, self.r)])
-            inner_shape = None
-        else:
-            outer_curve, inner_curve, disconnected = self.cross_sec(solid_repre)
-            if type(outer_curve) is CurvePoly:
-                assert isinstance(outer_curve, CurvePoly)
-                outer_curve.origin = origin
-                face = outer_curve.face
-                return face
-            if inner_curve is not None:
-                # inner_shape = wp2.polyline(inner_curve).close().wire().toOCC()
-                inner_shape = points2wire(inner_curve)
-                # inner_poly = PolyCurve(points2d=inner_curve, origin=origin, xdir=xdir, normal=normal)
-            else:
-                inner_shape = None
-
-            if disconnected is False:
-                # outer_shape = wp.polyline(outer_curve).close().wire().toOCC()
-                outer_shape = points2wire(outer_curve)
-                # outer_shape = outer_poly.wire
-            else:
-                # outer_shape = [wp.polyline(wi).close().wire().toOCC() for wi in outer_curve]
-                outer_shape = []
-                for p1, p2 in outer_curve:
-                    gp1 = local_2_global_nodes([p1], origin, xdir, normal)
-                    gp2 = local_2_global_nodes([p2], origin, xdir, normal)
-                    outer_shape.append(make_wire_from_points(gp1 + gp2))
-
-        if inner_shape is not None and solid_repre is True:
-            shape = make_face_w_cutout(make_face(outer_shape), inner_shape)
-        else:
-            shape = outer_shape
-
-        return shape
+    def get_section_profile(self, is_solid=True) -> SectionProfile:
+        return build_section_profile(self, is_solid)
 
     def _repr_html_(self):
         from IPython.display import display
@@ -485,3 +264,52 @@ class Section(Backend):
                 f"Section({self.name}, {self.type}, h: {self.h}, w_btn: {self.w_btn}, "
                 f"w_top: {self.w_top}, t_fbtn: {self.t_fbtn}, t_ftop: {self.t_ftop}, t_w: {self.t_w})"
             )
+
+
+class SectionParts:
+    WEB = "web"
+    TOP_FLANGE = "top_fl"
+    BTN_FLANGE = "btn_fl"
+
+
+@dataclass
+class SectionProfile:
+    sec: Section
+    is_solid: bool
+    outer_curve: CurvePoly = None
+    inner_curve: CurvePoly = None
+    outer_curve_disconnected: List[CurvePoly] = None
+    inner_curve_disconnected: List[CurvePoly] = None
+    disconnected: bool = None
+    shell_thickness_map: List[Tuple[str, float]] = None
+
+
+def build_section_profile(sec: Section, is_solid) -> SectionProfile:
+    import ada.sections.profiles as profile_builder
+
+    section_shape_type = SectionCat.get_shape_type(sec)
+
+    if section_shape_type in SectionCat.tubular + SectionCat.circular + SectionCat.general:
+        logging.info("Tubular profiles do not need curve representations")
+        return SectionProfile(sec, is_solid)
+
+    sec_type = SectionCat.BASETYPES
+    build_map = {
+        sec_type.ANGULAR: profile_builder.angular,
+        sec_type.IPROFILE: profile_builder.iprofiles,
+        sec_type.BOX: profile_builder.box,
+        sec_type.FLATBAR: profile_builder.flatbar,
+        sec_type.CHANNEL: profile_builder.channel,
+    }
+
+    section_builder = build_map.get(section_shape_type, None)
+
+    if section_builder is None and sec.poly_outer is None:
+        raise ValueError("Currently geometry build is unsupported for profile type {ptype}".format(ptype=sec.type))
+
+    if section_builder is not None:
+        section_profile = section_builder(sec, is_solid)
+    else:
+        section_profile = SectionProfile(sec, outer_curve=sec.poly_outer, is_solid=is_solid, disconnected=False)
+
+    return section_profile

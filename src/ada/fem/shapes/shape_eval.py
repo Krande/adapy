@@ -16,6 +16,8 @@ class ElemType:
     SOLID = "solid"
     LINE = "line"
 
+    all = [SHELL, SOLID, LINE]
+
 
 edge_map = {ElemType.LINE: line_edges, ElemType.SHELL: shell_edges, ElemType.SOLID: volume_edges}
 face_map = {ElemType.LINE: None, ElemType.SHELL: shell_faces, ElemType.SOLID: volume_faces}
@@ -42,6 +44,7 @@ class ElemShapes:
     # 1D/0D elements
     bm2 = ["B31"]
     bm3 = ["B32"]
+
     lines = bm2 + bm3
     spring1n = ["SPRING1"]
     spring2n = ["SPRING2"]

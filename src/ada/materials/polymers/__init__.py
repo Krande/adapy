@@ -4,14 +4,6 @@ from ada.visualize.plots import easy_plotly
 
 
 class MatDataSheet:
-    """
-
-    :param name:
-    :param mat_class:
-    :param mat_type:
-    :param testdata:
-    """
-
     def __init__(self, name, mat_class, mat_type, testdata):
         self._name = name
         self._class = mat_class
@@ -164,10 +156,7 @@ class TestData:
 
     @property
     def eps(self):
-        """
-
-        :return: True strain
-        """
+        """True strain"""
         for i, c in enumerate(self.cols):
             if "true strain" in c.lower():
                 return np.array([self.data[i]])
@@ -179,10 +168,7 @@ class TestData:
 
     @property
     def sig(self):
-        """
-
-        :return: True stress
-        """
+        """True stress"""
         for i, c in enumerate(self.cols):
             if "true stress" in c.lower():
                 return np.array(self.data[i])
@@ -194,10 +180,7 @@ class TestData:
 
     @property
     def e(self):
-        """
-
-        :return: Engineering strain
-        """
+        """Engineering strain"""
         for i, c in enumerate(self.cols):
             if "engineering strain" in c.lower():
                 return np.array(self.data[i])
@@ -210,10 +193,7 @@ class TestData:
 
     @property
     def S(self):
-        """
-
-        :return: Engineering stress
-        """
+        """Engineering stress"""
         for i, c in enumerate(self.cols):
             if "engineering stress" in c.lower():
                 return np.array(self.data[i])

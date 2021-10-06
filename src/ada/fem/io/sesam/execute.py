@@ -1,6 +1,6 @@
 import logging
 
-from ada.fem.io.utils import LocalExecute, get_exe_path
+from ada.fem.io.utils import LocalExecute
 
 
 def run_sesam(
@@ -13,6 +13,8 @@ def run_sesam(
     exit_on_complete=True,
     run_in_shell=False,
 ):
+    logging.info("sestra runs on single core only. changing cpus=1")
+    cpus = 1
     aba_exe = SesamExecute(
         inp_path, cpus=cpus, run_ext=run_ext, metadata=metadata, auto_execute=execute, run_in_shell=run_in_shell
     )
@@ -21,11 +23,9 @@ def run_sesam(
 
 class SesamExecute(LocalExecute):
     def run(self, exit_on_complete=True, run_cmd=None, bat_start_str=None):
-        try:
-            exe_path = get_exe_path("sestra")
-        except FileNotFoundError as e:
-            logging.error(e)
-            return
+        from ada.fem.io import FEATypes
+
+        exe_path = self.get_exe(FEATypes.SESAM)
         if run_cmd is None:
             run_cmd = f"{exe_path} /dsf {self.analysis_name}T100"
         stop_cmd = None

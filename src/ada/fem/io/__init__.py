@@ -1,28 +1,48 @@
+from __future__ import annotations
+
 import logging
 
 from . import abaqus, calculix, code_aster, sesam, usfos
 from .utils import interpret_fem
 
-fem_imports = dict(
-    abaqus=abaqus.read_fem,
-    sesam=sesam.read_fem,
-    code_aster=code_aster.read_fem,
-)
 
-fem_exports = dict(
-    abaqus=abaqus.to_fem,
-    calculix=calculix.to_fem,
-    code_aster=code_aster.to_fem,
-    sesam=sesam.to_fem,
-    usfos=usfos.to_fem,
-)
+class FEATypes:
+    CODE_ASTER = "code_aster"
+    CALCULIX = "calculix"
+    ABAQUS = "abaqus"
+    SESAM = "sesam"
+    USFOS = "usfos"
 
-fem_executables = dict(
-    abaqus=abaqus.run_abaqus,
-    calculix=calculix.run_calculix,
-    code_aster=code_aster.run_code_aster,
-    sesam=sesam.run_sesam,
-)
+    all = [CODE_ASTER, CALCULIX, ABAQUS, SESAM, USFOS]
+
+
+fem_imports = {
+    FEATypes.ABAQUS: abaqus.read_fem,
+    FEATypes.SESAM: sesam.read_fem,
+    FEATypes.CODE_ASTER: code_aster.read_fem,
+}
+
+fem_exports = {
+    FEATypes.ABAQUS: abaqus.to_fem,
+    FEATypes.CALCULIX: calculix.to_fem,
+    FEATypes.CODE_ASTER: code_aster.to_fem,
+    FEATypes.SESAM: sesam.to_fem,
+    FEATypes.USFOS: usfos.to_fem,
+}
+
+fem_executables = {
+    FEATypes.ABAQUS: abaqus.run_abaqus,
+    FEATypes.CALCULIX: calculix.run_calculix,
+    FEATypes.CODE_ASTER: code_aster.run_code_aster,
+    FEATypes.SESAM: sesam.run_sesam,
+}
+
+fem_solver_map = {FEATypes.SESAM: "sestra", FEATypes.CALCULIX: "ccx"}
+
+
+class FemConverters:
+    DEFAULT = "default"
+    MESHIO = "meshio"
 
 
 def get_fem_converters(fem_file, fem_format, fem_converter):
@@ -31,10 +51,10 @@ def get_fem_converters(fem_file, fem_format, fem_converter):
     if fem_format is None:
         fem_format = interpret_fem(fem_file)
 
-    if fem_converter == "default":
+    if fem_converter == FemConverters.DEFAULT:
         fem_importer = fem_imports.get(fem_format, None)
         fem_exporter = fem_exports.get(fem_format, None)
-    elif fem_converter.lower() == "meshio":
+    elif fem_converter.lower() == FemConverters.MESHIO:
         fem_importer = meshio_read_fem
         fem_exporter = meshio_to_fem
     else:

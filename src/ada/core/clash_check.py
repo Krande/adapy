@@ -1,13 +1,17 @@
 import logging
 import traceback
 from itertools import chain
-from typing import List
+from typing import Iterable, List
+
+import numpy as np
 
 from ada.concepts.levels import Part
+from ada.concepts.piping import PipeSegStraight
+from ada.concepts.points import Node
+from ada.concepts.primitives import PrimCyl
+from ada.concepts.structural import Beam, Plate
 
-from ..concepts.points import Node
-from ..concepts.structural import Beam
-from .utils import intersect_calc, is_parallel, vector_length
+from .utils import Counter, intersect_calc, is_parallel, vector_length
 
 
 def basic_intersect(bm: Beam, margins, all_parts: [Part]):
@@ -76,3 +80,64 @@ def are_beams_connected(bm1: Beam, beams: List[Beam], out_of_plane_tol, point_to
                 nmap[n].append(bm1)
             if bm2 not in nmap[n]:
                 nmap[n].append(bm2)
+
+
+def are_plates_touching(pl1: Plate, pl2: Plate, tol=1e-3):
+    """Check if two plates are within tolerance of each other"""
+    from ..occ.utils import compute_minimal_distance_between_shapes
+
+    dss = compute_minimal_distance_between_shapes(pl1.solid, pl2.solid)
+    if dss.Value() <= tol:
+        return dss
+    else:
+        return None
+
+
+def filter_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]):
+    from .utils import clockwise, is_on_line
+
+    corners = [n for n in pl.poly.points3d]
+    corners += [corners[0]]
+    if clockwise(corners):
+        corners.reverse()
+
+    # Evalute Corner Points
+    crossing_beams = []
+    for s, e in zip(corners[:-1], corners[1:]):
+        li = (s, e)
+        res = [x for x in map(is_on_line, [(li, bm) for bm in beams]) if x is not None]
+        crossing_beams += filter(lambda x: x not in crossing_beams, [r[1] for r in res])
+
+    return crossing_beams
+
+
+def find_beams_connected_to_plate(pl: Plate, beams: List[Beam]):
+    """Return all beams with their midpoints inside a specified plate for a given list of beams"""
+    from ada.concepts.containers import Nodes
+
+    bbox = list(zip(*pl.bbox))
+    nid = Counter(1)
+    nodes = Nodes([Node((bm.n2.p + bm.n1.p) / 2, next(nid), refs=[bm]) for bm in beams])
+    res = nodes.get_by_volume(bbox[0], bbox[1])
+
+    all_beams_within = list(chain.from_iterable([r.refs for r in res]))
+    filtered_beams = filter_beams_along_plate_edges(pl, all_beams_within)
+    return filtered_beams
+
+
+def penetration_check(part: Part):
+    a = part.get_assembly()
+    cog = part.nodes.vol_cog
+    normal = part.placement.zdir
+    for p in a.get_all_subparts():
+        for pipe in p.pipes:
+            for segment in pipe.segments:
+                if type(segment) is PipeSegStraight:
+                    assert isinstance(segment, PipeSegStraight)
+                    p1, p2 = segment.p1, segment.p2
+                    v1 = (p1.p - cog) * normal
+                    v2 = (p2.p - cog) * normal
+                    if np.dot(v1, v2) < 0:
+                        part.add_penetration(
+                            PrimCyl(f"{p.name}_{pipe.name}_{segment.name}_pen", p1.p, p2.p, pipe.section.r + 0.1)
+                        )

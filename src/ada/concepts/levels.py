@@ -6,7 +6,7 @@ import os
 import pathlib
 from dataclasses import dataclass, field
 from itertools import chain
-from typing import List, Union
+from typing import Iterable, List, Union
 
 from ada.base.physical_objects import BackendGeom
 from ada.concepts.connections import JointBase
@@ -29,7 +29,7 @@ from ada.concepts.primitives import (
     Shape,
 )
 from ada.concepts.structural import Beam, Material, Plate, Section, Wall
-from ada.concepts.transforms import Transform
+from ada.concepts.transforms import Placement, Transform
 from ada.config import Settings, User
 from ada.fem import (
     Amplitude,
@@ -46,11 +46,23 @@ from ada.fem import (
     Mass,
     PredefinedField,
     Spring,
-    Step,
+    StepEigen,
+    StepExplicit,
+    StepImplicit,
+    StepSteadyState,
     Surface,
 )
 from ada.fem.containers import FemElements, FemSections, FemSets
+from ada.fem.elements import ElemType
 from ada.ifc.utils import create_guid
+
+_step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
+
+
+@dataclass
+class _ConvertOptions:
+    ecc_to_mpc: bool = True
+    hinges_to_coupling: bool = True
 
 
 class Part(BackendGeom):
@@ -60,10 +72,7 @@ class Part(BackendGeom):
         self,
         name,
         colour=None,
-        origin=(0, 0, 0),
-        lx=(1, 0, 0),
-        ly=(0, 1, 0),
-        lz=(0, 0, 1),
+        placement=Placement(),
         fem: FEM = None,
         settings: Settings = Settings(),
         metadata=None,
@@ -73,8 +82,6 @@ class Part(BackendGeom):
         guid=None,
     ):
         super().__init__(name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_elem=ifc_elem)
-        from ada.fem.meshing import GMesh
-
         self._nodes = Nodes(parent=self)
         self._beams = Beams(parent=self)
         self._plates = Plates(parent=self)
@@ -83,13 +90,9 @@ class Part(BackendGeom):
         self._connections = Connections(parent=self)
         self._materials = Materials(parent=self)
         self._sections = Sections(parent=self)
-        self._gmsh = GMesh(self)
         self._colour = colour
-        self._origin = origin
+        self._placement = placement
         self._instances = []
-        self._lx = lx
-        self._ly = ly
-        self._lz = lz
         self._shapes = []
         self._parts = dict()
 
@@ -354,7 +357,9 @@ class Part(BackendGeom):
         self._flatten_list_of_subparts(self, list_of_parts)
         return list_of_parts
 
-    def get_all_physical_objects(self, sub_elements_only=True) -> List[Union[Beam, Plate, Wall, Pipe, Shape]]:
+    def get_all_physical_objects(
+        self, sub_elements_only=True, by_type=None
+    ) -> Iterable[Union[Beam, Plate, Wall, Pipe, Shape]]:
         physical_objects = []
         if sub_elements_only:
             iter_parts = iter(self.get_all_subparts() + [self])
@@ -362,8 +367,13 @@ class Part(BackendGeom):
             iter_parts = iter(self.get_all_parts_in_assembly(True))
 
         for p in iter_parts:
-            physical_objects += list(p.plates) + list(p.beams) + list(p.shapes) + list(p.pipes) + list(p.walls)
-        return physical_objects
+            all_as_iterable = chain(p.plates, p.beams, p.shapes, p.pipes, p.walls)
+            physical_objects.append(all_as_iterable)
+        if by_type is not None:
+            res = filter(lambda x: type(x) is by_type, chain.from_iterable(physical_objects))
+        else:
+            res = chain.from_iterable(physical_objects)
+        return res
 
     def beam_clash_check(self, margins=5e-5):
         """
@@ -400,9 +410,9 @@ class Part(BackendGeom):
         parent = self.parent.ifc_elem
         placement = create_local_placement(
             f,
-            origin=self.origin,
-            loc_x=self._lx,
-            loc_z=self._lz,
+            origin=self.placement.origin,
+            loc_x=self.placement.xdir,
+            loc_z=self.placement.zdir,
             relative_to=parent.ObjectPlacement,
         )
         type_map = dict(building="IfcBuilding", space="IfcSpace", spatial="IfcSpatialZone", storey="IfcBuildingStorey")
@@ -427,7 +437,7 @@ class Part(BackendGeom):
             props["CompositionType"] = self.metadata.get("CompositionType", "ELEMENT")
 
         if ifc_type == "IfcBuildingStorey":
-            props["Elevation"] = self.origin[2]
+            props["Elevation"] = self.placement.origin[2]
 
         ifc_elem = f.create_entity(ifc_type, **props)
 
@@ -455,6 +465,25 @@ class Part(BackendGeom):
         opposite = {val: key for key, val in convert.items()}
         pr_type = ifc_elem.is_a()
         return opposite[pr_type]
+
+    def to_fem_obj(
+        self, mesh_size: float, bm_repr=ElemType.LINE, pl_repr=ElemType.SHELL, options=None, silent=True
+    ) -> FEM:
+        """:type options: ada.fem.meshing.GmshOptions"""
+        from ada.fem.meshing import GmshOptions, GmshSession
+
+        options = GmshOptions(Mesh_Algorithm=8) if options is None else options
+        with GmshSession(silent=silent, options=options) as gs:
+            # TODO: Beam and plate nodes (and nodes at intersecting beams) are still not properly represented
+            for obj in self.get_all_physical_objects():
+                if type(obj) is Beam:
+                    gs.add_obj(obj, geom_repr=bm_repr, build_native_lines=False)
+                elif type(obj) is Plate:
+                    gs.add_obj(obj, geom_repr=pl_repr)
+                else:
+                    logging.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
+            gs.mesh(mesh_size)
+            return gs.get_fem()
 
     @property
     def parts(self) -> dict[str, Part]:
@@ -494,11 +523,6 @@ class Part(BackendGeom):
         self._fem = value
 
     @property
-    def gmsh(self):
-        """:rtype: ada.fem.meshing.GMesh"""
-        return self._gmsh
-
-    @property
     def connections(self) -> Connections:
         return self._connections
 
@@ -528,12 +552,12 @@ class Part(BackendGeom):
         return self._props
 
     @property
-    def origin(self):
-        return self._origin
+    def placement(self) -> Placement:
+        return self._placement
 
-    @origin.setter
-    def origin(self, value):
-        self._origin = value
+    @placement.setter
+    def placement(self, value: Placement):
+        self._placement = value
 
     @property
     def units(self):
@@ -647,7 +671,7 @@ class Assembly(Part):
         self._user = user
 
         self._ifc_file = assembly_to_ifc_file(self)
-
+        self._convert_options = _ConvertOptions()
         self._ifc_sections = None
         self._ifc_materials = None
         self._source_ifc_files = dict()
@@ -882,14 +906,14 @@ class Assembly(Part):
         * Calculix
         * Code_Aster
 
-        Proprietary
+        not open source
 
         * Abaqus
         * Usfos
         * Sesam
 
 
-        Write support is added on a need-only-basis. Any contributions are welcome!
+        Write support is added on a need-only-basis. Any contributions are welcomed!
 
 
         :param name: Name of FEM analysis input deck
@@ -903,6 +927,7 @@ class Assembly(Part):
         :param overwrite: Overwrite existing input file deck
         :param fem_converter: Set desired fem converter. Use either 'default' or 'meshio'.
         :param exit_on_complete:
+        :param run_in_shell:
         :rtype: ada.fem.results.Results
 
             Note! Meshio implementation currently only supports reading & writing elements and nodes.
@@ -920,7 +945,8 @@ class Assembly(Part):
         from ada.fem.io.utils import default_fem_res_path, folder_prep, should_convert
         from ada.fem.results import Results
 
-        fem_res_files = default_fem_res_path(name, Settings.scratch_dir)
+        scratch_dir = Settings.scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
+        fem_res_files = default_fem_res_path(name, scratch_dir)
 
         res_path = fem_res_files.get(fem_format, None)
         metadata = dict() if metadata is None else metadata
@@ -961,9 +987,11 @@ class Assembly(Part):
                 )
         else:
             print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
+
         if out is None and res_path is None:
+            logging.info("No Result file is created")
             return None
-        return Results(name, res_path, fem_format=fem_format, assembly=self, output=out, overwrite=overwrite)
+        return Results(res_path, name, fem_format=fem_format, assembly=self, output=out, overwrite=overwrite)
 
     def to_ifc(self, destination_file, include_fem=False) -> None:
         from ada.ifc.export import add_part_objects_to_ifc
@@ -1120,6 +1148,10 @@ class Assembly(Part):
     def user(self) -> User:
         return self._user
 
+    @property
+    def convert_options(self) -> _ConvertOptions:
+        return self._convert_options
+
     def __repr__(self):
         nbms = len([bm for p in self.get_all_subparts() for bm in p.beams]) + len(self.beams)
         npls = len([pl for p in self.get_all_subparts() for pl in p.plates]) + len(self.plates)
@@ -1152,7 +1184,7 @@ class FEM:
 
     bcs: List[Bc] = field(init=False, default_factory=list)
     constraints: List[Constraint] = field(init=False, default_factory=list)
-    steps: List[Step] = field(init=False, default_factory=list)
+    steps: List[Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]] = field(init=False, default_factory=list)
 
     nodes: Nodes = field(default_factory=Nodes, init=True)
     elements: FemElements = field(default_factory=FemElements, init=True)
@@ -1167,15 +1199,17 @@ class FEM:
         self.sets.parent = self
         self.sections.parent = self
 
-    def add_elem(self, elem: Elem):
+    def add_elem(self, elem: Elem) -> Elem:
         elem.parent = self
         self.elements.add(elem)
+        return elem
 
-    def add_section(self, section: FemSection):
+    def add_section(self, section: FemSection) -> FemSection:
         section.parent = self
         self.sections.add(section)
+        return section
 
-    def add_bc(self, bc: Bc):
+    def add_bc(self, bc: Bc) -> Bc:
         if bc.name in [b.name for b in self.bcs]:
             raise ValueError(f'BC with name "{bc.name}" already exists')
 
@@ -1185,15 +1219,16 @@ class FEM:
             self.sets.add(bc.fem_set)
 
         self.bcs.append(bc)
+        return bc
 
-    def add_mass(self, mass: Mass):
+    def add_mass(self, mass: Mass) -> Mass:
         mass.parent = self
         self.masses[mass.name] = mass
+        return mass
 
     def add_set(
         self,
         fem_set: FemSet,
-        ids=None,
         p=None,
         vol_box=None,
         vol_cyl=None,
@@ -1201,20 +1236,14 @@ class FEM:
         tol=1e-4,
     ) -> FemSet:
         """
-        Simple method that creates a set string based on a set name, node or element ids and adds it to the assembly str
-
         :param fem_set: A fem set object
-        :param ids: List of integers
         :param p: Single point (x,y,z)
-        :param vol_box: Search by quadratic volume. Where p is (xmin, ymin, zmin) and vol_box is (xmax, ymax, zmax)
+        :param vol_box: Search by a box volume. Where p is (xmin, ymin, zmin) and vol_box is (xmax, ymax, zmax)
         :param vol_cyl: Search by cylindrical volume. Used together with p to find
                         nodes within cylinder inputted by [radius, height, thickness]
         :param single_member: Set True if you wish to keep only a single member
         :param tol: Point Tolerances. Default is 1e-4
         """
-        if ids is not None:
-            fem_set.add_members(ids)
-
         fem_set.parent = self
 
         def append_members(nodelist):
@@ -1223,36 +1252,35 @@ class FEM:
             else:
                 fem_set.add_members(nodelist)
 
-        if fem_set.type == "nset":
-            if p is not None or vol_box is not None or vol_cyl is not None:
-                nodes = self.nodes.get_by_volume(p, vol_box, vol_cyl, tol)
-                if len(nodes) == 0 and self.parent is not None:
-                    assembly = self.parent.get_assembly()
-                    list_of_ps = assembly.get_all_subparts() + [assembly]
-                    for part in list_of_ps:
-                        nodes = part.fem.nodes.get_by_volume(p, vol_box, vol_cyl, tol)
-                        if len(nodes) > 0:
-                            fem_set.parent = part.fem
-                            append_members(nodes)
-                            part.fem.add_set(fem_set)
-                            return fem_set
+        if fem_set.type != fem_set.TYPES.NSET or all(x is None for x in [p, vol_box, vol_cyl]):
+            self.sets.add(fem_set)
+            return fem_set
 
-                    raise Exception(f'No nodes found for fem set "{fem_set.name}"')
-                elif nodes is not None and len(nodes) > 0:
-                    append_members(nodes)
-                else:
-                    raise Exception(f'No nodes found for femset "{fem_set.name}"')
+        nodes = self.nodes.get_by_volume(p, vol_box, vol_cyl, tol)
+        if len(nodes) > 0:
+            append_members(nodes)
+            self.sets.add(fem_set)
+            return fem_set
 
-        self.sets.add(fem_set)
-        return fem_set
+        if len(nodes) == 0 and self.parent is not None:
+            assembly = self.parent.get_assembly()
+            list_of_ps = assembly.get_all_subparts() + [assembly]
+            for part in list_of_ps:
+                nodes = part.fem.nodes.get_by_volume(p, vol_box, vol_cyl, tol)
+                if len(nodes) == 0:
+                    continue
+                fem_set.parent = part.fem
+                append_members(nodes)
+                part.fem.add_set(fem_set)
+                return fem_set
 
-    def add_step(self, step: Step) -> Step:
+        raise Exception(f'No nodes found for femset "{fem_set.name}"')
+
+    def add_step(self, step: _step_types) -> _step_types:
         """Add an analysis step to the assembly"""
         if len(self.steps) > 0:
-            if self.steps[-1].type != "eigenfrequency" and step.type == "complex_eig":
-                raise Exception(
-                    "complex eigenfrequency analysis step needs to follow eigenfrequency step. Check your input"
-                )
+            if self.steps[-1].type != StepEigen.TYPES.EIGEN and step.type == StepEigen.TYPES.COMPLEX_EIG:
+                raise Exception("Complex eigenfrequency analysis step needs to follow eigenfrequency step.")
         step.parent = self
         self.steps.append(step)
 
@@ -1270,6 +1298,12 @@ class FEM:
 
     def add_constraint(self, constraint: Constraint) -> Constraint:
         constraint.parent = self
+        if constraint.m_set.parent is None:
+            self.add_set(constraint.m_set)
+
+        if constraint.s_set.parent is None:
+            self.add_set(constraint.s_set)
+
         self.constraints.append(constraint)
         return constraint
 
@@ -1280,16 +1314,18 @@ class FEM:
         self.lcsys[lcsys.name] = lcsys
         return lcsys
 
-    def add_connector_section(self, connector_section: ConnectorSection):
+    def add_connector_section(self, connector_section: ConnectorSection) -> ConnectorSection:
         connector_section.parent = self
         self.connector_sections[connector_section.name] = connector_section
+        return connector_section
 
-    def add_connector(self, connector: Connector):
+    def add_connector(self, connector: Connector) -> Connector:
         connector.parent = self
         self.connectors[connector.name] = connector
         connector.csys.parent = self
         self.elements.add(connector)
         self.add_set(FemSet(name=connector.name, members=[connector.id], set_type="elset"))
+        return connector
 
     def add_rp(self, name, node: Node):
         """Adds a reference point in assembly with a specific name"""
@@ -1298,25 +1334,27 @@ class FEM:
         fem_set = self.add_set(FemSet(name, [node], "nset"))
         return node, fem_set
 
-    def add_surface(self, surface: Surface):
+    def add_surface(self, surface: Surface) -> Surface:
         surface.parent = self
         self.surfaces[surface.name] = surface
+        return surface
 
-    def add_amplitude(self, amplitude: Amplitude):
+    def add_amplitude(self, amplitude: Amplitude) -> Amplitude:
         amplitude.parent = self
         self.amplitudes[amplitude.name] = amplitude
+        return amplitude
 
-    def add_predefined_field(self, pre_field: PredefinedField):
+    def add_predefined_field(self, pre_field: PredefinedField) -> PredefinedField:
         pre_field.parent = self
-
         self.predefined_fields[pre_field.name] = pre_field
+        return pre_field
 
-    def add_spring(self, spring: Spring):
+    def add_spring(self, spring: Spring) -> Spring:
         # self.elements.add(spring)
-
         if spring.fem_set.parent is None:
             self.sets.add(spring.fem_set)
         self.springs[spring.name] = spring
+        return spring
 
     def create_fem_elem_from_obj(self, obj, el_type=None) -> Elem:
         """Converts structural object to FEM elements. Currently only BEAM is supported"""

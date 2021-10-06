@@ -119,7 +119,7 @@ def magnitude(u):
     return np.sqrt(u[0] ** 2 + u[1] ** 2 + u[2] ** 2)
 
 
-def visualize_it(res_file, temp_file="temp/foo.vtu", default_index=0):
+def visualize_it(res_file, temp_dir=".temp", default_index=0):
     import pathlib
 
     import meshio
@@ -155,7 +155,7 @@ def visualize_it(res_file, temp_file="temp/foo.vtu", default_index=0):
 
     imesh.field_data = {key: np.array(value) for key, value in imesh.field_data.items()}
 
-    tf = pathlib.Path(temp_file).resolve().absolute()
+    tf = (pathlib.Path(temp_dir).resolve().absolute() / res_file.name).with_suffix(".vtu")
 
     if tf.exists():
         os.remove(tf)

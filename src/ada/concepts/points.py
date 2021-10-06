@@ -14,7 +14,7 @@ class Node:
     :param parent: Parent object
     """
 
-    def __init__(self, p, nid=None, bc=None, r=None, parent=None, units="m"):
+    def __init__(self, p, nid=None, bc=None, r=None, parent=None, units="m", refs=None):
         self._id = nid
         self.p = np.array([*p], dtype=np.float64) if type(p) != np.ndarray else p
         if len(self.p) != 3:
@@ -23,10 +23,10 @@ class Node:
         self._r = r
         self._parent = parent
         self._units = units
-        self._refs = []
+        self._refs = [] if refs is None else refs
 
     @property
-    def id(self):
+    def id(self) -> int:
         return self._id
 
     @id.setter
@@ -83,6 +83,7 @@ class Node:
 
     @property
     def refs(self):
+        """:rtype: list[ada.fem.Elem | ada.Beam]"""
         return self._refs
 
     def __getitem__(self, index):

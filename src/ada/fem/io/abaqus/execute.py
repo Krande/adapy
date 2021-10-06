@@ -1,8 +1,7 @@
-import logging
 import pathlib
 import shutil
 
-from ada.fem.io.utils import LocalExecute, get_exe_path
+from ada.fem.io.utils import LocalExecute
 
 
 def run_abaqus(
@@ -17,20 +16,6 @@ def run_abaqus(
     exit_on_complete=True,
     run_in_shell=False,
 ):
-    """
-
-    :param inp_path: Path to input file folder(s)
-    :param cpus: Number of CPUs to run the analysis on. Default is 2.
-    :param gpus: Number of GPUs to run the analysis on. Default is none.
-    :param run_ext: If False the process will wait for the abaqus analysis to finish. Default is False
-    :param metadata: Dictionary containing various metadata relevant for the analysis
-    :param subr_path: Path to fortran subroutine file (optional).
-    :param execute: Automatically starts Abaqus analysis. Default is True
-    :param return_bat_str:
-    :param exit_on_complete:
-    :param run_in_shell:
-    """
-
     gpus = "" if gpus is None else f"GPUS={gpus}"
     run_cmd = None
     custom_bat_str = None
@@ -45,11 +30,9 @@ def run_abaqus(
 
 class AbaqusExecute(LocalExecute):
     def run(self, exit_on_complete=True, run_cmd=None, bat_start_str=None):
-        try:
-            exe_path = get_exe_path("abaqus")
-        except FileNotFoundError as e:
-            logging.error(e)
-            return
+        from ada.fem.io import FEATypes
+
+        exe_path = self.get_exe(FEATypes.ABAQUS)
         gpus = "" if self._gpus is None else f"GPUS={self._gpus}"
         if run_cmd is None:
             run_cmd = f"{exe_path} job={self.analysis_name} CPUS={self._cpus}{gpus} interactive"

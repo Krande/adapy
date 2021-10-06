@@ -1,16 +1,29 @@
-import logging
+from typing import Union
 
 import numpy as np
 
 from ada.core.utils import bool2text
-from ada.fem import Step
+from ada.fem.steps import (
+    Step,
+    StepEigen,
+    StepEigenComplex,
+    StepExplicit,
+    StepImplicit,
+    StepSteadyState,
+)
 
 from .templates import step_inp_str
 
+_step_types = Union[StepEigen, StepExplicit, StepImplicit, StepSteadyState, StepEigenComplex]
+
 
 class AbaStep:
-    def __init__(self, step: Step):
+    def __init__(self, step: _step_types):
         self.step = step
+        if step.solver_options is None:
+            from .solver import SolverOptionsAbaqus
+
+            step.solver_options = SolverOptionsAbaqus()
 
     @property
     def _hist_output_str(self):
@@ -56,7 +69,7 @@ class AbaStep:
 
     @property
     def load_str(self):
-        from .writer import load_str
+        from .write_loads import load_str
 
         if len(self.step.loads) == 0:
             return "** No Loads"
@@ -65,9 +78,9 @@ class AbaStep:
 
     @property
     def restart_request_str(self):
-        if self.step.restart_int is None:
+        if self.step.solver_options.restart_int is None:
             return "** No Restart Requests"
-        return f"*Restart, write, frequency={self.step.restart_int}"
+        return f"*Restart, write, frequency={self.step.solver_options.restart_int}"
 
     @property
     def str(self):
@@ -82,7 +95,7 @@ class AbaStep:
             st.DYNAMIC: dynamic_implicit_str,
             st.EXPLICIT: explicit_str,
             st.EIGEN: eigenfrequency_str,
-            st.RESP: steady_state_response_str,
+            st.STEADY_STATE: steady_state_response_str,
             st.COMPLEX_EIG: complex_eig_str,
         }
         step_str_writer = step_map.get(self.step.type, None)
@@ -103,13 +116,13 @@ class AbaStep:
         )
 
 
-def dynamic_implicit_str(step: Step):
+def dynamic_implicit_str(step: StepImplicit):
     return f"""*Step, name={step.name}, nlgeom={bool2text(step.nl_geom)}, inc={step.total_incr}
-*Dynamic,application={step.dyn_type}, INITIAL={bool2text(step.init_accel_calc)}
+*Dynamic,application={step.dyn_type}, INITIAL={bool2text(step.solver_options.init_accel_calc)}
 {step.init_incr},{step.total_time},{step.min_incr}, {step.max_incr}"""
 
 
-def explicit_str(step: Step):
+def explicit_str(step: StepExplicit):
     return f"""*Step, name={step.name}, nlgeom={bool2text(step.nl_geom)}
 *Dynamic, Explicit
 , {step.total_time}
@@ -117,108 +130,76 @@ def explicit_str(step: Step):
 0.06, 1.2"""
 
 
-def static_step_str(step: Step):
-    static_str = ""
-    stabilize = step.stabilize
-    if stabilize is None:
-        pass
-    elif type(stabilize) is dict:
-        stabkeys = list(stabilize.keys())
-        if "energy" in stabkeys:
-            static_str += ", stabilize={}, allsdtol={}".format(stabilize["energy"], stabilize["allsdtol"])
-        elif "damping" in stabkeys:
-            static_str += ", stabilize, factor={}, allsdtol={}".format(stabilize["damping"], stabilize["allsdtol"])
-        elif "continue" in stabkeys:
-            if stabilize["continue"] == "YES":
-                static_str += ", stabilize, continue={}".format(stabilize["continue"])
-        else:
-            static_str += ", stabilize=0.0002, allsdtol=0.05"
-            print(
-                'Unrecognized stabilization type "{}". Will revert to energy stabilization "{}"'.format(
-                    stabkeys[0], static_str
-                )
-            )
-    elif stabilize is True:
-        static_str += ", stabilize=0.0002, allsdtol=0.05"
-    elif stabilize is False:
-        pass
-    else:
-        static_str += ", stabilize=0.0002, allsdtol=0.05"
-        logging.error(
-            "Unrecognized stabilize input. Can be bool, dict or None. " 'Reverting to default stabilizing type "energy"'
-        )
+def static_step_str(step: StepImplicit):
+    stabilize_str = ""
+    stabilize = step.solver_options.stabilize
+
+    if stabilize is not None:
+        stabilize_str = ", " + stabilize.to_input_str()
+
     line1 = (
         f"*Step, name={step.name}, nlgeom={bool2text(step.nl_geom)}, "
-        f"unsymm={bool2text(step.unsymm)}, inc={step.total_incr}"
+        f"unsymm={bool2text(step.solver_options.unsymm)}, inc={step.total_incr}"
     )
 
     return f"""{line1}
-*Static{static_str}
+*Static{stabilize_str}
 {step.init_incr}, {step.total_time}, {step.min_incr}, {step.max_incr}"""
 
 
-def eigenfrequency_str(step: Step):
+def eigenfrequency_str(step: StepEigen):
     return f"""** ----------------------------------------------------------------
 **
 ** STEP: eig
 **
 *Step, name=eig, nlgeom=NO, perturbation
 *Frequency, eigensolver=Lanczos, sim=NO, acoustic coupling=on, normalization=displacement
-{step.eigenmodes}, , , , ,
+{step.num_eigen_modes}, , , , ,
 """
 
 
-def complex_eig_str(step: Step):
+def complex_eig_str(step: StepEigenComplex):
+    unsymm = bool2text(step.solver_options.unsymm)
     return f"""** ----------------------------------------------------------------
 **
 ** STEP: complex_eig
 **
-*Step, name=complex_eig, nlgeom=NO, perturbation, unsymm=YES
+*Step, name={step.name}, nlgeom=NO, perturbation, unsymm={unsymm}
 *Complex Frequency, friction damping=NO
-{step.eigenmodes}, , ,
+{step.num_eigen_modes}, , ,
 """
 
 
-def steady_state_response_str(step: Step):
-    if step.nodeid is None:
-        raise ValueError("Please define a nodeid for the steady state load")
+def steady_state_response_str(step: StepSteadyState) -> str:
+    from .writer import get_instance_name
+
+    load = step.unit_load
+    directions = [dof for dof in load.dof if dof is not None]
+    if len(directions) != 1:
+        raise ValueError("Steady state analysis supports only a Unit load in a single degree of freedom")
+
+    direction = directions[0]
+    magnitude = load.magnitude
+    node_ref = get_instance_name(load.fem_set.members[0], step)
 
     return f"""** ----------------------------------------------------------------
-*STEP,NAME=Response_Analysis_{step.fmin}_{step.fmax}Hz
+*STEP,NAME={step.name}_{step.fmin}_{step.fmax}Hz
 *STEADY STATE DYNAMICS, DIRECT, INTERVAL=RANGE
-{add_freq_range(step.fmin, step.fmax)}
+ {add_freq_range(step.fmin, step.fmax)}
 *GLOBAL DAMPING, ALPHA={step.alpha} , BETA={step.beta}
 **
 *LOAD CASE, NAME=LC1
 *CLOAD, OP=NEW
-{step.nodeid},2, 1
-*END LOAD CASE
-**
-*OUTPUT, FIELD, FREQUENCY=1
-*NODE OUTPUT
-U
-**
-*OUTPUT, HISTORY, FREQUENCY=1
-*NODE OUTPUT, NSET=accel_data_set
-UT, AT, TU, TA
-**
-"""
+ {node_ref}, {direction}, {magnitude}
+*END LOAD CASE"""
 
 
-def add_freq_range(fmin, fmax, intervals=100):
-    """
-    Return a multiline string of frequency range given by <fmin> and <fmax> at a specific interval.
-
-    :param intervals: Number of intervals for frequency range. Default is 100.
-    :param fmin: Minimum frequency
-    :param fmax: Maximum frequency
-    :return:
-    """
+def add_freq_range(fmin: float, fmax: float, intervals: int = 100):
+    """Return a multiline string of frequency range given by <fmin> and <fmax> at a specific interval."""
     freq_list = np.linspace(fmin, fmax, intervals)
     freq_str = ""
     for eig in freq_list:
         if eig == freq_list[-1]:
-            print("last one")
             freq_str += "{0:.3f},".format(eig)
         else:
             freq_str += "{0:.3f},\n".format(eig)

@@ -1,0 +1,2 @@
+class FEASolverNotInstalled(Exception):
+    pass

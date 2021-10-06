@@ -13,26 +13,16 @@ from ada.config import Settings
 
 
 def align_to_plate(plate):
-    """
-
-    :param plate:
-    :type plate: ada.Plate
-    :return:
-    """
+    """:type plate: ada.Plate"""
     normal = plate.poly.normal
     h = plate.t * 5
-    origin = plate.poly.origin - h * normal * 1.1 / 2
-    xdir = plate.poly.xdir
+    origin = plate.poly.placement.origin - h * normal * 1.1 / 2
+    xdir = plate.poly.placement.xdir
     return dict(h=h, normal=normal, origin=origin, xdir=xdir)
 
 
 def align_to_beam(beam):
-    """
-
-    :param beam:
-    :type beam: ada.Beam
-    :return:
-    """
+    """:type beam: ada.Beam"""
     ymin = beam.yvec * np.array(beam.bbox[0])
     ymax = beam.yvec * np.array(beam.bbox[1])
     origin = beam.n1.p - ymin * 1.1
@@ -53,26 +43,6 @@ def split_beam(bm, fraction):
     """
     raise NotImplementedError()
     # nmid = bm.n1.p + bm.xvec * bm.length * fraction
-
-
-def are_plates_touching(pl1, pl2, tol=1e-3):
-    """
-    Check if two plates are within tolerance of eachother.
-
-    This uses the OCC shape representation of the plate.
-
-    :param pl1:
-    :param pl2:
-    :param tol:
-    :return:
-    """
-    from ..occ.utils import compute_minimal_distance_between_shapes
-
-    dss = compute_minimal_distance_between_shapes(pl1.solid, pl2.solid)
-    if dss.Value() <= tol:
-        return dss
-    else:
-        return None
 
 
 def linear_2dtransform_rotate(origin, point, degrees):
@@ -571,7 +541,7 @@ def global_2_local_nodes(csys, origin, nodes):
 
     res = [np.dot(rmat, p) + origin for p in nodes]
 
-    return [r for r in res]
+    return res
 
 
 def local_2_global_nodes(nodes, origin, xdir, normal):
@@ -917,6 +887,14 @@ class Counter:
     def set_i(self, i):
         self.i = i
 
+    @property
+    def prefix(self):
+        return self._prefix
+
+    @prefix.setter
+    def prefix(self, value):
+        self._prefix = value
+
     def __iter__(self):
         return self
 
@@ -1056,14 +1034,7 @@ def get_current_user():
 
 
 def get_list_of_files(dir_path, file_ext=None, strict=False):
-    """
-    Get a list of file and sub directories for a given directory
-
-    :param dir_path: Parent directory in which the recursive search for files will take place
-    :param file_ext: File extension
-    :param strict: If True the function raiser errors when no files are found.
-    :return: list of all found files
-    """
+    """Get a list of files and sub directories for a given directory"""
     all_files = []
     list_of_file = os.listdir(dir_path)
 
@@ -1090,15 +1061,8 @@ def get_list_of_files(dir_path, file_ext=None, strict=False):
     return all_files
 
 
-def getfileprop(filepath):
-    """
-    Read all properties of a given exe file return them as a dictionary.
-
-    :param filepath:
-    :type filepath: str
-    :return:
-    :rtype: dict
-    """
+def getfileprop(filepath: str) -> dict:
+    """Read all properties of a local file and return them as a dictionary"""
     import win32api
 
     filepath = str(filepath)
@@ -1343,8 +1307,10 @@ def make_name_fem_ready(value, no_dot=False):
 
     if no_dot:
         value = value.replace(".", "_")
-
-    return value.strip()
+    final_name = value.strip()
+    if len(final_name) > 25:
+        logging.error(f'Note FEM name "{final_name}" is >25 characters. This might cause issues in some FEM software')
+    return final_name
 
 
 def get_version():
@@ -1369,21 +1335,18 @@ def flatten(t):
     return [item for sublist in t for item in sublist]
 
 
-def calc_yvec(x_vec, z_vec=None):
-    """
+def calc_xvec(y_vec, z_vec):
+    return np.cross()
 
-    :param x_vec:
-    :param z_vec:
-    :return:
-    """
 
+def calc_yvec(x_vec, z_vec=None) -> np.ndarray:
     if z_vec is None:
         calc_zvec(x_vec)
 
     return np.cross(z_vec, x_vec)
 
 
-def calc_zvec(x_vec, y_vec=None):
+def calc_zvec(x_vec, y_vec=None) -> np.ndarray:
     """
     Calculate Z-vector (up) from an x-vector (along beam) only.
 
@@ -1479,3 +1442,24 @@ def unit_length_conversion(ori_unit, value):
     else:
         raise ValueError(f'Unrecognized unit conversion from "{ori_unit}" to "{value}"')
     return scale_factor
+
+
+def is_on_line(data):
+    """Evaluate intersection point between two lines"""
+    l, bm = data
+    A, B = np.array(l[0]), np.array(l[1])
+    AB = B - A
+    C = bm.n1.p
+    D = bm.n2.p
+    CD = D - C
+
+    if (vector_length(A - C) < 1e-5) is True and (vector_length(B - D) < 1e-5) is True:
+        return None
+
+    s, t = intersect_calc(A, C, AB, CD)
+    AB_ = A + s * AB
+    CD_ = C + t * CD
+    if (vector_length(AB_ - CD_) < 1e-4) is True and s not in (0.0, 1.0):
+        return list(AB_), bm
+    else:
+        return None

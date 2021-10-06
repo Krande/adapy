@@ -1,8 +1,9 @@
+import logging
 from typing import List, Union
 
 import numpy as np
 
-from ada import FEM, Assembly, Beam, Node, Part
+from ada import FEM, Assembly, Beam, Node, Part, Plate
 from ada.config import Settings
 from ada.core.utils import vector_length
 from ada.fem import (
@@ -75,11 +76,26 @@ def get_beam_end_nodes(bm: Beam, end=1, tol=1e-3) -> List[Node]:
     xv = np.array(bm.xvec)
     yv = np.array(bm.yvec)
     zv = np.array(bm.up)
-
-    n1_min = bm.n1.p - xv * tol - (h / 2 + tol) * zv - (w / 2 + tol) * yv
-    n1_max = bm.n1.p + xv * tol + (h / 2 + tol) * zv + (w / 2 + tol) * yv
-    members = [e for e in nodes.get_by_volume(n1_min, n1_max)]
+    if end == 1:
+        p = bm.n1.p
+    else:
+        p = bm.n2.p
+    n_min = p - xv * tol - (h / 2 + tol) * zv - (w / 2 + tol) * yv
+    n_max = p + xv * tol + (h / 2 + tol) * zv + (w / 2 + tol) * yv
+    members = [e for e in nodes.get_by_volume(n_min, n_max)]
     return members
+
+
+def get_nodes_along_plate_edges(pl: Plate, fem: FEM, edge_indices=None, tol=1e-3) -> List[Node]:
+    """Return FEM nodes from edges of a plate"""
+
+    res = []
+    bmin, bmax = list(zip(*pl.bbox))
+    bmin_smaller = np.array(bmin) + pl.poly.xdir * tol + pl.poly.ydir * tol
+    bmax_smaller = np.array(bmax) - pl.poly.xdir * tol - pl.poly.ydir * tol
+    all_res = fem.nodes.get_by_volume(bmin, bmax)
+    res = [n.id for n in fem.nodes.get_by_volume(bmin_smaller, bmax_smaller)]
+    return list(filter(lambda x: x.id not in res, all_res))
 
 
 def is_line_elem(elem: Elem):
@@ -149,6 +165,7 @@ def convert_hinges_2_couplings(fem: FEM):
     """
     Convert beam hinges to coupling constraints
     """
+    constrain_ids = []
 
     def converthinges(fs: FemSection):
         if fs.hinges is None or fs.type != ElemType.LINE:
@@ -165,8 +182,20 @@ def convert_hinges_2_couplings(fem: FEM):
                 if n in [x[0] for x in elem.fem_sec.offset]:
                     elem.fem_sec.offset[i] = (n2, elem.fem_sec.offset[i][1])
 
+            if n.id not in constrain_ids:
+                constrain_ids.append(n.id)
+            else:
+                logging.error(f"Hinged node {n} cannot be added twice to different couplings")
+                return None
+            if n2.id not in constrain_ids:
+                constrain_ids.append(n2.id)
+            else:
+                logging.error(f"Hinged node {n2} cannot be added twice to different couplings")
+                return None
+
             s_set = FemSet(f"el{elem.id}_hinge{i + 1}_s", [n], "nset")
             m_set = FemSet(f"el{elem.id}_hinge{i + 1}_m", [n2], "nset")
+
             elem.parent.add_set(m_set)
             elem.parent.add_set(s_set)
             c = Constraint(
@@ -180,3 +209,13 @@ def convert_hinges_2_couplings(fem: FEM):
             elem.parent.add_constraint(c)
 
     list(map(converthinges, filter(lambda x: x.hinges is not None, fem.sections)))
+
+
+def is_tri6_shell_elem(sh_fs):
+    elem_check = [x.type in ElemShapes.tri6 for x in sh_fs.elset.members]
+    return all(elem_check)
+
+
+def is_quad8_shell_elem(sh_fs):
+    elem_check = [x.type in ElemShapes.quad8 for x in sh_fs.elset.members]
+    return all(elem_check)

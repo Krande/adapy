@@ -9,18 +9,62 @@ import sys
 import time
 from contextlib import contextmanager
 from itertools import chain
+from typing import Dict
 
 from ada.concepts.containers import Beams, Plates
 from ada.concepts.levels import Part
 from ada.concepts.structural import Beam, Plate
-from ada.config import Settings as _Settings
+from ada.config import Settings
+from ada.fem.exceptions import FEASolverNotInstalled
+
+
+class DatFormatReader:
+    re_flags = re.MULTILINE | re.DOTALL
+    re_int = r"[0-9]{1,9}"
+    re_decimal_float = r"[+|-]{0,1}[0-9]{1,9}\.[0-9]{0,6}"
+    re_decimal_scientific = r"[+|-]{0,1}[0-9]{1,2}\.[0-9]{5,7}[E|e][\+|\-][0-9]{2}"
+
+    def compile_ff_re(self, list_of_types, separator=None):
+        """Create a compiled regex pattern for a specific combination of floats and ints provided"""
+        re_str = r"^\s*("
+        sep_str = "" if separator is None else separator
+        for i, t in enumerate(list_of_types):
+            if i == len(list_of_types) - 1:
+                sep_str = ""
+            if t is int:
+                re_str += rf"{self.re_int}{sep_str}\s*"
+            elif t is float:
+                re_str += rf"(?:{self.re_decimal_scientific}|{self.re_decimal_float}){sep_str}\s*"
+            else:
+                raise ValueError()
+        re_str += r")\n"
+        return re.compile(re_str, self.re_flags)
+
+    def read_data_lines(self, dat_file, regex: re.Pattern, start_flag, end_flag=None, split_data=False) -> list:
+        """Reads line by line without any spaces to search for strings while disregarding formatting"""
+        read_data = False
+        results = []
+        with open(dat_file, "r") as f:
+            for line in f.readlines():
+                compact_str = line.replace(" ", "").strip().lower()
+                if start_flag in compact_str:
+                    read_data = True
+                if end_flag is not None and end_flag in compact_str:
+                    return results
+                if read_data is False:
+                    continue
+                res = regex.search(line)
+                if res is not None:
+                    result_data = res.group(1)
+                    if split_data:
+                        result_data = result_data.split()
+                    results.append(result_data)
+
+        return results
 
 
 class LocalExecute:
-    """
-
-    Backend Component for executing local analysis
-    """
+    """Backend Component for executing local analysis"""
 
     def __init__(
         self,
@@ -63,6 +107,30 @@ class LocalExecute:
 
         return out
 
+    def get_exe(self, fea_software):
+        from ada.fem.io import fem_solver_map
+
+        solver_exe_name = fem_solver_map.get(fea_software, fea_software)
+        exe_path = None
+        for exe_test in [fea_software, solver_exe_name]:
+            try:
+                exe_path = get_exe_path(exe_test)
+            except FileNotFoundError:
+                continue
+            if exe_path is not None:
+                break
+
+        if exe_path is None:
+            msg = (
+                f'FEA Solver executable for "{solver_exe_name}" is not found. '
+                f"Please make sure that an executable exists at the specified location.\n"
+                f"See section about adding FEA solvers to paths "
+                f"so that adapy finds them in the readme at https://github.com/Krande/adapy"
+            )
+            raise FEASolverNotInstalled(msg)
+
+        return exe_path
+
     def run(self):
         raise NotImplementedError("The run function is not implemented")
 
@@ -72,10 +140,10 @@ class LocalExecute:
 
     @property
     def execute_dir(self):
-        if _Settings.execute_dir is None:
+        if Settings.execute_dir is None:
             return self.analysis_dir
         else:
-            return _Settings.execute_dir / self.analysis_name
+            return Settings.execute_dir / self.analysis_name
 
     @property
     def analysis_name(self):
@@ -88,6 +156,10 @@ class LocalExecute:
     @inp_path.setter
     def inp_path(self, value):
         self._inp_path = pathlib.Path(value)
+
+    @property
+    def cpus(self):
+        return self._cpus
 
 
 def is_buffer(obj, mode):
@@ -123,17 +195,8 @@ def get_fem_model_from_assembly(assembly):
     return parts[0]
 
 
-def get_exe_path(exe_name):
-    """
-
-    :param exe_name:
-    :return:
-    """
-    import shutil
-
-    from ada.config import Settings
-
-    if Settings.fem_exe_paths[exe_name]:
+def get_exe_path(exe_name: str):
+    if Settings.fem_exe_paths.get(exe_name, None) is not None:
         exe_path = Settings.fem_exe_paths[exe_name]
     elif os.getenv(f"ADA_{exe_name}_exe"):
         exe_path = os.getenv(f"ADA_{exe_name}_exe")
@@ -147,7 +210,7 @@ def get_exe_path(exe_name):
     exe_path = pathlib.Path(exe_path)
 
     if exe_path.exists() is False:
-        raise FileNotFoundError(exe_path)
+        return None
 
     return exe_path
 
@@ -236,7 +299,7 @@ def _lock_check(analysis_dir):
 def folder_prep(scratch_dir, analysis_name, overwrite):
 
     if scratch_dir is None:
-        scratch_dir = pathlib.Path(_Settings.scratch_dir)
+        scratch_dir = pathlib.Path(Settings.scratch_dir)
     else:
         scratch_dir = pathlib.Path(scratch_dir)
 
@@ -275,9 +338,9 @@ echo ON\ncall {run_cmd}"""
         with open(exe.execute_dir / stop_bat, "w") as d:
             d.write(f"cd /d {exe.analysis_dir}\n{stop_cmd}")
 
-    if _Settings.execute_dir is not None:
-        shutil.copy(exe.execute_dir / start_bat, _Settings.execute_dir / start_bat)
-        shutil.copy(exe.execute_dir / stop_bat, _Settings.execute_dir / stop_bat)
+    if Settings.execute_dir is not None:
+        shutil.copy(exe.execute_dir / start_bat, Settings.execute_dir / start_bat)
+        shutil.copy(exe.execute_dir / stop_bat, Settings.execute_dir / stop_bat)
 
     if run_in_shell:
         run_cmd = "start " + start_bat if exe.run_ext is True else "start /wait " + start_bat
@@ -287,28 +350,22 @@ echo ON\ncall {run_cmd}"""
 
 
 def run_linux(exe, run_cmd):
-    """
-
-    :param exe:
-    :param run_cmd:
-    :return:
-    """
     return run_tool(exe, run_cmd, "Linux")
 
 
-def run_tool(exe, run_cmd, platform):
-    fem_tool = type(exe).__name__
+def run_tool(exe: LocalExecute, run_cmd, platform):
+    fem_tool_name = type(exe).__name__.replace("Execute", "")
     out = None
     print(80 * "-")
-    print(f'starting {fem_tool} simulation "{exe.analysis_name}" (on {platform})')
+    print(f'Starting {fem_tool_name} simulation "{exe.analysis_name}" (on {platform}) using {exe.cpus} cpus')
     props = dict(shell=True, cwd=exe.execute_dir, env=os.environ, capture_output=True, universal_newlines=True)
     if exe.auto_execute is True:
         if exe.run_ext is True:
             out = subprocess.run(run_cmd, **props)
-            print(f"Note! This starts {fem_tool} in an external window on a separate thread.")
+            print(f"Note! This starts {fem_tool_name} in an external window on a separate thread.")
         else:
             out = subprocess.run(run_cmd, **props)
-            print(f'Finished {fem_tool} simulation "{exe.analysis_name}"')
+            print(f'Finished {fem_tool_name} simulation "{exe.analysis_name}"')
     print(80 * "-")
     return out
 
@@ -421,7 +478,7 @@ def convert_part_objects(p: Part, skip_plates, skip_beams):
         p._beams = convert_part_elem_bm_to_beams(p)
 
 
-def default_fem_res_path(name, scratch_dir):
+def default_fem_res_path(name, scratch_dir) -> Dict[str, pathlib.Path]:
     base_path = scratch_dir / name / name
     return dict(
         code_aster=base_path.with_suffix(".rmed"),

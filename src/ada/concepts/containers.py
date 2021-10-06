@@ -9,7 +9,6 @@ from typing import Dict, Iterable, List, Union
 
 import numpy as np
 import toolz
-from pyquaternion import Quaternion
 
 from ada.config import Settings
 from ada.core.utils import Counter, points_in_cylinder, roundoff, vector_length
@@ -644,8 +643,7 @@ class Nodes:
 
         if rotate is not None:
             p1 = np.array(rotate.origin)
-            my_quaternion = Quaternion(axis=rotate.vector, degrees=rotate.angle)
-            rot_mat = my_quaternion.rotation_matrix
+            rot_mat = rotate.to_rot_matrix()
             vectors = np.array([n.p - p1 for n in self._nodes])
             res = np.matmul(vectors, np.transpose(rot_mat))
             [map_rotations(n, p + p1) for n, p in zip(self._nodes, res)]
@@ -698,7 +696,7 @@ class Nodes:
     def nodes(self) -> List[Node]:
         return self._nodes
 
-    def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=Settings.point_tol):
+    def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=Settings.point_tol) -> List[Node]:
         """
 
         :param p: Point

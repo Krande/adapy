@@ -11,6 +11,7 @@ output/
 .ipynb_checkpoints
 __pycache__
 temp/
+.temp/
 .coverage
 coverage.xml
 htmlcov/

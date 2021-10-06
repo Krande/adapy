@@ -1,5 +1,6 @@
 import logging
-from typing import Iterable, Tuple
+from itertools import chain
+from typing import Iterable, Tuple, Union
 
 import numpy as np
 
@@ -7,14 +8,15 @@ from ada.concepts.levels import Assembly, Part
 from ada.concepts.points import Node
 from ada.concepts.structural import Material
 from ada.config import Settings as _Settings
-from ada.fem import Bc, FemSection, Load, Step
+from ada.fem import Bc, FemSection, Load, StepEigen, StepImplicit
 from ada.fem.containers import FemSections
 from ada.fem.shapes import ElemShapes
+from ada.fem.utils import is_quad8_shell_elem, is_tri6_shell_elem
 
 from ..utils import get_fem_model_from_assembly
 from .common import abaqus_to_med_type
 from .compatibility import check_compatibility
-from .templates import el_convet_str, main_comm_str
+from .templates import el_convert_str, main_comm_str
 
 
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
@@ -39,8 +41,9 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
 
 def create_comm_str(assembly: Assembly, part: Part) -> str:
     """Create COMM file input str"""
-
-    materials_str = "\n".join([write_material(mat) for mat in part.materials])
+    all_mat = chain.from_iterable([p.materials for p in assembly.get_all_parts_in_assembly(True)])
+    all_mat_unique = {x.name: x for x in all_mat}
+    materials_str = "\n".join([write_material(mat) for mat in all_mat_unique.values()])
     sections_str = write_sections(part.fem.sections)
     bc_str = "\n".join([create_bc_str(bc) for bc in assembly.fem.bcs + part.fem.bcs])
     step_str = "\n".join([create_step_str(s, part) for s in assembly.fem.steps])
@@ -61,10 +64,8 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
         is_tri6 = False
         is_quad8 = False
         for sh_fs in part.fem.sections.shells:
-            tri6_check = [x.type in ElemShapes.tri6 for x in sh_fs.elset.members]
-            quad8_check = [x.type in ElemShapes.quad8 for x in sh_fs.elset.members]
-            is_tri6 = all(tri6_check)
-            is_quad8 = all(quad8_check)
+            is_quad8 = is_quad8_shell_elem(sh_fs)
+            is_tri6 = is_tri6_shell_elem(sh_fs)
             if is_tri6 or is_quad8:
                 second_order += f"'{sh_fs.elset.name}',"
             else:
@@ -74,20 +75,21 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
             elset = "sh_sets"
             section_sets += f"{elset} = ({sh_elset_str})\n"
             model_type_str += type_tmpl_str.format(elset_str=elset, el_formula="DKT")
+
         if second_order != "":
             elset = "sh_2nd_order_sets"
             section_sets += f"{elset} = ({second_order})\n"
 
             if is_tri6:
                 output_mesh = "ma_tri6"
-                section_sets += el_convet_str.format(
+                section_sets += el_convert_str.format(
                     output_mesh=output_mesh, input_mesh=input_mesh, el_set=elset, convert_option="TRIA6_7"
                 )
                 input_mesh = output_mesh
 
             if is_quad8:
                 output_mesh = "ma_quad8"
-                section_sets += el_convet_str.format(
+                section_sets += el_convert_str.format(
                     output_mesh=output_mesh, input_mesh=input_mesh, el_set=elset, convert_option="QUAD8_9"
                 )
                 input_mesh = output_mesh
@@ -304,7 +306,7 @@ def create_bc_str(bc: Bc) -> str:
 
     return (
         dofs_str
-        + f"""{bc.name}_bc = AFFE_CHAR_MECA(
+        + f"""{bc.name} = AFFE_CHAR_MECA(
     MODELE=model, DDL_IMPO=_F(**dofs)
 )"""
     )
@@ -319,10 +321,15 @@ def write_load(load: Load) -> str:
         raise NotImplementedError(f'Load type "{load.type}"')
 
 
-def step_static_str(step: Step, part: Part) -> str:
+def step_static_str(step: StepImplicit, part: Part) -> str:
+    from ada.fem.exceptions.model_definition import NoBoundaryConditionsApplied
+
     load_str = "\n".join(list(map(write_load, step.loads)))
     load = step.loads[0]
-    bc = part.get_assembly().fem.bcs[0]
+    all_boundary_conditions = part.get_assembly().fem.bcs + part.fem.bcs
+    if len(all_boundary_conditions) == 0:
+        raise NoBoundaryConditionsApplied("No boundary condition is found for the specified model")
+    bc = all_boundary_conditions[0]
     return f"""
 {load_str}
 
@@ -336,7 +343,7 @@ result = STAT_NON_LINE(
     CARA_ELEM=element,
     COMPORTEMENT=(_F(DEFORMATION="PETIT", RELATION="VMIS_ISOT_TRAC", TOUT="OUI")),
     CONVERGENCE=_F(ARRET="OUI", ITER_GLOB_MAXI=8,),
-    EXCIT=(_F(CHARGE={bc.name}_bc), _F(CHARGE={load.name}, FONC_MULT=rampFunc)),
+    EXCIT=(_F(CHARGE={bc.name}), _F(CHARGE={load.name}, FONC_MULT=rampFunc)),
     INCREMENT=_F(LIST_INST=timeInst),
     ARCHIVAGE=_F(LIST_INST=timeReel),
 )
@@ -404,17 +411,31 @@ IMPR_RESU(
 )"""
 
 
-def step_eig_str(step: Step, part: Part) -> str:
-    if len(part.fem.bcs) == 1:
-        bcs = part.fem.bcs
-    elif len(part.get_assembly().fem.bcs) == 1:
-        bcs = part.get_assembly().fem.bcs
-    else:
+def step_eig_str(step: StepEigen, part: Part) -> str:
+    bcs = part.fem.bcs + part.get_assembly().fem.bcs
+
+    if len(bcs) > 1 or len(bcs) == 0:
         raise NotImplementedError("Number of BC sets is for now limited to 1 for eigenfrequency analysis")
 
     eig_map = dict(sorensen="SORENSEN", lanczos="TRI_DIAG")
     eig_type = step.metadata.get("eig_method", "sorensen")
     eig_method = eig_map[eig_type]
+
+    # TODO: Add check for second order shell elements. If exists add conversion of results back from TRI7 to TRI6
+    _ = """
+    model_0 = AFFE_MODELE(
+    AFFE=(
+        _F(GROUP_MA=sh_2nd_order_sets, PHENOMENE='MECANIQUE', MODELISATION='MEMBRANE',),
+    ),
+    MAILLAGE=mesh
+)
+
+modes_0 = PROJ_CHAMP(
+    MODELE_1=model,
+    MODELE_2=model_0,
+    RESULTAT=modes
+)"""
+
     bc = bcs[0]
     return f"""
 #modal analysis
@@ -422,7 +443,7 @@ ASSEMBLAGE(
     MODELE=model,
     CHAM_MATER=material,
     CARA_ELEM=element,
-    CHARGE= {bc.name}_bc,
+    CHARGE= {bc.name},
     NUME_DDL=CO('dofs_eig'),
     MATR_ASSE = (
         _F(MATRICE=CO('stiff'), OPTION ='RIGI_MECA',),
@@ -434,13 +455,15 @@ ASSEMBLAGE(
 #
 
 modes = CALC_MODES(
-    CALC_FREQ=_F(NMAX_FREQ={step.eigenmodes}, ) ,
+    CALC_FREQ=_F(NMAX_FREQ={step.num_eigen_modes}, ) ,
     SOLVEUR_MODAL=_F(METHODE='{eig_method}'),
     MATR_MASS=mass,
     MATR_RIGI=stiff,
     OPTION='PLUS_PETITE',
     VERI_MODE=_F(STOP_ERREUR='NON')
 )
+
+
 
 IMPR_RESU(
     RESU=_F(RESULTAT=modes, TOUT_CHAM='OUI'),
@@ -449,13 +472,16 @@ IMPR_RESU(
 """
 
 
-def create_step_str(step: Step, part: Part) -> str:
-    if step.type == Step.TYPES.STATIC:
-        return step_static_str(step, part)
-    elif step.type == Step.TYPES.EIGEN:
-        return step_eig_str(step, part)
-    else:
-        raise NotImplementedError(f'Step stype "{step.type}" is not yet supported')
+def create_step_str(step: Union[StepEigen, StepImplicit], part: Part) -> str:
+    st = StepEigen.TYPES
+    step_map = {st.STATIC: step_static_str, st.EIGEN: step_eig_str}
+
+    step_writer = step_map.get(step.type, None)
+
+    if step_writer is None:
+        raise NotImplementedError(f'Step type "{step.type}" is not yet supported')
+
+    return step_writer(step, part)
 
 
 def _write_nodes(part: Part, time_step, profile, families):
@@ -698,7 +724,7 @@ def _resolve_element_in_use_by_other_set(tagged_data, ind, tags, name, is_elem):
     all_tags = current_tags + [name]
 
     if name in current_tags:
-        raise ValueError("Unexpected error. Name already exists in set during resolving set members.")
+        logging.error("Unexpected error. Name already exists in set during resolving set members.")
 
     new_int = None
     for i_, t_ in tags.items():
