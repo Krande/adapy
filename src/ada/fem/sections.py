@@ -164,6 +164,10 @@ class FemSection(FemBase):
     def material(self) -> Material:
         return self._material
 
+    @material.setter
+    def material(self, value):
+        self._material = value
+
     @property
     def thickness(self):
         return self._thickness

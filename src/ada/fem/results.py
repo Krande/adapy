@@ -71,7 +71,7 @@ class Results:
         return res_reader(self, file_ref, overwrite)
 
     def save_output(self, dest_file) -> None:
-        if self.output.stdout is None:
+        if self.output is None or self.output.stdout is None:
             print("No output is found")
             return None
         dest_file = pathlib.Path(dest_file)

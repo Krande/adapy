@@ -386,6 +386,9 @@ class Materials(BaseCollections):
         rpr.maxlevel = 1
         return f"Materials({rpr.repr(self._materials) if self._materials else ''})"
 
+    def merge_materials_by_properties(self):
+        raise NotImplementedError()
+
     def index(self, item):
         """
 
@@ -498,6 +501,9 @@ class Sections:
         rpr.maxlist = 8
         rpr.maxlevel = 1
         return f"Sections({rpr.repr(self._sections) if self._sections else ''})"
+
+    def merge_sections_by_properties(self):
+        raise NotImplementedError()
 
     def index(self, item):
         index = bisect_left(self._sections, item)

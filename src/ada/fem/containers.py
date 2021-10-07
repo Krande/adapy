@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from functools import partial
 from itertools import chain, groupby
 from operator import attrgetter
-from typing import Iterable, List, Union
+from typing import Dict, Iterable, List, Tuple, Union
 
 import numpy as np
 
@@ -92,12 +92,6 @@ class FemElements:
                 list(map(lambda x: link_elset(x, elem_set), elements))
 
     def elements_from_array(self, array):
-        """
-
-        :param array: A list of numpy arrays formatted as [[elid, n1, n2,...,ni, elset, eltype], ..]
-        :return:
-        """
-
         def to_elem(e):
             nodes = [self._fem_obj.nodes.from_id(n) for n in e[3:] if (n == 0 or np.isnan(n)) is False]
             return Elem(e[0], nodes, e[1], e[2], parent=self._fem_obj)
@@ -105,9 +99,7 @@ class FemElements:
         return list(map(to_elem, array))
 
     def build_sets(self):
-        """
-        Create sets from attached elset attribute on elements
-        """
+        """Create sets from attached elset attribute on elements"""
         for elset, elements in groupby(self._elements, key=attrgetter("elset")):
             if elset is None:
                 continue
@@ -372,6 +364,25 @@ class FemSections:
 
         if len(self._sections) > 0 and fem_obj is not None:
             self._link_data()
+
+    def merge_femsections_by_properties(self):
+        from ada import Material, Section
+
+        # lines
+        # merge materials
+        # merge sections
+        # merge femsections with similar sections, materials and orientation
+        self.parent.parent.materials.merge_materials_by_properties()
+        self.parent.parent.sections.merge_sections_by_properties()
+        merge_map: Dict[Tuple[Material, Section, tuple, tuple], List[FemSection]] = dict()
+        for fs in self.lines:
+            props = (fs.material, fs.section, fs.local_x, fs.local_z)
+            if props not in merge_map.keys():
+                merge_map[props] = []
+            merge_map[props].append(fs)
+
+        # loop over merge_map and choose 1 of FemSection as master and loop over all elements and replace femSection
+        # with master
 
     def _map_materials(self, fem_sec: FemSection, mat_repo: Materials):
         if type(fem_sec.material) is str:

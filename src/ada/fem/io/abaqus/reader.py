@@ -653,6 +653,8 @@ def get_mass_from_bulk(bulk_str, parent: FEM):
         mass_type = d["mass_type"]
         p_type = d["ptype"]
         mass_ints = [str_to_int(x.strip()) for x in d["mass"].split(",") if x.strip() != ""]
+        if len(mass_ints) == 1:
+            mass_ints = mass_ints[0]
         units = d["units"]
         mass = Mass(d["elset"], elset, mass_ints, mass_type, p_type, units, parent=parent)
         map_element(elset, mass)

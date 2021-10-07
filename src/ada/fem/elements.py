@@ -238,15 +238,31 @@ class Mass(FemBase):
             raise ValueError("Mass cannot be None")
         if type(mass) not in (list, tuple):
             logging.info(f"Mass {type(mass)} converted to list of len=1. Assume equal mass in all 3 transl. DOFs.")
+            ptype = self.PTYPES.ISOTROPIC
             mass = [mass]
         self._mass = mass
-        self._mass_type = mass_type.upper() if mass_type is not None else "MASS"
+        self._mass_type = mass_type.upper() if mass_type is not None else self.TYPES.MASS
         if self.type not in MassTypes.all:
             raise ValueError(f'Mass type "{self.type}" is not in list of supported types {MassTypes.all}')
         if ptype not in MassPType.all and ptype is not None:
             raise ValueError(f'Mass point type "{ptype}" is not in list of supported types {MassPType.all}')
         self.point_mass_type = ptype
         self._units = units
+        self._check_input()
+
+    def _check_input(self):
+        if self.point_mass_type is None:
+            if self.type == MassTypes.MASS:
+                if type(self._mass) in (list, tuple):
+                    raise ValueError("Mass can only be a scalar number for Isotropic mass")
+        elif self.point_mass_type == MassPType.ISOTROPIC:
+            if (len(self._mass) == 1) is False:
+                raise ValueError("Mass can only be a scalar number for Isotropic mass")
+        elif self.point_mass_type == MassPType.ANISOTROPIC:
+            if (len(self._mass) == 3) is False:
+                raise ValueError("Mass must be specified for 3 dofs for Anisotropic mass")
+        else:
+            raise ValueError(f'Unknown mass input "{self.type}"')
 
     @property
     def type(self):

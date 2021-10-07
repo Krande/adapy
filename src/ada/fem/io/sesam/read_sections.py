@@ -60,7 +60,7 @@ def get_sections(bulk_str, fem: FEM) -> FemSections:
         (get_femsecs(m, total_geo, geom, lcsysd, hinges, ecc, thick, fem) for m in cards.re_gelref1.finditer(bulk_str)),
     )
     fem_sections = FemSections(sections, fem_obj=fem)
-    print(f"Successfully imported {next(geom) - 1} FEM sections out of {next(total_geo) - 1}")
+    logging.info(f"Successfully imported {next(geom) - 1} FEM sections out of {next(total_geo) - 1}")
     return fem_sections
 
 

@@ -48,3 +48,13 @@ class EigenMode:
     efrx: np.float64 = field(default=None, repr=False)
     efry: np.float64 = field(default=None, repr=False)
     efrz: np.float64 = field(default=None, repr=False)
+
+
+def eig_data_to_df(eig_data: EigenDataSummary, columns: List[str]):
+    """Convert EigenDataSummary to a pandas Dataframe (assumes you have pandas installed)"""
+    try:
+        import pandas as pd
+    except ModuleNotFoundError:
+        raise ModuleNotFoundError('Pandas not installed. Use "conda install -c conda-forge pandas" to install.')
+
+    return pd.DataFrame([(e.no, e.f_hz) for e in eig_data.modes], columns=columns)

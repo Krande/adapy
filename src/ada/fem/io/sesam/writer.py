@@ -2,13 +2,10 @@ import datetime
 import logging
 from operator import attrgetter
 
-import numpy as np
-
 from ada.concepts.levels import FEM, Part
 from ada.core.utils import Counter, get_current_user
 
 from .templates import top_level_fem_str
-from .write_steps import write_sestra_inp
 from .write_utils import write_ff
 
 
@@ -16,7 +13,9 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None):
     from .write_constraints import constraint_str
     from .write_elements import elem_str
     from .write_loads import loads_str
+    from .write_masses import mass_str
     from .write_sections import sections_str
+    from .write_steps import write_sestra_inp
 
     if metadata is None:
         metadata = dict()
@@ -102,20 +101,6 @@ def nodes_str(fem: FEM) -> str:
         out_str = "".join([write_ff("GNODE", [(no.id, no.id, 6, 123456)]) for no in nodes])
         out_str += "".join([write_ff("GCOORD", [(no.id, no[0], no[1], no[2])]) for no in nodes])
         return out_str
-
-
-def mass_str(fem: FEM) -> str:
-    out_str = ""
-
-    for mass in fem.masses.values():
-        for m in mass.fem_set.members:
-            if type(mass.mass) in (int, float, np.float64):
-                masses = [mass.mass for _ in range(0, 3)] + [0, 0, 0]
-            else:
-                raise NotImplementedError()
-            data = (tuple([m.id, 6] + masses[:2]), tuple(masses[2:]))
-            out_str += write_ff("BNMASS", data)
-    return out_str
 
 
 def bc_str(fem: FEM) -> str:
