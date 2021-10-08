@@ -415,6 +415,7 @@ def step_eig_str(step: StepEigen, part: Part) -> str:
     bcs = part.fem.bcs + part.get_assembly().fem.bcs
 
     if len(bcs) > 1 or len(bcs) == 0:
+
         raise NotImplementedError("Number of BC sets is for now limited to 1 for eigenfrequency analysis")
 
     eig_map = dict(sorensen="SORENSEN", lanczos="TRI_DIAG")
@@ -443,7 +444,7 @@ ASSEMBLAGE(
     MODELE=model,
     CHAM_MATER=material,
     CARA_ELEM=element,
-    CHARGE= {bc.name},
+    CHARGE={bc.name},
     NUME_DDL=CO('dofs_eig'),
     MATR_ASSE = (
         _F(MATRICE=CO('stiff'), OPTION ='RIGI_MECA',),
@@ -611,15 +612,10 @@ def _write_mesh_presets(f, mesh_name):
 
 
 def resolve_ids_in_multiple(tags, tags_data, is_elem):
-    """
-    Find elements shared by multiple sets
-
-    :param tags:
-    :param tags_data:
-    :return:
-    """
+    """Find elements shared by multiple sets"""
     from ada.fem import FemSet
 
+    rmap = {tuple(v): r for r, v in tags.items()}
     fin_data = dict()
     for t, memb in tags_data.items():
         fin_data[t] = []
@@ -630,9 +626,9 @@ def resolve_ids_in_multiple(tags, tags_data, is_elem):
                 if names not in tags.values():
                     new_int = min(tags.keys()) - 1 if is_elem else max(tags.keys()) + 1
                     tags[new_int] = names
+                    rmap[tuple(names)] = new_int
                     fin_data[new_int] = []
                 else:
-                    rmap = {tuple(v): r for r, v in tags.items()}
                     new_int = rmap[tuple(names)]
                 if mem not in fin_data[new_int]:
                     fin_data[new_int].append(mem)

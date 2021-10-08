@@ -83,8 +83,7 @@ class Backend:
     def ifc_settings(self, value):
         self._ifc_settings = value
 
-    @property
-    def ifc_elem(self):
+    def get_ifc_elem(self):
         if self._ifc_elem is None:
             self._ifc_elem = self._generate_ifc_elem()
         return self._ifc_elem

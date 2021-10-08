@@ -2,7 +2,7 @@ import logging
 
 import pytest
 
-from ada import Assembly, Beam, Part
+from ada import Assembly, Beam
 from ada.config import Settings
 from ada.fem import Bc, FemSet
 from ada.fem.elements import ElemType
@@ -11,23 +11,9 @@ from ada.fem.io import FEATypes
 from ada.fem.steps import StepEigen
 from ada.fem.utils import get_beam_end_nodes
 
+from ..test_model_fixtures import beam_model_line, beam_model_sh, beam_model_solid
 
-@pytest.fixture
-def beam_model_sh() -> Assembly:
-    bm = Beam("Bm", (0, 0, 0), (1, 0, 0), "IPE300")
-    return Assembly("MyAssembly") / (Part("MyPart", fem=bm.to_fem_obj(0.1, ElemType.SHELL)) / bm)
-
-
-@pytest.fixture
-def beam_model_line() -> Assembly:
-    bm = Beam("Bm", (0, 0, 0), (1, 0, 0), "IPE300")
-    return Assembly("MyAssembly") / (Part("MyPart", fem=bm.to_fem_obj(0.1, ElemType.LINE)) / bm)
-
-
-@pytest.fixture
-def beam_model_solid() -> Assembly:
-    bm = Beam("Bm", (0, 0, 0), (1, 0, 0), "IPE300")
-    return Assembly("MyAssembly") / (Part("MyPart", fem=bm.to_fem_obj(0.1, ElemType.SOLID)) / bm)
+__all__ = [beam_model_line, beam_model_solid, beam_model_sh]
 
 
 @pytest.mark.parametrize("fem_format", FEATypes.all)

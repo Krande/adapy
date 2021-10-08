@@ -10,27 +10,27 @@ def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=Fals
     # TODO: Consider having all of these operations happen upon import of elements as opposed to one big operation
     #  on export
 
-    part_ifc = p.ifc_elem
+    part_ifc = p.get_ifc_elem()
     owner_history = assembly.user.to_ifc()
     physical_objects = []
-    for m in p.materials.dmap.values():
+    for m in p.materials.name_map.values():
         f.add(m.ifc_mat)
 
     for bm in p.beams:
-        f.add(bm.ifc_elem)
-        physical_objects.append(bm.ifc_elem)
+        f.add(bm.get_ifc_elem())
+        physical_objects.append(bm.get_ifc_elem())
 
     for pl in p.plates:
-        f.add(pl.ifc_elem)
-        physical_objects.append(pl.ifc_elem)
+        f.add(pl.get_ifc_elem())
+        physical_objects.append(pl.get_ifc_elem())
 
     for pi in p.pipes:
         logging.debug(f'Creating IFC Elem for PIPE "{pi.name}"')
-        f.add(pi.ifc_elem)
+        f.add(pi.get_ifc_elem())
 
     for wall in p.walls:
-        f.add(wall.ifc_elem)
-        physical_objects.append(wall.ifc_elem)
+        f.add(wall.get_ifc_elem())
+        physical_objects.append(wall.get_ifc_elem())
 
     for shp in p.shapes:
         if "ifc_file" in shp.metadata.keys():
@@ -40,8 +40,8 @@ def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=Fals
             f.add(ifc_elem)
             physical_objects.append(ifc_elem)
         else:
-            f.add(shp.ifc_elem)
-            physical_objects.append(shp.ifc_elem)
+            f.add(shp.get_ifc_elem())
+            physical_objects.append(shp.get_ifc_elem())
 
     if len(p.fem.nodes) > 0 and ifc_include_fem is True:
         to_ifc_fem(p.fem, f)

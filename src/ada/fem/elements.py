@@ -273,6 +273,10 @@ class Mass(FemBase):
         """:rtype: FemSet"""
         return self._fem_set
 
+    @fem_set.setter
+    def fem_set(self, value: Mass):
+        self._fem_set = value
+
     @property
     def mass(self):
         if self.point_mass_type is None:

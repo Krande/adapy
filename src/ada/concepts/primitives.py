@@ -147,8 +147,8 @@ class Shape(BackendGeom):
         elif type(self) is PrimSweep:
             sweep = self
             assert isinstance(sweep, PrimSweep)
-            sweep_curve = sweep.sweep_curve.ifc_elem
-            profile = f.createIfcArbitraryClosedProfileDef("AREA", None, sweep.profile_curve_outer.ifc_elem)
+            sweep_curve = sweep.sweep_curve.get_ifc_elem()
+            profile = f.createIfcArbitraryClosedProfileDef("AREA", None, sweep.profile_curve_outer.get_ifc_elem())
             ifc_xdir = f.createIfcDirection([float(x) for x in sweep.profile_curve_outer.xdir])
             solid_geom = create_IfcFixedReferenceSweptAreaSolid(
                 f, sweep_curve, profile, opening_axis_placement, None, None, ifc_xdir
@@ -182,7 +182,7 @@ class Shape(BackendGeom):
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
         owner_history = a.user.to_ifc()
-        parent = self.parent.ifc_elem
+        parent = self.parent.get_ifc_elem()
         schema = a.ifc_file.wrapped_data.schema
 
         shape_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
@@ -691,7 +691,7 @@ class Penetration(BackendGeom):
         a = self.parent.parent.get_assembly()
         f = a.ifc_file
 
-        geom_parent = self.parent.parent.ifc_elem
+        geom_parent = self.parent.parent.get_ifc_elem()
         owner_history = a.user.to_ifc()
 
         # Create and associate an opening for the window in the wall

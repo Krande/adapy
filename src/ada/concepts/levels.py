@@ -407,7 +407,7 @@ class Part(BackendGeom):
         owner_history = a.user.to_ifc()
 
         itype = self.metadata["ifctype"]
-        parent = self.parent.ifc_elem
+        parent = self.parent.get_ifc_elem()
         placement = create_local_placement(
             f,
             origin=self.placement.origin,
@@ -964,6 +964,7 @@ class Assembly(Part):
                 abaqus=(analysis_dir / name).with_suffix(".inp"),
                 calculix=(analysis_dir / name).with_suffix(".inp"),
                 sesam=(analysis_dir / name).with_suffix(".FEM"),
+                usfos=(analysis_dir / name).with_suffix(".raf"),
             )
 
             fem_exporter(self, name, analysis_dir, metadata)
@@ -1131,7 +1132,7 @@ class Assembly(Part):
     def ifc_materials(self):
         if self._ifc_materials is None:
             matrel = dict()
-            for mat in self.materials.dmap.values():
+            for mat in self.materials.name_map.values():
                 matrel[mat.name] = mat.ifc_mat
             self._ifc_materials = matrel
         return self._ifc_materials

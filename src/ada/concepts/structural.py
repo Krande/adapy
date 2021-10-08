@@ -108,6 +108,7 @@ class Beam(BackendGeom):
         # Section and Material setup
         self._section, self._taper = get_section(sec)
         self._material = get_material(mat)
+        self._material.refs.append(self)
 
         if tap is not None:
             self._taper, _ = get_section(tap)
@@ -220,7 +221,7 @@ class Beam(BackendGeom):
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
         owner_history = a.user.to_ifc()
-        parent = self.parent.ifc_elem
+        parent = self.parent.get_ifc_elem()
 
         if Settings.include_ecc and self.e1 is not None:
             e1 = self.e1
@@ -255,7 +256,7 @@ class Beam(BackendGeom):
 
         if self.curve is not None:
             # TODO: Fix Sweeped Curve definition. Currently not working as intended (or maybe input is wrong.. )
-            curve = self.curve.ifc_elem
+            curve = self.curve.get_ifc_elem()
             corigin = to_real(curve.rot_origin)
             # corigin_rel = to_real(self.n1.p + curve.rot_origin)
             corigin_ifc = f.createIfcCartesianPoint(corigin)
@@ -782,6 +783,7 @@ class Plate(BackendGeom):
 
         self._pl_id = pl_id
         self._material = mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat))
+        self._material.refs.append(self)
         self._t = t
 
         if tol is None:
@@ -828,7 +830,7 @@ class Plate(BackendGeom):
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
         owner_history = a.user.to_ifc()
-        parent = self.parent.ifc_elem
+        parent = self.parent.get_ifc_elem()
 
         xvec = self.poly.xdir
         zvec = self.poly.normal
@@ -1226,7 +1228,7 @@ class Wall(BackendGeom):
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
         owner_history = a.user.to_ifc()
-        parent = self.parent.ifc_elem
+        parent = self.parent.get_ifc_elem()
         elevation = self.placement.origin[2]
 
         # Wall creation: Define the wall shape as a polyline axis and an extruded area solid

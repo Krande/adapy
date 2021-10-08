@@ -350,12 +350,17 @@ class Materials(BaseCollections):
         super().__init__(parent)
         self._materials = sorted(materials, key=attrgetter("name")) if materials is not None else []
         self._unique_ids = unique_ids
-        self._dmap = {n.name: n for n in self._materials}
-        self._idmap = {n.id: n for n in self._materials}
+        self._name_map = dict()
+        self._id_map = dict()
+        self.recreate_name_and_id_maps()
         self._units = units
 
+    def recreate_name_and_id_maps(self):
+        self._name_map = {n.name: n for n in self._materials}
+        self._id_map = {n.id: n for n in self._materials}
+
     def __contains__(self, item: Material):
-        return item.name in self._dmap.keys()
+        return item.name in self._name_map.keys()
 
     def __len__(self):
         return len(self._materials)
@@ -387,50 +392,46 @@ class Materials(BaseCollections):
         return f"Materials({rpr.repr(self._materials) if self._materials else ''})"
 
     def merge_materials_by_properties(self):
-        raise NotImplementedError()
+        models = []
+        final_mats = []
+        for i, mat in enumerate(self._materials):
+            if mat.model not in models:
+                models.append(mat.model)
+                final_mats.append(mat)
+            else:
+                index = models.index(mat.model)
+                replacement_mat = models[index].parent
+                for ref in mat.refs:
+                    ref.material = replacement_mat
 
-    def index(self, item):
-        """
+        self._materials = final_mats
+        self.recreate_name_and_id_maps()
 
-        :param item:
-        :type item: ada.Material
-        :return:
-        """
+    def index(self, item: Material):
         return self._materials.index(item)
 
-    def count(self, item):
+    def count(self, item: Material):
         return int(item in self)
 
-    def get_by_name(self, name):
-        """
-
-        :param name:
-        :return:
-        """
-        if name not in self._dmap.keys():
+    def get_by_name(self, name: str) -> Material:
+        if name not in self._name_map.keys():
             raise ValueError(f'The material name "{name}" is not found')
         else:
-            return self._dmap[name]
+            return self._name_map[name]
 
-    def get_by_id(self, mat_id):
-        """
-
-        :param mat_id:
-        :return:
-        """
-        if mat_id not in self._idmap.keys():
+    def get_by_id(self, mat_id: int):
+        if mat_id not in self._id_map.keys():
             raise ValueError(f'The material id "{mat_id}" is not found')
         else:
-            return self._idmap[mat_id]
+            return self._id_map[mat_id]
 
     @property
-    def dmap(self):
-        """
+    def name_map(self) -> Dict[str, Material]:
+        return self._name_map
 
-        :return: A dictionary of all nodes {int(id1):node1, ..}
-        :rtype: dict
-        """
-        return self._dmap
+    @property
+    def id_map(self) -> Dict[int, Material]:
+        return self._id_map
 
     @property
     def parent(self):
@@ -454,18 +455,20 @@ class Materials(BaseCollections):
 
     def add(self, material) -> Material:
         if material in self:
-            return self._dmap[material.name]
+            return self._name_map[material.name]
 
-        if material.id is None or material.id in self._idmap.keys():
+        if material.id is None or material.id in self._id_map.keys():
             material.id = len(self._materials) + 1
-        self._idmap[material.id] = material
-        self._dmap[material.name] = material
+        self._id_map[material.id] = material
+        self._name_map[material.name] = material
         self._materials.append(material)
 
         return material
 
 
 class Sections:
+    sec_id = Counter(1)
+
     def __init__(self, sections: Iterable[Section] = None, unique_ids=True, parent=None):
         """:type parent: ada.Part"""
         sections = [] if sections is None else sections
@@ -476,6 +479,13 @@ class Sections:
 
         self._sections = sorted(sections, key=attrgetter("name"))
         self._nmap = {n.name: n for n in self._sections}
+
+        def section_id_maker(section: Section) -> Section:
+            if section.id is None:
+                section.id = next(Sections.sec_id)
+            return section
+
+        [section_id_maker(sec) for sec in self._sections]
         self._idmap = {n.id: n for n in self._sections}
         if len(self._nmap.keys()) != len(self._idmap.keys()):
             raise ValueError("Non-unique ids or name are observed..")
