@@ -51,10 +51,7 @@ class Metal:
 
     @property
     def E(self):
-        """
-
-        :return: Young's Modulus
-        """
+        """Young's Modulus"""
         return self._E
 
     @E.setter
@@ -64,12 +61,13 @@ class Metal:
         self._E = value
 
     @property
-    def sig_y(self):
-        """
-        Yield stress
+    def G(self):
+        """Shear Modulus"""
+        return self.E / (2 * (1 + self.v))
 
-        :return:
-        """
+    @property
+    def sig_y(self):
+        """Yield stress"""
         return self._sig_y
 
     @sig_y.setter
@@ -80,47 +78,31 @@ class Metal:
 
     @property
     def sig_u(self):
-        """
-        :return: Ultimate yield stress
-        """
+        """Ultimate yield stress"""
         return self._sig_u
 
     @property
-    def rho(self):
-        """
-        :return: Density
-        """
+    def rho(self) -> float:
+        """Density"""
         return self._rho
 
     @property
-    def v(self):
-        """
-        Poisson Ratio
-
-        :return:
-        """
+    def v(self) -> float:
+        """Poisson Ratio"""
         return self._v
 
     @property
-    def alpha(self):
-        """
-        Thermal Expansion coefficient
-
-        :return:
-        """
+    def alpha(self) -> float:
+        """Thermal Expansion coefficient"""
         return self._alpha
 
     @property
-    def zeta(self):
-        """
-        Material damping coefficient
-
-        :return:
-        """
+    def zeta(self) -> float:
+        """Material damping coefficient"""
         return self._zeta
 
     @zeta.setter
-    def zeta(self, value):
+    def zeta(self, value: float):
         if value is None or value < 0.0:
             raise ValueError("Zeta cannot be None or below zero")
         self._zeta = value

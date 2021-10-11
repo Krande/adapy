@@ -237,16 +237,20 @@ class FemElements:
         return self._elements
 
     @property
-    def solids(self):
+    def solids(self) -> Iterable[Elem]:
         return filter(lambda x: x.type in ElemShapes.volume, self.stru_elements)
 
     @property
-    def shell(self):
+    def shell(self) -> Iterable[Elem]:
         return filter(lambda x: x.type in ElemShapes.shell, self.stru_elements)
 
     @property
-    def lines(self):
+    def lines(self) -> Iterable[Elem]:
         return filter(lambda x: x.type in ElemShapes.lines, self.stru_elements)
+
+    @property
+    def lines_hinged(self) -> Iterable[Elem]:
+        return filter(lambda x: x.hinge_prop is not None, self.lines)
 
     @property
     def connectors(self):

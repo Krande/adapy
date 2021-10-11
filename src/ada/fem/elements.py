@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import List, Union
 
 import numpy as np
@@ -44,6 +45,7 @@ class Elem(FemBase):
         self._elset = elset
         self._fem_sec = fem_sec
         self._mass_props = mass_props
+        self._hinge_prop = None
         self._refs = []
 
     @property
@@ -79,6 +81,14 @@ class Elem(FemBase):
     @property
     def nodes(self) -> List[Node]:
         return self._nodes
+
+    @property
+    def hinge_prop(self) -> Union[None, HingeProp]:
+        return self._hinge_prop
+
+    @hinge_prop.setter
+    def hinge_prop(self, value: HingeProp):
+        self._hinge_prop = value
 
     @property
     def elset(self):
@@ -120,6 +130,15 @@ class Elem(FemBase):
 
     def __repr__(self):
         return f'Elem(ID: {self._el_id}, Type: {self.type}, NodeIds: "{self.nodes}")'
+
+
+@dataclass
+class HingeProp:
+    node: Node
+    dofs: List[int]
+    csys: Csys
+    elem_ref: Elem
+    elem_n_index: int
 
 
 class Connector(Elem):

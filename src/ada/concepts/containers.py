@@ -342,7 +342,18 @@ class Connections(BaseCollections):
             self.add(joint, point_tol=point_tol)
 
 
-class Materials(BaseCollections):
+class NumericMapped(BaseCollections):
+    def __init__(self, parent):
+        super(NumericMapped, self).__init__(parent=parent)
+        self._name_map = dict()
+        self._id_map = dict()
+
+    def recreate_name_and_id_maps(self, collection):
+        self._name_map = {n.name: n for n in collection}
+        self._id_map = {n.id: n for n in collection}
+
+
+class Materials(NumericMapped):
     """Collection of materials"""
 
     def __init__(self, materials: Iterable[Material] = None, unique_ids=True, parent=None, units="m"):
@@ -350,19 +361,13 @@ class Materials(BaseCollections):
         super().__init__(parent)
         self._materials = sorted(materials, key=attrgetter("name")) if materials is not None else []
         self._unique_ids = unique_ids
-        self._name_map = dict()
-        self._id_map = dict()
-        self.recreate_name_and_id_maps()
+        self.recreate_name_and_id_maps(self._materials)
         self._units = units
-
-    def recreate_name_and_id_maps(self):
-        self._name_map = {n.name: n for n in self._materials}
-        self._id_map = {n.id: n for n in self._materials}
 
     def __contains__(self, item: Material):
         return item.name in self._name_map.keys()
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._materials)
 
     def __iter__(self) -> Iterable[Material]:
@@ -405,7 +410,7 @@ class Materials(BaseCollections):
                     ref.material = replacement_mat
 
         self._materials = final_mats
-        self.recreate_name_and_id_maps()
+        self.recreate_name_and_id_maps(self._materials)
 
     def index(self, item: Material):
         return self._materials.index(item)
@@ -419,7 +424,7 @@ class Materials(BaseCollections):
         else:
             return self._name_map[name]
 
-    def get_by_id(self, mat_id: int):
+    def get_by_id(self, mat_id: int) -> Material:
         if mat_id not in self._id_map.keys():
             raise ValueError(f'The material id "{mat_id}" is not found')
         else:
@@ -466,19 +471,17 @@ class Materials(BaseCollections):
         return material
 
 
-class Sections:
+class Sections(NumericMapped):
     sec_id = Counter(1)
 
     def __init__(self, sections: Iterable[Section] = None, unique_ids=True, parent=None):
+        super(Sections, self).__init__(parent=parent)
         """:type parent: ada.Part"""
         sections = [] if sections is None else sections
-        self._parent = parent
-
         if unique_ids:
             sections = list(toolz.unique(sections, key=attrgetter("name")))
 
         self._sections = sorted(sections, key=attrgetter("name"))
-        self._nmap = {n.name: n for n in self._sections}
 
         def section_id_maker(section: Section) -> Section:
             if section.id is None:
@@ -486,12 +489,14 @@ class Sections:
             return section
 
         [section_id_maker(sec) for sec in self._sections]
-        self._idmap = {n.id: n for n in self._sections}
-        if len(self._nmap.keys()) != len(self._idmap.keys()):
+
+        self.recreate_name_and_id_maps(self._sections)
+
+        if len(self._name_map.keys()) != len(self._id_map.keys()):
             raise ValueError("Non-unique ids or name are observed..")
 
     def __contains__(self, item):
-        return item.name in self._nmap.keys()
+        return item.name in self._name_map.keys()
 
     def __len__(self):
         return len(self._sections)
@@ -525,20 +530,24 @@ class Sections:
         return int(item in self)
 
     def get_by_name(self, name: str) -> Section:
-        if name not in self._nmap.keys():
+        if name not in self._name_map.keys():
             raise ValueError(f'The section id "{name}" is not found')
         else:
-            return self._nmap[name]
+            return self._name_map[name]
 
     def get_by_id(self, sec_id: int) -> Section:
-        if sec_id not in self._idmap.keys():
+        if sec_id not in self._id_map.keys():
             raise ValueError(f'The node id "{sec_id}" is not found')
         else:
-            return self._idmap[sec_id]
+            return self._id_map[sec_id]
 
     @property
-    def idmap(self) -> dict[int, Section]:
-        return self._idmap
+    def id_map(self) -> dict[int, Section]:
+        return self._id_map
+
+    @property
+    def name_map(self) -> dict[str, Section]:
+        return self._name_map
 
     def add(self, section: Section) -> Section:
         from ada.concepts.structural import section_counter
@@ -550,20 +559,20 @@ class Sections:
         if section.parent is None:
             section.parent = self._parent
 
-        if section.name in self._nmap.keys():
-            return self._nmap[section.name]
+        if section.name in self._name_map.keys():
+            return self._name_map[section.name]
 
         if section.id is None:
             section.id = next(section_counter)
 
         if len(self._sections) > 0:
-            if section.id is None or section.id in self._idmap.keys():
+            if section.id is None or section.id in self._id_map.keys():
                 new_sec_id = next(section_counter)
                 section.id = new_sec_id
 
         self._sections.append(section)
-        self._idmap[section.id] = section
-        self._nmap[section.name] = section
+        self._id_map[section.id] = section
+        self._name_map[section.name] = section
 
         return section
 
@@ -600,9 +609,6 @@ class Nodes:
         from ada import Node
 
         return [Node(row[1:], int(row[0]), parent=self._parent) for row in np_array]
-
-    def nlist_to_np_array(self, nlist):
-        return np.array([(n.id, *n) for n in nlist])
 
     def to_np_array(self, include_id=False):
         if include_id:

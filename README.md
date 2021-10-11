@@ -94,8 +94,8 @@ my_fem_file = 'path_to_your_sesam_file.FEM'
 
 a = Assembly()
 a.read_fem(my_fem_file)
-a.to_fem('nam_of_my_analysis_file_deck_directory', 'abaqus')
-a.to_fem('nam_of_my_analysis_file_deck_directory_code_aster', 'code_aster')
+a.to_fem('name_of_my_analysis_file_deck_directory_abaqus', 'abaqus')
+a.to_fem('name_of_my_analysis_file_deck_directory_code_aster', 'code_aster')
 
 # Note! If you are in a Jupyter Notebook\lab environment 
 # this will generate a pythreejs 3D visualization of your FEM mesh

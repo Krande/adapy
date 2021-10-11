@@ -135,7 +135,7 @@ def add_general_sections(match, fem) -> None:
         sy=float(d["sy"]),
         sz=float(d["sz"]),
     )
-    if sec_id in fem.parent.sections.idmap.keys():
+    if sec_id in fem.parent.sections.id_map.keys():
         sec = fem.parent.sections.get_by_id(sec_id)
         sec._genprops = gen_props
         gen_props.parent = sec
@@ -203,9 +203,8 @@ def get_femsecs(match, total_geo, importedgeom_counter, lcsysd, hinges_global, e
         if d["members"] is not None:
             members = [str_to_int(x) for x in d["members"].replace("\n", " ").split()]
 
-        hinges = None
         if fix_data == -1:
-            hinges = get_hinges_from_elem(elem, members, hinges_global, lcsysd, xvec, zvec, yvec)
+            add_hinge_prop_to_elem(elem, members, hinges_global, lcsysd, xvec, zvec, yvec)
 
         offset = None
         if ecc_data == -1:
@@ -222,7 +221,6 @@ def get_femsecs(match, total_geo, importedgeom_counter, lcsysd, hinges_global, e
             local_y=yvec,
             material=mat,
             offset=offset,
-            hinges=hinges,
             parent=fem,
         )
         return fem_sec
@@ -285,20 +283,21 @@ def get_section_names(m):
     return str_to_int(d["geono"]), d["set_name"].strip()
 
 
-def get_hinges_from_elem(elem, members, hinges_global, lcsysd, xvec, zvec, yvec):
+def add_hinge_prop_to_elem(elem, members, hinges_global, lcsysd, xvec, zvec, yvec) -> None:
     """
 
     :param elem:
     :param members:
     :param hinges_global:
-    :type elem: ada.Elem
+    :type elem: ada.fem.Elem
     :return:
     """
+    from ada.core.utils import unit_vector
+    from ada.fem.elements import HingeProp
+
     if len(elem.nodes) > 2:
         raise ValueError("This algorithm was not designed for more than 2 noded elements")
-    from ada.core.utils import unit_vector
 
-    hinges = []
     for i, x in enumerate(members):
         if i >= len(elem.nodes):
             break
@@ -317,10 +316,8 @@ def get_hinges_from_elem(elem, members, hinges_global, lcsysd, xvec, zvec, yvec)
                 parent=elem.parent,
             )
         dofs_origin = [1, 2, 3, 4, 5, 6]
-        d = [int(x) for x, i in zip(dofs_origin, (a1, a2, a3, a4, a5, a6)) if int(i) != 0]
-
-        hinges.append((n, d, csys))
-    return hinges
+        dofs = [int(x) for x, i in zip(dofs_origin, (a1, a2, a3, a4, a5, a6)) if int(i) != 0]
+        elem.hinge_prop = HingeProp(n, dofs, csys, elem, i)
 
 
 def get_ecc_from_elem(elem, members, eccentricities, fix_data):

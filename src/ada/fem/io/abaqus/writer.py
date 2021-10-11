@@ -92,6 +92,7 @@ class AbaqusWriter:
                 continue
             if self.assembly.convert_options.hinges_to_coupling is True:
                 convert_hinges_2_couplings(part.fem)
+
             if self.assembly.convert_options.ecc_to_mpc is True:
                 convert_ecc_to_mpc(part.fem)
 
@@ -554,7 +555,7 @@ class AbaSection:
         elif sec_data == "GENERAL":
             mat = self.fem_sec.material.model
             gp = eval_general_properties(sec)
-            return f"{gp.Ax}, {gp.Iy}, {gp.Iyz}, {gp.Iz}, {gp.Ix}\n {n1}\n {mat.E:.3E}, ,{mat.alpha:.2E}"
+            return f"{gp.Ax}, {gp.Iy}, {gp.Iyz}, {gp.Iz}, {gp.Ix}\n {n1}\n {mat.E:.3E}, {mat.G},{mat.alpha:.2E}"
         elif sec_data == "PIPE":
             return f"{sec.r}, {sec.wt}\n {n1}"
         elif sec_data == "L":

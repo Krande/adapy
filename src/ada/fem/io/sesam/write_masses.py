@@ -14,7 +14,7 @@ def mass_str(fem: FEM) -> str:
                 elif mass.point_mass_type == mass.PTYPES.ANISOTROPIC:
                     masses = mass.mass + [0, 0, 0]
                 else:
-                    raise NotImplementedError(f"mass point mass type {mass.point_mass_type} is not yet supported")
+                    raise NotImplementedError(f"Mass point mass type {mass.point_mass_type} is not yet supported")
             else:
                 raise NotImplementedError(f"Mass type {mass.type} is not yet supported")
             data = (tuple([m.id, 6] + masses[:2]), tuple(masses[2:]))
