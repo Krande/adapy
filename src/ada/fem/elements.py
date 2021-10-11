@@ -46,7 +46,23 @@ class Elem(FemBase):
         self._fem_sec = fem_sec
         self._mass_props = mass_props
         self._hinge_prop = None
+        self._eccentricity = None
         self._refs = []
+
+    def get_offset_coords(self):
+        nodes = [n.p for n in self.nodes]
+        if self.eccentricity is None:
+            return nodes
+
+        ecc = self.eccentricity.ecc_vector
+        n_old = self.eccentricity.node
+
+        mat = np.eye(3)
+        new_p = np.dot(mat, ecc) + n_old.p
+        i = self.nodes.index(n_old)
+        nodes[i] = new_p
+
+        return nodes
 
     @property
     def type(self):
@@ -89,6 +105,14 @@ class Elem(FemBase):
     @hinge_prop.setter
     def hinge_prop(self, value: HingeProp):
         self._hinge_prop = value
+
+    @property
+    def eccentricity(self) -> Union[None, Eccentricity]:
+        return self._eccentricity
+
+    @eccentricity.setter
+    def eccentricity(self, value: Eccentricity):
+        self._eccentricity = value
 
     @property
     def elset(self):
@@ -139,6 +163,12 @@ class HingeProp:
     csys: Csys
     elem_ref: Elem
     elem_n_index: int
+
+
+@dataclass
+class Eccentricity:
+    node: Node
+    ecc_vector: np.ndarray
 
 
 class Connector(Elem):

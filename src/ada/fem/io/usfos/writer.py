@@ -243,18 +243,18 @@ def beam_str(fem: FEM, eccen):
             locvecs.append(xvec_str)
             locid = locvecs.index(xvec_str)
 
-        if fem_sec.offset is not None:
+        if el.eccentricity is not None:
             ecc1_str = " 0"
             ecc2_str = " 0"
-            for n, e in fem_sec.offset:
-                if n == n1:
-                    ecc1 = next(eccen_counter)
-                    eccen.append((ecc1, e))
-                    ecc1_str = f" {ecc1}"
-                if n == n2:
-                    ecc2 = next(eccen_counter)
-                    eccen.append((ecc2, e))
-                    ecc2_str = f" {ecc2}"
+            n, e = el.eccentricity.node, el.eccentricity.ecc_vector
+            if n == n1:
+                ecc1 = next(eccen_counter)
+                eccen.append((ecc1, e))
+                ecc1_str = f" {ecc1}"
+            if n == n2:
+                ecc2 = next(eccen_counter)
+                eccen.append((ecc2, e))
+                ecc2_str = f" {ecc2}"
         else:
             ecc1_str = ""
             ecc2_str = ""

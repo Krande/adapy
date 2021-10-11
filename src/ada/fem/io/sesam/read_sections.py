@@ -206,9 +206,8 @@ def get_femsecs(match, total_geo, importedgeom_counter, lcsysd, hinges_global, e
         if fix_data == -1:
             add_hinge_prop_to_elem(elem, members, hinges_global, lcsysd, xvec, zvec, yvec)
 
-        offset = None
         if ecc_data == -1:
-            offset = get_ecc_from_elem(elem, members, eccentricities, fix_data)
+            get_ecc_from_elem(elem, members, eccentricities, fix_data)
 
         fem_set = FemSet(sec.name, [elem], "elset", metadata=dict(internal=True), parent=fem)
         fem.sets.add(fem_set, append_suffix_on_exist=True)
@@ -220,7 +219,6 @@ def get_femsecs(match, total_geo, importedgeom_counter, lcsysd, hinges_global, e
             local_z=zvec,
             local_y=yvec,
             material=mat,
-            offset=offset,
             parent=fem,
         )
         return fem_sec
@@ -329,10 +327,12 @@ def get_ecc_from_elem(elem, members, eccentricities, fix_data):
     :param fix_data:
     :type elem: ada.fem.Elem
     """
+    from ada.fem.elements import Eccentricity
+
     # To the interpretation here
     start = 0 if fix_data != -1 else len(elem.nodes)
     end = len(elem.nodes) if fix_data != -1 else 2 * len(elem.nodes)
-    eccen = []
+
     for i, x in enumerate(members[start:]):
         if i >= end:
             break
@@ -340,8 +340,7 @@ def get_ecc_from_elem(elem, members, eccentricities, fix_data):
             continue
         n_offset = elem.nodes[i]
         ecc = eccentricities[x]
-        eccen.append((n_offset, ecc))
-    return eccen
+        elem.eccentricity = Eccentricity(n_offset, ecc)
 
 
 def get_lcsys(m):

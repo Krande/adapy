@@ -6,17 +6,9 @@ import numpy as np
 from ada import FEM, Assembly, Beam, Node, Part, Plate
 from ada.config import Settings
 from ada.core.utils import vector_length
-from ada.fem import (
-    Bc,
-    Connector,
-    ConnectorSection,
-    Constraint,
-    Elem,
-    FemSection,
-    FemSet,
-)
+from ada.fem import Bc, Connector, ConnectorSection, Constraint, Elem, FemSet
 
-from .shapes import ElemShapes, ElemType
+from .shapes import ElemShapes
 
 
 def get_eldata(fem_source: Union[Assembly, Part, FEM]):
@@ -108,42 +100,18 @@ def convert_ecc_to_mpc(fem: FEM):
     edited_nodes = dict()
     tol = Settings.point_tol
 
-    def build_mpc(fs: FemSection):
-        if fs.offset is None or fs.type != ElemType.LINE:
-            return
-        elem = fs.elset.members[0]
-        for n_old, ecc in fs.offset:
-            i = elem.nodes.index(n_old)
-            if n_old.id in edited_nodes.keys():
-                n_new = edited_nodes[n_old.id]
-                mat = np.eye(3)
-                new_p = np.dot(mat, ecc) + n_old.p
-                n_new_ = Node(new_p, parent=elem.parent)
-                if vector_length(n_new_.p - n_new.p) > tol:
-                    elem.parent.nodes.add(n_new_, allow_coincident=True)
-                    m_set = FemSet(f"el{elem.id}_mpc{i + 1}_m", [n_new_], "nset")
-                    s_set = FemSet(f"el{elem.id}_mpc{i + 1}_s", [n_old], "nset")
-                    c = Constraint(
-                        f"el{elem.id}_mpc{i + 1}_co",
-                        "mpc",
-                        m_set,
-                        s_set,
-                        mpc_type="Beam",
-                        parent=elem.parent,
-                    )
-                    elem.parent.add_constraint(c)
-                    elem.nodes[i] = n_new_
-                    edited_nodes[n_old.id] = n_new_
-
-                else:
-                    elem.nodes[i] = n_new
-                    edited_nodes[n_old.id] = n_new
-            else:
-                mat = np.eye(3)
-                new_p = np.dot(mat, ecc) + n_old.p
-                n_new = Node(new_p, parent=elem.parent)
-                elem.parent.nodes.add(n_new, allow_coincident=True)
-                m_set = FemSet(f"el{elem.id}_mpc{i + 1}_m", [n_new], "nset")
+    def build_mpc(elem: Elem):
+        n_old = elem.eccentricity.node
+        ecc = elem.eccentricity.ecc_vector
+        i = elem.nodes.index(n_old)
+        if n_old.id in edited_nodes.keys():
+            n_new = edited_nodes[n_old.id]
+            mat = np.eye(3)
+            new_p = np.dot(mat, ecc) + n_old.p
+            n_new_ = Node(new_p, parent=elem.parent)
+            if vector_length(n_new_.p - n_new.p) > tol:
+                elem.parent.nodes.add(n_new_, allow_coincident=True)
+                m_set = FemSet(f"el{elem.id}_mpc{i + 1}_m", [n_new_], "nset")
                 s_set = FemSet(f"el{elem.id}_mpc{i + 1}_s", [n_old], "nset")
                 c = Constraint(
                     f"el{elem.id}_mpc{i + 1}_co",
@@ -154,11 +122,33 @@ def convert_ecc_to_mpc(fem: FEM):
                     parent=elem.parent,
                 )
                 elem.parent.add_constraint(c)
+                elem.nodes[i] = n_new_
+                edited_nodes[n_old.id] = n_new_
 
+            else:
                 elem.nodes[i] = n_new
                 edited_nodes[n_old.id] = n_new
+        else:
+            mat = np.eye(3)
+            new_p = np.dot(mat, ecc) + n_old.p
+            n_new = Node(new_p, parent=elem.parent)
+            elem.parent.nodes.add(n_new, allow_coincident=True)
+            m_set = FemSet(f"el{elem.id}_mpc{i + 1}_m", [n_new], "nset")
+            s_set = FemSet(f"el{elem.id}_mpc{i + 1}_s", [n_old], "nset")
+            c = Constraint(
+                f"el{elem.id}_mpc{i + 1}_co",
+                "mpc",
+                m_set,
+                s_set,
+                mpc_type="Beam",
+                parent=elem.parent,
+            )
+            elem.parent.add_constraint(c)
 
-    list(map(build_mpc, filter(lambda x: x.offset is not None, fem.sections)))
+            elem.nodes[i] = n_new
+            edited_nodes[n_old.id] = n_new
+
+    [build_mpc(el) for el in fem.elements.lines_ecc]
 
 
 def convert_hinges_2_couplings(fem: FEM):
@@ -176,9 +166,9 @@ def convert_hinges_2_couplings(fem: FEM):
         elem.parent.nodes.add(n2, allow_coincident=True)
         i = elem.nodes.index(n)
         elem.nodes[i] = n2
-        if elem.fem_sec.offset is not None:
-            if n in [x[0] for x in elem.fem_sec.offset]:
-                elem.fem_sec.offset[i] = (n2, elem.fem_sec.offset[i][1])
+        if elem.eccentricity is not None:
+            if n == elem.eccentricity.node:
+                elem.eccentricity.node = n2
 
         if n2.id not in constrain_ids:
             constrain_ids.append(n2.id)

@@ -1,7 +1,5 @@
 import logging
 
-import numpy as np
-
 from ada.core.utils import (
     calc_yvec,
     calc_zvec,
@@ -28,8 +26,6 @@ class FemSection(FemBase):
         local_y=None,
         thickness=None,
         int_points=5,
-        offset=None,
-        hinges=None,
         metadata=None,
         parent=None,
         refs=None,
@@ -50,13 +46,10 @@ class FemSection(FemBase):
         self._local_z = local_z
         self._local_y = local_y
         self._local_x = None
-        if self._sec_type == ElemType.SHELL:
-            if thickness is None:
-                raise ValueError("Thickness of shell cannot be None")
+        if self._sec_type == ElemType.SHELL and thickness is None:
+            raise ValueError("Thickness of shell cannot be None")
         self._thickness = thickness
         self._int_points = int_points
-        self._offset = offset
-        self._hinges = hinges
         self._refs = refs
 
     def link_elements(self):
@@ -66,20 +59,6 @@ class FemSection(FemBase):
             el.fem_sec = self
 
         list(map(link_elem, self.elset.members))
-
-    def get_offset_coords(self):
-        elem = self.elset.members[0]
-        nodes = [n.p for n in elem.nodes]
-        if self.offset is None:
-            return nodes
-
-        for n_old, ecc in self.offset:
-            mat = np.eye(3)
-            new_p = np.dot(mat, ecc) + n_old.p
-            i = elem.nodes.index(n_old)
-            nodes[i] = new_p
-
-        return nodes
 
     @property
     def type(self):
@@ -175,14 +154,6 @@ class FemSection(FemBase):
     @property
     def int_points(self):
         return self._int_points
-
-    @property
-    def offset(self):
-        return self._offset
-
-    @property
-    def hinges(self):
-        return self._hinges
 
     @property
     def refs(self):

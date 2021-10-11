@@ -180,7 +180,7 @@ class FemElements:
 
         def calc_bm_elem(el: Elem):
             el.fem_sec.section.properties.calculate()
-            nodes_ = el.fem_sec.get_offset_coords()
+            nodes_ = el.get_offset_coords()
             elem_len = vector_length(nodes_[-1] - nodes_[0])
             vol_ = el.fem_sec.section.properties.Ax * elem_len
             mass = vol_ * el.fem_sec.material.model.rho
@@ -251,6 +251,10 @@ class FemElements:
     @property
     def lines_hinged(self) -> Iterable[Elem]:
         return filter(lambda x: x.hinge_prop is not None, self.lines)
+
+    @property
+    def lines_ecc(self) -> Iterable[Elem]:
+        return filter(lambda x: x.eccentricity is not None, self.lines)
 
     @property
     def connectors(self):
