@@ -162,7 +162,7 @@ class HingeProp:
     csys: Csys
     elem_ref: Elem
     elem_n_index: int
-    constraint_ref: "ada.fem.Constraint" = None
+    constraint_ref = None
 
 
 @dataclass

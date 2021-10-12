@@ -50,7 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pyver: [ { name: py38, distver: '3.8' }, { name: py39, distver: '3.9'}, { name: py310, distver: '3.10'}]
+        pyver: [ { name: py38, distver: '3.8' }, { name: py39, distver: '3.9'}]
         platform: [
           { name: Windows, distver: windows-latest, short: 'win-64' },
           { name: Linux, distver: ubuntu-latest, short: 'linux-64' },
