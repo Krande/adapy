@@ -152,20 +152,26 @@ def convert_ecc_to_mpc(fem: FEM):
 
 
 def convert_hinges_2_couplings(fem: FEM):
-    """
-    Convert beam hinges to coupling constraints
-    """
+    """Convert beam hinges to coupling constraints"""
+    from ada.core.utils import Counter
+
     constrain_ids = []
 
+    max_node_id = fem.nodes.max_nid
+    new_node_id = Counter(max_node_id + 10000)
+
     def convert_hinge(elem: Elem):
+        if elem.hinge_prop.constraint_ref is not None:
+            return
         n = elem.hinge_prop.node
         csys = elem.hinge_prop.csys
         d = elem.hinge_prop.dofs
 
-        n2 = Node(n.p, None, parent=elem.parent)
+        n2 = Node(n.p, next(new_node_id), parent=elem.parent)
         elem.parent.nodes.add(n2, allow_coincident=True)
         i = elem.nodes.index(n)
         elem.nodes[i] = n2
+
         if elem.eccentricity is not None:
             if n == elem.eccentricity.node:
                 elem.eccentricity.node = n2
@@ -176,8 +182,8 @@ def convert_hinges_2_couplings(fem: FEM):
             logging.error(f"Hinged node {n2} cannot be added twice to different couplings")
             return None
 
-        s_set = FemSet(f"el{elem.id}_hinge{i + 1}_s", [n], "nset")
-        m_set = FemSet(f"el{elem.id}_hinge{i + 1}_m", [n2], "nset")
+        m_set = FemSet(f"el{elem.id}_hinge{i + 1}_m", [n], "nset")
+        s_set = FemSet(f"el{elem.id}_hinge{i + 1}_s", [n2], "nset")
 
         elem.parent.add_set(m_set)
         elem.parent.add_set(s_set)
@@ -190,6 +196,7 @@ def convert_hinges_2_couplings(fem: FEM):
             csys=csys,
         )
         elem.parent.add_constraint(c)
+        elem.hinge_prop.constraint_ref = c
         logging.info(f"added constraint {c}")
 
     for el in fem.elements.lines_hinged:

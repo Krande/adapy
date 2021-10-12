@@ -16,7 +16,7 @@ def load_str(load: Load) -> str:
 
 
 def acceleration_field_str(load: Load) -> str:
-    dof = [0, 0, 1] if load.dof is None else load.dof
+    dof = [0, 0, 1] if load.dof is None else [dof if dof is not None else 0 for dof in load.dof]
     dof_str = ", ".join([str(x) for x in dof[:3]])
     return f"""** Name: gravity   Type: Gravity\n*Dload\n, GRAV, {load.magnitude}, {dof_str}"""
 

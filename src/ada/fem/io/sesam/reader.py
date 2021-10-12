@@ -50,6 +50,8 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
     fem.springs = get_springs(bulk_str, fem)
     fem.bcs += get_bcs(bulk_str, fem)
 
+    renumber_nodes(bulk_str, fem)
+
     print(8 * "-" + f'Imported "{fem.instance_name}"')
     return part
 
@@ -79,13 +81,18 @@ def eltype_2_sesam(eltyp) -> int:
 def get_nodes(bulk_str: str, parent: FEM) -> Nodes:
     def get_node(m):
         d = m.groupdict()
-        return Node(
-            [float(d["x"]), float(d["y"]), float(d["z"])],
-            int(float(d["id"])),
-            parent=parent,
-        )
+        return Node([float(d["x"]), float(d["y"]), float(d["z"])], str_to_int(d["id"]), parent=parent)
 
     return Nodes(list(map(get_node, cards.re_gcoord_in.finditer(bulk_str))), parent=parent)
+
+
+def renumber_nodes(bulk_str: str, fem: FEM) -> None:
+    def get_nodeno(m_gnod):
+        d = m_gnod.groupdict()
+        return str_to_int(d["nodex"]), str_to_int(d["nodeno"])
+
+    node_map = {nodeno: nodex for nodex, nodeno in map(get_nodeno, cards.re_gnode_in.finditer(bulk_str))}
+    fem.nodes.renumber(renumber_map=node_map)
 
 
 def get_elements(bulk_str: str, fem: FEM) -> FemElements:

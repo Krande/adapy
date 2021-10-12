@@ -28,6 +28,18 @@ re_gelref1 = get_ff_regex(
 )
 
 # Beam Sections
+# GIORH (I-section)
+# GUSYI (unsymm.I-section)
+# GCHAN (Channel section)
+# GBOX (Box section)
+# GPIPE (Pipe section)
+# GBARM (Massive bar)
+# GTONP (T on plate)
+# GDOBO (Double box)
+# GLSEC (L section)
+# GIORHR
+# GCHANR
+# GLSECR
 re_sectnames = get_ff_regex("TDSECT", "nfield", "geono", "codnam", "codtxt", "set_name")
 re_gbeamg = get_ff_regex(
     "GBEAMG",

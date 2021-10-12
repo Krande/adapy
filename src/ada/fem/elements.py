@@ -136,7 +136,6 @@ class Elem(FemBase):
 
     @property
     def shape(self) -> ElemShapes:
-
         if self._shape is None:
             self._shape = ElemShapes(self.type, self.nodes)
         return self._shape
@@ -163,6 +162,7 @@ class HingeProp:
     csys: Csys
     elem_ref: Elem
     elem_n_index: int
+    constraint_ref: "ada.fem.Constraint" = None
 
 
 @dataclass

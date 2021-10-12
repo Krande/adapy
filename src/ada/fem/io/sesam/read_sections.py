@@ -7,30 +7,17 @@ from ada.concepts.containers import Sections
 from ada.concepts.levels import FEM
 from ada.concepts.structural import Section
 from ada.core.utils import roundoff, unit_vector, vector_length
-from ada.fem import Csys, FemSection, FemSet
+from ada.fem import Csys, Elem, FemSection, FemSet
 from ada.fem.containers import FemSections
 from ada.fem.io.utils import str_to_int
 from ada.fem.shapes import ElemShapes, ElemType
+from ada.materials import Material
 from ada.sections import GeneralProperties
 
 from . import cards
 
 
 def get_sections(bulk_str, fem: FEM) -> FemSections:
-    """
-    GIORH (I-section)
-    GUSYI (unsymm.I-section)
-    GCHAN  (Channel section)
-    GBOX (Box section)
-    GPIPE (Pipe section)
-    GBARM (Massive bar)
-    GTONP (T on plate)
-    GDOBO (Double box)
-    GLSEC (L section)
-    GIORHR
-    GCHANR
-    GLSECR
-    """
     # Section Names
     sect_names = {sec_id: name for sec_id, name in map(get_section_names, cards.re_sectnames.finditer(bulk_str))}
     # Local Coordinate Systems
@@ -49,7 +36,7 @@ def get_sections(bulk_str, fem: FEM) -> FemSections:
         (get_flatbar(m, sect_names, fem) for m in cards.re_gbarm.finditer(bulk_str)),
     )
 
-    fem.parent._sections = Sections(list_of_sections)
+    fem.parent._sections = Sections(list_of_sections, parent=fem.parent)
     [add_general_sections(m, fem) for m in cards.re_gbeamg.finditer(bulk_str)]
 
     geom = count(1)
@@ -165,78 +152,85 @@ def get_tubular_section(match, sect_names, fem) -> Section:
     )
 
 
-def get_femsecs(match, total_geo, importedgeom_counter, lcsysd, hinges_global, eccentricities, thicknesses, fem):
+def read_line_section(elem: Elem, fem: FEM, mat: Material, geono, d, lcsysd, hinges_global, eccentricities):
+    transno = str_to_int(d["transno"])
+    sec = fem.parent.sections.get_by_id(geono)
+    n1, n2 = elem.nodes
+    v = n2.p - n1.p
+    if vector_length(v) == 0.0:
+        xvec = [1, 0, 0]
+    else:
+        xvec = unit_vector(v)
+    zvec = lcsysd[transno]
+    crossed = np.cross(zvec, xvec)
+    ma = max(abs(crossed))
+    yvec = tuple([roundoff(x / ma, 3) for x in crossed])
+
+    fix_data = str_to_int(d["fixno"])
+    ecc_data = str_to_int(d["eccno"])
+
+    members = None
+    if d["members"] is not None:
+        members = [str_to_int(x) for x in d["members"].replace("\n", " ").split()]
+
+    if fix_data == -1:
+        add_hinge_prop_to_elem(elem, members, hinges_global, xvec, yvec)
+
+    if ecc_data == -1:
+        add_ecc_to_elem(elem, members, eccentricities, fix_data)
+
+    fem_set = FemSet(sec.name, [elem], "elset", metadata=dict(internal=True), parent=fem)
+    fem.sets.add(fem_set, append_suffix_on_exist=True)
+    fem_sec = FemSection(
+        name=sec.name,
+        sec_type=ElemType.LINE,
+        elset=fem_set,
+        section=sec,
+        local_z=zvec,
+        local_y=yvec,
+        material=mat,
+        parent=fem,
+    )
+    return fem_sec
+
+
+def read_shell_section(elem: Elem, fem: FEM, mat: Material, elno, thicknesses, geono):
+    sec_name = f"sh{elno}"
+    fem_set = FemSet(sec_name, [elem], "elset", parent=fem, metadata=dict(internal=True))
+    fem.sets.add(fem_set)
+    fem_sec = FemSection(
+        name=sec_name,
+        sec_type=ElemType.SHELL,
+        thickness=roundoff(thicknesses[geono]),
+        elset=fem_set,
+        material=mat,
+        parent=fem,
+    )
+    return fem_sec
+
+
+def get_femsecs(match, total_geo, curr_geom_count, lcsysd, hinges_global, eccentricities, thicknesses, fem):
+    next(total_geo)
     d = match.groupdict()
     geono = str_to_int(d["geono"])
-    next(total_geo)
-    transno = str_to_int(d["transno"])
     elno = str_to_int(d["elno"])
-    elem = fem.elements.from_id(elno)
-
     matno = str_to_int(d["matno"])
+
+    elem = fem.elements.from_id(elno)
 
     # Go no further if element has no fem section
     if elem.type in ElemShapes.springs + ElemShapes.masses:
-        next(importedgeom_counter)
+        next(curr_geom_count)
         elem.metadata["matno"] = matno
         return None
 
     mat = fem.parent.materials.get_by_id(matno)
     if elem.type in ElemShapes.lines:
-        next(importedgeom_counter)
-        sec = fem.parent.sections.get_by_id(geono)
-        n1, n2 = elem.nodes
-        v = n2.p - n1.p
-        if vector_length(v) == 0.0:
-            xvec = [1, 0, 0]
-        else:
-            xvec = unit_vector(v)
-        zvec = lcsysd[transno]
-        crossed = np.cross(zvec, xvec)
-        ma = max(abs(crossed))
-        yvec = tuple([roundoff(x / ma, 3) for x in crossed])
-
-        fix_data = str_to_int(d["fixno"])
-        ecc_data = str_to_int(d["eccno"])
-
-        members = None
-        if d["members"] is not None:
-            members = [str_to_int(x) for x in d["members"].replace("\n", " ").split()]
-
-        if fix_data == -1:
-            add_hinge_prop_to_elem(elem, members, hinges_global, lcsysd, xvec, zvec, yvec)
-
-        if ecc_data == -1:
-            get_ecc_from_elem(elem, members, eccentricities, fix_data)
-
-        fem_set = FemSet(sec.name, [elem], "elset", metadata=dict(internal=True), parent=fem)
-        fem.sets.add(fem_set, append_suffix_on_exist=True)
-        fem_sec = FemSection(
-            name=sec.name,
-            sec_type=ElemType.LINE,
-            elset=fem_set,
-            section=sec,
-            local_z=zvec,
-            local_y=yvec,
-            material=mat,
-            parent=fem,
-        )
-        return fem_sec
-
+        next(curr_geom_count)
+        return read_line_section(elem, fem, mat, geono, d, lcsysd, hinges_global, eccentricities)
     elif elem.type in ElemShapes.shell:
-        next(importedgeom_counter)
-        sec_name = f"sh{elno}"
-        fem_set = FemSet(sec_name, [elem], "elset", parent=fem, metadata=dict(internal=True))
-        fem.sets.add(fem_set)
-        fem_sec = FemSection(
-            name=sec_name,
-            sec_type=ElemType.SHELL,
-            thickness=roundoff(thicknesses[geono]),
-            elset=fem_set,
-            material=mat,
-            parent=fem,
-        )
-        return fem_sec
+        next(curr_geom_count)
+        return read_shell_section(elem, fem, mat, elno, thicknesses, geono)
     else:
         raise ValueError("Section not added to conversion")
 
@@ -281,16 +275,8 @@ def get_section_names(m):
     return str_to_int(d["geono"]), d["set_name"].strip()
 
 
-def add_hinge_prop_to_elem(elem, members, hinges_global, lcsysd, xvec, zvec, yvec) -> None:
-    """
-
-    :param elem:
-    :param members:
-    :param hinges_global:
-    :type elem: ada.fem.Elem
-    :return:
-    """
-    from ada.core.utils import unit_vector
+def add_hinge_prop_to_elem(elem: Elem, members, hinges_global, xvec, yvec) -> None:
+    """Add hinge property to element from sesam FEM file"""
     from ada.fem.elements import HingeProp
 
     if len(elem.nodes) > 2:
@@ -318,15 +304,8 @@ def add_hinge_prop_to_elem(elem, members, hinges_global, lcsysd, xvec, zvec, yve
         elem.hinge_prop = HingeProp(n, dofs, csys, elem, i)
 
 
-def get_ecc_from_elem(elem, members, eccentricities, fix_data):
-    """
-
-    :param elem:
-    :param members:
-    :param eccentricities:
-    :param fix_data:
-    :type elem: ada.fem.Elem
-    """
+def add_ecc_to_elem(elem: Elem, members, eccentricities, fix_data) -> None:
+    """Adds eccentricity to element from sesam FEM file"""
     from ada.fem.elements import Eccentricity
 
     # To the interpretation here

@@ -589,21 +589,38 @@ class Nodes:
         if unique_ids is True:
             nodes = toolz.unique(nodes, key=attrgetter("id"))
 
-        self._nodes = nodes
-        self._sort()
+        self._nodes = list(nodes)
+        self._idmap = dict()
+        self._bbox = None
+        self._maxid = 0
+        if len(self._nodes) > 0:
+            self._sort()
+            self._maxid = max(self._idmap.keys())
+            self._bbox = self._get_bbox()
+
+    def _sort(self):
+        self._nodes = sorted(self._nodes, key=attrgetter("x", "y", "z"))
         self._idmap = {n.id: n for n in sorted(self._nodes, key=attrgetter("id"))}
+
+    def renumber(self, start_id: int = 1, renumber_map: dict = None):
+        """Ensures that the node numberings starts at 1 and has no holes in its numbering."""
+        if renumber_map is not None:
+            self._renumber_from_map(renumber_map)
+        else:
+            self._renumber_linearly(start_id)
+
+        self._sort()
         self._maxid = max(self._idmap.keys()) if len(self._nodes) > 0 else 0
         self._bbox = self._get_bbox() if len(self._nodes) > 0 else None
 
-    def renumber(self, start_id: int = 1):
-        """Ensures that the node numberings starts at 1 and has no holes in its numbering."""
+    def _renumber_linearly(self, start_id):
         for i, n in enumerate(sorted(self._nodes, key=attrgetter("id")), start=start_id):
             if i != n.id:
                 n.id = i
 
-        self._idmap = {n.id: n for n in sorted(self._nodes, key=attrgetter("id"))}
-        self._maxid = max(self._idmap.keys()) if len(self._nodes) > 0 else 0
-        self._bbox = self._get_bbox() if len(self._nodes) > 0 else None
+    def _renumber_from_map(self, renumber_map):
+        for n in sorted(self._nodes, key=attrgetter("id")):
+            n.id = renumber_map[n.id]
 
     def _np_array_to_nlist(self, np_array):
         from ada import Node
@@ -840,7 +857,3 @@ class Nodes:
             replace_duplicate_nodes(duplicate_nodes, node)
 
         self._sort()
-
-    def _sort(self):
-        self._nodes = sorted(self._nodes, key=attrgetter("x", "y", "z"))
-        self._idmap = {n.id: n for n in sorted(self._nodes, key=attrgetter("id"))}
