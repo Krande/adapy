@@ -165,7 +165,7 @@ def convert_hinges_2_couplings(fem: FEM):
             return
         n = elem.hinge_prop.node
         csys = elem.hinge_prop.csys
-        d = elem.hinge_prop.dofs
+        d = elem.hinge_prop.retained_dofs
 
         n2 = Node(n.p, next(new_node_id), parent=elem.parent)
         elem.parent.nodes.add(n2, allow_coincident=True)

@@ -158,10 +158,12 @@ class Elem(FemBase):
 @dataclass
 class HingeProp:
     node: Node
-    dofs: List[int]
+    retained_dofs: List[int]
     csys: Csys
-    elem_ref: Elem
-    elem_n_index: int
+    elem_ref: Elem = None
+    beam_ref: Beam = None
+    elem_n_index: int = None
+    beam_n_index: int = None
     constraint_ref = None
 
 

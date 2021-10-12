@@ -89,6 +89,7 @@ class Beam(BackendGeom):
             curve.parent = self
             n1 = curve.points3d[0]
             n2 = curve.points3d[-1]
+
         self.colour = colour
         self._curve = curve
         self._n1 = n1 if type(n1) is Node else Node(n1, units=units)
@@ -101,6 +102,7 @@ class Beam(BackendGeom):
         self._tos = None
         self._e1 = e1
         self._e2 = e2
+        self._hinge_prop = None
 
         self._parent = parent
         self._bbox = None
@@ -574,12 +576,7 @@ class Beam(BackendGeom):
 
     @property
     def ori(self):
-        """
-        Get the xvector, yvector and zvector of a given beam
-
-        :param self:
-        :return: xvec, yvec and up
-        """
+        """Get the xvector, yvector and zvector of a given beam"""
 
         return self.xvec, self.yvec, self.up
 
@@ -641,16 +638,23 @@ class Beam(BackendGeom):
         self._e2 = np.array(value)
 
     @property
+    def hinge_prop(self):
+        """:rtype: ada.fem.elements.HingeProp"""
+        return self._hinge_prop
+
+    @hinge_prop.setter
+    def hinge_prop(self, value):
+        """:type value: ada.fem.elements.HingeProp"""
+        value.beam_ref = self
+        self._hinge_prop = value
+
+    @property
     def opacity(self):
         return self._opacity
 
     @property
     def curve(self):
-        """
-
-        :return:
-        :rtype: ada.core.containers.SweepCurve
-        """
+        """:rtype: ada.core.containers.SweepCurve"""
         return self._curve
 
     @property
@@ -668,11 +672,7 @@ class Beam(BackendGeom):
 
     @property
     def shell(self):
-        """
-
-        :return:
-        :rtype: OCC.Core.TopoDS.TopoDS_Shape
-        """
+        """:rtype: OCC.Core.TopoDS.TopoDS_Shape"""
         from ada.occ.utils import apply_penetrations, create_beam_geom
 
         geom = apply_penetrations(create_beam_geom(self, False), self.penetrations)
@@ -681,11 +681,7 @@ class Beam(BackendGeom):
 
     @property
     def solid(self):
-        """
-
-        :return:
-        :rtype: OCC.Core.TopoDS.TopoDS_Shape
-        """
+        """:rtype: OCC.Core.TopoDS.TopoDS_Shape"""
         from ada.occ.utils import apply_penetrations, create_beam_geom
 
         geom = apply_penetrations(create_beam_geom(self, True), self.penetrations)
