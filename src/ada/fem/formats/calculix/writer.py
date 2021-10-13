@@ -8,7 +8,7 @@ from ada.concepts.containers import Nodes
 from ada.core.utils import NewLine, get_current_user
 from ada.fem import Bc, Elem, FemSection, FemSet, Load
 from ada.fem.containers import FemElements
-from ada.fem.io.utils import get_fem_model_from_assembly
+from ada.fem.formats.utils import get_fem_model_from_assembly
 from ada.fem.shapes import ElemShapes
 from ada.fem.steps import StepExplicit
 from ada.sections import SectionCat as Sc
@@ -89,7 +89,7 @@ def beam_str(fem_sec: FemSection):
     elif sec_str == CcxSecTypes.PIPE:
         return f"{top_line}\n{fem_sec.section.r}, {fem_sec.section.wt}\n {n1}"
     elif sec_str == CcxSecTypes.GENERAL:
-        from ada.fem.io.abaqus.writer import eval_general_properties
+        from ada.fem.formats.abaqus.writer import eval_general_properties
 
         gp = eval_general_properties(fem_sec.section)
         fem_sec.material.model.plasticity_model = None

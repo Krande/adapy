@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from ada.fem.io import FEATypes
+from ada.fem.formats import FEATypes
 from ada.fem.steps import SolverOptions
 
 

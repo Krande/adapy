@@ -7,7 +7,7 @@ from ada.config import Settings
 from ada.fem import Bc, FemSet
 from ada.fem.elements import ElemType
 from ada.fem.exceptions import IncompatibleElements
-from ada.fem.io import FEATypes
+from ada.fem.formats import FEATypes
 from ada.fem.steps import StepEigen
 from ada.fem.utils import get_beam_end_nodes
 

@@ -33,8 +33,8 @@ from ada.fem import (
     Surface,
 )
 from ada.fem.containers import FemElements, FemSections, FemSets
+from ada.fem.formats.abaqus.common import AbaCards
 from ada.fem.interactions import ContactTypes
-from ada.fem.io.abaqus.common import AbaCards
 from ada.fem.shapes import ElemShapes, ElemType
 from ada.materials.metals import CarbonSteel
 

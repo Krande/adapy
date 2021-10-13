@@ -3,7 +3,7 @@ import unittest
 from common import example_files
 
 from ada.core.utils import traverse_hdf_datasets
-from ada.fem.io.code_aster.results import get_eigen_data
+from ada.fem.formats.code_aster.results import get_eigen_data
 from ada.fem.results import EigenDataSummary
 from ada.visualize.femviz import visualize_it
 

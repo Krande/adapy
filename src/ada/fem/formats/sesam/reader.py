@@ -10,7 +10,7 @@ from ada.concepts.points import Node
 from ada.core.utils import Counter, roundoff
 from ada.fem import Elem, FemSet, Mass, Spring
 from ada.fem.containers import FemElements
-from ada.fem.io.utils import str_to_int
+from ada.fem.formats.utils import str_to_int
 from ada.materials import Material
 from ada.materials.metals import CarbonSteel
 
@@ -56,18 +56,12 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
     return part
 
 
-def sesam_eltype_2_general(eltyp):
-    """
-    Converts the numeric definition of elements in Sesam to a generalized element type form (ie. B31, S4, etc..)
-
-    :param eltyp:
-    :return: Generic element description
-    """
-    for ses, gen in sesam_el_map.items():
-        if str_to_int(eltyp) == ses:
-            return gen
-
-    raise Exception("Currently unsupported eltype", eltyp)
+def sesam_eltype_2_general(eltyp: int) -> str:
+    """Converts the numeric definition of elements in Sesam to a generalized element type form (ie. B31, S4, etc..)"""
+    res = sesam_el_map.get(eltyp, None)
+    if res is None:
+        raise Exception("Currently unsupported eltype", eltyp)
+    return res
 
 
 def eltype_2_sesam(eltyp) -> int:
@@ -108,7 +102,7 @@ def get_elements(bulk_str: str, fem: FEM) -> FemElements:
             )
         ]
         eltyp = d["eltyp"]
-        el_type = sesam_eltype_2_general(eltyp)
+        el_type = sesam_eltype_2_general(str_to_int(eltyp))
         if el_type == "MASS":
             return None
         metadata = dict(eltyad=str_to_int(d["eltyad"]), eltyp=eltyp)

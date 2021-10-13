@@ -17,7 +17,7 @@ class TestSesam(unittest.TestCase):
         a.to_fem("beam_line", "sesam", overwrite=True)
 
     def test_write_ff(self):
-        from ada.fem.io.sesam.writer import write_ff
+        from ada.fem.formats.sesam.writer import write_ff
 
         flag = "TDMATER"
         data = [

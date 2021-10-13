@@ -15,6 +15,7 @@ from ada.concepts.containers import Beams, Plates
 from ada.concepts.levels import Part
 from ada.concepts.structural import Beam, Plate
 from ada.config import Settings
+from ada.fem import Elem
 from ada.fem.exceptions import FEASolverNotInstalled
 
 
@@ -108,7 +109,7 @@ class LocalExecute:
         return out
 
     def get_exe(self, fea_software):
-        from ada.fem.io import fem_solver_map
+        from ada.fem.formats import fem_solver_map
 
         solver_exe_name = fem_solver_map.get(fea_software, fea_software)
         exe_path = None
@@ -407,9 +408,13 @@ def convert_shell_elem_to_plates(elem, parent) -> [Plate]:
             *elem.nodes[2].p,
             *elem.nodes[3].p,
         ):
-            plates.append(Plate(f"sh{elem.id}", elem.nodes, fem_sec.thickness, use3dnodes=True, parent=parent))
+            plates.append(
+                Plate(f"sh{elem.id}", [n.p for n in elem.nodes], fem_sec.thickness, use3dnodes=True, parent=parent)
+            )
         else:
-            plates.append(Plate(f"sh{elem.id}", elem.nodes[:2], fem_sec.thickness, use3dnodes=True, parent=parent))
+            plates.append(
+                Plate(f"sh{elem.id}", [n.p for n in elem.nodes[:2]], fem_sec.thickness, use3dnodes=True, parent=parent)
+            )
             plates.append(
                 Plate(
                     f"sh{elem.id}_1",
@@ -420,40 +425,37 @@ def convert_shell_elem_to_plates(elem, parent) -> [Plate]:
                 )
             )
     else:
-        plates.append(Plate(f"sh{elem.id}", elem.nodes, fem_sec.thickness, use3dnodes=True, parent=parent))
+        plates.append(
+            Plate(f"sh{elem.id}", [n.p for n in elem.nodes], fem_sec.thickness, use3dnodes=True, parent=parent)
+        )
     return plates
 
 
 def convert_part_shell_elements_to_plates(p) -> Plates:
-
     return Plates(list(chain.from_iterable([convert_shell_elem_to_plates(sh, p) for sh in p.fem.elements.shell])))
 
 
 def convert_part_elem_bm_to_beams(p) -> Beams:
-    return Beams([elem_to_beam(bm, p) for bm in p.fem.elements.lines])
+    return Beams([line_elem_to_beam(bm, p) for bm in p.fem.elements.lines])
 
 
-def elem_to_beam(elem, parent):
-    """
-    TODO: Evaluate merging elements by proximity and equal section and normals.
+def line_elem_to_beam(elem: Elem, parent: Part):
+    """Convert FEM line element to Beam"""
 
-    :param elem:
-    :param parent: Parent Part object
-    :type elem: ada.fem.Elem
-    """
+    a = parent.get_assembly()
 
     n1 = elem.nodes[0]
     n2 = elem.nodes[-1]
-    offset = elem.fem_sec.offset
     e1 = None
     e2 = None
     elem.fem_sec.material.parent = parent
-    if offset is not None:
-        for no, ecc in offset:
-            if no.id == n1.id:
-                e1 = ecc
-            if no.id == n2.id:
-                e2 = ecc
+    if a.convert_options.fem2concepts_include_ecc is True:
+        if elem.eccentricity is not None:
+            ecc = elem.eccentricity
+            if ecc.node.id == n1.id:
+                e1 = ecc.ecc_vector
+            if ecc.node.id == n2.id:
+                e2 = ecc.ecc_vector
 
     if elem.fem_sec.section.type == "GENBEAM":
         logging.error(f"Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section")

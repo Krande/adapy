@@ -646,6 +646,10 @@ class Beam(BackendGeom):
     def hinge_prop(self, value):
         """:type value: ada.fem.elements.HingeProp"""
         value.beam_ref = self
+        if value.end1 is not None:
+            value.end1.concept_node = self.n1
+        if value.end2 is not None:
+            value.end2.concept_node = self.n2
         self._hinge_prop = value
 
     @property

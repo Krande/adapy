@@ -9,7 +9,7 @@ from ada.concepts.structural import Section
 from ada.core.utils import roundoff, unit_vector, vector_length
 from ada.fem import Csys, Elem, FemSection, FemSet
 from ada.fem.containers import FemSections
-from ada.fem.io.utils import str_to_int
+from ada.fem.formats.utils import str_to_int
 from ada.fem.shapes import ElemShapes, ElemType
 from ada.materials import Material
 from ada.sections import GeneralProperties
@@ -277,7 +277,7 @@ def get_section_names(m):
 
 def add_hinge_prop_to_elem(elem: Elem, members, hinges_global, xvec, yvec) -> None:
     """Add hinge property to element from sesam FEM file"""
-    from ada.fem.elements import HingeProp
+    from ada.fem.elements import Hinge, HingeProp
 
     if len(elem.nodes) > 2:
         raise ValueError("This algorithm was not designed for more than 2 noded elements")
@@ -301,7 +301,11 @@ def add_hinge_prop_to_elem(elem: Elem, members, hinges_global, xvec, yvec) -> No
             )
         dofs_origin = [1, 2, 3, 4, 5, 6]
         dofs = [int(x) for x, i in zip(dofs_origin, (a1, a2, a3, a4, a5, a6)) if int(i) != 0]
-        elem.hinge_prop = HingeProp(n, dofs, csys, elem, i)
+        end = Hinge(retained_dofs=dofs, csys=csys, fem_node=n)
+        if i == 0:
+            elem.hinge_prop = HingeProp(end1=end)
+        else:
+            elem.hinge_prop = HingeProp(end2=end)
 
 
 def add_ecc_to_elem(elem: Elem, members, eccentricities, fix_data) -> None:

@@ -46,7 +46,7 @@ class FemConverters:
 
 
 def get_fem_converters(fem_file, fem_format, fem_converter):
-    from ada.fem.io.mesh_io import meshio_read_fem, meshio_to_fem
+    from ada.fem.formats.mesh_io import meshio_read_fem, meshio_to_fem
 
     if fem_format is None:
         fem_format = interpret_fem(fem_file)

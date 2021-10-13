@@ -6,7 +6,7 @@ import os
 import pathlib
 from dataclasses import dataclass, field
 from itertools import chain
-from typing import Iterable, List, Union, Dict
+from typing import Dict, Iterable, List, Union
 
 from ada.base.physical_objects import BackendGeom
 from ada.concepts.connections import JointBase
@@ -63,6 +63,9 @@ _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 class _ConvertOptions:
     ecc_to_mpc: bool = True
     hinges_to_coupling: bool = True
+
+    # From FEM to concepts
+    fem2concepts_include_ecc = False
 
 
 class Part(BackendGeom):
@@ -305,7 +308,7 @@ class Part(BackendGeom):
 
     def create_objects_from_fem(self, skip_plates=False, skip_beams=False) -> None:
         """Build Beams and Plates from the contents of the local FEM object"""
-        from ada.fem.io.utils import convert_part_objects
+        from ada.fem.formats.utils import convert_part_objects
 
         if type(self) is Assembly:
             for p_ in self.get_all_parts_in_assembly():
@@ -866,7 +869,7 @@ class Assembly(Part):
 
         Note! The meshio fem converter implementation currently only supports reading elements and nodes.
         """
-        from ada.fem.io import get_fem_converters
+        from ada.fem.formats import get_fem_converters
 
         fem_file = pathlib.Path(fem_file)
         if fem_file.exists() is False:
@@ -941,8 +944,12 @@ class Assembly(Part):
             If this proves to create issues regarding performance this should be evaluated further.
 
         """
-        from ada.fem.io import fem_executables, get_fem_converters
-        from ada.fem.io.utils import default_fem_res_path, folder_prep, should_convert
+        from ada.fem.formats import fem_executables, get_fem_converters
+        from ada.fem.formats.utils import (
+            default_fem_res_path,
+            folder_prep,
+            should_convert,
+        )
         from ada.fem.results import Results
 
         scratch_dir = Settings.scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)

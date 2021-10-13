@@ -1,7 +1,7 @@
 import logging
 
 from ada.concepts.levels import Assembly, Part
-from ada.fem.io.ifc.writer import to_ifc_fem
+from ada.fem.formats.ifc.writer import to_ifc_fem
 
 from .utils import create_guid
 

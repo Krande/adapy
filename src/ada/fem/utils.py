@@ -154,18 +154,19 @@ def convert_ecc_to_mpc(fem: FEM):
 def convert_hinges_2_couplings(fem: FEM):
     """Convert beam hinges to coupling constraints"""
     from ada.core.utils import Counter
+    from ada.fem.elements import Hinge
 
     constrain_ids = []
 
     max_node_id = fem.nodes.max_nid
     new_node_id = Counter(max_node_id + 10000)
 
-    def convert_hinge(elem: Elem):
-        if elem.hinge_prop.constraint_ref is not None:
+    def convert_hinge(elem: Elem, hinge: Hinge):
+        if hinge.constraint_ref is not None:
             return
-        n = elem.hinge_prop.node
-        csys = elem.hinge_prop.csys
-        d = elem.hinge_prop.retained_dofs
+        n = hinge.fem_node
+        csys = hinge.csys
+        d = hinge.retained_dofs
 
         n2 = Node(n.p, next(new_node_id), parent=elem.parent)
         elem.parent.nodes.add(n2, allow_coincident=True)
@@ -196,11 +197,14 @@ def convert_hinges_2_couplings(fem: FEM):
             csys=csys,
         )
         elem.parent.add_constraint(c)
-        elem.hinge_prop.constraint_ref = c
+        hinge.constraint_ref = c
         logging.info(f"added constraint {c}")
 
     for el in fem.elements.lines_hinged:
-        convert_hinge(el)
+        if el.hinge_prop.end1 is not None:
+            convert_hinge(el, el.hinge_prop.end1)
+        if el.hinge_prop.end2 is not None:
+            convert_hinge(el, el.hinge_prop.end2)
 
 
 def is_tri6_shell_elem(sh_fs):

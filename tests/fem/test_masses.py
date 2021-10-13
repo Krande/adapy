@@ -4,7 +4,7 @@ import pytest
 
 from ada.fem import Bc, FemSet, Mass, StepEigen
 from ada.fem.exceptions.element_support import IncompatibleElements
-from ada.fem.io import FEATypes
+from ada.fem.formats import FEATypes
 from ada.fem.utils import get_beam_end_nodes
 
 from .test_model_fixtures import beam_model_line

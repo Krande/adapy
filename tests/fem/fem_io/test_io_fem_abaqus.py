@@ -4,7 +4,7 @@ import unittest
 from common import example_files
 
 from ada import Assembly
-from ada.fem.io.abaqus.common import AbaCards
+from ada.fem.formats.abaqus.common import AbaCards
 
 consec = """*Node
      20,   285.025665,   130.837769,   553.482483

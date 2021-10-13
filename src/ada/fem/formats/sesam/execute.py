@@ -1,6 +1,6 @@
 import logging
 
-from ada.fem.io.utils import LocalExecute
+from ada.fem.formats.utils import LocalExecute
 
 
 def run_sesam(
@@ -23,7 +23,7 @@ def run_sesam(
 
 class SesamExecute(LocalExecute):
     def run(self, exit_on_complete=True, run_cmd=None, bat_start_str=None):
-        from ada.fem.io import FEATypes
+        from ada.fem.formats import FEATypes
 
         exe_path = self.get_exe(FEATypes.SESAM)
         if run_cmd is None:

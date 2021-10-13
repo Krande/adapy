@@ -11,3 +11,5 @@ sesam_el_map = {
     18: "SPRING1",
     11: "MASS",
 }
+
+sesam_reverse = {value: key for key, value in sesam_el_map.items()}

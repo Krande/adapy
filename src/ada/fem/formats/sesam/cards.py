@@ -1,6 +1,6 @@
 import re
 
-from ada.fem.io.utils import get_ff_regex
+from ada.fem.formats.utils import get_ff_regex
 
 re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 

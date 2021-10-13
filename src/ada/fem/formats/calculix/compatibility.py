@@ -1,6 +1,6 @@
 from ada import Assembly
 from ada.fem.exceptions.element_support import IncompatibleElements
-from ada.fem.io.utils import get_fem_model_from_assembly
+from ada.fem.formats.utils import get_fem_model_from_assembly
 from ada.fem.steps import Step
 
 

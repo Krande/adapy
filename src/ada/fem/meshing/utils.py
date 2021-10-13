@@ -83,6 +83,7 @@ def add_shell_section(set_name, fem_sec_name, normal, thickness, tags, model_obj
 
 
 def get_bm_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
+    from ada.core.utils import vector_length
 
     elem_types, elem_tags, elem_node_tags = model.mesh.getElements(1, ent)
     elements = [fem.elements.from_id(tag) for tag in elem_tags[0]]
@@ -93,6 +94,20 @@ def get_bm_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
     fem_sec = FemSection(fem_sec_name, ElemType.LINE, fem_set, beam.material, beam.section, beam.ori[2], refs=[beam])
 
     add_sec_to_fem(fem, fem_sec, fem_set)
+    if beam.hinge_prop is None:
+        return
+    end1_p = beam.hinge_prop.end1.concept_node.p if beam.hinge_prop.end1 is not None else None
+    end2_p = beam.hinge_prop.end2.concept_node.p if beam.hinge_prop.end2 is not None else None
+    if beam.hinge_prop is not None:
+        for el in elements:
+            n1 = el.nodes[0]
+            n2 = el.nodes[-1]
+            el.hinge_prop = beam.hinge_prop
+            if beam.hinge_prop.end1 is not None and vector_length(end1_p - n1.p) == 0.0:
+                el.hinge_prop.end1.fem_node = n1
+
+            if beam.hinge_prop.end2 is not None and vector_length(end2_p - n2.p) == 0.0:
+                el.hinge_prop.end2.fem_node = n2
 
 
 def get_so_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):

@@ -1,7 +1,7 @@
 import pathlib
 import shutil
 
-from ada.fem.io.utils import LocalExecute
+from ada.fem.formats.utils import LocalExecute
 
 
 def run_abaqus(
@@ -30,7 +30,7 @@ def run_abaqus(
 
 class AbaqusExecute(LocalExecute):
     def run(self, exit_on_complete=True, run_cmd=None, bat_start_str=None):
-        from ada.fem.io import FEATypes
+        from ada.fem.formats import FEATypes
 
         exe_path = self.get_exe(FEATypes.ABAQUS)
         gpus = "" if self._gpus is None else f"GPUS={self._gpus}"

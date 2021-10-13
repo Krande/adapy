@@ -5,7 +5,7 @@ from typing import List, Union
 
 from ada.fem import StepEigen
 from ada.fem.concepts.eigenvalue import EigenDataSummary, EigenMode
-from ada.fem.io.utils import DatFormatReader
+from ada.fem.formats.utils import DatFormatReader
 from ada.fem.results import Results
 
 
