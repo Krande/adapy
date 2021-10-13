@@ -1,4 +1,9 @@
+from __future__ import annotations
+
 import logging
+
+import numpy as np
+from typing import Tuple
 
 from ada.core.utils import (
     calc_yvec,
@@ -73,7 +78,7 @@ class FemSection(FemBase):
         self._elset = value
 
     @property
-    def local_z(self):
+    def local_z(self) -> np.ndarray:
         """Local Z describes the up vector of the cross section"""
         if self._local_z is not None:
             return self._local_z
@@ -95,7 +100,7 @@ class FemSection(FemBase):
         return self._local_z
 
     @property
-    def local_y(self):
+    def local_y(self) -> np.ndarray:
         """Local y describes the cross vector of the beams X and Z axis"""
         if self._local_y is not None:
             return self._local_y
@@ -116,7 +121,7 @@ class FemSection(FemBase):
         return self._local_y
 
     @property
-    def local_x(self):
+    def local_x(self) -> np.ndarray:
         if self._local_x is not None:
             return self._local_x
 
@@ -159,19 +164,11 @@ class FemSection(FemBase):
     def refs(self):
         return self._refs
 
-    def __eq__(self, other):
-        for key, val in self.__dict__.items():
-            if "parent" in key:
-                continue
-            # Re-evaluate the elset exemption. Maybe this should raise False based on the fem set only?
-            # if 'elset' in key:
-            #     for m in self.__dict__[key].members:
-            #         if m.type != other.__dict__[key].members[0].type:
-            #             return False
-            if other.__dict__[key] != val:
-                return False
+    def unique_fem_section_permutation(self) -> Tuple[Material, Section, tuple, tuple]:
+        return self.material, self.section, tuple(self.local_x), tuple(self.local_z)
 
-        return True
+    def __eq__(self, other: FemSection):
+        return self.unique_fem_section_permutation() == other.unique_fem_section_permutation()
 
     def __repr__(self):
         return (

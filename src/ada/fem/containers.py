@@ -23,10 +23,10 @@ from .shapes import ElemShapes, ElemType
 class COG:
     p: np.array
     tot_mass: float
-    tot_vol: float
-    sh_mass: float
-    bm_mass: float
-    no_mass: float
+    tot_vol: float = None
+    sh_mass: float = None
+    bm_mass: float = None
+    no_mass: float = None
 
 
 class FemElements:
@@ -158,7 +158,7 @@ class FemElements:
         :rtype: COG
         """
         from itertools import chain
-
+        from ada.fem import Mass
         from ada.core.utils import global_2_local_nodes, poly_area, vector_length
 
         def calc_sh_elem(el: Elem):
@@ -373,24 +373,19 @@ class FemSections:
         if len(self._sections) > 0 and fem_obj is not None:
             self._link_data()
 
-    def merge_femsections_by_properties(self):
+    def _map_by_properties(self) -> dict:
         from ada import Material, Section
 
-        # lines
-        # merge materials
-        # merge sections
-        # merge femsections with similar sections, materials and orientation
-        self.parent.parent.materials.merge_materials_by_properties()
-        self.parent.parent.sections.merge_sections_by_properties()
-        merge_map: Dict[Tuple[Material, Section, tuple, tuple], List[FemSection]] = dict()
+        merge_map: Dict[Tuple[Material, Section, tuple, tuple], FemSection] = dict()
         for fs in self.lines:
-            props = (fs.material, fs.section, fs.local_x, fs.local_z)
+            props = fs.unique_fem_section_permutation()
             if props not in merge_map.keys():
-                merge_map[props] = []
-            merge_map[props].append(fs)
+                merge_map[props] = fs
 
-        # loop over merge_map and choose 1 of FemSection as master and loop over all elements and replace femSection
-        # with master
+        return merge_map
+
+    def merge_by_properties(self):
+        return NotImplemented
 
     def _map_materials(self, fem_sec: FemSection, mat_repo: Materials):
         if type(fem_sec.material) is str:

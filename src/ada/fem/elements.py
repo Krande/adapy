@@ -328,7 +328,7 @@ class Mass(FemBase):
 
     @property
     def fem_set(self):
-        """:rtype: FemSet"""
+        """:rtype: ada.fem.FemSet"""
         return self._fem_set
 
     @fem_set.setter
