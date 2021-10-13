@@ -158,7 +158,7 @@ class FemElements:
         :rtype: COG
         """
         from itertools import chain
-        from ada.fem import Mass
+
         from ada.core.utils import global_2_local_nodes, poly_area, vector_length
 
         def calc_sh_elem(el: Elem):

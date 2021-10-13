@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
+from typing import Tuple
 
 import numpy as np
-from typing import Tuple
 
 from ada.core.utils import (
     calc_yvec,
