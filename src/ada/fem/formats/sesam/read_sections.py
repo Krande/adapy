@@ -1,5 +1,6 @@
 import logging
 from itertools import chain, count
+from typing import Union
 
 import numpy as np
 
@@ -310,12 +311,13 @@ def add_hinge_prop_to_elem(elem: Elem, members, hinges_global, xvec, yvec) -> No
 
 def add_ecc_to_elem(elem: Elem, members, eccentricities, fix_data) -> None:
     """Adds eccentricity to element from sesam FEM file"""
-    from ada.fem.elements import Eccentricity
+    from ada.fem.elements import Eccentricity, EccPoint
 
     # To the interpretation here
     start = 0 if fix_data != -1 else len(elem.nodes)
     end = len(elem.nodes) if fix_data != -1 else 2 * len(elem.nodes)
-
+    end1: Union[None, EccPoint] = None
+    end2: Union[None, EccPoint] = None
     for i, x in enumerate(members[start:]):
         if i >= end:
             break
@@ -323,7 +325,12 @@ def add_ecc_to_elem(elem: Elem, members, eccentricities, fix_data) -> None:
             continue
         n_offset = elem.nodes[i]
         ecc = eccentricities[x]
-        elem.eccentricity = Eccentricity(n_offset, ecc)
+        if i == 0:
+            end1 = EccPoint(n_offset, ecc)
+        if i == end:
+            end2 = EccPoint(n_offset, ecc)
+
+    elem.eccentricity = Eccentricity(end1, end2)
 
 
 def get_lcsys(m):

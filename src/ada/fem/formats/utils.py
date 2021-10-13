@@ -452,10 +452,10 @@ def line_elem_to_beam(elem: Elem, parent: Part):
     if a.convert_options.fem2concepts_include_ecc is True:
         if elem.eccentricity is not None:
             ecc = elem.eccentricity
-            if ecc.node.id == n1.id:
-                e1 = ecc.ecc_vector
-            if ecc.node.id == n2.id:
-                e2 = ecc.ecc_vector
+            if ecc.end1 is not None and ecc.end1.node.id == n1.id:
+                e1 = ecc.end1.ecc_vector
+            if ecc.end2 is not None and ecc.end2.node.id == n2.id:
+                e1 = ecc.end2.ecc_vector
 
     if elem.fem_sec.section.type == "GENBEAM":
         logging.error(f"Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section")

@@ -175,9 +175,15 @@ class HingeProp:
 
 
 @dataclass
-class Eccentricity:
+class EccPoint:
     node: Node
     ecc_vector: np.ndarray
+
+
+@dataclass
+class Eccentricity:
+    end1: EccPoint
+    end2: EccPoint
 
 
 class Connector(Elem):
