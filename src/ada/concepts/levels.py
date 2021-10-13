@@ -6,7 +6,7 @@ import os
 import pathlib
 from dataclasses import dataclass, field
 from itertools import chain
-from typing import Iterable, List, Union
+from typing import Iterable, List, Union, Dict
 
 from ada.base.physical_objects import BackendGeom
 from ada.concepts.connections import JointBase
@@ -1169,19 +1169,19 @@ class Assembly(Part):
 @dataclass
 class FEM:
     name: str
-    metadata: dict = field(default_factory=dict)
+    metadata: Dict = field(default_factory=dict)
     parent: Part = field(init=True, default=None)
 
-    masses: dict[str, Mass] = field(init=False, default_factory=dict)
-    surfaces: dict[str, Surface] = field(init=False, default_factory=dict)
-    amplitudes: dict[str, Amplitude] = field(init=False, default_factory=dict)
-    connectors: dict[str, Connector] = field(init=False, default_factory=dict)
-    connector_sections: dict[str, ConnectorSection] = field(init=False, default_factory=dict)
-    springs: dict[str, Spring] = field(init=False, default_factory=dict)
-    intprops: dict[str, InteractionProperty] = field(init=False, default_factory=dict)
-    interactions: dict[str, Interaction] = field(init=False, default_factory=dict)
-    predefined_fields: dict[str, PredefinedField] = field(init=False, default_factory=dict)
-    lcsys: dict[str, Csys] = field(init=False, default_factory=dict)
+    masses: Dict[str, Mass] = field(init=False, default_factory=dict)
+    surfaces: Dict[str, Surface] = field(init=False, default_factory=dict)
+    amplitudes: Dict[str, Amplitude] = field(init=False, default_factory=dict)
+    connectors: Dict[str, Connector] = field(init=False, default_factory=dict)
+    connector_sections: Dict[str, ConnectorSection] = field(init=False, default_factory=dict)
+    springs: Dict[str, Spring] = field(init=False, default_factory=dict)
+    intprops: Dict[str, InteractionProperty] = field(init=False, default_factory=dict)
+    interactions: Dict[str, Interaction] = field(init=False, default_factory=dict)
+    predefined_fields: Dict[str, PredefinedField] = field(init=False, default_factory=dict)
+    lcsys: Dict[str, Csys] = field(init=False, default_factory=dict)
 
     bcs: List[Bc] = field(init=False, default_factory=list)
     constraints: List[Constraint] = field(init=False, default_factory=list)
