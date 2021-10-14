@@ -48,6 +48,9 @@ class FemSection(FemBase):
         self._elset = elset
         self._material = material
         self._section = section
+        if self._sec_type == ElemType.LINE:
+            if local_y is None and local_z is None:
+                raise ValueError("You need to specify either local_y or local_z")
         self._local_z = local_z
         self._local_y = local_y
         self._local_x = None
