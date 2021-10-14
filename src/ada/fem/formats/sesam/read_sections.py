@@ -66,7 +66,7 @@ def get_isection(match, sect_names, fem) -> Section:
         w_btn=roundoff(d["bb"]),
         t_ftop=roundoff(d["tt"]),
         t_fbtn=roundoff(d["tb"]),
-        genprops=GeneralProperties(sfy=float(d["sfy"]), sfz=float(d["sfz"])),
+        genprops=GeneralProperties(Sfy=float(d["sfy"]), Sfz=float(d["sfz"])),
         parent=fem.parent,
     )
 
@@ -84,7 +84,7 @@ def get_box_section(match, sect_names, fem) -> Section:
         t_w=roundoff(d["ty"]),
         t_ftop=roundoff(d["tt"]),
         t_fbtn=roundoff(d["tb"]),
-        genprops=GeneralProperties(sfy=float(d["sfy"]), sfz=float(d["sfz"])),
+        genprops=GeneralProperties(Sfy=float(d["sfy"]), Sfz=float(d["sfz"])),
         parent=fem.parent,
     )
 
@@ -99,7 +99,7 @@ def get_flatbar(match, sect_names, fem) -> Section:
         h=roundoff(d["hz"]),
         w_top=roundoff(d["bt"]),
         w_btn=roundoff(d["bb"]),
-        genprops=GeneralProperties(sfy=float(d["sfy"]), sfz=float(d["sfz"])),
+        genprops=GeneralProperties(Sfy=float(d["sfy"]), Sfz=float(d["sfz"])),
         parent=fem.parent,
     )
 
@@ -108,20 +108,20 @@ def add_general_sections(match, fem) -> None:
     d = match.groupdict()
     sec_id = str_to_int(d["geono"])
     gen_props = GeneralProperties(
-        ax=roundoff(d["area"], 10),
-        ix=roundoff(d["ix"], 10),
-        iy=roundoff(d["iy"], 10),
-        iz=roundoff(d["iz"], 10),
-        iyz=roundoff(d["iyz"], 10),
-        wxmin=roundoff(d["wxmin"]),
-        wymin=roundoff(d["wymin"]),
-        wzmin=roundoff(d["wzmin"]),
-        shary=roundoff(d["shary"]),
-        sharz=roundoff(d["sharz"]),
-        scheny=roundoff(d["shceny"]),
-        schenz=roundoff(d["shcenz"]),
-        sy=float(d["sy"]),
-        sz=float(d["sz"]),
+        Ax=roundoff(d["area"], 10),
+        Ix=roundoff(d["ix"], 10),
+        Iy=roundoff(d["iy"], 10),
+        Iz=roundoff(d["iz"], 10),
+        Iyz=roundoff(d["iyz"], 10),
+        Wxmin=roundoff(d["wxmin"]),
+        Wymin=roundoff(d["wymin"]),
+        Wzmin=roundoff(d["wzmin"]),
+        Shary=roundoff(d["shary"]),
+        Sharz=roundoff(d["sharz"]),
+        Scheny=roundoff(d["shceny"]),
+        Schenz=roundoff(d["shcenz"]),
+        Sy=float(d["sy"]),
+        Sz=float(d["sz"]),
     )
     if sec_id in fem.parent.sections.id_map.keys():
         sec = fem.parent.sections.get_by_id(sec_id)
@@ -148,7 +148,7 @@ def get_tubular_section(match, sect_names, fem) -> Section:
         sec_type=Section.TYPES.TUBULAR,
         r=roundoff(float(d["dy"]) / 2),
         wt=roundoff(t),
-        genprops=GeneralProperties(sfy=float(d["sfy"]), sfz=float(d["sfz"])),
+        genprops=GeneralProperties(Sfy=float(d["sfy"]), Sfz=float(d["sfz"])),
         parent=fem.parent,
     )
 

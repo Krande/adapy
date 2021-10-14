@@ -1015,8 +1015,8 @@ def get_beam_sections_from_inp(bulk_str, fem):
             # The properties were quickly copied from a resource online. Most likely it contains error
             # https: // www.efunda.com / math / areas / trapezoidJz.cfm
             genprops = GeneralProperties(
-                ax=h * (a + b) / 2,
-                ix=h
+                Ax=h * (a + b) / 2,
+                Ix=h
                 * (
                     b * h ** 2
                     + 3 * a * h ** 2
@@ -1030,8 +1030,8 @@ def get_beam_sections_from_inp(bulk_str, fem):
                     + 2 * a * b * c
                     + b * a ** 2
                 ),
-                iy=(h ** 3) * (3 * a + b) / 12,
-                iz=h
+                Iy=(h ** 3) * (3 * a + b) / 12,
+                Iz=h
                 * (
                     a ** 3
                     + 3 * a * c ** 2
@@ -1111,6 +1111,8 @@ def get_solid_sections_from_inp(bulk_str, fem: FEM):
 
 
 def get_shell_sections_from_inp(bulk_str, fem: FEM) -> Iterable[FemSection]:
+    from ada.fem.elements import Eccentricity
+
     sh_name = Counter(1, "sh")
 
     if bulk_str.lower().find("*shell section") == -1:
@@ -1129,9 +1131,15 @@ def get_shell_sections_from_inp(bulk_str, fem: FEM) -> Iterable[FemSection]:
         d = m.groupdict()
         name = d["name"] if d["name"] is not None else next(sh_name)
         elset = fem.sets.get_elset_from_name(d["elset"])
+
         material = d["material"]
         thickness = float(d["t"])
         offset = d["offset"]
+        if offset is not None:
+            # TODO: update this with the latest eccentricity class
+            logging.warning("Offset for Shell elements is not yet evaluat")
+            for el in elset.members:
+                el.eccentricity = Eccentricity(sh_ecc_vector=offset)
         int_points = d["int_points"]
         metadata = dict(controls=d["controls"])
         return FemSection(
@@ -1141,7 +1149,6 @@ def get_shell_sections_from_inp(bulk_str, fem: FEM) -> Iterable[FemSection]:
             elset=elset,
             material=material,
             int_points=int_points,
-            offset=offset,
             parent=fem,
             metadata=metadata,
         )

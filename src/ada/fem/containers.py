@@ -179,7 +179,6 @@ class FemElements:
             return mass, center, vol_
 
         def calc_bm_elem(el: Elem):
-            el.fem_sec.section.properties.calculate()
             nodes_ = el.get_offset_coords()
             elem_len = vector_length(nodes_[-1] - nodes_[0])
             vol_ = el.fem_sec.section.properties.Ax * elem_len

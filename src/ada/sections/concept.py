@@ -9,7 +9,6 @@ from ada.concepts.curves import CurvePoly
 from ada.config import Settings
 
 from .categories import BaseTypes, SectionCat
-from .properties import GeneralProperties
 
 
 class Section(Backend):
@@ -76,8 +75,10 @@ class Section(Backend):
         elif outer_poly:
             self._type = "poly"
 
-        self._genprops = GeneralProperties() if genprops is None else genprops
-        self._genprops.parent = self
+        self._genprops = None
+        if genprops is not None:
+            genprops.parent = self
+            self._genprops = genprops
 
     def __eq__(self, other):
         for key, val in self.__dict__.items():
@@ -190,6 +191,11 @@ class Section(Backend):
 
     @property
     def properties(self) -> GeneralProperties:
+        if self._genprops is None:
+            from .properties import calculate_general_properties
+
+            self._genprops = calculate_general_properties(self)
+
         return self._genprops
 
     @property
@@ -270,6 +276,38 @@ class SectionParts:
     WEB = "web"
     TOP_FLANGE = "top_fl"
     BTN_FLANGE = "btn_fl"
+
+
+@dataclass
+class GeneralProperties:
+    parent: Section = None
+    Ax: float = None
+    Ix: float = None
+    Iy: float = None
+    Iz: float = None
+    Iyz: float = None
+    Wxmin: float = None
+    Wymin: float = None
+    Wzmin: float = None
+    Shary: float = None
+    Sharz: float = None
+    Shceny: float = None
+    Shcenz: float = None
+    Sy: float = None
+    Sz: float = None
+    Sfy: float = 1
+    Sfz: float = 1
+    Cy: float = None
+    Cz: float = None
+
+    def __eq__(self, other):
+        for key, val in self.__dict__.items():
+            if "parent" in key:
+                continue
+            if other.__dict__[key] != val:
+                return False
+
+        return True
 
 
 @dataclass

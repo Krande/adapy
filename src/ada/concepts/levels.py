@@ -469,6 +469,10 @@ class Part(BackendGeom):
         pr_type = ifc_elem.is_a()
         return opposite[pr_type]
 
+    def _on_import(self):
+        """A method call that will be triggered when a Part is imported into an existing Assembly/Part"""
+        raise NotImplementedError()
+
     def to_fem_obj(
         self, mesh_size: float, bm_repr=ElemType.LINE, pl_repr=ElemType.SHELL, options=None, silent=True
     ) -> FEM:
@@ -476,6 +480,7 @@ class Part(BackendGeom):
         from ada.fem.meshing import GmshOptions, GmshSession
 
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
+        masses: List[Shape] = []
         with GmshSession(silent=silent, options=options) as gs:
             # TODO: Beam and plate nodes (and nodes at intersecting beams) are still not properly represented
             for obj in self.get_all_physical_objects():
@@ -483,10 +488,19 @@ class Part(BackendGeom):
                     gs.add_obj(obj, geom_repr=bm_repr, build_native_lines=False)
                 elif type(obj) is Plate:
                     gs.add_obj(obj, geom_repr=pl_repr)
+                elif issubclass(type(obj), Shape) and obj.mass is not None:
+                    masses.append(obj)
                 else:
                     logging.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
             gs.mesh(mesh_size)
-            return gs.get_fem()
+            fem = gs.get_fem()
+
+        for mass_shape in masses:
+            n = fem.nodes.add(Node(mass_shape.cog))
+            fs = fem.add_set(FemSet(f"{mass_shape.name}_mass_set", [n], "nset"))
+            fem.add_mass(Mass(f"{mass_shape.name}_mass", fs, mass_shape.mass))
+
+        return fem
 
     @property
     def parts(self) -> dict[str, Part]:

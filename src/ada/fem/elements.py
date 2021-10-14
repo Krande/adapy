@@ -182,8 +182,9 @@ class EccPoint:
 
 @dataclass
 class Eccentricity:
-    end1: EccPoint
-    end2: EccPoint
+    end1: EccPoint = None
+    end2: EccPoint = None
+    sh_ecc_vector: np.ndarray = None
 
 
 class Connector(Elem):

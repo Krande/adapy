@@ -559,7 +559,12 @@ class Sections(NumericMapped):
         if section.parent is None:
             section.parent = self._parent
 
+        if section in self._sections:
+            index = self._sections.index(section)
+            return self._sections[index]
+
         if section.name in self._name_map.keys():
+            logging.error(f'Section with same name "{section.name}" already exists. Will use that section instead')
             return self._name_map[section.name]
 
         if section.id is None:

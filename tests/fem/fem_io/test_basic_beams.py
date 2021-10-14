@@ -55,8 +55,3 @@ def test_beam_eig(
         raise e
     finally:
         print(res)
-
-
-if __name__ == "__main__":
-    retcode = pytest.main([])
-    print(retcode)

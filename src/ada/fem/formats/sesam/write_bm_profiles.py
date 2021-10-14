@@ -14,7 +14,7 @@ def general_beam(sec: Section, sec_id) -> str:
             (sec_id, 0, p.Ax, p.Ix),
             (p.Iy, p.Iz, p.Iyz, p.Wxmin),
             (p.Wymin, p.Wzmin, p.Shary, p.Sharz),
-            (p.Scheny, p.Schenz, p.Sy, p.Sz),
+            (p.Shceny, p.Shcenz, p.Sy, p.Sz),
         ],
     )
 
@@ -85,9 +85,6 @@ def write_bm_section(sec: Section, sec_id: int) -> str:
         bt.CIRCULAR: circular,
         bt.FLATBAR: flatbar,
     }
-
-    if base_type != bt.GENERAL:
-        sec.properties.calculate()
 
     sec_str = general_beam(sec, sec_id)
 
