@@ -6,7 +6,7 @@ import pathlib
 import shutil
 import zipfile
 from decimal import ROUND_HALF_EVEN, Decimal
-from typing import Any, Union
+from typing import Any, Dict, Union
 
 import numpy as np
 
@@ -1320,7 +1320,7 @@ def get_version():
     return version("ada-py")
 
 
-def closest_val_in_dict(val: Union[int, float], dct: dict[Union[int, float], Any]) -> Any:
+def closest_val_in_dict(val: Union[int, float], dct: Dict[Union[int, float], Any]) -> Any:
     """
     When mapping using a dictionary and value do not match with the keys in the dictionary.
     :param val: Value a number, usually float

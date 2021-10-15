@@ -238,20 +238,17 @@ class Connector(Elem):
 
 
 class Spring(Elem):
-    def __init__(self, name, el_id, el_type, stiff, n1: Node, n2: Node = None, metadata=None, parent=None):
-        from .sets import FemSet
+    def __init__(self, name, el_id, el_type, stiff, fem_set, metadata=None, parent=None):
+        """:type fem_set: ada.fem.FemSet"""
 
-        nids = [n1]
-        if n2 is not None:
-            nids += [n2]
-        super(Spring, self).__init__(el_id, nids, el_type)
+        super(Spring, self).__init__(el_id, fem_set.members, el_type)
         super(Elem, self).__init__(name, metadata, parent)
         self._stiff = stiff
-        self._n1 = n1
-        self._n2 = n2
-        self._fem_set = FemSet(self.name + "_set", [el_id], FemSet.TYPES.ELSET)
-        if self.parent is not None:
-            self.parent.sets.add(self._fem_set)
+        self._n1 = fem_set.members[0]
+        self._n2 = None
+        if len(fem_set.members) > 1:
+            self._n2 = fem_set.members[-1]
+        self._fem_set = fem_set
 
     @property
     def fem_set(self):
@@ -292,6 +289,7 @@ class Mass(FemBase):
         mass,
         mass_type=None,
         ptype=None,
+        mass_id: int = None,
         units=None,
         metadata=None,
         parent=None,
@@ -313,6 +311,7 @@ class Mass(FemBase):
             raise ValueError(f'Mass point type "{ptype}" is not in list of supported types {MassPType.all}')
         self.point_mass_type = ptype
         self._units = units
+        self._id = mass_id
         self._check_input()
 
     def _check_input(self):
@@ -328,6 +327,10 @@ class Mass(FemBase):
                 raise ValueError("Mass must be specified for 3 dofs for Anisotropic mass")
         else:
             raise ValueError(f'Unknown mass input "{self.type}"')
+
+    @property
+    def id(self):
+        return self._id
 
     @property
     def type(self):

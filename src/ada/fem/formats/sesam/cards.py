@@ -105,6 +105,7 @@ re_belfix = get_ff_regex(
 )
 re_mgsprng = get_ff_regex("MGSPRNG", "matno", "ndof", "bulk")
 re_bnmass = get_ff_regex("BNMASS", "nodeno", "ndof", "m1", "m2", "m3", "m4", "m5", "m6")
+re_mgmass = get_ff_regex("MGMASS", "matno", "ndof", "bulk")
 re_geccen = get_ff_regex("GECCEN", "eccno", "ex", "ey", "ez")
 re_bldep = get_ff_regex("BLDEP", "slave", "master", "nddof", "ndep", "bulk")
 re_setmembs = get_ff_regex("GSETMEMB", "nfield", "isref", "index", "istype", "isorig", "members")

@@ -18,7 +18,7 @@ from ada.sections import GeneralProperties
 from . import cards
 
 
-def get_sections(bulk_str, fem: FEM) -> FemSections:
+def get_sections(bulk_str, fem: FEM, mass_elem, spring_elem) -> FemSections:
     # Section Names
     sect_names = {sec_id: name for sec_id, name in map(get_section_names, cards.re_sectnames.finditer(bulk_str))}
     # Local Coordinate Systems
@@ -42,11 +42,12 @@ def get_sections(bulk_str, fem: FEM) -> FemSections:
 
     geom = count(1)
     total_geo = count(1)
-
-    sections = filter(
-        lambda x: x is not None,
-        (get_femsecs(m, total_geo, geom, lcsysd, hinges, ecc, thick, fem) for m in cards.re_gelref1.finditer(bulk_str)),
+    res = (
+        get_femsecs(m, total_geo, geom, lcsysd, hinges, ecc, thick, fem, mass_elem, spring_elem)
+        for m in cards.re_gelref1.finditer(bulk_str)
     )
+    sections = filter(lambda x: type(x) is FemSection, res)
+
     fem_sections = FemSections(sections, fem_obj=fem)
     logging.info(f"Successfully imported {next(geom) - 1} FEM sections out of {next(total_geo) - 1}")
     return fem_sections
@@ -210,27 +211,31 @@ def read_shell_section(elem: Elem, fem: FEM, mat: Material, elno, thicknesses, g
     return fem_sec
 
 
-def get_femsecs(match, total_geo, curr_geom_count, lcsysd, hinges_global, eccentricities, thicknesses, fem):
+def get_femsecs(match, total_geo, curr_geom_num, lcsysd, hinges_global, ecc, thicknesses, fem, mass_elem, spring_elem):
     next(total_geo)
     d = match.groupdict()
     geono = str_to_int(d["geono"])
     elno = str_to_int(d["elno"])
     matno = str_to_int(d["matno"])
 
-    elem = fem.elements.from_id(elno)
-
     # Go no further if element has no fem section
-    if elem.type in ElemShapes.springs + ElemShapes.masses:
-        next(curr_geom_count)
-        elem.metadata["matno"] = matno
+    if elno in spring_elem.keys():
+        next(curr_geom_num)
+        spring_elem[elno]["section_data"] = d
         return None
 
+    if elno in mass_elem.keys():
+        next(curr_geom_num)
+        mass_elem[elno]["section_data"] = d
+        return None
+
+    elem = fem.elements.from_id(elno)
     mat = fem.parent.materials.get_by_id(matno)
     if elem.type in ElemShapes.lines:
-        next(curr_geom_count)
-        return read_line_section(elem, fem, mat, geono, d, lcsysd, hinges_global, eccentricities)
+        next(curr_geom_num)
+        return read_line_section(elem, fem, mat, geono, d, lcsysd, hinges_global, ecc)
     elif elem.type in ElemShapes.shell:
-        next(curr_geom_count)
+        next(curr_geom_num)
         return read_shell_section(elem, fem, mat, elno, thicknesses, geono)
     else:
         raise ValueError("Section not added to conversion")

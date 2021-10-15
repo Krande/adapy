@@ -217,6 +217,7 @@ class FemElements:
 
     @property
     def parent(self):
+        """:rtype: ada.FEM"""
         return self._fem_obj
 
     @parent.setter
@@ -270,6 +271,16 @@ class FemElements:
     def from_id(self, el_id: int) -> Elem:
         el = self._idmap.get(el_id, None)
         if el is None:
+            mass_id_map = {m.id: m for m in self.parent.masses.values()}
+
+            res = mass_id_map.get(el_id, None)
+            if res is not None:
+                return res
+
+            spring_id_map = {m.id: m for m in self.parent.springs.values()}
+            res = spring_id_map.get(el_id, None)
+            if res is not None:
+                return res
             raise ValueError(f'The elem id "{el_id}" is not found')
         return el
 
@@ -388,6 +399,7 @@ class FemSections:
 
     def _map_materials(self, fem_sec: FemSection, mat_repo: Materials):
         if type(fem_sec.material) is str:
+            logging.error(f'Material "{fem_sec.material}" was passed as string')
             fem_sec._material = mat_repo.get_by_name(fem_sec.material)
 
     def _map_elsets(self, fem_sec: FemSection, elset_repo):
@@ -526,6 +538,8 @@ class FemSets:
         return True if fs.type == SetTypes.ELSET else False
 
     def _instantiate_all_members(self, fem_set: FemSet):
+        from ada.fem import Mass, Spring
+
         def get_nset(nref):
             if type(nref) is Node:
                 return nref
@@ -540,8 +554,10 @@ class FemSets:
                     raise ValueError("Element might be doubly defined")
                 else:
                     return elref
+            elif type(elref) in (Spring, Mass):
+                return elref
             else:
-                raise ValueError("Elref is not recognized")
+                raise ValueError(f"Elref type '{type(elref)}' is not recognized")
 
         def eval_set(fset):
             if fset.type == SetTypes.ELSET:
