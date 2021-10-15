@@ -6,24 +6,19 @@ import numpy as np
 from .categories import SectionCat
 from .concept import GeneralProperties, Section
 
+# List of documents the various formulas are based upon
+#
+#   * StructX.com (https://www.structx.com/geometric_properties.html)
+#   * DNVGL. (2011). Appendix B Section properties & consistent units Table of Contentsec. I.
+#   * W. Beitz, K.H. Küttner: "Dubbel, Taschenbuch für den Maschinenbau" 17. Auflage (17th ed.)
+#     Springer-Verlag 1990
+#   * Arne Selberg: "Stålkonstruksjoner" Tapir 1972
+#   * sec. Timoshenko: "Strength of Materials, Part I, Elementary Theory and Problems" Third Edition 1995 D.
+#     Van Nostrand Company Inc.
+
 
 def calculate_general_properties(section: Section) -> Union[None, GeneralProperties]:
-    """
-    Calculates the cross section properties based on the parent section.
-
-    A large parts of the calculations are based on the document
-
-        DNVGL. (2011). Appendix B Section properties & consistent units Table of Contentsec. I.
-
-    Which in turn bases most (if not all) formulas on the work in
-
-        * W. Beitz, K.H. Küttner: "Dubbel, Taschenbuch für den Maschinenbau" 17. Auflage (17th ed.)
-          Springer-Verlag 1990
-        * Arne Selberg: "Stålkonstruksjoner" Tapir 1972
-        * sec. Timoshenko: "Strength of Materials, Part I, Elementary Theory and Problems" Third Edition 1995 D.
-          Van Nostrand Company Inc.
-
-    """
+    """Calculations of cross section properties are based on different sources of information."""
     bt = SectionCat.BASETYPES
     section_map = {
         bt.CIRCULAR: calc_circular,
@@ -194,18 +189,56 @@ def calc_isec(sec: Section) -> GeneralProperties:
 def calc_angular(sec: Section) -> GeneralProperties:
     """Calculate L cross section properties"""
 
-    posweb = True
+    # rectangle A properties (web)
+    a_w = sec.t_w
+    a_h = sec.h - sec.t_fbtn
+    a_dy = a_w / 2
+    a_dz = sec.t_fbtn + a_h / 2
+    a_area = a_w * a_h
+
+    # rectangle B properties (flange)
+    b_w = sec.w_btn
+    b_h = sec.t_fbtn
+    b_dy = b_w / 2
+    b_dz = b_h / 2
+    b_area = b_h * b_w
+
+    # Find centroid
+    c_y = (a_area * a_dy + b_area * b_dy) / (a_area + b_area)
+    c_z = (a_area * a_dz + b_area * b_dz) / (a_area + b_area)
+
+    # c_z_opp = sec.h - c_z
+
+    a_dcy = a_dy - c_y
+    b_dcy = b_dy - c_y
+
+    a_dcz = a_dz - c_z
+    b_dcz = b_dz - c_z
+
+    # Iz_a + A_a*dcy_a**2
+
+    Iz_a = (1 / 12) * a_h * a_w ** 3 + a_area * a_dcy ** 2
+    Iz_b = (1 / 12) * b_h * b_w ** 3 + b_area * b_dcy ** 2
+    Iz = Iz_a + Iz_b
+
+    Iy_a = (1 / 12) * a_w * a_h ** 3 + a_area * a_dcz ** 2
+    Iy_b = (1 / 12) * b_w * b_h ** 3 + b_area * b_dcz ** 2
+    Iy = Iy_a + Iy_b
+
+    posweb = False
+
+    r = 0
+
     hz = sec.h
     ty = sec.t_w
     tz = sec.t_fbtn
     by = sec.w_btn
+
     sfy = 1.0
     sfz = 1.0
-
-    r = 0
     hw = hz - tz
-    b = tz - hw / 2
-    c = tz / 2
+    b = tz - hw / 2.0
+    c = tz / 2.0
     piqrt = np.arctan(1.0)
     Ax = ty * hw + by * tz + (1 - piqrt) * r ** 2
     y = (hw * ty ** 2 + tz * by ** 2) / (2 * Ax)
@@ -223,12 +256,8 @@ def calc_angular(sec: Section) -> GeneralProperties:
     else:
         raise ValueError("Currently not implemented this yet")
 
-    Iy = (ty * hw ** 3 + by * tz ** 3) / 12 + hw * ty * (b - z) ** 2 + by * tz * (z - c) ** 2
-    Iz = (hw * ty ** 3 + tz * by ** 3) / 12 + hw * ty * rk ** 2 + tz * by * (by / 2 - y) ** 2
+    Ix = (1 / 3) * (by * tz ** 3 + (hz - tz) * ty ** 3)
     Iyz = (rl * tz / 2) * (y ** 2 - rj ** 2) - (rk * ty / 2) * (e ** 2 - f ** 2)
-
-    # This is incorrect. Should find this in my old calculation method.
-    Ix = Iy + Iz
 
     Wxmin = Ix / d
     Wymin = Iy / max(z, hz - h)
@@ -443,7 +472,8 @@ def calc_flatbar(sec: Section) -> GeneralProperties:
 
 
 def calc_channel(sec: Section) -> GeneralProperties:
-    posweb = True
+    """Calculate section properties of a channel profile"""
+    posweb = False
     hz = sec.h
     ty = sec.t_w
     tz = sec.t_fbtn
@@ -469,8 +499,9 @@ def calc_channel(sec: Section) -> GeneralProperties:
     Wzmin = Iz / max(by - y, y)
     Sy = by * tz * (tz + a) / 2 + (ty * a ** 2) / 8
     Sz = tz * (by - y) ** 2
+
     Shary = (Iz / Sz) * (2 * tz) * sfy
-    Sharz = (Iy / Sy) * (2 * ty) * sfz
+    Sharz = (Iy / Sy) * ty * sfz
 
     if tz == ty:
         q = ((by - ty / 2) ** 2) * ((hz - tz) ** 2) * tz / 4 * Iy
@@ -484,6 +515,7 @@ def calc_channel(sec: Section) -> GeneralProperties:
         Shceny = -(y - ty / 2 + q)
         Cy = by - y
 
+    Cz = hz / 2
     Shcenz = 0
 
     return GeneralProperties(
@@ -501,9 +533,9 @@ def calc_channel(sec: Section) -> GeneralProperties:
         Shcenz=Shcenz,
         Sy=Sy,
         Sz=Sz,
-        Sfy=1,
-        Sfz=1,
+        Sfy=sfy,
+        Sfz=sfz,
         Cy=Cy,
-        Cz=hz / 2,
+        Cz=Cz,
         parent=sec,
     )

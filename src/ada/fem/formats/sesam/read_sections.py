@@ -118,8 +118,8 @@ def add_general_sections(match, fem) -> None:
         Wzmin=roundoff(d["wzmin"]),
         Shary=roundoff(d["shary"]),
         Sharz=roundoff(d["sharz"]),
-        Scheny=roundoff(d["shceny"]),
-        Schenz=roundoff(d["shcenz"]),
+        Shceny=roundoff(d["shceny"]),
+        Shcenz=roundoff(d["shcenz"]),
         Sy=float(d["sy"]),
         Sz=float(d["sz"]),
     )

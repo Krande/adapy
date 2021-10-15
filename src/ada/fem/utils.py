@@ -100,34 +100,34 @@ def convert_ecc_to_mpc(fem: FEM):
     edited_nodes = dict()
     tol = Settings.point_tol
 
-    def build_mpc(elem: Elem):
-        n_old = elem.eccentricity.node
-        ecc = elem.eccentricity.ecc_vector
-        i = elem.nodes.index(n_old)
-        if n_old.id in edited_nodes.keys():
-            n_new = edited_nodes[n_old.id]
-            mat = np.eye(3)
-            new_p = np.dot(mat, ecc) + n_old.p
-            n_new_ = Node(new_p, parent=elem.parent)
-            if vector_length(n_new_.p - n_new.p) > tol:
-                elem.parent.nodes.add(n_new_, allow_coincident=True)
-                m_set = FemSet(f"el{elem.id}_mpc{i + 1}_m", [n_new_], "nset")
-                s_set = FemSet(f"el{elem.id}_mpc{i + 1}_s", [n_old], "nset")
-                c = Constraint(
-                    f"el{elem.id}_mpc{i + 1}_co",
-                    "mpc",
-                    m_set,
-                    s_set,
-                    mpc_type="Beam",
-                    parent=elem.parent,
-                )
-                elem.parent.add_constraint(c)
-                elem.nodes[i] = n_new_
-                edited_nodes[n_old.id] = n_new_
+    def build_constraint(n_old, elem, ecc, i):
+        n_new = edited_nodes[n_old.id]
+        mat = np.eye(3)
+        new_p = np.dot(mat, ecc) + n_old.p
+        n_new_ = Node(new_p, parent=elem.parent)
+        if vector_length(n_new_.p - n_new.p) > tol:
+            elem.parent.nodes.add(n_new_, allow_coincident=True)
+            m_set = FemSet(f"el{elem.id}_mpc{i + 1}_m", [n_new_], "nset")
+            s_set = FemSet(f"el{elem.id}_mpc{i + 1}_s", [n_old], "nset")
+            c = Constraint(
+                f"el{elem.id}_mpc{i + 1}_co",
+                "mpc",
+                m_set,
+                s_set,
+                mpc_type="Beam",
+                parent=elem.parent,
+            )
+            elem.parent.add_constraint(c)
+            elem.nodes[i] = n_new_
+            edited_nodes[n_old.id] = n_new_
 
-            else:
-                elem.nodes[i] = n_new
-                edited_nodes[n_old.id] = n_new
+        else:
+            elem.nodes[i] = n_new
+            edited_nodes[n_old.id] = n_new
+
+    def build_mpc_for_end(elem, n_old, ecc, i):
+        if n_old.id in edited_nodes.keys():
+            build_constraint(n_old, elem, ecc, i)
         else:
             mat = np.eye(3)
             new_p = np.dot(mat, ecc) + n_old.p
@@ -144,9 +144,20 @@ def convert_ecc_to_mpc(fem: FEM):
                 parent=elem.parent,
             )
             elem.parent.add_constraint(c)
-
             elem.nodes[i] = n_new
             edited_nodes[n_old.id] = n_new
+
+    def build_mpc(elem: Elem):
+        if elem.eccentricity.end1 is not None:
+            n_old = elem.eccentricity.end1.node
+            ecc = elem.eccentricity.end1.ecc_vector
+            i = elem.nodes.index(n_old)
+            build_mpc_for_end(elem, n_old, ecc, i)
+        if elem.eccentricity.end2 is not None:
+            n_old = elem.eccentricity.end2.node
+            ecc = elem.eccentricity.end2.ecc_vector
+            i = elem.nodes.index(n_old)
+            build_mpc_for_end(elem, n_old, ecc, i)
 
     [build_mpc(el) for el in fem.elements.lines_ecc]
 
@@ -174,8 +185,13 @@ def convert_hinges_2_couplings(fem: FEM):
         elem.nodes[i] = n2
 
         if elem.eccentricity is not None:
-            if n == elem.eccentricity.node:
-                elem.eccentricity.node = n2
+            if elem.eccentricity.end1 is not None:
+                if n == elem.eccentricity.end1.node:
+                    elem.eccentricity.end1.node = n2
+
+            if elem.eccentricity.end2 is not None:
+                if n == elem.eccentricity.end2.node:
+                    elem.eccentricity.end2.node = n2
 
         if n2.id not in constrain_ids:
             constrain_ids.append(n2.id)
