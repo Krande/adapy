@@ -208,6 +208,13 @@ class EquipmentTent(Part):
             eq_braces.append(bm)
             self.add_beam(bm)
 
+        self.add_set("vertical_members", vertical_legs)
+        self.add_set("horizontal_members", horizontal_members)
+        self.add_set("braces", eq_braces)
+
         self.add_shape(PrimSphere(f"{name}_cog", cog, radius=(width + length) / 6, mass=mass))
         self._centre_of_gravity = cog
         self._mass = mass
+
+    def _on_import(self):
+        print("Evaluate footing based on existing structure")

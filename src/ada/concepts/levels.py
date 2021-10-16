@@ -98,6 +98,7 @@ class Part(BackendGeom):
         self._instances = []
         self._shapes = []
         self._parts = dict()
+        self._sets = dict()
 
         if ifc_elem is not None:
             self.metadata["ifctype"] = self._import_part_from_ifc(ifc_elem)
@@ -187,6 +188,10 @@ class Part(BackendGeom):
         if part.name in self._parts.keys():
             raise ValueError(f'Part name "{part.name}" already exists and cannot be overwritten')
         self._parts[part.name] = part
+        try:
+            part._on_import()
+        except NotImplementedError:
+            pass
         return part
 
     def add_joint(self, joint: JointBase) -> JointBase:
@@ -245,6 +250,16 @@ class Part(BackendGeom):
 
     def add_instance(self, element, transform: Transform):
         self._instances[element] = transform
+
+    def add_set(self, name, set_members: List[Union[Part, Beam, Plate, Wall, Pipe, Shape]]):
+        if name not in self.sets.keys():
+            self.sets[name] = set_members
+        else:
+            logging.info(f'Appending set "{name}"')
+            for mem in set_members:
+                if mem not in self.sets[name]:
+                    self.sets[name].append(mem)
+        return self.sets[name]
 
     def add_elements_from_ifc(self, ifc_file_path: os.PathLike, data_only=False):
         a = Assembly("temp")
@@ -617,6 +632,10 @@ class Part(BackendGeom):
                 from ada.ifc.utils import assembly_to_ifc_file
 
                 self._ifc_file = assembly_to_ifc_file(self)
+
+    @property
+    def sets(self) -> Dict[str, List[Union[Part, Beam, Plate, Wall, Pipe, Shape]]]:
+        return self._sets
 
     def __truediv__(self, other_object):
         if type(other_object) in [list, tuple]:
