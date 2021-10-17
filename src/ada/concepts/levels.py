@@ -98,7 +98,7 @@ class Part(BackendGeom):
         self._instances = []
         self._shapes = []
         self._parts = dict()
-        self._sets = dict()
+        self._groups = dict()
 
         if ifc_elem is not None:
             self.metadata["ifctype"] = self._import_part_from_ifc(ifc_elem)
@@ -251,15 +251,16 @@ class Part(BackendGeom):
     def add_instance(self, element, transform: Transform):
         self._instances[element] = transform
 
-    def add_set(self, name, set_members: List[Union[Part, Beam, Plate, Wall, Pipe, Shape]]):
-        if name not in self.sets.keys():
-            self.sets[name] = set_members
+    def add_set(self, name, set_members: List[Union[Part, Beam, Plate, Wall, Pipe, Shape]]) -> Group:
+        if name not in self.groups.keys():
+            self.groups[name] = Group(name, set_members, parent=self)
         else:
             logging.info(f'Appending set "{name}"')
             for mem in set_members:
-                if mem not in self.sets[name]:
-                    self.sets[name].append(mem)
-        return self.sets[name]
+                if mem not in self.groups[name].members:
+                    self.groups[name].members.append(mem)
+
+        return self.groups[name]
 
     def add_elements_from_ifc(self, ifc_file_path: os.PathLike, data_only=False):
         a = Assembly("temp")
@@ -634,8 +635,8 @@ class Part(BackendGeom):
                 self._ifc_file = assembly_to_ifc_file(self)
 
     @property
-    def sets(self) -> Dict[str, List[Union[Part, Beam, Plate, Wall, Pipe, Shape]]]:
-        return self._sets
+    def groups(self) -> Dict[str, Group]:
+        return self._groups
 
     def __truediv__(self, other_object):
         if type(other_object) in [list, tuple]:
@@ -1048,6 +1049,8 @@ class Assembly(Part):
         for p in self.get_all_parts_in_assembly(include_self=True):
             add_part_objects_to_ifc(p, f, self, include_fem)
 
+        # all_groups = [p.groups.values() for p in self.get_all_parts_in_assembly(include_self=True)]
+
         if len(self.presentation_layers) > 0:
             presentation_style = f.createIfcPresentationStyle("HiddenLayers")
             f.createIfcPresentationLayerWithStyle(
@@ -1204,6 +1207,20 @@ class Assembly(Part):
             f'Assembly("{self.name}": Beams: {nbms}, Plates: {npls}, Pipes: {npipes}, '
             f"Shapes: {nshps}, Elements: {nels}, Nodes: {nns})"
         )
+
+
+@dataclass
+class Group:
+    name: str
+    members: List[Union[Part, Beam, Plate, Wall, Pipe, Shape]]
+    parent: Union[Part, Assembly]
+    description: str = ""
+
+    def to_ifc(self, f):
+        guid = create_guid()
+        a = self.parent.get_assembly()
+        owner_history = a.user.to_ifc()
+        _ = f.create_entity("IfcGroup", guid, owner_history, self.name, self.description)
 
 
 @dataclass
