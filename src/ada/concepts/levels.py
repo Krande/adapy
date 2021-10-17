@@ -1049,7 +1049,9 @@ class Assembly(Part):
         for p in self.get_all_parts_in_assembly(include_self=True):
             add_part_objects_to_ifc(p, f, self, include_fem)
 
-        # all_groups = [p.groups.values() for p in self.get_all_parts_in_assembly(include_self=True)]
+        all_groups = [p.groups.values() for p in self.get_all_parts_in_assembly(include_self=True)]
+        for group in chain.from_iterable(all_groups):
+            group.to_ifc(f)
 
         if len(self.presentation_layers) > 0:
             presentation_style = f.createIfcPresentationStyle("HiddenLayers")
@@ -1215,12 +1217,31 @@ class Group:
     members: List[Union[Part, Beam, Plate, Wall, Pipe, Shape]]
     parent: Union[Part, Assembly]
     description: str = ""
+    ifc_elem = None
 
-    def to_ifc(self, f):
-        guid = create_guid()
+    def _generate_ifc_elem(self, f):
         a = self.parent.get_assembly()
         owner_history = a.user.to_ifc()
-        _ = f.create_entity("IfcGroup", guid, owner_history, self.name, self.description)
+        return f.create_entity("IfcGroup", create_guid(), owner_history, self.name, self.description)
+
+    def to_ifc(self, f):
+        a = self.parent.get_assembly()
+        owner_history = a.user.to_ifc()
+        if self.ifc_elem is None:
+            self.ifc_elem = self._generate_ifc_elem(f)
+
+        relating_objects = []
+        for m in self.members:
+            relating_objects.append(m.get_ifc_elem())
+        f.create_entity(
+            "IfcRelAssignsToGroup",
+            create_guid(),
+            owner_history,
+            self.name,
+            self.description,
+            RelatedObjects=relating_objects,
+            RelatingGroup=self.ifc_elem,
+        )
 
 
 @dataclass
