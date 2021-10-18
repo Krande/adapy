@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import List, Union
 
 import numpy as np
@@ -44,7 +45,24 @@ class Elem(FemBase):
         self._elset = elset
         self._fem_sec = fem_sec
         self._mass_props = mass_props
+        self._hinge_prop = None
+        self._eccentricity = None
         self._refs = []
+
+    def get_offset_coords(self):
+        nodes = [n.p for n in self.nodes]
+        if self.eccentricity is None:
+            return nodes
+
+        ecc = self.eccentricity.ecc_vector
+        n_old = self.eccentricity.node
+
+        mat = np.eye(3)
+        new_p = np.dot(mat, ecc) + n_old.p
+        i = self.nodes.index(n_old)
+        nodes[i] = new_p
+
+        return nodes
 
     @property
     def type(self):
@@ -81,6 +99,22 @@ class Elem(FemBase):
         return self._nodes
 
     @property
+    def hinge_prop(self) -> Union[None, HingeProp]:
+        return self._hinge_prop
+
+    @hinge_prop.setter
+    def hinge_prop(self, value: HingeProp):
+        self._hinge_prop = value
+
+    @property
+    def eccentricity(self) -> Union[None, Eccentricity]:
+        return self._eccentricity
+
+    @eccentricity.setter
+    def eccentricity(self, value: Eccentricity):
+        self._eccentricity = value
+
+    @property
     def elset(self):
         return self._elset
 
@@ -102,7 +136,6 @@ class Elem(FemBase):
 
     @property
     def shape(self) -> ElemShapes:
-
         if self._shape is None:
             self._shape = ElemShapes(self.type, self.nodes)
         return self._shape
@@ -120,6 +153,38 @@ class Elem(FemBase):
 
     def __repr__(self):
         return f'Elem(ID: {self._el_id}, Type: {self.type}, NodeIds: "{self.nodes}")'
+
+
+@dataclass
+class Hinge:
+    retained_dofs: List[int]
+    csys: Csys
+    concept_node: Node = None
+    fem_node: Node = None
+    elem_n_index: int = None
+    beam_n_index: int = None
+    constraint_ref = None
+
+
+@dataclass
+class HingeProp:
+    end1: Hinge = None
+    end2: Hinge = None
+    elem_ref: Elem = None
+    beam_ref: Beam = None
+
+
+@dataclass
+class EccPoint:
+    node: Node
+    ecc_vector: np.ndarray
+
+
+@dataclass
+class Eccentricity:
+    end1: EccPoint = None
+    end2: EccPoint = None
+    sh_ecc_vector: np.ndarray = None
 
 
 class Connector(Elem):
@@ -173,20 +238,17 @@ class Connector(Elem):
 
 
 class Spring(Elem):
-    def __init__(self, name, el_id, el_type, stiff, n1: Node, n2: Node = None, metadata=None, parent=None):
-        from .sets import FemSet
+    def __init__(self, name, el_id, el_type, stiff, fem_set, metadata=None, parent=None):
+        """:type fem_set: ada.fem.FemSet"""
 
-        nids = [n1]
-        if n2 is not None:
-            nids += [n2]
-        super(Spring, self).__init__(el_id, nids, el_type)
+        super(Spring, self).__init__(el_id, fem_set.members, el_type)
         super(Elem, self).__init__(name, metadata, parent)
         self._stiff = stiff
-        self._n1 = n1
-        self._n2 = n2
-        self._fem_set = FemSet(self.name + "_set", [el_id], FemSet.TYPES.ELSET)
-        if self.parent is not None:
-            self.parent.sets.add(self._fem_set)
+        self._n1 = fem_set.members[0]
+        self._n2 = None
+        if len(fem_set.members) > 1:
+            self._n2 = fem_set.members[-1]
+        self._fem_set = fem_set
 
     @property
     def fem_set(self):
@@ -227,6 +289,7 @@ class Mass(FemBase):
         mass,
         mass_type=None,
         ptype=None,
+        mass_id: int = None,
         units=None,
         metadata=None,
         parent=None,
@@ -238,15 +301,36 @@ class Mass(FemBase):
             raise ValueError("Mass cannot be None")
         if type(mass) not in (list, tuple):
             logging.info(f"Mass {type(mass)} converted to list of len=1. Assume equal mass in all 3 transl. DOFs.")
+            ptype = self.PTYPES.ISOTROPIC
             mass = [mass]
         self._mass = mass
-        self._mass_type = mass_type.upper() if mass_type is not None else "MASS"
+        self._mass_type = mass_type.upper() if mass_type is not None else self.TYPES.MASS
         if self.type not in MassTypes.all:
             raise ValueError(f'Mass type "{self.type}" is not in list of supported types {MassTypes.all}')
         if ptype not in MassPType.all and ptype is not None:
             raise ValueError(f'Mass point type "{ptype}" is not in list of supported types {MassPType.all}')
         self.point_mass_type = ptype
         self._units = units
+        self._id = mass_id
+        self._check_input()
+
+    def _check_input(self):
+        if self.point_mass_type is None:
+            if self.type == MassTypes.MASS:
+                if type(self._mass) in (list, tuple):
+                    raise ValueError("Mass can only be a scalar number for Isotropic mass")
+        elif self.point_mass_type == MassPType.ISOTROPIC:
+            if (len(self._mass) == 1) is False:
+                raise ValueError("Mass can only be a scalar number for Isotropic mass")
+        elif self.point_mass_type == MassPType.ANISOTROPIC:
+            if (len(self._mass) == 3) is False:
+                raise ValueError("Mass must be specified for 3 dofs for Anisotropic mass")
+        else:
+            raise ValueError(f'Unknown mass input "{self.type}"')
+
+    @property
+    def id(self):
+        return self._id
 
     @property
     def type(self):
@@ -254,8 +338,12 @@ class Mass(FemBase):
 
     @property
     def fem_set(self):
-        """:rtype: FemSet"""
+        """:rtype: ada.fem.FemSet"""
         return self._fem_set
+
+    @fem_set.setter
+    def fem_set(self, value: Mass):
+        self._fem_set = value
 
     @property
     def mass(self):

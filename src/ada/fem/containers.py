@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from functools import partial
 from itertools import chain, groupby
 from operator import attrgetter
-from typing import Iterable, List, Union
+from typing import Dict, Iterable, List, Tuple, Union
 
 import numpy as np
 
@@ -23,10 +23,10 @@ from .shapes import ElemShapes, ElemType
 class COG:
     p: np.array
     tot_mass: float
-    tot_vol: float
-    sh_mass: float
-    bm_mass: float
-    no_mass: float
+    tot_vol: float = None
+    sh_mass: float = None
+    bm_mass: float = None
+    no_mass: float = None
 
 
 class FemElements:
@@ -92,12 +92,6 @@ class FemElements:
                 list(map(lambda x: link_elset(x, elem_set), elements))
 
     def elements_from_array(self, array):
-        """
-
-        :param array: A list of numpy arrays formatted as [[elid, n1, n2,...,ni, elset, eltype], ..]
-        :return:
-        """
-
         def to_elem(e):
             nodes = [self._fem_obj.nodes.from_id(n) for n in e[3:] if (n == 0 or np.isnan(n)) is False]
             return Elem(e[0], nodes, e[1], e[2], parent=self._fem_obj)
@@ -105,9 +99,7 @@ class FemElements:
         return list(map(to_elem, array))
 
     def build_sets(self):
-        """
-        Create sets from attached elset attribute on elements
-        """
+        """Create sets from attached elset attribute on elements"""
         for elset, elements in groupby(self._elements, key=attrgetter("elset")):
             if elset is None:
                 continue
@@ -187,8 +179,7 @@ class FemElements:
             return mass, center, vol_
 
         def calc_bm_elem(el: Elem):
-            el.fem_sec.section.properties.calculate()
-            nodes_ = el.fem_sec.get_offset_coords()
+            nodes_ = el.get_offset_coords()
             elem_len = vector_length(nodes_[-1] - nodes_[0])
             vol_ = el.fem_sec.section.properties.Ax * elem_len
             mass = vol_ * el.fem_sec.material.model.rho
@@ -226,6 +217,7 @@ class FemElements:
 
     @property
     def parent(self):
+        """:rtype: ada.FEM"""
         return self._fem_obj
 
     @parent.setter
@@ -245,16 +237,24 @@ class FemElements:
         return self._elements
 
     @property
-    def solids(self):
+    def solids(self) -> Iterable[Elem]:
         return filter(lambda x: x.type in ElemShapes.volume, self.stru_elements)
 
     @property
-    def shell(self):
+    def shell(self) -> Iterable[Elem]:
         return filter(lambda x: x.type in ElemShapes.shell, self.stru_elements)
 
     @property
-    def lines(self):
+    def lines(self) -> Iterable[Elem]:
         return filter(lambda x: x.type in ElemShapes.lines, self.stru_elements)
+
+    @property
+    def lines_hinged(self) -> Iterable[Elem]:
+        return filter(lambda x: x.hinge_prop is not None, self.lines)
+
+    @property
+    def lines_ecc(self) -> Iterable[Elem]:
+        return filter(lambda x: x.eccentricity is not None, self.lines)
 
     @property
     def connectors(self):
@@ -271,6 +271,16 @@ class FemElements:
     def from_id(self, el_id: int) -> Elem:
         el = self._idmap.get(el_id, None)
         if el is None:
+            mass_id_map = {m.id: m for m in self.parent.masses.values()}
+
+            res = mass_id_map.get(el_id, None)
+            if res is not None:
+                return res
+
+            spring_id_map = {m.id: m for m in self.parent.springs.values()}
+            res = spring_id_map.get(el_id, None)
+            if res is not None:
+                return res
             raise ValueError(f'The elem id "{el_id}" is not found')
         return el
 
@@ -373,8 +383,23 @@ class FemSections:
         if len(self._sections) > 0 and fem_obj is not None:
             self._link_data()
 
+    def _map_by_properties(self) -> dict:
+        from ada import Material, Section
+
+        merge_map: Dict[Tuple[Material, Section, tuple, tuple], FemSection] = dict()
+        for fs in self.lines:
+            props = fs.unique_fem_section_permutation()
+            if props not in merge_map.keys():
+                merge_map[props] = fs
+
+        return merge_map
+
+    def merge_by_properties(self):
+        return NotImplemented
+
     def _map_materials(self, fem_sec: FemSection, mat_repo: Materials):
         if type(fem_sec.material) is str:
+            logging.error(f'Material "{fem_sec.material}" was passed as string')
             fem_sec._material = mat_repo.get_by_name(fem_sec.material)
 
     def _map_elsets(self, fem_sec: FemSection, elset_repo):
@@ -513,6 +538,8 @@ class FemSets:
         return True if fs.type == SetTypes.ELSET else False
 
     def _instantiate_all_members(self, fem_set: FemSet):
+        from ada.fem import Mass, Spring
+
         def get_nset(nref):
             if type(nref) is Node:
                 return nref
@@ -527,8 +554,10 @@ class FemSets:
                     raise ValueError("Element might be doubly defined")
                 else:
                     return elref
+            elif type(elref) in (Spring, Mass):
+                return elref
             else:
-                raise ValueError("Elref is not recognized")
+                raise ValueError(f"Elref type '{type(elref)}' is not recognized")
 
         def eval_set(fset):
             if fset.type == SetTypes.ELSET:

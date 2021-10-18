@@ -1,5 +1,6 @@
 import logging
 import pathlib
+from typing import Tuple
 
 import numpy as np
 
@@ -19,6 +20,8 @@ class Shape(BackendGeom):
         geom,
         colour=None,
         opacity=1.0,
+        mass: float = None,
+        cog: Tuple[float, float, float] = None,
         metadata=None,
         units="m",
         ifc_elem=None,
@@ -37,6 +40,8 @@ class Shape(BackendGeom):
             self._import_from_ifc_elem(ifc_elem)
 
         self._geom = geom
+        self._mass = mass
+        self._cog = cog
         self.colour = colour
         self._opacity = opacity
         if isinstance(material, Material):
@@ -142,13 +147,13 @@ class Shape(BackendGeom):
         elif type(self) is PrimSphere:
             sphere = self
             assert isinstance(sphere, PrimSphere)
-            opening_axis_placement = create_global_axes(f, to_real(sphere.pnt), Z, X)
+            opening_axis_placement = create_global_axes(f, to_real(sphere.cog), Z, X)
             solid_geom = f.createIfcSphere(opening_axis_placement, float(sphere.radius))
         elif type(self) is PrimSweep:
             sweep = self
             assert isinstance(sweep, PrimSweep)
-            sweep_curve = sweep.sweep_curve.ifc_elem
-            profile = f.createIfcArbitraryClosedProfileDef("AREA", None, sweep.profile_curve_outer.ifc_elem)
+            sweep_curve = sweep.sweep_curve.get_ifc_elem()
+            profile = f.createIfcArbitraryClosedProfileDef("AREA", None, sweep.profile_curve_outer.get_ifc_elem())
             ifc_xdir = f.createIfcDirection([float(x) for x in sweep.profile_curve_outer.xdir])
             solid_geom = create_IfcFixedReferenceSweptAreaSolid(
                 f, sweep_curve, profile, opening_axis_placement, None, None, ifc_xdir
@@ -182,7 +187,7 @@ class Shape(BackendGeom):
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
         owner_history = a.user.to_ifc()
-        parent = self.parent.ifc_elem
+        parent = self.parent.get_ifc_elem()
         schema = a.ifc_file.wrapped_data.schema
 
         shape_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
@@ -285,6 +290,22 @@ class Shape(BackendGeom):
             raise ValueError("Opacity is only valid between 1 and 0")
 
     @property
+    def mass(self) -> float:
+        return self._mass
+
+    @mass.setter
+    def mass(self, value: float):
+        self._mass = value
+
+    @property
+    def cog(self) -> Tuple[float, float, float]:
+        return self._cog
+
+    @cog.setter
+    def cog(self, value: Tuple[float, float, float]):
+        self._cog = value
+
+    @property
     def bbox(self):
         """return the bounding box of the TopoDS_Shape `shape`
 
@@ -353,19 +374,11 @@ class Shape(BackendGeom):
 
 
 class PrimSphere(Shape):
-    def __init__(self, name, pnt, radius, colour=None, opacity=1.0, metadata=None, units="m"):
+    def __init__(self, name, cog, radius, **kwargs):
         from ada.occ.utils import make_sphere
 
-        self.pnt = pnt
         self.radius = radius
-        super(PrimSphere, self).__init__(
-            name=name,
-            geom=make_sphere(pnt, radius),
-            colour=colour,
-            opacity=opacity,
-            metadata=metadata,
-            units=units,
-        )
+        super(PrimSphere, self).__init__(name=name, geom=make_sphere(cog, radius), cog=cog, **kwargs)
 
     @property
     def units(self):
@@ -378,9 +391,9 @@ class PrimSphere(Shape):
             from ada.occ.utils import make_sphere
 
             scale_factor = unit_length_conversion(self._units, value)
-            self.pnt = tuple([x * scale_factor for x in self.pnt])
+            self.cog = tuple([x * scale_factor for x in self.cog])
             self.radius = self.radius * scale_factor
-            self._geom = make_sphere(self.pnt, self.radius)
+            self._geom = make_sphere(self.cog, self.radius)
             self._units = value
 
     def __repr__(self):
@@ -423,13 +436,13 @@ class PrimBox(Shape):
 
 
 class PrimCyl(Shape):
-    def __init__(self, name, p1, p2, r, colour=None, opacity=1.0, metadata=None, units="m"):
+    def __init__(self, name, p1, p2, r, **kwargs):
         from ada.occ.utils import make_cylinder_from_points
 
         self.p1 = np.array(p1)
         self.p2 = np.array(p2)
         self.r = r
-        super(PrimCyl, self).__init__(name, make_cylinder_from_points(p1, p2, r), colour, opacity, metadata, units)
+        super(PrimCyl, self).__init__(name, make_cylinder_from_points(p1, p2, r), **kwargs)
 
     @property
     def units(self):
@@ -453,20 +466,7 @@ class PrimCyl(Shape):
 
 
 class PrimExtrude(Shape):
-    def __init__(
-        self,
-        name,
-        points2d,
-        h,
-        normal,
-        origin,
-        xdir,
-        tol=1e-3,
-        colour=None,
-        opacity=1.0,
-        metadata=None,
-        units="m",
-    ):
+    def __init__(self, name, points2d, h, normal, origin, xdir, tol=1e-3, **kwargs):
         self._name = name
         poly = CurvePoly(
             points2d=points2d,
@@ -479,14 +479,7 @@ class PrimExtrude(Shape):
         self._poly = poly
         self._extrude_depth = h
 
-        super(PrimExtrude, self).__init__(
-            name,
-            self._poly.make_extruded_solid(self._extrude_depth),
-            colour,
-            opacity,
-            metadata,
-            units,
-        )
+        super(PrimExtrude, self).__init__(name, self._poly.make_extruded_solid(self._extrude_depth), **kwargs)
 
     @property
     def units(self):
@@ -520,25 +513,9 @@ class PrimExtrude(Shape):
 
 
 class PrimRevolve(Shape):
-    """
-    Primitive Revolved
+    """Revolved Primitive"""
 
-    """
-
-    def __init__(
-        self,
-        name,
-        points2d,
-        origin,
-        xdir,
-        normal,
-        rev_angle,
-        tol=1e-3,
-        colour=None,
-        opacity=1.0,
-        metadata=None,
-        units="m",
-    ):
+    def __init__(self, name, points2d, origin, xdir, normal, rev_angle, tol=1e-3, **kwargs):
         self._name = name
         poly = CurvePoly(
             points2d=points2d,
@@ -559,10 +536,7 @@ class PrimRevolve(Shape):
                 self._revolve_angle,
                 self._revolve_origin,
             ),
-            colour,
-            opacity,
-            metadata,
-            units,
+            **kwargs,
         )
 
     @property
@@ -605,10 +579,7 @@ class PrimSweep(Shape):
         profile_curve_inner=None,
         origin=None,
         tol=1e-3,
-        colour=None,
-        opacity=1.0,
-        metadata=None,
-        units="m",
+        **kwargs,
     ):
         if type(sweep_curve) is list:
             sweep_curve = CurvePoly(points3d=sweep_curve, is_closed=False)
@@ -624,14 +595,7 @@ class PrimSweep(Shape):
         self._profile_curve_outer = profile_curve_outer
         self._profile_curve_inner = profile_curve_inner
 
-        super(PrimSweep, self).__init__(
-            name,
-            self._sweep_geom(),
-            colour,
-            opacity,
-            metadata,
-            units,
-        )
+        super(PrimSweep, self).__init__(name, self._sweep_geom(), **kwargs)
 
     def _sweep_geom(self):
         from ada.occ.utils import sweep_geom
@@ -665,13 +629,8 @@ class PrimSweep(Shape):
 
 class Penetration(BackendGeom):
     _name_gen = Counter(1, "Pen")
-
-    """
-    A penetration object. Wraps around a primitive. TODO: Maybe this should be evaluated for removal?
-
-    :param primitive: Takes any Prim<> Class in ada.
-    """
-
+    """A penetration object. Wraps around a primitive"""
+    # TODO: Maybe this should be evaluated for removal?
     def __init__(self, primitive, metadata=None, parent=None, units="m", guid=None):
         if issubclass(type(primitive), Shape) is False:
             raise ValueError(f'Unsupported primitive type "{type(primitive)}"')
@@ -691,7 +650,7 @@ class Penetration(BackendGeom):
         a = self.parent.parent.get_assembly()
         f = a.ifc_file
 
-        geom_parent = self.parent.parent.ifc_elem
+        geom_parent = self.parent.parent.get_ifc_elem()
         owner_history = a.user.to_ifc()
 
         # Create and associate an opening for the window in the wall

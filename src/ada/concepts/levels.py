@@ -6,7 +6,7 @@ import os
 import pathlib
 from dataclasses import dataclass, field
 from itertools import chain
-from typing import Iterable, List, Union
+from typing import Dict, Iterable, List, Union
 
 from ada.base.physical_objects import BackendGeom
 from ada.concepts.connections import JointBase
@@ -64,6 +64,9 @@ class _ConvertOptions:
     ecc_to_mpc: bool = True
     hinges_to_coupling: bool = True
 
+    # From FEM to concepts
+    fem2concepts_include_ecc = False
+
 
 class Part(BackendGeom):
     """A Part superclass design to host all relevant information for cad and FEM modelling."""
@@ -95,6 +98,7 @@ class Part(BackendGeom):
         self._instances = []
         self._shapes = []
         self._parts = dict()
+        self._groups = dict()
 
         if ifc_elem is not None:
             self.metadata["ifctype"] = self._import_part_from_ifc(ifc_elem)
@@ -184,6 +188,10 @@ class Part(BackendGeom):
         if part.name in self._parts.keys():
             raise ValueError(f'Part name "{part.name}" already exists and cannot be overwritten')
         self._parts[part.name] = part
+        try:
+            part._on_import()
+        except NotImplementedError:
+            pass
         return part
 
     def add_joint(self, joint: JointBase) -> JointBase:
@@ -242,6 +250,17 @@ class Part(BackendGeom):
 
     def add_instance(self, element, transform: Transform):
         self._instances[element] = transform
+
+    def add_set(self, name, set_members: List[Union[Part, Beam, Plate, Wall, Pipe, Shape]]) -> Group:
+        if name not in self.groups.keys():
+            self.groups[name] = Group(name, set_members, parent=self)
+        else:
+            logging.info(f'Appending set "{name}"')
+            for mem in set_members:
+                if mem not in self.groups[name].members:
+                    self.groups[name].members.append(mem)
+
+        return self.groups[name]
 
     def add_elements_from_ifc(self, ifc_file_path: os.PathLike, data_only=False):
         a = Assembly("temp")
@@ -305,7 +324,7 @@ class Part(BackendGeom):
 
     def create_objects_from_fem(self, skip_plates=False, skip_beams=False) -> None:
         """Build Beams and Plates from the contents of the local FEM object"""
-        from ada.fem.io.utils import convert_part_objects
+        from ada.fem.formats.utils import convert_part_objects
 
         if type(self) is Assembly:
             for p_ in self.get_all_parts_in_assembly():
@@ -407,7 +426,7 @@ class Part(BackendGeom):
         owner_history = a.user.to_ifc()
 
         itype = self.metadata["ifctype"]
-        parent = self.parent.ifc_elem
+        parent = self.parent.get_ifc_elem()
         placement = create_local_placement(
             f,
             origin=self.placement.origin,
@@ -466,6 +485,10 @@ class Part(BackendGeom):
         pr_type = ifc_elem.is_a()
         return opposite[pr_type]
 
+    def _on_import(self):
+        """A method call that will be triggered when a Part is imported into an existing Assembly/Part"""
+        raise NotImplementedError()
+
     def to_fem_obj(
         self, mesh_size: float, bm_repr=ElemType.LINE, pl_repr=ElemType.SHELL, options=None, silent=True
     ) -> FEM:
@@ -473,6 +496,7 @@ class Part(BackendGeom):
         from ada.fem.meshing import GmshOptions, GmshSession
 
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
+        masses: List[Shape] = []
         with GmshSession(silent=silent, options=options) as gs:
             # TODO: Beam and plate nodes (and nodes at intersecting beams) are still not properly represented
             for obj in self.get_all_physical_objects():
@@ -480,10 +504,19 @@ class Part(BackendGeom):
                     gs.add_obj(obj, geom_repr=bm_repr, build_native_lines=False)
                 elif type(obj) is Plate:
                     gs.add_obj(obj, geom_repr=pl_repr)
+                elif issubclass(type(obj), Shape) and obj.mass is not None:
+                    masses.append(obj)
                 else:
                     logging.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
             gs.mesh(mesh_size)
-            return gs.get_fem()
+            fem = gs.get_fem()
+
+        for mass_shape in masses:
+            n = fem.nodes.add(Node(mass_shape.cog))
+            fs = fem.add_set(FemSet(f"{mass_shape.name}_mass_set", [n], "nset"))
+            fem.add_mass(Mass(f"{mass_shape.name}_mass", fs, mass_shape.mass))
+
+        return fem
 
     @property
     def parts(self) -> dict[str, Part]:
@@ -600,6 +633,10 @@ class Part(BackendGeom):
                 from ada.ifc.utils import assembly_to_ifc_file
 
                 self._ifc_file = assembly_to_ifc_file(self)
+
+    @property
+    def groups(self) -> Dict[str, Group]:
+        return self._groups
 
     def __truediv__(self, other_object):
         if type(other_object) in [list, tuple]:
@@ -866,7 +903,7 @@ class Assembly(Part):
 
         Note! The meshio fem converter implementation currently only supports reading elements and nodes.
         """
-        from ada.fem.io import get_fem_converters
+        from ada.fem.formats import get_fem_converters
 
         fem_file = pathlib.Path(fem_file)
         if fem_file.exists() is False:
@@ -899,7 +936,7 @@ class Assembly(Part):
     ):
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
-        Currently there is limited write support for the following FEM formats are:
+        Currently there is limited write support for the following FEM formats:
 
         Open Source
 
@@ -914,7 +951,6 @@ class Assembly(Part):
 
 
         Write support is added on a need-only-basis. Any contributions are welcomed!
-
 
         :param name: Name of FEM analysis input deck
         :param fem_format: Desired fem format
@@ -941,12 +977,17 @@ class Assembly(Part):
             If this proves to create issues regarding performance this should be evaluated further.
 
         """
-        from ada.fem.io import fem_executables, get_fem_converters
-        from ada.fem.io.utils import default_fem_res_path, folder_prep, should_convert
+        from ada.fem.formats import fem_executables, get_fem_converters
+        from ada.fem.formats.utils import (
+            default_fem_inp_path,
+            default_fem_res_path,
+            folder_prep,
+            should_convert,
+        )
         from ada.fem.results import Results
 
         scratch_dir = Settings.scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
-        fem_res_files = default_fem_res_path(name, scratch_dir)
+        fem_res_files = default_fem_res_path(name, scratch_dir=scratch_dir)
 
         res_path = fem_res_files.get(fem_format, None)
         metadata = dict() if metadata is None else metadata
@@ -959,13 +1000,7 @@ class Assembly(Part):
 
             if fem_exporter is None:
                 raise ValueError(f'FEM export for "{fem_format}" using "{fem_converter}" is currently not supported')
-            fem_inp_files = dict(
-                code_aster=(analysis_dir / name).with_suffix(".export"),
-                abaqus=(analysis_dir / name).with_suffix(".inp"),
-                calculix=(analysis_dir / name).with_suffix(".inp"),
-                sesam=(analysis_dir / name).with_suffix(".FEM"),
-            )
-
+            fem_inp_files = default_fem_inp_path(name, scratch_dir)
             fem_exporter(self, name, analysis_dir, metadata)
 
             if execute is True:
@@ -1006,6 +1041,10 @@ class Assembly(Part):
 
         for p in self.get_all_parts_in_assembly(include_self=True):
             add_part_objects_to_ifc(p, f, self, include_fem)
+
+        all_groups = [p.groups.values() for p in self.get_all_parts_in_assembly(include_self=True)]
+        for group in chain.from_iterable(all_groups):
+            group.to_ifc(f)
 
         if len(self.presentation_layers) > 0:
             presentation_style = f.createIfcPresentationStyle("HiddenLayers")
@@ -1131,7 +1170,7 @@ class Assembly(Part):
     def ifc_materials(self):
         if self._ifc_materials is None:
             matrel = dict()
-            for mat in self.materials.dmap.values():
+            for mat in self.materials.name_map.values():
                 matrel[mat.name] = mat.ifc_mat
             self._ifc_materials = matrel
         return self._ifc_materials
@@ -1166,21 +1205,54 @@ class Assembly(Part):
 
 
 @dataclass
+class Group:
+    name: str
+    members: List[Union[Part, Beam, Plate, Wall, Pipe, Shape]]
+    parent: Union[Part, Assembly]
+    description: str = ""
+    ifc_elem = None
+
+    def _generate_ifc_elem(self, f):
+        a = self.parent.get_assembly()
+        owner_history = a.user.to_ifc()
+        return f.create_entity("IfcGroup", create_guid(), owner_history, self.name, self.description)
+
+    def to_ifc(self, f):
+        a = self.parent.get_assembly()
+        owner_history = a.user.to_ifc()
+        if self.ifc_elem is None:
+            self.ifc_elem = self._generate_ifc_elem(f)
+
+        relating_objects = []
+        for m in self.members:
+            relating_objects.append(m.get_ifc_elem())
+        f.create_entity(
+            "IfcRelAssignsToGroup",
+            create_guid(),
+            owner_history,
+            self.name,
+            self.description,
+            RelatedObjects=relating_objects,
+            RelatingGroup=self.ifc_elem,
+        )
+
+
+@dataclass
 class FEM:
     name: str
-    metadata: dict = field(default_factory=dict)
+    metadata: Dict = field(default_factory=dict)
     parent: Part = field(init=True, default=None)
 
-    masses: dict[str, Mass] = field(init=False, default_factory=dict)
-    surfaces: dict[str, Surface] = field(init=False, default_factory=dict)
-    amplitudes: dict[str, Amplitude] = field(init=False, default_factory=dict)
-    connectors: dict[str, Connector] = field(init=False, default_factory=dict)
-    connector_sections: dict[str, ConnectorSection] = field(init=False, default_factory=dict)
-    springs: dict[str, Spring] = field(init=False, default_factory=dict)
-    intprops: dict[str, InteractionProperty] = field(init=False, default_factory=dict)
-    interactions: dict[str, Interaction] = field(init=False, default_factory=dict)
-    predefined_fields: dict[str, PredefinedField] = field(init=False, default_factory=dict)
-    lcsys: dict[str, Csys] = field(init=False, default_factory=dict)
+    masses: Dict[str, Mass] = field(init=False, default_factory=dict)
+    surfaces: Dict[str, Surface] = field(init=False, default_factory=dict)
+    amplitudes: Dict[str, Amplitude] = field(init=False, default_factory=dict)
+    connectors: Dict[str, Connector] = field(init=False, default_factory=dict)
+    connector_sections: Dict[str, ConnectorSection] = field(init=False, default_factory=dict)
+    springs: Dict[str, Spring] = field(init=False, default_factory=dict)
+    intprops: Dict[str, InteractionProperty] = field(init=False, default_factory=dict)
+    interactions: Dict[str, Interaction] = field(init=False, default_factory=dict)
+    predefined_fields: Dict[str, PredefinedField] = field(init=False, default_factory=dict)
+    lcsys: Dict[str, Csys] = field(init=False, default_factory=dict)
 
     bcs: List[Bc] = field(init=False, default_factory=list)
     constraints: List[Constraint] = field(init=False, default_factory=list)

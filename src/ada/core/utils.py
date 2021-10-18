@@ -6,6 +6,7 @@ import pathlib
 import shutil
 import zipfile
 from decimal import ROUND_HALF_EVEN, Decimal
+from typing import Any, Dict, Union
 
 import numpy as np
 
@@ -1319,7 +1320,7 @@ def get_version():
     return version("ada-py")
 
 
-def closest_val_in_dict(val, dct):
+def closest_val_in_dict(val: Union[int, float], dct: Dict[Union[int, float], Any]) -> Any:
     """
     When mapping using a dictionary and value do not match with the keys in the dictionary.
     :param val: Value a number, usually float
@@ -1463,3 +1464,20 @@ def is_on_line(data):
         return list(AB_), bm
     else:
         return None
+
+
+def projection_onto_line(p0, n1, n2) -> np.ndarray:
+    """
+
+    :param p0: Point outside beam
+    :param n1: Start node of beam
+    :param n2: End node of beam
+    :return: Projection from n1 to p0 onto line. Returns projected line segment
+    """
+
+    v = n2 - n1
+    p = p0 - n1
+    angle = angle_between(v, p)
+    t0 = np.linalg.norm(p) * np.cos(angle) * unit_vector(v)
+    q = t0 - p
+    return p0 + q

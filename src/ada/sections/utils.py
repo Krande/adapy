@@ -77,7 +77,7 @@ def profile_db_collect(sec_type, dim, units="m"):
         return None
 
 
-def interpret_section_str(in_str, s=0.001, units="m"):
+def interpret_section_str(in_str: str, s=0.001, units="m"):
     """
 
     :param in_str:
@@ -112,18 +112,21 @@ def interpret_section_str(in_str, s=0.001, units="m"):
             metadata=dict(cad_str=in_str),
             units=units,
         )
-        tap = Section(
-            in_str + "_e",
-            h=h[-1],
-            sec_type=box,
-            w_btn=width[-1],
-            w_top=width[-1],
-            t_fbtn=tf[-1],
-            t_ftop=tf[-1],
-            t_w=tw[-1],
-            metadata=dict(cad_str=in_str),
-            units=units,
-        )
+        if "/" in in_str:
+            tap = Section(
+                in_str + "_e",
+                h=h[-1],
+                sec_type=box,
+                w_btn=width[-1],
+                w_top=width[-1],
+                t_fbtn=tf[-1],
+                t_ftop=tf[-1],
+                t_w=tw[-1],
+                metadata=dict(cad_str=in_str),
+                units=units,
+            )
+        else:
+            tap = sec
         return sec, tap
 
     for shs in SectionCat.shs:
@@ -150,18 +153,21 @@ def interpret_section_str(in_str, s=0.001, units="m"):
             metadata=dict(cad_str=in_str),
             units=units,
         )
-        tap = Section(
-            in_str + "_e",
-            h=h[-1],
-            sec_type=shs,
-            w_btn=h[-1],
-            w_top=h[-1],
-            t_fbtn=width[-1],
-            t_ftop=width[-1],
-            t_w=width[-1],
-            metadata=dict(cad_str=in_str),
-            units=units,
-        )
+        if "/" in in_str:
+            tap = Section(
+                in_str + "_e",
+                h=h[-1],
+                sec_type=shs,
+                w_btn=h[-1],
+                w_top=h[-1],
+                t_fbtn=width[-1],
+                t_ftop=width[-1],
+                t_w=width[-1],
+                metadata=dict(cad_str=in_str),
+                units=units,
+            )
+        else:
+            tap = sec
         return sec, tap
 
     for rhs in SectionCat.rhs:
@@ -306,6 +312,36 @@ def interpret_section_str(in_str, s=0.001, units="m"):
             continue
         sec = profile_db_collect(cha, res.group(2), units=units)
         return sec, sec
+
+    for flat in SectionCat.flatbar:
+        res = re.search("({flat})({digit})x({digit})".format(flat=flat, digit=digit), in_str, re_in)
+        if res is None:
+            continue
+        h = [rdoff(float(x) * s) for x in res.group(2).split("/")]
+        width = [rdoff(float(x) * s) for x in res.group(3).split("/")]
+
+        sec = Section(
+            in_str,
+            sec_type=flat,
+            h=h[0],
+            w_top=width[0],
+            w_btn=width[0],
+            metadata=dict(cad_str=in_str),
+            units=units,
+        )
+        if "/" in in_str:
+            tap = Section(
+                in_str + "_e",
+                sec_type=flat,
+                h=h[-1],
+                w_top=width[-1],
+                w_btn=width[-1],
+                metadata=dict(cad_str=in_str),
+                units=units,
+            )
+        else:
+            tap = sec
+        return sec, tap
 
     raise ValueError(f'Unable to interpret section str "{in_str}"')
 

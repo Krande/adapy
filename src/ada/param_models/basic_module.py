@@ -1,9 +1,13 @@
-from typing import Callable, List
+from typing import Callable, List, Tuple
 
-from ada import Assembly, Beam, Node, Part, Pipe, Plate, Section
+import numpy as np
+
+from ada import Assembly, Beam, Material, Node, Part, Pipe, Plate, PrimSphere, Section
 from ada.core.clash_check import penetration_check
+from ada.core.constants import X, Y, Z
 from ada.core.utils import Counter
 from ada.fem import Bc, FemSet
+from ada.materials.metals import CarbonSteel
 
 bm_name = Counter(1, "bm")
 pl_name = Counter(1, "pl")
@@ -20,7 +24,7 @@ class ReinforcedFloor(Part):
         s_type="HP140x8",
         stringer_dir="X",
         use3dnodes=True,
-        **kwargs
+        **kwargs,
     ):
         super(ReinforcedFloor, self).__init__(name)
         plate = self.add_plate(Plate(name + "_pl", points, pl_thick, use3dnodes=use3dnodes, **kwargs))
@@ -140,3 +144,77 @@ def make_it_complex():
             penetration_check(p)
 
     return a
+
+
+class EquipmentTent(Part):
+    def __init__(
+        self,
+        name,
+        mass: float,
+        cog: Tuple[float, float, float],
+        legs=4,
+        height=2,
+        width=3,
+        length=3,
+        sec_str="BG200x200x30x30",
+        eq_mat=Material("EqMatSoft", CarbonSteel("S355", E=2.1e9)),
+    ):
+        """
+
+        :param name:
+        :param mass:
+        :param cog:
+        :param legs: can be either 3 or 4 legs
+        :param height:
+        :param width:
+        :param length: Length is along the Y-axis
+        """
+        super(EquipmentTent, self).__init__(name=name)
+
+        eq_bm = Counter(1, f"{name}_bm")
+        cognp = np.array(cog)
+        corner_index = [(-1, -1), (-1, 1), (1, 1), (1, -1)]
+        if legs == 3:
+            corner_index = [(-1, -1), (1, -1), (0.5, 1)]
+
+        mid_points = []
+        btn_points = []
+
+        for sX, sY in corner_index:
+            p = cognp + sX * np.array(X) * width + sY * np.array(Y) * length - np.array(Z) * height / 2
+            mid_points.append(p)
+            p = cognp + sX * np.array(X) * width + sY * np.array(Y) * length - np.array(Z) * height
+            btn_points.append(p)
+
+        vertical_legs = []
+        for btnp, midp in zip(btn_points, mid_points):
+            bm = Beam(next(eq_bm), btnp, midp, sec_str, eq_mat)
+            vertical_legs.append(bm)
+            self.add_beam(bm)
+
+        horizontal_members = []
+        for bs, be in zip(mid_points[:-1], mid_points[1:]):
+            bm = Beam(next(eq_bm), bs, be, sec_str, eq_mat)
+            horizontal_members.append(bm)
+            self.add_beam(bm)
+
+        bm = Beam(next(eq_bm), mid_points[-1], mid_points[0], sec_str, eq_mat)
+        horizontal_members.append(bm)
+        self.add_beam(bm)
+
+        eq_braces = []
+        for midp in mid_points:
+            bm = Beam(next(eq_bm), midp, cog, sec_str, eq_mat)
+            eq_braces.append(bm)
+            self.add_beam(bm)
+
+        self.add_set("vertical_members", vertical_legs)
+        self.add_set("horizontal_members", horizontal_members)
+        self.add_set("braces", eq_braces)
+
+        self.add_shape(PrimSphere(f"{name}_cog", cog, radius=(width + length) / 6, mass=mass))
+        self._centre_of_gravity = cog
+        self._mass = mass
+
+    def _on_import(self):
+        print("Evaluate footing based on existing structure")

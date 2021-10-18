@@ -342,7 +342,18 @@ class Connections(BaseCollections):
             self.add(joint, point_tol=point_tol)
 
 
-class Materials(BaseCollections):
+class NumericMapped(BaseCollections):
+    def __init__(self, parent):
+        super(NumericMapped, self).__init__(parent=parent)
+        self._name_map = dict()
+        self._id_map = dict()
+
+    def recreate_name_and_id_maps(self, collection):
+        self._name_map = {n.name: n for n in collection}
+        self._id_map = {n.id: n for n in collection}
+
+
+class Materials(NumericMapped):
     """Collection of materials"""
 
     def __init__(self, materials: Iterable[Material] = None, unique_ids=True, parent=None, units="m"):
@@ -350,14 +361,13 @@ class Materials(BaseCollections):
         super().__init__(parent)
         self._materials = sorted(materials, key=attrgetter("name")) if materials is not None else []
         self._unique_ids = unique_ids
-        self._dmap = {n.name: n for n in self._materials}
-        self._idmap = {n.id: n for n in self._materials}
+        self.recreate_name_and_id_maps(self._materials)
         self._units = units
 
     def __contains__(self, item: Material):
-        return item.name in self._dmap.keys()
+        return item.name in self._name_map.keys()
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._materials)
 
     def __iter__(self) -> Iterable[Material]:
@@ -386,48 +396,47 @@ class Materials(BaseCollections):
         rpr.maxlevel = 1
         return f"Materials({rpr.repr(self._materials) if self._materials else ''})"
 
-    def index(self, item):
-        """
+    def merge_materials_by_properties(self):
+        models = []
+        final_mats = []
+        for i, mat in enumerate(self._materials):
+            if mat.model not in models:
+                models.append(mat.model)
+                final_mats.append(mat)
+            else:
+                index = models.index(mat.model)
+                replacement_mat = models[index].parent
+                for ref in mat.refs:
+                    ref.material = replacement_mat
 
-        :param item:
-        :type item: ada.Material
-        :return:
-        """
+        self._materials = final_mats
+        self.recreate_name_and_id_maps(self._materials)
+
+    def index(self, item: Material):
         return self._materials.index(item)
 
-    def count(self, item):
+    def count(self, item: Material):
         return int(item in self)
 
-    def get_by_name(self, name):
-        """
-
-        :param name:
-        :return:
-        """
-        if name not in self._dmap.keys():
+    def get_by_name(self, name: str) -> Material:
+        if name not in self._name_map.keys():
             raise ValueError(f'The material name "{name}" is not found')
         else:
-            return self._dmap[name]
+            return self._name_map[name]
 
-    def get_by_id(self, mat_id):
-        """
-
-        :param mat_id:
-        :return:
-        """
-        if mat_id not in self._idmap.keys():
+    def get_by_id(self, mat_id: int) -> Material:
+        if mat_id not in self._id_map.keys():
             raise ValueError(f'The material id "{mat_id}" is not found')
         else:
-            return self._idmap[mat_id]
+            return self._id_map[mat_id]
 
     @property
-    def dmap(self):
-        """
+    def name_map(self) -> Dict[str, Material]:
+        return self._name_map
 
-        :return: A dictionary of all nodes {int(id1):node1, ..}
-        :rtype: dict
-        """
-        return self._dmap
+    @property
+    def id_map(self) -> Dict[int, Material]:
+        return self._id_map
 
     @property
     def parent(self):
@@ -451,34 +460,43 @@ class Materials(BaseCollections):
 
     def add(self, material) -> Material:
         if material in self:
-            return self._dmap[material.name]
+            return self._name_map[material.name]
 
-        if material.id is None or material.id in self._idmap.keys():
+        if material.id is None or material.id in self._id_map.keys():
             material.id = len(self._materials) + 1
-        self._idmap[material.id] = material
-        self._dmap[material.name] = material
+        self._id_map[material.id] = material
+        self._name_map[material.name] = material
         self._materials.append(material)
 
         return material
 
 
-class Sections:
+class Sections(NumericMapped):
+    sec_id = Counter(1)
+
     def __init__(self, sections: Iterable[Section] = None, unique_ids=True, parent=None):
+        super(Sections, self).__init__(parent=parent)
         """:type parent: ada.Part"""
         sections = [] if sections is None else sections
-        self._parent = parent
-
         if unique_ids:
             sections = list(toolz.unique(sections, key=attrgetter("name")))
 
         self._sections = sorted(sections, key=attrgetter("name"))
-        self._nmap = {n.name: n for n in self._sections}
-        self._idmap = {n.id: n for n in self._sections}
-        if len(self._nmap.keys()) != len(self._idmap.keys()):
+
+        def section_id_maker(section: Section) -> Section:
+            if section.id is None:
+                section.id = next(Sections.sec_id)
+            return section
+
+        [section_id_maker(sec) for sec in self._sections]
+
+        self.recreate_name_and_id_maps(self._sections)
+
+        if len(self._name_map.keys()) != len(self._id_map.keys()):
             raise ValueError("Non-unique ids or name are observed..")
 
     def __contains__(self, item):
-        return item.name in self._nmap.keys()
+        return item.name in self._name_map.keys()
 
     def __len__(self):
         return len(self._sections)
@@ -499,6 +517,9 @@ class Sections:
         rpr.maxlevel = 1
         return f"Sections({rpr.repr(self._sections) if self._sections else ''})"
 
+    def merge_sections_by_properties(self):
+        raise NotImplementedError()
+
     def index(self, item):
         index = bisect_left(self._sections, item)
         if (index != len(self._sections)) and (self._sections[index] == item):
@@ -509,20 +530,24 @@ class Sections:
         return int(item in self)
 
     def get_by_name(self, name: str) -> Section:
-        if name not in self._nmap.keys():
+        if name not in self._name_map.keys():
             raise ValueError(f'The section id "{name}" is not found')
         else:
-            return self._nmap[name]
+            return self._name_map[name]
 
     def get_by_id(self, sec_id: int) -> Section:
-        if sec_id not in self._idmap.keys():
+        if sec_id not in self._id_map.keys():
             raise ValueError(f'The node id "{sec_id}" is not found')
         else:
-            return self._idmap[sec_id]
+            return self._id_map[sec_id]
 
     @property
-    def idmap(self) -> dict[int, Section]:
-        return self._idmap
+    def id_map(self) -> dict[int, Section]:
+        return self._id_map
+
+    @property
+    def name_map(self) -> dict[str, Section]:
+        return self._name_map
 
     def add(self, section: Section) -> Section:
         from ada.concepts.structural import section_counter
@@ -534,20 +559,25 @@ class Sections:
         if section.parent is None:
             section.parent = self._parent
 
-        if section.name in self._nmap.keys():
-            return self._nmap[section.name]
+        if section in self._sections:
+            index = self._sections.index(section)
+            return self._sections[index]
+
+        if section.name in self._name_map.keys():
+            logging.error(f'Section with same name "{section.name}" already exists. Will use that section instead')
+            return self._name_map[section.name]
 
         if section.id is None:
             section.id = next(section_counter)
 
         if len(self._sections) > 0:
-            if section.id is None or section.id in self._idmap.keys():
+            if section.id is None or section.id in self._id_map.keys():
                 new_sec_id = next(section_counter)
                 section.id = new_sec_id
 
         self._sections.append(section)
-        self._idmap[section.id] = section
-        self._nmap[section.name] = section
+        self._id_map[section.id] = section
+        self._name_map[section.name] = section
 
         return section
 
@@ -564,29 +594,43 @@ class Nodes:
         if unique_ids is True:
             nodes = toolz.unique(nodes, key=attrgetter("id"))
 
-        self._nodes = nodes
-        self._sort()
+        self._nodes = list(nodes)
+        self._idmap = dict()
+        self._bbox = None
+        self._maxid = 0
+        if len(self._nodes) > 0:
+            self._sort()
+            self._maxid = max(self._idmap.keys())
+            self._bbox = self._get_bbox()
+
+    def _sort(self):
+        self._nodes = sorted(self._nodes, key=attrgetter("x", "y", "z"))
         self._idmap = {n.id: n for n in sorted(self._nodes, key=attrgetter("id"))}
+
+    def renumber(self, start_id: int = 1, renumber_map: dict = None):
+        """Ensures that the node numberings starts at 1 and has no holes in its numbering."""
+        if renumber_map is not None:
+            self._renumber_from_map(renumber_map)
+        else:
+            self._renumber_linearly(start_id)
+
+        self._sort()
         self._maxid = max(self._idmap.keys()) if len(self._nodes) > 0 else 0
         self._bbox = self._get_bbox() if len(self._nodes) > 0 else None
 
-    def renumber(self, start_id: int = 1):
-        """Ensures that the node numberings starts at 1 and has no holes in its numbering."""
+    def _renumber_linearly(self, start_id):
         for i, n in enumerate(sorted(self._nodes, key=attrgetter("id")), start=start_id):
             if i != n.id:
                 n.id = i
 
-        self._idmap = {n.id: n for n in sorted(self._nodes, key=attrgetter("id"))}
-        self._maxid = max(self._idmap.keys()) if len(self._nodes) > 0 else 0
-        self._bbox = self._get_bbox() if len(self._nodes) > 0 else None
+    def _renumber_from_map(self, renumber_map):
+        for n in sorted(self._nodes, key=attrgetter("id")):
+            n.id = renumber_map[n.id]
 
     def _np_array_to_nlist(self, np_array):
         from ada import Node
 
         return [Node(row[1:], int(row[0]), parent=self._parent) for row in np_array]
-
-    def nlist_to_np_array(self, nlist):
-        return np.array([(n.id, *n) for n in nlist])
 
     def to_np_array(self, include_id=False):
         if include_id:
@@ -818,7 +862,3 @@ class Nodes:
             replace_duplicate_nodes(duplicate_nodes, node)
 
         self._sort()
-
-    def _sort(self):
-        self._nodes = sorted(self._nodes, key=attrgetter("x", "y", "z"))
-        self._idmap = {n.id: n for n in sorted(self._nodes, key=attrgetter("id"))}

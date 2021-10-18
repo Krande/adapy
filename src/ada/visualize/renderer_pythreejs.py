@@ -872,7 +872,6 @@ class SectionRenderer:
             plot_data["inner"] = inner
 
         sp = sec.properties
-        sp.calculate()
         for sec_prop in [
             ("Ax", sp.Ax),
             ("Ix", sp.Ix),
@@ -886,8 +885,8 @@ class SectionRenderer:
             ("Sz", sp.Sz),
             ("Shary", sp.Shary),
             ("Sharz", sp.Sharz),
-            ("Shceny", sp.Scheny),
-            ("Schenz", sp.Schenz),
+            ("Shceny", sp.Shceny),
+            ("Shcenz", sp.Shcenz),
         ]:
             res = sec_prop[1]
             if res is not None:

@@ -1,4 +1,6 @@
 # coding=utf-8
+from __future__ import annotations
+
 import numpy as np
 
 
@@ -8,18 +10,7 @@ class Metal:
     """
 
     def __init__(
-        self,
-        E,
-        rho,
-        sig_y,
-        sig_u,
-        v,
-        zeta,
-        alpha,
-        plasticitymodel,
-        eps_p=None,
-        sig_p=None,
-        units="m",
+        self, E, rho, sig_y, sig_u, v, zeta, alpha, plasticitymodel, eps_p=None, sig_p=None, units="m", parent=None
     ):
         self._E = E
         self._rho = rho
@@ -32,24 +23,35 @@ class Metal:
         self._eps_p = eps_p
         self._sig_p = sig_p
         self._units = units
+        self._parent = parent
 
     def __delattr__(self, item):
         raise AttributeError("Deletion of base material object properties is not allowed!")
 
-    # def __setattr__(self, key, value):
-    #     if key in self.__dict__:
-    #         raise AttributeError("Can't set attribute {!r} on base material object".format(key))
-    #     self.__dict__[key] = value
+    def __eq__(self, other: Metal):
+        for att in filter(lambda x: x.startswith("__") is False and not callable(getattr(self, x)), dir(self)):
+            self_var = getattr(self, att)
+            other_var = getattr(other, att)
+            if att in ["GRADES", "EC3_E_RED", "EC3_S_RED", "EC3_TEMP"]:
+                continue
+            if type(self_var) in (float, str, int) or self_var is None:
+                return self_var == other_var
+            elif type(self_var) in (list,):
+                return all([x == y for x, y in zip(self_var, other_var)])
+            elif type(self_var) in (np.ndarray,):
+                comparison = self_var == other_var
+                return comparison.all()
+            else:
+                raise NotImplementedError()
+
+        return True
 
     def __repr__(self):
         return f"Metal(E:{self.E}, rho:{self.rho}, Sigy: {self.sig_y}, Plasticity Model: {self.plasticity_model})"
 
     @property
     def E(self):
-        """
-
-        :return: Young's Modulus
-        """
+        """Young's Modulus"""
         return self._E
 
     @E.setter
@@ -59,12 +61,13 @@ class Metal:
         self._E = value
 
     @property
-    def sig_y(self):
-        """
-        Yield stress
+    def G(self):
+        """Shear Modulus"""
+        return self.E / (2 * (1 + self.v))
 
-        :return:
-        """
+    @property
+    def sig_y(self):
+        """Yield stress"""
         return self._sig_y
 
     @sig_y.setter
@@ -75,47 +78,31 @@ class Metal:
 
     @property
     def sig_u(self):
-        """
-        :return: Ultimate yield stress
-        """
+        """Ultimate yield stress"""
         return self._sig_u
 
     @property
-    def rho(self):
-        """
-        :return: Density
-        """
+    def rho(self) -> float:
+        """Density"""
         return self._rho
 
     @property
-    def v(self):
-        """
-        Poisson Ratio
-
-        :return:
-        """
+    def v(self) -> float:
+        """Poisson Ratio"""
         return self._v
 
     @property
-    def alpha(self):
-        """
-        Thermal Expansion coefficient
-
-        :return:
-        """
+    def alpha(self) -> float:
+        """Thermal Expansion coefficient"""
         return self._alpha
 
     @property
-    def zeta(self):
-        """
-        Material damping coefficient
-
-        :return:
-        """
+    def zeta(self) -> float:
+        """Material damping coefficient"""
         return self._zeta
 
     @zeta.setter
-    def zeta(self, value):
+    def zeta(self, value: float):
         if value is None or value < 0.0:
             raise ValueError("Zeta cannot be None or below zero")
         self._zeta = value
@@ -184,6 +171,15 @@ class Metal:
                 self._sig_y *= 1e6
             self._rho *= 1e9
             self._units = value
+
+    @property
+    def parent(self):
+        """:rtype: ada.Material"""
+        return self._parent
+
+    @parent.setter
+    def parent(self, value):
+        self._parent = value
 
 
 class DNVGL16PBase:
@@ -405,6 +401,7 @@ class CarbonSteel(Metal):
         sig_p=None,
         temp_range=None,
         units="m",
+        parent=None,
     ):
         """
         :param grade: Material Grade
@@ -438,6 +435,7 @@ class CarbonSteel(Metal):
             sig_p=sig_p,
             eps_p=eps_p,
             units=units,
+            parent=parent,
         )
         # Manually override variables
 

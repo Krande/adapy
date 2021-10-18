@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from typing import Tuple
 
 import numpy as np
 
@@ -28,8 +31,6 @@ class FemSection(FemBase):
         local_y=None,
         thickness=None,
         int_points=5,
-        offset=None,
-        hinges=None,
         metadata=None,
         parent=None,
         refs=None,
@@ -47,16 +48,16 @@ class FemSection(FemBase):
         self._elset = elset
         self._material = material
         self._section = section
+        if self._sec_type == ElemType.LINE:
+            if local_y is None and local_z is None:
+                raise ValueError("You need to specify either local_y or local_z")
         self._local_z = local_z
         self._local_y = local_y
         self._local_x = None
-        if self._sec_type == ElemType.SHELL:
-            if thickness is None:
-                raise ValueError("Thickness of shell cannot be None")
+        if self._sec_type == ElemType.SHELL and thickness is None:
+            raise ValueError("Thickness of shell cannot be None")
         self._thickness = thickness
         self._int_points = int_points
-        self._offset = offset
-        self._hinges = hinges
         self._refs = refs
 
     def link_elements(self):
@@ -66,20 +67,6 @@ class FemSection(FemBase):
             el.fem_sec = self
 
         list(map(link_elem, self.elset.members))
-
-    def get_offset_coords(self):
-        elem = self.elset.members[0]
-        nodes = [n.p for n in elem.nodes]
-        if self.offset is None:
-            return nodes
-
-        for n_old, ecc in self.offset:
-            mat = np.eye(3)
-            new_p = np.dot(mat, ecc) + n_old.p
-            i = elem.nodes.index(n_old)
-            nodes[i] = new_p
-
-        return nodes
 
     @property
     def type(self):
@@ -94,7 +81,7 @@ class FemSection(FemBase):
         self._elset = value
 
     @property
-    def local_z(self):
+    def local_z(self) -> np.ndarray:
         """Local Z describes the up vector of the cross section"""
         if self._local_z is not None:
             return self._local_z
@@ -116,7 +103,7 @@ class FemSection(FemBase):
         return self._local_z
 
     @property
-    def local_y(self):
+    def local_y(self) -> np.ndarray:
         """Local y describes the cross vector of the beams X and Z axis"""
         if self._local_y is not None:
             return self._local_y
@@ -137,7 +124,7 @@ class FemSection(FemBase):
         return self._local_y
 
     @property
-    def local_x(self):
+    def local_x(self) -> np.ndarray:
         if self._local_x is not None:
             return self._local_x
 
@@ -164,6 +151,10 @@ class FemSection(FemBase):
     def material(self) -> Material:
         return self._material
 
+    @material.setter
+    def material(self, value):
+        self._material = value
+
     @property
     def thickness(self):
         return self._thickness
@@ -173,30 +164,14 @@ class FemSection(FemBase):
         return self._int_points
 
     @property
-    def offset(self):
-        return self._offset
-
-    @property
-    def hinges(self):
-        return self._hinges
-
-    @property
     def refs(self):
         return self._refs
 
-    def __eq__(self, other):
-        for key, val in self.__dict__.items():
-            if "parent" in key:
-                continue
-            # Re-evaluate the elset exemption. Maybe this should raise False based on the fem set only?
-            # if 'elset' in key:
-            #     for m in self.__dict__[key].members:
-            #         if m.type != other.__dict__[key].members[0].type:
-            #             return False
-            if other.__dict__[key] != val:
-                return False
+    def unique_fem_section_permutation(self) -> Tuple[Material, Section, tuple, tuple]:
+        return self.material, self.section, tuple(self.local_x), tuple(self.local_z)
 
-        return True
+    def __eq__(self, other: FemSection):
+        return self.unique_fem_section_permutation() == other.unique_fem_section_permutation()
 
     def __repr__(self):
         return (

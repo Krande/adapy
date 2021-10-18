@@ -6,17 +6,9 @@ import numpy as np
 from ada import FEM, Assembly, Beam, Node, Part, Plate
 from ada.config import Settings
 from ada.core.utils import vector_length
-from ada.fem import (
-    Bc,
-    Connector,
-    ConnectorSection,
-    Constraint,
-    Elem,
-    FemSection,
-    FemSet,
-)
+from ada.fem import Bc, Connector, ConnectorSection, Constraint, Elem, FemSet
 
-from .shapes import ElemShapes, ElemType
+from .shapes import ElemShapes
 
 
 def get_eldata(fem_source: Union[Assembly, Part, FEM]):
@@ -108,107 +100,127 @@ def convert_ecc_to_mpc(fem: FEM):
     edited_nodes = dict()
     tol = Settings.point_tol
 
-    def build_mpc(fs: FemSection):
-        if fs.offset is None or fs.type != ElemType.LINE:
-            return
-        elem = fs.elset.members[0]
-        for n_old, ecc in fs.offset:
+    def build_constraint(n_old, elem, ecc, i):
+        n_new = edited_nodes[n_old.id]
+        mat = np.eye(3)
+        new_p = np.dot(mat, ecc) + n_old.p
+        n_new_ = Node(new_p, parent=elem.parent)
+        if vector_length(n_new_.p - n_new.p) > tol:
+            elem.parent.nodes.add(n_new_, allow_coincident=True)
+            m_set = FemSet(f"el{elem.id}_mpc{i + 1}_m", [n_new_], "nset")
+            s_set = FemSet(f"el{elem.id}_mpc{i + 1}_s", [n_old], "nset")
+            c = Constraint(
+                f"el{elem.id}_mpc{i + 1}_co",
+                "mpc",
+                m_set,
+                s_set,
+                mpc_type="Beam",
+                parent=elem.parent,
+            )
+            elem.parent.add_constraint(c)
+            elem.nodes[i] = n_new_
+            edited_nodes[n_old.id] = n_new_
+
+        else:
+            elem.nodes[i] = n_new
+            edited_nodes[n_old.id] = n_new
+
+    def build_mpc_for_end(elem, n_old, ecc, i):
+        if n_old.id in edited_nodes.keys():
+            build_constraint(n_old, elem, ecc, i)
+        else:
+            mat = np.eye(3)
+            new_p = np.dot(mat, ecc) + n_old.p
+            n_new = Node(new_p, parent=elem.parent)
+            elem.parent.nodes.add(n_new, allow_coincident=True)
+            m_set = FemSet(f"el{elem.id}_mpc{i + 1}_m", [n_new], "nset")
+            s_set = FemSet(f"el{elem.id}_mpc{i + 1}_s", [n_old], "nset")
+            c = Constraint(
+                f"el{elem.id}_mpc{i + 1}_co",
+                "mpc",
+                m_set,
+                s_set,
+                mpc_type="Beam",
+                parent=elem.parent,
+            )
+            elem.parent.add_constraint(c)
+            elem.nodes[i] = n_new
+            edited_nodes[n_old.id] = n_new
+
+    def build_mpc(elem: Elem):
+        if elem.eccentricity.end1 is not None:
+            n_old = elem.eccentricity.end1.node
+            ecc = elem.eccentricity.end1.ecc_vector
             i = elem.nodes.index(n_old)
-            if n_old.id in edited_nodes.keys():
-                n_new = edited_nodes[n_old.id]
-                mat = np.eye(3)
-                new_p = np.dot(mat, ecc) + n_old.p
-                n_new_ = Node(new_p, parent=elem.parent)
-                if vector_length(n_new_.p - n_new.p) > tol:
-                    elem.parent.nodes.add(n_new_, allow_coincident=True)
-                    m_set = FemSet(f"el{elem.id}_mpc{i + 1}_m", [n_new_], "nset")
-                    s_set = FemSet(f"el{elem.id}_mpc{i + 1}_s", [n_old], "nset")
-                    c = Constraint(
-                        f"el{elem.id}_mpc{i + 1}_co",
-                        "mpc",
-                        m_set,
-                        s_set,
-                        mpc_type="Beam",
-                        parent=elem.parent,
-                    )
-                    elem.parent.add_constraint(c)
-                    elem.nodes[i] = n_new_
-                    edited_nodes[n_old.id] = n_new_
+            build_mpc_for_end(elem, n_old, ecc, i)
+        if elem.eccentricity.end2 is not None:
+            n_old = elem.eccentricity.end2.node
+            ecc = elem.eccentricity.end2.ecc_vector
+            i = elem.nodes.index(n_old)
+            build_mpc_for_end(elem, n_old, ecc, i)
 
-                else:
-                    elem.nodes[i] = n_new
-                    edited_nodes[n_old.id] = n_new
-            else:
-                mat = np.eye(3)
-                new_p = np.dot(mat, ecc) + n_old.p
-                n_new = Node(new_p, parent=elem.parent)
-                elem.parent.nodes.add(n_new, allow_coincident=True)
-                m_set = FemSet(f"el{elem.id}_mpc{i + 1}_m", [n_new], "nset")
-                s_set = FemSet(f"el{elem.id}_mpc{i + 1}_s", [n_old], "nset")
-                c = Constraint(
-                    f"el{elem.id}_mpc{i + 1}_co",
-                    "mpc",
-                    m_set,
-                    s_set,
-                    mpc_type="Beam",
-                    parent=elem.parent,
-                )
-                elem.parent.add_constraint(c)
-
-                elem.nodes[i] = n_new
-                edited_nodes[n_old.id] = n_new
-
-    list(map(build_mpc, filter(lambda x: x.offset is not None, fem.sections)))
+    [build_mpc(el) for el in fem.elements.lines_ecc]
 
 
 def convert_hinges_2_couplings(fem: FEM):
-    """
-    Convert beam hinges to coupling constraints
-    """
+    """Convert beam hinges to coupling constraints"""
+    from ada.core.utils import Counter
+    from ada.fem.elements import Hinge
+
     constrain_ids = []
 
-    def converthinges(fs: FemSection):
-        if fs.hinges is None or fs.type != ElemType.LINE:
+    max_node_id = fem.nodes.max_nid
+    new_node_id = Counter(max_node_id + 10000)
+
+    def convert_hinge(elem: Elem, hinge: Hinge):
+        if hinge.constraint_ref is not None:
             return
-        elem = fs.elset.members[0]
-        assert isinstance(elem, Elem)
+        n = hinge.fem_node
+        csys = hinge.csys
+        d = hinge.retained_dofs
 
-        for n, d, csys in fs.hinges:
-            n2 = Node(n.p, None, parent=elem.parent)
-            elem.parent.nodes.add(n2, allow_coincident=True)
-            i = elem.nodes.index(n)
-            elem.nodes[i] = n2
-            if elem.fem_sec.offset is not None:
-                if n in [x[0] for x in elem.fem_sec.offset]:
-                    elem.fem_sec.offset[i] = (n2, elem.fem_sec.offset[i][1])
+        n2 = Node(n.p, next(new_node_id), parent=elem.parent)
+        elem.parent.nodes.add(n2, allow_coincident=True)
+        i = elem.nodes.index(n)
+        elem.nodes[i] = n2
 
-            if n.id not in constrain_ids:
-                constrain_ids.append(n.id)
-            else:
-                logging.error(f"Hinged node {n} cannot be added twice to different couplings")
-                return None
-            if n2.id not in constrain_ids:
-                constrain_ids.append(n2.id)
-            else:
-                logging.error(f"Hinged node {n2} cannot be added twice to different couplings")
-                return None
+        if elem.eccentricity is not None:
+            if elem.eccentricity.end1 is not None:
+                if n == elem.eccentricity.end1.node:
+                    elem.eccentricity.end1.node = n2
 
-            s_set = FemSet(f"el{elem.id}_hinge{i + 1}_s", [n], "nset")
-            m_set = FemSet(f"el{elem.id}_hinge{i + 1}_m", [n2], "nset")
+            if elem.eccentricity.end2 is not None:
+                if n == elem.eccentricity.end2.node:
+                    elem.eccentricity.end2.node = n2
 
-            elem.parent.add_set(m_set)
-            elem.parent.add_set(s_set)
-            c = Constraint(
-                f"el{elem.id}_hinge{i + 1}_co",
-                "coupling",
-                m_set,
-                s_set,
-                d,
-                csys=csys,
-            )
-            elem.parent.add_constraint(c)
+        if n2.id not in constrain_ids:
+            constrain_ids.append(n2.id)
+        else:
+            logging.error(f"Hinged node {n2} cannot be added twice to different couplings")
+            return None
 
-    list(map(converthinges, filter(lambda x: x.hinges is not None, fem.sections)))
+        m_set = FemSet(f"el{elem.id}_hinge{i + 1}_m", [n], "nset")
+        s_set = FemSet(f"el{elem.id}_hinge{i + 1}_s", [n2], "nset")
+
+        elem.parent.add_set(m_set)
+        elem.parent.add_set(s_set)
+        c = Constraint(
+            f"el{elem.id}_hinge{i + 1}_co",
+            "coupling",
+            m_set,
+            s_set,
+            d,
+            csys=csys,
+        )
+        elem.parent.add_constraint(c)
+        hinge.constraint_ref = c
+        logging.info(f"added constraint {c}")
+
+    for el in fem.elements.lines_hinged:
+        if el.hinge_prop.end1 is not None:
+            convert_hinge(el, el.hinge_prop.end1)
+        if el.hinge_prop.end2 is not None:
+            convert_hinge(el, el.hinge_prop.end2)
 
 
 def is_tri6_shell_elem(sh_fs):

@@ -51,7 +51,7 @@ def extract_shapes(step_path, scale, transform, rotate):
 
     cad_file_path = pathlib.Path(step_path)
     if cad_file_path.is_file():
-        shapes += extract_subshapes(read_step_file(str(cad_file_path)))
+        shapes += extract_subshapes(read_step_file(str(cad_file_path), as_compound=False))
     elif cad_file_path.is_dir():
         shapes += walk_shapes(cad_file_path)
     else:
@@ -86,11 +86,8 @@ def walk_shapes(dir_path):
 
 
 def extract_subshapes(shp_):
-    s = []
     t = TopologyExplorer(shp_)
-    for solid in t.solids():
-        s.append(solid)
-    return s
+    return list(t.solids())
 
 
 def is_edges_ok(edge1, fillet, edge2):

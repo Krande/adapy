@@ -217,7 +217,7 @@ class Pipe(BackendGeom):
         f = a.ifc_file
 
         owner_history = a.user.to_ifc()
-        parent = self.parent.ifc_elem
+        parent = self.parent.get_ifc_elem()
 
         placement = create_local_placement(
             f,
@@ -260,8 +260,7 @@ class Pipe(BackendGeom):
 
         return ifc_elem
 
-    @property
-    def ifc_elem(self):
+    def get_ifc_elem(self):
         if self._ifc_elem is None:
             self._ifc_elem = self._generate_ifc_pipe()
 
@@ -274,10 +273,10 @@ class Pipe(BackendGeom):
             for param_seg in self._segments:
                 if type(param_seg) is PipeSegStraight:
                     assert isinstance(param_seg, PipeSegStraight)
-                    res = param_seg.ifc_elem
+                    res = param_seg.get_ifc_elem()
                 else:
                     assert isinstance(param_seg, PipeSegElbow)
-                    res = param_seg.ifc_elem
+                    res = param_seg.get_ifc_elem()
                 if res is None:
                     logging.error(f'Branch "{param_seg.name}" was not converted to ifc element')
                 f.add(res)

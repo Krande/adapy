@@ -20,12 +20,14 @@ class Material(Backend):
     ):
         super(Material, self).__init__(name, guid, metadata, units)
         self._mat_model = mat_model
+        mat_model.parent = self
         self._mat_id = mat_id
         self._parent = parent
         if ifc_mat is not None:
             props = self._import_from_ifc_mat(ifc_mat)
             self.__dict__.update(props)
         self._ifc_mat = None
+        self._refs = []
 
     def __eq__(self, other):
         """
@@ -168,6 +170,7 @@ class Material(Backend):
     def name(self, value):
         if value is None or any(x in value for x in [",", ".", "="]):
             raise ValueError("Material name cannot be None or contain special characters")
+
         self._name = value.strip()
 
     @property
@@ -176,6 +179,7 @@ class Material(Backend):
 
     @model.setter
     def model(self, value):
+        value.parent = self
         self._mat_model = value
 
     @property
@@ -185,6 +189,10 @@ class Material(Backend):
     @units.setter
     def units(self, value):
         self.model.units = value
+
+    @property
+    def refs(self):
+        return self._refs
 
     @property
     def ifc_mat(self):

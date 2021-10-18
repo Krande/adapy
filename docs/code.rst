@@ -89,7 +89,7 @@ Code Aster
 ~~~~~~~~~~~~~~~~
 `Code Aster <https://www.code-aster.org>`_ is an Open Source FEM solver
 
-.. automodule:: ada.fem.io.code_aster
+.. automodule:: ada.fem.formats.code_aster
    :members:
 
 GMSH
@@ -97,7 +97,7 @@ GMSH
 `GMSH <https://gmsh.info/>`_ is a three-dimensional finite element mesh generator with built-in pre- and
 post-processing facilities
 
-.. automodule:: ada.fem.io.mesh
+.. automodule:: ada.fem.formats.mesh
    :members:
 
 Abaqus
@@ -105,7 +105,7 @@ Abaqus
 `Abaqus <https://www.3ds.com/products-services/simulia/products/abaqus/>`_ is a Proprietary Finite Element suite
 (pre/post processor and solver)
 
-.. automodule:: ada.fem.io.abaqus
+.. automodule:: ada.fem.formats.abaqus
    :members:
 
 
@@ -113,7 +113,7 @@ Calculix
 ~~~~~~~~~~~~~~~~
 `Calculix <http://www.calculix.de/>`_ is an Open Source (GNU General Public License V2 or later) FEM solver
 
-.. automodule:: ada.fem.io.calculix
+.. automodule:: ada.fem.formats.calculix
    :members:
 
 Sesam
@@ -122,7 +122,7 @@ Sesam
 is a proprietary finite element suite (pre/post processor and solver)
 
 
-.. automodule:: ada.fem.io.sesam
+.. automodule:: ada.fem.formats.sesam
    :members:
 
 
@@ -132,7 +132,7 @@ Usfos
 
 
 
-.. automodule:: ada.fem.io.usfos
+.. automodule:: ada.fem.formats.usfos
    :members:
 
 
@@ -140,7 +140,7 @@ Utilities
 ~~~~~~~~~~~~~~~~
 A collection of python utilities and different Python Wrappers for Various FEM software (Abaqus, Femap, GMSH).
 
-.. automodule:: ada.fem.io.utils
+.. automodule:: ada.fem.formats.utils
    :members:
 
 

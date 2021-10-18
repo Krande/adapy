@@ -13,7 +13,7 @@ import pythreejs
 from IPython.display import display
 from ipywidgets import Dropdown, HBox, VBox
 
-from ada.fem.io import FEATypes
+from ada.fem.formats import FEATypes
 from ada.visualize.femviz import get_edges_and_faces_from_meshio, magnitude
 from ada.visualize.renderer_pythreejs import MyRenderer
 from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
@@ -46,10 +46,10 @@ class Results:
         self.result_mesh.add_results(mesh)
 
     def _get_results_from_result_file(self, file_ref, overwrite=False):
-        from .io.abaqus.results import read_abaqus_results
-        from .io.calculix.results import read_calculix_results
-        from .io.code_aster.results import read_code_aster_results
-        from .io.sesam.results import read_sesam_results
+        from .formats.abaqus.results import read_abaqus_results
+        from .formats.calculix.results import read_calculix_results
+        from .formats.code_aster.results import read_code_aster_results
+        from .formats.sesam.results import read_sesam_results
 
         file_ref = pathlib.Path(file_ref)
         suffix = file_ref.suffix.lower()
@@ -71,7 +71,7 @@ class Results:
         return res_reader(self, file_ref, overwrite)
 
     def save_output(self, dest_file) -> None:
-        if self.output.stdout is None:
+        if self.output is None or self.output.stdout is None:
             print("No output is found")
             return None
         dest_file = pathlib.Path(dest_file)

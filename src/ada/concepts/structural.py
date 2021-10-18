@@ -89,6 +89,7 @@ class Beam(BackendGeom):
             curve.parent = self
             n1 = curve.points3d[0]
             n2 = curve.points3d[-1]
+
         self.colour = colour
         self._curve = curve
         self._n1 = n1 if type(n1) is Node else Node(n1, units=units)
@@ -101,6 +102,7 @@ class Beam(BackendGeom):
         self._tos = None
         self._e1 = e1
         self._e2 = e2
+        self._hinge_prop = None
 
         self._parent = parent
         self._bbox = None
@@ -108,6 +110,7 @@ class Beam(BackendGeom):
         # Section and Material setup
         self._section, self._taper = get_section(sec)
         self._material = get_material(mat)
+        self._material.refs.append(self)
 
         if tap is not None:
             self._taper, _ = get_section(tap)
@@ -220,7 +223,7 @@ class Beam(BackendGeom):
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
         owner_history = a.user.to_ifc()
-        parent = self.parent.ifc_elem
+        parent = self.parent.get_ifc_elem()
 
         if Settings.include_ecc and self.e1 is not None:
             e1 = self.e1
@@ -255,7 +258,7 @@ class Beam(BackendGeom):
 
         if self.curve is not None:
             # TODO: Fix Sweeped Curve definition. Currently not working as intended (or maybe input is wrong.. )
-            curve = self.curve.ifc_elem
+            curve = self.curve.get_ifc_elem()
             corigin = to_real(curve.rot_origin)
             # corigin_rel = to_real(self.n1.p + curve.rot_origin)
             corigin_ifc = f.createIfcCartesianPoint(corigin)
@@ -573,12 +576,7 @@ class Beam(BackendGeom):
 
     @property
     def ori(self):
-        """
-        Get the xvector, yvector and zvector of a given beam
-
-        :param self:
-        :return: xvec, yvec and up
-        """
+        """Get the xvector, yvector and zvector of a given beam"""
 
         return self.xvec, self.yvec, self.up
 
@@ -640,16 +638,27 @@ class Beam(BackendGeom):
         self._e2 = np.array(value)
 
     @property
+    def hinge_prop(self):
+        """:rtype: ada.fem.elements.HingeProp"""
+        return self._hinge_prop
+
+    @hinge_prop.setter
+    def hinge_prop(self, value):
+        """:type value: ada.fem.elements.HingeProp"""
+        value.beam_ref = self
+        if value.end1 is not None:
+            value.end1.concept_node = self.n1
+        if value.end2 is not None:
+            value.end2.concept_node = self.n2
+        self._hinge_prop = value
+
+    @property
     def opacity(self):
         return self._opacity
 
     @property
     def curve(self):
-        """
-
-        :return:
-        :rtype: ada.core.containers.SweepCurve
-        """
+        """:rtype: ada.core.containers.SweepCurve"""
         return self._curve
 
     @property
@@ -667,11 +676,7 @@ class Beam(BackendGeom):
 
     @property
     def shell(self):
-        """
-
-        :return:
-        :rtype: OCC.Core.TopoDS.TopoDS_Shape
-        """
+        """:rtype: OCC.Core.TopoDS.TopoDS_Shape"""
         from ada.occ.utils import apply_penetrations, create_beam_geom
 
         geom = apply_penetrations(create_beam_geom(self, False), self.penetrations)
@@ -680,11 +685,7 @@ class Beam(BackendGeom):
 
     @property
     def solid(self):
-        """
-
-        :return:
-        :rtype: OCC.Core.TopoDS.TopoDS_Shape
-        """
+        """:rtype: OCC.Core.TopoDS.TopoDS_Shape"""
         from ada.occ.utils import apply_penetrations, create_beam_geom
 
         geom = apply_penetrations(create_beam_geom(self, True), self.penetrations)
@@ -782,6 +783,7 @@ class Plate(BackendGeom):
 
         self._pl_id = pl_id
         self._material = mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat))
+        self._material.refs.append(self)
         self._t = t
 
         if tol is None:
@@ -828,7 +830,7 @@ class Plate(BackendGeom):
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
         owner_history = a.user.to_ifc()
-        parent = self.parent.ifc_elem
+        parent = self.parent.get_ifc_elem()
 
         xvec = self.poly.xdir
         zvec = self.poly.normal
@@ -1226,7 +1228,7 @@ class Wall(BackendGeom):
 
         context = f.by_type("IfcGeometricRepresentationContext")[0]
         owner_history = a.user.to_ifc()
-        parent = self.parent.ifc_elem
+        parent = self.parent.get_ifc_elem()
         elevation = self.placement.origin[2]
 
         # Wall creation: Define the wall shape as a polyline axis and an extruded area solid
