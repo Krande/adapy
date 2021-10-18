@@ -988,7 +988,7 @@ class Assembly(Part):
         from ada.fem.results import Results
 
         scratch_dir = Settings.scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
-        fem_res_files = default_fem_res_path(name, scratch_dir)
+        fem_res_files = default_fem_res_path(name, scratch_dir=scratch_dir)
 
         res_path = fem_res_files.get(fem_format, None)
         metadata = dict() if metadata is None else metadata

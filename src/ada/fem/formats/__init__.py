@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-
+from typing import Callable, Dict
 from . import abaqus, calculix, code_aster, sesam, usfos
 from .utils import interpret_fem
 
@@ -30,7 +30,7 @@ fem_exports = {
     FEATypes.USFOS: usfos.to_fem,
 }
 
-fem_executables = {
+fem_executables: Dict[str, Callable] = {
     FEATypes.ABAQUS: abaqus.run_abaqus,
     FEATypes.CALCULIX: calculix.run_calculix,
     FEATypes.CODE_ASTER: code_aster.run_code_aster,

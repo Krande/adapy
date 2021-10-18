@@ -46,7 +46,10 @@ def get_eigen_data(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
 
 def read_abaqus_results(results: Results, file_ref: pathlib.Path, overwrite):
     dat_file = file_ref.with_suffix(".dat")
-    if dat_file.exists() and type(results.assembly.fem.steps[0]) == StepEigen:
+    # if results.assembly is not None:
+    #     if results.assembly.fem.steps[0]) == StepEigen:
+    #         is_eigen = True
+    if dat_file.exists():
         results.eigen_mode_data = get_eigen_data(dat_file)
 
     logging.error("Result mesh data extraction is not supported for abaqus")

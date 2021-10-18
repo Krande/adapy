@@ -480,8 +480,8 @@ def convert_part_objects(p: Part, skip_plates, skip_beams):
         p._beams = convert_part_elem_bm_to_beams(p)
 
 
-def default_fem_res_path(name, scratch_dir) -> Dict[str, pathlib.Path]:
-    base_path = scratch_dir / name / name
+def default_fem_res_path(name, scratch_dir=None, analysis_dir=None) -> Dict[str, pathlib.Path]:
+    base_path = scratch_dir / name / name if analysis_dir is None else analysis_dir / name
     return dict(
         code_aster=base_path.with_suffix(".rmed"),
         abaqus=base_path.with_suffix(".odb"),
@@ -491,8 +491,8 @@ def default_fem_res_path(name, scratch_dir) -> Dict[str, pathlib.Path]:
     )
 
 
-def default_fem_inp_path(name, scratch_dir):
-    base_path = scratch_dir / name / name
+def default_fem_inp_path(name, scratch_dir=None, analysis_dir=None):
+    base_path = scratch_dir / name / name if analysis_dir is None else analysis_dir / name
     return dict(
         code_aster=base_path.with_suffix(".export"),
         abaqus=base_path.with_suffix(".inp"),
