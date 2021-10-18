@@ -46,9 +46,11 @@ def get_eigen_data(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
 
 def read_abaqus_results(results: Results, file_ref: pathlib.Path, overwrite):
     dat_file = file_ref.with_suffix(".dat")
-    # if results.assembly is not None:
-    #     if results.assembly.fem.steps[0]) == StepEigen:
-    #         is_eigen = True
+    if results.assembly is not None and results.assembly.fem.steps[0] == StepEigen:
+        # TODO: Figure out if it is worthwhile adding support for reading step information or if it should be explicitly
+        #   stated
+        pass
+
     if dat_file.exists():
         results.eigen_mode_data = get_eigen_data(dat_file)
 
