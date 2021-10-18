@@ -980,6 +980,7 @@ class Assembly(Part):
         """
         from ada.fem.formats import fem_executables, get_fem_converters
         from ada.fem.formats.utils import (
+            default_fem_inp_path,
             default_fem_res_path,
             folder_prep,
             should_convert,
@@ -1000,14 +1001,7 @@ class Assembly(Part):
 
             if fem_exporter is None:
                 raise ValueError(f'FEM export for "{fem_format}" using "{fem_converter}" is currently not supported')
-            fem_inp_files = dict(
-                code_aster=(analysis_dir / name).with_suffix(".export"),
-                abaqus=(analysis_dir / name).with_suffix(".inp"),
-                calculix=(analysis_dir / name).with_suffix(".inp"),
-                sesam=(analysis_dir / name).with_suffix(".FEM"),
-                usfos=(analysis_dir / name).with_suffix(".raf"),
-            )
-
+            fem_inp_files = default_fem_inp_path(name, scratch_dir)
             fem_exporter(self, name, analysis_dir, metadata)
 
             if execute is True:

@@ -487,4 +487,16 @@ def default_fem_res_path(name, scratch_dir) -> Dict[str, pathlib.Path]:
         abaqus=base_path.with_suffix(".odb"),
         calculix=base_path.with_suffix(".frd"),
         sesam=(base_path.parent / f"{name}R1").with_suffix(".SIN"),
+        usfos=base_path.with_suffix(".fem"),
+    )
+
+
+def default_fem_inp_path(name, scratch_dir):
+    base_path = scratch_dir / name / name
+    return dict(
+        code_aster=base_path.with_suffix(".export"),
+        abaqus=base_path.with_suffix(".inp"),
+        calculix=base_path.with_suffix(".inp"),
+        sesam=base_path.with_suffix(".FEM"),
+        usfos=base_path.with_suffix(".raf"),
     )
