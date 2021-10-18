@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from typing import Callable, Dict
+
 from . import abaqus, calculix, code_aster, sesam, usfos
 from .utils import interpret_fem
 

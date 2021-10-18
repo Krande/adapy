@@ -936,7 +936,7 @@ class Assembly(Part):
     ):
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
-        Currently there is limited write support for the following FEM formats are:
+        Currently there is limited write support for the following FEM formats:
 
         Open Source
 
@@ -951,7 +951,6 @@ class Assembly(Part):
 
 
         Write support is added on a need-only-basis. Any contributions are welcomed!
-
 
         :param name: Name of FEM analysis input deck
         :param fem_format: Desired fem format
