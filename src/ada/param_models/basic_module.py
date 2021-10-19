@@ -3,6 +3,7 @@ from typing import Callable, List, Tuple
 import numpy as np
 
 from ada import Assembly, Beam, Material, Node, Part, Pipe, Plate, PrimSphere, Section
+from ada.concepts.transforms import Placement
 from ada.core.clash_check import penetration_check
 from ada.core.constants import X, Y, Z
 from ada.core.utils import Counter
@@ -26,8 +27,8 @@ class ReinforcedFloor(Part):
         use3dnodes=True,
         **kwargs,
     ):
-        super(ReinforcedFloor, self).__init__(name)
-        plate = self.add_plate(Plate(name + "_pl", points, pl_thick, use3dnodes=use3dnodes, **kwargs))
+        super(ReinforcedFloor, self).__init__(name, **kwargs)
+        plate = self.add_plate(Plate(name + "_pl", points, pl_thick, use3dnodes=use3dnodes))
 
         # Calculate number of stringers
         bbox = plate.bbox
@@ -39,8 +40,7 @@ class ReinforcedFloor(Part):
         else:
             snum = int((ymax - ymin) / spacing) - 1
 
-        origin = plate.poly.placement.origin
-        z = origin[2]
+        z = plate.bbox[2][0]
         x = xmin + spacing
         y = ymin + spacing
         for i in range(0, snum):
@@ -61,8 +61,8 @@ class SimpleStru(Part):
         l = None
         h = None
 
-    def __init__(self, name, origin=(0, 0, 0), w=5, l=5, h=3, gsec="IPE200", csec="HEB200", pl_thick=10e-3):
-        super(SimpleStru, self).__init__(name, origin)
+    def __init__(self, name, w=5, l=5, h=3, gsec="IPE200", csec="HEB200", pl_thick=10e-3, placement=Placement()):
+        super(SimpleStru, self).__init__(name, placement=placement)
         self.Params.w = w
         self.Params.h = h
         self.Params.l = l
@@ -73,12 +73,14 @@ class SimpleStru(Part):
         # Define the relationship of corners that make up the 4 support beams
         beams = [(c1, c2), (c2, c3), (c3, c4), (c4, c1)]
 
-        z0 = origin[2]
+        z0 = 0
+        z1 = h
         sec = Section(gsec, from_str=gsec, parent=self)
-        for elev in [z0, h]:
+        self._elevations = [z0, z1]
+        for elev in self._elevations:
             for p1, p2 in beams:
                 self.add_beam(Beam(next(bm_name), n1=p1(elev), n2=p2(elev), sec=sec, jusl="TOP"))
-            points = [c1(elev), c2(elev), c3(elev), c4(elev)]
+            points = [c1(elev, True), c2(elev, True), c3(elev, True), c4(elev, True)]
             self.add_part(ReinforcedFloor(next(floor_name), points, pl_thick))
 
         # Columns
@@ -86,17 +88,26 @@ class SimpleStru(Part):
         for p1, p2 in columns:
             self.add_beam(Beam(next(bm_name), n1=p1, n2=p2, sec=csec))
 
-    def c1(self, z) -> tuple:
-        return 0, 0, z
+    def _pos_relative(self, p):
+        o = self.placement.origin
+        res = o + np.array(p)
+        return tuple(res)
 
-    def c2(self, z) -> tuple:
-        return self.Params.w, 0, z
+    def c1(self, z, use_relative=False) -> tuple:
+        p = (0, 0, z)
+        return self._pos_relative(p) if use_relative is False else p
 
-    def c3(self, z) -> tuple:
-        return self.Params.w, self.Params.l, z
+    def c2(self, z, use_relative=False) -> tuple:
+        p = (self.Params.w, 0, z)
+        return self._pos_relative(p) if use_relative is False else p
 
-    def c4(self, z) -> tuple:
-        return 0, self.Params.l, z
+    def c3(self, z, use_relative=False) -> tuple:
+        p = (self.Params.w, self.Params.l, z)
+        return self._pos_relative(p) if use_relative is False else p
+
+    def c4(self, z, use_relative=False) -> tuple:
+        p = (0, self.Params.l, z)
+        return self._pos_relative(p) if use_relative is False else p
 
     def add_bcs(self):
         funcs: List[Callable] = [self.c1, self.c2, self.c3, self.c4]

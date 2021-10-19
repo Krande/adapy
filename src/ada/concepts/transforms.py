@@ -53,6 +53,9 @@ class Placement:
         if all(x is None for x in all_dir):
             raise ValueError("Placement orientation needs all 3 vectors")
 
-        self.xdir = np.array(self.xdir)
-        self.ydir = np.array(self.ydir)
-        self.zdir = np.array(self.zdir)
+        self.xdir = np.array(self.xdir, dtype=float)
+        self.ydir = np.array(self.ydir, dtype=float)
+        self.zdir = np.array(self.zdir, dtype=float)
+
+        if type(self.origin) is not np.ndarray:
+            self.origin = np.array(self.origin, dtype=float)

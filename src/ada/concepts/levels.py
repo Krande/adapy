@@ -456,7 +456,7 @@ class Part(BackendGeom):
             props["CompositionType"] = self.metadata.get("CompositionType", "ELEMENT")
 
         if ifc_type == "IfcBuildingStorey":
-            props["Elevation"] = self.placement.origin[2]
+            props["Elevation"] = float(self.placement.origin[2])
 
         ifc_elem = f.create_entity(ifc_type, **props)
 

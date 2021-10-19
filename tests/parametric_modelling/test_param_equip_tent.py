@@ -1,8 +1,10 @@
+import numpy as np
 import pytest
 
 import ada
+from ada.concepts.transforms import Placement
 from ada.config import Settings
-from ada.param_models.basic_module import EquipmentTent
+from ada.param_models.basic_module import EquipmentTent, SimpleStru
 
 test_dir = Settings.test_dir / "param_models"
 
@@ -21,3 +23,13 @@ def test_eq_model_to_ifc_and_fem(eq_model_4legged):
     assert len(eq_model_4legged.materials) == 1
 
     a.to_fem("EqtentFEM", "sesam", scratch_dir=test_dir, overwrite=True)
+
+
+def test_simple_stru_with_equipment():
+    p = SimpleStru("SimpleStructure", placement=Placement(origin=np.array([200, 100, 500])))
+    a = ada.Assembly() / p
+
+    eq1 = EquipmentTent("MyEqtent", 15e3, (202, 102, 502), height=3, width=2, length=4)
+    p.add_part(eq1)
+
+    a.to_ifc(test_dir / "simple_stru_with_equipments")
