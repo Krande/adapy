@@ -87,7 +87,9 @@ def create_local_placement(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X, relativ
     """
 
     axis2placement = create_global_axes(f, origin, loc_z, loc_x)
-    ifclocalplacement2 = f.createIfcLocalPlacement(relative_to, axis2placement)
+    ifclocalplacement2 = f.create_entity(
+        "IfcLocalPlacement", PlacementRelTo=relative_to, RelativePlacement=axis2placement
+    )
     return ifclocalplacement2
 
 
@@ -839,12 +841,14 @@ def convert_bm_jusl_to_ifc(bm):
     :return:
     """
     jusl = bm.jusl
-    jusl_map = dict(NA=5, TOP=8)
+    jt = bm.JUSL_TYPES
+
+    jusl_map = {jt.NA: 5, jt.TOS: 8}
 
     jusl_val = jusl_map.get(jusl, None)
 
     if jusl_val is None:
-        if jusl != "NA":
+        if jusl != jt.NA:
             logging.error(f'Unknown JUSL value "{jusl}". Using NA')
         return 5
 

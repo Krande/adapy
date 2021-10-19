@@ -21,7 +21,7 @@ class ReinforcedFloor(Part):
         name,
         points: List[tuple],
         pl_thick: float,
-        spacing=0.2,
+        spacing=0.4,
         s_type="HP140x8",
         stringer_dir="X",
         use3dnodes=True,
@@ -40,9 +40,9 @@ class ReinforcedFloor(Part):
         else:
             snum = int((ymax - ymin) / spacing) - 1
 
-        z = plate.bbox[2][0]
-        x = xmin + spacing
-        y = ymin + spacing
+        z = plate.poly.placement.origin[2]
+        x = 0
+        y = 0
         for i in range(0, snum):
             if stringer_dir == "Y":
                 p1 = (x, ymin, z)
@@ -61,7 +61,17 @@ class SimpleStru(Part):
         l = None
         h = None
 
-    def __init__(self, name, w=5, l=5, h=3, gsec="IPE200", csec="HEB200", pl_thick=10e-3, placement=Placement()):
+    def __init__(
+        self,
+        name,
+        w=10,
+        l=10,
+        h=3,
+        gsec="BG200x100x10x20",
+        csec="BG200x200x20x20",
+        pl_thick=10e-3,
+        placement=Placement(),
+    ):
         super(SimpleStru, self).__init__(name, placement=placement)
         self.Params.w = w
         self.Params.h = h
@@ -79,35 +89,28 @@ class SimpleStru(Part):
         self._elevations = [z0, z1]
         for elev in self._elevations:
             for p1, p2 in beams:
-                self.add_beam(Beam(next(bm_name), n1=p1(elev), n2=p2(elev), sec=sec, jusl="TOP"))
-            points = [c1(elev, True), c2(elev, True), c3(elev, True), c4(elev, True)]
-            self.add_part(ReinforcedFloor(next(floor_name), points, pl_thick))
+                self.add_beam(Beam(next(bm_name), n1=p1(elev), n2=p2(elev), sec=sec, jusl=Beam.JUSL_TYPES.TOS))
+            points = [c1(elev), c2(elev), c3(elev), c4(elev)]
+            p = self.add_part(ReinforcedFloor(next(floor_name), points, pl_thick))
+            self.add_set("floors", [p])
 
         # Columns
         columns = [(c1(z0), c1(h)), (c2(z0), c2(h)), (c3(z0), c3(h)), (c4(z0), c4(h))]
         for p1, p2 in columns:
-            self.add_beam(Beam(next(bm_name), n1=p1, n2=p2, sec=csec))
+            bm = self.add_beam(Beam(next(bm_name), n1=p1, n2=p2, sec=csec))
+            self.add_set("columns", [bm])
 
-    def _pos_relative(self, p):
-        o = self.placement.origin
-        res = o + np.array(p)
-        return tuple(res)
+    def c1(self, z) -> tuple:
+        return 0, 0, z
 
-    def c1(self, z, use_relative=False) -> tuple:
-        p = (0, 0, z)
-        return self._pos_relative(p) if use_relative is False else p
+    def c2(self, z) -> tuple:
+        return self.Params.w, 0, z
 
-    def c2(self, z, use_relative=False) -> tuple:
-        p = (self.Params.w, 0, z)
-        return self._pos_relative(p) if use_relative is False else p
+    def c3(self, z) -> tuple:
+        return self.Params.w, self.Params.l, z
 
-    def c3(self, z, use_relative=False) -> tuple:
-        p = (self.Params.w, self.Params.l, z)
-        return self._pos_relative(p) if use_relative is False else p
-
-    def c4(self, z, use_relative=False) -> tuple:
-        p = (0, self.Params.l, z)
-        return self._pos_relative(p) if use_relative is False else p
+    def c4(self, z) -> tuple:
+        return 0, self.Params.l, z
 
     def add_bcs(self):
         funcs: List[Callable] = [self.c1, self.c2, self.c3, self.c4]

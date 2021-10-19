@@ -326,7 +326,7 @@ class CurvePoly:
         return self._points2d
 
     @property
-    def points3d(self) -> List[float]:
+    def points3d(self) -> List[Node]:
         return self._points3d
 
     @property

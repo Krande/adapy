@@ -29,7 +29,6 @@ def test_simple_stru_with_equipment():
     p = SimpleStru("SimpleStructure", placement=Placement(origin=np.array([200, 100, 500])))
     a = ada.Assembly() / p
 
-    eq1 = EquipmentTent("MyEqtent", 15e3, (202, 102, 502), height=3, width=2, length=4)
-    p.add_part(eq1)
+    p.add_part(EquipmentTent("MyEqtent", 15e3, (2, 2, 1), height=1, width=1, length=2))
 
     a.to_ifc(test_dir / "simple_stru_with_equipments")

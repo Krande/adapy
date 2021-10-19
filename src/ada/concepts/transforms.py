@@ -28,7 +28,6 @@ class Rotation:
         my_quaternion = Quaternion(axis=self.vector, degrees=self.angle)
         return my_quaternion.rotation_matrix
 
-
 @dataclass
 class Placement:
     origin: np.ndarray = np.array([0, 0, 0], dtype=float)

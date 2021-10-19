@@ -32,6 +32,11 @@ section_counter = Counter(1)
 material_counter = Counter(1)
 
 
+class Justification:
+    NA = "neutral axis"
+    TOS = "top of steel"
+
+
 class Beam(BackendGeom):
     """
     The base Beam object
@@ -46,6 +51,8 @@ class Beam(BackendGeom):
     :param curve: Curve
     """
 
+    JUSL_TYPES = Justification
+
     def __init__(
         self,
         name,
@@ -54,7 +61,7 @@ class Beam(BackendGeom):
         sec=None,
         mat=None,
         tap=None,
-        jusl="NA",
+        jusl=JUSL_TYPES.NA,
         up=None,
         angle=0.0,
         curve=None,
@@ -254,7 +261,7 @@ class Beam(BackendGeom):
         else:
             profile_e = None
 
-        global_placement = create_local_placement(f, O, Z, X)
+        global_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
 
         if self.curve is not None:
             # TODO: Fix Sweeped Curve definition. Currently not working as intended (or maybe input is wrong.. )
@@ -838,6 +845,7 @@ class Plate(BackendGeom):
 
         # Wall creation: Define the wall shape as a polyline axis and an extruded area solid
         plate_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
+
         tra_mat = np.array([xvec, yvec, zvec])
         t_vec = [0, 0, self.t]
         origin = np.array(self.poly.placement.origin)

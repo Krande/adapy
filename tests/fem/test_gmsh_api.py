@@ -1,6 +1,7 @@
 import unittest
 
 from ada import Assembly, Beam, Part, Pipe, Plate, PrimBox, PrimSphere
+from ada.concepts.transforms import Placement
 from ada.concepts.structural import make_ig_cutplanes
 from ada.config import Settings
 from ada.fem.meshing.concepts import GmshOptions, GmshSession, GmshTask
@@ -118,9 +119,6 @@ class GmshApiV2(unittest.TestCase):
             [(0, 0), (5, 0), (5, 5), (0, 5)],
             12e-3,
             use3dnodes=False,
-            origin=(0, 0, 0),
-            xdir=(1, 0, 0),
-            normal=(0, 0, 1),
         )
 
         with GmshSession(silent=True) as gs:
