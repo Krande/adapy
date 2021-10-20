@@ -94,11 +94,11 @@ def are_plates_touching(pl1: Plate, pl2: Plate, tol=1e-3):
 
 
 def filter_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]):
-    from .utils import clockwise, is_on_line
+    from .utils import is_clockwise, is_on_line
 
     corners = [n for n in pl.poly.points3d]
     corners += [corners[0]]
-    if clockwise(corners):
+    if is_clockwise(corners):
         corners.reverse()
 
     # Evalute Corner Points

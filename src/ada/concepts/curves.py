@@ -118,7 +118,7 @@ class CurvePoly:
         self._is_closed = is_closed
         self._debug = debug
 
-        from ada.core.utils import clockwise, normal_to_points_in_plane, unit_vector
+        from ada.core.utils import is_clockwise, normal_to_points_in_plane, unit_vector
 
         if points2d is None and points3d is None:
             raise ValueError("Either points2d or points3d must be set")
@@ -136,7 +136,7 @@ class CurvePoly:
         else:
             points2d = self._from_3d_points(points3d)
 
-        if clockwise(points2d) is False:
+        if is_clockwise(points2d) is False:
             if is_closed:
                 points2d = [points2d[0]] + [p for p in reversed(points2d[1:])]
                 points3d = [points3d[0]] + [p for p in reversed(points3d[1:])]
@@ -266,13 +266,8 @@ class CurvePoly:
 
         return wire_to_face(self.edges)
 
-    def calc_bbox(self, tol):
-        """
-        Calculate the Bounding Box of the plate
-
-        :return: Bounding Box of the plate
-        :rtype: tuple
-        """
+    def calc_bbox(self, tol) -> tuple:
+        """Calculate the Bounding Box of the plate and return ([Xmin, Xmax], [Ymin, Ymax], [Zmin, Zmax])"""
         xs = []
         ys = []
         zs = []

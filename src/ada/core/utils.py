@@ -573,11 +573,7 @@ def local_2_global_nodes(nodes, origin, xdir, normal):
 
 
 def normal_to_points_in_plane(points):
-    """
-
-    :param points: List of Node objects
-    :return:
-    """
+    """Get normal to the plane created by a list of points"""
     if len(points) <= 2:
         raise ValueError("Insufficient number of points")
     p1 = points[0]
@@ -635,13 +631,8 @@ def Bezier(points, num=200):
     return curve
 
 
-def unit_vector(vector):
-    """
-    Returns the unit vector of a given vector.
-
-    :param vector: A vector
-    :type vector: np.ndarray
-    """
+def unit_vector(vector: np.ndarray):
+    """Returns the unit vector of a given vector"""
     norm = vector / np.linalg.norm(vector)
     if np.isnan(norm).any():
         raise ValueError(f'Error trying to normalize vector "{vector}"')
@@ -649,12 +640,8 @@ def unit_vector(vector):
     return norm
 
 
-def clockwise(points):
-    """
-
-    :param points:
-    :return:
-    """
+def is_clockwise(points):
+    """Return true if order of 2d points are sorted in a clockwise order"""
     psum = 0
     for p1, p2 in zip(points[:-1], points[1:]):
         psum += (p2[0] - p1[0]) * (p2[1] + p1[1])
@@ -1272,14 +1259,17 @@ def zip_dir(directory, zip_path, incl_only=None):
 
 
 def unzip_it(zip_path, extract_path=None):
-    import pathlib
-    import zipfile
-
     fp = pathlib.Path(zip_path)
     if extract_path is None:
         extract_path = fp.parents[0]
-    with zipfile.ZipFile(fp, "r") as zip_archive:
-        zip_archive.extractall(extract_path)
+    if fp.suffix == ".gz":
+        import tarfile
+
+        with tarfile.open(fp) as tar:
+            tar.extractall(extract_path)
+    else:
+        with zipfile.ZipFile(fp, "r") as zip_archive:
+            zip_archive.extractall(extract_path)
 
 
 def make_name_fem_ready(value, no_dot=False):
@@ -1348,13 +1338,7 @@ def calc_yvec(x_vec, z_vec=None) -> np.ndarray:
 
 
 def calc_zvec(x_vec, y_vec=None) -> np.ndarray:
-    """
-    Calculate Z-vector (up) from an x-vector (along beam) only.
-
-    :param x_vec:
-    :param y_vec:
-    :return:
-    """
+    """Calculate Z-vector (up) from an x-vector (along beam) only."""
     from ada.core.constants import Y, Z
 
     if y_vec is None:

@@ -388,6 +388,8 @@ class Materials(NumericMapped):
         return self._materials != other._materials
 
     def __add__(self, other: Materials):
+        max_id = max(self.id_map.keys())
+        other.renumber_id(max_id + 1)
         return Materials(chain(self, other))
 
     def __repr__(self):
@@ -430,6 +432,13 @@ class Materials(NumericMapped):
         else:
             return self._id_map[mat_id]
 
+    def renumber_id(self, start_id=1):
+        cnt = Counter(start=start_id)
+        for mat_id in sorted(self.id_map.keys()):
+            mat = self.get_by_id(mat_id)
+            mat.id = next(cnt)
+        self.recreate_name_and_id_maps(self._materials)
+
     @property
     def name_map(self) -> Dict[str, Material]:
         return self._name_map
@@ -440,11 +449,7 @@ class Materials(NumericMapped):
 
     @property
     def parent(self):
-        """
-
-        :return:
-        :rtype: ada.Part
-        """
+        """:rtype: ada.Part"""
         return self._parent
 
     @property
@@ -495,6 +500,13 @@ class Sections(NumericMapped):
         if len(self._name_map.keys()) != len(self._id_map.keys()):
             raise ValueError("Non-unique ids or name are observed..")
 
+    def renumber_id(self, start_id=1):
+        cnt = Counter(start=start_id)
+        for mat_id in sorted(self.id_map.keys()):
+            mat = self.get_by_id(mat_id)
+            mat.id = next(cnt)
+        self.recreate_name_and_id_maps(self._sections)
+
     def __contains__(self, item):
         return item.name in self._name_map.keys()
 
@@ -508,7 +520,9 @@ class Sections(NumericMapped):
         result = self._sections[index]
         return Sections(result) if isinstance(index, slice) else result
 
-    def __add__(self, other):
+    def __add__(self, other: Sections):
+        max_id = max(self.id_map.keys())
+        other.renumber_id(max_id + 1)
         return Sections(chain(self, other))
 
     def __repr__(self):
@@ -518,7 +532,20 @@ class Sections(NumericMapped):
         return f"Sections({rpr.repr(self._sections) if self._sections else ''})"
 
     def merge_sections_by_properties(self):
-        raise NotImplementedError()
+        models = []
+        final_sections = []
+        for i, sec in enumerate(self.sections):
+            if sec not in models:
+                models.append(sec)
+                final_sections.append(sec)
+            else:
+                index = models.index(sec)
+                replacement_sec = models[index].parent
+                for ref in sec.refs:
+                    ref.section = replacement_sec
+
+        self._sections = final_sections
+        self.recreate_name_and_id_maps(self._sections)
 
     def index(self, item):
         index = bisect_left(self._sections, item)
@@ -580,6 +607,10 @@ class Sections(NumericMapped):
         self._name_map[section.name] = section
 
         return section
+
+    @property
+    def sections(self) -> List[Section]:
+        return self._sections
 
 
 class Nodes:

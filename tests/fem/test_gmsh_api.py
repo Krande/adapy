@@ -1,8 +1,8 @@
 import unittest
 
 from ada import Assembly, Beam, Part, Pipe, Plate, PrimBox, PrimSphere
-from ada.concepts.transforms import Placement
 from ada.concepts.structural import make_ig_cutplanes
+from ada.concepts.transforms import Placement
 from ada.config import Settings
 from ada.fem.meshing.concepts import GmshOptions, GmshSession, GmshTask
 from ada.fem.meshing.multisession import multisession_gmsh_tasker
@@ -115,10 +115,7 @@ class GmshApiV2(unittest.TestCase):
 
     def test_mixed_lines_and_shell(self):
         p = ReinforcedFloor(
-            "TestPlate",
-            [(0, 0), (5, 0), (5, 5), (0, 5)],
-            12e-3,
-            use3dnodes=False,
+            "TestPlate", [(0, 0), (5, 0), (5, 5), (0, 5)], 12e-3, use3dnodes=False, placement=Placement()
         )
 
         with GmshSession(silent=True) as gs:

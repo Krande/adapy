@@ -69,9 +69,15 @@ class StepExporter:
             print(f'step file created at "{destination_file}"')
 
     def add_geom(self, geom, obj):
+        from ada.concepts.transforms import Placement
+
+        from .utils import transform_shape
+
         name = obj.name if obj.name is not None else next(shp_names)
         Interface_Static_SetCVal("write.step.product.name", name)
 
+        if obj.placement != Placement():
+            transform_shape(geom, transform=obj.placement)
         try:
             stat = self.writer.Transfer(geom, STEPControl_AsIs)
         except BaseException as e:

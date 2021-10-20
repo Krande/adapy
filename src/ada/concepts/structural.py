@@ -116,6 +116,8 @@ class Beam(BackendGeom):
 
         # Section and Material setup
         self._section, self._taper = get_section(sec)
+        self._section.refs.append(self)
+        self._taper.refs.append(self)
         self._material = get_material(mat)
         self._material.refs.append(self)
 
@@ -766,7 +768,8 @@ class Plate(BackendGeom):
         **kwargs,
     ):
         # TODO: Support generation of plate object from IFC elem
-        super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem)
+        placement = Placement(origin=origin, xdir=xdir, zdir=normal)
+        super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem, placement=placement)
 
         points2d = None
         points3d = None

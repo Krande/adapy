@@ -952,6 +952,7 @@ def get_beam_sections_from_inp(bulk_str, fem):
     from ada import Section
     from ada.sections import GeneralProperties
 
+    ass = fem.parent.get_assembly()
     if bulk_str.lower().find("*beam section") == -1:
         return []
     re_beam = re.compile(
@@ -1053,7 +1054,6 @@ def get_beam_sections_from_inp(bulk_str, fem):
         elset = fem.elsets[d["elset"]]
         name = d["sec_name"] if d["sec_name"] is not None else elset.name
         profile = d["profile_name"] if d["profile_name"] is not None else elset.name
-        ass = fem.parent.get_assembly()
         material = ass.materials.get_by_name(d["material"])
         # material = parent.parent.materials.get_by_name(d['material'])
         temperature = d["temperature"]
@@ -1086,7 +1086,7 @@ def get_beam_sections_from_inp(bulk_str, fem):
 
 def get_solid_sections_from_inp(bulk_str, fem: FEM):
     secnames = Counter(1, "solidsec")
-
+    a = fem.parent.get_assembly()
     if bulk_str.lower().find("*solid section") == -1:
         return []
     re_solid = re.compile(
@@ -1099,11 +1099,12 @@ def get_solid_sections_from_inp(bulk_str, fem: FEM):
         name = m_in.group(1) if m_in.group(1) is not None else next(secnames)
         elset = m_in.group(2)
         material = m_in.group(3)
+        mat = a.materials.get_by_name(material)
         return FemSection(
             name=name,
             sec_type=ElemType.SOLID,
             elset=elset,
-            material=material,
+            material=mat,
             parent=fem,
         )
 
@@ -1119,7 +1120,7 @@ def get_shell_sections_from_inp(bulk_str, fem: FEM) -> Iterable[FemSection]:
         return []
     re_offset = r"(?:, offset=(?P<offset>.*?)|)"
     re_controls = r"(?:, controls=(?P<controls>.*?)|)"
-
+    a = fem.parent.get_assembly()
     re_shell = re.compile(
         rf"(?:\*\s*Section:\s*(?P<name>.*?)\n|)\*\Shell Section, elset"
         rf"=(?P<elset>.*?)\s*, material=(?P<material>.*?){re_offset}{re_controls}\s*\n(?P<t>.*?),"
@@ -1133,11 +1134,12 @@ def get_shell_sections_from_inp(bulk_str, fem: FEM) -> Iterable[FemSection]:
         elset = fem.sets.get_elset_from_name(d["elset"])
 
         material = d["material"]
+        mat = a.materials.get_by_name(material)
         thickness = float(d["t"])
         offset = d["offset"]
         if offset is not None:
             # TODO: update this with the latest eccentricity class
-            logging.warning("Offset for Shell elements is not yet evaluat")
+            logging.warning("Offset for Shell elements is not yet evaluated")
             for el in elset.members:
                 el.eccentricity = Eccentricity(sh_ecc_vector=offset)
         int_points = d["int_points"]
@@ -1147,7 +1149,7 @@ def get_shell_sections_from_inp(bulk_str, fem: FEM) -> Iterable[FemSection]:
             sec_type=ElemType.SHELL,
             thickness=thickness,
             elset=elset,
-            material=material,
+            material=mat,
             int_points=int_points,
             parent=fem,
             metadata=metadata,

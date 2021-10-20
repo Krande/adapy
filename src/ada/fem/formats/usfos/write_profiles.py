@@ -1,4 +1,7 @@
-from ada import FEM, Section
+from typing import Dict
+
+from ada import FEM
+from ada.fem import FemSection
 from ada.sections import SectionCat
 
 
@@ -18,12 +21,13 @@ def sections_str(fem: FEM):
     cha_str = f"' Channels\n'{space}Geom ID     H     T-web    W-top   T-top    W-bot   T-bot Sh_y Sh_z\n"
     gens_str = f"' General Beams\n'{space}Geom ID     \n"
 
-    sections = {fs.section.id: fs.section for fs in fem.sections.lines}
-    for s_id, s in sorted(sections.items()):
+    sections: Dict[int, FemSection] = {fs.fem_sec.id: fs.fem_sec for fs in fem.elements.lines}
+    for s_id, fs in sorted(sections.items()):
+        s = fs.section
         if SectionCat.is_box_profile(s):
             # BOX      100000001    0.500   0.016   0.016   0.016    0.500
             box_str += box.format(
-                id=s.id,
+                id=fs.id,
                 h=s.h,
                 t_w=s.t_w,
                 t_ftop=s.t_ftop,
@@ -32,14 +36,14 @@ def sections_str(fem: FEM):
             )
         elif SectionCat.is_tubular_profile(s):
             # PIPE      60000001       1.010       0.045
-            tub_str += tub.format(id=s.id, d=s.r * 2, wt=s.wt)
+            tub_str += tub.format(id=fs.id, d=s.r * 2, wt=s.wt)
         elif SectionCat.is_circular_profile(s):
             # PIPE      60000001       1.010       0.045
-            circ_str += tub.format(id=s.id, d=s.r * 2, wt=s.r * 0.99)
+            circ_str += tub.format(id=fs.id, d=s.r * 2, wt=s.r * 0.99)
         elif SectionCat.is_i_profile(s):
             # IHPROFIL     11011    0.590   0.013    0.300   0.025    0.300   0.025
             ip_str += ipe.format(
-                id=s.id,
+                id=fs.id,
                 h=s.h,
                 t_w=s.t_w,
                 w_top=s.w_top,
@@ -48,10 +52,10 @@ def sections_str(fem: FEM):
                 t_fbtn=s.t_fbtn,
             )
         elif SectionCat.is_t_profile(s):
-            print(f'T-Profiles currently not considered. Relevant for bm id "{s.id}". Will use IPE for now')
+            print(f'T-Profiles currently not considered. Relevant for bm id "{fs.id}". Will use IPE for now')
             # IHPROFIL     11011    0.590   0.013    0.300   0.025    0.300   0.025
             tp_str += ipe.format(
-                id=s.id,
+                id=fs.id,
                 h=s.h,
                 t_w=s.t_w,
                 w_top=s.w_top,
@@ -61,27 +65,27 @@ def sections_str(fem: FEM):
             )
 
         elif SectionCat.is_angular(s):
-            print(f'Angular-Profiles are not supported by USFOS. Bm "{s.id}" will use GENBEAM')
-            gens_str += general_beam(s)
-            # raise ValueError('Angular profiles currently not considered. Relevant for bm id "{}"'.format(s.id))
+            print(f'Angular-Profiles are not supported by USFOS. Bm "{fs.id}" will use GENBEAM')
+            gens_str += general_beam(fs)
+            # raise ValueError('Angular profiles currently not considered. Relevant for bm id "{}"'.format(fs.id))
 
         elif SectionCat.is_channel_profile(s):
-            print(f'Channel-Profiles are not supported by USFOS. Bm "{s.id}" will use GENBEAM')
-            gens_str += general_beam(s)
-            # raise ValueError('Channel profiles currently not considered. Relevant for bm id "{}"'.format(s.id))
+            print(f'Channel-Profiles are not supported by USFOS. Bm "{fs.id}" will use GENBEAM')
+            gens_str += general_beam(fs)
+            # raise ValueError('Channel profiles currently not considered. Relevant for bm id "{}"'.format(fs.id))
 
         elif SectionCat.is_general(s):
-            gens_str += general_beam(s)
+            gens_str += general_beam(fs)
         else:
             raise ValueError(f'Unknown section string "{s.type}"')
 
     return box_str + ip_str + tp_str + ang_str + cha_str + tub_str + circ_str + gens_str
 
 
-def general_beam(s: Section) -> str:
+def general_beam(fs: FemSection) -> str:
+    s = fs.section
     p = s.properties
-    p.calculate()
     return (
-        f" GENBEAM{s.id:>11}{p.Ax:>11.3E}{p.Ix:>11.3E}{p.Iy:>11.3E}{p.Iz:>11.3E}\n{p.Wxmin:>11.3E}{p.Wymin:>11.3E}"
+        f" GENBEAM{fs.id:>11}{p.Ax:>11.3E}{p.Ix:>11.3E}{p.Iy:>11.3E}{p.Iz:>11.3E}\n{p.Wxmin:>11.3E}{p.Wymin:>11.3E}"
         f"{p.Wzmin:>11.3E}{p.Shary:>11.3E}\n{p.Sharz:>11.3E}\n"
     )

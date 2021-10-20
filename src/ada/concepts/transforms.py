@@ -9,7 +9,7 @@ from pyquaternion import Quaternion
 
 @dataclass
 class Transform:
-    translation: Iterable[float, float, float] = None
+    translation: np.ndarray = None
     rotation: Rotation = None
 
     def to_ifc(self, f):
@@ -27,6 +27,7 @@ class Rotation:
     def to_rot_matrix(self):
         my_quaternion = Quaternion(axis=self.vector, degrees=self.angle)
         return my_quaternion.rotation_matrix
+
 
 @dataclass
 class Placement:
@@ -58,3 +59,12 @@ class Placement:
 
         if type(self.origin) is not np.ndarray:
             self.origin = np.array(self.origin, dtype=float)
+
+    def __eq__(self, other: Placement):
+        from ada.core.utils import vector_length
+
+        for prop in ["origin", "xdir", "ydir", "zdir"]:
+            if vector_length(getattr(other, prop) - getattr(self, prop)) > 0.0:
+                return False
+
+        return True

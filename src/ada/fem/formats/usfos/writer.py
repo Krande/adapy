@@ -139,39 +139,26 @@ def shell_str(part: Part):
 
     pl_str = "'            Elem ID      np1      np2      np3      np4    mater   geom      ec1    ec2    ec3    ec4\n"
     sec_str = """'            Geom ID     Thick"""
-    geom_id = len(part.sections) + 1
     thick = []
-    for el in sorted(part.fem.elements.shell, key=attrgetter("id")):
-        t = el.fem_sec.thickness
+    for fs in sorted(part.fem.sections.shells, key=attrgetter("id")):
+        t = fs.thickness
         if t is None:
             raise ValueError("Thickness cannot be None")
         if t not in thick:
             thick.append(t)
-            locid = thick.index(t)
-            sec_str += "\n PLTHICK{:>12}{:>10}".format(locid + 1 + geom_id, t)
+            sec_str += "\n PLTHICK{:>12}{:>10}".format(fs.id, t)
 
     sec_str += "\n"
 
     def write_elem(el: Elem):
-        t = el.fem_sec.thickness
         if len(el.nodes) > 4:
             raise ValueError(f'Shell id "{el.id}" consist of {len(el.nodes)} nodes')
         else:
             nodes_str = "".join(["{:>9}".format(no.id) for no in el.nodes])
             if len(el.nodes) == 3:
-                return " TRISHELL{:>11}{}{:>9}{:>7}".format(
-                    el.id,
-                    nodes_str,
-                    el.fem_sec.material.id,
-                    thick.index(t) + 1 + geom_id,
-                )
+                return f" TRISHELL{el.id:>11}{nodes_str}{'':>9}{el.fem_sec.material.id:>9}{el.fem_sec.id:>7}"
             else:
-                return " QUADSHEL{:>11}{}{:>9}{:>7}".format(
-                    el.id,
-                    nodes_str,
-                    el.fem_sec.material.id,
-                    thick.index(t) + 1 + geom_id,
-                )
+                return f" QUADSHEL{el.id:>11}{nodes_str}{el.fem_sec.material.id:>9}{el.fem_sec.id:>7}"
 
     return sec_str + pl_str + "\n".join(list(map(write_elem, sorted(part.fem.elements.shell, key=attrgetter("id")))))
 
@@ -231,11 +218,8 @@ def beam_str(fem: FEM, eccen):
         n2 = el.nodes[1]
         fem_sec = el.fem_sec
         mat = fem_sec.material
-        sec = fem_sec.section
         xvec = fem_sec.local_z
         xvec_str = f"{xvec[0]:>13.5f}{xvec[1]:>15.5f}{xvec[2]:>15.5f}"
-
-        mat_id = mat.id
 
         if xvec_str in locvecs:
             locid = locvecs.index(xvec_str)
@@ -246,19 +230,18 @@ def beam_str(fem: FEM, eccen):
         if el.eccentricity is not None:
             ecc1_str = " 0"
             ecc2_str = " 0"
-            n, e = el.eccentricity.node, el.eccentricity.ecc_vector
-            if n == n1:
+            if el.eccentricity.end1 is not None:
                 ecc1 = next(eccen_counter)
-                eccen.append((ecc1, e))
+                eccen.append((ecc1, el.eccentricity.end1.ecc_vector))
                 ecc1_str = f" {ecc1}"
-            if n == n2:
+            if el.eccentricity.end2 is not None:
                 ecc2 = next(eccen_counter)
-                eccen.append((ecc2, e))
+                eccen.append((ecc2, el.eccentricity.end2.ecc_vector))
                 ecc2_str = f" {ecc2}"
         else:
             ecc1_str = ""
             ecc2_str = ""
-        return f" BEAM{el.id:>15}{n1.id:>8}{n2.id:>9}{mat_id:>11}{sec.id:>7}{locid + 1:>9}{ecc1_str}{ecc2_str}"
+        return f" BEAM{el.id:>15}{n1.id:>8}{n2.id:>9}{mat.id:>11}{el.fem_sec.id:>7}{locid + 1:>9}{ecc1_str}{ecc2_str}"
 
     bm_str += "\n".join(list(map(write_elem, fem.elements.lines)))
 

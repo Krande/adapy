@@ -28,7 +28,16 @@ class ReinforcedFloor(Part):
         **kwargs,
     ):
         super(ReinforcedFloor, self).__init__(name, **kwargs)
-        plate = self.add_plate(Plate(name + "_pl", points, pl_thick, use3dnodes=use3dnodes))
+        plate = Plate(
+            name + "_pl",
+            points,
+            pl_thick,
+            origin=self.placement.origin,
+            xdir=self.placement.xdir,
+            normal=self.placement.zdir,
+            use3dnodes=use3dnodes,
+        )
+        self.add_plate(plate)
 
         # Calculate number of stringers
         bbox = plate.bbox
@@ -64,11 +73,11 @@ class SimpleStru(Part):
     def __init__(
         self,
         name,
-        w=10,
-        l=10,
+        w=5,
+        l=5,
         h=3,
-        gsec="BG200x100x10x20",
-        csec="BG200x200x20x20",
+        gsec="IPE200",
+        csec="HEB200",
         pl_thick=10e-3,
         placement=Placement(),
     ):

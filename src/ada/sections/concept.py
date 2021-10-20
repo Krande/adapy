@@ -37,8 +37,9 @@ class Section(Backend):
         units="m",
         ifc_elem=None,
         guid=None,
+        refs=None,
     ):
-        super(Section, self).__init__(name, guid, metadata, units, ifc_elem=ifc_elem)
+        super(Section, self).__init__(name, guid, metadata, units, ifc_elem=ifc_elem, parent=parent)
         self._type = sec_type
         self._h = h
         self._w_top = w_top
@@ -52,7 +53,6 @@ class Section(Backend):
         self._outer_poly = outer_poly
         self._inner_poly = inner_poly
         self._sec_str = sec_str
-        self._parent = parent
 
         self._ifc_profile = None
         self._ifc_beam_type = None
@@ -76,6 +76,7 @@ class Section(Backend):
             self._type = "poly"
 
         self._genprops = None
+        self._refs = refs if refs is not None else []
         if genprops is not None:
             genprops.parent = self
             self._genprops = genprops
@@ -255,6 +256,11 @@ class Section(Backend):
         sec_render = SectionRenderer()
         fig, html = sec_render.build_display(self)
         display(HBox([fig, html]))
+
+    @property
+    def refs(self):
+        """:rtype: List[ada.Beam | ada.fem.FemSection]"""
+        return self._refs
 
     def __hash__(self):
         return hash(self.guid)

@@ -13,6 +13,8 @@ import numpy as np
 from ada.concepts.containers import Materials
 from ada.concepts.points import Node
 from ada.core.utils import Counter
+from ada.materials import Material
+from ada.sections import Section
 
 from .elements import Elem, FemSection, MassTypes
 from .sets import FemSet, SetTypes
@@ -378,29 +380,46 @@ class FemSections:
         self._lines = by_types["lines"]
         self._shells = by_types["shells"]
         self._solids = by_types["solids"]
-        self._dmap = {e.name: e for e in self._sections} if len(self._sections) > 0 else dict()
-
+        self._name_map = {e.name: e for e in self._sections} if len(self._sections) > 0 else dict()
+        self._id_map = {e.id: e for e in self._sections} if len(self._sections) > 0 else dict()
         if len(self._sections) > 0 and fem_obj is not None:
             self._link_data()
 
-    def _map_by_properties(self) -> dict:
+    def _map_by_properties(self) -> Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]]:
         from ada import Material, Section
 
-        merge_map: Dict[Tuple[Material, Section, tuple, tuple], FemSection] = dict()
-        for fs in self.lines:
+        merge_map: Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]] = dict()
+        for fs in self.sections:
             props = fs.unique_fem_section_permutation()
             if props not in merge_map.keys():
-                merge_map[props] = fs
+                merge_map[props] = []
+
+            merge_map[props].append(fs)
 
         return merge_map
 
     def merge_by_properties(self):
-        return NotImplemented
+        parent_part = self.parent.parent
+        parent_part.move_all_mats_and_sec_here_from_subparts()
+        prop_map = self._map_by_properties()
+        remove_fs = []
+        for _, fs_list in prop_map.items():
+            fs_o = fs_list[0]
+            el_o = fs_list[0].elset.members[0]
+            for fs in fs_list[1:]:
+                for el in fs.elset.members:
+                    if el == el_o:
+                        continue
+                    if el.fem_sec != fs_o and el.fem_sec not in remove_fs:
+                        remove_fs.append(el.fem_sec)
+                    el.fem_sec = fs_o
+                    fs_o.elset.add_members([el])
+        self.remove(remove_fs)
 
     def _map_materials(self, fem_sec: FemSection, mat_repo: Materials):
         if type(fem_sec.material) is str:
             logging.error(f'Material "{fem_sec.material}" was passed as string')
-            fem_sec._material = mat_repo.get_by_name(fem_sec.material)
+            fem_sec._material = mat_repo.get_by_name(fem_sec.material.name)
 
     def _map_elsets(self, fem_sec: FemSection, elset_repo):
         if type(fem_sec.elset) is str:
@@ -471,8 +490,12 @@ class FemSections:
         return self._solids
 
     @property
-    def dmap(self):
-        return self._dmap
+    def name_map(self):
+        return self._name_map
+
+    @property
+    def id_map(self):
+        return self._id_map
 
     def index(self, item):
         index = bisect_left(self._sections, item)
@@ -484,8 +507,10 @@ class FemSections:
         elem.fem_sec = fem_sec
 
     def add(self, sec: FemSection):
-        if sec.name in self.dmap.keys() or sec.name is None:
+        if sec.name in self.name_map.keys() or sec.name is None:
             raise ValueError(f'Section name "{sec.name}" already exists')
+        if sec.id in self.id_map.keys() or sec.id is None:
+            raise ValueError(f'Section ID "{sec.id}" already exists')
 
         self._sections.append(sec)
         if sec.type == ElemType.LINE:
@@ -495,8 +520,25 @@ class FemSections:
         else:
             self._solids.append(sec)
 
-        list(map(partial(self._map_femsec_to_elem, fem_sec=sec), sec.elset.members))
-        self._dmap[sec.name] = sec
+        [self._map_femsec_to_elem(el, fem_sec=sec) for el in sec.elset.members]
+        self._name_map[sec.name] = sec
+        self._id_map[sec.id] = sec
+
+    def remove(self, fs_in: Union[List[FemSection], FemSection]):
+        if type(fs_in) is not list:
+            fs_in = [fs_in]
+
+        for fs in fs_in:
+            index = self._sections.index(fs)
+            self._sections.pop(index)
+
+        self._name_map = {e.name: e for e in self._sections} if len(self._sections) > 0 else dict()
+        self._id_map = {e.id: e for e in self._sections} if len(self._sections) > 0 else dict()
+
+        by_types = self._groupby()
+        self._lines = by_types["lines"]
+        self._shells = by_types["shells"]
+        self._solids = by_types["solids"]
 
 
 class FemSets:

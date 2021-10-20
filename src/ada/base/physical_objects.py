@@ -1,6 +1,7 @@
 import os
 import pathlib
 
+from ada.concepts.transforms import Placement
 from ada.core.constants import color_map as _cmap
 
 from .non_phyical_objects import Backend
@@ -11,11 +12,14 @@ class BackendGeom(Backend):
 
     _renderer = None
 
-    def __init__(self, name, guid=None, metadata=None, units="m", parent=None, colour=None, ifc_elem=None):
+    def __init__(
+        self, name, guid=None, metadata=None, units="m", parent=None, colour=None, ifc_elem=None, placement=Placement()
+    ):
         super().__init__(name, guid, metadata, units, parent, ifc_elem=ifc_elem)
         from ada.visualize.new_render_api import Visualize
 
         self._penetrations = []
+        self.placement = placement
         self.colour = colour
         self._elem_refs = []
         self._viz = Visualize(self)
@@ -143,6 +147,14 @@ class BackendGeom(Backend):
     @elem_refs.setter
     def elem_refs(self, value):
         self._elem_refs = value
+
+    @property
+    def placement(self) -> Placement:
+        return self._placement
+
+    @placement.setter
+    def placement(self, value: Placement):
+        self._placement = value
 
     def _repr_html_(self):
         from ada.config import Settings

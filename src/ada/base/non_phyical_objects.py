@@ -89,11 +89,7 @@ class Backend:
         return self._ifc_elem
 
     def get_assembly(self):
-        """
-
-        :return:
-        :rtype: ada.Assembly
-        """
+        """:rtype: ada.Assembly"""
         from ada import Assembly
 
         parent = self

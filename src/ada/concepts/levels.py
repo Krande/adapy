@@ -409,6 +409,16 @@ class Part(BackendGeom):
 
         return filter(None, [basic_intersect(bm, margins, all_parts) for bm in all_beams])
 
+    def move_all_mats_and_sec_here_from_subparts(self):
+        for p in self.get_all_subparts():
+            self._materials += p.materials
+            self._sections += p.sections
+            p._materials = Materials()
+            p._sections = Sections()
+
+        self.sections.merge_sections_by_properties()
+        self.materials.merge_materials_by_properties()
+
     def _flatten_list_of_subparts(self, p, list_of_parts=None):
         for value in p.parts.values():
             list_of_parts.append(value)
