@@ -21,6 +21,7 @@ from .templates import el_convert_str, main_comm_str
 
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
     """Write Code_Aster .med and .comm file from Assembly data"""
+    from ada.materials.utils import shorten_material_names
 
     check_compatibility(assembly)
 
@@ -28,7 +29,8 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
         metadata["info"] = dict(description="")
 
     p = get_fem_model_from_assembly(assembly)
-
+    # Prepare model for
+    shorten_material_names(assembly)
     # TODO: Implement support for multiple parts. Need to understand how submeshes in Salome and Code Aster works.
     # for p in filter(lambda x: len(x.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)):
     write_to_med(name, p, analysis_dir)

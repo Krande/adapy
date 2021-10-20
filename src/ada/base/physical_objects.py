@@ -19,7 +19,8 @@ class BackendGeom(Backend):
         from ada.visualize.new_render_api import Visualize
 
         self._penetrations = []
-        self.placement = placement
+        self._placement = placement
+        placement.parent = self
         self.colour = colour
         self._elem_refs = []
         self._viz = Visualize(self)

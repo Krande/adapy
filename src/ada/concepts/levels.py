@@ -522,7 +522,8 @@ class Part(BackendGeom):
             fem = gs.get_fem()
 
         for mass_shape in masses:
-            n = fem.nodes.add(Node(mass_shape.cog))
+            cog_absolute = mass_shape.placement.absolute_placement() + mass_shape.cog
+            n = fem.nodes.add(Node(cog_absolute))
             fs = fem.add_set(FemSet(f"{mass_shape.name}_mass_set", [n], "nset"))
             fem.add_mass(Mass(f"{mass_shape.name}_mass", fs, mass_shape.mass))
 

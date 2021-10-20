@@ -187,7 +187,12 @@ class FemSection(FemBase):
         return self._refs
 
     def unique_fem_section_permutation(self) -> Tuple[Material, Section, tuple, tuple, float]:
-        return self.material, self.section, tuple(self.local_x), tuple(self.local_z), self.thickness
+        if self.type == self.SEC_TYPES.LINE:
+            return self.material, self.section, tuple(self.local_x), tuple(self.local_z), self.thickness
+        elif self.type == self.SEC_TYPES.SHELL:
+            return self.material, self.section, (None,), tuple(self.local_z), self.thickness
+        else:
+            return self.material, self.section, (None,), tuple(self.local_z), 0.0
 
     def __eq__(self, other: FemSection):
         return self.unique_fem_section_permutation() == other.unique_fem_section_permutation()
@@ -200,17 +205,7 @@ class FemSection(FemBase):
 
 
 class ConnectorSection(FemBase):
-    """
-    A Connector Section
-
-
-    :param name:
-    :param elastic_comp:
-    :param damping_comp:
-    :param plastic_comp:
-    :param rigid_dofs:
-    :param soft_elastic_dofs:
-    """
+    """A Connector Section"""
 
     def __init__(
         self,

@@ -108,6 +108,14 @@ class Backend:
                 break
         return parent
 
+    def get_ancestors(self):
+        ancestry = [self]
+        current = self
+        while current.parent is not None:
+            ancestry.append(current.parent)
+            current = current.parent
+        return ancestry
+
     def _generate_ifc_elem(self):
         raise NotImplementedError("")
 

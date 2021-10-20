@@ -14,7 +14,6 @@ from .utils import make_circle, make_face_w_cutout
 def cross_sec_face(sec_profile: SectionProfile, placement: Placement, solid_repre) -> Union[TopoDS_Face, TopoDS_Wire]:
 
     inner_shape = None
-    outer_shape = None
 
     if sec_profile.sec.type in SectionCat.tubular:
         outer_shape = make_wire([make_circle(placement.origin, placement.zdir, sec_profile.sec.r)])
@@ -29,8 +28,7 @@ def cross_sec_face(sec_profile: SectionProfile, placement: Placement, solid_repr
             outer_curve = sec_profile.outer_curve
             inner_curve = sec_profile.inner_curve
             outer_curve.placement = placement
-            if inner_curve is None:
-                outer_shape = outer_curve.face
+            outer_shape = outer_curve.face
             if inner_curve is not None:
                 inner_curve.placement = placement
                 inner_shape = inner_curve.wire
@@ -41,7 +39,13 @@ def cross_sec_face(sec_profile: SectionProfile, placement: Placement, solid_repr
                 outer_shape.append(curve.wire)
 
     if inner_shape is not None and solid_repre is True:
-        shape = make_face_w_cutout(make_face(outer_shape), inner_shape)
+        try:
+            face = make_face(outer_shape) if type(outer_shape) is not TopoDS_Face else outer_shape
+            shape = make_face_w_cutout(face, inner_shape)
+        except TypeError as e:
+            raise TypeError(e)
+        except AssertionError as e:
+            raise AssertionError(e)
     else:
         shape = outer_shape
     if shape is None:

@@ -35,6 +35,7 @@ class Placement:
     xdir: np.ndarray = None
     ydir: np.ndarray = None
     zdir: np.ndarray = None
+    parent = None
 
     def __post_init__(self):
         from ada.core.utils import calc_yvec
@@ -59,6 +60,15 @@ class Placement:
 
         if type(self.origin) is not np.ndarray:
             self.origin = np.array(self.origin, dtype=float)
+
+    def absolute_placement(self):
+        current_location = np.array([0, 0, 0], dtype=float)
+        ancestry = self.parent.get_ancestors()
+        ancestry.reverse()
+        for ancestor in ancestry:
+            current_location += ancestor.placement.origin
+            # TODO: Add support for combining rotations as well
+        return current_location
 
     def __eq__(self, other: Placement):
         from ada.core.utils import vector_length

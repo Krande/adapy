@@ -11,6 +11,7 @@ from ada.materials import Material
 from ada.materials.metals import CarbonSteel
 
 from .curves import CurvePoly
+from .transforms import Placement
 
 
 class Shape(BackendGeom):
@@ -27,9 +28,10 @@ class Shape(BackendGeom):
         ifc_elem=None,
         guid=None,
         material=None,
+        placement=Placement(),
     ):
 
-        super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem)
+        super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem, placement=placement)
         if type(geom) in (str, pathlib.WindowsPath, pathlib.PurePath, pathlib.Path):
             from OCC.Extend.DataExchange import read_step_file
 
@@ -299,6 +301,7 @@ class Shape(BackendGeom):
 
     @property
     def cog(self) -> Tuple[float, float, float]:
+
         return self._cog
 
     @cog.setter

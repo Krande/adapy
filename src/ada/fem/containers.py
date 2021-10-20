@@ -389,8 +389,15 @@ class FemSections:
         from ada import Material, Section
 
         merge_map: Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]] = dict()
-        for fs in self.sections:
-            props = fs.unique_fem_section_permutation()
+        for fs in self.lines:
+            props = (fs.material, fs.section, tuple(fs.local_x), tuple(fs.local_z), fs.thickness)
+            if props not in merge_map.keys():
+                merge_map[props] = []
+
+            merge_map[props].append(fs)
+
+        for fs in self.shells:
+            props = (fs.material, fs.section, (None,), tuple(fs.local_z), fs.thickness)
             if props not in merge_map.keys():
                 merge_map[props] = []
 
@@ -401,6 +408,7 @@ class FemSections:
     def merge_by_properties(self):
         parent_part = self.parent.parent
         parent_part.move_all_mats_and_sec_here_from_subparts()
+
         prop_map = self._map_by_properties()
         remove_fs = []
         for _, fs_list in prop_map.items():

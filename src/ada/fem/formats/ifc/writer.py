@@ -1,17 +1,12 @@
 import logging
 
+import ifcopenshell
+
+from ada import FEM
 from ada.ifc.utils import create_guid
 
 
-def to_ifc_fem(fem, f):
-    """
-
-    :param fem:
-    :param f:
-    :type fem: ada.fem.FEM
-    :type f: ifcopenshell.file.file
-    :return:
-    """
+def to_ifc_fem(fem: FEM, f: ifcopenshell.file) -> None:
     from ada.ifc.utils import create_global_axes, create_reference_subrep
 
     owner_history = fem.parent.get_assembly().user.to_ifc()

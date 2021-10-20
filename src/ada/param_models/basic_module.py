@@ -50,8 +50,11 @@ class ReinforcedFloor(Part):
             snum = int((ymax - ymin) / spacing) - 1
 
         z = plate.poly.placement.origin[2]
-        x = 0
-        y = 0
+
+        tot_spacing = snum * spacing
+        diff = xmax - xmin - tot_spacing
+        x = diff / 2
+        y = diff / 2
         for i in range(0, snum):
             if stringer_dir == "Y":
                 p1 = (x, ymin, z)
@@ -126,7 +129,8 @@ class SimpleStru(Part):
         fem_set_btn = self.fem.add_set(FemSet("fix", [], FemSet.TYPES.NSET))
         nodes: List[Node] = []
         for bc_loc in funcs:
-            nodes += self.fem.nodes.get_by_volume(bc_loc(self.placement.origin[2]))
+            location = self.placement.origin + bc_loc(self._elevations[0])
+            nodes += self.fem.nodes.get_by_volume(location)
         fem_set_btn.add_members(nodes)
         self.fem.add_bc(Bc("bc_fix", fem_set_btn, [1, 2, 3]))
 

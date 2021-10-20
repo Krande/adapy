@@ -75,8 +75,9 @@ class Beam(BackendGeom):
         units="m",
         ifc_elem=None,
         guid=None,
+        placement=Placement(),
     ):
-        super().__init__(name, metadata=metadata, units=units, guid=guid, ifc_elem=ifc_elem)
+        super().__init__(name, metadata=metadata, units=units, guid=guid, ifc_elem=ifc_elem, placement=placement)
 
         if ifc_elem is not None:
             props = self._import_from_ifc_beam(ifc_elem)
