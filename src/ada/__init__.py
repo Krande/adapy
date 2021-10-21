@@ -44,8 +44,9 @@ def from_fem(
     fem_format: Union[str, list] = None,
     name: Union[str, list] = None,
     enable_experimental_cache=False,
+    source_units='m',
 ) -> Assembly:
-    a = Assembly(enable_experimental_cache=enable_experimental_cache)
+    a = Assembly(enable_experimental_cache=enable_experimental_cache, units=source_units)
     if type(fem_file) in (str, pathlib.WindowsPath):
         a.read_fem(fem_file, fem_format, name)
     elif type(fem_file) is list:

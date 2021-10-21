@@ -60,7 +60,7 @@ def med_to_fem(fem_file, fem_name):
         logging.warning("No node information is found on MED file")
         point_num = np.arange(1, len(points) + 1)
 
-    fem.nodes = Nodes([Node(p, point_num[i]) for i, p in enumerate(points)], parent=fem)
+    fem.nodes = Nodes([Node(p, point_num[i], parent=fem) for i, p in enumerate(points)], parent=fem)
 
     # Point tags
     tags = None
