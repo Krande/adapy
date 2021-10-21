@@ -1,6 +1,6 @@
 import unittest
 
-from ada import Assembly, Beam, Part, Pipe, Plate, Section, User, Wall
+from ada import Assembly, Beam, Part, Pipe, Placement, Plate, Section, User, Wall
 from ada.config import Settings
 from ada.core.utils import download_to
 from ada.param_models.basic_module import SimpleStru
@@ -39,36 +39,34 @@ class IfcExport(unittest.TestCase):
             "Web1",
             [(0, 0), (2, 0), (2, webh), (0, webh)],
             bm.section.t_w,
-            origin=(0, -bm.section.w_btn / 2 + bm.section.t_w, -webh / 2),
-            normal=(0, -1, 0),
-            xdir=(1, 0, 0),
+            placement=Placement(
+                origin=(0, -bm.section.w_btn / 2 + bm.section.t_w, -webh / 2), zdir=(0, -1, 0), xdir=(1, 0, 0)
+            ),
         )
 
         pl2 = Plate(
             "Web2",
             [(0, 0), (2, 0), (2, webh), (0, webh)],
             bm.section.t_w,
-            origin=(0, bm.section.w_btn / 2, -webh / 2),
-            normal=(0, -1, 0),
-            xdir=(1, 0, 0),
+            placement=Placement(origin=(0, bm.section.w_btn / 2, -webh / 2), zdir=(0, -1, 0), xdir=(1, 0, 0)),
         )
 
         pl3 = Plate(
             "Fla1",
             [(0, 0), (2, 0), (2, bm.section.w_top), (0, bm.section.w_top)],
             bm.section.t_fbtn,
-            origin=(0, -bm.section.w_btn / 2, -bm.section.h / 2),
-            normal=(0, 0, 1),
-            xdir=(1, 0, 0),
+            placement=Placement(origin=(0, -bm.section.w_btn / 2, -bm.section.h / 2), zdir=(0, 0, 1), xdir=(1, 0, 0)),
         )
 
         pl4 = Plate(
             "Fla2",
             [(0, 0), (2, 0), (2, bm.section.w_top), (0, bm.section.w_top)],
             bm.section.t_fbtn,
-            origin=(0, -bm.section.w_btn / 2, bm.section.h / 2 - bm.section.t_fbtn),
-            normal=(0, 0, 1),
-            xdir=(1, 0, 0),
+            placement=Placement(
+                origin=(0, -bm.section.w_btn / 2, bm.section.h / 2 - bm.section.t_fbtn),
+                zdir=(0, 0, 1),
+                xdir=(1, 0, 0),
+            ),
         )
         p = Part("MyBldg", metadata=dict(ifctype="building"))
         a = Assembly("MySite", project="MyLayersProject") / [p / [bm, pl1, pl2, pl3, pl4]]

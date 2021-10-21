@@ -32,9 +32,7 @@ class ReinforcedFloor(Part):
             name + "_pl",
             points,
             pl_thick,
-            origin=self.placement.origin,
-            xdir=self.placement.xdir,
-            normal=self.placement.zdir,
+            placement=self.placement,
             use3dnodes=use3dnodes,
         )
         self.add_plate(plate)
@@ -55,7 +53,7 @@ class ReinforcedFloor(Part):
         diff = xmax - xmin - tot_spacing
         x = diff / 2
         y = diff / 2
-        for i in range(0, snum):
+        for i in range(0, snum + 1):
             if stringer_dir == "Y":
                 p1 = (x, ymin, z)
                 p2 = (x, ymax, z)

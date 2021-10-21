@@ -2,16 +2,16 @@ import unittest
 
 from common import dummy_display
 
-from ada import Assembly, Part, Plate
+from ada import Assembly, Part, Placement, Plate
 from ada.config import Settings
-from ada.core.constants import O, X, Z
 
 test_dir = Settings.test_dir / "plates"
 
 
 class TestPlates(unittest.TestCase):
     def setUp(self) -> None:
-        self.atts = dict(origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1))
+        self.atts = dict(placement=Placement(origin=(0, 0, 0), xdir=(1, 0, 0), zdir=(0, 0, 1)))
+        self.atts2 = dict(placement=Placement(origin=(0, 0, 0), xdir=(1, 0, 0), zdir=(0, -1, 0)))
 
     def test_3dinit(self):
         pl1 = Plate("MyPl", [(0, 0, 0), (5, 0, 0), (5, 5, 0), (0, 5, 0)], 20e-3, use3dnodes=True)
@@ -28,8 +28,7 @@ class TestPlates(unittest.TestCase):
         pl1 = Plate("MyPl", [(0, 0, 0.2), (5, 0), (5, 5), (0, 5)], 20e-3, **self.atts)
         p.add_plate(pl1)
 
-        atts2 = dict(origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, -1, 0))
-        pl2 = Plate("MyPl2", [(0, 0, 0.2), (5, 0, 0.2), (5, 5), (0, 5)], 20e-3, **atts2)
+        pl2 = Plate("MyPl2", [(0, 0, 0.2), (5, 0, 0.2), (5, 5), (0, 5)], 20e-3, **self.atts2)
         p.add_plate(pl2)
 
         a.to_ifc(test_dir / "my_plate_simple.ifc")
@@ -42,9 +41,7 @@ class TestPlates(unittest.TestCase):
         a = Assembly("ExportedPlates")
         p = Part("MyPart")
         a.add_part(p)
-
-        atts2 = dict(origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, -1, 0))
-        pl2 = Plate("MyPl2", [(0, 0, 0.2), (5, 0, 0.2), (5, 5), (0, 5)], 20e-3, **atts2)
+        pl2 = Plate("MyPl2", [(0, 0, 0.2), (5, 0, 0.2), (5, 5), (0, 5)], 20e-3, **self.atts2)
         p.add_plate(pl2)
         a.to_ifc(test_dir / "my_plate_poly.ifc")
 
@@ -52,7 +49,7 @@ class TestPlates(unittest.TestCase):
 class BasicShapes(unittest.TestCase):
     def test_triangle(self):
         local_points2d = [(0, 0), (1, 0, 0.1), (0.5, 0.5)]
-        pl = Plate("test", local_points2d, 20e-3, origin=O, normal=Z, xdir=X)
+        pl = Plate("test", local_points2d, 20e-3)
 
         a = Assembly() / [Part("te") / pl]
         a.to_ifc(test_dir / "triangle_plate.ifc")
@@ -80,7 +77,9 @@ class Plate2dIn(unittest.TestCase):
             [-15.14, 261.52],
         ]
         thick = 30
-        pl = Plate("test", local_points2d, thick, origin=origin, normal=csys[2], xdir=csys[0], units="mm")
+        pl = Plate(
+            "test", local_points2d, thick, placement=Placement(origin=origin, zdir=csys[2], xdir=csys[0]), units="mm"
+        )
 
         a = Assembly() / [Part("te") / pl]
         a.to_ifc(test_dir / "error_plate.ifc")
@@ -106,7 +105,9 @@ class Plate2dIn(unittest.TestCase):
             [-34.99999999999994, 500.0330344161669, -7.881391015070461e-12],
         ]
         thick = 30
-        pl = Plate("test2", local_points2d, thick, origin=origin, normal=csys[2], xdir=csys[0], units="mm")
+        pl = Plate(
+            "test2", local_points2d, thick, placement=Placement(origin=origin, zdir=csys[2], xdir=csys[0]), units="mm"
+        )
 
         a = Assembly(units="mm") / [Part("te", units="mm") / pl]
         a.to_ifc(test_dir / "error_plate2.ifc")

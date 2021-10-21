@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Union
 
 import numpy as np
 from pyquaternion import Quaternion
@@ -31,10 +31,10 @@ class Rotation:
 
 @dataclass
 class Placement:
-    origin: np.ndarray = np.array([0, 0, 0], dtype=float)
-    xdir: np.ndarray = None
-    ydir: np.ndarray = None
-    zdir: np.ndarray = None
+    origin: Union[list, tuple, np.ndarray] = np.array([0, 0, 0], dtype=float)
+    xdir: Union[list, tuple, np.ndarray] = None
+    ydir: Union[list, tuple, np.ndarray] = None
+    zdir: Union[list, tuple, np.ndarray] = None
     parent = None
 
     def __post_init__(self):

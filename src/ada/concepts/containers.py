@@ -38,6 +38,11 @@ class BaseCollections:
     def __init__(self, parent):
         self._parent = parent
 
+    @property
+    def parent(self):
+        """:rtype: ada.Part"""
+        return self._parent
+
 
 class Beams(BaseCollections):
     """A collections of Beam objects"""
@@ -307,7 +312,7 @@ class Connections(BaseCollections):
             return self._nmap[node]
         else:
             self._nmap[node] = joint
-
+        joint.parent = self
         self._dmap[joint.name] = joint
         self._connections.append(joint)
 
@@ -333,11 +338,11 @@ class Connections(BaseCollections):
 
         for node, mem in nmap.items():
             if joint_func is not None:
-                joint = joint_func(next(self._counter), mem, node.p)
+                joint = joint_func(next(self._counter), mem, node.p, parent=self)
                 if joint is None:
                     continue
             else:
-                joint = JointBase(next(self._counter), mem, node.p)
+                joint = JointBase(next(self._counter), mem, node.p, parent=self)
 
             self.add(joint, point_tol=point_tol)
 

@@ -19,6 +19,7 @@ from ada.concepts.primitives import (
     Shape,
 )
 from ada.concepts.structural import Beam, Plate, Wall
+from ada.concepts.transforms import Placement
 from ada.config import User
 from ada.materials import Material
 from ada.sections import Section
@@ -75,6 +76,7 @@ __all__ = [
     "Material",
     "Shape",
     "Node",
+    "Placement",
     "PrimBox",
     "PrimCyl",
     "PrimExtrude",

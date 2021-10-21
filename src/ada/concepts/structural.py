@@ -742,7 +742,7 @@ class Plate(BackendGeom):
     :param nodes: List of coordinates that make up the plate. Points can be Node, tuple or list
     :param t: Thickness of plate
     :param mat: Material. Can be either Material object or built-in materials ('S420' or 'S355')
-    :param origin: Explicitly define origin of plate. If not set
+    :param placement: Explicitly define origin of plate. If not set
     """
 
     def __init__(
@@ -752,9 +752,7 @@ class Plate(BackendGeom):
         t,
         mat="S420",
         use3dnodes=False,
-        origin=None,
-        normal=None,
-        xdir=None,
+        placement=Placement(),
         pl_id=None,
         offset=None,
         colour=None,
@@ -766,10 +764,8 @@ class Plate(BackendGeom):
         units="m",
         ifc_elem=None,
         guid=None,
-        **kwargs,
     ):
         # TODO: Support generation of plate object from IFC elem
-        placement = Placement(origin=origin, xdir=xdir, zdir=normal)
         super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem, placement=placement)
 
         points2d = None
@@ -780,9 +776,7 @@ class Plate(BackendGeom):
             self.guid = ifc_elem.GlobalId
             t = props["t"]
             points2d = props["nodes2d"]
-            origin = props["origin"]
-            normal = props["normal"]
-            xdir = props["xdir"]
+            self.placement = Placement(props["origin"], xdir=props["xdir"], zdir=props["normal"])
             ifc_geom = props["ifc_geom"]
             colour = props["colour"]
             opacity = props["opacity"]
@@ -808,12 +802,11 @@ class Plate(BackendGeom):
         self._poly = CurvePoly(
             points3d=points3d,
             points2d=points2d,
-            normal=normal,
-            origin=origin,
-            xdir=xdir,
+            normal=self.placement.zdir,
+            origin=self.placement.origin,
+            xdir=self.placement.xdir,
             tol=tol,
             parent=self,
-            **kwargs,
         )
         self.colour = colour
         self._offset = offset

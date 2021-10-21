@@ -19,9 +19,9 @@ class GmshApiV2(unittest.TestCase):
         self.bm2 = Beam("bm2", (1.1, 0, 1), (2, 0, 1), "IPE300")
         self.bm3 = Beam("bm3", (2.1, 0, 1), (3, 0, 1), "IPE300")
 
-        pl_atts = dict(origin=(1, 1, 1), xdir=(1, 0, 0), normal=(0, 0, 1))
+        placement = Placement(origin=(1, 1, 1), xdir=(1, 0, 0), zdir=(0, 0, 1))
         pl_points = [(0, 0), (1, 0), (1, 1), (0, 1)]
-        self.pl1 = Plate("MyPlate", pl_points, 10e-3, **pl_atts)
+        self.pl1 = Plate("MyPlate", pl_points, 10e-3, placement=placement)
 
         self.pipe = Pipe("MyPipe", [(0, 0.5, 0), (1, 0.5, 0), (1.2, 0.7, 0.2), (1.5, 0.7, 0.2)], "OD120x6")
 

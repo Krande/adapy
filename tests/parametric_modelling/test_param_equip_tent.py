@@ -66,4 +66,5 @@ def test_simple_stru_with_equipment_to_fem(simple_stru, eq_model_4legged):
     # a.to_ifc(test_dir / "simple_stru_with_equipments_before_fem", include_fem=False)
     # a.to_fem("MySimpleStruWEquip_ca", "code_aster", overwrite=True, execute=True)
     a.to_fem("MySimpleStruWEquip_ufo", "usfos", overwrite=True)
+    a.to_fem("MySimpleStruWEquip_ses", "sesam", overwrite=True)
     # a.to_ifc(test_dir / "simple_stru_with_equipments_after_fem", include_fem=True)

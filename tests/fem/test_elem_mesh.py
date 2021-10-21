@@ -1,14 +1,14 @@
 import unittest
 
-from ada import Assembly, Beam, Part, Plate, PrimCyl, PrimExtrude
+from ada import Assembly, Beam, Part, Placement, Plate, PrimCyl, PrimExtrude
 from ada.config import Settings
 from ada.core.utils import align_to_plate
 from ada.fem.meshing import GmshOptions
 
-test_folder = Settings.test_dir / "mesh"
+test_dir = Settings.test_dir / "mesh"
 
-atts = dict(origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1))
-atts2 = dict(origin=(1, 0, -0.1), xdir=(0, 0, 1), normal=(-1, 0, 0))
+atts = dict(placement=Placement(origin=(0, 0, 0), xdir=(1, 0, 0), zdir=(0, 0, 1)))
+atts2 = dict(placement=Placement(origin=(1, 0, -0.1), xdir=(0, 0, 1), zdir=(-1, 0, 0)))
 
 
 class BeamIO(unittest.TestCase):

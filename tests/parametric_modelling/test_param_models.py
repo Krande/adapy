@@ -8,17 +8,17 @@ from ada.core.utils import roundoff
 from ada.fem import Load, StepImplicit
 from ada.param_models.basic_module import make_it_complex
 
-test_folder = Settings.test_dir / "param_models"
+test_dir = Settings.test_dir / "param_models"
 
 
 class ParamModelsTestCase(unittest.TestCase):
     def test_basic_module_to_from_ifc(self):
         a = build_test_simplestru_fem(make_fem=False)
-        a.to_ifc(test_folder / "param1.ifc")
+        a.to_ifc(test_dir / "param1.ifc")
 
         a2 = Assembly("ImportedParam")
-        a2.read_ifc(test_folder / "param1.ifc")
-        a2.to_ifc(test_folder / "param1_reimported.ifc")
+        a2.read_ifc(test_dir / "param1.ifc")
+        a2.to_ifc(test_dir / "param1_reimported.ifc")
 
     def test_to_fem(self):
         a = build_test_simplestru_fem()
@@ -26,8 +26,10 @@ class ParamModelsTestCase(unittest.TestCase):
         param_model = a.get_by_name("ParametricModel")
         param_model.fem.sections.merge_by_properties()
 
+        a.to_ifc(test_dir / "my_simple_stru_weight.ifc")
+
         self.assertEqual(len(param_model.fem.bcs), 1)
-        self.assertEqual(len(param_model.fem.elements), 11620)
+        self.assertEqual(len(param_model.fem.elements), 11720)
         self.assertAlmostEqual(len(param_model.fem.nodes), 5331, delta=80)
 
         cog = param_model.fem.elements.calc_cog()
@@ -41,12 +43,12 @@ class ParamModelsTestCase(unittest.TestCase):
         self.assertLess(abs(roundoff(cog.p[0]) - 2.5), tol)
         self.assertLess(abs(roundoff(cog.p[1]) - 2.5), tol)
         self.assertLess(abs(roundoff(cog.p[2]) - 1.5), tol)
-        self.assertLess(abs(roundoff(cog.tot_mass) - 7854.90), tol)
-        self.assertLess(abs(roundoff(cog.tot_vol) - 1.001), tol)
+        self.assertLess(abs(roundoff(cog.tot_mass) - 6672.406), tol)
+        self.assertLess(abs(roundoff(cog.tot_vol) - 0.85), tol)
 
     def test_add_piping(self):
         a = make_it_complex()
-        a.to_ifc(test_folder / "my_simple_stru_w_piping.ifc")
+        a.to_ifc(test_dir / "my_simple_stru_w_piping.ifc")
 
 
 if __name__ == "__main__":
