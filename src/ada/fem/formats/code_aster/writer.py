@@ -317,7 +317,12 @@ def create_bc_str(bc: Bc) -> str:
 def write_load(load: Load) -> str:
     if load.type == Load.TYPES.GRAVITY:
         return f"""{load.name} = AFFE_CHAR_MECA(
-    MODELE=model, PESANTEUR=_F(DIRECTION=(0.0, 0.0, -1.0), GRAVITE={-load.magnitude})
+    MODELE=model, PESANTEUR=_F(DIRECTION=(0.0, 0.0, 1.0), GRAVITE={-load.magnitude})
+)"""
+    elif load.type == Load.TYPES.ACC:
+        acc_dir_str = f"({','.join(load.acc_vector)})"
+        return f"""{load.name} = AFFE_CHAR_MECA(
+    MODELE=model, PESANTEUR=_F(DIRECTION={acc_dir_str}, GRAVITE={load.magnitude})
 )"""
     else:
         raise NotImplementedError(f'Load type "{load.type}"')
@@ -331,8 +336,36 @@ def step_static_str(step: StepImplicit, part: Part) -> str:
     all_boundary_conditions = part.get_assembly().fem.bcs + part.fem.bcs
     if len(all_boundary_conditions) == 0:
         raise NoBoundaryConditionsApplied("No boundary condition is found for the specified model")
-    bc = all_boundary_conditions[0]
-    return f"""
+
+    bc_str = ""
+    for bc in all_boundary_conditions:
+        bc_str += f"_F(CHARGE={bc.name}),"
+
+    if step.nl_geom is False:
+        return f"""
+{load_str}
+
+result = MECA_STATIQUE(
+    MODELE=model,
+    CHAM_MATER=material,
+    EXCIT=({bc_str}_F(CHARGE={load.name}))
+)
+
+result = CALC_CHAMP(
+    reuse=result,
+    RESULTAT=result,
+    CONTRAINTE=("SIGM_ELGA", "SIGM_ELNO"),
+    CRITERES=("SIEQ_ELGA", "SIEQ_ELNO"),
+)
+
+IMPR_RESU(
+    RESU=_F(RESULTAT=result),
+    UNITE=80
+)
+
+"""
+    else:
+        return f"""
 {load_str}
 
 timeReel = DEFI_LIST_REEL(DEBUT=0.0, INTERVALLE=_F(JUSQU_A=1.0, NOMBRE=10))
@@ -345,7 +378,7 @@ result = STAT_NON_LINE(
     CARA_ELEM=element,
     COMPORTEMENT=(_F(DEFORMATION="PETIT", RELATION="VMIS_ISOT_TRAC", TOUT="OUI")),
     CONVERGENCE=_F(ARRET="OUI", ITER_GLOB_MAXI=8,),
-    EXCIT=(_F(CHARGE={bc.name}), _F(CHARGE={load.name}, FONC_MULT=rampFunc)),
+    EXCIT=({bc_str}_F(CHARGE={load.name}, FONC_MULT=rampFunc)),
     INCREMENT=_F(LIST_INST=timeInst),
     ARCHIVAGE=_F(LIST_INST=timeReel),
 )

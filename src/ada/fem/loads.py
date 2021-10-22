@@ -142,7 +142,7 @@ class Load(FemBase):
     @property
     def acc_vector(self):
         if self.type not in (LoadTypes.ACC, LoadTypes.ACC_ROT):
-            raise ValueError('Acceleration vector only applies for type "acc"')
+            raise ValueError(f'Acceleration vector only applies for type "acc". Not "{self.type}"')
 
         dir_error = "If acc_vector is not specified, you must pass dof=[int] (int 1-3) for the acc field"
 

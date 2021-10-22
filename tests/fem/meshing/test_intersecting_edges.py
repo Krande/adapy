@@ -23,7 +23,8 @@ def test_edges_intersect():
     a = ada.Assembly() / (ada.Part("MyPart") / objects)
     p = a.get_part("MyPart")
     p.connections.find()
-    p.fem = p.to_fem_obj(0.1)
+
+    p.fem = p.to_fem_obj(0.1, interactive=False)
 
     a.to_fem("MyIntersectingedge_ufo", "usfos", overwrite=True, scratch_dir=test_dir)
     a.to_ifc(test_dir / "IntersectingFEM", include_fem=False)

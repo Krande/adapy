@@ -6,7 +6,7 @@ from ada import Assembly
 from ada.config import Settings
 from ada.core.utils import roundoff
 from ada.fem import Load, StepImplicit
-from ada.param_models.basic_module import make_it_complex
+from ada.param_models.basic_module import SimpleStru, make_it_complex
 
 test_dir = Settings.test_dir / "param_models"
 
@@ -23,10 +23,10 @@ class ParamModelsTestCase(unittest.TestCase):
     def test_to_fem(self):
         a = build_test_simplestru_fem()
 
-        param_model = a.get_by_name("ParametricModel")
+        param_model: SimpleStru = a.get_by_name("ParametricModel")
         param_model.fem.sections.merge_by_properties()
 
-        a.to_ifc(test_dir / "my_simple_stru_weight.ifc")
+        # a.to_ifc(test_dir / "my_simple_stru_weight.ifc")
 
         self.assertEqual(len(param_model.fem.bcs), 1)
         self.assertEqual(len(param_model.fem.elements), 11720)
@@ -35,10 +35,9 @@ class ParamModelsTestCase(unittest.TestCase):
         cog = param_model.fem.elements.calc_cog()
         tol = 0.01
 
-        my_step = a.fem.add_step(StepImplicit("static", total_time=1, max_incr=1, init_incr=1, nl_geom=True))
+        my_step = a.fem.add_step(StepImplicit("static", total_time=1, max_incr=1, init_incr=1, nl_geom=False))
         my_step.add_load(Load("Gravity", "gravity", -9.81))
-
-        a.to_fem("SimpleStru", fem_format="usfos", overwrite=True)
+        # a.to_fem("SimpleStru_CA", fem_format="code_aster", overwrite=True, execute=True)
 
         self.assertLess(abs(roundoff(cog.p[0]) - 2.5), tol)
         self.assertLess(abs(roundoff(cog.p[1]) - 2.5), tol)

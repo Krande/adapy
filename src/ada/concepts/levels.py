@@ -500,7 +500,13 @@ class Part(BackendGeom):
         raise NotImplementedError()
 
     def to_fem_obj(
-        self, mesh_size: float, bm_repr=ElemType.LINE, pl_repr=ElemType.SHELL, options=None, silent=True
+        self,
+        mesh_size: float,
+        bm_repr=ElemType.LINE,
+        pl_repr=ElemType.SHELL,
+        options=None,
+        silent=True,
+        interactive=False,
     ) -> FEM:
         """:type options: ada.fem.meshing.GmshOptions"""
         from ada.fem.meshing import GmshOptions, GmshSession
@@ -518,7 +524,16 @@ class Part(BackendGeom):
                     masses.append(obj)
                 else:
                     logging.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
+
+            # if interactive is True:
+            #     gs.open_gui()
+
+            gs.split_plates_by_beams()
             gs.mesh(mesh_size)
+
+            if interactive is True:
+                gs.open_gui()
+
             fem = gs.get_fem()
 
         for mass_shape in masses:
