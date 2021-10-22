@@ -99,8 +99,10 @@ class GmshApiV2(unittest.TestCase):
         for key, val in a.get_part("MyFemObjects").fem.elements.group_by_type():
             num_el = len(list(val))
             if key == "C3D10":
-                # TODO: Why is the number of elements for different platforms (win, linux and macos)
+                # TODO: Why is the number of elements for different platforms (win, linux and macos)?
                 self.assertAlmostEqual(map_assert[key], num_el, delta=50)
+            elif key == "STRI65":
+                self.assertAlmostEqual(map_assert[key], num_el, delta=5)
             else:
                 self.assertEqual(map_assert[key], num_el)
 
