@@ -3,6 +3,7 @@ from __future__ import annotations
 import pathlib
 from typing import Union
 
+from ada import fem
 from ada.concepts.connections import Bolts, Weld
 from ada.concepts.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
 from ada.concepts.levels import FEM, Assembly, Part
@@ -23,7 +24,6 @@ from ada.concepts.transforms import Placement
 from ada.config import User
 from ada.materials import Material
 from ada.sections import Section
-from ada import fem
 
 __author__ = "Kristoffer H. Andersen"
 
@@ -92,4 +92,5 @@ __all__ = [
     "User",
     "Bolts",
     "Weld",
+    "fem",
 ]

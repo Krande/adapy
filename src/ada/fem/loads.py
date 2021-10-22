@@ -6,6 +6,7 @@ import numpy as np
 from .common import Amplitude, Csys, FemBase
 from .constants import GRAVITY
 from .sets import FemSet
+from .surfaces import Surface
 
 
 class LoadTypes:
@@ -15,6 +16,7 @@ class LoadTypes:
     FORCE = "force"
     FORCE_SET = "force_set"
     MASS = "mass"
+    PRESSURE = "pressure"
 
     all = [GRAVITY, ACC, ACC_ROT, FORCE, FORCE_SET, MASS]
 
@@ -186,6 +188,16 @@ class Load(FemBase):
     def __repr__(self):
         forc_str = ",".join(f"{f:.6E}" for f in self.forces)
         return f"Load({self.name}, {self.type}, [{forc_str}])"
+
+
+class LoadPressure(Load):
+    def __init__(self, name: str, magnitude: float, surface):
+        super(LoadPressure, self).__init__(name, LoadTypes.PRESSURE, magnitude)
+        self._surface = surface
+
+    @property
+    def surface(self) -> Surface:
+        return self._surface
 
 
 class LoadCase(FemBase):

@@ -329,9 +329,14 @@ def write_load(load: Load) -> str:
 
 
 def step_static_str(step: StepImplicit, part: Part) -> str:
-    from ada.fem.exceptions.model_definition import NoBoundaryConditionsApplied
+    from ada.fem.exceptions.model_definition import (
+        NoBoundaryConditionsApplied,
+        NoLoadsApplied,
+    )
 
     load_str = "\n".join(list(map(write_load, step.loads)))
+    if len(step.loads) == 0:
+        raise NoLoadsApplied(f"No loads are applied in step '{step}'")
     load = step.loads[0]
     all_boundary_conditions = part.get_assembly().fem.bcs + part.fem.bcs
     if len(all_boundary_conditions) == 0:
