@@ -23,6 +23,7 @@ from ada.concepts.transforms import Placement
 from ada.config import User
 from ada.materials import Material
 from ada.sections import Section
+from ada import fem
 
 __author__ = "Kristoffer H. Andersen"
 
