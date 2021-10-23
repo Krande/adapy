@@ -176,6 +176,11 @@ class Part(BackendGeom):
             logging.info(f'shape "{shape}" has different units. changing from "{shape.units}" to "{self.units}"')
             shape.units = self.units
         shape.parent = self
+
+        mat = self.add_material(shape.material)
+        if mat != shape.material:
+            shape.material = mat
+
         self._shapes.append(shape)
         return shape
 
@@ -522,6 +527,8 @@ class Part(BackendGeom):
                     gs.add_obj(obj, geom_repr=pl_repr)
                 elif issubclass(type(obj), Shape) and obj.mass is not None:
                     masses.append(obj)
+                elif issubclass(type(obj), Shape):
+                    gs.add_obj(obj)
                 else:
                     logging.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
 

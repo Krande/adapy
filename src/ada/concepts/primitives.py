@@ -1,6 +1,6 @@
 import logging
 import pathlib
-from typing import Tuple
+from typing import Tuple, Union
 
 import numpy as np
 
@@ -8,7 +8,7 @@ from ada.base.physical_objects import BackendGeom
 from ada.core.utils import Counter, roundoff, unit_vector, vector_length
 from ada.ifc.utils import create_guid
 from ada.materials import Material
-from ada.materials.metals import CarbonSteel
+from ada.materials.utils import get_material
 
 from .curves import CurvePoly
 from .transforms import Placement
@@ -27,7 +27,7 @@ class Shape(BackendGeom):
         units="m",
         ifc_elem=None,
         guid=None,
-        material=None,
+        material: Union[Material, str] = None,
         placement=Placement(),
     ):
 
@@ -49,9 +49,7 @@ class Shape(BackendGeom):
         if isinstance(material, Material):
             self._material = material
         else:
-            if material is None:
-                material = "S355"
-            self._material = Material(name=material, mat_model=CarbonSteel(material, plasticity_model=None))
+            self._material = get_material(material)
 
     def generate_parametric_solid(self, ifc_file):
         from ada.core.constants import O, X, Z
@@ -374,6 +372,10 @@ class Shape(BackendGeom):
     @property
     def material(self) -> Material:
         return self._material
+
+    @material.setter
+    def material(self, value):
+        self._material = value
 
 
 class PrimSphere(Shape):

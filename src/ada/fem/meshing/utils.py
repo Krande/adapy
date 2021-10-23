@@ -126,7 +126,7 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
                 el.hinge_prop.end2.fem_node = n2
 
 
-def get_so_sections(model: gmsh.model, beam: Beam, gmsh_data: GmshData, fem: FEM):
+def get_so_sections(model: gmsh.model, solid_object: Beam, gmsh_data: GmshData, fem: FEM):
     tags = []
     for dim, ent in gmsh_data.entities:
         _, tag, _ = model.mesh.getElements(3, ent)
@@ -134,11 +134,11 @@ def get_so_sections(model: gmsh.model, beam: Beam, gmsh_data: GmshData, fem: FEM
 
     elements = [fem.elements.from_id(elid) for elid in chain.from_iterable(tags)]
 
-    set_name = make_name_fem_ready(f"el{beam.name}_so")
-    fem_sec_name = make_name_fem_ready(f"d{beam.name}_so")
+    set_name = make_name_fem_ready(f"el{solid_object.name}_so")
+    fem_sec_name = make_name_fem_ready(f"d{solid_object.name}_so")
 
     fem_set = FemSet(set_name, elements, FemSet.TYPES.ELSET, parent=fem)
-    fem_sec = FemSection(fem_sec_name, ElemType.SOLID, fem_set, beam.material)
+    fem_sec = FemSection(fem_sec_name, ElemType.SOLID, fem_set, solid_object.material)
 
     add_sec_to_fem(fem, fem_sec, fem_set)
 

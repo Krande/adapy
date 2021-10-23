@@ -34,7 +34,7 @@ def test_eq_model_to_ifc_and_fem(eq_model_4legged):
     eq_model_4legged.fem = eq_model_4legged.to_fem_obj(0.1)
 
     assert len(eq_model_4legged.sections) == 1
-    assert len(eq_model_4legged.materials) == 1
+    assert len(eq_model_4legged.materials) == 2
 
     a.to_fem("EqtentFEM", "sesam", scratch_dir=test_dir, overwrite=True)
 
