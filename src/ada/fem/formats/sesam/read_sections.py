@@ -11,7 +11,7 @@ from ada.core.utils import roundoff, unit_vector, vector_length
 from ada.fem import Csys, Elem, FemSection, FemSet
 from ada.fem.containers import FemSections
 from ada.fem.formats.utils import str_to_int
-from ada.fem.shapes import ElemShapes, ElemType
+from ada.fem.shapes import ElemShape, ElemType
 from ada.materials import Material
 from ada.sections import GeneralProperties
 
@@ -231,10 +231,10 @@ def get_femsecs(match, total_geo, curr_geom_num, lcsysd, hinges_global, ecc, thi
 
     elem = fem.elements.from_id(elno)
     mat = fem.parent.materials.get_by_id(matno)
-    if elem.type in ElemShapes.lines:
+    if elem.type in ElemShape.lines:
         next(curr_geom_num)
         return read_line_section(elem, fem, mat, geono, d, lcsysd, hinges_global, ecc)
-    elif elem.type in ElemShapes.shell:
+    elif elem.type in ElemShape.shell:
         next(curr_geom_num)
         return read_shell_section(elem, fem, mat, elno, thicknesses, geono)
     else:

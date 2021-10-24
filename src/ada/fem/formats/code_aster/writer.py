@@ -10,7 +10,7 @@ from ada.concepts.structural import Material
 from ada.config import Settings as _Settings
 from ada.fem import Bc, FemSection, Load, StepEigen, StepImplicit
 from ada.fem.containers import FemSections
-from ada.fem.shapes import ElemShapes
+from ada.fem.shapes import ElemShapeTypes
 from ada.fem.utils import is_quad8_shell_elem, is_tri6_shell_elem
 
 from ..utils import get_fem_model_from_assembly
@@ -282,7 +282,7 @@ def write_solid_section(fem_sections: Iterable[FemSection]) -> str:
 def is_parent_of_node_solid(no: Node) -> bool:
     refs = no.refs
     for elem in refs:
-        if elem.type in ElemShapes.volume:
+        if elem.type in ElemShapeTypes.volume:
             return True
     return False
 
@@ -588,7 +588,7 @@ def _write_elements(part: Part, time_step, profile, families):
     elements_group = time_step.create_group("MAI")
     elements_group.attrs.create("CGT", 1)
     for group, elements in part.fem.elements.group_by_type():
-        if group in ElemShapes.masses + ElemShapes.springs:
+        if group in ElemShapeTypes.masses + ElemShapeTypes.springs:
             logging.error("NotImplemented: Skipping Mass or Spring Elements")
             continue
         med_type = abaqus_to_med_type(group)
@@ -709,7 +709,7 @@ def _add_cell_sets(cells_group, part: Part, families):
         return [int(n.id - 1) for n in el_.nodes]
 
     for group, elements in part.fem.elements.group_by_type():
-        if group in ElemShapes.masses + ElemShapes.springs:
+        if group in ElemShapeTypes.masses + ElemShapeTypes.springs:
             logging.error("NotImplemented: Skipping Mass or Spring Elements")
             continue
         elements = list(elements)

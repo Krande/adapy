@@ -13,8 +13,9 @@ def test_surface_box():
     _ = a.fem.add_step(ada.fem.StepImplicit("MyStep"))
 
     # Add surfaces
-
-    # a.to_fem("MyFemBox", "abaqus", overwrite=True)
+    el = p.fem.elements[0]
+    print(el)
+    a.to_fem("MyFemBox", "abaqus", overwrite=True)
 
     # TODO: Specify surfaces on elements on the East and North side of this box and assign pressure and surface traction
     #   (or shear if you will)

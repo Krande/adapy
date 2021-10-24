@@ -1217,9 +1217,9 @@ def predefined_field_str(pre_field: PredefinedField) -> str:
 
 
 def spring_str(spring: Spring) -> str:
-    from ada.fem.shapes import ElemShapes
+    from ada.fem.shapes import ElemShape
 
-    if spring.type in ElemShapes.spring1n:
+    if spring.type in ElemShape.spring1n:
         _str = f'** Spring El "{spring.name}"\n\n'
         for dof, row in enumerate(spring.stiff):
             for j, stiffness in enumerate(row):

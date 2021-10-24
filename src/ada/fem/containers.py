@@ -18,7 +18,7 @@ from ada.sections import Section
 
 from .elements import Elem, FemSection, MassTypes
 from .sets import FemSet, SetTypes
-from .shapes import ElemShapes, ElemType
+from .shapes import ElemShapeTypes, ElemType
 
 
 @dataclass
@@ -240,15 +240,15 @@ class FemElements:
 
     @property
     def solids(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type in ElemShapes.volume, self.stru_elements)
+        return filter(lambda x: x.type in ElemShapeTypes.volume, self.stru_elements)
 
     @property
     def shell(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type in ElemShapes.shell, self.stru_elements)
+        return filter(lambda x: x.type in ElemShapeTypes.shell, self.stru_elements)
 
     @property
     def lines(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type in ElemShapes.lines, self.stru_elements)
+        return filter(lambda x: x.type in ElemShapeTypes.lines, self.stru_elements)
 
     @property
     def lines_hinged(self) -> Iterable[Elem]:
@@ -260,7 +260,7 @@ class FemElements:
 
     @property
     def connectors(self):
-        return filter(lambda x: x.type in ElemShapes.connectors, self.stru_elements)
+        return filter(lambda x: x.type in ElemShapeTypes.connectors, self.stru_elements)
 
     @property
     def masses(self) -> Iterable[Elem]:

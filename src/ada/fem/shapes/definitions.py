@@ -23,7 +23,7 @@ edge_map = {ElemType.LINE: line_edges, ElemType.SHELL: shell_edges, ElemType.SOL
 face_map = {ElemType.LINE: None, ElemType.SHELL: shell_faces, ElemType.SOLID: volume_faces}
 
 
-class ElemShapes:
+class ElemShapeTypes:
     # 2D elements
     tri = ["S3", "S3R", "R3D3", "S3RS"]
     tri6 = ["STRI65"]
@@ -54,17 +54,21 @@ class ElemShapes:
     other2n = connectors
     other = other2n
 
+
+class ElemShape:
+    TYPES = ElemShapeTypes
+
     @staticmethod
     def is_valid_elem(elem_type):
         value = elem_type.upper()
         if (
             value
-            not in ElemShapes.shell
-            + ElemShapes.volume
-            + ElemShapes.lines
-            + ElemShapes.springs
-            + ElemShapes.masses
-            + ElemShapes.other
+            not in ElemShapeTypes.shell
+            + ElemShapeTypes.volume
+            + ElemShapeTypes.lines
+            + ElemShapeTypes.springs
+            + ElemShapeTypes.masses
+            + ElemShapeTypes.other
         ):
             return False
         else:
@@ -73,17 +77,17 @@ class ElemShapes:
     @staticmethod
     def num_nodes(el_name):
         num_map = {
-            1: ElemShapes.masses + ElemShapes.spring1n,
-            2: ElemShapes.bm2 + ElemShapes.spring2n + ElemShapes.other2n,
-            3: ElemShapes.tri + ElemShapes.bm3,
-            4: ElemShapes.quad + ElemShapes.tetrahedron,
-            5: ElemShapes.pyramid5,
-            6: ElemShapes.tri6 + ElemShapes.prism6,
-            8: ElemShapes.quad8 + ElemShapes.cube8,
-            10: ElemShapes.tetrahedron10,
-            15: ElemShapes.prism15,
-            20: ElemShapes.cube20,
-            27: ElemShapes.cube27,
+            1: ElemShapeTypes.masses + ElemShapeTypes.spring1n,
+            2: ElemShapeTypes.bm2 + ElemShapeTypes.spring2n + ElemShapeTypes.other2n,
+            3: ElemShapeTypes.tri + ElemShapeTypes.bm3,
+            4: ElemShapeTypes.quad + ElemShapeTypes.tetrahedron,
+            5: ElemShapeTypes.pyramid5,
+            6: ElemShapeTypes.tri6 + ElemShapeTypes.prism6,
+            8: ElemShapeTypes.quad8 + ElemShapeTypes.cube8,
+            10: ElemShapeTypes.tetrahedron10,
+            15: ElemShapeTypes.prism15,
+            20: ElemShapeTypes.cube20,
+            27: ElemShapeTypes.cube27,
         }
         for num, el_types in num_map.items():
             if el_name in el_types:
@@ -110,7 +114,7 @@ class ElemShapes:
 
     @property
     def faces(self):
-        if self.type in self.volume:
+        if self.type in ElemShapeTypes.volume:
             faces_seq = self.volumes_seq
         else:
             faces_seq = self.faces_seq
@@ -124,11 +128,11 @@ class ElemShapes:
 
     @property
     def elem_type_group(self):
-        if self.type in ElemShapes.volume:
+        if self.type in ElemShapeTypes.volume:
             return ElemType.SOLID
-        elif self.type in ElemShapes.shell:
+        elif self.type in ElemShapeTypes.shell:
             return ElemType.SHELL
-        elif self.type in ElemShapes.lines:
+        elif self.type in ElemShapeTypes.lines:
             return ElemType.LINE
         else:
             raise ValueError(f'Unrecognized Element Type: "{self.type}"')
@@ -136,11 +140,11 @@ class ElemShapes:
     def update(self, el_type=None, nodes=None):
         if el_type is not None:
             self.type = el_type.upper()
-            if ElemShapes.is_valid_elem(el_type) is False:
+            if ElemShape.is_valid_elem(el_type) is False:
                 raise ValueError(f'Currently unsupported element type "{el_type}".')
 
         nodes = self.nodes if nodes is None else nodes
-        num_nodes = ElemShapes.num_nodes(self.type)
+        num_nodes = ElemShape.num_nodes(self.type)
         if len(nodes) != num_nodes:
             raise ValueError(f'Number of passed nodes "{len(nodes)}" does not match expected "{num_nodes}" ')
 
@@ -168,7 +172,7 @@ class ElemShapes:
 
     @property
     def spring_edges(self):
-        if self.type not in self.springs:
+        if self.type not in ElemShapeTypes.springs:
             return None
         springs = dict(SPRING2=[[0, 1]])
         return springs[self.type]

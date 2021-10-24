@@ -8,7 +8,7 @@ import numpy as np
 from pythreejs import Group
 
 from ada.concepts.levels import FEM
-from ada.fem.shapes import ElemShapes
+from ada.fem.shapes import ElemShape
 from ada.fem.shapes.mesh_types import meshio_to_abaqus_type
 
 from .threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
@@ -92,7 +92,7 @@ def get_edges_and_faces_from_meshio(mesh: meshio.Mesh):
     for cell_block in mesh.cells:
         el_type = meshio_to_abaqus_type[cell_block.type]
         for elem in cell_block.data:
-            elem_shape = ElemShapes(el_type, elem)
+            elem_shape = ElemShape(el_type, elem)
             edges += elem_shape.edges
             if elem_shape.type in elem_shape.lines:
                 continue

@@ -8,7 +8,7 @@ from meshio.abaqus._abaqus import abaqus_to_meshio_type
 
 from ada.concepts.levels import FEM, Assembly
 from ada.config import Settings as _Settings
-from ada.fem.shapes import ElemShapes
+from ada.fem.shapes import ElemShape
 
 
 def meshio_to_fem(assembly: Assembly, name: str, scratch_dir=None, metadata=None) -> None:
@@ -61,7 +61,7 @@ def fem_to_meshio(fem: FEM) -> Union[meshio.Mesh, None]:
 
     cells = []
     for group, elements in fem.elements.group_by_type():
-        if group in ElemShapes.masses + ElemShapes.springs:
+        if group in ElemShape.TYPES.masses + ElemShape.TYPES.springs:
             logging.error("NotImplemented: Skipping Mass or Spring Elements")
             continue
         med_el = abaqus_to_meshio_type[group]

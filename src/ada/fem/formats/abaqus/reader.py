@@ -35,7 +35,7 @@ from ada.fem import (
 from ada.fem.containers import FemElements, FemSections, FemSets
 from ada.fem.formats.abaqus.common import AbaCards
 from ada.fem.interactions import ContactTypes
-from ada.fem.shapes import ElemShapes, ElemType
+from ada.fem.shapes import ElemShape, ElemType
 from ada.materials.metals import CarbonSteel
 
 from ..utils import str_to_int
@@ -438,14 +438,14 @@ def get_elem_from_inp(bulk_str, fem: FEM) -> FemElements:
         elset = d["elset"]
         members = d["members"]
         res = re.search("[a-zA-Z]", members)
-        if eltype.upper() in ElemShapes.cube20 + ElemShapes.cube27 or res is None:
-            if eltype.upper() in ElemShapes.cube20 + ElemShapes.cube27:
+        if eltype.upper() in ElemShape.TYPES.cube20 + ElemShape.TYPES.cube27 or res is None:
+            if eltype.upper() in ElemShape.TYPES.cube20 + ElemShape.TYPES.cube27:
                 temp = members.splitlines()
                 ntext = "".join([l1.strip() + "    " + l2.strip() + "\n" for l1, l2 in zip(temp[:-1:2], temp[1::2])])
             else:
                 ntext = d["members"]
             res = np.fromstring(ntext.replace("\n", ","), sep=",", dtype=int)
-            n = ElemShapes.num_nodes(eltype) + 1
+            n = ElemShape.num_nodes(eltype) + 1
             res_ = res.reshape(int(res.size / n), n)
             return [Elem(e[0], [fem.nodes.from_id(n) for n in e[1:]], eltype, elset, parent=fem) for e in res_]
         else:

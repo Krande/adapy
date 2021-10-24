@@ -9,7 +9,7 @@ from ada.core.utils import NewLine, get_current_user
 from ada.fem import Bc, Elem, FemSection, FemSet, Load
 from ada.fem.containers import FemElements
 from ada.fem.formats.utils import get_fem_model_from_assembly
-from ada.fem.shapes import ElemShapes
+from ada.fem.shapes import ElemShape
 from ada.fem.steps import StepExplicit
 from ada.sections import SectionCat as Sc
 
@@ -141,7 +141,7 @@ def elements_str(fem_elements: FemElements) -> str:
 def el_type_sub(el_type, fem_sec: FemSection) -> str:
     """Substitute Element types specifically Calculix"""
     el_map = dict(STRI65="S6")
-    if el_type in ElemShapes.lines:
+    if el_type in ElemShape.TYPES.lines:
         if must_be_converted_to_general_section(fem_sec.section.type):
             return "U1"
     return el_map.get(el_type, el_type)

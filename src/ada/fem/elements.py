@@ -13,7 +13,7 @@ from ada.concepts.structural import Beam, Plate, Wall
 
 from .common import Csys, FemBase
 from .sections import ConnectorSection, FemSection
-from .shapes import ElemShapes, ElemType
+from .shapes import ElemShape, ElemType
 
 
 class Elem(FemBase):
@@ -70,9 +70,9 @@ class Elem(FemBase):
 
     @type.setter
     def type(self, value):
-        from .shapes import ElemShapes
+        from .shapes import ElemShape
 
-        if ElemShapes.is_valid_elem(value) is False:
+        if ElemShape.is_valid_elem(value) is False:
             raise ValueError(f'Currently unsupported element type "{value}".')
         self._el_type = value.upper()
 
@@ -135,9 +135,9 @@ class Elem(FemBase):
         self._mass_props = value
 
     @property
-    def shape(self) -> ElemShapes:
+    def shape(self) -> ElemShape:
         if self._shape is None:
-            self._shape = ElemShapes(self.type, self.nodes)
+            self._shape = ElemShape(self.type, self.nodes)
         return self._shape
 
     @property
