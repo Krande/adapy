@@ -57,8 +57,7 @@ class Shape(BackendGeom):
     def generate_ifc_solid_geom(self, f):
         raise NotImplementedError()
 
-    def generate_parametric_solid(self, ifc_file):
-        f = ifc_file
+    def generate_parametric_solid(self, f):
         context = f.by_type("IfcGeometricRepresentationContext")[0]
 
         solid_geom = self.generate_ifc_solid_geom(f)
@@ -66,8 +65,8 @@ class Shape(BackendGeom):
         if type(self) is Penetration:
             raise ValueError(f'Penetration type "{self}" is not yet supported')
 
-        shape_representation = f.createIfcShapeRepresentation(context, "Body", "SweptSolid", [solid_geom])
-        ifc_shape = f.createIfcProductDefinitionShape(None, None, [shape_representation])
+        shape_representation = f.create_entity("IfcShapeRepresentation", context, "Body", "SweptSolid", [solid_geom])
+        ifc_shape = f.create_entity("IfcProductDefinitionShape", None, None, [shape_representation])
 
         # Link to representation context
         for rep in ifc_shape.Representations:
@@ -118,7 +117,8 @@ class Shape(BackendGeom):
         if self.colour is not None:
             add_colour(f, ifc_shape.Representations[0].Items[0], str(self.colour), self.colour)
 
-        ifc_elem = f.createIfcBuildingElementProxy(
+        ifc_elem = f.create_entity(
+            "IfcBuildingElementProxy",
             guid,
             owner_history,
             self.name,
@@ -142,7 +142,8 @@ class Shape(BackendGeom):
             )
 
         props = create_property_set("Properties", f, self.metadata)
-        f.createIfcRelDefinesByProperties(
+        f.create_entity(
+            "IfcRelDefinesByProperties",
             create_guid(),
             owner_history,
             "Properties",
@@ -636,9 +637,10 @@ class PrimSweep(Shape):
         )
 
         sweep_curve = self.sweep_curve.get_ifc_elem()
-        profile = f.createIfcArbitraryClosedProfileDef("AREA", None, self.profile_curve_outer.get_ifc_elem())
-        ifc_xdir = f.createIfcDirection([float(x) for x in self.profile_curve_outer.xdir])
+        profile = f.create_entity("IfcArbitraryClosedProfileDef", "AREA", None, self.profile_curve_outer.get_ifc_elem())
+        ifc_xdir = f.create_entity("IfcDirection", [float(x) for x in self.profile_curve_outer.xdir])
         opening_axis_placement = create_ifc_placement(f, O, Z, X)
+
         return create_IfcFixedReferenceSweptAreaSolid(
             f, sweep_curve, profile, opening_axis_placement, None, None, ifc_xdir
         )

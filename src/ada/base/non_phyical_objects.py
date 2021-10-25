@@ -120,9 +120,7 @@ class Backend:
         raise NotImplementedError("")
 
     def remove(self):
-        """
-        Remove this element/part from assembly/part
-        """
+        """Remove this element/part from assembly/part"""
         from ada import Beam, Part, Shape
 
         if self.parent is None:
