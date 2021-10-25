@@ -54,13 +54,20 @@ class Elem(FemBase):
         if self.eccentricity is None:
             return nodes
 
-        ecc = self.eccentricity.ecc_vector
-        n_old = self.eccentricity.node
-
         mat = np.eye(3)
-        new_p = np.dot(mat, ecc) + n_old.p
-        i = self.nodes.index(n_old)
-        nodes[i] = new_p
+
+        e1 = self.eccentricity.end1
+        e2 = self.eccentricity.end2
+
+        if e1 is not None:
+            ecc1 = e1.ecc_vector
+            n_old = e1.node
+            nodes[0] = np.dot(mat, ecc1) + n_old.p
+
+        if e2 is not None:
+            ecc2 = e2.ecc_vector
+            n_old = e2.node
+            nodes[-1] = np.dot(mat, ecc2) + n_old.p
 
         return nodes
 

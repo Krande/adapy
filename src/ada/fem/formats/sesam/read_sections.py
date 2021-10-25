@@ -231,10 +231,10 @@ def get_femsecs(match, total_geo, curr_geom_num, lcsysd, hinges_global, ecc, thi
 
     elem = fem.elements.from_id(elno)
     mat = fem.parent.materials.get_by_id(matno)
-    if elem.type in ElemShape.lines:
+    if elem.type in ElemShape.TYPES.lines:
         next(curr_geom_num)
         return read_line_section(elem, fem, mat, geono, d, lcsysd, hinges_global, ecc)
-    elif elem.type in ElemShape.shell:
+    elif elem.type in ElemShape.TYPES.shell:
         next(curr_geom_num)
         return read_shell_section(elem, fem, mat, elno, thicknesses, geono)
     else:

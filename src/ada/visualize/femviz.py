@@ -94,7 +94,7 @@ def get_edges_and_faces_from_meshio(mesh: meshio.Mesh):
         for elem in cell_block.data:
             elem_shape = ElemShape(el_type, elem)
             edges += elem_shape.edges
-            if elem_shape.type in elem_shape.lines:
+            if elem_shape.type in elem_shape.TYPES.lines:
                 continue
             faces += elem_shape.faces
     return edges, faces

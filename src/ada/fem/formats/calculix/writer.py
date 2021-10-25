@@ -106,12 +106,10 @@ def get_section_str(fem_sec: FemSection):
     if "section_type" in fem_sec.metadata.keys():
         return fem_sec.metadata["section_type"]
     if must_be_converted_to_general_section(sec_type):
-        fem_sec.section.properties.calculate()
         return CcxSecTypes.GENERAL
     elif sec_type in Sc.box:
         return CcxSecTypes.BOX
     elif sec_type in Sc.tubular:
-        fem_sec.section.properties.calculate()
         return CcxSecTypes.PIPE
     else:
         raise Exception(f'Section "{sec_type}" is not yet supported by Calculix exporter.\n{traceback.format_exc()}')

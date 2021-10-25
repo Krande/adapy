@@ -16,7 +16,7 @@ def joint_map(joint_name, intersecting_members, centre, parent=None) -> Union[Jo
 
     for joint in joints:
         if eval_joint_req(joint, intersecting_members):
-            return joint(joint_name, intersecting_members, centre, parent=None)
+            return joint(joint_name, intersecting_members, centre, parent=parent)
 
     member_types = [m.section.type for m in intersecting_members]
     logging.debug(f'Unable to find matching Joint using joint map for members "{member_types}"')
