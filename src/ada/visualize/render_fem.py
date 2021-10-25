@@ -22,7 +22,7 @@ def render_mesh(vertices, faces, colors):
     renderer = MyRenderer()
     renderer._displayed_pickable_objects.add(mesh)
     renderer.build_display()
-    display(HBox([VBox([HBox(renderer._controls), renderer._renderer]), renderer.html]))
+    display(HBox([VBox([HBox(renderer.controls), renderer.renderer]), renderer.html]))
 
 
 def viz_meshio_mesh(fem, mesh, data_type):

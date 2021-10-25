@@ -219,7 +219,7 @@ class Beam(BackendGeom):
             add_colour,
             add_multiple_props_to_elem,
             convert_bm_jusl_to_ifc,
-            create_global_axes,
+            create_ifc_placement,
             create_ifcrevolveareasolid,
             create_local_placement,
         )
@@ -291,7 +291,7 @@ class Beam(BackendGeom):
             circle = f.createIfcCircle(curve_axis2plac3d, curve.radius)
             ifc_polyline = f.createIfcTrimmedCurve(circle, [p1_ifc], [p2_ifc], True, "CARTESIAN")
 
-            revolve_placement = create_global_axes(f, p1, profile_x, profile_y)
+            revolve_placement = create_ifc_placement(f, p1, profile_x, profile_y)
             extrude_area_solid = create_ifcrevolveareasolid(f, profile, revolve_placement, corigin, xvec, a3)
             loc_plac = create_local_placement(f, O, Z, X, parent.ObjectPlacement)
         else:
@@ -819,7 +819,7 @@ class Plate(BackendGeom):
         from ada.core.constants import O, X, Z
         from ada.ifc.utils import (
             add_colour,
-            create_global_axes,
+            create_ifc_placement,
             create_ifcindexpolyline,
             create_ifcpolyline,
             create_local_placement,
@@ -849,7 +849,7 @@ class Plate(BackendGeom):
         res = origin + np.dot(tra_mat, t_vec)
         polyline = create_ifcpolyline(f, [origin.astype(float).tolist(), res.tolist()])
         axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve2D", [polyline])
-        extrusion_placement = create_global_axes(f, O, Z, X)
+        extrusion_placement = create_ifc_placement(f, O, Z, X)
         points = [(float(n[0]), float(n[1]), float(n[2])) for n in self.poly.seg_global_points]
         seg_index = self.poly.seg_index
         polyline = create_ifcindexpolyline(f, points, seg_index)
@@ -1218,7 +1218,7 @@ class Wall(BackendGeom):
         from ada.core.constants import O, X, Z
         from ada.ifc.utils import (
             add_negative_extrusion,
-            create_global_axes,
+            create_ifc_placement,
             create_ifcextrudedareasolid,
             create_ifcpolyline,
             create_local_placement,
@@ -1243,7 +1243,7 @@ class Wall(BackendGeom):
         polyline = create_ifcpolyline(f, self.points)
         axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve2D", [polyline])
 
-        extrusion_placement = create_global_axes(f, (0.0, 0.0, float(elevation)), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+        extrusion_placement = create_ifc_placement(f, (0.0, 0.0, float(elevation)), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
 
         polyline = create_ifcpolyline(f, self.extrusion_area)
         profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)

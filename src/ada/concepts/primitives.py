@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import logging
 import pathlib
-from typing import Tuple, Union
+from dataclasses import dataclass
+from typing import List, Tuple, Union
 
 import numpy as np
 
@@ -51,114 +54,16 @@ class Shape(BackendGeom):
         else:
             self._material = get_material(material)
 
-    def generate_parametric_solid(self, ifc_file):
-        from ada.core.constants import O, X, Z
-        from ada.ifc.utils import (
-            create_global_axes,
-            create_ifcextrudedareasolid,
-            create_IfcFixedReferenceSweptAreaSolid,
-            create_ifcindexpolyline,
-            create_ifcpolyline,
-            create_ifcrevolveareasolid,
-            to_real,
-        )
+    def generate_ifc_solid_geom(self, f):
+        raise NotImplementedError()
 
+    def generate_parametric_solid(self, ifc_file):
         f = ifc_file
         context = f.by_type("IfcGeometricRepresentationContext")[0]
 
-        opening_axis_placement = create_global_axes(f, O, Z, X)
+        solid_geom = self.generate_ifc_solid_geom(f)
 
-        if type(self) is PrimBox:
-            box = self
-            assert isinstance(box, PrimBox)
-            p1 = box.p1
-            p2 = box.p2
-            points = [
-                p1,
-                (p1[0], p2[1], p1[2]),
-                (p2[0], p2[1], p1[2]),
-                (p2[0], p1[1], p1[2]),
-            ]
-            depth = p2[2] - p1[2]
-            polyline = create_ifcpolyline(f, points)
-            profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
-            solid_geom = create_ifcextrudedareasolid(f, profile, opening_axis_placement, (0.0, 0.0, 1.0), depth)
-        elif type(self) is PrimCyl:
-            cyl = self
-            assert isinstance(cyl, PrimCyl)
-            p1 = cyl.p1
-            p2 = cyl.p2
-            r = cyl.r
-
-            vec = np.array(p2) - np.array(p1)
-            uvec = unit_vector(vec)
-            vecdir = to_real(uvec)
-
-            cr_dir = np.array([0, 0, 1])
-
-            if vector_length(abs(uvec) - abs(cr_dir)) == 0.0:
-                cr_dir = np.array([1, 0, 0])
-
-            perp_dir = np.cross(uvec, cr_dir)
-
-            if vector_length(perp_dir) == 0.0:
-                raise ValueError("Perpendicular dir cannot be zero")
-
-            create_global_axes(f, to_real(p1), vecdir, to_real(perp_dir))
-
-            opening_axis_placement = create_global_axes(f, to_real(p1), vecdir, to_real(perp_dir))
-
-            depth = vector_length(vec)
-            profile = f.createIfcCircleProfileDef("AREA", self.name, None, r)
-            solid_geom = create_ifcextrudedareasolid(f, profile, opening_axis_placement, Z, depth)
-        elif type(self) is PrimExtrude:
-            extrude = self
-            assert isinstance(extrude, PrimExtrude)
-            # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/link/annex-e.htm
-            # polyline = self.create_ifcpolyline(self.file, [p[:3] for p in points])
-            normal = extrude.poly.normal
-            h = extrude.extrude_depth
-            points = [tuple(x.astype(float).tolist()) for x in extrude.poly.seg_global_points]
-            seg_index = extrude.poly.seg_index
-            polyline = create_ifcindexpolyline(f, points, seg_index)
-            profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
-            solid_geom = create_ifcextrudedareasolid(f, profile, opening_axis_placement, [float(n) for n in normal], h)
-        elif type(self) is PrimRevolve:
-            rev = self
-            assert isinstance(rev, PrimRevolve)
-            # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/link/annex-e.htm
-            # 8.8.3.28 IfcRevolvedAreaSolid
-
-            revolve_axis = [float(n) for n in rev.revolve_axis]
-            revolve_origin = [float(x) for x in rev.revolve_origin]
-            revolve_angle = rev.revolve_angle
-            points = [tuple(x.astype(float).tolist()) for x in rev.poly.seg_global_points]
-            seg_index = rev.poly.seg_index
-            polyline = create_ifcindexpolyline(f, points, seg_index)
-            profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
-            solid_geom = create_ifcrevolveareasolid(
-                f,
-                profile,
-                opening_axis_placement,
-                revolve_origin,
-                revolve_axis,
-                revolve_angle,
-            )
-        elif type(self) is PrimSphere:
-            sphere = self
-            assert isinstance(sphere, PrimSphere)
-            opening_axis_placement = create_global_axes(f, to_real(sphere.cog), Z, X)
-            solid_geom = f.createIfcSphere(opening_axis_placement, float(sphere.radius))
-        elif type(self) is PrimSweep:
-            sweep = self
-            assert isinstance(sweep, PrimSweep)
-            sweep_curve = sweep.sweep_curve.get_ifc_elem()
-            profile = f.createIfcArbitraryClosedProfileDef("AREA", None, sweep.profile_curve_outer.get_ifc_elem())
-            ifc_xdir = f.createIfcDirection([float(x) for x in sweep.profile_curve_outer.xdir])
-            solid_geom = create_IfcFixedReferenceSweptAreaSolid(
-                f, sweep_curve, profile, opening_axis_placement, None, None, ifc_xdir
-            )
-        else:
+        if type(self) is Penetration:
             raise ValueError(f'Penetration type "{self}" is not yet supported')
 
         shape_representation = f.createIfcShapeRepresentation(context, "Body", "SweptSolid", [solid_geom])
@@ -385,6 +290,13 @@ class PrimSphere(Shape):
         self.radius = radius
         super(PrimSphere, self).__init__(name=name, geom=make_sphere(cog, radius), cog=cog, **kwargs)
 
+    def generate_ifc_solid_geom(self, f):
+        from ada.core.constants import X, Z
+        from ada.ifc.utils import create_ifc_placement, to_real
+
+        opening_axis_placement = create_ifc_placement(f, to_real(self.cog), Z, X)
+        return f.createIfcSphere(opening_axis_placement, float(self.radius))
+
     @property
     def units(self):
         return self._units
@@ -420,6 +332,28 @@ class PrimBox(Shape):
             units=units,
         )
 
+    def generate_ifc_solid_geom(self, f):
+        from ada.core.constants import O, X, Z
+        from ada.ifc.utils import (
+            create_ifc_placement,
+            create_ifcextrudedareasolid,
+            create_ifcpolyline,
+        )
+
+        p1 = self.p1
+        p2 = self.p2
+        points = [
+            p1,
+            (p1[0], p2[1], p1[2]),
+            (p2[0], p2[1], p1[2]),
+            (p2[0], p1[1], p1[2]),
+        ]
+        depth = p2[2] - p1[2]
+        polyline = create_ifcpolyline(f, points)
+        profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
+        opening_axis_placement = create_ifc_placement(f, O, Z, X)
+        return create_ifcextrudedareasolid(f, profile, opening_axis_placement, (0.0, 0.0, 1.0), depth)
+
     @property
     def units(self):
         return self._units
@@ -440,6 +374,12 @@ class PrimBox(Shape):
         return f"PrimBox({self.name})"
 
 
+@dataclass
+class BoxSides:
+    front: List[tuple, tuple]
+    parent: PrimBox
+
+
 class PrimCyl(Shape):
     def __init__(self, name, p1, p2, r, **kwargs):
         from ada.occ.utils import make_cylinder_from_points
@@ -448,6 +388,40 @@ class PrimCyl(Shape):
         self.p2 = np.array(p2)
         self.r = r
         super(PrimCyl, self).__init__(name, make_cylinder_from_points(p1, p2, r), **kwargs)
+
+    def generate_ifc_solid_geom(self, f):
+        from ada.core.constants import Z
+        from ada.ifc.utils import (
+            create_ifc_placement,
+            create_ifcextrudedareasolid,
+            to_real,
+        )
+
+        p1 = self.p1
+        p2 = self.p2
+        r = self.r
+
+        vec = np.array(p2) - np.array(p1)
+        uvec = unit_vector(vec)
+        vecdir = to_real(uvec)
+
+        cr_dir = np.array([0, 0, 1])
+
+        if vector_length(abs(uvec) - abs(cr_dir)) == 0.0:
+            cr_dir = np.array([1, 0, 0])
+
+        perp_dir = np.cross(uvec, cr_dir)
+
+        if vector_length(perp_dir) == 0.0:
+            raise ValueError("Perpendicular dir cannot be zero")
+
+        create_ifc_placement(f, to_real(p1), vecdir, to_real(perp_dir))
+
+        opening_axis_placement = create_ifc_placement(f, to_real(p1), vecdir, to_real(perp_dir))
+
+        depth = vector_length(vec)
+        profile = f.createIfcCircleProfileDef("AREA", self.name, None, r)
+        return create_ifcextrudedareasolid(f, profile, opening_axis_placement, Z, depth)
 
     @property
     def units(self):
@@ -513,6 +487,25 @@ class PrimExtrude(Shape):
     def extrude_depth(self):
         return self._extrude_depth
 
+    def generate_ifc_solid_geom(self, f):
+        from ada.core.constants import O, X, Z
+        from ada.ifc.utils import (
+            create_ifc_placement,
+            create_ifcextrudedareasolid,
+            create_ifcindexpolyline,
+        )
+
+        # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/link/annex-e.htm
+        # polyline = self.create_ifcpolyline(self.file, [p[:3] for p in points])
+        normal = self.poly.normal
+        h = self.extrude_depth
+        points = [tuple(x.astype(float).tolist()) for x in self.poly.seg_global_points]
+        seg_index = self.poly.seg_index
+        polyline = create_ifcindexpolyline(f, points, seg_index)
+        profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
+        opening_axis_placement = create_ifc_placement(f, O, Z, X)
+        return create_ifcextrudedareasolid(f, profile, opening_axis_placement, [float(n) for n in normal], h)
+
     def __repr__(self):
         return f"PrimExtrude({self.name})"
 
@@ -542,6 +535,34 @@ class PrimRevolve(Shape):
                 self._revolve_origin,
             ),
             **kwargs,
+        )
+
+    def generate_ifc_solid_geom(self, f):
+        from ada.core.constants import O, X, Z
+        from ada.ifc.utils import (
+            create_ifc_placement,
+            create_ifcindexpolyline,
+            create_ifcrevolveareasolid,
+        )
+
+        # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/link/annex-e.htm
+        # 8.8.3.28 IfcRevolvedAreaSolid
+
+        revolve_axis = [float(n) for n in self.revolve_axis]
+        revolve_origin = [float(x) for x in self.revolve_origin]
+        revolve_angle = self.revolve_angle
+        points = [tuple(x.astype(float).tolist()) for x in self.poly.seg_global_points]
+        seg_index = self.poly.seg_index
+        polyline = create_ifcindexpolyline(f, points, seg_index)
+        profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
+        opening_axis_placement = create_ifc_placement(f, O, Z, X)
+        return create_ifcrevolveareasolid(
+            f,
+            profile,
+            opening_axis_placement,
+            revolve_origin,
+            revolve_axis,
+            revolve_angle,
         )
 
     @property
@@ -606,6 +627,21 @@ class PrimSweep(Shape):
         from ada.occ.utils import sweep_geom
 
         return sweep_geom(self.sweep_curve.wire, self.profile_curve_outer.wire)
+
+    def generate_ifc_solid_geom(self, f):
+        from ada.core.constants import O, X, Z
+        from ada.ifc.utils import (
+            create_ifc_placement,
+            create_IfcFixedReferenceSweptAreaSolid,
+        )
+
+        sweep_curve = self.sweep_curve.get_ifc_elem()
+        profile = f.createIfcArbitraryClosedProfileDef("AREA", None, self.profile_curve_outer.get_ifc_elem())
+        ifc_xdir = f.createIfcDirection([float(x) for x in self.profile_curve_outer.xdir])
+        opening_axis_placement = create_ifc_placement(f, O, Z, X)
+        return create_IfcFixedReferenceSweptAreaSolid(
+            f, sweep_curve, profile, opening_axis_placement, None, None, ifc_xdir
+        )
 
     @property
     def units(self):

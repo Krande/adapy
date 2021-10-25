@@ -13,6 +13,8 @@ def test_surface_box():
     _ = a.fem.add_step(ada.fem.StepImplicit("MyStep"))
 
     # Add surfaces
+    box = a.get_by_name("MyBoxShape")
+    print(box)
     el = p.fem.elements[0]
     print(el)
     a.to_fem("MyFemBox", "abaqus", overwrite=True)

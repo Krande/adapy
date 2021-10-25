@@ -51,7 +51,8 @@ def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=Fals
     if len(physical_objects) == 0:
         return
 
-    f.createIfcRelContainedInSpatialStructure(
+    f.create_entity(
+        "IfcRelContainedInSpatialStructure",
         create_guid(),
         owner_history,
         "Physical model",

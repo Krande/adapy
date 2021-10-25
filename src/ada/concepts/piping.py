@@ -349,7 +349,7 @@ class PipeSegStraight(BackendGeom):
     def _generate_ifc_elem(self):
         from ada.core.constants import O, X, Z
         from ada.ifc.utils import (  # create_ifcrevolveareasolid,
-            create_global_axes,
+            create_ifc_placement,
             create_ifcpolyline,
             to_real,
         )
@@ -376,7 +376,7 @@ class PipeSegStraight(BackendGeom):
         yvec = unit_vector(np.cross(zvec, xvec))
         seg_l = vector_length(p2.p - p1.p)
 
-        extrusion_placement = create_global_axes(f, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+        extrusion_placement = create_ifc_placement(f, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
 
         solid = f.createIfcExtrudedAreaSolid(self.section.ifc_profile, extrusion_placement, ifcdir, seg_l)
 
@@ -527,11 +527,11 @@ class PipeSegElbow(BackendGeom):
         from ada.core.constants import O, X, Z
         from ada.core.curve_utils import get_center_from_3_points_and_radius
         from ada.core.utils import normal_to_points_in_plane
-        from ada.ifc.utils import create_global_axes
+        from ada.ifc.utils import create_ifc_placement
 
         center, _, _, _ = get_center_from_3_points_and_radius(self.p1.p, self.p2.p, self.p3.p, self.bend_radius)
 
-        opening_axis_placement = create_global_axes(f, O, Z, X)
+        opening_axis_placement = create_ifc_placement(f, O, Z, X)
 
         profile = self.section.ifc_profile
         normal = normal_to_points_in_plane([self.arc_seg.p1, self.arc_seg.p2, self.arc_seg.midpoint])

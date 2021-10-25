@@ -88,7 +88,7 @@ class BackendGeom(Backend):
             renderer.build_display()
 
             os.makedirs(_path.parent, exist_ok=True)
-            embed_minimal_html(_path, views=renderer._renderer, title="Pythreejs Viewer")
+            embed_minimal_html(_path, views=renderer.renderer, title="Pythreejs Viewer")
             start_server(addr, server_port, str(_path.parent), open_webbrowser)
 
     def get_render_snippet(self, view_size=None):
@@ -103,7 +103,7 @@ class BackendGeom(Backend):
         renderer.DisplayObj(self)
         renderer.build_display()
 
-        return embed_snippet(renderer._renderer)
+        return embed_snippet(renderer.renderer)
 
     @property
     def colour(self):
@@ -176,5 +176,5 @@ class BackendGeom(Backend):
         renderer.DisplayObj(self)
         renderer.build_display()
         self._renderer = renderer
-        display(HBox([VBox([HBox(renderer._controls), renderer._renderer]), renderer.html]))
+        display(HBox([VBox([HBox(renderer.controls), renderer.renderer]), renderer.html]))
         return ""

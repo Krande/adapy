@@ -110,7 +110,9 @@ class FemSection(FemBase):
         elif self.type == ElemType.SHELL:
             self._local_z = normal_to_points_in_plane([n.p for n in self.elset.members[0].nodes])
         else:
-            raise NotImplementedError("Local Z is not implemented for solid elements, yet.")
+            from ada.core.constants import Z
+
+            self._local_z = np.array(Z, dtype=float)
 
         return self._local_z
 
@@ -134,7 +136,7 @@ class FemSection(FemBase):
         elif self.type == ElemType.SHELL:
             vec = calc_yvec(self.local_x, self.local_z)
         else:
-            raise NotImplementedError("Local Y is not implemented for solid elements.")
+            vec = calc_yvec(self.local_x, self.local_z)
 
         self._local_y = np.where(abs(vec) == 0, 0, vec)
 
@@ -152,7 +154,9 @@ class FemSection(FemBase):
         elif self.type == ElemType.SHELL:
             vec = unit_vector(el.nodes[1].p - el.nodes[0].p)
         else:
-            raise ValueError(f"X-vector not defined for {self.type}")
+            from ada.core.constants import X
+
+            vec = np.array(X, dtype=float)
 
         self._local_x = np.round(np.where(abs(vec) == 0, 0, vec), 8)
 

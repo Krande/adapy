@@ -80,8 +80,9 @@ class User:
     org_description: str = None
     role: str = "Engineer"
     parent = None
+    ifc_elem = None
 
-    def to_ifc(self):
+    def _build_ifc_elem(self):
         from datetime import datetime
 
         from ada.ifc.utils import get_org, get_person
@@ -112,3 +113,8 @@ class User:
         timestamp = int(datetime.now().timestamp())
 
         return f.create_entity("IfcOwnerHistory", p_o, application, "READWRITE", None, None, None, None, timestamp)
+
+    def to_ifc(self):
+        if self.ifc_elem is None:
+            self.ifc_elem = self._build_ifc_elem()
+        return self.ifc_elem

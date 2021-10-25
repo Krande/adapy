@@ -7,7 +7,7 @@ from ada.materials.metals import CarbonSteel
 test_folder = Settings.test_dir / "beams"
 
 
-class BeamIO(unittest.TestCase):
+class BeamRoundtrip(unittest.TestCase):
     def setUp(self) -> None:
         # Rotational Relationships
         self.hp_sec = "HP200x10"

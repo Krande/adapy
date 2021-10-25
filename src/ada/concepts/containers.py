@@ -698,7 +698,7 @@ class Nodes:
         return self._nodes != other._nodes
 
     def __add__(self, other):
-        return Nodes(chain(self._nodes, other._nodes))
+        return Nodes(chain(self._nodes, other.nodes))
 
     def __repr__(self):
         return f"Nodes({len(self._nodes)}, min_id: {self.min_nid}, max_id: {self.max_nid})"

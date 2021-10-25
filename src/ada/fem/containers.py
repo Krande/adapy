@@ -55,7 +55,6 @@ class FemElements:
         self._group_by_types()
 
     def renumber(self, start_id=1):
-
         elid = Counter(start_id)
 
         def mapid2(el: Elem):

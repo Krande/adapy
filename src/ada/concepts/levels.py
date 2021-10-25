@@ -966,6 +966,7 @@ class Assembly(Part):
         fem_converter="default",
         exit_on_complete=True,
         run_in_shell=False,
+        make_zip_file=False,
     ):
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
@@ -997,6 +998,7 @@ class Assembly(Part):
         :param fem_converter: Set desired fem converter. Use either 'default' or 'meshio'.
         :param exit_on_complete:
         :param run_in_shell:
+        :param make_zip_file:
         :rtype: ada.fem.results.Results
 
             Note! Meshio implementation currently only supports reading & writing elements and nodes.
@@ -1035,6 +1037,10 @@ class Assembly(Part):
                 raise ValueError(f'FEM export for "{fem_format}" using "{fem_converter}" is currently not supported')
             fem_inp_files = default_fem_inp_path(name, scratch_dir)
             fem_exporter(self, name, analysis_dir, metadata)
+
+            if make_zip_file is True:
+                import shutil
+                shutil.make_archive(name, "zip", str(analysis_dir / name))
 
             if execute is True:
                 exe_func = fem_executables.get(fem_format, None)
