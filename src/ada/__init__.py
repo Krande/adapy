@@ -46,15 +46,16 @@ def from_fem(
     name: Union[str, list] = None,
     enable_experimental_cache=False,
     source_units="m",
+    fem_converter="default",
 ) -> Assembly:
     a = Assembly(enable_experimental_cache=enable_experimental_cache, units=source_units)
     if type(fem_file) in (str, pathlib.WindowsPath):
-        a.read_fem(fem_file, fem_format, name)
+        a.read_fem(fem_file, fem_format, name, fem_converter=fem_converter)
     elif type(fem_file) is list:
         for i, f in enumerate(fem_file):
             fem_format_in = fem_format if fem_format is None else fem_format[i]
             name_in = name if name is None else name[i]
-            a.read_fem(f, fem_format_in, name_in)
+            a.read_fem(f, fem_format_in, name_in, fem_converter=fem_converter)
     else:
         raise ValueError(f'fem_file must be either string or list. Passed type was "{type(fem_file)}"')
 

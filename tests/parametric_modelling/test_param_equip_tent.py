@@ -48,7 +48,7 @@ def test_simple_stru_with_equipment_to_ifc(simple_stru, eq_model_4legged):
 
 
 def test_simple_stru_with_equipment_to_fem(simple_stru, eq_model_4legged):
-    a = ada.Assembly() / simple_stru
+
     simple_stru.add_part(eq_model_4legged)
     simple_stru.move_all_mats_and_sec_here_from_subparts()
 
@@ -62,9 +62,10 @@ def test_simple_stru_with_equipment_to_fem(simple_stru, eq_model_4legged):
     step.add_load(Load("Grav", Load.TYPES.ACC, -9.81, dof=3))
 
     # Export to STEP,IFC and FEM
+    # a = ada.Assembly() / simple_stru
     # a.to_stp(test_dir / "simple_stru_with_equipments_before_fem")
     # a.to_ifc(test_dir / "simple_stru_with_equipments_before_fem", include_fem=False)
     # a.to_fem("MySimpleStruWEquip_ca", "code_aster", overwrite=True, execute=True)
-    a.to_fem("MySimpleStruWEquip_ufo", "usfos", overwrite=True)
-    a.to_fem("MySimpleStruWEquip_ses", "sesam", overwrite=True)
+    # a.to_fem("MySimpleStruWEquip_ufo", "usfos", overwrite=True)
+    # a.to_fem("MySimpleStruWEquip_ses", "sesam", overwrite=True)
     # a.to_ifc(test_dir / "simple_stru_with_equipments_after_fem", include_fem=True)

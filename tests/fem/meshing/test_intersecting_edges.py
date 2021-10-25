@@ -26,5 +26,5 @@ def test_edges_intersect():
 
     p.fem = p.to_fem_obj(0.1, interactive=False)
 
-    a.to_fem("MyIntersectingedge_ufo", "usfos", overwrite=True, scratch_dir=test_dir)
+    # a.to_fem("MyIntersectingedge_ufo", "usfos", overwrite=True, scratch_dir=test_dir)
     # a.to_ifc(test_dir / "IntersectingFEM", include_fem=False)
