@@ -1040,6 +1040,7 @@ class Assembly(Part):
 
             if make_zip_file is True:
                 import shutil
+
                 shutil.make_archive(name, "zip", str(analysis_dir / name))
 
             if execute is True:
