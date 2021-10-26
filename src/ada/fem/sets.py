@@ -27,8 +27,10 @@ class FemSet(FemBase):
 
     TYPES = SetTypes
 
-    def __init__(self, name, members, set_type, metadata=None, parent=None):
+    def __init__(self, name, members, set_type=None, metadata=None, parent=None):
         super().__init__(name, metadata, parent)
+        if set_type is None:
+            set_type = eval_set_type_from_members(members)
         self._set_type = set_type
         if self.type not in SetTypes.all:
             raise ValueError(f'set type "{set_type}" is not valid')
@@ -60,3 +62,14 @@ class FemSet(FemBase):
 
     def __repr__(self):
         return f'FemSet({self.name}, type: "{self.type}", members: "{len(self.members)}")'
+
+
+def eval_set_type_from_members(members: List[Union[Elem, Node]]):
+    res = set([type(mem) for mem in members])
+    if len(res) == 1 and type(members[0]) is Node:
+        return "nset"
+    elif len(res) == 1 and type(members[0]) is Elem:
+        return "elset"
+    else:
+        raise ValueError("Currently Mixed Femsets are not allowed")
+        # return "mixed"

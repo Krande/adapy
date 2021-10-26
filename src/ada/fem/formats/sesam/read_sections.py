@@ -320,11 +320,11 @@ def add_ecc_to_elem(elem: Elem, members, eccentricities, fix_data) -> None:
 
     # To the interpretation here
     start = 0 if fix_data != -1 else len(elem.nodes)
-    end = len(elem.nodes) if fix_data != -1 else 2 * len(elem.nodes)
+    end = len(elem.nodes) - 1 if fix_data != -1 else 2 * len(elem.nodes)
     end1: Union[None, EccPoint] = None
     end2: Union[None, EccPoint] = None
     for i, x in enumerate(members[start:]):
-        if i >= end:
+        if i > end:
             break
         if x == 0:
             continue

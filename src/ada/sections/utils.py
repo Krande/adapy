@@ -246,6 +246,44 @@ def interpret_section_str(in_str: str, s=0.001, units="m"):
         )
         return sec, tap
 
+    for tg in SectionCat.tprofiles:
+        res = re.search(
+            "({ig})({flex})({digit})x({digit})x({digit})x({digit})".format(ig=tg, flex=flex, digit=digit),
+            in_str,
+            re_in,
+        )
+        if res is None:
+            continue
+        h = [rdoff(float(x) * s) for x in res.group(2).split("/")]
+        wt = [rdoff(float(x) * s) for x in res.group(3).split("/")]
+        tw = [rdoff(float(x) * s) for x in res.group(4).split("/")]
+        tf = [rdoff(float(x) * s) for x in res.group(5).split("/")]
+        sec = Section(
+            in_str,
+            h=h[0],
+            sec_type=tg,
+            w_btn=wt[0],
+            w_top=tw[0],
+            t_fbtn=tf[0],
+            t_ftop=tf[0],
+            t_w=tw[0],
+            metadata=dict(cad_str=in_str),
+            units=units,
+        )
+        tap = Section(
+            in_str + "_e",
+            h=h[-1],
+            sec_type=tg,
+            w_btn=wt[-1],
+            w_top=tw[-1],
+            t_fbtn=tf[-1],
+            t_ftop=tf[-1],
+            t_w=tw[-1],
+            metadata=dict(cad_str=in_str),
+            units=units,
+        )
+        return sec, tap
+
     if "pipe" not in in_str.lower():
         for ipe in SectionCat.iprofiles:
             res = re.search("({ipe})({digit})".format(ipe=ipe, digit=digit), in_str, re_in)

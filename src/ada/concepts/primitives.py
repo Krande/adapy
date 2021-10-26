@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import pathlib
 from dataclasses import dataclass
-from typing import List, Tuple, Union
+from typing import Tuple, Union
 
 import numpy as np
 
@@ -319,11 +319,14 @@ class PrimSphere(Shape):
 
 
 class PrimBox(Shape):
+    """Primitive Box. Length, width & height are local x, y and z respectively"""
+
     def __init__(self, name, p1, p2, colour=None, opacity=1.0, metadata=None, units="m"):
         from ada.occ.utils import make_box_by_points
 
         self.p1 = p1
         self.p2 = p2
+        self._sides = BoxSides(self)
         super(PrimBox, self).__init__(
             name=name,
             geom=make_box_by_points(p1, p2),
@@ -356,6 +359,10 @@ class PrimBox(Shape):
         return create_ifcextrudedareasolid(f, profile, opening_axis_placement, (0.0, 0.0, 1.0), depth)
 
     @property
+    def sides(self) -> BoxSides:
+        return self._sides
+
+    @property
     def units(self):
         return self._units
 
@@ -377,8 +384,21 @@ class PrimBox(Shape):
 
 @dataclass
 class BoxSides:
-    front: List[tuple, tuple]
     parent: PrimBox
+
+    def front(self, tol=1e-3):
+        """Front is at positive local y"""
+        box = self.parent
+        p1 = np.array(box.p1)
+        p2 = np.array(box.p2)
+        y = box.placement.ydir
+
+        l, w, h = p2 - p1
+
+        pmin = p1 + l * y - tol
+        pmax = p2 + tol
+
+        return pmin, pmax
 
 
 class PrimCyl(Shape):

@@ -541,12 +541,13 @@ class AbaSection:
             return f"{sec.r}\n {n1}"
         elif sec_data == "I":
             if sec.t_fbtn + sec.t_w > min(sec.w_top, sec.w_btn):
-                new_width = sec.t_fbtn + sec.t_w + 5e-3
-                if sec.w_btn == min(sec.w_top, sec.w_btn):
-                    sec.w_btn = new_width
-                else:
-                    sec.w_top = new_width
-                logging.error(f"For {self.fem_sec.name}: t_fbtn + t_w > min(w_top, w_btn). {log_fin}")
+                # TODO: Evaluate why this was here
+                # new_width = sec.t_fbtn + sec.t_w + 5e-3
+                # if sec.w_btn == min(sec.w_top, sec.w_btn):
+                #     sec.w_btn = new_width
+                # else:
+                #     sec.w_top = new_width
+                logging.info(f"For {self.fem_sec.name}: t_fbtn + t_w > min(w_top, w_btn). {log_fin}")
             return f"{sec.h / 2}, {sec.h}, {sec.w_btn}, {sec.w_top}, {sec.t_fbtn}, {sec.t_ftop}, {sec.t_w}\n {n1}"
         elif sec_data == "BOX":
             if sec.t_w * 2 > min(sec.w_top, sec.w_btn):

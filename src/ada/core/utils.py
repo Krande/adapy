@@ -281,18 +281,8 @@ def is_point_on_line(a, b, p):
     return result
 
 
-def is_parallel(ab, cd, tol=0.0001):
-    """
-    Check if vectors AB and CD are parallel
-
-    :param ab: Vector AB
-    :type ab: np.array
-    :param cd: Vector CD
-    :type cd: np.array
-    :param tol: Alignment tolerance
-    :return: True or False
-    :rtype: bool
-    """
+def is_parallel(ab: np.array, cd: np.array, tol=0.0001) -> bool:
+    """Check if vectors AB and CD are parallel"""
     return True if np.abs(np.sin(angle_between(ab, cd))) < tol else False
 
 
@@ -594,14 +584,14 @@ def normal_to_points_in_plane(points):
     # the cross product is a vector normal to the plane
 
     n = np.array([x if abs(x) != 0.0 else 0.0 for x in list(np.cross(v1, v2))])
-    if n[2] < 0.0:
-        n *= -1
-
-    if n[2] == 0 and n[1] == -1:
-        n *= -1
-
-    if n[2] == 0 and n[0] == -1:
-        n *= -1
+    # if n[2] < 0.0:
+    #     n *= -1
+    #
+    # if n[2] == 0 and n[1] == -1:
+    #     n *= -1
+    #
+    # if n[2] == 0 and n[0] == -1:
+    #     n *= -1
 
     if n.any() == 0.0:
         raise ValueError("Error in calculating plate normal")
