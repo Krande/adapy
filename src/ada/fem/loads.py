@@ -5,6 +5,7 @@ import numpy as np
 
 from .common import Amplitude, Csys, FemBase
 from .constants import GRAVITY
+from .exceptions.model_definition import UnsupportedLoadType
 from .sets import FemSet
 from .surfaces import Surface
 
@@ -55,7 +56,7 @@ class Load(FemBase):
         parent=None,
     ):
         super().__init__(name, metadata, parent)
-        self.type = load_type
+        self._type = load_type
         self._magnitude = magnitude
         self._fem_set = fem_set
 
@@ -90,7 +91,7 @@ class Load(FemBase):
     @type.setter
     def type(self, value):
         if value.lower() not in LoadTypes.all:
-            raise ValueError(f'Load type "{value}" is not yet supported or does not exist. Must be "{LoadTypes.all}"')
+            raise UnsupportedLoadType(f'Load type "{value}" is not among supported load types: "{LoadTypes.all}"')
         self._type = value
 
     @property
@@ -190,14 +191,26 @@ class Load(FemBase):
         return f"Load({self.name}, {self.type}, [{forc_str}])"
 
 
+class PressureDistribution:
+    UNIFORM = "uniform"
+    TOTAL_FORCE = "total_force"
+
+
 class LoadPressure(Load):
-    def __init__(self, name: str, magnitude: float, surface):
+    P_DIST_TYPES = PressureDistribution
+
+    def __init__(self, name: str, magnitude: float, surface: Surface, distribution=P_DIST_TYPES.UNIFORM):
         super(LoadPressure, self).__init__(name, LoadTypes.PRESSURE, magnitude)
         self._surface = surface
+        self._distribution = distribution
 
     @property
     def surface(self) -> Surface:
         return self._surface
+
+    @property
+    def distribution(self) -> str:
+        return self._distribution
 
 
 class LoadCase(FemBase):

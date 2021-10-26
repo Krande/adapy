@@ -1500,6 +1500,11 @@ class FEM:
         )
         return elem
 
+    def is_empty(self) -> bool:
+        if len(self.nodes) == 0 and len(self.elements) == 0:
+            return True
+        return False
+
     @property
     def instance_name(self):
         return self.name if self.name is not None else f"{self.parent.name}-1"

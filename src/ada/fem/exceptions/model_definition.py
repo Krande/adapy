@@ -4,3 +4,7 @@ class NoBoundaryConditionsApplied(Exception):
 
 class NoLoadsApplied(Exception):
     pass
+
+
+class UnsupportedLoadType(Exception):
+    pass

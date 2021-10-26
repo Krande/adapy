@@ -8,15 +8,15 @@ from ada.concepts.levels import Assembly, Part
 from ada.concepts.points import Node
 from ada.concepts.structural import Material
 from ada.config import Settings as _Settings
-from ada.fem import Bc, FemSection, Load, StepEigen, StepImplicit
+from ada.fem import Bc, FemSection, StepEigen, StepImplicit
 from ada.fem.containers import FemSections
 from ada.fem.shapes import ElemShapeTypes
 from ada.fem.utils import is_quad8_shell_elem, is_tri6_shell_elem
-
-from ..utils import get_fem_model_from_assembly
 from .common import abaqus_to_med_type
 from .compatibility import check_compatibility
 from .templates import el_convert_str, main_comm_str
+from .write_loads import write_load
+from ..utils import get_fem_model_from_assembly
 
 
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
@@ -312,20 +312,6 @@ def create_bc_str(bc: Bc) -> str:
     MODELE=model, DDL_IMPO=_F(**dofs)
 )"""
     )
-
-
-def write_load(load: Load) -> str:
-    if load.type == Load.TYPES.GRAVITY:
-        return f"""{load.name} = AFFE_CHAR_MECA(
-    MODELE=model, PESANTEUR=_F(DIRECTION=(0.0, 0.0, 1.0), GRAVITE={-load.magnitude})
-)"""
-    elif load.type == Load.TYPES.ACC:
-        acc_dir_str = f"({','.join(load.acc_vector)})"
-        return f"""{load.name} = AFFE_CHAR_MECA(
-    MODELE=model, PESANTEUR=_F(DIRECTION={acc_dir_str}, GRAVITE={load.magnitude})
-)"""
-    else:
-        raise NotImplementedError(f'Load type "{load.type}"')
 
 
 def step_static_str(step: StepImplicit, part: Part) -> str:

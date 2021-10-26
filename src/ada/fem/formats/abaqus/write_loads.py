@@ -1,4 +1,5 @@
-from ada.fem import Load
+from ada.fem import Load, LoadPressure
+from ada.fem.exceptions.model_definition import UnsupportedLoadType
 
 
 def load_str(load: Load) -> str:
@@ -6,6 +7,7 @@ def load_str(load: Load) -> str:
         Load.TYPES.GRAVITY: acceleration_field_str,
         Load.TYPES.ACC: acceleration_field_str,
         Load.TYPES.FORCE: force_load_str,
+        Load.TYPES.PRESSURE: pressure_load_str,
     }
     load_str_func = load_map.get(load.type, None)
 
@@ -54,3 +56,16 @@ def force_load_str(load: Load) -> str:
         mom_name = load.name + "_M"
         lstr += f"** Name: {mom_name}   Type: Moment\n*Cload{follower_str}\n{bc_text_m}"
     return lstr.strip()
+
+
+def pressure_load_str(load: LoadPressure) -> str:
+    from .writer import get_instance_name
+
+    instance_name = get_instance_name(load.surface, Load)
+
+    if load.distribution == LoadPressure.P_DIST_TYPES.TOTAL_FORCE:
+        raise UnsupportedLoadType("Total Force calculation is not yet supported for Abaqus")
+
+    return f"""** Name: {load.name}   Type: Pressure
+*Dsload
+{instance_name}, P, {load.magnitude}"""

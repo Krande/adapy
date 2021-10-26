@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import pathlib
 from dataclasses import dataclass
-from typing import Tuple, Union
+from typing import List, Tuple, Union
 
 import numpy as np
 
@@ -14,6 +14,7 @@ from ada.materials import Material
 from ada.materials.utils import get_material
 
 from .curves import CurvePoly
+from .points import Node
 from .transforms import Placement
 
 
@@ -386,7 +387,30 @@ class PrimBox(Shape):
 class BoxSides:
     parent: PrimBox
 
-    def front(self, tol=1e-3):
+    def _return_fem_nodes(self, pmin, pmax, fem=None):
+        if fem is None and self.parent is not None and self.parent.parent.fem.is_empty() is False:
+            fem = self.parent.parent.fem
+
+        return fem.nodes.get_by_volume(p=pmin, vol_box=pmax)
+
+    def bottom(self, tol=1e-3, return_fem_nodes=False, fem=None):
+        """Front is at positive local y"""
+        box = self.parent
+        p1 = np.array(box.p1)
+        p2 = np.array(box.p2)
+        z = box.placement.zdir
+
+        l, w, h = p2 - p1
+
+        pmin = p1 - tol
+        pmax = p2 - l * z + tol
+
+        if return_fem_nodes is True:
+            return self._return_fem_nodes(pmin, pmax, fem)
+
+        return pmin, pmax
+
+    def front(self, tol=1e-3, return_fem_nodes=False, fem=None) -> Union[Tuple[tuple, tuple], List[Node]]:
         """Front is at positive local y"""
         box = self.parent
         p1 = np.array(box.p1)
@@ -397,6 +421,9 @@ class BoxSides:
 
         pmin = p1 + l * y - tol
         pmax = p2 + tol
+
+        if return_fem_nodes is True:
+            return self._return_fem_nodes(pmin, pmax, fem)
 
         return pmin, pmax
 
