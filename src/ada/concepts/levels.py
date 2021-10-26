@@ -1041,7 +1041,7 @@ class Assembly(Part):
             if make_zip_file is True:
                 import shutil
 
-                shutil.make_archive(name, "zip", str(analysis_dir / name))
+                shutil.make_archive(name, "zip", str(analysis_dir))
 
             if execute is True:
                 exe_func = fem_executables.get(fem_format, None)
