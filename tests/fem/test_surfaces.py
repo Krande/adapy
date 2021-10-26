@@ -26,7 +26,7 @@ def test_surface_box():
     for n in front_nodes:
         for el in n.refs:
             has_parallel_face = False
-            for i, nid_refs in enumerate(el.shape.faces_seq):
+            for i, nid_refs in enumerate(el.shape.faces_seq, start=1):
                 all_face_nodes_in_plane = True
                 for nid in nid_refs:
                     no = el.nodes[nid]
@@ -39,22 +39,19 @@ def test_surface_box():
             if has_parallel_face is True:
                 if el not in elements:
                     elements.append(el)
-    # el_sets: List[ada.fem.FemSet] = []
-    # for el, face_seq_ref in face_seq_indices.items():
-    #     side_name = f"S{face_seq_ref}"
+
+    for el, face_seq_ref in face_seq_indices.items():
+        side_name = f"S{face_seq_ref}"
+        fs_elem_1 = p.fem.add_set(ada.fem.FemSet(f"_FrontElements_{side_name}", [el]))
+        surface = p.fem.add_surface(
+            ada.fem.Surface(
+                f"FrontSurfaceElem_{side_name}", ada.fem.Surface.TYPES.ELEMENT, fs_elem_1, face_id_label=side_name
+            )
+        )
+        step.add_load(ada.fem.LoadPressure("MyPressureLoad", 200, surface))
     #
-    #     el_sets.append(fs_elem)
+    # tetra: [(0, 1, 2), (0, 3, 2), (0, 1, 3), (1, 3, 2)]
 
-    fs_elem_1 = p.fem.add_set(ada.fem.FemSet("_FrontElements_S1", [elements[0]]))
-    fs_elem_2 = p.fem.add_set(ada.fem.FemSet("_FrontElements_S2", [elements[1]]))
-
-    surface = p.fem.add_surface(
-        ada.fem.Surface("FrontSurfaceElem_1", ada.fem.Surface.TYPES.ELEMENT, fs_elem_1, face_id_label="S2")
-    )
-    surface = p.fem.add_surface(
-        ada.fem.Surface("FrontSurfaceElem_2", ada.fem.Surface.TYPES.ELEMENT, fs_elem_2, face_id_label="S4")
-    )
-    step.add_load(ada.fem.LoadPressure("MyPressureLoad", 200, surface))
     print(box)
     el = p.fem.elements[0]
     print(el)
