@@ -27,7 +27,7 @@ class FemSet(FemBase):
 
     TYPES = SetTypes
 
-    def __init__(self, name, members, set_type=None, metadata=None, parent=None):
+    def __init__(self, name, members: Union[None, List[Union[Elem, Node]]], set_type=None, metadata=None, parent=None):
         super().__init__(name, metadata, parent)
         if set_type is None:
             set_type = eval_set_type_from_members(members)

@@ -12,11 +12,12 @@ from ada.fem import Bc, FemSection, StepEigen, StepImplicit
 from ada.fem.containers import FemSections
 from ada.fem.shapes import ElemShapeTypes
 from ada.fem.utils import is_quad8_shell_elem, is_tri6_shell_elem
+
+from ..utils import get_fem_model_from_assembly
 from .common import abaqus_to_med_type
 from .compatibility import check_compatibility
 from .templates import el_convert_str, main_comm_str
 from .write_loads import write_load
-from ..utils import get_fem_model_from_assembly
 
 
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):

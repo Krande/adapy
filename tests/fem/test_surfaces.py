@@ -37,16 +37,22 @@ def test_surface_box():
                     face_seq_indices[el] = i
 
             if has_parallel_face is True:
-                elements.append(el)
+                if el not in elements:
+                    elements.append(el)
     # el_sets: List[ada.fem.FemSet] = []
     # for el, face_seq_ref in face_seq_indices.items():
     #     side_name = f"S{face_seq_ref}"
     #
     #     el_sets.append(fs_elem)
 
-    fs_elem = p.fem.add_set(ada.fem.FemSet("FrontElements", elements))
+    fs_elem_1 = p.fem.add_set(ada.fem.FemSet("_FrontElements_S1", [elements[0]]))
+    fs_elem_2 = p.fem.add_set(ada.fem.FemSet("_FrontElements_S2", [elements[1]]))
+
     surface = p.fem.add_surface(
-        ada.fem.Surface("FrontSurfaceElem", ada.fem.Surface.TYPES.ELEMENT, fs_elem, face_id_label="S2")
+        ada.fem.Surface("FrontSurfaceElem_1", ada.fem.Surface.TYPES.ELEMENT, fs_elem_1, face_id_label="S2")
+    )
+    surface = p.fem.add_surface(
+        ada.fem.Surface("FrontSurfaceElem_2", ada.fem.Surface.TYPES.ELEMENT, fs_elem_2, face_id_label="S4")
     )
     step.add_load(ada.fem.LoadPressure("MyPressureLoad", 200, surface))
     print(box)
@@ -56,4 +62,3 @@ def test_surface_box():
     a.to_fem("MyFemBox_ca", "code_aster", overwrite=True)
 
     # TODO: Specify surfaces on elements on the East and North side of this box and assign pressure and surface traction
-    #   (or shear if you will)
