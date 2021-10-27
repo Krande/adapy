@@ -124,6 +124,7 @@ def add_general_sections(match, fem) -> None:
         Sy=float(d["sy"]),
         Sz=float(d["sz"]),
     )
+
     if sec_id in fem.parent.sections.id_map.keys():
         sec = fem.parent.sections.get_by_id(sec_id)
         sec._genprops = gen_props

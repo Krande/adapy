@@ -17,6 +17,7 @@ from ada.materials import Material
 from ada.sections import Section
 
 from .elements import Elem, FemSection, MassTypes
+from .exceptions.model_definition import FemSetNameExists
 from .sets import FemSet, SetTypes
 from .shapes import ElemShapeTypes, ElemType
 
@@ -375,6 +376,7 @@ class FemSections:
         """:type fem_obj: ada.FEM"""
         self._fem_obj = fem_obj
         self._sections = list(sections) if sections is not None else []
+
         by_types = self._groupby()
         self._lines = by_types["lines"]
         self._shells = by_types["shells"]
@@ -417,10 +419,12 @@ class FemSections:
                 for el in fs.elset.members:
                     if el == el_o:
                         continue
-                    if el.fem_sec != fs_o and el.fem_sec not in remove_fs:
+                    are_equal = el.fem_sec == fs_o
+                    if are_equal is False and el.fem_sec not in remove_fs:
                         remove_fs.append(el.fem_sec)
                     el.fem_sec = fs_o
                     fs_o.elset.add_members([el])
+
         self.remove(remove_fs)
 
     def _map_materials(self, fem_sec: FemSection, mat_repo: Materials):
@@ -481,7 +485,7 @@ class FemSections:
         self._fem_obj = value
 
     @property
-    def sections(self) -> Iterable[FemSection]:
+    def sections(self) -> List[FemSection]:
         return self._sections
 
     @property
@@ -728,7 +732,7 @@ class FemSets:
         else:
             if fe_set.name in self._elmap.keys():
                 if append_suffix_on_exist is False:
-                    raise ValueError("An elements set with the same name already exists")
+                    raise FemSetNameExists(fe_set.name)
                 if fe_set.name not in self._same_names.keys():
                     self._same_names[fe_set.name] = 1
                 else:

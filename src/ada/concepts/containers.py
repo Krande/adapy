@@ -109,6 +109,7 @@ class Beams(BaseCollections):
             raise Exception("Name is not allowed to be None.")
 
         if beam.name in self._dmap.keys():
+            logging.warning(f'Beam with name "{beam.name}" already exists. Will not add')
             return self._dmap[beam.name]
         self._dmap[beam.name] = beam
         self._beams.append(beam)

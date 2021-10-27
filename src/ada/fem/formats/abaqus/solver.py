@@ -1,8 +1,5 @@
 from dataclasses import dataclass
 
-from ada.fem.formats import FEATypes
-from ada.fem.steps import SolverOptions
-
 
 class StabilizeTypes:
     ENERGY = "energy"
@@ -34,7 +31,7 @@ class Stabilize:
 
 
 @dataclass
-class SolverOptionsAbaqus(SolverOptions):
+class SolverOptionsAbaqus:
 
     init_accel_calc: bool = True
     restart_int: int = None
@@ -47,6 +44,3 @@ class SolverOptionsAbaqus(SolverOptions):
     :param unsymm: Unsymmetric Matrix storage (default=False)
     :param stabilize: Default=None.
     """
-
-    def __post_init__(self):
-        self.solver = FEATypes.ABAQUS

@@ -190,16 +190,18 @@ class FemSection(FemBase):
     def refs(self) -> List[Union[Beam, Plate]]:
         return self._refs
 
-    def unique_fem_section_permutation(self) -> Tuple[Material, Section, tuple, tuple, float]:
+    def unique_fem_section_permutation(self) -> Tuple[int, Material, Section, tuple, tuple, float]:
         if self.type == self.SEC_TYPES.LINE:
-            return self.material, self.section, tuple(self.local_x), tuple(self.local_z), self.thickness
+            return self.id, self.material, self.section, tuple(self.local_x), tuple(self.local_z), self.thickness
         elif self.type == self.SEC_TYPES.SHELL:
-            return self.material, self.section, (None,), tuple(self.local_z), self.thickness
+            return self.id, self.material, self.section, (None,), tuple(self.local_z), self.thickness
         else:
-            return self.material, self.section, (None,), tuple(self.local_z), 0.0
+            return self.id, self.material, self.section, (None,), tuple(self.local_z), 0.0
 
     def __eq__(self, other: FemSection):
-        return self.unique_fem_section_permutation() == other.unique_fem_section_permutation()
+        self_perm = self.unique_fem_section_permutation()
+        other_perm = other.unique_fem_section_permutation()
+        return self_perm == other_perm
 
     def __repr__(self):
         return (

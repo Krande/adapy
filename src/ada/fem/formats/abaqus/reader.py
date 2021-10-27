@@ -705,7 +705,7 @@ def get_surfaces_from_bulk(bulk_str, parent):
         if id_refs is None:
             if surf_type == SurfTypes.NODE:
                 if set_id_ref == "":
-                    fem_set = FemSet(f"n{set_ref}_set", [int(set_ref)], "nset")
+                    fem_set = FemSet(f"n{set_ref}_set", [parent.nodes.from_id(int(set_ref))], "nset")
                     parent.add_set(fem_set)
                     weight_factor = 1.0
                 else:
@@ -723,21 +723,22 @@ def get_surfaces_from_bulk(bulk_str, parent):
                     else:
                         fem_set = parent.nsets[set_ref]
                     weight_factor = float(set_id_ref)
-                face_id_label = None
+                el_face_index = None
             else:
                 weight_factor = None
-                face_id_label = set_id_ref
+                el_face_index = int(set_id_ref.replace("S", "")) - 1
                 fem_set = parent.sets.get_elset_from_name(set_ref)
         else:
             fem_set = None
             weight_factor = None
-            face_id_label = None
+            el_face_index = None
+
         surf_d[name] = Surface(
             name,
             surf_type,
             fem_set,
             weight_factor,
-            face_id_label,
+            el_face_index,
             id_refs,
             parent=parent,
         )
@@ -812,7 +813,7 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM):
         rn = d["ref_node"].strip()
         sf = d["surface"].strip()
         if rn.isnumeric():
-            ref_set = FemSet(next(conames), [int(rn)], FemSet.TYPES.NSET, parent=fem)
+            ref_set = FemSet(next(conames), [fem.nodes.from_id(int(rn))], FemSet.TYPES.NSET, parent=fem)
             fem.sets.add(ref_set)
         else:
             ref_set = fem.nsets[rn]

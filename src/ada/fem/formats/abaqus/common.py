@@ -1,16 +1,15 @@
 import re
+from typing import Union
+
+from ada.concepts.levels import FEM, Assembly
+from ada.concepts.points import Node
 
 
 class AbaFF:
-    """
-    Abaqus Fortran Flags. A class designed to aid in building regex searched
-    for Abaqus flags.
-
-    """
+    """Abaqus Fortran Flags. A class designed to aid in building regex searched for Abaqus flags."""
 
     def __init__(self, flag, args, subflags=None, nameprop=None):
         """
-
         :param flag: Main flag. *<FLAG>
         :param args: arguments. Tuple of arguments
         :param subflags:
@@ -152,3 +151,22 @@ class AbaCards:
             ("v1", "v2"),
         ],
     )
+
+
+def get_instance_name(obj, written_on_assembly_level: bool) -> str:
+    from ada import Part
+
+    parent: Union[FEM, Part] = obj.parent
+    p = parent.parent if parent is FEM else parent
+
+    obj_ref = obj.id if type(obj) is Node else obj.name
+
+    if type(p) is Assembly:
+        obj_on_assembly_level = True
+    else:
+        obj_on_assembly_level = False
+
+    if written_on_assembly_level is True and obj_on_assembly_level is False:
+        return f"{obj.parent.instance_name}.{obj_ref}"
+    else:
+        return str(obj_ref)

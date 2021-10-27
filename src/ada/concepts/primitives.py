@@ -391,41 +391,70 @@ class BoxSides:
         if fem is None and self.parent is not None and self.parent.parent.fem.is_empty() is False:
             fem = self.parent.parent.fem
 
+        if fem is None:
+            raise ValueError("No FEM data found. Cannot return FEM nodes")
+
         return fem.nodes.get_by_volume(p=pmin, vol_box=pmax)
 
-    def bottom(self, tol=1e-3, return_fem_nodes=False, fem=None):
-        """Front is at positive local y"""
+    def _return_data(self, pmin, pmax, fem, return_fem_nodes) -> Union[Tuple[tuple, tuple], List[Node]]:
+        if return_fem_nodes is True:
+            return self._return_fem_nodes(pmin, pmax, fem)
+
+        return pmin, pmax
+
+    def _return_surface(self):
+        pass
+
+    def _get_dim(self):
         box = self.parent
         p1 = np.array(box.p1)
         p2 = np.array(box.p2)
-        z = box.placement.zdir
-
         l, w, h = p2 - p1
+        return l, w, h, p1, p2
+
+    def top(self, tol=1e-3, return_fem_nodes=False, fem=None):
+        """Top is at positive local Z"""
+        l, w, h, p1, p2 = self._get_dim()
+
+        z = self.parent.placement.zdir
+
+        pmin = p1 + l * z - tol
+        pmax = p2 + tol
+
+        return self._return_data(pmin, pmax, fem, return_fem_nodes)
+
+    def bottom(self, tol=1e-3, return_fem_nodes=False, fem=None):
+        """Bottom is at negative local z"""
+        l, w, h, p1, p2 = self._get_dim()
+
+        z = self.parent.placement.zdir
 
         pmin = p1 - tol
         pmax = p2 - l * z + tol
 
-        if return_fem_nodes is True:
-            return self._return_fem_nodes(pmin, pmax, fem)
+        return self._return_data(pmin, pmax, fem, return_fem_nodes)
 
-        return pmin, pmax
-
-    def front(self, tol=1e-3, return_fem_nodes=False, fem=None) -> Union[Tuple[tuple, tuple], List[Node]]:
+    def front(self, tol=1e-3, return_fem_nodes=False, fem=None):
         """Front is at positive local y"""
-        box = self.parent
-        p1 = np.array(box.p1)
-        p2 = np.array(box.p2)
-        y = box.placement.ydir
+        l, w, h, p1, p2 = self._get_dim()
 
-        l, w, h = p2 - p1
+        y = self.parent.placement.ydir
 
         pmin = p1 + l * y - tol
         pmax = p2 + tol
 
-        if return_fem_nodes is True:
-            return self._return_fem_nodes(pmin, pmax, fem)
+        return self._return_data(pmin, pmax, fem, return_fem_nodes)
 
-        return pmin, pmax
+    def back(self, tol=1e-3, return_fem_nodes=False, fem=None):
+        """Back is at negative local y"""
+        l, w, h, p1, p2 = self._get_dim()
+
+        y = self.parent.placement.ydir
+
+        pmin = p1 - tol
+        pmax = p2 - l * y + tol
+
+        return self._return_data(pmin, pmax, fem, return_fem_nodes)
 
 
 class PrimCyl(Shape):

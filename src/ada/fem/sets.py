@@ -31,6 +31,7 @@ class FemSet(FemBase):
         super().__init__(name, metadata, parent)
         if set_type is None:
             set_type = eval_set_type_from_members(members)
+
         self._set_type = set_type
         if self.type not in SetTypes.all:
             raise ValueError(f'set type "{set_type}" is not valid')

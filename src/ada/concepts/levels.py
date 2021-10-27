@@ -936,7 +936,7 @@ class Assembly(Part):
 
         Note! The meshio fem converter implementation currently only supports reading elements and nodes.
         """
-        from ada.fem.formats import get_fem_converters
+        from ada.fem.formats.general import get_fem_converters
 
         fem_file = pathlib.Path(fem_file)
         if fem_file.exists() is False:
@@ -1012,7 +1012,7 @@ class Assembly(Part):
             If this proves to create issues regarding performance this should be evaluated further.
 
         """
-        from ada.fem.formats import fem_executables, get_fem_converters
+        from ada.fem.formats.general import fem_executables, get_fem_converters
         from ada.fem.formats.utils import (
             default_fem_inp_path,
             default_fem_res_path,
@@ -1310,6 +1310,9 @@ class FEM:
         self.elements.parent = self
         self.sets.parent = self
         self.sections.parent = self
+        from ada.fem.options import FemOptions
+
+        self._options = FemOptions()
 
     def add_elem(self, elem: Elem) -> Elem:
         elem.parent = self
@@ -1486,7 +1489,7 @@ class FEM:
 
         elem = Elem(None, [obj.n1, obj.n2], el_type)
         self.add_elem(elem)
-        femset = FemSet(f"{obj.name}_set", [elem.id], "elset")
+        femset = FemSet(f"{obj.name}_set", [elem], "elset")
         self.add_set(femset)
         self.add_section(
             FemSection(
@@ -1516,6 +1519,10 @@ class FEM:
     @property
     def elsets(self):
         return self.sets.elements
+
+    @property
+    def options(self):
+        return self._options
 
     def __add__(self, other: FEM):
         # Nodes

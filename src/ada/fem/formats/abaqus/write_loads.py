@@ -31,7 +31,7 @@ def force_load_str(load: Load) -> str:
     bc_text_m = ""
 
     fo = 0
-    instance_name = get_instance_name(load.fem_set, Load)
+    instance_name = get_instance_name(load.fem_set, True)
     for i, f in enumerate(load.dof[:3]):
         if f == 0.0 or f is None:
             continue
@@ -61,7 +61,7 @@ def force_load_str(load: Load) -> str:
 def pressure_load_str(load: LoadPressure) -> str:
     from .writer import get_instance_name
 
-    instance_name = get_instance_name(load.surface, Load)
+    instance_name = get_instance_name(load.surface, True)
 
     if load.distribution == LoadPressure.P_DIST_TYPES.TOTAL_FORCE:
         raise UnsupportedLoadType("Total Force calculation is not yet supported for Abaqus")
