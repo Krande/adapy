@@ -197,9 +197,10 @@ For installation files of open source FEM software such as Calculix and Code Ast
 * https://code-aster-windows.com/download/ (Code Aster for Windows Salome Meca v9.3.0)
 * https://www.code-aster.org/spip.php?rubrique21 (Code Aster for Linux)
 * https://salome-platform.org/downloads/current-version (Salome v9.6.0 for windows/linux)
+* https://prepomax.fs.um.si/downloads/ (PreProMax -> Calculix preprocessor)
 
 ## Alternative Installation methods
-If you rather\must want to use pip you can do:
+If you have to use pip you can do:
 
 ```
 pip install ada-py gmsh

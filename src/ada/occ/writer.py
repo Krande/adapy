@@ -48,15 +48,15 @@ class StepExporter:
         elif type(obj) is Pipe:
             self.export_piping(obj, geom_repr, fuse_piping)
         elif type(obj) in (Part, Assembly):
-            for obj in obj.get_all_physical_objects():
-                if type(obj) in (Plate, Beam, Wall):
-                    self.export_structural(obj, geom_repr)
-                elif type(obj) in (Pipe,):
-                    self.export_piping(obj, geom_repr, fuse_piping)
-                elif type(obj) is Shape:
-                    self.add_geom(obj.geom, obj)
+            for sub_obj in obj.get_all_physical_objects():
+                if type(sub_obj) in (Plate, Beam, Wall):
+                    self.export_structural(sub_obj, geom_repr)
+                elif type(sub_obj) in (Pipe,):
+                    self.export_piping(sub_obj, geom_repr, fuse_piping)
+                elif issubclass(type(sub_obj), Shape):
+                    self.add_geom(sub_obj.geom, sub_obj)
                 else:
-                    raise ValueError("Unkown Geometry type")
+                    raise ValueError("Unknown Geometry type")
 
     def write_to_file(self, destination_file, silent):
         destination_file = pathlib.Path(destination_file).with_suffix(".stp")
@@ -69,8 +69,18 @@ class StepExporter:
             print(f'step file created at "{destination_file}"')
 
     def add_geom(self, geom, obj):
+        from ada.concepts.transforms import Placement
+        from ada.core.utils import vector_length
+
+        from .utils import transform_shape
+
         name = obj.name if obj.name is not None else next(shp_names)
         Interface_Static_SetCVal("write.step.product.name", name)
+
+        # Transform geometry
+        res = obj.placement.absolute_placement()
+        if vector_length(res - Placement().origin) > 0:
+            geom = transform_shape(geom, transform=tuple(res))
 
         try:
             stat = self.writer.Transfer(geom, STEPControl_AsIs)

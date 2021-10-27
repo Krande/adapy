@@ -124,8 +124,15 @@ class Results:
         self._eigen_mode_data = value
 
     def _repr_html_(self):
+
         if self.result_mesh.renderer is None:
-            self.result_mesh.build_renderer()
+            res = self.result_mesh.build_renderer()
+        else:
+            res = True
+
+        if res is False:
+            return
+
         p3s_renderer = self.result_mesh.renderer
         display(HBox([VBox([HBox(p3s_renderer.controls), p3s_renderer.renderer]), p3s_renderer.html]))
 
@@ -168,8 +175,10 @@ class ResultsMesh:
         for n in mesh.cell_data.keys():
             self.cell_data.append(n)
 
-    def build_renderer(self):
+    def build_renderer(self) -> bool:
         self.renderer = MyRenderer()
+        if len(self.point_data) == 0:
+            return False
         if self.fem_format == FEATypes.CODE_ASTER:
             data = [x for x in self.point_data if "DISP" in x][-1]
         elif self.fem_format == FEATypes.CALCULIX:
@@ -185,6 +194,7 @@ class ResultsMesh:
         self.render_sets.observe(self.on_changed_point_data_set, "value")
         self.renderer.controls.pop()
         self.renderer.controls.append(self.render_sets)
+        return True
 
     def _colorize_data(self, data, func=magnitude):
         res = [func(d) for d in data]

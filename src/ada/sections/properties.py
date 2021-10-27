@@ -28,6 +28,7 @@ def calculate_general_properties(section: Section) -> Union[None, GeneralPropert
         bt.ANGULAR: calc_angular,
         bt.CHANNEL: calc_channel,
         bt.FLATBAR: calc_flatbar,
+        bt.TPROFILE: calc_isec,
     }
 
     base_type = SectionCat.get_shape_type(section)

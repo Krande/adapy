@@ -5,6 +5,7 @@ from collections import OrderedDict
 from typing import Tuple, Union
 
 import ada.core.utils
+from ada.core.exceptions import UnsupportedUnits
 
 from . import Section
 from .categories import SectionCat
@@ -13,24 +14,14 @@ digit = r"\d{0,5}\.?\d{0,5}|\d{0,5}|\d{0,5}\/\d{0,5}"
 flex = r"?:\.|[A-Z]|"
 
 
-def profile_db_collect(sec_type, dim, units="m"):
-    """
-    Tale in section type and dimensions and return a section object based on values in a
-    profile db xml document. The elements in the xml doc is in units meters.
+def profile_db_collect(sec_type: str, dim: str, units: str = "m"):
+    """Return a section object based on values in a profile db json document. Source JSON is in units 'm' meters."""
+    scale_map = {"mm": 1000, "m": 1.0}
 
-    :param sec_type:
-    :param dim:
-    :param units:
-    :type sec_type: str
-    :type dim: str
-    :type units: str
-    """
-    if units == "mm":
-        scale_factor = 1000
-    elif units == "m":
-        scale_factor = 1.0
-    else:
-        raise ValueError(f'Units "{units}" is not supported')
+    scale_factor = scale_map.get(units, None)
+
+    if scale_factor is None:
+        raise UnsupportedUnits(f'Units "{units}" is not supported')
 
     if sec_type == "IP":
         sec_type = "IPE"
@@ -42,39 +33,40 @@ def profile_db_collect(sec_type, dim, units="m"):
     profile_db = profile_db_main["ProfileDB"]
     sec_dim = [int(x) for x in dim.split("x")]
     sec_name_alt1 = sec_type + str(dim)
+
     if "x" in str(dim):
         sec_name_alt2 = sec_type + str(sec_dim[0]) + "x" + str(sec_dim[1])
     else:
         sec_name_alt2 = "Unknown"
 
-    if sec_type in profile_db.keys():
-        if sec_name_alt1 in profile_db[sec_type]:
-            sec_name = sec_name_alt1
-        elif sec_name_alt2 in profile_db[sec_type]:
-            sec_name = sec_name_alt2
-        else:
-            return None
-        h = float(profile_db[sec_type][sec_name]["Height"]) * scale_factor
-        w_top = float(profile_db[sec_type][sec_name]["Width"]) * scale_factor
-        w_btn = float(profile_db[sec_type][sec_name]["Width"]) * scale_factor
-        t_w = float(profile_db[sec_type][sec_name]["t_w"]) * scale_factor
-        t_fbtn = float(profile_db[sec_type][sec_name]["t_f"]) * scale_factor
-        t_ftop = float(profile_db[sec_type][sec_name]["t_f"]) * scale_factor
-        return Section(
-            sec_name,
-            sec_type=sec_type,
-            h=h,
-            w_top=w_top,
-            w_btn=w_btn,
-            t_w=t_w,
-            t_fbtn=t_fbtn,
-            t_ftop=t_ftop,
-            sec_str=sec_name,
-            metadata=dict(cad_str=sec_name),
-            units=units,
-        )
+    if sec_type not in profile_db.keys():
+        return None
+
+    if sec_name_alt1 in profile_db[sec_type]:
+        sec_name = sec_name_alt1
+    elif sec_name_alt2 in profile_db[sec_type]:
+        sec_name = sec_name_alt2
     else:
         return None
+    h = float(profile_db[sec_type][sec_name]["Height"]) * scale_factor
+    w_top = float(profile_db[sec_type][sec_name]["Width"]) * scale_factor
+    w_btn = float(profile_db[sec_type][sec_name]["Width"]) * scale_factor
+    t_w = float(profile_db[sec_type][sec_name]["t_w"]) * scale_factor
+    t_fbtn = float(profile_db[sec_type][sec_name]["t_f"]) * scale_factor
+    t_ftop = float(profile_db[sec_type][sec_name]["t_f"]) * scale_factor
+    return Section(
+        sec_name,
+        sec_type=sec_type,
+        h=h,
+        w_top=w_top,
+        w_btn=w_btn,
+        t_w=t_w,
+        t_fbtn=t_fbtn,
+        t_ftop=t_ftop,
+        sec_str=sec_name,
+        metadata=dict(cad_str=sec_name),
+        units=units,
+    )
 
 
 def interpret_section_str(in_str: str, s=0.001, units="m"):
@@ -238,6 +230,44 @@ def interpret_section_str(in_str: str, s=0.001, units="m"):
             sec_type=ig,
             w_btn=wt[-1],
             w_top=wt[-1],
+            t_fbtn=tf[-1],
+            t_ftop=tf[-1],
+            t_w=tw[-1],
+            metadata=dict(cad_str=in_str),
+            units=units,
+        )
+        return sec, tap
+
+    for tg in SectionCat.tprofiles:
+        res = re.search(
+            "({ig})({flex})({digit})x({digit})x({digit})x({digit})".format(ig=tg, flex=flex, digit=digit),
+            in_str,
+            re_in,
+        )
+        if res is None:
+            continue
+        h = [rdoff(float(x) * s) for x in res.group(2).split("/")]
+        wt = [rdoff(float(x) * s) for x in res.group(3).split("/")]
+        tw = [rdoff(float(x) * s) for x in res.group(4).split("/")]
+        tf = [rdoff(float(x) * s) for x in res.group(5).split("/")]
+        sec = Section(
+            in_str,
+            h=h[0],
+            sec_type=tg,
+            w_btn=wt[0],
+            w_top=tw[0],
+            t_fbtn=tf[0],
+            t_ftop=tf[0],
+            t_w=tw[0],
+            metadata=dict(cad_str=in_str),
+            units=units,
+        )
+        tap = Section(
+            in_str + "_e",
+            h=h[-1],
+            sec_type=tg,
+            w_btn=wt[-1],
+            w_top=tw[-1],
             t_fbtn=tf[-1],
             t_ftop=tf[-1],
             t_w=tw[-1],

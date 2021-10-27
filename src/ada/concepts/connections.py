@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import List
 
 from ada.base.physical_objects import BackendGeom
-from ada.concepts.containers import Beams
+from ada.concepts.containers import Beams, Connections
 from ada.concepts.primitives import PrimBox
 from ada.concepts.structural import Beam
 
@@ -51,8 +51,8 @@ class JointBase(BackendGeom, ABC):
     mem_types: list
     num_mem: int
 
-    def __init__(self, name, members, centre):
-        super(JointBase, self).__init__(name)
+    def __init__(self, name, members, centre, parent: Connections = None):
+        super(JointBase, self).__init__(name, parent)
         self._init_check(members)
         self._centre = centre
         self._beams = Beams(members)
@@ -61,6 +61,9 @@ class JointBase(BackendGeom, ABC):
         for m in members:
             m.connected_to.append(self)
             m._ifc_elem = None
+
+        if parent is not None:
+            parent.parent.add_set(f"{name}_joint", members)
 
     def _init_check(self, members):
         if self.__class__.__name__ == "JointBase":

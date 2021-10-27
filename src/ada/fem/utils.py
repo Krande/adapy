@@ -8,7 +8,7 @@ from ada.config import Settings
 from ada.core.utils import vector_length
 from ada.fem import Bc, Connector, ConnectorSection, Constraint, Elem, FemSet
 
-from .shapes import ElemShapes
+from .shapes import ElemShape
 
 
 def get_eldata(fem_source: Union[Assembly, Part, FEM]):
@@ -92,7 +92,7 @@ def get_nodes_along_plate_edges(pl: Plate, fem: FEM, edge_indices=None, tol=1e-3
 
 def is_line_elem(elem: Elem):
 
-    return True if elem.type in ElemShapes.lines else False
+    return True if elem.type in ElemShape.TYPES.lines else False
 
 
 def convert_ecc_to_mpc(fem: FEM):
@@ -224,10 +224,10 @@ def convert_hinges_2_couplings(fem: FEM):
 
 
 def is_tri6_shell_elem(sh_fs):
-    elem_check = [x.type in ElemShapes.tri6 for x in sh_fs.elset.members]
+    elem_check = [x.type in ElemShape.TYPES.tri6 for x in sh_fs.elset.members]
     return all(elem_check)
 
 
 def is_quad8_shell_elem(sh_fs):
-    elem_check = [x.type in ElemShapes.quad8 for x in sh_fs.elset.members]
+    elem_check = [x.type in ElemShape.TYPES.quad8 for x in sh_fs.elset.members]
     return all(elem_check)

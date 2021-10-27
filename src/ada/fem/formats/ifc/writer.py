@@ -1,19 +1,21 @@
 import logging
 
-from ada.ifc.utils import create_guid
+import ifcopenshell
+
+from ada import FEM
+from ada.fem import Elem
+from ada.ifc.utils import (
+    create_guid,
+    create_ifc_placement,
+    create_local_placement,
+    ifc_p,
+    to_real,
+)
+
+from .helper_utils import create_reference_subrep, ifc_vertex
 
 
-def to_ifc_fem(fem, f):
-    """
-
-    :param fem:
-    :param f:
-    :type fem: ada.fem.FEM
-    :type f: ifcopenshell.file.file
-    :return:
-    """
-    from ada.ifc.utils import create_global_axes, create_reference_subrep
-
+def to_ifc_fem(fem: FEM, f: ifcopenshell.file) -> None:
     owner_history = fem.parent.get_assembly().user.to_ifc()
     f.create_entity(
         "IfcStructuralAnalysisModel",
@@ -24,30 +26,65 @@ def to_ifc_fem(fem, f):
         ".NOTDEFINED.",
         "LOADING_3D",
     )
-    subref = create_reference_subrep(f, create_global_axes(f))
+    subref = create_reference_subrep(f, create_ifc_placement(f))
     el_ids = []
-    for elem in fem.elements.lines:
+
+    logging.warning("Note! IFC FEM export is Work in progress")
+
+    for elem in fem.elements:
         if elem.id not in el_ids:
             el_ids.append(elem.id)
         else:
             logging.error(f'Skipping doubly defined element "{elem.id}"')
             continue
-        elem_to_ifc(elem, f, subref, owner_history)
 
-    logging.error("Note! IFC FEM export is Work in progress")
+        if elem.shape.elem_type_group == elem.EL_TYPES.LINE:
+            _ = line_elem_to_ifc(elem, f, subref, owner_history)
+        elif elem.shape.elem_type_group == elem.EL_TYPES.SHELL:
+            _ = shell_elem_to_ifc(elem, f, subref, owner_history)
+        else:
+            logging.error(f'Unsupported elem type "{elem.type}"')
 
 
-def elem_to_ifc(elem, f, subref, owner_history):
+def shell_elem_to_ifc(elem: Elem, f, subref, owner_history):
+    verts = [ifc_vertex(point, f) for point in elem.nodes]
+
+    orientedEdges = []
+    for e1, e2 in elem.shape.edges_seq:
+        orientedEdges.append(f.createIfcOrientedEdge(None, None, f.createIfcEdge(verts[e1], verts[e2]), True))
+
+    edgeLoop = f.createIfcEdgeLoop(tuple(orientedEdges))
+    plane = f.create_entity(
+        "IfcPlane", create_ifc_placement(f, to_real(elem.fem_sec.local_z), to_real(elem.fem_sec.local_x))
+    )
+    faceBound = f.createIfcFaceBound(edgeLoop, True)
+    face = f.createIfcFaceSurface((faceBound,), plane, True)
+    faceTopologyRep = f.createIfcTopologyRepresentation(subref["reference"], "Reference", "Face", (face,))
+    faceProdDefShape = f.createIfcProductDefinitionShape(None, None, (faceTopologyRep,))
+
+    return f.create_entity(
+        "IfcStructuralSurfaceMember",
+        create_guid(),
+        owner_history,
+        f"El{elem.name}",
+        None,
+        None,
+        create_local_placement(f),
+        faceProdDefShape,
+        "SHELL",
+        elem.fem_sec.thickness,
+    )
+
+
+def line_elem_to_ifc(elem: Elem, f, subref, owner_history):
     """
 
     :param elem:
     :param f:
     :param owner_history:
-    :type elem: ada.fem.Elem
     :type f: ifcopenshell.file.file
     :return:
     """
-    from ada.ifc.utils import create_local_placement, ifc_p, to_real
 
     local_z = f.createIfcDirection(to_real(elem.fem_sec.local_z))
     p1 = elem.nodes[0].p
@@ -55,7 +92,7 @@ def elem_to_ifc(elem, f, subref, owner_history):
     edge = f.createIfcEdge(f.createIfcVertexPoint(ifc_p(f, p1)), f.createIfcVertexPoint(ifc_p(f, p2)))
 
     edge_topology_rep = f.createIfcTopologyRepresentation(subref["reference"], "Reference", "Edge", (edge,))
-    edge_prod_def_shape = f.createIfcProductDefinitionShape(None, None, (edge_topology_rep,))
+    edge_prod_def_shape = f.create_entity("IfcProductDefinitionShape", None, None, (edge_topology_rep,))
     ifc_stru_member = f.create_entity(
         "IfcStructuralCurveMember",
         create_guid(),

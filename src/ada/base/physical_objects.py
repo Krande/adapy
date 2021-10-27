@@ -1,6 +1,7 @@
 import os
 import pathlib
 
+from ada.concepts.transforms import Placement
 from ada.core.constants import color_map as _cmap
 
 from .non_phyical_objects import Backend
@@ -11,11 +12,15 @@ class BackendGeom(Backend):
 
     _renderer = None
 
-    def __init__(self, name, guid=None, metadata=None, units="m", parent=None, colour=None, ifc_elem=None):
+    def __init__(
+        self, name, guid=None, metadata=None, units="m", parent=None, colour=None, ifc_elem=None, placement=Placement()
+    ):
         super().__init__(name, guid, metadata, units, parent, ifc_elem=ifc_elem)
         from ada.visualize.new_render_api import Visualize
 
         self._penetrations = []
+        self._placement = placement
+        placement.parent = self
         self.colour = colour
         self._elem_refs = []
         self._viz = Visualize(self)
@@ -83,7 +88,7 @@ class BackendGeom(Backend):
             renderer.build_display()
 
             os.makedirs(_path.parent, exist_ok=True)
-            embed_minimal_html(_path, views=renderer._renderer, title="Pythreejs Viewer")
+            embed_minimal_html(_path, views=renderer.renderer, title="Pythreejs Viewer")
             start_server(addr, server_port, str(_path.parent), open_webbrowser)
 
     def get_render_snippet(self, view_size=None):
@@ -98,7 +103,7 @@ class BackendGeom(Backend):
         renderer.DisplayObj(self)
         renderer.build_display()
 
-        return embed_snippet(renderer._renderer)
+        return embed_snippet(renderer.renderer)
 
     @property
     def colour(self):
@@ -144,6 +149,14 @@ class BackendGeom(Backend):
     def elem_refs(self, value):
         self._elem_refs = value
 
+    @property
+    def placement(self) -> Placement:
+        return self._placement
+
+    @placement.setter
+    def placement(self, value: Placement):
+        self._placement = value
+
     def _repr_html_(self):
         from ada.config import Settings
 
@@ -163,5 +176,5 @@ class BackendGeom(Backend):
         renderer.DisplayObj(self)
         renderer.build_display()
         self._renderer = renderer
-        display(HBox([VBox([HBox(renderer._controls), renderer._renderer]), renderer.html]))
+        display(HBox([VBox([HBox(renderer.controls), renderer.renderer]), renderer.html]))
         return ""

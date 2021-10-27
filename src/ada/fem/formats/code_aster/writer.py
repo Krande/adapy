@@ -8,19 +8,21 @@ from ada.concepts.levels import Assembly, Part
 from ada.concepts.points import Node
 from ada.concepts.structural import Material
 from ada.config import Settings as _Settings
-from ada.fem import Bc, FemSection, Load, StepEigen, StepImplicit
+from ada.fem import Bc, FemSection, StepEigen, StepImplicit
 from ada.fem.containers import FemSections
-from ada.fem.shapes import ElemShapes
+from ada.fem.shapes import ElemShapeTypes
 from ada.fem.utils import is_quad8_shell_elem, is_tri6_shell_elem
 
 from ..utils import get_fem_model_from_assembly
 from .common import abaqus_to_med_type
 from .compatibility import check_compatibility
 from .templates import el_convert_str, main_comm_str
+from .write_loads import write_load
 
 
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
     """Write Code_Aster .med and .comm file from Assembly data"""
+    from ada.materials.utils import shorten_material_names
 
     check_compatibility(assembly)
 
@@ -28,7 +30,8 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
         metadata["info"] = dict(description="")
 
     p = get_fem_model_from_assembly(assembly)
-
+    # Prepare model for
+    shorten_material_names(assembly)
     # TODO: Implement support for multiple parts. Need to understand how submeshes in Salome and Code Aster works.
     # for p in filter(lambda x: len(x.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)):
     write_to_med(name, p, analysis_dir)
@@ -280,7 +283,7 @@ def write_solid_section(fem_sections: Iterable[FemSection]) -> str:
 def is_parent_of_node_solid(no: Node) -> bool:
     refs = no.refs
     for elem in refs:
-        if elem.type in ElemShapes.volume:
+        if elem.type in ElemShapeTypes.volume:
             return True
     return False
 
@@ -312,25 +315,49 @@ def create_bc_str(bc: Bc) -> str:
     )
 
 
-def write_load(load: Load) -> str:
-    if load.type == Load.TYPES.GRAVITY:
-        return f"""{load.name} = AFFE_CHAR_MECA(
-    MODELE=model, PESANTEUR=_F(DIRECTION=(0.0, 0.0, -1.0), GRAVITE={-load.magnitude})
-)"""
-    else:
-        raise NotImplementedError(f'Load type "{load.type}"')
-
-
 def step_static_str(step: StepImplicit, part: Part) -> str:
-    from ada.fem.exceptions.model_definition import NoBoundaryConditionsApplied
+    from ada.fem.exceptions.model_definition import (
+        NoBoundaryConditionsApplied,
+        NoLoadsApplied,
+    )
 
     load_str = "\n".join(list(map(write_load, step.loads)))
+    if len(step.loads) == 0:
+        raise NoLoadsApplied(f"No loads are applied in step '{step}'")
     load = step.loads[0]
     all_boundary_conditions = part.get_assembly().fem.bcs + part.fem.bcs
     if len(all_boundary_conditions) == 0:
         raise NoBoundaryConditionsApplied("No boundary condition is found for the specified model")
-    bc = all_boundary_conditions[0]
-    return f"""
+
+    bc_str = ""
+    for bc in all_boundary_conditions:
+        bc_str += f"_F(CHARGE={bc.name}),"
+
+    if step.nl_geom is False:
+        return f"""
+{load_str}
+
+result = MECA_STATIQUE(
+    MODELE=model,
+    CHAM_MATER=material,
+    EXCIT=({bc_str}_F(CHARGE={load.name}))
+)
+
+result = CALC_CHAMP(
+    reuse=result,
+    RESULTAT=result,
+    CONTRAINTE=("SIGM_ELGA", "SIGM_ELNO"),
+    CRITERES=("SIEQ_ELGA", "SIEQ_ELNO"),
+)
+
+IMPR_RESU(
+    RESU=_F(RESULTAT=result),
+    UNITE=80
+)
+
+"""
+    else:
+        return f"""
 {load_str}
 
 timeReel = DEFI_LIST_REEL(DEBUT=0.0, INTERVALLE=_F(JUSQU_A=1.0, NOMBRE=10))
@@ -343,7 +370,7 @@ result = STAT_NON_LINE(
     CARA_ELEM=element,
     COMPORTEMENT=(_F(DEFORMATION="PETIT", RELATION="VMIS_ISOT_TRAC", TOUT="OUI")),
     CONVERGENCE=_F(ARRET="OUI", ITER_GLOB_MAXI=8,),
-    EXCIT=(_F(CHARGE={bc.name}), _F(CHARGE={load.name}, FONC_MULT=rampFunc)),
+    EXCIT=({bc_str}_F(CHARGE={load.name}, FONC_MULT=rampFunc)),
     INCREMENT=_F(LIST_INST=timeInst),
     ARCHIVAGE=_F(LIST_INST=timeReel),
 )
@@ -548,7 +575,7 @@ def _write_elements(part: Part, time_step, profile, families):
     elements_group = time_step.create_group("MAI")
     elements_group.attrs.create("CGT", 1)
     for group, elements in part.fem.elements.group_by_type():
-        if group in ElemShapes.masses + ElemShapes.springs:
+        if group in ElemShapeTypes.masses + ElemShapeTypes.springs:
             logging.error("NotImplemented: Skipping Mass or Spring Elements")
             continue
         med_type = abaqus_to_med_type(group)
@@ -669,7 +696,7 @@ def _add_cell_sets(cells_group, part: Part, families):
         return [int(n.id - 1) for n in el_.nodes]
 
     for group, elements in part.fem.elements.group_by_type():
-        if group in ElemShapes.masses + ElemShapes.springs:
+        if group in ElemShapeTypes.masses + ElemShapeTypes.springs:
             logging.error("NotImplemented: Skipping Mass or Spring Elements")
             continue
         elements = list(elements)

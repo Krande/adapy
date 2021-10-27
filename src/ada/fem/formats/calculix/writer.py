@@ -9,11 +9,10 @@ from ada.core.utils import NewLine, get_current_user
 from ada.fem import Bc, Elem, FemSection, FemSet, Load
 from ada.fem.containers import FemElements
 from ada.fem.formats.utils import get_fem_model_from_assembly
-from ada.fem.shapes import ElemShapes
+from ada.fem.shapes import ElemShape
 from ada.fem.steps import StepExplicit
 from ada.sections import SectionCat as Sc
 
-from ..abaqus.writer import AbaSection
 from .compatibility import check_compatibility
 from .templates import main_header_str
 from .write_steps import step_str
@@ -106,12 +105,10 @@ def get_section_str(fem_sec: FemSection):
     if "section_type" in fem_sec.metadata.keys():
         return fem_sec.metadata["section_type"]
     if must_be_converted_to_general_section(sec_type):
-        fem_sec.section.properties.calculate()
         return CcxSecTypes.GENERAL
     elif sec_type in Sc.box:
         return CcxSecTypes.BOX
     elif sec_type in Sc.tubular:
-        fem_sec.section.properties.calculate()
         return CcxSecTypes.PIPE
     else:
         raise Exception(f'Section "{sec_type}" is not yet supported by Calculix exporter.\n{traceback.format_exc()}')
@@ -141,7 +138,7 @@ def elements_str(fem_elements: FemElements) -> str:
 def el_type_sub(el_type, fem_sec: FemSection) -> str:
     """Substitute Element types specifically Calculix"""
     el_map = dict(STRI65="S6")
-    if el_type in ElemShapes.lines:
+    if el_type in ElemShape.TYPES.lines:
         if must_be_converted_to_general_section(fem_sec.section.type):
             return "U1"
     return el_map.get(el_type, el_type)
@@ -211,13 +208,17 @@ def nsets_str(fem_nsets):
 
 
 def solid_sec_str(part):
-    solid_secs = [AbaSection(sec, part).str for sec in part.fem.sections.solids]
-    return "\n".join(solid_secs).rstrip() if len(solid_secs) > 0 else "** No solid sections"
+    from ada.fem.formats.abaqus.write_sections import solid_section_str
+
+    solids = part.fem.sections.solids
+    return "\n".join([solid_section_str(so) for so in solids]) if len(solids) > 0 else "** No solid sections"
 
 
 def shell_sec_str(part):
-    shell_secs = [AbaSection(sec, part).str for sec in part.fem.sections.shells]
-    return "\n".join(shell_secs).rstrip() if len(shell_secs) > 0 else "** No shell sections"
+    from ada.fem.formats.abaqus.write_sections import shell_section_str
+
+    shells = part.fem.sections.shells
+    return "\n".join([shell_section_str(so) for so in shells]) if len(shells) > 0 else "** No shell sections"
 
 
 def beam_sec_str(part):
@@ -262,14 +263,14 @@ def material_str(material):
 
 
 def bc_str(bc: Bc) -> str:
-    from ..abaqus.writer import _aba_bc_map, _valid_aba_bcs
+    from ..abaqus.write_bc import aba_bc_map, valid_aba_bcs
 
     ampl_ref_str = "" if bc.amplitude_name is None else ", amplitude=" + bc.amplitude_name
 
-    if bc.type in _valid_aba_bcs:
+    if bc.type in valid_aba_bcs:
         aba_type = bc.type
     else:
-        aba_type = _aba_bc_map[bc.type]
+        aba_type = aba_bc_map[bc.type]
 
     dofs_str = ""
     for dof, magn in zip(bc.dofs, bc.magnitudes):
@@ -325,7 +326,7 @@ def surface_str(surface):
         if surface.type == "NODE":
             add_str = surface.weight_factor
         else:
-            add_str = surface.face_id_label
+            add_str = surface.el_face_index
         if surface.fem_set.name in surface.parent.elsets.keys():
             return f"{top_line}\n{surface.fem_set.name}, {add_str}"
         else:

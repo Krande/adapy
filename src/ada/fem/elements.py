@@ -13,7 +13,7 @@ from ada.concepts.structural import Beam, Plate, Wall
 
 from .common import Csys, FemBase
 from .sections import ConnectorSection, FemSection
-from .shapes import ElemShapes, ElemType
+from .shapes import ElemShape, ElemType
 
 
 class Elem(FemBase):
@@ -54,13 +54,20 @@ class Elem(FemBase):
         if self.eccentricity is None:
             return nodes
 
-        ecc = self.eccentricity.ecc_vector
-        n_old = self.eccentricity.node
-
         mat = np.eye(3)
-        new_p = np.dot(mat, ecc) + n_old.p
-        i = self.nodes.index(n_old)
-        nodes[i] = new_p
+
+        e1 = self.eccentricity.end1
+        e2 = self.eccentricity.end2
+
+        if e1 is not None:
+            ecc1 = e1.ecc_vector
+            n_old = e1.node
+            nodes[0] = np.dot(mat, ecc1) + n_old.p
+
+        if e2 is not None:
+            ecc2 = e2.ecc_vector
+            n_old = e2.node
+            nodes[-1] = np.dot(mat, ecc2) + n_old.p
 
         return nodes
 
@@ -70,9 +77,9 @@ class Elem(FemBase):
 
     @type.setter
     def type(self, value):
-        from .shapes import ElemShapes
+        from .shapes import ElemShape
 
-        if ElemShapes.is_valid_elem(value) is False:
+        if ElemShape.is_valid_elem(value) is False:
             raise ValueError(f'Currently unsupported element type "{value}".')
         self._el_type = value.upper()
 
@@ -135,9 +142,9 @@ class Elem(FemBase):
         self._mass_props = value
 
     @property
-    def shape(self) -> ElemShapes:
+    def shape(self) -> ElemShape:
         if self._shape is None:
-            self._shape = ElemShapes(self.type, self.nodes)
+            self._shape = ElemShape(self.type, self.nodes)
         return self._shape
 
     @property

@@ -11,12 +11,12 @@ def eval_joint_req(joint: JointBase, intersecting_members):
     return jrc.eval_joint_req()
 
 
-def joint_map(joint_name, intersecting_members, centre) -> Union[JointBase, None]:
+def joint_map(joint_name, intersecting_members, centre, parent=None) -> Union[JointBase, None]:
     joints = [JointB, JointIXZ]
 
     for joint in joints:
         if eval_joint_req(joint, intersecting_members):
-            return joint(joint_name, intersecting_members, centre)
+            return joint(joint_name, intersecting_members, centre, parent=parent)
 
     member_types = [m.section.type for m in intersecting_members]
     logging.debug(f'Unable to find matching Joint using joint map for members "{member_types}"')
@@ -28,8 +28,8 @@ class JointIXZ(JointBase):
     beamtypes = ["IPE", "IPE"]
     num_mem = 2
 
-    def __init__(self, name, members, centre):
-        super(JointIXZ, self).__init__(name, members, centre)
+    def __init__(self, name, members, centre, parent=None):
+        super(JointIXZ, self).__init__(name, members, centre, parent=parent)
 
         non_girder = None
         gi1 = None
@@ -66,8 +66,8 @@ class JointB(JointBase):
     beamtypes = ["IG", "IG", "IG"]
     num_mem = 3
 
-    def __init__(self, name, members, centre):
-        super(JointB, self).__init__(name, members, centre)
+    def __init__(self, name, members, centre, parent=None):
+        super(JointB, self).__init__(name, members, centre, parent=parent)
 
         column = None
         gi1 = None

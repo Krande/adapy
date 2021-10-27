@@ -13,10 +13,13 @@ import numpy as np
 from ada.concepts.containers import Materials
 from ada.concepts.points import Node
 from ada.core.utils import Counter
+from ada.materials import Material
+from ada.sections import Section
 
 from .elements import Elem, FemSection, MassTypes
+from .exceptions.model_definition import FemSetNameExists
 from .sets import FemSet, SetTypes
-from .shapes import ElemShapes, ElemType
+from .shapes import ElemShapeTypes, ElemType
 
 
 @dataclass
@@ -53,7 +56,6 @@ class FemElements:
         self._group_by_types()
 
     def renumber(self, start_id=1):
-
         elid = Counter(start_id)
 
         def mapid2(el: Elem):
@@ -238,15 +240,15 @@ class FemElements:
 
     @property
     def solids(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type in ElemShapes.volume, self.stru_elements)
+        return filter(lambda x: x.type in ElemShapeTypes.volume, self.stru_elements)
 
     @property
     def shell(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type in ElemShapes.shell, self.stru_elements)
+        return filter(lambda x: x.type in ElemShapeTypes.shell, self.stru_elements)
 
     @property
     def lines(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type in ElemShapes.lines, self.stru_elements)
+        return filter(lambda x: x.type in ElemShapeTypes.lines, self.stru_elements)
 
     @property
     def lines_hinged(self) -> Iterable[Elem]:
@@ -258,7 +260,7 @@ class FemElements:
 
     @property
     def connectors(self):
-        return filter(lambda x: x.type in ElemShapes.connectors, self.stru_elements)
+        return filter(lambda x: x.type in ElemShapeTypes.connectors, self.stru_elements)
 
     @property
     def masses(self) -> Iterable[Elem]:
@@ -374,33 +376,61 @@ class FemSections:
         """:type fem_obj: ada.FEM"""
         self._fem_obj = fem_obj
         self._sections = list(sections) if sections is not None else []
+
         by_types = self._groupby()
         self._lines = by_types["lines"]
         self._shells = by_types["shells"]
         self._solids = by_types["solids"]
-        self._dmap = {e.name: e for e in self._sections} if len(self._sections) > 0 else dict()
-
+        self._name_map = {e.name: e for e in self._sections} if len(self._sections) > 0 else dict()
+        self._id_map = {e.id: e for e in self._sections} if len(self._sections) > 0 else dict()
         if len(self._sections) > 0 and fem_obj is not None:
             self._link_data()
 
-    def _map_by_properties(self) -> dict:
+    def _map_by_properties(self) -> Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]]:
         from ada import Material, Section
 
-        merge_map: Dict[Tuple[Material, Section, tuple, tuple], FemSection] = dict()
+        merge_map: Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]] = dict()
         for fs in self.lines:
-            props = fs.unique_fem_section_permutation()
+            props = (fs.material, fs.section, tuple(fs.local_x), tuple(fs.local_z), fs.thickness)
             if props not in merge_map.keys():
-                merge_map[props] = fs
+                merge_map[props] = []
+
+            merge_map[props].append(fs)
+
+        for fs in self.shells:
+            props = (fs.material, fs.section, (None,), tuple(fs.local_z), fs.thickness)
+            if props not in merge_map.keys():
+                merge_map[props] = []
+
+            merge_map[props].append(fs)
 
         return merge_map
 
     def merge_by_properties(self):
-        return NotImplemented
+        parent_part = self.parent.parent
+        parent_part.move_all_mats_and_sec_here_from_subparts()
+
+        prop_map = self._map_by_properties()
+        remove_fs = []
+        for _, fs_list in prop_map.items():
+            fs_o = fs_list[0]
+            el_o = fs_list[0].elset.members[0]
+            for fs in fs_list[1:]:
+                for el in fs.elset.members:
+                    if el == el_o:
+                        continue
+                    are_equal = el.fem_sec == fs_o
+                    if are_equal is False and el.fem_sec not in remove_fs:
+                        remove_fs.append(el.fem_sec)
+                    el.fem_sec = fs_o
+                    fs_o.elset.add_members([el])
+
+        self.remove(remove_fs)
 
     def _map_materials(self, fem_sec: FemSection, mat_repo: Materials):
         if type(fem_sec.material) is str:
             logging.error(f'Material "{fem_sec.material}" was passed as string')
-            fem_sec._material = mat_repo.get_by_name(fem_sec.material)
+            fem_sec._material = mat_repo.get_by_name(fem_sec.material.name)
 
     def _map_elsets(self, fem_sec: FemSection, elset_repo):
         if type(fem_sec.elset) is str:
@@ -455,7 +485,7 @@ class FemSections:
         self._fem_obj = value
 
     @property
-    def sections(self) -> Iterable[FemSection]:
+    def sections(self) -> List[FemSection]:
         return self._sections
 
     @property
@@ -471,8 +501,12 @@ class FemSections:
         return self._solids
 
     @property
-    def dmap(self):
-        return self._dmap
+    def name_map(self):
+        return self._name_map
+
+    @property
+    def id_map(self):
+        return self._id_map
 
     def index(self, item):
         index = bisect_left(self._sections, item)
@@ -484,8 +518,10 @@ class FemSections:
         elem.fem_sec = fem_sec
 
     def add(self, sec: FemSection):
-        if sec.name in self.dmap.keys() or sec.name is None:
+        if sec.name in self.name_map.keys() or sec.name is None:
             raise ValueError(f'Section name "{sec.name}" already exists')
+        if sec.id in self.id_map.keys() or sec.id is None:
+            raise ValueError(f'Section ID "{sec.id}" already exists')
 
         self._sections.append(sec)
         if sec.type == ElemType.LINE:
@@ -495,8 +531,25 @@ class FemSections:
         else:
             self._solids.append(sec)
 
-        list(map(partial(self._map_femsec_to_elem, fem_sec=sec), sec.elset.members))
-        self._dmap[sec.name] = sec
+        [self._map_femsec_to_elem(el, fem_sec=sec) for el in sec.elset.members]
+        self._name_map[sec.name] = sec
+        self._id_map[sec.id] = sec
+
+    def remove(self, fs_in: Union[List[FemSection], FemSection]):
+        if type(fs_in) is not list:
+            fs_in = [fs_in]
+
+        for fs in fs_in:
+            index = self._sections.index(fs)
+            self._sections.pop(index)
+
+        self._name_map = {e.name: e for e in self._sections} if len(self._sections) > 0 else dict()
+        self._id_map = {e.id: e for e in self._sections} if len(self._sections) > 0 else dict()
+
+        by_types = self._groupby()
+        self._lines = by_types["lines"]
+        self._shells = by_types["shells"]
+        self._solids = by_types["solids"]
 
 
 class FemSets:
@@ -679,7 +732,7 @@ class FemSets:
         else:
             if fe_set.name in self._elmap.keys():
                 if append_suffix_on_exist is False:
-                    raise ValueError("An elements set with the same name already exists")
+                    raise FemSetNameExists(fe_set.name)
                 if fe_set.name not in self._same_names.keys():
                     self._same_names[fe_set.name] = 1
                 else:

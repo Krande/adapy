@@ -32,6 +32,11 @@ section_counter = Counter(1)
 material_counter = Counter(1)
 
 
+class Justification:
+    NA = "neutral axis"
+    TOS = "top of steel"
+
+
 class Beam(BackendGeom):
     """
     The base Beam object
@@ -46,6 +51,8 @@ class Beam(BackendGeom):
     :param curve: Curve
     """
 
+    JUSL_TYPES = Justification
+
     def __init__(
         self,
         name,
@@ -54,7 +61,7 @@ class Beam(BackendGeom):
         sec=None,
         mat=None,
         tap=None,
-        jusl="NA",
+        jusl=JUSL_TYPES.NA,
         up=None,
         angle=0.0,
         curve=None,
@@ -68,8 +75,9 @@ class Beam(BackendGeom):
         units="m",
         ifc_elem=None,
         guid=None,
+        placement=Placement(),
     ):
-        super().__init__(name, metadata=metadata, units=units, guid=guid, ifc_elem=ifc_elem)
+        super().__init__(name, metadata=metadata, units=units, guid=guid, ifc_elem=ifc_elem, placement=placement)
 
         if ifc_elem is not None:
             props = self._import_from_ifc_beam(ifc_elem)
@@ -109,6 +117,8 @@ class Beam(BackendGeom):
 
         # Section and Material setup
         self._section, self._taper = get_section(sec)
+        self._section.refs.append(self)
+        self._taper.refs.append(self)
         self._material = get_material(mat)
         self._material.refs.append(self)
 
@@ -209,7 +219,7 @@ class Beam(BackendGeom):
             add_colour,
             add_multiple_props_to_elem,
             convert_bm_jusl_to_ifc,
-            create_global_axes,
+            create_ifc_placement,
             create_ifcrevolveareasolid,
             create_local_placement,
         )
@@ -254,7 +264,7 @@ class Beam(BackendGeom):
         else:
             profile_e = None
 
-        global_placement = create_local_placement(f, O, Z, X)
+        global_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
 
         if self.curve is not None:
             # TODO: Fix Sweeped Curve definition. Currently not working as intended (or maybe input is wrong.. )
@@ -281,7 +291,7 @@ class Beam(BackendGeom):
             circle = f.createIfcCircle(curve_axis2plac3d, curve.radius)
             ifc_polyline = f.createIfcTrimmedCurve(circle, [p1_ifc], [p2_ifc], True, "CARTESIAN")
 
-            revolve_placement = create_global_axes(f, p1, profile_x, profile_y)
+            revolve_placement = create_ifc_placement(f, p1, profile_x, profile_y)
             extrude_area_solid = create_ifcrevolveareasolid(f, profile, revolve_placement, corigin, xvec, a3)
             loc_plac = create_local_placement(f, O, Z, X, parent.ObjectPlacement)
         else:
@@ -732,7 +742,7 @@ class Plate(BackendGeom):
     :param nodes: List of coordinates that make up the plate. Points can be Node, tuple or list
     :param t: Thickness of plate
     :param mat: Material. Can be either Material object or built-in materials ('S420' or 'S355')
-    :param origin: Explicitly define origin of plate. If not set
+    :param placement: Explicitly define origin of plate. If not set
     """
 
     def __init__(
@@ -742,9 +752,7 @@ class Plate(BackendGeom):
         t,
         mat="S420",
         use3dnodes=False,
-        origin=None,
-        normal=None,
-        xdir=None,
+        placement=Placement(),
         pl_id=None,
         offset=None,
         colour=None,
@@ -756,10 +764,9 @@ class Plate(BackendGeom):
         units="m",
         ifc_elem=None,
         guid=None,
-        **kwargs,
     ):
         # TODO: Support generation of plate object from IFC elem
-        super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem)
+        super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem, placement=placement)
 
         points2d = None
         points3d = None
@@ -769,9 +776,7 @@ class Plate(BackendGeom):
             self.guid = ifc_elem.GlobalId
             t = props["t"]
             points2d = props["nodes2d"]
-            origin = props["origin"]
-            normal = props["normal"]
-            xdir = props["xdir"]
+            self.placement = Placement(props["origin"], xdir=props["xdir"], zdir=props["normal"])
             ifc_geom = props["ifc_geom"]
             colour = props["colour"]
             opacity = props["opacity"]
@@ -797,12 +802,11 @@ class Plate(BackendGeom):
         self._poly = CurvePoly(
             points3d=points3d,
             points2d=points2d,
-            normal=normal,
-            origin=origin,
-            xdir=xdir,
+            normal=self.placement.zdir,
+            origin=self.placement.origin,
+            xdir=self.placement.xdir,
             tol=tol,
             parent=self,
-            **kwargs,
         )
         self.colour = colour
         self._offset = offset
@@ -815,7 +819,7 @@ class Plate(BackendGeom):
         from ada.core.constants import O, X, Z
         from ada.ifc.utils import (
             add_colour,
-            create_global_axes,
+            create_ifc_placement,
             create_ifcindexpolyline,
             create_ifcpolyline,
             create_local_placement,
@@ -838,13 +842,14 @@ class Plate(BackendGeom):
 
         # Wall creation: Define the wall shape as a polyline axis and an extruded area solid
         plate_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
+
         tra_mat = np.array([xvec, yvec, zvec])
         t_vec = [0, 0, self.t]
         origin = np.array(self.poly.placement.origin)
         res = origin + np.dot(tra_mat, t_vec)
         polyline = create_ifcpolyline(f, [origin.astype(float).tolist(), res.tolist()])
         axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve2D", [polyline])
-        extrusion_placement = create_global_axes(f, O, Z, X)
+        extrusion_placement = create_ifc_placement(f, O, Z, X)
         points = [(float(n[0]), float(n[1]), float(n[2])) for n in self.poly.seg_global_points]
         seg_index = self.poly.seg_index
         polyline = create_ifcindexpolyline(f, points, seg_index)
@@ -1213,7 +1218,7 @@ class Wall(BackendGeom):
         from ada.core.constants import O, X, Z
         from ada.ifc.utils import (
             add_negative_extrusion,
-            create_global_axes,
+            create_ifc_placement,
             create_ifcextrudedareasolid,
             create_ifcpolyline,
             create_local_placement,
@@ -1238,7 +1243,7 @@ class Wall(BackendGeom):
         polyline = create_ifcpolyline(f, self.points)
         axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve2D", [polyline])
 
-        extrusion_placement = create_global_axes(f, (0.0, 0.0, float(elevation)), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+        extrusion_placement = create_ifc_placement(f, (0.0, 0.0, float(elevation)), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
 
         polyline = create_ifcpolyline(f, self.extrusion_area)
         profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)

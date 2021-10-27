@@ -2,6 +2,7 @@ import unittest
 
 from ada import Assembly, Beam, Part, Pipe, Plate, PrimBox, PrimSphere
 from ada.concepts.structural import make_ig_cutplanes
+from ada.concepts.transforms import Placement
 from ada.config import Settings
 from ada.fem.meshing.concepts import GmshOptions, GmshSession, GmshTask
 from ada.fem.meshing.multisession import multisession_gmsh_tasker
@@ -18,9 +19,9 @@ class GmshApiV2(unittest.TestCase):
         self.bm2 = Beam("bm2", (1.1, 0, 1), (2, 0, 1), "IPE300")
         self.bm3 = Beam("bm3", (2.1, 0, 1), (3, 0, 1), "IPE300")
 
-        pl_atts = dict(origin=(1, 1, 1), xdir=(1, 0, 0), normal=(0, 0, 1))
+        placement = Placement(origin=(1, 1, 1), xdir=(1, 0, 0), zdir=(0, 0, 1))
         pl_points = [(0, 0), (1, 0), (1, 1), (0, 1)]
-        self.pl1 = Plate("MyPlate", pl_points, 10e-3, **pl_atts)
+        self.pl1 = Plate("MyPlate", pl_points, 10e-3, placement=placement)
 
         self.pipe = Pipe("MyPipe", [(0, 0.5, 0), (1, 0.5, 0), (1.2, 0.7, 0.2), (1.5, 0.7, 0.2)], "OD120x6")
 
@@ -98,8 +99,10 @@ class GmshApiV2(unittest.TestCase):
         for key, val in a.get_part("MyFemObjects").fem.elements.group_by_type():
             num_el = len(list(val))
             if key == "C3D10":
-                # TODO: Why is the number of elements for different platforms (win, linux and macos)
+                # TODO: Why is the number of elements for different platforms (win, linux and macos)?
                 self.assertAlmostEqual(map_assert[key], num_el, delta=50)
+            elif key == "STRI65":
+                self.assertAlmostEqual(map_assert[key], num_el, delta=5)
             else:
                 self.assertEqual(map_assert[key], num_el)
 
@@ -114,13 +117,7 @@ class GmshApiV2(unittest.TestCase):
 
     def test_mixed_lines_and_shell(self):
         p = ReinforcedFloor(
-            "TestPlate",
-            [(0, 0), (5, 0), (5, 5), (0, 5)],
-            12e-3,
-            use3dnodes=False,
-            origin=(0, 0, 0),
-            xdir=(1, 0, 0),
-            normal=(0, 0, 1),
+            "TestPlate", [(0, 0), (5, 0), (5, 5), (0, 5)], 12e-3, use3dnodes=False, placement=Placement()
         )
 
         with GmshSession(silent=True) as gs:

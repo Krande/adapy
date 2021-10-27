@@ -11,7 +11,7 @@ from ada.core.utils import roundoff, unit_vector, vector_length
 from ada.fem import Csys, Elem, FemSection, FemSet
 from ada.fem.containers import FemSections
 from ada.fem.formats.utils import str_to_int
-from ada.fem.shapes import ElemShapes, ElemType
+from ada.fem.shapes import ElemShape, ElemType
 from ada.materials import Material
 from ada.sections import GeneralProperties
 
@@ -124,6 +124,7 @@ def add_general_sections(match, fem) -> None:
         Sy=float(d["sy"]),
         Sz=float(d["sz"]),
     )
+
     if sec_id in fem.parent.sections.id_map.keys():
         sec = fem.parent.sections.get_by_id(sec_id)
         sec._genprops = gen_props
@@ -231,10 +232,10 @@ def get_femsecs(match, total_geo, curr_geom_num, lcsysd, hinges_global, ecc, thi
 
     elem = fem.elements.from_id(elno)
     mat = fem.parent.materials.get_by_id(matno)
-    if elem.type in ElemShapes.lines:
+    if elem.type in ElemShape.TYPES.lines:
         next(curr_geom_num)
         return read_line_section(elem, fem, mat, geono, d, lcsysd, hinges_global, ecc)
-    elif elem.type in ElemShapes.shell:
+    elif elem.type in ElemShape.TYPES.shell:
         next(curr_geom_num)
         return read_shell_section(elem, fem, mat, elno, thicknesses, geono)
     else:
@@ -320,11 +321,11 @@ def add_ecc_to_elem(elem: Elem, members, eccentricities, fix_data) -> None:
 
     # To the interpretation here
     start = 0 if fix_data != -1 else len(elem.nodes)
-    end = len(elem.nodes) if fix_data != -1 else 2 * len(elem.nodes)
+    end = len(elem.nodes) - 1 if fix_data != -1 else 2 * len(elem.nodes)
     end1: Union[None, EccPoint] = None
     end2: Union[None, EccPoint] = None
     for i, x in enumerate(members[start:]):
-        if i >= end:
+        if i > end:
             break
         if x == 0:
             continue

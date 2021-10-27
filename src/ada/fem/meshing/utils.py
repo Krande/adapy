@@ -26,13 +26,16 @@ def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Union[Beam, Plate, 
         get_sh_sections_for_pipe_obj(model, model_obj, gmsh_data, fem)
         return None
 
-    for _, ent in gmsh_data.entities:
-        if gmsh_data.geom_repr == ElemType.SHELL:
-            get_sh_sections_for_plate_obj(model, model_obj, ent, fem)
-        elif gmsh_data.geom_repr == ElemType.SOLID:
-            get_so_sections(model, model_obj, ent, fem)
-        else:
-            get_bm_sections(model, model_obj, ent, fem)
+    if gmsh_data.geom_repr == ElemType.SHELL:
+        get_sh_sections_for_plate_obj(model, model_obj, gmsh_data, fem)
+    elif gmsh_data.geom_repr == ElemType.SOLID:
+        get_so_sections(model, model_obj, gmsh_data, fem)
+    elif gmsh_data.geom_repr == ElemType.LINE:
+        get_bm_sections(model, model_obj, gmsh_data, fem)
+    else:
+        raise ValueError(
+            f'Unrecognized geometric representation "{gmsh_data.geom_repr}". ' f"Only {ElemType.all} are supported"
+        )
 
 
 def get_sh_sections_for_beam_obj(model: gmsh.model, beam: Beam, gmsh_data: GmshData, fem: FEM):
@@ -46,11 +49,11 @@ def get_sh_sections_for_beam_obj(model: gmsh.model, beam: Beam, gmsh_data: GmshD
         pc = eval_thick_normal_from_cog_of_beam_plate(beam.section, cog, normal, pl1)
 
         _, tags, _ = model.mesh.getElements(2, ent)
-
+        elements = [fem.elements.from_id(x) for x in chain.from_iterable(tags)]
         set_name = make_name_fem_ready(f"el{beam.name}_e{ent}_{pc.type}_sh")
         fem_sec_name = make_name_fem_ready(f"d{beam.name}_e{ent}_{pc.type}_sh")
 
-        add_shell_section(set_name, fem_sec_name, normal, pc.thick, tags, beam, fem)
+        add_shell_section(set_name, fem_sec_name, normal, pc.thick, elements, beam, fem)
 
 
 def get_sh_sections_for_pipe_obj(model: gmsh.model, model_obj: Pipe, gmsh_data: GmshData, fem: FEM):
@@ -61,32 +64,45 @@ def get_sh_sections_for_pipe_obj(model: gmsh.model, model_obj: Pipe, gmsh_data: 
         _, tags, _ = model.mesh.getElements(2, ent)
         set_name = make_name_fem_ready(f"el{model_obj.name}_e{ent}_pipe_sh")
         fem_sec_name = make_name_fem_ready(f"d{model_obj.name}_e{ent}_pipe_sh")
-        add_shell_section(set_name, fem_sec_name, normal, thickness, tags, model_obj, fem)
+        elements = [fem.elements.from_id(x) for x in chain.from_iterable(tags)]
+        add_shell_section(set_name, fem_sec_name, normal, thickness, elements, model_obj, fem)
 
 
-def get_sh_sections_for_plate_obj(model: gmsh.model, model_obj: Plate, ent, fem: FEM):
-    _, tags, _ = model.mesh.getElements(2, ent)
+def get_sh_sections_for_plate_obj(model: gmsh.model, model_obj: Plate, gmsh_data: GmshData, fem: FEM):
+    tags = []
+    for dim, ent in gmsh_data.entities:
+        _, tag, _ = model.mesh.getElements(2, ent)
+        tags += tag
+
+    elements = [fem.elements.from_id(x) for x in chain.from_iterable(tags)]
+
     thickness = model_obj.t
     normal = model_obj.n
 
-    set_name = make_name_fem_ready(f"el{model_obj.name}_e{ent}_pl_sh")
-    fem_sec_name = make_name_fem_ready(f"d{model_obj.name}_e{ent}_pl_sh")
+    set_name = make_name_fem_ready(f"el{model_obj.name}_sh")
+    fem_sec_name = make_name_fem_ready(f"d{model_obj.name}_sh")
 
-    add_shell_section(set_name, fem_sec_name, normal, thickness, tags, model_obj, fem)
+    add_shell_section(set_name, fem_sec_name, normal, thickness, elements, model_obj, fem)
 
 
-def add_shell_section(set_name, fem_sec_name, normal, thickness, tags, model_obj: Union[Beam, Plate, Pipe], fem: FEM):
-    fem_set = FemSet(set_name, [fem.elements.from_id(x) for x in chain.from_iterable(tags)], FemSet.TYPES.ELSET)
+def add_shell_section(
+    set_name, fem_sec_name, normal, thickness, elements, model_obj: Union[Beam, Plate, Pipe], fem: FEM
+):
+    fem_set = FemSet(set_name, elements, FemSet.TYPES.ELSET)
     props = dict(local_z=normal, thickness=thickness, int_points=5)
     fem_sec = FemSection(fem_sec_name, ElemType.SHELL, fem_set, model_obj.material, **props)
     add_sec_to_fem(fem, fem_sec, fem_set)
 
 
-def get_bm_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
+def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
     from ada.core.utils import vector_length
 
-    elem_types, elem_tags, elem_node_tags = model.mesh.getElements(1, ent)
-    elements = [fem.elements.from_id(tag) for tag in elem_tags[0]]
+    tags = []
+    for dim, ent in gmsh_data.entities:
+        _, tag, _ = model.mesh.getElements(1, ent)
+        tags += tag
+
+    elements = [fem.elements.from_id(elid) for elid in chain.from_iterable(tags)]
 
     set_name = make_name_fem_ready(f"el{beam.name}_set_bm")
     fem_sec_name = make_name_fem_ready(f"d{beam.name}_sec_bm")
@@ -110,16 +126,19 @@ def get_bm_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
                 el.hinge_prop.end2.fem_node = n2
 
 
-def get_so_sections(model: gmsh.model, beam: Beam, ent, fem: FEM):
-    _, tags, _ = model.mesh.getElements(3, ent)
+def get_so_sections(model: gmsh.model, solid_object: Beam, gmsh_data: GmshData, fem: FEM):
+    tags = []
+    for dim, ent in gmsh_data.entities:
+        _, tag, _ = model.mesh.getElements(3, ent)
+        tags += tag
 
-    set_name = make_name_fem_ready(f"el{beam.name}_e{ent}_so")
-    fem_sec_name = make_name_fem_ready(f"d{beam.name}_e{ent}_so")
+    elements = [fem.elements.from_id(elid) for elid in chain.from_iterable(tags)]
 
-    elements = [fem.elements.from_id(tag) for tag in tags[0]]
+    set_name = make_name_fem_ready(f"el{solid_object.name}_so")
+    fem_sec_name = make_name_fem_ready(f"d{solid_object.name}_so")
 
     fem_set = FemSet(set_name, elements, FemSet.TYPES.ELSET, parent=fem)
-    fem_sec = FemSection(fem_sec_name, ElemType.SOLID, fem_set, beam.material)
+    fem_sec = FemSection(fem_sec_name, ElemType.SOLID, fem_set, solid_object.material)
 
     add_sec_to_fem(fem, fem_sec, fem_set)
 

@@ -3,6 +3,7 @@ from typing import Callable, List, Tuple
 import numpy as np
 
 from ada import Assembly, Beam, Material, Node, Part, Pipe, Plate, PrimSphere, Section
+from ada.concepts.transforms import Placement
 from ada.core.clash_check import penetration_check
 from ada.core.constants import X, Y, Z
 from ada.core.utils import Counter
@@ -20,14 +21,21 @@ class ReinforcedFloor(Part):
         name,
         points: List[tuple],
         pl_thick: float,
-        spacing=0.2,
+        spacing=0.4,
         s_type="HP140x8",
         stringer_dir="X",
         use3dnodes=True,
         **kwargs,
     ):
-        super(ReinforcedFloor, self).__init__(name)
-        plate = self.add_plate(Plate(name + "_pl", points, pl_thick, use3dnodes=use3dnodes, **kwargs))
+        super(ReinforcedFloor, self).__init__(name, **kwargs)
+        plate = Plate(
+            name + "_pl",
+            points,
+            pl_thick,
+            placement=self.placement,
+            use3dnodes=use3dnodes,
+        )
+        self.add_plate(plate)
 
         # Calculate number of stringers
         bbox = plate.bbox
@@ -39,11 +47,13 @@ class ReinforcedFloor(Part):
         else:
             snum = int((ymax - ymin) / spacing) - 1
 
-        origin = plate.poly.placement.origin
-        z = origin[2]
-        x = xmin + spacing
-        y = ymin + spacing
-        for i in range(0, snum):
+        z = plate.poly.placement.origin[2]
+
+        tot_spacing = snum * spacing
+        diff = xmax - xmin - tot_spacing
+        x = diff / 2
+        y = diff / 2
+        for i in range(0, snum + 1):
             if stringer_dir == "Y":
                 p1 = (x, ymin, z)
                 p2 = (x, ymax, z)
@@ -61,8 +71,18 @@ class SimpleStru(Part):
         l = None
         h = None
 
-    def __init__(self, name, origin=(0, 0, 0), w=5, l=5, h=3, gsec="IPE200", csec="HEB200", pl_thick=10e-3):
-        super(SimpleStru, self).__init__(name, origin)
+    def __init__(
+        self,
+        name,
+        w=5,
+        l=5,
+        h=3,
+        gsec="IPE200",
+        csec="HEB200",
+        pl_thick=10e-3,
+        placement=Placement(),
+    ):
+        super(SimpleStru, self).__init__(name, placement=placement)
         self.Params.w = w
         self.Params.h = h
         self.Params.l = l
@@ -73,18 +93,22 @@ class SimpleStru(Part):
         # Define the relationship of corners that make up the 4 support beams
         beams = [(c1, c2), (c2, c3), (c3, c4), (c4, c1)]
 
-        z0 = origin[2]
+        z0 = 0
+        z1 = h
         sec = Section(gsec, from_str=gsec, parent=self)
-        for elev in [z0, h]:
+        self._elevations = [z0, z1]
+        for elev in self._elevations:
             for p1, p2 in beams:
-                self.add_beam(Beam(next(bm_name), n1=p1(elev), n2=p2(elev), sec=sec, jusl="TOP"))
+                self.add_beam(Beam(next(bm_name), n1=p1(elev), n2=p2(elev), sec=sec, jusl=Beam.JUSL_TYPES.TOS))
             points = [c1(elev), c2(elev), c3(elev), c4(elev)]
-            self.add_part(ReinforcedFloor(next(floor_name), points, pl_thick))
+            p = self.add_part(ReinforcedFloor(next(floor_name), points, pl_thick))
+            self.add_set("floors", [p])
 
         # Columns
         columns = [(c1(z0), c1(h)), (c2(z0), c2(h)), (c3(z0), c3(h)), (c4(z0), c4(h))]
         for p1, p2 in columns:
-            self.add_beam(Beam(next(bm_name), n1=p1, n2=p2, sec=csec))
+            bm = self.add_beam(Beam(next(bm_name), n1=p1, n2=p2, sec=csec))
+            self.add_set("columns", [bm])
 
     def c1(self, z) -> tuple:
         return 0, 0, z
@@ -103,7 +127,8 @@ class SimpleStru(Part):
         fem_set_btn = self.fem.add_set(FemSet("fix", [], FemSet.TYPES.NSET))
         nodes: List[Node] = []
         for bc_loc in funcs:
-            nodes += self.fem.nodes.get_by_volume(bc_loc(self.placement.origin[2]))
+            location = self.placement.origin + bc_loc(self._elevations[0])
+            nodes += self.fem.nodes.get_by_volume(location)
         fem_set_btn.add_members(nodes)
         self.fem.add_bc(Bc("bc_fix", fem_set_btn, [1, 2, 3]))
 

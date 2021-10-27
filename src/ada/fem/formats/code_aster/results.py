@@ -7,7 +7,7 @@ import numpy as np
 
 from ada.fem import StepEigen
 from ada.fem.concepts.eigenvalue import EigenDataSummary, EigenMode
-from ada.fem.elements import ElemShapes
+from ada.fem.elements import ElemShape
 from ada.fem.results import Results
 
 from .reader import med_to_fem
@@ -49,7 +49,7 @@ def read_code_aster_results(results: Results, file_ref: pathlib.Path, overwrite)
     if type(results.assembly.fem.steps[0]) is StepEigen:
         results.eigen_mode_data = get_eigen_data(file_ref)
     fem = med_to_fem(file_ref, "temp")
-    if any([x.type in ElemShapes.tri7 for x in fem.elements.shell]):
+    if any([x.type in ElemShape.TYPES.tri7 for x in fem.elements.shell]):
         logging.error("Meshio does not support 7 node Triangle elements yet")
         return None
     return meshio.read(file_ref, "med")

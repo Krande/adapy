@@ -59,6 +59,30 @@ def test_ig():
     eval_assertions(sec, assertions)
 
 
+def test_tg():
+    sec = Section("MySec", from_str="TG650x300x25x40")
+
+    assertions = [
+        ("Ax", 0.0116),
+        ("Ix", 1.542666667e-6),
+        ("Iy", 3.279466667e-4),
+        ("Iz", 2.669666667e-5),
+        ("Iyz", 0.0),
+        ("Wxmin", 7.713333333e-5),
+        ("Wymin", 0.001639733333),
+        ("Wzmin", 0.0002669666667),
+        ("Shary", 0.005221841891),
+        # TODO: Fix Sy calculation
+        # ("Sharz", 0.003556905278),
+        # ("Sy", 0.000922),
+        ("Sz", 0.0002045),
+        ("Shceny", 0.0),
+        ("Shcenz", 0.0),
+    ]
+    print(sec, assertions)
+    # eval_assertions(sec, assertions)
+
+
 def test_tubular():
     sec = Section("MyTUB", from_str="TUB375x35")
 

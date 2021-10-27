@@ -2,13 +2,11 @@ import getpass
 import os
 import pathlib
 from dataclasses import dataclass
+from datetime import datetime
 
 
 def _get_platform_home():
-    """
-
-    :return:
-    """
+    """Home location for each platform"""
     # _platform_home = dict(win32="C:/ADA", linux="/home/ADA", linux2="/home/ADA", macos="/home/ADA")
     # return _platform_home[sys.platform]
 
@@ -16,10 +14,7 @@ def _get_platform_home():
 
 
 class Settings:
-    """
-    The Properties object contains all general purpose properties relevant for Parts and Assemblies
-
-    """
+    """The Properties object contains all general purpose properties relevant for Parts and Assemblies"""
 
     point_tol = 1e-4
     precision = 6
@@ -81,8 +76,7 @@ class User:
     role: str = "Engineer"
     parent = None
 
-    def to_ifc(self):
-        from datetime import datetime
+    def _build_ifc_elem(self):
 
         from ada.ifc.utils import get_org, get_person
 
@@ -112,3 +106,7 @@ class User:
         timestamp = int(datetime.now().timestamp())
 
         return f.create_entity("IfcOwnerHistory", p_o, application, "READWRITE", None, None, None, None, timestamp)
+
+    def to_ifc(self):
+        # Important! Needs to create unique owner_history for each use. Will cause seg fault when adding non-unique
+        return self._build_ifc_elem()

@@ -176,6 +176,11 @@ class Part(BackendGeom):
             logging.info(f'shape "{shape}" has different units. changing from "{shape.units}" to "{self.units}"')
             shape.units = self.units
         shape.parent = self
+
+        mat = self.add_material(shape.material)
+        if mat != shape.material:
+            shape.material = mat
+
         self._shapes.append(shape)
         return shape
 
@@ -409,6 +414,16 @@ class Part(BackendGeom):
 
         return filter(None, [basic_intersect(bm, margins, all_parts) for bm in all_beams])
 
+    def move_all_mats_and_sec_here_from_subparts(self):
+        for p in self.get_all_subparts():
+            self._materials += p.materials
+            self._sections += p.sections
+            p._materials = Materials()
+            p._sections = Sections()
+
+        self.sections.merge_sections_by_properties()
+        self.materials.merge_materials_by_properties()
+
     def _flatten_list_of_subparts(self, p, list_of_parts=None):
         for value in p.parts.values():
             list_of_parts.append(value)
@@ -456,7 +471,7 @@ class Part(BackendGeom):
             props["CompositionType"] = self.metadata.get("CompositionType", "ELEMENT")
 
         if ifc_type == "IfcBuildingStorey":
-            props["Elevation"] = self.placement.origin[2]
+            props["Elevation"] = float(self.placement.origin[2])
 
         ifc_elem = f.create_entity(ifc_type, **props)
 
@@ -490,7 +505,13 @@ class Part(BackendGeom):
         raise NotImplementedError()
 
     def to_fem_obj(
-        self, mesh_size: float, bm_repr=ElemType.LINE, pl_repr=ElemType.SHELL, options=None, silent=True
+        self,
+        mesh_size: float,
+        bm_repr=ElemType.LINE,
+        pl_repr=ElemType.SHELL,
+        options=None,
+        silent=True,
+        interactive=False,
     ) -> FEM:
         """:type options: ada.fem.meshing.GmshOptions"""
         from ada.fem.meshing import GmshOptions, GmshSession
@@ -506,13 +527,25 @@ class Part(BackendGeom):
                     gs.add_obj(obj, geom_repr=pl_repr)
                 elif issubclass(type(obj), Shape) and obj.mass is not None:
                     masses.append(obj)
+                elif issubclass(type(obj), Shape):
+                    gs.add_obj(obj)
                 else:
                     logging.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
+
+            # if interactive is True:
+            #     gs.open_gui()
+
+            gs.split_plates_by_beams()
             gs.mesh(mesh_size)
+
+            if interactive is True:
+                gs.open_gui()
+
             fem = gs.get_fem()
 
         for mass_shape in masses:
-            n = fem.nodes.add(Node(mass_shape.cog))
+            cog_absolute = mass_shape.placement.absolute_placement() + mass_shape.cog
+            n = fem.nodes.add(Node(cog_absolute))
             fs = fem.add_set(FemSet(f"{mass_shape.name}_mass_set", [n], "nset"))
             fem.add_mass(Mass(f"{mass_shape.name}_mass", fs, mass_shape.mass))
 
@@ -903,7 +936,7 @@ class Assembly(Part):
 
         Note! The meshio fem converter implementation currently only supports reading elements and nodes.
         """
-        from ada.fem.formats import get_fem_converters
+        from ada.fem.formats.general import get_fem_converters
 
         fem_file = pathlib.Path(fem_file)
         if fem_file.exists() is False:
@@ -933,6 +966,7 @@ class Assembly(Part):
         fem_converter="default",
         exit_on_complete=True,
         run_in_shell=False,
+        make_zip_file=False,
     ):
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
@@ -964,6 +998,7 @@ class Assembly(Part):
         :param fem_converter: Set desired fem converter. Use either 'default' or 'meshio'.
         :param exit_on_complete:
         :param run_in_shell:
+        :param make_zip_file:
         :rtype: ada.fem.results.Results
 
             Note! Meshio implementation currently only supports reading & writing elements and nodes.
@@ -977,7 +1012,7 @@ class Assembly(Part):
             If this proves to create issues regarding performance this should be evaluated further.
 
         """
-        from ada.fem.formats import fem_executables, get_fem_converters
+        from ada.fem.formats.general import fem_executables, get_fem_converters
         from ada.fem.formats.utils import (
             default_fem_inp_path,
             default_fem_res_path,
@@ -1002,6 +1037,11 @@ class Assembly(Part):
                 raise ValueError(f'FEM export for "{fem_format}" using "{fem_converter}" is currently not supported')
             fem_inp_files = default_fem_inp_path(name, scratch_dir)
             fem_exporter(self, name, analysis_dir, metadata)
+
+            if make_zip_file is True:
+                import shutil
+
+                shutil.make_archive(name, "zip", str(analysis_dir))
 
             if execute is True:
                 exe_func = fem_executables.get(fem_format, None)
@@ -1270,6 +1310,9 @@ class FEM:
         self.elements.parent = self
         self.sets.parent = self
         self.sections.parent = self
+        from ada.fem.options import FemOptions
+
+        self._options = FemOptions()
 
     def add_elem(self, elem: Elem) -> Elem:
         elem.parent = self
@@ -1446,7 +1489,7 @@ class FEM:
 
         elem = Elem(None, [obj.n1, obj.n2], el_type)
         self.add_elem(elem)
-        femset = FemSet(f"{obj.name}_set", [elem.id], "elset")
+        femset = FemSet(f"{obj.name}_set", [elem], "elset")
         self.add_set(femset)
         self.add_section(
             FemSection(
@@ -1460,6 +1503,11 @@ class FEM:
         )
         return elem
 
+    def is_empty(self) -> bool:
+        if len(self.nodes) == 0 and len(self.elements) == 0:
+            return True
+        return False
+
     @property
     def instance_name(self):
         return self.name if self.name is not None else f"{self.parent.name}-1"
@@ -1471,6 +1519,10 @@ class FEM:
     @property
     def elsets(self):
         return self.sets.elements
+
+    @property
+    def options(self):
+        return self._options
 
     def __add__(self, other: FEM):
         # Nodes

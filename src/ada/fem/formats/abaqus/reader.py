@@ -35,7 +35,7 @@ from ada.fem import (
 from ada.fem.containers import FemElements, FemSections, FemSets
 from ada.fem.formats.abaqus.common import AbaCards
 from ada.fem.interactions import ContactTypes
-from ada.fem.shapes import ElemShapes, ElemType
+from ada.fem.shapes import ElemShape, ElemType
 from ada.materials.metals import CarbonSteel
 
 from ..utils import str_to_int
@@ -438,14 +438,14 @@ def get_elem_from_inp(bulk_str, fem: FEM) -> FemElements:
         elset = d["elset"]
         members = d["members"]
         res = re.search("[a-zA-Z]", members)
-        if eltype.upper() in ElemShapes.cube20 + ElemShapes.cube27 or res is None:
-            if eltype.upper() in ElemShapes.cube20 + ElemShapes.cube27:
+        if eltype.upper() in ElemShape.TYPES.cube20 + ElemShape.TYPES.cube27 or res is None:
+            if eltype.upper() in ElemShape.TYPES.cube20 + ElemShape.TYPES.cube27:
                 temp = members.splitlines()
                 ntext = "".join([l1.strip() + "    " + l2.strip() + "\n" for l1, l2 in zip(temp[:-1:2], temp[1::2])])
             else:
                 ntext = d["members"]
             res = np.fromstring(ntext.replace("\n", ","), sep=",", dtype=int)
-            n = ElemShapes.num_nodes(eltype) + 1
+            n = ElemShape.num_nodes(eltype) + 1
             res_ = res.reshape(int(res.size / n), n)
             return [Elem(e[0], [fem.nodes.from_id(n) for n in e[1:]], eltype, elset, parent=fem) for e in res_]
         else:
@@ -705,7 +705,7 @@ def get_surfaces_from_bulk(bulk_str, parent):
         if id_refs is None:
             if surf_type == SurfTypes.NODE:
                 if set_id_ref == "":
-                    fem_set = FemSet(f"n{set_ref}_set", [int(set_ref)], "nset")
+                    fem_set = FemSet(f"n{set_ref}_set", [parent.nodes.from_id(int(set_ref))], "nset")
                     parent.add_set(fem_set)
                     weight_factor = 1.0
                 else:
@@ -723,21 +723,22 @@ def get_surfaces_from_bulk(bulk_str, parent):
                     else:
                         fem_set = parent.nsets[set_ref]
                     weight_factor = float(set_id_ref)
-                face_id_label = None
+                el_face_index = None
             else:
                 weight_factor = None
-                face_id_label = set_id_ref
+                el_face_index = int(set_id_ref.replace("S", "")) - 1
                 fem_set = parent.sets.get_elset_from_name(set_ref)
         else:
             fem_set = None
             weight_factor = None
-            face_id_label = None
+            el_face_index = None
+
         surf_d[name] = Surface(
             name,
             surf_type,
             fem_set,
             weight_factor,
-            face_id_label,
+            el_face_index,
             id_refs,
             parent=parent,
         )
@@ -812,7 +813,7 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM):
         rn = d["ref_node"].strip()
         sf = d["surface"].strip()
         if rn.isnumeric():
-            ref_set = FemSet(next(conames), [int(rn)], FemSet.TYPES.NSET, parent=fem)
+            ref_set = FemSet(next(conames), [fem.nodes.from_id(int(rn))], FemSet.TYPES.NSET, parent=fem)
             fem.sets.add(ref_set)
         else:
             ref_set = fem.nsets[rn]
@@ -952,6 +953,7 @@ def get_beam_sections_from_inp(bulk_str, fem):
     from ada import Section
     from ada.sections import GeneralProperties
 
+    ass = fem.parent.get_assembly()
     if bulk_str.lower().find("*beam section") == -1:
         return []
     re_beam = re.compile(
@@ -1053,7 +1055,6 @@ def get_beam_sections_from_inp(bulk_str, fem):
         elset = fem.elsets[d["elset"]]
         name = d["sec_name"] if d["sec_name"] is not None else elset.name
         profile = d["profile_name"] if d["profile_name"] is not None else elset.name
-        ass = fem.parent.get_assembly()
         material = ass.materials.get_by_name(d["material"])
         # material = parent.parent.materials.get_by_name(d['material'])
         temperature = d["temperature"]
@@ -1086,7 +1087,7 @@ def get_beam_sections_from_inp(bulk_str, fem):
 
 def get_solid_sections_from_inp(bulk_str, fem: FEM):
     secnames = Counter(1, "solidsec")
-
+    a = fem.parent.get_assembly()
     if bulk_str.lower().find("*solid section") == -1:
         return []
     re_solid = re.compile(
@@ -1099,11 +1100,12 @@ def get_solid_sections_from_inp(bulk_str, fem: FEM):
         name = m_in.group(1) if m_in.group(1) is not None else next(secnames)
         elset = m_in.group(2)
         material = m_in.group(3)
+        mat = a.materials.get_by_name(material)
         return FemSection(
             name=name,
             sec_type=ElemType.SOLID,
             elset=elset,
-            material=material,
+            material=mat,
             parent=fem,
         )
 
@@ -1119,7 +1121,7 @@ def get_shell_sections_from_inp(bulk_str, fem: FEM) -> Iterable[FemSection]:
         return []
     re_offset = r"(?:, offset=(?P<offset>.*?)|)"
     re_controls = r"(?:, controls=(?P<controls>.*?)|)"
-
+    a = fem.parent.get_assembly()
     re_shell = re.compile(
         rf"(?:\*\s*Section:\s*(?P<name>.*?)\n|)\*\Shell Section, elset"
         rf"=(?P<elset>.*?)\s*, material=(?P<material>.*?){re_offset}{re_controls}\s*\n(?P<t>.*?),"
@@ -1133,11 +1135,12 @@ def get_shell_sections_from_inp(bulk_str, fem: FEM) -> Iterable[FemSection]:
         elset = fem.sets.get_elset_from_name(d["elset"])
 
         material = d["material"]
+        mat = a.materials.get_by_name(material)
         thickness = float(d["t"])
         offset = d["offset"]
         if offset is not None:
             # TODO: update this with the latest eccentricity class
-            logging.warning("Offset for Shell elements is not yet evaluat")
+            logging.warning("Offset for Shell elements is not yet evaluated")
             for el in elset.members:
                 el.eccentricity = Eccentricity(sh_ecc_vector=offset)
         int_points = d["int_points"]
@@ -1147,7 +1150,7 @@ def get_shell_sections_from_inp(bulk_str, fem: FEM) -> Iterable[FemSection]:
             sec_type=ElemType.SHELL,
             thickness=thickness,
             elset=elset,
-            material=material,
+            material=mat,
             int_points=int_points,
             parent=fem,
             metadata=metadata,

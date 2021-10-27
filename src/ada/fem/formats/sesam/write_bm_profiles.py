@@ -81,6 +81,7 @@ def write_bm_section(sec: Section, sec_id: int) -> str:
         bt.ANGULAR: angular,
         bt.BOX: box,
         bt.IPROFILE: iprofile,
+        bt.TPROFILE: iprofile,
         bt.TUBULAR: tubular,
         bt.CIRCULAR: circular,
         bt.FLATBAR: flatbar,

@@ -17,12 +17,14 @@ def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=Fals
         f.add(m.ifc_mat)
 
     for bm in p.beams:
-        f.add(bm.get_ifc_elem())
-        physical_objects.append(bm.get_ifc_elem())
+        bm_ifc = bm.get_ifc_elem()
+        f.add(bm_ifc)
+        physical_objects.append(bm_ifc)
 
     for pl in p.plates:
-        f.add(pl.get_ifc_elem())
-        physical_objects.append(pl.get_ifc_elem())
+        pl_ifc = pl.get_ifc_elem()
+        f.add(pl_ifc)
+        physical_objects.append(pl_ifc)
 
     for pi in p.pipes:
         logging.debug(f'Creating IFC Elem for PIPE "{pi.name}"')
@@ -49,7 +51,8 @@ def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=Fals
     if len(physical_objects) == 0:
         return
 
-    f.createIfcRelContainedInSpatialStructure(
+    f.create_entity(
+        "IfcRelContainedInSpatialStructure",
         create_guid(),
         owner_history,
         "Physical model",

@@ -161,6 +161,40 @@ class GmshSession:
         # self.model.occ.remove(rem_ids, True)
         self.model.occ.synchronize()
 
+    def split_plates_by_beams(self):
+        from ada.core.clash_check import (
+            filter_away_beams_along_plate_edges,
+            find_beams_connected_to_plate,
+        )
+
+        beams = [obj for obj in self.model_map.keys() if type(obj) is Beam]
+        plates = [obj for obj in self.model_map.keys() if type(obj) is Plate]
+        for pl in plates:
+            pl_gmsh_obj = self.model_map[pl]
+            for pl_dim, pl_ent in pl_gmsh_obj.entities:
+                intersecting_beams = []
+                int_bm_map = dict()
+                all_contained_beams = find_beams_connected_to_plate(pl, beams)
+                inside_beams = filter_away_beams_along_plate_edges(pl, all_contained_beams)
+                for bm in inside_beams:
+                    bm_gmsh_obj = self.model_map[bm]
+                    for li_dim, li_ent in bm_gmsh_obj.entities:
+                        intersecting_beams.append((li_dim, li_ent))
+                        int_bm_map[(li_dim, li_ent)] = bm_gmsh_obj
+                # Using Embed fails during meshing
+
+                # res = self.model.mesh.embed(1, [t for e,t in intersecting_beams], 2, pl_ent)
+
+                res, res_map = self.model.occ.fragment(intersecting_beams, [(pl_dim, pl_ent)])
+                replaced_pl_entities = [(dim, r) for dim, r in res if dim == 2]
+                for i, int_bm in enumerate(intersecting_beams):
+                    bm_gmsh_obj = int_bm_map[int_bm]
+                    new_ents = res_map[i]
+                    bm_gmsh_obj.entities = new_ents
+                pl_gmsh_obj.entities = replaced_pl_entities
+
+                self.model.occ.synchronize()
+
     def mesh(self, size: float = None):
         if self.silent is True:
             self.options.General_Terminal = 0

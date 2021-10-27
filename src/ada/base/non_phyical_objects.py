@@ -89,11 +89,7 @@ class Backend:
         return self._ifc_elem
 
     def get_assembly(self):
-        """
-
-        :return:
-        :rtype: ada.Assembly
-        """
+        """:rtype: ada.Assembly"""
         from ada import Assembly
 
         parent = self
@@ -112,13 +108,19 @@ class Backend:
                 break
         return parent
 
+    def get_ancestors(self):
+        ancestry = [self]
+        current = self
+        while current.parent is not None:
+            ancestry.append(current.parent)
+            current = current.parent
+        return ancestry
+
     def _generate_ifc_elem(self):
         raise NotImplementedError("")
 
     def remove(self):
-        """
-        Remove this element/part from assembly/part
-        """
+        """Remove this element/part from assembly/part"""
         from ada import Beam, Part, Shape
 
         if self.parent is None:

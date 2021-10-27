@@ -5,7 +5,9 @@ import numpy as np
 
 from .common import Amplitude, Csys, FemBase
 from .constants import GRAVITY
+from .exceptions.model_definition import UnsupportedLoadType
 from .sets import FemSet
+from .surfaces import Surface
 
 
 class LoadTypes:
@@ -15,6 +17,7 @@ class LoadTypes:
     FORCE = "force"
     FORCE_SET = "force_set"
     MASS = "mass"
+    PRESSURE = "pressure"
 
     all = [GRAVITY, ACC, ACC_ROT, FORCE, FORCE_SET, MASS]
 
@@ -53,7 +56,7 @@ class Load(FemBase):
         parent=None,
     ):
         super().__init__(name, metadata, parent)
-        self.type = load_type
+        self._type = load_type
         self._magnitude = magnitude
         self._fem_set = fem_set
 
@@ -88,7 +91,7 @@ class Load(FemBase):
     @type.setter
     def type(self, value):
         if value.lower() not in LoadTypes.all:
-            raise ValueError(f'Load type "{value}" is not yet supported or does not exist. Must be "{LoadTypes.all}"')
+            raise UnsupportedLoadType(f'Load type "{value}" is not among supported load types: "{LoadTypes.all}"')
         self._type = value
 
     @property
@@ -142,7 +145,7 @@ class Load(FemBase):
     @property
     def acc_vector(self):
         if self.type not in (LoadTypes.ACC, LoadTypes.ACC_ROT):
-            raise ValueError('Acceleration vector only applies for type "acc"')
+            raise ValueError(f'Acceleration vector only applies for type "acc". Not "{self.type}"')
 
         dir_error = "If acc_vector is not specified, you must pass dof=[int] (int 1-3) for the acc field"
 
@@ -186,6 +189,28 @@ class Load(FemBase):
     def __repr__(self):
         forc_str = ",".join(f"{f:.6E}" for f in self.forces)
         return f"Load({self.name}, {self.type}, [{forc_str}])"
+
+
+class PressureDistribution:
+    UNIFORM = "uniform"
+    TOTAL_FORCE = "total_force"
+
+
+class LoadPressure(Load):
+    P_DIST_TYPES = PressureDistribution
+
+    def __init__(self, name: str, magnitude: float, surface: Surface, distribution=P_DIST_TYPES.UNIFORM):
+        super(LoadPressure, self).__init__(name, LoadTypes.PRESSURE, magnitude)
+        self._surface = surface
+        self._distribution = distribution
+
+    @property
+    def surface(self) -> Surface:
+        return self._surface
+
+    @property
+    def distribution(self) -> str:
+        return self._distribution
 
 
 class LoadCase(FemBase):

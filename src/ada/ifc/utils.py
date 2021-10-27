@@ -53,7 +53,7 @@ def ifc_p(f, p):
     return f.create_entity("IfcCartesianPoint", to_real(p))
 
 
-def create_global_axes(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X):
+def create_ifc_placement(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X):
     """
     Creates an IfcAxis2Placement3D from Location, Axis and RefDirection specified as Python tuples
 
@@ -65,10 +65,9 @@ def create_global_axes(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X):
     :return:
     """
 
-    ifc_origin = ifc_p(f, origin)
     ifc_loc_z = f.createIfcDirection(to_real(loc_z))
     ifc_loc_x = f.createIfcDirection(to_real(loc_x))
-    axis2placement = f.createIfcAxis2Placement3D(ifc_origin, ifc_loc_z, ifc_loc_x)
+    axis2placement = f.createIfcAxis2Placement3D(ifc_p(f, origin), ifc_loc_z, ifc_loc_x)
     return axis2placement
 
 
@@ -86,8 +85,10 @@ def create_local_placement(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X, relativ
     :return: IFC local placement
     """
 
-    axis2placement = create_global_axes(f, origin, loc_z, loc_x)
-    ifclocalplacement2 = f.createIfcLocalPlacement(relative_to, axis2placement)
+    axis2placement = create_ifc_placement(f, origin, loc_z, loc_x)
+    ifclocalplacement2 = f.create_entity(
+        "IfcLocalPlacement", PlacementRelTo=relative_to, RelativePlacement=axis2placement
+    )
     return ifclocalplacement2
 
 
@@ -246,6 +247,7 @@ def create_ifcindexpolyline2d(ifcfile, points2d, seg_index):
 def create_ifcrevolveareasolid(ifc_file, profile, ifcaxis2placement, origin, revolve_axis, revolve_angle):
     """
     Creates an IfcExtrudedAreaSolid from a list of points, specified as Python tuples
+
     :param ifc_file:
     :param profile:
     :param ifcaxis2placement:
@@ -293,7 +295,7 @@ def create_ifcextrudedareasolid(ifc_file, profile, ifcaxis2placement, extrude_di
     """
 
     ifcdir = ifc_file.createIfcDirection(extrude_dir)
-    ifcextrudedareasolid = ifc_file.createIfcExtrudedAreaSolid(profile, ifcaxis2placement, ifcdir, extrusion)
+    ifcextrudedareasolid = ifc_file.create_entity("IfcExtrudedAreaSolid", profile, ifcaxis2placement, ifcdir, extrusion)
     return ifcextrudedareasolid
 
 
@@ -402,6 +404,8 @@ def to_real(v):
     :param v:
     :return:
     """
+    from ada import Node
+
     if type(v) is tuple:
         return [float(x) for x in v]
     elif type(v) is list:
@@ -409,6 +413,8 @@ def to_real(v):
             return v
         else:
             return [float(x) for x in v]
+    elif type(v) is Node:
+        return v.p.astype(float).tolist()
     else:
         return v.astype(float).tolist()
 
@@ -610,7 +616,7 @@ def add_negative_extrusion(f, origin, loc_z, loc_x, depth, points, parent):
 
     # Create and associate an opening for the window in the wall
     opening_placement = create_local_placement(f, origin, loc_z, loc_x, parent.ObjectPlacement)
-    opening_axis_placement = create_global_axes(f, origin, loc_z, loc_x)
+    opening_axis_placement = create_ifc_placement(f, origin, loc_z, loc_x)
     polyline = create_ifcpolyline(f, points)
     ifcclosedprofile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
 
@@ -839,12 +845,14 @@ def convert_bm_jusl_to_ifc(bm):
     :return:
     """
     jusl = bm.jusl
-    jusl_map = dict(NA=5, TOP=8)
+    jt = bm.JUSL_TYPES
+
+    jusl_map = {jt.NA: 5, jt.TOS: 8}
 
     jusl_val = jusl_map.get(jusl, None)
 
     if jusl_val is None:
-        if jusl != "NA":
+        if jusl != jt.NA:
             logging.error(f'Unknown JUSL value "{jusl}". Using NA')
         return 5
 
@@ -863,38 +871,6 @@ def get_org(f, org_id):
         if p.Identification == org_id:
             return p
     return None
-
-
-def create_reference_subrep(f, global_axes):
-    model_rep = f.create_entity("IfcGeometricRepresentationContext", None, "Model", 3, 1.0e-05, global_axes, None)
-    body_sub_rep = f.create_entity(
-        "IfcGeometricRepresentationSubContext",
-        "Body",
-        "Model",
-        None,
-        None,
-        None,
-        None,
-        model_rep,
-        None,
-        "MODEL_VIEW",
-        None,
-    )
-    ref_sub_rep = f.create_entity(
-        "IfcGeometricRepresentationSubContext",
-        "Reference",
-        "Model",
-        None,
-        None,
-        None,
-        None,
-        model_rep,
-        None,
-        "GRAPH_VIEW",
-        None,
-    )
-
-    return {"model": model_rep, "body": body_sub_rep, "reference": ref_sub_rep}
 
 
 def scale_ifc_file(current_ifc, new_ifc):

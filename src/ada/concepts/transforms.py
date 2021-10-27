@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Union
 
 import numpy as np
 from pyquaternion import Quaternion
@@ -9,7 +9,7 @@ from pyquaternion import Quaternion
 
 @dataclass
 class Transform:
-    translation: Iterable[float, float, float] = None
+    translation: np.ndarray = None
     rotation: Rotation = None
 
     def to_ifc(self, f):
@@ -31,10 +31,11 @@ class Rotation:
 
 @dataclass
 class Placement:
-    origin: np.ndarray = np.array([0, 0, 0], dtype=float)
-    xdir: np.ndarray = None
-    ydir: np.ndarray = None
-    zdir: np.ndarray = None
+    origin: Union[list, tuple, np.ndarray] = np.array([0, 0, 0], dtype=float)
+    xdir: Union[list, tuple, np.ndarray] = None
+    ydir: Union[list, tuple, np.ndarray] = None
+    zdir: Union[list, tuple, np.ndarray] = None
+    parent = None
 
     def __post_init__(self):
         from ada.core.utils import calc_yvec
@@ -53,6 +54,27 @@ class Placement:
         if all(x is None for x in all_dir):
             raise ValueError("Placement orientation needs all 3 vectors")
 
-        self.xdir = np.array(self.xdir)
-        self.ydir = np.array(self.ydir)
-        self.zdir = np.array(self.zdir)
+        self.xdir = np.array(self.xdir, dtype=float)
+        self.ydir = np.array(self.ydir, dtype=float)
+        self.zdir = np.array(self.zdir, dtype=float)
+
+        if type(self.origin) is not np.ndarray:
+            self.origin = np.array(self.origin, dtype=float)
+
+    def absolute_placement(self):
+        current_location = np.array([0, 0, 0], dtype=float)
+        ancestry = self.parent.get_ancestors()
+        ancestry.reverse()
+        for ancestor in ancestry:
+            current_location += ancestor.placement.origin
+            # TODO: Add support for combining rotations as well
+        return current_location
+
+    def __eq__(self, other: Placement):
+        from ada.core.utils import vector_length
+
+        for prop in ["origin", "xdir", "ydir", "zdir"]:
+            if vector_length(getattr(other, prop) - getattr(self, prop)) > 0.0:
+                return False
+
+        return True

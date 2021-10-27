@@ -41,7 +41,7 @@ from OCC.Extend.TopologyUtils import TopologyExplorer
 
 from ada.concepts.primitives import Penetration
 from ada.concepts.structural import Beam
-from ada.concepts.transforms import Rotation
+from ada.concepts.transforms import Placement, Rotation
 from ada.core.utils import roundoff, tuple_minus, unit_vector, vector_length
 from ada.fem.shapes import ElemType
 
@@ -61,13 +61,21 @@ def extract_shapes(step_path, scale, transform, rotate):
     return shapes
 
 
-def transform_shape(shape: Union[TopoDS_Shape], scale=None, transform=None, rotate: Rotation = None) -> TopoDS_Shape:
+def transform_shape(
+    shape: Union[TopoDS_Shape], scale=None, transform: Union[Placement, tuple, list] = None, rotate: Rotation = None
+) -> TopoDS_Shape:
 
     trsf = gp_Trsf()
     if scale is not None:
         trsf.SetScaleFactor(scale)
     if transform is not None:
-        trsf.SetTranslation(gp_Vec(transform[0], transform[1], transform[2]))
+        if type(transform) is Placement:
+            tra = transform.origin
+            trsf.SetTranslation(gp_Vec(tra[0], tra[1], tra[2]))
+        elif type(transform) in (tuple, list):
+            trsf.SetTranslation(gp_Vec(transform[0], transform[1], transform[2]))
+        else:
+            raise ValueError(f'Unrecognized transform input type "{type(transform)}"')
     if rotate is not None:
         pt = gp_Pnt(*rotate.origin)
         dire = gp_Dir(*rotate.vector)

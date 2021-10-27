@@ -12,7 +12,6 @@ from .utils import create_guid, create_ifcindexpolyline, create_ifcpolyline
 def export_beam_section(section: Section):
     a = section.parent.parent.get_assembly()
     f = a.ifc_file
-
     sec_props = dict(ProfileType="AREA", ProfileName=section.name)
     section_profile = section.get_section_profile(True)
     if SectionCat.is_i_profile(section.type):
@@ -122,7 +121,8 @@ def export_beam_section(section: Section):
 
     profile = f.create_entity(ifc_sec_type, **sec_props)
 
-    beamtype = f.createIfcBeamType(
+    beamtype = f.create_entity(
+        "IfcBeamType",
         create_guid(),
         a.user.to_ifc(),
         section.name,

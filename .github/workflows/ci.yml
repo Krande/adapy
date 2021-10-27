@@ -9,7 +9,7 @@ on:
       - '.github/workflows/ci.yml'
     branches:
     - main
-#    - dev
+    - dev
   pull_request:
     branches:
     - main

@@ -477,6 +477,14 @@ class SegCreator:
     def plot_path(self):
         return rf"{self._debug_path}\{self._debug_name}.html"
 
+    @property
+    def i(self):
+        return self._i
+
+    @i.setter
+    def i(self, value):
+        self._i = value
+
     # Private methods
     def _start_plot(self):
         from plotly import graph_objs as go
@@ -822,7 +830,7 @@ def build_polycurve(local_points2d: List[tuple], tol=1e-3, debug=False, debug_na
             segc._arc_midpoint = None
             segc.calc_line()
 
-        if segc._i == len(local_points2d) - 1:
+        if segc.i == len(local_points2d) - 1:
             in_loop = False
         else:
             segc.next()

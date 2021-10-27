@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
-from typing import Tuple
+from typing import List, Tuple, Union
 
 import numpy as np
 
+from ada.concepts.structural import Beam, Plate
 from ada.core.utils import (
+    Counter,
     calc_yvec,
     calc_zvec,
     normal_to_points_in_plane,
@@ -20,6 +22,9 @@ from .shapes import ElemType
 
 
 class FemSection(FemBase):
+    id_count = Counter()
+    SEC_TYPES = ElemType
+
     def __init__(
         self,
         name,
@@ -34,20 +39,23 @@ class FemSection(FemBase):
         metadata=None,
         parent=None,
         refs=None,
+        sec_id=None,
     ):
         """:type elset: ada.fem.FemSet"""
         super().__init__(name, metadata, parent)
         if sec_type is None:
             raise ValueError("Section type cannot be None")
 
-        _valid_secs = [ElemType.LINE, ElemType.SHELL, ElemType.SOLID]
-        if sec_type not in _valid_secs:
-            raise ValueError(f'Element section type "{sec_type}" is not supported. Must be in {_valid_secs}')
-
+        if sec_type not in ElemType.all:
+            raise ValueError(f'Element section type "{sec_type}" is not supported. Must be in {ElemType.all}')
+        self._id = sec_id if sec_id is not None else next(FemSection.id_count)
         self._sec_type = sec_type
         self._elset = elset
         self._material = material
+        material.refs.append(self)
         self._section = section
+        if section is not None:
+            section.refs.append(self)
         if self._sec_type == ElemType.LINE:
             if local_y is None and local_z is None:
                 raise ValueError("You need to specify either local_y or local_z")
@@ -71,6 +79,10 @@ class FemSection(FemBase):
     @property
     def type(self):
         return self._sec_type
+
+    @property
+    def id(self):
+        return self._id
 
     @property
     def elset(self):
@@ -98,7 +110,9 @@ class FemSection(FemBase):
         elif self.type == ElemType.SHELL:
             self._local_z = normal_to_points_in_plane([n.p for n in self.elset.members[0].nodes])
         else:
-            raise NotImplementedError("Local Z is not implemented for solid elements, yet.")
+            from ada.core.constants import Z
+
+            self._local_z = np.array(Z, dtype=float)
 
         return self._local_z
 
@@ -109,17 +123,22 @@ class FemSection(FemBase):
             return self._local_y
 
         if self.type == ElemType.LINE:
-            n1, n2 = self.elset.members[0].nodes[0], self.elset.members[0].nodes[-1]
+            el = self.elset.members[0]
+            n1, n2 = el.nodes[0], el.nodes[-1]
             v = n2.p - n1.p
+            if vector_length(v) == 0.0:
+                raise ValueError(f'Element "{el}" has no length. UNable to calculate y-vector')
 
-            xvec = [1, 0, 0] if vector_length(v) == 0.0 else unit_vector(v)
+            xvec = unit_vector(v)
 
             # See https://en.wikipedia.org/wiki/Cross_product#Coordinate_notation for order of cross product
-            self._local_y = calc_yvec(xvec, self.local_z)
+            vec = calc_yvec(xvec, self.local_z)
         elif self.type == ElemType.SHELL:
-            self._local_y = calc_yvec(self.local_x, self.local_z)
+            vec = calc_yvec(self.local_x, self.local_z)
         else:
-            raise NotImplementedError("Local Y is not implemented for solid elements.")
+            vec = calc_yvec(self.local_x, self.local_z)
+
+        self._local_y = np.where(abs(vec) == 0, 0, vec)
 
         return self._local_y
 
@@ -128,14 +147,18 @@ class FemSection(FemBase):
         if self._local_x is not None:
             return self._local_x
 
+        el = self.elset.members[0]
+
         if self.type == ElemType.LINE:
-            el = self.elset.members[0]
-            self._local_x = unit_vector(el.nodes[-1].p - el.nodes[0].p)
+            vec = unit_vector(el.nodes[-1].p - el.nodes[0].p)
         elif self.type == ElemType.SHELL:
-            el = self.elset.members[0]
-            self._local_x = unit_vector(el.nodes[1].p - el.nodes[0].p)
+            vec = unit_vector(el.nodes[1].p - el.nodes[0].p)
         else:
-            logging.error(f"X-vector not defined for {self.type}")
+            from ada.core.constants import X
+
+            vec = np.array(X, dtype=float)
+
+        self._local_x = np.round(np.where(abs(vec) == 0, 0, vec), 8)
 
         return self._local_x
 
@@ -164,14 +187,21 @@ class FemSection(FemBase):
         return self._int_points
 
     @property
-    def refs(self):
+    def refs(self) -> List[Union[Beam, Plate]]:
         return self._refs
 
-    def unique_fem_section_permutation(self) -> Tuple[Material, Section, tuple, tuple]:
-        return self.material, self.section, tuple(self.local_x), tuple(self.local_z)
+    def unique_fem_section_permutation(self) -> Tuple[int, Material, Section, tuple, tuple, float]:
+        if self.type == self.SEC_TYPES.LINE:
+            return self.id, self.material, self.section, tuple(self.local_x), tuple(self.local_z), self.thickness
+        elif self.type == self.SEC_TYPES.SHELL:
+            return self.id, self.material, self.section, (None,), tuple(self.local_z), self.thickness
+        else:
+            return self.id, self.material, self.section, (None,), tuple(self.local_z), 0.0
 
     def __eq__(self, other: FemSection):
-        return self.unique_fem_section_permutation() == other.unique_fem_section_permutation()
+        self_perm = self.unique_fem_section_permutation()
+        other_perm = other.unique_fem_section_permutation()
+        return self_perm == other_perm
 
     def __repr__(self):
         return (
@@ -181,17 +211,7 @@ class FemSection(FemBase):
 
 
 class ConnectorSection(FemBase):
-    """
-    A Connector Section
-
-
-    :param name:
-    :param elastic_comp:
-    :param damping_comp:
-    :param plastic_comp:
-    :param rigid_dofs:
-    :param soft_elastic_dofs:
-    """
+    """A Connector Section"""
 
     def __init__(
         self,

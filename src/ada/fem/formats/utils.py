@@ -12,7 +12,6 @@ from itertools import chain
 from typing import Dict
 
 from ada.concepts.containers import Beams, Plates
-from ada.concepts.levels import Part
 from ada.concepts.structural import Beam, Plate
 from ada.config import Settings
 from ada.fem import Elem
@@ -109,7 +108,7 @@ class LocalExecute:
         return out
 
     def get_exe(self, fea_software):
-        from ada.fem.formats import fem_solver_map
+        from ada.fem.formats.general import fem_solver_map
 
         solver_exe_name = fem_solver_map.get(fea_software, fea_software)
         exe_path = None
@@ -439,8 +438,9 @@ def convert_part_elem_bm_to_beams(p) -> Beams:
     return Beams([line_elem_to_beam(bm, p) for bm in p.fem.elements.lines])
 
 
-def line_elem_to_beam(elem: Elem, parent: Part):
-    """Convert FEM line element to Beam"""
+def line_elem_to_beam(elem: Elem, parent):
+    """Convert FEM line element to Beam
+    :type parent: ada.Part"""
 
     a = parent.get_assembly()
 
@@ -473,7 +473,8 @@ def line_elem_to_beam(elem: Elem, parent: Part):
     )
 
 
-def convert_part_objects(p: Part, skip_plates, skip_beams):
+def convert_part_objects(p, skip_plates, skip_beams):
+    """:type p: Part"""
     if skip_plates is False:
         p._plates = convert_part_shell_elements_to_plates(p)
     if skip_beams is False:
@@ -497,6 +498,6 @@ def default_fem_inp_path(name, scratch_dir=None, analysis_dir=None):
         code_aster=base_path.with_suffix(".export"),
         abaqus=base_path.with_suffix(".inp"),
         calculix=base_path.with_suffix(".inp"),
-        sesam=base_path.with_suffix(".FEM"),
+        sesam=(base_path.parent / f"{name}T1").with_suffix(".FEM"),
         usfos=base_path.with_suffix(".raf"),
     )
