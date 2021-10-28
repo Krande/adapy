@@ -76,7 +76,7 @@ class JointBase(BackendGeom, ABC):
             raise ValueError(f"Not all Pre-requisite member types {self.mem_types} are found for JointB")
 
     def _cut_intersecting_member(self, mem_base: Beam, mem_incoming: Beam):
-        p1, p2 = mem_base.bbox
+        p1, p2 = mem_base.bbox.minmax
         mem_incoming.add_penetration(PrimBox(f"{self.name}_neg", p1, p2))
 
     def _get_landing_member(self, members) -> Beam:

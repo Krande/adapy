@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import logging
 import pathlib
-from dataclasses import dataclass
-from typing import List, Tuple, Union
+from typing import Tuple, Union
 
 import numpy as np
 
@@ -13,8 +12,8 @@ from ada.ifc.utils import create_guid
 from ada.materials import Material
 from ada.materials.utils import get_material
 
+from .bounding_box import BoundingBox
 from .curves import CurvePoly
-from .points import Node
 from .transforms import Placement
 
 
@@ -322,20 +321,13 @@ class PrimSphere(Shape):
 class PrimBox(Shape):
     """Primitive Box. Length, width & height are local x, y and z respectively"""
 
-    def __init__(self, name, p1, p2, colour=None, opacity=1.0, metadata=None, units="m"):
+    def __init__(self, name, p1, p2, **kwargs):
         from ada.occ.utils import make_box_by_points
 
         self.p1 = p1
         self.p2 = p2
-        self._sides = BoxSides(self)
-        super(PrimBox, self).__init__(
-            name=name,
-            geom=make_box_by_points(p1, p2),
-            colour=colour,
-            opacity=opacity,
-            metadata=metadata,
-            units=units,
-        )
+        super(PrimBox, self).__init__(name=name, geom=make_box_by_points(p1, p2), **kwargs)
+        self._bbox = BoundingBox(self)
 
     def generate_ifc_solid_geom(self, f):
         from ada.core.constants import O, X, Z
@@ -360,8 +352,8 @@ class PrimBox(Shape):
         return create_ifcextrudedareasolid(f, profile, opening_axis_placement, (0.0, 0.0, 1.0), depth)
 
     @property
-    def sides(self) -> BoxSides:
-        return self._sides
+    def bbox(self) -> BoundingBox:
+        return self._bbox
 
     @property
     def units(self):
@@ -381,80 +373,6 @@ class PrimBox(Shape):
 
     def __repr__(self):
         return f"PrimBox({self.name})"
-
-
-@dataclass
-class BoxSides:
-    parent: PrimBox
-
-    def _return_fem_nodes(self, pmin, pmax, fem=None):
-        if fem is None and self.parent is not None and self.parent.parent.fem.is_empty() is False:
-            fem = self.parent.parent.fem
-
-        if fem is None:
-            raise ValueError("No FEM data found. Cannot return FEM nodes")
-
-        return fem.nodes.get_by_volume(p=pmin, vol_box=pmax)
-
-    def _return_data(self, pmin, pmax, fem, return_fem_nodes) -> Union[Tuple[tuple, tuple], List[Node]]:
-        if return_fem_nodes is True:
-            return self._return_fem_nodes(pmin, pmax, fem)
-
-        return pmin, pmax
-
-    def _return_surface(self):
-        pass
-
-    def _get_dim(self):
-        box = self.parent
-        p1 = np.array(box.p1)
-        p2 = np.array(box.p2)
-        l, w, h = p2 - p1
-        return l, w, h, p1, p2
-
-    def top(self, tol=1e-3, return_fem_nodes=False, fem=None):
-        """Top is at positive local Z"""
-        l, w, h, p1, p2 = self._get_dim()
-
-        z = self.parent.placement.zdir
-
-        pmin = p1 + l * z - tol
-        pmax = p2 + tol
-
-        return self._return_data(pmin, pmax, fem, return_fem_nodes)
-
-    def bottom(self, tol=1e-3, return_fem_nodes=False, fem=None):
-        """Bottom is at negative local z"""
-        l, w, h, p1, p2 = self._get_dim()
-
-        z = self.parent.placement.zdir
-
-        pmin = p1 - tol
-        pmax = p2 - l * z + tol
-
-        return self._return_data(pmin, pmax, fem, return_fem_nodes)
-
-    def front(self, tol=1e-3, return_fem_nodes=False, fem=None):
-        """Front is at positive local y"""
-        l, w, h, p1, p2 = self._get_dim()
-
-        y = self.parent.placement.ydir
-
-        pmin = p1 + l * y - tol
-        pmax = p2 + tol
-
-        return self._return_data(pmin, pmax, fem, return_fem_nodes)
-
-    def back(self, tol=1e-3, return_fem_nodes=False, fem=None):
-        """Back is at negative local y"""
-        l, w, h, p1, p2 = self._get_dim()
-
-        y = self.parent.placement.ydir
-
-        pmin = p1 - tol
-        pmax = p2 - l * y + tol
-
-        return self._return_data(pmin, pmax, fem, return_fem_nodes)
 
 
 class PrimCyl(Shape):

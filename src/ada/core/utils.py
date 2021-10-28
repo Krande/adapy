@@ -24,8 +24,8 @@ def align_to_plate(plate):
 
 def align_to_beam(beam):
     """:type beam: ada.Beam"""
-    ymin = beam.yvec * np.array(beam.bbox[0])
-    ymax = beam.yvec * np.array(beam.bbox[1])
+    ymin = beam.yvec * np.array(beam.bbox.p1)
+    ymax = beam.yvec * np.array(beam.bbox.p2)
     origin = beam.n1.p - ymin * 1.1
     normal = -beam.yvec
     xdir = beam.xvec

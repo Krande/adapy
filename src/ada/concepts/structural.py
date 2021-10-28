@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import logging
-from itertools import chain
 from typing import List
 
 import numpy as np
 
 from ada.base.physical_objects import BackendGeom
+from ada.concepts.bounding_box import BoundingBox
 from ada.concepts.curves import CurvePoly
 from ada.concepts.points import Node
 from ada.concepts.primitives import PrimBox
@@ -185,31 +185,6 @@ class Beam(BackendGeom):
         nodes_p2 = local_2_global_nodes(ot, p2, yv, xv)
 
         return nodes_p1, nodes_p2
-
-    def _calc_bbox(self):
-        """
-        Get the bounding box of a beam
-
-        :param self:
-        :return:
-        """
-        from ..sections import SectionCat
-
-        if SectionCat.is_circular_profile(self.section.type) or SectionCat.is_tubular_profile(self.section.type):
-            d = self.section.r * 2
-            dummy_beam = Beam("dummy", self.n1.p, self.n2.p, Section("DummySec", "BG", h=d, w_btn=d, w_top=d))
-            outer_curve = dummy_beam.get_outer_points()
-        else:
-            outer_curve = self.get_outer_points()
-
-        points = np.array(list(chain.from_iterable(outer_curve)))
-        xv = sorted([roundoff(p[0]) for p in points])
-        yv = sorted([roundoff(p[1]) for p in points])
-        zv = sorted([roundoff(p[2]) for p in points])
-        xmin, xmax = xv[0], xv[-1]
-        ymin, ymax = yv[0], yv[-1]
-        zmin, zmax = zv[0], zv[-1]
-        return (xmin, ymin, zmin), (xmax, ymax, zmax)
 
     def _generate_ifc_elem(self):
         from ada.config import Settings
@@ -621,13 +596,10 @@ class Beam(BackendGeom):
         self._n2 = value
 
     @property
-    def bbox(self):
+    def bbox(self) -> BoundingBox:
         """Bounding Box of beam"""
         if self._bbox is None:
-            if Settings.use_occ_bounding_box_algo:
-                raise NotImplementedError()
-            else:
-                self._bbox = self._calc_bbox()
+            self._bbox = BoundingBox(self)
 
         return self._bbox
 
@@ -1535,7 +1507,7 @@ def make_ig_cutplanes(bm: Beam):
     bm1_sec_curve = get_bm_section_curve(bm)
     minz = min([x[2] for x in bm1_sec_curve.points3d])
     maxz = max([x[2] for x in bm1_sec_curve.points3d])
-    pmin, pmax = bm.bbox
+    pmin, pmax = bm.bbox.p1, bm.bbox.p2
     dx, dy, dz = (np.array(pmax) - np.array(pmin)) * 1.3
     x, y, _ = pmin
     cut1 = CutPlane((x, y, minz + bm.section.t_fbtn), dx=dx, dy=dy)

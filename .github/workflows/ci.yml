@@ -3,16 +3,18 @@ name: ci-ada-main
 on:
   push:
     paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'conda/**'
-      - '.github/workflows/ci.yml'
+      - src/**
+      - tests/**
+      - conda/**
+      - .github/workflows/ci.yml
     branches:
-    - main
-    - dev
+      - main
+      - dev
   pull_request:
+    paths-ignore:
+      - setup.py
     branches:
-    - main
+      - main
 
 jobs:
   activate:

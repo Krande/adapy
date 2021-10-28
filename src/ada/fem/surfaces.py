@@ -96,8 +96,6 @@ def create_surface_from_nodes(surface_name: str, nodes: List[Node], fem):
     face_seq_indices = {}
     for n in nodes:
         for el in n.refs:
-            if el.id == 4341:
-                print("sd")
             paralell_face_index = elem_has_parallel_face(el, nodes)
             if paralell_face_index is None:
                 continue

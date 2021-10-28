@@ -4,20 +4,21 @@ from ada.fem.surfaces import create_surface_from_nodes
 
 def test_surface_box():
     # Build Model
-    a = ada.Assembly() / (ada.Part("MyBoxPart") / ada.PrimBox("MyBoxShape", (0, 0, 0), (1, 1, 1)))
+    box = ada.PrimBox("MyBoxShape", (0, 0, 0), (1, 1, 1))
+    bm = ada.Beam("MyBeam", (0, 1.5, 0), (1, 1.5, 0), "IPE300")
+    a = ada.Assembly() / (ada.Part("MyBoxPart") / [box, bm])
 
     # Create FEM mesh
     p = a.get_part("MyBoxPart")
-    p.fem = p.to_fem_obj(0.1, "solid", interactive=False)
+    p.fem = p.to_fem_obj(0.1, "shell", interactive=False)
 
     # Add Step
     step = a.fem.add_step(ada.fem.StepImplicit("MyStep"))
 
     # Add surfaces
-    box: ada.PrimBox = a.get_by_name("MyBoxShape")
-
-    front_nodes = box.sides.front(return_fem_nodes=True)
-    btn_nodes = box.sides.bottom(return_fem_nodes=True)
+    top_flange = bm.bbox.sides.top(return_fem_nodes=True)
+    front_nodes = box.bbox.sides.front(return_fem_nodes=True)
+    btn_nodes = box.bbox.sides.bottom(return_fem_nodes=True)
 
     p.fem.add_set(ada.fem.FemSet("FrontNodes", front_nodes))
     fs_btn = p.fem.add_set(ada.fem.FemSet("BottomNodes", btn_nodes))

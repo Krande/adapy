@@ -18,7 +18,7 @@ def basic_intersect(bm: Beam, margins, all_parts: [Part]):
     if bm.section.type == "gensec":
         return bm, []
     try:
-        vol = bm.bbox
+        vol = bm.bbox.minmax
     except ValueError as e:
         logging.error(f"Intersect bbox skipped: {e}\n{traceback.format_exc()}")
         return None
