@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import TYPE_CHECKING, Dict, List, Union
 
 from .common import FemBase
 from .constraints import Bc
 from .formulations.lines import BeamFormulations
 from .interactions import Interaction
-from .loads import Load, LoadCase
+from .loads import Load, LoadCase, LoadPressure
 from .outputs import FieldOutput, HistOutput
+
+if TYPE_CHECKING:
+    from ada import FEM
 
 
 class _StepTypes:
@@ -56,7 +59,7 @@ class Step(FemBase):
         solver_options=None,
         use_default_outputs=True,
         metadata=None,
-        parent=None,
+        parent: "FEM" = None,
     ):
         super().__init__(name, metadata, parent)
         if step_type not in _StepTypes.all:
@@ -83,7 +86,10 @@ class Step(FemBase):
 
         return Defaults.history_output, Defaults.field_output
 
-    def add_load(self, load: Load):
+    def add_load(self, load: Union[Load, LoadPressure]):
+        if type(load) is LoadPressure:
+            if load.surface.parent is None:
+                self.parent.add_surface(load.surface)
         self._loads.append(load)
 
     def add_loadcase(self, load_case: LoadCase):

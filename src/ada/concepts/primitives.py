@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import logging
 import pathlib
-from typing import Tuple, Union
+from typing import TYPE_CHECKING, Tuple, Union
 
 import numpy as np
 
@@ -15,6 +14,9 @@ from ada.materials.utils import get_material
 from .bounding_box import BoundingBox
 from .curves import CurvePoly
 from .transforms import Placement
+
+if TYPE_CHECKING:
+    from OCC.Core.TopoDS import TopoDS_Shape
 
 
 class Shape(BackendGeom):
@@ -53,6 +55,8 @@ class Shape(BackendGeom):
             self._material = material
         else:
             self._material = get_material(material)
+
+        self._bbox = BoundingBox(self)
 
     def generate_ifc_solid_geom(self, f):
         raise NotImplementedError()
@@ -213,27 +217,18 @@ class Shape(BackendGeom):
         self._cog = value
 
     @property
-    def bbox(self):
-        """return the bounding box of the TopoDS_Shape `shape`
-
-        returns xmin, ymin, zmin, xmax, ymax, zmax, xmax - xmin, ymax - ymin, zmax - zmin
-        """
-        from ada.occ.utils import get_boundingbox
-
-        return get_boundingbox(self.geom, use_mesh=True)
+    def bbox(self) -> BoundingBox:
+        return self._bbox
 
     @property
     def point_on(self):
         return self.bbox[3:6]
 
     @property
-    def geom(self):
-        """
-
-        :return:
-        :rtype: OCC.Core.TopoDS.TopoDS_Shape
-        """
+    def geom(self) -> TopoDS_Shape:
         from ada.occ.utils import apply_penetrations
+
+        from .exceptions import NoGeomPassedToShapeError
 
         if self._geom is None:
             from ada.ifc.utils import get_ifc_shape
@@ -246,7 +241,7 @@ class Shape(BackendGeom):
                 ifc_f = a.get_ifc_source_by_name(ifc_file)
                 ifc_elem = ifc_f.by_guid(self.guid)
             else:
-                raise ValueError("No geometry information attached to this element")
+                raise NoGeomPassedToShapeError(f'No geometry information attached to shape "{self}"')
             geom, color, alpha = get_ifc_shape(ifc_elem, self.ifc_settings)
             self._geom = geom
             self.colour = color
@@ -270,8 +265,9 @@ class Shape(BackendGeom):
                 from ada.occ.utils import transform_shape
 
                 self._geom = transform_shape(self.geom, scale_factor)
+
             if self.metadata.get("ifc_source") is True:
-                logging.info("do something")
+                raise NotImplementedError()
 
             self._units = value
 
@@ -350,10 +346,6 @@ class PrimBox(Shape):
         profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
         opening_axis_placement = create_ifc_placement(f, O, Z, X)
         return create_ifcextrudedareasolid(f, profile, opening_axis_placement, (0.0, 0.0, 1.0), depth)
-
-    @property
-    def bbox(self) -> BoundingBox:
-        return self._bbox
 
     @property
     def units(self):

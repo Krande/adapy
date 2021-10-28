@@ -6,6 +6,8 @@ from .common import get_instance_name
 def surface_str(surface: Surface, write_on_assembly_level: bool):
     """Surface assignments"""
     top_line = f"*Surface, type={surface.type}, name={surface.name}"
+    from ada.fem.elements import find_element_type_from_list
+    from ada.fem.shapes import ElemType
 
     if surface.id_refs is not None:
         id_refs_str = "\n".join([f"{m[0]}, {m[1]}" for m in surface.id_refs]).strip()
@@ -25,6 +27,16 @@ def surface_str(surface: Surface, write_on_assembly_level: bool):
         el_face_indices = elem_face_index_label
 
     for fs, el_f_index in zip(f_sets, el_face_indices):
-        fs_str += f"{get_instance_name(fs, write_on_assembly_level)}, S{el_f_index + 1}\n"
+        if surface.type == surface.TYPES.NODE:
+            fs_str += f"{get_instance_name(fs, write_on_assembly_level)}\n"
+            continue
+        el_type = find_element_type_from_list(fs.members)
+        if el_type == ElemType.SOLID:
+            fs_str += f"{get_instance_name(fs, write_on_assembly_level)}, S{el_f_index + 1}\n"
+        elif el_type == ElemType.SHELL:
+            face_str = "SNEG" if el_f_index == -1 else "SPOS"
+            fs_str += f"{get_instance_name(fs, write_on_assembly_level)}, {face_str}\n"
+        else:
+            raise NotImplementedError()
 
     return f"""{top_line}\n{fs_str.strip()}"""

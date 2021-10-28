@@ -1,14 +1,17 @@
 import logging
+from typing import TYPE_CHECKING
 
-from ada import FEM
 from ada.fem import FemSection
 from ada.fem.steps import StepExplicit
 from ada.sections import GeneralProperties, Section, SectionCat
 
+if TYPE_CHECKING:
+    from ada import FEM
+
 log_fin = "Please check your result and input. This is not a validated method of solving this issue"
 
 
-def section_str(fem: FEM):
+def section_str(fem: "FEM"):
     solids = fem.sections.solids
     shells = fem.sections.shells
     lines = fem.sections.lines
@@ -17,7 +20,7 @@ def section_str(fem: FEM):
     shell_secs_str = "\n".join([shell_section_str(sh) for sh in shells]) if len(shells) > 0 else "** No shell sections"
     line_secs_str = "\n".join([line_section_str(li) for li in lines]) if len(lines) > 0 else "** No line sections"
 
-    return solid_secs_str.strip() + shell_secs_str.strip() + line_secs_str.strip()
+    return solid_secs_str.strip() + "\n" + shell_secs_str.strip() + "\n" + line_secs_str.strip()
 
 
 def solid_section_str(fem_sec: FemSection):

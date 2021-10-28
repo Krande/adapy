@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, List, Tuple, Union
 
 import numpy as np
@@ -8,9 +9,9 @@ import numpy as np
 from .transforms import Placement
 
 if TYPE_CHECKING:
-    from OCC.Core.TopoDS import TopoDS_Shape
+    from ada import FEM, Node
+    from ada.fem import Surface
 
-    from .points import Node
     from .primitives import PrimBox
     from .structural import Beam
 
@@ -18,22 +19,23 @@ if TYPE_CHECKING:
 @dataclass
 class BoundingBox:
     parent: Union[PrimBox, Beam]
-    placement: Placement = None
-    sides: BoxSides = None
-    p1: np.array = None
-    p2: np.array = None
+    placement: Placement = field(default=None, init=False)
+    sides: BoxSides = field(default=None, init=False)
+    p1: np.array = field(default=None, init=False)
+    p2: np.array = field(default=None, init=False)
 
     def __post_init__(self):
-        from .primitives import PrimBox
+        from .primitives import Shape
         from .structural import Beam
 
-        if type(self.parent) is PrimBox:
-            self.p1, self.p2 = self.parent.p1, self.parent.p2
+        if issubclass(type(self.parent), Shape):
+            self.p1, self.p2 = self._calc_bbox_of_shape()
             self.placement = self.parent.placement
         elif type(self.parent) is Beam:
             self.p1, self.p2 = self._calc_bbox_of_beam()
-            # TODO
-            self.placement = self.parent.placement
+            self.placement = Placement(
+                self.parent.placement.origin, xdir=self.parent.yvec, ydir=self.parent.xvec, zdir=self.parent.up
+            )
         else:
             raise NotImplementedError(f'Bounding Box Support for object type "{type(self.parent)}" is not yet added')
         self.sides = BoxSides(self)
@@ -64,29 +66,20 @@ class BoundingBox:
         zmin, zmax = zv[0], zv[-1]
         return (xmin, ymin, zmin), (xmax, ymax, zmax)
 
-    def build_bbox_using_occ_shape(self, shape: TopoDS_Shape, tol=1e-6, use_mesh=True):
-        """
+    def _calc_bbox_of_shape(self) -> Tuple[tuple, tuple]:
+        from .exceptions import NoGeomPassedToShapeError
+        from .primitives import PrimBox
 
-        :param shape: TopoDS_Shape or a subclass such as TopoDS_Face the shape to compute the bounding box from
-        :param tol: tolerance of the computed boundingbox
-        :param use_mesh: a flag that tells whether or not the shape has first to be meshed before the bbox computation.
-                         This produces more accurate results
-        :return: return the bounding box of the TopoDS_Shape `shape`
-        """
+        if type(self.parent) is PrimBox:
+            return self.parent.p1, self.parent.p2
+        else:
+            from ada.occ.utils import get_boundingbox
 
-        bbox = Bnd_Box()
-        bbox.SetGap(tol)
-        if use_mesh:
-            mesh = BRepMesh_IncrementalMesh()
-            mesh.SetParallel(True)
-            mesh.SetShape(shape)
-            mesh.Perform()
-            if not mesh.IsDone():
-                raise AssertionError("Mesh not done.")
-        brepbndlib_Add(shape, bbox, use_mesh)
-
-        xmin, ymin, zmin, xmax, ymax, zmax = bbox.Get()
-        return xmin, ymin, zmin, xmax, ymax, zmax, xmax - xmin, ymax - ymin, zmax - zmin
+            try:
+                return get_boundingbox(self.parent.geom, use_mesh=True)
+            except NoGeomPassedToShapeError as e:
+                logging.info(f'Shape "{self.parent.name}" has no attached geometry. Error "{e}"')
+                return (0, 0, 0), (1, 1, 1)
 
     @property
     def minmax(self):
@@ -97,44 +90,72 @@ class BoundingBox:
 class BoxSides:
     parent: BoundingBox
 
-    def _return_fem_nodes(self, pmin, pmax, fem=None):
-        part = self.parent.parent.parent
-        if fem is None and self.parent is not None and part.fem.is_empty() is False:
-            fem = part.fem
-
-        if fem is None:
-            raise ValueError("No FEM data found. Cannot return FEM nodes")
-
+    def _return_fem_nodes(self, pmin, pmax, fem):
         return fem.nodes.get_by_volume(p=pmin, vol_box=pmax)
 
-    def _return_data(self, pmin, pmax, fem, return_fem_nodes) -> Union[Tuple[tuple, tuple], List[Node]]:
+    def _return_data(
+        self, pmin, pmax, fem, return_fem_nodes, return_surface, surface_name, shell_positive
+    ) -> Union[Tuple[tuple, tuple], List[Node], Surface]:
+        if return_fem_nodes is True or return_surface is True:
+            part = self.parent.parent.parent
+            if fem is None and self.parent is not None and part.fem.is_empty() is False:
+                fem = part.fem
+
+            if fem is None:
+                raise ValueError("No FEM data found. Cannot return FEM nodes")
+
         if return_fem_nodes is True:
             return self._return_fem_nodes(pmin, pmax, fem)
+        if return_surface is True:
+            if surface_name is None:
+                from .exceptions import NameIsNoneError
 
+                raise NameIsNoneError("You must give 'surface_name' a string name unequal to None")
+            nodes = self._return_fem_nodes(pmin, pmax, fem)
+            if len(nodes) == 0:
+                raise ValueError(f"Zero nodes found for (pmin, pmax): ({pmin}, {pmax})")
+            return self._return_surface(surface_name, nodes, fem, shell_positive)
         return pmin, pmax
 
-    def _return_surface(self):
-        pass
+    def _return_surface(self, surface_name: str, nodes: List[Node], fem: FEM, shell_positive):
+        from ada.fem.surfaces import create_surface_from_nodes
+
+        return create_surface_from_nodes(surface_name, nodes, fem, shell_positive)
 
     def _get_dim(self):
-        box = self.parent
-        p1 = np.array(box.p1)
-        p2 = np.array(box.p2)
-        l, w, h = p2 - p1
+        from ada import Beam
+
+        bbox = self.parent
+        p1 = np.array(bbox.p1)
+        p2 = np.array(bbox.p2)
+
+        bounded_obj = bbox.parent
+
+        if type(bounded_obj) is Beam:
+            l = bounded_obj.length
+            w = max(bounded_obj.section.w_btn, bounded_obj.section.w_top)
+            h = bounded_obj.section.h
+        else:
+            l, w, h = p2 - p1
+
         return l, w, h, p1, p2
 
-    def top(self, tol=1e-3, return_fem_nodes=False, fem=None):
+    def top(
+        self, tol=1e-3, return_fem_nodes=False, fem=None, return_surface=False, surf_name=None, surf_positive=False
+    ):
         """Top is at positive local Z"""
         l, w, h, p1, p2 = self._get_dim()
 
         z = self.parent.placement.zdir
 
-        pmin = p1 + l * z - tol
+        pmin = p1 + h * z - tol
         pmax = p2 + tol
 
-        return self._return_data(pmin, pmax, fem, return_fem_nodes)
+        return self._return_data(pmin, pmax, fem, return_fem_nodes, return_surface, surf_name, surf_positive)
 
-    def bottom(self, tol=1e-3, return_fem_nodes=False, fem=None):
+    def bottom(
+        self, tol=1e-3, return_fem_nodes=False, fem=None, return_surface=False, surface_name=None, surf_positive=False
+    ):
         """Bottom is at negative local z"""
         l, w, h, p1, p2 = self._get_dim()
 
@@ -143,9 +164,11 @@ class BoxSides:
         pmin = p1 - tol
         pmax = p2 - l * z + tol
 
-        return self._return_data(pmin, pmax, fem, return_fem_nodes)
+        return self._return_data(pmin, pmax, fem, return_fem_nodes, return_surface, surface_name, surf_positive)
 
-    def front(self, tol=1e-3, return_fem_nodes=False, fem=None):
+    def front(
+        self, tol=1e-3, return_fem_nodes=False, fem=None, return_surface=False, surface_name=None, surf_positive=False
+    ):
         """Front is at positive local y"""
         l, w, h, p1, p2 = self._get_dim()
 
@@ -154,9 +177,11 @@ class BoxSides:
         pmin = p1 + l * y - tol
         pmax = p2 + tol
 
-        return self._return_data(pmin, pmax, fem, return_fem_nodes)
+        return self._return_data(pmin, pmax, fem, return_fem_nodes, return_surface, surface_name, surf_positive)
 
-    def back(self, tol=1e-3, return_fem_nodes=False, fem=None):
+    def back(
+        self, tol=1e-3, return_fem_nodes=False, fem=None, return_surface=False, surface_name=None, surf_positive=False
+    ):
         """Back is at negative local y"""
         l, w, h, p1, p2 = self._get_dim()
 
@@ -165,4 +190,4 @@ class BoxSides:
         pmin = p1 - tol
         pmax = p2 - l * y + tol
 
-        return self._return_data(pmin, pmax, fem, return_fem_nodes)
+        return self._return_data(pmin, pmax, fem, return_fem_nodes, return_surface, surface_name, surf_positive)

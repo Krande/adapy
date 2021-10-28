@@ -7,7 +7,7 @@ import pathlib
 import re
 from dataclasses import dataclass
 from itertools import chain
-from typing import Iterable, List, Union
+from typing import Dict, Iterable, List, Union
 
 import numpy as np
 
@@ -664,13 +664,7 @@ def get_mass_from_bulk(bulk_str, parent: FEM):
 
 
 def get_surfaces_from_bulk(bulk_str, parent):
-    """
-
-    *Surface, type=ELEMENT, name=btn_surf
-    _btn_surf_SPOS, SPOS
-
-    :return:
-    """
+    from ada.fem.elements import find_element_type_from_list
     from ada.fem.surfaces import SurfTypes
 
     def interpret_member(mem):
@@ -725,9 +719,16 @@ def get_surfaces_from_bulk(bulk_str, parent):
                     weight_factor = float(set_id_ref)
                 el_face_index = None
             else:
+
                 weight_factor = None
-                el_face_index = int(set_id_ref.replace("S", "")) - 1
                 fem_set = parent.sets.get_elset_from_name(set_ref)
+                el_type = find_element_type_from_list(fem_set.members)
+                if el_type == ElemType.SOLID:
+                    el_face_index = int(set_id_ref.replace("S", "")) - 1
+                elif el_type == ElemType.SHELL:
+                    el_face_index = -1 if set_id_ref == "SNEG" else 1
+                else:
+                    raise NotImplementedError("Importing surfaces for line elements is not yet supported")
         else:
             fem_set = None
             weight_factor = None
@@ -902,14 +903,8 @@ def get_connector_sections_from_bulk(bulk_str: str, parent: FEM) -> dict[str, Co
     return consecsd
 
 
-def get_connectors_from_inp(bulk_str, fem):
-    """
-
-    :param bulk_str:
-    :param fem:
-    :type fem: ada.fem.FEM
-    :return:
-    """
+def get_connectors_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Connector]:
+    """Extract connector elements from bulk string"""
 
     nsuffix = Counter(1, "_")
     cons = dict()
@@ -941,15 +936,8 @@ def get_connectors_from_inp(bulk_str, fem):
     return cons
 
 
-def get_beam_sections_from_inp(bulk_str, fem):
-    """
-
-    https://abaqus-docs.mit.edu/2017/English/SIMACAEELMRefMap/simaelm-c-beamcrosssectlib.htm
-
-    :param bulk_str:
-    :param fem:
-    :type fem: ada.fem.FEM
-    """
+def get_beam_sections_from_inp(bulk_str: str, fem: FEM) -> Iterable[FemSection]:
+    # Source:  https://abaqus-docs.mit.edu/2017/English/SIMACAEELMRefMap/simaelm-c-beamcrosssectlib.htm
     from ada import Section
     from ada.sections import GeneralProperties
 

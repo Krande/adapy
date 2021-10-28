@@ -1,7 +1,7 @@
 import logging
 import math
 import pathlib
-from typing import List, Union
+from typing import List, Tuple, Union
 
 import numpy as np
 from OCC.Core.Bnd import Bnd_Box
@@ -124,7 +124,7 @@ def make_wire_from_points(points):
     return make_wire([BRepBuilderAPI_MakeEdge(gp_Pnt(*p1), gp_Pnt(*p2)).Edge()])
 
 
-def get_boundingbox(shape: TopoDS_Shape, tol=1e-6, use_mesh=True):
+def get_boundingbox(shape: TopoDS_Shape, tol=1e-6, use_mesh=True) -> Tuple[tuple, tuple]:
     """
 
     :param shape: TopoDS_Shape or a subclass such as TopoDS_Face the shape to compute the bounding box from
@@ -138,7 +138,7 @@ def get_boundingbox(shape: TopoDS_Shape, tol=1e-6, use_mesh=True):
     bbox.SetGap(tol)
     if use_mesh:
         mesh = BRepMesh_IncrementalMesh()
-        mesh.SetParallel(True)
+        mesh.SetParallelDefault(True)
         mesh.SetShape(shape)
         mesh.Perform()
         if not mesh.IsDone():
@@ -146,7 +146,7 @@ def get_boundingbox(shape: TopoDS_Shape, tol=1e-6, use_mesh=True):
     brepbndlib_Add(shape, bbox, use_mesh)
 
     xmin, ymin, zmin, xmax, ymax, zmax = bbox.Get()
-    return xmin, ymin, zmin, xmax, ymax, zmax, xmax - xmin, ymax - ymin, zmax - zmin
+    return (xmin, ymin, zmin), (xmax, ymax, zmax)
 
 
 def get_bounding_box_alt(geom):

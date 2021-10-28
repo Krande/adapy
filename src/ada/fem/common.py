@@ -1,13 +1,16 @@
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from ada.config import Settings
 
+if TYPE_CHECKING:
+    from ada import FEM
+
 
 class FemBase:
-    def __init__(self, name, metadata, parent):
-        """:type parent: ada.FEM"""
+    def __init__(self, name, metadata, parent: "FEM"):
         self.name = name
         self.parent = parent
         self._metadata = metadata if metadata is not None else dict()
@@ -29,8 +32,7 @@ class FemBase:
             self._name = value.strip()
 
     @property
-    def parent(self):
-        """:rtype: ada.FEM"""
+    def parent(self) -> "FEM":
         return self._parent
 
     @parent.setter
@@ -65,9 +67,8 @@ class Csys(FemBase):
         nodes=None,
         coords=None,
         metadata=None,
-        parent=None,
+        parent: "FEM" = None,
     ):
-        """:type parent: ada.FEM"""
         super().__init__(name, metadata, parent)
         self._definition = definition
         self._system = system
@@ -96,8 +97,7 @@ class Csys(FemBase):
 
 
 class Amplitude(FemBase):
-    def __init__(self, name, x, y, smooth=None, metadata=None, parent=None):
-        """:type parent: ada.FEM"""
+    def __init__(self, name, x, y, smooth=None, metadata=None, parent: "FEM" = None):
         super().__init__(name, metadata, parent)
         self._x = x
         self._y = y

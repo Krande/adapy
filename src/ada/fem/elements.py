@@ -388,3 +388,10 @@ class Mass(FemBase):
 
     def __repr__(self):
         return f"Mass({self.name}, {self.point_mass_type}, [{self.mass}])"
+
+
+def find_element_type_from_list(elements: List[Elem]) -> str:
+    el_types = set(el.shape.elem_type_group for el in elements)
+    if len(el_types) != 1:
+        raise NotImplementedError("Mixed element set types as basis for surface sets is not yet supported")
+    return elements[0].shape.elem_type_group

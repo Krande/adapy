@@ -111,7 +111,7 @@ def convert_ecc_to_mpc(fem: FEM):
             s_set = FemSet(f"el{elem.id}_mpc{i + 1}_s", [n_old], "nset")
             c = Constraint(
                 f"el{elem.id}_mpc{i + 1}_co",
-                "mpc",
+                Constraint.TYPES.MPC,
                 m_set,
                 s_set,
                 mpc_type="Beam",
@@ -137,7 +137,7 @@ def convert_ecc_to_mpc(fem: FEM):
             s_set = FemSet(f"el{elem.id}_mpc{i + 1}_s", [n_old], "nset")
             c = Constraint(
                 f"el{elem.id}_mpc{i + 1}_co",
-                "mpc",
+                Constraint.TYPES.MPC,
                 m_set,
                 s_set,
                 mpc_type="Beam",
@@ -170,7 +170,7 @@ def convert_hinges_2_couplings(fem: FEM):
     constrain_ids = []
 
     max_node_id = fem.nodes.max_nid
-    new_node_id = Counter(max_node_id + 10000)
+    new_node_id = Counter(int(max_node_id + 10000))
 
     def convert_hinge(elem: Elem, hinge: Hinge):
         if hinge.constraint_ref is not None:

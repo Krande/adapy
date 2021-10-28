@@ -93,7 +93,7 @@ class Backend:
         for ancestor in self.get_ancestors():
             if type(ancestor) is Assembly:
                 return ancestor
-        print("No Assembly found in ancestry. Returning self")
+        logging.info("No Assembly found in ancestry. Returning self")
         return self
 
     def get_ancestors(self) -> List[Union["Part", "Assembly"]]:

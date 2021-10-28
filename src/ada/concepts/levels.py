@@ -6,7 +6,7 @@ import os
 import pathlib
 from dataclasses import dataclass, field
 from itertools import chain
-from typing import Dict, Iterable, List, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 
 from ada.base.physical_objects import BackendGeom
 from ada.concepts.connections import JointBase
@@ -55,6 +55,9 @@ from ada.fem import (
 from ada.fem.containers import FemElements, FemSections, FemSets
 from ada.fem.elements import ElemType
 from ada.ifc.utils import create_guid
+
+if TYPE_CHECKING:
+    from ada.fem.meshing import GmshOptions
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 
@@ -509,11 +512,10 @@ class Part(BackendGeom):
         mesh_size: float,
         bm_repr=ElemType.LINE,
         pl_repr=ElemType.SHELL,
-        options=None,
+        options: "GmshOptions" = None,
         silent=True,
         interactive=False,
     ) -> FEM:
-        """:type options: ada.fem.meshing.GmshOptions"""
         from ada.fem.meshing import GmshOptions, GmshSession
 
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
@@ -1439,7 +1441,7 @@ class FEM:
         self.connectors[connector.name] = connector
         connector.csys.parent = self
         self.elements.add(connector)
-        self.add_set(FemSet(name=connector.name, members=[connector.id], set_type="elset"))
+        self.add_set(FemSet(name=connector.name, members=[connector], set_type="elset"))
         return connector
 
     def add_rp(self, name, node: Node):

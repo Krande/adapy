@@ -5,7 +5,7 @@ import reprlib
 from bisect import bisect_left, bisect_right
 from itertools import chain
 from operator import attrgetter
-from typing import Dict, Iterable, List, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 
 import numpy as np
 import toolz
@@ -18,6 +18,10 @@ from .points import Node
 from .structural import Beam, Plate, Section
 from .transforms import Rotation
 
+if TYPE_CHECKING:
+    from ada import Assembly, Part
+    from ada.concepts.connections import JointBase
+
 __all__ = [
     "Nodes",
     "Beams",
@@ -29,18 +33,13 @@ __all__ = [
 
 
 class BaseCollections:
-    """
-    The Base class for all collections
+    """The Base class for all collections"""
 
-    :param parent:
-    """
-
-    def __init__(self, parent):
+    def __init__(self, parent: Part):
         self._parent = parent
 
     @property
-    def parent(self):
-        """:rtype: ada.Part"""
+    def parent(self) -> Part:
         return self._parent
 
 
@@ -105,8 +104,10 @@ class Beams(BaseCollections):
             return self._dmap[name]
 
     def add(self, beam: Beam) -> Beam:
+        from .exceptions import NameIsNoneError
+
         if beam.name is None:
-            raise Exception("Name is not allowed to be None.")
+            raise NameIsNoneError("Name is not allowed to be None.")
 
         if beam.name in self._dmap.keys():
             logging.warning(f'Beam with name "{beam.name}" already exists. Will not add')
@@ -169,9 +170,7 @@ class Beams(BaseCollections):
 class Plates(BaseCollections):
     """Plate object collection"""
 
-    def __init__(self, plates: Iterable[Plate] = None, unique_ids=True, parent=None):
-        """:type parent: ada.Part"""
-
+    def __init__(self, plates: Iterable[Plate] = None, unique_ids=True, parent: Part = None):
         plates = [] if plates is None else plates
         super().__init__(parent)
 
@@ -249,7 +248,6 @@ class Connections(BaseCollections):
     _counter = Counter(1, "C")
 
     def __init__(self, connections=None, parent=None):
-
         connections = [] if connections is None else connections
         super().__init__(parent)
         self._connections = connections
@@ -293,14 +291,7 @@ class Connections(BaseCollections):
         rpr.maxlevel = 1
         return f"Connections({rpr.repr(self._connections) if self._connections else ''})"
 
-    def add(self, joint, point_tol=Settings.point_tol):
-        """
-        Add a joint
-
-        :param joint:
-        :param point_tol: Point Tolerance
-        :type joint: ada.JointBase
-        """
+    def add(self, joint: JointBase, point_tol=Settings.point_tol):
         if joint.name is None:
             raise Exception("Name is not allowed to be None.")
 
@@ -362,8 +353,9 @@ class NumericMapped(BaseCollections):
 class Materials(NumericMapped):
     """Collection of materials"""
 
-    def __init__(self, materials: Iterable[Material] = None, unique_ids=True, parent=None, units="m"):
-        """:type parent: ada.Part | ada.Assembly"""
+    def __init__(
+        self, materials: Iterable[Material] = None, unique_ids=True, parent: Union[Part, Assembly] = None, units="m"
+    ):
         super().__init__(parent)
         self._materials = sorted(materials, key=attrgetter("name")) if materials is not None else []
         self._unique_ids = unique_ids
@@ -452,11 +444,6 @@ class Materials(NumericMapped):
     @property
     def id_map(self) -> Dict[int, Material]:
         return self._id_map
-
-    @property
-    def parent(self):
-        """:rtype: ada.Part"""
-        return self._parent
 
     @property
     def units(self):
@@ -766,11 +753,11 @@ class Nodes:
         return tuple([(self.bbox[i][0][i] + self.bbox[i][1][i]) / 2 for i in range(3)])
 
     @property
-    def max_nid(self):
+    def max_nid(self) -> int:
         return max(self.dmap.keys()) if len(self.dmap.keys()) > 0 else 0
 
     @property
-    def min_nid(self):
+    def min_nid(self) -> int:
         return min(self.dmap.keys()) if len(self.dmap.keys()) > 0 else 0
 
     @property
