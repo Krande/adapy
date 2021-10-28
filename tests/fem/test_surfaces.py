@@ -34,7 +34,7 @@ def test_surface_beam():
     a = ada.Assembly() / p
 
     # Create FEM mesh
-    p.fem = p.to_fem_obj(0.1, "solid", interactive=False, options=GmshOptions(Mesh_ElementOrder=1))
+    p.fem = p.to_fem_obj(0.10, "solid", interactive=False, options=GmshOptions(Mesh_ElementOrder=2))
 
     # Add Step
     step = a.fem.add_step(ada.fem.StepImplicit("MyStep"))
@@ -45,6 +45,6 @@ def test_surface_beam():
 
     # Add Surface Load
     surface_top = p.fem.add_surface(bm.bbox.sides.top(return_surface=True, surf_name="TopSurface"))
-    step.add_load(ada.fem.LoadPressure("PressureTop", 200, surface_top))
+    step.add_load(ada.fem.LoadPressure("PressureTop", 1e6, surface_top))
 
-    a.to_fem("MyFemBeam_2nd_order_ca", "code_aster", overwrite=True, execute=False)
+    a.to_fem("MyFemBeam_100mm_2nd_order", "abaqus", overwrite=True, execute=True)

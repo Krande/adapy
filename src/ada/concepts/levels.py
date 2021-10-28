@@ -1506,9 +1506,16 @@ class FEM:
         return elem
 
     def is_empty(self) -> bool:
-        if len(self.nodes) == 0 and len(self.elements) == 0:
-            return True
-        return False
+        containers = [
+            len(self.nodes),
+            len(self.elements),
+        ]
+
+        for n_cont in containers:
+            if n_cont != 0:
+                return False
+
+        return True
 
     @property
     def instance_name(self):

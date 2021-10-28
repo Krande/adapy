@@ -9,13 +9,16 @@ import sys
 import time
 from contextlib import contextmanager
 from itertools import chain
-from typing import Dict
+from typing import TYPE_CHECKING, Dict
 
 from ada.concepts.containers import Beams, Plates
 from ada.concepts.structural import Beam, Plate
 from ada.config import Settings
 from ada.fem import Elem
 from ada.fem.exceptions import FEASolverNotInstalled
+
+if TYPE_CHECKING:
+    from ada import Assembly, Part
 
 
 class DatFormatReader:
@@ -175,15 +178,12 @@ def open_file(path_or_buf, mode="r"):
             yield f
 
 
-def get_fem_model_from_assembly(assembly):
+def get_fem_model_from_assembly(assembly: "Assembly") -> "Part":
     """
-    Scans the assembly tree for part (singular) containing FEM elements. Multiple parts with elements are not allowed
-
-    :param assembly:
-    :return: A single or multiple parts
-    :rtype: ada.Part
+    Scans the assembly tree for parts containing FEM elements. If multiple FEM objects are not empty,
+    they will be merged
     """
-    parts = list(filter(lambda p: len(p.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)))
+    parts = list(filter(lambda p: p.fem.is_empty() is False, assembly.get_all_parts_in_assembly(True)))
 
     if len(parts) > 1:
         raise ValueError(
