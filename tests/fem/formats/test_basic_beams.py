@@ -42,13 +42,13 @@ def test_beam_eig(
     try:
         res = a.to_fem(name, fem_format, overwrite=True, scratch_dir=scratch_dir)
     except IncompatibleElements as e:
-        if fem_format == "calculix" and geom_repr == "line":
+        if fem_format == "calculix" and geom_repr == ElemType.LINE:
             logging.error(e)
             return None
-        elif fem_format == "code_aster" and geom_repr == "line" and elem_order == 2:
+        elif fem_format == "code_aster" and geom_repr == ElemType.LINE and elem_order == 2:
             logging.error(e)
             return None
-        elif fem_format == "sesam" and geom_repr == "solid":
+        elif fem_format == "sesam" and geom_repr == ElemType.SOLID:
             # TODO: Add write support for solid elements
             logging.error(e)
             return None

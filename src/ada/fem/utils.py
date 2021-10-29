@@ -1,19 +1,20 @@
 import logging
-from typing import List, Union
+from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
-from ada import FEM, Assembly, Beam, Node, Part, Plate
 from ada.config import Settings
 from ada.core.utils import vector_length
 from ada.fem import Bc, Connector, ConnectorSection, Constraint, Elem, FemSet
 
 from .shapes import ElemShape
 
+if TYPE_CHECKING:
+    from ada import FEM, Assembly, Beam, Node, Part, Plate
 
-def get_eldata(fem_source: Union[Assembly, Part, FEM]):
+
+def get_eldata(fem_source: Union["Assembly", "Part", "FEM"]):
     """Return a dictionary of basic mesh statistics"""
-
     el_types = dict()
 
     def scan_elem(mesh):
@@ -35,8 +36,10 @@ def get_eldata(fem_source: Union[Assembly, Part, FEM]):
     return el_types
 
 
-def convert_springs_to_connectors(assembly: Assembly):
+def convert_springs_to_connectors(assembly: "Assembly"):
     """Converts all single noded springs to connector elements"""
+    from ada import Node
+
     for p in assembly.get_all_subparts():
         for spring in p.fem.springs.values():
             n1 = spring.nodes[0]
@@ -59,7 +62,7 @@ def convert_springs_to_connectors(assembly: Assembly):
         p.fem.elements.filter_elements(delete_elem=["SPRING1"])
 
 
-def get_beam_end_nodes(bm: Beam, end=1, tol=1e-3) -> List[Node]:
+def get_beam_end_nodes(bm: "Beam", end=1, tol=1e-3) -> List["Node"]:
     """Get list of nodes from end of beam"""
     p = bm.parent
     nodes = p.fem.nodes
@@ -78,7 +81,7 @@ def get_beam_end_nodes(bm: Beam, end=1, tol=1e-3) -> List[Node]:
     return members
 
 
-def get_nodes_along_plate_edges(pl: Plate, fem: FEM, edge_indices=None, tol=1e-3) -> List[Node]:
+def get_nodes_along_plate_edges(pl: "Plate", fem: "FEM", edge_indices=None, tol=1e-3) -> List["Node"]:
     """Return FEM nodes from edges of a plate"""
 
     res = []
@@ -91,11 +94,10 @@ def get_nodes_along_plate_edges(pl: Plate, fem: FEM, edge_indices=None, tol=1e-3
 
 
 def is_line_elem(elem: Elem):
+    return True if elem.type in ElemShape.TYPES.lines.all else False
 
-    return True if elem.type in ElemShape.TYPES.lines else False
 
-
-def convert_ecc_to_mpc(fem: FEM):
+def convert_ecc_to_mpc(fem: "FEM"):
     """Converts beam offsets to MPC constraints"""
     edited_nodes = dict()
     tol = Settings.point_tol
@@ -162,8 +164,9 @@ def convert_ecc_to_mpc(fem: FEM):
     [build_mpc(el) for el in fem.elements.lines_ecc]
 
 
-def convert_hinges_2_couplings(fem: FEM):
+def convert_hinges_2_couplings(fem: "FEM"):
     """Convert beam hinges to coupling constraints"""
+    from ada import Node
     from ada.core.utils import Counter
     from ada.fem.elements import Hinge
 
@@ -206,7 +209,7 @@ def convert_hinges_2_couplings(fem: FEM):
         elem.parent.add_set(s_set)
         c = Constraint(
             f"el{elem.id}_hinge{i + 1}_co",
-            "coupling",
+            Constraint.TYPES.COUPLING,
             m_set,
             s_set,
             d,
@@ -224,10 +227,10 @@ def convert_hinges_2_couplings(fem: FEM):
 
 
 def is_tri6_shell_elem(sh_fs):
-    elem_check = [x.type in ElemShape.TYPES.tri6 for x in sh_fs.elset.members]
+    elem_check = [x.type in ElemShape.TYPES.shell.TRI6 for x in sh_fs.elset.members]
     return all(elem_check)
 
 
 def is_quad8_shell_elem(sh_fs):
-    elem_check = [x.type in ElemShape.TYPES.quad8 for x in sh_fs.elset.members]
+    elem_check = [x.type == ElemShape.TYPES.shell.QUAD8 for x in sh_fs.elset.members]
     return all(elem_check)

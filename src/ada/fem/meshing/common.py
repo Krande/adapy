@@ -1,10 +1,12 @@
+from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
+
 gmsh_map = {
-    "Triangle 3": "S3",
-    "Triangle 6": "STRI65",
-    "Quadrilateral 4": "S4R",
-    "Quadrilateral 8": "S8R",
-    "Line 2": "B31",
-    "Line 3": "B32",
-    "Tetrahedron 4": "C3D4",
-    "Tetrahedron 10": "C3D10",
+    "Triangle 3": ShellShapes.TRI,
+    "Triangle 6": ShellShapes.TRI6,
+    "Quadrilateral 4": ShellShapes.QUAD,
+    "Quadrilateral 8": ShellShapes.QUAD8,
+    "Line 2": LineShapes.LINE,
+    "Line 3": LineShapes.LINE3,
+    "Tetrahedron 4": SolidShapes.TETRA,
+    "Tetrahedron 10": SolidShapes.TETRA10,
 }

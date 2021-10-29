@@ -1,18 +1,23 @@
 import logging
 import os
+from typing import TYPE_CHECKING
 
 import h5py
 import numpy as np
 
 from ada.concepts.containers import Nodes
-from ada.concepts.levels import FEM, Assembly, Part
 from ada.fem import Elem, FemSet
 from ada.fem.containers import FemElements, FemSets
 
 from .common import med_to_ada_type
 
+if TYPE_CHECKING:
+    from ada.concepts.levels import FEM, Assembly
 
-def read_fem(assembly: Assembly, fem_file: os.PathLike, fem_name: str = None):
+
+def read_fem(assembly: "Assembly", fem_file: os.PathLike, fem_name: str = None):
+    from ada import Part
+
     fem = med_to_fem(fem_file, fem_name)
     if fem_name is None:
         fem_name = fem.name
@@ -20,8 +25,8 @@ def read_fem(assembly: Assembly, fem_file: os.PathLike, fem_name: str = None):
     return
 
 
-def med_to_fem(fem_file, fem_name):
-    from ada import Node
+def med_to_fem(fem_file, fem_name) -> "FEM":
+    from ada import FEM, Node
 
     f = h5py.File(fem_file, "r")
 

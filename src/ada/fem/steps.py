@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Dict, List, Union
 
 from .common import FemBase
 from .constraints import Bc
-from .formulations.lines import BeamFormulations
+from .formulations.lines import BeamTheory
 from .interactions import Interaction
 from .loads import Load, LoadCase, LoadPressure
 from .outputs import FieldOutput, HistOutput
@@ -36,7 +36,7 @@ class SolverOptions:
     """A class for FE solver specific options. Each solver will inherit this base class."""
 
     solver: str = None
-    beam_formulation: str = BeamFormulations.EULER_BERNOULLI
+    beam_formulation: str = BeamTheory.EULER_BERNOULLI
 
 
 class Step(FemBase):

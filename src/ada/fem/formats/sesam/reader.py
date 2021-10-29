@@ -31,7 +31,7 @@ def read_fem(assembly: Assembly, fem_file: os.PathLike, fem_name: str = None):
     assembly.add_part(part)
 
 
-def read_sesam_fem(bulk_str, part_name) -> Part:
+def read_sesam_fem(bulk_str, part_name) -> "Part":
     """Reads the content string of a Sesam input file and converts it to FEM objects"""
     from .read_constraints import get_bcs, get_constraints
     from .read_sections import get_sections
@@ -40,7 +40,7 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
     fem = part.fem
 
     fem.nodes = get_nodes(bulk_str, fem)
-    elements, mass_elem, spring_elem = get_elements(bulk_str, fem)
+    elements, mass_elem, spring_elem, el_id_map = get_elements(bulk_str, fem)
     fem.elements = elements
     fem.elements.build_sets()
     part._materials = get_materials(bulk_str, part)
@@ -51,6 +51,7 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
     fem.constraints += get_constraints(bulk_str, fem)
     fem.bcs += get_bcs(bulk_str, fem)
     renumber_nodes(bulk_str, fem)
+    fem.elements.renumber(renumber_map=el_id_map)
 
     print(8 * "-" + f'Imported "{fem.instance_name}"')
     return part
@@ -89,15 +90,18 @@ def renumber_nodes(bulk_str: str, fem: FEM) -> None:
     fem.nodes.renumber(renumber_map=node_map)
 
 
-def get_elements(bulk_str: str, fem: FEM) -> Tuple[FemElements, dict, dict]:
+def get_elements(bulk_str: str, fem: FEM) -> Tuple[FemElements, dict, dict, dict]:
     """Import elements from Sesam Bulk str"""
 
     mass_elem = dict()
     spring_elem = dict()
+    internal_external_element_map = dict()
 
     def grab_elements(match):
         d = match.groupdict()
         el_no = str_to_int(d["elno"])
+        el_nox = str_to_int(d["elnox"])
+        internal_external_element_map[el_no] = el_nox
         nodes = [
             fem.nodes.from_id(x)
             for x in filter(
@@ -125,13 +129,10 @@ def get_elements(bulk_str: str, fem: FEM) -> Tuple[FemElements, dict, dict]:
             metadata=metadata,
         )
 
-    return (
-        FemElements(
-            filter(lambda x: x is not None, map(grab_elements, cards.re_gelmnt.finditer(bulk_str))), fem_obj=fem
-        ),
-        mass_elem,
-        spring_elem,
+    elements = FemElements(
+        filter(lambda x: x is not None, map(grab_elements, cards.re_gelmnt.finditer(bulk_str))), fem_obj=fem
     )
+    return elements, mass_elem, spring_elem, internal_external_element_map
 
 
 def get_materials(bulk_str, part) -> Materials:

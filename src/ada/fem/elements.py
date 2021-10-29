@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import List, Union
+from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
@@ -12,8 +12,11 @@ from ada.concepts.primitives import Shape
 from ada.concepts.structural import Beam, Plate, Wall
 
 from .common import Csys, FemBase
-from .sections import ConnectorSection, FemSection
 from .shapes import ElemShape, ElemType
+
+if TYPE_CHECKING:
+    from ada import FEM
+    from ada.fem import ConnectorSection, FemSection, FemSet
 
 
 class Elem(FemBase):
@@ -26,12 +29,12 @@ class Elem(FemBase):
         nodes,
         el_type,
         elset=None,
-        fem_sec=None,
+        fem_sec: "FemSection" = None,
         mass_props=None,
-        parent=None,
+        parent: "FEM" = None,
+        el_formulation_override=None,
         metadata=None,
     ):
-        """:type fem_sec: ada.fem.FemSection"""
         super(Elem, self).__init__(el_id, metadata, parent)
         self.type = el_type.upper()
         self._el_id = el_id
@@ -47,6 +50,7 @@ class Elem(FemBase):
         self._mass_props = mass_props
         self._hinge_prop = None
         self._eccentricity = None
+        self._el_formulation_override = el_formulation_override
         self._refs = []
 
     def get_offset_coords(self):
@@ -126,7 +130,7 @@ class Elem(FemBase):
         return self._elset
 
     @property
-    def fem_sec(self) -> FemSection:
+    def fem_sec(self) -> "FemSection":
         return self._fem_sec
 
     @fem_sec.setter
@@ -202,13 +206,12 @@ class Connector(Elem):
         n1: Node,
         n2: Node,
         con_type,
-        con_sec: ConnectorSection,
+        con_sec: "ConnectorSection",
         preload=None,
         csys: Csys = None,
         metadata=None,
-        parent=None,
+        parent: "FEM" = None,
     ):
-        """:type parent: ada.FEM"""
         if type(n1) is not Node or type(n2) is not Node:
             raise ValueError("Connector Start\\end must be nodes")
         super(Connector, self).__init__(el_id, [n1, n2], "CONNECTOR")
@@ -225,7 +228,7 @@ class Connector(Elem):
         return self._con_type
 
     @property
-    def con_sec(self) -> ConnectorSection:
+    def con_sec(self) -> "ConnectorSection":
         return self._con_sec
 
     @property
@@ -245,9 +248,7 @@ class Connector(Elem):
 
 
 class Spring(Elem):
-    def __init__(self, name, el_id, el_type, stiff, fem_set, metadata=None, parent=None):
-        """:type fem_set: ada.fem.FemSet"""
-
+    def __init__(self, name, el_id, el_type, stiff, fem_set: "FemSet", metadata=None, parent=None):
         super(Spring, self).__init__(el_id, fem_set.members, el_type)
         super(Elem, self).__init__(name, metadata, parent)
         self._stiff = stiff

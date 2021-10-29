@@ -1,18 +1,15 @@
 import os
 from collections.abc import Iterable
-from itertools import chain, groupby
+from itertools import chain
 from operator import attrgetter
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
-from ada.concepts.levels import Assembly, Part
-from ada.core.utils import NewLine
 from ada.fem import (
     Amplitude,
     Connector,
     ConnectorSection,
     Constraint,
     Csys,
-    Elem,
     FemSet,
     Interaction,
     InteractionProperty,
@@ -40,6 +37,9 @@ from .write_sets import aba_set_str
 from .write_steps import abaqus_step_str
 from .write_surfaces import surface_str
 
+if TYPE_CHECKING:
+    from ada.concepts.levels import Assembly, Part
+
 __all__ = ["to_fem"]
 
 log_fin = "Please check your result and input. This is not a validated method of solving this issue"
@@ -48,7 +48,7 @@ log_fin = "Please check your result and input. This is not a validated method of
 _step_types = Union[StepEigen, StepImplicit, StepExplicit, StepSteadyState, StepEigenComplex]
 
 
-def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None):
+def to_fem(assembly: "Assembly", name, analysis_dir=None, metadata=None):
     a = AbaqusWriter(assembly)
     a.write(name, analysis_dir)
     print(f'Created an Abaqus input deck at "{a.analysis_path}"')
@@ -64,7 +64,7 @@ class AbaqusWriter:
     analysis_path = None
     parts_and_assemblies = True
 
-    def __init__(self, assembly: Assembly):
+    def __init__(self, assembly: "Assembly"):
         self.assembly = assembly
 
     def write(self, name, analysis_dir):
@@ -165,7 +165,7 @@ class AbaqusWriter:
             if "*End Step" not in step_str:
                 d.write("*End Step\n")
 
-    def write_part_bulk(self, part_in: Part):
+    def write_part_bulk(self, part_in: "Part"):
         bulk_path = self.analysis_path / f"bulk_{part_in.name}"
         bulk_file = bulk_path / "aba_bulk.inp"
         os.makedirs(bulk_path, exist_ok=True)
@@ -178,7 +178,7 @@ class AbaqusWriter:
             with open(bulk_file, "w") as d:
                 d.write(fempart.bulk_str)
 
-    def inst_inp_str(self, part: Part) -> str:
+    def inst_inp_str(self, part: "Part") -> str:
         if part.fem.initial_state is not None:
             import shutil
 
@@ -347,16 +347,18 @@ class AbaqusWriter:
 
 
 class AbaqusPartWriter:
-    def __init__(self, part: Part):
+    def __init__(self, part: "Part"):
         self.part = part
 
     @property
     def bulk_str(self):
+        from .write_elements import elements_str
+
         return f"""** Abaqus Part {self.part.name}
 ** Exported using ADA OpenSim
 *NODE
 {self.nodes_str}
-{self.elements_str}
+{elements_str(self.part.fem)}
 {self.elsets_str}
 {self.nsets_str}
 {self.sections_str}
@@ -395,16 +397,6 @@ class AbaqusPartWriter:
             ).rstrip()
             if len(self.part.fem.nodes) > 0
             else "** No Nodes"
-        )
-
-    @property
-    def elements_str(self):
-        part_el = self.part.fem.elements
-        grouping = groupby(part_el, key=attrgetter("type", "elset"))
-        return (
-            "".join([els for els in [elwriter(x, elements) for x, elements in grouping] if els is not None]).rstrip()
-            if len(self.part.fem.elements) > 0
-            else "** No elements"
         )
 
     @property
@@ -551,7 +543,7 @@ def main_step_inp_str(step: _step_types) -> str:
     return f"""*INCLUDE,INPUT=core_input_files\\step_{step.name}.inp"""
 
 
-def part_inp_str(part: Part) -> str:
+def part_inp_str(part: "Part") -> str:
     return """**\n*Part, name={name}\n*INCLUDE,INPUT=bulk_{name}\\{inp_file}\n*End Part\n**""".format(
         name=part.name, inp_file="aba_bulk.inp"
     )
@@ -572,24 +564,6 @@ def _tie(constraint: Constraint) -> str:
 *Tie, name={name}, adjust={adjust}{pos_tol_str}
 {constraint.m_set.name}, {constraint.s_set.name}"""
     return coupl_text
-
-
-def aba_write(el: Elem):
-    nl = NewLine(10, suffix=7 * " ")
-    if len(el.nodes) > 6:
-        di = " {}"
-    else:
-        di = "{:>13}"
-    return f"{el.id:>7}, " + " ".join([f"{di.format(no.id)}," + next(nl) for no in el.nodes])[:-1]
-
-
-def elwriter(eltype_set, elements):
-    if "connector" in eltype_set:
-        return None
-    eltype, elset = eltype_set
-    el_set_str = f", ELSET={elset.name}" if elset is not None else ""
-    el_str = "\n".join(map(aba_write, elements))
-    return f"""*ELEMENT, type={eltype}{el_set_str}\n{el_str}\n"""
 
 
 def interaction_str(interaction: Interaction, fem_writer) -> str:
@@ -815,7 +789,7 @@ def mass_str(mass: Mass) -> str:
         raise ValueError(f'Mass type "{mass.type}" is not supported by Abaqus')
 
 
-def orientations_str(assembly: Assembly, fem_writer) -> str:
+def orientations_str(assembly: "Assembly", fem_writer) -> str:
     """Add orientations associated with loads"""
     cstr = "** Orientations associated with Loads"
     for step in assembly.fem.steps:

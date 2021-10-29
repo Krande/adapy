@@ -1,9 +1,8 @@
 import traceback
 from itertools import groupby
 from operator import attrgetter
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
-from ada import Assembly
 from ada.concepts.containers import Nodes
 from ada.core.utils import NewLine, get_current_user
 from ada.fem import Bc, Elem, FemSection, FemSet, Load
@@ -17,8 +16,11 @@ from .compatibility import check_compatibility
 from .templates import main_header_str
 from .write_steps import step_str
 
+if TYPE_CHECKING:
+    from ada import Assembly
 
-def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
+
+def to_fem(assembly: "Assembly", name, analysis_dir, metadata=None):
     """Write a Calculix input file stack"""
 
     check_compatibility(assembly)
@@ -88,7 +90,7 @@ def beam_str(fem_sec: FemSection):
     elif sec_str == CcxSecTypes.PIPE:
         return f"{top_line}\n{fem_sec.section.r}, {fem_sec.section.wt}\n {n1}"
     elif sec_str == CcxSecTypes.GENERAL:
-        from ada.fem.formats.abaqus.writer import eval_general_properties
+        from ada.fem.formats.abaqus.write_sections import eval_general_properties
 
         gp = eval_general_properties(fem_sec.section)
         fem_sec.material.model.plasticity_model = None
@@ -138,14 +140,14 @@ def elements_str(fem_elements: FemElements) -> str:
 def el_type_sub(el_type, fem_sec: FemSection) -> str:
     """Substitute Element types specifically Calculix"""
     el_map = dict(STRI65="S6")
-    if el_type in ElemShape.TYPES.lines:
+    if el_type in ElemShape.TYPES.lines.all:
         if must_be_converted_to_general_section(fem_sec.section.type):
             return "U1"
     return el_map.get(el_type, el_type)
 
 
 def elwriter(eltype, fem_sec: FemSection, elements: Iterable[Elem]):
-    from ..abaqus.writer import aba_write
+    from ..abaqus.write_elements import aba_write
 
     if "connector" in eltype:
         return None

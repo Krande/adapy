@@ -25,8 +25,11 @@
 # |        `\             |        `\          |         \            |             \
 # 0----------1 --> u      0-----3----1         0---3---4---1          0---3---4---5---1
 # """
+from ada.fem.shapes.definitions import ShellShapes
 
-shell_edges = dict(
-    quad=[[0, 1], [1, 2], [2, 3], [3, 0]], triangle=[[0, 1], [1, 2], [2, 0]], triangle6=[[0, 1], [1, 2], [2, 0]]
-)
-shell_faces = dict(quad=[[0, 1, 2], [0, 2, 3]], triangle=[[0, 1, 2]])
+shell_edges = {
+    ShellShapes.QUAD: [[0, 1], [1, 2], [2, 3], [3, 0]],
+    ShellShapes.TRI: [[0, 1], [1, 2], [2, 0]],
+    ShellShapes.TRI6: [[0, 1], [1, 2], [2, 0]],
+}
+shell_faces = {ShellShapes.QUAD: [[0, 1, 2], [0, 2, 3]], ShellShapes.TRI: [[0, 1, 2]]}

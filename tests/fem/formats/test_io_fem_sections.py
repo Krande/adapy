@@ -10,7 +10,7 @@ def get_fsec_bm_collection():
     mat = Material("my_mat")
     p = Part("my_part")
     bm = Beam("my_beam", (0, 0, 0), (1, 0, 0), sec, mat)
-    elem = Elem(1, [bm.n1, bm.n2], "B31")
+    elem = Elem(1, [bm.n1, bm.n2], "line")
     fem_set = FemSet("my_set", [elem], "elset")
     fem_sec = FemSection("my_sec", "line", fem_set, mat, sec, local_z=(0, 0, 1))
 
@@ -24,7 +24,7 @@ def get_fsec_bm_collection():
 def get_fsec_sh_collection():
     p = Part("my_part")
     mat = Material("my_mat")
-    elem = Elem(1, [Node((0, 0, 0)), Node((1, 0, 0)), Node((1, 1, 0)), Node((0, 1, 0))], "S4R")
+    elem = Elem(1, [Node((0, 0, 0)), Node((1, 0, 0)), Node((1, 1, 0)), Node((0, 1, 0))], "quad")
     fem_set = FemSet("my_set", [elem], "elset")
     fem_sec = FemSection("my_sec", "shell", fem_set, mat, thickness=0.01)
     for n in elem.nodes:
@@ -49,7 +49,7 @@ class TestContainerProtocol(unittest.TestCase):
         mat = Material("my_mat")
 
         bm = Beam("my_beam", (0, 0, 0), (1, 0, 0), sec, mat)
-        elem = Elem(1, [bm.n1, bm.n2], "B31")
+        elem = Elem(1, [bm.n1, bm.n2], "line")
         fem_set = FemSet("my_set", [elem], "elset")
         fem_sec = FemSection("my_sec", "line", fem_set, mat, sec, local_z=(0, 0, 1))
         p = get_fsec_bm_collection()
@@ -63,7 +63,7 @@ class TestContainerProtocol(unittest.TestCase):
         mat = Material("my_mat", CarbonSteel("S420"))
 
         bm = Beam("my_beam", (0, 0, 0), (1, 0, 0), sec, mat)
-        elem = Elem(1, [bm.n1, bm.n2], "B31")
+        elem = Elem(1, [bm.n1, bm.n2], "line")
         fem_set = FemSet("my_set", [elem], "elset")
         fem_sec = FemSection("my_sec", "line", fem_set, mat, sec, local_z=(0, 0, 1))
         p = get_fsec_bm_collection()
@@ -80,7 +80,7 @@ class TestContainerProtocol(unittest.TestCase):
     def test_negative_contained_shell(self):
         # Testing equal operator for different shell thickness
         mat = Material("my_mat")
-        elem = Elem(1, [Node((0, 0, 0)), Node((1, 0, 0)), Node((1, 1, 0)), Node((0, 1, 0))], "S4R")
+        elem = Elem(1, [Node((0, 0, 0)), Node((1, 0, 0)), Node((1, 1, 0)), Node((0, 1, 0))], "quad")
         fem_set = FemSet("my_set", [elem], "elset")
         fem_sec = FemSection("my_sec", "shell", fem_set, mat, thickness=0.02)
 
@@ -91,7 +91,7 @@ class TestContainerProtocol(unittest.TestCase):
     def test_negative_contained_shell_(self):
         # Testing equal operator for change in element type
         mat = Material("my_mat")
-        elem = Elem(1, [Node((0, 0, 0)), Node((1, 0, 0)), Node((1, 1, 0)), Node((0, 1, 0))], "S4")
+        elem = Elem(1, [Node((0, 0, 0)), Node((1, 0, 0)), Node((1, 1, 0)), Node((0, 1, 0))], "quad")
         fem_set = FemSet("my_set", [elem], "elset")
         fem_sec = FemSection("my_sec", "shell", fem_set, mat, thickness=0.01)
 

@@ -7,12 +7,11 @@ import pathlib
 import re
 from dataclasses import dataclass
 from itertools import chain
-from typing import Dict, Iterable, List, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 
 import numpy as np
 
 from ada.concepts.containers import Nodes
-from ada.concepts.levels import FEM, Assembly, Part
 from ada.concepts.points import Node
 from ada.concepts.structural import Material
 from ada.concepts.transforms import Rotation, Transform
@@ -23,7 +22,6 @@ from ada.fem import (
     ConnectorSection,
     Constraint,
     Csys,
-    Elem,
     FemSection,
     FemSet,
     Interaction,
@@ -32,17 +30,21 @@ from ada.fem import (
     PredefinedField,
     Surface,
 )
-from ada.fem.containers import FemElements, FemSections, FemSets
+from ada.fem.containers import FemSections, FemSets
 from ada.fem.formats.abaqus.common import AbaCards
 from ada.fem.interactions import ContactTypes
-from ada.fem.shapes import ElemShape, ElemType
+from ada.fem.shapes import ElemType
 from ada.materials.metals import CarbonSteel
 
 from ..utils import str_to_int
 from . import cards
+from .read_elements import get_elem_from_inp
 
 part_name_counter = Counter(1, "Part")
 _re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
+
+if TYPE_CHECKING:
+    from ada.concepts.levels import FEM, Assembly, Part
 
 
 @dataclass
@@ -181,7 +183,9 @@ def add_fem_without_assembly(bulk_str, assembly: Assembly) -> Part:
     return get_fem_from_bulk_str(p_name, p_bulk, assembly, inst)
 
 
-def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: InstanceData) -> Part:
+def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: InstanceData) -> "Part":
+    from ada import FEM, Part
+
     instance_name = name if instance_data.instance_name is None else instance_data.instance_name
     part = assembly.add_part(Part(name, fem=FEM(name=instance_name)))
     fem = part.fem
@@ -426,69 +430,6 @@ def get_nodes_from_inp(bulk_str, parent: FEM) -> Nodes:
     return Nodes(nodes, parent=parent)
 
 
-def get_elem_from_inp(bulk_str, fem: FEM) -> FemElements:
-    re_el = re.compile(
-        r"^\*Element,\s*type=(?P<eltype>.*?)(?:\n|,\s*elset=(?P<elset>.*?)\s*\n)(?<=)(?P<members>(?:.*?)(?=\*|\Z))",
-        _re_in,
-    )
-
-    def grab_elements(match):
-        d = match.groupdict()
-        eltype = d["eltype"]
-        elset = d["elset"]
-        members = d["members"]
-        res = re.search("[a-zA-Z]", members)
-        if eltype.upper() in ElemShape.TYPES.cube20 + ElemShape.TYPES.cube27 or res is None:
-            if eltype.upper() in ElemShape.TYPES.cube20 + ElemShape.TYPES.cube27:
-                temp = members.splitlines()
-                ntext = "".join([l1.strip() + "    " + l2.strip() + "\n" for l1, l2 in zip(temp[:-1:2], temp[1::2])])
-            else:
-                ntext = d["members"]
-            res = np.fromstring(ntext.replace("\n", ","), sep=",", dtype=int)
-            n = ElemShape.num_nodes(eltype) + 1
-            res_ = res.reshape(int(res.size / n), n)
-            return [Elem(e[0], [fem.nodes.from_id(n) for n in e[1:]], eltype, elset, parent=fem) for e in res_]
-        else:
-
-            # TODO: This code needs to be re-worked!
-            elems = []
-            for li in members.splitlines():
-                new_mem = []
-                temp = li.split(",")
-                elid = str_to_int(temp[0])
-                for d in temp[1:]:
-                    temp2 = [x.strip() for x in d.split(".")]
-                    par_ = None
-                    if len(temp2) == 2:
-                        par, setr = temp2
-                        pfems = []
-                        parents = fem.parent.get_all_parts_in_assembly()
-                        for p in parents:
-                            assert isinstance(p, Part)
-                            pfems.append(p.fem.name)
-                            if p.fem.name == par:
-                                par_ = p
-                                break
-                        if par_ is None:
-                            raise ValueError(f'Unable to find parent for "{par}"')
-                        r = par_.fem.nodes.from_id(str_to_int(setr))
-                        if type(r) != Node:
-                            raise ValueError("Node ID not found")
-                        new_mem.append(r)
-                    else:
-                        r = fem.nodes.from_id(str_to_int(d))
-                        if type(r) != Node:
-                            raise ValueError("Node ID not found")
-                        new_mem.append(r)
-                elems.append(Elem(elid, new_mem, eltype, elset, parent=fem))
-            return elems
-
-    return FemElements(
-        chain.from_iterable(map(grab_elements, re_el.finditer(bulk_str))),
-        fem_obj=fem,
-    )
-
-
 def get_sections_from_inp(bulk_str, fem: FEM) -> FemSections:
     iter_beams = get_beam_sections_from_inp(bulk_str, fem)
     iter_shell = get_shell_sections_from_inp(bulk_str, fem)
@@ -505,6 +446,8 @@ def str_to_ints(instr):
 
 
 def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
+    from ada import Assembly
+
     if fem.parent is not None:
         all_parts = fem.parent.get_all_parts_in_assembly()
     else:

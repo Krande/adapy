@@ -2,6 +2,12 @@ import re
 
 _re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 
+# Elements
+re_el = re.compile(
+    r"^\*Element,\s*type=(?P<eltype>.*?)(?:\n|,\s*elset=(?P<elset>.*?)\s*\n)(?<=)(?P<members>(?:.*?)(?=\*|\Z))",
+    _re_in,
+)
+
 re_sets = re.compile(
     r"(?:\*(nset|elset),\s*(?:nset|elset))=(.*?)(?:,\s*(internal\s*)|(?:))"
     r"(?:,\s*instance=(.*?)|(?:))(?:,\s*(generate)|(?:))\s*\n(?<=)((?:.*?)(?=\*|\Z))",

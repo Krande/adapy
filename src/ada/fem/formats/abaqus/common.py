@@ -1,9 +1,6 @@
 import re
 from typing import Union
 
-from ada.concepts.levels import FEM, Assembly
-from ada.concepts.points import Node
-
 
 class AbaFF:
     """Abaqus Fortran Flags. A class designed to aid in building regex searched for Abaqus flags."""
@@ -154,7 +151,7 @@ class AbaCards:
 
 
 def get_instance_name(obj, written_on_assembly_level: bool) -> str:
-    from ada import Part
+    from ada import FEM, Assembly, Node, Part
 
     parent: Union[FEM, Part] = obj.parent
     p = parent.parent if parent is FEM else parent

@@ -1,10 +1,9 @@
 import logging
 from itertools import chain
-from typing import Iterable, Tuple, Union
+from typing import TYPE_CHECKING, Iterable, Tuple, Union
 
 import numpy as np
 
-from ada.concepts.levels import Assembly, Part
 from ada.concepts.points import Node
 from ada.concepts.structural import Material
 from ada.config import Settings as _Settings
@@ -19,8 +18,11 @@ from .compatibility import check_compatibility
 from .templates import el_convert_str, main_comm_str
 from .write_loads import write_load
 
+if TYPE_CHECKING:
+    from ada.concepts.levels import Assembly, Part
 
-def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
+
+def to_fem(assembly: "Assembly", name, analysis_dir, metadata=None):
     """Write Code_Aster .med and .comm file from Assembly data"""
     from ada.materials.utils import shorten_material_names
 
@@ -42,7 +44,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
     print(f'Created a Code_Aster input deck at "{analysis_dir}"')
 
 
-def create_comm_str(assembly: Assembly, part: Part) -> str:
+def create_comm_str(assembly: "Assembly", part: "Part") -> str:
     """Create COMM file input str"""
     all_mat = chain.from_iterable([p.materials for p in assembly.get_all_parts_in_assembly(True)])
     all_mat_unique = {x.name: x for x in all_mat}
@@ -116,7 +118,7 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     return comm_str
 
 
-def write_to_med(name, part: Part, analysis_dir):
+def write_to_med(name, part: "Part", analysis_dir):
     """Custom Method for writing a part directly based on meshio"""
     import pathlib
 
@@ -283,7 +285,7 @@ def write_solid_section(fem_sections: Iterable[FemSection]) -> str:
 def is_parent_of_node_solid(no: Node) -> bool:
     refs = no.refs
     for elem in refs:
-        if elem.type in ElemShapeTypes.volume:
+        if elem.type in ElemShapeTypes.solids.all:
             return True
     return False
 
@@ -315,7 +317,7 @@ def create_bc_str(bc: Bc) -> str:
     )
 
 
-def step_static_str(step: StepImplicit, part: Part) -> str:
+def step_static_str(step: StepImplicit, part: "Part") -> str:
     from ada.fem.exceptions.model_definition import (
         NoBoundaryConditionsApplied,
         NoLoadsApplied,
@@ -438,7 +440,7 @@ IMPR_RESU(
 )"""
 
 
-def step_eig_str(step: StepEigen, part: Part) -> str:
+def step_eig_str(step: StepEigen, part: "Part") -> str:
     bcs = part.fem.bcs + part.get_assembly().fem.bcs
 
     if len(bcs) > 1 or len(bcs) == 0:
@@ -500,7 +502,7 @@ IMPR_RESU(
 """
 
 
-def create_step_str(step: Union[StepEigen, StepImplicit], part: Part) -> str:
+def create_step_str(step: Union[StepEigen, StepImplicit], part: "Part") -> str:
     st = StepEigen.TYPES
     step_map = {st.STATIC: step_static_str, st.EIGEN: step_eig_str}
 
@@ -512,7 +514,7 @@ def create_step_str(step: Union[StepEigen, StepImplicit], part: Part) -> str:
     return step_writer(step, part)
 
 
-def _write_nodes(part: Part, time_step, profile, families):
+def _write_nodes(part: "Part", time_step, profile, families):
     """
 
     TODO: Go through each data group and set in HDF5 file and make sure that it writes what was read 1:1.
@@ -555,7 +557,7 @@ def _write_nodes(part: Part, time_step, profile, families):
         _add_node_sets(nodes_group, part, points, families)
 
 
-def _write_elements(part: Part, time_step, profile, families):
+def _write_elements(part: "Part", time_step, profile, families):
     """
 
     Add the following ['FAM', 'NOD', 'NUM'] to the 'MAI' group
@@ -671,7 +673,7 @@ def resolve_ids_in_multiple(tags, tags_data, is_elem):
     return fin_data
 
 
-def _add_cell_sets(cells_group, part: Part, families):
+def _add_cell_sets(cells_group, part: "Part", families):
     """
 
     :param cells_group:
@@ -719,7 +721,7 @@ def _add_cell_sets(cells_group, part: Part, families):
     _write_families(element, tags)
 
 
-def _add_node_sets(nodes_group, part: Part, points, families):
+def _add_node_sets(nodes_group, part: "Part", points, families):
     """
     :param nodes_group:
     :param part:

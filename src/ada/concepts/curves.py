@@ -123,17 +123,16 @@ class CurvePoly:
         if points2d is None and points3d is None:
             raise ValueError("Either points2d or points3d must be set")
 
-        if points2d is None:
+        if points2d is not None:
+            self._placement = Placement(origin, xdir=xdir, zdir=normal)
+            points3d = self._from_2d_points(points2d)
+        else:
             normal = normal_to_points_in_plane([np.array(x[:3]) for x in points3d])
             p1 = np.array(points3d[0][:3]).astype(float)
             p2 = np.array(points3d[1][:3]).astype(float)
             origin = p1
             xdir = unit_vector(p2 - p1)
-
-        self._placement = Placement(origin, xdir=xdir, zdir=normal)
-        if points2d is not None:
-            points3d = self._from_2d_points(points2d)
-        else:
+            self._placement = Placement(origin, xdir=xdir, zdir=normal)
             points2d = self._from_3d_points(points3d)
 
         if is_clockwise(points2d) is False:

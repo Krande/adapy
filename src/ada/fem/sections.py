@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Tuple, Union
+from typing import TYPE_CHECKING, List, Tuple, Union
 
 import numpy as np
 
@@ -20,6 +20,9 @@ from ada.sections import Section
 from .common import FemBase
 from .shapes import ElemType
 
+if TYPE_CHECKING:
+    from ada.fem import FemSet
+
 
 class FemSection(FemBase):
     id_count = Counter()
@@ -28,8 +31,8 @@ class FemSection(FemBase):
     def __init__(
         self,
         name,
-        sec_type,
-        elset,
+        sec_type: str,
+        elset: "FemSet",
         material: Material,
         section=None,
         local_z=None,
@@ -41,11 +44,10 @@ class FemSection(FemBase):
         refs=None,
         sec_id=None,
     ):
-        """:type elset: ada.fem.FemSet"""
         super().__init__(name, metadata, parent)
         if sec_type is None:
             raise ValueError("Section type cannot be None")
-
+        sec_type = sec_type.upper()
         if sec_type not in ElemType.all:
             raise ValueError(f'Element section type "{sec_type}" is not supported. Must be in {ElemType.all}')
         self._id = sec_id if sec_id is not None else next(FemSection.id_count)

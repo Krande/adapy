@@ -1,5 +1,7 @@
 import logging
 
+from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
+
 
 def abaqus_to_med_type(value):
     if value in _ada_to_med_type.keys():
@@ -27,19 +29,19 @@ def med_to_ada_type(value):
 
 
 _ada_to_med_type = {
-    "B31": "SE2",
-    "B32": "SE3",
-    "S3": "TR3",
-    "STRI65": "TR6",
-    "S7": "TR7",  # Code Aster Specific type
-    ("S4", "S4R"): "QU4",
-    ("S8R", "S8"): "QU8",
-    "C3D4": "TE4",
-    "C3D10": "T10",
-    "C3D8": "HE8",
-    ("C3D20R", "C3D20RH"): "H20",
-    "C3D5": "PY5",
+    LineShapes.LINE: "SE2",
+    LineShapes.LINE3: "SE3",
+    ShellShapes.TRI: "TR3",
+    ShellShapes.TRI6: "TR6",
+    ShellShapes.TRI7: "TR7",  # Code Aster Specific type
+    ShellShapes.QUAD: "QU4",
+    ShellShapes.QUAD8: "QU8",
+    SolidShapes.TETRA: "TE4",
+    SolidShapes.TETRA10: "T10",
+    SolidShapes.HEX8: "HE8",
+    SolidShapes.HEX20: "H20",
+    SolidShapes.PYRAMID5: "PY5",
     # "pyramid13": "P13",
-    "C3D6": "PE6",
+    SolidShapes.WEDGE: "PE6",
     # "wedge15": "P15",
 }

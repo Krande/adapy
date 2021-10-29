@@ -524,9 +524,9 @@ class Part(BackendGeom):
             # TODO: Beam and plate nodes (and nodes at intersecting beams) are still not properly represented
             for obj in self.get_all_physical_objects():
                 if type(obj) is Beam:
-                    gs.add_obj(obj, geom_repr=bm_repr, build_native_lines=False)
+                    gs.add_obj(obj, geom_repr=bm_repr.upper(), build_native_lines=False)
                 elif type(obj) is Plate:
-                    gs.add_obj(obj, geom_repr=pl_repr)
+                    gs.add_obj(obj, geom_repr=pl_repr.upper())
                 elif issubclass(type(obj), Shape) and obj.mass is not None:
                     masses.append(obj)
                 elif issubclass(type(obj), Shape):
@@ -1480,7 +1480,7 @@ class FEM:
         if type(obj) is not Beam:
             raise NotImplementedError(f'Object type "{type(obj)}" is not yet supported')
 
-        el_type = "B31" if el_type is None else el_type
+        el_type = ElemType.LINE if el_type is None else el_type
 
         res = self.nodes.add(obj.n1)
         if res is not None:
@@ -1489,10 +1489,8 @@ class FEM:
         if res is not None:
             obj.n2 = res
 
-        elem = Elem(None, [obj.n1, obj.n2], el_type)
-        self.add_elem(elem)
-        femset = FemSet(f"{obj.name}_set", [elem], "elset")
-        self.add_set(femset)
+        elem = self.add_elem(Elem(None, [obj.n1, obj.n2], el_type))
+        femset = self.add_set(FemSet(f"{obj.name}_set", [elem], FemSet.TYPES.ELSET))
         self.add_section(
             FemSection(
                 f"d{obj.name}_sec",

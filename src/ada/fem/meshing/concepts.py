@@ -98,6 +98,8 @@ class GmshSession:
 
         from .utils import build_bm_lines
 
+        geom_repr = geom_repr.upper()
+
         self.apply_settings()
         temp_dir = Settings.temp_dir
         os.makedirs(temp_dir, exist_ok=True)
@@ -231,6 +233,7 @@ class GmshSession:
             gmsh_data.obj.elem_refs = entity_elements
             [add_obj_to_elem_ref(el, gmsh_data.obj) for el in entity_elements]
             elements += entity_elements
+
         fem.elements = FemElements(elements, fem_obj=fem)
 
         # Add FEM sections

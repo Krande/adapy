@@ -94,7 +94,7 @@ class GmshApiV2(unittest.TestCase):
         # a.to_fem("my_xdmf_test", "xdmf", overwrite=True, scratch_dir=test_dir, fem_converter="meshio")
         # a.to_ifc(test_dir / "gmsh_api_v2", include_fem=True)
 
-        map_assert = dict(B32=9, C3D10=5310, STRI65=840)
+        map_assert = dict(LINE3=9, TETRA10=5310, TRIANGLE6=840)
 
         for key, val in a.get_part("MyFemObjects").fem.elements.group_by_type():
             num_el = len(list(val))

@@ -12,10 +12,10 @@ class TestConstruction(unittest.TestCase):
         n3 = Node([2.0, 1.0, 8.0], 3)
         n4 = Node([1.0, 2.0, 3.0], 4)
 
-        el1 = Elem(1, [n1, n2], "B31")
-        el2 = Elem(2, [n2, n3], "B31")
-        el3 = Elem(3, [n3, n1], "B31")
-        el4 = Elem(4, [n1, n2, n3, n4], "S4R")
+        el1 = Elem(1, [n1, n2], "LINE")
+        el2 = Elem(2, [n2, n3], "LINE")
+        el3 = Elem(3, [n3, n1], "LINE")
+        el4 = Elem(4, [n1, n2, n3, n4], "QUAD")
         self.elems = (el1, el2, el3, el4)
 
     def test_empty(self):
