@@ -233,7 +233,7 @@ And the following packages are integral in the interoperability and visualizatio
 * Ccx2paraview
 
 A huge thanks to all involved in the development of the packages mentioned here and in the list of packages adapy
-depends on (it goes without saying that packages such as numpy ).
+depends on.
 
 If you feel that a certain package listed in the adapy dependencies should be listed here please let me know and I will 
 update the list :)
