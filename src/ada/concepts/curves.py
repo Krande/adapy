@@ -219,7 +219,7 @@ class CurvePoly:
 
         seg_list = build_polycurve(local_points2d, tol, self._debug, debug_name)
         origin, xdir, normal = self.placement.origin, self.placement.xdir, self.placement.zdir
-        # # Convert from local to global coordinates
+        # Convert from local to global coordinates
         for i, seg in enumerate(seg_list):
             if type(seg) is ArcSegment:
                 lpoints = [seg.p1, seg.p2, seg.midpoint]

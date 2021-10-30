@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
@@ -19,6 +19,9 @@ from .utils import (
     unit_vector,
     vector_length_2d,
 )
+
+if TYPE_CHECKING:
+    from ada.concepts.curves import ArcSegment, LineSegment
 
 
 def make_arc_segment(p1, p2, p3, radius):
@@ -577,7 +580,7 @@ def segments_to_local_points(segments_in):
     return local_points
 
 
-def segments_to_indexed_lists(segments):
+def segments_to_indexed_lists(segments: List[Union["LineSegment", "ArcSegment"]]):
     """
 
     :param segments:
@@ -804,10 +807,13 @@ def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius):
     return center, start, end, midp
 
 
-def build_polycurve(local_points2d: List[tuple], tol=1e-3, debug=False, debug_name=None, is_closed=True):
-    from ada.concepts.curves import LineSegment
+def build_polycurve(
+    local_points2d: List[tuple], tol=1e-3, debug=False, debug_name=None, is_closed=True
+) -> List[Union["LineSegment", "ArcSegment"]]:
 
     if len(local_points2d) == 2:
+        from ada.concepts.curves import LineSegment
+
         return [LineSegment(p1=local_points2d[0], p2=local_points2d[1])]
 
     segc = SegCreator(local_points2d, tol=tol, debug=debug, debug_name=debug_name, is_closed=is_closed)

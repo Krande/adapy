@@ -1,26 +1,50 @@
+from typing import List
+
 import ada
+from ada import Node
 
 test_dir = ada.config.Settings.test_dir / "fem_to_concepts"
 
 
-def test_shell_elem_to_plate():
-    nodes = [
-        ada.Node([-12.0, 4.0, 24.5], 718),
-        ada.Node([-12.9978333, 4.0, 24.5], 767),
-        ada.Node([-13.0007744, 3.0, 24.5], 768),
-        ada.Node([-12.0, 3.0, 24.5], 717),
-    ]
-    p = ada.Part("MyPart")
+def create_shell_elem(el_id: int, nodes: List[Node], fem: ada.FEM):
     for n in nodes:
-        p.fem.nodes.add(n)
-    el = p.fem.add_elem(ada.fem.Elem(956, nodes, ada.fem.Elem.EL_TYPES.SHELL_SHAPES.QUAD))
-    p.fem.add_section(
-        ada.fem.FemSection("PlSec", "shell", ada.fem.FemSet("ShellSet", [el]), ada.Material("S355"), thickness=10e-3)
+        fem.nodes.add(n)
+    el = fem.add_elem(ada.fem.Elem(el_id, nodes, ada.fem.Elem.EL_TYPES.SHELL_SHAPES.QUAD))
+    fem.add_section(
+        ada.fem.FemSection(
+            f"PlSec{el_id}", "shell", ada.fem.FemSet("ShellSet", [el]), ada.Material("S355"), thickness=10e-3
+        )
     )
+
+
+def test_shell_elem_to_plate():
+    p = ada.Part("MyPart")
+    nodes1 = [
+        Node([-15.0001154, -6.0, 24.5], 799),
+        Node([-16.0, -6.0, 24.5], 571),
+        Node([-16.0, -7.0, 24.5], 570),
+        Node([-15.0015383, -7.0, 24.5], 802),
+    ]
+    nodes2 = [
+        Node([-15.0015383, -7.0, 24.5], 802),
+        Node([-16.0, -7.0, 24.5], 570),
+        Node([-16.0, -8.0, 24.5], 529),
+        Node([-15.0, -8.0, 24.5], 651),
+    ]
+
+    create_shell_elem(999, nodes1, p.fem)
+    create_shell_elem(1003, nodes2, p.fem)
+
     a = ada.Assembly() / p
     a.create_objects_from_fem()
-    pl: ada.Plate = a.get_by_name("sh956")
-    assert tuple(pl.nodes[0].p) == (-12.0, 4.0, 24.5)
+    pl: ada.Plate = a.get_by_name("sh999")
+    assert tuple(pl.nodes[0].p) == tuple(nodes1[0].p)
+    assert tuple(pl.poly.seg_global_points[0]) == tuple(nodes1[-1].p)
+    assert tuple(pl.poly.seg_global_points[1]) == tuple(nodes1[0].p)
+    assert tuple(pl.poly.seg_global_points[2]) == tuple(nodes1[1].p)
+    assert tuple(pl.poly.seg_global_points[3]) == tuple(nodes1[2].p)
+    pl: ada.Plate = a.get_by_name("sh1003")
+    assert tuple(pl.nodes[0].p) == tuple(nodes2[0].p)
 
     a.to_ifc(test_dir / "Shell2Plate")
     a.to_fem("MyTest", "abaqus", overwrite=True)

@@ -530,8 +530,7 @@ def global_2_local_nodes(csys, origin, nodes):
     if type(nodes[0]) is Node:
         nodes = [no.p for no in nodes]
 
-    res = [np.dot(rmat, p) + origin for p in nodes]
-
+    res = [np.dot(rmat, p - origin) for p in nodes]
     return res
 
 
