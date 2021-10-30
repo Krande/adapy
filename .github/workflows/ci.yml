@@ -109,13 +109,13 @@ jobs:
         if: ${{ github.event.workflow_run.conclusion == 'success' }}
         run: echo 'Hello world'
       - name: upload to conda -c krande
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.workflow_run.conclusion == 'success'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash -l {0}
         run: |
           conda activate ${{ env.CONDAENV }}
           anaconda -t=${{ secrets.ANACONDA_TOKEN }} upload ${{ env.CONDAROOT }}/conda-bld/${{ matrix.platform.short }}/ada-py-${{ env.PKG_VERSION }}-${{ matrix.pyver.name }}_0.tar.bz2 --user krande --skip-existing
   pypi:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main && github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main
     needs: test
     name: Publish to PYPI
     runs-on: ubuntu-latest
@@ -130,6 +130,7 @@ jobs:
           pip install build
           python -m build
       - name: Publish a Python distribution to PyPI
+        if: github.event.workflow_run.conclusion == 'success'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           user: __token__
