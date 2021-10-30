@@ -32,10 +32,19 @@ class SolidShapes:
     TETRA = "TETRA"
     TETRA10 = "TETRA10"
     PYRAMID5 = "PYRAMID5"
+    PYRAMID13 = "PYRAMID13"
     WEDGE = "WEDGE"
     WEDGE15 = "WEDGE15"
 
-    all = [HEX8, HEX20, HEX27, TETRA10, TETRA, WEDGE, WEDGE15, PYRAMID5]
+    all = [HEX8, HEX20, HEX27, TETRA10, TETRA, WEDGE, WEDGE15, PYRAMID5, PYRAMID13]
+
+
+class PointShapes:
+    MASS = "MASS"
+    ROTARYI = "ROTARYI"
+    SPRING1 = "SPRING1"
+
+    all = [MASS, ROTARYI, SPRING1]
 
 
 class ElemType:
@@ -46,6 +55,7 @@ class ElemType:
     LINE_SHAPES = LineShapes
     SHELL_SHAPES = ShellShapes
     SOLID_SHAPES = SolidShapes
+    POINT_SHAPES = PointShapes
 
     MASSES = ["MASS", "ROTARYI"]
     SPRINGS1n = ["SPRING1"]

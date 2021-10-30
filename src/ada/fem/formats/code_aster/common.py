@@ -3,7 +3,7 @@ import logging
 from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
 
 
-def abaqus_to_med_type(value):
+def ada_to_med_type(value):
     if value in _ada_to_med_type.keys():
         return _ada_to_med_type[value]
     else:

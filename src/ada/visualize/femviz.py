@@ -9,7 +9,6 @@ from pythreejs import Group
 
 from ada.concepts.levels import FEM
 from ada.fem.shapes import ElemShape
-from ada.fem.shapes.mesh_types import meshio_to_abaqus_type
 
 from .threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 from .utils import get_edges_from_fem, get_faces_from_fem, get_vertices_from_fem
@@ -60,14 +59,14 @@ class FemRenderer:
             self._view_to_mesh(vt)
 
     def _view_to_mesh(
-        self, vt, face_colors=None, vertex_colors=(8, 8, 8), edge_color=(8, 8, 8), edge_width=1, vertex_width=1
+        self,
+        vt: ViewItem,
+        face_colors=None,
+        vertex_colors=(8, 8, 8),
+        edge_color=(8, 8, 8),
+        edge_width=1,
+        vertex_width=1,
     ):
-        """
-
-        :param vt:
-        :type vt: ViewItem
-        :return:
-        """
         fem = vt.fem
         vertices = vt.vertices
         edges = vt.edges
@@ -87,14 +86,16 @@ class FemRenderer:
 
 
 def get_edges_and_faces_from_meshio(mesh: meshio.Mesh):
+    from ada.fem.formats.mesh_io.common import meshio_to_ada
+
     edges = []
     faces = []
     for cell_block in mesh.cells:
-        el_type = meshio_to_abaqus_type[cell_block.type]
+        el_type = meshio_to_ada[cell_block.type]
         for elem in cell_block.data:
             elem_shape = ElemShape(el_type, elem)
             edges += elem_shape.edges
-            if elem_shape.type in elem_shape.TYPES.lines:
+            if elem_shape.type in elem_shape.TYPES.lines.all:
                 continue
             faces += elem_shape.faces
     return edges, faces

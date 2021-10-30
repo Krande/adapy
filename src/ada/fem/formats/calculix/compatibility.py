@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 
 def check_compatibility(assembly: "Assembly"):
-    from .writer import must_be_converted_to_general_section
+    from .write_elements import must_be_converted_to_general_section
 
     p = get_fem_model_from_assembly(assembly)
     step = assembly.fem.steps[0] if len(assembly.fem.steps) > 0 else None

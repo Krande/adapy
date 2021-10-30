@@ -227,7 +227,7 @@ def convert_hinges_2_couplings(fem: "FEM"):
 
 
 def is_tri6_shell_elem(sh_fs):
-    elem_check = [x.type in ElemShape.TYPES.shell.TRI6 for x in sh_fs.elset.members]
+    elem_check = [x.type == ElemShape.TYPES.shell.TRI6 for x in sh_fs.elset.members]
     return all(elem_check)
 
 

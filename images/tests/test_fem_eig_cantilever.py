@@ -45,4 +45,4 @@ def test_fem_eig(fem_format, geom_repr, elem_order):
 
 
 if __name__ == "__main__":
-    test_fem_eig("code_aster", "shell", 1)
+    test_fem_eig("code_aster", "solid", 2)

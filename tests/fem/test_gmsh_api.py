@@ -1,5 +1,6 @@
 import unittest
 
+import ada.fem.shapes
 from ada import Assembly, Beam, Part, Pipe, Plate, PrimBox, PrimSphere
 from ada.concepts.structural import make_ig_cutplanes
 from ada.concepts.transforms import Placement
@@ -7,7 +8,6 @@ from ada.config import Settings
 from ada.fem.meshing.concepts import GmshOptions, GmshSession, GmshTask
 from ada.fem.meshing.multisession import multisession_gmsh_tasker
 from ada.fem.steps import StepImplicit
-from ada.param_models.basic_module import ReinforcedFloor
 
 test_dir = Settings.test_dir / "gmsh_api_v2"
 
@@ -93,15 +93,15 @@ class GmshApiV2(unittest.TestCase):
         # a.to_fem("my_aba_analysis", "abaqus", overwrite=True, scratch_dir=test_dir)
         # a.to_fem("my_xdmf_test", "xdmf", overwrite=True, scratch_dir=test_dir, fem_converter="meshio")
         # a.to_ifc(test_dir / "gmsh_api_v2", include_fem=True)
-
-        map_assert = dict(LINE3=9, TETRA10=5310, TRIANGLE6=840)
+        shape = ada.fem.shapes.ElemShape.TYPES
+        map_assert = {shape.lines.LINE3: 9, shape.solids.TETRA10: 5310, shape.shell.TRI6: 840}
 
         for key, val in a.get_part("MyFemObjects").fem.elements.group_by_type():
             num_el = len(list(val))
-            if key == "C3D10":
+            if key == "TETRA10":
                 # TODO: Why is the number of elements for different platforms (win, linux and macos)?
                 self.assertAlmostEqual(map_assert[key], num_el, delta=50)
-            elif key == "STRI65":
+            elif key == "TRIANGLE6":
                 self.assertAlmostEqual(map_assert[key], num_el, delta=5)
             else:
                 self.assertEqual(map_assert[key], num_el)
@@ -114,28 +114,6 @@ class GmshApiV2(unittest.TestCase):
         a = Assembly() / (Part("MyFemObjects", fem=fem) / [self.bm1, self.bm2])
         a.fem.add_step(StepImplicit("MyStep"))
         a.to_fem("aba_mixed_order", "abaqus", overwrite=True, scratch_dir=test_dir)
-
-    def test_mixed_lines_and_shell(self):
-        p = ReinforcedFloor(
-            "TestPlate", [(0, 0), (5, 0), (5, 5), (0, 5)], 12e-3, use3dnodes=False, placement=Placement()
-        )
-
-        with GmshSession(silent=True) as gs:
-            gmap = dict()
-            for obj in p.get_all_physical_objects():
-                if type(obj) is Beam:
-                    li = gs.add_obj(obj, geom_repr="line")
-                    gmap[obj] = li
-                elif type(obj) is Plate:
-                    pl = gs.add_obj(obj, geom_repr="shell")
-                    gmap[obj] = pl
-            gs.mesh()
-            # gs.open_gui()
-            p.fem = gs.get_fem()
-
-        # TODO: Support mixed plate and beam models. Ensure nodal connectivity
-        a = Assembly() / p
-        a.to_fem("MySesamFloor", fem_format="sesam", overwrite=True)
 
 
 if __name__ == "__main__":

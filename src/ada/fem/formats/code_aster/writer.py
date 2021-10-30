@@ -1,22 +1,22 @@
 import logging
 from itertools import chain
-from typing import TYPE_CHECKING, Iterable, Tuple, Union
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from ada.concepts.points import Node
 from ada.concepts.structural import Material
 from ada.config import Settings as _Settings
-from ada.fem import Bc, FemSection, StepEigen, StepImplicit
-from ada.fem.containers import FemSections
+from ada.fem import Bc
 from ada.fem.shapes import ElemShapeTypes
 from ada.fem.utils import is_quad8_shell_elem, is_tri6_shell_elem
 
 from ..utils import get_fem_model_from_assembly
-from .common import abaqus_to_med_type
+from .common import ada_to_med_type
 from .compatibility import check_compatibility
 from .templates import el_convert_str, main_comm_str
-from .write_loads import write_load
+from .write_sections import create_sections_str
+from .write_steps import create_step_str
 
 if TYPE_CHECKING:
     from ada.concepts.levels import Assembly, Part
@@ -49,7 +49,7 @@ def create_comm_str(assembly: "Assembly", part: "Part") -> str:
     all_mat = chain.from_iterable([p.materials for p in assembly.get_all_parts_in_assembly(True)])
     all_mat_unique = {x.name: x for x in all_mat}
     materials_str = "\n".join([write_material(mat) for mat in all_mat_unique.values()])
-    sections_str = write_sections(part.fem.sections)
+    sections_str = create_sections_str(part.fem.sections)
     bc_str = "\n".join([create_bc_str(bc) for bc in assembly.fem.bcs + part.fem.bcs])
     step_str = "\n".join([create_step_str(s, part) for s in assembly.fem.steps])
 
@@ -189,99 +189,6 @@ Traction=DEFI_FONCTION(
 """
 
 
-def write_sections(fem_sections: FemSections) -> str:
-    mat_assign_str = ""
-
-    beam_sections_str = "\n        POUTRE=(),"
-    shell_sections_str = "\n        COQUE=(),"
-    solid_sections_str = ""
-
-    if len(fem_sections.shells) > 0:
-        mat_assign_str_, shell_sections_str = [
-            "".join(x) for x in zip(*[write_shell_section(sh) for sh in fem_sections.shells])
-        ]
-        mat_assign_str += mat_assign_str_
-        shell_sections_str = f"\n        COQUE=(\n{shell_sections_str}\n        ),"
-
-    if len(fem_sections.lines) > 0:
-        mat_assign_str_, beam_sections_str, orientations_str = [
-            "".join(x) for x in zip(*[write_beam_section(bm) for bm in fem_sections.lines])
-        ]
-        mat_assign_str += mat_assign_str_
-        beam_sections_str = f"\n        POUTRE=(\n{beam_sections_str}\n        ),"
-        beam_sections_str += f"\n        ORIENTATION=(\n{orientations_str}\n        ),"
-
-    if len(fem_sections.solids) > 0:
-        mat_assign_str += write_solid_section(fem_sections.solids)
-
-    return f"""
-material = AFFE_MATERIAU(
-    MODELE=model,
-    AFFE=(
-{mat_assign_str}
-    )
-)
-
-
-# Shell elements:
-#   EPAIS: thickness
-#   VECTEUR: a direction of reference in the tangent plan
-
-element = AFFE_CARA_ELEM(
-        MODELE=model,{shell_sections_str}{beam_sections_str}{solid_sections_str}
-    )
-"""
-
-
-def write_shell_section(fem_sec: FemSection) -> Tuple[str, str]:
-    mat_name = fem_sec.material.name
-    sec_name = fem_sec.elset.name
-    #
-    local_vec = str(tuple(fem_sec.local_y))
-    mat_ = f'		_F(MATER=({mat_name},), GROUP_MA="{sec_name}"),\n'
-    sec_str = f"""            _F(
-                GROUP_MA=("{sec_name}"),
-                EPAIS={fem_sec.thickness},
-                VECTEUR={local_vec},
-            ),
-"""
-    return mat_, sec_str
-
-
-def write_beam_section(fem_sec: FemSection) -> Tuple[str, str, str]:
-    mat_name = fem_sec.material.name
-    sec_name = fem_sec.elset.name
-    p = fem_sec.section.properties
-
-    values = ",".join([str(x) for x in [p.Ax, p.Iy, p.Iz, p.Ix]])
-
-    local_vec = str(tuple(fem_sec.local_y))
-
-    mat_ = f'		_F(MATER=({mat_name},), GROUP_MA="{sec_name}"),\n'
-    sec_str = f"""            _F(
-                GROUP_MA=("{sec_name}"),
-                SECTION = 'GENERALE',
-                CARA = ('A', 'IY', 'IZ', 'JX'),
-                VALE = ({values})
-            ),
-"""
-    orientations = f"""            _F(
-                GROUP_MA = '{sec_name}',
-                CARA = 'VECT_Y',
-                VALE = {local_vec}
-            ),
-"""
-
-    return mat_, sec_str, orientations
-
-
-def write_solid_section(fem_sections: Iterable[FemSection]) -> str:
-    mat_ = ""
-    for fsec in fem_sections:
-        mat_ += f'		_F(MATER=({fsec.material.name},), GROUP_MA="{fsec.elset.name}"),\n'
-    return mat_
-
-
 def is_parent_of_node_solid(no: Node) -> bool:
     refs = no.refs
     for elem in refs:
@@ -315,203 +222,6 @@ def create_bc_str(bc: Bc) -> str:
     MODELE=model, DDL_IMPO=_F(**dofs)
 )"""
     )
-
-
-def step_static_str(step: StepImplicit, part: "Part") -> str:
-    from ada.fem.exceptions.model_definition import (
-        NoBoundaryConditionsApplied,
-        NoLoadsApplied,
-    )
-
-    load_str = "\n".join(list(map(write_load, step.loads)))
-    if len(step.loads) == 0:
-        raise NoLoadsApplied(f"No loads are applied in step '{step}'")
-    load = step.loads[0]
-    all_boundary_conditions = part.get_assembly().fem.bcs + part.fem.bcs
-    if len(all_boundary_conditions) == 0:
-        raise NoBoundaryConditionsApplied("No boundary condition is found for the specified model")
-
-    bc_str = ""
-    for bc in all_boundary_conditions:
-        bc_str += f"_F(CHARGE={bc.name}),"
-
-    if step.nl_geom is False:
-        return f"""
-{load_str}
-
-result = MECA_STATIQUE(
-    MODELE=model,
-    CHAM_MATER=material,
-    EXCIT=({bc_str}_F(CHARGE={load.name}))
-)
-
-result = CALC_CHAMP(
-    reuse=result,
-    RESULTAT=result,
-    CONTRAINTE=("SIGM_ELGA", "SIGM_ELNO"),
-    CRITERES=("SIEQ_ELGA", "SIEQ_ELNO"),
-)
-
-IMPR_RESU(
-    RESU=_F(RESULTAT=result),
-    UNITE=80
-)
-
-"""
-    else:
-        return f"""
-{load_str}
-
-timeReel = DEFI_LIST_REEL(DEBUT=0.0, INTERVALLE=_F(JUSQU_A=1.0, NOMBRE=10))
-timeInst = DEFI_LIST_INST(METHODE="AUTO", DEFI_LIST=_F(LIST_INST=timeReel))
-rampFunc = DEFI_FONCTION(NOM_PARA="INST", VALE=(0.0, 0.0, 1.0, 1.0))
-
-result = STAT_NON_LINE(
-    MODELE=model,
-    CHAM_MATER=material,
-    CARA_ELEM=element,
-    COMPORTEMENT=(_F(DEFORMATION="PETIT", RELATION="VMIS_ISOT_TRAC", TOUT="OUI")),
-    CONVERGENCE=_F(ARRET="OUI", ITER_GLOB_MAXI=8,),
-    EXCIT=({bc_str}_F(CHARGE={load.name}, FONC_MULT=rampFunc)),
-    INCREMENT=_F(LIST_INST=timeInst),
-    ARCHIVAGE=_F(LIST_INST=timeReel),
-)
-
-result = CALC_CHAMP(
-    reuse=result, RESULTAT=result,
-    CONTRAINTE=("EFGE_ELNO", "EFGE_NOEU", "SIGM_ELNO"),
-    DEFORMATION=("EPSI_ELNO", "EPSP_ELNO"),
-)
-
-stress = POST_CHAMP(
-    EXTR_COQUE=_F(
-        NIVE_COUCHE='MOY',
-    NOM_CHAM=('SIGM_ELNO', ),
-    NUME_COUCHE=1),
-    RESULTAT=result
-)
-
-stress = CALC_CHAMP(
-    reuse=stress,
-    CONTRAINTE=('SIGM_NOEU', ),
-    RESULTAT=stress
-)
-
-strain = POST_CHAMP(
-    EXTR_COQUE=_F(
-        NIVE_COUCHE='MOY',
-    NOM_CHAM=('EPSI_ELNO', ),
-    NUME_COUCHE=1),
-    RESULTAT=result
-)
-
-strainP = POST_CHAMP(
-    EXTR_COQUE=_F(
-        NIVE_COUCHE='MOY',
-    NOM_CHAM=('EPSP_ELNO', ),
-    NUME_COUCHE=1),
-    RESULTAT=result
-)
-
-IMPR_RESU(
-    RESU=(
-        _F(
-            NOM_CHAM=("DEPL", "EFGE_ELNO", "EFGE_NOEU"),
-            NOM_CHAM_MED=("DISP", "GEN_FORCES_ELEM", "GEN_FORCES_NODES"),
-            RESULTAT=result,
-        ),
-        _F(
-            NOM_CHAM=("SIGM_ELNO", "SIGM_NOEU"),
-            NOM_CHAM_MED=("STRESSES_ELEM", "STRESSES_NODES"),
-            RESULTAT=stress,
-        ),
-        _F(
-            NOM_CHAM=("EPSI_ELNO",),
-            NOM_CHAM_MED=("STRAINS_ELEM",),
-            RESULTAT=strain,
-        ),
-        _F(
-            NOM_CHAM=("EPSP_ELNO",),
-            NOM_CHAM_MED=("PLASTIC_STRAINS_ELEM",),
-            RESULTAT=strainP,
-        ),
-    ),
-    UNITE=80,
-)"""
-
-
-def step_eig_str(step: StepEigen, part: "Part") -> str:
-    bcs = part.fem.bcs + part.get_assembly().fem.bcs
-
-    if len(bcs) > 1 or len(bcs) == 0:
-
-        raise NotImplementedError("Number of BC sets is for now limited to 1 for eigenfrequency analysis")
-
-    eig_map = dict(sorensen="SORENSEN", lanczos="TRI_DIAG")
-    eig_type = step.metadata.get("eig_method", "sorensen")
-    eig_method = eig_map[eig_type]
-
-    # TODO: Add check for second order shell elements. If exists add conversion of results back from TRI7 to TRI6
-    _ = """
-    model_0 = AFFE_MODELE(
-    AFFE=(
-        _F(GROUP_MA=sh_2nd_order_sets, PHENOMENE='MECANIQUE', MODELISATION='MEMBRANE',),
-    ),
-    MAILLAGE=mesh
-)
-
-modes_0 = PROJ_CHAMP(
-    MODELE_1=model,
-    MODELE_2=model_0,
-    RESULTAT=modes
-)"""
-
-    bc = bcs[0]
-    return f"""
-#modal analysis
-ASSEMBLAGE(
-    MODELE=model,
-    CHAM_MATER=material,
-    CARA_ELEM=element,
-    CHARGE={bc.name},
-    NUME_DDL=CO('dofs_eig'),
-    MATR_ASSE = (
-        _F(MATRICE=CO('stiff'), OPTION ='RIGI_MECA',),
-        _F(MATRICE=CO('mass'), OPTION ='MASS_MECA', ),
-    ),
-)
-# Using Subspace Iteration method ('SORENSEN' AND 'PLUS_PETITE')
-# See https://www.code-aster.org/V2/UPLOAD/DOC/Formations/01-modal-analysis.pdf for more information
-#
-
-modes = CALC_MODES(
-    CALC_FREQ=_F(NMAX_FREQ={step.num_eigen_modes}, ) ,
-    SOLVEUR_MODAL=_F(METHODE='{eig_method}'),
-    MATR_MASS=mass,
-    MATR_RIGI=stiff,
-    OPTION='PLUS_PETITE',
-    VERI_MODE=_F(STOP_ERREUR='NON')
-)
-
-
-
-IMPR_RESU(
-    RESU=_F(RESULTAT=modes, TOUT_CHAM='OUI'),
-    UNITE=80
-)
-"""
-
-
-def create_step_str(step: Union[StepEigen, StepImplicit], part: "Part") -> str:
-    st = StepEigen.TYPES
-    step_map = {st.STATIC: step_static_str, st.EIGEN: step_eig_str}
-
-    step_writer = step_map.get(step.type, None)
-
-    if step_writer is None:
-        raise NotImplementedError(f'Step type "{step.type}" is not yet supported')
-
-    return step_writer(step, part)
 
 
 def _write_nodes(part: "Part", time_step, profile, families):
@@ -580,7 +290,7 @@ def _write_elements(part: "Part", time_step, profile, families):
         if group in ElemShapeTypes.masses + ElemShapeTypes.springs:
             logging.error("NotImplemented: Skipping Mass or Spring Elements")
             continue
-        med_type = abaqus_to_med_type(group)
+        med_type = ada_to_med_type(group)
         elements = list(elements)
         cells = np.array(list(map(get_node_ids_from_element, elements)))
 
@@ -712,7 +422,7 @@ def _add_cell_sets(cells_group, part: "Part", families):
                 cell_data[index] = t
 
         cells = np.array(list(map(get_node_ids_from_element, elements)))
-        med_type = abaqus_to_med_type(group)
+        med_type = ada_to_med_type(group)
         med_cells = cells_group.get(med_type)
         family = med_cells.create_dataset("FAM", data=cell_data)
         family.attrs.create("CGT", 1)

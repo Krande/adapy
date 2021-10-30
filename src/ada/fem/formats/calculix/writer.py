@@ -1,23 +1,23 @@
 import traceback
 from itertools import groupby
 from operator import attrgetter
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING
 
 from ada.concepts.containers import Nodes
 from ada.core.utils import NewLine, get_current_user
-from ada.fem import Bc, Elem, FemSection, FemSet, Load
-from ada.fem.containers import FemElements
+from ada.fem import Bc, FemSection, FemSet, Load
 from ada.fem.formats.utils import get_fem_model_from_assembly
-from ada.fem.shapes import ElemShape
 from ada.fem.steps import StepExplicit
 from ada.sections import SectionCat as Sc
 
 from .compatibility import check_compatibility
 from .templates import main_header_str
+from .write_elements import elements_str
 from .write_steps import step_str
 
 if TYPE_CHECKING:
     from ada import Assembly
+    from ada.fem import Interaction, Surface
 
 
 def to_fem(assembly: "Assembly", name, analysis_dir, metadata=None):
@@ -64,13 +64,6 @@ class CcxSecTypes:
     PIPE = "PIPE"
 
 
-def must_be_converted_to_general_section(sec_type):
-    if sec_type in Sc.circular + Sc.igirders + Sc.iprofiles + Sc.general + Sc.angular:
-        return True
-    else:
-        return False
-
-
 def beam_str(fem_sec: FemSection):
     top_line = f"** Section: {fem_sec.elset.name}  Profile: {fem_sec.elset.name}"
     n1 = ", ".join(str(x) for x in fem_sec.local_y)
@@ -103,6 +96,8 @@ def beam_str(fem_sec: FemSection):
 
 
 def get_section_str(fem_sec: FemSection):
+    from .write_elements import must_be_converted_to_general_section
+
     sec_type = fem_sec.section.type
     if "section_type" in fem_sec.metadata.keys():
         return fem_sec.metadata["section_type"]
@@ -124,39 +119,6 @@ def nodes_str(fem_nodes: Nodes) -> str:
     n_ = (f.format(nid=no.id, x=no[0], y=no[1], z=no[2]) for no in sorted(fem_nodes, key=attrgetter("id")))
 
     return "*NODE\n" + "\n".join(n_).rstrip()
-
-
-def elements_str(fem_elements: FemElements) -> str:
-    if len(fem_elements) == 0:
-        return "** No elements"
-
-    el_str = ""
-    for (el_type, fem_sec), elements in groupby(fem_elements, key=attrgetter("type", "fem_sec")):
-        el_str += elwriter(el_type, fem_sec, elements)
-
-    return el_str
-
-
-def el_type_sub(el_type, fem_sec: FemSection) -> str:
-    """Substitute Element types specifically Calculix"""
-    el_map = dict(STRI65="S6")
-    if el_type in ElemShape.TYPES.lines.all:
-        if must_be_converted_to_general_section(fem_sec.section.type):
-            return "U1"
-    return el_map.get(el_type, el_type)
-
-
-def elwriter(eltype, fem_sec: FemSection, elements: Iterable[Elem]):
-    from ..abaqus.write_elements import aba_write
-
-    if "connector" in eltype:
-        return None
-
-    sub_eltype = el_type_sub(eltype, fem_sec)
-    el_set_str = f", ELSET={fem_sec.elset.name}" if fem_sec.elset is not None else ""
-    el_str = "\n".join(map(aba_write, elements))
-
-    return f"""*ELEMENT, type={sub_eltype}{el_set_str}\n{el_str}\n"""
 
 
 def gen_set_str(fem_set: FemSet):
@@ -315,13 +277,7 @@ def load_str(load: Load):
 {fem_set}, GRAV, {load.magnitude}, {', '.join([str(x) for x in dof[:3]])}"""
 
 
-def surface_str(surface):
-    """
-
-    :param surface:
-    :type surface: ada.fem.Surface
-    :return:
-    """
+def surface_str(surface: "Surface") -> str:
     top_line = f"*Surface, type={surface.type}, name={surface.name}"
     id_refs_str = "\n".join([f"{m[0]}, {m[1]}" for m in surface.id_refs]).strip()
     if surface.id_refs is None:
@@ -339,13 +295,7 @@ def surface_str(surface):
 {id_refs_str}"""
 
 
-def interactions_str(interaction):
-    """
-
-    :param interaction:
-    :type interaction: ada.fem.Interaction
-    :return:
-    """
+def interactions_str(interaction: "Interaction") -> str:
     from ada.fem.steps import Step
 
     if interaction.type == "SURFACE":
