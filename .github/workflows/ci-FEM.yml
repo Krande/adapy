@@ -3,16 +3,18 @@ name: ci-ada-fem
 on:
   push:
     paths:
-      - 'src/**'
-      - 'images/tests/**'
-      - 'conda/**'
-      - '.github/workflows/ci-FEM.yml'
+      - src/**
+      - images/tests/**
+      - conda/**
+      - .github/workflows/ci-FEM.yml
     branches:
     - main
     - dev
-#  pull_request:
-#    branches:
-#    - main
+  pull_request:
+    paths-ignore:
+      - setup.py
+    branches:
+      - main
 
 jobs:
   activate:
@@ -32,15 +34,15 @@ jobs:
         continue-on-error: true
       - name: Build
         run: docker build -t ada/testing .
-      - name: Test
-        run: docker run ada/testing bash -c "pip install pytest pandas pydantic && cd /home/tests/fem && pytest"
-      - name: Build Verification Report
-        run: cd images/tests && python build_verification_report.py
+      - name: Test & Build Verification Report
+        run: docker run ada/testing bash -c "pip install pytest pandas pydantic && cd /home/tests/fem && pytest && python build_verification_report.py" -v /tmp:/home/tests/fem
+      - name: Copy Verification Report from container
+        run: cd tmp && ls
       - name: Upload Zip file to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: images/tests/temp/_dist/ADA-FEA-verification.docx
+          file: tmp/ADA-FEA-verification.docx
           asset_name: ADA-FEA-verification-${{steps.date.outputs.date}}.docx
           tag: "ADA-FEA-verification-${{steps.date.outputs.date}}"
           overwrite: true

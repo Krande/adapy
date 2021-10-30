@@ -5,6 +5,7 @@ on:
     paths:
       - src/**
       - tests/**
+      - images/tests/**
       - conda/**
       - .github/workflows/ci.yml
     branches:

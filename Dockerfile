@@ -22,6 +22,7 @@ COPY tests ${TESTDIR}
 COPY files ${TESTFILES}
 
 RUN pip install . --no-cache-dir
+RUN conda install -c krande -c conda-forge paradoc
 
 # Cleanup all temporary files from this and all previous steps
 RUN rm -rfv /tmp/*
