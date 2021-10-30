@@ -33,4 +33,15 @@ jobs:
       - name: Build
         run: docker build -t ada/testing .
       - name: Test
-        run: docker run ada/testing bash -c "pip install pytest pydantic && cd /home/tests/fem && pytest"
+        run: docker run ada/testing bash -c "pip install pytest pandas pydantic && cd /home/tests/fem && pytest"
+      - name: Build Verification Report
+        run: cd images/tests && python build_verification_report.py
+      - name: Upload Zip file to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: images/tests/temp/_dist/ADA-FEA-verification.docx
+          asset_name: ADA-FEA-verification-${{steps.date.outputs.date}}.docx
+          tag: "ADA-FEA-verification-${{steps.date.outputs.date}}"
+          overwrite: true
+          body: "Verification Report for ADAPY - ${{steps.date.outputs.date}}"

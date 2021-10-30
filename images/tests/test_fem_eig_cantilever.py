@@ -3,12 +3,12 @@ import pathlib
 
 import pytest
 
-from ada import Assembly, Beam, Material, Part
-from ada.fem import Bc, FemSet, StepEigen
+import ada
 from ada.fem.exceptions.element_support import IncompatibleElements
-from ada.fem.meshing.concepts import GmshOptions, GmshSession
-from ada.fem.utils import get_beam_end_nodes
+from ada.fem.meshing.concepts import GmshOptions
 from ada.materials.metals import CarbonSteel
+
+test_dir = ada.config.Settings.scratch_dir / "eigen_fem"
 
 
 @pytest.mark.parametrize("fem_format", ["code_aster", "calculix"])
@@ -17,20 +17,16 @@ from ada.materials.metals import CarbonSteel
 def test_fem_eig(fem_format, geom_repr, elem_order):
     name = f"cantilever_EIG_{fem_format}_{geom_repr}_o{elem_order}"
 
-    beam = Beam("MyBeam", (0, 0.5, 0.5), (3, 0.5, 0.5), "IPE400", Material("S420", CarbonSteel("S420")))
-    a = Assembly("MyAssembly") / [Part("MyPart") / beam]
-
-    with GmshSession(silent=True, options=GmshOptions(Mesh_ElementOrder=elem_order)) as gs:
-        gs.add_obj(beam, geom_repr=geom_repr)
-        gs.mesh(0.05)
-        a.get_part("MyPart").fem = gs.get_fem()
-
-    fix_set = a.get_part("MyPart").fem.add_set(FemSet("bc_nodes", get_beam_end_nodes(beam), FemSet.TYPES.NSET))
-    a.fem.add_bc(Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
-    a.fem.add_step(StepEigen("Eigen", num_eigen_modes=11))
+    beam = ada.Beam("MyBeam", (0, 0.5, 0.5), (3, 0.5, 0.5), "IPE400", ada.Material("S420", CarbonSteel("S420")))
+    p = ada.Part("MyPart")
+    a = ada.Assembly("MyAssembly") / [p / beam]
+    p.fem = beam.to_fem_obj(0.05, geom_repr, options=GmshOptions(Mesh_ElementOrder=elem_order))
+    fix_set = p.fem.add_set(ada.fem.FemSet("bc_nodes", beam.bbox.sides.back(return_fem_nodes=True, fem=p.fem)))
+    a.fem.add_bc(ada.fem.Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
+    a.fem.add_step(ada.fem.StepEigen("Eigen", num_eigen_modes=11))
 
     try:
-        res = a.to_fem(name, fem_format, overwrite=True, execute=True)
+        res = a.to_fem(name, fem_format, overwrite=True, execute=True, scratch_dir=test_dir)
     except IncompatibleElements as e:
         if fem_format == "calculix" and geom_repr == "line":
             logging.error(e)
@@ -42,7 +38,3 @@ def test_fem_eig(fem_format, geom_repr, elem_order):
 
     if pathlib.Path(res.results_file_path).exists() is False:
         raise FileNotFoundError(f'FEM analysis was not successful. Result file "{res.results_file_path}" not found.')
-
-
-if __name__ == "__main__":
-    test_fem_eig("code_aster", "solid", 2)
