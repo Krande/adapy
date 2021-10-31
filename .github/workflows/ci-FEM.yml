@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo ok go
-  docker-test:
+  test-FEM:
     name: Test-FEM-analysis
     runs-on: ubuntu-latest
     steps:
@@ -42,14 +42,12 @@ jobs:
         run: mkdir tmp
       - name: Test & Build Verification Report
         run: docker run --mount type=bind,source="$(pwd)/tmp",target=/home/tests/fem/temp ada/testing bash -c "pip install pytest pandas pydantic && cd /home/tests/fem && pytest && python build_verification_report.py"
-      - name: Copy Verification Report from container
-        run: cd tmp && ls
       - name: Upload Zip file to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: tmp/_dist/ADA-FEA-verification.docx
           asset_name: ADA-FEA-verification-${{steps.date.outputs.date}}.docx
-          tag: "ADA-FEA-verification-${{steps.date.outputs.date}}"
+          tag: "ADA-FEA-Verification-Report-${{steps.date.outputs.date}}"
           overwrite: true
           body: "Verification Report for ADAPY - ${{steps.date.outputs.date}}"
