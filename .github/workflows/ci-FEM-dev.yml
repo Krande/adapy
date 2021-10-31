@@ -4,7 +4,9 @@ on: [push]
 jobs:
   debug:
     runs-on: ubuntu-latest
-    container: { image: krande/ada:base }
+    container:
+      image: krande/ada:base
+      options: "--entrypoint /bin/bash"
     steps:
       - uses: actions/checkout@v2
       - run: ls
