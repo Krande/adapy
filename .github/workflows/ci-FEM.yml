@@ -34,6 +34,8 @@ jobs:
         continue-on-error: true
       - name: Build
         run: docker build -t ada/testing .
+      - name: Create temp dir
+        run: mkdir tmp
       - name: Test & Build Verification Report
         run: docker run --mount type=bind,source="$(pwd)/tmp",target=/home/tests/fem/temp ada/testing bash -c "pip install pytest pandas pydantic && cd /home/tests/fem && pytest && python build_verification_report.py"
       - name: Copy Verification Report from container
