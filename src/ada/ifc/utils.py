@@ -244,11 +244,11 @@ def create_ifcindexpolyline2d(ifcfile, points2d, seg_index):
     return segindex
 
 
-def create_ifcrevolveareasolid(ifc_file, profile, ifcaxis2placement, origin, revolve_axis, revolve_angle):
+def create_ifcrevolveareasolid(f, profile, ifcaxis2placement, origin, revolve_axis, revolve_angle):
     """
     Creates an IfcExtrudedAreaSolid from a list of points, specified as Python tuples
 
-    :param ifc_file:
+    :param f:
     :param profile:
     :param ifcaxis2placement:
     :param origin:
@@ -256,19 +256,18 @@ def create_ifcrevolveareasolid(ifc_file, profile, ifcaxis2placement, origin, rev
     :param revolve_angle:
     :return:
     """
-    ifcorigin = ifc_file.createIfcCartesianPoint(origin)
-    ifcaxis1dir = ifc_file.createIfcAxis1Placement(ifcorigin, ifc_file.createIfcDirection(revolve_axis))
+    ifcorigin = f.create_entity("IfcCartesianPoint", to_real(origin))
+    ifcaxis1dir = f.create_entity(
+        "IfcAxis1Placement", ifcorigin, f.create_entity("IfcDirection", to_real(revolve_axis))
+    )
 
-    ifcextrudedareasolid = ifc_file.createIfcRevolvedAreaSolid(profile, ifcaxis2placement, ifcaxis1dir, revolve_angle)
-    return ifcextrudedareasolid
+    return f.create_entity("IfcRevolvedAreaSolid", profile, ifcaxis2placement, ifcaxis1dir, revolve_angle)
 
 
-def create_IfcFixedReferenceSweptAreaSolid(
-    ifc_file, curve, profile, ifcaxis2placement, start_param, end_param, fixed_ref
-):
+def create_IfcFixedReferenceSweptAreaSolid(f, curve, profile, ifcaxis2placement, start_param, end_param, fixed_ref):
     """
 
-    :param ifc_file:
+    :param f:
     :param profile:
     :param ifcaxis2placement:
     :param curve:
@@ -277,10 +276,9 @@ def create_IfcFixedReferenceSweptAreaSolid(
     :param fixed_ref:
     :return:
     """
-    ifcextrudedareasolid = ifc_file.createIfcFixedReferenceSweptAreaSolid(
-        profile, ifcaxis2placement, curve, start_param, end_param, fixed_ref
+    return f.create_entity(
+        "IfcFixedReferenceSweptAreaSolid", profile, ifcaxis2placement, curve, start_param, end_param, fixed_ref
     )
-    return ifcextrudedareasolid
 
 
 def create_ifcextrudedareasolid(ifc_file, profile, ifcaxis2placement, extrude_dir, extrusion):

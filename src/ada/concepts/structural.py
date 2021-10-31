@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import logging
-from typing import List
+from typing import List, Union
 
 import numpy as np
 
 from ada.base.physical_objects import BackendGeom
 from ada.concepts.bounding_box import BoundingBox
-from ada.concepts.curves import CurvePoly
+from ada.concepts.curves import CurvePoly, CurveRevolve
 from ada.concepts.points import Node
 from ada.concepts.primitives import PrimBox
 from ada.concepts.transforms import Placement
@@ -58,13 +58,13 @@ class Beam(BackendGeom):
         name,
         n1=None,
         n2=None,
-        sec=None,
-        mat=None,
-        tap=None,
+        sec: Union[str, Section] = None,
+        mat: Union[str, Material] = None,
+        tap: Union[str, Section] = None,
         jusl=JUSL_TYPES.NA,
         up=None,
         angle=0.0,
-        curve=None,
+        curve: Union[CurvePoly, CurveRevolve] = None,
         e1=None,
         e2=None,
         colour=None,
@@ -95,13 +95,19 @@ class Beam(BackendGeom):
 
         if curve is not None:
             curve.parent = self
-            n1 = curve.points3d[0]
-            n2 = curve.points3d[-1]
+            if type(curve) is CurvePoly:
+                n1 = curve.points3d[0]
+                n2 = curve.points3d[-1]
+            elif type(curve) is CurveRevolve:
+                n1 = curve.p1
+                n2 = curve.p2
+            else:
+                raise ValueError(f'Unsupported curve type "{type(curve)}"')
 
         self.colour = colour
         self._curve = curve
-        self._n1 = n1 if type(n1) is Node else Node(n1, units=units)
-        self._n2 = n2 if type(n2) is Node else Node(n2, units=units)
+        self._n1 = n1 if type(n1) is Node else Node(n1[:3], units=units)
+        self._n2 = n2 if type(n2) is Node else Node(n2[:3], units=units)
         self._jusl = jusl
 
         self._connected_to = []
@@ -188,14 +194,13 @@ class Beam(BackendGeom):
 
     def _generate_ifc_elem(self):
         from ada.config import Settings
-        from ada.core.constants import O, X, Z
-        from ada.core.utils import angle_between
+        from ada.core.constants import O
         from ada.ifc.utils import (
             add_colour,
             add_multiple_props_to_elem,
             convert_bm_jusl_to_ifc,
             create_ifc_placement,
-            create_ifcrevolveareasolid,
+            create_IfcFixedReferenceSweptAreaSolid,
             create_local_placement,
         )
 
@@ -229,50 +234,27 @@ class Beam(BackendGeom):
         def to_real(v):
             return v.astype(float).tolist()
 
-        xvec, yvec, zvec = to_real(self.xvec), to_real(self.yvec), to_real(self.up)
+        xvec, yvec, _ = to_real(self.xvec), to_real(self.yvec), to_real(self.up)
         beam_type = self.section.ifc_beam_type
         profile = self.section.ifc_profile
 
         if self.section != self.taper:
             profile_e = self.taper.ifc_profile
-            # beam_type_e = self.taper.ifc_beam_type
         else:
             profile_e = None
 
         global_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
-
+        extrude_dir = f.create_entity("IfcDirection", (0.0, 0.0, 1.0))
         if self.curve is not None:
-            # TODO: Fix Sweeped Curve definition. Currently not working as intended (or maybe input is wrong.. )
-            curve = self.curve.get_ifc_elem()
-            corigin = to_real(curve.rot_origin)
-            # corigin_rel = to_real(self.n1.p + curve.rot_origin)
-            corigin_ifc = f.createIfcCartesianPoint(corigin)
-            # raxis = [float(x) for x in curve.rot_axis]
-            v1 = np.array(self.n1.p) - np.array(curve.rot_origin)
-            v2 = np.array(self.n2.p) - np.array(curve.rot_origin)
-            v1u = unit_vector(v1)
-            v2u = unit_vector(v2)
-            profile_x = to_real(np.cross(v1u, zvec))
-            profile_y = to_real(v1u)
-            # ifc_px = f.createIfcDirection(profile_x)
-            # ifc_py = f.createIfcDirection(profile_y)
-            # a1 = angle_between((1, 0, 0), v1)
-            # a2 = angle_between((1, 0, 0), v2)
-            a3 = np.rad2deg(angle_between(v1u, v2u))
-            # cangle1 = f.createIFCPARAMETERVALUE(np.rad2deg(a1))
-            # cangle2 = f.createIFCPARAMETERVALUE(np.rad2deg(a2))
-
-            curve_axis2plac3d = f.createIfcAxis2Placement3D(corigin_ifc)
-            circle = f.createIfcCircle(curve_axis2plac3d, curve.radius)
-            ifc_polyline = f.createIfcTrimmedCurve(circle, [p1_ifc], [p2_ifc], True, "CARTESIAN")
-
-            revolve_placement = create_ifc_placement(f, p1, profile_x, profile_y)
-            extrude_area_solid = create_ifcrevolveareasolid(f, profile, revolve_placement, corigin, xvec, a3)
-            loc_plac = create_local_placement(f, O, Z, X, parent.ObjectPlacement)
+            ifc_polyline = self.curve.get_ifc_elem()
+            loc_plac = create_ifc_placement(f)
+            extrude_area_solid = create_IfcFixedReferenceSweptAreaSolid(
+                f, ifc_polyline, profile, global_placement, 0.0, 1.0, extrude_dir
+            )
         else:
             ifc_polyline = f.createIfcPolyLine([p1_ifc, p2_ifc])
             ifc_axis2plac3d = f.createIfcAxis2Placement3D(f.createIfcCartesianPoint(O), None, None)
-            extrude_dir = f.createIfcDirection((0.0, 0.0, 1.0))
+
             if profile_e is not None:
                 extrude_area_solid = f.createIfcExtrudedAreaSolidTapered(
                     profile, ifc_axis2plac3d, extrude_dir, self.length, profile_e
@@ -639,8 +621,7 @@ class Beam(BackendGeom):
         return self._opacity
 
     @property
-    def curve(self):
-        """:rtype: ada.core.containers.SweepCurve"""
+    def curve(self) -> CurvePoly:
         return self._curve
 
     @property

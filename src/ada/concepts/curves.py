@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from typing import List, Union
+from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
 from .points import Node
 from .transforms import Placement
+
+if TYPE_CHECKING:
+    from ada import Beam
 
 
 class CurveRevolve:
@@ -18,16 +21,19 @@ class CurveRevolve:
         rot_axis=None,
         point_on=None,
         rot_origin=None,
+        angle=180,
         parent=None,
     ):
         self._p1 = p1
         self._p2 = p2
         self._type = curve_type
+        self._angle = angle
         self._radius = radius
         self._rot_axis = rot_axis
         self._parent = parent
         self._point_on = point_on
         self._rot_origin = rot_origin
+        self._ifc_elem = None
 
         if self._point_on is not None:
             from ada.core.constants import O, X, Y, Z
@@ -43,12 +49,26 @@ class CurveRevolve:
                 raise ValueError("Curve is not valid. Please check your input")
             res2 = local_2_global_nodes([lcenter], O, X, Z)
             center = res2[0]
+
             self._radius = radius
             self._rot_origin = center
 
-    def edit(self, parent=None):
-        if parent is not None:
-            self._parent = parent
+    def _generate_ifc_elem(self):
+        from ada.ifc.utils import create_ifcrevolveareasolid, create_local_placement
+
+        parent_beam = self.parent
+
+        a = parent_beam.get_assembly()
+        f = a.ifc_file
+        profile = parent_beam.section.ifc_profile
+
+        global_placement = create_local_placement(f)
+        return create_ifcrevolveareasolid(f, profile, global_placement, self.rot_origin, self.rot_axis, self.angle)
+
+    def get_ifc_elem(self):
+        if self._ifc_elem is None:
+            self._ifc_elem = self._generate_ifc_elem()
+        return self._ifc_elem
 
     @property
     def type(self):
@@ -61,6 +81,10 @@ class CurveRevolve:
     @property
     def p2(self):
         return self._p2
+
+    @property
+    def angle(self):
+        return self._angle
 
     @property
     def radius(self):
@@ -79,13 +103,12 @@ class CurveRevolve:
         return np.array(self._rot_origin)
 
     @property
-    def parent(self):
-        """
-
-        :return:
-        :rtype: ada.Beam
-        """
+    def parent(self) -> "Beam":
         return self._parent
+
+    @parent.setter
+    def parent(self, value):
+        self._parent = value
 
 
 class CurvePoly:
@@ -205,7 +228,6 @@ class CurvePoly:
                 raise ValueError("Unrecognized number of values")
 
         # TODO: Investigate using 2DLists instead is it could reduce complexity?
-        # ifc_point_list = ifcfile.createIfcCartesianPointList2D(points)
         points = [tuple(x.astype(float).tolist()) for x in self.seg_global_points]
         ifc_point_list = f.createIfcCartesianPointList3D(points)
         segindex = f.createIfcIndexedPolyCurve(ifc_point_list, ifc_segments)
