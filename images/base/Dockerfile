@@ -175,11 +175,7 @@ ENV ADA_scratch_dir ${HOME}/scratch
 
 RUN mkdir -p ${HOME} && mkdir ${ADA_temp_dir} && mkdir ${ADA_scratch_dir} && mkdir ${ADA_test_dir} && mkdir ${ADA_log_dir}
 
-RUN adduser --disabled-password \
-    --gecos "Default user" \
-    --uid ${NB_UID} \
-    ${NB_USER}
-
+RUN adduser --disabled-password --gecos "Default user" --uid ${NB_UID} ${NB_USER}
 USER root
 RUN rm -rfv /tmp/*
 RUN chown -R ${NB_UID} ${HOME}
