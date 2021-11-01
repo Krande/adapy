@@ -469,7 +469,7 @@ class FemSections:
         return FemSections(result) if isinstance(index, slice) else result
 
     def __add__(self, other: FemSections):
-        return FemSections(chain(self.sections, other.sections))
+        return FemSections(chain(self.sections, other.sections), fem_obj=self._fem_obj)
 
     def __repr__(self):
         return f"FemSections(Beams: {len(self.lines)}, Shells: {len(self.shells)}, Solids: {len(self.solids)})"

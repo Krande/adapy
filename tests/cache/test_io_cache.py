@@ -1,5 +1,4 @@
 import time
-import unittest
 
 from ada import Assembly
 from ada.config import Settings
@@ -31,26 +30,21 @@ def cache_validation(a, b):
     print(b)
 
 
-class ModelCacheTests(unittest.TestCase):
-    def test_simplestru_fem_cache(self):
+def test_simplestru_fem_cache():
 
-        model_name = "ParamAssembly"
+    model_name = "ParamAssembly"
 
-        start = time.time()
-        a = Assembly(model_name, clear_cache=True, enable_experimental_cache=True) / SimpleStru("ParamModel")
+    start = time.time()
+    a = Assembly(model_name, clear_cache=True, enable_experimental_cache=True) / SimpleStru("ParamModel")
 
-        pfem = a.get_by_name("ParamModel")
-        pfem.fem = pfem.to_fem_obj(0.1)
-        time1 = time.time() - start
+    pfem = a.get_by_name("ParamModel")
+    pfem.fem = pfem.to_fem_obj(0.1)
+    time1 = time.time() - start
 
-        a.update_cache()
-        start = time.time()
-        b = Assembly(model_name, enable_experimental_cache=True)
-        time2 = time.time() - start
-        cache_validation(a, b)
+    a.update_cache()
+    start = time.time()
+    b = Assembly(model_name, enable_experimental_cache=True)
+    time2 = time.time() - start
+    cache_validation(a, b)
 
-        print(f"Model generation time reduced from {time1:.2f}s to {time2:.2f}s -> {time1 / time2:.2f} x Improvement")
-
-
-if __name__ == "__main__":
-    unittest.main()
+    print(f"Model generation time reduced from {time1:.2f}s to {time2:.2f}s -> {time1 / time2:.2f} x Improvement")

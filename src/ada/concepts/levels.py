@@ -346,7 +346,7 @@ class Part(BackendGeom):
     def get_part(self, name) -> Part:
         return self.parts[name]
 
-    def get_by_name(self, name) -> Union[Part, Plate, Beam, Shape, Material, None]:
+    def get_by_name(self, name) -> Union[Part, Plate, Beam, Shape, Material, Pipe, None]:
         """Get element of any type by its name."""
         for p in self.get_all_subparts() + [self]:
             if p.name == name:
@@ -363,6 +363,10 @@ class Part(BackendGeom):
             for shp in p.shapes:
                 if shp.name == name:
                     return shp
+
+            for pi in p.pipes:
+                if pi.name == name:
+                    return pi
 
             for mat in p.materials:
                 if mat.name == name:
@@ -1555,7 +1559,7 @@ class FEM:
         if elid_max > other.elements.min_el_id:
             other.elements.renumber(int(elid_max + 10))
 
-        logging.info("FEM operand type += is still ")
+        logging.warning("FEM operand type += is still experimental")
 
         self.elements += other.elements
         self.sections += other.sections

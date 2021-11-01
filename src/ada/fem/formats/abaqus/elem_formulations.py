@@ -7,7 +7,7 @@ class AbaqusDefaultShellTypes:
     TRIANGLE6 = "STRI65"
     TRIANGLE7 = "S7"
     QUAD = "S4R"
-    QUAD8 = "S8"
+    QUAD8 = "S8R"
 
 
 @dataclass

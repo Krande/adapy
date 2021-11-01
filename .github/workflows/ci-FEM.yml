@@ -41,7 +41,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: tmp/_dist/ADA-FEA-verification.docx
+          file: temp/_dist/ADA-FEA-verification.docx
           asset_name: ADA-FEA-verification-${{steps.date.outputs.date}}.docx
           tag: "ADA-FEA-Verification-Report-${{steps.date.outputs.date}}"
           overwrite: true
