@@ -7,7 +7,8 @@ import numpy as np
 from ada.concepts.containers import Sections
 from ada.concepts.levels import FEM
 from ada.concepts.structural import Section
-from ada.core.utils import roundoff, unit_vector, vector_length
+from ada.core.utils import roundoff
+from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem import Csys, Elem, FemSection, FemSet
 from ada.fem.containers import FemSections
 from ada.fem.formats.utils import str_to_int

@@ -38,7 +38,7 @@ class CurveRevolve:
         if self._point_on is not None:
             from ada.core.constants import O, X, Y, Z
             from ada.core.curve_utils import calc_arc_radius_center_from_3points
-            from ada.core.utils import global_2_local_nodes, local_2_global_nodes
+            from ada.core.vector_utils import global_2_local_nodes, local_2_global_nodes
 
             p1, p2 = self.p1, self.p2
 
@@ -141,7 +141,11 @@ class CurvePoly:
         self._is_closed = is_closed
         self._debug = debug
 
-        from ada.core.utils import is_clockwise, normal_to_points_in_plane, unit_vector
+        from ada.core.vector_utils import (
+            is_clockwise,
+            normal_to_points_in_plane,
+            unit_vector,
+        )
 
         if points2d is None and points3d is None:
             raise ValueError("Either points2d or points3d must be set")
@@ -183,7 +187,7 @@ class CurvePoly:
         self._local2d_to_polycurve(points2d, tol)
 
     def _from_2d_points(self, points2d) -> List[tuple]:
-        from ada.core.utils import local_2_global_nodes
+        from ada.core.vector_utils import local_2_global_nodes
 
         place = self.placement
 
@@ -202,7 +206,7 @@ class CurvePoly:
         return points3d
 
     def _from_3d_points(self, points3d) -> List[tuple]:
-        from ada.core.utils import global_2_local_nodes
+        from ada.core.vector_utils import global_2_local_nodes
 
         csys = [self.placement.xdir, self.placement.ydir]
         points2d = global_2_local_nodes(csys, self.placement.origin, [np.array(x[:3]) for x in points3d])
@@ -235,7 +239,7 @@ class CurvePoly:
 
     def _local2d_to_polycurve(self, local_points2d, tol=1e-3):
         from ada.core.curve_utils import build_polycurve, segments_to_indexed_lists
-        from ada.core.utils import local_2_global_nodes
+        from ada.core.vector_utils import local_2_global_nodes
 
         debug_name = self._parent.name if self._parent is not None else "PolyCurveDebugging"
 
@@ -260,7 +264,7 @@ class CurvePoly:
         self._nodes = [Node(p) if len(p) == 3 else Node(p[:3], r=p[3]) for p in self._points3d]
 
     def _update_curves(self):
-        from ada.core.utils import local_2_global_nodes
+        from ada.core.vector_utils import local_2_global_nodes
 
         points2d_no_r = [n[:2] for n in self.points2d]
         points3d = local_2_global_nodes(points2d_no_r, self.placement.origin, self.placement.xdir, self.placement.zdir)

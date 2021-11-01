@@ -50,7 +50,7 @@ class Elem(FemBase):
         self._mass_props = mass_props
         self._hinge_prop = None
         self._eccentricity = None
-        self._el_formulation_override = el_formulation_override
+        self._formulation_override = el_formulation_override
         self._refs = []
 
     def get_offset_coords(self):
@@ -154,6 +154,10 @@ class Elem(FemBase):
     @property
     def refs(self) -> List[Union[Elem, Beam, Plate, Pipe, Wall, Shape]]:
         return self._refs
+
+    @property
+    def formulation_override(self):
+        return self._formulation_override if self._formulation_override is not None else self.type
 
     def update(self):
         self._nodes = list(set(self.nodes))

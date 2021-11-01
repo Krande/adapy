@@ -11,7 +11,8 @@ import numpy as np
 import toolz
 
 from ada.config import Settings
-from ada.core.utils import Counter, points_in_cylinder, roundoff, vector_length
+from ada.core.utils import Counter, roundoff
+from ada.core.vector_utils import points_in_cylinder, vector_length
 from ada.materials import Material
 
 from .points import Node

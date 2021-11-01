@@ -560,7 +560,7 @@ def import_indexedpolycurve(ipoly, normal, xdir, origin):
     """
     from ada import ArcSegment, LineSegment
     from ada.core.curve_utils import segments_to_local_points
-    from ada.core.utils import global_2_local_nodes
+    from ada.core.vector_utils import global_2_local_nodes
 
     ydir = np.cross(normal, xdir)
     nodes3d = [p for p in ipoly.Points.CoordList]
@@ -587,7 +587,7 @@ def import_indexedpolycurve(ipoly, normal, xdir, origin):
 
 
 def import_polycurve(poly, normal, xdir):
-    from ada.core.utils import global_2_local_nodes
+    from ada.core.vector_utils import global_2_local_nodes
 
     ydir = np.cross(normal, xdir)
     nodes3d = [p for p in poly.Points]

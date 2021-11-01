@@ -42,7 +42,8 @@ from OCC.Extend.TopologyUtils import TopologyExplorer
 from ada.concepts.primitives import Penetration
 from ada.concepts.structural import Beam
 from ada.concepts.transforms import Placement, Rotation
-from ada.core.utils import roundoff, tuple_minus, unit_vector, vector_length
+from ada.core.utils import roundoff, tuple_minus
+from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem.shapes import ElemType
 
 
@@ -195,7 +196,7 @@ def face_to_wires(face):
 
 
 def make_fillet(edge1, edge2, bend_radius):
-    from ..core.utils import normal_to_points_in_plane
+    from ada.core.vector_utils import normal_to_points_in_plane
 
     f = ChFi2d_AnaFilletAlgo()
 

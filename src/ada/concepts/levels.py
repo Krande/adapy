@@ -1323,6 +1323,16 @@ class FEM:
 
     def add_section(self, section: FemSection) -> FemSection:
         section.parent = self
+        if section.elset.parent is None:
+            if section.elset.name in self.elsets.keys():
+                fs = self.elsets[section.elset.name]
+            else:
+                fs = self.sets.add(section.elset)
+            if fs != section.elset:
+                logging.info(f'Element set "{section.elset}" is replaced by {fs}')
+                section.elset = fs
+        if section.material.parent is None and self.parent is not None:
+            self.parent.add_material(section.material)
         self.sections.add(section)
         return section
 

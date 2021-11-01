@@ -23,6 +23,9 @@ part of a ci/cd pipeline within the _adapy_ repositories.
 For each new addition of code affecting the handling of 
 FEM in _adapy_ a new series of analysis is performed whereas the results are gathered in this auto-generated document.
 
+Please note! This report will not go into detail into the specifics of why the results are different 
+between different element representations. This report will only investigate
+and compare the results from different FEA software.
 
 ## FEA Solvers
 

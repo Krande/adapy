@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, List, Tuple, Union
 import numpy as np
 
 from ada.concepts.structural import Beam, Plate
-from ada.core.utils import (
-    Counter,
+from ada.core.utils import Counter
+from ada.core.vector_utils import (
     calc_yvec,
     calc_zvec,
     normal_to_points_in_plane,

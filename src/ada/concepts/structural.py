@@ -12,12 +12,11 @@ from ada.concepts.points import Node
 from ada.concepts.primitives import PrimBox
 from ada.concepts.transforms import Placement
 from ada.config import Settings
-from ada.core.utils import (
-    Counter,
+from ada.core.utils import Counter, roundoff
+from ada.core.vector_utils import (
     angle_between,
     calc_yvec,
     calc_zvec,
-    roundoff,
     unit_vector,
     vector_length,
 )
@@ -174,7 +173,7 @@ class Beam(BackendGeom):
     def get_outer_points(self):
         from itertools import chain
 
-        from ada.core.utils import local_2_global_nodes
+        from ada.core.vector_utils import local_2_global_nodes
 
         section_profile = self.section.get_section_profile(False)
         if section_profile.disconnected:
@@ -400,7 +399,7 @@ class Beam(BackendGeom):
         )
 
     def calc_con_points(self, point_tol=Settings.point_tol):
-        from ada.core.utils import sort_points_by_dist
+        from ada.core.vector_utils import sort_points_by_dist
 
         a = self.n1.p
         b = self.n2.p
@@ -499,7 +498,7 @@ class Beam(BackendGeom):
 
     @property
     def member_type(self):
-        from ada.core.utils import is_parallel
+        from ada.core.vector_utils import is_parallel
 
         xvec = self.xvec
         if is_parallel(xvec, [0.0, 0.0, 1.0], tol=1e-1):
@@ -1347,7 +1346,7 @@ class Wall(BackendGeom):
 
     @property
     def extrusion_area(self):
-        from ada.core.utils import intersect_calc, is_parallel
+        from ada.core.vector_utils import intersect_calc, is_parallel
 
         area_points = []
         vpo = [np.array(p) for p in self.points]

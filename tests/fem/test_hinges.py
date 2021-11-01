@@ -1,7 +1,7 @@
 from ada import Assembly, Beam, Part
 from ada.fem import Csys
+from ada.fem.conversion_utils import convert_hinges_2_couplings
 from ada.fem.elements import Hinge, HingeProp
-from ada.fem.utils import convert_hinges_2_couplings
 
 
 def test_simple_hinged_beam():

@@ -2,7 +2,7 @@ import unittest
 
 from ada import Assembly, Beam, Part, Placement, Plate, PrimCyl, PrimExtrude
 from ada.config import Settings
-from ada.core.utils import align_to_plate
+from ada.core.alignment_utils import align_to_plate
 
 test_dir = Settings.test_dir / "mesh"
 

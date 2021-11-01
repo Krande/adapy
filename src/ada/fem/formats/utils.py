@@ -395,7 +395,7 @@ def should_convert(res_path, overwrite):
 
 
 def convert_shell_elem_to_plates(elem, parent) -> [Plate]:
-    from ada.core.utils import is_coplanar
+    from ada.core.vector_utils import is_coplanar
 
     plates = []
     fem_sec = elem.fem_sec

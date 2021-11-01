@@ -18,6 +18,7 @@ from ada.fem import (
     Spring,
     Surface,
 )
+from ada.fem.conversion_utils import convert_ecc_to_mpc, convert_hinges_2_couplings
 from ada.fem.interactions import ContactTypes
 from ada.fem.steps import (
     Step,
@@ -27,7 +28,6 @@ from ada.fem.steps import (
     StepImplicit,
     StepSteadyState,
 )
-from ada.fem.utils import convert_ecc_to_mpc, convert_hinges_2_couplings
 from ada.materials import Material
 
 from .common import get_instance_name

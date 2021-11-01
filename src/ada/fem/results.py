@@ -5,7 +5,7 @@ import os
 import pathlib
 import subprocess
 from dataclasses import dataclass, field
-from typing import List, Tuple, Union
+from typing import TYPE_CHECKING, List, Tuple, Union
 
 import meshio
 import numpy as np
@@ -20,9 +20,22 @@ from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_t
 
 from .concepts.eigenvalue import EigenDataSummary
 
+if TYPE_CHECKING:
+    from ada import Assembly
+
 
 class Results:
-    def __init__(self, res_path, name=None, fem_format=None, assembly=None, palette=None, output=None, overwrite=True):
+    def __init__(
+        self,
+        res_path,
+        name: str = None,
+        fem_format: str = None,
+        assembly: Union[None, "Assembly"] = None,
+        palette=None,
+        output=None,
+        overwrite=True,
+        metadata=None,
+    ):
         self._name = name
         self._visualizer = ResultsMesh(palette, fem_format=fem_format, parent=self)
         self._eigen_mode_data = None
@@ -30,8 +43,14 @@ class Results:
         self._assembly = assembly
         self._output = output
         self._overwrite = overwrite
-        self._results_file_path = pathlib.Path(res_path)
-        self._read_result_file(self.results_file_path)
+        self._metadata = metadata if metadata is not None else dict()
+        self._results_file_path = pathlib.Path(res_path) if res_path is not None else None
+        if res_path is not None:
+            self._read_result_file(self.results_file_path)
+            if self.results_file_path.exists():
+                self._last_modified = os.path.getmtime(str(self.results_file_path))
+            else:
+                self._last_modified = None
 
     def _read_result_file(self, file_ref, overwrite=False):
         if file_ref.exists() is False:
@@ -80,6 +99,20 @@ class Results:
         with open(dest_file, "w") as f:
             f.write(self.output.stdout)
 
+    def save_results_to_json(self, dest_file):
+        import json
+
+        dest_file = pathlib.Path(dest_file).with_suffix(".json")
+        res = dict(
+            name=self.name,
+            fem_format=self.fem_format,
+            eigen_mode_data=self.eigen_mode_data.to_dict(),
+            metadata=self.metadata,
+            last_modified=self.last_modified,
+        )
+        with open(dest_file, "w") as f:
+            json.dump(res, f, indent=4)
+
     @property
     def name(self):
         return self._name
@@ -93,6 +126,14 @@ class Results:
         if value not in FEATypes.all:
             raise ValueError(f'Unsupported FEA Type "{value}"')
         self._fem_format = value
+
+    @property
+    def last_modified(self):
+        return self._last_modified
+
+    @last_modified.setter
+    def last_modified(self, value):
+        self._last_modified = value
 
     @property
     def output(self) -> subprocess.CompletedProcess:
@@ -111,8 +152,7 @@ class Results:
         return self._visualizer
 
     @property
-    def assembly(self):
-        """:rtype: ada.Assembly"""
+    def assembly(self) -> "Assembly":
         return self._assembly
 
     @property
@@ -122,6 +162,10 @@ class Results:
     @eigen_mode_data.setter
     def eigen_mode_data(self, value: EigenDataSummary):
         self._eigen_mode_data = value
+
+    @property
+    def metadata(self):
+        return self._metadata
 
     def _repr_html_(self):
 
@@ -324,3 +368,14 @@ def get_fem_stats(fem_file, dest_md_file, data_file="data.json"):
     else:
         data = dict()
     print(data)
+
+
+def results_from_cache(results_dict: dict) -> Results:
+    res = Results(
+        None, name=results_dict["name"], fem_format=results_dict["fem_format"], metadata=results_dict["metadata"]
+    )
+    eig_data = EigenDataSummary([])
+    eig_data.from_dict(results_dict["eigen_mode_data"])
+    res.eigen_mode_data = eig_data
+    res.last_modified = results_dict["last_modified"]
+    return res

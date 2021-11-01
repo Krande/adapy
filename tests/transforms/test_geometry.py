@@ -5,13 +5,17 @@ import numpy as np
 from ada.core.curve_utils import (
     calc_2darc_start_end_from_lines_radius,
     calc_arc_radius_center_from_3points,
+    intersect_line_circle,
 )
-from ada.core.utils import (
+from ada.core.utils import roundoff
+from ada.core.vector_utils import (
+    angle_between,
     global_2_local_nodes,
     intersection_point,
+    linear_2dtransform_rotate,
     local_2_global_nodes,
     rotation_matrix_csys_rotate,
-    roundoff,
+    unit_vector,
 )
 
 
@@ -138,13 +142,6 @@ class ArcGeom(unittest.TestCase):
         assert roundoff(rp[1]) == roundoff(p2[1])
 
     def test_basic_arc2(self):
-        from ada.core.curve_utils import intersect_line_circle
-        from ada.core.utils import (
-            angle_between,
-            linear_2dtransform_rotate,
-            local_2_global_nodes,
-            unit_vector,
-        )
 
         origin = (0, 0, 0)
         xdir = (1, 0, 0)

@@ -121,7 +121,7 @@ class Load(FemBase):
                 logging.error("Calculating global forces without COORDS is not yet supported")
                 return None
 
-            from ada.core.utils import rotation_matrix_csys_rotate
+            from ada.core.vector_utils import rotation_matrix_csys_rotate
 
             destination_csys = [(1, 0, 0), (0, 1, 0)]
             rmat = rotation_matrix_csys_rotate(csys.coords, destination_csys)

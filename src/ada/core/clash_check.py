@@ -11,7 +11,8 @@ from ada.concepts.points import Node
 from ada.concepts.primitives import PrimCyl
 from ada.concepts.structural import Beam, Plate
 
-from .utils import Counter, intersect_calc, is_parallel, vector_length
+from .utils import Counter
+from .vector_utils import intersect_calc, is_parallel, vector_length
 
 
 def basic_intersect(bm: Beam, margins, all_parts: [Part]):
@@ -117,7 +118,7 @@ def filter_away_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]) -> Lis
 
 
 def filter_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]):
-    from .utils import is_clockwise, is_on_line
+    from .vector_utils import is_clockwise, is_on_line
 
     corners = [n for n in pl.poly.points3d]
     corners += [corners[0]]

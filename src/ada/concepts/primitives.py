@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING, Tuple, Union
 import numpy as np
 
 from ada.base.physical_objects import BackendGeom
-from ada.core.utils import Counter, roundoff, unit_vector, vector_length
+from ada.core.utils import Counter, roundoff
+from ada.core.vector_utils import unit_vector, vector_length
 from ada.ifc.utils import create_guid
 from ada.materials import Material
 from ada.materials.utils import get_material

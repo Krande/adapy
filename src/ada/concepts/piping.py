@@ -7,14 +7,8 @@ import numpy as np
 
 from ada.base.physical_objects import BackendGeom
 from ada.config import Settings as _Settings
-from ada.core.utils import (
-    Counter,
-    angle_between,
-    calc_zvec,
-    roundoff,
-    unit_vector,
-    vector_length,
-)
+from ada.core.utils import Counter, roundoff
+from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_length
 from ada.ifc.utils import create_guid
 from ada.materials.utils import get_material
 from ada.sections.utils import get_section
@@ -526,7 +520,7 @@ class PipeSegElbow(BackendGeom):
     def _elbow_revolved_solid(self, f, context):
         from ada.core.constants import O, X, Z
         from ada.core.curve_utils import get_center_from_3_points_and_radius
-        from ada.core.utils import normal_to_points_in_plane
+        from ada.core.vector_utils import normal_to_points_in_plane
         from ada.ifc.utils import create_ifc_placement
 
         center, _, _, _ = get_center_from_3_points_and_radius(self.p1.p, self.p2.p, self.p3.p, self.bend_radius)

@@ -128,7 +128,7 @@ def visualize_it(res_file, temp_dir=".temp", default_index=0):
     from IPython.display import clear_output, display
     from ipywidgets import AppLayout, Dropdown, FloatSlider, VBox, jslink
 
-    from ada.core.utils import vector_length
+    from ada.core.vector_utils import vector_length
 
     res_file = pathlib.Path(res_file).resolve().absolute()
     suffix = res_file.suffix.lower()

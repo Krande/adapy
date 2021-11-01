@@ -95,7 +95,7 @@ def add_shell_section(
 
 
 def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
-    from ada.core.utils import vector_length
+    from ada.core.vector_utils import vector_length
 
     tags = []
     for dim, ent in gmsh_data.entities:

@@ -14,8 +14,11 @@ Model object: {{__geom_specifics__}}
 
 ### Summary
 
-This section presents the resulting comparison between the calculated results from the 
-eigenvalue analysis in the different FEA tools.
+This section presents a comparison between the calculated results from the 
+eigenvalue analysis of a cantilever beam using the different FEA tools. 
+
+Note! The `Sestra` and `Abaqus` analyses are not performed as part of the github actions step. The
+eigenmode results are kept in cached json files and imported during the compilation of the report using __paradoc__.
 
 
 {{__eig_compare_solid__}}
@@ -36,7 +39,7 @@ solid elements both for 1st and 2nd order formulations.
 **Shell Elements**
 
 For 1st order shell elements it is observed an increasing difference in values based on 
-the order of eigenmode.
+the order of eigenmode. The differe
 Results using 2nd order shell elements is observed to be closer for all modes.
 
 **Line Elements**

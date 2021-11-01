@@ -70,7 +70,7 @@ class StepExporter:
 
     def add_geom(self, geom, obj):
         from ada.concepts.transforms import Placement
-        from ada.core.utils import vector_length
+        from ada.core.vector_utils import vector_length
 
         from .utils import transform_shape
 
