@@ -1,8 +1,3 @@
-from ada.config import Settings
-
-test_folder = Settings.test_dir / "sesam"
-
-
 def test_write_ff():
     from ada.fem.formats.sesam.writer import write_ff
 

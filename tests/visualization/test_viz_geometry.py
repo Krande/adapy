@@ -1,4 +1,4 @@
-from common import build_test_beam_fem, dummy_display
+from common import dummy_display
 
 from ada import Assembly, Beam, Plate
 
@@ -22,6 +22,5 @@ def test_viz_structural():
     dummy_display(a)
 
 
-def test_beam_shell():
-    a = build_test_beam_fem("shell")
-    dummy_display(a)
+def test_beam_shell(test_shell_beam):
+    dummy_display(test_shell_beam)
