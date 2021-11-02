@@ -1,10 +1,10 @@
-from common import build_test_beam_fem, example_files
+from common import build_test_beam_fem
 
 from ada import Assembly
 from ada.fem import FemSet, Load, StepImplicit
 
 
-def test_read_C3D20():
+def test_read_C3D20(example_files):
     a = Assembly()
     a.read_fem(example_files / "fem_files/calculix/contact2e.inp")
     beams = list(a.parts.values())[0]

@@ -453,7 +453,7 @@ def make_name_fem_ready(value, no_dot=False):
         value = value.replace(".", "_")
     final_name = value.strip()
     if len(final_name) > 25:
-        logging.error(f'Note FEM name "{final_name}" is >25 characters. This might cause issues in some FEM software')
+        logging.info(f'Note FEM name "{final_name}" is >25 characters. This might cause issues in some FEM software')
     return final_name
 
 

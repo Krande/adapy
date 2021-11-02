@@ -1,4 +1,4 @@
-FROM krande/ada@sha256:5343aa7e7ceba592f9d72d555ba0464d862bc8572bb686c19950f0a8e1e9bdb8
+FROM krande/ada@sha256:3ba22bbbee0e8686cdf02b59e445014ae9a87e29aee1e1dd7031e7ba49bc2cf7
 
 ARG TMPDIR=/tmp/adapy
 ARG TESTDIR_FEM=/home/tests/fem
@@ -23,6 +23,7 @@ COPY files ${TESTFILES}
 
 RUN pip install . --no-cache-dir
 RUN conda install -c krande -c conda-forge paradoc
+RUN pip install git+https://github.com/Krande/paradoc/tree/dev
 
 # Cleanup all temporary files from this and all previous steps
 RUN rm -rfv /tmp/*

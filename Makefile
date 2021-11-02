@@ -13,6 +13,8 @@ install:
 test:
 	cd tests && pytest --cov=ada --cov-report=xml --cov-report=html .
 
+
+
 dtest:
 	mkdir -p "temp" && \
 	docker build -t ada/testing . && \

@@ -48,14 +48,16 @@ def line_section_str(fem_sec: FemSection):
     sec_data = line_cross_sec_type_str(fem_sec)
     sec_props = line_section_props(fem_sec)
     if sec_data != "GENERAL":
-        return (
+        sec_str = (
             f"{top_line}\n*Beam Section, elset={fem_sec.elset.name}, material={fem_sec.material.name}, "
-            f"temperature={line_temperature_str(fem_sec)}, section={sec_data}{rotary_str}\n{sec_props}"
+            + f"temperature={line_temperature_str(fem_sec)}, section={sec_data}{rotary_str}\n{sec_props}"
         )
     else:
-        return f"""{top_line}
+        sec_str = f"""{top_line}
 *Beam General Section, elset={fem_sec.elset.name}, section=GENERAL{rotary_str}, density={density}
  {sec_props}"""
+
+    return sec_str
 
 
 def line_section_props(fem_sec: FemSection):

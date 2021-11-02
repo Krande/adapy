@@ -1,22 +1,22 @@
 import os
 import pathlib
-import shutil
+from typing import Dict, List, Tuple, Union
 
 import plotly.graph_objs as go
 from plotly import io as pio
 
 
 def easy_plotly(
-    title,
-    in_data,
-    xlbl="X-axis",
-    ylbl="Y-axis",
-    xrange=None,
-    yrange=None,
-    yaxformat="E",
-    legend=None,
+    title: str,
+    in_data: Union[List[tuple], Dict[str, Union[Tuple[float], Dict[str, Tuple[float]]]]],
+    xlbl: str = "X-axis",
+    ylbl: str = "Y-axis",
+    xrange: List[Union[float, int]] = None,
+    yrange: List[Union[float, int]] = None,
+    yaxformat: str = "E",
+    legend_pos: Dict[str, float] = None,
     autoreverse=False,
-    save_filename=None,
+    save_filename: Union[str, pathlib.PurePath, pathlib.Path] = None,
     mode="lines",
     marker="circle",
     traces=None,
@@ -25,6 +25,8 @@ def easy_plotly(
     shapes=None,
     renderer="notebook_connected",
     return_widget=True,
+    width=1600,
+    height=800,
 ):
     """
     A Plotly template for quick and easy interactive scatter plotting using some pre-defined values. If you need more
@@ -39,7 +41,7 @@ def easy_plotly(
     :param xrange: min and max values of x-axis
     :param yrange: min and max values of y-axis
     :param yaxformat: "none" | "e" | "E" | "power" | "SI" | "B" (default) exponent format of y-axis.
-    :param legend: dict(x=-.1, y=1.2)
+    :param legend_pos: dict(x=-.1, y=1.2)
     :param autoreverse: Autoreverse the X-axis (opposed to inputting the reversed x-list)
     :param save_filename: Abs path to file location or file name of figure.
     :param mode:
@@ -49,12 +51,6 @@ def easy_plotly(
     :param annotations:
     :param renderer: Which renderer should be used. Default is 'notebook_connected'. See below for alternatives
     :param return_widget:
-    :type title: str
-    :type xlbl: str
-    :type ylbl: str
-    :type xrange: list
-    :type yrange: list
-    :type yaxformat: str
     :type save_filename: str
     :type mode: str
 
@@ -68,41 +64,13 @@ def easy_plotly(
 
     """
 
-    plot_data = []
-    if type(in_data) is dict:
-        for key in in_data.keys():
-            if type(in_data[key]) is dict:
-                x_ = in_data[key]["x"]
-                y_ = in_data[key]["y"]
-            elif type(in_data[key]) is tuple:
-                x_ = in_data[key][0]
-                y_ = in_data[key][1]
-            else:
-                raise Exception('unrecognized input in dict "{}"'.format(type(in_data[key])))
+    plot_data = extract_plot_data(in_data, mode, marker)
 
-            trace = go.Scatter(
-                x=x_,
-                y=y_,
-                name=key,
-                mode=mode,
-                marker=dict(symbol=marker),
-            )
-            plot_data.append(trace)
-    elif type(in_data) in [list, tuple]:
-        x, y = in_data
-        trace = go.Scatter(
-            x=x,
-            y=y,
-            mode=mode,
-            marker=dict(symbol=marker),
-        )
-        plot_data.append(trace)
-    else:
-        if traces is None:
-            raise Exception('No Recognized input type found for "in_data" or "traces"')
     if traces is not None:
         plot_data += traces
+
     autorange = "reversed" if autoreverse is True else None
+
     layout = go.Layout(
         title=title,
         xaxis=dict(
@@ -117,34 +85,68 @@ def easy_plotly(
             range=yrange,
             exponentformat=yaxformat,
         ),
-        legend=legend,
+        legend=legend_pos,
         template=template,
         shapes=shapes,
     )
     if annotations is not None:
         layout["annotations"] = annotations
+
     fig = go.FigureWidget(data=plot_data, layout=layout)
-    # plotly.offline.init_notebook_mode(connected=True)
     if save_filename is not None:
-        # fig.show(renderer=renderer)
-        filepath = save_filename
-        if ".png" not in filepath:
-            filepath += ".png"
-
-        dirpath = os.path.dirname(filepath)
-        print('Saving "{}" to "{}"'.format(os.path.basename(filepath), dirpath))
-        filename = os.path.splitext(filepath)[0].replace(dirpath + "\\", "")
-        if os.path.isdir(dirpath) is False:
-            os.makedirs(dirpath)
-        pio.write_image(fig, save_filename, width=1600, height=800)
-        if "\\" not in save_filename:
-            output_file = pathlib.Path(f"C:/ADA/temp/{filename}.png")
-            if os.path.isfile(output_file) is True:
-                shutil.move(output_file, dirpath + "\\" + filename + ".png")
-            else:
-                print("{} not found".format(output_file))
-
+        save_plot(fig, save_filename, width, height)
     else:
         if return_widget is True:
             return fig
         fig.show(renderer=renderer)
+
+
+def save_plot(fig, save_filename, width, height):
+    filepath = pathlib.Path(save_filename)
+    if filepath.suffix == "":
+        filepath = filepath.with_suffix(".png")
+
+    dirpath = os.path.dirname(filepath)
+    print(f'Saving "{filepath}"')
+    if os.path.isdir(dirpath) is False:
+        os.makedirs(dirpath)
+    pio.write_image(fig, filepath, width=width, height=height)
+
+
+def extract_plot_data(in_data, mode, marker) -> List[go.Scatter]:
+    plot_data = []
+    if type(in_data) is dict:
+        for key in in_data.keys():
+            if type(in_data[key]) is dict:
+                x_ = in_data[key]["x"]
+                y_ = in_data[key]["y"]
+            elif type(in_data[key]) is tuple:
+                x_ = in_data[key][0]
+                y_ = in_data[key][1]
+            else:
+                raise Exception('Unrecognized input in dict "{}"'.format(type(in_data[key])))
+
+            trace = go.Scatter(
+                x=x_,
+                y=y_,
+                name=key,
+                mode=mode,
+                marker=dict(symbol=marker),
+            )
+            plot_data.append(trace)
+    elif type(in_data) in [list, tuple]:
+        if len(in_data) == 2:
+            x, y = in_data
+        else:
+            x, y = zip(*in_data)
+        trace = go.Scatter(
+            x=x,
+            y=y,
+            mode=mode,
+            marker=dict(symbol=marker),
+        )
+        plot_data.append(trace)
+    else:
+        raise Exception(f'Unrecognized input type "{type(in_data)}" found for "in_data" or "traces"')
+
+    return plot_data

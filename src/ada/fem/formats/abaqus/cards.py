@@ -27,3 +27,25 @@ part_names = re.compile(r"\*\*\s*PART INSTANCE:\s*(.*?)\n(.*)", _re_in)
 inst_matches = re.compile(
     r"\*Instance, name=(?P<inst_name>.*?), part=(?P<part_name>.*?)\n(?P<bulk_str>.*?)\*End Instance", _re_in
 )
+
+# Sections
+_re_offset = r"(?:, offset=(?P<offset>.*?)|)"
+_re_controls = r"(?:, controls=(?P<controls>.*?)|)"
+re_shell = re.compile(
+    r"\*\Shell Section, elset"
+    rf"=(?P<elset>.*?)\s*, material=(?P<material>.*?){_re_offset}{_re_controls}\s*\n(?P<t>.*?),"
+    rf"(?P<int_points>.*?)$",
+    _re_in,
+)
+
+re_beam = re.compile(
+    r"\*Beam Section,\s*elset=(?P<elset>.*?)\s*,\s*material=(?P<material>.*?)\s*,\s*"
+    r"(?:temperature=(?P<temperature>.*?),|)\s*(?:section=|sect=)(?P<sec_type>.*?)\n"
+    r"(?P<line1>.*?)\n(?P<line2>.*?)$",
+    _re_in,
+)
+
+re_solid = re.compile(
+    r"(?:\*\s*Section:\s*(.*?)\n|)\*\Solid Section,\s*elset=(.*?)\s*,\s*material=(.*?)\s*$",
+    _re_in,
+)

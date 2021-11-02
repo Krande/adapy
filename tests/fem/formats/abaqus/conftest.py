@@ -1,12 +1,34 @@
-import pprint
-import unittest
+import re
 
-from common import example_files
+import pytest
 
-from ada import Assembly
-from ada.fem.formats.abaqus.common import AbaCards
 
-consec = """*Node
+@pytest.fixture
+def re_in():
+    return re.IGNORECASE | re.DOTALL | re.MULTILINE
+
+
+@pytest.fixture
+def shell_beam_section():
+    return """*Beam Section, elset=BSEC8, material=S355, temperature=GRADIENTS, section=BOX
+0.15, 0.15, 0.008, 0.008, 0.008, 0.008
+0.997052,0.0721058,-0.0262398
+** Section: Section-9-BSEC9  Profile: Profile-9
+*Beam Section, elset=BSEC9, material=S355, temperature=GRADIENTS, section=BOX
+0.15, 0.15, 0.008, 0.008, 0.008, 0.008
+0.,-1.,0.
+** Section: Section-87-MAT
+*Shell Section, elset=MAT, material=S355
+0.016, 5
+** Section: Section-10-BG500X  Profile: Profile-10
+*Beam Section, elset=BG500X, material=S355, temperature=GRADIENTS, section=BOX
+0.37, 0.5, 0.018, 0.018, 0.018, 0.018
+1.,1.22465e-16,0."""
+
+
+@pytest.fixture
+def consec():
+    return """*Node
      20,   285.025665,   130.837769,   553.482483
 *Element, type=CONN3D2
 9, 20, bolt1-3.477
@@ -21,7 +43,10 @@ Bushing,
 *Element, type=CONN3D2
 11, bolt1-4.477, 19"""
 
-conbeh = """*End Assembly
+
+@pytest.fixture
+def conbeh():
+    return """*End Assembly
 *Connector Behavior, name=ConnProp-1_VISC_DAMPER_ELEM
 *Connector Elasticity, nonlinear, component=1
 -350000., -0.035
@@ -33,7 +58,10 @@ conbeh = """*End Assembly
 ** MATERIALS
 ** """
 
-shell2solids = """** Constraint: co_ped2
+
+@pytest.fixture
+def shell2solids():
+    return """** Constraint: co_ped2
 *Coupling, constraint name=co_ped2, ref node=m_Set-7, surface=s_Set-7_CNS_
 *Kinematic
 ** Constraint: co_ped3
@@ -56,7 +84,10 @@ m_Surf-23, s_Surf-23
 *Mass, elset=Set-69_rot_masses_MASS_
 10., """
 
-surfaces = """*Elset, elset=_s_Surf-31_S6, internal, instance=D09_partial_so-1
+
+@pytest.fixture
+def surfaces():
+    return """*Elset, elset=_s_Surf-31_S6, internal, instance=D09_partial_so-1
  5258, 5276, 5278, 5280, 5849, 5867, 5869, 5871
 *Surface, type=ELEMENT, name=s_Surf-31
 _s_Surf-31_S3, S3
@@ -76,7 +107,10 @@ s_Set-20, 1.
 *Surface, type=NODE, name=s_Set-22_CNS_, internal
 s_Set-22, 1."""
 
-couplings = """*Orientation, name="Datum csys-12"
+
+@pytest.fixture
+def couplings():
+    return """*Orientation, name="Datum csys-12"
 0.258957691212021, 0.965888665510751,           0., -0.965888665510751, 0.258957691212021,           0.
 1, 0.
 ** Constraint: c1
@@ -98,7 +132,10 @@ couplings = """*Orientation, name="Datum csys-12"
 2, 2
 3, 3"""
 
-interactions = """** INTERACTIONS
+
+@pytest.fixture
+def interactions():
+    return """** INTERACTIONS
 **
 ** Interaction: bump1
 *Contact Pair, interaction=bumper130, type=SURFACE TO SURFACE
@@ -129,70 +166,3 @@ _Int-2_gcs0_5, Circumferential, 349.849, 99.875, 545.745,  350.319, 99.4502, 544
 ** ----------------------------------------------------------------
 **
 """
-
-
-class TestAbaCards(unittest.TestCase):
-    def test_consec(self):
-        assertions = [
-            {
-                "elset": "Wire-1-Set-1",
-                "behavior": "ConnProp-1_VISC_DAMPER_ELEM",
-                "contype": "Bushing,",
-                "csys": '"Datum csys-1",',
-            },
-            {
-                "elset": "Wire-2-Set-1",
-                "behavior": "ConnProp-1_VISC_DAMPER_ELEM",
-                "contype": "Bushing,",
-                "csys": '"Datum csys-2",',
-            },
-        ]
-        for i, m in enumerate(AbaCards.connector_section.regex.finditer(consec)):
-            d = m.groupdict()
-            assert assertions[i] == d
-
-    # TODO: Make similar assertion tests for all other flags
-    def test_conn_beha(self):
-        for m in AbaCards.connector_behaviour.regex.finditer(conbeh):
-            d = m.groupdict()
-            print(d)
-
-    def test_shell2solid(self):
-        for m in AbaCards.sh2so_re.regex.finditer(shell2solids):
-            d = m.groupdict()
-            print(d)
-
-    def test_couplings(self):
-        for m in AbaCards.coupling.regex.finditer(couplings):
-            d = m.groupdict()
-            print(d)
-
-    def test_surfaces(self):
-        for m in AbaCards.surface.regex.finditer(surfaces):
-            d = m.groupdict()
-            print(d)
-
-    def test_contact_pairs(self):
-        for m in AbaCards.contact_pairs.regex.finditer(interactions):
-            d = m.groupdict()
-            print(d)
-
-    def test_contact_general(self):
-        for m in AbaCards.contact_general.regex.finditer(interactions):
-            d = m.groupdict()
-            pprint.pprint(d, indent=4)
-
-
-class TestAbaqus(unittest.TestCase):
-    def test_read_C3D20(self):
-        a = Assembly("my_assembly", "temp")
-        a.read_fem(example_files / "fem_files/abaqus/box.inp")
-
-    def test_read_R3D4(self):
-        a = Assembly("my_assembly", "temp")
-        a.read_fem(example_files / "fem_files/abaqus/box_rigid.inp")
-        assert len(a.fem.constraints) == 1
-
-
-if __name__ == "__main__":
-    unittest.main()

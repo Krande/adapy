@@ -1,11 +1,11 @@
-from common import compare_fem_objects, example_files
+from common import compare_fem_objects
 
 import ada
 from ada.config import Settings
 from ada.param_models.fem_models import beam_ex1
 
 
-def test_read_write_cylinder():
+def test_read_write_cylinder(example_files):
 
     name = "cylinder"
 
@@ -20,7 +20,7 @@ def test_read_write_cylinder():
     compare_fem_objects(p_a.fem, p_b.fem)
 
 
-def test_read_write_box():
+def test_read_write_box(example_files):
 
     name = "box"
 
@@ -35,7 +35,7 @@ def test_read_write_box():
     compare_fem_objects(p_a.fem, p_b.fem)
 
 
-def test_read_write_portal_frame():
+def test_read_write_portal_frame(example_files):
 
     name = "portal"
 

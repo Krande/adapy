@@ -133,4 +133,5 @@ def main(overwrite, execute):
 
 
 if __name__ == "__main__":
-    main(overwrite=True, execute=True)
+    logging.getLogger().setLevel(logging.INFO)
+    main(overwrite=True, execute=False)
