@@ -23,6 +23,7 @@ COPY files ${TESTFILES}
 
 RUN pip install . --no-cache-dir
 RUN conda install -c krande -c conda-forge paradoc
+RUN sudo apt-get install git
 RUN pip install git+https://github.com/Krande/paradoc/tree/dev
 
 # Cleanup all temporary files from this and all previous steps

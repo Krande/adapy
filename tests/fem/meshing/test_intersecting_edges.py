@@ -1,10 +1,8 @@
 import ada
 from ada.core.utils import Counter
 
-test_dir = ada.config.Settings.test_dir / "meshing"
 
-
-def test_edges_intersect():
+def test_edges_intersect(test_meshing_dir):
     bm_name = Counter(1, "bm")
     pl = ada.Plate("pl1", [(0, 0), (1, 0), (1, 1), (0, 1)], 10e-3)
     points = pl.poly.points3d
@@ -26,5 +24,5 @@ def test_edges_intersect():
 
     p.fem = p.to_fem_obj(0.1, interactive=False)
 
-    # a.to_fem("MyIntersectingedge_ufo", "usfos", overwrite=True, scratch_dir=test_dir)
-    # a.to_ifc(test_dir / "IntersectingFEM", include_fem=False)
+    # a.to_fem("MyIntersectingedge_ufo", "usfos", overwrite=True, scratch_dir=test_meshing_dir)
+    # a.to_ifc(test_meshing_dir / "IntersectingFEM", include_fem=False)

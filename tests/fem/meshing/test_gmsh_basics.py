@@ -4,11 +4,9 @@ import ada.fem.shapes
 from ada import Assembly, Beam, Part, Pipe, Plate, PrimBox, PrimSphere
 from ada.concepts.structural import make_ig_cutplanes
 from ada.concepts.transforms import Placement
-from ada.config import Settings
 from ada.fem.meshing.concepts import GmshOptions, GmshSession, GmshTask
 from ada.fem.meshing.multisession import multisession_gmsh_tasker
 
-test_dir = Settings.test_dir / "meshing"
 shape = ada.fem.shapes.ElemShape.TYPES
 
 
@@ -75,7 +73,7 @@ def test_mix_geom_repr_in_same_session(assembly):
             assert map_assert[key] == num_el
 
 
-def test_diff_geom_repr_in_separate_sessions(assembly):
+def test_diff_geom_repr_in_separate_sessions(assembly, test_meshing_dir):
     bm1 = assembly.get_by_name("bm1")
     bm2 = assembly.get_by_name("bm2")
     p = assembly.get_part("MyFemObjects")
@@ -95,4 +93,4 @@ def test_diff_geom_repr_in_separate_sessions(assembly):
 
     # from ada.fem.steps import StepImplicit
     # a.fem.add_step(StepImplicit("MyStep"))
-    # a.to_fem("aba_mixed_order", "abaqus", overwrite=True, scratch_dir=test_dir)
+    # a.to_fem("aba_mixed_order", "abaqus", overwrite=True, scratch_dir=test_meshing_dir)

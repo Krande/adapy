@@ -57,5 +57,5 @@ def test_shell_elem_to_plate():
     assert tuple(pl.poly.seg_global_points[2]) == tuple(nodes_eval[1].p)
     assert tuple(pl.poly.seg_global_points[3]) == tuple(nodes_eval[2].p)
 
-    a.to_ifc(test_dir / "Shell2Plate")
-    a.to_fem("MyTest", "abaqus", overwrite=True)
+    # a.to_ifc(test_dir / "Shell2Plate")
+    # a.to_fem("MyTest", "abaqus", overwrite=True)
