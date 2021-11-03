@@ -24,8 +24,6 @@ def connector_str(connector: "Connector", fem_writer) -> str:
  {connector.id}, {end1}, {end2}
 *Connector Section, elset={connector.name}, behavior={connector.con_sec.name}
  {connector.con_type},{csys_ref}
-*Elset, elset={connector.name}_set
- {connector.id}
 **
 {csys_str(connector.csys, fem_writer)}
 **"""
