@@ -26,7 +26,7 @@ def orientations_str(assembly: "Assembly", fem_writer) -> str:
     return cstr.strip()
 
 
-def csys_str(csys: "Csys", fem_writer):
+def csys_str(csys: "Csys", written_on_assembly_level: bool):
     name = csys.name
     ori_str = f'*Orientation, name="{name}"'
     if csys.nodes is None and csys.coords is None:
@@ -35,7 +35,7 @@ def csys_str(csys: "Csys", fem_writer):
         if len(csys.nodes) != 3:
             raise ValueError("CSYS number of nodes must be 3")
         ori_str += ", SYSTEM=RECTANGULAR, DEFINITION=NODES\n {},{},{}".format(
-            *[get_instance_name(no, fem_writer) for no in csys.nodes]
+            *[get_instance_name(no, written_on_assembly_level) for no in csys.nodes]
         )
     else:
         ax, ay, az = csys.coords[0]

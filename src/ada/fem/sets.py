@@ -30,7 +30,7 @@ class FemSet(FemBase):
     TYPES = SetTypes
 
     def __init__(
-        self, name, members: Union[None, List[Union["Elem", Node]]], set_type=None, metadata=None, parent=None
+        self, name, members: Union[None, List[Union["Elem", "Node", tuple]]], set_type=None, metadata=None, parent=None
     ):
         super().__init__(name, metadata, parent)
         if set_type is None:
@@ -69,14 +69,24 @@ class FemSet(FemBase):
         return f'FemSet({self.name}, type: "{self.type}", members: "{len(self.members)}")'
 
 
-def eval_set_type_from_members(members: List[Union["Elem", Node]]):
+def eval_set_type_from_members(members: List[Union["Elem", Node]]) -> str:
     from ada.fem import Elem
 
     res = set([type(mem) for mem in members])
     if len(res) == 1 and type(members[0]) is Node:
-        return "nset"
+        return FemSet.TYPES.NSET
     elif len(res) == 1 and type(members[0]) is Elem:
-        return "elset"
+        return FemSet.TYPES.ELSET
+    elif len(res) == 1 and type(members[0]) is tuple:
+        return FemSet.TYPES.NSET
     else:
         raise ValueError("Currently Mixed Femsets are not allowed")
         # return "mixed"
+
+
+def is_lazy(members: List[Union["Elem", Node]]) -> bool:
+    res = set([type(mem) for mem in members])
+    if len(res) == 1 and type(members[0]) is tuple:
+        return True
+    else:
+        return False

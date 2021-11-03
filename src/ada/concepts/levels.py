@@ -58,6 +58,7 @@ from ada.ifc.utils import create_guid
 
 if TYPE_CHECKING:
     from ada.fem.meshing import GmshOptions
+    from ada.fem.results import Results
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 
@@ -977,7 +978,7 @@ class Assembly(Part):
         exit_on_complete=True,
         run_in_shell=False,
         make_zip_file=False,
-    ):
+    ) -> "Results":
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
         Currently there is limited write support for the following FEM formats:
@@ -1241,6 +1242,41 @@ class Assembly(Part):
     def convert_options(self) -> _ConvertOptions:
         return self._convert_options
 
+    def __add__(self, other: Union[Assembly, Part]):
+        for n in other.fem.interface_nodes:
+            for p in self.get_all_parts_in_assembly(True):
+                res = p.fem.nodes.get_by_volume(n.p)
+                if res is not None:
+                    replace_node = res[0]
+                    for ref in n.refs:
+                        if type(ref) is Connector:
+                            if n == ref.n1:
+                                ref.n1 = replace_node
+                            if n == ref.n2:
+                                ref.n2 = replace_node
+                        elif type(ref) is Csys:
+                            pass
+                            # n_i = ref.nodes.index(n)
+                            # ref.nodes.pop(n_i)
+                            # ref.nodes.insert(n_i, replace_node)
+                        else:
+                            raise NotImplementedError()
+                    break
+
+        for n in other.fem.nodes:
+            n.parent = self.fem
+            self.fem.nodes.add(n, allow_coincident=True)
+
+        for name, con in other.fem.connectors.items():
+            con.parent = self.fem
+            self.fem.connectors[name] = con
+
+        for name, con_sec in other.fem.connector_sections.items():
+            con_sec.parent = self.fem
+            self.fem.connector_sections[name] = con_sec
+
+        return self
+
     def __repr__(self):
         nbms = len([bm for p in self.get_all_subparts() for bm in p.beams]) + len(self.beams)
         npls = len([pl for p in self.get_all_subparts() for pl in p.plates]) + len(self.plates)
@@ -1314,6 +1350,8 @@ class FEM:
     sections: FemSections = field(default_factory=FemSections, init=True)
     initial_state: PredefinedField = field(default=None, init=True)
     subroutine: str = field(default=None, init=True)
+
+    interface_nodes: List[Node] = field(init=False, default_factory=list)
 
     def __post_init__(self):
         self.nodes.parent = self
@@ -1490,6 +1528,10 @@ class FEM:
             self.sets.add(spring.fem_set)
         self.springs[spring.name] = spring
         return spring
+
+    def add_interface_nodes(self, interface_nodes: List[Node]):
+        for n in interface_nodes:
+            self.interface_nodes.append(n)
 
     def create_fem_elem_from_obj(self, obj, el_type=None) -> Elem:
         """Converts structural object to FEM elements. Currently only BEAM is supported"""

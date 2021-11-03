@@ -27,7 +27,7 @@ def elwriter(eltype, fem_sec: FemSection, elements: Iterable[Elem]):
 
     sub_eltype = el_type_sub(eltype, fem_sec)
     el_set_str = f", ELSET={fem_sec.elset.name}" if fem_sec.elset is not None else ""
-    el_str = "\n".join(map(write_elem, elements))
+    el_str = "\n".join((write_elem(el, True) for el in elements))
 
     return f"""*ELEMENT, type={sub_eltype}{el_set_str}\n{el_str}\n"""
 

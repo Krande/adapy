@@ -669,7 +669,7 @@ class Nodes:
     def __len__(self):
         return len(self._nodes)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterable[Node]:
         return iter(self._nodes)
 
     def __getitem__(self, index):

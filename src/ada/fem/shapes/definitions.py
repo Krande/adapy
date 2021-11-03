@@ -25,6 +25,11 @@ class ShellShapes:
     all = [TRI, TRI7, TRI6, QUAD, QUAD8]
 
 
+class ConnectorShapes:
+    CONNECTOR = "CONNECTOR"
+    all = [CONNECTOR]
+
+
 class SolidShapes:
     HEX8 = "HEXAHEDRON"
     HEX20 = "HEXAHEDRON20"
@@ -56,10 +61,7 @@ class ElemType:
     SHELL_SHAPES = ShellShapes
     SOLID_SHAPES = SolidShapes
     POINT_SHAPES = PointShapes
-
-    MASSES = ["MASS", "ROTARYI"]
-    SPRINGS1n = ["SPRING1"]
-    CONNECTORS = ["CONNECTOR"]
+    CONNECTOR_SHAPES = ConnectorShapes
 
     all = [SHELL, SOLID, LINE]
 
@@ -188,9 +190,8 @@ class ElemShape:
             ElemType.LINE_SHAPES.all
             + ElemType.SHELL_SHAPES.all
             + ElemType.SOLID_SHAPES.all
-            + ElemType.MASSES
-            + ElemType.SPRINGS1n
-            + ElemType.CONNECTORS
+            + ElemType.POINT_SHAPES.all
+            + ElemType.CONNECTOR_SHAPES.all
         )
         valid_element_types_upper = [x.upper() for x in valid_element_types]
         value = elem_type.upper()

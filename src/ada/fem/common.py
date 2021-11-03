@@ -1,12 +1,12 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 import numpy as np
 
 from ada.config import Settings
 
 if TYPE_CHECKING:
-    from ada import FEM
+    from ada import FEM, Node
 
 
 class FemBase:
@@ -64,7 +64,7 @@ class Csys(FemBase):
         name,
         definition=TYPES_DEFINITIONS.COORDINATES,
         system=TYPES_SYSTEM.RECTANGULAR,
-        nodes=None,
+        nodes: List["Node"] = None,
         coords=None,
         metadata=None,
         parent: "FEM" = None,
@@ -72,6 +72,9 @@ class Csys(FemBase):
         super().__init__(name, metadata, parent)
         self._definition = definition
         self._system = system
+        if nodes is not None:
+            for n in nodes:
+                n.refs.append(self)
         self._nodes = nodes
         self._coords = coords
 
@@ -84,7 +87,7 @@ class Csys(FemBase):
         return self._system
 
     @property
-    def nodes(self):
+    def nodes(self) -> List["Node"]:
         return self._nodes
 
     @property

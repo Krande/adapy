@@ -8,11 +8,11 @@ if TYPE_CHECKING:
     from ada.fem import Connector, ConnectorSection
 
 
-def connector_str(connector: "Connector", fem_writer) -> str:
+def connector_str(connector: "Connector", written_on_assembly_level: bool) -> str:
     csys_ref = "" if connector.csys is None else f'\n "{connector.csys.name}",'
 
-    end1 = get_instance_name(connector.n1, fem_writer)
-    end2 = get_instance_name(connector.n2, fem_writer)
+    end1 = get_instance_name(connector.n1, written_on_assembly_level)
+    end2 = get_instance_name(connector.n2, written_on_assembly_level)
     return f"""**
 ** ----------------------------------------------------------------
 ** Connector element representing {connector.name}
@@ -25,7 +25,7 @@ def connector_str(connector: "Connector", fem_writer) -> str:
 *Connector Section, elset={connector.name}, behavior={connector.con_sec.name}
  {connector.con_type},{csys_ref}
 **
-{csys_str(connector.csys, fem_writer)}
+{csys_str(connector.csys, written_on_assembly_level)}
 **"""
 
 

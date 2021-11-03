@@ -14,6 +14,8 @@ def get_instance_name(obj, written_on_assembly_level: bool) -> str:
         obj_on_assembly_level = False
 
     if written_on_assembly_level is True and obj_on_assembly_level is False:
+        if obj.parent is None:
+            raise AttributeError
         return f"{obj.parent.instance_name}.{obj_ref}"
     else:
         return str(obj_ref)

@@ -288,7 +288,7 @@ class AbaqusWriter:
 
     @property
     def connectors_str(self):
-        return "\n".join([connector_str(con, self) for con in self.assembly.fem.connectors.values()])
+        return "\n".join([connector_str(con, True) for con in self.assembly.fem.connectors.values()])
 
     @property
     def amplitude_str(self):

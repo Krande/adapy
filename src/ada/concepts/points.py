@@ -6,7 +6,7 @@ import numpy as np
 
 if TYPE_CHECKING:
     from ada import Beam
-    from ada.fem import Bc, Elem
+    from ada.fem import Bc, Csys, Elem
 
 numeric = Union[int, float, np.number]
 
@@ -83,7 +83,7 @@ class Node:
         self._parent = value
 
     @property
-    def refs(self) -> List[Union["Elem", "Beam"]]:
+    def refs(self) -> List[Union["Elem", "Beam", "Csys"]]:
         return self._refs
 
     def __getitem__(self, index):

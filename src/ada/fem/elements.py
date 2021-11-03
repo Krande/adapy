@@ -202,7 +202,15 @@ class Eccentricity:
     sh_ecc_vector: np.ndarray = None
 
 
+class ConnectorTypes:
+    BUSHING = "bushing"
+
+    all = [BUSHING]
+
+
 class Connector(Elem):
+    CON_TYPES = ConnectorTypes
+
     def __init__(
         self,
         name,
@@ -218,7 +226,7 @@ class Connector(Elem):
     ):
         if type(n1) is not Node or type(n2) is not Node:
             raise ValueError("Connector Start\\end must be nodes")
-        super(Connector, self).__init__(el_id, [n1, n2], "CONNECTOR")
+        super(Connector, self).__init__(el_id, [n1, n2], ElemType.CONNECTOR_SHAPES.CONNECTOR)
         super(Elem, self).__init__(name, metadata, parent)
         self._n1 = n1
         self._n2 = n2
@@ -239,9 +247,17 @@ class Connector(Elem):
     def n1(self) -> Node:
         return self._n1
 
+    @n1.setter
+    def n1(self, value: Node):
+        self._n1 = value
+
     @property
     def n2(self) -> Node:
         return self._n2
+
+    @n2.setter
+    def n2(self, value: Node):
+        self._n2 = value
 
     @property
     def csys(self) -> Csys:
@@ -263,8 +279,7 @@ class Spring(Elem):
         self._fem_set = fem_set
 
     @property
-    def fem_set(self):
-        """:rtype: ada.fem.sets.FemSet"""
+    def fem_set(self) -> "FemSet":
         return self._fem_set
 
     @property
