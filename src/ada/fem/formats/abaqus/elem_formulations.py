@@ -37,6 +37,9 @@ class AbaqusDefaultElemTypes:
         from ada.fem.shapes import ElemType
         from ada.fem.shapes.definitions import get_elem_type_group
 
+        if el_type in ("MASS", "ROTARYI", "CONNECTOR"):
+            return el_type
+
         type_group = get_elem_type_group(el_type)
 
         type_map = {

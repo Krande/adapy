@@ -7,7 +7,7 @@ The following is a summarized TODO list for fully functional support of Code Ast
 - [x] Add Element and Node Set information to Code Aster input files (MED)
 - [x] Add section information (MED/COMM?)
 - [x] Create a valid export of Code_Aster analysis .med/.comm function
-- [ ] Add Code Aster to the main adapy demonstration dockerfile with a jupyter client frontend
+- [x] Add Code Aster to the main adapy demonstration dockerfile with a jupyter client frontend
 
 ## Notes
 

@@ -1,5 +1,7 @@
+from ada.fem.formats.sesam.write.writer import write_ff
+
+
 def test_write_ff():
-    from ada.fem.formats.sesam.writer import write_ff
 
     flag = "TDMATER"
     data = [

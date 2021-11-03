@@ -297,7 +297,7 @@ class Mass(FemBase):
     def __init__(
         self,
         name,
-        fem_set,
+        fem_set: "FemSet",
         mass,
         mass_type=None,
         ptype=None,
@@ -306,7 +306,6 @@ class Mass(FemBase):
         metadata=None,
         parent=None,
     ):
-        """:type fem_set: ada.fem.FemSet"""
         super().__init__(name, metadata, parent)
         self._fem_set = fem_set
         if mass is None:
@@ -349,8 +348,7 @@ class Mass(FemBase):
         return self._mass_type
 
     @property
-    def fem_set(self):
-        """:rtype: ada.fem.FemSet"""
+    def fem_set(self) -> "FemSet":
         return self._fem_set
 
     @fem_set.setter
@@ -365,6 +363,8 @@ class Mass(FemBase):
                     raise ValueError("Mass can only be a scalar number for Isotropic mass")
                 return float(self._mass[0])
             elif self.type == MassTypes.NONSTRU:
+                return self._mass
+            elif self.type == MassTypes.ROT_INERTIA:
                 return self._mass
             else:
                 return float(self._mass)

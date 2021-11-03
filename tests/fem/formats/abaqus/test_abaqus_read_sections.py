@@ -1,7 +1,7 @@
 import pytest
 
 import ada
-from ada.fem.formats.abaqus.read_sections import (
+from ada.fem.formats.abaqus.read.read_sections import (
     get_beam_sections_from_inp,
     get_shell_sections_from_inp,
 )

@@ -141,8 +141,13 @@ class FemElements:
         result = self._elements[index]
         return FemElements(result) if isinstance(index, slice) else result
 
-    def __add__(self, other):
-        return FemElements(chain.from_iterable([self.elements, other.elements]), self._fem_obj)
+    def __add__(self, other: FemElements):
+        max_id = self.max_el_id
+        other.renumber(max_id + 1)
+        for el in other.elements:
+            el.parent = self.parent
+
+        return FemElements(chain.from_iterable([self.elements, other.elements]), self.parent)
 
     def __repr__(self):
         data = {}
@@ -227,10 +232,16 @@ class FemElements:
 
     @property
     def max_el_id(self):
+        if len(self._idmap.keys()) == 0:
+            return 0
+
         return max(self._idmap.keys())
 
     @property
     def min_el_id(self):
+        if len(self._idmap.keys()) == 0:
+            return 0
+
         return min(self._idmap.keys())
 
     @property
@@ -268,7 +279,7 @@ class FemElements:
 
     @property
     def stru_elements(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type not in ["MASS", "SPRING1"], self._elements)
+        return filter(lambda x: x.type not in ["MASS", "SPRING1", "CONNECTOR"], self._elements)
 
     def from_id(self, el_id: int) -> Elem:
         el = self._idmap.get(el_id, None)
@@ -283,6 +294,12 @@ class FemElements:
             res = spring_id_map.get(el_id, None)
             if res is not None:
                 return res
+
+            connectors_id_map = {m.id: m for m in self.parent.connectors.values()}
+            res = connectors_id_map.get(el_id, None)
+            if res is not None:
+                return res
+
             raise ValueError(f'The elem id "{el_id}" is not found')
         return el
 
@@ -551,8 +568,8 @@ class FemSections:
 
 
 class FemSets:
-    def __init__(self, sets: List[FemSet] = None, fem_obj: "FEM" = None):
-        self._fem_obj = fem_obj
+    def __init__(self, sets: List[FemSet] = None, parent: "FEM" = None):
+        self._fem_obj = parent
         self._sets = sorted(sets, key=attrgetter("type", "name")) if sets is not None else []
         # Merge same name sets
         self._nomap = self._assemble_sets(self.is_nset) if len(self._sets) > 0 else dict()
@@ -587,7 +604,7 @@ class FemSets:
         return True if fs.type == SetTypes.ELSET else False
 
     def _instantiate_all_members(self, fem_set: FemSet):
-        from ada.fem import Mass, Spring
+        from ada.fem import Connector, Mass, Spring
 
         def get_nset(nref):
             if type(nref) is Node:
@@ -603,7 +620,7 @@ class FemSets:
                     raise ValueError("Element might be doubly defined")
                 else:
                     return elref
-            elif type(elref) in (Spring, Mass):
+            elif type(elref) in (Spring, Mass, Connector):
                 return elref
             else:
                 raise ValueError(f"Elref type '{type(elref)}' is not recognized")
@@ -660,15 +677,17 @@ class FemSets:
 
     def __getitem__(self, index):
         result = self._sets[index]
-        return FemSets(result, fem_obj=self._fem_obj) if isinstance(index, slice) else result
+        return FemSets(result, parent=self._fem_obj) if isinstance(index, slice) else result
 
     def __add__(self, other: FemSets):
         # TODO: make default choice for similar named sets in a global settings class
         for name, _set in other.nodes.items():
+            _set.parent = self.parent
             if name in self._nomap.keys():
                 raise ValueError("Duplicate node set name. Consider suppressing this error?")
             self.add(_set)
         for name, _set in other.elements.items():
+            _set.parent = self.parent
             if name in self._elmap.keys():
                 raise ValueError("Duplicate element set name. Consider suppressing this error?")
             self.add(_set)

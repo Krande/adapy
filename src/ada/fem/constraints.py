@@ -12,8 +12,8 @@ if TYPE_CHECKING:
 class BcTypes:
     DISPL = "displacement"
     VELOCITY = "velocity"
-    CONN_DISPL = "connector displacement"
-    CONN_VEL = "connector velocity"
+    CONN_DISPL = "connector_displacement"
+    CONN_VEL = "connector_velocity"
     ENCASTRE = "symmetry/antisymmetry/encastre"
     DISPL_ROT = "displacement/rotation"
     VELOCITY_ANGULAR = "velocity/angular velocity"

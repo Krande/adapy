@@ -773,8 +773,8 @@ def create_beam_geom(beam: Beam, solid=True):
     else:
         try:
             assert isinstance(sec, list)
-        except AssertionError:
-            print("sd")
+        except AssertionError as e:
+            logging.error(e)
         sec_result = sec
         tap_result = tap
 

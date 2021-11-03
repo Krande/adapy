@@ -740,9 +740,8 @@ class Assembly(Part):
         metadata = dict() if metadata is None else metadata
         metadata["project"] = project
         metadata["schema"] = schema
-
-        Part.__init__(self, name=name, settings=settings, metadata=metadata, units=units)
-
+        super(Assembly, self).__init__(name=name, settings=settings, metadata=metadata, units=units)
+        self.fem.parent = self
         user.parent = self
         self._user = user
 
@@ -953,7 +952,12 @@ class Assembly(Part):
                 return None
 
         fem_importer, _ = get_fem_converters(fem_file, fem_format, fem_converter)
-        fem_importer(self, fem_file, name)
+        temp_assembly: Assembly = fem_importer(fem_file, name)
+        for p in temp_assembly.get_all_parts_in_assembly():
+            p.parent = self
+            self.add_part(p)
+
+        self.fem += temp_assembly.fem
 
         if self._enable_experimental_cache is True:
             self._to_cache(fem_file, cache_model_now)
@@ -1550,7 +1554,7 @@ class FEM:
         nodid_max = self.nodes.max_nid if len(self.nodes) > 0 else 0
         if nodid_max > other.nodes.min_nid:
             other.nodes.renumber(int(nodid_max + 10))
-
+        self.nodes.parent = self
         self.nodes += other.nodes
 
         # Elements
@@ -1564,7 +1568,34 @@ class FEM:
         self.elements += other.elements
         self.sections += other.sections
         self.sets += other.sets
-        self.lcsys.update(other.lcsys)
+
+        for bc in other.bcs:
+            bc.parent = self
+            self.bcs.append(bc)
+
+        for con in other.constraints:
+            con.parent = self
+            self.constraints.append(con)
+
+        for name, csys in other.lcsys.items():
+            csys.parent = self
+            self.lcsys[name] = csys
+
+        for name, connector in other.connectors.items():
+            connector.parent = self
+            self.connectors[name] = connector
+
+        for name, con_sec in other.connector_sections.items():
+            con_sec.parent = self
+            self.connector_sections[name] = con_sec
+
+        for name, mass in other.masses.items():
+            mass.parent = self
+            self.masses[name] = mass
+
+        for name, surface in other.surfaces.items():
+            surface.parent = self
+            self.surfaces[name] = surface
 
         return self
 

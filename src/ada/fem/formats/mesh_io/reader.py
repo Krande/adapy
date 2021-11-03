@@ -10,7 +10,7 @@ from ada.fem import Elem
 from ada.fem.containers import FemElements
 
 
-def meshio_read_fem(assembly: Assembly, fem_file, fem_name=None):
+def meshio_read_fem(fem_file, fem_name=None):
     """Import a FEM file using the meshio package"""
 
     mesh = meshio.read(fem_file)
@@ -44,4 +44,4 @@ def meshio_read_fem(assembly: Assembly, fem_file, fem_name=None):
         ]
 
     fem.elements = FemElements(chain.from_iterable(map(to_elem, mesh.cells)))
-    assembly.add_part(Part(name, fem=fem))
+    return Assembly("TempAssembly") / Part(name, fem=fem)

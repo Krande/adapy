@@ -20,7 +20,7 @@ from .structural import Beam, Plate, Section
 from .transforms import Rotation
 
 if TYPE_CHECKING:
-    from ada import Assembly, Part
+    from ada import FEM, Assembly, Part
     from ada.concepts.connections import JointBase
 
 __all__ = [
@@ -686,7 +686,9 @@ class Nodes:
             return NotImplemented
         return self._nodes != other._nodes
 
-    def __add__(self, other):
+    def __add__(self, other: Nodes):
+        for n in other.nodes:
+            n.parent = self.parent
         return Nodes(chain(self._nodes, other.nodes))
 
     def __repr__(self):
@@ -887,3 +889,11 @@ class Nodes:
             replace_duplicate_nodes(duplicate_nodes, node)
 
         self._sort()
+
+    @property
+    def parent(self) -> Union["Part", "FEM"]:
+        return self._parent
+
+    @parent.setter
+    def parent(self, value):
+        self._parent = value

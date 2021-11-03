@@ -4,6 +4,7 @@ from typing import List, Union
 
 from .common import FemBase
 from .sets import FemSet
+from .surfaces import Surface
 
 
 class HistTypes:
@@ -74,7 +75,7 @@ class HistOutput(FemBase):
     def __init__(
         self,
         name: str,
-        fem_set: Union[FemSet, None],
+        fem_set: Union[FemSet, None, List[Surface]],
         set_type: str,
         variables: List[str],
         int_value=1,

@@ -10,7 +10,7 @@ from ada.fem.concepts.eigenvalue import EigenDataSummary, EigenMode
 from ada.fem.elements import ElemShape
 from ada.fem.results import Results
 
-from .reader import med_to_fem
+from .read.reader import med_to_fem
 
 
 def get_eigen_data(rmed_file) -> EigenDataSummary:

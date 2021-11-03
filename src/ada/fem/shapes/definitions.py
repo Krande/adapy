@@ -59,6 +59,7 @@ class ElemType:
 
     MASSES = ["MASS", "ROTARYI"]
     SPRINGS1n = ["SPRING1"]
+    CONNECTORS = ["CONNECTOR"]
 
     all = [SHELL, SOLID, LINE]
 
@@ -137,11 +138,11 @@ class ElemShape:
 
     @property
     def edges_seq(self) -> Union[np.ndarray, None]:
-        from .abaqus_line_el import line_edges
-        from .abaqus_sh_el import shell_edges
-        from .abaqus_vol_el import volume_edges
+        from .lines import line_edges
+        from .shells import shell_edges
+        from .solids import solid_edges
 
-        edge_map = {ElemType.LINE: line_edges, ElemType.SHELL: shell_edges, ElemType.SOLID: volume_edges}
+        edge_map = {ElemType.LINE: line_edges, ElemType.SHELL: shell_edges, ElemType.SOLID: solid_edges}
         generalized_type = self.type
         edges_repo = edge_map[self.elem_type_group]
         if generalized_type not in edges_repo.keys():
@@ -152,10 +153,10 @@ class ElemShape:
 
     @property
     def faces_seq(self):
-        from .abaqus_sh_el import shell_faces
-        from .abaqus_vol_el import volume_faces
+        from .shells import shell_faces
+        from .solids import solid_faces
 
-        face_map = {ElemType.LINE: None, ElemType.SHELL: shell_faces, ElemType.SOLID: volume_faces}
+        face_map = {ElemType.LINE: None, ElemType.SHELL: shell_faces, ElemType.SOLID: solid_faces}
         generalized_type = self.type
         faces_repo = face_map[self.elem_type_group]
         if generalized_type not in faces_repo.keys():
@@ -172,14 +173,14 @@ class ElemShape:
 
     @property
     def volumes_seq(self):
-        from .abaqus_vol_el import volume_faces
         from .mesh_types import abaqus_to_meshio_type
+        from .solids import solid_faces
 
         generalized_type = abaqus_to_meshio_type.get(self.type, self.type)
-        if generalized_type not in volume_faces.keys():
+        if generalized_type not in solid_faces.keys():
             logging.error(f"Element type {self.type} is currently not supported")
             return None
-        return volume_faces[generalized_type]
+        return solid_faces[generalized_type]
 
     @staticmethod
     def is_valid_elem(elem_type):
@@ -189,6 +190,7 @@ class ElemShape:
             + ElemType.SOLID_SHAPES.all
             + ElemType.MASSES
             + ElemType.SPRINGS1n
+            + ElemType.CONNECTORS
         )
         valid_element_types_upper = [x.upper() for x in valid_element_types]
         value = elem_type.upper()
@@ -201,7 +203,7 @@ class ElemShape:
     def num_nodes(el_name):
         num_map = {
             1: ElemShapeTypes.masses + ElemShapeTypes.spring1n,
-            2: [LineShapes.LINE],
+            2: [LineShapes.LINE] + ElemShapeTypes.connectors,
             3: [LineShapes.LINE3, ShellShapes.TRI],
             4: [ShellShapes.QUAD, SolidShapes.TETRA],
             5: [SolidShapes.PYRAMID5],
