@@ -1,6 +1,11 @@
 import re
+from typing import TYPE_CHECKING, Union
 
 _re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
+
+if TYPE_CHECKING:
+    from ada import FEM, Part
+    from ada.fem import FemSet, Surface
 
 
 class AbaFF:
@@ -87,3 +92,44 @@ class AbaFF:
     @property
     def regex(self):
         return re.compile(self.regstr, re.IGNORECASE | re.MULTILINE | re.DOTALL)
+
+
+def list_cleanup(membulkstr):
+    return membulkstr.replace(",\n", ",").replace("\n", ",")
+
+
+def is_set_in_part(part: "Part", set_name: str, set_type) -> Union["FemSet", "Surface"]:
+    """
+
+    :param part:
+    :param set_name:
+    :param set_type:
+
+    :return: Set (node, element or surface)
+    """
+
+    set_map = {"nset": part.fem.nsets, "elset": part.fem.elsets, "surface": part.fem.surfaces}
+    el_map = {"nset": part.fem.nodes, "elset": part.fem.elements}
+
+    if set_name in set_map[set_type].keys():
+        return set_map[set_type][set_name]
+    else:
+        _id = int(set_name)
+        return el_map[set_type].from_id(_id)
+
+
+def get_set_from_assembly(set_str: str, fem: "FEM", set_type) -> Union["FemSet", "Surface"]:
+    res = set_str.split(".")
+    if len(res) == 1:
+        set_map = {"nset": fem.nsets, "elset": fem.elsets, "surface": fem.surfaces}
+        set_name = res[0]
+        return set_map[set_type][set_name]
+    else:
+        set_name = res[1]
+        p_name = res[0]
+        for part in fem.parent.get_all_parts_in_assembly():
+            if p_name == part.fem.instance_name:
+                r = is_set_in_part(part, set_name, set_type)
+                if r is not None:
+                    return r
+    raise ValueError(f'No {set_type} "{set_str}" was found')

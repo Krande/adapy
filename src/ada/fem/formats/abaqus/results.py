@@ -5,6 +5,10 @@ from typing import List, Union
 
 from ada.fem import StepEigen
 from ada.fem.concepts.eigenvalue import EigenDataSummary, EigenMode
+from ada.fem.exceptions.fea_execution import (
+    FEAnalysisUnableToStart,
+    FEAnalysisUnsuccessfulError,
+)
 from ada.fem.formats.utils import DatFormatReader
 from ada.fem.results import Results
 
@@ -54,5 +58,17 @@ def read_abaqus_results(results: Results, file_ref: pathlib.Path, overwrite):
     if dat_file.exists():
         results.eigen_mode_data = get_eigen_data(dat_file)
 
+    check_execution(file_ref)
+
     logging.error("Result mesh data extraction is not supported for abaqus")
     return None
+
+
+def check_execution(file_ref: pathlib.Path):
+    sta_file = file_ref.with_suffix(".sta")
+    if sta_file.exists() is False:
+        raise FEAnalysisUnableToStart()
+
+    with open(sta_file, "r") as f:
+        if "THE ANALYSIS HAS NOT BEEN COMPLETED" in f.read():
+            raise FEAnalysisUnsuccessfulError()

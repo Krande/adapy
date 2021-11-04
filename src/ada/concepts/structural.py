@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Union
+from typing import Dict, List, Union
 
 import numpy as np
 
@@ -318,7 +318,8 @@ class Beam(BackendGeom):
         add_multiple_props_to_elem(self.metadata.get("props", dict()), ifc_beam, f)
 
         # Material
-        ifc_mat = a.ifc_materials[self.material.name]
+        all_mat: Dict[str, Material] = {mat.name: mat for p in a.get_all_parts_in_assembly(True) for mat in p.materials}
+        ifc_mat = all_mat[self.material.name].ifc_mat
         mat_profile = f.createIfcMaterialProfile(sec.name, "A material profile", ifc_mat, profile, None, "LoadBearing")
         mat_profile_set = f.createIfcMaterialProfileSet(sec.name, None, [mat_profile], None)
 

@@ -7,11 +7,12 @@ from ada.config import Settings
 from ada.fem import Bc, Connector, ConnectorSection, Constraint, Elem, FemSet
 
 if TYPE_CHECKING:
-    from ada import FEM, Assembly, Node
+    from ada import FEM, Assembly
 
 
 def convert_ecc_to_mpc(fem: "FEM"):
     """Converts beam offsets to MPC constraints"""
+    from ada import Node
     from ada.core.vector_utils import vector_length
 
     edited_nodes = dict()

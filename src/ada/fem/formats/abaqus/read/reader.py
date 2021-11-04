@@ -7,7 +7,7 @@ import pathlib
 import re
 from dataclasses import dataclass
 from itertools import chain
-from typing import TYPE_CHECKING, Dict, List, Union
+from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
@@ -18,8 +18,6 @@ from ada.concepts.transforms import Rotation, Transform
 from ada.core.utils import Counter, roundoff
 from ada.fem import (
     Bc,
-    Connector,
-    ConnectorSection,
     Constraint,
     Csys,
     FemSet,
@@ -35,10 +33,10 @@ from ada.fem.shapes import ElemType
 from ada.materials.metals import CarbonSteel
 
 from . import cards
-from .helper_utils import _re_in
-from .read_elements import get_elem_from_bulk_str
+from .helper_utils import _re_in, get_set_from_assembly, list_cleanup
+from .read_elements import get_elem_from_bulk_str, update_connector_data
 from .read_masses import get_mass_from_bulk
-from .read_sections import get_sections_from_inp
+from .read_sections import get_connector_sections_from_bulk, get_sections_from_inp
 
 part_name_counter = Counter(1, "Part")
 
@@ -102,16 +100,19 @@ def read_fem(fem_file, fem_name=None) -> Assembly:
         ass_sets = assembly_str[inst_end:]
         assembly.fem.nodes += get_nodes_from_inp(ass_sets, assembly.fem)
         assembly.fem.lcsys.update(get_lcsys_from_bulk(ass_sets, assembly.fem))
+        assembly.fem.connector_sections.update(get_connector_sections_from_bulk(props_str, assembly.fem))
         assembly.fem.elements += get_elem_from_bulk_str(ass_sets, assembly.fem)
         assembly.fem.elements.build_sets()
         assembly.fem.sets += get_sets_from_bulk(ass_sets, assembly.fem)
         assembly.fem.sets.link_data()
+
+        update_connector_data(ass_sets, assembly.fem)
+
         assembly.fem.surfaces.update(get_surfaces_from_bulk(ass_sets, assembly.fem))
         assembly.fem.constraints += get_constraints_from_inp(ass_sets, assembly.fem)
-        assembly.fem.connector_sections.update(get_connector_sections_from_bulk(props_str, assembly.fem))
-        assembly.fem.connectors.update(get_connectors_from_inp(ass_sets, assembly.fem))
+
         assembly.fem.bcs += get_bcs_from_bulk(props_str, assembly.fem)
-        assembly.fem.masses.update(get_mass_from_bulk(bulk_str, assembly.fem))
+        assembly.fem.masses.update(get_mass_from_bulk(ass_sets, assembly.fem))
 
     add_interactions_from_bulk_str(props_str, assembly)
     get_initial_conditions_from_lines(assembly, props_str)
@@ -470,8 +471,12 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
         gen_mem = str_to_ints(members_str) if generate is True else []
         members = [] if generate is True else str_to_ints(members_str)
         metadata = dict(instance=instance, internal=internal, generate=generate, gen_mem=gen_mem)
-
         parent_instance = get_parent_instance(instance)
+
+        if set_type.lower() == "elset":
+            members = [parent_instance.elements.from_id(el_id) for el_id in members]
+        else:
+            members = [parent_instance.nodes.from_id(el_id) for el_id in members]
 
         fem_set = FemSet(
             name,
@@ -480,6 +485,7 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
             metadata=metadata,
             parent=parent_instance,
         )
+
         return fem_set
 
     return FemSets([get_set(x) for x in cards.re_sets.finditer(bulk_str)], parent=fem)
@@ -702,15 +708,15 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM):
     for m in cards.tie.regex.finditer(bulk_str):
         d = m.groupdict()
         name = d["name"]
-        msurf = grab_set_from_assembly(d["surf1"], fem, "surface")
-        ssurf = grab_set_from_assembly(d["surf2"], fem, "surface")
+        msurf = get_set_from_assembly(d["surf1"], fem, "surface")
+        ssurf = get_set_from_assembly(d["surf2"], fem, "surface")
         constraints.append(Constraint(name, Constraint.TYPES.TIE, msurf, ssurf, metadata=dict(adjust=d["adjust"])))
 
     for m in cards.rigid_bodies.regex.finditer(bulk_str):
         d = m.groupdict()
         name = next(rbnames)
-        ref_node = grab_set_from_assembly(d["ref_node"], fem, FemSet.TYPES.NSET)
-        elset = grab_set_from_assembly(d["elset"], fem, FemSet.TYPES.ELSET)
+        ref_node = get_set_from_assembly(d["ref_node"], fem, FemSet.TYPES.NSET)
+        elset = get_set_from_assembly(d["elset"], fem, FemSet.TYPES.ELSET)
         constraints.append(Constraint(name, Constraint.TYPES.RIGID_BODY, ref_node, elset, parent=fem))
 
     couplings = []
@@ -749,8 +755,8 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM):
         d = m.groupdict()
         name = d["constraint_name"]
         influence = d["influence_distance"]
-        surf1 = grab_set_from_assembly(d["surf1"], fem, "surface")
-        surf2 = grab_set_from_assembly(d["surf2"], fem, "surface")
+        surf1 = get_set_from_assembly(d["surf1"], fem, "surface")
+        surf2 = get_set_from_assembly(d["surf2"], fem, "surface")
         sh2solids.append(Constraint(name, Constraint.TYPES.SHELL2SOLID, surf1, surf2, influence_distance=influence))
 
     # MPC's
@@ -770,13 +776,13 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM):
                 n1_ = str_to_int(m)
             except BaseException as e:
                 logging.debug(e)
-                n1_ = grab_set_from_assembly(m, fem, FemSet.TYPES.NSET)
+                n1_ = get_set_from_assembly(m, fem, FemSet.TYPES.NSET)
 
             try:
                 n2_ = str_to_int(s)
             except BaseException as e:
                 logging.debug(e)
-                n2_ = grab_set_from_assembly(s, fem, FemSet.TYPES.NSET)
+                n2_ = get_set_from_assembly(s, fem, FemSet.TYPES.NSET)
 
             mpc_dict[mpc_type].append((n1_, n2_))
 
@@ -790,56 +796,6 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM):
     mpcs = [get_mpc(mpc_values_in) for mpc_values_in in mpc_dict.values()]
 
     return list(chain.from_iterable([constraints, couplings, sh2solids, mpcs]))
-
-
-def get_connector_sections_from_bulk(bulk_str: str, parent: FEM) -> dict[str, ConnectorSection]:
-    consecsd = dict()
-
-    for m in cards.connector_behaviour.regex.finditer(bulk_str):
-        d = m.groupdict()
-        name = d["name"]
-        comp = int(d["component"])
-
-        res = np.fromstring(list_cleanup(d["bulk"]), sep=",", dtype=np.float64)
-        size = res.size
-        cols = comp + 1
-        rows = int(size / cols)
-        res_ = res.reshape(rows, cols)
-        consecsd[name] = ConnectorSection(name, [res_], [], metadata=d, parent=parent)
-    return consecsd
-
-
-def get_connectors_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Connector]:
-    """Extract connector elements from bulk string"""
-
-    nsuffix = Counter(1, "_")
-    cons = dict()
-    for m in cards.connector_section.regex.finditer(bulk_str):
-        d = m.groupdict()
-        name = d["behavior"] + next(nsuffix)
-        elset = fem.elsets[d["elset"]]
-        elem = elset.members[0]
-
-        csys_ref = d["csys"].replace('"', "")
-        csys_ref = csys_ref[:-1] if csys_ref[-1] == "," else csys_ref
-
-        con_type = d["contype"]
-        if con_type[-1] == ",":
-            con_type = con_type[:-1]
-
-        n1 = elem.nodes[0]
-        n2 = elem.nodes[1]
-
-        cons[name] = Connector(
-            name,
-            elem.id,
-            n1,
-            n2,
-            con_type,
-            fem.connector_sections[d["behavior"]],
-            csys=fem.lcsys[csys_ref],
-        )
-    return cons
 
 
 def add_interactions_from_bulk_str(bulk_str, assembly: Assembly) -> None:
@@ -882,44 +838,3 @@ def add_interactions_from_bulk_str(bulk_str, assembly: Assembly) -> None:
         assembly.fem.add_interaction(
             Interaction(next(gen_name), "general", None, None, intprop, metadata=dict(aba_bulk=interact_str))
         )
-
-
-def list_cleanup(membulkstr):
-    return membulkstr.replace(",\n", ",").replace("\n", ",")
-
-
-def is_set_in_part(part: Part, set_name: str, set_type) -> Union[FemSet, Surface]:
-    """
-
-    :param part:
-    :param set_name:
-    :param set_type:
-
-    :return: Set (node, element or surface)
-    """
-
-    set_map = {"nset": part.fem.nsets, "elset": part.fem.elsets, "surface": part.fem.surfaces}
-    el_map = {"nset": part.fem.nodes, "elset": part.fem.elements}
-
-    if set_name in set_map[set_type].keys():
-        return set_map[set_type][set_name]
-    else:
-        _id = int(set_name)
-        return el_map[set_type].from_id(_id)
-
-
-def grab_set_from_assembly(set_str: str, fem: FEM, set_type) -> Union[FemSet, Surface]:
-    res = set_str.split(".")
-    if len(res) == 1:
-        set_map = {"nset": fem.nsets, "elset": fem.elsets, "surface": fem.surfaces}
-        set_name = res[0]
-        return set_map[set_type][set_name]
-    else:
-        set_name = res[1]
-        p_name = res[0]
-        for part in fem.parent.get_all_parts_in_assembly():
-            if p_name == part.fem.instance_name:
-                r = is_set_in_part(part, set_name, set_type)
-                if r is not None:
-                    return r
-    raise ValueError(f'No {set_type} "{set_str}" was found')

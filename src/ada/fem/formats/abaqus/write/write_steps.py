@@ -96,7 +96,7 @@ def load_str(step: _step_types):
 
 
 def restart_request_str(step: _step_types):
-    solver_options = step.parent.options.ABAQUS.solver
+    solver_options = step.options.ABAQUS
     if solver_options.restart_int is None:
         return "** No Restart Requests"
     return f"*Restart, write, frequency={solver_options.restart_int}"
@@ -104,7 +104,7 @@ def restart_request_str(step: _step_types):
 
 def dynamic_implicit_str(step: StepImplicit):
     return f"""*Step, name={step.name}, nlgeom={bool2text(step.nl_geom)}, inc={step.total_incr}
-*Dynamic,application={step.dyn_type}, INITIAL={bool2text(step.solver_options.init_accel_calc)}
+*Dynamic,application={step.dyn_type}, INITIAL={bool2text(step.options.init_accel_calc)}
 {step.init_incr},{step.total_time},{step.min_incr}, {step.max_incr}"""
 
 
@@ -118,7 +118,7 @@ def explicit_str(step: StepExplicit):
 
 def static_step_str(step: StepImplicit):
     stabilize_str = ""
-    solver_options = step.parent.options.ABAQUS.solver
+    solver_options = step.options.ABAQUS
     stabilize = solver_options.stabilize
 
     if stabilize is not None:
@@ -146,7 +146,7 @@ def eigenfrequency_str(step: StepEigen):
 
 
 def complex_eig_str(step: StepEigenComplex):
-    unsymm = bool2text(step.solver_options.unsymm)
+    unsymm = bool2text(step.options.unsymm)
     return f"""** ----------------------------------------------------------------
 **
 ** STEP: complex_eig

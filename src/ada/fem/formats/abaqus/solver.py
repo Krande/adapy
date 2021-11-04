@@ -31,8 +31,7 @@ class Stabilize:
 
 
 @dataclass
-class SolverOptionsAbaqus:
-
+class AbaqusStepOptions:
     init_accel_calc: bool = True
     restart_int: int = None
     unsymm: bool = False

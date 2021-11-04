@@ -129,6 +129,10 @@ class Elem(FemBase):
     def elset(self):
         return self._elset
 
+    @elset.setter
+    def elset(self, value: "FemSet"):
+        self._elset = value
+
     @property
     def fem_sec(self) -> "FemSection":
         return self._fem_sec
@@ -239,9 +243,17 @@ class Connector(Elem):
     def con_type(self):
         return self._con_type
 
+    @con_type.setter
+    def con_type(self, value: str):
+        self._con_type = value
+
     @property
     def con_sec(self) -> "ConnectorSection":
         return self._con_sec
+
+    @con_sec.setter
+    def con_sec(self, value: "ConnectorSection"):
+        self._con_sec = value
 
     @property
     def n1(self) -> Node:
@@ -262,6 +274,10 @@ class Connector(Elem):
     @property
     def csys(self) -> Csys:
         return self._csys
+
+    @csys.setter
+    def csys(self, value: Csys):
+        self._csys = value
 
     def __repr__(self):
         return f'ConnectorElem(ID: {self.id}, Type: {self.type}, End1: "{self.n1}", End2: "{self.n2}")'

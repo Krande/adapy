@@ -20,7 +20,7 @@ from .elements import Elem, MassTypes
 from .exceptions.model_definition import FemSetNameExists
 from .sections import FemSection
 from .sets import FemSet, SetTypes
-from .shapes import ElemShapeTypes, ElemType
+from .shapes import ElemType
 
 if TYPE_CHECKING:
     from ada import FEM
@@ -271,7 +271,7 @@ class FemElements:
 
     @property
     def connectors(self):
-        return filter(lambda x: x.type in ElemShapeTypes.connectors, self.stru_elements)
+        return filter(lambda x: x.type == ElemType.CONNECTOR_SHAPES.CONNECTOR, self.elements)
 
     @property
     def masses(self) -> Iterable[Elem]:
@@ -292,11 +292,6 @@ class FemElements:
 
             spring_id_map = {m.id: m for m in self.parent.springs.values()}
             res = spring_id_map.get(el_id, None)
-            if res is not None:
-                return res
-
-            connectors_id_map = {m.id: m for m in self.parent.connectors.values()}
-            res = connectors_id_map.get(el_id, None)
             if res is not None:
                 return res
 

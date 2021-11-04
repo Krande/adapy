@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from ada.fem import Mass
 from ada.fem.formats.utils import str_to_int
 
-from .helper_utils import _re_in
+from .helper_utils import _re_in, get_set_from_assembly
 
 if TYPE_CHECKING:
     from ada import FEM
@@ -30,7 +30,7 @@ def get_mass_from_bulk(bulk_str, parent: "FEM"):
 
 def get_mass(match, parent: "FEM"):
     d = match.groupdict()
-    elset = parent.sets.get_elset_from_name(d["elset"])
+    elset = get_set_from_assembly(d["elset"], parent, "elset")
     mass_type = d["mass_type"]
     p_type = d["ptype"]
     mass_ints = [str_to_int(x.strip()) for x in d["mass"].split(",") if x.strip() != ""]

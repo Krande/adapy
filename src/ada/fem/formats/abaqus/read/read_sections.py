@@ -6,12 +6,13 @@ from itertools import chain
 from typing import TYPE_CHECKING, Iterable
 
 from ada.core.utils import Counter, roundoff
-from ada.fem import FemSection
+from ada.fem import ConnectorSection, FemSection
 from ada.fem.containers import FemSections
 from ada.fem.elements import Eccentricity
 from ada.fem.shapes import ElemType
 
 from . import cards
+from .helper_utils import list_cleanup
 
 part_name_counter = Counter(1, "Part")
 _re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
@@ -218,3 +219,22 @@ def get_shell_section(m, sh_name, fem: "FEM", a: "Assembly"):
         parent=fem,
         metadata=metadata,
     )
+
+
+def get_connector_sections_from_bulk(bulk_str: str, parent: FEM) -> dict[str, ConnectorSection]:
+    import numpy as np
+
+    consecsd = dict()
+
+    for m in cards.connector_behaviour.regex.finditer(bulk_str):
+        d = m.groupdict()
+        name = d["name"]
+        comp = int(d["component"])
+
+        res = np.fromstring(list_cleanup(d["bulk"]), sep=",", dtype=np.float64)
+        size = res.size
+        cols = comp + 1
+        rows = int(size / cols)
+        res_ = res.reshape(rows, cols)
+        consecsd[name] = ConnectorSection(name, [res_], [], metadata=d, parent=parent)
+    return consecsd

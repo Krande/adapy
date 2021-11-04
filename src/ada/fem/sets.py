@@ -30,12 +30,13 @@ class FemSet(FemBase):
     TYPES = SetTypes
 
     def __init__(
-        self, name, members: Union[None, List[Union["Elem", "Node", tuple]]], set_type=None, metadata=None, parent=None
+        self, name, members: Union[None, List[Union["Elem", "Node"]]], set_type=None, metadata=None, parent=None
     ):
         super().__init__(name, metadata, parent)
         if set_type is None:
             set_type = eval_set_type_from_members(members)
-
+        for m in members:
+            m.refs.append(self)
         self._set_type = set_type
         if self.type not in SetTypes.all:
             raise ValueError(f'set type "{set_type}" is not valid')

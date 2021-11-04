@@ -215,6 +215,11 @@ class LoadPressure(Load):
         return self._distribution
 
 
+class LoadGravity(Load):
+    def __init__(self, name):
+        super(LoadGravity, self).__init__(name, Load.TYPES.GRAVITY, -9.81)
+
+
 class LoadCase(FemBase):
     def __init__(
         self,

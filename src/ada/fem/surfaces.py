@@ -96,7 +96,7 @@ def create_surface_from_nodes(surface_name: str, nodes: List[Node], fem: "FEM", 
     from ada.fem.elements import find_element_type_from_list
     from ada.fem.shapes import ElemType
 
-    all_el = [el for n in nodes for el in n.refs]
+    all_el = [el for n in nodes for el in filter(lambda x: type(x) is Elem, n.refs)]
     el_type = find_element_type_from_list(all_el)
 
     surf_map = {

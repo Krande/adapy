@@ -607,6 +607,10 @@ class Part(BackendGeom):
     def materials(self) -> Materials:
         return self._materials
 
+    @materials.setter
+    def materials(self, value: Materials):
+        self._materials = value
+
     @property
     def colour(self):
         if self._colour is None:
@@ -953,6 +957,7 @@ class Assembly(Part):
                 return None
 
         fem_importer, _ = get_fem_converters(fem_file, fem_format, fem_converter)
+
         temp_assembly: Assembly = fem_importer(fem_file, name)
         for p in temp_assembly.get_all_parts_in_assembly():
             p.parent = self
@@ -1194,13 +1199,6 @@ class Assembly(Part):
         return ifc_f
 
     @property
-    def materials(self):
-        mat_db = Materials([mat for mat in self._materials], parent=self)
-        for mat in list(chain.from_iterable([p.materials for p in self.get_all_parts_in_assembly()])):
-            mat_db.add(mat)
-        return mat_db
-
-    @property
     def sections(self):
         sec_db = Sections([sec for sec in self._sections], parent=self)
         for sec in list(chain.from_iterable([p.sections for p in self.get_all_parts_in_assembly()])):
@@ -1262,18 +1260,7 @@ class Assembly(Part):
                         else:
                             raise NotImplementedError()
                     break
-
-        for n in other.fem.nodes:
-            n.parent = self.fem
-            self.fem.nodes.add(n, allow_coincident=True)
-
-        for name, con in other.fem.connectors.items():
-            con.parent = self.fem
-            self.fem.connectors[name] = con
-
-        for name, con_sec in other.fem.connector_sections.items():
-            con_sec.parent = self.fem
-            self.fem.connector_sections[name] = con_sec
+        self.fem += other.fem
 
         return self
 
@@ -1332,7 +1319,6 @@ class FEM:
     masses: Dict[str, Mass] = field(init=False, default_factory=dict)
     surfaces: Dict[str, Surface] = field(init=False, default_factory=dict)
     amplitudes: Dict[str, Amplitude] = field(init=False, default_factory=dict)
-    connectors: Dict[str, Connector] = field(init=False, default_factory=dict)
     connector_sections: Dict[str, ConnectorSection] = field(init=False, default_factory=dict)
     springs: Dict[str, Spring] = field(init=False, default_factory=dict)
     intprops: Dict[str, InteractionProperty] = field(init=False, default_factory=dict)
@@ -1494,9 +1480,10 @@ class FEM:
 
     def add_connector(self, connector: Connector) -> Connector:
         connector.parent = self
-        self.connectors[connector.name] = connector
-        connector.csys.parent = self
         self.elements.add(connector)
+        connector.csys.parent = self
+        if connector.con_sec.parent is None:
+            self.add_connector_section(connector.con_sec)
         self.add_set(FemSet(name=connector.name, members=[connector], set_type="elset"))
         return connector
 
@@ -1596,6 +1583,7 @@ class FEM:
         nodid_max = self.nodes.max_nid if len(self.nodes) > 0 else 0
         if nodid_max > other.nodes.min_nid:
             other.nodes.renumber(int(nodid_max + 10))
+
         self.nodes.parent = self
         self.nodes += other.nodes
 
@@ -1623,10 +1611,6 @@ class FEM:
             csys.parent = self
             self.lcsys[name] = csys
 
-        for name, connector in other.connectors.items():
-            connector.parent = self
-            self.connectors[name] = connector
-
         for name, con_sec in other.connector_sections.items():
             con_sec.parent = self
             self.connector_sections[name] = con_sec
@@ -1638,6 +1622,11 @@ class FEM:
         for name, surface in other.surfaces.items():
             surface.parent = self
             self.surfaces[name] = surface
+
+        if self.parent is None or other.parent is None:
+            return self
+
+        self.parent.materials += other.parent.materials
 
         return self
 

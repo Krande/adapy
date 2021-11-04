@@ -65,7 +65,7 @@ class AbaqusWriter:
         self.analysis_path = analysis_dir
 
         for part in self.assembly.get_all_subparts():
-            if len(part.fem.elements) + len(part.fem.connectors) == 0:
+            if len(part.fem.elements) == 0:
                 continue
             if self.assembly.convert_options.hinges_to_coupling is True:
                 convert_hinges_2_couplings(part.fem)
@@ -88,7 +88,7 @@ class AbaqusWriter:
 
         # Connectors
         with open(core_dir / "connectors.inp", "w") as d:
-            d.write(self.connectors_str if len(self.assembly.fem.connectors) > 0 else "**")
+            d.write(self.connectors_str if len(list(self.assembly.fem.elements.connectors)) > 0 else "**")
 
         # Constraints
         with open(core_dir / "constraints.inp", "w") as d:
@@ -208,12 +208,12 @@ class AbaqusWriter:
         def skip_if_this(p):
             if p.fem.initial_state is not None:
                 return False
-            return len(p.fem.elements) + len(p.fem.connectors) != 0
+            return len(p.fem.elements)
 
         def inst_skip(p):
             if p.fem.initial_state is not None:
                 return True
-            return len(p.fem.elements) + len(p.fem.connectors) != 0
+            return len(p.fem.elements)
 
         part_str = "\n".join(map(part_inp_str, filter(skip_if_this, self.assembly.get_all_subparts())))
         instance_str = "\n".join(map(self.inst_inp_str, filter(inst_skip, self.assembly.get_all_subparts())))
@@ -288,7 +288,7 @@ class AbaqusWriter:
 
     @property
     def connectors_str(self):
-        return "\n".join([connector_str(con, True) for con in self.assembly.fem.connectors.values()])
+        return "\n".join([connector_str(con, True) for con in self.assembly.fem.elements.connectors])
 
     @property
     def amplitude_str(self):

@@ -350,6 +350,12 @@ class NumericMapped(BaseCollections):
         self._name_map = {n.name: n for n in collection}
         self._id_map = {n.id: n for n in collection}
 
+    @property
+    def max_id(self):
+        if len(self._id_map.keys()) == 0:
+            return 0
+        return max(self._id_map.keys())
+
 
 class Materials(NumericMapped):
     """Collection of materials"""
@@ -387,8 +393,9 @@ class Materials(NumericMapped):
         return self._materials != other._materials
 
     def __add__(self, other: Materials):
-        max_id = max(self.id_map.keys())
-        other.renumber_id(max_id + 1)
+        for mat in other:
+            mat.parent = self.parent
+        other.renumber_id(self.max_id + 1)
         return Materials(chain(self, other))
 
     def __repr__(self):
@@ -515,8 +522,9 @@ class Sections(NumericMapped):
         return Sections(result) if isinstance(index, slice) else result
 
     def __add__(self, other: Sections):
-        max_id = max(self.id_map.keys())
-        other.renumber_id(max_id + 1)
+        for sec in other:
+            sec.parent = self.parent
+        other.renumber_id(self.max_id + 1)
         return Sections(chain(self, other))
 
     def __repr__(self):
