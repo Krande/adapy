@@ -76,7 +76,7 @@ def eval_set_type_from_members(members: List[Union["Elem", Node]]) -> str:
     res = set([type(mem) for mem in members])
     if len(res) == 1 and type(members[0]) is Node:
         return FemSet.TYPES.NSET
-    elif len(res) == 1 and type(members[0]) is Elem:
+    elif len(res) == 1 and issubclass(type(members[0]), Elem):
         return FemSet.TYPES.ELSET
     elif len(res) == 1 and type(members[0]) is tuple:
         return FemSet.TYPES.NSET
