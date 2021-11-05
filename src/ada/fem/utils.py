@@ -76,3 +76,11 @@ def is_tri6_shell_elem(sh_fs):
 def is_quad8_shell_elem(sh_fs):
     elem_check = [x.type == ElemShape.TYPES.shell.QUAD8 for x in sh_fs.elset.members]
     return all(elem_check)
+
+
+def is_parent_of_node_solid(no: "Node") -> bool:
+    refs = no.refs
+    for elem in refs:
+        if elem.type in ElemShape.TYPES.solids.all:
+            return True
+    return False

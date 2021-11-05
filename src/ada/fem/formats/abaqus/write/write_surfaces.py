@@ -1,6 +1,18 @@
+from typing import TYPE_CHECKING
+
 from ada.fem import Surface
 
 from .helper_utils import get_instance_name
+
+if TYPE_CHECKING:
+    from ada import FEM
+
+
+def surfaces_str(fem: "FEM"):
+    if len(fem.surfaces) == 0:
+        return "** No Surfaces"
+
+    return "\n".join([surface_str(s, False) for s in fem.surfaces.values()])
 
 
 def surface_str(surface: Surface, write_on_assembly_level: bool) -> str:

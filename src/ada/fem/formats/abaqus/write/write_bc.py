@@ -1,6 +1,13 @@
+from itertools import chain
+from typing import TYPE_CHECKING
+
 from ada.fem import Bc
 
 from .helper_utils import get_instance_name
+
+if TYPE_CHECKING:
+    from ada import Assembly
+
 
 aba_bc_map = {
     Bc.TYPES.DISPL: "Displacement/Rotation",
@@ -17,7 +24,19 @@ valid_aba_bcs = list(aba_bc_map.values()) + [
 ]
 
 
-def bc_str(bc: Bc, written_on_assembly_level: bool) -> str:
+def boundary_conditions_str(assembly: "Assembly"):
+
+    return "\n".join(
+        chain.from_iterable(
+            (
+                [bc_str(bc, True) for bc in assembly.fem.bcs],
+                [bc_str(bc, True) for p in assembly.get_all_parts_in_assembly() for bc in p.fem.bcs],
+            )
+        )
+    )
+
+
+def bc_str(bc: "Bc", written_on_assembly_level: bool) -> str:
     ampl_ref_str = "" if bc.amplitude_name is None else ", amplitude=" + bc.amplitude_name
     fem_set = bc.fem_set
     inst_name = get_instance_name(fem_set, written_on_assembly_level)

@@ -1,5 +1,4 @@
 import os
-from itertools import chain
 from operator import attrgetter
 from typing import TYPE_CHECKING, Union
 
@@ -16,17 +15,18 @@ from ada.fem.steps import (
 )
 
 from .helper_utils import get_instance_name
-from .write_connectors import connector_section_str, connector_str
-from .write_constraints import constraint_str
+from .write_bc import boundary_conditions_str
+from .write_connectors import connector_sections_str, connectors_str
+from .write_constraints import constraints_str
 from .write_elements import elements_str
 from .write_masses import masses_str
 from .write_materials import materials_str
 from .write_orientations import orientations_str
 from .write_output_requests import predefined_field_str
-from .write_sections import section_str
-from .write_sets import aba_set_str
+from .write_sections import sections_str
+from .write_sets import elsets_str, nsets_str
 from .write_steps import abaqus_step_str
-from .write_surfaces import surface_str
+from .write_surfaces import surfaces_str
 
 if TYPE_CHECKING:
     from ada.concepts.levels import Assembly, Part
@@ -84,15 +84,15 @@ class AbaqusWriter:
 
         # Connector Sections
         with open(core_dir / "connector_sections.inp", "w") as d:
-            d.write(self.connector_sections_str)
+            d.write(connector_sections_str(self.assembly))
 
         # Connectors
         with open(core_dir / "connectors.inp", "w") as d:
-            d.write(self.connectors_str if len(list(self.assembly.fem.elements.connectors)) > 0 else "**")
+            d.write(connectors_str(self.assembly) if len(list(self.assembly.fem.elements.connectors)) > 0 else "**")
 
         # Constraints
         with open(core_dir / "constraints.inp", "w") as d:
-            d.write(self.constraints_str if len(self.assembly.fem.constraints) > 0 else "**")
+            d.write(constraints_str(self.assembly.fem) if len(self.assembly.fem.constraints) > 0 else "**")
 
         # Assembly data
         with open(core_dir / "assembly_data.inp", "w") as d:
@@ -108,7 +108,10 @@ class AbaqusWriter:
                 )
             else:
                 assembly_nodes_str = "** No Nodes"
-            d.write(f"{assembly_nodes_str}\n{self.nsets_str}\n{self.elsets_str}\n{self.surfaces_str}\n")
+            d.write(f"{assembly_nodes_str}\n")
+            d.write(f"{nsets_str(self.assembly.fem)}\n")
+            d.write(f"{elsets_str(self.assembly.fem)}\n")
+            d.write(f"{surfaces_str(self.assembly.fem)}\n")
             d.write(orientations_str(self.assembly, self) + "\n")
             d.write(elements_str(self.assembly.fem, True) + "\n")
             d.write(masses_str(self.assembly.fem))
@@ -132,7 +135,7 @@ class AbaqusWriter:
 
         # Boundary Condition data
         with open(core_dir / "bc_data.inp", "w") as d:
-            d.write(self.bc_str)
+            d.write(boundary_conditions_str(self.assembly))
 
         # Analysis steps
         for step_in in self.assembly.fem.steps:
@@ -224,14 +227,14 @@ class AbaqusWriter:
         )
         incl = "*INCLUDE,INPUT=core_input_files"
         ampl_str = f"\n{incl}\\amplitude_data.inp" if self.amplitude_str != "" else "**"
-        consec_str = f"\n{incl}\\connector_sections.inp" if self.connector_sections_str != "" else "**"
+        consec_str = f"\n{incl}\\connector_sections.inp" if connector_sections_str(self.assembly) != "" else "**"
         int_prop_str = f"{incl}\\interaction_prop.inp" if self.int_prop_str != "" else "**"
         if self.interact_str != "" or self.predefined_fields_str != "":
             interact_str = f"{incl}\\interactions.inp"
         else:
             interact_str = "**"
         mat_str = f"{incl}\\materials.inp"
-        fix_str = f"{incl}\\bc_data.inp" if self.bc_str != "" else "**"
+        fix_str = f"{incl}\\bc_data.inp" if boundary_conditions_str(self.assembly) != "" else "**"
 
         return main_inp_str.format(
             part_str=part_str,
@@ -245,46 +248,6 @@ class AbaqusWriter:
             interact_str=interact_str,
             constr_ctrl=self.constraint_control,
         )
-
-    @property
-    def elsets_str(self):
-        return (
-            "\n".join([aba_set_str(el, True) for el in self.assembly.fem.elsets.values()]).rstrip()
-            if len(self.assembly.fem.elsets) > 0
-            else "** No element sets"
-        )
-
-    @property
-    def nsets_str(self):
-        return (
-            "\n".join([aba_set_str(no, True) for no in self.assembly.fem.nsets.values()]).rstrip()
-            if len(self.assembly.fem.nsets) > 0
-            else "** No node sets"
-        )
-
-    @property
-    def surfaces_str(self):
-        return (
-            "\n".join([surface_str(s, True) for s in self.assembly.fem.surfaces.values()])
-            if len(self.assembly.fem.surfaces) > 0
-            else "** No Surfaces"
-        )
-
-    @property
-    def constraints_str(self):
-        return (
-            "\n".join([constraint_str(c, True) for c in self.assembly.fem.constraints])
-            if len(self.assembly.fem.constraints) > 0
-            else "** No Constraints"
-        )
-
-    @property
-    def connector_sections_str(self):
-        return "\n".join([connector_section_str(consec) for consec in self.assembly.fem.connector_sections.values()])
-
-    @property
-    def connectors_str(self):
-        return "\n".join([connector_str(con, True) for con in self.assembly.fem.elements.connectors])
 
     @property
     def amplitude_str(self):
@@ -318,19 +281,6 @@ class AbaqusWriter:
             ]
         )
 
-    @property
-    def bc_str(self):
-        from .write_bc import bc_str
-
-        return "\n".join(
-            chain.from_iterable(
-                (
-                    [bc_str(bc, True) for bc in self.assembly.fem.bcs],
-                    [bc_str(bc, True) for p in self.assembly.get_all_parts_in_assembly() for bc in p.fem.bcs],
-                )
-            )
-        )
-
     def __repr__(self):
         return "AbaqusWriter()"
 
@@ -347,31 +297,13 @@ class AbaqusPartWriter:
 *NODE
 {self.nodes_str}
 {elements_str(self.part.fem, False)}
-{self.elsets_str}
-{self.nsets_str}
-{self.sections_str}
+{elsets_str(self.part.fem)}
+{nsets_str(self.part.fem)}
+{sections_str(self.part.fem)}
 {masses_str(self.part.fem)}
-{self.surfaces_str}
-{self.constraints_str}
+{surfaces_str(self.part.fem)}
+{constraints_str(self.part.fem)}
 {self.springs_str}""".rstrip()
-
-    @property
-    def sections_str(self):
-        return section_str(self.part.fem)
-
-    @property
-    def elsets_str(self):
-        if len(self.part.fem.elsets) > 0:
-            return "\n".join([aba_set_str(el, False) for el in self.part.fem.elsets.values()]).rstrip()
-        else:
-            return "** No element sets"
-
-    @property
-    def nsets_str(self):
-        if len(self.part.fem.nsets) > 0:
-            return "\n".join([aba_set_str(no, False) for no in self.part.fem.nsets.values()]).rstrip()
-        else:
-            return "** No node sets"
 
     @property
     def nodes_str(self):
@@ -385,21 +317,6 @@ class AbaqusPartWriter:
             ).rstrip()
             if len(self.part.fem.nodes) > 0
             else "** No Nodes"
-        )
-
-    @property
-    def surfaces_str(self):
-        if len(self.part.fem.surfaces) > 0:
-            return "\n".join([surface_str(s, False) for s in self.part.fem.surfaces.values()])
-        else:
-            return "** No Surfaces"
-
-    @property
-    def constraints_str(self):
-        return (
-            "\n".join([constraint_str(c, False) for c in self.part.fem.constraints])
-            if len(self.part.fem.constraints) > 0
-            else "** No Constraints"
         )
 
     @property

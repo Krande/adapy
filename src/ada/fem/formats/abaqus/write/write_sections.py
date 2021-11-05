@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 log_fin = "Please check your result and input. This is not a validated method of solving this issue"
 
 
-def section_str(fem: "FEM"):
+def sections_str(fem: "FEM"):
     solids = fem.sections.solids
     shells = fem.sections.shells
     lines = fem.sections.lines

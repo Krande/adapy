@@ -1,8 +1,24 @@
 from itertools import groupby
 from operator import attrgetter
+from typing import TYPE_CHECKING
 
 from ada.core.utils import NewLine
 from ada.fem import FemSet
+
+if TYPE_CHECKING:
+    from ada import FEM
+
+
+def elsets_str(fem: "FEM"):
+    if len(fem.elsets) == 0:
+        return "** No element sets"
+    return "\n".join([aba_set_str(el, True) for el in fem.elsets.values()]).rstrip()
+
+
+def nsets_str(fem: "FEM"):
+    if len(fem.nsets) == 0:
+        return "** No node sets"
+    return "\n".join([aba_set_str(no, True) for no in fem.nsets.values()]).rstrip()
 
 
 def aba_set_str(fem_set: FemSet, written_on_assembly_level: bool):

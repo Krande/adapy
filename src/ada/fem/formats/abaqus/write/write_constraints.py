@@ -1,11 +1,23 @@
+from typing import TYPE_CHECKING
+
 from ada.fem import Constraint, FemSet, Surface
 
 from .helper_utils import get_instance_name
 from .write_orientations import csys_str
 from .write_surfaces import surface_str
 
+if TYPE_CHECKING:
+    from ada import FEM
+
 # Coupling definition:
 # https://abaqus-docs.mit.edu/2017/English/SIMACAEKEYRefMap/simakey-r-coupling.htm#simakey-r-coupling
+
+
+def constraints_str(fem: "FEM"):
+    if len(fem.constraints) == 0:
+        return "** No Constraints"
+
+    return "\n".join([constraint_str(c, True) for c in fem.constraints])
 
 
 def constraint_str(constraint: Constraint, on_assembly_level: bool):

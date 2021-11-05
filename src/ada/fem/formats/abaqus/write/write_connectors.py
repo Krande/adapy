@@ -5,7 +5,16 @@ from .helper_utils import get_instance_name
 from .write_orientations import csys_str
 
 if TYPE_CHECKING:
+    from ada import Assembly
     from ada.fem import Connector, ConnectorSection
+
+
+def connectors_str(assembly: "Assembly") -> str:
+    return "\n".join([connector_str(con, True) for con in assembly.fem.elements.connectors])
+
+
+def connector_sections_str(assembly: "Assembly") -> str:
+    return "\n".join([connector_section_str(consec) for consec in assembly.fem.connector_sections.values()])
 
 
 def connector_str(connector: "Connector", written_on_assembly_level: bool) -> str:
