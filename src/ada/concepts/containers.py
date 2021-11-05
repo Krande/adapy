@@ -480,9 +480,8 @@ class Materials(NumericMapped):
 class Sections(NumericMapped):
     sec_id = Counter(1)
 
-    def __init__(self, sections: Iterable[Section] = None, unique_ids=True, parent=None):
+    def __init__(self, sections: Iterable[Section] = None, unique_ids=True, parent: Union["Part", "Assembly"] = None):
         super(Sections, self).__init__(parent=parent)
-        """:type parent: ada.Part"""
         sections = [] if sections is None else sections
         if unique_ids:
             sections = list(toolz.unique(sections, key=attrgetter("name")))
@@ -522,6 +521,8 @@ class Sections(NumericMapped):
         return Sections(result) if isinstance(index, slice) else result
 
     def __add__(self, other: Sections):
+        if self.parent is None:
+            raise ValueError()
         for sec in other:
             sec.parent = self.parent
         other.renumber_id(self.max_id + 1)

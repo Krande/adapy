@@ -203,23 +203,22 @@ def material_str(material):
     no_compression = material._metadata["no_compression"] if "no_compression" in material._metadata.keys() else False
     compr_str = "\n*No Compression" if no_compression is True else ""
 
-    if material.model.eps_p is not None and len(material.model.eps_p) != 0:
-        pl_str = "\n*Plastic\n"
-        pl_str += "\n".join(
-            ["{x:>12.5E}, {y:>10}".format(x=x, y=y) for x, y in zip(material.model.sig_p, material.model.eps_p)]
-        )
-    else:
-        pl_str = ""
+    pl_str = ""
+    if material.model.plasticity_model is not None:
+        pl_model = material.model.plasticity_model
+        if pl_model.eps_p is not None and len(pl_model.eps_p) != 0:
+            pl_str = "\n*Plastic\n"
+            pl_str += "\n".join(
+                ["{x:>12.5E}, {y:>10}".format(x=x, y=y) for x, y in zip(pl_model.sig_p, pl_model.eps_p)]
+            )
 
+    d_str = ""
     if alpha is not None and beta is not None:
         d_str = "\n*Damping, alpha={alpha}, beta={beta}".format(alpha=material.model.alpha, beta=material.model.beta)
-    else:
-        d_str = ""
 
+    exp_str = ""
     if material.model.zeta is not None and material.model.zeta != 0.0:
         exp_str = "\n*Expansion\n {zeta}".format(zeta=material.model.zeta)
-    else:
-        exp_str = ""
 
     return f"""*Material, name={material.name}
 *Elastic

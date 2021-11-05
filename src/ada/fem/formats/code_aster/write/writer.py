@@ -166,11 +166,11 @@ def write_material(material: Material) -> str:
     model = material.model
     nl = NewLine(3, suffix="	")
 
-    if model.plasticity_model is not None:
+    if model.plasticity_model is not None and model.plasticity_model.eps_p is not None:
         nl_mat = "nl_mat=(	\n	"
-        eps = [e for e in model.eps_p]
+        eps = [e for e in model.plasticity_model.eps_p]
         eps[0] = 1e-5  # Epsilon index=0 cannot be zero
-        nl_mat += "".join([f"{e:.4E},{s:.4E}," + next(nl) for e, s in zip(eps, model.sig_p)]) + ")"
+        nl_mat += "".join([f"{e:.4E},{s:.4E}," + next(nl) for e, s in zip(eps, model.plasticity_model.sig_p)]) + ")"
         nl_mat += """
 Traction=DEFI_FONCTION(
     NOM_PARA='EPSI', NOM_RESU='SIGM', VALE=nl_mat, INTERPOL='LIN', PROL_DROITE='LINEAIRE', PROL_GAUCHE='CONSTANT'

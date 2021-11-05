@@ -426,8 +426,8 @@ class Part(BackendGeom):
         for p in self.get_all_subparts():
             self._materials += p.materials
             self._sections += p.sections
-            p._materials = Materials()
-            p._sections = Sections()
+            p._materials = Materials(parent=p)
+            p._sections = Sections(parent=p)
 
         self.sections.merge_sections_by_properties()
         self.materials.merge_materials_by_properties()

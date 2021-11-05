@@ -14,7 +14,6 @@ from ada.fem.steps import (
     StepImplicit,
     StepSteadyState,
 )
-from ada.materials import Material
 
 from .helper_utils import get_instance_name
 from .write_connectors import connector_section_str, connector_str

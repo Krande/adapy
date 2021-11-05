@@ -150,7 +150,7 @@ class Material(Backend):
         if "StrengthGrade" in props:
             mat_model = CarbonSteel(grade=props["StrengthGrade"], **mat_props)
         else:
-            mat_model = Metal(sig_u=None, eps_p=None, sig_p=None, plasticitymodel=None, **mat_props)
+            mat_model = Metal(sig_u=None, **mat_props)
 
         return dict(_name=ifc_mat.Name, _mat_model=mat_model)
 
@@ -174,7 +174,7 @@ class Material(Backend):
         self._name = value.strip()
 
     @property
-    def model(self):
+    def model(self) -> CarbonSteel:
         return self._mat_model
 
     @model.setter
