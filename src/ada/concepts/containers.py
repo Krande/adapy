@@ -522,7 +522,7 @@ class Sections(NumericMapped):
 
     def __add__(self, other: Sections):
         if self.parent is None:
-            raise ValueError()
+            logging.error(f'Parent is None for Sections container "{self}"')
         for sec in other:
             sec.parent = self.parent
         other.renumber_id(self.max_id + 1)

@@ -51,7 +51,7 @@ class DnvGl16Mat(PlasticityModel):
         self._grade = grade
         self._t = t
 
-        with open(pathlib.Path(__file__).parent / "resource/NLMatParams.json", "r") as f:
+        with open(pathlib.Path(__file__).parent / "resources/NLMatParams.json", "r") as f:
             params = json.load(f)
 
         thick_str = self.dnv_thick_select(t, grade)
