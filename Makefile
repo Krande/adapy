@@ -1,3 +1,7 @@
+cmd_pre="pip install pytest && pip install git+https://github.com/Krande/paradoc/tree/dev && conda list"
+cmd_test="cd /home/tests/fem && pytest && python build_verification_report.py"
+
+
 build:
 	docker build -t ada/base:latest .
 
@@ -14,7 +18,6 @@ test:
 	cd tests && pytest --cov=ada --cov-report=xml --cov-report=html .
 
 
-
 dtest:
 	mkdir -p "temp" && \
 	docker build -t ada/testing . && \
@@ -25,4 +28,4 @@ dtest-b:
 	docker build -t ada/testing .
 
 dtest-r:
-	docker run --name ada-report --rm --mount type=bind,source="$(CURDIR)/temp",target=/home/tests/fem/temp ada/testing bash -c "pip install pytest && conda list && cd /home/tests/fem && pytest && python build_verification_report.py"
+	docker run --name ada-report --rm --mount type=bind,source="$(CURDIR)/temp",target=/home/tests/fem/temp ada/testing bash -c "$(cmd_pre) $(cmd_test)"
