@@ -24,8 +24,11 @@ dtest:
 	docker run --name ada-report --rm --mount type=bind,source="$(CURDIR)/temp",target=/home/tests/fem/temp ada/testing bash -c "pip install pytest && conda list && cd /home/tests/fem && pytest && python build_verification_report.py"
 
 dtest-b:
-	mkdir -p "temp" && \
+	mkdir -p "temp/report" && mkdir -p "temp/scratch" && \
 	docker build -t ada/testing .
 
 dtest-r:
-	docker run --name ada-report --rm --mount type=bind,source="$(CURDIR)/temp",target=/home/tests/fem/temp ada/testing bash -c "$(cmd_pre) $(cmd_test)"
+	docker run --name ada-report --rm \
+          --mount type=bind,source="$(CURDIR)/temp/report",target=/home/tests/fem/temp \
+          --mount type=bind,source="$(CURDIR)/temp/scratch",target=/home/adauser/scratch \
+          ada/testing bash -c "$(cmd_pre) $(cmd_test)"
