@@ -11,7 +11,7 @@ RUN mkdir ${TMPDIR}
 
 WORKDIR ${TMPDIR}
 
-RUN sudo apt-get update && sudo apt install git-all
+RUN sudo apt-get -y update && sudo apt -y install git-all
 
 COPY setup.cfg .
 COPY pyproject.toml .
