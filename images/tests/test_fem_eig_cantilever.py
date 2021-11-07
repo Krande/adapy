@@ -48,7 +48,10 @@ def test_fem_eig(beam_fixture, fem_format, geom_repr, elem_order, overwrite=True
             logging.error(e)
             return None
         raise e
-
+    finally:
+        with open(test_dir / name / "run.log", "w") as f:
+            f.write(res.output.stdout)
+    
     if pathlib.Path(res.results_file_path).exists() is False:
         raise FileNotFoundError(f'FEM analysis was not successful. Result file "{res.results_file_path}" not found.')
 
