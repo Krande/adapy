@@ -1,5 +1,5 @@
-cmd_pre="pip install pytest && pip install git+https://github.com/Krande/paradoc/tree/dev && conda list"
-cmd_test="cd /home/tests/fem && pytest && python build_verification_report.py"
+cmd_pre=pip install pytest && pip install git+https://github.com/Krande/paradoc/tree/dev && conda list
+cmd_test=cd /home/tests/fem && pytest && python build_verification_report.py
 
 
 build:
