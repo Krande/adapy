@@ -25,6 +25,8 @@ COPY files ${TESTFILES}
 
 RUN pip install . --no-cache-dir
 RUN conda install -c krande -c conda-forge paradoc
+RUN git clone --branch dev https://github.com/Krande/paradoc.git
+RUN cd paradoc && pip install . --no-cache-dir
 
 # Cleanup all temporary files from this and all previous steps
 RUN rm -rfv /tmp/*

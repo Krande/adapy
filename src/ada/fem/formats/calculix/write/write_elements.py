@@ -2,9 +2,9 @@ from itertools import groupby
 from operator import attrgetter
 from typing import Iterable
 
+from ada.core.utils import NewLine
 from ada.fem import Elem, FemSection
 from ada.fem.containers import FemElements
-from ada.fem.formats.abaqus.write.write_elements import write_elem
 from ada.fem.shapes import ElemShape
 from ada.sections import SectionCat as Sc
 
@@ -27,7 +27,7 @@ def elwriter(eltype, fem_sec: FemSection, elements: Iterable[Elem]):
 
     sub_eltype = el_type_sub(eltype, fem_sec)
     el_set_str = f", ELSET={fem_sec.elset.name}" if fem_sec.elset is not None else ""
-    el_str = "\n".join((write_elem(el, True) for el in elements))
+    el_str = "\n".join((write_elem(el) for el in elements))
 
     return f"""*ELEMENT, type={sub_eltype}{el_set_str}\n{el_str}\n"""
 
@@ -49,3 +49,13 @@ def must_be_converted_to_general_section(sec_type):
         return True
     else:
         return False
+
+
+def write_elem(el: "Elem") -> str:
+    nl = NewLine(10, suffix=7 * " ")
+    if len(el.nodes) > 6:
+        di = " {}"
+    else:
+        di = "{:>13}"
+    el_str = f"{el.id:>7}, " + " ".join([f"{di.format(no.id)}," + next(nl) for no in el.nodes])[:-1]
+    return el_str

@@ -62,11 +62,11 @@ def test_quad_meshed_beam(test_meshing_dir):
     # )
 
 
-def test_quad_meshed_plate_with_hole(part, test_meshing_dir):
+def test_quad_meshed_plate_with_hole(test_meshing_dir):
     pl = ada.Plate("pl1", [(0, 0), (1, 0), (1, 1), (0, 1)], 10e-3)
     pl.add_penetration(ada.PrimCyl("Mycyl", (0.5, 0.5, -0.5), (0.5, 0.5, 0.5), 0.2))
 
-    with GmshSession(options=GmshOptions(Mesh_ElementOrder=1)) as gs:
+    with GmshSession(options=GmshOptions(Mesh_ElementOrder=1), silent=True) as gs:
         gs.add_obj(pl, "shell")
         gs.mesh(0.1, use_quads=True)
         fem = gs.get_fem()

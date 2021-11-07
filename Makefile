@@ -1,5 +1,8 @@
-cmd_pre=pip install pytest && pip install git+https://github.com/Krande/paradoc/tree/dev && conda list
+cmd_pre=pip install pytest && conda list
 cmd_test=cd /home/tests/fem && pytest && python build_verification_report.py
+mount=--mount type=bind,source="$(CURDIR)/temp/report",target=/home/tests/fem/temp \
+      --mount type=bind,source="$(CURDIR)/temp/scratch",target=/home/adauser/scratch
+build_dirs=mkdir -p "temp/report" && mkdir -p "temp/scratch"
 
 
 build:
@@ -17,18 +20,13 @@ install:
 test:
 	cd tests && pytest --cov=ada --cov-report=xml --cov-report=html .
 
-
 dtest:
-	mkdir -p "temp" && \
+	$(build_dirs) && \
 	docker build -t ada/testing . && \
-	docker run --name ada-report --rm --mount type=bind,source="$(CURDIR)/temp",target=/home/tests/fem/temp ada/testing bash -c "pip install pytest && conda list && cd /home/tests/fem && pytest && python build_verification_report.py"
+	docker run --name ada-report --rm $(mount) ada/testing bash -c "$(cmd_pre) && $(cmd_test)"
 
 dtest-b:
-	mkdir -p "temp/report" && mkdir -p "temp/scratch" && \
-	docker build -t ada/testing .
+	$(build_dirs) && docker build -t ada/testing .
 
 dtest-r:
-	docker run --name ada-report --rm \
-          --mount type=bind,source="$(CURDIR)/temp/report",target=/home/tests/fem/temp \
-          --mount type=bind,source="$(CURDIR)/temp/scratch",target=/home/adauser/scratch \
-          ada/testing bash -c "$(cmd_pre) $(cmd_test)"
+	docker run --name ada-report --rm $(mount) ada/testing bash -c "$(cmd_pre) && $(cmd_test)"

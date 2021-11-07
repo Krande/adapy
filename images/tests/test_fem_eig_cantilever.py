@@ -48,7 +48,8 @@ def test_fem_eig(beam_fixture, fem_format, geom_repr, elem_order, overwrite=True
             logging.error(e)
             return None
         raise e
-    finally:
+
+    if res.output is not None:
         with open(test_dir / name / "run.log", "w") as f:
             f.write(res.output.stdout)
 

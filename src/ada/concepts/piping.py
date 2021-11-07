@@ -413,6 +413,9 @@ class PipeSegStraight(BackendGeom):
 
         return pipe_segment
 
+    def __repr__(self):
+        return f"PipeSegStraight({self.name}, p1={self.p1}, p2={self.p2})"
+
 
 class PipeSegElbow(BackendGeom):
     def __init__(
@@ -589,3 +592,6 @@ class PipeSegElbow(BackendGeom):
         f.createIfcRelAssociatesMaterial(create_guid(), None, None, None, [pfitting], mat_profile_set)
 
         return pfitting
+
+    def __repr__(self):
+        return f"PipeSegElbow({self.name}, r={self.bend_radius}, p1={self.p1}, p2={self.p2}, p3={self.p3})"
