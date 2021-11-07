@@ -40,11 +40,16 @@ jobs:
         run: make dtest-b
       - name: Test & Create Verification Report
         run: make dtest-r
+      - uses: actions/upload-artifact@v2
+        if: failure()
+        with:
+          name: ADA-FEA-res-debug
+          path: temp/scratch
       - name: Upload Zip file to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: temp/_dist/ADA-FEA-verification.docx
+          file: temp/report/_dist/ADA-FEA-verification.docx
           asset_name: ADA-FEA-verification-${{steps.date.outputs.date}}.docx
           tag: "ADA-FEA-Verification-Report-${{steps.date.outputs.date}}"
           overwrite: true
