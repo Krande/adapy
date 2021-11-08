@@ -2,8 +2,9 @@ import datetime
 import logging
 from operator import attrgetter
 
-from ada.concepts.levels import FEM, Part
+from ada.concepts.levels import Part
 from ada.core.utils import Counter, get_current_user
+from ada.fem import FEM
 
 from .templates import top_level_fem_str
 from .write_utils import write_ff

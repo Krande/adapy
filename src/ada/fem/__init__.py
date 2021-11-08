@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .common import Amplitude, Csys
+from .concept import FEM
 from .constraints import Bc, Constraint, PredefinedField
 from .elements import Connector, Elem, Mass, Spring
 from .interactions import Interaction, InteractionProperty
@@ -23,6 +24,7 @@ __all__ = [
     "StepExplicit",
     "Surface",
     "Elem",
+    "FEM",
     "Connector",
     "Constraint",
     "PredefinedField",

@@ -237,6 +237,10 @@ class ConnectorSection(FemBase):
     def elastic_comp(self):
         return self._elastic_comp
 
+    @elastic_comp.setter
+    def elastic_comp(self, value):
+        self._elastic_comp = value
+
     @property
     def damping_comp(self):
         return self._damping_comp

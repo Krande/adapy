@@ -1,7 +1,3 @@
-# Summary
-
-Below is a summary of the performed analysis
-
 ## Eigenvalue Analysis
 
 A simple cantilevered beam is subjected to eigenvalue analysis with a total of 

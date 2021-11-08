@@ -5,10 +5,10 @@ from typing import Dict, Tuple
 import numpy as np
 
 from ada.concepts.containers import Materials, Nodes
-from ada.concepts.levels import FEM, Assembly, Part
+from ada.concepts.levels import Assembly, Part
 from ada.concepts.points import Node
 from ada.core.utils import Counter, roundoff
-from ada.fem import Elem, FemSet, Mass, Spring
+from ada.fem import FEM, Elem, FemSet, Mass, Spring
 from ada.fem.containers import FemElements
 from ada.fem.formats.utils import str_to_int
 from ada.materials import Material

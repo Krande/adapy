@@ -32,7 +32,7 @@ def easy_plotly(
     A Plotly template for quick and easy interactive scatter plotting using some pre-defined values. If you need more
     control of the plotly plot, you are probably better off using plotly directly
 
-    See https://plot.ly/python/reference/#scatter for a complete list of input for
+    See more information for scatter plots using Plotly at https://plot.ly/python/reference/#scatter
 
     :param title: Plot title
     :param in_data: tuple (x, y) for single plots or dict {'var1':{'x': [..], 'y': [..] }, 'var2': {..}, etc..}
@@ -51,8 +51,7 @@ def easy_plotly(
     :param annotations:
     :param renderer: Which renderer should be used. Default is 'notebook_connected'. See below for alternatives
     :param return_widget:
-    :type save_filename: str
-    :type mode: str
+
 
     Templates:
                 'ggplot2', 'seaborn', 'plotly', 'plotly_white', 'plotly_dark', 'presentation', 'xgridoff', 'none'
@@ -120,7 +119,7 @@ def extract_plot_data(in_data, mode, marker) -> List[go.Scatter]:
             if type(in_data[key]) is dict:
                 x_ = in_data[key]["x"]
                 y_ = in_data[key]["y"]
-            elif type(in_data[key]) is tuple:
+            elif type(in_data[key]) in (tuple, list):
                 x_ = in_data[key][0]
                 y_ = in_data[key][1]
             else:

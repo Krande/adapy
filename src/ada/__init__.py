@@ -6,7 +6,7 @@ from typing import Union
 from ada import fem
 from ada.concepts.connections import Bolts, Weld
 from ada.concepts.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
-from ada.concepts.levels import FEM, Assembly, Part
+from ada.concepts.levels import Assembly, Part
 from ada.concepts.piping import Pipe, PipeSegElbow, PipeSegStraight
 from ada.concepts.points import Node
 from ada.concepts.primitives import (
@@ -22,6 +22,7 @@ from ada.concepts.primitives import (
 from ada.concepts.structural import Beam, Plate, Wall
 from ada.concepts.transforms import Placement
 from ada.config import User
+from ada.fem import FEM
 from ada.materials import Material
 from ada.sections import Section
 
