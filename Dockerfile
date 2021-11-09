@@ -35,3 +35,5 @@ USER ${NB_USER}
 WORKDIR ${HOME}
 
 COPY examples examples
+
+RUN chown -R ${NB_UID} examples

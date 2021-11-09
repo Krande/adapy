@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from typing import List, Union
+from typing import List, Union, TYPE_CHECKING
 
 from .common import FemBase
 from .sets import FemSet
 from .surfaces import Surface
+
+if TYPE_CHECKING:
+    from .steps import Step
 
 
 class HistTypes:
@@ -97,12 +100,11 @@ class HistOutput(FemBase):
         self._int_type = int_type
 
     @property
-    def parent(self):
-        """:rtype: ada.fem.Step"""
+    def parent(self) -> "Step":
         return self._parent
 
     @parent.setter
-    def parent(self, value):
+    def parent(self, value: "Step"):
         self._parent = value
 
     @property
@@ -165,12 +167,11 @@ class FieldOutput(FemBase):
         self._int_type = int_type
 
     @property
-    def parent(self):
-        """:rtype: ada.fem.Step"""
+    def parent(self) -> "Step":
         return self._parent
 
     @parent.setter
-    def parent(self, value):
+    def parent(self, value: "Step"):
         self._parent = value
 
     @property
