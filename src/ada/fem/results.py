@@ -45,6 +45,7 @@ class Results:
         self._overwrite = overwrite
         self._metadata = metadata if metadata is not None else dict()
         self._results_file_path = pathlib.Path(res_path) if res_path is not None else None
+        self._user_data = dict()
         if res_path is not None:
             self._read_result_file(self.results_file_path)
             if self.results_file_path.exists():
@@ -166,6 +167,10 @@ class Results:
     @property
     def metadata(self):
         return self._metadata
+
+    @property
+    def user_data(self) -> dict:
+        return self._user_data
 
     def _repr_html_(self):
 

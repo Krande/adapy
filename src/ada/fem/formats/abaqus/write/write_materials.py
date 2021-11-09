@@ -16,9 +16,6 @@ def material_str(material: "Material") -> str:
     no_compression = material.metadata["no_compression"] if "no_compression" in material.metadata.keys() else False
     compr_str = "\n*No Compression" if no_compression is True else ""
 
-    if material.name == "RP16_MAT_Low_S355_16_t_40":
-        print("sd")
-
     pl_str = ""
     if material.model.plasticity_model is not None:
         pl_model = material.model.plasticity_model
