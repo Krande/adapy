@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Union
 
 from .common import FemBase
 from .sets import FemSet
@@ -21,6 +21,7 @@ class HistTypes:
 
 class IntervalTypes:
     FREQUENCY = "frequency"
+    INTERVAL = "NUMBER INTERVAL"
 
 
 class HistDataTypes:

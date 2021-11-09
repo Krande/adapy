@@ -39,7 +39,7 @@ def csys_str(csys: "Csys", written_on_assembly_level: bool):
         )
     else:
         ax, ay, az = csys.coords[0]
-        ori_str += f" \n{ax}, {ay}, {az}"
+        ori_str += f" \n {ax}, {ay}, {az}"
         bx, by, bz = csys.coords[1]
         ori_str += f", {bx}, {by}, {bz}"
         if len(csys.coords) == 3:

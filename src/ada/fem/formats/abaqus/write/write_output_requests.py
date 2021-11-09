@@ -20,11 +20,11 @@ def hist_output_str(hist_output: HistOutput) -> str:
     var_str = "".join([" {},".format(val) + next(newline) for val in hist_output.variables])[:-1]
 
     if hist_output.type == HistOutput.TYPES.CONTACT:
-        iname1 = get_instance_name(hist_output.fem_set[1], hist_output.parent)
-        iname2 = get_instance_name(hist_output.fem_set[0], hist_output.parent)
+        iname1 = get_instance_name(hist_output.fem_set[1], True)
+        iname2 = get_instance_name(hist_output.fem_set[0], True)
         fem_set_str = f", master={iname1}, slave={iname2}"
     else:
-        fem_set_str = "" if hist_output.fem_set is None else get_instance_name(hist_output.fem_set, hist_output.parent)
+        fem_set_str = "" if hist_output.fem_set is None else get_instance_name(hist_output.fem_set, True)
     return f"""*Output, history, {hist_output.int_type}={hist_output.int_value}
 ** HISTORY OUTPUT: {hist_output.name}
 **
