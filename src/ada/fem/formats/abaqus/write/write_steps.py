@@ -104,7 +104,7 @@ def restart_request_str(step: _step_types):
 
 def dynamic_implicit_str(step: StepImplicit):
     return f"""*Step, name={step.name}, nlgeom={bool2text(step.nl_geom)}, inc={step.total_incr}
-*Dynamic,application={step.dyn_type}, INITIAL={bool2text(step.options.init_accel_calc)}
+*Dynamic,application={step.dyn_type}, INITIAL={bool2text(step.options.ABAQUS.init_accel_calc)}
 {step.init_incr},{step.total_time},{step.min_incr}, {step.max_incr}"""
 
 
@@ -146,7 +146,7 @@ def eigenfrequency_str(step: StepEigen):
 
 
 def complex_eig_str(step: StepEigenComplex):
-    unsymm = bool2text(step.options.unsymm)
+    unsymm = bool2text(step.options.ABAQUS.unsymm)
     return f"""** ----------------------------------------------------------------
 **
 ** STEP: complex_eig
