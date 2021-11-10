@@ -144,6 +144,7 @@ class FieldOutput(FemBase):
     :type parent: ada.FEM
     """
 
+    TYPES_INTERVAL = IntervalTypes
     _valid_fstep_type = ["FREQUENCY", "NUMBER INTERVAL"]
     default_no = ["A", "CF", "RF", "U", "V"]
     default_el = ["LE", "PE", "PEEQ", "PEMAG", "S"]
@@ -156,7 +157,7 @@ class FieldOutput(FemBase):
         element=None,
         contact=None,
         int_value=1,
-        int_type="frequency",
+        int_type=TYPES_INTERVAL.FREQUENCY,
         metadata=None,
         parent=None,
     ):

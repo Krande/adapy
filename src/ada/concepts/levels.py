@@ -1231,7 +1231,8 @@ class Assembly(Part):
         return self._convert_options
 
     def __add__(self, other: Union[Assembly, Part]):
-        for n in other.fem.interface_nodes:
+        for interface_n in other.fem.interface_nodes:
+            n = interface_n.node
             for p in self.get_all_parts_in_assembly(True):
                 res = p.fem.nodes.get_by_volume(n.p)
                 if res is not None:

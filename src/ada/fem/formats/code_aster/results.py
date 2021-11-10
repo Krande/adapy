@@ -1,5 +1,6 @@
 import logging
 import pathlib
+from typing import TYPE_CHECKING
 
 import h5py
 import meshio
@@ -8,9 +9,11 @@ import numpy as np
 from ada.fem import StepEigen
 from ada.fem.concepts.eigenvalue import EigenDataSummary, EigenMode
 from ada.fem.elements import ElemShape
-from ada.fem.results import Results
 
 from .read.reader import med_to_fem
+
+if TYPE_CHECKING:
+    from ada.fem.results import Results
 
 
 def get_eigen_data(rmed_file) -> EigenDataSummary:
@@ -45,7 +48,7 @@ def get_eigen_frequency_deformed_meshes(rmed_file):
     return fem, eig_deformed_meshes
 
 
-def read_code_aster_results(results: Results, file_ref: pathlib.Path, overwrite):
+def read_code_aster_results(results: "Results", file_ref: pathlib.Path, overwrite):
     if type(results.assembly.fem.steps[0]) is StepEigen:
         results.eigen_mode_data = get_eigen_data(file_ref)
     fem = med_to_fem(file_ref, "temp")

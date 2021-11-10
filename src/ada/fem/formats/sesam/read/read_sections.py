@@ -16,7 +16,7 @@ from ada.fem.shapes import ElemShape, ElemType
 from ada.materials import Material
 from ada.sections import GeneralProperties
 
-from .. import cards
+from . import cards
 
 
 def get_sections(bulk_str, fem: FEM, mass_elem, spring_elem) -> FemSections:

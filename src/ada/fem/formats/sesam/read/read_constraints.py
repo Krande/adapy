@@ -5,7 +5,7 @@ from ada import FEM
 from ada.fem import Bc, Constraint, FemSet
 from ada.fem.formats.utils import str_to_int
 
-from .. import cards
+from . import cards
 
 
 def get_constraints(bulk_str, fem: FEM) -> List[Constraint]:

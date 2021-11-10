@@ -5,7 +5,7 @@ import os
 import pathlib
 import subprocess
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Tuple, Union
 
 import meshio
 import numpy as np
@@ -19,12 +19,23 @@ from ada.visualize.renderer_pythreejs import MyRenderer
 from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
 from .concepts.eigenvalue import EigenDataSummary
+from .formats.abaqus.results import read_abaqus_results
+from .formats.calculix.results import read_calculix_results
+from .formats.code_aster.results import read_code_aster_results
+from .formats.sesam.results import read_sesam_results
 
 if TYPE_CHECKING:
     from ada import Assembly
 
 
 class Results:
+    res_map = {
+        ".rmed": (read_code_aster_results, FEATypes.CODE_ASTER),
+        ".frd": (read_calculix_results, FEATypes.CALCULIX),
+        ".odb": (read_abaqus_results, FEATypes.ABAQUS),
+        ".sin": (read_sesam_results, FEATypes.SESAM),
+    }
+
     def __init__(
         self,
         res_path,
@@ -46,6 +57,7 @@ class Results:
         self._metadata = metadata if metadata is not None else dict()
         self._results_file_path = pathlib.Path(res_path) if res_path is not None else None
         self._user_data = dict()
+        self._history_output = None
         if res_path is not None:
             self._read_result_file(self.results_file_path)
             if self.results_file_path.exists():
@@ -66,21 +78,10 @@ class Results:
         self.result_mesh.add_results(mesh)
 
     def _get_results_from_result_file(self, file_ref, overwrite=False):
-        from .formats.abaqus.results import read_abaqus_results
-        from .formats.calculix.results import read_calculix_results
-        from .formats.code_aster.results import read_code_aster_results
-        from .formats.sesam.results import read_sesam_results
-
         file_ref = pathlib.Path(file_ref)
         suffix = file_ref.suffix.lower()
 
-        res_map = {
-            ".rmed": (read_code_aster_results, FEATypes.CODE_ASTER),
-            ".frd": (read_calculix_results, FEATypes.CALCULIX),
-            ".odb": (read_abaqus_results, FEATypes.ABAQUS),
-            ".sin": (read_sesam_results, FEATypes.SESAM),
-        }
-        res_reader, fem_format = res_map.get(suffix, (None, None))
+        res_reader, fem_format = Results.res_map.get(suffix, (None, None))
 
         if res_reader is None:
             logging.error(f'Results class currently does not support filetype "{suffix}"')
@@ -165,6 +166,14 @@ class Results:
         self._eigen_mode_data = value
 
     @property
+    def history_output(self) -> ResultsHistoryOutput:
+        return self._history_output
+
+    @history_output.setter
+    def history_output(self, value: ResultsHistoryOutput):
+        self._history_output = value
+
+    @property
     def metadata(self):
         return self._metadata
 
@@ -187,6 +196,35 @@ class Results:
 
     def __repr__(self):
         return f"Results({self._fem_format}, {self._results_file_path.name})"
+
+
+@dataclass
+class ElementDataOutput:
+    name: str
+    displacements: Dict[int, List[tuple]] = field(default_factory=dict)
+
+    @property
+    def final_displ(self):
+        return {x: y[-1][-1] for x, y in self.displacements.items()}
+
+
+@dataclass
+class FEMDataOutput:
+    name: str
+    data: List[tuple]
+
+
+@dataclass
+class HistoryStepDataOutput:
+    name: str
+    step_type: str
+    element_data: Dict[str, ElementDataOutput] = field(default_factory=dict)
+    fem_data: Dict[str, FEMDataOutput] = field(default_factory=dict)
+
+
+@dataclass
+class ResultsHistoryOutput:
+    steps: List[HistoryStepDataOutput] = field(default_factory=list)
 
 
 @dataclass

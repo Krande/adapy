@@ -38,6 +38,13 @@ _step_types = Union["StepSteadyState", "StepEigen", "StepImplicit", "StepExplici
 
 
 @dataclass
+class InterfaceNode:
+    node: "Node"
+    constraint: "Constraint" = field(default=None)
+    connector: "Connector" = field(default=None)
+
+
+@dataclass
 class FEM:
     name: str
     metadata: Dict = field(default_factory=dict)
@@ -66,7 +73,7 @@ class FEM:
     initial_state: PredefinedField = field(default=None, init=True)
     subroutine: str = field(default=None, init=True)
 
-    interface_nodes: List["Node"] = field(init=False, default_factory=list)
+    interface_nodes: List[Union[Node, InterfaceNode]] = field(init=False, default_factory=list)
 
     def __post_init__(self):
         self.nodes.parent = self
@@ -239,15 +246,16 @@ class FEM:
         return pre_field
 
     def add_spring(self, spring: Spring) -> Spring:
-        # self.elements.add(spring)
         if spring.fem_set.parent is None:
             self.sets.add(spring.fem_set)
         self.springs[spring.name] = spring
         return spring
 
-    def add_interface_nodes(self, interface_nodes: List[Node]):
+    def add_interface_nodes(self, interface_nodes: List[Node, InterfaceNode]):
+        """Nodes used for interfacing between other parts. Pass a custom Constraint if specific coupling is needed"""
         for n in interface_nodes:
-            self.interface_nodes.append(n)
+            n_in = InterfaceNode(n) if type(n) is Node else n
+            self.interface_nodes.append(n_in)
 
     def create_fem_elem_from_obj(self, obj, el_type=None) -> Elem:
         """Converts structural object to FEM elements. Currently only BEAM is supported"""

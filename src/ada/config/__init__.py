@@ -22,6 +22,8 @@ class Settings:
     mmtol = 1
     valid_units = ["m", "mm"]
 
+    safe_deletion = True
+
     convert_bad_names = False
     convert_bad_names_for_fem = True
     use_occ_bounding_box_algo = False

@@ -401,14 +401,14 @@ class FemSections:
 
         merge_map: Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]] = dict()
         for fs in self.lines:
-            props = (fs.material, fs.section, tuple(fs.local_x), tuple(fs.local_z), fs.thickness)
+            props = (fs.material, fs.section, tuple(), tuple(fs.local_z), 0.0)
             if props not in merge_map.keys():
                 merge_map[props] = []
 
             merge_map[props].append(fs)
 
         for fs in self.shells:
-            props = (fs.material, fs.section, (None,), tuple(fs.local_z), fs.thickness)
+            props = (fs.material, fs.section, (None,), tuple(), fs.thickness)
             if props not in merge_map.keys():
                 merge_map[props] = []
 

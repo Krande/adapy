@@ -81,15 +81,8 @@ class Section(Backend):
             genprops.parent = self
             self._genprops = genprops
 
-    def __eq__(self, other):
-        for key, val in self.__dict__.items():
-            if "parent" in key or "_ifc" in key or key in ["_sec_id", "_guid"]:
-                continue
-            oval = other.__dict__[key]
-            if oval != val:
-                return False
-
-        return True
+    def __eq__(self, other: Section):
+        return self.equal_props(other)
 
     def _generate_ifc_section_data(self):
         from ada.ifc.export_beam_sections import export_beam_section
@@ -101,6 +94,17 @@ class Section(Backend):
 
         self._ifc_profile = ifc_elem
         return import_section_from_ifc(ifc_elem)
+
+    def equal_props(self, other: Section):
+        props = ["type", "h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "wt", "poly_outer", "poly_inner"]
+        if self.type == self.TYPES.GENERAL:
+            props += ["properties"]
+
+        for prop in props:
+            if getattr(self, prop) != getattr(other, prop):
+                return False
+
+        return True
 
     @property
     def type(self):

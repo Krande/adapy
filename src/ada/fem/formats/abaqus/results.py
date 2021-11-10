@@ -1,7 +1,7 @@
 import logging
 import os
 import pathlib
-from typing import List, Union
+from typing import TYPE_CHECKING, List, Union
 
 from ada.fem import StepEigen
 from ada.fem.concepts.eigenvalue import EigenDataSummary, EigenMode
@@ -10,7 +10,9 @@ from ada.fem.exceptions.fea_execution import (
     FEAnalysisUnsuccessfulError,
 )
 from ada.fem.formats.utils import DatFormatReader
-from ada.fem.results import Results
+
+if TYPE_CHECKING:
+    from ada.fem.results import Results
 
 
 def get_eigen_data(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
@@ -48,7 +50,7 @@ def get_eigen_data(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
     return EigenDataSummary(eigen_modes)
 
 
-def read_abaqus_results(results: Results, file_ref: pathlib.Path, overwrite):
+def read_abaqus_results(results: "Results", file_ref: pathlib.Path, overwrite):
     dat_file = file_ref.with_suffix(".dat")
     if results.assembly is not None and results.assembly.fem.steps[0] == StepEigen:
         # TODO: Figure out if it is worthwhile adding support for reading step information or if it should be explicitly

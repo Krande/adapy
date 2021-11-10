@@ -11,6 +11,8 @@ from contextlib import contextmanager
 from itertools import chain
 from typing import TYPE_CHECKING, Dict
 
+from send2trash import send2trash
+
 from ada.concepts.containers import Beams, Plates
 from ada.concepts.structural import Beam, Plate
 from ada.config import Settings
@@ -273,10 +275,12 @@ def _overwrite_dir(analysis_dir):
 
     print("Removing old files before copying new")
     try:
-
-        shutil.rmtree(analysis_dir)
+        if Settings.safe_deletion is True:
+            send2trash(analysis_dir)
+        else:
+            shutil.rmtree(analysis_dir)
     except WindowsError as e:
-        print("Failed to delete due to '{}'".format(e))  # Or just pass
+        print(f"Failed to delete due to '{e}'")
 
     time.sleep(0.5)
     os.makedirs(analysis_dir, exist_ok=True)
