@@ -23,6 +23,8 @@ class IntervalTypes:
     FREQUENCY = "frequency"
     INTERVAL = "NUMBER INTERVAL"
 
+    all = [FREQUENCY, INTERVAL]
+
 
 class HistDataTypes:
     ALLAE = "ALLAE"
@@ -121,12 +123,25 @@ class HistOutput(FemBase):
         return self._variables
 
     @property
-    def int_type(self):
-        return self._int_type
-
-    @property
     def int_value(self):
         return self._int_value
+
+    @int_value.setter
+    def int_value(self, value):
+        if value < 0:
+            raise ValueError("The interval or frequency value cannot be less than 0")
+
+        self._int_value = value
+
+    @property
+    def int_type(self):
+        return self._int_type.upper()
+
+    @int_type.setter
+    def int_type(self, value):
+        if value.upper() not in self.TYPES_INTERVAL.all:
+            raise ValueError(f'Field output step type "{value}" is not supported')
+        self._int_type = value.upper()
 
 
 class FieldOutput(FemBase):
@@ -141,11 +156,10 @@ class FieldOutput(FemBase):
     :param int_type:
     :param metadata:
     :param parent:
-    :type parent: ada.FEM
     """
 
     TYPES_INTERVAL = IntervalTypes
-    _valid_fstep_type = ["FREQUENCY", "NUMBER INTERVAL"]
+
     default_no = ["A", "CF", "RF", "U", "V"]
     default_el = ["LE", "PE", "PEEQ", "PEMAG", "S"]
     default_co = ["CSTRESS", "CDISP", "CFORCE", "CSTATUS"]
@@ -159,7 +173,7 @@ class FieldOutput(FemBase):
         int_value=1,
         int_type=TYPES_INTERVAL.FREQUENCY,
         metadata=None,
-        parent=None,
+        parent: "Step" = None,
     ):
         super().__init__(name, metadata, parent)
         self._nodal = FieldOutput.default_no if nodal is None else nodal
@@ -205,7 +219,7 @@ class FieldOutput(FemBase):
 
     @int_type.setter
     def int_type(self, value):
-        if value.upper() not in FieldOutput._valid_fstep_type:
+        if value.upper() not in self.TYPES_INTERVAL.all:
             raise ValueError(f'Field output step type "{value}" is not supported')
         self._int_type = value.upper()
 

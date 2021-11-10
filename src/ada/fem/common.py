@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
@@ -7,10 +7,11 @@ from ada.config import Settings
 
 if TYPE_CHECKING:
     from ada import FEM, Node
+    from ada.fem.steps import Step
 
 
 class FemBase:
-    def __init__(self, name, metadata, parent: "FEM"):
+    def __init__(self, name, metadata, parent: Union["FEM", "Step"]):
         self.name = name
         self.parent = parent
         self._metadata = metadata if metadata is not None else dict()

@@ -253,6 +253,8 @@ class FEM:
 
     def add_interface_nodes(self, interface_nodes: List[Node, InterfaceNode]):
         """Nodes used for interfacing between other parts. Pass a custom Constraint if specific coupling is needed"""
+        from ada import Node
+
         for n in interface_nodes:
             n_in = InterfaceNode(n) if type(n) is Node else n
             self.interface_nodes.append(n_in)
