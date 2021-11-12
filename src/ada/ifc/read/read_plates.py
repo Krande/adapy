@@ -1,11 +1,27 @@
-from ada.concepts.structural import Plate
-from ada.concepts.transforms import Placement
+import logging
+
+from ada import Assembly, Material, Placement, Plate
 from ada.ifc.read.read_shapes import get_ifc_shape
 
+from ..utils import default_settings
 from .read_curves import import_indexedpolycurve, import_polycurve
+from .reader_utils import get_associated_material, get_name, getIfcPropertySets
 
 
-def import_ifc_plate(ifc_elem, name, props, ifc_settings) -> Plate:
+def import_ifc_plate(ifc_elem, assembly: Assembly) -> Plate:
+    ifc_settings = default_settings() if assembly is None else assembly.ifc_settings
+
+    props = getIfcPropertySets(ifc_elem)
+    name = get_name(ifc_elem)
+    logging.info(f"importing {name}")
+    ass = get_associated_material(ifc_elem)
+    mat = None
+    if assembly is not None:
+        mat = assembly.get_by_name(ass.Material.Name)
+
+    if mat is None:
+        mat = Material(ass.Material.Name, ifc_mat=ass.Material)
+
     pdct_shape, color, alpha = get_ifc_shape(ifc_elem, ifc_settings)
 
     # TODO: Fix interpretation of IfcIndexedPolyCurve. Should pass origin to get actual 2d coordinates.
@@ -44,6 +60,7 @@ def import_ifc_plate(ifc_elem, name, props, ifc_settings) -> Plate:
         name,
         nodes2d,
         t,
+        mat=mat,
         placement=placement,
         guid=ifc_elem.GlobalId,
         colour=color,

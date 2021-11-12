@@ -8,19 +8,13 @@ from .read_materials import read_ifc_materials
 from .read_parts import read_hierarchy
 from .read_plates import import_ifc_plate
 from .read_shapes import import_general_shape
-from .reader_utils import (
-    add_to_assembly,
-    get_name,
-    get_parent,
-    getIfcPropertySets,
-    open_ifc,
-)
+from .reader_utils import add_to_assembly, get_parent, open_ifc
 
 
 def read_ifc_file(ifc_file, ifc_settings, elements2part=False, data_only=False) -> Assembly:
 
     a = Assembly("TempAssembly")
-
+    a.ifc_settings = ifc_settings
     f = open_ifc(ifc_file)
 
     scaled_ifc = scale_ifc_file(a.ifc_file, f)
@@ -40,28 +34,25 @@ def read_ifc_file(ifc_file, ifc_settings, elements2part=False, data_only=False) 
             logging.info(f'Passing product "{product}"')
             continue
         parent = get_parent(product)
-        obj = import_physical_ifc_elem(product, ifc_settings)
+        obj = import_physical_ifc_elem(product, a)
+        if obj is None:
+            continue
         obj.metadata["ifc_file"] = ifc_file
-        if obj is not None:
-            add_to_assembly(a, obj, parent, elements2part)
+        add_to_assembly(a, obj, parent, elements2part)
 
     print(f'Import of IFC file "{ifc_file}" is complete')
     return a
 
 
-def import_physical_ifc_elem(product, ifc_settings):
+def import_physical_ifc_elem(product, assembly: Assembly):
     pr_type = product.is_a()
-
-    props = getIfcPropertySets(product)
-    name = get_name(product)
-    logging.info(f"importing {name}")
     if pr_type in ["IfcBeamStandardCase", "IfcBeam"]:
-        obj = import_ifc_beam(product, name, props, ifc_settings)
+        obj = import_ifc_beam(product, assembly)
     elif pr_type in ["IfcPlateStandardCase", "IfcPlate"]:
-        obj = import_ifc_plate(product, name, props, ifc_settings)
+        obj = import_ifc_plate(product, assembly)
     else:
         if product.is_a("IfcOpeningElement") is True:
             return None
-        obj = import_general_shape(product, name, props, ifc_settings)
+        obj = import_general_shape(product, assembly)
 
     return obj

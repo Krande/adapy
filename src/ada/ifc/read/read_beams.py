@@ -1,16 +1,34 @@
+import logging
+
 import numpy as np
 
-from ada import Beam, Material, Section
+from ada import Assembly, Beam, Material
 from ada.core.vector_utils import unit_vector
+from ada.ifc.utils import default_settings
 
+from .read_beam_section import import_section_from_ifc
 from .read_shapes import get_ifc_shape
-from .reader_utils import get_associated_material
+from .reader_utils import get_associated_material, get_name, getIfcPropertySets
 
 
-def import_ifc_beam(ifc_elem, name, props, ifc_settings) -> Beam:
+def import_ifc_beam(ifc_elem, assembly: Assembly = None) -> Beam:
+    ifc_settings = default_settings() if assembly is None else assembly.ifc_settings
+
+    props = getIfcPropertySets(ifc_elem)
+    name = get_name(ifc_elem)
+    logging.info(f"importing {name}")
     ass = get_associated_material(ifc_elem)
-    sec = Section(ass.Profile.ProfileName, ifc_elem=ass.Profile)
-    mat = Material(ass.Material.Name, ifc_mat=ass.Material)
+    sec = None
+    mat = None
+
+    if assembly is not None:
+        sec = assembly.get_by_name(ass.Profile.ProfileName)
+        mat = assembly.get_by_name(ass.Material.Name)
+
+    if sec is None:
+        sec = import_section_from_ifc(ass.Profile)
+    if mat is None:
+        mat = Material(ass.Material.Name, ifc_mat=ass.Material)
 
     axes = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Axis"]
 

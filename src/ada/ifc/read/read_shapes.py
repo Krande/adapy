@@ -1,6 +1,10 @@
+import logging
+
 import ifcopenshell.geom
 
-from ada.concepts.primitives import Shape
+from ada import Assembly, Shape
+
+from .reader_utils import get_name, getIfcPropertySets
 
 
 def get_ifc_shape(ifc_elem, settings):
@@ -24,7 +28,10 @@ def get_ifc_shape(ifc_elem, settings):
     return geom, colour, alpha
 
 
-def import_general_shape(product, name, props, ifc_settings):
+def import_general_shape(product, assembly: Assembly):
+    props = getIfcPropertySets(product)
+    name = get_name(product)
+    logging.info(f"importing {name}")
     shp = Shape(
         name,
         None,

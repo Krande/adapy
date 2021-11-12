@@ -3,7 +3,7 @@ import logging
 from ada.sections import Section
 
 
-def import_section_from_ifc(ifc_elem):
+def import_section_from_ifc(ifc_elem) -> Section:
     from ada.sections.utils import interpret_section_str
 
     try:
