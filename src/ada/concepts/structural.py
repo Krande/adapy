@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Union
+from typing import List, Union
 
 import numpy as np
 
@@ -177,153 +177,9 @@ class Beam(BackendGeom):
         return nodes_p1, nodes_p2
 
     def _generate_ifc_elem(self):
-        from ada.config import Settings
-        from ada.core.constants import O
-        from ada.ifc.utils import (
-            add_colour,
-            add_multiple_props_to_elem,
-            convert_bm_jusl_to_ifc,
-            create_ifc_placement,
-            create_IfcFixedReferenceSweptAreaSolid,
-            create_local_placement,
-        )
+        from ada.ifc.write.write_beams import write_ifc_beam
 
-        sec = self.section
-        if self.parent is None:
-            raise ValueError("Parent cannot be None for IFC export")
-
-        a = self.parent.get_assembly()
-        f = a.ifc_file
-
-        context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = a.user.to_ifc()
-        parent = self.parent.get_ifc_elem()
-
-        if Settings.include_ecc and self.e1 is not None:
-            e1 = self.e1
-        else:
-            e1 = (0.0, 0.0, 0.0)
-
-        if Settings.include_ecc and self.e2 is not None:
-            e2 = self.e2
-        else:
-            e2 = (0.0, 0.0, 0.0)
-
-        p1 = tuple([float(x) + float(e1[i]) for i, x in enumerate(self.n1.p)])
-        p2 = tuple([float(x) + float(e2[i]) for i, x in enumerate(self.n2.p)])
-
-        p1_ifc = f.createIfcCartesianPoint(p1)
-        p2_ifc = f.createIfcCartesianPoint(p2)
-
-        def to_real(v):
-            return v.astype(float).tolist()
-
-        xvec, yvec, _ = to_real(self.xvec), to_real(self.yvec), to_real(self.up)
-        beam_type = self.section.ifc_beam_type
-        profile = self.section.ifc_profile
-
-        if self.section != self.taper:
-            profile_e = self.taper.ifc_profile
-        else:
-            profile_e = None
-
-        global_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
-        extrude_dir = f.create_entity("IfcDirection", (0.0, 0.0, 1.0))
-        if self.curve is not None:
-            ifc_polyline = self.curve.get_ifc_elem()
-            loc_plac = create_ifc_placement(f)
-            extrude_area_solid = create_IfcFixedReferenceSweptAreaSolid(
-                f, ifc_polyline, profile, global_placement, 0.0, 1.0, extrude_dir
-            )
-        else:
-            ifc_polyline = f.createIfcPolyLine([p1_ifc, p2_ifc])
-            ifc_axis2plac3d = f.createIfcAxis2Placement3D(f.createIfcCartesianPoint(O), None, None)
-
-            if profile_e is not None:
-                extrude_area_solid = f.createIfcExtrudedAreaSolidTapered(
-                    profile, ifc_axis2plac3d, extrude_dir, self.length, profile_e
-                )
-            else:
-                extrude_area_solid = f.createIfcExtrudedAreaSolid(profile, ifc_axis2plac3d, extrude_dir, self.length)
-
-            ax23d = f.createIfcAxis2Placement3D(
-                p1_ifc,
-                f.createIfcDirection(xvec),
-                f.createIfcDirection(yvec),
-            )
-            loc_plac = f.createIfcLocalPlacement(global_placement, ax23d)
-
-        body = f.createIfcShapeRepresentation(context, "Body", "SweptSolid", [extrude_area_solid])
-        axis = f.createIfcShapeRepresentation(context, "Axis", "Curve3D", [ifc_polyline])
-        prod_def_shp = f.createIfcProductDefinitionShape(None, None, (axis, body))
-
-        if "hidden" in self.metadata.keys():
-            if self.metadata["hidden"] is True:
-                a.presentation_layers.append(body)
-
-        ifc_beam = f.createIfcBeam(
-            self.guid,
-            owner_history,
-            self.name,
-            self.section.sec_str,
-            "Beam",
-            loc_plac,
-            prod_def_shp,
-            self.name,
-            None,
-        )
-        self._ifc_elem = ifc_beam
-
-        # Add colour
-        if self.colour is not None:
-            add_colour(f, extrude_area_solid, str(self.colour), self.colour)
-
-        # Add penetrations
-        # elements = []
-        for pen in self._penetrations:
-            # elements.append(pen.ifc_opening)
-            f.createIfcRelVoidsElement(
-                create_guid(),
-                owner_history,
-                None,
-                None,
-                ifc_beam,
-                pen.ifc_opening,
-            )
-
-        f.createIfcRelDefinesByType(
-            create_guid(),
-            None,
-            self.section.type,
-            None,
-            [ifc_beam],
-            beam_type,
-        )
-
-        add_multiple_props_to_elem(self.metadata.get("props", dict()), ifc_beam, f)
-
-        # Material
-        all_mat: Dict[str, Material] = {mat.name: mat for p in a.get_all_parts_in_assembly(True) for mat in p.materials}
-        ifc_mat = all_mat[self.material.name].ifc_mat
-        mat_profile = f.createIfcMaterialProfile(sec.name, "A material profile", ifc_mat, profile, None, "LoadBearing")
-        mat_profile_set = f.createIfcMaterialProfileSet(sec.name, None, [mat_profile], None)
-
-        f.createIfcRelAssociatesMaterial(create_guid(), owner_history, None, None, [beam_type], mat_profile_set)
-
-        f.createIfcRelAssociatesMaterial(
-            create_guid(),
-            owner_history,
-            self.material.name,
-            f"Associated Material to beam '{self.name}'",
-            [ifc_beam],
-            mat_profile_set,
-        )
-
-        # Cardinality
-        mat_usage = f.createIfcMaterialProfileSetUsage(mat_profile_set, convert_bm_jusl_to_ifc(self))
-        f.createIfcRelAssociatesMaterial(create_guid(), owner_history, None, None, [ifc_beam], mat_usage)
-
-        return ifc_beam
+        return write_ifc_beam(self)
 
     def calc_con_points(self, point_tol=Settings.point_tol):
         from ada.core.vector_utils import sort_points_by_dist
@@ -685,99 +541,9 @@ class Plate(BackendGeom):
         self._opacity = opacity
 
     def _generate_ifc_elem(self):
-        from ada.core.constants import O, X, Z
-        from ada.ifc.utils import (
-            add_colour,
-            create_ifc_placement,
-            create_ifcindexpolyline,
-            create_ifcpolyline,
-            create_local_placement,
-            create_property_set,
-        )
+        from ada.ifc.write.write_plate import write_ifc_plate
 
-        if self.parent is None:
-            raise ValueError("Ifc element cannot be built without any parent element")
-
-        a = self.parent.get_assembly()
-        f = a.ifc_file
-
-        context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = a.user.to_ifc()
-        parent = self.parent.get_ifc_elem()
-
-        xvec = self.poly.xdir
-        zvec = self.poly.normal
-        yvec = np.cross(zvec, xvec)
-
-        # Wall creation: Define the wall shape as a polyline axis and an extruded area solid
-        plate_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
-
-        tra_mat = np.array([xvec, yvec, zvec])
-        t_vec = [0, 0, self.t]
-        origin = np.array(self.poly.placement.origin)
-        res = origin + np.dot(tra_mat, t_vec)
-        polyline = create_ifcpolyline(f, [origin.astype(float).tolist(), res.tolist()])
-        axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve2D", [polyline])
-        extrusion_placement = create_ifc_placement(f, O, Z, X)
-        points = [(float(n[0]), float(n[1]), float(n[2])) for n in self.poly.seg_global_points]
-        seg_index = self.poly.seg_index
-        polyline = create_ifcindexpolyline(f, points, seg_index)
-        # polyline = self.create_ifcpolyline(f, point_list)
-        ifcclosedprofile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
-
-        ifcdir = f.createIfcDirection(zvec.astype(float).tolist())
-        ifcextrudedareasolid = f.createIfcExtrudedAreaSolid(ifcclosedprofile, extrusion_placement, ifcdir, self.t)
-
-        body = f.createIfcShapeRepresentation(context, "Body", "SolidModel", [ifcextrudedareasolid])
-
-        if "hidden" in self.metadata.keys():
-            if self.metadata["hidden"] is True:
-                a.presentation_layers.append(body)
-
-        product_shape = f.createIfcProductDefinitionShape(None, None, [axis_representation, body])
-
-        ifc_plate = f.createIfcPlate(
-            self.guid,
-            owner_history,
-            self.name,
-            self.name,
-            None,
-            plate_placement,
-            product_shape,
-            None,
-        )
-
-        self._ifc_elem = ifc_plate
-
-        # Add colour
-        if self.colour is not None:
-            add_colour(f, ifcextrudedareasolid, str(self.colour), self.colour)
-
-        # Add penetrations
-        # elements = []
-        for pen in self.penetrations:
-            # elements.append(pen.ifc_opening)
-            f.createIfcRelVoidsElement(
-                create_guid(),
-                owner_history,
-                None,
-                None,
-                ifc_plate,
-                pen.ifc_opening,
-            )
-
-        # if "props" in self.metadata.keys():
-        props = create_property_set("Properties", f, self.metadata)
-        f.createIfcRelDefinesByProperties(
-            create_guid(),
-            owner_history,
-            "Properties",
-            None,
-            [ifc_plate],
-            props,
-        )
-
-        return ifc_plate
+        return write_ifc_plate(self)
 
     @property
     def id(self):

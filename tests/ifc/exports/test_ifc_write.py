@@ -1,12 +1,4 @@
-import pytest
-
 from ada import Assembly, Beam, Part, Plate, Section, User
-from ada.config import Settings
-
-
-@pytest.fixture
-def ifc_test_dir():
-    return Settings.test_dir / "ifc_basics"
 
 
 def test_export_basic(ifc_test_dir):

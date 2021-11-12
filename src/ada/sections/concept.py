@@ -91,7 +91,7 @@ class Section(Backend):
     #     return True
 
     def _generate_ifc_section_data(self):
-        from ada.ifc.write.export_beam_sections import export_beam_section
+        from ada.ifc.write.write_sections import export_beam_section
 
         return export_beam_section(self)
 

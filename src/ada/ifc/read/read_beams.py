@@ -2,11 +2,12 @@ import logging
 
 import numpy as np
 
-from ada import Assembly, Beam, Material
+from ada import Assembly, Beam
 from ada.core.vector_utils import unit_vector
 from ada.ifc.utils import default_settings
 
 from .read_beam_section import import_section_from_ifc
+from .read_materials import read_material
 from .read_shapes import get_ifc_shape
 from .reader_utils import get_associated_material, get_name, getIfcPropertySets
 
@@ -27,8 +28,9 @@ def import_ifc_beam(ifc_elem, assembly: Assembly = None) -> Beam:
 
     if sec is None:
         sec = import_section_from_ifc(ass.Profile)
+
     if mat is None:
-        mat = Material(ass.Material.Name, ifc_mat=ass.Material)
+        mat = read_material(ass)
 
     axes = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Axis"]
 
