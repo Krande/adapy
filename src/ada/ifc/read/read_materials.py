@@ -1,3 +1,5 @@
+import logging
+
 from ada import Assembly, Material
 
 
@@ -5,12 +7,13 @@ def read_material(ifc_mat) -> Material:
     from ada.materials.metals import CarbonSteel, Metal
 
     mat_psets = ifc_mat.HasProperties
-
-    props = {
-        entity.Name: entity.NominalValue[0]
-        for entity in mat_psets[0].Properties
-        if entity.is_a("IfcPropertySingleValue")
-    }
+    if len(mat_psets) == 0:
+        logging.warning(f'No material found for "{ifc_mat}"')
+        return Material("DummyMat")
+    props = {}
+    for entity in mat_psets[0].Properties:
+        if entity.is_a("IfcPropertySingleValue"):
+            props[entity.Name] = entity.NominalValue[0]
 
     mat_props = dict(
         E=props.get("YoungModulus", 210000e6),
