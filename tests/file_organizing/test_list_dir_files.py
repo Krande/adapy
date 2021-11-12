@@ -61,5 +61,5 @@ def test_list_of_files(example_files):
     ]
     for p_actual, p_desired in zip(list_of_files, desired_list):
         pa = pathlib.Path(p_actual).resolve().absolute()
-        pd = (pathlib.Path("../../files") / p_desired).resolve().absolute()
+        pd = (pathlib.Path(__file__).parent / "../../files" / p_desired).resolve().absolute()
         assert pa == pd
