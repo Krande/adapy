@@ -79,8 +79,7 @@ class User:
     parent = None
 
     def _build_ifc_elem(self):
-
-        from ada.ifc.utils import get_org, get_person
+        from ada.ifc.read.reader_utils import get_org, get_person
 
         f = self.parent.ifc_file
         actor = f.create_entity("IfcActorRole", self.role.upper(), None, None)

@@ -1,9 +1,7 @@
-from common import dummy_display
-
 from ada import Assembly, Beam, Plate
 
 
-def test_viz_structural():
+def test_viz_structural(dummy_display):
     components = [
         Beam("bm1", n1=[0, 0, 0], n2=[2, 0, 0], sec="IPE220", colour="red"),
         Beam("bm2", n1=[0, 0, 1], n2=[2, 0, 1], sec="HP220x10", colour="blue"),
@@ -22,5 +20,5 @@ def test_viz_structural():
     dummy_display(a)
 
 
-def test_beam_shell(test_shell_beam):
+def test_beam_shell(test_shell_beam, dummy_display):
     dummy_display(test_shell_beam)

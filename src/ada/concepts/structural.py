@@ -77,21 +77,6 @@ class Beam(BackendGeom):
         placement=Placement(),
     ):
         super().__init__(name, metadata=metadata, units=units, guid=guid, ifc_elem=ifc_elem, placement=placement)
-
-        if ifc_elem is not None:
-            props = self._import_from_ifc_beam(ifc_elem)
-            self.name = props["name"]
-            self.guid = props["guid"]
-            n1 = props["n1"]
-            n2 = props["n2"]
-            sec = props["sec"]
-            mat = props["mat"]
-            up = props["up"]
-            ifc_geom = props["ifc_geom"]
-            colour = props["colour"]
-            opacity = props["opacity"]
-            self.metadata.update(props["props"])
-
         if curve is not None:
             curve.parent = self
             if type(curve) is CurvePoly:
@@ -339,65 +324,6 @@ class Beam(BackendGeom):
         f.createIfcRelAssociatesMaterial(create_guid(), owner_history, None, None, [ifc_beam], mat_usage)
 
         return ifc_beam
-
-    def _import_from_ifc_beam(self, ifc_elem):
-        from ada.ifc.utils import (
-            get_association,
-            get_ifc_shape,
-            get_name,
-            getIfcPropertySets,
-        )
-
-        ass = get_association(ifc_elem)
-        sec = Section(ass.Profile.ProfileName, ifc_elem=ass.Profile)
-        mat = Material(ass.Material.Name, ifc_mat=ass.Material)
-
-        axes = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Axis"]
-
-        if len(axes) != 1:
-            raise ValueError("Number of axis objects attached to element is not 1")
-        if len(axes[0].Items) != 1:
-            raise ValueError("Number of items objects attached to axis is not 1")
-
-        axis = axes[0].Items[0]
-        p1 = axis.Points[0].Coordinates
-        p2 = axis.Points[1].Coordinates
-
-        yvec = ifc_elem.ObjectPlacement.RelativePlacement.RefDirection.DirectionRatios
-        xvec = unit_vector(np.array(p2) - np.array(p1))
-        zvec = np.cross(xvec, yvec)
-
-        pdct_shape, colour, alpha = get_ifc_shape(ifc_elem, self.ifc_settings)
-
-        bodies = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Body"]
-        if len(bodies) != 1:
-            raise ValueError("Number of body objects attached to element is not 1")
-        if len(bodies[0].Items) != 1:
-            raise ValueError("Number of items objects attached to body is not 1")
-        body = bodies[0].Items[0]
-        if len(body.StyledByItem) > 0:
-            style = body.StyledByItem[0].Styles[0].Styles[0].Styles[0]
-            colour = (
-                int(style.SurfaceColour.Red),
-                int(style.SurfaceColour.Green),
-                int(style.SurfaceColour.Blue),
-            )
-
-        props = getIfcPropertySets(ifc_elem)
-
-        return dict(
-            name=get_name(ifc_elem),
-            n1=p1,
-            n2=p2,
-            sec=sec,
-            mat=mat,
-            up=zvec,
-            ifc_geom=pdct_shape,
-            colour=colour,
-            opacity=alpha,
-            guid=ifc_elem.GlobalId,
-            props=props,
-        )
 
     def calc_con_points(self, point_tol=Settings.point_tol):
         from ada.core.vector_utils import sort_points_by_dist
@@ -723,21 +649,11 @@ class Plate(BackendGeom):
 
         points2d = None
         points3d = None
-        if ifc_elem is not None:
-            props = self._import_from_ifc_plate(ifc_elem)
-            self.name = props["name"]
-            self.guid = ifc_elem.GlobalId
-            t = props["t"]
-            points2d = props["nodes2d"]
-            self.placement = Placement(props["origin"], xdir=props["xdir"], zdir=props["normal"])
-            ifc_geom = props["ifc_geom"]
-            colour = props["colour"]
-            opacity = props["opacity"]
+
+        if use3dnodes is True:
+            points3d = nodes
         else:
-            if use3dnodes is True:
-                points3d = nodes
-            else:
-                points2d = nodes
+            points2d = nodes
 
         self._pl_id = pl_id
         self._material = mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat))
@@ -862,62 +778,6 @@ class Plate(BackendGeom):
         )
 
         return ifc_plate
-
-    def _import_from_ifc_plate(self, ifc_elem, ifc_settings=None):
-        from ada.ifc.utils import (
-            get_ifc_shape,
-            get_name,
-            import_indexedpolycurve,
-            import_polycurve,
-        )
-
-        a = self.get_assembly()
-        if a is None:
-            # use default ifc_settings
-            ifc_settings = Settings.default_ifc_settings()
-        else:
-            ifc_settings = a.ifc_settings
-
-        pdct_shape, color, alpha = get_ifc_shape(ifc_elem, ifc_settings)
-        atts = dict(ifc_geom=pdct_shape, colour=color, opacity=alpha)
-
-        # TODO: Fix interpretation of IfcIndexedPolyCurve. Should pass origin to get actual 2d coordinates.
-
-        # Adding Axis information
-        axes = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Axis"]
-        if len(axes) != 1:
-            raise NotImplementedError("Geometry with multiple axis is not currently supported")
-        axis = axes[0]
-        origin = axis.Items[0].Points[0].Coordinates
-        atts.update(origin=origin)
-
-        # Adding Body
-        bodies = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Body"]
-        if len(bodies) != 1:
-            raise NotImplementedError("Geometry with multiple bodies is not currently supported")
-        if len(bodies[0].Items) != 1:
-            raise NotImplementedError("Body with multiple Items is not currently supported")
-
-        item = bodies[0].Items[0]
-        t = item.Depth
-        normal = item.ExtrudedDirection.DirectionRatios
-        xdir = item.Position.RefDirection.DirectionRatios
-        outer_curve = item.SweptArea.OuterCurve
-
-        if outer_curve.is_a("IfcIndexedPolyCurve"):
-            nodes2d = import_indexedpolycurve(outer_curve, normal, xdir, origin)
-        else:
-            nodes2d = import_polycurve(outer_curve, normal, xdir)
-
-        atts.update(dict(normal=normal, xdir=xdir))
-
-        if nodes2d is None or t is None:
-            raise ValueError("Unable to get plate nodes or thickness")
-
-        name = get_name(ifc_elem)
-        if name is None:
-            raise ValueError("Name cannot be none")
-        return dict(name=name, nodes2d=nodes2d, t=t, use3dnodes=False, **atts)
 
     @property
     def id(self):

@@ -272,7 +272,6 @@ def get_ff_regex(flag, *args):
 
 
 def _overwrite_dir(analysis_dir):
-
     print("Removing old files before copying new")
     try:
         if Settings.safe_deletion is True:

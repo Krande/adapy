@@ -1,5 +1,4 @@
 import pytest
-from common import dummy_display
 
 from ada import Assembly, Part, Pipe, Section
 from ada.config import Settings
@@ -7,7 +6,7 @@ from ada.config import Settings
 test_dir = Settings.test_dir / "pipes"
 
 
-def test_pipe_straight():
+def test_pipe_straight(dummy_display):
     a = Assembly("MyTest")
 
     p = Part("MyPart")

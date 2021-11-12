@@ -1,5 +1,3 @@
-from common import dummy_display
-
 from ada import Assembly, Part, Wall
 from ada.config import Settings
 from ada.param_models.basic_structural_components import Door, Window
@@ -7,7 +5,7 @@ from ada.param_models.basic_structural_components import Door, Window
 test_folder = Settings.test_dir / "walls"
 
 
-def test_wall_simple():
+def test_wall_simple(dummy_display):
     points = [(0, 0, 0), (5, 0, 0), (5, 5, 0)]
     w = Wall("MyWall", points, 3, 0.15, offset="LEFT")
     wi = Window("MyWindow1", 1.5, 1, 0.15)

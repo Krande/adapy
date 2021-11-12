@@ -218,7 +218,7 @@ class MyRenderer(JupyterRenderer):
 
         try:
             if "ifc_file" in beam.metadata.keys():
-                from ada.ifc.utils import get_ifc_shape
+                from ada.ifc.read.read_shapes import get_ifc_shape
 
                 a = beam.parent.get_assembly()
                 ifc_f = a.get_ifc_source_by_name(beam.metadata["ifc_file"])

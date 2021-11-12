@@ -3,7 +3,7 @@ import logging
 from ada.concepts.levels import Assembly, Part
 from ada.fem.formats.ifc.writer import to_ifc_fem
 
-from .utils import create_guid
+from ..utils import create_guid
 
 
 def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=False):

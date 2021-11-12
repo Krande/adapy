@@ -15,7 +15,7 @@ def import_section_from_ifc(ifc_elem):
         if ifc_elem.is_a("IfcIShapeProfileDef"):
             sec = Section(
                 name=ifc_elem.ProfileName,
-                sec_type="IG",
+                sec_type=Section.TYPES.IPROFILE,
                 h=ifc_elem.OverallDepth,
                 w_top=ifc_elem.OverallWidth,
                 w_btn=ifc_elem.OverallWidth,

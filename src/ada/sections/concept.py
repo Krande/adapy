@@ -81,16 +81,22 @@ class Section(Backend):
             genprops.parent = self
             self._genprops = genprops
 
-    def __eq__(self, other: Section):
-        return self.equal_props(other)
+    # def __eq__(self, other: Section):
+    #     props_equal = self.equal_props(other)
+    #     if props_equal is False:
+    #         return False
+    #     if other.name != self.name:
+    #         return False
+    #
+    #     return True
 
     def _generate_ifc_section_data(self):
-        from ada.ifc.export_beam_sections import export_beam_section
+        from ada.ifc.write.export_beam_sections import export_beam_section
 
         return export_beam_section(self)
 
     def _import_from_ifc_profile(self, ifc_elem):
-        from ada.ifc.import_beam_section import import_section_from_ifc
+        from ada.ifc.read.read_beam_section import import_section_from_ifc
 
         self._ifc_profile = ifc_elem
         return import_section_from_ifc(ifc_elem)

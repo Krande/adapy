@@ -62,7 +62,7 @@ def write_elem(el: Elem, thick_map) -> str:
 
     fem_sec = el.fem_sec
     if fem_sec.type == ElemType.LINE:
-        sec_id = fem_sec.section.metadata["numid"]
+        sec_id = fem_sec.section.id
     elif fem_sec.type == ElemType.SHELL:
         sec_id = thick_map[fem_sec.thickness]
     else:

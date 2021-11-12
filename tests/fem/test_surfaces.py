@@ -1,7 +1,14 @@
+import pytest
+
 import ada
 
 
-def test_surface_box():
+@pytest.fixture
+def test_surfaces_dir(test_dir):
+    return test_dir / "surfaces"
+
+
+def test_surface_box(test_surfaces_dir):
     # Build Model
     box = ada.PrimBox("MyBoxShape", (0, 0, 0), (1, 1, 1))
     a = ada.Assembly() / (ada.Part("MyBoxPart") / [box])
@@ -21,11 +28,11 @@ def test_surface_box():
     surface = p.fem.add_surface(box.bbox.sides.front(return_surface=True, surface_name="FrontSurface"))
     step.add_load(ada.fem.LoadPressure("PressureFront", 200, surface))
 
-    a.to_fem("MyFemBox", "abaqus", overwrite=True)
+    a.to_fem("MyFemBox", "abaqus", overwrite=True, scratch_dir=test_surfaces_dir)
     # a.to_fem("MyFemBox_ca", "code_aster", overwrite=True)
 
 
-def test_surface_beam():
+def test_surface_beam(test_surfaces_dir):
     from ada.fem.meshing import GmshOptions
 
     # Build Model
@@ -47,4 +54,4 @@ def test_surface_beam():
     surface_top = p.fem.add_surface(bm.bbox.sides.top(return_surface=True, surf_name="TopSurface"))
     step.add_load(ada.fem.LoadPressure("PressureTop", 1e6, surface_top))
 
-    a.to_fem("MyFemBeam_100mm_2nd_order", "abaqus", overwrite=True, execute=False)
+    a.to_fem("MyFemBeam_100mm_2nd_order", "abaqus", overwrite=True, execute=False, scratch_dir=test_surfaces_dir)

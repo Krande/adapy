@@ -22,8 +22,13 @@ def anisotropic_mass():
     return Mass("AnIsotropicMass", None, [0, 0, 10], Mass.PTYPES.ANISOTROPIC)
 
 
+@pytest.fixture
+def test_fem_mass_dir(test_dir):
+    return test_dir / "fem_mass"
+
+
 @pytest.mark.parametrize("fem_format", FEATypes.all)
-def test_beam_with_isotropic_mass(beam_model_line, isotropic_mass: Mass, fem_format):
+def test_beam_with_isotropic_mass(beam_model_line, isotropic_mass: Mass, fem_format, test_fem_mass_dir):
     bm = beam_model_line.get_by_name("Bm")
     fix_nodes = get_beam_end_nodes(bm)
     fs_fix = bm.parent.fem.add_set(FemSet("FixSet", fix_nodes, FemSet.TYPES.NSET))
@@ -36,9 +41,9 @@ def test_beam_with_isotropic_mass(beam_model_line, isotropic_mass: Mass, fem_for
 
     a = bm.parent.get_assembly()
     a.fem.add_step(StepEigen("StepEig", num_eigen_modes=10))
-
+    name = f"bm_wIsoMass_{fem_format}"
     try:
-        res = beam_model_line.to_fem(f"bm_wIsoMass_{fem_format}", fem_format, overwrite=True)  # , execute=True)
+        res = beam_model_line.to_fem(name, fem_format, scratch_dir=test_fem_mass_dir, overwrite=True)
     except IncompatibleElements as e:
         logging.error(e)
         return

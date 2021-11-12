@@ -555,21 +555,41 @@ class Part(BackendGeom):
     def shapes(self) -> List[Shape]:
         return self._shapes
 
+    @shapes.setter
+    def shapes(self, value: List[Shape]):
+        self._shapes = value
+
     @property
     def beams(self) -> Beams:
         return self._beams
+
+    @beams.setter
+    def beams(self, value: Beams):
+        self._beams = value
 
     @property
     def plates(self) -> Plates:
         return self._plates
 
+    @plates.setter
+    def plates(self, value: Plates):
+        self._plates = value
+
     @property
     def pipes(self) -> List[Pipe]:
         return self._pipes
 
+    @pipes.setter
+    def pipes(self, value: List[Pipe]):
+        self._pipes = value
+
     @property
     def walls(self) -> List[Wall]:
         return self._walls
+
+    @walls.setter
+    def walls(self, value: List[Wall]):
+        self._walls = value
 
     @property
     def nodes(self) -> Nodes:
@@ -591,6 +611,10 @@ class Part(BackendGeom):
     @property
     def sections(self) -> Sections:
         return self._sections
+
+    @sections.setter
+    def sections(self, value: Sections):
+        self._sections = value
 
     @property
     def materials(self) -> Materials:
@@ -868,48 +892,15 @@ class Assembly(Part):
         :param elements2part: Grab all physical elements from ifc and import it to the parsed in Part object.
         :param cache_model_now:
         """
-        from ada.ifc.utils import (
-            add_to_assembly,
-            get_parent,
-            import_ifc_hierarchy,
-            import_physical_ifc_elem,
-            open_ifc,
-            scale_ifc_file,
-        )
+        from ada.ifc.read.read_ifc import read_ifc_file
 
         if self._enable_experimental_cache is True:
             if self._from_cache(ifc_file) is True:
                 return None
 
-        f = open_ifc(ifc_file)
+        a = read_ifc_file(ifc_file, self.ifc_settings, elements2part, data_only)
 
-        scaled_ifc = scale_ifc_file(self.ifc_file, f)
-        if scaled_ifc is not None:
-            f = scaled_ifc
-
-        # Get hierarchy
-        if elements2part is None:
-            for product in f.by_type("IfcProduct"):
-                res, new_part = import_ifc_hierarchy(self, product)
-                if new_part is None:
-                    continue
-                if res is None:
-                    self.add_part(new_part)
-                elif type(res) is not Part:
-                    raise NotImplementedError()
-                else:
-                    res.add_part(new_part)
-
-        # Get physical elements
-        for product in f.by_type("IfcProduct"):
-            if product.Representation is not None and data_only is False:
-                parent = get_parent(product)
-                obj = import_physical_ifc_elem(product)
-                obj.metadata["ifc_file"] = ifc_file
-                if obj is not None:
-                    add_to_assembly(self, obj, parent, elements2part)
-
-        print(f'Import of IFC file "{ifc_file}" is complete')
+        self.__add__(a)
 
         if self._enable_experimental_cache is True:
             self._to_cache(ifc_file, cache_model_now)
@@ -948,11 +939,8 @@ class Assembly(Part):
         fem_importer, _ = get_fem_converters(fem_file, fem_format, fem_converter)
 
         temp_assembly: Assembly = fem_importer(fem_file, name)
-        for p in temp_assembly.get_all_parts_in_assembly():
-            p.parent = self
-            self.add_part(p)
 
-        self.fem += temp_assembly.fem
+        self.__add__(temp_assembly)
 
         if self._enable_experimental_cache is True:
             self._to_cache(fem_file, cache_model_now)
@@ -1075,7 +1063,7 @@ class Assembly(Part):
         return Results(res_path, name, fem_format=fem_format, assembly=self, output=out, overwrite=overwrite)
 
     def to_ifc(self, destination_file, include_fem=False) -> None:
-        from ada.ifc.export import add_part_objects_to_ifc
+        from ada.ifc.write.export import add_part_objects_to_ifc
 
         f = self.ifc_file
 
@@ -1084,6 +1072,9 @@ class Assembly(Part):
         for s in self.sections:
             f.add(s.ifc_profile)
             f.add(s.ifc_beam_type)
+
+        for m in self.materials.name_map.values():
+            f.add(m.ifc_mat)
 
         for p in self.get_all_parts_in_assembly(include_self=True):
             add_part_objects_to_ifc(p, f, self, include_fem)
@@ -1177,7 +1168,7 @@ class Assembly(Part):
         return site
 
     def get_ifc_source_by_name(self, ifc_file):
-        from ada.ifc.utils import open_ifc
+        from ada.ifc.read.reader_utils import open_ifc
 
         if ifc_file not in self._source_ifc_files.keys():
 
@@ -1187,14 +1178,6 @@ class Assembly(Part):
             ifc_f = self._source_ifc_files[ifc_file]
 
         return ifc_f
-
-    @property
-    def sections(self):
-        sec_db = Sections([sec for sec in self._sections], parent=self)
-        for sec in list(chain.from_iterable([p.sections for p in self.get_all_parts_in_assembly()])):
-            sec_db.add(sec)
-
-        return sec_db
 
     @property
     def ifc_sections(self):
@@ -1245,14 +1228,23 @@ class Assembly(Part):
                                 ref.n2 = replace_node
                         elif type(ref) is Csys:
                             pass
-                            # n_i = ref.nodes.index(n)
-                            # ref.nodes.pop(n_i)
-                            # ref.nodes.insert(n_i, replace_node)
                         else:
                             raise NotImplementedError()
                     break
-        self.fem += other.fem
 
+        self.fem += other.fem
+        for p in other.parts.values():
+            p.parent = self
+            self.add_part(p)
+        for mat in other.materials:
+            if mat not in self.materials:
+                self.materials.add(mat)
+        self.sections += other.sections
+        self.shapes += other.shapes
+        self.beams += other.beams
+        self.plates += other.plates
+        self.pipes += other.pipes
+        self.walls += other.walls
         return self
 
     def __repr__(self):

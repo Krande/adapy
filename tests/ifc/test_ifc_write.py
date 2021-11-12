@@ -1,10 +1,15 @@
+import pytest
+
 from ada import Assembly, Beam, Part, Plate, Section, User
 from ada.config import Settings
 
-test_dir = Settings.test_dir / "ifc_basics"
+
+@pytest.fixture
+def ifc_test_dir():
+    return Settings.test_dir / "ifc_basics"
 
 
-def test_export_basic():
+def test_export_basic(ifc_test_dir):
     bm = Beam(
         "MyBeam",
         (0, 0, 0),
@@ -30,10 +35,10 @@ def test_export_basic():
         Part("MyBldg", metadata=dict(ifctype="building")) / [bm, bm1, bm2, bm3, bm4, bm5, pl1]
     )
 
-    a.to_ifc(test_dir / "my_test.ifc")
+    a.to_ifc(ifc_test_dir / "my_test.ifc")
 
 
-def test_ifc_groups():
+def test_ifc_groups(ifc_test_dir):
     a = Assembly("MySiteName", project="MyTestProject")
     p = Part(
         "MyTopSpatialLevel",
@@ -64,10 +69,10 @@ def test_ifc_groups():
     )
     newp.add_part(newp2)
 
-    a.to_ifc(test_dir / "my_test_groups.ifc")
+    a.to_ifc(ifc_test_dir / "my_test_groups.ifc")
 
 
-def test_profiles_to_ifc():
+def test_profiles_to_ifc(ifc_test_dir):
     a = Assembly("MyAssembly")
     p = Part("MyPart")
     p.add_beam(Beam("bm1", n1=[0, 0, 0], n2=[2, 0, 0], sec="IPE220", colour="red"))
@@ -76,4 +81,4 @@ def test_profiles_to_ifc():
     p.add_beam(Beam("bm4", n1=[0, 0, 3], n2=[2, 0, 3], sec="CIRC200", colour="green"))
     p.add_beam(Beam("bm5", n1=[0, 0, 4], n2=[2, 0, 4], sec="TUB200x10", colour="green"))
     a.add_part(p)
-    a.to_ifc(test_dir / "my_beam_profiles.ifc")
+    a.to_ifc(ifc_test_dir / "my_beam_profiles.ifc")

@@ -6,7 +6,7 @@ from ada import Section
 from ada.config import Settings
 from ada.sections.categories import SectionCat
 
-from .utils import create_guid, create_ifcindexpolyline, create_ifcpolyline
+from ..utils import create_guid, create_ifcindexpolyline, create_ifcpolyline
 
 
 def export_beam_section(section: Section):

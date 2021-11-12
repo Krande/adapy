@@ -232,7 +232,7 @@ class Shape(BackendGeom):
         from .exceptions import NoGeomPassedToShapeError
 
         if self._geom is None:
-            from ada.ifc.utils import get_ifc_shape
+            from ada.ifc.read.read_shapes import get_ifc_shape
 
             if self._ifc_elem is not None:
                 ifc_elem = self._ifc_elem

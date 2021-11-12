@@ -200,6 +200,10 @@ class FemSection(FemBase):
         else:
             return self.id, self.material, self.section, (None,), tuple(self.local_z), 0.0
 
+    def has_equal_props(self, other: FemSection):
+        equal_sec = self.section.equal_props(other.section)
+        return equal_sec
+
     def __eq__(self, other: FemSection):
         self_perm = self.unique_fem_section_permutation()
         other_perm = other.unique_fem_section_permutation()
@@ -207,8 +211,8 @@ class FemSection(FemBase):
 
     def __repr__(self):
         return (
-            f'FemSection({self.type} - name: "{self.name}", sec: "{self.section}", '
-            f'mat: "{self.material}",  elset: "{self.elset}")'
+            f'FemSection({self.type} - name: "{self.name}", sec: "{self.section.name}", '
+            f'mat: "{self.material.name}",  elset: "{self.elset.name}")'
         )
 
 
