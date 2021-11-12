@@ -2,6 +2,7 @@ import numpy as np
 
 from ada import Beam, Material, Section
 from ada.core.vector_utils import unit_vector
+
 from .read_shapes import get_ifc_shape
 from .reader_utils import get_associated_material
 

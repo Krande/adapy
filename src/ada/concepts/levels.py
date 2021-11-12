@@ -1063,43 +1063,9 @@ class Assembly(Part):
         return Results(res_path, name, fem_format=fem_format, assembly=self, output=out, overwrite=overwrite)
 
     def to_ifc(self, destination_file, include_fem=False) -> None:
-        from ada.ifc.write.export import add_part_objects_to_ifc
+        from ada.ifc.write.write_ifc import write_to_ifc
 
-        f = self.ifc_file
-
-        dest = pathlib.Path(destination_file).with_suffix(".ifc")
-
-        for s in self.sections:
-            f.add(s.ifc_profile)
-            f.add(s.ifc_beam_type)
-
-        for m in self.materials.name_map.values():
-            f.add(m.ifc_mat)
-
-        for p in self.get_all_parts_in_assembly(include_self=True):
-            add_part_objects_to_ifc(p, f, self, include_fem)
-
-        all_groups = [p.groups.values() for p in self.get_all_parts_in_assembly(include_self=True)]
-        for group in chain.from_iterable(all_groups):
-            group.to_ifc(f)
-
-        if len(self.presentation_layers) > 0:
-            presentation_style = f.createIfcPresentationStyle("HiddenLayers")
-            f.createIfcPresentationLayerWithStyle(
-                "HiddenLayers",
-                "Hidden Layers (ADA)",
-                self.presentation_layers,
-                "10",
-                False,
-                False,
-                False,
-                [presentation_style],
-            )
-
-        os.makedirs(dest.parent, exist_ok=True)
-        self.ifc_file.write(str(dest))
-        self._source_ifc_files = dict()
-        print(f'ifc file created at "{dest}"')
+        write_to_ifc(destination_file, self, include_fem)
 
     def push(
         self,
@@ -1233,9 +1199,11 @@ class Assembly(Part):
                     break
 
         self.fem += other.fem
+
         for p in other.parts.values():
             p.parent = self
             self.add_part(p)
+
         for mat in other.materials:
             if mat not in self.materials:
                 self.materials.add(mat)
