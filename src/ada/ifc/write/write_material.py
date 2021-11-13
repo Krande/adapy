@@ -17,7 +17,8 @@ def write_ifc_mat(material: Material):
     properties = []
     if type(material.model) is CarbonSteel:
         strength_grade = f.create_entity("IfcText", material.model.grade)
-        properties.append(strength_grade)
+        strength_grade_prop = f.create_entity("IfcPropertySingleValue", Name="Grade", NominalValue=strength_grade)
+        properties.append(strength_grade_prop)
     mass_density = f.create_entity("IfcMassDensityMeasure", float(material.model.rho))
     if material.model.sig_y is not None:
         yield_stress = f.create_entity("IfcPressureMeasure", float(material.model.sig_y))

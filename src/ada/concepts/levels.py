@@ -708,6 +708,8 @@ class Part(BackendGeom):
                     self.add_part(obj)
                 elif issubclass(type(obj), Shape):
                     self.add_shape(obj)
+                elif type(obj) is Wall:
+                    self.add_wall(obj)
                 else:
                     raise NotImplementedError(f'"{type(obj)}" is not yet supported for smart append')
         elif issubclass(type(other_object), Part):
