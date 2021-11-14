@@ -14,11 +14,12 @@ if TYPE_CHECKING:
 
     from .primitives import PrimBox
     from .stru_beams import Beam
+    from .stru_plates import Plate
 
 
 @dataclass
 class BoundingBox:
-    parent: Union[PrimBox, Beam]
+    parent: Union[PrimBox, Beam, Plate]
     placement: Placement = field(default=None, init=False)
     sides: BoxSides = field(default=None, init=False)
     p1: np.array = field(default=None, init=False)
@@ -27,6 +28,7 @@ class BoundingBox:
     def __post_init__(self):
         from .primitives import Shape
         from .stru_beams import Beam
+        from .stru_plates import Plate
 
         if issubclass(type(self.parent), Shape):
             self.p1, self.p2 = self._calc_bbox_of_shape()
@@ -36,6 +38,8 @@ class BoundingBox:
             self.placement = Placement(
                 self.parent.placement.origin, xdir=self.parent.yvec, ydir=self.parent.xvec, zdir=self.parent.up
             )
+        elif type(self.parent) is Plate:
+            self.p1, self.p2 = self._calc_bbox_of_plate()
         else:
             raise NotImplementedError(f'Bounding Box Support for object type "{type(self.parent)}" is not yet added')
         self.sides = BoxSides(self)
@@ -81,9 +85,51 @@ class BoundingBox:
                 logging.info(f'Shape "{self.parent.name}" has no attached geometry. Error "{e}"')
                 return (0, 0, 0), (1, 1, 1)
 
+    def _calc_bbox_of_plate(self) -> Tuple[tuple, tuple]:
+        """Calculate the Bounding Box of a plate"""
+        xs = []
+        ys = []
+        zs = []
+        plate: Plate = self.parent
+        for pt in plate.poly.nodes:
+            xs.append(pt.x)
+            ys.append(pt.y)
+            zs.append(pt.z)
+
+        bbox_min = np.array([min(xs), min(ys), min(zs)]).astype(np.float64)
+        bbox_max = np.array([max(xs), max(ys), max(zs)]).astype(np.float64)
+        n = plate.poly.normal.astype(np.float64)
+
+        pv = np.nonzero(n)[0]
+        matr = {0: "X", 1: "Y", 2: "Z"}
+        orient = matr[pv[0]]
+        if orient == "X" or orient == "Y":
+            delta_vec = abs(n * plate.t / 2.0)
+            bbox_min -= delta_vec
+            bbox_max += delta_vec
+        elif orient == "Z":
+            delta_vec = abs(n * plate.t).astype(np.float64)
+            bbox_min -= delta_vec
+        else:
+            raise ValueError(f"Error in {orient}")
+
+        return tuple(bbox_min), tuple(bbox_max)
+
     @property
     def minmax(self):
         return self.p1, self.p2
+
+    @property
+    def volume_cog(self):
+        """Get volumetric COG from bounding box"""
+
+        return np.array(
+            [
+                (self.p1[0] + self.p2[0]) / 2,
+                (self.p1[1] + self.p2[1]) / 2,
+                (self.p1[2] + self.p2[2]) / 2,
+            ]
+        )
 
 
 @dataclass

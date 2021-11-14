@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, List
 import numpy as np
 
 from ada.base.physical_objects import BackendGeom
+from ada.concepts.bounding_box import BoundingBox
 from ada.concepts.curves import CurvePoly
 from ada.concepts.points import Node
 from ada.concepts.transforms import Placement
@@ -136,22 +137,12 @@ class Plate(BackendGeom):
         return self._poly
 
     @property
-    def bbox(self):
-        """Bounding box of plate"""
+    def bbox(self) -> BoundingBox:
+        """Bounding Box of plate"""
         if self._bbox is None:
-            self._bbox = self.poly.calc_bbox(self.t)
+            self._bbox = BoundingBox(self)
+
         return self._bbox
-
-    def volume_cog(self):
-        """Get a point in the plate's volumetric COG (based on bounding box)."""
-
-        return np.array(
-            [
-                (self.bbox[0][0] + self.bbox[0][1]) / 2,
-                (self.bbox[1][0] + self.bbox[1][1]) / 2,
-                (self.bbox[2][0] + self.bbox[2][1]) / 2,
-            ]
-        )
 
     @property
     def metadata(self):

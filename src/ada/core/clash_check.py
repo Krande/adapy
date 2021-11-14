@@ -86,8 +86,8 @@ def are_plates_touching(pl1: Plate, pl2: Plate, tol=1e-3):
     dss = compute_minimal_distance_between_shapes(pl1.solid, pl2.solid)
     if dss.Value() <= tol:
         return dss
-    else:
-        return None
+
+    return None
 
 
 def filter_away_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]) -> List[Beam]:
@@ -135,10 +135,9 @@ def find_beams_connected_to_plate(pl: Plate, beams: List[Beam]) -> List[Beam]:
     """Return all beams with their midpoints inside a specified plate for a given list of beams"""
     from ada.concepts.containers import Nodes
 
-    bbox = list(zip(*pl.bbox))
     nid = Counter(1)
     nodes = Nodes([Node((bm.n2.p + bm.n1.p) / 2, next(nid), refs=[bm]) for bm in beams])
-    res = nodes.get_by_volume(bbox[0], bbox[1])
+    res = nodes.get_by_volume(pl.bbox.p1, pl.bbox.p2)
 
     all_beams_within = list(chain.from_iterable([r.refs for r in res]))
     return all_beams_within

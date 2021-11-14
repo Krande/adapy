@@ -38,9 +38,8 @@ class ReinforcedFloor(Part):
         self.add_plate(plate)
 
         # Calculate number of stringers
-        bbox = plate.bbox
-        xmin, xmax = bbox[0]
-        ymin, ymax = bbox[1]
+
+        (xmin, ymin, zmin), (xmax, ymax, zmax) = plate.bbox.minmax
 
         if stringer_dir == "Y":
             snum = int((xmax - xmin) / spacing) - 1

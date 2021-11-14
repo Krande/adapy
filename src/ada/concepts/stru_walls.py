@@ -174,7 +174,7 @@ class Wall(BackendGeom):
 
     @property
     def extrusion_area(self):
-        from ada.core.vector_utils import intersect_calc, is_parallel
+        from ada.core.vector_utils import calc_yvec, intersect_calc, is_parallel
 
         area_points = []
         vpo = [np.array(p) for p in self.points]
@@ -183,10 +183,11 @@ class Wall(BackendGeom):
         prev_xvec = None
         prev_yvec = None
         zvec = np.array([0, 0, 1])
+
         # Inner line
         for p1, p2 in zip(vpo[:-1], vpo[1:]):
             xvec = p2 - p1
-            yvec = unit_vector(np.cross(zvec, xvec))
+            yvec = unit_vector(calc_yvec(xvec, zvec))
             new_point = p1 + yvec * (self._thickness / 2) + yvec * self.offset
             if prev_xvec is not None:
                 if is_parallel(xvec, prev_xvec) is False:
@@ -212,7 +213,7 @@ class Wall(BackendGeom):
         prev_yvec = None
         for p1, p2 in zip(vpo[:-1], vpo[1:]):
             xvec = p2 - p1
-            yvec = unit_vector(np.cross(xvec, np.array([0, 0, 1])))
+            yvec = unit_vector(calc_yvec(xvec, zvec))
             new_point = p1 - yvec * (self._thickness / 2) + yvec * self.offset
             if prev_xvec is not None:
                 if is_parallel(xvec, prev_xvec) is False:

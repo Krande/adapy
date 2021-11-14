@@ -291,37 +291,6 @@ class CurvePoly:
 
         return wire_to_face(self.edges)
 
-    def calc_bbox(self, tol) -> tuple:
-        """Calculate the Bounding Box of the plate and return ([Xmin, Xmax], [Ymin, Ymax], [Zmin, Zmax])"""
-        xs = []
-        ys = []
-        zs = []
-
-        for pt in self.nodes:
-            xs.append(pt.x)
-            ys.append(pt.y)
-            zs.append(pt.z)
-
-        bbox_min = np.array([min(xs), min(ys), min(zs)]).astype(np.float64)
-        bbox_max = np.array([max(xs), max(ys), max(zs)]).astype(np.float64)
-        n = self.normal.astype(np.float64)
-
-        pv = np.nonzero(n)[0]
-        matr = {0: "X", 1: "Y", 2: "Z"}
-        orient = matr[pv[0]]
-        if orient == "X" or orient == "Y":
-            delta_vec = abs(n * tol / 2.0)
-            bbox_min -= delta_vec
-            bbox_max += delta_vec
-        elif orient == "Z":
-            delta_vec = abs(n * tol).astype(np.float64)
-            bbox_min -= delta_vec
-
-        else:
-            raise ValueError(f"Error in {orient}")
-
-        return tuple([(x, y) for x, y in zip(list(bbox_min), list(bbox_max))])
-
     def scale(self, scale_factor, tol):
         self.placement.origin = np.array([x * scale_factor for x in self.placement.origin])
         self._points2d = [tuple([x * scale_factor for x in p]) for p in self._points2d]

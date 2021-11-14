@@ -29,8 +29,8 @@ def write_ifc_wall(wall: Wall):
     wall_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
 
     # polyline = wall.create_ifcpolyline(f, [(0.0, 0.0, 0.0), (5.0, 0.0, 0.0)])
-    polyline = create_ifcpolyline(f, wall.points)
-    axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve2D", [polyline])
+    polyline2d = create_ifcpolyline(f, wall.points)
+    axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve2D", [polyline2d])
 
     extrusion_placement = create_ifc_placement(f, (0.0, 0.0, float(elevation)), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
 
