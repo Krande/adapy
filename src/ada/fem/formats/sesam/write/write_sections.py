@@ -11,7 +11,7 @@ from ada.fem.shapes import ElemType
 from .write_utils import write_ff
 
 shid = Counter(1)
-bmid = Counter(1)
+
 sec_n = Counter(1, "_V")
 concept = Counter(1)
 concept_ircon = Counter(1)
@@ -72,24 +72,22 @@ def create_line_section(fem_sec: FemSection, sec_names: List[str], sec_ids: List
         logging.info(f'Skipping already included section "{sec}"')
         return None
 
-    sec_ids.append(fem_sec.section)
-    secid = next(bmid)
-    sec_name = make_name_fem_ready(fem_sec.section.name, no_dot=True)
+    sec_ids.append(sec)
+
+    sec_name = make_name_fem_ready(sec.name, no_dot=True)
     if sec_name not in sec_names:
         sec_names.append(sec_name)
     else:
         sec_name += next(sec_n)
 
-    sec.metadata["numid"] = secid
-
     names_str = write_ff(
         "TDSECT",
         [
-            (4, secid, 100 + len(sec_name), 0),
+            (4, sec.id, 100 + len(sec_name), 0),
             (sec_name,),
         ],
     )
-    sec_str = write_bm_section(sec, secid)
+    sec_str = write_bm_section(sec, sec.id)
     if fem_sec.refs is not None:
         tdsconc_str, sconcept_str, scon_mesh = create_sconcept_str(fem_sec)
     else:

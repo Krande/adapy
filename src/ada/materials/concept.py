@@ -50,6 +50,9 @@ class Material(Backend):
 
         return True
 
+    def equal_props(self, other: Material):
+        self.model.__eq__()
+
     def __hash__(self):
         return hash(self.guid)
 

@@ -395,10 +395,12 @@ class Materials(NumericMapped):
         return self._materials != other._materials
 
     def __add__(self, other: Materials):
+        if self.parent is None:
+            raise ValueError("Parent cannot be zero")
         for mat in other:
             mat.parent = self.parent
         other.renumber_id(self.max_id + 1)
-        return Materials(chain(self, other))
+        return Materials(chain(self, other), parent=self.parent)
 
     def __repr__(self):
         rpr = reprlib.Repr()
@@ -408,14 +410,15 @@ class Materials(NumericMapped):
 
     def merge_materials_by_properties(self):
         models = []
+
         final_mats = []
         for i, mat in enumerate(self._materials):
-            if mat.model not in models:
-                models.append(mat.model)
+            if mat.model.unique_props() not in models:
+                models.append(mat.model.unique_props())
                 final_mats.append(mat)
             else:
-                index = models.index(mat.model)
-                replacement_mat = models[index].parent
+                index = models.index(mat.model.unique_props())
+                replacement_mat = final_mats[index]
                 for ref in mat.refs:
                     ref.material = replacement_mat
 
@@ -480,9 +483,8 @@ class Materials(NumericMapped):
 
 
 class Sections(NumericMapped):
-    sec_id = Counter(1)
-
     def __init__(self, sections: Iterable[Section] = None, unique_ids=True, parent: Union["Part", "Assembly"] = None):
+        sec_id = Counter(1)
         super(Sections, self).__init__(parent=parent)
         sections = [] if sections is None else sections
         if unique_ids:
@@ -492,7 +494,7 @@ class Sections(NumericMapped):
 
         def section_id_maker(section: Section) -> Section:
             if section.id is None:
-                section.id = next(Sections.sec_id)
+                section.id = next(sec_id)
             return section
 
         [section_id_maker(sec) for sec in self._sections]
@@ -528,7 +530,7 @@ class Sections(NumericMapped):
         for sec in other:
             sec.parent = self.parent
         other.renumber_id(self.max_id + 1)
-        return Sections(chain(self, other))
+        return Sections(chain(self, other), parent=self.parent)
 
     def __repr__(self):
         rpr = reprlib.Repr()
@@ -564,14 +566,14 @@ class Sections(NumericMapped):
     def get_by_name(self, name: str) -> Section:
         if name not in self._name_map.keys():
             raise ValueError(f'The section id "{name}" is not found')
-        else:
-            return self._name_map[name]
+
+        return self._name_map[name]
 
     def get_by_id(self, sec_id: int) -> Section:
         if sec_id not in self._id_map.keys():
             raise ValueError(f'The node id "{sec_id}" is not found')
-        else:
-            return self._id_map[sec_id]
+
+        return self._id_map[sec_id]
 
     @property
     def id_map(self) -> dict[int, Section]:

@@ -401,7 +401,7 @@ class FemSections:
 
         merge_map: Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]] = dict()
         for fs in self.lines:
-            props = (fs.material, fs.section, tuple(), tuple(fs.local_z), 0.0)
+            props = (fs.material, fs.section.unique_props(), tuple(), tuple(fs.local_z), 0.0)
             if props not in merge_map.keys():
                 merge_map[props] = []
 
@@ -429,13 +429,13 @@ class FemSections:
                 for el in fs.elset.members:
                     if el == el_o:
                         continue
-                    are_equal = el.fem_sec == fs_o
-                    if are_equal is False and el.fem_sec not in remove_fs:
+                    are_equal = el.fem_sec.has_equal_props(fs_o)
+                    if are_equal is True:
                         remove_fs.append(el.fem_sec)
                     el.fem_sec = fs_o
                     fs_o.elset.add_members([el])
-
-        self.remove(remove_fs)
+        rest_list = list(set(remove_fs))
+        self.remove(rest_list)
 
     def _map_materials(self, fem_sec: FemSection, mat_repo: Materials):
         if type(fem_sec.material) is str:

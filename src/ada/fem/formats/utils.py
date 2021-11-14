@@ -218,10 +218,7 @@ def get_exe_path(exe_name: str):
 
 
 def str_to_int(s):
-    try:
-        return int(float(s))
-    except ValueError:
-        raise ValueError("stop a minute")
+    return int(float(s))
 
 
 def str_to_float(s):

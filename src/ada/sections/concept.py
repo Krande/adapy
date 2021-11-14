@@ -106,11 +106,15 @@ class Section(Backend):
         if self.type == self.TYPES.GENERAL:
             props += ["properties"]
 
-        for prop in props:
-            if getattr(self, prop) != getattr(other, prop):
+        for propa, propb in zip(self.unique_props(), other.unique_props()):
+            if propa != propb:
                 return False
 
         return True
+
+    def unique_props(self):
+        props = ["type", "h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "wt", "poly_outer", "poly_inner"]
+        return tuple([getattr(self, p) for p in props])
 
     @property
     def type(self):

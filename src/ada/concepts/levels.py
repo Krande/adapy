@@ -426,64 +426,15 @@ class Part(BackendGeom):
             list_of_parts.append(value)
             self._flatten_list_of_subparts(value, list_of_parts)
 
+    def get_ifc_elem(self):
+        if self._ifc_elem is None:
+            self._ifc_elem = self._generate_ifc_elem()
+        return self._ifc_elem
+
     def _generate_ifc_elem(self):
-        from ada.ifc.utils import add_multiple_props_to_elem, create_local_placement
+        from ada.ifc.write.write_levels import write_ifc_part
 
-        if self.parent is None:
-            raise ValueError("Cannot build ifc element without parent")
-
-        a = self.get_assembly()
-        f = a.ifc_file
-
-        owner_history = a.user.to_ifc()
-
-        itype = self.metadata["ifctype"]
-        parent = self.parent.get_ifc_elem()
-        placement = create_local_placement(
-            f,
-            origin=self.placement.origin,
-            loc_x=self.placement.xdir,
-            loc_z=self.placement.zdir,
-            relative_to=parent.ObjectPlacement,
-        )
-        type_map = dict(building="IfcBuilding", space="IfcSpace", spatial="IfcSpatialZone", storey="IfcBuildingStorey")
-
-        if itype not in type_map.keys() and itype not in type_map.values():
-            raise ValueError(f'Currently not supported "{itype}"')
-
-        ifc_type = type_map[itype] if itype not in type_map.values() else itype
-
-        props = dict(
-            GlobalId=self.guid,
-            OwnerHistory=owner_history,
-            Name=self.name,
-            Description=self.metadata.get("Description", None),
-            ObjectType=None,
-            ObjectPlacement=placement,
-            Representation=None,
-            LongName=self.metadata.get("LongName", None),
-        )
-
-        if ifc_type not in ["IfcSpatialZone"]:
-            props["CompositionType"] = self.metadata.get("CompositionType", "ELEMENT")
-
-        if ifc_type == "IfcBuildingStorey":
-            props["Elevation"] = float(self.placement.origin[2])
-
-        ifc_elem = f.create_entity(ifc_type, **props)
-
-        f.createIfcRelAggregates(
-            create_guid(),
-            owner_history,
-            "Site Container",
-            None,
-            parent,
-            [ifc_elem],
-        )
-
-        add_multiple_props_to_elem(self.metadata.get("props", dict()), ifc_elem, f)
-
-        return ifc_elem
+        return write_ifc_part(self)
 
     def _import_part_from_ifc(self, ifc_elem):
         convert = dict(
@@ -999,7 +950,6 @@ class Assembly(Part):
         :param exit_on_complete:
         :param run_in_shell:
         :param make_zip_file:
-        :rtype: ada.fem.results.Results
 
             Note! Meshio implementation currently only supports reading & writing elements and nodes.
 
@@ -1097,48 +1047,9 @@ class Assembly(Part):
         bimcon.pull(project, checkout)
 
     def _generate_ifc_elem(self):
-        from ada.ifc.utils import create_local_placement, create_property_set
+        from ada.ifc.write.write_levels import write_ifc_assembly
 
-        f = self.ifc_file
-        owner_history = self.user.to_ifc()
-        site_placement = create_local_placement(f)
-        site = f.create_entity(
-            "IfcSite",
-            self.guid,
-            owner_history,
-            self.name,
-            None,
-            None,
-            site_placement,
-            None,
-            None,
-            "ELEMENT",
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        f.createIfcRelAggregates(
-            create_guid(),
-            owner_history,
-            "Project Container",
-            None,
-            f.by_type("IfcProject")[0],
-            [site],
-        )
-
-        props = create_property_set("Properties", f, self.metadata)
-        f.createIfcRelDefinesByProperties(
-            create_guid(),
-            owner_history,
-            "Properties",
-            None,
-            [site],
-            props,
-        )
-
-        return site
+        return write_ifc_assembly(self)
 
     def get_ifc_source_by_name(self, ifc_file):
         from ada.ifc.read.reader_utils import open_ifc
@@ -1214,6 +1125,7 @@ class Assembly(Part):
         for mat in other.materials:
             if mat not in self.materials:
                 self.materials.add(mat)
+
         self.sections += other.sections
         self.shapes += other.shapes
         self.beams += other.beams
@@ -1257,6 +1169,7 @@ class Group:
         relating_objects = []
         for m in self.members:
             relating_objects.append(m.get_ifc_elem())
+
         f.create_entity(
             "IfcRelAssignsToGroup",
             create_guid(),

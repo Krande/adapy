@@ -54,6 +54,31 @@ class Metal:
 
         return True
 
+    def equal_props(self, other: Metal):
+        for pa, pb in zip(self.unique_props(), other.unique_props()):
+            if pa != pb:
+                return False
+
+        return True
+
+    def unique_props(self):
+        props = [
+            "E",
+            "sig_y",
+            "sig_u",
+            "rho",
+            "v",
+            "alpha",
+            "zeta",
+            "plasticity_model",
+            "E_therm",
+            "sigy_therm",
+            "kappa",
+            "rayleigh_damping",
+            "cp",
+        ]
+        return [getattr(self, p) for p in props]
+
     def __repr__(self):
         return f"Metal(E:{self.E}, rho:{self.rho}, Sigy: {self.sig_y}, Plasticity Model: {self.plasticity_model})"
 

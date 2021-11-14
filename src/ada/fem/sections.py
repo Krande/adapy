@@ -70,6 +70,9 @@ class FemSection(FemBase):
         self._int_points = int_points
         self._refs = refs
 
+    def __hash__(self):
+        return hash(f"{self.name}{self.id}")
+
     def link_elements(self):
         from .elements import Elem
 
@@ -201,13 +204,21 @@ class FemSection(FemBase):
             return self.id, self.material, self.section, (None,), tuple(self.local_z), 0.0
 
     def has_equal_props(self, other: FemSection):
-        equal_sec = self.section.equal_props(other.section)
-        return equal_sec
+        equal_mat = self.material == other.material
+        if self.type == self.SEC_TYPES.SHELL:
+            equal_sec = self.thickness == other.thickness
+        elif self.type == self.SEC_TYPES.LINE:
+            equal_sec = self.section.equal_props(other.section)
+        else:
+            equal_sec = True
+        if equal_mat is True and equal_sec is True:
+            return True
+        return False
 
-    def __eq__(self, other: FemSection):
-        self_perm = self.unique_fem_section_permutation()
-        other_perm = other.unique_fem_section_permutation()
-        return self_perm == other_perm
+    # def __eq__(self, other: FemSection):
+    #     self_perm = self.unique_fem_section_permutation()
+    #     other_perm = other.unique_fem_section_permutation()
+    #     return self_perm == other_perm
 
     def __repr__(self):
         return (

@@ -185,6 +185,7 @@ def read_line_section(elem: Elem, fem: FEM, mat: Material, geono, d, lcsysd, hin
     fem_set = FemSet(sec.name, [elem], "elset", metadata=dict(internal=True), parent=fem)
     fem.sets.add(fem_set, append_suffix_on_exist=True)
     fem_sec = FemSection(
+        sec_id=geono,
         name=sec.name,
         sec_type=ElemType.LINE,
         elset=fem_set,
