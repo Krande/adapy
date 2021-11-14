@@ -7,7 +7,20 @@ from ada import Assembly, Shape
 from .reader_utils import get_name, getIfcPropertySets
 
 
-def get_ifc_shape(ifc_elem, settings):
+def import_ifc_shape(product, assembly: Assembly):
+    props = getIfcPropertySets(product)
+    name = get_name(product)
+    logging.info(f'importing Shape "{name}"')
+    shp = Shape(
+        name,
+        None,
+        guid=product.GlobalId,
+        metadata=dict(props=props),
+    )
+    return shp
+
+
+def get_ifc_geometry(ifc_elem, settings):
     """
 
     :param ifc_elem:
@@ -26,19 +39,6 @@ def get_ifc_shape(ifc_elem, settings):
     colour = None if (r, g, b) == (-1, -1, -1) else (r, g, b)
 
     return geom, colour, alpha
-
-
-def import_general_shape(product, assembly: Assembly):
-    props = getIfcPropertySets(product)
-    name = get_name(product)
-    logging.info(f"importing {name}")
-    shp = Shape(
-        name,
-        None,
-        guid=product.GlobalId,
-        metadata=dict(props=props),
-    )
-    return shp
 
 
 def get_geom(ifc_elem, settings):

@@ -4,11 +4,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import List, Tuple, Union
 
-from ada.concepts.levels import Assembly, Part
-from ada.concepts.piping import Pipe
-from ada.concepts.primitives import Shape
-from ada.concepts.structural import Beam, Plate, Wall
-from ada.fem import FEM
+from ada import FEM, Assembly, Beam, Part, Pipe, Plate, Shape, Wall
 from ada.fem.shapes import ElemType
 
 

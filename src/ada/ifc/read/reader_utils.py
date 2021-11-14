@@ -127,8 +127,7 @@ def add_to_assembly(assembly, obj, ifc_parent, elements2part):
 
 
 def add_to_parent(parent, obj):
-    from ada.concepts.primitives import Shape
-    from ada.concepts.structural import Beam, Plate
+    from ada import Beam, Plate, Shape
 
     if type(obj) is Beam:
         parent.add_beam(obj)

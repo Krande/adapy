@@ -72,7 +72,7 @@ class NewLine:
 
 
 class Counter:
-    def __init__(self, start=1, prefix=None):
+    def __init__(self, start: int = 1, prefix: str = None):
         self.i = start - 1
         self._prefix = prefix
 

@@ -14,9 +14,11 @@ from ada.config import Settings
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import points_in_cylinder, vector_length
 from ada.materials import Material
+from ada.sections import Section
 
 from .points import Node
-from .structural import Beam, Plate, Section
+from .stru_beams import Beam
+from .stru_plates import Plate
 from .transforms import Rotation
 
 if TYPE_CHECKING:
@@ -580,7 +582,7 @@ class Sections(NumericMapped):
         return self._name_map
 
     def add(self, section: Section) -> Section:
-        from ada.concepts.structural import section_counter
+        from ada.concepts.stru_beams import section_counter
 
         if section.name is None:
             raise Exception("Name is not allowed to be None.")

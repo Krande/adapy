@@ -19,8 +19,10 @@ from ada.concepts.primitives import (
     PrimSweep,
     Shape,
 )
-from ada.concepts.structural import Beam, Plate, Wall
-from ada.concepts.transforms import Placement
+from ada.concepts.stru_beams import Beam
+from ada.concepts.stru_plates import Plate
+from ada.concepts.stru_walls import Wall
+from ada.concepts.transforms import Placement, Transform
 from ada.config import User
 from ada.fem import FEM
 from ada.materials import Material
@@ -91,6 +93,7 @@ __all__ = [
     "CurveRevolve",
     "LineSegment",
     "ArcSegment",
+    "Transform",
     "User",
     "Bolts",
     "Weld",

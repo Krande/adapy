@@ -12,7 +12,7 @@ from .sets import FemSet
 if TYPE_CHECKING:
     from ada import Part
     from ada.concepts.points import Node
-    from ada.concepts.structural import Beam
+    from ada.concepts.stru_beams import Beam
     from ada.fem import (
         Amplitude,
         Bc,

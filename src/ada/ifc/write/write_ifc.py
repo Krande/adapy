@@ -7,6 +7,9 @@ from ada import Assembly, Part
 from ada.fem.formats.ifc.writer import to_ifc_fem
 
 from ..utils import create_guid
+from .write_beams import write_ifc_beam
+from .write_plates import write_ifc_plate
+from .write_wall import write_ifc_wall
 
 
 def write_to_ifc(destination_file, a: Assembly, include_fem) -> None:
@@ -59,12 +62,12 @@ def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=Fals
         f.add(m.ifc_mat)
 
     for bm in p.beams:
-        bm_ifc = bm.get_ifc_elem()
+        bm_ifc = write_ifc_beam(bm)
         f.add(bm_ifc)
         physical_objects.append(bm_ifc)
 
     for pl in p.plates:
-        pl_ifc = pl.get_ifc_elem()
+        pl_ifc = write_ifc_plate(pl)
         f.add(pl_ifc)
         physical_objects.append(pl_ifc)
 
@@ -73,8 +76,9 @@ def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=Fals
         f.add(pi.get_ifc_elem())
 
     for wall in p.walls:
-        f.add(wall.get_ifc_elem())
-        physical_objects.append(wall.get_ifc_elem())
+        wall_ifc = write_ifc_wall(wall)
+        f.add(wall_ifc)
+        physical_objects.append(wall_ifc)
 
     for shp in p.shapes:
         if "ifc_file" in shp.metadata.keys():

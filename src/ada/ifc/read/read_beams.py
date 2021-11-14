@@ -8,7 +8,7 @@ from ada.ifc.utils import default_settings
 
 from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
-from .read_shapes import get_ifc_shape
+from .read_shapes import get_ifc_geometry
 from .reader_utils import get_associated_material, get_name, getIfcPropertySets
 
 
@@ -47,7 +47,7 @@ def import_ifc_beam(ifc_elem, assembly: Assembly = None) -> Beam:
     xvec = unit_vector(np.array(p2) - np.array(p1))
     zvec = np.cross(xvec, yvec)
 
-    pdct_shape, colour, alpha = get_ifc_shape(ifc_elem, ifc_settings)
+    pdct_shape, colour, alpha = get_ifc_geometry(ifc_elem, ifc_settings)
 
     bodies = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Body"]
     if len(bodies) != 1:

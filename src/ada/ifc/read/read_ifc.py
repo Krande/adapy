@@ -7,7 +7,7 @@ from .read_beams import import_ifc_beam
 from .read_materials import read_ifc_materials
 from .read_parts import read_hierarchy
 from .read_plates import import_ifc_plate
-from .read_shapes import import_general_shape
+from .read_shapes import import_ifc_shape
 from .reader_utils import add_to_assembly, get_parent, open_ifc
 
 
@@ -53,6 +53,6 @@ def import_physical_ifc_elem(product, assembly: Assembly):
     else:
         if product.is_a("IfcOpeningElement") is True:
             return None
-        obj = import_general_shape(product, assembly)
+        obj = import_ifc_shape(product, assembly)
 
     return obj

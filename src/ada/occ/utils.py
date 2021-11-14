@@ -40,7 +40,7 @@ from OCC.Extend.ShapeFactory import make_extrusion, make_face, make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
 from ada.concepts.primitives import Penetration
-from ada.concepts.structural import Beam
+from ada.concepts.stru_beams import Beam
 from ada.concepts.transforms import Placement, Rotation
 from ada.core.utils import roundoff, tuple_minus
 from ada.core.vector_utils import unit_vector, vector_length

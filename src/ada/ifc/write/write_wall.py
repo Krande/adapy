@@ -13,7 +13,7 @@ from ada.ifc.utils import (
 )
 
 
-def wall_to_ifc(wall: Wall):
+def write_ifc_wall(wall: Wall):
     if wall.parent is None:
         raise ValueError("Ifc element cannot be built without any parent element")
 

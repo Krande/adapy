@@ -28,8 +28,7 @@ from ada.concepts.primitives import (
     PrimRevolve,
     Shape,
 )
-from ada.concepts.structural import Beam, Material, Plate, Section, Wall
-from ada.concepts.transforms import Placement, Transform
+from ada.concepts.transforms import Placement
 from ada.config import Settings, User
 from ada.fem import (
     Connector,
@@ -46,6 +45,7 @@ from ada.fem.elements import ElemType
 from ada.ifc.utils import create_guid
 
 if TYPE_CHECKING:
+    from ada import Beam, Material, Plate, Section, Transform, Wall
     from ada.fem.meshing import GmshOptions
     from ada.fem.results import Results
 
@@ -510,6 +510,7 @@ class Part(BackendGeom):
         silent=True,
         interactive=False,
     ) -> FEM:
+        from ada import Beam, Plate, Shape
         from ada.fem.meshing import GmshOptions, GmshSession
 
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
@@ -655,6 +656,8 @@ class Part(BackendGeom):
 
     @units.setter
     def units(self, value):
+        from ada import Beam, Pipe, Plate, Shape, Wall
+
         if value != self._units:
             for bm in self.beams:
                 assert isinstance(bm, Beam)
@@ -696,6 +699,8 @@ class Part(BackendGeom):
         return self._groups
 
     def __truediv__(self, other_object):
+        from ada import Beam, Part, Pipe, Plate, Shape, Wall
+
         if type(other_object) in [list, tuple]:
             for obj in other_object:
                 if type(obj) is Beam:

@@ -4,9 +4,8 @@ from typing import Union
 
 import numpy as np
 
+from ada import FEM, Section
 from ada.concepts.containers import Sections
-from ada.concepts.levels import FEM
-from ada.concepts.structural import Section
 from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem import Csys, Elem, FemSection, FemSet

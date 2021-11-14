@@ -5,11 +5,7 @@ from typing import Iterable, List
 
 import numpy as np
 
-from ada.concepts.levels import Part
-from ada.concepts.piping import PipeSegStraight
-from ada.concepts.points import Node
-from ada.concepts.primitives import PrimCyl
-from ada.concepts.structural import Beam, Plate
+from ada import Beam, Node, Part, PipeSegStraight, Plate, PrimCyl
 
 from .utils import Counter
 from .vector_utils import intersect_calc, is_parallel, vector_length

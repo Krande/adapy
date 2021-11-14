@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from ada.fem import Surface
 
     from .primitives import PrimBox
-    from .structural import Beam
+    from .stru_beams import Beam
 
 
 @dataclass
@@ -26,7 +26,7 @@ class BoundingBox:
 
     def __post_init__(self):
         from .primitives import Shape
-        from .structural import Beam
+        from .stru_beams import Beam
 
         if issubclass(type(self.parent), Shape):
             self.p1, self.p2 = self._calc_bbox_of_shape()

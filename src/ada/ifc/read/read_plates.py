@@ -1,7 +1,7 @@
 import logging
 
 from ada import Assembly, Placement, Plate
-from ada.ifc.read.read_shapes import get_ifc_shape
+from ada.ifc.read.read_shapes import get_ifc_geometry
 
 from ..utils import default_settings
 from .read_curves import import_indexedpolycurve, import_polycurve
@@ -23,7 +23,7 @@ def import_ifc_plate(ifc_elem, assembly: Assembly) -> Plate:
     if mat is None:
         mat = read_material(ifc_mat)
 
-    pdct_shape, color, alpha = get_ifc_shape(ifc_elem, ifc_settings)
+    pdct_shape, color, alpha = get_ifc_geometry(ifc_elem, ifc_settings)
 
     # TODO: Fix interpretation of IfcIndexedPolyCurve. Should pass origin to get actual 2d coordinates.
 

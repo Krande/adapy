@@ -2,7 +2,7 @@ import logging
 from itertools import chain
 from typing import TYPE_CHECKING
 
-from ada.concepts.structural import Material
+from ada import Material
 
 if TYPE_CHECKING:
     from ada.concepts.levels import Assembly

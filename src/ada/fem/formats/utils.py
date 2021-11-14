@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING, Dict
 
 from send2trash import send2trash
 
+from ada import Beam, Plate
 from ada.concepts.containers import Beams, Plates
-from ada.concepts.structural import Beam, Plate
 from ada.config import Settings
 from ada.fem import Elem
 from ada.fem.exceptions import FEASolverNotInstalled

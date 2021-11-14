@@ -7,8 +7,6 @@ import numpy as np
 
 from ada.base.physical_objects import BackendGeom
 from ada.core.utils import Counter, roundoff
-from ada.core.vector_utils import unit_vector, vector_length
-from ada.ifc.utils import create_guid
 from ada.materials import Material
 from ada.materials.utils import get_material
 
@@ -43,10 +41,6 @@ class Shape(BackendGeom):
 
             geom = read_step_file(str(geom))
 
-        if ifc_elem is not None:
-            self.guid = ifc_elem.GlobalId
-            self._import_from_ifc_elem(ifc_elem)
-
         self._geom = geom
         self._mass = mass
         self._cog = cog
@@ -62,124 +56,10 @@ class Shape(BackendGeom):
     def generate_ifc_solid_geom(self, f):
         raise NotImplementedError()
 
-    def generate_parametric_solid(self, f):
-        context = f.by_type("IfcGeometricRepresentationContext")[0]
-
-        solid_geom = self.generate_ifc_solid_geom(f)
-
-        if type(self) is Penetration:
-            raise ValueError(f'Penetration type "{self}" is not yet supported')
-
-        shape_representation = f.create_entity("IfcShapeRepresentation", context, "Body", "SweptSolid", [solid_geom])
-        ifc_shape = f.create_entity("IfcProductDefinitionShape", None, None, [shape_representation])
-
-        # Link to representation context
-        for rep in ifc_shape.Representations:
-            rep.ContextOfItems = context
-
-        return ifc_shape
-
     def _generate_ifc_elem(self):
-        from ada.ifc.utils import (
-            add_colour,
-            create_local_placement,
-            create_property_set,
-            get_tolerance,
-            tesselate_shape,
-        )
+        from ada.ifc.write.write_shapes import write_ifc_shape
 
-        if self.parent is None:
-            raise ValueError("Parent cannot be None for IFC export")
-
-        a = self.parent.get_assembly()
-        f = a.ifc_file
-
-        context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = a.user.to_ifc()
-        parent = self.parent.get_ifc_elem()
-        schema = a.ifc_file.wrapped_data.schema
-
-        shape_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
-        if type(self) is not Shape:
-            ifc_shape = self.generate_parametric_solid(f)
-        else:
-            tol = get_tolerance(a.units)
-            serialized_geom = tesselate_shape(self.geom, schema, tol)
-            ifc_shape = f.add(serialized_geom)
-
-        # Link to representation context
-        for rep in ifc_shape.Representations:
-            rep.ContextOfItems = context
-
-        guid = self.metadata.get("guid", create_guid())
-        description = self.metadata.get("description", None)
-
-        if "hidden" in self.metadata.keys():
-            if self.metadata["hidden"] is True:
-                a.presentation_layers.append(ifc_shape)
-
-        # Add colour
-        if self.colour is not None:
-            add_colour(f, ifc_shape.Representations[0].Items[0], str(self.colour), self.colour)
-
-        ifc_elem = f.create_entity(
-            "IfcBuildingElementProxy",
-            guid,
-            owner_history,
-            self.name,
-            description,
-            None,
-            shape_placement,
-            ifc_shape,
-            None,
-            None,
-        )
-
-        for pen in self._penetrations:
-            # elements.append(pen.ifc_opening)
-            f.createIfcRelVoidsElement(
-                create_guid(),
-                owner_history,
-                None,
-                None,
-                ifc_elem,
-                pen.ifc_opening,
-            )
-
-        props = create_property_set("Properties", f, self.metadata)
-        f.create_entity(
-            "IfcRelDefinesByProperties",
-            create_guid(),
-            owner_history,
-            "Properties",
-            None,
-            [ifc_elem],
-            props,
-        )
-
-        return ifc_elem
-
-    def _import_from_ifc_elem(self, ifc_elem):
-        from ada.ifc.utils import getIfcPropertySets
-
-        props = getIfcPropertySets(ifc_elem)
-        if props is None:
-            return None
-        product_name = ifc_elem.Name
-        if "NAME" in props.keys():
-            name = props["NAME"] if product_name is None else product_name
-        else:
-            name = product_name if product_name is not None else "Test"
-
-        if name is None or len(props.keys()) == 0:
-            return None
-
-        return Shape(
-            name,
-            None,
-            guid=ifc_elem.GlobalId,
-            metadata=dict(props=props, ifc_source=True),
-        )
+        return write_ifc_shape(self)
 
     @property
     def type(self):
@@ -232,7 +112,7 @@ class Shape(BackendGeom):
         from .exceptions import NoGeomPassedToShapeError
 
         if self._geom is None:
-            from ada.ifc.read.read_shapes import get_ifc_shape
+            from ada.ifc.read.read_shapes import get_ifc_geometry
 
             if self._ifc_elem is not None:
                 ifc_elem = self._ifc_elem
@@ -243,7 +123,7 @@ class Shape(BackendGeom):
                 ifc_elem = ifc_f.by_guid(self.guid)
             else:
                 raise NoGeomPassedToShapeError(f'No geometry information attached to shape "{self}"')
-            geom, color, alpha = get_ifc_shape(ifc_elem, self.ifc_settings)
+            geom, color, alpha = get_ifc_geometry(ifc_elem, self.ifc_settings)
             self._geom = geom
             self.colour = color
             self._opacity = alpha
@@ -288,13 +168,6 @@ class PrimSphere(Shape):
         self.radius = radius
         super(PrimSphere, self).__init__(name=name, geom=make_sphere(cog, radius), cog=cog, **kwargs)
 
-    def generate_ifc_solid_geom(self, f):
-        from ada.core.constants import X, Z
-        from ada.ifc.utils import create_ifc_placement, to_real
-
-        opening_axis_placement = create_ifc_placement(f, to_real(self.cog), Z, X)
-        return f.createIfcSphere(opening_axis_placement, float(self.radius))
-
     @property
     def units(self):
         return self._units
@@ -326,28 +199,6 @@ class PrimBox(Shape):
         super(PrimBox, self).__init__(name=name, geom=make_box_by_points(p1, p2), **kwargs)
         self._bbox = BoundingBox(self)
 
-    def generate_ifc_solid_geom(self, f):
-        from ada.core.constants import O, X, Z
-        from ada.ifc.utils import (
-            create_ifc_placement,
-            create_ifcextrudedareasolid,
-            create_ifcpolyline,
-        )
-
-        p1 = self.p1
-        p2 = self.p2
-        points = [
-            p1,
-            (p1[0], p2[1], p1[2]),
-            (p2[0], p2[1], p1[2]),
-            (p2[0], p1[1], p1[2]),
-        ]
-        depth = p2[2] - p1[2]
-        polyline = create_ifcpolyline(f, points)
-        profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
-        opening_axis_placement = create_ifc_placement(f, O, Z, X)
-        return create_ifcextrudedareasolid(f, profile, opening_axis_placement, (0.0, 0.0, 1.0), depth)
-
     @property
     def units(self):
         return self._units
@@ -376,40 +227,6 @@ class PrimCyl(Shape):
         self.p2 = np.array(p2)
         self.r = r
         super(PrimCyl, self).__init__(name, make_cylinder_from_points(p1, p2, r), **kwargs)
-
-    def generate_ifc_solid_geom(self, f):
-        from ada.core.constants import Z
-        from ada.ifc.utils import (
-            create_ifc_placement,
-            create_ifcextrudedareasolid,
-            to_real,
-        )
-
-        p1 = self.p1
-        p2 = self.p2
-        r = self.r
-
-        vec = np.array(p2) - np.array(p1)
-        uvec = unit_vector(vec)
-        vecdir = to_real(uvec)
-
-        cr_dir = np.array([0, 0, 1])
-
-        if vector_length(abs(uvec) - abs(cr_dir)) == 0.0:
-            cr_dir = np.array([1, 0, 0])
-
-        perp_dir = np.cross(uvec, cr_dir)
-
-        if vector_length(perp_dir) == 0.0:
-            raise ValueError("Perpendicular dir cannot be zero")
-
-        create_ifc_placement(f, to_real(p1), vecdir, to_real(perp_dir))
-
-        opening_axis_placement = create_ifc_placement(f, to_real(p1), vecdir, to_real(perp_dir))
-
-        depth = vector_length(vec)
-        profile = f.createIfcCircleProfileDef("AREA", self.name, None, r)
-        return create_ifcextrudedareasolid(f, profile, opening_axis_placement, Z, depth)
 
     @property
     def units(self):
@@ -463,36 +280,12 @@ class PrimExtrude(Shape):
             self._units = value
 
     @property
-    def poly(self):
-        """
-
-        :return:
-        :rtype: CurvePoly
-        """
+    def poly(self) -> "CurvePoly":
         return self._poly
 
     @property
     def extrude_depth(self):
         return self._extrude_depth
-
-    def generate_ifc_solid_geom(self, f):
-        from ada.core.constants import O, X, Z
-        from ada.ifc.utils import (
-            create_ifc_placement,
-            create_ifcextrudedareasolid,
-            create_ifcindexpolyline,
-        )
-
-        # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/link/annex-e.htm
-        # polyline = self.create_ifcpolyline(self.file, [p[:3] for p in points])
-        normal = self.poly.normal
-        h = self.extrude_depth
-        points = [tuple(x.astype(float).tolist()) for x in self.poly.seg_global_points]
-        seg_index = self.poly.seg_index
-        polyline = create_ifcindexpolyline(f, points, seg_index)
-        profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
-        opening_axis_placement = create_ifc_placement(f, O, Z, X)
-        return create_ifcextrudedareasolid(f, profile, opening_axis_placement, [float(n) for n in normal], h)
 
     def __repr__(self):
         return f"PrimExtrude({self.name})"
@@ -523,34 +316,6 @@ class PrimRevolve(Shape):
                 self._revolve_origin,
             ),
             **kwargs,
-        )
-
-    def generate_ifc_solid_geom(self, f):
-        from ada.core.constants import O, X, Z
-        from ada.ifc.utils import (
-            create_ifc_placement,
-            create_ifcindexpolyline,
-            create_ifcrevolveareasolid,
-        )
-
-        # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/link/annex-e.htm
-        # 8.8.3.28 IfcRevolvedAreaSolid
-
-        revolve_axis = [float(n) for n in self.revolve_axis]
-        revolve_origin = [float(x) for x in self.revolve_origin]
-        revolve_angle = self.revolve_angle
-        points = [tuple(x.astype(float).tolist()) for x in self.poly.seg_global_points]
-        seg_index = self.poly.seg_index
-        polyline = create_ifcindexpolyline(f, points, seg_index)
-        profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
-        opening_axis_placement = create_ifc_placement(f, O, Z, X)
-        return create_ifcrevolveareasolid(
-            f,
-            profile,
-            opening_axis_placement,
-            revolve_origin,
-            revolve_axis,
-            revolve_angle,
         )
 
     @property
@@ -616,22 +381,6 @@ class PrimSweep(Shape):
 
         return sweep_geom(self.sweep_curve.wire, self.profile_curve_outer.wire)
 
-    def generate_ifc_solid_geom(self, f):
-        from ada.core.constants import O, X, Z
-        from ada.ifc.utils import (
-            create_ifc_placement,
-            create_IfcFixedReferenceSweptAreaSolid,
-        )
-
-        sweep_curve = self.sweep_curve.get_ifc_elem()
-        profile = f.create_entity("IfcArbitraryClosedProfileDef", "AREA", None, self.profile_curve_outer.get_ifc_elem())
-        ifc_xdir = f.create_entity("IfcDirection", [float(x) for x in self.profile_curve_outer.xdir])
-        opening_axis_placement = create_ifc_placement(f, O, Z, X)
-
-        return create_IfcFixedReferenceSweptAreaSolid(
-            f, sweep_curve, profile, opening_axis_placement, None, None, ifc_xdir
-        )
-
     @property
     def units(self):
         return self._units
@@ -670,38 +419,6 @@ class Penetration(BackendGeom):
         self._parent = parent
         self._ifc_opening = None
 
-    def _generate_ifc_opening(self):
-        from ada.core.constants import O, X, Z
-        from ada.ifc.utils import add_multiple_props_to_elem, create_local_placement
-
-        if self.parent is None:
-            raise ValueError("This penetration has no parent")
-
-        a = self.parent.parent.get_assembly()
-        f = a.ifc_file
-
-        geom_parent = self.parent.parent.get_ifc_elem()
-        owner_history = a.user.to_ifc()
-
-        # Create and associate an opening for the window in the wall
-        opening_placement = create_local_placement(f, O, Z, X, geom_parent.ObjectPlacement)
-        opening_shape = self.primitive.generate_parametric_solid(f)
-
-        opening_element = f.createIfcOpeningElement(
-            create_guid(),
-            owner_history,
-            self.name,
-            self.name + " (Opening)",
-            None,
-            opening_placement,
-            opening_shape,
-            None,
-        )
-
-        add_multiple_props_to_elem(self.metadata.get("props", dict()), opening_element, f)
-
-        return opening_element
-
     @property
     def primitive(self):
         return self._primitive
@@ -723,7 +440,9 @@ class Penetration(BackendGeom):
     @property
     def ifc_opening(self):
         if self._ifc_opening is None:
-            self._ifc_opening = self._generate_ifc_opening()
+            from ada.ifc.write.write_openings import generate_ifc_opening
+
+            self._ifc_opening = generate_ifc_opening(self)
         return self._ifc_opening
 
     def __repr__(self):

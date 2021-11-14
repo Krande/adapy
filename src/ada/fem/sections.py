@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, List, Tuple, Union
 
 import numpy as np
 
-from ada.concepts.structural import Beam, Plate
 from ada.core.utils import Counter
 from ada.core.vector_utils import (
     calc_yvec,
@@ -21,6 +20,7 @@ from .common import FemBase
 from .shapes import ElemType
 
 if TYPE_CHECKING:
+    from ada import Beam, Plate
     from ada.fem import FemSet
 
 

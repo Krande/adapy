@@ -6,16 +6,13 @@ from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
-from ada.concepts.piping import Pipe
 from ada.concepts.points import Node
-from ada.concepts.primitives import Shape
-from ada.concepts.structural import Beam, Plate, Wall
 
 from .common import Csys, FemBase
 from .shapes import ElemShape, ElemType
 
 if TYPE_CHECKING:
-    from ada import FEM
+    from ada import FEM, Beam, Pipe, Plate, Shape, Wall
     from ada.fem import ConnectorSection, FemSection, FemSet
 
 
