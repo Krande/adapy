@@ -223,7 +223,7 @@ class GmshSession:
             self.model.mesh.recombine()
 
     def make_quads(self):
-        from .partition_strategies import partition_object
+        from ada.fem.meshing.partitioning.strategies import partition_objects_with_holes
 
         # for dim, tag in self.model.get_entities():
         #     if dim == 1:
@@ -233,7 +233,7 @@ class GmshSession:
         for obj, model in self.model_map.items():
             if model.geom_repr == ElemType.SHELL:
                 if len(obj.penetrations) > 0:
-                    partition_object(model, self)
+                    partition_objects_with_holes(model, self)
                 else:
                     for dim, tag in model.entities:
                         ents.append(tag)
@@ -241,18 +241,23 @@ class GmshSession:
                         self.model.mesh.setRecombine(dim, tag)
 
     def make_hex(self):
+        from ada.fem.meshing.partitioning.strategies import partition_solid_beams
+
         for dim, tag in self.model.get_entities():
             if dim == 2:
                 self.model.mesh.set_transfinite_surface(tag)
+                self.model.mesh.setRecombine(dim, tag)
 
         for obj, model in self.model_map.items():
             if model.geom_repr == ElemType.SOLID:
+                if type(obj) is Beam:
+                    partition_solid_beams(model, self)
+                else:
+                    for dim, tag in model.entities:
+                        self.model.mesh.set_transfinite_volume(tag)
+                        self.model.mesh.setRecombine(dim, tag)
 
-                for dim, tag in model.entities:
-                    self.model.mesh.set_transfinite_volume(tag)
-                    # self.model.mesh.setRecombine(dim, tag)
-
-        # self.model.mesh.set_transfinite_automatic(ents)
+        self.model.mesh.recombine()
 
     def get_fem(self) -> FEM:
         from .utils import (

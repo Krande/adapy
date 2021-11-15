@@ -8,6 +8,7 @@ def test_hex_meshed_plate(test_meshing_dir):
     with GmshSession(silent=True) as gs:
         gs.add_obj(pl, "solid")
         gs.mesh(0.1, use_hex=True)
+        # gs.open_gui()
         fem = gs.get_fem()
 
     fem.options.ABAQUS.default_elements.SOLID.HEXAHEDRON = "C3D8"
