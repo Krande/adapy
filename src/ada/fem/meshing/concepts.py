@@ -223,6 +223,8 @@ class GmshSession:
             self.model.mesh.recombine()
 
     def make_quads(self):
+        from .partition_strategies import partition_object
+
         # for dim, tag in self.model.get_entities():
         #     if dim == 1:
         #         self.model.mesh.set_transfinite_curve(tag, 10)
@@ -230,10 +232,13 @@ class GmshSession:
         ents = []
         for obj, model in self.model_map.items():
             if model.geom_repr == ElemType.SHELL:
-                for dim, tag in model.entities:
-                    ents.append(tag)
-                    self.model.mesh.set_transfinite_surface(tag)
-                    self.model.mesh.setRecombine(dim, tag)
+                if len(obj.penetrations) > 0:
+                    partition_object(model, self)
+                else:
+                    for dim, tag in model.entities:
+                        ents.append(tag)
+                        self.model.mesh.set_transfinite_surface(tag)
+                        self.model.mesh.setRecombine(dim, tag)
 
     def make_hex(self):
         for dim, tag in self.model.get_entities():

@@ -74,7 +74,7 @@ def test_quad_meshed_plate_with_hole(test_meshing_dir):
     el_types = {el_type: list(group) for el_type, group in fem.elements.group_by_type()}
 
     assert len(el_types.keys()) == 1
-    assert len(el_types["QUAD"]) == 120
+    assert len(el_types["QUAD"]) == 117
 
     # (ada.Assembly() / (ada.Part("MyPart", fem=fem) / pl)).to_fem(
     #     "QuadMesh_w_pen_ufo", "usfos", overwrite=True, scratch_dir=test_meshing_dir

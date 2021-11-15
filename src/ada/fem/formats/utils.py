@@ -309,7 +309,7 @@ def folder_prep(scratch_dir, analysis_name, overwrite):
         if overwrite is True:
             _overwrite_dir(analysis_dir)
         else:
-            raise IOError("The analysis folder exists. Please remove folder and try again")
+            raise IOError('The analysis folder exists. Please remove folder or pass argument "overwrite=True"')
 
     os.makedirs(analysis_dir, exist_ok=True)
     return analysis_dir
