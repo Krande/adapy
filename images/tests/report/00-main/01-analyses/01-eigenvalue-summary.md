@@ -17,41 +17,35 @@ Note! The `Sestra` and `Abaqus` analyses are not performed as part of the github
 eigenmode results are kept in cached json files and imported during the compilation of the report using __paradoc__.
 
 
-{{__eig_compare_solid_o1_hqTrue__}}
+{{__eig_compare_solid_o1__}}
 
-{{__eig_compare_solid_o2_hqTrue__}}
-
-{{__eig_compare_solid_o1_hqFalse__}}
-
-{{__eig_compare_solid_o2_hqFalse__}}
+{{__eig_compare_solid_o2__}}
 
 
-{{__eig_compare_shell_o1_hqTrue__}}
+{{__eig_compare_shell_o1__}}
 
-{{__eig_compare_shell_o2_hqTrue__}}
-
-{{__eig_compare_shell_o1_hqFalse__}}
-
-{{__eig_compare_shell_o2_hqFalse__}}
+{{__eig_compare_shell_o2__}}
 
 
-{{__eig_compare_line_o1_hqFalse__}}
+{{__eig_compare_line_o1__}}
 
 
-{{__eig_compare_line_o2_hqFalse__}}
+{{__eig_compare_line_o2__}}
 
 
-**Solid Elements**
 
-As shown in the tables above, the differences between the various FEA tools are small for 
-solid elements both for 1st and 2nd order formulations.
+Short description:
 
-**Shell Elements**
+**Fem formats**
 
-For 1st order shell elements it is observed an increasing difference in values based on 
-the order of eigenmode. Results using 2nd order shell elements is observed to be closer for all modes.
+* ccx: Calculix
+* ca: Code Aster
+* ses: Sesam
+* aba: Abaqus
 
-**Line Elements**
+**Element Types**
 
-1st order line elements in Code Aster and Abaqus differ slightly from mode #4 and higher.
-Calculix does not support eigenvalue analysis using generalized U1 beam elements.
+* TET: Tetrahedrons
+* HEX: Hexahedrons
+* TRI: Triangle
+* QUAD: Quadrilateral

@@ -2,14 +2,14 @@ import json
 import logging
 import os
 import pathlib
-from typing import Dict, List, Union
+from typing import List
 
 import pandas as pd
 from paradoc import OneDoc
 from paradoc.common import TableFormat
-from test_fem_eig_cantilever import beam, test_fem_eig
 
 from ada.fem.results import EigenDataSummary, Results, results_from_cache
+from test_fem_eig_cantilever import beam, test_fem_eig
 
 
 def append_df(old_df, new_df):
@@ -20,9 +20,12 @@ def eig_data_to_df(eig_data: EigenDataSummary, columns):
     return pd.DataFrame([(e.no, e.f_hz) for e in eig_data.modes], columns=columns)
 
 
+short_name_map = dict(calculix="ccx", code_aster="ca", abaqus="aba", sesam="ses")
+
+
 def shorten_name(name, fem_format, geom_repr) -> str:
     short_name = name.replace("cantilever_EIG_", "")
-    short_name_map = dict(calculix="ccx", code_aster="ca", abaqus="aba", sesam="ses")
+
     geom_repr_map = dict(solid="so", line="li", shell="sh")
     short_name = short_name.replace(fem_format, short_name_map[fem_format])
     short_name = short_name.replace(geom_repr, geom_repr_map[geom_repr])
@@ -39,36 +42,25 @@ def create_df_of_data(results: List[Results], geom_repr, el_order, hexquad):
         elo = res.metadata["elo"]
         hq = res.metadata["hexquad"]
 
-        if geom_repr != geo or elo != el_order or hexquad != hq:
+        if geom_repr != geo or elo != el_order:
             continue
 
-        df_current = eig_data_to_df(res.eigen_mode_data, ["Mode", soft])
-        new_col = df_current[soft] if df_main is not None else df_current
+        if geo.upper() == "SOLID":
+            s_str = "_"
+            s_str += "TET" if hq is False else "HEX"
+        elif geo.upper() == "SHELL":
+            s_str = "_"
+            s_str += "TRI" if hq is False else "QUAD"
+        else:
+            s_str = ""
+
+        short_name = soft.replace(soft, short_name_map[soft])
+        value_col = f"{short_name}{s_str}"
+        df_current = eig_data_to_df(res.eigen_mode_data, ["Mode", value_col])
+        new_col = df_current[value_col] if df_main is not None else df_current
         df_main = append_df(df_main, new_col)
 
     return df_main
-
-
-def make_comparison_data_set(results: List[Results]) -> Dict[str, Union[pd.DataFrame, None]]:
-    merged_line_df = None
-    merged_shell_df = None
-    merged_solid_df = None
-
-    df_write_map: Dict[str, Union[pd.DataFrame, None]] = dict(
-        line=merged_line_df, shell=merged_shell_df, solid=merged_solid_df
-    )
-
-    for res in results:
-        soft = res.fem_format
-        geo = res.metadata["geo"]
-        short_name = shorten_name(res.name, soft, geo)
-        df = eig_data_to_df(res.eigen_mode_data, ["Mode", short_name])
-        df_current = df_write_map.get(geo)
-        if df_current is not None:
-            df = df[short_name]
-        df_write_map[geo] = append_df(df, df_current)
-
-    return df_write_map
 
 
 def retrieve_cached_results(results, cache_dir):
@@ -137,35 +129,31 @@ def main(overwrite, execute):
     retrieve_cached_results(results, cache_dir)
 
     solid_tables = dict(
-        eig_compare_solid_o1_hqTrue=dict(o=1, hq=True),
-        eig_compare_solid_o2_hqTrue=dict(o=2, hq=True),
-        eig_compare_solid_o1_hqFalse=dict(o=1, hq=False),
-        eig_compare_solid_o2_hqFalse=dict(o=2, hq=False),
+        eig_compare_solid_o1=dict(o=1),
+        eig_compare_solid_o2=dict(o=2),
     )
 
     shell_tables = dict(
-        eig_compare_shell_o1_hqTrue=dict(o=1, hq=True),
-        eig_compare_shell_o2_hqTrue=dict(o=2, hq=True),
-        eig_compare_shell_o1_hqFalse=dict(o=1, hq=False),
-        eig_compare_shell_o2_hqFalse=dict(o=2, hq=False),
+        eig_compare_shell_o1=dict(o=1, hq=True),
+        eig_compare_shell_o2=dict(o=2, hq=True),
     )
 
     line_tables = dict(
-        eig_compare_line_o1_hqFalse=dict(o=1, hq=False),
-        eig_compare_line_o2_hqFalse=dict(o=2, hq=False),
+        eig_compare_line_o1=dict(o=1, hq=False),
+        eig_compare_line_o2=dict(o=2, hq=False),
     )
 
     for name, props in solid_tables.items():
         geo = "solid"
-        o, hq = props["o"], props["hq"]
+        o = props["o"]
         order = "1st" if o == 1 else "2nd"
-        eltype = "HEX" if hq is True else "TET"
-        df = create_df_of_data(results, geo, o, hq)
+
+        df = create_df_of_data(results, geo, o, None)
 
         one.add_table(
             name,
             df,
-            f"Comparison of all Eigenvalue analysis using {geo} {order} order {eltype} elements",
+            f"Comparison of all Eigenvalue analysis using {geo} {order} order elements",
             tbl_format=table_format,
         )
 
@@ -173,13 +161,12 @@ def main(overwrite, execute):
         geo = "shell"
         o, hq = props["o"], props["hq"]
         order = "1st" if o == 1 else "2nd"
-        eltype = "QUAD" if hq is True else "TRI"
         df = create_df_of_data(results, geo, o, hq)
 
         one.add_table(
             name,
             df,
-            f"Comparison of all Eigenvalue analysis using {geo} {order} order {eltype} elements",
+            f"Comparison of all Eigenvalue analysis using {geo} {order} order elements",
             tbl_format=table_format,
         )
 
@@ -210,4 +197,4 @@ def main(overwrite, execute):
 
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)
-    main(overwrite=False, execute=False)
+    main(overwrite=True, execute=True)
