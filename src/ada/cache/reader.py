@@ -3,10 +3,10 @@ import logging
 
 import h5py
 
+from ada import Beam, Material, Section
 from ada.concepts.containers import Beams, Materials, Nodes, Sections
 from ada.concepts.levels import FEM, Assembly, Part
 from ada.concepts.points import Node
-from ada.concepts.structural import Beam, Material, Section
 from ada.fem import Elem
 from ada.fem.containers import FemElements
 from ada.materials.metals import CarbonSteel

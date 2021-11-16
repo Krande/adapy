@@ -1,12 +1,18 @@
 import logging
 import os
 import pathlib
-from typing import List, Union
+from typing import TYPE_CHECKING, List, Union
 
 from ada.fem import StepEigen
 from ada.fem.concepts.eigenvalue import EigenDataSummary, EigenMode
+from ada.fem.exceptions.fea_execution import (
+    FEAnalysisUnableToStart,
+    FEAnalysisUnsuccessfulError,
+)
 from ada.fem.formats.utils import DatFormatReader
-from ada.fem.results import Results
+
+if TYPE_CHECKING:
+    from ada.fem.results import Results
 
 
 def get_eigen_data(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
@@ -44,7 +50,7 @@ def get_eigen_data(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
     return EigenDataSummary(eigen_modes)
 
 
-def read_abaqus_results(results: Results, file_ref: pathlib.Path, overwrite):
+def read_abaqus_results(results: "Results", file_ref: pathlib.Path, overwrite):
     dat_file = file_ref.with_suffix(".dat")
     if results.assembly is not None and results.assembly.fem.steps[0] == StepEigen:
         # TODO: Figure out if it is worthwhile adding support for reading step information or if it should be explicitly
@@ -54,5 +60,17 @@ def read_abaqus_results(results: Results, file_ref: pathlib.Path, overwrite):
     if dat_file.exists():
         results.eigen_mode_data = get_eigen_data(dat_file)
 
+    check_execution(file_ref)
+
     logging.error("Result mesh data extraction is not supported for abaqus")
     return None
+
+
+def check_execution(file_ref: pathlib.Path):
+    sta_file = file_ref.with_suffix(".sta")
+    if sta_file.exists() is False:
+        raise FEAnalysisUnableToStart()
+
+    with open(sta_file, "r") as f:
+        if "THE ANALYSIS HAS NOT BEEN COMPLETED" in f.read():
+            raise FEAnalysisUnsuccessfulError()

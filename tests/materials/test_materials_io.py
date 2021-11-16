@@ -1,25 +1,24 @@
-import unittest
+import pytest
 
+import ada
 from ada import Assembly, Material, Part
 from ada.config import Settings
 
 test_folder = Settings.test_dir / "materials"
 
 
-class MyTestCase(unittest.TestCase):
-    def test_material_ifc_roundtrip(self):
-        ifc_name = "my_material.ifc"
-
-        a = Assembly("MyAssembly")
-        p = Part("MyPart")
-        p.add_material(Material("my_mat"))
-        a.add_part(p)
-        a.to_ifc(test_folder / ifc_name)
-
-        b = Assembly("MyImport")
-        b.read_ifc(test_folder / ifc_name)
-        # assert len(b.materials) == 1
+@pytest.fixture
+def materials_test_dir(test_dir):
+    return test_dir / "materials"
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_material_ifc_roundtrip(materials_test_dir):
+    ifc_path = materials_test_dir / "my_material.ifc"
+
+    p = Part("MyPart")
+    p.add_material(Material("my_mat"))
+    a = Assembly("MyAssembly") / p
+    a.to_ifc(ifc_path)
+
+    b = ada.from_ifc(ifc_path)
+    assert len(b.materials) == 1

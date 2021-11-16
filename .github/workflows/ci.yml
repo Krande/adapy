@@ -3,17 +3,24 @@ name: ci-ada-main
 on:
   push:
     paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'conda/**'
-      - '.github/workflows/ci.yml'
+      - src/**
+      - tests/**
+      - images/tests/**
+      - conda/**
+      - .github/workflows/ci.yml
     branches:
-    - main
-    - dev
+      - main
+      - dev
   pull_request:
+    paths-ignore:
+      - setup.py
     branches:
-    - main
-
+      - main
+  workflow_run:
+    workflows: ["ci-ada-fem"]
+    branches: [main, dev]
+    types:
+      - completed
 jobs:
   activate:
     if: |
@@ -98,14 +105,17 @@ jobs:
         run: |
           conda activate testenv
           pytest tests
+      - name: test echo
+        if: github.event.workflow_run.conclusion == 'success'
+        run: echo 'Hello world'
       - name: upload to conda -c krande
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.workflow_run.conclusion == 'success'
         shell: bash -l {0}
         run: |
           conda activate ${{ env.CONDAENV }}
           anaconda -t=${{ secrets.ANACONDA_TOKEN }} upload ${{ env.CONDAROOT }}/conda-bld/${{ matrix.platform.short }}/ada-py-${{ env.PKG_VERSION }}-${{ matrix.pyver.name }}_0.tar.bz2 --user krande --skip-existing
   pypi:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.workflow_run.conclusion == 'success'
     needs: test
     name: Publish to PYPI
     runs-on: ubuntu-latest
@@ -120,6 +130,7 @@ jobs:
           pip install build
           python -m build
       - name: Publish a Python distribution to PyPI
+        if: github.event.workflow_run.conclusion == 'success'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           user: __token__

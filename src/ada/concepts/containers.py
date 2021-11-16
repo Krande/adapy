@@ -5,18 +5,25 @@ import reprlib
 from bisect import bisect_left, bisect_right
 from itertools import chain
 from operator import attrgetter
-from typing import Dict, Iterable, List, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 
 import numpy as np
 import toolz
 
 from ada.config import Settings
-from ada.core.utils import Counter, points_in_cylinder, roundoff, vector_length
+from ada.core.utils import Counter, roundoff
+from ada.core.vector_utils import points_in_cylinder, vector_length
 from ada.materials import Material
+from ada.sections import Section
 
 from .points import Node
-from .structural import Beam, Plate, Section
+from .stru_beams import Beam
+from .stru_plates import Plate
 from .transforms import Rotation
+
+if TYPE_CHECKING:
+    from ada import FEM, Assembly, Part
+    from ada.concepts.connections import JointBase
 
 __all__ = [
     "Nodes",
@@ -29,18 +36,13 @@ __all__ = [
 
 
 class BaseCollections:
-    """
-    The Base class for all collections
+    """The Base class for all collections"""
 
-    :param parent:
-    """
-
-    def __init__(self, parent):
+    def __init__(self, parent: Part):
         self._parent = parent
 
     @property
-    def parent(self):
-        """:rtype: ada.Part"""
+    def parent(self) -> Part:
         return self._parent
 
 
@@ -105,8 +107,10 @@ class Beams(BaseCollections):
             return self._dmap[name]
 
     def add(self, beam: Beam) -> Beam:
+        from .exceptions import NameIsNoneError
+
         if beam.name is None:
-            raise Exception("Name is not allowed to be None.")
+            raise NameIsNoneError("Name is not allowed to be None.")
 
         if beam.name in self._dmap.keys():
             logging.warning(f'Beam with name "{beam.name}" already exists. Will not add')
@@ -169,9 +173,7 @@ class Beams(BaseCollections):
 class Plates(BaseCollections):
     """Plate object collection"""
 
-    def __init__(self, plates: Iterable[Plate] = None, unique_ids=True, parent=None):
-        """:type parent: ada.Part"""
-
+    def __init__(self, plates: Iterable[Plate] = None, unique_ids=True, parent: Part = None):
         plates = [] if plates is None else plates
         super().__init__(parent)
 
@@ -249,7 +251,6 @@ class Connections(BaseCollections):
     _counter = Counter(1, "C")
 
     def __init__(self, connections=None, parent=None):
-
         connections = [] if connections is None else connections
         super().__init__(parent)
         self._connections = connections
@@ -293,14 +294,7 @@ class Connections(BaseCollections):
         rpr.maxlevel = 1
         return f"Connections({rpr.repr(self._connections) if self._connections else ''})"
 
-    def add(self, joint, point_tol=Settings.point_tol):
-        """
-        Add a joint
-
-        :param joint:
-        :param point_tol: Point Tolerance
-        :type joint: ada.JointBase
-        """
+    def add(self, joint: JointBase, point_tol=Settings.point_tol):
         if joint.name is None:
             raise Exception("Name is not allowed to be None.")
 
@@ -358,12 +352,19 @@ class NumericMapped(BaseCollections):
         self._name_map = {n.name: n for n in collection}
         self._id_map = {n.id: n for n in collection}
 
+    @property
+    def max_id(self):
+        if len(self._id_map.keys()) == 0:
+            return 0
+        return max(self._id_map.keys())
+
 
 class Materials(NumericMapped):
     """Collection of materials"""
 
-    def __init__(self, materials: Iterable[Material] = None, unique_ids=True, parent=None, units="m"):
-        """:type parent: ada.Part | ada.Assembly"""
+    def __init__(
+        self, materials: Iterable[Material] = None, unique_ids=True, parent: Union[Part, Assembly] = None, units="m"
+    ):
         super().__init__(parent)
         self._materials = sorted(materials, key=attrgetter("name")) if materials is not None else []
         self._unique_ids = unique_ids
@@ -394,9 +395,12 @@ class Materials(NumericMapped):
         return self._materials != other._materials
 
     def __add__(self, other: Materials):
-        max_id = max(self.id_map.keys())
-        other.renumber_id(max_id + 1)
-        return Materials(chain(self, other))
+        if self.parent is None:
+            raise ValueError("Parent cannot be zero")
+        for mat in other:
+            mat.parent = self.parent
+        other.renumber_id(self.max_id + 1)
+        return Materials(chain(self, other), parent=self.parent)
 
     def __repr__(self):
         rpr = reprlib.Repr()
@@ -406,14 +410,15 @@ class Materials(NumericMapped):
 
     def merge_materials_by_properties(self):
         models = []
+
         final_mats = []
         for i, mat in enumerate(self._materials):
-            if mat.model not in models:
-                models.append(mat.model)
+            if mat.model.unique_props() not in models:
+                models.append(mat.model.unique_props())
                 final_mats.append(mat)
             else:
-                index = models.index(mat.model)
-                replacement_mat = models[index].parent
+                index = models.index(mat.model.unique_props())
+                replacement_mat = final_mats[index]
                 for ref in mat.refs:
                     ref.material = replacement_mat
 
@@ -454,11 +459,6 @@ class Materials(NumericMapped):
         return self._id_map
 
     @property
-    def parent(self):
-        """:rtype: ada.Part"""
-        return self._parent
-
-    @property
     def units(self):
         return self._units
 
@@ -483,11 +483,9 @@ class Materials(NumericMapped):
 
 
 class Sections(NumericMapped):
-    sec_id = Counter(1)
-
-    def __init__(self, sections: Iterable[Section] = None, unique_ids=True, parent=None):
+    def __init__(self, sections: Iterable[Section] = None, unique_ids=True, parent: Union["Part", "Assembly"] = None):
+        sec_id = Counter(1)
         super(Sections, self).__init__(parent=parent)
-        """:type parent: ada.Part"""
         sections = [] if sections is None else sections
         if unique_ids:
             sections = list(toolz.unique(sections, key=attrgetter("name")))
@@ -496,7 +494,7 @@ class Sections(NumericMapped):
 
         def section_id_maker(section: Section) -> Section:
             if section.id is None:
-                section.id = next(Sections.sec_id)
+                section.id = next(sec_id)
             return section
 
         [section_id_maker(sec) for sec in self._sections]
@@ -527,9 +525,12 @@ class Sections(NumericMapped):
         return Sections(result) if isinstance(index, slice) else result
 
     def __add__(self, other: Sections):
-        max_id = max(self.id_map.keys())
-        other.renumber_id(max_id + 1)
-        return Sections(chain(self, other))
+        if self.parent is None:
+            logging.error(f'Parent is None for Sections container "{self}"')
+        for sec in other:
+            sec.parent = self.parent
+        other.renumber_id(self.max_id + 1)
+        return Sections(chain(self, other), parent=self.parent)
 
     def __repr__(self):
         rpr = reprlib.Repr()
@@ -565,14 +566,14 @@ class Sections(NumericMapped):
     def get_by_name(self, name: str) -> Section:
         if name not in self._name_map.keys():
             raise ValueError(f'The section id "{name}" is not found')
-        else:
-            return self._name_map[name]
+
+        return self._name_map[name]
 
     def get_by_id(self, sec_id: int) -> Section:
         if sec_id not in self._id_map.keys():
             raise ValueError(f'The node id "{sec_id}" is not found')
-        else:
-            return self._id_map[sec_id]
+
+        return self._id_map[sec_id]
 
     @property
     def id_map(self) -> dict[int, Section]:
@@ -583,7 +584,7 @@ class Sections(NumericMapped):
         return self._name_map
 
     def add(self, section: Section) -> Section:
-        from ada.concepts.structural import section_counter
+        from ada.concepts.stru_beams import section_counter
 
         if section.name is None:
             raise Exception("Name is not allowed to be None.")
@@ -597,7 +598,7 @@ class Sections(NumericMapped):
             return self._sections[index]
 
         if section.name in self._name_map.keys():
-            logging.error(f'Section with same name "{section.name}" already exists. Will use that section instead')
+            logging.info(f'Section with same name "{section.name}" already exists. Will use that section instead')
             return self._name_map[section.name]
 
         if section.id is None:
@@ -681,7 +682,7 @@ class Nodes:
     def __len__(self):
         return len(self._nodes)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterable[Node]:
         return iter(self._nodes)
 
     def __getitem__(self, index):
@@ -698,7 +699,9 @@ class Nodes:
             return NotImplemented
         return self._nodes != other._nodes
 
-    def __add__(self, other):
+    def __add__(self, other: Nodes):
+        for n in other.nodes:
+            n.parent = self.parent
         return Nodes(chain(self._nodes, other.nodes))
 
     def __repr__(self):
@@ -766,11 +769,11 @@ class Nodes:
         return tuple([(self.bbox[i][0][i] + self.bbox[i][1][i]) / 2 for i in range(3)])
 
     @property
-    def max_nid(self):
+    def max_nid(self) -> int:
         return max(self.dmap.keys()) if len(self.dmap.keys()) > 0 else 0
 
     @property
-    def min_nid(self):
+    def min_nid(self) -> int:
         return min(self.dmap.keys()) if len(self.dmap.keys()) > 0 else 0
 
     @property
@@ -899,3 +902,11 @@ class Nodes:
             replace_duplicate_nodes(duplicate_nodes, node)
 
         self._sort()
+
+    @property
+    def parent(self) -> Union["Part", "FEM"]:
+        return self._parent
+
+    @parent.setter
+    def parent(self, value):
+        self._parent = value

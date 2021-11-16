@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from typing import List, Union
+from typing import TYPE_CHECKING, List, Union
 
 from ada.concepts.points import Node
 
 from .common import FemBase
-from .elements import Elem
+
+if TYPE_CHECKING:
+    from .elements import Elem
 
 
 class SetTypes:
@@ -27,11 +29,14 @@ class FemSet(FemBase):
 
     TYPES = SetTypes
 
-    def __init__(self, name, members: Union[None, List[Union[Elem, Node]]], set_type=None, metadata=None, parent=None):
+    def __init__(
+        self, name, members: Union[None, List[Union["Elem", "Node"]]], set_type=None, metadata=None, parent=None
+    ):
         super().__init__(name, metadata, parent)
         if set_type is None:
             set_type = eval_set_type_from_members(members)
-
+        for m in members:
+            m.refs.append(self)
         self._set_type = set_type
         if self.type not in SetTypes.all:
             raise ValueError(f'set type "{set_type}" is not valid')
@@ -50,7 +55,7 @@ class FemSet(FemBase):
         self.add_members(other.members)
         return self
 
-    def add_members(self, members: List[Union[Elem, Node]]):
+    def add_members(self, members: List[Union["Elem", Node]]):
         self._members += members
 
     @property
@@ -58,19 +63,31 @@ class FemSet(FemBase):
         return self._set_type.lower()
 
     @property
-    def members(self) -> List[Union[Elem, Node]]:
+    def members(self) -> List[Union["Elem", Node]]:
         return self._members
 
     def __repr__(self):
         return f'FemSet({self.name}, type: "{self.type}", members: "{len(self.members)}")'
 
 
-def eval_set_type_from_members(members: List[Union[Elem, Node]]):
+def eval_set_type_from_members(members: List[Union["Elem", Node]]) -> str:
+    from ada.fem import Elem
+
     res = set([type(mem) for mem in members])
     if len(res) == 1 and type(members[0]) is Node:
-        return "nset"
-    elif len(res) == 1 and type(members[0]) is Elem:
-        return "elset"
+        return FemSet.TYPES.NSET
+    elif len(res) == 1 and issubclass(type(members[0]), Elem):
+        return FemSet.TYPES.ELSET
+    elif len(res) == 1 and type(members[0]) is tuple:
+        return FemSet.TYPES.NSET
     else:
         raise ValueError("Currently Mixed Femsets are not allowed")
         # return "mixed"
+
+
+def is_lazy(members: List[Union["Elem", Node]]) -> bool:
+    res = set([type(mem) for mem in members])
+    if len(res) == 1 and type(members[0]) is tuple:
+        return True
+    else:
+        return False

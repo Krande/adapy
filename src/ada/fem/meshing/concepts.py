@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Iterable, List, Union
 
 import gmsh
+import numpy as np
 
 from ada import FEM, Beam, Pipe, Plate, Shape
 from ada.base.physical_objects import BackendGeom
@@ -20,7 +21,7 @@ from ada.ifc.utils import create_guid
 @dataclass
 class GmshOptions:
     # Mesh
-    Mesh_Algorithm: int = 6
+    Mesh_Algorithm: int = 6  #
     Mesh_ElementOrder: int = 1
     Mesh_Algorithm3D: int = 1
     Mesh_MeshSizeMin: float = None
@@ -28,6 +29,7 @@ class GmshOptions:
     Mesh_SecondOrderIncomplete: int = 1
     Mesh_Smoothing: int = 3
     Mesh_RecombinationAlgorithm: int = None
+    Mesh_SubdivisionAlgorithm: int = None
     # Curvature Options
     Mesh_MeshSizeFromCurvature: bool = False
     Mesh_MinimumElementsPerTwoPi: int = 12
@@ -98,6 +100,8 @@ class GmshSession:
 
         from .utils import build_bm_lines
 
+        geom_repr = geom_repr.upper()
+
         self.apply_settings()
         temp_dir = Settings.temp_dir
         os.makedirs(temp_dir, exist_ok=True)
@@ -149,6 +153,14 @@ class GmshSession:
         for cut in self.cutting_planes:
             x, y, z = cut.origin
             rect = self.model.occ.addRectangle(x, y, z, cut.dx, cut.dy)
+
+            if cut.plane == "XZ":
+                self.model.occ.synchronize()
+                self.model.geo.synchronize()
+                self.model.occ.rotate([(2, rect)], x, y, z, 1, 0, 0, np.deg2rad(90))
+                self.model.occ.synchronize()
+                self.model.geo.synchronize()
+
             cut.gmsh_id = rect
             for obj in cut.cut_objects:
                 res, _ = self.model.occ.fragment(obj.entities, [(2, rect)], removeTool=True)
@@ -159,7 +171,9 @@ class GmshSession:
 
         # rem_ids = [(2, c.gmsh_id) for c in self.cutting_planes]
         # self.model.occ.remove(rem_ids, True)
+
         self.model.occ.synchronize()
+        self.model.geo.synchronize()
 
     def split_plates_by_beams(self):
         from ada.core.clash_check import (
@@ -195,9 +209,15 @@ class GmshSession:
 
                 self.model.occ.synchronize()
 
-    def mesh(self, size: float = None):
+    def mesh(self, size: float = None, use_quads=False, use_hex=False):
         if self.silent is True:
             self.options.General_Terminal = 0
+
+        if use_quads:
+            self.make_quads()
+
+        if use_hex:
+            self.make_hex()
 
         if size is not None:
             self.options.Mesh_MeshSizeMax = size
@@ -209,6 +229,42 @@ class GmshSession:
         self.model.mesh.setRecombine(3, -1)
         self.model.mesh.generate(3)
         self.model.mesh.removeDuplicateNodes()
+
+        if use_quads is True or use_hex is True:
+            self.model.mesh.recombine()
+
+    def make_quads(self):
+        from ada.fem.meshing.partitioning.strategies import partition_objects_with_holes
+
+        ents = []
+        for obj, model in self.model_map.items():
+            if model.geom_repr == ElemType.SHELL:
+                if len(obj.penetrations) > 0:
+                    partition_objects_with_holes(model, self)
+                else:
+                    for dim, tag in model.entities:
+                        ents.append(tag)
+                        self.model.mesh.set_transfinite_surface(tag)
+                        self.model.mesh.setRecombine(dim, tag)
+
+    def make_hex(self):
+        from ada.fem.meshing.partitioning.strategies import partition_solid_beams
+
+        for dim, tag in self.model.get_entities():
+            if dim == 2:
+                self.model.mesh.set_transfinite_surface(tag)
+                self.model.mesh.setRecombine(dim, tag)
+
+        for obj, model in self.model_map.items():
+            if model.geom_repr == ElemType.SOLID:
+                if type(obj) is Beam:
+                    partition_solid_beams(model, self)
+                else:
+                    for dim, tag in model.entities:
+                        self.model.mesh.set_transfinite_volume(tag)
+                        self.model.mesh.setRecombine(dim, tag)
+
+        self.model.mesh.recombine()
 
     def get_fem(self) -> FEM:
         from .utils import (
@@ -231,6 +287,7 @@ class GmshSession:
             gmsh_data.obj.elem_refs = entity_elements
             [add_obj_to_elem_ref(el, gmsh_data.obj) for el in entity_elements]
             elements += entity_elements
+
         fem.elements = FemElements(elements, fem_obj=fem)
 
         # Add FEM sections
@@ -252,7 +309,6 @@ class GmshSession:
 
     def __enter__(self):
         logging.debug("Starting GMSH session")
-
         self._gmsh = gmsh
         self.gmsh.initialize()
         # self.model.add("ada")
@@ -264,7 +320,7 @@ class GmshSession:
         self.gmsh.finalize()
 
     @property
-    def gmsh(self) -> gmsh:
+    def gmsh(self) -> "gmsh":
         return self._gmsh
 
     @property

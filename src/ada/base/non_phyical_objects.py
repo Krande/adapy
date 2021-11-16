@@ -1,7 +1,11 @@
 import logging
+from typing import TYPE_CHECKING, List, Union
 
 from ada.config import Settings as _Settings
 from ada.ifc.utils import create_guid
+
+if TYPE_CHECKING:
+    from ada import Assembly, Part
 
 
 class Backend:
@@ -47,12 +51,7 @@ class Backend:
         self._guid = value
 
     @property
-    def parent(self):
-        """
-
-        :return:
-        :rtype: ada.Part
-        """
+    def parent(self) -> "Part":
         return self._parent
 
     @parent.setter
@@ -88,27 +87,16 @@ class Backend:
             self._ifc_elem = self._generate_ifc_elem()
         return self._ifc_elem
 
-    def get_assembly(self):
-        """:rtype: ada.Assembly"""
+    def get_assembly(self) -> Union["Assembly", "Part"]:
         from ada import Assembly
 
-        parent = self
-        still_looking = True
-        max_levels = 10
-        a = 0
-        while still_looking is True:
-            if issubclass(type(parent), Assembly) is True:
-                still_looking = False
-            if parent.parent is None:
-                break
-            a += 1
-            parent = parent.parent
-            if a > max_levels:
-                logging.info(f"Max levels reached. {self} is highest level element")
-                break
-        return parent
+        for ancestor in self.get_ancestors():
+            if type(ancestor) is Assembly:
+                return ancestor
+        logging.info("No Assembly found in ancestry. Returning self")
+        return self
 
-    def get_ancestors(self):
+    def get_ancestors(self) -> List[Union["Part", "Assembly"]]:
         ancestry = [self]
         current = self
         while current.parent is not None:

@@ -11,7 +11,7 @@ from ada.concepts.transforms import Placement
 from ada.core.utils import make_name_fem_ready
 from ada.fem import Elem, FemSection, FemSet
 from ada.fem.shapes import ElemType
-from ada.fem.shapes.mesh_types import abaqus_to_meshio_type, gmsh_to_meshio_ordering
+from ada.fem.shapes.mesh_types import aba_to_meshio_types, gmsh_to_meshio_ordering
 
 from .common import gmsh_map
 from .concepts import GmshData
@@ -95,7 +95,7 @@ def add_shell_section(
 
 
 def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
-    from ada.core.utils import vector_length
+    from ada.core.vector_utils import vector_length
 
     tags = []
     for dim, ent in gmsh_data.entities:
@@ -166,12 +166,16 @@ def get_nodes_from_gmsh(model: gmsh.model, fem: FEM) -> List[Node]:
 def get_elements_from_entity(model: gmsh.model, ent, fem: FEM, dim) -> List[Elem]:
     elem_types, elem_tags, elem_node_tags = model.mesh.getElements(dim, ent)
     elements = []
+    el_tags = []
     for k, element_list in enumerate(elem_tags):
         el_name, _, _, numv, _, _ = model.mesh.getElementProperties(elem_types[k])
         if el_name == "Point":
             continue
         elem_type = gmsh_map[el_name]
         for j, eltag in enumerate(element_list):
+            if eltag in el_tags:
+                continue
+            el_tags.append(eltag)
             nodes = []
             for i in range(numv):
                 idtag = numv * j + i
@@ -195,7 +199,7 @@ def get_elements_from_entities(model: gmsh.model, entities, fem: FEM) -> List[El
 
 
 def is_reorder_necessary(elem_type):
-    meshio_type = abaqus_to_meshio_type[elem_type]
+    meshio_type = aba_to_meshio_types[elem_type]
     if meshio_type in gmsh_to_meshio_ordering.keys():
         return True
     else:
@@ -204,8 +208,7 @@ def is_reorder_necessary(elem_type):
 
 def node_reordering(elem_type, nodes):
     """Based on work in meshio"""
-    meshio_type = abaqus_to_meshio_type[elem_type]
-    order = gmsh_to_meshio_ordering.get(meshio_type, None)
+    order = gmsh_to_meshio_ordering.get(elem_type, None)
     if order is None:
         return None
 

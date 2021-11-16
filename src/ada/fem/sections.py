@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Tuple, Union
+from typing import TYPE_CHECKING, List, Tuple, Union
 
 import numpy as np
 
-from ada.concepts.structural import Beam, Plate
-from ada.core.utils import (
-    Counter,
+from ada.core.utils import Counter
+from ada.core.vector_utils import (
     calc_yvec,
     calc_zvec,
     normal_to_points_in_plane,
@@ -20,6 +19,10 @@ from ada.sections import Section
 from .common import FemBase
 from .shapes import ElemType
 
+if TYPE_CHECKING:
+    from ada import Beam, Plate
+    from ada.fem import FemSet
+
 
 class FemSection(FemBase):
     id_count = Counter()
@@ -28,8 +31,8 @@ class FemSection(FemBase):
     def __init__(
         self,
         name,
-        sec_type,
-        elset,
+        sec_type: str,
+        elset: "FemSet",
         material: Material,
         section=None,
         local_z=None,
@@ -41,11 +44,10 @@ class FemSection(FemBase):
         refs=None,
         sec_id=None,
     ):
-        """:type elset: ada.fem.FemSet"""
         super().__init__(name, metadata, parent)
         if sec_type is None:
             raise ValueError("Section type cannot be None")
-
+        sec_type = sec_type.upper()
         if sec_type not in ElemType.all:
             raise ValueError(f'Element section type "{sec_type}" is not supported. Must be in {ElemType.all}')
         self._id = sec_id if sec_id is not None else next(FemSection.id_count)
@@ -67,6 +69,9 @@ class FemSection(FemBase):
         self._thickness = thickness
         self._int_points = int_points
         self._refs = refs
+
+    def __hash__(self):
+        return hash(f"{self.name}{self.id}")
 
     def link_elements(self):
         from .elements import Elem
@@ -198,15 +203,27 @@ class FemSection(FemBase):
         else:
             return self.id, self.material, self.section, (None,), tuple(self.local_z), 0.0
 
-    def __eq__(self, other: FemSection):
-        self_perm = self.unique_fem_section_permutation()
-        other_perm = other.unique_fem_section_permutation()
-        return self_perm == other_perm
+    def has_equal_props(self, other: FemSection):
+        equal_mat = self.material == other.material
+        if self.type == self.SEC_TYPES.SHELL:
+            equal_sec = self.thickness == other.thickness
+        elif self.type == self.SEC_TYPES.LINE:
+            equal_sec = self.section.equal_props(other.section)
+        else:
+            equal_sec = True
+        if equal_mat is True and equal_sec is True:
+            return True
+        return False
+
+    # def __eq__(self, other: FemSection):
+    #     self_perm = self.unique_fem_section_permutation()
+    #     other_perm = other.unique_fem_section_permutation()
+    #     return self_perm == other_perm
 
     def __repr__(self):
         return (
-            f'FemSection({self.type} - name: "{self.name}", sec: "{self.section}", '
-            f'mat: "{self.material}",  elset: "{self.elset}")'
+            f'FemSection({self.type} - name: "{self.name}", sec: "{self.section.name}", '
+            f'mat: "{self.material.name}",  elset: "{self.elset.name}")'
         )
 
 
@@ -234,6 +251,10 @@ class ConnectorSection(FemBase):
     @property
     def elastic_comp(self):
         return self._elastic_comp
+
+    @elastic_comp.setter
+    def elastic_comp(self, value):
+        self._elastic_comp = value
 
     @property
     def damping_comp(self):

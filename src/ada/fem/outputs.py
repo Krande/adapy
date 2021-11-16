@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-from typing import List, Union
+from typing import TYPE_CHECKING, List, Union
 
 from .common import FemBase
 from .sets import FemSet
+from .surfaces import Surface
+
+if TYPE_CHECKING:
+    from .steps import Step
 
 
 class HistTypes:
@@ -17,6 +21,9 @@ class HistTypes:
 
 class IntervalTypes:
     FREQUENCY = "frequency"
+    INTERVAL = "NUMBER INTERVAL"
+
+    all = [FREQUENCY, INTERVAL]
 
 
 class HistDataTypes:
@@ -74,7 +81,7 @@ class HistOutput(FemBase):
     def __init__(
         self,
         name: str,
-        fem_set: Union[FemSet, None],
+        fem_set: Union[FemSet, None, List[Surface]],
         set_type: str,
         variables: List[str],
         int_value=1,
@@ -96,12 +103,11 @@ class HistOutput(FemBase):
         self._int_type = int_type
 
     @property
-    def parent(self):
-        """:rtype: ada.fem.Step"""
+    def parent(self) -> "Step":
         return self._parent
 
     @parent.setter
-    def parent(self, value):
+    def parent(self, value: "Step"):
         self._parent = value
 
     @property
@@ -117,12 +123,25 @@ class HistOutput(FemBase):
         return self._variables
 
     @property
-    def int_type(self):
-        return self._int_type
-
-    @property
     def int_value(self):
         return self._int_value
+
+    @int_value.setter
+    def int_value(self, value):
+        if value < 0:
+            raise ValueError("The interval or frequency value cannot be less than 0")
+
+        self._int_value = value
+
+    @property
+    def int_type(self):
+        return self._int_type.upper()
+
+    @int_type.setter
+    def int_type(self, value):
+        if value.upper() not in self.TYPES_INTERVAL.all:
+            raise ValueError(f'Field output step type "{value}" is not supported')
+        self._int_type = value.upper()
 
 
 class FieldOutput(FemBase):
@@ -137,10 +156,10 @@ class FieldOutput(FemBase):
     :param int_type:
     :param metadata:
     :param parent:
-    :type parent: ada.FEM
     """
 
-    _valid_fstep_type = ["FREQUENCY", "NUMBER INTERVAL"]
+    TYPES_INTERVAL = IntervalTypes
+
     default_no = ["A", "CF", "RF", "U", "V"]
     default_el = ["LE", "PE", "PEEQ", "PEMAG", "S"]
     default_co = ["CSTRESS", "CDISP", "CFORCE", "CSTATUS"]
@@ -152,9 +171,9 @@ class FieldOutput(FemBase):
         element=None,
         contact=None,
         int_value=1,
-        int_type="frequency",
+        int_type=TYPES_INTERVAL.FREQUENCY,
         metadata=None,
-        parent=None,
+        parent: "Step" = None,
     ):
         super().__init__(name, metadata, parent)
         self._nodal = FieldOutput.default_no if nodal is None else nodal
@@ -164,12 +183,11 @@ class FieldOutput(FemBase):
         self._int_type = int_type
 
     @property
-    def parent(self):
-        """:rtype: ada.fem.Step"""
+    def parent(self) -> "Step":
         return self._parent
 
     @parent.setter
-    def parent(self, value):
+    def parent(self, value: "Step"):
         self._parent = value
 
     @property
@@ -201,7 +219,7 @@ class FieldOutput(FemBase):
 
     @int_type.setter
     def int_type(self, value):
-        if value.upper() not in FieldOutput._valid_fstep_type:
+        if value.upper() not in self.TYPES_INTERVAL.all:
             raise ValueError(f'Field output step type "{value}" is not supported')
         self._int_type = value.upper()
 

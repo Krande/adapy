@@ -22,6 +22,8 @@ class Settings:
     mmtol = 1
     valid_units = ["m", "mm"]
 
+    safe_deletion = True
+
     convert_bad_names = False
     convert_bad_names_for_fem = True
     use_occ_bounding_box_algo = False
@@ -77,8 +79,7 @@ class User:
     parent = None
 
     def _build_ifc_elem(self):
-
-        from ada.ifc.utils import get_org, get_person
+        from ada.ifc.read.reader_utils import get_org, get_person
 
         f = self.parent.ifc_file
         actor = f.create_entity("IfcActorRole", self.role.upper(), None, None)

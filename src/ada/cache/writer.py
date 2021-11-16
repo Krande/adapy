@@ -4,6 +4,7 @@ import os
 import pathlib
 from itertools import groupby
 from operator import attrgetter
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -12,19 +13,15 @@ from ada.concepts.containers import Nodes
 
 from .utils import to_safe_name
 
+if TYPE_CHECKING:
+    from ada import FEM, Assembly
 
-def write_assembly_to_cache(assembly, cache_file_path):
-    """
-    Write the Assembly information to a HDF5 file format for High performance cache.
 
-    TODO: Add support for FEM only to begin with
-
-    :param assembly:
-    :param cache_file_path:
-    :type assembly: ada.Assembly
-    :return:
-    """
+def write_assembly_to_cache(assembly: "Assembly", cache_file_path):
+    """Write the Assembly information to a HDF5 file format for High performance cache."""
     import h5py
+
+    # TODO: Add support for FEM only to begin with
 
     cache_file_path = pathlib.Path(cache_file_path)
     os.makedirs(cache_file_path.parent, exist_ok=True)
@@ -37,8 +34,6 @@ def write_assembly_to_cache(assembly, cache_file_path):
     parts_group = f.create_group("PARTS")
 
     walk_parts(parts_group, assembly)
-    # for p in assembly.get_all_parts_in_assembly(True):
-    #     add_part_to_cache(p, parts_group)
 
     f.close()
 
@@ -152,13 +147,7 @@ def add_beams_to_cache(part: Part, parts_group):
     parts_group.create_dataset(f"{prefix}_UP", data=[add_int_cache(bm, True) for bm in part.beams])
 
 
-def add_fem_to_cache(fem, part_group):
-    """
-
-    :param fem:
-    :type fem: ada.fem.FEM
-    :param part_group:
-    """
+def add_fem_to_cache(fem: "FEM", part_group):
     fem_group = part_group.create_group("FEM")
     fem_group.attrs.create("NAME", to_safe_name(fem.name))
 

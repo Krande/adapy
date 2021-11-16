@@ -10,11 +10,8 @@ from OCC.Core.STEPConstruct import stepconstruct_FindEntity
 from OCC.Core.STEPControl import STEPControl_AsIs, STEPControl_Writer
 from OCC.Core.TCollection import TCollection_HAsciiString
 
+from ada import Assembly, Beam, Part, Pipe, Plate, Shape, Wall
 from ada.base.physical_objects import BackendGeom
-from ada.concepts.levels import Assembly, Part
-from ada.concepts.piping import Pipe
-from ada.concepts.primitives import Shape
-from ada.concepts.structural import Beam, Plate, Wall
 from ada.core.utils import Counter
 from ada.fem.shapes import ElemType
 
@@ -70,7 +67,7 @@ class StepExporter:
 
     def add_geom(self, geom, obj):
         from ada.concepts.transforms import Placement
-        from ada.core.utils import vector_length
+        from ada.core.vector_utils import vector_length
 
         from .utils import transform_shape
 

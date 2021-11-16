@@ -16,6 +16,7 @@ requirements:
     - python
   run:
     - python
+    - numpy
     - ifcopenshell
     - pythonocc-core 7.5.1
     - occt 7.5.1

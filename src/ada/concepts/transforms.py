@@ -38,7 +38,7 @@ class Placement:
     parent = None
 
     def __post_init__(self):
-        from ada.core.utils import calc_yvec
+        from ada.core.vector_utils import calc_yvec
 
         all_dir = [self.xdir, self.ydir, self.zdir]
         if all(x is None for x in all_dir):
@@ -71,7 +71,7 @@ class Placement:
         return current_location
 
     def __eq__(self, other: Placement):
-        from ada.core.utils import vector_length
+        from ada.core.vector_utils import vector_length
 
         for prop in ["origin", "xdir", "ydir", "zdir"]:
             if vector_length(getattr(other, prop) - getattr(self, prop)) > 0.0:

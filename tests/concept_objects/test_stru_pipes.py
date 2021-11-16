@@ -1,4 +1,4 @@
-from common import dummy_display
+import pytest
 
 from ada import Assembly, Part, Pipe, Section
 from ada.config import Settings
@@ -6,7 +6,7 @@ from ada.config import Settings
 test_dir = Settings.test_dir / "pipes"
 
 
-def test_pipe_straight():
+def test_pipe_straight(dummy_display):
     a = Assembly("MyTest")
 
     p = Part("MyPart")
@@ -36,7 +36,10 @@ def test_pipe_bend():
         ],
         Section("PSec", "PIPE", r=0.10, wt=5e-3),
     )
-    a = Assembly("MyTest") / (Part("MyPart") / pipe1)
-    a.to_ifc(test_dir / "pipe_bend.ifc")
-    a.to_stp(test_dir / "pipe_bend.stp")
-    dummy_display(a)
+
+    assert pytest.approx(pipe1.segments[1].bend_radius, 0.195958125)
+
+    # a = Assembly("MyTest") / (Part("MyPart") / pipe1)
+    # a.to_ifc(test_dir / "pipe_bend.ifc")
+    # a.to_stp(test_dir / "pipe_bend.stp")
+    # dummy_display(a)

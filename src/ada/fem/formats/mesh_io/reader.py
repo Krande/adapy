@@ -8,10 +8,9 @@ from ada.concepts.points import Node
 from ada.core.utils import Counter
 from ada.fem import Elem
 from ada.fem.containers import FemElements
-from ada.fem.shapes.mesh_types import meshio_to_abaqus_type
 
 
-def meshio_read_fem(assembly: Assembly, fem_file, fem_name=None):
+def meshio_read_fem(fem_file, fem_name=None):
     """Import a FEM file using the meshio package"""
 
     mesh = meshio.read(fem_file)
@@ -39,10 +38,10 @@ def meshio_read_fem(assembly: Assembly, fem_file, fem_name=None):
             Elem(
                 cell_ids[block_id][i],
                 [fem.nodes.from_id(point_ids[c]) for c in cell],
-                meshio_to_abaqus_type[cellblock.type],
+                cellblock.type,
             )
             for i, cell in enumerate(cellblock.data)
         ]
 
     fem.elements = FemElements(chain.from_iterable(map(to_elem, mesh.cells)))
-    assembly.add_part(Part(name, fem=fem))
+    return Assembly("TempAssembly") / Part(name, fem=fem)

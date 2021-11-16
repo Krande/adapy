@@ -1,7 +1,7 @@
 import logging
 import math
 import pathlib
-from typing import List, Union
+from typing import List, Tuple, Union
 
 import numpy as np
 from OCC.Core.Bnd import Bnd_Box
@@ -40,9 +40,10 @@ from OCC.Extend.ShapeFactory import make_extrusion, make_face, make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
 from ada.concepts.primitives import Penetration
-from ada.concepts.structural import Beam
+from ada.concepts.stru_beams import Beam
 from ada.concepts.transforms import Placement, Rotation
-from ada.core.utils import roundoff, tuple_minus, unit_vector, vector_length
+from ada.core.utils import roundoff, tuple_minus
+from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem.shapes import ElemType
 
 
@@ -124,7 +125,7 @@ def make_wire_from_points(points):
     return make_wire([BRepBuilderAPI_MakeEdge(gp_Pnt(*p1), gp_Pnt(*p2)).Edge()])
 
 
-def get_boundingbox(shape: TopoDS_Shape, tol=1e-6, use_mesh=True):
+def get_boundingbox(shape: TopoDS_Shape, tol=1e-6, use_mesh=True) -> Tuple[tuple, tuple]:
     """
 
     :param shape: TopoDS_Shape or a subclass such as TopoDS_Face the shape to compute the bounding box from
@@ -138,7 +139,7 @@ def get_boundingbox(shape: TopoDS_Shape, tol=1e-6, use_mesh=True):
     bbox.SetGap(tol)
     if use_mesh:
         mesh = BRepMesh_IncrementalMesh()
-        mesh.SetParallel(True)
+        mesh.SetParallelDefault(True)
         mesh.SetShape(shape)
         mesh.Perform()
         if not mesh.IsDone():
@@ -146,7 +147,7 @@ def get_boundingbox(shape: TopoDS_Shape, tol=1e-6, use_mesh=True):
     brepbndlib_Add(shape, bbox, use_mesh)
 
     xmin, ymin, zmin, xmax, ymax, zmax = bbox.Get()
-    return xmin, ymin, zmin, xmax, ymax, zmax, xmax - xmin, ymax - ymin, zmax - zmin
+    return (xmin, ymin, zmin), (xmax, ymax, zmax)
 
 
 def get_bounding_box_alt(geom):
@@ -195,7 +196,7 @@ def face_to_wires(face):
 
 
 def make_fillet(edge1, edge2, bend_radius):
-    from ..core.utils import normal_to_points_in_plane
+    from ada.core.vector_utils import normal_to_points_in_plane
 
     f = ChFi2d_AnaFilletAlgo()
 
@@ -772,8 +773,8 @@ def create_beam_geom(beam: Beam, solid=True):
     else:
         try:
             assert isinstance(sec, list)
-        except AssertionError:
-            print("sd")
+        except AssertionError as e:
+            logging.error(e)
         sec_result = sec
         tap_result = tap
 

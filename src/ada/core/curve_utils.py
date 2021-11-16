@@ -1,12 +1,13 @@
 import os
-from typing import List
+from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
 from ada.config import Settings as _Settings
 from ada.occ.utils import get_midpoint_of_arc
 
-from .utils import (
+from .utils import roundoff
+from .vector_utils import (
     angle_between,
     calc_yvec,
     global_2_local_nodes,
@@ -15,10 +16,12 @@ from .utils import (
     linear_2dtransform_rotate,
     local_2_global_nodes,
     normal_to_points_in_plane,
-    roundoff,
     unit_vector,
     vector_length_2d,
 )
+
+if TYPE_CHECKING:
+    from ada.concepts.curves import ArcSegment, LineSegment
 
 
 def make_arc_segment(p1, p2, p3, radius):
@@ -577,7 +580,7 @@ def segments_to_local_points(segments_in):
     return local_points
 
 
-def segments_to_indexed_lists(segments):
+def segments_to_indexed_lists(segments: List[Union["LineSegment", "ArcSegment"]]):
     """
 
     :param segments:
@@ -804,10 +807,13 @@ def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius):
     return center, start, end, midp
 
 
-def build_polycurve(local_points2d: List[tuple], tol=1e-3, debug=False, debug_name=None, is_closed=True):
-    from ada.concepts.curves import LineSegment
+def build_polycurve(
+    local_points2d: List[tuple], tol=1e-3, debug=False, debug_name=None, is_closed=True
+) -> List[Union["LineSegment", "ArcSegment"]]:
 
     if len(local_points2d) == 2:
+        from ada.concepts.curves import LineSegment
+
         return [LineSegment(p1=local_points2d[0], p2=local_points2d[1])]
 
     segc = SegCreator(local_points2d, tol=tol, debug=debug, debug_name=debug_name, is_closed=is_closed)
@@ -845,3 +851,47 @@ def make_edges_and_fillet_from_3points(p1, p2, p3, radius):
     edge2 = make_edge(p2[:3], p3[:3])
     ed1, ed2, fillet = make_fillet(edge1, edge2, radius)
     return ed1, ed2, fillet
+
+
+def s_curve(ramp_up_t, ramp_down_t, magnitude, sustained_time=0.0):
+    """
+    A function created to
+
+    :param ramp_up_t:
+    :param ramp_down_t:
+    :param magnitude:
+    :param sustained_time:
+    :return: tuple of X and Y lists describing a S-Curved ramp up and ramp down.
+    """
+    from .curve_fitting_utils import bezier
+
+    yp = np.array([0.0, 0.1, 1.0, 1.0]) * magnitude
+    if ramp_up_t is not None:
+        xp1 = np.array([0.0, ramp_up_t / 2, ramp_up_t / 2, ramp_up_t])
+        x1, y1 = bezier(list(zip(xp1, yp))).T
+        if sustained_time > 0.0:
+            delta_x = x1[-1] - x1[-2]
+            x0_ = x1[-1] + delta_x
+            x1_ = x1[-1] + sustained_time
+            y = y1[-1]
+            add_x = np.linspace(x0_, x1_, 50, endpoint=True)
+            add_y = [y for r in add_x]
+            x1 = np.append(x1, add_x)
+            y1 = np.append(y1, add_y)
+    else:
+        x1, y1 = None, None
+
+    if ramp_down_t is not None:
+        xp2 = np.array([0, ramp_down_t / 2, ramp_down_t / 2, ramp_down_t])
+        x2, y2 = bezier(list(zip(xp2, yp))).T
+    else:
+        x2, y2 = None, None
+
+    if ramp_down_t is None and ramp_up_t is not None:
+        total_curve = x1, x2
+    elif ramp_down_t is not None and ramp_up_t is None:
+        total_curve = x2, y2[::-1]
+    else:
+        total_curve = np.append(x1, x2[1:] + x1[-1]), np.append(y1, y2[::-1][1:])
+
+    return total_curve

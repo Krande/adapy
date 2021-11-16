@@ -53,6 +53,7 @@ def get_fem_converters(fem_file, fem_format, fem_converter):
         fem_format = interpret_fem(fem_file)
 
     if fem_converter == FemConverters.DEFAULT:
+        fem_format = fem_format.lower()
         fem_importer = fem_imports.get(fem_format, None)
         fem_exporter = fem_exports.get(fem_format, None)
     elif fem_converter.lower() == FemConverters.MESHIO:

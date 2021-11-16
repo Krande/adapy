@@ -53,7 +53,7 @@ def test_simple_stru_with_equipment_to_fem(simple_stru, eq_model_4legged):
     simple_stru.move_all_mats_and_sec_here_from_subparts()
 
     # Build FEM model
-    simple_stru.fem = simple_stru.to_fem_obj(0.2)
+    simple_stru.fem = simple_stru.to_fem_obj(0.3)
     simple_stru.add_bcs()
     simple_stru.fem.sections.merge_by_properties()
 

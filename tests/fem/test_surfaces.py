@@ -1,38 +1,57 @@
+import pytest
+
 import ada
-from ada.fem.surfaces import create_surface_from_nodes
 
 
-def test_surface_box():
+@pytest.fixture
+def test_surfaces_dir(test_dir):
+    return test_dir / "surfaces"
+
+
+def test_surface_box(test_surfaces_dir):
     # Build Model
-    a = ada.Assembly() / (ada.Part("MyBoxPart") / ada.PrimBox("MyBoxShape", (0, 0, 0), (1, 1, 1)))
+    box = ada.PrimBox("MyBoxShape", (0, 0, 0), (1, 1, 1))
+    a = ada.Assembly() / (ada.Part("MyBoxPart") / [box])
 
     # Create FEM mesh
     p = a.get_part("MyBoxPart")
-    p.fem = p.to_fem_obj(0.1, "solid", interactive=False)
+    p.fem = p.to_fem_obj(0.1, "shell", interactive=False)
 
     # Add Step
     step = a.fem.add_step(ada.fem.StepImplicit("MyStep"))
 
-    # Add surfaces
-    box: ada.PrimBox = a.get_by_name("MyBoxShape")
+    # Add Boundary condition
+    btn_nodes = box.bbox.sides.bottom(return_fem_nodes=True)
+    p.fem.add_bc(ada.fem.Bc("fix", ada.fem.FemSet("BottomNodes", btn_nodes), [1, 2, 3]))
 
-    front_nodes = box.sides.front(return_fem_nodes=True)
-    btn_nodes = box.sides.bottom(return_fem_nodes=True)
+    # Add surface load
+    surface = p.fem.add_surface(box.bbox.sides.front(return_surface=True, surface_name="FrontSurface"))
+    step.add_load(ada.fem.LoadPressure("PressureFront", 200, surface))
 
-    p.fem.add_set(ada.fem.FemSet("FrontNodes", front_nodes))
-    fs_btn = p.fem.add_set(ada.fem.FemSet("BottomNodes", btn_nodes))
-    p.fem.add_bc(ada.fem.Bc("fix", fs_btn, [1, 2, 3]))
+    a.to_fem("MyFemBox", "abaqus", overwrite=True, scratch_dir=test_surfaces_dir)
+    # a.to_fem("MyFemBox_ca", "code_aster", overwrite=True)
 
-    surface = p.fem.add_surface(create_surface_from_nodes("FrontElements", front_nodes, p.fem))
 
-    step.add_load(ada.fem.LoadPressure("MyPressureLoad", 200, surface))
-    #
-    # tetra: [(0, 1, 2), (0, 3, 2), (0, 1, 3), (1, 3, 2)]
+def test_surface_beam(test_surfaces_dir):
+    from ada.fem.meshing import GmshOptions
 
-    print(box)
-    el = p.fem.elements[0]
-    print(el)
-    a.to_fem("MyFemBox", "abaqus", overwrite=True)
-    a.to_fem("MyFemBox_ca", "code_aster", overwrite=True)
+    # Build Model
+    bm = ada.Beam("MyBeam", (0, 0, 0), (0, 0, 1), "BG200x150x6x6")
+    p = ada.Part("MyBmPart") / [bm]
+    a = ada.Assembly() / p
 
-    # TODO: Specify surfaces on elements on the East and North side of this box and assign pressure and surface traction
+    # Create FEM mesh
+    p.fem = p.to_fem_obj(0.10, "solid", interactive=False, options=GmshOptions(Mesh_ElementOrder=2))
+
+    # Add Step
+    step = a.fem.add_step(ada.fem.StepImplicit("MyStep"))
+
+    # Add Boundary Condition
+    start_of_beam = bm.bbox.sides.back(return_fem_nodes=True)
+    p.fem.add_bc(ada.fem.Bc("fix", ada.fem.FemSet("bc_fix", start_of_beam), [1, 2, 3]))
+
+    # Add Surface Load
+    surface_top = p.fem.add_surface(bm.bbox.sides.top(return_surface=True, surf_name="TopSurface"))
+    step.add_load(ada.fem.LoadPressure("PressureTop", 1e6, surface_top))
+
+    a.to_fem("MyFemBeam_100mm_2nd_order", "abaqus", overwrite=True, execute=False, scratch_dir=test_surfaces_dir)

@@ -1,661 +1,23 @@
 # coding=utf-8
-import datetime
 import logging
 import os
 import pathlib
 import shutil
 import zipfile
 from decimal import ROUND_HALF_EVEN, Decimal
-from typing import Any, Dict, Union
+from typing import TYPE_CHECKING, Any, Dict, Union
 
 import numpy as np
 
 from ada.config import Settings
 
-
-def align_to_plate(plate):
-    """:type plate: ada.Plate"""
-    normal = plate.poly.normal
-    h = plate.t * 5
-    origin = plate.poly.placement.origin - h * normal * 1.1 / 2
-    xdir = plate.poly.placement.xdir
-    return dict(h=h, normal=normal, origin=origin, xdir=xdir)
-
-
-def align_to_beam(beam):
-    """:type beam: ada.Beam"""
-    ymin = beam.yvec * np.array(beam.bbox[0])
-    ymax = beam.yvec * np.array(beam.bbox[1])
-    origin = beam.n1.p - ymin * 1.1
-    normal = -beam.yvec
-    xdir = beam.xvec
-    h = vector_length(ymax - ymin) * 1.2
-    return dict(h=h, normal=normal, origin=origin, xdir=xdir)
-
-
-def split_beam(bm, fraction):
-    """
-    TODO: Should this insert something in the beam metadata which a mesh-algo can pick up or two separate beam objects?
-
-    :param bm:
-    :param fraction: Fraction of beam length (from n1)
-    :type bm: ada.Beam
-    :return:
-    """
-    raise NotImplementedError()
-    # nmid = bm.n1.p + bm.xvec * bm.length * fraction
-
-
-def linear_2dtransform_rotate(origin, point, degrees):
-    """
-    Rotate
-
-    :param origin: (x, y) coordinate of point of rotation
-    :param point: (x, y) coordinate of point to rotate
-    :param degrees: Degree rotation
-    :return: Updated x, y coordinates based on rotation
-    """
-    theta = np.deg2rad(degrees)
-    A = np.column_stack([[np.cos(theta), np.sin(theta)], [-np.sin(theta), np.cos(theta)]])
-    v = np.array(point) - np.array(origin)
-    #    return A @ v.T
-    return np.array(origin) + A.dot(v.T)
-
-
-def rot_matrix_alt(a, b, g, inverse=False, matr_tol=8):
-    """
-
-    :param a:
-    :param b:
-    :param g:
-    :param inverse:
-    :param matr_tol: Matrix decimal precision tolerance
-    :return:
-    """
-
-    def R_x(al):
-        return np.array([[1, 0, 0], [0, np.cos(al), -np.sin(al)], [0, np.sin(al), np.cos(al)]])
-
-    def R_y(be):
-        return np.array([[np.cos(be), 0, np.sin(be)], [0, 1, 0], [-np.sin(be), 0, np.cos(be)]])
-
-    def R_z(ga):
-        return np.array([[np.cos(ga), -np.sin(ga), 0], [np.sin(ga), np.cos(ga), 0], [0, 0, 1]])
-
-    rot_mat = np.dot(R_z(g), np.dot(R_y(b), R_x(a)))
-    rot_mat = np.around(rot_mat, matr_tol)
-    if inverse:
-        return rot_mat.T
-    else:
-        return rot_mat
-
-
-def rotation_matrix_csys_rotate(csys1_in, csys2_in, inverse=False, use_quaternion=True):
-    """
-    Create a rotation matrix by providing two sets of coordinate systems defined by 2 vectors each (X- and Y-vectors)
-
-    Resources:
-
-        https://en.wikipedia.org/wiki/Rotation_matrix
-        http://kieranwynn.github.io/pyquaternion/
-
-    :param csys1_in: Coordinate system 1 defined by 2 vectors [LocalX, LocalY]
-    :param csys2_in: Coordinate system 1 defined by 2 vectors [LocalX, LocalY]
-    :param inverse: True if you want to reverse the applied rotations from csys1 to csys2
-    :param use_quaternion: Create transformation matrix using the pyquaternion package
-    :return: A rotation matrix ready to be employed for further use
-    """
-
-    # Ensure Consistent right-hand-rule
-    csys1 = np.array([csys1_in[0], csys1_in[1], np.cross(csys1_in[0], csys1_in[1])]).astype(float)
-    csys2 = np.array([csys2_in[0], csys2_in[1], np.cross(csys2_in[0], csys2_in[1])]).astype(float)
-
-    if not np.allclose(np.dot(csys1, csys1.conj().transpose()), np.eye(3), rtol=1e-05, atol=1e-08):
-        use_quaternion = False
-
-    # Using PyQuaternion
-    if use_quaternion:
-        from pyquaternion import Quaternion
-
-        q1 = Quaternion(matrix=csys1)
-        q2 = Quaternion(matrix=csys2)
-        q3 = q1 * q2
-
-        if inverse:
-            q3 = q3.inverse
-
-        rm = q3.rotation_matrix
-        return rm
-    else:
-        a = angle_between(csys1[0], csys2[0])
-        b = angle_between(csys1[1], csys2[1])
-        z = angle_between(csys1[2], csys2[2])
-
-        rm_alt = rot_matrix_alt(a, b, z, inverse)
-        return rm_alt
-
-
-def angle_between(v1, v2):
-    """
-    Returns the angle in radians between vectors 'v1' and 'v2'
-
-    source:
-
-        https://stackoverflow.com/questions/2827393/angles-between-two-n-dimensional-vectors-in-python/13849249#13849249
-
-    :param v1:
-    :param v2:
-
-            >>> angle_between((1, 0, 0), (0, 1, 0))
-            1.5707963267948966
-            >>> angle_between((1, 0, 0), (1, 0, 0))
-            0.0
-            >>> angle_between((1, 0, 0), (-1, 0, 0))
-            3.141592653589793
-    """
-    v1_u = unit_vector(v1)
-    v2_u = unit_vector(v2)
-    return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
-
-
-def rot_matrix(normal, original_normal=(0, 0, 1)):
-    """
-    Creates a rotation matrix between two normals
-
-    :param normal:
-    :param original_normal:
-    :return:
-    """
-    # Check if the two normals are similar
-    if [True if abs(x - y) == 0 else False for x, y in zip(normal, original_normal)] == [True, True, True]:
-        return np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
-
-    M = np.array(normal)
-    N = np.array(original_normal)
-    costheta = np.dot(M, N) / (np.linalg.norm(M) * np.linalg.norm(N))
-
-    axis = np.cross(M, N) / np.linalg.norm(np.cross(M, N))
-    if np.isnan(axis[0]) or np.isnan(axis[1]) or np.isnan(axis[2]):
-        raise ValueError("Axis contains isnan members")
-    c = costheta
-    s = np.sqrt(1 - c * c)
-    C = 1 - c
-    x, y, z = axis[0], axis[1], axis[2]
-
-    return np.array(
-        [
-            [x * x * C + c, x * y * C - z * s, x * z * C + y * s],
-            [y * x * C + z * s, y * y * C + c, y * z * C - x * s],
-            [z * x * C - y * s, z * y * C + x * s, z * z * C + c],
-        ]
-    )
-
-
-def rotate_plane(points, normal, global_normal=(0, 0, 1)):
-    """
-    Method takes points from local plane rotates plane into global plane and returns points
-
-    .. Note: Assumes rotation about origin (0,0,0)
-
-    :param points:
-    :param normal:
-    :param global_normal:
-    :return:
-    """
-
-    rmat = rot_matrix(normal, global_normal)
-    newpoints = []
-    for pid in points:
-        point = points[pid].no.p
-        newpoint = np.dot(rmat, point)
-        newpoints.append(newpoint)
-    return newpoints
-
-
-def vector_length(vector):
-    """
-    This method takes in a np.array vector and returns the length
-    of the vector.
-
-    :param vector: A numpy array of a 3d vector
-    :type vector: np.array
-    :rtype: float
-    """
-    if len(vector) == 2:
-        raise ValueError("Vector is not a 3d vector, but a 2d vector. Please consider vector_length_2d() instead")
-    elif len(vector) != 3:
-        raise ValueError(f"Vector is not a 3d vector. Vector array length: {len(vector)}")
-
-    return float(np.linalg.norm(vector))
-
-
-def vector_length_2d(vector):
-    """
-    This method takes in a np.array vector and returns the length
-    of the vector.
-
-    :param vector: A numpy array of a 2d vector
-    :type vector: np.array
-    :rtype: float
-    """
-    if len(vector) == 3:
-        raise ValueError("Vector is not a 2d vector, but a 3d vector. Please consider vector_length() instead")
-    elif len(vector) != 2:
-        raise ValueError(f"Vector is not a 2d vector. Vector array length: {len(vector)}")
-
-    return float(np.linalg.norm(vector))
-
-
-def distfunc(x, point, A, B):
-    """
-    A function of x for the distance between point A on vector AB and arbitrary point C. X is a scalar multiplied with
-    AB vector based on the distance to C.
-
-    f(x) = np.sqrt(vector[0] ** 2 + vector[1] ** 2 + vector[2] ** 2)
-
-    vector = C-(A+x*AB)
-
-    :param x: Variable x
-    :type x:
-    :param point: Arbitrary point parallell to AB vector
-    :type point:
-    :param A: Point A on AB vector
-    :type A:
-    :param B: Point B on AB vector
-    :type B:
-    :return: Vector length
-    :rtype:
-    """
-    AB = B - A
-    return vector_length(point - (A + x * AB))
-
-
-def sort_points_by_dist(p, points):
-    return sorted(points, key=lambda x: vector_length(x - p))
-
-
-def is_point_on_line(a, b, p):
-    ap = p - a
-    ab = b - a
-    result = a + np.dot(ap, ab) / np.dot(ab, ab) * ab
-    return result
-
-
-def is_parallel(ab: np.array, cd: np.array, tol=0.0001) -> bool:
-    """Check if vectors AB and CD are parallel"""
-    return True if np.abs(np.sin(angle_between(ab, cd))) < tol else False
-
-
-def intersect_calc(A, C, AB, CD):
-    """
-    Function for evaluating an intersection point between two vector-lines (AB & CD).  The function returns
-    variables s & t denoting the scalar value multiplied with the two vector equations A + s*AB = C + t*CD.
-
-    :param A:
-    :type A:
-    :param C:
-    :type C:
-    :param AB:
-    :type AB:
-    :param CD:
-    :type CD:
-    """
-    # Setting up the equation for use in linalg.lstsq
-    a = np.array((AB, -CD)).T
-    b = C - A
-
-    st = np.linalg.lstsq(a, b, rcond=None)
-
-    s = st[0][0]
-    t = st[0][1]
-    return s, t
-
-
-def intersection_point(v1, v2):
-    """
-    Get the coordinate of the intersecting point
-    :param v1:
-    :param v2:
-    :return:
-    """
-    if len(list(v1[0])) == 2:
-        is2d = True
-    else:
-        is2d = False
-
-    v1 = [np.array(list(v) + [0.0]) for v in list(v1)] if is2d else v1
-    v2 = [np.array(list(v) + [0.0]) for v in list(v2)] if is2d else v2
-    v1_ = v1[1] - v1[0]
-    v2_ = v2[1] - v2[0]
-    p1 = v1[0]
-    p3 = v2[0]
-    s, t = intersect_calc(p1, p3, v1_, v2_)
-    res = p1 + s * v1_
-    if is2d:
-        return res[0], res[1]
-    else:
-        return res
-
-
-def normalize(curve):
-    if type(curve) is tuple:
-        return (curve[0], [y / max(abs(curve[1])) for y in curve[1]])
-    else:
-        return [x / max(abs(curve)) for x in curve]
-
-
-def is_point_inside_bbox(p, bbox, tol=1e-3):
-    """
-
-    :param p: Point
-    :param bbox: Bounding box
-    :param tol: Tolerance
-    :return:
-    """
-    if (
-        bbox[0][0][0] - tol < p[0] < bbox[0][1][0] + tol
-        and bbox[1][0][1] - tol < p[1] < bbox[1][1][1] + tol
-        and bbox[2][0][2] - tol < p[2] < bbox[2][1][2] + tol
-    ):
-        return True
-    else:
-        return False
-
-
-def points_in_cylinder(pt1, pt2, r, q):
-    """
-
-    :param pt1: Start point of cylinder
-    :param pt2: End point of cylinder
-    :param r: Radius of cylinder
-    :param q:
-    :return:
-    """
-    vec = pt2 - pt1
-    const = r * np.linalg.norm(vec)
-    if np.dot(q - pt1, vec) >= 0 >= np.dot(q - pt2, vec) and np.linalg.norm(np.cross(q - pt1, vec)) <= const:
-        return True
-    else:
-        return False
-
-
-def split(u, v, points):
-    """
-
-    :param u: Vector 1
-    :param v: Vector 2
-    :param points:
-    :return:
-    """
-
-    # return points on left side of UV
-    return [p for p in points if np.cross(p - u, v - u) < 0]
-
-
-def extend(u, v, points):
-    if not points:
-        return []
-
-    # find furthest point W, and split search to WV, UW
-    w = min(points, key=lambda p: np.cross(p - u, v - u))
-    p1, p2 = split(w, v, points), split(u, w, points)
-    return extend(w, v, p1) + [w] + extend(u, w, p2)
-
-
-def convex_hull(points):
-    # find two hull points, U, V, and split to left and right search
-    u = min(points, key=lambda p: p[0])
-    v = max(points, key=lambda p: p[0])
-    left, right = split(u, v, points), split(v, u, points)
-
-    # find convex hull on each side
-    return [v] + extend(u, v, left) + [u] + extend(v, u, right) + [v]
-
-
-def s_curve(ramp_up_t, ramp_down_t, magnitude, sustained_time=0.0):
-    """
-    A function created to
-
-    :param ramp_up_t:
-    :param ramp_down_t:
-    :param magnitude:
-    :param sustained_time:
-    :return: tuple of X and Y lists describing a S-Curved ramp up and ramp down.
-    """
-    yp = np.array([0.0, 0.1, 1.0, 1.0]) * magnitude
-    if ramp_up_t is not None:
-        xp1 = np.array([0.0, ramp_up_t / 2, ramp_up_t / 2, ramp_up_t])
-        x1, y1 = Bezier(list(zip(xp1, yp))).T
-        if sustained_time > 0.0:
-            delta_x = x1[-1] - x1[-2]
-            x0_ = x1[-1] + delta_x
-            x1_ = x1[-1] + sustained_time
-            y = y1[-1]
-            add_x = np.linspace(x0_, x1_, 50, endpoint=True)
-            add_y = [y for r in add_x]
-            x1 = np.append(x1, add_x)
-            y1 = np.append(y1, add_y)
-    else:
-        x1, y1 = None, None
-
-    if ramp_down_t is not None:
-        xp2 = np.array([0, ramp_down_t / 2, ramp_down_t / 2, ramp_down_t])
-        x2, y2 = Bezier(list(zip(xp2, yp))).T
-    else:
-        x2, y2 = None, None
-
-    if ramp_down_t is None and ramp_up_t is not None:
-        total_curve = x1, x2
-    elif ramp_down_t is not None and ramp_up_t is None:
-        total_curve = x2, y2[::-1]
-    else:
-        total_curve = np.append(x1, x2[1:] + x1[-1]), np.append(y1, y2[::-1][1:])
-
-    return total_curve
-
-
-def is_coplanar(x1, y1, z1, x2, y2, z2, x3, y3, z3, x4, y4, z4):
-    """
-    Python program to check if 4 points in a 3-D plane are Coplanar
-    Function to find equation of plane.
-
-    :param x1:
-    :param y1:
-    :param z1:
-    :param x2:
-    :param y2:
-    :param z2:
-    :param x3:
-    :param y3:
-    :param z3:
-    :param x4:
-    :param y4:
-    :param z4:
-    :return:
-    """
-    a1 = x2 - x1
-    b1 = y2 - y1
-    c1 = z2 - z1
-    a2 = x3 - x1
-    b2 = y3 - y1
-    c2 = z3 - z1
-    a = b1 * c2 - b2 * c1
-    b = a2 * c1 - a1 * c2
-    c = a1 * b2 - b1 * a2
-    d = -a * x1 - b * y1 - c * z1
-    # equation of plane is: a*x + b*y + c*z = 0 #
-    # checking if the 4th point satisfies
-    # the above equation
-    if a * x4 + b * y4 + c * z4 + d == 0:
-        # if(a * x + b * y + c * z + d < 0.0001 and a * x + b * y + c * z + d > -0.0001):
-        # print("Coplanar")
-        return True
-    else:
-        # print(a * x + b * y + c * z + d)
-        return False
-        # print("Not Coplanar")
-
-
-def poly_area(x, y):
-    """
-    Shoelace formula based on stackoverflow
-
-    https://stackoverflow.com/questions/24467972/calculate-area-of-polygon-given-x-y-coordinates
-
-    :param x:
-    :param y:
-    :return:
-    """
-    return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
-
-
-def global_2_local_nodes(csys, origin, nodes):
-    """
-
-    :param csys: List of tuples containing; [LocalX, LocalY]
-    :param origin: Point of origin. Node object
-    :param nodes: list of nodes
-    :return: List of local node coordinates
-    """
+if TYPE_CHECKING:
     from ada import Node
-
-    global_csys = [(1, 0, 0), (0, 1, 0)]
-    rmat = rotation_matrix_csys_rotate(global_csys, csys)
-
-    if type(origin) is Node:
-        origin = origin.p
-    elif type(origin) in (list, tuple):
-        origin = np.array(origin)
-
-    if type(nodes[0]) is Node:
-        nodes = [no.p for no in nodes]
-
-    res = [np.dot(rmat, p) + origin for p in nodes]
-
-    return res
-
-
-def local_2_global_nodes(nodes, origin, xdir, normal):
-    """
-    A method for converting a list of nodes (points) in a 2d coordinate system to global 3d coordinates
-
-    :param normal: Normal to 2d plane
-    :param origin: Origin of local coordinate system
-    :param nodes: List of points in 2d coordinate system
-    :param xdir: Local X-direction
-    :return:
-    """
-    from ada.concepts.points import Node
-    from ada.core.constants import X, Y
-
-    if type(origin) is Node:
-        origin = origin.p
-
-    if type(nodes[0]) is Node:
-        nodes = [no.p for no in nodes]
-
-    nodes = [np.array(n, dtype=np.float64) if len(n) == 3 else np.array(list(n) + [0], dtype=np.float64) for n in nodes]
-    yvec = calc_yvec(xdir, normal)
-
-    rmat = rotation_matrix_csys_rotate([xdir, yvec], [X, Y], inverse=True)
-
-    return [np.array(origin, dtype=np.float64) + np.dot(rmat, n) for n in nodes]
-
-
-def normal_to_points_in_plane(points):
-    """Get normal to the plane created by a list of points"""
-    if len(points) <= 2:
-        raise ValueError("Insufficient number of points")
-    p1 = points[0]
-    p2 = points[1]
-    p3 = points[2]
-
-    # These two vectors are in the plane
-    v1 = p3 - p1
-    v2 = p2 - p1
-
-    if is_parallel(v1, v2) is True:
-        for i in range(3, len(points)):
-            p3 = points[i]
-            v1 = p3 - p1
-            if is_parallel(v1, v2) is False:
-                break
-
-    # the cross product is a vector normal to the plane
-
-    n = np.array([x if abs(x) != 0.0 else 0.0 for x in list(np.cross(v1, v2))])
-    # if n[2] < 0.0:
-    #     n *= -1
-    #
-    # if n[2] == 0 and n[1] == -1:
-    #     n *= -1
-    #
-    # if n[2] == 0 and n[0] == -1:
-    #     n *= -1
-
-    if n.any() == 0.0:
-        raise ValueError("Error in calculating plate normal")
-
-    return np.array([x if abs(x) != 0.0 else 0.0 for x in list(unit_vector(n))])
-
-
-def Bernstein(n, k):
-    """Bernstein polynomial."""
-    from scipy.special._ufuncs import binom
-
-    coeff = binom(n, k)
-
-    def _bpoly(x):
-        return coeff * x ** k * (1 - x) ** (n - k)
-
-    return _bpoly
-
-
-def Bezier(points, num=200):
-    """Build Bezier curve from points."""
-    N = len(points)
-    t = np.linspace(0, 1, num=num)
-    curve = np.zeros((num, 2))
-    for ii in range(N):
-        curve += np.outer(Bernstein(N - 1, ii)(t), points[ii])
-    return curve
-
-
-def unit_vector(vector: np.ndarray):
-    """Returns the unit vector of a given vector"""
-    norm = vector / np.linalg.norm(vector)
-    if np.isnan(norm).any():
-        raise ValueError(f'Error trying to normalize vector "{vector}"')
-
-    return norm
-
-
-def is_clockwise(points):
-    """Return true if order of 2d points are sorted in a clockwise order"""
-    psum = 0
-    for p1, p2 in zip(points[:-1], points[1:]):
-        psum += (p2[0] - p1[0]) * (p2[1] + p1[1])
-    psum += (points[-1][0] - points[0][0]) * (points[-1][1] + points[0][1])
-    if psum < 0:
-        return False
-    else:
-        return True
-
-
-def get_now():
-    d = datetime.datetime.now(datetime.timezone.utc).astimezone()
-    date_in_str = "%a, %d %b %Y %H:%M:%S %Z %z"
-    now_str = d.strftime(date_in_str)
-    return now_str
-
-
-def interpret_now(date_string):
-    return datetime.datetime.strptime(date_string, "%a, %d %b %Y %H:%M:%S %Z %z")
 
 
 def copy_bulk(files, destination_dir, substitution_map=None):
     """
-    Use shutil to copy a list of files to a specified destination directory. Can also parse in a substition map (a
+    Use shutil to copy a list of files to a specified destination directory. Can also parse in a substitution map (a
     dict with key: value substitution for specified files
 
     :param files:
@@ -688,154 +50,6 @@ def copy_bulk(files, destination_dir, substitution_map=None):
             shutil.copy(f, dest_file)
 
 
-def create_date_str(include_minutes=False):
-    """
-    Function for building a formatted timestamp string
-
-    :param include_minutes: Extends the timing format to include minutes
-    :return: formatted string <year>_<month>_<day> + optionally (_<hour>_<minute>)
-    """
-    du = datetime.datetime.now()
-    dyear = str(du.year)
-    dyear2 = "" + dyear[2] + "" + dyear[3]
-    dmonth = "{:02d}".format(du.month)
-    dday = "{:02d}".format(du.day)
-    day_format = "" + str(dyear2) + "" + str(dmonth) + "" + str(dday)
-    if include_minutes:
-        day_format += "_" + str(du.hour) + ":" + str(du.minute)
-    return day_format
-
-
-def curve_fitting(in_data):
-    """
-
-    :param in_data:
-    :return:
-    """
-    from scipy.optimize import curve_fit
-
-    xData = np.array(in_data[0])
-    yData = np.array(in_data[1])
-
-    # generate initial parameter values
-    geneticParameters = generate_Initial_Parameters(xData, yData)
-
-    # curve fit the test data
-    fittedParameters, pcov = curve_fit(curve_f1, xData, yData, geneticParameters)
-
-    logging.debug("Parameters", fittedParameters)
-
-    modelPredictions = curve_f1(xData, *fittedParameters)
-
-    absError = modelPredictions - yData
-
-    SE = np.square(absError)  # squared errors
-    MSE = np.mean(SE)  # mean squared errors
-    RMSE = np.sqrt(MSE)  # Root Mean Squared Error, RMSE
-    Rsquared = 1.0 - (np.var(absError) / np.var(yData))
-    print("RMSE:", RMSE)
-    print("R-squared:", Rsquared)
-    print()
-    return fittedParameters
-
-
-def curve_f1(x, a, b, Offset):
-    """
-    A base function for use in curve fitting
-
-    # Sigmoid A With Offset from zunzun.com
-
-    :param x:
-    :param a:
-    :param b:
-    :param Offset:
-    :return:
-    """
-    return 1.0 / (1.0 + np.exp(-a * (x - b))) + Offset
-
-
-def curve_f2(x, a, b, c):
-    """
-    A base function for use in curve fitting
-
-
-
-    :param x:
-    :param a:
-    :param b:
-    :param c:
-    :return:
-    """
-    return a * np.exp(-b * x) + c
-
-
-def curve_f3(x, a, b):
-    """
-    A base function for use in curve fitting
-
-
-
-    :param x:
-    :param a:
-    :param b:
-    :return:
-    """
-    return a * np.exp(b * x)
-
-
-def curve_f4(x, a, b, c):
-    """
-    A base function for use in curve fitting
-
-    :param x:
-    :param a:
-    :param b:
-    :param c:
-    :return:
-    """
-    return a * x ** 3 + b * x ** 2 + c * x
-
-
-def sumOfSquaredError(parameterTuple, *args):
-    """
-    function for genetic algorithm to minimize (sum of squared error)
-
-    :param xData:
-    :param yData:
-    :param parameterTuple:
-    :return:
-    """
-    import warnings
-
-    xData = args[0]
-    yData = args[1]
-    if xData is None:
-        logging.error("Xdata is none. Returning None")
-        return None
-    warnings.filterwarnings("ignore")
-    val = curve_f1(xData, *parameterTuple)
-    return np.sum((yData - val) ** 2.0)
-
-
-def generate_Initial_Parameters(xData, yData):
-    from scipy.optimize import differential_evolution
-
-    # min and max used for bounds
-    maxX = max(xData)
-    minX = min(xData)
-    maxY = max(yData)
-    # minY = min(yData)
-
-    parameterBounds = []
-    parameterBounds.append([minX, maxX])  # seach bounds for a
-    parameterBounds.append([minX, maxX])  # seach bounds for b
-    parameterBounds.append([0.0, maxY])  # seach bounds for Offset
-
-    # "seed" the numpy random number generator for repeatable results
-    result = differential_evolution(sumOfSquaredError, parameterBounds, args=[xData, yData], seed=3)
-    return result.x
-
-
 class NewLine:
     def __init__(self, n, prefix=None, suffix=None):
         self.i = 0
@@ -858,7 +72,7 @@ class NewLine:
 
 
 class Counter:
-    def __init__(self, start=1, prefix=None):
+    def __init__(self, start: int = 1, prefix: str = None):
         self.i = start - 1
         self._prefix = prefix
 
@@ -918,25 +132,13 @@ def random_color():
     return format_color(randint(0, 255), randint(0, 255), randint(0, 255))
 
 
-def d2npy(node):
-    """
-    This method takes in a node object and returns a np.array.
-
-    :param node: Node Object
-    :type node: Node
-    :rtype: np.array
-    :return: Numpy node
-    """
+def d2npy(node: "Node") -> np.ndarray:
+    """This method takes in a node object and returns a np.array."""
     return np.array([node.x, node.y, node.z], dtype=np.float)
 
 
-def roundoff(x, precision=6):
-    """
-
-    :param x: Number
-    :param precision: Number precision
-    :return:
-    """
+def roundoff(x: float, precision=6) -> float:
+    """Round using a specific number precision using the Decimal package"""
     import warnings
 
     warnings.filterwarnings(action="error", category=np.ComplexWarning)
@@ -945,11 +147,7 @@ def roundoff(x, precision=6):
 
 
 def get_short_path_name(long_name):
-    """
-    Gets the short path name of a given long path.
-
-    http://stackoverflow.com/a/23598461/200291
-    """
+    """Gets the short path name of a given long path (http://stackoverflow.com/a/23598461/200291)"""
     import ctypes
     from ctypes import wintypes
 
@@ -1014,15 +212,15 @@ def get_current_user():
 def get_list_of_files(dir_path, file_ext=None, strict=False):
     """Get a list of files and sub directories for a given directory"""
     all_files = []
-    list_of_file = os.listdir(dir_path)
+    list_of_file = sorted(os.listdir(dir_path), key=str.lower)
 
     # Iterate over all the entries
     for entry in list_of_file:
         # Create full path
-        full_path = os.path.join(dir_path, entry)
+        full_path = os.path.join(dir_path, entry).replace(os.sep, "/")
         # If entry is a directory then get the list of files in this directory
         if os.path.isdir(full_path):
-            all_files = all_files + get_list_of_files(full_path, file_ext, strict)
+            all_files += get_list_of_files(full_path, file_ext, strict)
         else:
             all_files.append(full_path)
 
@@ -1090,41 +288,6 @@ def getfileprop(filepath: str) -> dict:
         pass
 
     return props
-
-
-def get_file_time_local(file_path):
-    from datetime import datetime, timezone
-
-    utc_time = datetime.fromtimestamp(os.path.getmtime(file_path), timezone.utc)
-    return utc_time.astimezone()
-
-
-def get_time_stamp_now():
-    import pytz
-
-    utc = pytz.UTC
-    return utc.localize(datetime.datetime.utcnow())
-
-
-def datetime_to_str(obj):
-    return obj.isoformat()
-
-
-def get_last_file_modified(file_dir, file_ext):
-    last_date = None
-    for f in get_list_of_files(file_dir, file_ext):
-        curr_date = get_file_time_local(f)
-        if last_date is None:
-            last_date = curr_date
-        elif curr_date > last_date:
-            last_date = curr_date
-    return last_date
-
-
-def datetime_from_str(obj_str):
-    import dateutil.parser
-
-    return dateutil.parser.parse(obj_str)
 
 
 def path_leaf(path):
@@ -1290,7 +453,7 @@ def make_name_fem_ready(value, no_dot=False):
         value = value.replace(".", "_")
     final_name = value.strip()
     if len(final_name) > 25:
-        logging.error(f'Note FEM name "{final_name}" is >25 characters. This might cause issues in some FEM software')
+        logging.info(f'Note FEM name "{final_name}" is >25 characters. This might cause issues in some FEM software')
     return final_name
 
 
@@ -1314,31 +477,6 @@ def closest_val_in_dict(val: Union[int, float], dct: Dict[Union[int, float], Any
 
 def flatten(t):
     return [item for sublist in t for item in sublist]
-
-
-def calc_xvec(y_vec, z_vec):
-    return np.cross()
-
-
-def calc_yvec(x_vec, z_vec=None) -> np.ndarray:
-    if z_vec is None:
-        calc_zvec(x_vec)
-
-    return np.cross(z_vec, x_vec)
-
-
-def calc_zvec(x_vec, y_vec=None) -> np.ndarray:
-    """Calculate Z-vector (up) from an x-vector (along beam) only."""
-    from ada.core.constants import Y, Z
-
-    if y_vec is None:
-        z_vec = np.array(Z)
-        a = angle_between(x_vec, z_vec)
-        if a == np.pi or a == 0:
-            z_vec = np.array(Y)
-        return z_vec
-    else:
-        np.cross(x_vec, y_vec)
 
 
 def faceted_tol(units):
@@ -1417,41 +555,3 @@ def unit_length_conversion(ori_unit, value):
     else:
         raise ValueError(f'Unrecognized unit conversion from "{ori_unit}" to "{value}"')
     return scale_factor
-
-
-def is_on_line(data):
-    """Evaluate intersection point between two lines"""
-    l, bm = data
-    A, B = np.array(l[0]), np.array(l[1])
-    AB = B - A
-    C = bm.n1.p
-    D = bm.n2.p
-    CD = D - C
-
-    if (vector_length(A - C) < 1e-5) is True and (vector_length(B - D) < 1e-5) is True:
-        return None
-
-    s, t = intersect_calc(A, C, AB, CD)
-    AB_ = A + s * AB
-    CD_ = C + t * CD
-    if (vector_length(AB_ - CD_) < 1e-4) is True and s not in (0.0, 1.0):
-        return list(AB_), bm
-    else:
-        return None
-
-
-def projection_onto_line(p0, n1, n2) -> np.ndarray:
-    """
-
-    :param p0: Point outside beam
-    :param n1: Start node of beam
-    :param n2: End node of beam
-    :return: Projection from n1 to p0 onto line. Returns projected line segment
-    """
-
-    v = n2 - n1
-    p = p0 - n1
-    angle = angle_between(v, p)
-    t0 = np.linalg.norm(p) * np.cos(angle) * unit_vector(v)
-    q = t0 - p
-    return p0 + q

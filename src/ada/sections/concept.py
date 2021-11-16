@@ -81,26 +81,40 @@ class Section(Backend):
             genprops.parent = self
             self._genprops = genprops
 
-    def __eq__(self, other):
-        for key, val in self.__dict__.items():
-            if "parent" in key or "_ifc" in key or key in ["_sec_id", "_guid"]:
-                continue
-            oval = other.__dict__[key]
-            if oval != val:
-                return False
-
-        return True
+    # def __eq__(self, other: Section):
+    #     props_equal = self.equal_props(other)
+    #     if props_equal is False:
+    #         return False
+    #     if other.name != self.name:
+    #         return False
+    #
+    #     return True
 
     def _generate_ifc_section_data(self):
-        from ada.ifc.export_beam_sections import export_beam_section
+        from ada.ifc.write.write_sections import export_beam_section
 
         return export_beam_section(self)
 
     def _import_from_ifc_profile(self, ifc_elem):
-        from ada.ifc.import_beam_section import import_section_from_ifc
+        from ada.ifc.read.read_beam_section import import_section_from_ifc
 
         self._ifc_profile = ifc_elem
         return import_section_from_ifc(ifc_elem)
+
+    def equal_props(self, other: Section):
+        props = ["type", "h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "wt", "poly_outer", "poly_inner"]
+        if self.type == self.TYPES.GENERAL:
+            props += ["properties"]
+
+        for propa, propb in zip(self.unique_props(), other.unique_props()):
+            if propa != propb:
+                return False
+
+        return True
+
+    def unique_props(self):
+        props = ["type", "h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "wt", "poly_outer", "poly_inner"]
+        return tuple([getattr(self, p) for p in props])
 
     @property
     def type(self):

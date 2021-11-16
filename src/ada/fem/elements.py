@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import List, Union
+from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
-from ada.concepts.piping import Pipe
 from ada.concepts.points import Node
-from ada.concepts.primitives import Shape
-from ada.concepts.structural import Beam, Plate, Wall
 
 from .common import Csys, FemBase
-from .sections import ConnectorSection, FemSection
 from .shapes import ElemShape, ElemType
+
+if TYPE_CHECKING:
+    from ada import FEM, Beam, Pipe, Plate, Shape, Wall
+    from ada.fem import ConnectorSection, FemSection, FemSet
 
 
 class Elem(FemBase):
@@ -26,12 +26,12 @@ class Elem(FemBase):
         nodes,
         el_type,
         elset=None,
-        fem_sec=None,
+        fem_sec: "FemSection" = None,
         mass_props=None,
-        parent=None,
+        parent: "FEM" = None,
+        el_formulation_override=None,
         metadata=None,
     ):
-        """:type fem_sec: ada.fem.FemSection"""
         super(Elem, self).__init__(el_id, metadata, parent)
         self.type = el_type.upper()
         self._el_id = el_id
@@ -47,6 +47,7 @@ class Elem(FemBase):
         self._mass_props = mass_props
         self._hinge_prop = None
         self._eccentricity = None
+        self._formulation_override = el_formulation_override
         self._refs = []
 
     def get_offset_coords(self):
@@ -125,8 +126,12 @@ class Elem(FemBase):
     def elset(self):
         return self._elset
 
+    @elset.setter
+    def elset(self, value: "FemSet"):
+        self._elset = value
+
     @property
-    def fem_sec(self) -> FemSection:
+    def fem_sec(self) -> "FemSection":
         return self._fem_sec
 
     @fem_sec.setter
@@ -150,6 +155,10 @@ class Elem(FemBase):
     @property
     def refs(self) -> List[Union[Elem, Beam, Plate, Pipe, Wall, Shape]]:
         return self._refs
+
+    @property
+    def formulation_override(self):
+        return self._formulation_override if self._formulation_override is not None else self.type
 
     def update(self):
         self._nodes = list(set(self.nodes))
@@ -194,7 +203,15 @@ class Eccentricity:
     sh_ecc_vector: np.ndarray = None
 
 
+class ConnectorTypes:
+    BUSHING = "bushing"
+
+    all = [BUSHING]
+
+
 class Connector(Elem):
+    CON_TYPES = ConnectorTypes
+
     def __init__(
         self,
         name,
@@ -202,16 +219,15 @@ class Connector(Elem):
         n1: Node,
         n2: Node,
         con_type,
-        con_sec: ConnectorSection,
+        con_sec: "ConnectorSection",
         preload=None,
         csys: Csys = None,
         metadata=None,
-        parent=None,
+        parent: "FEM" = None,
     ):
-        """:type parent: ada.FEM"""
         if type(n1) is not Node or type(n2) is not Node:
             raise ValueError("Connector Start\\end must be nodes")
-        super(Connector, self).__init__(el_id, [n1, n2], "CONNECTOR")
+        super(Connector, self).__init__(el_id, [n1, n2], ElemType.CONNECTOR_SHAPES.CONNECTOR)
         super(Elem, self).__init__(name, metadata, parent)
         self._n1 = n1
         self._n2 = n2
@@ -224,30 +240,48 @@ class Connector(Elem):
     def con_type(self):
         return self._con_type
 
+    @con_type.setter
+    def con_type(self, value: str):
+        self._con_type = value
+
     @property
-    def con_sec(self) -> ConnectorSection:
+    def con_sec(self) -> "ConnectorSection":
         return self._con_sec
+
+    @con_sec.setter
+    def con_sec(self, value: "ConnectorSection"):
+        self._con_sec = value
 
     @property
     def n1(self) -> Node:
         return self._n1
 
+    @n1.setter
+    def n1(self, value: Node):
+        self._n1 = value
+
     @property
     def n2(self) -> Node:
         return self._n2
 
+    @n2.setter
+    def n2(self, value: Node):
+        self._n2 = value
+
     @property
     def csys(self) -> Csys:
         return self._csys
+
+    @csys.setter
+    def csys(self, value: Csys):
+        self._csys = value
 
     def __repr__(self):
         return f'ConnectorElem(ID: {self.id}, Type: {self.type}, End1: "{self.n1}", End2: "{self.n2}")'
 
 
 class Spring(Elem):
-    def __init__(self, name, el_id, el_type, stiff, fem_set, metadata=None, parent=None):
-        """:type fem_set: ada.fem.FemSet"""
-
+    def __init__(self, name, el_id, el_type, stiff, fem_set: "FemSet", metadata=None, parent=None):
         super(Spring, self).__init__(el_id, fem_set.members, el_type)
         super(Elem, self).__init__(name, metadata, parent)
         self._stiff = stiff
@@ -258,8 +292,7 @@ class Spring(Elem):
         self._fem_set = fem_set
 
     @property
-    def fem_set(self):
-        """:rtype: ada.fem.sets.FemSet"""
+    def fem_set(self) -> "FemSet":
         return self._fem_set
 
     @property
@@ -292,7 +325,7 @@ class Mass(FemBase):
     def __init__(
         self,
         name,
-        fem_set,
+        fem_set: "FemSet",
         mass,
         mass_type=None,
         ptype=None,
@@ -301,7 +334,6 @@ class Mass(FemBase):
         metadata=None,
         parent=None,
     ):
-        """:type fem_set: ada.fem.FemSet"""
         super().__init__(name, metadata, parent)
         self._fem_set = fem_set
         if mass is None:
@@ -344,8 +376,7 @@ class Mass(FemBase):
         return self._mass_type
 
     @property
-    def fem_set(self):
-        """:rtype: ada.fem.FemSet"""
+    def fem_set(self) -> "FemSet":
         return self._fem_set
 
     @fem_set.setter
@@ -360,6 +391,8 @@ class Mass(FemBase):
                     raise ValueError("Mass can only be a scalar number for Isotropic mass")
                 return float(self._mass[0])
             elif self.type == MassTypes.NONSTRU:
+                return self._mass
+            elif self.type == MassTypes.ROT_INERTIA:
                 return self._mass
             else:
                 return float(self._mass)
@@ -388,3 +421,10 @@ class Mass(FemBase):
 
     def __repr__(self):
         return f"Mass({self.name}, {self.point_mass_type}, [{self.mass}])"
+
+
+def find_element_type_from_list(elements: List[Elem]) -> str:
+    el_types = set(el.shape.elem_type_group for el in elements)
+    if len(el_types) != 1:
+        raise NotImplementedError("Mixed element set types as basis for surface sets is not yet supported")
+    return elements[0].shape.elem_type_group

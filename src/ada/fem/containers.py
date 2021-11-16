@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from functools import partial
 from itertools import chain, groupby
 from operator import attrgetter
-from typing import Dict, Iterable, List, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple, Union
 
 import numpy as np
 
@@ -16,10 +16,14 @@ from ada.core.utils import Counter
 from ada.materials import Material
 from ada.sections import Section
 
-from .elements import Elem, FemSection, MassTypes
+from .elements import Elem, MassTypes
 from .exceptions.model_definition import FemSetNameExists
+from .sections import FemSection
 from .sets import FemSet, SetTypes
-from .shapes import ElemShapeTypes, ElemType
+from .shapes import ElemType
+
+if TYPE_CHECKING:
+    from ada import FEM
 
 
 @dataclass
@@ -33,15 +37,9 @@ class COG:
 
 
 class FemElements:
-    """
+    """Container class for FEM elements"""
 
-    :param elements:
-    :param fem_obj:
-    :type fem_obj: ada.FEM
-    """
-
-    def __init__(self, elements=None, fem_obj=None, from_np_array=None):
-        """:type fem_obj:"""
+    def __init__(self, elements: Iterable[Elem] = None, fem_obj: "FEM" = None, from_np_array=None):
         self._fem_obj = fem_obj
         if from_np_array is not None:
             elements = self.elements_from_array(from_np_array)
@@ -55,16 +53,24 @@ class FemElements:
         self._by_types = None
         self._group_by_types()
 
-    def renumber(self, start_id=1):
-        elid = Counter(start_id)
+    def renumber(self, start_id=1, renumber_map: dict = None):
+        """Ensures that the node numberings starts at 1 and has no holes in its numbering."""
+        if renumber_map is not None:
+            self._renumber_from_map(renumber_map)
+        else:
+            self._renumber_linearly(start_id)
 
-        def mapid2(el: Elem):
-            el.id = next(elid)
-
-        list(map(mapid2, self._elements))
         self._idmap = {e.id: e for e in self._elements} if len(self._elements) > 0 else dict()
-
         self._group_by_types()
+
+    def _renumber_from_map(self, renumber_map):
+        for el in sorted(self._elements, key=attrgetter("id")):
+            el.id = renumber_map[el.id]
+
+    def _renumber_linearly(self, start_id):
+        elid = Counter(start_id)
+        for el in sorted(self._elements, key=attrgetter("id")):
+            el.id = next(elid)
 
     def link_nodes(self):
         """Link element nodes with the parent fem node collection"""
@@ -135,8 +141,13 @@ class FemElements:
         result = self._elements[index]
         return FemElements(result) if isinstance(index, slice) else result
 
-    def __add__(self, other):
-        return FemElements(chain.from_iterable([self.elements, other.elements]), self._fem_obj)
+    def __add__(self, other: FemElements):
+        max_id = self.max_el_id
+        other.renumber(max_id + 1)
+        for el in other.elements:
+            el.parent = self.parent
+
+        return FemElements(chain.from_iterable([self.elements, other.elements]), self.parent)
 
     def __repr__(self):
         data = {}
@@ -151,17 +162,11 @@ class FemElements:
     def by_types(self):
         return self._by_types
 
-    def calc_cog(self):
-        """
-        Calculate COG, total mass and structural Volume of your FEM model based on element mass distributed to element
-        nodes
-
-        :return: cogx, cogy, cogz, tot_mass, tot_vol
-        :rtype: COG
-        """
+    def calc_cog(self) -> COG:
+        """Calculate COG of your FEM model based on element mass distributed to element and nodes"""
         from itertools import chain
 
-        from ada.core.utils import global_2_local_nodes, poly_area, vector_length
+        from ada.core.vector_utils import global_2_local_nodes, poly_area, vector_length
 
         def calc_sh_elem(el: Elem):
             locx = el.fem_sec.local_x
@@ -218,8 +223,7 @@ class FemElements:
         return COG(cog_, tot_mass, tot_vol, sh_mass, bm_mass, no_mass)
 
     @property
-    def parent(self):
-        """:rtype: ada.FEM"""
+    def parent(self) -> "FEM":
         return self._fem_obj
 
     @parent.setter
@@ -228,10 +232,16 @@ class FemElements:
 
     @property
     def max_el_id(self):
+        if len(self._idmap.keys()) == 0:
+            return 0
+
         return max(self._idmap.keys())
 
     @property
     def min_el_id(self):
+        if len(self._idmap.keys()) == 0:
+            return 0
+
         return min(self._idmap.keys())
 
     @property
@@ -240,15 +250,16 @@ class FemElements:
 
     @property
     def solids(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type in ElemShapeTypes.volume, self.stru_elements)
+        return filter(lambda x: x.type in Elem.EL_TYPES.SOLID_SHAPES.all, self.stru_elements)
 
     @property
     def shell(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type in ElemShapeTypes.shell, self.stru_elements)
+
+        return filter(lambda x: x.type in Elem.EL_TYPES.SHELL_SHAPES.all, self.stru_elements)
 
     @property
     def lines(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type in ElemShapeTypes.lines, self.stru_elements)
+        return filter(lambda x: x.type in Elem.EL_TYPES.LINE_SHAPES.all, self.stru_elements)
 
     @property
     def lines_hinged(self) -> Iterable[Elem]:
@@ -260,7 +271,7 @@ class FemElements:
 
     @property
     def connectors(self):
-        return filter(lambda x: x.type in ElemShapeTypes.connectors, self.stru_elements)
+        return filter(lambda x: x.type == ElemType.CONNECTOR_SHAPES.CONNECTOR, self.elements)
 
     @property
     def masses(self) -> Iterable[Elem]:
@@ -268,7 +279,7 @@ class FemElements:
 
     @property
     def stru_elements(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type not in ["MASS", "SPRING1"], self._elements)
+        return filter(lambda x: x.type not in ["MASS", "SPRING1", "CONNECTOR"], self._elements)
 
     def from_id(self, el_id: int) -> Elem:
         el = self._idmap.get(el_id, None)
@@ -283,6 +294,7 @@ class FemElements:
             res = spring_id_map.get(el_id, None)
             if res is not None:
                 return res
+
             raise ValueError(f'The elem id "{el_id}" is not found')
         return el
 
@@ -372,11 +384,9 @@ class FemElements:
 
 
 class FemSections:
-    def __init__(self, sections: Iterable[FemSection] = None, fem_obj=None):
-        """:type fem_obj: ada.FEM"""
+    def __init__(self, sections: Iterable[FemSection] = None, fem_obj: "FEM" = None):
         self._fem_obj = fem_obj
         self._sections = list(sections) if sections is not None else []
-
         by_types = self._groupby()
         self._lines = by_types["lines"]
         self._shells = by_types["shells"]
@@ -391,14 +401,14 @@ class FemSections:
 
         merge_map: Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]] = dict()
         for fs in self.lines:
-            props = (fs.material, fs.section, tuple(fs.local_x), tuple(fs.local_z), fs.thickness)
+            props = (fs.material, fs.section.unique_props(), tuple(), tuple(fs.local_z), 0.0)
             if props not in merge_map.keys():
                 merge_map[props] = []
 
             merge_map[props].append(fs)
 
         for fs in self.shells:
-            props = (fs.material, fs.section, (None,), tuple(fs.local_z), fs.thickness)
+            props = (fs.material, fs.section, (None,), tuple(), fs.thickness)
             if props not in merge_map.keys():
                 merge_map[props] = []
 
@@ -419,13 +429,13 @@ class FemSections:
                 for el in fs.elset.members:
                     if el == el_o:
                         continue
-                    are_equal = el.fem_sec == fs_o
-                    if are_equal is False and el.fem_sec not in remove_fs:
+                    are_equal = el.fem_sec.has_equal_props(fs_o)
+                    if are_equal is True:
                         remove_fs.append(el.fem_sec)
                     el.fem_sec = fs_o
                     fs_o.elset.add_members([el])
-
-        self.remove(remove_fs)
+        rest_list = list(set(remove_fs))
+        self.remove(rest_list)
 
     def _map_materials(self, fem_sec: FemSection, mat_repo: Materials):
         if type(fem_sec.material) is str:
@@ -471,7 +481,7 @@ class FemSections:
         return FemSections(result) if isinstance(index, slice) else result
 
     def __add__(self, other: FemSections):
-        return FemSections(chain(self.sections, other.sections))
+        return FemSections(chain(self.sections, other.sections), fem_obj=self._fem_obj)
 
     def __repr__(self):
         return f"FemSections(Beams: {len(self.lines)}, Shells: {len(self.shells)}, Solids: {len(self.solids)})"
@@ -553,9 +563,8 @@ class FemSections:
 
 
 class FemSets:
-    def __init__(self, sets: List[FemSet] = None, fem_obj=None):
-        """:type fem_obj: ada.FEM"""
-        self._fem_obj = fem_obj
+    def __init__(self, sets: List[FemSet] = None, parent: "FEM" = None):
+        self._fem_obj = parent
         self._sets = sorted(sets, key=attrgetter("type", "name")) if sets is not None else []
         # Merge same name sets
         self._nomap = self._assemble_sets(self.is_nset) if len(self._sets) > 0 else dict()
@@ -574,8 +583,7 @@ class FemSets:
             [_map_ref(m, _set) for m in _set.members]
 
     @property
-    def parent(self):
-        """:rtype: ada.FEM"""
+    def parent(self) -> "FEM":
         return self._fem_obj
 
     @parent.setter
@@ -591,7 +599,7 @@ class FemSets:
         return True if fs.type == SetTypes.ELSET else False
 
     def _instantiate_all_members(self, fem_set: FemSet):
-        from ada.fem import Mass, Spring
+        from ada.fem import Connector, Mass, Spring
 
         def get_nset(nref):
             if type(nref) is Node:
@@ -607,7 +615,7 @@ class FemSets:
                     raise ValueError("Element might be doubly defined")
                 else:
                     return elref
-            elif type(elref) in (Spring, Mass):
+            elif type(elref) in (Spring, Mass, Connector):
                 return elref
             else:
                 raise ValueError(f"Elref type '{type(elref)}' is not recognized")
@@ -664,31 +672,35 @@ class FemSets:
 
     def __getitem__(self, index):
         result = self._sets[index]
-        return FemSets(result, fem_obj=self._fem_obj) if isinstance(index, slice) else result
+        return FemSets(result, parent=self._fem_obj) if isinstance(index, slice) else result
 
     def __add__(self, other: FemSets):
         # TODO: make default choice for similar named sets in a global settings class
         for name, _set in other.nodes.items():
+            _set.parent = self.parent
             if name in self._nomap.keys():
                 raise ValueError("Duplicate node set name. Consider suppressing this error?")
             self.add(_set)
         for name, _set in other.elements.items():
+            _set.parent = self.parent
             if name in self._elmap.keys():
                 raise ValueError("Duplicate element set name. Consider suppressing this error?")
             self.add(_set)
         return self
 
-    def get_elset_from_name(self, name) -> FemSet:
-        if name not in self._elmap.keys():
-            raise ValueError(f'The elem id "{name}" is not found')
-        else:
-            return self._elmap[name]
+    def get_elset_from_name(self, name: str) -> FemSet:
+        result = self._elmap.get(name, None)
+        if result is None:
+            raise ValueError(f'The element set "{name}" is not found')
 
-    def get_nset_from_name(self, name) -> FemSet:
-        if name not in self._nomap.keys():
-            raise ValueError(f'The node id "{name}" is not found')
-        else:
-            return self._nomap[name]
+        return result
+
+    def get_nset_from_name(self, name: str) -> FemSet:
+        result = self._nomap.get(name, None)
+        if result is None:
+            raise ValueError(f'The nodal set "{name}" is not found')
+
+        return result
 
     @property
     def elements(self):

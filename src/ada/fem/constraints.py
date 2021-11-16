@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
 from .common import Csys, FemBase
 from .sets import FemSet
-from .surfaces import Surface
+
+if TYPE_CHECKING:
+    from .surfaces import Surface
 
 
 class BcTypes:
     DISPL = "displacement"
     VELOCITY = "velocity"
-    CONN_DISPL = "connector displacement"
-    CONN_VEL = "connector velocity"
+    CONN_DISPL = "connector_displacement"
+    CONN_VEL = "connector_velocity"
     ENCASTRE = "symmetry/antisymmetry/encastre"
     DISPL_ROT = "displacement/rotation"
     VELOCITY_ANGULAR = "velocity/angular velocity"
@@ -101,7 +103,7 @@ class Constraint(FemBase):
         name,
         con_type,
         m_set: FemSet,
-        s_set: Union[FemSet, Surface],
+        s_set: Union[FemSet, "Surface"],
         dofs=None,
         pos_tol=None,
         mpc_type=None,

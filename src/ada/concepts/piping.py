@@ -7,15 +7,8 @@ import numpy as np
 
 from ada.base.physical_objects import BackendGeom
 from ada.config import Settings as _Settings
-from ada.core.utils import (
-    Counter,
-    angle_between,
-    calc_zvec,
-    roundoff,
-    unit_vector,
-    vector_length,
-)
-from ada.ifc.utils import create_guid
+from ada.core.utils import Counter, roundoff
+from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_length
 from ada.materials.utils import get_material
 from ada.sections.utils import get_section
 
@@ -206,91 +199,11 @@ class Pipe(BackendGeom):
             self._build_pipe()
             self._units = value
 
-    def _generate_ifc_pipe(self):
-        from ada.core.constants import X, Z
-        from ada.ifc.utils import create_local_placement, create_property_set
-
-        if self.parent is None:
-            raise ValueError("Cannot build ifc element without parent")
-
-        a = self.get_assembly()
-        f = a.ifc_file
-
-        owner_history = a.user.to_ifc()
-        parent = self.parent.get_ifc_elem()
-
-        placement = create_local_placement(
-            f,
-            origin=self.n1.p.astype(float).tolist(),
-            loc_x=X,
-            loc_z=Z,
-            relative_to=parent.ObjectPlacement,
-        )
-
-        ifc_elem = f.createIfcSpace(
-            self.guid,
-            owner_history,
-            self.name,
-            "Description",
-            None,
-            placement,
-            None,
-            None,
-            None,
-        )
-
-        f.createIfcRelAggregates(
-            create_guid(),
-            owner_history,
-            "Site Container",
-            None,
-            parent,
-            [ifc_elem],
-        )
-        if len(self.metadata.keys()) > 0:
-            props = create_property_set("Properties", f, self.metadata)
-            f.createIfcRelDefinesByProperties(
-                create_guid(),
-                owner_history,
-                "Properties",
-                None,
-                [ifc_elem],
-                props,
-            )
-
-        return ifc_elem
-
     def get_ifc_elem(self):
         if self._ifc_elem is None:
-            self._ifc_elem = self._generate_ifc_pipe()
+            from ada.ifc.write.write_pipe import write_ifc_pipe
 
-            a = self.get_assembly()
-            f = a.ifc_file
-
-            owner_history = a.user.to_ifc()
-
-            segments = []
-            for param_seg in self._segments:
-                if type(param_seg) is PipeSegStraight:
-                    assert isinstance(param_seg, PipeSegStraight)
-                    res = param_seg.get_ifc_elem()
-                else:
-                    assert isinstance(param_seg, PipeSegElbow)
-                    res = param_seg.get_ifc_elem()
-                if res is None:
-                    logging.error(f'Branch "{param_seg.name}" was not converted to ifc element')
-                f.add(res)
-                segments += [res]
-
-            f.createIfcRelContainedInSpatialStructure(
-                create_guid(),
-                owner_history,
-                "Pipe Segments",
-                None,
-                segments,
-                self._ifc_elem,
-            )
-
+            self._ifc_elem = write_ifc_pipe(self)
         return self._ifc_elem
 
     def __repr__(self):
@@ -347,77 +260,12 @@ class PipeSegStraight(BackendGeom):
         return sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, ElemType.SOLID)
 
     def _generate_ifc_elem(self):
-        from ada.core.constants import O, X, Z
-        from ada.ifc.utils import (  # create_ifcrevolveareasolid,
-            create_ifc_placement,
-            create_ifcpolyline,
-            to_real,
-        )
+        from ada.ifc.write.write_pipe import write_pipe_straight_seg
 
-        if self.parent is None:
-            raise ValueError("Parent cannot be None for IFC export")
+        return write_pipe_straight_seg(self)
 
-        a = self.parent.get_assembly()
-        f = a.ifc_file
-
-        context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = a.user.to_ifc()
-
-        p1 = self.p1
-        p2 = self.p2
-
-        ifcdir = f.createIfcDirection((0.0, 0.0, 1.0))
-
-        rp1 = to_real(p1.p)
-        rp2 = to_real(p2.p)
-        xvec = unit_vector(p2.p - p1.p)
-        a = angle_between(xvec, np.array([0, 0, 1]))
-        zvec = np.array([0, 0, 1]) if a != np.pi and a != 0 else np.array([1, 0, 0])
-        yvec = unit_vector(np.cross(zvec, xvec))
-        seg_l = vector_length(p2.p - p1.p)
-
-        extrusion_placement = create_ifc_placement(f, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
-
-        solid = f.createIfcExtrudedAreaSolid(self.section.ifc_profile, extrusion_placement, ifcdir, seg_l)
-
-        polyline = create_ifcpolyline(f, [rp1, rp2])
-
-        axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve3D", [polyline])
-        body_representation = f.createIfcShapeRepresentation(context, "Body", "SweptSolid", [solid])
-
-        product_shape = f.createIfcProductDefinitionShape(None, None, [axis_representation, body_representation])
-
-        origin = f.createIfcCartesianPoint(O)
-        local_z = f.createIfcDirection(Z)
-        local_x = f.createIfcDirection(X)
-        d237 = f.createIfcLocalPlacement(None, f.createIfcAxis2Placement3D(origin, local_z, local_x))
-
-        d256 = f.createIfcCartesianPoint(rp1)
-        d257 = f.createIfcDirection(to_real(xvec))
-        d258 = f.createIfcDirection(to_real(yvec))
-        d236 = f.createIfcAxis2Placement3D(d256, d257, d258)
-        local_placement = f.createIfcLocalPlacement(d237, d236)
-
-        pipe_segment = f.createIfcPipeSegment(
-            create_guid(),
-            owner_history,
-            self.name,
-            "An awesome pipe",
-            None,
-            local_placement,
-            product_shape,
-            None,
-        )
-
-        ifc_mat = self.material.ifc_mat
-        mat_profile = f.createIfcMaterialProfile(
-            self.material.name, None, ifc_mat, self.section.ifc_profile, None, None
-        )
-        mat_profile_set = f.createIfcMaterialProfileSet(None, None, [mat_profile], None)
-        mat_profile_set = f.createIfcMaterialProfileSetUsage(mat_profile_set, 8, None)
-        f.createIfcRelAssociatesMaterial(create_guid(), None, None, None, [pipe_segment], mat_profile_set)
-
-        return pipe_segment
+    def __repr__(self):
+        return f"PipeSegStraight({self.name}, p1={self.p1}, p2={self.p2})"
 
 
 class PipeSegElbow(BackendGeom):
@@ -509,89 +357,10 @@ class PipeSegElbow(BackendGeom):
     def arc_seg(self) -> ArcSegment:
         return self._arc_seg
 
-    def _elbow_tesselated(self, f, schema, a):
-        from ada.ifc.utils import get_tolerance, tesselate_shape
-
-        shape = self.solid
-
-        if shape is None:
-            logging.error(f"Unable to create geometry for Branch {self.name}")
-            return None
-
-        serialized_geom = tesselate_shape(shape, schema, get_tolerance(a.units))
-        ifc_shape = f.add(serialized_geom)
-
-        return ifc_shape
-
-    def _elbow_revolved_solid(self, f, context):
-        from ada.core.constants import O, X, Z
-        from ada.core.curve_utils import get_center_from_3_points_and_radius
-        from ada.core.utils import normal_to_points_in_plane
-        from ada.ifc.utils import create_ifc_placement
-
-        center, _, _, _ = get_center_from_3_points_and_radius(self.p1.p, self.p2.p, self.p3.p, self.bend_radius)
-
-        opening_axis_placement = create_ifc_placement(f, O, Z, X)
-
-        profile = self.section.ifc_profile
-        normal = normal_to_points_in_plane([self.arc_seg.p1, self.arc_seg.p2, self.arc_seg.midpoint])
-        revolve_axis = self.arc_seg.center + normal
-        revolve_angle = 10
-
-        ifcorigin = f.createIfcCartesianPoint(self.arc_seg.p1.astype(float).tolist())
-        ifcaxis1dir = f.createIfcAxis1Placement(ifcorigin, f.createIfcDirection(revolve_axis.astype(float).tolist()))
-
-        ifc_shape = f.createIfcRevolvedAreaSolid(profile, opening_axis_placement, ifcaxis1dir, revolve_angle)
-
-        curve = f.createIfcTrimmedCurve()
-
-        body = f.createIfcShapeRepresentation(context, "Body", "SweptSolid", [ifc_shape])
-        axis = f.createIfcShapeRepresentation(context, "Axis", "Curve3D", [curve])
-        prod_def_shp = f.createIfcProductDefinitionShape(None, None, (axis, body))
-
-        return prod_def_shp
-
     def _generate_ifc_elem(self):
-        from ada.ifc.utils import create_local_placement
+        from ada.ifc.write.write_pipe import write_pipe_elbow_seg
 
-        if self.parent is None:
-            raise ValueError("Parent cannot be None for IFC export")
+        return write_pipe_elbow_seg(self)
 
-        a = self.parent.get_assembly()
-        f = a.ifc_file
-
-        context = f.by_type("IfcGeometricRepresentationContext")[0]
-        owner_history = a.user.to_ifc()
-        schema = a.ifc_file.wrapped_data.schema
-
-        if _Settings.make_param_elbows is False:
-            ifc_elbow = self._elbow_tesselated(f, schema, a)
-            # Link to representation context
-            for rep in ifc_elbow.Representations:
-                rep.ContextOfItems = context
-        else:
-            ifc_elbow = self._elbow_revolved_solid(f, context)
-
-        pfitting_placement = create_local_placement(f)
-
-        pfitting = f.createIfcPipeFitting(
-            create_guid(),
-            owner_history,
-            self.name,
-            "An awesome Elbow",
-            None,
-            pfitting_placement,
-            ifc_elbow,
-            None,
-            None,
-        )
-
-        ifc_mat = self.material.ifc_mat
-        mat_profile = f.createIfcMaterialProfile(
-            self.material.name, None, ifc_mat, self.section.ifc_profile, None, None
-        )
-        mat_profile_set = f.createIfcMaterialProfileSet(None, None, [mat_profile], None)
-        mat_profile_set = f.createIfcMaterialProfileSetUsage(mat_profile_set, 8, None)
-        f.createIfcRelAssociatesMaterial(create_guid(), None, None, None, [pfitting], mat_profile_set)
-
-        return pfitting
+    def __repr__(self):
+        return f"PipeSegElbow({self.name}, r={self.bend_radius}, p1={self.p1}, p2={self.p2}, p3={self.p3})"

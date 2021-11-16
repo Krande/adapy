@@ -3,46 +3,92 @@ import pathlib
 
 import pytest
 
-from ada import Assembly, Beam, Material, Part
-from ada.fem import Bc, FemSet, StepEigen
+import ada
 from ada.fem.exceptions.element_support import IncompatibleElements
-from ada.fem.meshing.concepts import GmshOptions, GmshSession
-from ada.fem.utils import get_beam_end_nodes
+from ada.fem.formats import FEATypes as FEA
+from ada.fem.formats.utils import default_fem_res_path
+from ada.fem.meshing.concepts import GmshOptions
+from ada.fem.results import Results
 from ada.materials.metals import CarbonSteel
 
+test_dir = ada.config.Settings.scratch_dir / "eigen_fem"
+EL_TYPES = ada.fem.Elem.EL_TYPES
 
+
+def beam() -> ada.Beam:
+    return ada.Beam("MyBeam", (0, 0.5, 0.5), (3, 0.5, 0.5), "IPE400", ada.Material("S420", CarbonSteel("S420")))
+
+
+@pytest.fixture
+def beam_fixture() -> ada.Beam:
+    return beam()
+
+
+@pytest.mark.parametrize("use_hex_quad", [True, False])
 @pytest.mark.parametrize("fem_format", ["code_aster", "calculix"])
 @pytest.mark.parametrize("geom_repr", ["line", "shell", "solid"])
 @pytest.mark.parametrize("elem_order", [1, 2])
-def test_fem_eig(fem_format, geom_repr, elem_order):
-    name = f"cantilever_EIG_{fem_format}_{geom_repr}_o{elem_order}"
+def test_fem_eig(
+    beam_fixture,
+    fem_format,
+    geom_repr,
+    elem_order,
+    use_hex_quad,
+    overwrite=True,
+    execute=True,
+    eigen_modes=11,
+    name=None,
+):
+    geom_repr = geom_repr.upper()
+    if name is None:
+        name = f"cantilever_EIG_{fem_format}_{geom_repr}_o{elem_order}_hq{use_hex_quad}"
 
-    beam = Beam("MyBeam", (0, 0.5, 0.5), (3, 0.5, 0.5), "IPE400", Material("S420", CarbonSteel("S420")))
-    a = Assembly("MyAssembly") / [Part("MyPart") / beam]
+    p = ada.Part("MyPart")
+    a = ada.Assembly("MyAssembly") / [p / beam_fixture]
 
-    with GmshSession(silent=True, options=GmshOptions(Mesh_ElementOrder=elem_order)) as gs:
-        gs.add_obj(beam, geom_repr=geom_repr)
-        gs.mesh(0.05)
-        a.get_part("MyPart").fem = gs.get_fem()
+    if geom_repr == "LINE" and use_hex_quad is True:
+        return None
 
-    fix_set = a.get_part("MyPart").fem.add_set(FemSet("bc_nodes", get_beam_end_nodes(beam), FemSet.TYPES.NSET))
-    a.fem.add_bc(Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
-    a.fem.add_step(StepEigen("Eigen", num_eigen_modes=11))
+    props = dict(use_hex=use_hex_quad) if geom_repr == "SOLID" else dict(use_quads=use_hex_quad)
+
+    a.fem.add_step(ada.fem.StepEigen("Eigen", num_eigen_modes=eigen_modes))
+
+    if overwrite is False:
+        if fem_format == FEA.CALCULIX and geom_repr == EL_TYPES.LINE:
+            return None
+        elif fem_format == FEA.CODE_ASTER and geom_repr == EL_TYPES.LINE and elem_order == 2:
+            return None
+        elif fem_format == FEA.SESAM and geom_repr == EL_TYPES.SOLID:
+            return None
+        else:
+            res_path = default_fem_res_path(name, scratch_dir=test_dir, fem_format=fem_format)
+            return Results(res_path, name, fem_format, a, import_mesh=False)
+    else:
+        p.fem = beam_fixture.to_fem_obj(0.05, geom_repr, options=GmshOptions(Mesh_ElementOrder=elem_order), **props)
+        fix_set = p.fem.add_set(
+            ada.fem.FemSet("bc_nodes", beam_fixture.bbox.sides.back(return_fem_nodes=True, fem=p.fem))
+        )
+        a.fem.add_bc(ada.fem.Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
 
     try:
-        res = a.to_fem(name, fem_format, overwrite=True, execute=True)
+        res = a.to_fem(name, fem_format, overwrite=overwrite, execute=execute, scratch_dir=test_dir)
     except IncompatibleElements as e:
-        if fem_format == "calculix" and geom_repr == "line":
+        if fem_format == FEA.CALCULIX and geom_repr == EL_TYPES.LINE:
             logging.error(e)
             return None
-        elif fem_format == "code_aster" and geom_repr == "line" and elem_order == 2:
+        elif fem_format == FEA.CODE_ASTER and geom_repr == EL_TYPES.LINE and elem_order == 2:
+            logging.error(e)
+            return None
+        elif fem_format == FEA.SESAM and geom_repr == EL_TYPES.SOLID:
             logging.error(e)
             return None
         raise e
 
+    if res.output is not None:
+        with open(test_dir / name / "run.log", "w") as f:
+            f.write(res.output.stdout)
+
     if pathlib.Path(res.results_file_path).exists() is False:
         raise FileNotFoundError(f'FEM analysis was not successful. Result file "{res.results_file_path}" not found.')
 
-
-if __name__ == "__main__":
-    test_fem_eig("code_aster", "shell", 1)
+    return res

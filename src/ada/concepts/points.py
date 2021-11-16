@@ -1,20 +1,22 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Iterable, List, Union
+
 import numpy as np
+
+if TYPE_CHECKING:
+    from ada import Beam
+    from ada.fem import Bc, Csys, Elem
+
+numeric = Union[int, float, np.number]
 
 
 class Node:
-    """
-    Base node object
+    """Base node object"""
 
-    :param p: Array of [x, y, z] coords
-    :param nid: Node id
-    :param bc: Boundary condition
-    :param r: Radius
-    :param parent: Parent object
-    """
-
-    def __init__(self, p, nid=None, bc=None, r=None, parent=None, units="m", refs=None):
+    def __init__(
+        self, p: Iterable[numeric, numeric, numeric], nid=None, bc=None, r=None, parent=None, units="m", refs=None
+    ):
         self._id = nid
         self.p = np.array([*p], dtype=np.float64) if type(p) != np.ndarray else p
         if len(self.p) != 3:
@@ -46,8 +48,7 @@ class Node:
         return self.p[2]
 
     @property
-    def bc(self):
-        """:rtype: ada.fem.Bc"""
+    def bc(self) -> "Bc":
         return self._bc
 
     @bc.setter
@@ -55,7 +56,7 @@ class Node:
         self._bc = value
 
     @property
-    def r(self):
+    def r(self) -> float:
         return self._r
 
     @property
@@ -82,8 +83,7 @@ class Node:
         self._parent = value
 
     @property
-    def refs(self):
-        """:rtype: list[ada.fem.Elem | ada.Beam]"""
+    def refs(self) -> List[Union["Elem", "Beam", "Csys"]]:
         return self._refs
 
     def __getitem__(self, index):

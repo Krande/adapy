@@ -1,1 +1,2 @@
 include src/ada/sections/resources/ProfileDB.json
+include src/ada/materials/metals/resources/NLMatParams.json

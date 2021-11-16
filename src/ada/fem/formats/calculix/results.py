@@ -1,7 +1,7 @@
 import logging
 import os
 import pathlib
-from typing import List, Union
+from typing import TYPE_CHECKING, List, Union
 
 import meshio
 from ccx2paraview import Converter
@@ -10,7 +10,9 @@ from ada.core.utils import get_list_of_files
 from ada.fem import StepEigen
 from ada.fem.concepts.eigenvalue import EigenDataSummary, EigenMode
 from ada.fem.formats.utils import DatFormatReader
-from ada.fem.results import Results
+
+if TYPE_CHECKING:
+    from ada.fem.results import Results
 
 
 def get_eigen_data(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
@@ -46,7 +48,7 @@ def get_eigen_data(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
     return EigenDataSummary(eigen_modes, tot_eff_mass)
 
 
-def read_calculix_results(results: Results, file_ref: pathlib.Path, overwrite):
+def read_calculix_results(results: "Results", file_ref: pathlib.Path, overwrite):
     result_files = get_list_of_files(file_ref.parent, ".vtu")
     if len(result_files) == 0 or overwrite is True:
         convert = Converter(str(file_ref), ["vtu"])

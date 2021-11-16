@@ -1,5 +1,6 @@
+from __future__ import annotations
+
 from ada.base.non_phyical_objects import Backend
-from ada.ifc.utils import create_guid
 
 from .metals import CarbonSteel
 
@@ -15,28 +16,23 @@ class Material(Backend):
         parent=None,
         metadata=None,
         units="m",
-        ifc_mat=None,
         guid=None,
     ):
         super(Material, self).__init__(name, guid, metadata, units)
         self._mat_model = mat_model
         mat_model.parent = self
         self._mat_id = mat_id
-        self._parent = parent
-        if ifc_mat is not None:
-            props = self._import_from_ifc_mat(ifc_mat)
-            self.__dict__.update(props)
         self._ifc_mat = None
+        self._parent = parent
         self._refs = []
 
-    def __eq__(self, other):
+    def __eq__(self, other: Material):
         """
         Assuming uniqueness of Material Name and parent
 
         TODO: Make this check for same Material Model parameters
 
         :param other:
-        :type other: Material
         :return:
         """
         # other_parent = other.__dict__['_parent']
@@ -54,105 +50,16 @@ class Material(Backend):
 
         return True
 
+    def equal_props(self, other: Material):
+        self.model.__eq__()
+
     def __hash__(self):
         return hash(self.guid)
 
     def _generate_ifc_mat(self):
+        from ada.ifc.write.write_material import write_ifc_mat
 
-        if self.parent is None:
-            raise ValueError("Parent cannot be None")
-
-        a = self.parent.get_assembly()
-        f = a.ifc_file
-
-        owner_history = a.user.to_ifc()
-
-        ifc_mat = f.createIfcMaterial(self.name, None, "Steel")
-        properties = []
-        if type(self) is CarbonSteel:
-            strength_grade = f.create_entity("IfcText", self.model.grade)
-            properties.append(strength_grade)
-        mass_density = f.create_entity("IfcMassDensityMeasure", float(self.model.rho))
-        if self.model.sig_y is not None:
-            yield_stress = f.create_entity("IfcPressureMeasure", float(self.model.sig_y))
-            properties += [
-                f.create_entity(
-                    "IfcPropertySingleValue",
-                    Name="YieldStress",
-                    NominalValue=yield_stress,
-                )
-            ]
-        young_modulus = f.create_entity("IfcModulusOfElasticityMeasure", float(self.model.E))
-        poisson_ratio = f.create_entity("IfcPositiveRatioMeasure", float(self.model.v))
-        therm_exp_coeff = f.create_entity("IfcThermalExpansionCoefficientMeasure", float(self.model.alpha))
-        specific_heat = f.create_entity("IfcSpecificHeatCapacityMeasure", float(self.model.zeta))
-        properties += [
-            f.create_entity(
-                "IfcPropertySingleValue",
-                Name="YoungModulus",
-                NominalValue=young_modulus,
-            ),
-            f.create_entity(
-                "IfcPropertySingleValue",
-                Name="PoissonRatio",
-                NominalValue=poisson_ratio,
-            ),
-            f.create_entity(
-                "IfcPropertySingleValue",
-                Name="ThermalExpansionCoefficient",
-                NominalValue=therm_exp_coeff,
-            ),
-            f.create_entity(
-                "IfcPropertySingleValue",
-                Name="SpecificHeatCapacity",
-                NominalValue=specific_heat,
-            ),
-            f.create_entity("IfcPropertySingleValue", Name="MassDensity", NominalValue=mass_density),
-        ]
-
-        atts = {
-            "GlobalId": create_guid(),
-            "OwnerHistory": owner_history,
-            "Name": self.name,
-            "HasProperties": properties,
-        }
-
-        f.create_entity("IfcPropertySet", **atts)
-
-        f.create_entity(
-            "IfcMaterialProperties",
-            **{
-                "Name": "MaterialMechanical",
-                "Description": "A Material property description",
-                "Properties": properties,
-                "Material": ifc_mat,
-            },
-        )
-        return ifc_mat
-
-    def _import_from_ifc_mat(self, ifc_mat):
-        from ada.materials.metals import CarbonSteel, Metal
-
-        mat_psets = ifc_mat.HasProperties
-        scale_pascal = 1 if self.units == "mm" else 1e6
-        scale_volume = 1 if self.units == "m" else 1e-9
-        props = {entity.Name: entity.NominalValue[0] for entity in mat_psets[0].Properties}
-
-        mat_props = dict(
-            E=props.get("YoungModulus", 210000 * scale_pascal),
-            sig_y=props.get("YieldStress", 355 * scale_pascal),
-            rho=props.get("MassDensity", 7850 * scale_volume),
-            v=props.get("PoissonRatio", 0.3),
-            alpha=props.get("ThermalExpansionCoefficient", 1.2e-5),
-            zeta=props.get("SpecificHeatCapacity", 1.15),
-        )
-
-        if "StrengthGrade" in props:
-            mat_model = CarbonSteel(grade=props["StrengthGrade"], **mat_props)
-        else:
-            mat_model = Metal(sig_u=None, eps_p=None, sig_p=None, plasticitymodel=None, **mat_props)
-
-        return dict(_name=ifc_mat.Name, _mat_model=mat_model)
+        return write_ifc_mat(self)
 
     @property
     def id(self):
@@ -174,7 +81,7 @@ class Material(Backend):
         self._name = value.strip()
 
     @property
-    def model(self):
+    def model(self) -> CarbonSteel:
         return self._mat_model
 
     @model.setter

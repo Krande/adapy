@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from .solver import SolverOptionsAbaqus
+from .elem_formulations import AbaqusDefaultElemTypes
 
 
 @dataclass
@@ -10,5 +10,5 @@ class AbaqusInpFormat:
 
 @dataclass
 class AbaqusOptions:
-    solver: SolverOptionsAbaqus = SolverOptionsAbaqus()
+    default_elements = AbaqusDefaultElemTypes()
     inp_format: AbaqusInpFormat = AbaqusInpFormat()

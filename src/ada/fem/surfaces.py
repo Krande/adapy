@@ -1,11 +1,14 @@
 from dataclasses import dataclass
-from typing import List, Union
+from typing import TYPE_CHECKING, List, Union
 
 from ada.concepts.points import Node
 
 from .common import FemBase
 from .elements import Elem
 from .sets import FemSet
+
+if TYPE_CHECKING:
+    from ada import FEM
 
 
 class SurfTypes:
@@ -49,10 +52,9 @@ class Surface(FemBase):
         weight_factor=None,
         el_face_index: Union[int, List[int]] = None,
         id_refs=None,
-        parent=None,
+        parent: "FEM" = None,
         metadata=None,
     ):
-        """:type parent: ada.FEM"""
         super().__init__(name, metadata, parent)
 
         self._type = surf_type.upper()
@@ -90,21 +92,37 @@ class Surface(FemBase):
         return self._id_refs
 
 
-def create_surface_from_nodes(surface_name: str, nodes: List[Node], fem):
-    """:type fem: ada.FEM"""
+def create_surface_from_nodes(surface_name: str, nodes: List[Node], fem: "FEM", shell_positive=True) -> Surface:
+    from ada.fem.elements import find_element_type_from_list
+    from ada.fem.shapes import ElemType
+
+    all_el = [el for n in nodes for el in filter(lambda x: type(x) is Elem, n.refs)]
+    el_type = find_element_type_from_list(all_el)
+
+    surf_map = {
+        ElemType.SOLID: get_surface_from_nodes_on_solid_elements,
+        ElemType.SHELL: get_surface_from_nodes_on_shell_elements,
+    }
+    surf_writer = surf_map.get(el_type, None)
+    if surf_writer is None:
+        raise NotImplementedError(f'Currently Surface writing on element type "{el_type}" is not supported')
+
+    return surf_writer(surface_name, all_el, nodes, fem, shell_positive)
+
+
+def get_surface_from_nodes_on_solid_elements(
+    surface_name: str, all_el: List[Elem], nodes: List[Node], fem: "FEM", shell_positive: bool
+) -> Surface:
     elements = []
     face_seq_indices = {}
-    for n in nodes:
-        for el in n.refs:
-            if el.id == 4341:
-                print("sd")
-            paralell_face_index = elem_has_parallel_face(el, nodes)
-            if paralell_face_index is None:
-                continue
+    for el in all_el:
+        paralell_face_index = elem_has_parallel_face(el, nodes)
+        if paralell_face_index is None:
+            continue
 
-            if el not in elements:
-                face_seq_indices[el] = paralell_face_index
-                elements.append(el)
+        if el not in elements:
+            face_seq_indices[el] = paralell_face_index
+            elements.append(el)
 
     fsets = []
     fset_el_face_indices = []
@@ -120,6 +138,21 @@ def create_surface_from_nodes(surface_name: str, nodes: List[Node], fem):
         fset_el_face_indices.append(el_face_index)
 
     return Surface(surface_name, Surface.TYPES.ELEMENT, fsets, el_face_index=fset_el_face_indices)
+
+
+def get_surface_from_nodes_on_shell_elements(
+    surface_name: str, all_el: List[Elem], nodes: List[Node], fem: "FEM", shell_positive: bool
+) -> Surface:
+    elements = []
+    for el in all_el:
+        if elem_has_parallel_face(el, nodes) is None:
+            continue
+        elements.append(el)
+
+    side_name = 1 if shell_positive is True else -1
+    fs = fem.add_set(FemSet(f"_{surface_name}_{side_name}", elements))
+
+    return Surface(surface_name, Surface.TYPES.ELEMENT, fs, el_face_index=side_name)
 
 
 def elem_has_parallel_face(el: Elem, nodes: List[Node]):

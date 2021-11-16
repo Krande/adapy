@@ -1,10 +1,16 @@
 import os
 import pathlib
+from typing import TYPE_CHECKING, List
 
 from ada.concepts.transforms import Placement
 from ada.core.constants import color_map as _cmap
 
 from .non_phyical_objects import Backend
+
+if TYPE_CHECKING:
+    from ada import FEM, Penetration
+    from ada.fem import Elem
+    from ada.fem.meshing import GmshOptions
 
 
 class BackendGeom(Backend):
@@ -40,17 +46,15 @@ class BackendGeom(Backend):
 
         return pen
 
-    def to_fem_obj(self, mesh_size, geom_repr, options=None, silent=True):
-        """
-        :type options: ada.fem.meshing.GmshOptions
-        :rtype: ada.FEM
-        """
+    def to_fem_obj(
+        self, mesh_size, geom_repr, options: "GmshOptions" = None, silent=True, use_quads=False, use_hex=False
+    ) -> "FEM":
         from ada.fem.meshing import GmshOptions, GmshSession
 
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
         with GmshSession(silent=silent, options=options) as gs:
-            gs.add_obj(self, geom_repr=geom_repr)
-            gs.mesh(mesh_size)
+            gs.add_obj(self, geom_repr=geom_repr.upper())
+            gs.mesh(mesh_size, use_quads=use_quads, use_hex=use_hex)
             return gs.get_fem()
 
     def to_stp(self, destination_file, geom_repr=None, schema="AP242", silent=False, fuse_piping=False):
@@ -92,9 +96,7 @@ class BackendGeom(Backend):
             start_server(addr, server_port, str(_path.parent), open_webbrowser)
 
     def get_render_snippet(self, view_size=None):
-        """
-        Return the html snippet containing threejs renderer
-        """
+        """Return the html snippet containing threejs renderer"""
         from ipywidgets.embed import embed_snippet
 
         from ada.visualize.renderer_pythreejs import MyRenderer
@@ -136,13 +138,11 @@ class BackendGeom(Backend):
         return colour_formatted
 
     @property
-    def penetrations(self):
-        """:rtype: List[ada.Penetration]"""
+    def penetrations(self) -> List["Penetration"]:
         return self._penetrations
 
     @property
-    def elem_refs(self):
-        """:rtype: typing.List[ada.fem.Elem]"""
+    def elem_refs(self) -> List["Elem"]:
         return self._elem_refs
 
     @elem_refs.setter

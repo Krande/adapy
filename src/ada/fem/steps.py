@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, List
+from typing import TYPE_CHECKING, Dict, List, Union
 
 from .common import FemBase
 from .constraints import Bc
-from .formulations.lines import BeamFormulations
 from .interactions import Interaction
-from .loads import Load, LoadCase
+from .loads import Load, LoadCase, LoadPressure
 from .outputs import FieldOutput, HistOutput
+
+if TYPE_CHECKING:
+    from ada import FEM
 
 
 class _StepTypes:
@@ -28,12 +29,29 @@ class _DynStepType:
     all = [QUASI_STATIC, TRANSIENT_FIDELITY]
 
 
-@dataclass
-class SolverOptions:
-    """A class for FE solver specific options. Each solver will inherit this base class."""
+class StepSolverOptions:
+    """A class for FE solver specific options"""
 
-    solver: str = None
-    beam_formulation: str = BeamFormulations.EULER_BERNOULLI
+    def __init__(self):
+        self._ABAQUS = None
+        self._CODE_ASTER = None
+        self._CALCULIX = None
+
+    @property
+    def CODE_ASTER(self):
+        return NotImplementedError()
+
+    @property
+    def CALCULIX(self):
+        return NotImplementedError()
+
+    @property
+    def ABAQUS(self):
+        if self._ABAQUS is None:
+            from .formats.abaqus.solver import AbaqusStepOptions
+
+            self._ABAQUS = AbaqusStepOptions()
+        return self._ABAQUS
 
 
 class Step(FemBase):
@@ -53,10 +71,10 @@ class Step(FemBase):
         step_type,
         nl_geom=False,
         total_time=None,
-        solver_options=None,
+        solver_options: StepSolverOptions = StepSolverOptions(),
         use_default_outputs=True,
         metadata=None,
-        parent=None,
+        parent: "FEM" = None,
     ):
         super().__init__(name, metadata, parent)
         if step_type not in _StepTypes.all:
@@ -83,7 +101,10 @@ class Step(FemBase):
 
         return Defaults.history_output, Defaults.field_output
 
-    def add_load(self, load: Load):
+    def add_load(self, load: Union[Load, LoadPressure]):
+        if type(load) is LoadPressure:
+            if load.surface.parent is None:
+                self.parent.add_surface(load.surface)
         self._loads.append(load)
 
     def add_loadcase(self, load_case: LoadCase):
@@ -124,11 +145,11 @@ class Step(FemBase):
         return self._nl_geom
 
     @property
-    def solver_options(self):
+    def options(self) -> StepSolverOptions:
         return self._solver_options
 
-    @solver_options.setter
-    def solver_options(self, value):
+    @options.setter
+    def options(self, value):
         self._solver_options = value
 
     @property
@@ -231,7 +252,7 @@ class StepExplicit(Step):
 
 
 class StepEigen(Step):
-    def __init__(self, name, num_eigen_modes, **kwargs):
+    def __init__(self, name, num_eigen_modes: int, **kwargs):
         super(StepEigen, self).__init__(name, Step.TYPES.EIGEN, **kwargs)
         self._num_eigen_modes = num_eigen_modes
 

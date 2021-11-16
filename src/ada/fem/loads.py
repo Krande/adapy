@@ -1,5 +1,5 @@
 import logging
-from typing import List, Union
+from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
@@ -8,6 +8,9 @@ from .constants import GRAVITY
 from .exceptions.model_definition import UnsupportedLoadType
 from .sets import FemSet
 from .surfaces import Surface
+
+if TYPE_CHECKING:
+    from ada import FEM
 
 
 class LoadTypes:
@@ -34,7 +37,6 @@ class Load(FemBase):
     :param follower_force: Should follower force be accounted for
     :param amplitude: Attach an amplitude object to the load
     :param accr_origin: Origin of a rotational Acceleration field (necessary for load_type='acc_rot').
-    :type parent: ada.FEM
     """
 
     TYPES = LoadTypes
@@ -53,7 +55,7 @@ class Load(FemBase):
         accr_rot_axis=None,
         csys: Csys = None,
         metadata=None,
-        parent=None,
+        parent: "FEM" = None,
     ):
         super().__init__(name, metadata, parent)
         self._type = load_type
@@ -119,7 +121,7 @@ class Load(FemBase):
                 logging.error("Calculating global forces without COORDS is not yet supported")
                 return None
 
-            from ada.core.utils import rotation_matrix_csys_rotate
+            from ada.core.vector_utils import rotation_matrix_csys_rotate
 
             destination_csys = [(1, 0, 0), (0, 1, 0)]
             rmat = rotation_matrix_csys_rotate(csys.coords, destination_csys)
@@ -135,7 +137,7 @@ class Load(FemBase):
         return self._magnitude
 
     @property
-    def fem_set(self):
+    def fem_set(self) -> FemSet:
         return self._fem_set
 
     @property
@@ -211,6 +213,11 @@ class LoadPressure(Load):
     @property
     def distribution(self) -> str:
         return self._distribution
+
+
+class LoadGravity(Load):
+    def __init__(self, name):
+        super(LoadGravity, self).__init__(name, Load.TYPES.GRAVITY, -9.81)
 
 
 class LoadCase(FemBase):

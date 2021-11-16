@@ -4,7 +4,6 @@ from typing import Union
 
 import meshio
 import numpy as np
-from meshio.abaqus._abaqus import abaqus_to_meshio_type
 
 from ada.concepts.levels import FEM, Assembly
 from ada.config import Settings as _Settings
@@ -42,6 +41,8 @@ def meshio_to_fem(assembly: Assembly, name: str, scratch_dir=None, metadata=None
 
 
 def fem_to_meshio(fem: FEM) -> Union[meshio.Mesh, None]:
+    from .common import ada_to_meshio
+
     if len(fem.nodes) == 0:
         logging.debug(f"Attempt to convert empty FEM mesh for ({fem.name}) aborted")
         return None
@@ -60,11 +61,11 @@ def fem_to_meshio(fem: FEM) -> Union[meshio.Mesh, None]:
         return [int(n.id - 1) for n in el_.nodes]
 
     cells = []
-    for group, elements in fem.elements.group_by_type():
-        if group in ElemShape.TYPES.masses + ElemShape.TYPES.springs:
+    for element_type, elements in fem.elements.group_by_type():
+        if element_type in ElemShape.TYPES.masses + ElemShape.TYPES.springs:
             logging.error("NotImplemented: Skipping Mass or Spring Elements")
             continue
-        med_el = abaqus_to_meshio_type[group]
+        med_el = ada_to_meshio[element_type]
         elements = list(elements)
         el_mapped = np.array(list(map(get_node_ids_from_element, elements)))
         el_long = np.zeros((int(fem.elements.max_el_id + 1), len(el_mapped[0])))

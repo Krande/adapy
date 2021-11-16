@@ -31,8 +31,7 @@ class Stabilize:
 
 
 @dataclass
-class SolverOptionsAbaqus:
-
+class AbaqusStepOptions:
     init_accel_calc: bool = True
     restart_int: int = None
     unsymm: bool = False
@@ -42,5 +41,5 @@ class SolverOptionsAbaqus:
     :param init_accel_calc: Calculate Initial acceleration in the beginning of the step
     :param restart_int: Restart interval
     :param unsymm: Unsymmetric Matrix storage (default=False)
-    :param stabilize: Default=None.
+    :param stabilize: Default=None. Abaqus CAE defaults to stabilize=0.0002 and allsdtol=0.05
     """

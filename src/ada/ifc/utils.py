@@ -244,11 +244,11 @@ def create_ifcindexpolyline2d(ifcfile, points2d, seg_index):
     return segindex
 
 
-def create_ifcrevolveareasolid(ifc_file, profile, ifcaxis2placement, origin, revolve_axis, revolve_angle):
+def create_ifcrevolveareasolid(f, profile, ifcaxis2placement, origin, revolve_axis, revolve_angle):
     """
     Creates an IfcExtrudedAreaSolid from a list of points, specified as Python tuples
 
-    :param ifc_file:
+    :param f:
     :param profile:
     :param ifcaxis2placement:
     :param origin:
@@ -256,19 +256,18 @@ def create_ifcrevolveareasolid(ifc_file, profile, ifcaxis2placement, origin, rev
     :param revolve_angle:
     :return:
     """
-    ifcorigin = ifc_file.createIfcCartesianPoint(origin)
-    ifcaxis1dir = ifc_file.createIfcAxis1Placement(ifcorigin, ifc_file.createIfcDirection(revolve_axis))
+    ifcorigin = f.create_entity("IfcCartesianPoint", to_real(origin))
+    ifcaxis1dir = f.create_entity(
+        "IfcAxis1Placement", ifcorigin, f.create_entity("IfcDirection", to_real(revolve_axis))
+    )
 
-    ifcextrudedareasolid = ifc_file.createIfcRevolvedAreaSolid(profile, ifcaxis2placement, ifcaxis1dir, revolve_angle)
-    return ifcextrudedareasolid
+    return f.create_entity("IfcRevolvedAreaSolid", profile, ifcaxis2placement, ifcaxis1dir, revolve_angle)
 
 
-def create_IfcFixedReferenceSweptAreaSolid(
-    ifc_file, curve, profile, ifcaxis2placement, start_param, end_param, fixed_ref
-):
+def create_IfcFixedReferenceSweptAreaSolid(f, curve, profile, ifcaxis2placement, start_param, end_param, fixed_ref):
     """
 
-    :param ifc_file:
+    :param f:
     :param profile:
     :param ifcaxis2placement:
     :param curve:
@@ -277,10 +276,9 @@ def create_IfcFixedReferenceSweptAreaSolid(
     :param fixed_ref:
     :return:
     """
-    ifcextrudedareasolid = ifc_file.createIfcFixedReferenceSweptAreaSolid(
-        profile, ifcaxis2placement, curve, start_param, end_param, fixed_ref
+    return f.create_entity(
+        "IfcFixedReferenceSweptAreaSolid", profile, ifcaxis2placement, curve, start_param, end_param, fixed_ref
     )
-    return ifcextrudedareasolid
 
 
 def create_ifcextrudedareasolid(ifc_file, profile, ifcaxis2placement, extrude_dir, extrusion):
@@ -417,185 +415,6 @@ def to_real(v):
         return v.p.astype(float).tolist()
     else:
         return v.astype(float).tolist()
-
-
-def getIfcPropertySets(ifcelem):
-    """Returns a dictionary of {pset_id:[prop_id, prop_id...]} for an IFC object"""
-    props = dict()
-    # get psets for this pid
-    for definition in ifcelem.IsDefinedBy:
-        # To support IFC2X3, we need to filter our results.
-        if definition.is_a("IfcRelDefinesByProperties"):
-            property_set = definition.RelatingPropertyDefinition
-            pset_name = property_set.Name.split(":")[0].strip()
-            props[pset_name] = dict()
-            if property_set.is_a("IfcElementQuantity"):
-                continue
-            for prop in property_set.HasProperties:
-                if prop.is_a("IfcPropertySingleValue"):
-                    props[pset_name][prop.Name] = prop.NominalValue.wrappedValue
-            # Returning first instance of RelDefines
-            # return props (Why?)
-    return props
-
-
-def get_parent(instance):
-    if instance.is_a("IfcOpeningElement"):
-        return instance.VoidsElements[0].RelatingBuildingElement
-    if instance.is_a("IfcElement"):
-        fills = instance.FillsVoids
-        if len(fills):
-            return fills[0].RelatingOpeningElement
-        containments = instance.ContainedInStructure
-        if len(containments):
-            return containments[0].RelatingStructure
-    if instance.is_a("IfcObjectDefinition"):
-        decompositions = instance.Decomposes
-        if len(decompositions):
-            return decompositions[0].RelatingObject
-
-
-def get_association(ifc_elem):
-    """
-
-    :param ifc_elem:
-    :return:
-    """
-    c = None
-    for association in ifc_elem.HasAssociations:
-        if association.is_a("IfcRelAssociatesMaterial"):
-            material = association.RelatingMaterial
-            if material.is_a("IfcMaterialProfileSet"):
-                # For now, we only deal with a single profile
-                c = material.MaterialProfiles[0]
-            if material.is_a("IfcMaterialProfileSetUsage"):
-                c = material.ForProfileSet.MaterialProfiles[0]
-            if material.is_a("IfcRelAssociatesMaterial"):
-                c = material.RelatingMaterial
-            if material.is_a("IfcMaterial"):
-                c = material
-    if c is None:
-        raise ValueError(f'IfcElem "{ifc_elem.Name}" lacks associated Material properties')
-
-    return c
-
-
-def get_name(ifc_elem):
-    """
-
-    :param ifc_elem:
-    :return:
-    """
-    props = getIfcPropertySets(ifc_elem)
-    product_name = ifc_elem.Name
-    if hasattr(props, "NAME") and product_name is None:
-        name = props["NAME"]
-    else:
-        name = product_name
-    if name is None:
-        name = next(name_gen)
-    return name
-
-
-def get_ifc_shape(ifc_elem, settings):
-    """
-
-    :param ifc_elem:
-    :param settings:
-    :return:
-    """
-    pdct_shape = ifcopenshell.geom.create_shape(settings, inst=ifc_elem)
-
-    if pdct_shape is None:
-        print(f'Unable to import geometry for ifc element "{ifc_elem}"')
-        return pdct_shape, None, None
-
-    geom = get_geom(ifc_elem, settings)
-    r, g, b, alpha = pdct_shape.styles[0]  # the shape color
-
-    colour = None if (r, g, b) == (-1, -1, -1) else (r, g, b)
-
-    return geom, colour, alpha
-
-
-def get_geom(ifc_elem, settings):
-    """
-
-    :param ifc_elem:
-    :param settings:
-    :return:
-    """
-    from ifcopenshell.geom.occ_utils import shape_tuple
-    from OCC.Core import BRepTools
-    from OCC.Core.TopoDS import TopoDS_Compound
-
-    try:
-        pdct_shape = ifcopenshell.geom.create_shape(settings, inst=ifc_elem)
-    except RuntimeError:
-        print(f'unable to parse ifc_elem "{ifc_elem}"')
-        return
-
-    if type(pdct_shape) is shape_tuple:
-        shape = pdct_shape[1]
-    else:
-        shape = pdct_shape.solid
-
-    if type(shape) is not TopoDS_Compound:
-        brep_data = pdct_shape.solid.brep_data
-        ss = BRepTools.BRepTools_ShapeSet()
-        ss.ReadFromString(brep_data)
-        nb_shapes = ss.NbShapes()
-        occ_shape = ss.Shape(nb_shapes)
-    else:
-        occ_shape = shape
-    return occ_shape
-
-
-def import_indexedpolycurve(ipoly, normal, xdir, origin):
-    """
-
-    :param ipoly: IFC element
-    :param normal:
-    :param xdir:
-    :param origin:
-    :return:
-    """
-    from ada import ArcSegment, LineSegment
-    from ada.core.curve_utils import segments_to_local_points
-    from ada.core.utils import global_2_local_nodes
-
-    ydir = np.cross(normal, xdir)
-    nodes3d = [p for p in ipoly.Points.CoordList]
-    nodes2d = global_2_local_nodes([xdir, ydir], origin, nodes3d)
-    nodes2d = [np.array([n[0], n[1], 0.0]) for n in nodes2d]
-    seg_list = []
-    for i, seg in enumerate(ipoly.Segments):
-        if seg.is_a("IfcLineIndex"):
-            v = seg.wrappedValue
-            p1 = nodes2d[v[0] - 1]
-            p2 = nodes2d[v[1] - 1]
-            seg_list.append(LineSegment(p1=p1, p2=p2))
-        elif seg.is_a("IfcArcIndex"):
-            v = seg.wrappedValue
-            p1 = nodes2d[v[0] - 1]
-            p2 = nodes2d[v[1] - 1]
-            p3 = nodes2d[v[2] - 1]
-            seg_list.append(ArcSegment(p1, p3, midpoint=p2))
-        else:
-            raise ValueError("Unrecognized type")
-
-    local_points = [(roundoff(x[0]), roundoff(x[1])) for x in segments_to_local_points(seg_list)]
-    return local_points
-
-
-def import_polycurve(poly, normal, xdir):
-    from ada.core.utils import global_2_local_nodes
-
-    ydir = np.cross(normal, xdir)
-    nodes3d = [p for p in poly.Points]
-    nodes2d = global_2_local_nodes([xdir, ydir], (0, 0, 0), nodes3d)
-
-    return nodes2d
 
 
 def add_negative_extrusion(f, origin, loc_z, loc_x, depth, points, parent):
@@ -859,20 +678,6 @@ def convert_bm_jusl_to_ifc(bm):
     return jusl_val
 
 
-def get_person(f, user_id):
-    for p in f.by_type("IfcPerson"):
-        if p.Identification == user_id:
-            return p
-    return None
-
-
-def get_org(f, org_id):
-    for p in f.by_type("IfcOrganization"):
-        if p.Identification == org_id:
-            return p
-    return None
-
-
 def scale_ifc_file(current_ifc, new_ifc):
     oval = calculate_unit_scale(current_ifc)
     nval = calculate_unit_scale(new_ifc)
@@ -882,114 +687,6 @@ def scale_ifc_file(current_ifc, new_ifc):
         # unit_assignment = f.createIfcUnitAssignment((length_unit,))
         new_file = scale_ifc_file_object(new_ifc, nval)
         return new_file
-
-
-def import_ifc_hierarchy(assembly, product):
-    from ada.concepts.levels import Part
-
-    pr_type = product.is_a()
-    pp = get_parent(product)
-    if pp is None:
-        return None, None
-    name = get_name(product)
-    if pr_type not in [
-        "IfcBuilding",
-        "IfcSpace",
-        "IfcBuildingStorey",
-        "IfcSpatialZone",
-    ]:
-        return None, None
-    props = getIfcPropertySets(product)
-    new_part = Part(name, ifc_elem=product, metadata=dict(original_name=name, props=props))
-    res = assembly.get_by_name(pp.Name)
-    return res, new_part
-
-
-def import_ifc_beam(product, name, props):
-    from ada.concepts.structural import Beam
-
-    try:
-        bm = Beam(name, ifc_elem=product)
-    except NotImplementedError as e:
-        logging.error(e)
-        return None
-    bm.metadata["props"] = props
-    return bm
-
-
-def import_ifc_plate(product, name, props):
-    from ada.concepts.structural import Plate
-
-    try:
-        pl = Plate(name, None, None, ifc_elem=product)
-    except (IndexError, ValueError, np.linalg.LinAlgError) as f:
-        logging.error(f)
-        return None
-    pl.metadata["props"] = props
-    return pl
-
-
-def import_general_shape(product, name, props):
-    from ada.concepts.primitives import Shape
-
-    shp = Shape(
-        name,
-        None,
-        guid=product.GlobalId,
-        metadata=dict(props=props),
-    )
-    return shp
-
-
-def add_to_parent(parent, obj):
-    from ada.concepts.primitives import Shape
-    from ada.concepts.structural import Beam, Plate
-
-    if type(obj) is Beam:
-        parent.add_beam(obj)
-    elif type(obj) is Plate:
-        parent.add_plate(obj)
-    elif issubclass(type(obj), Shape):
-        parent.add_shape(obj)
-    else:
-        raise NotImplementedError("")
-
-
-def add_to_assembly(assembly, obj, ifc_parent, elements2part):
-    parent_name = ifc_parent.Name if ifc_parent.Name is not None else get_name(ifc_parent)
-    imported = False
-    if elements2part is not None:
-        add_to_parent(assembly, obj)
-        imported = True
-    else:
-        all_parts = assembly.get_all_parts_in_assembly()
-        for p in all_parts:
-            if p.name == parent_name or p.metadata.get("original_name") == parent_name:
-                add_to_parent(p, obj)
-                imported = True
-                break
-
-    if imported is False:
-        logging.info(f'Unable to find parent "{parent_name}" for {type(obj)} "{obj.name}". Adding to Assembly')
-        assembly.add_shape(obj)
-
-
-def import_physical_ifc_elem(product):
-    pr_type = product.is_a()
-
-    props = getIfcPropertySets(product)
-    name = get_name(product)
-    logging.info(f"importing {name}")
-    if pr_type in ["IfcBeamStandardCase", "IfcBeam"]:
-        obj = import_ifc_beam(product, name, props)
-    elif pr_type in ["IfcPlateStandardCase", "IfcPlate"]:
-        obj = import_ifc_plate(product, name, props)
-    else:
-        if product.is_a("IfcOpeningElement") is True:
-            return None
-        obj = import_general_shape(product, name, props)
-
-    return obj
 
 
 def tesselate_shape(shape, schema, tol):
@@ -1011,10 +708,6 @@ def default_settings():
     ifc_settings.set(ifc_settings.USE_WORLD_COORDS, True)
     ifc_settings.set(ifc_settings.VALIDATE_QUANTITIES, True)
     return ifc_settings
-
-
-def open_ifc(ifc_file_path):
-    return ifcopenshell.open(str(ifc_file_path))
 
 
 def export_transform(f: ifcopenshell.file, transform: Transform):

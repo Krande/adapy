@@ -9,13 +9,18 @@ import sys
 import time
 from contextlib import contextmanager
 from itertools import chain
-from typing import Dict
+from typing import TYPE_CHECKING, Dict
 
+from send2trash import send2trash
+
+from ada import Beam, Plate
 from ada.concepts.containers import Beams, Plates
-from ada.concepts.structural import Beam, Plate
 from ada.config import Settings
 from ada.fem import Elem
 from ada.fem.exceptions import FEASolverNotInstalled
+
+if TYPE_CHECKING:
+    from ada import Assembly, Part
 
 
 class DatFormatReader:
@@ -175,15 +180,12 @@ def open_file(path_or_buf, mode="r"):
             yield f
 
 
-def get_fem_model_from_assembly(assembly):
+def get_fem_model_from_assembly(assembly: "Assembly") -> "Part":
     """
-    Scans the assembly tree for part (singular) containing FEM elements. Multiple parts with elements are not allowed
-
-    :param assembly:
-    :return: A single or multiple parts
-    :rtype: ada.Part
+    Scans the assembly tree for parts containing FEM elements. If multiple FEM objects are not empty,
+    they will be merged
     """
-    parts = list(filter(lambda p: len(p.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)))
+    parts = list(filter(lambda p: p.fem.is_empty() is False, assembly.get_all_parts_in_assembly(True)))
 
     if len(parts) > 1:
         raise ValueError(
@@ -216,10 +218,7 @@ def get_exe_path(exe_name: str):
 
 
 def str_to_int(s):
-    try:
-        return int(float(s))
-    except ValueError:
-        raise ValueError("stop a minute")
+    return int(float(s))
 
 
 def str_to_float(s):
@@ -270,13 +269,14 @@ def get_ff_regex(flag, *args):
 
 
 def _overwrite_dir(analysis_dir):
-
     print("Removing old files before copying new")
     try:
-
-        shutil.rmtree(analysis_dir)
+        if Settings.safe_deletion is True:
+            send2trash(analysis_dir)
+        else:
+            shutil.rmtree(analysis_dir)
     except WindowsError as e:
-        print("Failed to delete due to '{}'".format(e))  # Or just pass
+        print(f"Failed to delete due to '{e}'")
 
     time.sleep(0.5)
     os.makedirs(analysis_dir, exist_ok=True)
@@ -309,7 +309,7 @@ def folder_prep(scratch_dir, analysis_name, overwrite):
         if overwrite is True:
             _overwrite_dir(analysis_dir)
         else:
-            raise IOError("The analysis folder exists. Please remove folder and try again")
+            raise IOError('The analysis folder exists. Please remove folder or pass argument "overwrite=True"')
 
     os.makedirs(analysis_dir, exist_ok=True)
     return analysis_dir
@@ -395,7 +395,7 @@ def should_convert(res_path, overwrite):
 
 
 def convert_shell_elem_to_plates(elem, parent) -> [Plate]:
-    from ada.core.utils import is_coplanar
+    from ada.core.vector_utils import is_coplanar
 
     plates = []
     fem_sec = elem.fem_sec
@@ -455,7 +455,7 @@ def line_elem_to_beam(elem: Elem, parent):
             if ecc.end1 is not None and ecc.end1.node.id == n1.id:
                 e1 = ecc.end1.ecc_vector
             if ecc.end2 is not None and ecc.end2.node.id == n2.id:
-                e1 = ecc.end2.ecc_vector
+                e2 = ecc.end2.ecc_vector
 
     if elem.fem_sec.section.type == "GENBEAM":
         logging.error(f"Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section")
@@ -481,15 +481,22 @@ def convert_part_objects(p, skip_plates, skip_beams):
         p._beams = convert_part_elem_bm_to_beams(p)
 
 
-def default_fem_res_path(name, scratch_dir=None, analysis_dir=None) -> Dict[str, pathlib.Path]:
+def default_fem_res_path(name, scratch_dir=None, analysis_dir=None, fem_format=None) -> Dict[str, pathlib.Path]:
+    if scratch_dir is None and analysis_dir is None:
+        scratch_dir = Settings.scratch_dir
+
     base_path = scratch_dir / name / name if analysis_dir is None else analysis_dir / name
-    return dict(
+    fem_format_map = dict(
         code_aster=base_path.with_suffix(".rmed"),
         abaqus=base_path.with_suffix(".odb"),
         calculix=base_path.with_suffix(".frd"),
         sesam=(base_path.parent / f"{name}R1").with_suffix(".SIN"),
         usfos=base_path.with_suffix(".fem"),
     )
+    if fem_format is None:
+        return fem_format_map
+    else:
+        return fem_format_map.get(fem_format)
 
 
 def default_fem_inp_path(name, scratch_dir=None, analysis_dir=None):

@@ -218,12 +218,12 @@ class MyRenderer(JupyterRenderer):
 
         try:
             if "ifc_file" in beam.metadata.keys():
-                from ada.ifc.utils import get_ifc_shape
+                from ada.ifc.read.read_shapes import get_ifc_geometry
 
                 a = beam.parent.get_assembly()
                 ifc_f = a.get_ifc_source_by_name(beam.metadata["ifc_file"])
                 ifc_elem = ifc_f.by_guid(beam.guid)
-                geom, color, alpha = get_ifc_shape(ifc_elem, a.ifc_settings)
+                geom, color, alpha = get_ifc_geometry(ifc_elem, a.ifc_settings)
             else:
                 geom = beam.solid
             res = self.DisplayShape(geom, shape_color=beam.colour, render_edges=True)

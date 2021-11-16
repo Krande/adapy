@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from abc import ABC
 from dataclasses import dataclass
-from typing import List
+from typing import TYPE_CHECKING, List
 
 from ada.base.physical_objects import BackendGeom
 from ada.concepts.containers import Beams, Connections
-from ada.concepts.primitives import PrimBox
-from ada.concepts.structural import Beam
+
+if TYPE_CHECKING:
+    from ada import Beam
 
 
 @dataclass
@@ -76,7 +77,9 @@ class JointBase(BackendGeom, ABC):
             raise ValueError(f"Not all Pre-requisite member types {self.mem_types} are found for JointB")
 
     def _cut_intersecting_member(self, mem_base: Beam, mem_incoming: Beam):
-        p1, p2 = mem_base.bbox
+        from ada import PrimBox
+
+        p1, p2 = mem_base.bbox.minmax
         mem_incoming.add_penetration(PrimBox(f"{self.name}_neg", p1, p2))
 
     def _get_landing_member(self, members) -> Beam:

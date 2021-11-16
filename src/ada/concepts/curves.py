@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from typing import List, Union
+from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
 from .points import Node
 from .transforms import Placement
+
+if TYPE_CHECKING:
+    from ada import Beam
 
 
 class CurveRevolve:
@@ -18,21 +21,24 @@ class CurveRevolve:
         rot_axis=None,
         point_on=None,
         rot_origin=None,
+        angle=180,
         parent=None,
     ):
         self._p1 = p1
         self._p2 = p2
         self._type = curve_type
+        self._angle = angle
         self._radius = radius
         self._rot_axis = rot_axis
         self._parent = parent
         self._point_on = point_on
         self._rot_origin = rot_origin
+        self._ifc_elem = None
 
         if self._point_on is not None:
             from ada.core.constants import O, X, Y, Z
             from ada.core.curve_utils import calc_arc_radius_center_from_3points
-            from ada.core.utils import global_2_local_nodes, local_2_global_nodes
+            from ada.core.vector_utils import global_2_local_nodes, local_2_global_nodes
 
             p1, p2 = self.p1, self.p2
 
@@ -43,12 +49,26 @@ class CurveRevolve:
                 raise ValueError("Curve is not valid. Please check your input")
             res2 = local_2_global_nodes([lcenter], O, X, Z)
             center = res2[0]
+
             self._radius = radius
             self._rot_origin = center
 
-    def edit(self, parent=None):
-        if parent is not None:
-            self._parent = parent
+    def _generate_ifc_elem(self):
+        from ada.ifc.utils import create_ifcrevolveareasolid, create_local_placement
+
+        parent_beam = self.parent
+
+        a = parent_beam.get_assembly()
+        f = a.ifc_file
+        profile = parent_beam.section.ifc_profile
+
+        global_placement = create_local_placement(f)
+        return create_ifcrevolveareasolid(f, profile, global_placement, self.rot_origin, self.rot_axis, self.angle)
+
+    def get_ifc_elem(self):
+        if self._ifc_elem is None:
+            self._ifc_elem = self._generate_ifc_elem()
+        return self._ifc_elem
 
     @property
     def type(self):
@@ -61,6 +81,10 @@ class CurveRevolve:
     @property
     def p2(self):
         return self._p2
+
+    @property
+    def angle(self):
+        return self._angle
 
     @property
     def radius(self):
@@ -79,13 +103,12 @@ class CurveRevolve:
         return np.array(self._rot_origin)
 
     @property
-    def parent(self):
-        """
-
-        :return:
-        :rtype: ada.Beam
-        """
+    def parent(self) -> "Beam":
         return self._parent
+
+    @parent.setter
+    def parent(self, value):
+        self._parent = value
 
 
 class CurvePoly:
@@ -118,22 +141,25 @@ class CurvePoly:
         self._is_closed = is_closed
         self._debug = debug
 
-        from ada.core.utils import is_clockwise, normal_to_points_in_plane, unit_vector
+        from ada.core.vector_utils import (
+            is_clockwise,
+            normal_to_points_in_plane,
+            unit_vector,
+        )
 
         if points2d is None and points3d is None:
             raise ValueError("Either points2d or points3d must be set")
 
-        if points2d is None:
+        if points2d is not None:
+            self._placement = Placement(origin, xdir=xdir, zdir=normal)
+            points3d = self._from_2d_points(points2d)
+        else:
             normal = normal_to_points_in_plane([np.array(x[:3]) for x in points3d])
             p1 = np.array(points3d[0][:3]).astype(float)
             p2 = np.array(points3d[1][:3]).astype(float)
             origin = p1
             xdir = unit_vector(p2 - p1)
-
-        self._placement = Placement(origin, xdir=xdir, zdir=normal)
-        if points2d is not None:
-            points3d = self._from_2d_points(points2d)
-        else:
+            self._placement = Placement(origin, xdir=xdir, zdir=normal)
             points2d = self._from_3d_points(points3d)
 
         if is_clockwise(points2d) is False:
@@ -161,7 +187,7 @@ class CurvePoly:
         self._local2d_to_polycurve(points2d, tol)
 
     def _from_2d_points(self, points2d) -> List[tuple]:
-        from ada.core.utils import local_2_global_nodes
+        from ada.core.vector_utils import local_2_global_nodes
 
         place = self.placement
 
@@ -180,7 +206,7 @@ class CurvePoly:
         return points3d
 
     def _from_3d_points(self, points3d) -> List[tuple]:
-        from ada.core.utils import global_2_local_nodes
+        from ada.core.vector_utils import global_2_local_nodes
 
         csys = [self.placement.xdir, self.placement.ydir]
         points2d = global_2_local_nodes(csys, self.placement.origin, [np.array(x[:3]) for x in points3d])
@@ -206,7 +232,6 @@ class CurvePoly:
                 raise ValueError("Unrecognized number of values")
 
         # TODO: Investigate using 2DLists instead is it could reduce complexity?
-        # ifc_point_list = ifcfile.createIfcCartesianPointList2D(points)
         points = [tuple(x.astype(float).tolist()) for x in self.seg_global_points]
         ifc_point_list = f.createIfcCartesianPointList3D(points)
         segindex = f.createIfcIndexedPolyCurve(ifc_point_list, ifc_segments)
@@ -214,13 +239,13 @@ class CurvePoly:
 
     def _local2d_to_polycurve(self, local_points2d, tol=1e-3):
         from ada.core.curve_utils import build_polycurve, segments_to_indexed_lists
-        from ada.core.utils import local_2_global_nodes
+        from ada.core.vector_utils import local_2_global_nodes
 
         debug_name = self._parent.name if self._parent is not None else "PolyCurveDebugging"
 
         seg_list = build_polycurve(local_points2d, tol, self._debug, debug_name)
         origin, xdir, normal = self.placement.origin, self.placement.xdir, self.placement.zdir
-        # # Convert from local to global coordinates
+        # Convert from local to global coordinates
         for i, seg in enumerate(seg_list):
             if type(seg) is ArcSegment:
                 lpoints = [seg.p1, seg.p2, seg.midpoint]
@@ -239,7 +264,7 @@ class CurvePoly:
         self._nodes = [Node(p) if len(p) == 3 else Node(p[:3], r=p[3]) for p in self._points3d]
 
     def _update_curves(self):
-        from ada.core.utils import local_2_global_nodes
+        from ada.core.vector_utils import local_2_global_nodes
 
         points2d_no_r = [n[:2] for n in self.points2d]
         points3d = local_2_global_nodes(points2d_no_r, self.placement.origin, self.placement.xdir, self.placement.zdir)
@@ -265,37 +290,6 @@ class CurvePoly:
         from ada.occ.utils import wire_to_face
 
         return wire_to_face(self.edges)
-
-    def calc_bbox(self, tol) -> tuple:
-        """Calculate the Bounding Box of the plate and return ([Xmin, Xmax], [Ymin, Ymax], [Zmin, Zmax])"""
-        xs = []
-        ys = []
-        zs = []
-
-        for pt in self.nodes:
-            xs.append(pt.x)
-            ys.append(pt.y)
-            zs.append(pt.z)
-
-        bbox_min = np.array([min(xs), min(ys), min(zs)]).astype(np.float64)
-        bbox_max = np.array([max(xs), max(ys), max(zs)]).astype(np.float64)
-        n = self.normal.astype(np.float64)
-
-        pv = np.nonzero(n)[0]
-        matr = {0: "X", 1: "Y", 2: "Z"}
-        orient = matr[pv[0]]
-        if orient == "X" or orient == "Y":
-            delta_vec = abs(n * tol / 2.0)
-            bbox_min -= delta_vec
-            bbox_max += delta_vec
-        elif orient == "Z":
-            delta_vec = abs(n * tol).astype(np.float64)
-            bbox_min -= delta_vec
-
-        else:
-            raise ValueError(f"Error in {orient}")
-
-        return tuple([(x, y) for x, y in zip(list(bbox_min), list(bbox_max))])
 
     def scale(self, scale_factor, tol):
         self.placement.origin = np.array([x * scale_factor for x in self.placement.origin])

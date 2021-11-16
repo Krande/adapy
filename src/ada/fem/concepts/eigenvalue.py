@@ -23,6 +23,16 @@ class EigenDataSummary:
             tem[5] += m.efrz
         return tem.tolist()
 
+    def to_dict(self) -> dict:
+        res = dict()
+        for m in self.modes:
+            res[m.no] = m.to_dict()
+        return res
+
+    def from_dict(self, values_dict: dict):
+        for no in sorted(values_dict.keys(), key=int):
+            self.modes.append(EigenMode(no, source_dict=values_dict[no]))
+
 
 @validate_arguments
 @dataclass
@@ -48,6 +58,21 @@ class EigenMode:
     efrx: np.float64 = field(default=None, repr=False)
     efry: np.float64 = field(default=None, repr=False)
     efrz: np.float64 = field(default=None, repr=False)
+
+    source_dict: dict = field(default=None, repr=False)
+
+    def __post_init__(self):
+        if self.source_dict is not None:
+            for key, value in self.source_dict.items():
+                setattr(self, key, value)
+
+    def to_dict(self):
+        res = dict()
+        for key, value in self.__dict__.items():
+            if key[0] == "_":
+                continue
+            res[key] = value
+        return res
 
 
 def eig_data_to_df(eig_data: EigenDataSummary, columns: List[str]):
