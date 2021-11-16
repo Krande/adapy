@@ -11,7 +11,7 @@ from ada.concepts.transforms import Placement
 from ada.core.utils import make_name_fem_ready
 from ada.fem import Elem, FemSection, FemSet
 from ada.fem.shapes import ElemType
-from ada.fem.shapes.mesh_types import abaqus_to_meshio_type, gmsh_to_meshio_ordering
+from ada.fem.shapes.mesh_types import aba_to_meshio_types, gmsh_to_meshio_ordering
 
 from .common import gmsh_map
 from .concepts import GmshData
@@ -199,7 +199,7 @@ def get_elements_from_entities(model: gmsh.model, entities, fem: FEM) -> List[El
 
 
 def is_reorder_necessary(elem_type):
-    meshio_type = abaqus_to_meshio_type[elem_type]
+    meshio_type = aba_to_meshio_types[elem_type]
     if meshio_type in gmsh_to_meshio_ordering.keys():
         return True
     else:

@@ -2,12 +2,10 @@ import pytest
 
 import ada.fem.shapes
 from ada import Assembly, Beam, Part, Pipe, Plate, PrimBox, PrimSphere
-from ada.concepts.stru_beams import make_ig_cutplanes
 from ada.concepts.transforms import Placement
 from ada.fem.meshing.concepts import GmshOptions, GmshSession, GmshTask
 from ada.fem.meshing.multisession import multisession_gmsh_tasker
-
-shape = ada.fem.shapes.ElemShape.TYPES
+from ada.fem.meshing.partitioning.partition_beams import make_ig_cutplanes
 
 
 @pytest.fixture
@@ -30,6 +28,7 @@ def assembly() -> Assembly:
 
 
 def test_mix_geom_repr_in_same_session(assembly):
+    shape = ada.fem.shapes.ElemShape.TYPES
     bm1 = assembly.get_by_name("bm1")
     bm2 = assembly.get_by_name("bm2")
     bm3 = assembly.get_by_name("bm3")
@@ -74,6 +73,7 @@ def test_mix_geom_repr_in_same_session(assembly):
 
 
 def test_diff_geom_repr_in_separate_sessions(assembly, test_meshing_dir):
+    shape = ada.fem.shapes.ElemShape.TYPES
     bm1 = assembly.get_by_name("bm1")
     bm2 = assembly.get_by_name("bm2")
     p = assembly.get_part("MyFemObjects")

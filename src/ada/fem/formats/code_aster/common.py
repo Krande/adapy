@@ -36,6 +36,7 @@ _ada_to_med_type = {
     ShellShapes.TRI7: "TR7",  # Code Aster Specific type
     ShellShapes.QUAD: "QU4",
     ShellShapes.QUAD8: "QU8",
+    ShellShapes.QUAD9: "QU9",  # Code Aster Specific type
     SolidShapes.TETRA: "TE4",
     SolidShapes.TETRA10: "T10",
     SolidShapes.HEX8: "HE8",

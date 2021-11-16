@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 from ada import Beam, Plate, Section
-from ada.fem.meshing.partitioning.beams_solid import ibeam
+from ada.fem.meshing.partitioning.partition_beams import ibeam
 
 if TYPE_CHECKING:
     from ada.fem.meshing.concepts import GmshData, GmshSession
@@ -36,8 +36,8 @@ def partition_solid_beams(gmsh_data: "GmshData", gmsh_session: "GmshSession"):
 
 
 def partition_plate_with_hole(model: "GmshData", gmsh_session: "GmshSession"):
+    gmsh_session.model.mesh.recombine()
     for dim, tag in model.entities:
-        gmsh_session.model.mesh.recombine()
         # ents.append(tag)
         # self.model.mesh.set_transfinite_surface(tag)
         gmsh_session.model.mesh.setRecombine(dim, tag)

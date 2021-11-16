@@ -10,4 +10,5 @@ gmsh_map = {
     "Tetrahedron 4": SolidShapes.TETRA,
     "Tetrahedron 10": SolidShapes.TETRA10,
     "Hexahedron 8": SolidShapes.HEX8,
+    "Hexahedron 20": SolidShapes.HEX20,
 }

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Iterable, List, Union
 
 import gmsh
+import numpy as np
 
 from ada import FEM, Beam, Pipe, Plate, Shape
 from ada.base.physical_objects import BackendGeom
@@ -152,6 +153,14 @@ class GmshSession:
         for cut in self.cutting_planes:
             x, y, z = cut.origin
             rect = self.model.occ.addRectangle(x, y, z, cut.dx, cut.dy)
+
+            if cut.plane == "XZ":
+                self.model.occ.synchronize()
+                self.model.geo.synchronize()
+                self.model.occ.rotate([(2, rect)], x, y, z, 1, 0, 0, np.deg2rad(90))
+                self.model.occ.synchronize()
+                self.model.geo.synchronize()
+
             cut.gmsh_id = rect
             for obj in cut.cut_objects:
                 res, _ = self.model.occ.fragment(obj.entities, [(2, rect)], removeTool=True)
@@ -162,7 +171,9 @@ class GmshSession:
 
         # rem_ids = [(2, c.gmsh_id) for c in self.cutting_planes]
         # self.model.occ.remove(rem_ids, True)
+
         self.model.occ.synchronize()
+        self.model.geo.synchronize()
 
     def split_plates_by_beams(self):
         from ada.core.clash_check import (
@@ -224,10 +235,6 @@ class GmshSession:
 
     def make_quads(self):
         from ada.fem.meshing.partitioning.strategies import partition_objects_with_holes
-
-        # for dim, tag in self.model.get_entities():
-        #     if dim == 1:
-        #         self.model.mesh.set_transfinite_curve(tag, 10)
 
         ents = []
         for obj, model in self.model_map.items():

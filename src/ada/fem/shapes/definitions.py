@@ -21,8 +21,9 @@ class ShellShapes:
     TRI7 = "TRIANGLE7"
     QUAD = "QUAD"
     QUAD8 = "QUAD8"
+    QUAD9 = "QUAD9"
 
-    all = [TRI, TRI7, TRI6, QUAD, QUAD8]
+    all = [TRI, TRI7, TRI6, QUAD, QUAD8, QUAD9]
 
 
 class ConnectorShapes:
@@ -102,9 +103,10 @@ class ElemShape:
     @property
     def faces(self):
         if self.type in ElemShapeTypes.solids.all:
-            faces_seq = self.volumes_seq
+            faces_seq = self.solids_face_seq
         else:
             faces_seq = self.faces_seq
+
         if faces_seq is None:
             raise ValueError(f"Element type {self.type} is currently not supported for Visualization")
 
@@ -174,15 +176,14 @@ class ElemShape:
         return springs[self.type]
 
     @property
-    def volumes_seq(self):
-        from .mesh_types import abaqus_to_meshio_type
+    def solids_face_seq(self):
         from .solids import solid_faces
 
-        generalized_type = abaqus_to_meshio_type.get(self.type, self.type)
-        if generalized_type not in solid_faces.keys():
+        solid_face_res = solid_faces.get(self.type, None)
+        if solid_face_res is None:
             logging.error(f"Element type {self.type} is currently not supported")
             return None
-        return solid_faces[generalized_type]
+        return solid_face_res
 
     @staticmethod
     def is_valid_elem(elem_type):

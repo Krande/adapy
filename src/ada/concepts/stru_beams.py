@@ -464,24 +464,3 @@ class Beam(BackendGeom):
         secn = self.section.sec_str
         matn = self.material.name
         return f'Beam("{self.name}", {p1s}, {p2s}, {secn}, {matn})'
-
-
-def get_bm_section_curve(bm: Beam, origin=None) -> CurvePoly:
-    origin = origin if origin is not None else bm.n1.p
-    section_profile = bm.section.get_section_profile(True)
-    points2d = section_profile.outer_curve.points2d
-    return CurvePoly(points2d=points2d, origin=origin, xdir=bm.yvec, normal=bm.xvec, parent=bm.parent)
-
-
-def make_ig_cutplanes(bm: Beam):
-    from ..fem.meshing.concepts import CutPlane
-
-    bm1_sec_curve = get_bm_section_curve(bm)
-    minz = min([x[2] for x in bm1_sec_curve.points3d])
-    maxz = max([x[2] for x in bm1_sec_curve.points3d])
-    pmin, pmax = bm.bbox.p1, bm.bbox.p2
-    dx, dy, dz = (np.array(pmax) - np.array(pmin)) * 1.3
-    x, y, _ = pmin
-    cut1 = CutPlane((x, y, minz + bm.section.t_fbtn), dx=dx, dy=dy)
-    cut2 = CutPlane((x, y, maxz - bm.section.t_fbtn), dx=dx, dy=dy)
-    return [cut1, cut2]

@@ -46,6 +46,7 @@ class Results:
         output=None,
         overwrite=True,
         metadata=None,
+        import_mesh=False,
     ):
         self._name = name
         self._visualizer = ResultsMesh(palette, fem_format=fem_format, parent=self)
@@ -58,6 +59,7 @@ class Results:
         self._results_file_path = pathlib.Path(res_path) if res_path is not None else None
         self._user_data = dict()
         self._history_output = None
+        self._import_mesh = import_mesh
         if res_path is not None:
             self._read_result_file(self.results_file_path)
             if self.results_file_path.exists():
@@ -74,6 +76,8 @@ class Results:
         if mesh is None:
             return None
 
+        if self._import_mesh is False:
+            return None
         print(f'Importing meshio.Mesh from result file "{file_ref}"')
         self.result_mesh.add_results(mesh)
 

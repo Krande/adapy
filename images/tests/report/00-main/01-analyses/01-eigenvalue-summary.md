@@ -17,14 +17,28 @@ Note! The `Sestra` and `Abaqus` analyses are not performed as part of the github
 eigenmode results are kept in cached json files and imported during the compilation of the report using __paradoc__.
 
 
-{{__eig_compare_solid__}}
+{{__eig_compare_solid_o1_hqTrue__}}
+
+{{__eig_compare_solid_o2_hqTrue__}}
+
+{{__eig_compare_solid_o1_hqFalse__}}
+
+{{__eig_compare_solid_o2_hqFalse__}}
 
 
-{{__eig_compare_shell__}}
+{{__eig_compare_shell_o1_hqTrue__}}
+
+{{__eig_compare_shell_o2_hqTrue__}}
+
+{{__eig_compare_shell_o1_hqFalse__}}
+
+{{__eig_compare_shell_o2_hqFalse__}}
 
 
-{{__eig_compare_line__}}
+{{__eig_compare_line_o1_hqFalse__}}
 
+
+{{__eig_compare_line_o2_hqFalse__}}
 
 
 **Solid Elements**
@@ -35,8 +49,7 @@ solid elements both for 1st and 2nd order formulations.
 **Shell Elements**
 
 For 1st order shell elements it is observed an increasing difference in values based on 
-the order of eigenmode. The differe
-Results using 2nd order shell elements is observed to be closer for all modes.
+the order of eigenmode. Results using 2nd order shell elements is observed to be closer for all modes.
 
 **Line Elements**
 

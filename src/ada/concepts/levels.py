@@ -460,6 +460,8 @@ class Part(BackendGeom):
         options: "GmshOptions" = None,
         silent=True,
         interactive=False,
+        use_quads=False,
+        use_hex=False,
     ) -> FEM:
         from ada import Beam, Plate, Shape
         from ada.fem.meshing import GmshOptions, GmshSession
@@ -484,7 +486,7 @@ class Part(BackendGeom):
             #     gs.open_gui()
 
             gs.split_plates_by_beams()
-            gs.mesh(mesh_size)
+            gs.mesh(mesh_size, use_quads=use_quads, use_hex=use_hex)
 
             if interactive is True:
                 gs.open_gui()
@@ -918,6 +920,7 @@ class Assembly(Part):
         exit_on_complete=True,
         run_in_shell=False,
         make_zip_file=False,
+        import_result_mesh=False,
     ) -> "Results":
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
@@ -950,6 +953,7 @@ class Assembly(Part):
         :param exit_on_complete:
         :param run_in_shell:
         :param make_zip_file:
+        :param import_result_mesh: Automatically import the result mesh into
 
             Note! Meshio implementation currently only supports reading & writing elements and nodes.
 
@@ -1017,7 +1021,15 @@ class Assembly(Part):
             logging.info("No Result file is created")
             return None
 
-        return Results(res_path, name, fem_format=fem_format, assembly=self, output=out, overwrite=overwrite)
+        return Results(
+            res_path,
+            name,
+            fem_format=fem_format,
+            assembly=self,
+            output=out,
+            overwrite=overwrite,
+            import_mesh=import_result_mesh,
+        )
 
     def to_ifc(self, destination_file, include_fem=False) -> None:
         from ada.ifc.write.write_ifc import write_to_ifc

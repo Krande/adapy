@@ -6,7 +6,9 @@ import pytest
 import ada
 from ada.fem.exceptions.element_support import IncompatibleElements
 from ada.fem.formats import FEATypes as FEA
+from ada.fem.formats.utils import default_fem_res_path
 from ada.fem.meshing.concepts import GmshOptions
+from ada.fem.results import Results
 from ada.materials.metals import CarbonSteel
 
 test_dir = ada.config.Settings.scratch_dir / "eigen_fem"
@@ -22,19 +24,52 @@ def beam_fixture() -> ada.Beam:
     return beam()
 
 
+@pytest.mark.parametrize("use_hex_quad", [True, False])
 @pytest.mark.parametrize("fem_format", ["code_aster", "calculix"])
 @pytest.mark.parametrize("geom_repr", ["line", "shell", "solid"])
 @pytest.mark.parametrize("elem_order", [1, 2])
-def test_fem_eig(beam_fixture, fem_format, geom_repr, elem_order, overwrite=True, execute=True, eigen_modes=11):
-    name = f"cantilever_EIG_{fem_format}_{geom_repr}_o{elem_order}"
+def test_fem_eig(
+    beam_fixture,
+    fem_format,
+    geom_repr,
+    elem_order,
+    use_hex_quad,
+    overwrite=True,
+    execute=True,
+    eigen_modes=11,
+    name=None,
+):
+    geom_repr = geom_repr.upper()
+    if name is None:
+        name = f"cantilever_EIG_{fem_format}_{geom_repr}_o{elem_order}_hq{use_hex_quad}"
 
     p = ada.Part("MyPart")
     a = ada.Assembly("MyAssembly") / [p / beam_fixture]
-    p.fem = beam_fixture.to_fem_obj(0.05, geom_repr, options=GmshOptions(Mesh_ElementOrder=elem_order))
-    fix_set = p.fem.add_set(ada.fem.FemSet("bc_nodes", beam_fixture.bbox.sides.back(return_fem_nodes=True, fem=p.fem)))
-    a.fem.add_bc(ada.fem.Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
+
+    if geom_repr == "LINE" and use_hex_quad is True:
+        return None
+
+    props = dict(use_hex=use_hex_quad) if geom_repr == "SOLID" else dict(use_quads=use_hex_quad)
+
     a.fem.add_step(ada.fem.StepEigen("Eigen", num_eigen_modes=eigen_modes))
-    geom_repr = geom_repr.upper()
+
+    if overwrite is False:
+        if fem_format == FEA.CALCULIX and geom_repr == EL_TYPES.LINE:
+            return None
+        elif fem_format == FEA.CODE_ASTER and geom_repr == EL_TYPES.LINE and elem_order == 2:
+            return None
+        elif fem_format == FEA.SESAM and geom_repr == EL_TYPES.SOLID:
+            return None
+        else:
+            res_path = default_fem_res_path(name, scratch_dir=test_dir, fem_format=fem_format)
+            return Results(res_path, name, fem_format, a, import_mesh=False)
+    else:
+        p.fem = beam_fixture.to_fem_obj(0.05, geom_repr, options=GmshOptions(Mesh_ElementOrder=elem_order), **props)
+        fix_set = p.fem.add_set(
+            ada.fem.FemSet("bc_nodes", beam_fixture.bbox.sides.back(return_fem_nodes=True, fem=p.fem))
+        )
+        a.fem.add_bc(ada.fem.Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
+
     try:
         res = a.to_fem(name, fem_format, overwrite=overwrite, execute=execute, scratch_dir=test_dir)
     except IncompatibleElements as e:
