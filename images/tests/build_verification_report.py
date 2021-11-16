@@ -7,9 +7,9 @@ from typing import List
 import pandas as pd
 from paradoc import OneDoc
 from paradoc.common import TableFormat
+from test_fem_eig_cantilever import beam, test_fem_eig
 
 from ada.fem.results import EigenDataSummary, Results, results_from_cache
-from test_fem_eig_cantilever import beam, test_fem_eig
 
 
 def append_df(old_df, new_df):
