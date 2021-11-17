@@ -844,7 +844,7 @@ class Nodes:
         """Insert node into sorted list"""
 
         def insert_node(n, i):
-            new_id = self._maxid + 1 if len(self._nodes) > 0 else 1
+            new_id = int(self._maxid + 1) if len(self._nodes) > 0 else 1
             if n.id in self._idmap.keys() or n.id is None:
                 n.id = new_id
 

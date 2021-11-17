@@ -10,15 +10,11 @@ from ada.concepts.curves import CurvePoly
 from ada.concepts.points import Node
 from ada.concepts.transforms import Placement
 from ada.config import Settings
-from ada.core.utils import Counter
 from ada.materials import Material
 from ada.materials.metals import CarbonSteel
 
 if TYPE_CHECKING:
     pass
-
-section_counter = Counter(1)
-material_counter = Counter(1)
 
 
 class Plate(BackendGeom):

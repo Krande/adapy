@@ -65,11 +65,11 @@ def field_output_str(step: _step_types):
 
 
 def interactions_str(step: _step_types):
-    from .writer import interaction_str
+    from .write_interactions import interaction_str
 
     if len(step.interactions) == 0:
         return "** No Interactions"
-    return "\n".join([interaction_str(interact, True) for interact in step.interactions.values()])
+    return "\n".join([interaction_str(interact) for interact in step.interactions.values()])
 
 
 def all_bc_str(step: _step_types):

@@ -457,6 +457,7 @@ class Part(BackendGeom):
         mesh_size: float,
         bm_repr=ElemType.LINE,
         pl_repr=ElemType.SHELL,
+        shp_repr=ElemType.SOLID,
         options: "GmshOptions" = None,
         silent=True,
         interactive=False,
@@ -469,7 +470,6 @@ class Part(BackendGeom):
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
         masses: List[Shape] = []
         with GmshSession(silent=silent, options=options) as gs:
-            # TODO: Beam and plate nodes (and nodes at intersecting beams) are still not properly represented
             for obj in self.get_all_physical_objects():
                 if type(obj) is Beam:
                     gs.add_obj(obj, geom_repr=bm_repr.upper(), build_native_lines=False)
@@ -478,7 +478,7 @@ class Part(BackendGeom):
                 elif issubclass(type(obj), Shape) and obj.mass is not None:
                     masses.append(obj)
                 elif issubclass(type(obj), Shape):
-                    gs.add_obj(obj)
+                    gs.add_obj(obj, geom_repr=shp_repr.upper())
                 else:
                     logging.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
 

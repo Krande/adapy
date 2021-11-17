@@ -2,11 +2,9 @@ import os
 from operator import attrgetter
 from typing import TYPE_CHECKING, Union
 
-from ada.fem import Amplitude, Interaction, InteractionProperty, PredefinedField, Spring
+from ada.fem import Amplitude, PredefinedField
 from ada.fem.conversion_utils import convert_ecc_to_mpc, convert_hinges_2_couplings
-from ada.fem.interactions import ContactTypes
 from ada.fem.steps import (
-    Step,
     StepEigen,
     StepEigenComplex,
     StepExplicit,
@@ -14,16 +12,16 @@ from ada.fem.steps import (
     StepSteadyState,
 )
 
-from .helper_utils import get_instance_name
 from .write_bc import boundary_conditions_str
 from .write_connectors import connector_sections_str, connectors_str
 from .write_constraints import constraints_str
 from .write_elements import elements_str
+from .write_interactions import interact_str, interaction_prop_str
 from .write_masses import masses_str
 from .write_materials import materials_str
 from .write_orientations import orientations_str
 from .write_output_requests import predefined_field_str
-from .write_sections import sections_str
+from .write_part import write_abaqus_part_str
 from .write_sets import elsets_str, nsets_str
 from .write_steps import abaqus_step_str
 from .write_surfaces import surfaces_str
@@ -46,16 +44,8 @@ def to_fem(assembly: "Assembly", name, analysis_dir=None, metadata=None):
 
 
 class AbaqusWriter:
-    _subr_path = None
-    _subroutine = None
-    _imperfections = str()
-    _node_hist_out = ["UT", "VT", "AT"]
-    _con_hist_out = ["CTF", "CVF", "CP", "CU"]
-    _rf_node_out = ["RT"]
-    analysis_path = None
-    parts_and_assemblies = True
-
     def __init__(self, assembly: "Assembly"):
+        self.analysis_path = None
         self.assembly = assembly
 
     def write(self, name, analysis_dir):
@@ -149,9 +139,11 @@ class AbaqusWriter:
                     if interact.name not in initial_step.interactions.keys():
                         initial_step.add_interaction(interact)
                         return
+
         with open(self.analysis_path / "core_input_files/interactions.inp", "w") as d:
-            if self.interact_str != "":
-                d.write(self.interact_str)
+            istr = interact_str(self.assembly)
+            if istr != "":
+                d.write(istr)
                 d.write("\n")
 
     def write_step(self, step_in: _step_types):
@@ -170,9 +162,8 @@ class AbaqusWriter:
             with open(bulk_file, "w") as d:
                 d.write("** This part is replaced by an initial state step")
         else:
-            fempart = AbaqusPartWriter(part_in)
             with open(bulk_file, "w") as d:
-                d.write(fempart.bulk_str)
+                d.write(write_abaqus_part_str(part_in))
 
     def inst_inp_str(self, part: "Part") -> str:
         if part.fem.initial_state is not None:
@@ -229,10 +220,10 @@ class AbaqusWriter:
         ampl_str = f"\n{incl}\\amplitude_data.inp" if self.amplitude_str != "" else "**"
         consec_str = f"\n{incl}\\connector_sections.inp" if connector_sections_str(self.assembly) != "" else "**"
         int_prop_str = f"{incl}\\interaction_prop.inp" if self.int_prop_str != "" else "**"
-        if self.interact_str != "" or self.predefined_fields_str != "":
-            interact_str = f"{incl}\\interactions.inp"
+        if interact_str(self.assembly) != "" or self.predefined_fields_str != "":
+            i_str = f"{incl}\\interactions.inp"
         else:
-            interact_str = "**"
+            i_str = "**"
         mat_str = f"{incl}\\materials.inp"
         fix_str = f"{incl}\\bc_data.inp" if boundary_conditions_str(self.assembly) != "" else "**"
 
@@ -245,17 +236,13 @@ class AbaqusWriter:
             ampl_str=ampl_str,
             consec_str=consec_str,
             int_prop_str=int_prop_str,
-            interact_str=interact_str,
+            interact_str=i_str,
             constr_ctrl=self.constraint_control,
         )
 
     @property
     def amplitude_str(self):
         return "\n".join([amplitude_str(ampl) for ampl in self.assembly.fem.amplitudes.values()])
-
-    @property
-    def interact_str(self):
-        return "\n".join([interaction_str(interact, self) for interact in self.assembly.fem.interactions.values()])
 
     @property
     def int_prop_str(self):
@@ -285,69 +272,6 @@ class AbaqusWriter:
         return "AbaqusWriter()"
 
 
-class AbaqusPartWriter:
-    def __init__(self, part: "Part"):
-        self.part = part
-
-    @property
-    def bulk_str(self):
-
-        return f"""** Abaqus Part {self.part.name}
-** Exported using ADA OpenSim
-*NODE
-{self.nodes_str}
-{elements_str(self.part.fem, False)}
-{elsets_str(self.part.fem)}
-{nsets_str(self.part.fem)}
-{sections_str(self.part.fem)}
-{masses_str(self.part.fem)}
-{surfaces_str(self.part.fem)}
-{constraints_str(self.part.fem)}
-{self.springs_str}""".rstrip()
-
-    @property
-    def nodes_str(self):
-        f = "{nid:>7}, {x:>13.6f}, {y:>13.6f}, {z:>13.6f}"
-        return (
-            "\n".join(
-                [
-                    f.format(nid=no.id, x=no[0], y=no[1], z=no[2])
-                    for no in sorted(self.part.fem.nodes, key=attrgetter("id"))
-                ]
-            ).rstrip()
-            if len(self.part.fem.nodes) > 0
-            else "** No Nodes"
-        )
-
-    @property
-    def springs_str(self):
-        return (
-            "\n".join([spring_str(c) for c in self.part.fem.springs.values()])
-            if len(self.part.fem.springs) > 0
-            else "** No Springs"
-        )
-
-    @property
-    def instance_move_str(self):
-        if self.part.fem.metadata["move"] is not None:
-            move = self.part.fem.metadata["move"]
-            mo_str = "\n " + ", ".join([str(x) for x in move])
-        else:
-            mo_str = "\n 0.,        0.,           0."
-
-        if self.part.fem.metadata["rotate"] is not None:
-            rotate = self.part.fem.metadata["rotate"]
-            vecs = ", ".join([str(x) for x in rotate[0]])
-            vece = ", ".join([str(x) for x in rotate[1]])
-            angle = rotate[2]
-            move_str = """{move_str}\n {vecs}, {vece}, {angle}""".format(
-                move_str=mo_str, vecs=vecs, vece=vece, angle=angle
-            )
-        else:
-            move_str = "" if mo_str == "0.,        0.,           0." else mo_str
-        return move_str
-
-
 def main_step_inp_str(step: _step_types) -> str:
     return f"""*INCLUDE,INPUT=core_input_files\\step_{step.name}.inp"""
 
@@ -356,51 +280,6 @@ def part_inp_str(part: "Part") -> str:
     return """**\n*Part, name={name}\n*INCLUDE,INPUT=bulk_{name}\\{inp_file}\n*End Part\n**""".format(
         name=part.name, inp_file="aba_bulk.inp"
     )
-
-
-def interaction_str(interaction: Interaction, fem_writer) -> str:
-    # Allowing Free text to be parsed directly through interaction class.
-    if "aba_bulk" in interaction.metadata.keys():
-        return interaction.metadata["aba_bulk"]
-
-    contact_mod = interaction.metadata["contact_mod"] if "contact_mod" in interaction.metadata.keys() else "NEW"
-    contact_incl = (
-        interaction.metadata["contact_inclusions"]
-        if "contact_inclusions" in interaction.metadata.keys()
-        else "ALL EXTERIOR"
-    )
-
-    top_str = f"**\n** Interaction: {interaction.name}"
-    if interaction.type == ContactTypes.SURFACE:
-        adjust_par = interaction.metadata.get("adjust", None)
-        geometric_correction = interaction.metadata.get("geometric_correction", None)
-        small_sliding = interaction.metadata.get("small_sliding", None)
-
-        first_line = "" if small_sliding is None else f", {small_sliding}"
-
-        if issubclass(type(interaction.parent), Step):
-            step = interaction.parent
-            first_line += "" if type(step) is StepExplicit else f", type={interaction.surface_type}"
-        else:
-            first_line += f", type={interaction.surface_type}"
-
-        if interaction.constraint is not None:
-            first_line += f", mechanical constraint={interaction.constraint}"
-
-        if adjust_par is not None:
-            first_line += f", adjust={adjust_par}" if adjust_par is not None else ""
-
-        if geometric_correction is not None:
-            first_line += f", geometric correction={geometric_correction}"
-
-        return f"""{top_str}
-*Contact Pair, interaction={interaction.interaction_property.name}{first_line}
-{get_instance_name(interaction.surf1, fem_writer)}, {get_instance_name(interaction.surf2, fem_writer)}"""
-    else:
-        return f"""{top_str}\n*Contact, op={contact_mod}
-*Contact Inclusions, {contact_incl}
-*Contact Property Assignment
- ,  , {interaction.interaction_property.name}"""
 
 
 def amplitude_str(amplitude: Amplitude) -> str:
@@ -421,43 +300,3 @@ def amplitude_str(amplitude: Amplitude) -> str:
     smooth = ", DEFINITION=TABULAR, SMOOTH={}".format(smooth) if smooth is not None else ""
     amplitude = """*Amplitude, name={0}{2}\n         {1}\n""".format(name, data, smooth)
     return amplitude.rstrip()
-
-
-def interaction_prop_str(int_prop: InteractionProperty):
-    """
-
-    :param int_prop:
-    :type int_prop: ada.fem.InteractionProperty
-    :return:
-    """
-    iprop_str = f"*Surface Interaction, name={int_prop.name}\n"
-
-    # Friction
-    iprop_str += f"*Friction\n{int_prop.friction},\n"
-
-    # Behaviours
-    tab_str = (
-        "\n" + "\n".join(["{:>12.3E},{:>12.3E}".format(d[0], d[1]) for d in int_prop.tabular])
-        if int_prop.tabular is not None
-        else ""
-    )
-    iprop_str += f"*Surface Behavior, pressure-overclosure={int_prop.pressure_overclosure}{tab_str}"
-
-    return iprop_str.rstrip()
-
-
-def spring_str(spring: Spring) -> str:
-    from ada.fem.shapes import ElemShape
-
-    if spring.type in ElemShape.TYPES.spring1n:
-        _str = f'** Spring El "{spring.name}"\n\n'
-        for dof, row in enumerate(spring.stiff):
-            for j, stiffness in enumerate(row):
-                if dof == j:
-                    _str += f"""*Spring, elset={spring.fem_set.name}
- {dof + 1}
- {stiffness:.6E}
-{spring.id}, {spring.nodes[0].id}\n"""
-        return _str.rstrip()
-    else:
-        raise ValueError(f'Currently unsupported spring type "{spring.type}"')
