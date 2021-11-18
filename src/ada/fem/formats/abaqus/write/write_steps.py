@@ -1,4 +1,4 @@
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
 import numpy as np
 
@@ -15,7 +15,22 @@ from ada.fem.steps import (
 from .helper_utils import get_instance_name
 from .templates import step_inp_str
 
+if TYPE_CHECKING:
+    from ada import FEM
+
 _step_types = Union[StepEigen, StepExplicit, StepImplicit, StepSteadyState, StepEigenComplex]
+
+
+def main_step_inp_str(step: _step_types) -> str:
+    return f"""*INCLUDE,INPUT=core_input_files\\step_{step.name}.inp"""
+
+
+def write_step(step_in: _step_types, analysis_dir):
+    step_str = abaqus_step_str(step_in)
+    with open(analysis_dir / "core_input_files" / f"step_{step_in.name}.inp", "w") as d:
+        d.write(step_str)
+        if "*End Step" not in step_str:
+            d.write("*End Step\n")
 
 
 def abaqus_step_str(step: _step_types):
@@ -50,6 +65,14 @@ def abaqus_step_str(step: _step_types):
         field_output_str=field_output_str(step),
         app_str=app_str,
     )
+
+
+def constraint_control(fem: "FEM"):
+    constraint_ctrl_on = True
+    for step in fem.steps:
+        if type(step) == StepExplicit:
+            constraint_ctrl_on = False
+    return "**" if constraint_ctrl_on is False else "*constraint controls, print=yes"
 
 
 def hist_output_str(step: _step_types):

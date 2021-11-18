@@ -18,20 +18,20 @@ def open_ifc(ifc_file_path):
 def getIfcPropertySets(ifcelem):
     """Returns a dictionary of {pset_id:[prop_id, prop_id...]} for an IFC object"""
     props = dict()
-    # get psets for this pid
     for definition in ifcelem.IsDefinedBy:
-        # To support IFC2X3, we need to filter our results.
-        if definition.is_a("IfcRelDefinesByProperties"):
-            property_set = definition.RelatingPropertyDefinition
-            pset_name = property_set.Name.split(":")[0].strip()
-            props[pset_name] = dict()
-            if property_set.is_a("IfcElementQuantity"):
+        if definition.is_a("IfcRelDefinesByProperties") is False:
+            continue
+        property_set = definition.RelatingPropertyDefinition
+        if property_set.is_a("IfcElementQuantity"):
+            continue
+
+        pset_name = property_set.Name.split(":")[0].strip()
+        props[pset_name] = dict()
+        for prop in property_set.HasProperties:
+            if prop.is_a("IfcPropertySingleValue") is False:
                 continue
-            for prop in property_set.HasProperties:
-                if prop.is_a("IfcPropertySingleValue"):
-                    props[pset_name][prop.Name] = prop.NominalValue.wrappedValue
-            # Returning first instance of RelDefines
-            # return props (Why?)
+            res = prop.NominalValue.wrappedValue
+            props[pset_name][prop.Name] = res
     return props
 
 

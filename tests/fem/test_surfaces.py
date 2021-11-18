@@ -43,8 +43,7 @@ def test_surface_box_solid_tet(surfaces_test_dir):
     surface = a.parts["MyBoxPart"].fem.surfaces["FrontSurface"]
     assert len(surface.fem_set) == 8
 
-    # a.to_fem("MyFemBox_so", "abaqus", overwrite=True, scratch_dir=surfaces_test_dir)
-    # a.to_fem("MyFemBox_ca", "code_aster", overwrite=True)
+    a.to_fem("MyFemBox_so_tet", "abaqus", overwrite=True, scratch_dir=surfaces_test_dir)
 
 
 def test_surface_box_solid_hex(surfaces_test_dir):
@@ -52,10 +51,8 @@ def test_surface_box_solid_hex(surfaces_test_dir):
     surface = a.parts["MyBoxPart"].fem.surfaces["FrontSurface"]
 
     assert len(surface.fem_set) == 4
-    # TODO: Ensure that HEX elements have correct face ordering for the applied pressure
 
     # a.to_fem("MyFemBox_so_hex", "abaqus", overwrite=True, scratch_dir=surfaces_test_dir)
-    # a.to_fem("MyFemBox_ca", "code_aster", overwrite=True)
 
 
 def test_surface_box_shell_tri(surfaces_test_dir):
@@ -64,8 +61,7 @@ def test_surface_box_shell_tri(surfaces_test_dir):
 
     assert len(surface.fem_set.members) == 24
 
-    # a.to_fem("MyFemBox_sh", "abaqus", overwrite=True, scratch_dir=surfaces_test_dir)
-    # a.to_fem("MyFemBox_ca", "code_aster", overwrite=True)
+    # a.to_fem("MyFemBox_sh_tri", "abaqus", overwrite=True, scratch_dir=surfaces_test_dir)
 
 
 def test_surface_box_shell_quad(surfaces_test_dir):
@@ -74,8 +70,7 @@ def test_surface_box_shell_quad(surfaces_test_dir):
 
     assert len(surface.fem_set.members) == 16
 
-    # a.to_fem("MyFemBox_sh", "abaqus", overwrite=True, scratch_dir=surfaces_test_dir)
-    # a.to_fem("MyFemBox_ca", "code_aster", overwrite=True)
+    # a.to_fem("MyFemBox_sh_quad", "abaqus", overwrite=True, scratch_dir=surfaces_test_dir)
 
 
 def test_surface_beam(surfaces_test_dir):

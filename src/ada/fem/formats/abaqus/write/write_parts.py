@@ -1,4 +1,7 @@
+import os
 from typing import TYPE_CHECKING
+
+from ada.fem.conversion_utils import convert_ecc_to_mpc, convert_hinges_2_couplings
 
 from .write_constraints import constraints_str
 from .write_elements import elements_str
@@ -10,7 +13,34 @@ from .write_springs import springs_str
 from .write_surfaces import surfaces_str
 
 if TYPE_CHECKING:
-    from ada import Part
+    from ada import Assembly, Part
+
+
+def write_all_parts(assembly: "Assembly", analysis_dir):
+    for part in assembly.get_all_subparts():
+        if len(part.fem.elements) == 0:
+            continue
+        if assembly.convert_options.hinges_to_coupling is True:
+            convert_hinges_2_couplings(part.fem)
+
+        if assembly.convert_options.ecc_to_mpc is True:
+            convert_ecc_to_mpc(part.fem)
+
+        write_part_bulk(part, analysis_dir)
+
+
+def write_part_bulk(part_in: "Part", analysis_dir):
+    bulk_path = analysis_dir / f"bulk_{part_in.name}"
+    bulk_file = bulk_path / "aba_bulk.inp"
+    os.makedirs(bulk_path, exist_ok=True)
+
+    if part_in.fem.initial_state is not None:
+        with open(bulk_file, "w") as d:
+            d.write("** This part is replaced by an initial state step")
+        return None
+
+    with open(bulk_file, "w") as d:
+        d.write(write_abaqus_part_str(part_in))
 
 
 def write_abaqus_part_str(part: "Part") -> str:
@@ -29,7 +59,6 @@ def write_abaqus_part_str(part: "Part") -> str:
 {springs_str(fem)}""".rstrip()
 
 
-@property
 def instance_move_str(self):
     if self.part.fem.metadata["move"] is not None:
         move = self.part.fem.metadata["move"]

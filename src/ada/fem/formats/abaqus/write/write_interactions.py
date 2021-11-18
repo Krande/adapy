@@ -6,7 +6,7 @@ from ada.fem.steps import Step, StepExplicit
 from .helper_utils import get_instance_name
 
 if TYPE_CHECKING:
-    from ada import Assembly
+    from ada import FEM, Assembly
     from ada.fem import Interaction, InteractionProperty
 
 
@@ -74,3 +74,31 @@ def interaction_prop_str(int_prop: "InteractionProperty") -> str:
     iprop_str += f"*Surface Behavior, pressure-overclosure={int_prop.pressure_overclosure}{tab_str}"
 
     return iprop_str.rstrip()
+
+
+def int_prop_str(fem: "FEM"):
+    iprop_str = "\n".join([interaction_prop_str(iprop) for iprop in fem.intprops.values()])
+    smoothings = fem.metadata.get("surf_smoothing", None)
+    if smoothings is not None:
+        iprop_str += "\n"
+        for smooth in smoothings:
+            name = smooth["name"]
+            iprop_str += f"*Surface Smoothing, name={name}\n"
+            iprop_str += smooth["bulk"] + "\n"
+    return iprop_str
+
+
+def eval_interactions(assembly: "Assembly", analysis_dir):
+    if len(assembly.fem.steps) > 0:
+        initial_step = assembly.fem.steps[0]
+        if type(initial_step) is StepExplicit:
+            for interact in assembly.fem.interactions.values():
+                if interact.name not in initial_step.interactions.keys():
+                    initial_step.add_interaction(interact)
+                    return
+
+    with open(analysis_dir / "core_input_files/interactions.inp", "w") as d:
+        istr = interact_str(assembly)
+        if istr != "":
+            d.write(istr)
+            d.write("\n")

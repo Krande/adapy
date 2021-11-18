@@ -5,6 +5,7 @@ import logging
 import os
 import pathlib
 from dataclasses import dataclass
+from io import StringIO
 from itertools import chain
 from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 
@@ -858,7 +859,8 @@ class Assembly(Part):
             if self._from_cache(ifc_file) is True:
                 return None
 
-        a = read_ifc_file(ifc_file, self.ifc_settings, elements2part, data_only)
+        settings = self.ifc_settings
+        a = read_ifc_file(ifc_file, settings, elements2part, data_only)
 
         self.__add__(a)
 
@@ -921,6 +923,7 @@ class Assembly(Part):
         run_in_shell=False,
         make_zip_file=False,
         import_result_mesh=False,
+        writable_obj: StringIO = None,
     ) -> "Results":
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.

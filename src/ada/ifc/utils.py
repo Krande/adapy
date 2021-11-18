@@ -561,10 +561,7 @@ def scale_ifc_file_object(ifc_file, scale_factor):
                 old_val = getattr(element, attribute)
                 if old_val is None:
                     continue
-                try:
-                    setattr(element, attribute, scale_all(old_val, scale_factor))
-                except Exception as e:
-                    raise ValueError(e)
+                setattr(element, attribute, scale_all(old_val, scale_factor))
                 # new_val = getattr(element, attribute)
     return ifc_file
 
