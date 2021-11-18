@@ -1,4 +1,3 @@
-import numpy as np
 import pytest
 
 from ada.concepts.transforms import Placement
@@ -24,7 +23,7 @@ def simple_stru():
         h=3,
         gsec="BG200x100x10x20",
         csec="BG200x200x20x20",
-        placement=Placement(origin=np.array([200, 100, 500])),
+        placement=Placement(origin=(200, 100, 500)),
     )
 
 

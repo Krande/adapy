@@ -61,7 +61,7 @@ class Plate(BackendGeom):
             points2d = nodes
 
         self._pl_id = pl_id
-        self._material = mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat))
+        self._material = mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat), parent=parent)
         self._material.refs.append(self)
         self._t = t
 

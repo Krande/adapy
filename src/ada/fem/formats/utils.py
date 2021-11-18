@@ -431,11 +431,13 @@ def convert_shell_elem_to_plates(elem: "Elem", parent: "Part") -> List[Plate]:
 
 
 def convert_part_shell_elements_to_plates(p: "Part") -> Plates:
-    return Plates(list(chain.from_iterable([convert_shell_elem_to_plates(sh, p) for sh in p.fem.elements.shell])))
+    return Plates(
+        list(chain.from_iterable([convert_shell_elem_to_plates(sh, p) for sh in p.fem.elements.shell])), parent=p
+    )
 
 
 def convert_part_elem_bm_to_beams(p: "Part") -> Beams:
-    return Beams([line_elem_to_beam(bm, p) for bm in p.fem.elements.lines])
+    return Beams([line_elem_to_beam(bm, p) for bm in p.fem.elements.lines], parent=p)
 
 
 def line_elem_to_beam(elem: Elem, parent: "Part") -> Beam:
