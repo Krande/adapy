@@ -14,7 +14,7 @@ from ada.materials import Material
 from ada.materials.metals import CarbonSteel
 
 if TYPE_CHECKING:
-    pass
+    from ada.ifc.concepts import IfcRef
 
 
 class Plate(BackendGeom):
@@ -48,9 +48,12 @@ class Plate(BackendGeom):
         units="m",
         ifc_elem=None,
         guid=None,
+        ifc_ref: "IfcRef" = None,
     ):
         # TODO: Support generation of plate object from IFC elem
-        super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem, placement=placement)
+        super().__init__(
+            name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem, placement=placement, ifc_ref=ifc_ref
+        )
 
         points2d = None
         points3d = None

@@ -4,20 +4,17 @@ import numpy as np
 
 from ada import Assembly, Beam
 from ada.core.vector_utils import unit_vector
-from ada.ifc.utils import default_settings
 
+from ..concepts import IfcRef
 from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
-from .read_shapes import get_ifc_geometry
 from .reader_utils import get_associated_material, get_name, getIfcPropertySets
 
 
-def import_ifc_beam(ifc_elem, assembly: Assembly = None) -> Beam:
-    ifc_settings = default_settings() if assembly is None else assembly.ifc_settings
-
-    props = getIfcPropertySets(ifc_elem)
+def import_ifc_beam(ifc_elem, ifc_ref: IfcRef, assembly: Assembly = None) -> Beam:
     name = get_name(ifc_elem)
     logging.info(f"importing {name}")
+    props = getIfcPropertySets(ifc_elem)
     ass = get_associated_material(ifc_elem)
     sec = None
     mat = None
@@ -30,7 +27,7 @@ def import_ifc_beam(ifc_elem, assembly: Assembly = None) -> Beam:
         sec = import_section_from_ifc(ass.Profile)
 
     if mat is None:
-        mat = read_material(ass)
+        mat = read_material(ass, ifc_ref)
 
     axes = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Axis"]
 
@@ -40,6 +37,11 @@ def import_ifc_beam(ifc_elem, assembly: Assembly = None) -> Beam:
         raise ValueError("Number of items objects attached to axis is not 1")
 
     axis = axes[0].Items[0]
+    if axis.is_a("IfcPolyline") and len(axis.Points) != 2:
+        raise NotImplementedError("Reading beams swept along IfcPolyLines of length > 2 is not yet supported")
+    elif axis.is_a("IfcTrimmedCurve"):
+        raise NotImplementedError("Reading beams swept along IfcTrimmedCurve is not yet supported")
+
     p1 = axis.Points[0].Coordinates
     p2 = axis.Points[1].Coordinates
 
@@ -47,7 +49,12 @@ def import_ifc_beam(ifc_elem, assembly: Assembly = None) -> Beam:
     xvec = unit_vector(np.array(p2) - np.array(p1))
     zvec = np.cross(xvec, yvec)
 
-    pdct_shape, colour, alpha = get_ifc_geometry(ifc_elem, ifc_settings)
+    return Beam(name, p1, p2, sec, mat, up=zvec, guid=ifc_elem.GlobalId, metadata=props, ifc_ref=ifc_ref)
+
+
+def get_beam_geom(ifc_elem, ifc_settings):
+    # from .read_shapes import get_ifc_geometry
+    # pdct_shape, colour, alpha = get_ifc_geometry(ifc_elem, ifc_settings)
 
     bodies = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Body"]
     if len(bodies) != 1:
@@ -58,22 +65,5 @@ def import_ifc_beam(ifc_elem, assembly: Assembly = None) -> Beam:
     body = bodies[0].Items[0]
     if len(body.StyledByItem) > 0:
         style = body.StyledByItem[0].Styles[0].Styles[0].Styles[0]
-        colour = (
-            int(style.SurfaceColour.Red),
-            int(style.SurfaceColour.Green),
-            int(style.SurfaceColour.Blue),
-        )
-
-    return Beam(
-        name,
-        p1,
-        p2,
-        sec,
-        mat,
-        up=zvec,
-        colour=colour,
-        opacity=alpha,
-        guid=ifc_elem.GlobalId,
-        ifc_geom=pdct_shape,
-        metadata=props,
-    )
+        colour = (int(style.SurfaceColour.Red), int(style.SurfaceColour.Green), int(style.SurfaceColour.Blue))
+        print(colour)

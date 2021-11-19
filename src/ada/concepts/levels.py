@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from ada import Beam, Material, Plate, Section, Transform, Wall
     from ada.fem.meshing import GmshOptions
     from ada.fem.results import Results
+    from ada.ifc.concepts import IfcRef
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 
@@ -77,8 +78,11 @@ class Part(BackendGeom):
         units="m",
         ifc_elem=None,
         guid=None,
+        ifc_ref: "IfcRef" = None,
     ):
-        super().__init__(name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_elem=ifc_elem)
+        super().__init__(
+            name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_elem=ifc_elem, ifc_ref=ifc_ref
+        )
         self._nodes = Nodes(parent=self)
         self._beams = Beams(parent=self)
         self._plates = Plates(parent=self)

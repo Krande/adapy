@@ -1,17 +1,14 @@
 import logging
 
 from ada import Assembly, Placement, Plate
-from ada.ifc.read.read_shapes import get_ifc_geometry
 
-from ..utils import default_settings
+from ..concepts import IfcRef
 from .read_curves import import_indexedpolycurve, import_polycurve
 from .read_materials import read_material
 from .reader_utils import get_associated_material, get_name, getIfcPropertySets
 
 
-def import_ifc_plate(ifc_elem, assembly: Assembly) -> Plate:
-    ifc_settings = default_settings() if assembly is None else assembly.ifc_settings
-
+def import_ifc_plate(ifc_elem, ifc_ref: IfcRef, assembly: Assembly) -> Plate:
     props = getIfcPropertySets(ifc_elem)
     name = get_name(ifc_elem)
     logging.info(f"importing {name}")
@@ -23,10 +20,7 @@ def import_ifc_plate(ifc_elem, assembly: Assembly) -> Plate:
     if mat is None:
         mat = read_material(ifc_mat)
 
-    pdct_shape, color, alpha = get_ifc_geometry(ifc_elem, ifc_settings)
-
     # TODO: Fix interpretation of IfcIndexedPolyCurve. Should pass origin to get actual 2d coordinates.
-
     # Adding Axis information
     axes = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Axis"]
     if len(axes) != 1:
@@ -58,14 +52,5 @@ def import_ifc_plate(ifc_elem, assembly: Assembly) -> Plate:
     placement = Placement(origin, xdir=xdir, zdir=normal)
 
     return Plate(
-        name,
-        nodes2d,
-        t,
-        mat=mat,
-        placement=placement,
-        guid=ifc_elem.GlobalId,
-        colour=color,
-        opacity=alpha,
-        ifc_geom=pdct_shape,
-        metadata=props,
+        name, nodes2d, t, mat=mat, placement=placement, guid=ifc_elem.GlobalId, metadata=props, ifc_ref=ifc_ref
     )

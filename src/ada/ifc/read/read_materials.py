@@ -1,15 +1,20 @@
 import logging
+from typing import TYPE_CHECKING
 
 from ada import Assembly, Material
 
+if TYPE_CHECKING:
+    from ..concepts import IfcRef
 
-def read_material(ifc_mat) -> Material:
+
+def read_material(ifc_mat, ifc_ref: "IfcRef") -> Material:
     from ada.materials.metals import CarbonSteel, Metal
 
     mat_psets = ifc_mat.HasProperties
     if len(mat_psets) == 0:
-        logging.warning(f'No material found for "{ifc_mat}"')
-        return Material("DummyMat")
+        logging.info(f'No material properties found for "{ifc_mat}"')
+        return Material(ifc_mat.Name)
+
     props = {}
     for entity in mat_psets[0].Properties:
         if entity.is_a("IfcPropertySingleValue"):
@@ -29,11 +34,11 @@ def read_material(ifc_mat) -> Material:
     else:
         mat_model = Metal(sig_u=None, **mat_props)
 
-    return Material(name=ifc_mat.Name, mat_model=mat_model)
+    return Material(name=ifc_mat.Name, mat_model=mat_model, ifc_ref=ifc_ref)
 
 
-def read_ifc_materials(f, a: Assembly):
+def read_ifc_materials(f, a: Assembly, ifc_ref: "IfcRef"):
     for ifc_mat in f.by_type("IfcMaterial"):
-        mat = a.add_material(read_material(ifc_mat))
+        mat = a.add_material(read_material(ifc_mat, ifc_ref))
 
         print(mat)

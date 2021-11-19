@@ -17,6 +17,8 @@ from .transforms import Placement
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
+    from ada.ifc.concepts import IfcRef
+
 
 class Shape(BackendGeom):
     def __init__(
@@ -33,9 +35,12 @@ class Shape(BackendGeom):
         guid=None,
         material: Union[Material, str] = None,
         placement=Placement(),
+        ifc_ref: "IfcRef" = None,
     ):
 
-        super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem, placement=placement)
+        super().__init__(
+            name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem, placement=placement, ifc_ref=ifc_ref
+        )
         if type(geom) in (str, pathlib.WindowsPath, pathlib.PurePath, pathlib.Path):
             from OCC.Extend.DataExchange import read_step_file
 
