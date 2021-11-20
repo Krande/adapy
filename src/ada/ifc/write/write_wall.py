@@ -12,6 +12,8 @@ from ada.ifc.utils import (
     tesselate_shape,
 )
 
+from .write_stru_components import write_door, write_window
+
 
 def write_ifc_wall(wall: Wall):
     if wall.parent is None:
@@ -46,7 +48,8 @@ def write_ifc_wall(wall: Wall):
 
     product_shape = f.createIfcProductDefinitionShape(None, None, [axis_representation, body])
 
-    wall_el = f.createIfcWall(
+    wall_el = f.create_entity(
+        "IfcWall",
         wall.guid,
         owner_history,
         wall.name,
@@ -104,40 +107,23 @@ def add_ifc_insert_elem(wall: Wall, insert, opening_element, wall_el):
     if len(insert.shapes) > 1:
         raise ValueError("More than 1 shape is currently not allowed for Wall inserts")
     shape = insert.shapes[0].geom
-    insert_shape = tesselate_shape(shape, schema, get_tolerance(a.units))
+    insert_shape_ = tesselate_shape(shape, schema, get_tolerance(a.units))
+    insert_shape = f.add(insert_shape_)
+
     # Link to representation context
     for rep in insert_shape.Representations:
         rep.ContextOfItems = context
 
     ifc_type = insert.metadata["ifc_type"]
 
-    if ifc_type == "IfcWindow":
-        ifc_insert = f.createIfcWindow(
-            create_guid(),
-            owner_history,
-            "Window",
-            "An awesome window",
-            None,
-            insert_placement,
-            insert_shape,
-            None,
-            None,
-        )
-    elif ifc_type == "IfcDoor":
-        ifc_insert = f.createIfcDoor(
-            create_guid(),
-            owner_history,
-            "Door",
-            "An awesome Door",
-            None,
-            insert_placement,
-            insert_shape,
-            None,
-            None,
-        )
-    else:
+    insert_map = dict(IfcWindow=write_window, IfcDoor=write_door)
+
+    insert_writer = insert_map.get(ifc_type, None)
+
+    if insert_writer is None:
         raise ValueError(f'Currently unsupported ifc_type "{ifc_type}"')
 
+    ifc_insert = insert_writer(f, owner_history, insert_placement, insert_shape)
     # Relate the window to the opening element
     f.createIfcRelFillsElement(
         create_guid(),

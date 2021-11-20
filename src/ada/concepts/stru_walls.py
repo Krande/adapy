@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Union
+from typing import Union
 
 import numpy as np
 
+from ada import Part
 from ada.base.physical_objects import BackendGeom
 from ada.concepts.curves import CurvePoly
 from ada.concepts.primitives import PrimBox
 from ada.concepts.transforms import Placement
 from ada.core.vector_utils import unit_vector
-
-if TYPE_CHECKING:
-    from ada.param_models.basic_structural_components import Window
 
 
 class WallJustification:
@@ -81,7 +79,7 @@ class Wall(BackendGeom):
                 raise ValueError("Offset can only be string or float, int")
             self._offset = offset
 
-    def add_insert(self, insert: Union["Window"], wall_segment: int, off_x, off_z):
+    def add_insert(self, insert: "WallInsert", wall_segment: int, off_x, off_z):
         """
 
         :param insert:
@@ -98,7 +96,6 @@ class Wall(BackendGeom):
         start = p1 + yvec * (self._thickness / 2 + self.offset) + xvec * off_x + zvec * off_z
         insert._depth = self._thickness
         insert.placement = Placement(origin=start, xdir=xvec, ydir=zvec, zdir=yvec)
-        insert.build_geom()
 
         frame = insert.shapes[0]
         center, dim, oobb_shp = get_oriented_boundingbox(frame.geom)
@@ -132,6 +129,7 @@ class Wall(BackendGeom):
         """
         if wall_segment > len(self._segments):
             raise ValueError(f"Wall segment id should be equal or less than {len(self._segments)}")
+
         p1, p2 = self._segments[wall_segment]
         xvec = unit_vector(np.array(p2) - np.array(p1))
         zvec = np.array([0, 0, 1])
@@ -301,3 +299,37 @@ class Wall(BackendGeom):
 
     def __repr__(self):
         return f"Wall({self.name})"
+
+
+class WallInsert(Part):
+    def __init__(self, name, width, height, depth, **kwargs):
+        super(WallInsert, self).__init__(name, **kwargs)
+        self._width = width
+        self._height = height
+        self._depth = depth
+        self._is_built = False
+
+    def build_geom(self):
+        raise NotImplementedError()
+
+    @property
+    def width(self):
+        return self._width
+
+    @property
+    def height(self):
+        return self._height
+
+    @property
+    def depth(self):
+        return self._depth
+
+    @property
+    def placement(self):
+        return self._placement
+
+    @placement.setter
+    def placement(self, value):
+        self._placement = value
+        self.build_geom()
+        self._is_built = True

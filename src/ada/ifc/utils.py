@@ -696,6 +696,7 @@ def tesselate_shape(shape, schema, tol):
     if serialized_geom is None:
         logging.debug("Starting serialization of geometry")
         serialized_geom = ifcopenshell.geom.tesselate(schema, occ_string, tol)
+
     return serialized_geom
 
 
