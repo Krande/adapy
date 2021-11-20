@@ -4,24 +4,24 @@ from typing import TYPE_CHECKING
 from .helper_utils import get_instance_name
 
 if TYPE_CHECKING:
-    from ada import Assembly
+    from ada import FEM
     from ada.fem import Csys
 
 
-def orientations_str(assembly: "Assembly", fem_writer) -> str:
+def orientations_str(fem: "FEM", written_on_assembly_level: bool) -> str:
     """Add orientations associated with loads"""
     cstr = "** Orientations associated with Loads"
-    for step in assembly.fem.steps:
+    for step in fem.steps:
         for load in step.loads:
             if load.csys is None:
                 continue
             cstr += "\n"
             coord_str = ", ".join([str(x) for x in chain.from_iterable(load.csys.coords)])[:-1]
             name = load.fem_set.name.upper()
-            inst_name = get_instance_name(load.fem_set, fem_writer)
+            inst_name = get_instance_name(load.fem_set, written_on_assembly_level)
             cstr += f"*Nset, nset=_T-{name}, internal\n{inst_name},\n"
             cstr += f"*Transform, nset=_T-{name}\n{coord_str}\n"
-            cstr += csys_str(load.csys, fem_writer)
+            cstr += csys_str(load.csys, written_on_assembly_level)
 
     return cstr.strip()
 

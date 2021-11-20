@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
     from ada.concepts.connections import JointBase
     from ada.fem.elements import HingeProp
+    from ada.ifc.concepts import IfcRef
 
 section_counter = Counter(1)
 material_counter = Counter(1)
@@ -72,14 +73,16 @@ class Beam(BackendGeom):
         colour=None,
         parent=None,
         metadata=None,
-        ifc_geom=None,
         opacity=None,
         units="m",
         ifc_elem=None,
         guid=None,
         placement=Placement(),
+        ifc_ref: "IfcRef" = None,
     ):
-        super().__init__(name, metadata=metadata, units=units, guid=guid, ifc_elem=ifc_elem, placement=placement)
+        super().__init__(
+            name, metadata=metadata, units=units, guid=guid, ifc_elem=ifc_elem, placement=placement, ifc_ref=ifc_ref
+        )
         if curve is not None:
             curve.parent = self
             if type(curve) is CurvePoly:
@@ -154,8 +157,6 @@ class Beam(BackendGeom):
         self._yvec = np.array([roundoff(x) for x in yvec])
         self._up = up
         self._angle = angle
-
-        self._ifc_geom = ifc_geom
         self._opacity = opacity
 
     def get_outer_points(self):
@@ -463,4 +464,4 @@ class Beam(BackendGeom):
         p2s = self.n2.p.tolist()
         secn = self.section.sec_str
         matn = self.material.name
-        return f'Beam("{self.name}", {p1s}, {p2s}, {secn}, {matn})'
+        return f'Beam("{self.name}", {p1s}, {p2s}, "{secn}", "{matn}")'

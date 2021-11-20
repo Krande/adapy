@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from ada.base.non_phyical_objects import Backend
 
 from .metals import CarbonSteel
+
+if TYPE_CHECKING:
+    from ada.ifc.concepts import IfcRef
 
 
 class Material(Backend):
@@ -17,8 +22,9 @@ class Material(Backend):
         metadata=None,
         units="m",
         guid=None,
+        ifc_ref: "IfcRef" = None,
     ):
-        super(Material, self).__init__(name, guid, metadata, units)
+        super(Material, self).__init__(name, guid, metadata, units, ifc_ref=ifc_ref)
         self._mat_model = mat_model
         mat_model.parent = self
         self._mat_id = mat_id

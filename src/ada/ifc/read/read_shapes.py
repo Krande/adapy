@@ -4,19 +4,15 @@ import ifcopenshell.geom
 
 from ada import Assembly, Shape
 
+from ..concepts import IfcRef
 from .reader_utils import get_name, getIfcPropertySets
 
 
-def import_ifc_shape(product, assembly: Assembly):
+def import_ifc_shape(product, ifc_ref: IfcRef, assembly: Assembly):
     props = getIfcPropertySets(product)
     name = get_name(product)
     logging.info(f'importing Shape "{name}"')
-    shp = Shape(
-        name,
-        None,
-        guid=product.GlobalId,
-        metadata=dict(props=props),
-    )
+    shp = Shape(name, None, guid=product.GlobalId, metadata=dict(props=props), ifc_ref=ifc_ref)
     return shp
 
 

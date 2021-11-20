@@ -104,6 +104,7 @@ def create_surface_from_nodes(surface_name: str, nodes: List[Node], fem: "FEM", 
         ElemType.SHELL: get_surface_from_nodes_on_shell_elements,
     }
     surf_writer = surf_map.get(el_type, None)
+
     if surf_writer is None:
         raise NotImplementedError(f'Currently Surface writing on element type "{el_type}" is not supported')
 

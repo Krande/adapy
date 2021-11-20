@@ -6,7 +6,7 @@ from typing import List, Union
 import gmsh
 import numpy as np
 
-from ada import FEM, Beam, Node, Pipe, Plate
+from ada import FEM, Beam, Node, Pipe, Plate, Shape
 from ada.concepts.transforms import Placement
 from ada.core.utils import make_name_fem_ready
 from ada.fem import Elem, FemSection, FemSet
@@ -17,7 +17,9 @@ from .common import gmsh_map
 from .concepts import GmshData
 
 
-def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Union[Beam, Plate, Pipe], gmsh_data: GmshData) -> None:
+def add_fem_sections(
+    model: gmsh.model, fem: FEM, model_obj: Union[Beam, Plate, Pipe, Shape], gmsh_data: GmshData
+) -> None:
     if type(model_obj) is Beam and gmsh_data.geom_repr == ElemType.SHELL:
         get_sh_sections_for_beam_obj(model, model_obj, gmsh_data, fem)
         return None
@@ -25,9 +27,15 @@ def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Union[Beam, Plate, 
     if type(model_obj) is Pipe and gmsh_data.geom_repr == ElemType.SHELL:
         get_sh_sections_for_pipe_obj(model, model_obj, gmsh_data, fem)
         return None
-
     if gmsh_data.geom_repr == ElemType.SHELL:
-        get_sh_sections_for_plate_obj(model, model_obj, gmsh_data, fem)
+        if isinstance(model_obj, Plate):
+            get_sh_sections_for_plate_obj(model, model_obj, gmsh_data, fem)
+        elif issubclass(type(model_obj), Shape):
+            get_sh_sections_for_shape_obj(model, model_obj, gmsh_data, fem)
+        else:
+            raise NotImplementedError(
+                f"Unsupported combination of geom_repr={gmsh_data.geom_repr}, and {type(model_obj)}"
+            )
     elif gmsh_data.geom_repr == ElemType.SOLID:
         get_so_sections(model, model_obj, gmsh_data, fem)
     elif gmsh_data.geom_repr == ElemType.LINE:
@@ -68,6 +76,30 @@ def get_sh_sections_for_pipe_obj(model: gmsh.model, model_obj: Pipe, gmsh_data: 
         add_shell_section(set_name, fem_sec_name, normal, thickness, elements, model_obj, fem)
 
 
+def get_sh_sections_for_shape_obj(model: gmsh.model, model_obj: Shape, gmsh_data: GmshData, fem: FEM):
+    from ada.core.utils import Counter
+
+    sides = Counter(1, "S")
+
+    for dim, ent in gmsh_data.entities:
+        _, tag, _ = model.mesh.getElements(2, ent)
+        _, _, param = model.mesh.getNodes(2, ent, True)
+
+        elements = [fem.elements.from_id(x) for x in chain.from_iterable(tag)]
+
+        thickness = 0.0
+        normal = np.array([0.0 if abs(x) == 0.0 else x for x in model.getNormal(ent, param)[:3]])
+        s = next(sides)
+        set_name = make_name_fem_ready(f"el{model_obj.name}{s}_sh")
+        fem_sec_name = make_name_fem_ready(f"d{model_obj.name}{s}_sh")
+
+        add_shell_section(set_name, fem_sec_name, normal, thickness, elements, model_obj, fem, is_rigid=True)
+
+    # Add a reference Point
+    cog = model_obj.bbox.volume_cog
+    fem.add_rp(f"{model_obj.name}_rp", Node(cog))
+
+
 def get_sh_sections_for_plate_obj(model: gmsh.model, model_obj: Plate, gmsh_data: GmshData, fem: FEM):
     tags = []
     for dim, ent in gmsh_data.entities:
@@ -86,10 +118,17 @@ def get_sh_sections_for_plate_obj(model: gmsh.model, model_obj: Plate, gmsh_data
 
 
 def add_shell_section(
-    set_name, fem_sec_name, normal, thickness, elements, model_obj: Union[Beam, Plate, Pipe], fem: FEM
+    set_name,
+    fem_sec_name,
+    normal,
+    thickness,
+    elements,
+    model_obj: Union[Beam, Plate, Pipe, Shape],
+    fem: FEM,
+    is_rigid=False,
 ):
     fem_set = FemSet(set_name, elements, FemSet.TYPES.ELSET)
-    props = dict(local_z=normal, thickness=thickness, int_points=5)
+    props = dict(local_z=normal, thickness=thickness, int_points=5, is_rigid=is_rigid)
     fem_sec = FemSection(fem_sec_name, ElemType.SHELL, fem_set, model_obj.material, **props)
     add_sec_to_fem(fem, fem_sec, fem_set)
 

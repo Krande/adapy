@@ -5,6 +5,7 @@ import logging
 import os
 import pathlib
 from dataclasses import dataclass
+from io import StringIO
 from itertools import chain
 from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 
@@ -48,6 +49,7 @@ if TYPE_CHECKING:
     from ada import Beam, Material, Plate, Section, Transform, Wall
     from ada.fem.meshing import GmshOptions
     from ada.fem.results import Results
+    from ada.ifc.concepts import IfcRef
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 
@@ -76,8 +78,11 @@ class Part(BackendGeom):
         units="m",
         ifc_elem=None,
         guid=None,
+        ifc_ref: "IfcRef" = None,
     ):
-        super().__init__(name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_elem=ifc_elem)
+        super().__init__(
+            name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_elem=ifc_elem, ifc_ref=ifc_ref
+        )
         self._nodes = Nodes(parent=self)
         self._beams = Beams(parent=self)
         self._plates = Plates(parent=self)
@@ -457,6 +462,7 @@ class Part(BackendGeom):
         mesh_size: float,
         bm_repr=ElemType.LINE,
         pl_repr=ElemType.SHELL,
+        shp_repr=ElemType.SOLID,
         options: "GmshOptions" = None,
         silent=True,
         interactive=False,
@@ -469,7 +475,6 @@ class Part(BackendGeom):
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
         masses: List[Shape] = []
         with GmshSession(silent=silent, options=options) as gs:
-            # TODO: Beam and plate nodes (and nodes at intersecting beams) are still not properly represented
             for obj in self.get_all_physical_objects():
                 if type(obj) is Beam:
                     gs.add_obj(obj, geom_repr=bm_repr.upper(), build_native_lines=False)
@@ -478,7 +483,7 @@ class Part(BackendGeom):
                 elif issubclass(type(obj), Shape) and obj.mass is not None:
                     masses.append(obj)
                 elif issubclass(type(obj), Shape):
-                    gs.add_obj(obj)
+                    gs.add_obj(obj, geom_repr=shp_repr.upper())
                 else:
                     logging.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
 
@@ -858,7 +863,8 @@ class Assembly(Part):
             if self._from_cache(ifc_file) is True:
                 return None
 
-        a = read_ifc_file(ifc_file, self.ifc_settings, elements2part, data_only)
+        settings = self.ifc_settings
+        a = read_ifc_file(ifc_file, settings, elements2part, data_only)
 
         self.__add__(a)
 
@@ -921,6 +927,7 @@ class Assembly(Part):
         run_in_shell=False,
         make_zip_file=False,
         import_result_mesh=False,
+        writable_obj: StringIO = None,
     ) -> "Results":
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.

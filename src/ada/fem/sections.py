@@ -43,6 +43,7 @@ class FemSection(FemBase):
         parent=None,
         refs=None,
         sec_id=None,
+        is_rigid=False,
     ):
         super().__init__(name, metadata, parent)
         if sec_type is None:
@@ -69,6 +70,7 @@ class FemSection(FemBase):
         self._thickness = thickness
         self._int_points = int_points
         self._refs = refs
+        self._is_rigid = is_rigid
 
     def __hash__(self):
         return hash(f"{self.name}{self.id}")

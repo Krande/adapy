@@ -112,27 +112,21 @@ class GmshSession:
             ents = self.model.occ.importShapes(str(temp_dir / f"{name}.stp"))
             return ents
 
-        if issubclass(type(obj), Shape) and geom_repr != ElemType.SOLID:
-            logging.info(f"geom_repr for object type {type(obj)} must be solid. Changing to that now")
-            geom_repr = ElemType.SOLID
+        # if issubclass(type(obj), Shape) and geom_repr != ElemType.SOLID:
+        #     logging.info(f"geom_repr for object type {type(obj)} must be solid. Changing to that now")
+        #     geom_repr = ElemType.SOLID
 
         if build_native_lines is True and geom_repr == ElemType.LINE and type(obj) is Beam:
-            # midpoints = obj.calc_con_points()
             entities = build_bm_lines(self.model, obj, point_tol)
-            # if len(midpoints) > 0:
-            #
-            # else:
-            #     entities = export_as_step(obj)
         else:
             entities = export_as_step(obj)
-        #
-        # self.model.geo.synchronize()
-        # self.model.occ.synchronize()
+
         obj_name = Counter(1, f"{obj.name}_")
         for dim, ent in entities:
             ent_name = next(obj_name)
             self.model.set_physical_name(dim, ent, ent_name)
             self.model.set_entity_name(dim, ent, ent_name)
+
         self.model.occ.synchronize()
         self.model.geo.synchronize()
 
