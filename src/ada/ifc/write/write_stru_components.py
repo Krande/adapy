@@ -16,7 +16,8 @@ def write_door(f, owner_history, insert_placement, insert_shape):
 
 
 def write_window(f, owner_history, insert_placement, insert_shape):
-    return f.createIfcWindow(
+    return f.create_entity(
+        "IfcWindow",
         create_guid(),
         owner_history,
         "Window",
