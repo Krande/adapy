@@ -31,6 +31,7 @@ from ada.concepts.primitives import (
 )
 from ada.concepts.transforms import Placement
 from ada.config import Settings, User
+from ada.core.utils import Counter
 from ada.fem import (
     Connector,
     Csys,
@@ -735,6 +736,9 @@ class Assembly(Part):
         self._source_ifc_files = dict()
         self._ifc_settings = ifc_settings
         self._presentation_layers = []
+        self._bm_name = Counter(1, "bm")
+        self._pl_name = Counter(1, "pl")
+        self._shp_name = Counter(1, "shp")
 
         # Model Cache
         if enable_experimental_cache is None:
@@ -1115,6 +1119,18 @@ class Assembly(Part):
     @property
     def convert_options(self) -> _ConvertOptions:
         return self._convert_options
+
+    @property
+    def bm_name_gen(self) -> Counter:
+        return self._bm_name
+
+    @property
+    def pl_name_gen(self) -> Counter:
+        return self._pl_name
+
+    @property
+    def shp_name_gen(self) -> Counter:
+        return self._shp_name
 
     def __add__(self, other: Union[Assembly, Part]):
         for interface_n in other.fem.interface_nodes:

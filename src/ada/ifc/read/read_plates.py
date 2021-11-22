@@ -5,20 +5,22 @@ from ada import Assembly, Placement, Plate
 from ..concepts import IfcRef
 from .read_curves import import_indexedpolycurve, import_polycurve
 from .read_materials import read_material
-from .reader_utils import get_associated_material, get_name, getIfcPropertySets
+from .reader_utils import get_associated_material
 
 
 def import_ifc_plate(ifc_elem, ifc_ref: IfcRef, assembly: Assembly) -> Plate:
-    props = getIfcPropertySets(ifc_elem)
-    name = get_name(ifc_elem)
+    name = ifc_elem.Name
+    if name is None:
+        name = next(assembly.pl_name_gen)
+
     logging.info(f"importing {name}")
     ifc_mat = get_associated_material(ifc_elem)
     mat = None
     if assembly is not None:
-        mat = assembly.get_by_name(ifc_mat.Name)
+        mat = assembly.get_by_name(name)
 
     if mat is None:
-        mat = read_material(ifc_mat)
+        mat = read_material(ifc_mat, ifc_ref)
 
     # TODO: Fix interpretation of IfcIndexedPolyCurve. Should pass origin to get actual 2d coordinates.
     # Adding Axis information
@@ -51,6 +53,4 @@ def import_ifc_plate(ifc_elem, ifc_ref: IfcRef, assembly: Assembly) -> Plate:
 
     placement = Placement(origin, xdir=xdir, zdir=normal)
 
-    return Plate(
-        name, nodes2d, t, mat=mat, placement=placement, guid=ifc_elem.GlobalId, metadata=props, ifc_ref=ifc_ref
-    )
+    return Plate(name, nodes2d, t, mat=mat, placement=placement, guid=ifc_elem.GlobalId, ifc_ref=ifc_ref)

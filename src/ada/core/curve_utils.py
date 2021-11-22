@@ -14,7 +14,7 @@ from .vector_utils import (
     intersect_calc,
     intersection_point,
     linear_2dtransform_rotate,
-    local_2_global_nodes,
+    local_2_global_points,
     normal_to_points_in_plane,
     unit_vector,
     vector_length_2d,
@@ -734,7 +734,7 @@ def get_center_from_3_points_and_radius(p1, p2, p3, radius):
     else:
         locn = global_2_local_nodes([xv, yv], p1, points)
         res_loc = calc_2darc_start_end_from_lines_radius(*locn, radius)
-        res_glob = local_2_global_nodes(res_loc, p1, xv, n)
+        res_glob = local_2_global_points(res_loc, p1, xv, n)
     center, start, end, midp = res_glob
 
     return center, start, end, midp

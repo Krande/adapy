@@ -1,20 +1,21 @@
-import logging
-
 import numpy as np
 
 from ada import Assembly, Beam
-from ada.core.vector_utils import unit_vector
+from ada.core.vector_utils import calc_yvec, transform3d
 
 from ..concepts import IfcRef
 from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
-from .reader_utils import get_associated_material, get_name, getIfcPropertySets
+from .reader_utils import get_associated_material
 
 
 def import_ifc_beam(ifc_elem, ifc_ref: IfcRef, assembly: Assembly = None) -> Beam:
-    name = get_name(ifc_elem)
-    logging.info(f"importing {name}")
-    props = getIfcPropertySets(ifc_elem)
+    from ada.core.constants import X, Y
+
+    name = ifc_elem.Name
+    if name is None:
+        name = next(assembly.bm_name_gen)
+
     ass = get_associated_material(ifc_elem)
     sec = None
     mat = None
@@ -42,14 +43,21 @@ def import_ifc_beam(ifc_elem, ifc_ref: IfcRef, assembly: Assembly = None) -> Bea
     elif axis.is_a("IfcTrimmedCurve"):
         raise NotImplementedError("Reading beams swept along IfcTrimmedCurve is not yet supported")
 
-    p1 = axis.Points[0].Coordinates
-    p2 = axis.Points[1].Coordinates
+    p1_loc = axis.Points[0].Coordinates
+    p2_loc = axis.Points[1].Coordinates
 
-    yvec = ifc_elem.ObjectPlacement.RelativePlacement.RefDirection.DirectionRatios
-    xvec = unit_vector(np.array(p2) - np.array(p1))
-    zvec = np.cross(xvec, yvec)
+    ifc_axis_2_place3d = ifc_elem.ObjectPlacement.RelativePlacement
+    origin = ifc_axis_2_place3d.Location.Coordinates
 
-    return Beam(name, p1, p2, sec, mat, up=zvec, guid=ifc_elem.GlobalId, metadata=props, ifc_ref=ifc_ref)
+    local_z = np.array(ifc_axis_2_place3d.Axis.DirectionRatios)
+    local_x = np.array(ifc_axis_2_place3d.RefDirection.DirectionRatios)
+    local_y = calc_yvec(local_x, local_z)
+
+    res = transform3d([local_x, local_y], [X, Y], origin, [p1_loc, p2_loc])
+
+    p1, p2 = res
+
+    return Beam(name, p1, p2, sec, mat, up=local_y, guid=ifc_elem.GlobalId, ifc_ref=ifc_ref)
 
 
 def get_beam_geom(ifc_elem, ifc_settings):

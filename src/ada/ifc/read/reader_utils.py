@@ -30,8 +30,10 @@ def getIfcPropertySets(ifcelem):
         for prop in property_set.HasProperties:
             if prop.is_a("IfcPropertySingleValue") is False:
                 continue
+
             res = prop.NominalValue.wrappedValue
             props[pset_name][prop.Name] = res
+
     return props
 
 
@@ -108,7 +110,9 @@ def get_org(f, org_id):
 
 
 def add_to_assembly(assembly, obj, ifc_parent, elements2part):
-    parent_name = ifc_parent.Name if ifc_parent.Name is not None else get_name(ifc_parent)
+    if ifc_parent.Name is None:
+        raise ValueError(f'Name of ifc element "{ifc_parent}" is None')
+    parent_name = ifc_parent.Name
     imported = False
     if elements2part is not None:
         add_to_parent(assembly, obj)

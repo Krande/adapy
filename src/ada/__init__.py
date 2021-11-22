@@ -32,6 +32,8 @@ __author__ = "Kristoffer H. Andersen"
 
 
 def from_ifc(ifc_file: Union[str, pathlib.Path]) -> Assembly:
+    ifc_file = pathlib.Path(ifc_file).resolve().absolute()
+    print(f'Reading "{ifc_file}"')
     a = Assembly()
     a.read_ifc(ifc_file)
     return a

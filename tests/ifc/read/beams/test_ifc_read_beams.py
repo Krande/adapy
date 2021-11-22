@@ -11,8 +11,8 @@ def test_read_standard_case_beams(example_files, ifc_test_dir):
 
 def test_read_extruded_solid_beams(example_files, ifc_test_dir):
     a = ada.from_ifc(example_files / "ifc_files/beams/beam-extruded-solid.ifc")
-    p = a.get_part("Building")
-    assert len(p.beams) == 18
+    p = a.get_part("Grasshopper Building")
+    assert len(p.beams) == 1
     bm = p.beams[0]
     print(bm)
 

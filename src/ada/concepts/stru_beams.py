@@ -162,7 +162,7 @@ class Beam(BackendGeom):
     def get_outer_points(self):
         from itertools import chain
 
-        from ada.core.vector_utils import local_2_global_nodes
+        from ada.core.vector_utils import local_2_global_points
 
         section_profile = self.section.get_section_profile(False)
         if section_profile.disconnected:
@@ -175,8 +175,8 @@ class Beam(BackendGeom):
         p1 = self.n1.p
         p2 = self.n2.p
 
-        nodes_p1 = local_2_global_nodes(ot, p1, yv, xv)
-        nodes_p2 = local_2_global_nodes(ot, p2, yv, xv)
+        nodes_p1 = local_2_global_points(ot, p1, yv, xv)
+        nodes_p2 = local_2_global_points(ot, p2, yv, xv)
 
         return nodes_p1, nodes_p2
 

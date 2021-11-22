@@ -3,7 +3,7 @@ import numpy as np
 from ada.core.utils import roundoff
 from ada.core.vector_utils import (
     global_2_local_nodes,
-    local_2_global_nodes,
+    local_2_global_points,
     rotation_matrix_csys_rotate,
 )
 
@@ -19,7 +19,7 @@ def test_roundtrip_global_coords_2_local():
     point = (2, -0.3, 2)
 
     loc_points = global_2_local_nodes(csys2, origin, [point])
-    glob_points = local_2_global_nodes(loc_points, origin, xvec, normal)
+    glob_points = local_2_global_points(loc_points, origin, xvec, normal)
     ev1 = tuple([roundoff(x) for x in glob_points[0]])
     ev2 = tuple([float(x) for x in point])
     assert ev1 == ev2

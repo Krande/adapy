@@ -1,7 +1,9 @@
+from ifcopenshell.util.element import get_psets
+
 from ada import Assembly, Part
 
 from ..concepts import IfcRef
-from .reader_utils import get_name, get_parent, getIfcPropertySets
+from .reader_utils import get_parent
 
 
 def read_hierarchy(f, a: Assembly, ifc_ref: IfcRef):
@@ -22,7 +24,8 @@ def import_ifc_hierarchy(assembly: Assembly, product, ifc_ref: IfcRef):
     pp = get_parent(product)
     if pp is None:
         return None, None
-    name = get_name(product)
+    props = get_psets(product)
+    name = product.Name
     if pr_type not in [
         "IfcBuilding",
         "IfcSpace",
@@ -30,7 +33,7 @@ def import_ifc_hierarchy(assembly: Assembly, product, ifc_ref: IfcRef):
         "IfcSpatialZone",
     ]:
         return None, None
-    props = getIfcPropertySets(product)
+
     new_part = Part(name, metadata=dict(original_name=name, props=props), guid=product.GlobalId, ifc_ref=ifc_ref)
     res = assembly.get_by_name(pp.Name)
     return res, new_part

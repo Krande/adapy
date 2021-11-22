@@ -561,7 +561,7 @@ def scale_ifc_file_object(ifc_file, scale_factor):
                 old_val = getattr(element, attribute)
                 if old_val is None:
                     continue
-                setattr(element, attribute, scale_all(old_val, scale_factor))
+                # setattr(element, attribute, scale_all(old_val, scale_factor))
                 # new_val = getattr(element, attribute)
     return ifc_file
 

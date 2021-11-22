@@ -447,13 +447,13 @@ def global_2_local_nodes(csys, origin, nodes):
     return res
 
 
-def local_2_global_nodes(nodes, origin, xdir, normal):
+def local_2_global_points(points, origin, xdir, normal):
     """
-    A method for converting a list of nodes (points) in a 2d coordinate system to global 3d coordinates
+    A method for converting a list of points in a 2d coordinate system to global 3d coordinates
 
     :param normal: Normal to 2d plane
     :param origin: Origin of local coordinate system
-    :param nodes: List of points in 2d coordinate system
+    :param points: List of points in 2d coordinate system
     :param xdir: Local X-direction
     :return:
     """
@@ -463,15 +463,22 @@ def local_2_global_nodes(nodes, origin, xdir, normal):
     if type(origin) is Node:
         origin = origin.p
 
-    if type(nodes[0]) is Node:
-        nodes = [no.p for no in nodes]
+    if type(points[0]) is Node:
+        points = [no.p for no in points]
 
-    nodes = [np.array(n, dtype=np.float64) if len(n) == 3 else np.array(list(n) + [0], dtype=np.float64) for n in nodes]
+    points = [
+        np.array(n, dtype=np.float64) if len(n) == 3 else np.array(list(n) + [0], dtype=np.float64) for n in points
+    ]
     yvec = calc_yvec(xdir, normal)
 
-    rmat = rotation_matrix_csys_rotate([xdir, yvec], [X, Y], inverse=True)
+    return transform3d([xdir, yvec], [X, Y], origin, points)
 
-    return [np.array(origin, dtype=np.float64) + np.dot(rmat, n) for n in nodes]
+
+def transform3d(csys_1, csys_2, origin, points):
+    """Transform points between coordinate systems"""
+    rmat = rotation_matrix_csys_rotate(csys_1, csys_2, inverse=True)
+
+    return [np.array(origin, dtype=np.float64) + np.dot(rmat, n) for n in points]
 
 
 def normal_to_points_in_plane(points):
