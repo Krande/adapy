@@ -28,7 +28,7 @@ def import_ifc_beam(ifc_elem, ifc_ref: IfcRef, assembly: Assembly = None) -> Bea
         sec = import_section_from_ifc(ass.Profile)
 
     if mat is None:
-        mat = read_material(ass, ifc_ref)
+        mat = read_material(ass, ifc_ref, assembly)
 
     axes = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Axis"]
 
@@ -57,7 +57,7 @@ def import_ifc_beam(ifc_elem, ifc_ref: IfcRef, assembly: Assembly = None) -> Bea
 
     p1, p2 = res
 
-    return Beam(name, p1, p2, sec, mat, up=local_y, guid=ifc_elem.GlobalId, ifc_ref=ifc_ref)
+    return Beam(name, p1, p2, sec, mat, up=local_y, guid=ifc_elem.GlobalId, ifc_ref=ifc_ref, units=assembly.units)
 
 
 def get_beam_geom(ifc_elem, ifc_settings):

@@ -4,7 +4,7 @@ import pathlib
 from ifcopenshell.util.element import get_psets
 
 from ada import Assembly
-from ada.ifc.utils import scale_ifc_file
+from ada.ifc.utils import get_unit_type
 
 from ..concepts import IfcRef
 from .read_beams import import_ifc_beam
@@ -21,13 +21,11 @@ def read_ifc_file(ifc_file, ifc_settings, elements2part=False, data_only=False) 
         raise FileNotFoundError(f'Unable to find "{ifc_file}"')
 
     ifc_ref = IfcRef(ifc_file)
-    a = Assembly("TempAssembly")
-    a.ifc_settings = ifc_settings
-    f = open_ifc(ifc_file)
 
-    scaled_ifc = scale_ifc_file(a.ifc_file, f)
-    if scaled_ifc is not None:
-        f = scaled_ifc
+    f = open_ifc(ifc_file)
+    unit = get_unit_type(f)
+    a = Assembly("TempAssembly", units=unit)
+    a.ifc_settings = ifc_settings
 
     # Get hierarchy
     if elements2part is None:

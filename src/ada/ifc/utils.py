@@ -485,7 +485,18 @@ def calculate_unit_scale(file):
             unit = unit.ConversionFactor.UnitComponent
         if unit.is_a("IfcSIUnit"):
             unit_scale *= get_prefix_multiplier(unit.Prefix)
+
     return unit_scale
+
+
+def get_unit_type(file):
+    value = calculate_unit_scale(file)
+    if value == 0.001:
+        return "mm"
+    elif value == 1:
+        return "m"
+    else:
+        raise NotImplementedError(f'Unit scale of "{value}" is not yet supported')
 
 
 def scale_ifc_file_object(ifc_file, scale_factor):

@@ -34,6 +34,12 @@ def import_ifc_hierarchy(assembly: Assembly, product, ifc_ref: IfcRef):
     ]:
         return None, None
 
-    new_part = Part(name, metadata=dict(original_name=name, props=props), guid=product.GlobalId, ifc_ref=ifc_ref)
+    new_part = Part(
+        name,
+        metadata=dict(original_name=name, props=props),
+        guid=product.GlobalId,
+        ifc_ref=ifc_ref,
+        units=assembly.units,
+    )
     res = assembly.get_by_name(pp.Name)
     return res, new_part

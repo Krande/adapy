@@ -12,7 +12,7 @@ def import_ifc_shape(product, ifc_ref: IfcRef, assembly: Assembly):
     if name is None:
         name = next(assembly.shp_name_gen)
     logging.info(f'importing Shape "{name}"')
-    return Shape(name, None, guid=product.GlobalId, ifc_ref=ifc_ref)
+    return Shape(name, None, guid=product.GlobalId, ifc_ref=ifc_ref, units=assembly.units)
 
 
 def get_ifc_geometry(ifc_elem, settings):

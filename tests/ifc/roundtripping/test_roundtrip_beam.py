@@ -14,5 +14,8 @@ def test_roundtrip_ipe_beam(bm_ipe300, ifc_test_dir):
     assert bm.name == "MyIPE300"
     assert sec.type == "IPE"
 
+    assert tuple(bm.n1.p) == tuple(bm_ipe300.n1.p)
+    assert tuple(bm.n2.p) == tuple(bm_ipe300.n2.p)
+
     # p.fem = bm.to_fem_obj(0.1, "shell")
     # a.to_fem("MyFEM_from_ifc_file", "usfos", overwrite=True)

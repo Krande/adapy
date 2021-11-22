@@ -647,6 +647,7 @@ class Part(BackendGeom):
             self.sections.units = value
             self.materials.units = value
             self._units = value
+
             if type(self) is Assembly:
                 assert isinstance(self, Assembly)
                 from ada.ifc.utils import assembly_to_ifc_file
@@ -1133,6 +1134,9 @@ class Assembly(Part):
         return self._shp_name
 
     def __add__(self, other: Union[Assembly, Part]):
+        if other.units != self.units:
+            other.units = self.units
+
         for interface_n in other.fem.interface_nodes:
             n = interface_n.node
             for p in self.get_all_parts_in_assembly(True):

@@ -1,7 +1,9 @@
+from typing import List
+
 import numpy as np
 
 
-def linear_2dtransform_rotate(origin, point, degrees):
+def linear_2dtransform_rotate(origin, point, degrees) -> np.ndarray:
     """
     Rotate
 
@@ -474,7 +476,7 @@ def local_2_global_points(points, origin, xdir, normal):
     return transform3d([xdir, yvec], [X, Y], origin, points)
 
 
-def transform3d(csys_1, csys_2, origin, points):
+def transform3d(csys_1, csys_2, origin, points) -> List[np.ndarray]:
     """Transform points between coordinate systems"""
     rmat = rotation_matrix_csys_rotate(csys_1, csys_2, inverse=True)
 

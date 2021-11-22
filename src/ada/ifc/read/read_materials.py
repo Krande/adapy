@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from ..concepts import IfcRef
 
 
-def read_material(ifc_mat, ifc_ref: "IfcRef") -> Material:
+def read_material(ifc_mat, ifc_ref: "IfcRef", assembly: "Assembly") -> Material:
     from ada.materials.metals import CarbonSteel, Metal
 
     mat_psets = ifc_mat.HasProperties
@@ -27,6 +27,7 @@ def read_material(ifc_mat, ifc_ref: "IfcRef") -> Material:
         v=props.get("PoissonRatio", 0.3),
         alpha=props.get("ThermalExpansionCoefficient", 1.2e-5),
         zeta=props.get("SpecificHeatCapacity", 1.15),
+        units=assembly.units,
     )
 
     if "StrengthGrade" in props:
@@ -34,11 +35,10 @@ def read_material(ifc_mat, ifc_ref: "IfcRef") -> Material:
     else:
         mat_model = Metal(sig_u=None, **mat_props)
 
-    return Material(name=ifc_mat.Name, mat_model=mat_model, ifc_ref=ifc_ref)
+    return Material(name=ifc_mat.Name, mat_model=mat_model, ifc_ref=ifc_ref, units=assembly.units)
 
 
 def read_ifc_materials(f, a: Assembly, ifc_ref: "IfcRef"):
     for ifc_mat in f.by_type("IfcMaterial"):
-        mat = a.add_material(read_material(ifc_mat, ifc_ref))
-
-        print(mat)
+        mat = a.add_material(read_material(ifc_mat, ifc_ref, a))
+        logging.info(f'Importing material "{mat}"')

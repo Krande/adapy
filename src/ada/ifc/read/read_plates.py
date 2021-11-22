@@ -20,7 +20,7 @@ def import_ifc_plate(ifc_elem, ifc_ref: IfcRef, assembly: Assembly) -> Plate:
         mat = assembly.get_by_name(name)
 
     if mat is None:
-        mat = read_material(ifc_mat, ifc_ref)
+        mat = read_material(ifc_mat, ifc_ref, assembly)
 
     # TODO: Fix interpretation of IfcIndexedPolyCurve. Should pass origin to get actual 2d coordinates.
     # Adding Axis information
@@ -53,4 +53,6 @@ def import_ifc_plate(ifc_elem, ifc_ref: IfcRef, assembly: Assembly) -> Plate:
 
     placement = Placement(origin, xdir=xdir, zdir=normal)
 
-    return Plate(name, nodes2d, t, mat=mat, placement=placement, guid=ifc_elem.GlobalId, ifc_ref=ifc_ref)
+    return Plate(
+        name, nodes2d, t, mat=mat, placement=placement, guid=ifc_elem.GlobalId, ifc_ref=ifc_ref, units=assembly.units
+    )
