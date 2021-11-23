@@ -1,5 +1,5 @@
 import logging
-from typing import Tuple
+from typing import TYPE_CHECKING, Tuple
 
 import ifcopenshell
 import ifcopenshell.geom
@@ -10,10 +10,10 @@ from ifcopenshell.util.unit import get_prefix_multiplier
 import ada.core.constants as ifco
 from ada.concepts.transforms import Transform
 from ada.config import Settings
-from ada.core.utils import Counter, get_list_of_files, roundoff
+from ada.core.utils import get_list_of_files, roundoff
 
-name_gen = Counter(1, "IfcEl")
-tol_map = dict(m=Settings.mtol, mm=Settings.mmtol)
+if TYPE_CHECKING:
+    from ada import Beam
 
 
 def ifc_dir(f: ifcopenshell.file, vec: Tuple[float, float, float]):
@@ -21,6 +21,7 @@ def ifc_dir(f: ifcopenshell.file, vec: Tuple[float, float, float]):
 
 
 def get_tolerance(units):
+    tol_map = dict(m=Settings.mtol, mm=Settings.mmtol)
     if units not in tol_map.keys():
         raise ValueError(f'Unrecognized unit "{units}"')
     return tol_map[units]
@@ -640,7 +641,7 @@ def merge_ifc_files(parent_dir, output_file_name, clean_files=False, include_ele
     print(f"File written in {time.time() - checkpoint:.2f} seconds")
 
 
-def convert_bm_jusl_to_ifc(bm):
+def convert_bm_jusl_to_ifc(bm: "Beam") -> int:
     """
     IfcCardinalPointReference
 
@@ -666,10 +667,6 @@ def convert_bm_jusl_to_ifc(bm):
     19.     top in line with the shear centre
 
     https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/schema/ifcmaterialresource/lexical/ifccardinalpointreference.htm
-
-    :param bm:
-    :type bm: ada.Beam
-    :return:
     """
     jusl = bm.jusl
     jt = bm.JUSL_TYPES

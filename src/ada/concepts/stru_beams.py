@@ -347,6 +347,19 @@ class Beam(BackendGeom):
         return self._up
 
     @property
+    def xvec_e(self) -> np.ndarray:
+        """Local X-vector (including eccentricities)"""
+        if self.e1 is not None:
+            p1 = np.array([float(x) + float(self.e1[i]) for i, x in enumerate(self.n1.p)])
+        else:
+            p1 = self.n1.p
+        if self.e2 is not None:
+            p2 = np.array([float(x) + float(self.e2[i]) for i, x in enumerate(self.n2.p)])
+        else:
+            p2 = self.n2.p
+        return unit_vector(p2 - p1)
+
+    @property
     def n1(self) -> Node:
         return self._n1
 

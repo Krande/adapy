@@ -18,7 +18,7 @@ class Node:
         self, p: Iterable[numeric, numeric, numeric], nid=None, bc=None, r=None, parent=None, units="m", refs=None
     ):
         self._id = nid
-        self.p = np.array([*p], dtype=np.float64) if type(p) != np.ndarray else p
+        self.p: np.ndarray = np.array([*p], dtype=np.float64) if type(p) != np.ndarray else p
         if len(self.p) != 3:
             raise ValueError("Node object must have exactly 3 coordinates (x, y, z).")
         self._bc = bc
@@ -66,10 +66,11 @@ class Node:
     @units.setter
     def units(self, value):
         if value != self._units:
-            from ada.core.utils import unit_length_conversion
+            from ada.core.utils import roundoff, unit_length_conversion
 
             scale_factor = unit_length_conversion(self._units, value)
-            self.p *= scale_factor
+            self.p = np.array([roundoff(scale_factor * x) for x in self.p])
+
             if self._r is not None:
                 self._r *= scale_factor
             self._units = value

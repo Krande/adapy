@@ -355,6 +355,7 @@ def build_section_profile(sec: Section, is_solid) -> SectionProfile:
     build_map = {
         sec_type.ANGULAR: profile_builder.angular,
         sec_type.IPROFILE: profile_builder.iprofiles,
+        sec_type.TPROFILE: profile_builder.tprofiles,
         sec_type.BOX: profile_builder.box,
         sec_type.FLATBAR: profile_builder.flatbar,
         sec_type.CHANNEL: profile_builder.channel,

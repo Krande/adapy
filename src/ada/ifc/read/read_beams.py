@@ -1,7 +1,7 @@
 import numpy as np
 
 from ada import Assembly, Beam
-from ada.core.vector_utils import calc_yvec, transform3d
+from ada.core.vector_utils import calc_yvec, vector_length
 
 from ..concepts import IfcRef
 from .read_beam_section import import_section_from_ifc
@@ -10,8 +10,6 @@ from .reader_utils import get_associated_material
 
 
 def import_ifc_beam(ifc_elem, ifc_ref: IfcRef, assembly: Assembly = None) -> Beam:
-    from ada.core.constants import X, Y
-
     name = ifc_elem.Name
     if name is None:
         name = next(assembly.bm_name_gen)
@@ -25,7 +23,7 @@ def import_ifc_beam(ifc_elem, ifc_ref: IfcRef, assembly: Assembly = None) -> Bea
         mat = assembly.get_by_name(ass.Material.Name)
 
     if sec is None:
-        sec = import_section_from_ifc(ass.Profile)
+        sec = import_section_from_ifc(ass.Profile, units=assembly.units)
 
     if mat is None:
         mat = read_material(ass, ifc_ref, assembly)
@@ -53,9 +51,11 @@ def import_ifc_beam(ifc_elem, ifc_ref: IfcRef, assembly: Assembly = None) -> Bea
     local_x = np.array(ifc_axis_2_place3d.RefDirection.DirectionRatios)
     local_y = calc_yvec(local_x, local_z)
 
-    res = transform3d([local_x, local_y], [X, Y], origin, [p1_loc, p2_loc])
+    # res = transform3d([local_x, local_y, local_z], [X, Y], origin, [p1_loc, p2_loc])
+    vlen = vector_length(np.array(p2_loc) - np.array(p1_loc))
 
-    p1, p2 = res
+    p1 = origin
+    p2 = np.array(p1) + local_z * vlen
 
     return Beam(name, p1, p2, sec, mat, up=local_y, guid=ifc_elem.GlobalId, ifc_ref=ifc_ref, units=assembly.units)
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Union
+from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
@@ -14,6 +14,9 @@ from ada.sections.utils import get_section
 
 from .curves import ArcSegment
 from .points import Node
+
+if TYPE_CHECKING:
+    from ada import Section
 
 
 class Pipe(BackendGeom):
@@ -166,12 +169,7 @@ class Pipe(BackendGeom):
         return roundoff(d + corr_t / 2.0)
 
     @property
-    def section(self):
-        """
-
-        :return:
-        :rtype: Section
-        """
+    def section(self) -> "Section":
         return self._section
 
     @property

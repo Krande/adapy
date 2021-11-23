@@ -45,3 +45,18 @@ def example_files(this_dir) -> pathlib.Path:
 def test_shell_beam() -> ada.Assembly:
     bm = ada.Beam("Bm", (0, 0, 0), (1, 0, 0), "IPE300")
     return ada.Assembly("MyAssembly") / (ada.Part("MyPart", fem=bm.to_fem_obj(0.1, "shell")) / bm)
+
+
+@pytest.fixture
+def plate1():
+    return ada.Plate("MyPlate", [(0, 0), (1, 0), (1, 1), (0, 1)], 20e-3)
+
+
+@pytest.fixture
+def bm_ipe300():
+    return ada.Beam("MyIPE300", (0, 0, 0), (5, 0, 0), "IPE300")
+
+
+@pytest.fixture
+def pipe1():
+    return ada.Pipe("MyPipe", [(0, 0, 0), (1, 0, 0), (1, 0.2)])

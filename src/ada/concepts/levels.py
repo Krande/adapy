@@ -615,27 +615,20 @@ class Part(BackendGeom):
 
     @units.setter
     def units(self, value):
-        from ada import Beam, Pipe, Plate, Shape, Wall
-
         if value != self._units:
             for bm in self.beams:
-                assert isinstance(bm, Beam)
                 bm.units = value
 
             for pl in self.plates:
-                assert isinstance(pl, Plate)
                 pl.units = value
 
             for pipe in self._pipes:
-                assert isinstance(pipe, Pipe)
                 pipe.units = value
 
             for shp in self._shapes:
-                assert isinstance(shp, Shape)
                 shp.units = value
 
             for wall in self.walls:
-                assert isinstance(wall, Wall)
                 wall.units = value
 
             for pen in self.penetrations:

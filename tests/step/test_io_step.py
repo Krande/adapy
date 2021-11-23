@@ -1,7 +1,7 @@
 import pytest
 
+import ada
 from ada import Beam, CurvePoly, Section
-from ada.param_models.basic_module import make_it_complex
 
 
 @pytest.fixture
@@ -20,6 +20,6 @@ def test_advanced_beam(test_step_dir):
     bm.to_stp(test_step_dir / "MySimpleBeamPoly.stp")
 
 
-def test_complex_stru(test_step_dir):
-    a = make_it_complex()
-    a.to_stp(test_step_dir / "MyComplexStru.stp")
+def test_plate1_w_hole(test_step_dir, plate1):
+    plate1.add_penetration(ada.PrimCyl("MyPen", (0.5, 0.5, -0.2), (0.5, 0.5, 0.2), 0.2))
+    plate1.to_stp(test_step_dir / "MyPlateWithHole.stp")

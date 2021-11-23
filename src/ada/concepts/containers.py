@@ -483,13 +483,15 @@ class Materials(NumericMapped):
 
 
 class Sections(NumericMapped):
-    def __init__(self, sections: Iterable[Section] = None, unique_ids=True, parent: Union["Part", "Assembly"] = None):
+    def __init__(
+        self, sections: Iterable[Section] = None, unique_ids=True, parent: Union["Part", "Assembly"] = None, units="m"
+    ):
         sec_id = Counter(1)
         super(Sections, self).__init__(parent=parent)
         sections = [] if sections is None else sections
         if unique_ids:
             sections = list(toolz.unique(sections, key=attrgetter("name")))
-
+        self._units = units
         self._sections = sorted(sections, key=attrgetter("name"))
 
         def section_id_maker(section: Section) -> Section:
@@ -618,6 +620,17 @@ class Sections(NumericMapped):
     @property
     def sections(self) -> List[Section]:
         return self._sections
+
+    @property
+    def units(self):
+        return self._units
+
+    @units.setter
+    def units(self, value):
+        if value != self._units:
+            for m in self._sections:
+                m.units = value
+            self._units = value
 
 
 class Nodes:

@@ -1,3 +1,9 @@
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ada import Section
+
+
 class BaseTypes:
     BOX = "BOX"
     TUBULAR = "TUB"
@@ -8,6 +14,7 @@ class BaseTypes:
     CIRCULAR = "CIRC"
     GENERAL = "GENERAL"
     FLATBAR = "FB"
+    POLY = "poly"
 
 
 class SectionCat:
@@ -26,6 +33,7 @@ class SectionCat:
     circular = [BASETYPES.CIRCULAR]
     general = [BASETYPES.GENERAL, "GENBEAM"]
     flatbar = [BASETYPES.FLATBAR]
+    poly = ["POLY"]
 
     @classmethod
     def isbeam(cls, bmtype):
@@ -57,6 +65,7 @@ class SectionCat:
             (cls.is_tubular_profile, cls.BASETYPES.TUBULAR),
             (cls.is_circular_profile, cls.BASETYPES.CIRCULAR),
             (cls.is_general, cls.BASETYPES.GENERAL),
+            (cls.is_poly, cls.BASETYPES.POLY),
         ]
 
         for type_func, return_type in type_map:
@@ -100,11 +109,9 @@ class SectionCat:
         return True if cls._get_sec_type(bmtype) in cls.angular else False
 
     @classmethod
-    def is_strong_axis_symmetric(cls, section):
-        """
+    def is_poly(cls, bmtype):
+        return True if cls._get_sec_type(bmtype) in cls.poly else False
 
-        :param section:
-        :type section: ada.Section
-        :return:
-        """
+    @classmethod
+    def is_strong_axis_symmetric(cls, section: "Section"):
         return section.w_top == section.w_btn and section.t_ftop == section.t_fbtn
