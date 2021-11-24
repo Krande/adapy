@@ -1,8 +1,9 @@
+import logging
+from typing import Union
+
 import ifcopenshell
 import ifcopenshell.geom
-import logging
 from ifcopenshell.util.element import get_psets
-from typing import Union
 
 from ada.config import Settings
 

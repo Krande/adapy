@@ -1,9 +1,11 @@
 import logging
+
 from ifcopenshell.util.element import get_psets
 
 from ada import Assembly, Part
-from .reader_utils import get_parent, resolve_name
+
 from ..concepts import IfcRef
+from .reader_utils import get_parent, resolve_name
 
 
 def read_hierarchy(f, a: Assembly, ifc_ref: IfcRef):
