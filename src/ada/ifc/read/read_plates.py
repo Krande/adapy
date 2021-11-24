@@ -8,11 +8,7 @@ from .read_materials import read_material
 from .reader_utils import get_associated_material
 
 
-def import_ifc_plate(ifc_elem, ifc_ref: IfcRef, assembly: Assembly) -> Plate:
-    name = ifc_elem.Name
-    if name is None:
-        name = next(assembly.pl_name_gen)
-
+def import_ifc_plate(ifc_elem, name, ifc_ref: IfcRef, assembly: Assembly) -> Plate:
     logging.info(f"importing {name}")
     ifc_mat = get_associated_material(ifc_elem)
     mat = None

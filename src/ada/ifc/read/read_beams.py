@@ -9,11 +9,7 @@ from .read_materials import read_material
 from .reader_utils import get_associated_material
 
 
-def import_ifc_beam(ifc_elem, ifc_ref: IfcRef, assembly: Assembly = None) -> Beam:
-    name = ifc_elem.Name
-    if name is None:
-        name = next(assembly.bm_name_gen)
-
+def import_ifc_beam(ifc_elem, name, ifc_ref: IfcRef, assembly: Assembly = None) -> Beam:
     ass = get_associated_material(ifc_elem)
     sec = None
     mat = None

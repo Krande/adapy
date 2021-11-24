@@ -7,10 +7,7 @@ from ada import Assembly, Shape
 from ..concepts import IfcRef
 
 
-def import_ifc_shape(product, ifc_ref: IfcRef, assembly: Assembly):
-    name = product.Name
-    if name is None:
-        name = next(assembly.shp_name_gen)
+def import_ifc_shape(product, name, ifc_ref: IfcRef, assembly: Assembly):
     logging.info(f'importing Shape "{name}"')
     return Shape(name, None, guid=product.GlobalId, ifc_ref=ifc_ref, units=assembly.units)
 

@@ -1,13 +1,11 @@
-import logging
-
 import ifcopenshell
 import ifcopenshell.geom
-import ifcopenshell.util.element
+import logging
+from ifcopenshell.util.element import get_psets
+from typing import Union
 
 from ada.config import Settings
-from ada.core.utils import Counter
 
-name_gen = Counter(1, "IfcEl")
 tol_map = dict(m=Settings.mtol, mm=Settings.mmtol)
 
 
@@ -78,21 +76,35 @@ def get_associated_material(ifc_elem):
     return c
 
 
-def get_name(ifc_elem):
-    """
-
-    :param ifc_elem:
-    :return:
-    """
-    props = getIfcPropertySets(ifc_elem)
-    product_name = ifc_elem.Name
-    if hasattr(props, "NAME") and product_name is None:
-        name = props["NAME"]
-    else:
-        name = product_name
-    if name is None:
-        name = next(name_gen)
+def get_name_from_props(props: dict) -> Union[str, None]:
+    name = None
+    for key, val in props.items():
+        if type(val) is dict:
+            name = get_name_from_props(val)
+            if name is not None:
+                break
+        else:
+            if key.lower() == "name":
+                name = val
+                break
     return name
+
+
+def resolve_name(props, product):
+    if product.Name is not None:
+        return product.Name
+
+    if hasattr(product, "Tag"):
+        if product.Tag is not None:
+            return product.Tag
+
+    # This procedure is just to handle reading badly created ifc files with little or no related names
+    name = get_name_from_props(props)
+    if name is not None:
+        return name
+
+    logging.debug(f'Name/tag not found for ifc element "{product}". Using GlobalID as name')
+    return product.GlobalId
 
 
 def get_person(f, user_id):
@@ -110,9 +122,12 @@ def get_org(f, org_id):
 
 
 def add_to_assembly(assembly, obj, ifc_parent, elements2part):
-    if ifc_parent.Name is None:
-        raise ValueError(f'Name of ifc element "{ifc_parent}" is None')
-    parent_name = ifc_parent.Name
+    pp_name = ifc_parent.Name
+    if pp_name is None:
+        pp_name = resolve_name(get_psets(ifc_parent), ifc_parent)
+        if pp_name is None:
+            raise ValueError(f'Name of ifc element "{ifc_parent}" is None')
+
     imported = False
     if elements2part is not None:
         add_to_parent(assembly, obj)
@@ -120,13 +135,13 @@ def add_to_assembly(assembly, obj, ifc_parent, elements2part):
     else:
         all_parts = assembly.get_all_parts_in_assembly()
         for p in all_parts:
-            if p.name == parent_name or p.metadata.get("original_name") == parent_name:
+            if p.name == pp_name or p.metadata.get("original_name") == pp_name:
                 add_to_parent(p, obj)
                 imported = True
                 break
 
     if imported is False:
-        logging.info(f'Unable to find parent "{parent_name}" for {type(obj)} "{obj.name}". Adding to Assembly')
+        logging.info(f'Unable to find parent "{pp_name}" for {type(obj)} "{obj.name}". Adding to Assembly')
         assembly.add_shape(obj)
 
 

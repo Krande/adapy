@@ -12,7 +12,7 @@ from .read_materials import read_ifc_materials
 from .read_parts import read_hierarchy
 from .read_plates import import_ifc_plate
 from .read_shapes import import_ifc_shape
-from .reader_utils import add_to_assembly, get_parent, open_ifc
+from .reader_utils import add_to_assembly, get_parent, open_ifc, resolve_name
 
 
 def read_ifc_file(ifc_file, ifc_settings, elements2part=False, data_only=False) -> Assembly:
@@ -42,31 +42,37 @@ def read_ifc_file(ifc_file, ifc_settings, elements2part=False, data_only=False) 
         parent = get_parent(product)
 
         name = product.Name
+        props = get_psets(product)
+
+        if name is None:
+            name = resolve_name(props, product)
+
         logging.info(f"importing {name}")
-        obj = import_physical_ifc_elem(product, a, ifc_ref)
+
+        obj = import_physical_ifc_elem(product, name, a, ifc_ref)
         if obj is None:
             continue
 
-        props = get_psets(product)
         obj.metadata.update(dict(props=props))
         obj.metadata["ifc_file"] = ifc_file
+
         add_to_assembly(a, obj, parent, elements2part)
 
     print(f'Import of IFC file "{ifc_file}" is complete')
     return a
 
 
-def import_physical_ifc_elem(product, assembly: Assembly, ifc_ref: IfcRef):
+def import_physical_ifc_elem(product, name, assembly: Assembly, ifc_ref: IfcRef):
     pr_type = product.is_a()
 
     if pr_type in ["IfcBeamStandardCase", "IfcBeam"]:
-        obj = import_ifc_beam(product, ifc_ref, assembly)
+        obj = import_ifc_beam(product, name, ifc_ref, assembly)
     elif pr_type in ["IfcPlateStandardCase", "IfcPlate"]:
-        obj = import_ifc_plate(product, ifc_ref, assembly)
+        obj = import_ifc_plate(product, name, ifc_ref, assembly)
     else:
         if product.is_a("IfcOpeningElement") is True:
             logging.info(f'skipping opening element "{product}"')
             return None
-        obj = import_ifc_shape(product, ifc_ref, assembly)
+        obj = import_ifc_shape(product, name, ifc_ref, assembly)
 
     return obj

@@ -733,6 +733,7 @@ class Assembly(Part):
         self._bm_name = Counter(1, "bm")
         self._pl_name = Counter(1, "pl")
         self._shp_name = Counter(1, "shp")
+        self._part_name = Counter(1, "Part")
 
         # Model Cache
         if enable_experimental_cache is None:
@@ -1113,6 +1114,10 @@ class Assembly(Part):
     @property
     def convert_options(self) -> _ConvertOptions:
         return self._convert_options
+
+    @property
+    def part_name_gen(self) -> Counter:
+        return self._part_name
 
     @property
     def bm_name_gen(self) -> Counter:
