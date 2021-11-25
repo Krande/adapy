@@ -44,6 +44,9 @@ jobs:
     needs: lint
     name: ${{ matrix.platform.name }}-${{ matrix.pyver.name }}
     runs-on: ${{ matrix.platform.distver }}
+    defaults:
+      run:
+        shell: bash -l {0}
     env:
       TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
       CONDAENV: base
@@ -79,30 +82,25 @@ jobs:
           auto-update-conda: true
           use-only-tar-bz2: true # IMPORTANT: This needs to be set for caching to work properly!
       - name: build
-        shell: bash -l {0}
         run: |
           conda activate ${{ env.CONDAENV }}
           conda-build -c krande -c conda-forge conda --python=${{ matrix.pyver.distver }} --override-channels --keep-old-work --dirty
       - name: install
-        shell: bash -l {0}
         run: |
           conda activate ${{ env.CONDAENV }}
           conda create -n testenv -c local -c krande -c conda-forge ada-py pytest pytest-cov --strict-channel-priority
       - name: get package version into env variable
-        shell: bash -l {0}
         run: |
           echo "CONDAROOT=$CONDA_PREFIX" >> $GITHUB_ENV
           conda activate testenv
           python conda/getversion.py
           cat version.txt >> $GITHUB_ENV
       - name: test
-        shell: bash -l {0}
         run: |
           conda activate testenv
           pytest tests
       - name: upload to conda -c krande
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        shell: bash -l {0}
         run: |
           conda activate ${{ env.CONDAENV }}
           anaconda -t=${{ secrets.ANACONDA_TOKEN }} upload ${{ env.CONDAROOT }}/conda-bld/${{ matrix.platform.short }}/ada-py-${{ env.PKG_VERSION }}-${{ matrix.pyver.name }}_0.tar.bz2 --user krande --skip-existing
@@ -110,6 +108,9 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
     name: Publish to PYPI
+    defaults:
+      run:
+        shell: bash -l {0}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
