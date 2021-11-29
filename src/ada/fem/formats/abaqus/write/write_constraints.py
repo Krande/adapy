@@ -13,11 +13,11 @@ if TYPE_CHECKING:
 # https://abaqus-docs.mit.edu/2017/English/SIMACAEKEYRefMap/simakey-r-coupling.htm#simakey-r-coupling
 
 
-def constraints_str(fem: "FEM"):
+def constraints_str(fem: "FEM", written_on_assembly_level: bool):
     if len(fem.constraints) == 0:
         return "** No Constraints"
 
-    return "\n".join([constraint_str(c, True) for c in fem.constraints])
+    return "\n".join([constraint_str(c, written_on_assembly_level) for c in fem.constraints])
 
 
 def constraint_str(constraint: Constraint, on_assembly_level: bool):
@@ -26,8 +26,8 @@ def constraint_str(constraint: Constraint, on_assembly_level: bool):
     elif constraint.type == Constraint.TYPES.TIE:
         return _tie(constraint, on_assembly_level)
     elif constraint.type == Constraint.TYPES.RIGID_BODY:
-        rnode = get_instance_name(constraint.m_set, True)
-        return f"*Rigid Body, ref node={rnode}, elset={get_instance_name(constraint.s_set, True)}"
+        rnode = get_instance_name(constraint.m_set, on_assembly_level)
+        return f"*Rigid Body, ref node={rnode}, elset={get_instance_name(constraint.s_set, on_assembly_level)}"
     elif constraint.type == Constraint.TYPES.MPC:
         return _mpc(constraint, on_assembly_level)
     elif constraint.type == Constraint.TYPES.SHELL2SOLID:

@@ -45,9 +45,16 @@ class SolidShapes:
     all = [HEX8, HEX20, HEX27, TETRA10, TETRA, WEDGE, WEDGE15, PYRAMID5, PYRAMID13]
 
 
-class PointShapes:
+class MassShapes:
     MASS = "MASS"
     ROTARYI = "ROTARYI"
+
+    all = [MASS, ROTARYI]
+
+
+class PointShapes:
+    MASS = MassShapes.MASS
+    ROTARYI = MassShapes.ROTARYI
     SPRING1 = "SPRING1"
 
     all = [MASS, ROTARYI, SPRING1]
@@ -62,6 +69,7 @@ class ElemType:
     SHELL_SHAPES = ShellShapes
     SOLID_SHAPES = SolidShapes
     POINT_SHAPES = PointShapes
+    MASS_SHAPES = MassShapes
     CONNECTOR_SHAPES = ConnectorShapes
 
     all = [SHELL, SOLID, LINE]

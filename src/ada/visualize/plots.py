@@ -8,7 +8,9 @@ from plotly import io as pio
 
 def easy_plotly(
     title: str,
-    in_data: Union[List[tuple], Dict[str, Union[Tuple[float], Dict[str, Tuple[float]]]]],
+    in_data: Union[
+        Tuple[list, list], List[tuple], Dict[str, Union[Tuple[float, float], Dict[str, Tuple[float, float]]]]
+    ],
     xlbl: str = "X-axis",
     ylbl: str = "Y-axis",
     xrange: List[Union[float, int]] = None,

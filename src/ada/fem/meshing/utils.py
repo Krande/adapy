@@ -96,8 +96,8 @@ def get_sh_sections_for_shape_obj(model: gmsh.model, model_obj: Shape, gmsh_data
         add_shell_section(set_name, fem_sec_name, normal, thickness, elements, model_obj, fem, is_rigid=True)
 
     # Add a reference Point
-    cog = model_obj.bbox.volume_cog
-    fem.add_rp(f"{model_obj.name}_rp", Node(cog))
+    # cog = model_obj.bbox.volume_cog
+    # fem.add_rp(f"{model_obj.name}_rp", Node(cog))
 
 
 def get_sh_sections_for_plate_obj(model: gmsh.model, model_obj: Plate, gmsh_data: GmshData, fem: FEM):

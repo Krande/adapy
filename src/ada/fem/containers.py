@@ -24,6 +24,7 @@ from .shapes import ElemType
 
 if TYPE_CHECKING:
     from ada import FEM
+    from ada.fem.elements import Mass
 
 
 @dataclass
@@ -39,7 +40,7 @@ class COG:
 class FemElements:
     """Container class for FEM elements"""
 
-    def __init__(self, elements: Iterable[Elem] = None, fem_obj: "FEM" = None, from_np_array=None):
+    def __init__(self, elements: Iterable[Union[Elem, "Mass"]] = None, fem_obj: "FEM" = None, from_np_array=None):
         self._fem_obj = fem_obj
         if from_np_array is not None:
             elements = self.elements_from_array(from_np_array)
@@ -142,8 +143,7 @@ class FemElements:
         return FemElements(result) if isinstance(index, slice) else result
 
     def __add__(self, other: FemElements):
-        max_id = self.max_el_id
-        other.renumber(max_id + 1)
+        other.renumber(self.max_el_id + 1)
         for el in other.elements:
             el.parent = self.parent
 
@@ -274,8 +274,10 @@ class FemElements:
         return filter(lambda x: x.type == ElemType.CONNECTOR_SHAPES.CONNECTOR, self.elements)
 
     @property
-    def masses(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type in MassTypes.all, self._elements)
+    def masses(self) -> Iterable["Mass"]:
+        from ada.fem.elements import Mass
+
+        return filter(lambda x: isinstance(x, Mass), self._elements)
 
     @property
     def stru_elements(self) -> Iterable[Elem]:

@@ -502,8 +502,7 @@ class Part(BackendGeom):
         for mass_shape in masses:
             cog_absolute = mass_shape.placement.absolute_placement() + mass_shape.cog
             n = fem.nodes.add(Node(cog_absolute))
-            fs = fem.add_set(FemSet(f"{mass_shape.name}_mass_set", [n], "nset"))
-            fem.add_mass(Mass(f"{mass_shape.name}_mass", fs, mass_shape.mass))
+            fem.add_mass(Mass(f"{mass_shape.name}_mass", [n], mass_shape.mass))
 
         return fem
 
@@ -1142,15 +1141,19 @@ class Assembly(Part):
                 if res is not None:
                     replace_node = res[0]
                     for ref in n.refs:
-                        if type(ref) is Connector:
+                        if isinstance(ref, Connector):
                             if n == ref.n1:
                                 ref.n1 = replace_node
                             if n == ref.n2:
                                 ref.n2 = replace_node
-                        elif type(ref) is Csys:
-                            pass
+                        elif isinstance(ref, Csys):
+                            logging.info("Passing interface node with CSYS")
+                        elif isinstance(ref, FemSet):
+                            index = ref.members.index(n)
+                            ref.members.pop(index)
+                            ref.members.insert(index, replace_node)
                         else:
-                            raise NotImplementedError()
+                            raise NotImplementedError(f'Unsupported type "{type(ref)}"')
                     break
 
         self.fem += other.fem

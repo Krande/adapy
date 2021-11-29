@@ -20,6 +20,9 @@ def sections_str(fem: "FEM"):
     shell_secs_str = "\n".join([shell_section_str(sh) for sh in shells]) if len(shells) > 0 else "** No shell sections"
     line_secs_str = "\n".join([line_section_str(li) for li in lines]) if len(lines) > 0 else "** No line sections"
 
+    if shell_secs_str.strip() == "":
+        shell_secs_str = "** No shell sections"
+
     return solid_secs_str.strip() + "\n" + shell_secs_str.strip() + "\n" + line_secs_str.strip()
 
 
@@ -30,6 +33,8 @@ def solid_section_str(fem_sec: FemSection):
 
 
 def shell_section_str(fem_sec: FemSection):
+    if fem_sec.thickness == 0:
+        return ""
     return f"""** Section: {fem_sec.name}
 *Shell Section, elset={fem_sec.elset.name}, material={fem_sec.material.name}
  {fem_sec.thickness}, {fem_sec.int_points}"""

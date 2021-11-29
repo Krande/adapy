@@ -111,7 +111,7 @@ def read_fem(fem_file, fem_name=None) -> Assembly:
         assembly.fem.constraints += get_constraints_from_inp(ass_sets, assembly.fem)
 
         assembly.fem.bcs += get_bcs_from_bulk(props_str, assembly.fem)
-        assembly.fem.masses.update(get_mass_from_bulk(ass_sets, assembly.fem))
+        assembly.fem.elements += get_mass_from_bulk(ass_sets, assembly.fem)
 
     add_interactions_from_bulk_str(props_str, assembly)
     get_initial_conditions_from_lines(assembly, props_str)

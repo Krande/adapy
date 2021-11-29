@@ -9,19 +9,19 @@ if TYPE_CHECKING:
     from ada import FEM
 
 
-def elsets_str(fem: "FEM"):
+def elsets_str(fem: "FEM", written_on_assembly_level: bool):
     if len(fem.elsets) == 0:
         return "** No element sets"
-    return "\n".join([aba_set_str(el, True) for el in fem.elsets.values()]).rstrip()
+    return "\n".join([aba_set_str(el, written_on_assembly_level) for el in fem.elsets.values()]).rstrip()
 
 
-def nsets_str(fem: "FEM"):
+def nsets_str(fem: "FEM", written_on_assembly_level: bool):
     if len(fem.nsets) == 0:
         return "** No node sets"
-    return "\n".join([aba_set_str(no, True) for no in fem.nsets.values()]).rstrip()
+    return "\n".join([aba_set_str(no, written_on_assembly_level) for no in fem.nsets.values()]).rstrip()
 
 
-def aba_set_str(fem_set: FemSet, written_on_assembly_level: bool):
+def aba_set_str(fem_set: FemSet, written_on_assembly_level: bool, is_ref_point_set=False):
     newline = NewLine(15)
 
     if len(fem_set.members) == 0:
@@ -46,7 +46,10 @@ def aba_set_str(fem_set: FemSet, written_on_assembly_level: bool):
 
     set_str = ""
     for elinst, members in el_instances.items():
-        el_root = f"{el_str}={fem_set.name}"
+        name = fem_set.name
+        if is_ref_point_set is True:
+            name += "-RefPt_"
+        el_root = f"{el_str}={name}"
         if written_on_assembly_level:
             if internal is True:
                 el_root += "" if "," in el_str[-2] else ", "

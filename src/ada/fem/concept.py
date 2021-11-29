@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, List, Union
+from typing import TYPE_CHECKING, Dict, List, Tuple, Union
 
 from ada.concepts.containers import Nodes
 
@@ -67,6 +67,9 @@ class FEM:
     )
 
     nodes: "Nodes" = field(default_factory=Nodes, init=True)
+    ref_points: "Nodes" = field(default_factory=Nodes, init=True)
+    ref_sets: "FemSets" = field(default_factory=FemSets, init=True)
+
     elements: "FemElements" = field(default_factory=FemElements, init=True)
     sets: "FemSets" = field(default_factory=FemSets, init=True)
     sections: "FemSections" = field(default_factory=FemSections, init=True)
@@ -116,10 +119,12 @@ class FEM:
         self.bcs.append(bc)
         return bc
 
-    def add_mass(self, mass: Mass) -> Mass:
+    def add_mass(self, mass: Mass) -> Tuple[Mass, FemSet]:
         mass.parent = self
-        self.masses[mass.name] = mass
-        return mass
+        self.elements.add(mass)
+        elset = self.sets.add(FemSet(mass.name + "_set", [mass], "elset"))
+        mass.elset = elset
+        return mass, elset
 
     def add_set(
         self,
@@ -223,12 +228,13 @@ class FEM:
         self.add_set(FemSet(name=connector.name, members=[connector], set_type="elset"))
         return connector
 
-    def add_rp(self, name, node: Node):
+    def add_rp(self, name: str, node: Node):
         """Adds a reference point in assembly with a specific name"""
         node.parent = self
-        self.nodes.add(node)
-        fem_set = self.add_set(FemSet(name, [node], "nset"))
-        return node, fem_set
+        node_ = self.ref_points.add(node)
+        fem_set = self.ref_sets.add(FemSet(name, [node_], "nset", parent=self))
+        fem_set.metadata["internal"] = True
+        return node_, fem_set
 
     def add_surface(self, surface: Surface) -> Surface:
         surface.parent = self

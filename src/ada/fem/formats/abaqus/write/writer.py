@@ -51,7 +51,7 @@ def to_fem(assembly: "Assembly", name, analysis_dir=None, metadata=None, writabl
 
     # Constraints
     with open(core_dir / "constraints.inp", "w") as d:
-        d.write(constraints_str(afem) if len(afem.constraints) > 0 else "**")
+        d.write(constraints_str(afem, True) if len(afem.constraints) > 0 else "**")
 
     # Assembly data
     with open(core_dir / "assembly_data.inp", "w") as d:
@@ -69,8 +69,8 @@ def to_fem(assembly: "Assembly", name, analysis_dir=None, metadata=None, writabl
             assembly_nodes_str = "** No Nodes"
 
         d.write(f"{assembly_nodes_str}\n")
-        d.write(f"{nsets_str(afem)}\n")
-        d.write(f"{elsets_str(afem)}\n")
+        d.write(f"{nsets_str(afem, True)}\n")
+        d.write(f"{elsets_str(afem, True)}\n")
         d.write(f"{surfaces_str(afem)}\n")
         d.write(orientations_str(afem, True) + "\n")
         d.write(elements_str(afem, True) + "\n")
@@ -147,7 +147,7 @@ def main_inp_str(assembly: "Assembly", analysis_dir):
         consec_str=consec_str,
         int_prop_str=iprop_str,
         interact_str=int_str,
-        constr_ctrl=constraint_control,
+        constr_ctrl=constraint_control(assembly.fem),
     )
 
 

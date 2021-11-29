@@ -6,7 +6,7 @@ from ada.fem.conversion_utils import convert_ecc_to_mpc, convert_hinges_2_coupli
 from .write_constraints import constraints_str
 from .write_elements import elements_str
 from .write_masses import masses_str
-from .write_nodes import nodes_str
+from .write_nodes import nodes_str, rp_str
 from .write_sections import sections_str
 from .write_sets import elsets_str, nsets_str
 from .write_springs import springs_str
@@ -20,6 +20,7 @@ def write_all_parts(assembly: "Assembly", analysis_dir):
     for part in assembly.get_all_subparts():
         if len(part.fem.elements) == 0:
             continue
+
         if assembly.convert_options.hinges_to_coupling is True:
             convert_hinges_2_couplings(part.fem)
 
@@ -47,15 +48,15 @@ def write_abaqus_part_str(part: "Part") -> str:
     fem = part.fem
     return f"""** Abaqus Part {part.name}
 ** Exported using ADA OpenSim
-*NODE
 {nodes_str(fem)}
 {elements_str(fem, False)}
-{elsets_str(fem)}
-{nsets_str(fem)}
+{rp_str(fem)}
+{elsets_str(fem, False)}
+{nsets_str(fem, False)}
 {sections_str(fem)}
 {masses_str(fem)}
 {surfaces_str(fem)}
-{constraints_str(fem)}
+{constraints_str(fem, False)}
 {springs_str(fem)}""".rstrip()
 
 

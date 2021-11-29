@@ -304,9 +304,9 @@ class Spring(Elem):
 
 
 class MassTypes:
-    MASS = "MASS"
+    MASS = ElemType.POINT_SHAPES.MASS
     NONSTRU = "NONSTRUCTURAL MASS"
-    ROT_INERTIA = "ROTARY INERTIA"
+    ROT_INERTIA = ElemType.POINT_SHAPES.ROTARYI
 
     all = [MASS, NONSTRU, ROT_INERTIA]
 
@@ -318,14 +318,14 @@ class MassPType:
     all = [ISOTROPIC, ANISOTROPIC]
 
 
-class Mass(FemBase):
+class Mass(Elem):
     TYPES = MassTypes
     PTYPES = MassPType
 
     def __init__(
         self,
         name,
-        fem_set: "FemSet",
+        ref: Union[FemSet, List[Node]],
         mass,
         mass_type=None,
         ptype=None,
@@ -334,23 +334,36 @@ class Mass(FemBase):
         metadata=None,
         parent=None,
     ):
-        super().__init__(name, metadata, parent)
-        self._fem_set = fem_set
+        if hasattr(ref, "members"):
+            self._fem_set = ref
+            members = ref.members
+        else:
+            members = ref
+
         if mass is None:
             raise ValueError("Mass cannot be None")
+
         if type(mass) not in (list, tuple):
             logging.info(f"Mass {type(mass)} converted to list of len=1. Assume equal mass in all 3 transl. DOFs.")
             ptype = self.PTYPES.ISOTROPIC
             mass = [mass]
+
         self._mass = mass
-        self._mass_type = mass_type.upper() if mass_type is not None else self.TYPES.MASS
+        self._el_type = mass_type.upper() if mass_type is not None else self.TYPES.MASS
+
         if self.type not in MassTypes.all:
             raise ValueError(f'Mass type "{self.type}" is not in list of supported types {MassTypes.all}')
+
         if ptype not in MassPType.all and ptype is not None:
             raise ValueError(f'Mass point type "{ptype}" is not in list of supported types {MassPType.all}')
+
+        super(Mass, self).__init__(mass_id, members, self.type)
+        super(Elem, self).__init__(name, metadata, parent)
+
         self.point_mass_type = ptype
         self._units = units
-        self._id = mass_id
+        self._members = members
+        self._elset = None
         self._check_input()
 
     def _check_input(self):
@@ -368,20 +381,20 @@ class Mass(FemBase):
             raise ValueError(f'Unknown mass input "{self.type}"')
 
     @property
-    def id(self):
-        return self._id
-
-    @property
-    def type(self):
-        return self._mass_type
-
-    @property
     def fem_set(self) -> "FemSet":
         return self._fem_set
 
     @fem_set.setter
     def fem_set(self, value: Mass):
         self._fem_set = value
+
+    @property
+    def elset(self):
+        return self._elset
+
+    @elset.setter
+    def elset(self, value):
+        self._elset = value
 
     @property
     def mass(self):

@@ -853,7 +853,7 @@ class Nodes:
         else:
             return list(simplesearch)
 
-    def add(self, node: Node, point_tol=Settings.point_tol, allow_coincident=False):
+    def add(self, node: Node, point_tol=Settings.point_tol, allow_coincident=False) -> Node:
         """Insert node into sorted list"""
 
         def insert_node(n, i):
@@ -877,6 +877,10 @@ class Nodes:
                     return nearest_node
 
         insert_node(node, index)
+
+        if node.parent is None:
+            node.parent = self.parent
+
         return node
 
     def remove(self, nodes: Union[Node, Iterable[Node]]):

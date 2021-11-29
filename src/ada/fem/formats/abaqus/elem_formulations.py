@@ -1,13 +1,13 @@
 from dataclasses import dataclass
 
 
-@dataclass
 class AbaqusDefaultShellTypes:
-    TRIANGLE = "S3"
-    TRIANGLE6 = "STRI65"
-    TRIANGLE7 = "S7"
-    QUAD = "S4R"
-    QUAD8 = "S8R"
+    def __init__(self):
+        self.TRIANGLE = "S3"
+        self.TRIANGLE6 = "STRI65"
+        self.TRIANGLE7 = "S7"
+        self.QUAD = "S4R"
+        self.QUAD8 = "S8R"
 
 
 @dataclass
@@ -29,9 +29,10 @@ class AbaqusDefaultLineTypes:
 
 
 class AbaqusDefaultElemTypes:
-    LINE = AbaqusDefaultLineTypes()
-    SHELL = AbaqusDefaultShellTypes()
-    SOLID = AbaqusDefaultSolidTypes()
+    def __init__(self):
+        self.LINE = AbaqusDefaultLineTypes()
+        self.SHELL = AbaqusDefaultShellTypes()
+        self.SOLID = AbaqusDefaultSolidTypes()
 
     def get_element_type(self, el_type: str) -> str:
         from ada.fem.shapes import ElemType
@@ -47,9 +48,12 @@ class AbaqusDefaultElemTypes:
             ElemType.SHELL: self.SHELL,
             ElemType.SOLID: self.SOLID,
         }
+
         res = getattr(type_map[type_group], el_type, None)
+
         if res is None:
             raise ValueError(f'Unrecognized element type "{el_type}"')
+
         return res
 
 
