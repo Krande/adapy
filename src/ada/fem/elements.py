@@ -37,7 +37,7 @@ class Elem(FemBase):
         self._el_id = el_id
         self._shape = None
 
-        if type(nodes[0]) is Node:
+        if nodes is not None and isinstance(nodes[0], Node):
             for node in nodes:
                 node.refs.append(self)
 
@@ -205,8 +205,9 @@ class Eccentricity:
 
 class ConnectorTypes:
     BUSHING = "bushing"
+    CARTESIAN = "cartesian"
 
-    all = [BUSHING]
+    all = [BUSHING, CARTESIAN]
 
 
 class Connector(Elem):
@@ -385,7 +386,8 @@ class Mass(Elem):
         return self._fem_set
 
     @fem_set.setter
-    def fem_set(self, value: Mass):
+    def fem_set(self, value: "FemSet"):
+        self._members = value.members
         self._fem_set = value
 
     @property
@@ -419,6 +421,10 @@ class Mass(Elem):
             return self._mass
         else:
             raise ValueError(f'Unknown mass input "{self.type}"')
+
+    @property
+    def members(self):
+        return self._members
 
     @property
     def units(self):

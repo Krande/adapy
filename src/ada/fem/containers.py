@@ -16,7 +16,7 @@ from ada.core.utils import Counter
 from ada.materials import Material
 from ada.sections import Section
 
-from .elements import Elem, MassTypes
+from .elements import Connector, Elem, Mass, MassTypes
 from .exceptions.model_definition import FemSetNameExists
 from .sections import FemSection
 from .sets import FemSet, SetTypes
@@ -24,7 +24,6 @@ from .shapes import ElemType
 
 if TYPE_CHECKING:
     from ada import FEM
-    from ada.fem.elements import Mass
 
 
 @dataclass
@@ -40,7 +39,9 @@ class COG:
 class FemElements:
     """Container class for FEM elements"""
 
-    def __init__(self, elements: Iterable[Union[Elem, "Mass"]] = None, fem_obj: "FEM" = None, from_np_array=None):
+    def __init__(
+        self, elements: Iterable[Union[Elem, Mass, Connector]] = None, fem_obj: "FEM" = None, from_np_array=None
+    ):
         self._fem_obj = fem_obj
         if from_np_array is not None:
             elements = self.elements_from_array(from_np_array)
@@ -245,7 +246,7 @@ class FemElements:
         return min(self._idmap.keys())
 
     @property
-    def elements(self) -> List[Elem]:
+    def elements(self) -> List[Union[Elem, Connector, Mass]]:
         return self._elements
 
     @property
@@ -270,18 +271,21 @@ class FemElements:
         return filter(lambda x: x.eccentricity is not None, self.lines)
 
     @property
-    def connectors(self):
+    def connectors(self) -> Iterable[Connector]:
         return filter(lambda x: x.type == ElemType.CONNECTOR_SHAPES.CONNECTOR, self.elements)
 
     @property
-    def masses(self) -> Iterable["Mass"]:
-        from ada.fem.elements import Mass
-
-        return filter(lambda x: isinstance(x, Mass), self._elements)
+    def masses(self) -> Iterable[Mass]:
+        return filter(lambda x: isinstance(x, Mass), self.elements)
 
     @property
     def stru_elements(self) -> Iterable[Elem]:
         return filter(lambda x: x.type not in ["MASS", "SPRING1", "CONNECTOR"], self._elements)
+
+    def connector_by_name(self, name: str):
+        """Get Connector by name"""
+        cmap = {c.name: c for c in self.connectors}
+        return cmap.get(name, None)
 
     def from_id(self, el_id: int) -> Elem:
         el = self._idmap.get(el_id, None)

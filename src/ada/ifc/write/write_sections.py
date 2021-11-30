@@ -70,7 +70,8 @@ def write_iprofile(f, section, section_profile) -> Tuple[dict, str]:
         sec_props = dict(OuterCurve=polyline), ifc_sec_type
     else:
         if SectionCat.is_strong_axis_symmetric(section) is False:
-            logging.error("Note! Not using IfcAsymmetricIShapeProfileDef as it is not supported by ifcopenshell v IFC4")
+            logging.warning("Note! IfcAsymmetricIShapeProfileDef as it is not supported by ifcopenshell v IFC4")
+
         ifc_sec_type = "IfcIShapeProfileDef"
 
         sec_props = dict(
@@ -90,7 +91,9 @@ def write_tprofile(f, section, section_profile) -> Tuple[dict, str]:
         sec_props = dict(OuterCurve=polyline), ifc_sec_type
     else:
         if SectionCat.is_strong_axis_symmetric(section) is False:
-            logging.error("Note! Not using IfcAsymmetricIShapeProfileDef as it is not supported by ifcopenshell v IFC4")
+            logging.warning(
+                "Note! Not using IfcAsymmetricIShapeProfileDef as it is not supported by ifcopenshell v IFC4"
+            )
         ifc_sec_type = "IfcTShapeProfileDef"
 
         sec_props = dict(

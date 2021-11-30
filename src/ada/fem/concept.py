@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from itertools import chain
 from typing import TYPE_CHECKING, Dict, List, Tuple, Union
 
 from ada.concepts.containers import Nodes
@@ -178,10 +179,16 @@ class FEM:
 
     def add_step(self, step: _step_types) -> _step_types:
         """Add an analysis step to the assembly"""
+        from ada.fem.steps import Step
+
         if len(self.steps) > 0:
-            if self.steps[-1].type != StepEigen.TYPES.EIGEN and step.type == StepEigen.TYPES.COMPLEX_EIG:
+            if self.steps[-1].type != Step.TYPES.EIGEN and step.type == Step.TYPES.COMPLEX_EIG:
                 raise Exception("Complex eigenfrequency analysis step needs to follow eigenfrequency step.")
         step.parent = self
+        for bc in step.bcs.values():
+            if bc.amplitude is not None:
+                if bc.amplitude.parent is None:
+                    self.add_amplitude(bc.amplitude)
         self.steps.append(step)
 
         return step
@@ -257,12 +264,12 @@ class FEM:
         self.springs[spring.name] = spring
         return spring
 
-    def add_interface_nodes(self, interface_nodes: List[Node, InterfaceNode]):
+    def add_interface_nodes(self, interface_nodes: List[Union[Node, InterfaceNode]]):
         """Nodes used for interfacing between other parts. Pass a custom Constraint if specific coupling is needed"""
         from ada import Node
 
         for n in interface_nodes:
-            n_in = InterfaceNode(n) if type(n) is Node else n
+            n_in = InterfaceNode(n) if isinstance(n, Node) else n
             self.interface_nodes.append(n_in)
 
     def create_fem_elem_from_obj(self, obj, el_type=None) -> Elem:
@@ -306,6 +313,16 @@ class FEM:
                 return False
 
         return True
+
+    def get_all_bcs(self):
+        """Get all the boundary conditions in the entire assembly"""
+        assembly = self.parent.get_assembly()
+        return chain.from_iterable(
+            (
+                [bc for bc in assembly.fem.bcs],
+                [bc for p in assembly.get_all_parts_in_assembly() for bc in p.fem.bcs],
+            )
+        )
 
     @property
     def instance_name(self):

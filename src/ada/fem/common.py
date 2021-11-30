@@ -101,7 +101,7 @@ class Csys(FemBase):
 
 
 class Amplitude(FemBase):
-    def __init__(self, name, x, y, smooth=None, metadata=None, parent: "FEM" = None):
+    def __init__(self, name: str, x: List[float], y: List[float], smooth=None, metadata=None, parent: "FEM" = None):
         super().__init__(name, metadata, parent)
         self._x = x
         self._y = y

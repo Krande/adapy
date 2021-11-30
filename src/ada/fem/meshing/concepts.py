@@ -260,14 +260,14 @@ class GmshSession:
 
         self.model.mesh.recombine()
 
-    def get_fem(self) -> FEM:
+    def get_fem(self, name="AdaFEM") -> FEM:
         from .utils import (
             add_fem_sections,
             get_elements_from_entities,
             get_nodes_from_gmsh,
         )
 
-        fem = FEM("AdaFEM")
+        fem = FEM(name)
         gmsh_nodes = get_nodes_from_gmsh(self.model, fem)
         fem.nodes = Nodes(gmsh_nodes, parent=fem)
 

@@ -6,6 +6,7 @@ from .common import Csys, FemBase
 from .sets import FemSet
 
 if TYPE_CHECKING:
+    from .common import Amplitude
     from .surfaces import Surface
 
 
@@ -46,7 +47,7 @@ class Bc(FemBase):
         dofs,
         magnitudes=None,
         bc_type=BcTypes.DISPL,
-        amplitude_name=None,
+        amplitude: "Amplitude" = None,
         init_condition=None,
         metadata=None,
         parent=None,
@@ -59,7 +60,7 @@ class Bc(FemBase):
         else:
             self._magnitudes = magnitudes if type(magnitudes) is list else [magnitudes]
         self.type = bc_type.lower()
-        self._amplitude_name = amplitude_name
+        self._amplitude = amplitude
         self._init_condition = init_condition
 
     def add_init_condition(self, init_condition):
@@ -88,8 +89,8 @@ class Bc(FemBase):
         return self._magnitudes
 
     @property
-    def amplitude_name(self):
-        return self._amplitude_name
+    def amplitude(self) -> "Amplitude":
+        return self._amplitude
 
     def __repr__(self):
         return f'Bc("{self.name}", type="{self.type}", dofs={self.dofs}, fem_set="{self.fem_set.name}")'

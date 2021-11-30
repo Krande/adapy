@@ -411,13 +411,13 @@ def convert_shell_elem_to_plates(elem: "Elem", parent: "Part") -> List[Plate]:
                 Plate(f"sh{elem.id}", [n.p for n in elem.nodes], fem_sec.thickness, use3dnodes=True, parent=parent)
             )
         else:
-            plates.append(
-                Plate(f"sh{elem.id}", [n.p for n in elem.nodes[:2]], fem_sec.thickness, use3dnodes=True, parent=parent)
-            )
+            el_n1 = [elem.nodes[0].p, elem.nodes[1].p, elem.nodes[2].p]
+            el_n2 = [elem.nodes[0].p, elem.nodes[2].p, elem.nodes[3].p]
+            plates.append(Plate(f"sh{elem.id}", el_n1, fem_sec.thickness, use3dnodes=True, parent=parent))
             plates.append(
                 Plate(
                     f"sh{elem.id}_1",
-                    [elem.nodes[0], elem.nodes[2], elem.nodes[3]],
+                    el_n2,
                     fem_sec.thickness,
                     use3dnodes=True,
                     parent=parent,

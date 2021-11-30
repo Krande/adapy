@@ -118,8 +118,7 @@ class Step(FemBase):
     def add_bc(self, bc: Bc):
         bc.parent = self
         self._bcs[bc.name] = bc
-
-        if bc.fem_set not in self.parent.sets and bc.fem_set.parent is None:
+        if bc.fem_set.parent is None and bc.fem_set not in self.parent.sets:
             self.parent.sets.add(bc.fem_set)
 
     def add_history_output(self, hist_output: HistOutput):

@@ -10,7 +10,6 @@ from ada.ifc.utils import (
     convert_bm_jusl_to_ifc,
     create_guid,
     create_ifc_placement,
-    create_IfcFixedReferenceSweptAreaSolid,
     create_local_placement,
     to_real,
 )
@@ -111,26 +110,26 @@ def extrude_beam(beam, f, profile, global_placement, extrude_dir):
     p1 = tuple([float(x) + float(e1[i]) for i, x in enumerate(beam.n1.p)])
     p2 = p1 + np.array([0, 0, 1]) * beam.length
 
-    p1_ifc = f.createIfcCartesianPoint(to_real(p1))
-    p2_ifc = f.createIfcCartesianPoint(to_real(p2))
+    p1_ifc = f.create_entity("IfcCartesianPoint", to_real(p1))
+    p2_ifc = f.create_entity("IfcCartesianPoint", to_real(p2))
 
-    ifc_polyline = f.createIfcPolyLine([p1_ifc, p2_ifc])
+    ifc_polyline = f.create_entity("IfcPolyLine", [p1_ifc, p2_ifc])
 
     global_origin = f.createIfcCartesianPoint(O)
     ifc_axis2plac3d = f.create_entity("IfcAxis2Placement3D", global_origin, None, None)
 
     if profile_e is not None:
-        extrude_area_solid = f.createIfcExtrudedAreaSolidTapered(
-            profile, ifc_axis2plac3d, extrude_dir, beam.length, profile_e
+        extrude_area_solid = f.create_entity(
+            "IfcExtrudedAreaSolidTapered", profile, ifc_axis2plac3d, extrude_dir, beam.length, profile_e
         )
     else:
-        extrude_area_solid = f.createIfcExtrudedAreaSolid(profile, ifc_axis2plac3d, extrude_dir, beam.length)
+        extrude_area_solid = f.create_entity("IfcExtrudedAreaSolid", profile, ifc_axis2plac3d, extrude_dir, beam.length)
 
     xvec = to_real(beam.xvec_e)
     yvec = to_real(calc_yvec(xvec, beam.up))
 
-    ax23d = f.createIfcAxis2Placement3D(p1_ifc, f.createIfcDirection(xvec), f.createIfcDirection(yvec))
-    loc_plac = f.createIfcLocalPlacement(global_placement, ax23d)
+    ax23d = f.create_entity("IfcAxis2Placement3D", p1_ifc, f.createIfcDirection(xvec), f.createIfcDirection(yvec))
+    loc_plac = f.create_entity("IfcLocalPlacement", global_placement, ax23d)
 
     return extrude_area_solid, loc_plac, ifc_polyline
 
@@ -138,8 +137,8 @@ def extrude_beam(beam, f, profile, global_placement, extrude_dir):
 def sweep_beam(beam, f, profile, global_placement, extrude_dir):
     ifc_polyline = beam.curve.get_ifc_elem()
 
-    extrude_area_solid = create_IfcFixedReferenceSweptAreaSolid(
-        f, ifc_polyline, profile, global_placement, 0.0, 1.0, extrude_dir
+    extrude_area_solid = f.create_entity(
+        "IfcFixedReferenceSweptAreaSolid", profile, global_placement, ifc_polyline, 0.0, 1.0, extrude_dir
     )
     loc_plac = create_ifc_placement(f)
     return extrude_area_solid, loc_plac, ifc_polyline
@@ -159,7 +158,7 @@ def add_material_assignment(f, beam: Beam, ifc_beam, owner_history, beam_type):
         create_guid(),
         owner_history,
         beam.material.name,
-        f"Associated Material to beam '{beam.name}'",
+        f"Associated Material to beam {beam.name}",
         [ifc_beam],
         mat_profile_set,
     )

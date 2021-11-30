@@ -146,7 +146,6 @@ class HistOutput(FemBase):
 
 class FieldOutput(FemBase):
     """
-    https://abaqus-docs.mit.edu/2017/English/SIMACAEKEYRefMap/simakey-r-output.htm
 
     :param name:
     :param nodal:

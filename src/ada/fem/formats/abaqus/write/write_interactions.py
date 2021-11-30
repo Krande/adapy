@@ -10,8 +10,8 @@ if TYPE_CHECKING:
     from ada.fem import Interaction, InteractionProperty
 
 
-def interact_str(assembly: "Assembly"):
-    return "\n".join([interaction_str(interact) for interact in assembly.fem.interactions.values()])
+def interact_str(fem: "FEM"):
+    return "\n".join([interaction_str(interact) for interact in fem.interactions.values()])
 
 
 def interaction_str(interaction: "Interaction") -> str:
@@ -98,7 +98,7 @@ def eval_interactions(assembly: "Assembly", analysis_dir):
                     return
 
     with open(analysis_dir / "core_input_files/interactions.inp", "w") as d:
-        istr = interact_str(assembly)
+        istr = interact_str(assembly.fem)
         if istr != "":
             d.write(istr)
             d.write("\n")

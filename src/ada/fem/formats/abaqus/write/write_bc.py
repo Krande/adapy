@@ -1,4 +1,3 @@
-from itertools import chain
 from typing import TYPE_CHECKING
 
 from ada.fem import Bc
@@ -25,19 +24,14 @@ valid_aba_bcs = list(aba_bc_map.values()) + [
 
 
 def boundary_conditions_str(assembly: "Assembly"):
-
-    return "\n".join(
-        chain.from_iterable(
-            (
-                [bc_str(bc, True) for bc in assembly.fem.bcs],
-                [bc_str(bc, True) for p in assembly.get_all_parts_in_assembly() for bc in p.fem.bcs],
-            )
-        )
-    )
+    return "\n".join([bc_str(bc, True) for bc in assembly.fem.get_all_bcs()])
 
 
 def bc_str(bc: "Bc", written_on_assembly_level: bool) -> str:
-    ampl_ref_str = "" if bc.amplitude_name is None else ", amplitude=" + bc.amplitude_name
+    ampl_ref_str = ""
+    if bc.amplitude is not None:
+        ampl_ref_str = ", amplitude=" + bc.amplitude.name
+
     fem_set = bc.fem_set
     inst_name = get_instance_name(fem_set, written_on_assembly_level)
 

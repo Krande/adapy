@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, List, Tuple, Union
+from typing import TYPE_CHECKING, Any, List, Tuple, Union
 
 import numpy as np
 
@@ -235,10 +235,10 @@ class ConnectorSection(FemBase):
     def __init__(
         self,
         name,
-        elastic_comp,
-        damping_comp,
-        plastic_comp=None,
-        rigid_dofs=None,
+        elastic_comp: Union[None, float, List[Any]] = None,
+        damping_comp: Union[None, float, List[Any]] = None,
+        plastic_comp: Union[None, float, List[Any]] = None,
+        rigid_dofs: Union[None, float, List[Any]] = None,
         soft_elastic_dofs=None,
         metadata=None,
         parent=None,

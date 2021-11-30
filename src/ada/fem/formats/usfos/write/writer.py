@@ -3,7 +3,7 @@ from operator import attrgetter
 
 from ada import FEM, Assembly, Material, Node, Part
 from ada.core.utils import Counter, NewLine, roundoff
-from ada.fem import Bc, Elem, FemSet
+from ada.fem import Bc, FemSet, Mass
 
 from .write_elements import beam_str, shell_str
 from .write_profiles import sections_str
@@ -74,11 +74,10 @@ def create_usfos_set_str(fem: FEM, nonstrus):
 
 
 def mass_str(fem: FEM):
-    def mstr(elem: Elem):
-        mass = elem.mass_props
-        if mass.point_mass_type is not None or mass.point_mass_type == "anisotropic":
+    def mstr(mass: Mass):
+        if mass.point_mass_type is None or mass.point_mass_type == "anisotropic":
             raise ValueError("UsfosWriter currently only supports point masses")
-        return f" NODEMASS       {elem.nodes[0].id}              {mass.mass:.3E}"
+        return f" NODEMASS       {mass.members[0].id}              {mass.mass:.3E}"
 
     header = "\n'            Node ID                             M A S S                \n"
 

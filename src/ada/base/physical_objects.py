@@ -57,7 +57,14 @@ class BackendGeom(Backend):
         return pen
 
     def to_fem_obj(
-        self, mesh_size, geom_repr, options: "GmshOptions" = None, silent=True, use_quads=False, use_hex=False
+        self,
+        mesh_size,
+        geom_repr,
+        options: "GmshOptions" = None,
+        silent=True,
+        use_quads=False,
+        use_hex=False,
+        name="AdaFEM",
     ) -> "FEM":
         from ada.fem.meshing import GmshOptions, GmshSession
 
@@ -65,7 +72,7 @@ class BackendGeom(Backend):
         with GmshSession(silent=silent, options=options) as gs:
             gs.add_obj(self, geom_repr=geom_repr.upper())
             gs.mesh(mesh_size, use_quads=use_quads, use_hex=use_hex)
-            return gs.get_fem()
+            return gs.get_fem(name)
 
     def to_stp(self, destination_file, geom_repr=None, schema="AP242", silent=False, fuse_piping=False):
         from ada.fem.shapes import ElemType

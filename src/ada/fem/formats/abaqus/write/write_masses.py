@@ -56,7 +56,11 @@ def write_mass_elem(eltype: str, elset: "FemSet", fem: "FEM", elements: Iterable
 
 
 def write_mass(el: "Mass", alevel: bool) -> str:
+    if el.nodes is None:
+        return ""
+
     nl = NewLine(10, suffix=7 * " ")
+
     if len(el.nodes) > 6:
         di = " {}"
     else:

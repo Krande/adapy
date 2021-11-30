@@ -31,7 +31,6 @@ from ada.concepts.primitives import (
 )
 from ada.concepts.transforms import Placement
 from ada.config import Settings, User
-from ada.core.utils import Counter
 from ada.fem import (
     Connector,
     Csys,
@@ -320,6 +319,7 @@ class Part(BackendGeom):
         from ada.occ.utils import extract_shapes
 
         shapes = extract_shapes(step_path, scale, transform, rotate)
+
         if len(shapes) > 0:
             ada_name = name if name is not None else "CAD" + str(len(self.shapes) + 1)
             for i, shp in enumerate(shapes):
@@ -339,8 +339,9 @@ class Part(BackendGeom):
             convert_part_objects(self, skip_plates, skip_beams)
         logging.info("Conversion complete")
 
-    def get_part(self, name) -> Part:
-        return self.parts[name]
+    def get_part(self, name: str) -> Part:
+        key_map = {key.lower(): key for key in self.parts.keys()}
+        return self.parts[key_map[name.lower()]]
 
     def get_by_name(self, name) -> Union[Part, Plate, Beam, Shape, Material, Pipe, None]:
         """Get element of any type by its name."""
@@ -729,10 +730,6 @@ class Assembly(Part):
         self._source_ifc_files = dict()
         self._ifc_settings = ifc_settings
         self._presentation_layers = []
-        self._bm_name = Counter(1, "bm")
-        self._pl_name = Counter(1, "pl")
-        self._shp_name = Counter(1, "shp")
-        self._part_name = Counter(1, "Part")
 
         # Model Cache
         if enable_experimental_cache is None:
@@ -994,6 +991,7 @@ class Assembly(Part):
 
             if fem_exporter is None:
                 raise ValueError(f'FEM export for "{fem_format}" using "{fem_converter}" is currently not supported')
+
             fem_inp_files = default_fem_inp_path(name, scratch_dir)
             fem_exporter(self, name, analysis_dir, metadata)
 
@@ -1113,22 +1111,6 @@ class Assembly(Part):
     @property
     def convert_options(self) -> _ConvertOptions:
         return self._convert_options
-
-    @property
-    def part_name_gen(self) -> Counter:
-        return self._part_name
-
-    @property
-    def bm_name_gen(self) -> Counter:
-        return self._bm_name
-
-    @property
-    def pl_name_gen(self) -> Counter:
-        return self._pl_name
-
-    @property
-    def shp_name_gen(self) -> Counter:
-        return self._shp_name
 
     def __add__(self, other: Union[Assembly, Part]):
         if other.units != self.units:
