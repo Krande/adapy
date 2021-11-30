@@ -326,7 +326,7 @@ class Mass(Elem):
     def __init__(
         self,
         name,
-        ref: Union[FemSet, List[Node]],
+        ref: Union[FemSet, List[Node], None],
         mass,
         mass_type=None,
         ptype=None,
