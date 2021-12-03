@@ -10,7 +10,8 @@ from ifcopenshell.util.unit import get_prefix_multiplier
 import ada.core.constants as ifco
 from ada.concepts.transforms import Transform
 from ada.config import Settings
-from ada.core.utils import get_list_of_files, roundoff
+from ada.core.file_system import get_list_of_files
+from ada.core.utils import roundoff
 
 if TYPE_CHECKING:
     from ada import Beam

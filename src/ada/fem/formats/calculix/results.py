@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, List, Union
 import meshio
 from ccx2paraview import Converter
 
-from ada.core.utils import get_list_of_files
+from ada.core.file_system import get_list_of_files
 from ada.fem import StepEigen
 from ada.fem.concepts.eigenvalue import EigenDataSummary, EigenMode
 from ada.fem.formats.utils import DatFormatReader
