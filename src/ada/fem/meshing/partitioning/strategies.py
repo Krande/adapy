@@ -30,7 +30,7 @@ def partition_solid_beams(gmsh_data: "GmshData", gmsh_session: "GmshSession"):
     partition_tool = partition_map.get(base_type, None)
 
     if partition_tool is None:
-        raise NotImplementedError(f'Partitioning of "{type(obj)}" is not yet supported')
+        raise NotImplementedError(f'Partitioning of "{obj.section.type}" Beams is not yet supported')
 
     partition_tool(gmsh_data, gmsh_session)
 

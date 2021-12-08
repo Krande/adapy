@@ -74,6 +74,28 @@ class BackendGeom(Backend):
             gs.mesh(mesh_size, use_quads=use_quads, use_hex=use_hex)
             return gs.get_fem(name)
 
+    def to_fem(
+        self,
+        mesh_size,
+        geom_repr,
+        name: str,
+        fem_format: str,
+        options: "GmshOptions" = None,
+        silent=True,
+        use_quads=False,
+        use_hex=False,
+        return_assembly=False,
+        **kwargs
+    ):
+        from ada import Part, Assembly
+
+        p = Part(name)
+        p.fem = self.to_fem_obj(mesh_size, geom_repr, options, silent, use_quads, use_hex, name)
+        a = Assembly() / (p / self)
+        if return_assembly:
+            return a
+        a.to_fem(name, fem_format, **kwargs)
+
     def to_stp(self, destination_file, geom_repr=None, schema="AP242", silent=False, fuse_piping=False):
         from ada.fem.shapes import ElemType
         from ada.occ.writer import StepExporter
