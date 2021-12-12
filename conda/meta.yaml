@@ -9,7 +9,6 @@ source:
 
 build:
   number: 0
-  script: "{{ PYTHON }} -m pip install . -vv"
 
 requirements:
   build:
@@ -18,13 +17,11 @@ requirements:
     - python
     - numpy
     - ifcopenshell
-    - pythonocc-core 7.5.1
-    - occt 7.5.1
+    - pythonocc-core
     - vtk
     - meshio[all]
     - toolz
     - lmfit
-    - gmsh
     - pyquaternion
     - ccx2paraview
     - pytexit

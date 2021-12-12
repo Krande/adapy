@@ -1,5 +1,5 @@
 build:
-	conda-build -c krande -c conda-forge . --keep-old-work
+	conda activate condabuild && conda-build -c krande -c conda-forge . --keep-old-work --python 3.9.7
 
 index:
 	conda index ${CONDA_PREFIX}/conda-bld --channel-name local
@@ -16,3 +16,6 @@ upload:
 
 show:
 	conda config --show channels
+
+pre:
+	conda create -n condabuild -c conda-forge conda-build conda-verify anaconda-client
