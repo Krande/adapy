@@ -86,7 +86,7 @@ def transform_shape(
 
 
 def walk_shapes(dir_path):
-    from ..core.utils import get_list_of_files
+    from ..core.file_system import get_list_of_files
 
     shps = []
     for stp_file in get_list_of_files(dir_path, ".stp"):

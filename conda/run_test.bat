@@ -1,2 +1,1 @@
-cd ..\work
 pytest tests

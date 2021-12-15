@@ -34,8 +34,16 @@ requirements:
     - ipygany
     - pydantic
     - pyvista
-  test:
+
+
+test:
+  source_files:
+    - tests
+    - files
+  requires:
     - pytest
+  imports:
+    - ada
 
 about:
   home: https://github.com/krande/adapy

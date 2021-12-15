@@ -2,7 +2,7 @@ cmd_pre=pip install pytest && conda list
 cmd_test=cd /home/tests/fem && pytest && python build_verification_report.py
 mount=--mount type=bind,source="$(CURDIR)/temp/report",target=/home/tests/fem/temp \
       --mount type=bind,source="$(CURDIR)/temp/scratch",target=/home/adauser/scratch
-build_dirs=mkdir -p "temp/report" && mkdir -p "temp/scratch"
+build_dirs=mkdir "temp/report" && mkdir "temp/scratch"
 
 
 build:
