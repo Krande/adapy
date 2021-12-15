@@ -87,7 +87,7 @@ class BackendGeom(Backend):
         return_assembly=False,
         **kwargs
     ):
-        from ada import Part, Assembly
+        from ada import Assembly, Part
 
         p = Part(name)
         p.fem = self.to_fem_obj(mesh_size, geom_repr, options, silent, use_quads, use_hex, name)

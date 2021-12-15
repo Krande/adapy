@@ -1,0 +1,2 @@
+cd ..\work
+pytest tests

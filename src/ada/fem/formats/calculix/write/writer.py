@@ -229,7 +229,7 @@ def material_str(material):
 
 def bc_str(bc: Bc) -> str:
 
-    ampl_ref_str = "" if bc.amplitude_name is None else ", amplitude=" + bc.amplitude_name
+    ampl_ref_str = "" if bc.amplitude is None else ", amplitude=" + bc.amplitude.name
 
     if bc.type in valid_aba_bcs:
         aba_type = bc.type

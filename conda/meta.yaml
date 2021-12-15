@@ -17,7 +17,8 @@ requirements:
     - python
     - numpy
     - ifcopenshell
-    - pythonocc-core
+    - pythonocc-core==7.5.3
+    - gmsh==4.9.1
     - vtk
     - meshio[all]
     - toolz
@@ -33,6 +34,8 @@ requirements:
     - ipygany
     - pydantic
     - pyvista
+  test:
+    - pytest
 
 about:
   home: https://github.com/krande/adapy
