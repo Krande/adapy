@@ -120,6 +120,8 @@ class Step(FemBase):
         self._bcs[bc.name] = bc
         if bc.fem_set.parent is None and bc.fem_set not in self.parent.sets:
             self.parent.sets.add(bc.fem_set)
+        if bc.amplitude is not None and bc.amplitude.parent is None:
+            self.parent.add_amplitude(bc.amplitude)
 
     def add_history_output(self, hist_output: HistOutput):
         hist_output.parent = self

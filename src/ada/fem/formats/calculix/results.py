@@ -4,7 +4,6 @@ import pathlib
 from typing import TYPE_CHECKING, List, Union
 
 import meshio
-from ccx2paraview import Converter
 
 from ada.core.file_system import get_list_of_files
 from ada.fem import StepEigen
@@ -49,6 +48,8 @@ def get_eigen_data(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
 
 
 def read_calculix_results(results: "Results", file_ref: pathlib.Path, overwrite):
+    from ccx2paraview import Converter
+
     result_files = get_list_of_files(file_ref.parent, ".vtu")
     if len(result_files) == 0 or overwrite is True:
         convert = Converter(str(file_ref), ["vtu"])
