@@ -8,18 +8,19 @@ if TYPE_CHECKING:
     from ada import FEM
 
 
-def surfaces_str(fem: "FEM"):
+def surfaces_str(fem: "FEM", on_assembly_level):
     if len(fem.surfaces) == 0:
         return "** No Surfaces"
 
-    return "\n".join([surface_str(s, False) for s in fem.surfaces.values()])
+    return "\n".join([surface_str(s, on_assembly_level) for s in fem.surfaces.values()])
 
 
 def surface_str(surface: Surface, write_on_assembly_level: bool) -> str:
     """Surface assignments str"""
-    top_line = f"*Surface, type={surface.type}, name={surface.name}"
     from ada.fem.elements import find_element_type_from_list
     from ada.fem.shapes import ElemType
+
+    top_line = f"*Surface, type={surface.type}, name={surface.name}"
 
     if surface.id_refs is not None:
         id_refs_str = "\n".join([f"{m[0]}, {m[1]}" for m in surface.id_refs]).strip()

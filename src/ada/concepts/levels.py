@@ -1120,7 +1120,7 @@ class Assembly(Part):
             n = interface_n.node
             for p in self.get_all_parts_in_assembly(True):
                 res = p.fem.nodes.get_by_volume(n.p)
-                if res is not None:
+                if res is not None and len(res) > 0:
                     replace_node = res[0]
                     for ref in n.refs:
                         if isinstance(ref, Connector):

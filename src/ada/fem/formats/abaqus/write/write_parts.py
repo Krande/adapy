@@ -55,7 +55,7 @@ def write_abaqus_part_str(part: "Part") -> str:
 {nsets_str(fem, False)}
 {sections_str(fem)}
 {masses_str(fem)}
-{surfaces_str(fem)}
+{surfaces_str(fem, False)}
 {constraints_str(fem, False)}
 {springs_str(fem)}""".rstrip()
 

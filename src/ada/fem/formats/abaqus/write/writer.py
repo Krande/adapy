@@ -61,7 +61,7 @@ def to_fem(assembly: "Assembly", name, analysis_dir=None, metadata=None, writabl
         d.write(f"{assembly_nodes_str}\n")
         d.write(f"{nsets_str(afem, True)}\n")
         d.write(f"{elsets_str(afem, True)}\n")
-        d.write(f"{surfaces_str(afem)}\n")
+        d.write(f"{surfaces_str(afem, True)}\n")
         d.write(orientations_str(afem, True) + "\n")
         d.write(elements_str(afem, True) + "\n")
         d.write(masses_str(afem))
