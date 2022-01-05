@@ -1126,10 +1126,14 @@ class Assembly(Part):
                         if isinstance(ref, Connector):
                             if n == ref.n1:
                                 ref.n1 = replace_node
-                            if n == ref.n2:
+                            elif n == ref.n2:
                                 ref.n2 = replace_node
+                            else:
+                                logging.warning(f'No matching node found for either n1 or n2 of "{ref}"')
                         elif isinstance(ref, Csys):
-                            logging.info("Passing interface node with CSYS")
+                            index = ref.nodes.index(n)
+                            ref.nodes.pop(index)
+                            ref.nodes.insert(index, replace_node)
                         elif isinstance(ref, FemSet):
                             index = ref.members.index(n)
                             ref.members.pop(index)
