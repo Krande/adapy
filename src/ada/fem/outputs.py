@@ -226,3 +226,9 @@ class FieldOutput(FemBase):
 class Defaults:
     history_output = HistOutput("default_hist", None, HistOutput.TYPES.ENERGY, HistOutput.TYPES_DATA.all)
     field_output = FieldOutput("default_fields", int_type=HistOutput.TYPES_INTERVAL.FREQUENCY, int_value=1)
+
+
+def defaults():
+    history_output = HistOutput("default_hist", None, HistOutput.TYPES.ENERGY, HistOutput.TYPES_DATA.all)
+    field_output = FieldOutput("default_fields", int_type=HistOutput.TYPES_INTERVAL.FREQUENCY, int_value=1)
+    return history_output, field_output

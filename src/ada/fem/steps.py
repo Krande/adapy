@@ -97,12 +97,12 @@ class Step(FemBase):
             self._field_outputs += [field]
 
     def get_default_output_variables(self):
-        from ada.fem.outputs import Defaults
+        from ada.fem.outputs import defaults
 
-        return Defaults.history_output, Defaults.field_output
+        return defaults()
 
     def add_load(self, load: Union[Load, LoadPressure]):
-        if type(load) is LoadPressure:
+        if isinstance(load, LoadPressure):
             if load.surface.parent is None:
                 self.parent.add_surface(load.surface)
         self._loads.append(load)
