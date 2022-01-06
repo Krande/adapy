@@ -67,6 +67,9 @@ class FemElements:
 
     def _renumber_from_map(self, renumber_map):
         for el in sorted(self._elements, key=attrgetter("id")):
+            if isinstance(el, Mass):
+                # Mass elements are points and have been renumbered during node-renumbering
+                continue
             el.id = renumber_map[el.id]
 
     def _renumber_linearly(self, start_id):

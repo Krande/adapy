@@ -64,7 +64,7 @@ def to_fem(assembly: "Assembly", name, analysis_dir=None, metadata=None, writabl
         d.write(f"{surfaces_str(afem, True)}\n")
         d.write(orientations_str(afem, True) + "\n")
         d.write(elements_str(afem, True) + "\n")
-        d.write(masses_str(afem))
+        d.write(masses_str(afem, True))
 
     # Amplitude data
     with open(core_dir / "amplitude_data.inp", "w") as d:

@@ -36,7 +36,7 @@ def read_sesam_fem(bulk_str, part_name) -> "Part":
     fem.elements.build_sets()
     part._materials = get_materials(bulk_str, part)
     fem.sections = get_sections(bulk_str, fem, mass_elem, spring_elem)
-    fem.masses = get_mass(bulk_str, part.fem, mass_elem)
+    fem.elements += get_mass(bulk_str, part.fem, mass_elem)
     fem.springs = get_springs(bulk_str, fem, spring_elem)
     fem.sets = part.fem.sets + get_sets(bulk_str, fem)
     fem.constraints += get_constraints(bulk_str, fem)

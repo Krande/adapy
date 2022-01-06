@@ -11,14 +11,14 @@ if TYPE_CHECKING:
     from ada.fem import FemSet
 
 
-def masses_str(fem: "FEM"):
+def masses_str(fem: "FEM", written_on_assembly_level: bool):
     if len(list(fem.elements.masses)) == 0:
         return "** No Masses"
 
-    return "\n".join([mass_str(m) for m in fem.elements.masses])
+    return "\n".join([mass_str(m, written_on_assembly_level) for m in fem.elements.masses])
 
 
-def mass_str(mass: Mass) -> str:
+def mass_str(mass: Mass, written_on_assembly_level: bool) -> str:
     if mass.point_mass_type in (Mass.PTYPES.ISOTROPIC, None):
         type_str = ""
     else:
@@ -35,13 +35,13 @@ def mass_str(mass: Mass) -> str:
         set_ref = mass.fem_set
     else:
         raise ValueError("Unable to find proper reference to masses")
-
+    set_name = get_instance_name(set_ref, written_on_assembly_level=written_on_assembly_level)
     if mass.type == Mass.TYPES.MASS:
-        return f"""*Mass, elset={set_ref.name}{type_str}\n {mstr}"""
+        return f"""*Mass, elset={set_name}{type_str}\n {mstr}"""
     elif mass.type == Mass.TYPES.NONSTRU:
-        return f"""*Nonstructural Mass, elset={set_ref.name}, units={mass.units}\n  {mstr}"""
+        return f"""*Nonstructural Mass, elset={set_name}, units={mass.units}\n  {mstr}"""
     elif mass.type == Mass.TYPES.ROT_INERTIA:
-        return f"""*Rotary Inertia, elset={set_ref.name}\n  {mstr}"""
+        return f"""*Rotary Inertia, elset={set_name}\n  {mstr}"""
     else:
         raise ValueError(f'Mass type "{mass.type}" is not supported by Abaqus')
 
