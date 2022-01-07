@@ -6,7 +6,7 @@ from .write_utils import write_ff
 def mass_str(fem: FEM) -> str:
     out_str = ""
 
-    for mass in fem.masses.values():
+    for mass in fem.elements.masses:
         for m in mass.fem_set.members:
             if mass.type == mass.TYPES.MASS:
                 if mass.point_mass_type == mass.PTYPES.ISOTROPIC:

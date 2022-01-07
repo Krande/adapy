@@ -49,7 +49,6 @@ def write_elem(el: "Elem", alevel: bool) -> str:
 
 
 def elwriter(eltype_set, elements, fem: "FEM", written_on_assembly_level: bool):
-
     eltype, elset = eltype_set
     if eltype in ElemType.CONNECTOR_SHAPES.all:
         return None

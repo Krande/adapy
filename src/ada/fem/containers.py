@@ -67,7 +67,7 @@ class FemElements:
 
     def _renumber_from_map(self, renumber_map):
         for el in sorted(self._elements, key=attrgetter("id")):
-            if isinstance(el, Mass):
+            if isinstance(el, Mass) or el.type == Elem.EL_TYPES.MASS_SHAPES.MASS:
                 # Mass elements are points and have been renumbered during node-renumbering
                 continue
             el.id = renumber_map[el.id]
@@ -293,12 +293,6 @@ class FemElements:
     def from_id(self, el_id: int) -> Elem:
         el = self._idmap.get(el_id, None)
         if el is None:
-            mass_id_map = {m.id: m for m in self.parent.masses.values()}
-
-            res = mass_id_map.get(el_id, None)
-            if res is not None:
-                return res
-
             spring_id_map = {m.id: m for m in self.parent.springs.values()}
             res = spring_id_map.get(el_id, None)
             if res is not None:
@@ -332,7 +326,7 @@ class FemElements:
     def idmap(self):
         return self._idmap
 
-    def add(self, elem: Elem):
+    def add(self, elem: Elem) -> Elem:
         if elem.id is None:
             if len(self._elements) > 0:
                 elem._el_id = self._elements[-1].id + 1
@@ -348,17 +342,18 @@ class FemElements:
         self._idmap[elem.id] = elem
 
         self._group_by_types()
+        return elem
 
     def remove(self, elems: Union[Elem, List[Elem]]):
         """Remove elem or list of elements from container"""
         elems = list(elems) if isinstance(elems, Iterable) else [elems]
         for elem in elems:
             if elem in self._elements:
-                logging.error(f"Removing element {elem}")
+                logging.warning(f"Element removal is WIP. Removing element: {elem}")
                 self._elements.pop(self._elements.index(elem))
             else:
                 logging.error(f"'{elem}' not found in {self.__class__.__name__}-container.")
-        self._sort()
+        # self._sort()
 
     def group_by_type(self):
         return groupby(sorted(self._elements, key=attrgetter("type")), key=attrgetter("type"))
@@ -410,7 +405,10 @@ class FemSections:
 
         merge_map: Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]] = dict()
         for fs in self.lines:
-            props = (fs.material, fs.section.unique_props(), tuple(), tuple(fs.local_z), 0.0)
+            try:
+                props = (fs.material, fs.section.unique_props(), tuple(), tuple(fs.local_z), 0.0)
+            except TypeError:
+                print('d')
             if props not in merge_map.keys():
                 merge_map[props] = []
 

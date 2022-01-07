@@ -202,7 +202,7 @@ def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: Ins
     fem.sets += get_sets_from_bulk(bulk_str, fem)
     fem.sections = get_sections_from_inp(bulk_str, fem)
     fem.bcs += get_bcs_from_bulk(bulk_str, fem)
-    fem.masses = get_mass_from_bulk(bulk_str, fem)
+    fem.elements += get_mass_from_bulk(bulk_str, fem)
     fem.surfaces.update(get_surfaces_from_bulk(bulk_str, fem))
     fem.lcsys = get_lcsys_from_bulk(bulk_str, fem)
     fem.constraints = get_constraints_from_inp(bulk_str, fem)
