@@ -198,10 +198,10 @@ class FemElements:
 
             return mass, center, vol_
 
-        def calc_mass_elem(el: Elem):
-            if el.mass_props.type != MassTypes.MASS:
+        def calc_mass_elem(el: Mass):
+            if el.type != MassTypes.MASS:
                 raise NotImplementedError(f'Mass type "{el.mass_props.type}" is not yet implemented')
-            mass = el.mass_props.mass
+            mass = el.mass
             vol_ = 0.0
             return mass, el.nodes[0].p, vol_
 
@@ -408,7 +408,7 @@ class FemSections:
             try:
                 props = (fs.material, fs.section.unique_props(), tuple(), tuple(fs.local_z), 0.0)
             except TypeError:
-                print('d')
+                print("d")
             if props not in merge_map.keys():
                 merge_map[props] = []
 
