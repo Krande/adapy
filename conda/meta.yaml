@@ -17,8 +17,8 @@ requirements:
     - python
     - numpy
     - ifcopenshell
-    - pythonocc-core==7.5.3
-    - gmsh==4.9.1
+    - pythonocc-core
+    - gmsh
     - vtk
     - meshio[all]
     - toolz
