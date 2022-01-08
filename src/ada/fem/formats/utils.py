@@ -358,12 +358,13 @@ def run_tool(exe: LocalExecute, run_cmd, platform):
     out = None
     print(80 * "-")
     print(f'Starting {fem_tool_name} simulation "{exe.analysis_name}" (on {platform}) using {exe.cpus} cpus')
-    props = dict(shell=True, cwd=exe.execute_dir, env=os.environ, capture_output=True, universal_newlines=True)
+    props = dict(shell=True, cwd=exe.execute_dir, env=os.environ, universal_newlines=True)
     if exe.auto_execute is True:
         if exe.run_ext is True:
-            out = subprocess.run(run_cmd, **props)
+            out = subprocess.Popen(run_cmd, **props)
             print(f"Note! This starts {fem_tool_name} in an external window on a separate thread.")
         else:
+            props["capture_output"] = True
             out = subprocess.run(run_cmd, **props)
             print(f'Finished {fem_tool_name} simulation "{exe.analysis_name}"')
     print(80 * "-")

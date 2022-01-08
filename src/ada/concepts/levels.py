@@ -194,7 +194,7 @@ class Part(BackendGeom):
         try:
             part._on_import()
         except NotImplementedError:
-            pass
+            logging.info(f'Part "{part}" has not defined its "on_import()" method')
         return part
 
     def add_joint(self, joint: JointBase) -> JointBase:
@@ -900,7 +900,6 @@ class Assembly(Part):
         fem_importer, _ = get_fem_converters(fem_file, fem_format, fem_converter)
 
         temp_assembly: Assembly = fem_importer(fem_file, name)
-
         self.__add__(temp_assembly)
 
         if self._enable_experimental_cache is True:

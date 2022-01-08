@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Dict, List, Union
 
 from .common import FemBase
@@ -26,7 +27,8 @@ class _StepTypes:
 class _DynStepType:
     QUASI_STATIC = "QUASI-STATIC"
     TRANSIENT_FIDELITY = "TRANSIENT FIDELITY"
-    all = [QUASI_STATIC, TRANSIENT_FIDELITY]
+    MODERATE_DISSIPATION = "MODERATE DISSIPATION"
+    all = [QUASI_STATIC, TRANSIENT_FIDELITY, MODERATE_DISSIPATION]
 
 
 class StepSolverOptions:
@@ -211,7 +213,11 @@ class StepImplicit(Step):
         """
         if total_time is not None:
             if init_incr > total_time and nl_geom is True:
-                raise ValueError(f"Initial increment ({init_incr}) must be smaller than total time ({total_time})")
+                logging.warning(
+                    f"Initial increment > Total time ({init_incr} > {total_time}). "
+                    "Adjusted initial increment equal to total time"
+                )
+                init_incr = total_time
         else:
             total_time = init_incr
 

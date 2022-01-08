@@ -1,4 +1,4 @@
-from typing import Union
+from typing import List, Union
 
 from .common import FemBase
 from .constraints import Constraint
@@ -51,6 +51,10 @@ class InteractionProperty(FemBase):
     @property
     def tabular(self):
         return self._tabular
+
+    @tabular.setter
+    def tabular(self, value: List[tuple]):
+        self._tabular = value
 
 
 class Interaction(FemBase):

@@ -3,9 +3,9 @@ import pytest
 import ada
 
 
-def test_read_beam(example_files):
+def test_read_hinged_beams_and_mass(example_files):
     a = ada.from_fem(example_files / "fem_files/sesam/beamMassT1.FEM")
-    p = a.get_part("T1")
+    p = list(a.parts.values())[0]
     assert len(list(p.fem.elements.masses)) == 1
     assert len(list(p.fem.elements.shell)) == 4
     assert len(list(p.fem.elements.lines)) == 11

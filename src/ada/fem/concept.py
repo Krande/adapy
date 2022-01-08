@@ -201,6 +201,8 @@ class FEM:
     def add_interaction(self, interaction: Interaction) -> Interaction:
         interaction.parent = self
         self.interactions[interaction.name] = interaction
+        if interaction.interaction_property.parent is None:
+            self.add_interaction_property(interaction.interaction_property)
         return interaction
 
     def add_constraint(self, constraint: Constraint) -> Constraint:
