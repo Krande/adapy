@@ -15,3 +15,8 @@ def test_read_hinged_beams_and_mass(example_files):
     assert pytest.approx(cog.p[0], 5.21773)
     assert pytest.approx(cog.p[1], 4.78227)
     assert pytest.approx(cog.p[2], 0.884281)
+
+    assert len(p.fem.sections.lines) == 11
+    p.fem.sections.merge_by_properties()
+    assert len(p.fem.sections.lines) == 4
+    assert len(p.materials) == 1
