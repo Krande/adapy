@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Iterable, Union
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Iterable, List, Union
 
 import numpy as np
 from pyquaternion import Quaternion
+
+if TYPE_CHECKING:
+    from ada import Part
+    from ada.base.physical_objects import BackendGeom
 
 
 @dataclass
@@ -78,3 +82,9 @@ class Placement:
                 return False
 
         return True
+
+
+@dataclass
+class Instance:
+    instance_ref: Union["Part", "BackendGeom"]
+    placements: List[Placement] = field(default_factory=list)

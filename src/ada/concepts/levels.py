@@ -7,7 +7,7 @@ import pathlib
 from dataclasses import dataclass
 from io import StringIO
 from itertools import chain
-from typing import TYPE_CHECKING, Dict, Iterable, List, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Union
 
 from ada.base.physical_objects import BackendGeom
 from ada.concepts.connections import JointBase
@@ -29,7 +29,7 @@ from ada.concepts.primitives import (
     PrimRevolve,
     Shape,
 )
-from ada.concepts.transforms import Placement
+from ada.concepts.transforms import Instance, Placement
 from ada.config import Settings, User
 from ada.fem import (
     Connector,
@@ -46,7 +46,7 @@ from ada.fem.elements import ElemType
 from ada.ifc.utils import create_guid
 
 if TYPE_CHECKING:
-    from ada import Beam, Material, Plate, Section, Transform, Wall
+    from ada import Beam, Material, Plate, Section, Wall
     from ada.fem.meshing import GmshOptions
     from ada.fem.results import Results
     from ada.ifc.concepts import IfcRef
@@ -93,7 +93,7 @@ class Part(BackendGeom):
         self._sections = Sections(parent=self)
         self._colour = colour
         self._placement = placement
-        self._instances = []
+        self._instances: Dict[Any, Instance] = dict()
         self._shapes = []
         self._parts = dict()
         self._groups = dict()
@@ -251,8 +251,10 @@ class Part(BackendGeom):
                 p.add_penetration(pen, False)
         return pen
 
-    def add_instance(self, element, transform: Transform):
-        self._instances[element] = transform
+    def add_instance(self, element, placement: Placement):
+        if element not in self._instances.keys():
+            self._instances[element] = Instance(element)
+        self._instances[element].placements.append(placement)
 
     def add_set(self, name, set_members: List[Union[Part, Beam, Plate, Wall, Pipe, Shape]]) -> Group:
         if name not in self.groups.keys():
@@ -608,6 +610,10 @@ class Part(BackendGeom):
     @placement.setter
     def placement(self, value: Placement):
         self._placement = value
+
+    @property
+    def instances(self) -> Dict[Any, Instance]:
+        return self._instances
 
     @property
     def units(self):
