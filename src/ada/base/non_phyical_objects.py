@@ -94,9 +94,9 @@ class Backend:
     def ifc_settings(self, value):
         self._ifc_settings = value
 
-    def get_ifc_elem(self):
+    def get_ifc_elem(self, skip_props=False):
         if self._ifc_elem is None:
-            self._ifc_elem = self._generate_ifc_elem()
+            self._ifc_elem = self._generate_ifc_elem(skip_props)
         return self._ifc_elem
 
     @property
@@ -120,7 +120,7 @@ class Backend:
             current = current.parent
         return ancestry
 
-    def _generate_ifc_elem(self):
+    def _generate_ifc_elem(self, skip_props=False):
         raise NotImplementedError("")
 
     def remove(self):

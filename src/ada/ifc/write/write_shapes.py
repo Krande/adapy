@@ -31,7 +31,7 @@ from ada.ifc.utils import (
 )
 
 
-def write_ifc_shape(shape: Shape):
+def write_ifc_shape(shape: Shape, skip_props=False):
     if shape.parent is None:
         raise ValueError("Parent cannot be None for IFC export")
 
@@ -44,7 +44,7 @@ def write_ifc_shape(shape: Shape):
     schema = a.ifc_file.wrapped_data.schema
 
     shape_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
-    if type(shape) is not Shape:
+    if issubclass(type(shape), Shape):
         ifc_shape = generate_parametric_solid(shape, f)
     else:
         tol = get_tolerance(a.units)
@@ -55,7 +55,6 @@ def write_ifc_shape(shape: Shape):
     for rep in ifc_shape.Representations:
         rep.ContextOfItems = context
 
-    guid = shape.metadata.get("guid", create_guid())
     description = shape.metadata.get("description", None)
 
     if "hidden" in shape.metadata.keys():
@@ -68,7 +67,7 @@ def write_ifc_shape(shape: Shape):
 
     ifc_elem = f.create_entity(
         "IfcBuildingElementProxy",
-        guid,
+        shape.guid,
         owner_history,
         shape.name,
         description,
@@ -90,16 +89,17 @@ def write_ifc_shape(shape: Shape):
             pen.ifc_opening,
         )
 
-    props = create_property_set("Properties", f, shape.metadata)
-    f.create_entity(
-        "IfcRelDefinesByProperties",
-        create_guid(),
-        owner_history,
-        "Properties",
-        None,
-        [ifc_elem],
-        props,
-    )
+    if skip_props is False:
+        props = create_property_set("Properties", f, shape.metadata)
+        f.create_entity(
+            "IfcRelDefinesByProperties",
+            create_guid(),
+            owner_history,
+            "Properties",
+            None,
+            [ifc_elem],
+            props,
+        )
 
     return ifc_elem
 

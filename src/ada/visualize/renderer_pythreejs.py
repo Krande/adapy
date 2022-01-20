@@ -1,9 +1,9 @@
 import logging
 import uuid
-from typing import TYPE_CHECKING
 from dataclasses import dataclass
 from itertools import chain
 from random import randint
+from typing import TYPE_CHECKING
 
 import numpy as np
 from OCC.Core.Tesselator import ShapeTesselator
@@ -32,7 +32,7 @@ from pythreejs import (
 from ada.fem import Elem
 
 if TYPE_CHECKING:
-    from ada import Beam, Plate, Wall, Pipe, Part, Shape
+    from ada import Beam, Part, Pipe, Plate, Shape, Wall
 
 __all__ = ["MyRenderer", "SectionRenderer"]
 

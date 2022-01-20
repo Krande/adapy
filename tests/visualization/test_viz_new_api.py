@@ -1,7 +1,8 @@
+import pytest
+
 from ada import Beam
 from ada.visualize.new_render_api import Visualize
 from ada.visualize.renderer_occ import occ_shape_to_faces
-import pytest
 
 
 @pytest.fixture
@@ -21,4 +22,3 @@ def test_viz_beam_manual(test_dir, beam):
     render_edges = False
     parallel = True
     np_vertices, np_faces, np_normals, _ = occ_shape_to_faces(geom, quality, render_edges, parallel)
-

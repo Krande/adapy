@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from ada import Assembly, Part
 
 
-def write_ifc_assembly(assembly: "Assembly"):
+def write_ifc_assembly(assembly: "Assembly", skip_props=False):
 
     f = assembly.ifc_file
     owner_history = assembly.user.to_ifc()
@@ -55,7 +55,7 @@ def write_ifc_assembly(assembly: "Assembly"):
     return site
 
 
-def write_ifc_part(part: "Part"):
+def write_ifc_part(part: "Part", skip_props=False):
     if part.parent is None:
         raise ValueError("Cannot build ifc element without parent")
 
@@ -65,7 +65,7 @@ def write_ifc_part(part: "Part"):
     owner_history = a.user.to_ifc()
 
     itype = part.metadata["ifctype"]
-    parent = part.parent.get_ifc_elem()
+    parent = part.parent.get_ifc_elem(skip_props=skip_props)
     placement = create_local_placement(
         f,
         origin=part.placement.origin,
@@ -108,6 +108,7 @@ def write_ifc_part(part: "Part"):
         [ifc_elem],
     )
 
-    add_multiple_props_to_elem(part.metadata.get("props", dict()), ifc_elem, f)
+    if skip_props is False:
+        add_multiple_props_to_elem(part.metadata.get("props", dict()), ifc_elem, f)
 
     return ifc_elem

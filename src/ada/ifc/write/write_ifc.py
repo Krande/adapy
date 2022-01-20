@@ -8,11 +8,13 @@ from ada.fem.formats.ifc.writer import to_ifc_fem
 
 from ..utils import create_guid
 from .write_beams import write_ifc_beam
+from .write_instances import write_mapped_instance
 from .write_plates import write_ifc_plate
+from .write_shapes import write_ifc_shape
 from .write_wall import write_ifc_wall
 
 
-def write_to_ifc(destination_file, a: Assembly, include_fem) -> None:
+def write_to_ifc(destination_file, a: Assembly, include_fem, skip_props=False) -> None:
 
     f = a.ifc_file
 
@@ -26,7 +28,7 @@ def write_to_ifc(destination_file, a: Assembly, include_fem) -> None:
         f.add(m.ifc_mat)
 
     for p in a.get_all_parts_in_assembly(include_self=True):
-        add_part_objects_to_ifc(p, f, a, include_fem)
+        add_part_objects_to_ifc(p, f, a, include_fem, skip_props=skip_props)
 
     all_groups = [p.groups.values() for p in a.get_all_parts_in_assembly(include_self=True)]
     for group in chain.from_iterable(all_groups):
@@ -51,32 +53,32 @@ def write_to_ifc(destination_file, a: Assembly, include_fem) -> None:
     print(f'ifc file created at "{dest}"')
 
 
-def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=False):
+def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=False, skip_props=False):
     # TODO: Consider having all of these operations happen upon import of elements as opposed to one big operation
     #  on export
 
-    part_ifc = p.get_ifc_elem()
+    part_ifc = p.get_ifc_elem(skip_props)
     owner_history = assembly.user.to_ifc()
     physical_objects = []
     for m in p.materials.name_map.values():
         f.add(m.ifc_mat)
 
     for bm in p.beams:
-        bm_ifc = write_ifc_beam(bm)
+        bm_ifc = write_ifc_beam(bm, skip_props)
         f.add(bm_ifc)
         physical_objects.append(bm_ifc)
 
     for pl in p.plates:
-        pl_ifc = write_ifc_plate(pl)
+        pl_ifc = write_ifc_plate(pl, skip_props)
         f.add(pl_ifc)
         physical_objects.append(pl_ifc)
 
     for pi in p.pipes:
         logging.debug(f'Creating IFC Elem for PIPE "{pi.name}"')
-        f.add(pi.get_ifc_elem())
+        f.add(pi.get_ifc_elem(skip_props))
 
     for wall in p.walls:
-        wall_ifc = write_ifc_wall(wall)
+        wall_ifc = write_ifc_wall(wall, skip_props)
         f.add(wall_ifc)
         physical_objects.append(wall_ifc)
 
@@ -88,8 +90,12 @@ def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=Fals
             f.add(ifc_elem)
             physical_objects.append(ifc_elem)
         else:
-            f.add(shp.get_ifc_elem())
-            physical_objects.append(shp.get_ifc_elem())
+            ifc_shape = write_ifc_shape(shp, skip_props=skip_props)
+            f.add(ifc_shape)
+            physical_objects.append(ifc_shape)
+
+    for instance in p.instances.values():
+        write_mapped_instance(instance, f)
 
     if len(p.fem.nodes) > 0 and ifc_include_fem is True:
         to_ifc_fem(p.fem, f)

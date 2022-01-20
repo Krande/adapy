@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING, List, Tuple, Union
 
 import ifcopenshell
 import ifcopenshell.geom
@@ -14,7 +14,7 @@ from ada.core.file_system import get_list_of_files
 from ada.core.utils import roundoff
 
 if TYPE_CHECKING:
-    from ada import Beam
+    from ada import Assembly, Beam
 
 
 def ifc_dir(f: ifcopenshell.file, vec: Tuple[float, float, float]):
@@ -44,18 +44,11 @@ def create_guid(name=None):
     return result
 
 
-def ifc_p(f, p):
-    """
-
-    :param f:
-    :param p:
-    :type f: ifcopenshell.file.file
-    :return:
-    """
+def ifc_p(f: ifcopenshell.file, p):
     return f.create_entity("IfcCartesianPoint", to_real(p))
 
 
-def create_ifc_placement(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X):
+def create_ifc_placement(f: ifcopenshell.file, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X):
     """
     Creates an IfcAxis2Placement3D from Location, Axis and RefDirection specified as Python tuples
 
@@ -63,17 +56,15 @@ def create_ifc_placement(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X):
     :param origin:
     :param loc_z:
     :param loc_x:
-    :type f: ifcopenshell.file.file
     :return:
     """
 
     ifc_loc_z = f.createIfcDirection(to_real(loc_z))
     ifc_loc_x = f.createIfcDirection(to_real(loc_x))
-    axis2placement = f.createIfcAxis2Placement3D(ifc_p(f, origin), ifc_loc_z, ifc_loc_x)
-    return axis2placement
+    return f.createIfcAxis2Placement3D(ifc_p(f, origin), ifc_loc_z, ifc_loc_x)
 
 
-def create_local_placement(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X, relative_to=None):
+def create_local_placement(f: ifcopenshell.file, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X, relative_to=None):
     """
     Creates an IfcLocalPlacement from Location, Axis and RefDirection,
     specified as Python tuples, and relative placement
@@ -83,7 +74,6 @@ def create_local_placement(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X, relativ
     :param loc_z:
     :param loc_x:
     :param relative_to:
-    :type f: ifcopenshell.file.file
     :return: IFC local placement
     """
 
@@ -117,13 +107,7 @@ def create_new_ifc_file(file_name, schema):
     return f
 
 
-def assembly_to_ifc_file(a):
-    """
-
-    :param a:
-    :type a: ada.Assembly
-    :return:
-    """
+def assembly_to_ifc_file(a: "Assembly"):
     return generate_tpl_ifc_file(a.name, a.metadata["project"], a.metadata["schema"], a.units, a.user)
 
 
@@ -370,13 +354,7 @@ def create_property_set(name, ifc_file, metadata_props):
 
 
 def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props):
-    """
-    :param name:
-    :param ifc_file:
-    :param ifc_elem:
-    :param elem_props:
-    :return:
-    """
+    logging.info(f'Adding "{name}" properties to IFC Element "{ifc_elem}"')
     owner_history = ifc_file.by_type("IfcOwnerHistory")[0]
     props = create_property_set(name, ifc_file, elem_props)
     ifc_file.createIfcRelDefinesByProperties(
@@ -398,15 +376,12 @@ def add_multiple_props_to_elem(metadata_props, elem, f):
             add_properties_to_elem("Properties", f, elem, metadata_props)
 
 
-def to_real(v):
-    """
-
-    :param v:
-    :return:
-    """
+def to_real(v) -> Union[float, List[float]]:
     from ada import Node
 
-    if type(v) is tuple:
+    if type(v) is float:
+        return v
+    elif type(v) is tuple:
         return [float(x) for x in v]
     elif type(v) is list:
         if type(v[0]) is float:

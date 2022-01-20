@@ -39,6 +39,7 @@ class Placement:
     xdir: Union[list, tuple, np.ndarray] = None
     ydir: Union[list, tuple, np.ndarray] = None
     zdir: Union[list, tuple, np.ndarray] = None
+    scale: float = 1.0
     parent = None
 
     def __post_init__(self):

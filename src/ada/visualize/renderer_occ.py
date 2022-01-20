@@ -1,7 +1,12 @@
+from typing import TYPE_CHECKING
+
 import numpy as np
 
+if TYPE_CHECKING:
+    from OCC.Core.TopoDS import TopoDS_Shape
 
-def occ_shape_to_faces(shape, quality=1.0, render_edges=False, parallel=True):
+
+def occ_shape_to_faces(shape: "TopoDS_Shape", quality=1.0, render_edges=False, parallel=True):
     from OCC.Core.Tesselator import ShapeTesselator
 
     # first, compute the tesselation
