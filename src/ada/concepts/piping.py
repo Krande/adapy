@@ -197,11 +197,11 @@ class Pipe(BackendGeom):
             self._build_pipe()
             self._units = value
 
-    def get_ifc_elem(self, skip_props=False):
+    def get_ifc_elem(self):
         if self._ifc_elem is None:
             from ada.ifc.write.write_pipe import write_ifc_pipe
 
-            self._ifc_elem = write_ifc_pipe(self, skip_props)
+            self._ifc_elem = write_ifc_pipe(self)
         return self._ifc_elem
 
     def __repr__(self):
@@ -257,10 +257,10 @@ class PipeSegStraight(BackendGeom):
 
         return sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, ElemType.SOLID)
 
-    def _generate_ifc_elem(self, skip_props=False):
+    def _generate_ifc_elem(self):
         from ada.ifc.write.write_pipe import write_pipe_straight_seg
 
-        return write_pipe_straight_seg(self, skip_props)
+        return write_pipe_straight_seg(self)
 
     def __repr__(self):
         return f"PipeSegStraight({self.name}, p1={self.p1}, p2={self.p2})"

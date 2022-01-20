@@ -14,7 +14,7 @@ from .write_shapes import write_ifc_shape
 from .write_wall import write_ifc_wall
 
 
-def write_to_ifc(destination_file, a: Assembly, include_fem, skip_props=False) -> None:
+def write_to_ifc(destination_file, a: Assembly, include_fem) -> None:
 
     f = a.ifc_file
 
@@ -28,7 +28,7 @@ def write_to_ifc(destination_file, a: Assembly, include_fem, skip_props=False) -
         f.add(m.ifc_mat)
 
     for p in a.get_all_parts_in_assembly(include_self=True):
-        add_part_objects_to_ifc(p, f, a, include_fem, skip_props=skip_props)
+        add_part_objects_to_ifc(p, f, a, include_fem)
 
     all_groups = [p.groups.values() for p in a.get_all_parts_in_assembly(include_self=True)]
     for group in chain.from_iterable(all_groups):
@@ -53,32 +53,32 @@ def write_to_ifc(destination_file, a: Assembly, include_fem, skip_props=False) -
     print(f'ifc file created at "{dest}"')
 
 
-def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=False, skip_props=False):
+def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=False):
     # TODO: Consider having all of these operations happen upon import of elements as opposed to one big operation
     #  on export
 
-    part_ifc = p.get_ifc_elem(skip_props)
+    part_ifc = p.get_ifc_elem()
     owner_history = assembly.user.to_ifc()
     physical_objects = []
     for m in p.materials.name_map.values():
         f.add(m.ifc_mat)
 
     for bm in p.beams:
-        bm_ifc = write_ifc_beam(bm, skip_props)
+        bm_ifc = write_ifc_beam(bm)
         f.add(bm_ifc)
         physical_objects.append(bm_ifc)
 
     for pl in p.plates:
-        pl_ifc = write_ifc_plate(pl, skip_props)
+        pl_ifc = write_ifc_plate(pl)
         f.add(pl_ifc)
         physical_objects.append(pl_ifc)
 
     for pi in p.pipes:
         logging.debug(f'Creating IFC Elem for PIPE "{pi.name}"')
-        f.add(pi.get_ifc_elem(skip_props))
+        f.add(pi.get_ifc_elem())
 
     for wall in p.walls:
-        wall_ifc = write_ifc_wall(wall, skip_props)
+        wall_ifc = write_ifc_wall(wall)
         f.add(wall_ifc)
         physical_objects.append(wall_ifc)
 
@@ -90,7 +90,7 @@ def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=Fals
             f.add(ifc_elem)
             physical_objects.append(ifc_elem)
         else:
-            ifc_shape = write_ifc_shape(shp, skip_props=skip_props)
+            ifc_shape = write_ifc_shape(shp)
             f.add(ifc_shape)
             physical_objects.append(ifc_shape)
 

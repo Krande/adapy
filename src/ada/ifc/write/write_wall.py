@@ -15,7 +15,7 @@ from ada.ifc.utils import (
 from .write_stru_components import write_door, write_window
 
 
-def write_ifc_wall(wall: Wall, skip_props=False):
+def write_ifc_wall(wall: Wall):
     if wall.parent is None:
         raise ValueError("Ifc element cannot be built without any parent element")
 
@@ -81,7 +81,7 @@ def write_ifc_wall(wall: Wall, skip_props=False):
         parent,
     )
 
-    if skip_props is False:
+    if wall.ifc_options.export_props is True:
         props = create_property_set("Properties", f, wall.metadata)
         f.createIfcRelDefinesByProperties(
             create_guid(),

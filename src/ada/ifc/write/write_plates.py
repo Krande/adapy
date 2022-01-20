@@ -13,7 +13,7 @@ from ada.ifc.utils import (
 )
 
 
-def write_ifc_plate(plate: Plate, skip_props=False):
+def write_ifc_plate(plate: Plate):
 
     if plate.parent is None:
         raise ValueError("Ifc element cannot be built without any parent element")
@@ -98,7 +98,7 @@ def write_ifc_plate(plate: Plate, skip_props=False):
     )
 
     # if "props" in plate.metadata.keys():
-    if skip_props is False:
+    if plate.ifc_options.export_props is True:
         props = create_property_set("Properties", f, plate.metadata)
         f.create_entity(
             "IfcRelDefinesByProperties",

@@ -435,15 +435,15 @@ class Part(BackendGeom):
             list_of_parts.append(value)
             self._flatten_list_of_subparts(value, list_of_parts)
 
-    def get_ifc_elem(self, skip_props=False):
+    def get_ifc_elem(self):
         if self._ifc_elem is None:
-            self._ifc_elem = self._generate_ifc_elem(skip_props)
+            self._ifc_elem = self._generate_ifc_elem()
         return self._ifc_elem
 
-    def _generate_ifc_elem(self, skip_props=False):
+    def _generate_ifc_elem(self):
         from ada.ifc.write.write_levels import write_ifc_part
 
-        return write_ifc_part(self, skip_props)
+        return write_ifc_part(self)
 
     def _import_part_from_ifc(self, ifc_elem):
         convert = dict(
@@ -1039,10 +1039,15 @@ class Assembly(Part):
             import_mesh=import_result_mesh,
         )
 
-    def to_ifc(self, destination_file, include_fem=False, skip_props=False) -> None:
+    def to_ifc(self, destination_file, include_fem=False, override_skip_props=False) -> None:
         from ada.ifc.write.write_ifc import write_to_ifc
 
-        write_to_ifc(destination_file, self, include_fem, skip_props)
+        if override_skip_props is True:
+            for p in self.get_all_subparts():
+                for obj in p.get_all_physical_objects(True):
+                    obj.ifc_options.export_props = override_skip_props
+
+        write_to_ifc(destination_file, self, include_fem)
 
     def push(
         self,
@@ -1066,10 +1071,10 @@ class Assembly(Part):
         bimcon = BimServerConnect(bimserver_url, username, password, self)
         bimcon.pull(project, checkout)
 
-    def _generate_ifc_elem(self, skip_props=False):
+    def _generate_ifc_elem(self):
         from ada.ifc.write.write_levels import write_ifc_assembly
 
-        return write_ifc_assembly(self, skip_props)
+        return write_ifc_assembly(self)
 
     def get_ifc_source_by_name(self, ifc_file):
         from ada.ifc.read.reader_utils import open_ifc

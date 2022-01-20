@@ -15,7 +15,7 @@ from ada.ifc.utils import (
 )
 
 
-def write_ifc_beam(beam: Beam, skip_props=False):
+def write_ifc_beam(beam: Beam):
     if beam.parent is None:
         raise ValueError("Parent cannot be None for IFC export")
 
@@ -83,7 +83,7 @@ def write_ifc_beam(beam: Beam, skip_props=False):
         beam_type,
     )
 
-    if skip_props is False:
+    if beam.ifc_options.export_props is True:
         add_multiple_props_to_elem(beam.metadata.get("props", dict()), ifc_beam, f)
 
     # Material

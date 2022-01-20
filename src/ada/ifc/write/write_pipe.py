@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from ada import Pipe, PipeSegElbow, PipeSegStraight
 
 
-def write_ifc_pipe(pipe: "Pipe", skip_props=False):
+def write_ifc_pipe(pipe: "Pipe"):
     from ada import PipeSegElbow, PipeSegStraight
 
     ifc_pipe = write_pipe_ifc_elem(pipe)
@@ -41,10 +41,10 @@ def write_ifc_pipe(pipe: "Pipe", skip_props=False):
     for param_seg in pipe.segments:
         if type(param_seg) is PipeSegStraight:
             assert isinstance(param_seg, PipeSegStraight)
-            res = param_seg.get_ifc_elem(skip_props)
+            res = param_seg.get_ifc_elem()
         else:
             assert isinstance(param_seg, PipeSegElbow)
-            res = param_seg.get_ifc_elem(skip_props)
+            res = param_seg.get_ifc_elem()
         if res is None:
             logging.error(f'Branch "{param_seg.name}" was not converted to ifc element')
         f.add(res)

@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, List, Union
 
 from ada.config import Settings as _Settings
@@ -7,6 +8,11 @@ from ada.ifc.utils import create_guid
 if TYPE_CHECKING:
     from ada import Assembly, Part
     from ada.ifc.concepts import IfcRef
+
+
+@dataclass
+class IfcExportOptions:
+    export_props: bool = field(default=True)
 
 
 class Backend:
@@ -34,6 +40,7 @@ class Backend:
         # TODO: Currently not able to keep and edit imported ifc_elem objects
         self._ifc_elem = None
         self._ifc_ref = ifc_ref
+        self.ifc_options: "IfcExportOptions" = IfcExportOptions()
 
     @property
     def name(self):
@@ -94,9 +101,9 @@ class Backend:
     def ifc_settings(self, value):
         self._ifc_settings = value
 
-    def get_ifc_elem(self, skip_props=False):
+    def get_ifc_elem(self):
         if self._ifc_elem is None:
-            self._ifc_elem = self._generate_ifc_elem(skip_props)
+            self._ifc_elem = self._generate_ifc_elem()
         return self._ifc_elem
 
     @property
@@ -120,7 +127,7 @@ class Backend:
             current = current.parent
         return ancestry
 
-    def _generate_ifc_elem(self, skip_props=False):
+    def _generate_ifc_elem(self):
         raise NotImplementedError("")
 
     def remove(self):

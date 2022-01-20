@@ -61,10 +61,10 @@ class Shape(BackendGeom):
     def generate_ifc_solid_geom(self, f):
         raise NotImplementedError()
 
-    def _generate_ifc_elem(self, skip_props=False):
+    def _generate_ifc_elem(self):
         from ada.ifc.write.write_shapes import write_ifc_shape
 
-        return write_ifc_shape(self, skip_props)
+        return write_ifc_shape(self)
 
     @property
     def type(self):

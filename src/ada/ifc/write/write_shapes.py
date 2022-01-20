@@ -31,7 +31,7 @@ from ada.ifc.utils import (
 )
 
 
-def write_ifc_shape(shape: Shape, skip_props=False):
+def write_ifc_shape(shape: Shape):
     if shape.parent is None:
         raise ValueError("Parent cannot be None for IFC export")
 
@@ -89,7 +89,7 @@ def write_ifc_shape(shape: Shape, skip_props=False):
             pen.ifc_opening,
         )
 
-    if skip_props is False:
+    if shape.ifc_options.export_props is True:
         props = create_property_set("Properties", f, shape.metadata)
         f.create_entity(
             "IfcRelDefinesByProperties",
