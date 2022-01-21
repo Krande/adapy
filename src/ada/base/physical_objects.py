@@ -30,6 +30,7 @@ class BackendGeom(Backend):
         ifc_elem=None,
         placement=Placement(),
         ifc_ref: "IfcRef" = None,
+        opacity=1.0,
     ):
         super().__init__(name, guid, metadata, units, parent, ifc_elem=ifc_elem, ifc_ref=ifc_ref)
         from ada.visualize.new_render_api import Visualize
@@ -38,6 +39,7 @@ class BackendGeom(Backend):
         self._placement = placement
         placement.parent = self
         self.colour = colour
+        self.opacity = opacity
         self._elem_refs = []
         self._viz = Visualize(self)
 
@@ -160,6 +162,10 @@ class BackendGeom(Backend):
             self._colour = value
 
     @property
+    def colour_norm(self):
+        return (x / 255 for x in self._colour)
+
+    @property
     def colour_webgl(self):
         from OCC.Display.WebGl.jupyter_renderer import format_color
 
@@ -175,6 +181,21 @@ class BackendGeom(Backend):
 
         colour_formatted = format_color(*colour)
         return colour_formatted
+
+    @property
+    def opacity(self):
+        return self._opacity
+
+    @opacity.setter
+    def opacity(self, value):
+        if (0.0 <= value <= 1.0) is False:
+            raise ValueError("Opacity is only valid between 1 and 0")
+
+        self._opacity = value
+
+    @property
+    def transparent(self):
+        return False if self.opacity == 1.0 else True
 
     @property
     def penetrations(self) -> List["Penetration"]:

@@ -42,7 +42,7 @@ class Plate(BackendGeom):
         colour=None,
         parent=None,
         ifc_geom=None,
-        opacity=None,
+        opacity=1.0,
         metadata=None,
         tol=None,
         units="m",
@@ -50,9 +50,16 @@ class Plate(BackendGeom):
         guid=None,
         ifc_ref: "IfcRef" = None,
     ):
-        # TODO: Support generation of plate object from IFC elem
         super().__init__(
-            name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem, placement=placement, ifc_ref=ifc_ref
+            name,
+            guid=guid,
+            metadata=metadata,
+            units=units,
+            ifc_elem=ifc_elem,
+            placement=placement,
+            ifc_ref=ifc_ref,
+            colour=colour,
+            opacity=opacity,
         )
 
         points2d = None
@@ -85,12 +92,11 @@ class Plate(BackendGeom):
             tol=tol,
             parent=self,
         )
-        self.colour = colour
+
         self._offset = offset
         self._parent = parent
         self._ifc_geom = ifc_geom
         self._bbox = None
-        self._opacity = opacity
 
     def _generate_ifc_elem(self):
         from ada.ifc.write.write_plates import write_ifc_plate

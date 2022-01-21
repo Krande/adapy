@@ -73,7 +73,7 @@ class Beam(BackendGeom):
         colour=None,
         parent=None,
         metadata=None,
-        opacity=None,
+        opacity=1.0,
         units="m",
         ifc_elem=None,
         guid=None,
@@ -81,7 +81,15 @@ class Beam(BackendGeom):
         ifc_ref: "IfcRef" = None,
     ):
         super().__init__(
-            name, metadata=metadata, units=units, guid=guid, ifc_elem=ifc_elem, placement=placement, ifc_ref=ifc_ref
+            name,
+            metadata=metadata,
+            units=units,
+            guid=guid,
+            ifc_elem=ifc_elem,
+            placement=placement,
+            ifc_ref=ifc_ref,
+            colour=colour,
+            opacity=opacity,
         )
         if curve is not None:
             curve.parent = self
@@ -94,7 +102,6 @@ class Beam(BackendGeom):
             else:
                 raise ValueError(f'Unsupported curve type "{type(curve)}"')
 
-        self.colour = colour
         self._curve = curve
         self._n1 = n1 if type(n1) is Node else Node(n1[:3], units=units)
         self._n2 = n2 if type(n2) is Node else Node(n2[:3], units=units)
@@ -157,7 +164,6 @@ class Beam(BackendGeom):
         self._yvec = np.array([roundoff(x) for x in yvec])
         self._up = up
         self._angle = angle
-        self._opacity = opacity
 
     def get_outer_points(self):
         from itertools import chain
@@ -411,10 +417,6 @@ class Beam(BackendGeom):
         if value.end2 is not None:
             value.end2.concept_node = self.n2
         self._hinge_prop = value
-
-    @property
-    def opacity(self):
-        return self._opacity
 
     @property
     def curve(self) -> CurvePoly:

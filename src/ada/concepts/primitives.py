@@ -39,7 +39,15 @@ class Shape(BackendGeom):
     ):
 
         super().__init__(
-            name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem, placement=placement, ifc_ref=ifc_ref
+            name,
+            guid=guid,
+            metadata=metadata,
+            units=units,
+            ifc_elem=ifc_elem,
+            placement=placement,
+            ifc_ref=ifc_ref,
+            colour=colour,
+            opacity=opacity,
         )
         if type(geom) in (str, pathlib.WindowsPath, pathlib.PurePath, pathlib.Path):
             from OCC.Extend.DataExchange import read_step_file
@@ -49,8 +57,6 @@ class Shape(BackendGeom):
         self._geom = geom
         self._mass = mass
         self._cog = cog
-        self.colour = colour
-        self._opacity = opacity
         if isinstance(material, Material):
             self._material = material
         else:
@@ -71,21 +77,6 @@ class Shape(BackendGeom):
         return type(self.geom)
 
     @property
-    def transparent(self):
-        return False if self.opacity == 1.0 else True
-
-    @property
-    def opacity(self):
-        return self._opacity
-
-    @opacity.setter
-    def opacity(self, value):
-        if 0.0 <= value <= 1.0:
-            self._opacity = value
-        else:
-            raise ValueError("Opacity is only valid between 1 and 0")
-
-    @property
     def mass(self) -> float:
         return self._mass
 
@@ -95,7 +86,6 @@ class Shape(BackendGeom):
 
     @property
     def cog(self) -> Tuple[float, float, float]:
-
         return self._cog
 
     @cog.setter
@@ -131,7 +121,7 @@ class Shape(BackendGeom):
             geom, color, alpha = get_ifc_geometry(ifc_elem, self.ifc_settings)
             self._geom = geom
             self.colour = color
-            self._opacity = alpha
+            self.opacity = alpha
 
         geom = apply_penetrations(self._geom, self.penetrations)
 

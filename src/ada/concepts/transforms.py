@@ -75,6 +75,10 @@ class Placement:
             # TODO: Add support for combining rotations as well
         return current_location
 
+    @property
+    def csys(self):
+        return [self.xdir, self.ydir, self.zdir]
+
     def __eq__(self, other: Placement):
         from ada.core.vector_utils import vector_length
 

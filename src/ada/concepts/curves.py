@@ -13,20 +13,10 @@ if TYPE_CHECKING:
 
 class CurveRevolve:
     def __init__(
-        self,
-        curve_type,
-        p1,
-        p2,
-        radius=None,
-        rot_axis=None,
-        point_on=None,
-        rot_origin=None,
-        angle=180,
-        parent=None,
+        self, p1, p2, radius=None, rot_axis=None, point_on=None, rot_origin=None, angle=180, parent=None, metadata=None
     ):
         self._p1 = p1
         self._p2 = p2
-        self._type = curve_type
         self._angle = angle
         self._radius = radius
         self._rot_axis = rot_axis
@@ -34,6 +24,7 @@ class CurveRevolve:
         self._point_on = point_on
         self._rot_origin = rot_origin
         self._ifc_elem = None
+        self.metadata = metadata if metadata is not None else dict()
 
         if self._point_on is not None:
             from ada.core.constants import O, X, Y, Z
@@ -72,10 +63,6 @@ class CurveRevolve:
         if self._ifc_elem is None:
             self._ifc_elem = self._generate_ifc_elem()
         return self._ifc_elem
-
-    @property
-    def type(self):
-        return self._type
 
     @property
     def p1(self):

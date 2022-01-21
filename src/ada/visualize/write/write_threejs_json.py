@@ -1,9 +1,27 @@
 import json
 import os
 import pathlib
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ada import Assembly
 
 
-def to_threejs_json(assembly, output_file_path):
+def to_three_json(assembly: "Assembly", output_file_path):
+    from OCC.Core.Tesselator import ShapeTesselator
+
+    quality = 1.0
+    render_edges = False
+    parallel = True
+    total_json = []
+    for p in assembly.parts.values():
+        for obj in p.get_all_physical_objects():
+            geom = obj.solid
+            tess = ShapeTesselator(geom)
+            tess.Compute(compute_edges=render_edges, mesh_quality=quality, parallel=parallel)
+            res = tess.ExportShapeToThreejsJSONString(obj.name)
+            total_json.append(res)
+
     output = {
         "metadata": {"version": 4.3, "type": "Object", "generator": "ObjectExporter"},
         "textures": [],

@@ -1,10 +1,11 @@
 import logging
-from typing import Union
+from typing import Tuple, Union
 
 import ifcopenshell
 import ifcopenshell.geom
 from ifcopenshell.util.element import get_psets
 
+from ada.concepts.transforms import Placement
 from ada.config import Settings
 
 tol_map = dict(m=Settings.mtol, mm=Settings.mmtol)
@@ -157,3 +158,19 @@ def add_to_parent(parent, obj):
         parent.add_shape(obj)
     else:
         raise NotImplementedError("")
+
+
+def get_point(cartesian_point) -> Tuple[float, float, float]:
+    return cartesian_point.Coordinates
+
+
+def get_direction(ifc_direction) -> Tuple[float, float, float]:
+    return ifc_direction.DirectionRatios
+
+
+def get_placement(ifc_position) -> Placement:
+    origin = get_point(ifc_position.Location)
+    xdir = get_direction(ifc_position.RefDirection)
+    zdir = get_direction(ifc_position.Axis)
+
+    return Placement(origin, xdir=xdir, zdir=zdir)

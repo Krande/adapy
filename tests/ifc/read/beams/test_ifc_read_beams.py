@@ -47,4 +47,5 @@ def test_read_varying_extrusion_path(example_files, ifc_test_dir):
 
 def test_read_revolved_solid(example_files, ifc_test_dir):
     a = ada.from_ifc(example_files / "ifc_files/beams/beam-revolved-solid.ifc")
+    a.to_ifc(ifc_test_dir / "beam-revolved-solid.ifc")
     print(a)

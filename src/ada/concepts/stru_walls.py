@@ -46,8 +46,11 @@ class Wall(BackendGeom):
         ifc_elem=None,
         units="m",
         guid=None,
+        opacity=1.0,
     ):
-        super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem)
+        super().__init__(
+            name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem, colour=colour, opacity=opacity
+        )
 
         self._name = name
         self.placement = placement
