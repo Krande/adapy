@@ -87,19 +87,20 @@ def import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_ref: IfcRef, assemb
     from ada.core.vector_utils import transform3d
 
     logging.warning("Reading IFC Beams swept along IfcTrimmedCurve is WIP")
+
     r = axis.BasisCurve.Radius
     curve_place = get_placement(axis.BasisCurve.Position)
     beam_place = get_placement(ifc_elem.ObjectPlacement.RelativePlacement)
     p1 = get_point(axis.Trim1[1])
     p2 = get_point(axis.Trim2[1])
     global_place = Placement()
-
-    # curve_origin_global = transform3d(curve_place.csys, global_place.csys, global_place.origin, [curve_place.origin])
+    angle = axis.Trim2[0].wrappedValue
+    rot_origin = transform3d(beam_place.csys, global_place.csys, global_place.origin, [curve_place.origin])[0]
     rot_axis = transform3d(curve_place.csys, global_place.csys, global_place.origin, [curve_place.zdir])[0]
 
     p1g, p2g = transform3d(beam_place.csys, global_place.csys, beam_place.origin, [p1, p2])
 
-    curve = CurveRevolve(p1g, p2g, r, rot_axis)
+    curve = CurveRevolve(p1g, p2g, radius=r, rot_axis=rot_axis, rot_origin=rot_origin, angle=np.rad2deg(angle))
 
     return Beam(name, curve=curve, sec=sec, mat=mat, guid=ifc_elem.GlobalId, ifc_ref=ifc_ref, units=assembly.units)
 

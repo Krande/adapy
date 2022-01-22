@@ -231,17 +231,7 @@ def create_ifcindexpolyline2d(ifcfile, points2d, seg_index):
 
 
 def create_ifcrevolveareasolid(f, profile, ifcaxis2placement, origin, revolve_axis, revolve_angle):
-    """
-    Creates an IfcExtrudedAreaSolid from a list of points, specified as Python tuples
-
-    :param f:
-    :param profile:
-    :param ifcaxis2placement:
-    :param origin:
-    :param revolve_axis:
-    :param revolve_angle:
-    :return:
-    """
+    """Creates an IfcExtrudedAreaSolid from a list of points, specified as Python tuples"""
     ifcorigin = f.create_entity("IfcCartesianPoint", to_real(origin))
     ifcaxis1dir = f.create_entity(
         "IfcAxis1Placement", ifcorigin, f.create_entity("IfcDirection", to_real(revolve_axis))

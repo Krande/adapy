@@ -1,9 +1,10 @@
+from typing import TYPE_CHECKING
+
 import numpy as np
 
-from ada import Beam
+from ada import Beam, CurvePoly, CurveRevolve
 from ada.config import Settings
 from ada.core.constants import O
-from ada.core.vector_utils import calc_yvec
 from ada.ifc.utils import (
     add_colour,
     add_multiple_props_to_elem,
@@ -11,8 +12,13 @@ from ada.ifc.utils import (
     create_guid,
     create_ifc_placement,
     create_local_placement,
+    ifc_dir,
+    ifc_p,
     to_real,
 )
+
+if TYPE_CHECKING:
+    from ifcopenshell import file as ifile
 
 
 def write_ifc_beam(beam: Beam):
@@ -22,24 +28,21 @@ def write_ifc_beam(beam: Beam):
     a = beam.parent.get_assembly()
     f = a.ifc_file
 
-    context = f.by_type("IfcGeometricRepresentationContext")[0]
     owner_history = a.user.to_ifc()
-    parent = beam.parent.get_ifc_elem()
 
     beam_type = beam.section.ifc_beam_type
     profile = beam.section.ifc_profile
 
-    global_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
-    extrude_dir = f.create_entity("IfcDirection", (0.0, 0.0, 1.0))
-
-    if beam.curve is not None:
-        extrude_area_solid, loc_plac, ifc_polyline = sweep_beam(beam, f, profile, global_placement, extrude_dir)
+    if isinstance(beam.curve, CurveRevolve):
+        axis, body, loc_plac = create_revolved_beam(beam, f, profile)
+    elif isinstance(beam.curve, CurvePoly):
+        axis, body, loc_plac = create_polyline_beam(beam, f, profile)
     else:
-        extrude_area_solid, loc_plac, ifc_polyline = extrude_beam(beam, f, profile, global_placement, extrude_dir)
+        if beam.curve is not None:
+            raise ValueError(f'Unrecognized beam.curve "{type(beam.curve)}"')
+        axis, body, loc_plac = extrude_straight_beam(beam, f, profile)
 
-    body = f.createIfcShapeRepresentation(context, "Body", "SweptSolid", [extrude_area_solid])
-    axis = f.createIfcShapeRepresentation(context, "Axis", "Curve3D", [ifc_polyline])
-    prod_def_shp = f.createIfcProductDefinitionShape(None, None, (axis, body))
+    prod_def_shp = f.create_entity("IfcProductDefinitionShape", None, None, (axis, body))
 
     if "hidden" in beam.metadata.keys():
         if beam.metadata["hidden"] is True:
@@ -58,10 +61,6 @@ def write_ifc_beam(beam: Beam):
         None,
     )
     beam._ifc_elem = ifc_beam
-
-    # Add colour
-    if beam.colour is not None:
-        add_colour(f, extrude_area_solid, str(beam.colour), beam.colour)
 
     # Add penetrations
     for pen in beam.penetrations:
@@ -96,8 +95,11 @@ def write_ifc_beam(beam: Beam):
     return ifc_beam
 
 
-def extrude_beam(beam, f, profile, global_placement, extrude_dir):
-
+def extrude_straight_beam(beam, f: "ifile", profile):
+    extrude_dir = ifc_dir(f, (0.0, 0.0, 1.0))
+    parent = beam.parent.get_ifc_elem()
+    global_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
+    context = f.by_type("IfcGeometricRepresentationContext")[0]
     e1 = (0.0, 0.0, 0.0)
 
     if Settings.include_ecc and beam.e1 is not None:
@@ -126,12 +128,63 @@ def extrude_beam(beam, f, profile, global_placement, extrude_dir):
     else:
         extrude_area_solid = f.create_entity("IfcExtrudedAreaSolid", profile, ifc_axis2plac3d, extrude_dir, beam.length)
 
-    xvec = to_real(beam.xvec_e)
-    yvec = to_real(calc_yvec(xvec, beam.up))
+    # Add colour
+    if beam.colour is not None:
+        add_colour(f, extrude_area_solid, str(beam.colour), beam.colour)
 
-    ax23d = f.create_entity("IfcAxis2Placement3D", p1_ifc, f.createIfcDirection(xvec), f.createIfcDirection(yvec))
+    ax23d = f.create_entity("IfcAxis2Placement3D", p1_ifc, ifc_dir(f, beam.xvec_e), ifc_dir(f, beam.yvec))
     loc_plac = f.create_entity("IfcLocalPlacement", global_placement, ax23d)
+    body = f.create_entity("IfcShapeRepresentation", context, "Body", "SweptSolid", [extrude_area_solid])
+    axis = f.create_entity("IfcShapeRepresentation", context, "Axis", "Curve3D", [ifc_polyline])
+    return body, axis, loc_plac
 
+
+def create_revolved_beam(beam, f: "ifile", profile):
+    context = f.by_type("IfcGeometricRepresentationContext")[0]
+    curve: CurveRevolve = beam.curve
+
+    ifc_trim_curve = create_ifc_trimmed_curve(curve, f)
+    placement = create_local_placement(f, curve.p1, (0, 0, 1))
+    solid = create_ifcrevolveareasolid(f, profile, placement, curve.p1, curve.rot_axis, np.deg2rad(curve.angle))
+
+    axis = f.create_entity("IfcShapeRepresentation", context, "Axis", "Curve3D", [ifc_trim_curve])
+    body = f.create_entity("IfcShapeRepresentation", context, "Body", "SweptSolid", [solid])
+
+    return body, axis, placement
+
+
+def create_ifc_trimmed_curve(curve: CurveRevolve, f: "ifile"):
+    loc_plac = create_ifc_placement(f, origin=curve.rot_origin)
+    ifc_circle = f.create_entity("IFCCIRCLE", loc_plac, curve.radius)
+    param1 = (f.create_entity("IFCPARAMETERVALUE", 0.0), ifc_p(f, curve.p1))
+    param2 = (f.create_entity("IFCPARAMETERVALUE", np.deg2rad(curve.angle)), ifc_p(f, curve.p2))
+    trim_curve = f.create_entity(
+        "IFCTRIMMEDCURVE",
+        BasisCurve=ifc_circle,
+        Trim1=param1,
+        Trim2=param2,
+        SenseAgreement=True,
+        MasterRepresentation="PARAMETER",
+    )
+    return trim_curve
+
+
+def create_ifcrevolveareasolid(f, profile, ifcaxis2placement, origin, revolve_axis, revolve_angle):
+    """Creates an IfcExtrudedAreaSolid from a list of points, specified as Python tuples"""
+    ifcaxis1dir = f.create_entity("IfcAxis1Placement", ifc_p(f, origin), ifc_dir(f, revolve_axis))
+    return f.create_entity("IfcRevolvedAreaSolid", profile, ifcaxis2placement, ifcaxis1dir, revolve_angle)
+
+
+def create_polyline_beam(beam, f, profile):
+    ifc_polyline = beam.curve.get_ifc_elem()
+
+    extrude_dir = ifc_dir(f, (0.0, 0.0, 1.0))
+    global_placement = create_ifc_placement(f)
+
+    extrude_area_solid = f.create_entity(
+        "IfcFixedReferenceSweptAreaSolid", profile, global_placement, ifc_polyline, 0.0, 1.0, extrude_dir
+    )
+    loc_plac = create_ifc_placement(f)
     return extrude_area_solid, loc_plac, ifc_polyline
 
 
