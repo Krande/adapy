@@ -5,30 +5,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ..renderer_occ import occ_shape_to_faces
+
 if TYPE_CHECKING:
     from ada import Assembly
-
-
-def make_obj_verts_normals(geom, render_edges, quality, parallel):
-    from OCC.Core.Tesselator import ShapeTesselator
-
-    tess = ShapeTesselator(geom)
-    tess.Compute(compute_edges=render_edges, mesh_quality=quality, parallel=parallel)
-    vertices_position = tess.GetVerticesPositionAsTuple()
-    number_of_vertices = len(vertices_position)
-    vert_2 = int(number_of_vertices / 3)
-
-    obj_verts = np.array(tess.GetVerticesPositionAsTuple(), dtype="float32").reshape(vert_2, 3)
-    obj_normals = np.array(tess.GetNormalsAsTuple(), dtype="float32").reshape(vert_2, 3)
-    return obj_verts, obj_normals
-
-
-def make_obj_buffer(obj_verts, obj_normals):
-    obj_buffer = np.concatenate([obj_verts, obj_normals], 1)
-    obj_buffer_flat = obj_buffer.flatten()
-    unique = np.unique(obj_buffer_flat)
-    obj_indices = np.searchsorted(unique, obj_buffer_flat)
-    return obj_buffer_flat, obj_indices
 
 
 def to_custom_json(assembly: "Assembly", output_file_path):
@@ -39,28 +19,27 @@ def to_custom_json(assembly: "Assembly", output_file_path):
     part_array = []
 
     for p in assembly.parts.values():
-        obj_indices_map = dict()
         id_map = dict()
         prev_index = 0
-        indices_raw_data = None
+        buffer_arrays = None
         for obj in p.get_all_physical_objects():
             geom = obj.solid
-            obj_verts, obj_normals = make_obj_verts_normals(geom, render_edges, quality, parallel)
-            indices_input_data = np.concatenate([obj_verts, obj_normals], 1).flatten()
-
-            obj_indices_map[obj] = dict(data=indices_input_data)
-            curr_index = prev_index + len(indices_input_data)
+            np_vertices, poly_indices, np_normals, _ = occ_shape_to_faces(geom, quality, render_edges, parallel)
+            obj_buffer_arrays = np.concatenate([np_vertices, np_normals], 1)
+            curr_index = prev_index + len(poly_indices)
             if prev_index != 0:
                 curr_index -= 1
-            id_map[obj.guid] = dict(indexGroup=(prev_index, curr_index), color=[*obj.colour_norm, obj.opacity])
+            id_map[obj.guid] = dict(
+                indexGroup=(prev_index, curr_index),
+                color=[*obj.colour_norm, obj.opacity],
+            )
             prev_index += curr_index + 1
-            if indices_raw_data is None:
-                indices_raw_data = indices_input_data
+            if buffer_arrays is None:
+                buffer_arrays = obj_buffer_arrays
             else:
-                indices_raw_data = np.concatenate([indices_raw_data, indices_input_data])
+                buffer_arrays = np.concatenate([buffer_arrays, obj_buffer_arrays])
 
-        buffer = np.unique(indices_raw_data)
-        indices = np.searchsorted(buffer, indices_raw_data)
+        unique_rows, indices = np.unique(buffer_arrays, axis=0, return_index=False, return_inverse=True)
         part_array.append(
             {
                 "name": p.name,
@@ -69,7 +48,7 @@ def to_custom_json(assembly: "Assembly", output_file_path):
                 "treemeta": {},
                 "id_map": id_map,
                 "meta": "url til json",
-                "buffer": buffer.astype(float).tolist(),
+                "buffer": unique_rows.flatten().astype(float).tolist(),
                 "index": indices.astype(int).tolist(),
             }
         )
