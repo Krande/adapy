@@ -93,3 +93,7 @@ class Placement:
 class Instance:
     instance_ref: Union["Part", "BackendGeom"]
     placements: List[Placement] = field(default_factory=list)
+
+    def to_list_of_json_matrices(self):
+        pass
+

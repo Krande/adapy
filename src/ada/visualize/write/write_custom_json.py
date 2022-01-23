@@ -21,7 +21,6 @@ def to_custom_json(assembly: "Assembly", output_file_path):
     for p in assembly.parts.values():
         id_map = dict()
         prev_index = 0
-        buffer_arrays = None
         for obj in p.get_all_physical_objects():
             geom = obj.solid
             np_vertices, poly_indices, np_normals, _ = occ_shape_to_faces(geom, quality, render_edges, parallel)
@@ -29,27 +28,27 @@ def to_custom_json(assembly: "Assembly", output_file_path):
             curr_index = prev_index + len(poly_indices)
             if prev_index != 0:
                 curr_index -= 1
+
+            buffer, indices = np.unique(obj_buffer_arrays, axis=0, return_index=False, return_inverse=True)
             id_map[obj.guid] = dict(
-                indexGroup=(prev_index, curr_index),
+                matrix=None,
+                index=indices.astype(int).tolist(),
+                buffer=buffer.flatten().astype(float).tolist(),
                 color=[*obj.colour_norm, obj.opacity],
             )
-            prev_index += curr_index + 1
-            if buffer_arrays is None:
-                buffer_arrays = obj_buffer_arrays
-            else:
-                buffer_arrays = np.concatenate([buffer_arrays, obj_buffer_arrays])
+        instance_map = dict()
+        for inst in p.instances.values():
+            instance_map[inst.instance_ref] = inst.to_list_of_json_matrices()
 
-        unique_rows, indices = np.unique(buffer_arrays, axis=0, return_index=False, return_inverse=True)
         part_array.append(
             {
                 "name": p.name,
+                "instances": instance_map,
                 "rawdata": True,
                 "guiParam": None,
                 "treemeta": {},
                 "id_map": id_map,
-                "meta": "url til json",
-                "buffer": unique_rows.flatten().astype(float).tolist(),
-                "index": indices.astype(int).tolist(),
+                "meta": "url til json"
             }
         )
     output = {
