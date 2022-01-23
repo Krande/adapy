@@ -22,7 +22,7 @@ from ada.concepts.primitives import (
 from ada.concepts.stru_beams import Beam
 from ada.concepts.stru_plates import Plate
 from ada.concepts.stru_walls import Wall
-from ada.concepts.transforms import Placement, Transform, Instance
+from ada.concepts.transforms import Instance, Placement, Transform
 from ada.config import User
 from ada.fem import FEM
 from ada.materials import Material

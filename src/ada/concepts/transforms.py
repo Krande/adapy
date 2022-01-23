@@ -95,5 +95,12 @@ class Instance:
     placements: List[Placement] = field(default_factory=list)
 
     def to_list_of_json_matrices(self):
-        pass
+        from pyquaternion import Quaternion
 
+        matrices = []
+        for place in self.placements:
+            q1 = Quaternion(matrix=np.array(place.csys))
+            rmat = q1.rotation_matrix
+            matrices.append([*place.origin.astype(float).tolist(), *np.concatenate(rmat).astype(float).tolist()])
+
+        return matrices
