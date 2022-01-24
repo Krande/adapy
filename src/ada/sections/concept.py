@@ -32,7 +32,7 @@ class Section(Backend):
         from_str=None,
         outer_poly=None,
         inner_poly=None,
-        genprops=None,
+        genprops: GeneralProperties = None,
         metadata=None,
         units="m",
         ifc_elem=None,
