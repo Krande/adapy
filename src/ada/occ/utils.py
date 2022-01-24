@@ -1,7 +1,7 @@
 import logging
 import math
 import pathlib
-from typing import List, Tuple, Union
+from typing import TYPE_CHECKING, List, Tuple, Union
 
 import numpy as np
 from OCC.Core.Bnd import Bnd_Box
@@ -45,6 +45,9 @@ from ada.concepts.transforms import Placement, Rotation
 from ada.core.utils import roundoff, tuple_minus
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem.shapes import ElemType
+
+if TYPE_CHECKING:
+    from ada import Part
 
 
 def extract_shapes(step_path, scale, transform, rotate):
@@ -468,7 +471,9 @@ def make_edge(p1, p2):
     return res
 
 
-def make_ori_vector(name, origin, csys, pnt_r=0.2, cyl_l: Union[float, list, tuple] = 0.3, cyl_r=0.2, units="m"):
+def make_ori_vector(
+    name, origin, csys, pnt_r=0.02, cyl_l: Union[float, list, tuple] = 0.3, cyl_r=0.02, units="m"
+) -> "Part":
     """
     Visualize a local coordinate system with a sphere and 3 cylinders representing origin and.
 
@@ -485,7 +490,7 @@ def make_ori_vector(name, origin, csys, pnt_r=0.2, cyl_l: Union[float, list, tup
     from ada import Part, PrimCyl, PrimSphere
 
     origin = np.array(origin)
-    o_shape = PrimSphere(name + "_origin", origin, pnt_r, units=units, metadata=dict(origin=origin))
+    o_shape = PrimSphere(name + "_origin", origin, pnt_r, units=units, metadata=dict(origin=origin), colour="white")
 
     if type(cyl_l) in (list, tuple):
         cyl_l_x, cyl_l_y, cyl_l_z = cyl_l

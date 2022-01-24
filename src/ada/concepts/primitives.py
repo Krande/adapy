@@ -128,6 +128,10 @@ class Shape(BackendGeom):
         return geom
 
     @property
+    def solid(self):
+        return self.geom
+
+    @property
     def units(self):
         return self._units
 

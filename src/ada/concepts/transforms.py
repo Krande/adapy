@@ -75,6 +75,11 @@ class Placement:
             # TODO: Add support for combining rotations as well
         return current_location
 
+    def to_vector_geom(self, **kwargs) -> "Part":
+        from ada.occ.utils import make_ori_vector
+
+        return make_ori_vector("VecGeom", self.origin, self.csys, **kwargs)
+
     @property
     def csys(self):
         return [self.xdir, self.ydir, self.zdir]
@@ -97,7 +102,7 @@ class Instance:
     def to_list_of_json_matrices(self):
         from pyquaternion import Quaternion
 
-        matrices = []
+        matrices = [[0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]]
         for place in self.placements:
             q1 = Quaternion(matrix=np.array(place.csys))
             rmat = q1.rotation_matrix
