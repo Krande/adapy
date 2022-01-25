@@ -59,7 +59,7 @@ def to_custom_json(assembly: "Assembly", output_file_path, threads: int = 1):
                 print(f'adding "{obj.name}"')
 
         for inst in p.instances.values():
-            id_map[inst.instance_ref.guid]["instances"] = inst.to_list_of_json_matrices()
+            id_map[inst.instance_ref.guid]["instances"] = inst.to_list_of_custom_json_matrices()
 
         part_array.append(
             {

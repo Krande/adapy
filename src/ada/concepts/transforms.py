@@ -99,13 +99,17 @@ class Instance:
     instance_ref: Union["Part", "BackendGeom"]
     placements: List[Placement] = field(default_factory=list)
 
-    def to_list_of_json_matrices(self):
+    def to_list_of_custom_json_matrices(self):
         from pyquaternion import Quaternion
 
-        matrices = [[0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]]
+        from ada.ifc.utils import create_guid
+
+        matrices = [[self.instance_ref.guid, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]]
         for place in self.placements:
             q1 = Quaternion(matrix=np.array(place.csys))
             rmat = q1.rotation_matrix
-            matrices.append([*place.origin.astype(float).tolist(), *np.concatenate(rmat).astype(float).tolist()])
+            matrices.append(
+                [create_guid(), *place.origin.astype(float).tolist(), *np.concatenate(rmat).astype(float).tolist()]
+            )
 
         return matrices
