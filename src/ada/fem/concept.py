@@ -326,6 +326,13 @@ class FEM:
             )
         )
 
+    def get_all_loads(self):
+        loads = []
+        for step in self.steps:
+            for load in step.loads:
+                loads.append(load)
+        return loads
+
     @property
     def instance_name(self):
         return self.name if self.name is not None else f"{self.parent.name}-1"

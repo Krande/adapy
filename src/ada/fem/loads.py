@@ -10,7 +10,7 @@ from .sets import FemSet
 from .surfaces import Surface
 
 if TYPE_CHECKING:
-    from ada import FEM
+    from ada.fem.steps import Step
 
 
 class LoadTypes:
@@ -55,7 +55,7 @@ class Load(FemBase):
         accr_rot_axis=None,
         csys: Csys = None,
         metadata=None,
-        parent: "FEM" = None,
+        parent: "Step" = None,
     ):
         super().__init__(name, metadata, parent)
         self._type = load_type
@@ -140,6 +140,10 @@ class Load(FemBase):
     def fem_set(self) -> FemSet:
         return self._fem_set
 
+    @fem_set.setter
+    def fem_set(self, value: FemSet):
+        self._fem_set = value
+
     @property
     def follower_force(self):
         return self._follower_force
@@ -187,6 +191,14 @@ class Load(FemBase):
     @property
     def csys(self) -> Csys:
         return self._csys
+
+    @property
+    def parent(self) -> "Step":
+        return self._parent
+
+    @parent.setter
+    def parent(self, value: "Step"):
+        self._parent = value
 
     def __repr__(self):
         forc_str = ",".join(f"{f:.6E}" for f in self.forces)

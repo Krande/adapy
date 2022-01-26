@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Dict, List, Union
 from .common import FemBase
 from .constraints import Bc
 from .interactions import Interaction
-from .loads import Load, LoadCase, LoadPressure
+from .loads import Load, LoadCase, LoadPressure, LoadGravity
 from .outputs import FieldOutput, HistOutput
 
 if TYPE_CHECKING:
@@ -103,10 +103,11 @@ class Step(FemBase):
 
         return defaults()
 
-    def add_load(self, load: Union[Load, LoadPressure]):
+    def add_load(self, load: Union[Load, LoadPressure, LoadGravity]):
         if isinstance(load, LoadPressure):
             if load.surface.parent is None:
                 self.parent.add_surface(load.surface)
+        load.parent = self
         self._loads.append(load)
 
     def add_loadcase(self, load_case: LoadCase):
