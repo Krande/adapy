@@ -5,8 +5,8 @@ from ada.fem.steps import Step, StepEigen, StepImplicit
 
 
 def step_str(step: Union[StepEigen, StepImplicit]):
-    from .writer import bc_str, interactions_str
     from .write_loads import load_str
+    from .writer import bc_str, interactions_str
 
     bcstr = "\n".join([bc_str(bc) for bc in step.bcs.values()]) if len(step.bcs) > 0 else "** No BCs"
     lstr = "\n".join([load_str(l) for l in step.loads]) if len(step.loads) > 0 else "** No Loads"

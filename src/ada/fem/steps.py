@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Dict, List, Union
 from .common import FemBase
 from .constraints import Bc
 from .interactions import Interaction
-from .loads import Load, LoadCase, LoadPressure, LoadGravity
+from .loads import Load, LoadCase, LoadGravity, LoadPressure
 from .outputs import FieldOutput, HistOutput
 
 if TYPE_CHECKING:

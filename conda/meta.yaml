@@ -20,6 +20,7 @@ requirements:
     - pythonocc-core
     - gmsh==4.9.3
     - vtk
+    - hdf5 1.10.6 *1114
     - meshio[all]
     - toolz
     - lmfit

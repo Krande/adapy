@@ -164,7 +164,7 @@ class BackendGeom(Backend):
     @property
     def colour_norm(self):
         if self._colour is None:
-            self.colour = 'white'
+            self.colour = "white"
         return (x / 255 for x in self._colour)
 
     @property

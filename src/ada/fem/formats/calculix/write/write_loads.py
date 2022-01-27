@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING, List
+
 from ada.fem import Load, LoadGravity
 
 if TYPE_CHECKING:

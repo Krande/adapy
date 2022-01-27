@@ -19,8 +19,8 @@ from ada.sections import SectionCat as Sc
 from ..compatibility import check_compatibility
 from .templates import main_header_str
 from .write_elements import elements_str
-from .write_steps import step_str
 from .write_loads import get_all_grav_loads
+from .write_steps import step_str
 
 if TYPE_CHECKING:
     from ada import Assembly
@@ -38,7 +38,7 @@ def to_fem(assembly: "Assembly", name, analysis_dir, metadata=None):
 
     # Check if contains gravity load and create a FemSet containing all elements if so
     all_gl = get_all_grav_loads(assembly.fem)
-    if len(all_gl) > 0 and p.fem.elsets.get('Eall', None) is None:
+    if len(all_gl) > 0 and p.fem.elsets.get("Eall", None) is None:
         fs = p.fem.add_set(FemSet("Eall", [el for el in p.fem.elements], "elset"))
         for grav_load in all_gl:
             grav_load.fem_set = fs
@@ -272,6 +272,7 @@ def bc_str(bc: Bc) -> str:
     return f"""** Name: {bc.name} Type: {aba_type}
 {bcstr}{ampl_ref_str}{add_str}
 {dofs_str}"""
+
 
 def surface_str(surface: "Surface") -> str:
     top_line = f"*Surface, type={surface.type}, name={surface.name}"

@@ -287,7 +287,7 @@ class ResultsMesh:
         self.renderer.controls.append(self.render_sets)
         return True
 
-    def _colorize_data(self, data, func=magnitude):
+    def colorize_data(self, data, func=magnitude):
         res = [func(d) for d in data]
         sorte = sorted(res)
         min_r = sorte[0]
@@ -306,7 +306,7 @@ class ResultsMesh:
         default_vertex_color = (8, 8, 8)
 
         data = np.asarray(self.mesh.point_data[data_type], dtype="float32")
-        colors = self._colorize_data(data)
+        colors = self.colorize_data(data)
 
         if renderer is None:
             renderer = MyRenderer()
@@ -426,3 +426,16 @@ def results_from_cache(results_dict: dict) -> Results:
     res.eigen_mode_data = eig_data
     res.last_modified = results_dict["last_modified"]
     return res
+
+
+def get_results_from_result_file(file_ref, fem_format, overwrite=False):
+    file_ref = pathlib.Path(file_ref)
+    suffix = file_ref.suffix.lower()
+
+    res_reader, fem_format = Results.res_map.get(suffix, (None, None))
+
+    if res_reader is None:
+        logging.error(f'Results class currently does not support filetype "{suffix}"')
+        return None
+
+    return res_reader(self, file_ref, overwrite)

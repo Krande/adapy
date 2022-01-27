@@ -82,8 +82,8 @@ class DnvGl16Mat(PlasticityModel):
                 ep.append(e)
                 sig.append(K * (e + (sig_yield_2 / K) ** (1.0 / n) - ep_y2) ** n)
 
-        self._eps_p = ep
-        self._sig_p = sig
+        self.eps_p = ep
+        self.sig_p = sig
 
     def __repr__(self):
         return f"Dnvgl16Mat({self.nl_name})"
