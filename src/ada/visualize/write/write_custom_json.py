@@ -42,8 +42,15 @@ def export_assembly_to_json(assembly: "Assembly", output_file_path, threads: int
             id_map = dict()
             for obj in p.get_all_physical_objects():
                 geom = obj.solid
+
                 obj_position, poly_indices, normals, _ = occ_shape_to_faces(geom, quality, render_edges, parallel)
-                position, indices = np.unique(obj_position, axis=0, return_index=False, return_inverse=True)
+
+                obj_buffer_arrays = np.concatenate([obj_position, normals], 1)
+                buffer, indices = np.unique(obj_buffer_arrays, axis=0, return_index=False, return_inverse=True)
+                x, y, z, nx, ny, nz = buffer.T
+                position = np.array([x, y, z]).T
+                normals = np.array([nx, ny, nz]).T
+
                 id_map[obj.guid] = dict(
                     index=indices.astype(int).tolist(),
                     position=position.flatten().astype(float).tolist(),
@@ -90,6 +97,7 @@ def export_results_to_json(results: "Results", output_file_path, data_type):
     id_map = {
         create_guid(): dict(
             index=faces.astype(int).tolist(),
+            wireframeGeometry=True,
             position=vertices.flatten().astype(float).tolist(),
             normal=None,
             color=None,

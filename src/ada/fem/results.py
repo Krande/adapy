@@ -426,16 +426,3 @@ def results_from_cache(results_dict: dict) -> Results:
     res.eigen_mode_data = eig_data
     res.last_modified = results_dict["last_modified"]
     return res
-
-
-def get_results_from_result_file(file_ref, fem_format, overwrite=False):
-    file_ref = pathlib.Path(file_ref)
-    suffix = file_ref.suffix.lower()
-
-    res_reader, fem_format = Results.res_map.get(suffix, (None, None))
-
-    if res_reader is None:
-        logging.error(f'Results class currently does not support filetype "{suffix}"')
-        return None
-
-    return res_reader(self, file_ref, overwrite)
