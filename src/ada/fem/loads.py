@@ -228,8 +228,8 @@ class LoadPressure(Load):
 
 
 class LoadGravity(Load):
-    def __init__(self, name):
-        super(LoadGravity, self).__init__(name, Load.TYPES.GRAVITY, -9.81)
+    def __init__(self, name, acceleration=-9.81):
+        super(LoadGravity, self).__init__(name, Load.TYPES.GRAVITY, acceleration)
 
 
 class LoadCase(FemBase):
