@@ -709,14 +709,6 @@ def intersect_line_circle(line, center, radius):
 
 
 def get_center_from_3_points_and_radius(p1, p2, p3, radius):
-    """
-
-    :param p1:
-    :param p2:
-    :param p3:
-    :param radius:
-    :return:
-    """
     from ada.core.constants import X, Y
 
     p1 = np.array(p1)

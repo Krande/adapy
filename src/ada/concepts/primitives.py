@@ -324,10 +324,19 @@ class PrimRevolve(Shape):
     @units.setter
     def units(self, value):
         if value != self._units:
-            raise NotImplementedError()
+            from ada.core.utils import unit_length_conversion
+
+            scale_factor = unit_length_conversion(self._units, value)
+            self.poly.scale(scale_factor, 1e-3)
+            self._revolve_origin = [x * scale_factor for x in self.revolve_origin]
+            self._geom = self._poly.make_revolve_solid(
+                self._revolve_axis,
+                self._revolve_angle,
+                self._revolve_origin,
+            )
 
     @property
-    def poly(self):
+    def poly(self) -> CurvePoly:
         return self._poly
 
     @property

@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import pathlib
 from typing import TYPE_CHECKING, Union
@@ -7,6 +8,11 @@ import numpy as np
 
 from ada.core.utils import thread_this
 from ada.ifc.utils import create_guid
+from ada.occ.exceptions.geom_creation import (
+    UnableToBuildNSidedWires,
+    UnableToCreateSolidOCCGeom,
+    UnableToCreateTesselationFromSolidOCCGeom,
+)
 
 from ..renderer_occ import occ_shape_to_faces
 
@@ -41,9 +47,19 @@ def export_assembly_to_json(assembly: "Assembly", output_file_path, threads: int
         else:
             id_map = dict()
             for obj in p.get_all_physical_objects():
-                geom = obj.solid
-
-                obj_position, poly_indices, normals, _ = occ_shape_to_faces(geom, quality, render_edges, parallel)
+                try:
+                    geom = obj.solid
+                except UnableToCreateSolidOCCGeom as e:
+                    logging.error(e)
+                    continue
+                except UnableToBuildNSidedWires as e:
+                    logging.error(e)
+                    continue
+                try:
+                    obj_position, poly_indices, normals, _ = occ_shape_to_faces(geom, quality, render_edges, parallel)
+                except UnableToCreateTesselationFromSolidOCCGeom as e:
+                    logging.error(e)
+                    continue
 
                 obj_buffer_arrays = np.concatenate([obj_position, normals], 1)
                 buffer, indices = np.unique(obj_buffer_arrays, axis=0, return_index=False, return_inverse=True)

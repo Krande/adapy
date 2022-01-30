@@ -46,6 +46,11 @@ from ada.core.utils import roundoff, tuple_minus
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem.shapes import ElemType
 
+from .exceptions.geom_creation import (
+    UnableToBuildNSidedWires,
+    UnableToCreateSolidOCCGeom,
+)
+
 if TYPE_CHECKING:
     from ada import Part
 
@@ -762,6 +767,9 @@ def create_beam_geom(beam: Beam, solid=True):
     sec = cross_sec_face(section_profile, placement_1, solid)
     tap = cross_sec_face(section_profile, placement_2, solid)
 
+    if sec.IsNull() or tap.IsNull():
+        raise UnableToCreateSolidOCCGeom(f"Unable to create solid OCC geometry from Beam '{beam.name}'")
+
     def through_section(sec_a, sec_b, solid_):
         generator_sec = BRepOffsetAPI_ThruSections(solid_, False)
         generator_sec.AddWire(sec_a)
@@ -853,6 +861,9 @@ def wire_to_face(edges: List[TopoDS_Edge]) -> TopoDS_Face:
     n_sided = BRepFill_Filling()
     for edg in edges:
         n_sided.Add(edg, GeomAbs_C0)
-    n_sided.Build()
+    try:
+        n_sided.Build()
+    except RuntimeError as e:
+        raise UnableToBuildNSidedWires(e)
     face = n_sided.Face()
     return face

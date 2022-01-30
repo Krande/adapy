@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, Tuple, Union
 
 import numpy as np
 
+from ada.occ.exceptions.geom_creation import UnableToCreateTesselationFromSolidOCCGeom
+
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
@@ -12,7 +14,10 @@ def occ_shape_to_faces(
     from OCC.Core.Tesselator import ShapeTesselator
 
     # first, compute the tesselation
-    tess = ShapeTesselator(shape)
+    try:
+        tess = ShapeTesselator(shape)
+    except RuntimeError as e:
+        raise UnableToCreateTesselationFromSolidOCCGeom(e)
     tess.Compute(compute_edges=render_edges, mesh_quality=quality, parallel=parallel)
 
     # get vertices and normals
