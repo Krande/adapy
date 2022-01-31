@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import TYPE_CHECKING, List, Tuple, Union
 
 from ada.base.non_phyical_objects import Backend
 from ada.concepts.curves import CurvePoly
 from ada.config import Settings
 
 from .categories import BaseTypes, SectionCat
+
+if TYPE_CHECKING:
+    from ada import Beam
+    from ada.fem import FemSection
 
 
 class Section(Backend):
@@ -272,8 +276,7 @@ class Section(Backend):
         display(HBox([fig, html]))
 
     @property
-    def refs(self):
-        """:rtype: List[ada.Beam | ada.fem.FemSection]"""
+    def refs(self) -> List[Union["Beam", "FemSection"]]:
         return self._refs
 
     def __hash__(self):

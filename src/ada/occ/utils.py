@@ -767,7 +767,7 @@ def create_beam_geom(beam: Beam, solid=True):
     sec = cross_sec_face(section_profile, placement_1, solid)
     tap = cross_sec_face(section_profile, placement_2, solid)
 
-    if sec.IsNull() or tap.IsNull():
+    if type(sec) != list and (sec.IsNull() or tap.IsNull()):
         raise UnableToCreateSolidOCCGeom(f"Unable to create solid OCC geometry from Beam '{beam.name}'")
 
     def through_section(sec_a, sec_b, solid_):

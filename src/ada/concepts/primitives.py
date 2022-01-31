@@ -271,10 +271,12 @@ class PrimExtrude(Shape):
     @units.setter
     def units(self, value):
         if value != self._units:
+            from ada.config import Settings
             from ada.core.utils import unit_length_conversion
 
             scale_factor = unit_length_conversion(self._units, value)
-            self.poly.placement.origin = [x * scale_factor for x in self.poly.placement.origin]
+            tol = Settings.mmtol if value == "mm" else Settings.mtol
+            self.poly.scale(scale_factor, tol)
             self._extrude_depth = self._extrude_depth * scale_factor
             self._units = value
 
@@ -324,10 +326,12 @@ class PrimRevolve(Shape):
     @units.setter
     def units(self, value):
         if value != self._units:
+            from ada.config import Settings
             from ada.core.utils import unit_length_conversion
 
             scale_factor = unit_length_conversion(self._units, value)
-            self.poly.scale(scale_factor, 1e-3)
+            tol = Settings.mmtol if value == "mm" else Settings.mtol
+            self.poly.scale(scale_factor, tol)
             self._revolve_origin = [x * scale_factor for x in self.revolve_origin]
             self._geom = self._poly.make_revolve_solid(
                 self._revolve_axis,
@@ -417,7 +421,7 @@ class PrimSweep(Shape):
 class Penetration(BackendGeom):
     _name_gen = Counter(1, "Pen")
     """A penetration object. Wraps around a primitive"""
-    # TODO: Maybe this should be evaluated for removal?
+    # TODO: Maybe this class should be evaluated for removal?
     def __init__(self, primitive, metadata=None, parent=None, units="m", guid=None):
         if issubclass(type(primitive), Shape) is False:
             raise ValueError(f'Unsupported primitive type "{type(primitive)}"')

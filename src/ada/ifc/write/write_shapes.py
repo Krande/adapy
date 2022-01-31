@@ -44,12 +44,12 @@ def write_ifc_shape(shape: Shape):
     schema = a.ifc_file.wrapped_data.schema
 
     shape_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
-    if issubclass(type(shape), Shape):
-        ifc_shape = generate_parametric_solid(shape, f)
-    else:
+    if isinstance(shape, Shape):
         tol = get_tolerance(a.units)
         serialized_geom = tesselate_shape(shape.geom, schema, tol)
         ifc_shape = f.add(serialized_geom)
+    else:
+        ifc_shape = generate_parametric_solid(shape, f)
 
     # Link to representation context
     for rep in ifc_shape.Representations:
