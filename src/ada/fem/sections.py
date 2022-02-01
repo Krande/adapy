@@ -189,6 +189,10 @@ class FemSection(FemBase):
     def thickness(self):
         return self._thickness
 
+    @thickness.setter
+    def thickness(self, value):
+        self._thickness = value
+
     @property
     def int_points(self):
         return self._int_points

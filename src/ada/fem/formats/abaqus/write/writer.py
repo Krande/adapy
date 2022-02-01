@@ -51,7 +51,7 @@ def to_fem(assembly: "Assembly", name, analysis_dir=None, metadata=None, writabl
 
     # Constraints
     with open(core_dir / "constraints.inp", "w") as d:
-        d.write(constraints_str(afem, True) if len(afem.constraints) > 0 else "**")
+        d.write(constraints_str(afem, True) if len(afem.constraints.keys()) > 0 else "**")
 
     # Assembly data
     with open(core_dir / "assembly_data.inp", "w") as d:

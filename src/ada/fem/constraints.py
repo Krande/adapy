@@ -123,6 +123,16 @@ class Constraint(FemBase):
         self._csys = csys
         self._influence_distance = influence_distance
 
+    def switch_master_slave(self):
+        from ada.fem import Surface
+
+        if isinstance(self.s_set, Surface):
+            s_set = self.s_set.fem_set
+            self.s_set.fem_set = self.m_set
+            self.m_set = s_set
+        else:
+            self.m_set, self.s_set = self.s_set, self.m_set
+
     @property
     def type(self):
         return self._con_type
@@ -131,9 +141,17 @@ class Constraint(FemBase):
     def m_set(self) -> FemSet:
         return self._m_set
 
+    @m_set.setter
+    def m_set(self, value: FemSet):
+        self._m_set = value
+
     @property
-    def s_set(self) -> FemSet:
+    def s_set(self) -> Union[FemSet, Surface]:
         return self._s_set
+
+    @s_set.setter
+    def s_set(self, value: Union[FemSet, Surface]):
+        self._s_set = value
 
     @property
     def dofs(self):

@@ -39,7 +39,7 @@ def read_sesam_fem(bulk_str, part_name) -> "Part":
     fem.elements += get_mass(bulk_str, part.fem, mass_elem)
     fem.springs = get_springs(bulk_str, fem, spring_elem)
     fem.sets = part.fem.sets + get_sets(bulk_str, fem)
-    fem.constraints += get_constraints(bulk_str, fem)
+    fem.constraints.update(get_constraints(bulk_str, fem))
     fem.bcs += get_bcs(bulk_str, fem)
     renumber_nodes(bulk_str, fem)
     fem.elements.renumber(renumber_map=el_id_map)

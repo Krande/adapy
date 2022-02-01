@@ -14,10 +14,10 @@ if TYPE_CHECKING:
 
 
 def constraints_str(fem: "FEM", written_on_assembly_level: bool):
-    if len(fem.constraints) == 0:
+    if len(fem.constraints.keys()) == 0:
         return "** No Constraints"
 
-    return "\n".join([constraint_str(c, written_on_assembly_level) for c in fem.constraints])
+    return "\n".join([constraint_str(c, written_on_assembly_level) for c in fem.constraints.values()])
 
 
 def constraint_str(constraint: Constraint, on_assembly_level: bool):

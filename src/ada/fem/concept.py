@@ -60,9 +60,9 @@ class FEM:
     interactions: Dict[str, "Interaction"] = field(init=False, default_factory=dict)
     predefined_fields: Dict[str, "PredefinedField"] = field(init=False, default_factory=dict)
     lcsys: Dict[str, "Csys"] = field(init=False, default_factory=dict)
+    constraints: Dict[str, "Constraint"] = field(init=False, default_factory=dict)
 
     bcs: List["Bc"] = field(init=False, default_factory=list)
-    constraints: List["Constraint"] = field(init=False, default_factory=list)
     steps: List[Union["StepSteadyState", "StepEigen", "StepImplicit", "StepExplicit"]] = field(
         init=False, default_factory=list
     )
@@ -213,7 +213,7 @@ class FEM:
         if constraint.s_set.parent is None:
             self.add_set(constraint.s_set)
 
-        self.constraints.append(constraint)
+        self.constraints[constraint.name] = constraint
         return constraint
 
     def add_lcsys(self, lcsys: Csys) -> Csys:
@@ -374,9 +374,9 @@ class FEM:
             bc.parent = self
             self.bcs.append(bc)
 
-        for con in other.constraints:
+        for con in other.constraints.values():
             con.parent = self
-            self.constraints.append(con)
+            self.constraints[con.name] = con
 
         for name, csys in other.lcsys.items():
             csys.parent = self

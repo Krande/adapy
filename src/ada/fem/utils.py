@@ -116,3 +116,18 @@ def elset_to_part(name: str, elset: "FemSet") -> "Part":
         fem.nodes.remove(elset.members)
 
     return p
+
+
+def split_line_element_in_two(el: Elem) -> Elem:
+    from ada import Node
+
+    n1 = el.nodes[0]
+    n2 = el.nodes[-1]
+    midp = (n1.p + n2.p) / 2
+    new_node = el.parent.nodes.add(Node(midp))
+    el.nodes[-1] = new_node
+    elset = el.elset
+    elem = Elem(None, [new_node, n2], el.type, elset=elset, fem_sec=el.fem_sec, parent=el.parent)
+    fs = el.fem_sec
+    fs.elset.add_members([elem])
+    return elem

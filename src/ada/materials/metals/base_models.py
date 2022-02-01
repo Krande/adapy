@@ -119,6 +119,12 @@ class Metal:
         """Density"""
         return self._rho
 
+    @rho.setter
+    def rho(self, value: float):
+        if value < 0.0:
+            raise ValueError("Material density must be a positive number")
+        self._rho = value
+
     @property
     def v(self) -> float:
         """Poisson Ratio"""

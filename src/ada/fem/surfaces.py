@@ -79,6 +79,10 @@ class Surface(FemBase):
     def fem_set(self) -> Union[FemSet, List[FemSet]]:
         return self._fem_set
 
+    @fem_set.setter
+    def fem_set(self, value: Union[FemSet, List[FemSet]]):
+        self._fem_set = value
+
     @property
     def weight_factor(self):
         return self._weight_factor

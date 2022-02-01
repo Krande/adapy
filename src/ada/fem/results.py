@@ -206,10 +206,15 @@ class Results:
 class ElementDataOutput:
     name: str
     displacements: Dict[int, List[tuple]] = field(default_factory=dict)
+    forces: Dict[int, List[tuple]] = field(default_factory=dict)
 
     @property
     def final_displ(self):
         return {x: y[-1][-1] for x, y in self.displacements.items()}
+
+    @property
+    def final_forces(self):
+        return {x: y[-1][-1] for x, y in self.forces.items()}
 
 
 @dataclass

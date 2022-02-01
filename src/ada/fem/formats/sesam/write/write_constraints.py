@@ -9,7 +9,7 @@ from .write_utils import write_ff
 
 def constraint_str(fem: FEM) -> str:
     out_str = ""
-    for constraint in fem.constraints:
+    for constraint in fem.constraints.values():
         if constraint.type == constraint.TYPES.COUPLING:
             out_str += write_coupling(constraint)
         else:

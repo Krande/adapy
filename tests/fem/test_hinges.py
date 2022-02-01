@@ -10,6 +10,6 @@ def test_simple_hinged_beam(test_dir):
     p = Part("MyPart") / bm
     p.fem = p.to_fem_obj(0.1)
     convert_hinges_2_couplings(p.fem)
-    assert len(p.fem.constraints) == 1
+    assert len(p.fem.constraints.values()) == 1
 
     # (Assembly() / p).to_fem("MyHingedBeam", "abaqus", overwrite=True, scratch_dir=test_dir)

@@ -72,6 +72,16 @@ class Elem(FemBase):
 
         return nodes
 
+    def replace_node_with_other_node(self, old_node: Node, new_node: Node):
+        index = None
+        for i, node in enumerate(self.nodes):
+            if node == old_node:
+                index = i
+        if index is None:
+            raise ValueError(f'Unable to find {old_node.id} in this element "{self.id}"')
+        self.nodes.pop(index)
+        self.nodes.insert(index, new_node)
+
     @property
     def type(self):
         return self._el_type

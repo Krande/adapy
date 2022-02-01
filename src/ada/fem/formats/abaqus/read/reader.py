@@ -7,7 +7,7 @@ import pathlib
 import re
 from dataclasses import dataclass
 from itertools import chain
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, Dict, List, Union
 
 import numpy as np
 
@@ -108,7 +108,7 @@ def read_fem(fem_file, fem_name=None) -> Assembly:
         update_connector_data(ass_sets, assembly.fem)
 
         assembly.fem.surfaces.update(get_surfaces_from_bulk(ass_sets, assembly.fem))
-        assembly.fem.constraints += get_constraints_from_inp(ass_sets, assembly.fem)
+        assembly.fem.constraints.update(get_constraints_from_inp(ass_sets, assembly.fem))
 
         assembly.fem.bcs += get_bcs_from_bulk(props_str, assembly.fem)
         assembly.fem.elements += get_mass_from_bulk(ass_sets, assembly.fem)
@@ -624,7 +624,7 @@ def get_lcsys_from_bulk(bulk_str: str, parent: FEM) -> dict[str, Csys]:
     return lcsysd
 
 
-def get_constraints_from_inp(bulk_str: str, fem: FEM):
+def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
     """
 
     ** Constraint: Container_RigidBody
@@ -731,7 +731,7 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM):
 
     mpcs = [get_mpc(mpc_values_in) for mpc_values_in in mpc_dict.values()]
 
-    return list(chain.from_iterable([constraints, couplings, sh2solids, mpcs]))
+    return {c.name: c for c in chain.from_iterable([constraints, couplings, sh2solids, mpcs])}
 
 
 def add_interactions_from_bulk_str(bulk_str, assembly: Assembly) -> None:
