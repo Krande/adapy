@@ -26,8 +26,6 @@ class Node:
         if len(self.p) != 3:
             raise ValueError("Node object must have exactly 3 coordinates (x, y, z).")
 
-        self.p_roundoff()
-
         self._bc = bc
         self._r = r
         self._parent = parent
@@ -66,10 +64,10 @@ class Node:
     def r(self) -> float:
         return self._r
 
-    def p_roundoff(self, scale_factor: Union[int, float] = 1) -> None:
+    def p_roundoff(self, scale_factor: Union[int, float] = 1, precision: int = Settings.precision) -> None:
         from ada.core.utils import roundoff
 
-        self.p = np.array([roundoff(scale_factor * x) for x in self.p])
+        self.p = np.array([roundoff(scale_factor * x, precision=precision) for x in self.p])
 
     def add_obj_to_refs(self, item) -> None:
         if item not in self.refs:

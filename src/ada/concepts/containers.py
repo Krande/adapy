@@ -924,7 +924,7 @@ class Nodes:
         else:
             return list(simplesearch)
 
-    def add(self, node: Node, point_tol=Settings.point_tol, allow_coincident=False) -> Node:
+    def add(self, node: Node, point_tol: float = Settings.point_tol, allow_coincident: bool = False) -> Node:
         """Insert node into sorted list"""
 
         def insert_node(n, i):
@@ -969,7 +969,7 @@ class Nodes:
         """Remove nodes that are without any usage references"""
         self.remove(filter(lambda x: len(x.refs) == 0, self._nodes))
 
-    def merge_coincident(self, tol=Settings.point_tol) -> None:
+    def merge_coincident(self, tol: float = Settings.point_tol) -> None:
         """
         Merge nodes which are within the standard default of Nodes.get_by_volume. Nodes merged into the node connected
         to most elements.
@@ -990,6 +990,10 @@ class Nodes:
             replace_duplicate_nodes(duplicate_nodes, node)
 
         self._sort()
+
+    def rounding_node_points(self, precision: int = Settings.precision) -> None:
+        for node in self.nodes:
+            node.p_roundoff(precision=precision)
 
     @property
     def parent(self) -> Union[Part, FEM]:
