@@ -12,7 +12,13 @@ import toolz
 
 from ada.config import Settings
 from ada.core.utils import Counter, roundoff
-from ada.core.vector_utils import points_in_cylinder, vector_length
+from ada.core.vector_utils import (
+    is_null_vector,
+    is_parallel,
+    points_in_cylinder,
+    unit_vector,
+    vector_length,
+)
 from ada.materials import Material
 from ada.sections import Section
 
@@ -57,6 +63,7 @@ class Beams(BaseCollections):
             beams = toolz.unique(beams, key=attrgetter("name"))
         self._beams = sorted(beams, key=attrgetter("name"))
         self._dmap = {n.name: n for n in self._beams}
+        self._connected_beams_map = None
 
     def __contains__(self, item):
         return item.guid in self._dmap.keys()
@@ -90,13 +97,75 @@ class Beams(BaseCollections):
         rpr.maxlevel = 1
         return f"Beams({rpr.repr(self._beams) if self._beams else ''})"
 
+    def merge_connected_beams_by_properties(self) -> None:
+        def append_connected_beams(connected_beams: Iterable[Beam]) -> None:
+            for c_beam in connected_beams:
+                if c_beam not in to_be_merged:
+                    to_be_merged.append(c_beam)
+                    append_connected_beams(self.connected_beams_map[c_beam])
+
+        self.set_connected_beams_map()
+        merged_beams: list[Beam] = list()
+
+        for beam in self._beams.copy():
+            if beam not in merged_beams:
+                to_be_merged: list[Beam] = [beam]
+                append_connected_beams(self.connected_beams_map[beam])
+                merged_beams.extend(to_be_merged)
+                self.merge_beams(to_be_merged)
+
+        self.set_connected_beams_map()
+
+    def merge_beams(self, beam_segments: Iterable[Beam]) -> Beam:
+        """Merge all beam segments into the first entry in beam_segments by changing the beam nodes."""
+
+        def get_end_nodes() -> list[Node]:
+            end_beams = filter(lambda x: len(self.connected_beams_map.get(x, list())) == 1, beam_segments)
+
+            end_nds: list[Node] = list()
+
+            for beam in end_beams:
+                (node_without_connected_beam,) = self.connected_beams_map[beam]
+                end_nds.append(beam.n1 if node_without_connected_beam in beam.n2.refs else beam.n2)
+            return end_nds
+
+        def modify_beam(bm: Beam, new_nodes) -> Beam:
+            n1, n2 = new_nodes
+
+            n1_2_n2_vector = unit_vector(n2.p - n1.p)
+            beam_vector = bm.xvec.round(decimals=Settings.precision)
+
+            if is_parallel(n1_2_n2_vector, bm.xvec) and not is_null_vector(n1_2_n2_vector, bm.xvec):
+                n1, n2 = n2, n1
+            elif not is_parallel(n1_2_n2_vector, bm.xvec):
+                raise ValueError(f"Unit vector error. Beam.xvec: {beam_vector}, nodes unit_vec: {-1 * n1_2_n2_vector}")
+
+            bm.n1, bm.n2 = n1, n2
+            return bm
+
+        if len(list(beam_segments)) > 1:
+            end_nodes = get_end_nodes()
+            modified_beam = modify_beam(beam_segments[0], end_nodes)
+
+            for old_beam in beam_segments[1:]:
+                self.remove(old_beam)
+
+            return modified_beam
+
+    def set_connected_beams_map(self) -> None:
+        self._connected_beams_map = {beam: beam.get_beam_extensions() for beam in self._beams}
+
+    @property
+    def connected_beams_map(self) -> dict[Beam, Iterable[Beam]]:
+        return self._connected_beams_map
+
     def index(self, item):
         index = bisect_left(self._beams, item)
         if (index != len(self._beams)) and (self._beams[index] == item):
             return index
         raise ValueError(f"{repr(item)} not found")
 
-    def count(self, item):
+    def count(self, item) -> int:
         return int(item in self)
 
     def from_name(self, name: str) -> Beam:
@@ -117,14 +186,16 @@ class Beams(BaseCollections):
             return self._dmap[beam.name]
         self._dmap[beam.name] = beam
         self._beams.append(beam)
+        beam.add_beam_to_node_refs()
         return beam
 
-    def remove(self, beam: Beam):
+    def remove(self, beam: Beam) -> None:
+        beam.remove_beam_from_node_refs()
         i = self._beams.index(beam)
         self._beams.pop(i)
         self._dmap = {n.name: n for n in self._beams}
 
-    def get_beams_within_volume(self, vol_, margins=None) -> Iterable[Beam]:
+    def get_beams_within_volume(self, vol_, margins=Settings.point_tol) -> Iterable[Beam]:
         """
         :param vol_: List or tuple of tuples [(xmin, xmax), (ymin, ymax), (zmin, zmax)]
         :param margins: Add margins to the volume box (equal in all directions). Input is in meters. Can be negative.
@@ -484,7 +555,7 @@ class Materials(NumericMapped):
 
 class Sections(NumericMapped):
     def __init__(
-        self, sections: Iterable[Section] = None, unique_ids=True, parent: Union["Part", "Assembly"] = None, units="m"
+        self, sections: Iterable[Section] = None, unique_ids=True, parent: Union[Part, Assembly] = None, units="m"
     ):
         sec_id = Counter(1)
         super(Sections, self).__init__(parent=parent)
@@ -894,11 +965,11 @@ class Nodes:
             else:
                 logging.error(f"'{node}' not found in node-container.")
 
-    def remove_standalones(self):
+    def remove_standalones(self) -> None:
         """Remove nodes that are without any usage references"""
         self.remove(filter(lambda x: len(x.refs) == 0, self._nodes))
 
-    def merge_coincident(self, tol=Settings.point_tol):
+    def merge_coincident(self, tol=Settings.point_tol) -> None:
         """
         Merge nodes which are within the standard default of Nodes.get_by_volume. Nodes merged into the node connected
         to most elements.
@@ -921,7 +992,7 @@ class Nodes:
         self._sort()
 
     @property
-    def parent(self) -> Union["Part", "FEM"]:
+    def parent(self) -> Union[Part, FEM]:
         return self._parent
 
     @parent.setter

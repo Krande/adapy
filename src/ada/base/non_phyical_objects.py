@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, List, Union
@@ -25,7 +27,7 @@ class Backend:
         parent=None,
         ifc_settings=None,
         ifc_elem=None,
-        ifc_ref: "IfcRef" = None,
+        ifc_ref: IfcRef = None,
     ):
         self.name = name
         self.parent = parent
@@ -40,7 +42,7 @@ class Backend:
         # TODO: Currently not able to keep and edit imported ifc_elem objects
         self._ifc_elem = None
         self._ifc_ref = ifc_ref
-        self.ifc_options: "IfcExportOptions" = IfcExportOptions()
+        self.ifc_options: IfcExportOptions = IfcExportOptions()
 
     @property
     def name(self):
@@ -70,7 +72,7 @@ class Backend:
         self._guid = value
 
     @property
-    def parent(self) -> "Part":
+    def parent(self) -> Part:
         return self._parent
 
     @parent.setter
@@ -107,10 +109,10 @@ class Backend:
         return self._ifc_elem
 
     @property
-    def ifc_ref(self) -> "IfcRef":
+    def ifc_ref(self) -> IfcRef:
         return self._ifc_ref
 
-    def get_assembly(self) -> Union["Assembly", "Part"]:
+    def get_assembly(self) -> Union[Assembly, Part]:
         from ada import Assembly
 
         for ancestor in self.get_ancestors():
@@ -119,7 +121,7 @@ class Backend:
         logging.info("No Assembly found in ancestry. Returning self")
         return self
 
-    def get_ancestors(self) -> List[Union["Part", "Assembly"]]:
+    def get_ancestors(self) -> List[Union[Part, Assembly]]:
         ancestry = [self]
         current = self
         while current.parent is not None:

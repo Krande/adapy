@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -395,7 +397,7 @@ def should_convert(res_path, overwrite):
         return False
 
 
-def convert_shell_elem_to_plates(elem: "Elem", parent: "Part") -> List[Plate]:
+def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> List[Plate]:
     from ada.core.vector_utils import is_coplanar
 
     plates = []
@@ -431,17 +433,17 @@ def convert_shell_elem_to_plates(elem: "Elem", parent: "Part") -> List[Plate]:
     return plates
 
 
-def convert_part_shell_elements_to_plates(p: "Part") -> Plates:
+def convert_part_shell_elements_to_plates(p: Part) -> Plates:
     return Plates(
         list(chain.from_iterable([convert_shell_elem_to_plates(sh, p) for sh in p.fem.elements.shell])), parent=p
     )
 
 
-def convert_part_elem_bm_to_beams(p: "Part") -> Beams:
+def convert_part_elem_bm_to_beams(p: Part) -> Beams:
     return Beams([line_elem_to_beam(bm, p) for bm in p.fem.elements.lines], parent=p)
 
 
-def line_elem_to_beam(elem: Elem, parent: "Part") -> Beam:
+def line_elem_to_beam(elem: Elem, parent: Part) -> Beam:
     """Convert FEM line element to Beam"""
 
     a = parent.get_assembly()
@@ -475,7 +477,7 @@ def line_elem_to_beam(elem: Elem, parent: "Part") -> Beam:
     )
 
 
-def convert_part_objects(p: "Part", skip_plates, skip_beams):
+def convert_part_objects(p: Part, skip_plates, skip_beams):
     if skip_plates is False:
         p._plates = convert_part_shell_elements_to_plates(p)
     if skip_beams is False:
