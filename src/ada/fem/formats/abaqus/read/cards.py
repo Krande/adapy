@@ -107,7 +107,7 @@ orientation = AbaFF(
     "Orientation",
     [
         ("name=", "definition=|", "local directions=|", "system=|"),
-        ("ax", "ay", "az", "bx", "by", "bz", "|cx", "|cy", "|cz"),
-        ("v1", "v2"),
+        ("ax", "ay", "az", "bx|", "by|", "bz|", "|cx", "|cy", "|cz"),
+        ("v1|", "v2|"),
     ],
 )

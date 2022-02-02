@@ -34,7 +34,7 @@ def csys_str(csys: "Csys", written_on_assembly_level: bool):
     elif csys.nodes is not None:
         if len(csys.nodes) != 3:
             raise ValueError("CSYS number of nodes must be 3")
-        ori_str += ", SYSTEM=RECTANGULAR, DEFINITION=NODES\n {},{},{}".format(
+        ori_str += ", DEFINITION=NODES, SYSTEM=RECTANGULAR\n {},{},{}".format(
             *[get_instance_name(no, written_on_assembly_level) for no in csys.nodes]
         )
     else:

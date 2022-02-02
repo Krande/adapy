@@ -18,7 +18,6 @@ from ada.core.utils import Counter
 from ada.fem import (
     Bc,
     Constraint,
-    Csys,
     FemSet,
     Interaction,
     InteractionProperty,
@@ -35,6 +34,7 @@ from .helper_utils import _re_in, get_set_from_assembly, list_cleanup
 from .read_elements import get_elem_from_bulk_str, update_connector_data
 from .read_masses import get_mass_from_bulk
 from .read_materials import get_materials_from_bulk
+from .read_orientations import get_lcsys_from_bulk
 from .read_sections import get_connector_sections_from_bulk, get_sections_from_inp
 
 part_name_counter = Counter(1, "Part")
@@ -593,38 +593,6 @@ def get_surfaces_from_bulk(bulk_str, parent):
         )
 
     return surf_d
-
-
-def get_lcsys_from_bulk(bulk_str: str, parent: FEM) -> dict[str, Csys]:
-    """
-    https://abaqus-docs.mit.edu/2017/English/SIMACAEKEYRefMap/simakey-r-orientation.htm#simakey-r-orientation
-
-
-    :param bulk_str:
-    :param parent:
-    :return:
-    """
-    lcsysd = dict()
-    for m in cards.orientation.regex.finditer(bulk_str):
-        d = m.groupdict()
-        name = d["name"].replace('"', "")
-        defi = d["definition"] if d["definition"] is not None else "COORDINATES"
-        system = d["system"] if d["system"] is not None else "RECTANGULAR"
-        if defi.upper() == "COORDINATES":
-            try:
-                coords = [
-                    (float(d["ax"]), float(d["ay"]), float(d["az"])),
-                    (float(d["bx"]), float(d["by"]), float(d["bz"])),
-                ]
-            except ValueError as e:
-                raise ValueError(e)
-            if d["cx"] is not None:
-                coords += [(float(d["cx"]), float(d["cy"]), float(d["cz"]))]
-            lcsysd[name] = Csys(name, system=system, coords=coords, parent=parent)
-        else:
-            raise NotImplementedError(f'Orientation definition "{defi}" is not yet supported')
-
-    return lcsysd
 
 
 def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
