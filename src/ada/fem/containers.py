@@ -686,13 +686,13 @@ class FemSets:
         for name, _set in other.nodes.items():
             _set.parent = self.parent
             if name in self._nomap.keys():
-                raise ValueError("Duplicate node set name. Consider suppressing this error?")
-            self.add(_set)
+                logging.warning(f'Duplicate Node sets. Node set "{name}" exists')
+            self.add(_set, merge_sets_if_duplicate=True)
         for name, _set in other.elements.items():
             _set.parent = self.parent
             if name in self._elmap.keys():
-                raise ValueError("Duplicate element set name. Consider suppressing this error?")
-            self.add(_set)
+                logging.warning(f'Duplicate element sets. Element set "{name}" exists')
+            self.add(_set, merge_sets_if_duplicate=True)
         return self
 
     def get_elset_from_name(self, name: str) -> FemSet:
@@ -742,7 +742,7 @@ class FemSets:
         # To evalute if dependencies of set should be checked?
         # Against: This is a downstream object. FemSections would point to this set and remove during concatenation.
 
-    def add(self, fe_set: FemSet, append_suffix_on_exist=False) -> FemSet:
+    def add(self, fe_set: FemSet, append_suffix_on_exist=False, merge_sets_if_duplicate=False) -> FemSet:
         if fe_set.type == SetTypes.NSET:
             if fe_set.name in self._nomap.keys():
                 fem_set = self._nomap[fe_set.name]
@@ -750,8 +750,15 @@ class FemSets:
                 fem_set.add_members(new_mem)
         else:
             if fe_set.name in self._elmap.keys():
-                if append_suffix_on_exist is False:
+                if append_suffix_on_exist is False and merge_sets_if_duplicate is False:
                     raise FemSetNameExists(fe_set.name)
+
+                if merge_sets_if_duplicate is True:
+                    o_set = self._elmap[fe_set.name]
+                    for mem in fe_set.members:
+                        if mem not in o_set.members:
+                            o_set.members.append(mem)
+
                 if fe_set.name not in self._same_names.keys():
                     self._same_names[fe_set.name] = 1
                 else:

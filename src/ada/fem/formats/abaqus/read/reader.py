@@ -611,10 +611,13 @@ def get_lcsys_from_bulk(bulk_str: str, parent: FEM) -> dict[str, Csys]:
         defi = d["definition"] if d["definition"] is not None else "COORDINATES"
         system = d["system"] if d["system"] is not None else "RECTANGULAR"
         if defi.upper() == "COORDINATES":
-            coords = [
-                (float(d["ax"]), float(d["ay"]), float(d["az"])),
-                (float(d["bx"]), float(d["by"]), float(d["bz"])),
-            ]
+            try:
+                coords = [
+                    (float(d["ax"]), float(d["ay"]), float(d["az"])),
+                    (float(d["bx"]), float(d["by"]), float(d["bz"])),
+                ]
+            except ValueError as e:
+                raise ValueError(e)
             if d["cx"] is not None:
                 coords += [(float(d["cx"]), float(d["cy"]), float(d["cz"]))]
             lcsysd[name] = Csys(name, system=system, coords=coords, parent=parent)
