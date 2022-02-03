@@ -985,7 +985,7 @@ class Nodes:
                     duplicate_node.refs.clear()
                     self.remove(duplicate_node)
 
-        for node in list(filter(lambda x: len(x.refs) > 0, self._nodes)):
+        for node in filter(lambda x: len(x.refs) > 0, self._nodes):
             duplicate_nodes = list(filter(lambda x: x.id != node.id, self.get_by_volume(node.p, tol=tol)))
             replace_duplicate_nodes(duplicate_nodes, node)
 

@@ -703,7 +703,8 @@ class FemSets:
         return result
 
     def get_nset_from_name(self, name: str) -> FemSet:
-        result = self._nomap.get(name, None)
+        lower_map = {key.lower(): value for key, value in self._nomap.items()}
+        result = lower_map.get(name.lower(), None)
         if result is None:
             raise ValueError(f'The nodal set "{name}" is not found')
 

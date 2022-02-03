@@ -16,7 +16,7 @@ def get_lcsys_from_bulk(bulk_str: str, parent: FEM) -> dict[str, Csys]:
         name = d["name"].replace('"', "")
         defi = d.get("definition", "COORDINATES")
         system = d.get("system", "RECTANGULAR")
-        if defi.upper() == "COORDINATES":
+        if defi is None or defi.upper() == "COORDINATES":
             coords = [tuple(float(d[x]) for x in ["ax", "ay", "az"]), tuple(float(d[x]) for x in ["bx", "by", "bz"])]
             if d["cx"] is not None:
                 coords += [(float(d["cx"]), float(d["cy"]), float(d["cz"]))]

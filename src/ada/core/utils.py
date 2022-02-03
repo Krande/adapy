@@ -302,15 +302,14 @@ def faceted_tol(units):
         return 1
 
 
-def replace_node(old_node, new_node) -> None:
-    """
+def replace_node(old_node: Node, new_node: Node) -> None:
+    from ada.fem import FemSet
 
-    :param old_node:
-    :param new_node:
-    :type old_node: ada.Node
-    :type new_node: ada.Node
-    """
     for elem in old_node.refs.copy():
+        if isinstance(elem, FemSet):
+            logging.warning("replace_node does not support updating FemSet")
+            continue
+
         node_index = elem.nodes.index(old_node)
 
         elem.nodes.pop(node_index)

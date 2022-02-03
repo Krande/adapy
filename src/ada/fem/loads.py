@@ -232,6 +232,20 @@ class LoadGravity(Load):
         super(LoadGravity, self).__init__(name, Load.TYPES.GRAVITY, acceleration)
 
 
+class LoadPoint(Load):
+    def __init__(self, name, magnitude, fem_set, dof, amplitude=None, follower_force=True, csys=None):
+        super(LoadPoint, self).__init__(
+            name,
+            Load.TYPES.FORCE,
+            magnitude=magnitude,
+            fem_set=fem_set,
+            dof=dof,
+            amplitude=amplitude,
+            follower_force=follower_force,
+            csys=csys,
+        )
+
+
 class LoadCase(FemBase):
     def __init__(
         self,
