@@ -1,4 +1,6 @@
 # coding=utf-8
+from __future__ import annotations
+
 import logging
 import os
 import pathlib
@@ -68,12 +70,12 @@ def random_color():
     return format_color(randint(0, 255), randint(0, 255), randint(0, 255))
 
 
-def d2npy(node: "Node") -> np.ndarray:
+def d2npy(node: Node) -> np.ndarray:
     """This method takes in a node object and returns a np.array."""
     return np.array([node.x, node.y, node.z], dtype=np.float)
 
 
-def roundoff(x: float, precision=6) -> float:
+def roundoff(x: float, precision=Settings.precision) -> float:
     """Round using a specific number precision using the Decimal package"""
     import warnings
 
@@ -300,7 +302,7 @@ def faceted_tol(units):
         return 1
 
 
-def replace_node(old_node, new_node):
+def replace_node(old_node, new_node) -> None:
     """
 
     :param old_node:

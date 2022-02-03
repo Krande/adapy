@@ -2,6 +2,8 @@ from typing import List
 
 import numpy as np
 
+from ada.config import Settings
+
 
 def linear_2dtransform_rotate(origin, point, degrees) -> np.ndarray:
     """
@@ -231,14 +233,39 @@ def sort_points_by_dist(p, points):
     return sorted(points, key=lambda x: vector_length(x - p))
 
 
-def is_point_on_line(a, b, p):
+def is_between_endpoints(p: np.ndarray, start: np.ndarray, end: np.ndarray, incl_endpoints: bool = False) -> bool:
+    """Returns if point p is on the line between the points start and end"""
+    ab = end - start
+    ap = p - start
+    on_line_segment = 0.0 <= get_vec_fraction(ap, ab) <= 1.0 if incl_endpoints else 0.0 < get_vec_fraction(ap, ab) < 1.0
+    return is_parallel(ab, ap) and on_line_segment
+
+
+def get_vec_fraction(vec: np.ndarray, reference_vec: np.ndarray) -> float:
+    """Returns the fraction of the projection of vec onto reference_vec."""
+    return np.dot(vec, reference_vec) / np.dot(reference_vec, reference_vec)
+
+
+def point_on_line(a: np.ndarray, b: np.ndarray, p: np.ndarray) -> np.ndarray:
+    """
+
+    :param a: Start of line
+    :param b: End of line
+    :param p: Point
+    :return:
+    """
     ap = p - a
     ab = b - a
     result = a + np.dot(ap, ab) / np.dot(ab, ab) * ab
     return result
 
 
-def is_parallel(ab: np.array, cd: np.array, tol=0.0001) -> bool:
+def is_null_vector(ab: np.array, cd: np.array, decimals=Settings.precision) -> bool:
+    """Check if difference in vectors AB and CD null vector"""
+    return np.array_equal((cd - ab).round(decimals), np.zeros_like(ab))
+
+
+def is_parallel(ab: np.array, cd: np.array, tol=Settings.point_tol) -> bool:
     """Check if vectors AB and CD are parallel"""
     return True if np.abs(np.sin(angle_between(ab, cd))) < tol else False
 

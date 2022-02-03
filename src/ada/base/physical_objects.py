@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import pathlib
 from typing import TYPE_CHECKING, List
@@ -29,7 +31,7 @@ class BackendGeom(Backend):
         colour=None,
         ifc_elem=None,
         placement=Placement(),
-        ifc_ref: "IfcRef" = None,
+        ifc_ref: IfcRef = None,
         opacity=1.0,
     ):
         super().__init__(name, guid, metadata, units, parent, ifc_elem=ifc_elem, ifc_ref=ifc_ref)
@@ -62,12 +64,12 @@ class BackendGeom(Backend):
         self,
         mesh_size,
         geom_repr,
-        options: "GmshOptions" = None,
+        options: GmshOptions = None,
         silent=True,
         use_quads=False,
         use_hex=False,
         name="AdaFEM",
-    ) -> "FEM":
+    ) -> FEM:
         from ada.fem.meshing import GmshOptions, GmshSession
 
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
@@ -82,7 +84,7 @@ class BackendGeom(Backend):
         geom_repr,
         name: str,
         fem_format: str,
-        options: "GmshOptions" = None,
+        options: GmshOptions = None,
         silent=True,
         use_quads=False,
         use_hex=False,
@@ -200,11 +202,11 @@ class BackendGeom(Backend):
         return False if self.opacity == 1.0 else True
 
     @property
-    def penetrations(self) -> List["Penetration"]:
+    def penetrations(self) -> List[Penetration]:
         return self._penetrations
 
     @property
-    def elem_refs(self) -> List["Elem"]:
+    def elem_refs(self) -> List[Elem]:
         return self._elem_refs
 
     @elem_refs.setter

@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, Iterable, List, Optional, Union
 
 import numpy as np
 
 from ada.base.physical_objects import BackendGeom
 from ada.concepts.bounding_box import BoundingBox
 from ada.concepts.curves import CurvePoly, CurveRevolve
-from ada.concepts.points import Node
+from ada.concepts.points import Node, get_singular_node_by_volume
 from ada.concepts.transforms import Placement
 from ada.config import Settings
 from ada.core.utils import Counter, roundoff
@@ -16,6 +16,8 @@ from ada.core.vector_utils import (
     angle_between,
     calc_yvec,
     calc_zvec,
+    is_between_endpoints,
+    is_parallel,
     unit_vector,
     vector_length,
 )
@@ -78,7 +80,7 @@ class Beam(BackendGeom):
         ifc_elem=None,
         guid=None,
         placement=Placement(),
-        ifc_ref: "IfcRef" = None,
+        ifc_ref: IfcRef = None,
     ):
         super().__init__(
             name,
@@ -154,7 +156,7 @@ class Beam(BackendGeom):
             if vector_length(xvec - up) < tol:
                 raise ValueError("The assigned up vector is too close to your beam direction")
             yvec = calc_yvec(xvec, up)
-            # TODO: Fix improper calculation of angle (e.g. xvec = [1,0,0] and up = [0, 1,0] should be 270?
+            # TODO: Fix improper calculation of angle (e.g. xvec = [1,0,0] and up = [0,1,0] should be 270?
             rad = angle_between(up, yvec)
             angle = np.rad2deg(rad)
             up = np.array(up)
@@ -164,6 +166,80 @@ class Beam(BackendGeom):
         self._yvec = np.array([roundoff(x) for x in yvec])
         self._up = up
         self._angle = angle
+
+        self.add_beam_to_node_refs()
+
+    def is_point_on_beam(self, point: Union[np.ndarray, Node]) -> bool:
+        if isinstance(point, Node):
+            point = point.p
+
+        return is_between_endpoints(point, self.n1.p, self.n2.p, incl_endpoints=True)
+
+    def split_beam(self, point: np.ndarray = None, fraction: float = None, length: float = None) -> Optional[Beam]:
+        """
+        Split beam into two parts, and returns the new beam. Prioritizes input arguments in given order if  given
+        multiple input.
+
+        :param point:
+        :param fraction: Fraction of the beam length from Node n1.
+        :param length: Length of the beam from Node n1.
+        """
+
+        if point is not None:
+            splitting_node = self.get_node_on_beam_by_point(point)
+        elif fraction is not None:
+            splitting_node = self.get_node_on_beam_by_fraction(fraction)
+        elif length is not None:
+            length_fraction = length / vector_length(self.n2.p - self.n1.p)
+            splitting_node = self.get_node_on_beam_by_fraction(length_fraction)
+        else:
+            logging.warning(f"Beam {self.guid} is not split as inconclusive info is provided.")
+            return None
+
+        node_on_beam = self.parent.fem.nodes.add(splitting_node)
+        splitted_beam = self.new_identical_beam(node_on_beam)
+        return splitted_beam
+
+    def get_node_on_beam_by_point(self, point: np.ndarray) -> Node:
+        """Returns node on beam from point"""
+        if not is_between_endpoints(point, self.n1.p, self.n2.p):
+            raise ValueError(f"The node is not on line and between the beam end points, p: {point}, bm: {self}")
+
+        return get_singular_node_by_volume(self.parent.fem.nodes, point)
+
+    def get_node_on_beam_by_fraction(self, fraction: float) -> Node:
+        """Returns node as a fraction of the beam length from n1-node."""
+
+        if fraction <= 0.0 or fraction >= 1.0:
+            raise ValueError(f"Fraction {fraction} is not between 0 and 1")
+
+        distance = vector_length(self.n2.p - self.n1.p)
+        node = get_singular_node_by_volume(self.parent.fem.nodes, self.n1.p + fraction * distance * self.xvec)
+        return node
+
+    def new_identical_beam(self, node: Node = None) -> Beam:
+        """Returns new beam. Setting splitting node to n2-node on self and to n1-node on the new beam."""
+
+        new_beam = Beam(
+            f"{self.name}_2",
+            n1=node,
+            n2=self.n2,
+            sec=self.section,
+            mat=self.material,
+            tap=self.taper,
+            jusl=self.jusl,
+            e1=self.e1,
+            e2=self.e2,
+            colour=self.colour,
+            parent=self.parent,
+            metadata=self.metadata,
+            opacity=self.opacity,
+            units=self.units,
+        )
+
+        self.name = f"{self.name}_1"
+        self.n2 = node
+        return new_beam
 
     def get_outer_points(self):
         from itertools import chain
@@ -270,7 +346,7 @@ class Beam(BackendGeom):
         return self._section
 
     @section.setter
-    def section(self, value):
+    def section(self, value: Section):
         self._section = value
 
     @property
@@ -278,7 +354,7 @@ class Beam(BackendGeom):
         return self._taper
 
     @taper.setter
-    def taper(self, value):
+    def taper(self, value: Section):
         self._taper = value
 
     @property
@@ -286,7 +362,7 @@ class Beam(BackendGeom):
         return self._material
 
     @material.setter
-    def material(self, value):
+    def material(self, value: Material):
         self._material = value
 
     @property
@@ -304,7 +380,7 @@ class Beam(BackendGeom):
         return mtype
 
     @property
-    def connected_to(self) -> List["JointBase"]:
+    def connected_to(self) -> List[JointBase]:
         return self._connected_to
 
     @property
@@ -334,7 +410,7 @@ class Beam(BackendGeom):
 
     @property
     def ori(self):
-        """Get the xvector, yvector and zvector of a given beam"""
+        """Get the x-vector, y-vector and z-vector of a given beam"""
 
         return self.xvec, self.yvec, self.up
 
@@ -370,7 +446,7 @@ class Beam(BackendGeom):
         return self._n1
 
     @n1.setter
-    def n1(self, value):
+    def n1(self, value: Node):
         self._n1 = value
 
     @property
@@ -378,7 +454,7 @@ class Beam(BackendGeom):
         return self._n2
 
     @n2.setter
-    def n2(self, value):
+    def n2(self, value: Node):
         self._n2 = value
 
     @property
@@ -406,11 +482,11 @@ class Beam(BackendGeom):
         self._e2 = np.array(value)
 
     @property
-    def hinge_prop(self) -> "HingeProp":
+    def hinge_prop(self) -> HingeProp:
         return self._hinge_prop
 
     @hinge_prop.setter
-    def hinge_prop(self, value: "HingeProp"):
+    def hinge_prop(self, value: HingeProp):
         value.beam_ref = self
         if value.end1 is not None:
             value.end1.concept_node = self.n1
@@ -436,7 +512,7 @@ class Beam(BackendGeom):
         return make_wire_from_points(points)
 
     @property
-    def shell(self) -> "TopoDS_Shape":
+    def shell(self) -> TopoDS_Shape:
         from ada.occ.utils import apply_penetrations, create_beam_geom
 
         geom = apply_penetrations(create_beam_geom(self, False), self.penetrations)
@@ -444,12 +520,40 @@ class Beam(BackendGeom):
         return geom
 
     @property
-    def solid(self) -> "TopoDS_Shape":
+    def solid(self) -> TopoDS_Shape:
         from ada.occ.utils import apply_penetrations, create_beam_geom
 
         geom = apply_penetrations(create_beam_geom(self, True), self.penetrations)
 
         return geom
+
+    @property
+    def nodes(self) -> list[Node]:
+        return [self.n1, self.n2]
+
+    @property
+    def angle(self) -> float:
+        return self._angle
+
+    def add_beam_to_node_refs(self) -> None:
+        for beam_node in self.nodes:
+            beam_node.add_obj_to_refs(self)
+
+    def remove_beam_from_node_refs(self) -> None:
+        for beam_node in self.nodes:
+            beam_node.remove_obj_from_refs(self)
+
+    def is_equivalent(self, item: Beam) -> bool:
+        """Returns equivalent beam-type, meaning beam characteristics are the same but NOT the same beam"""
+        return (self.section, self.material) == (item.section, item.material) and self != item
+
+    def get_beam_extensions(self) -> Iterable[Beam]:
+        """Returns connected beams with same material and section at beam end-nodes, that are parallel"""
+
+        def is_equal_beamtype(item) -> bool:
+            return isinstance(item, Beam) and self.is_equivalent(item) and is_parallel(self.xvec, item.xvec)
+
+        return list(filter(is_equal_beamtype, self.n1.refs + self.n2.refs))
 
     def __hash__(self):
         return hash(self.guid)
