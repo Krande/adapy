@@ -1,24 +1,25 @@
 import json
-import re
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 
 
 def get_packages():
     def read_it(x):
-        line = x.strip()[1:].strip().replace('[all]', '')
-        if ' ' in line:
-            li1 = line.split(' ')
+        line = x.strip()[1:].strip().replace("[all]", "")
+        if " " in line:
+            li1 = line.split(" ")
             return li1[0]
         return line
 
     reg_str = re.compile("run:(.*?)\n\n", re.DOTALL)
     with open("../meta.yaml", "r") as f:
         lines = reg_str.search(f.read()).group(1).splitlines()
-        res = [read_it(line) for line in lines if read_it(line) not in ['', 'python']]
+        res = [read_it(line) for line in lines if read_it(line) not in ["", "python"]]
     return res
+
 
 def run_debug(packages):
     tempdir = pathlib.Path("output")
