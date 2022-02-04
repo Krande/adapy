@@ -36,7 +36,7 @@ class Rotation:
         p1 = np.array(self.origin)
         rot_mat = self.to_rot_matrix()
         p_norm = np.array(p) - p1
-        res = p1 + p_norm@rot_mat.T
+        res = p1 + p_norm @ rot_mat.T
         return res
 
 

@@ -93,7 +93,7 @@ class Csys(FemBase):
 
     @property
     def coords(self):
-        """Coordinates: (x, y, origin[optional]). y can be anywhere in the x-y plane """
+        """Coordinates: (x, y, origin[optional]). y can be anywhere in the x-y plane"""
         return self._coords
 
     @coords.setter
