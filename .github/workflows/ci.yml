@@ -84,7 +84,7 @@ jobs:
       - name: build
         run: |
           conda activate ${{ env.CONDAENV }}
-          conda-build -c krande -c conda-forge conda --python=${{ matrix.pyver.distver }} --override-channels --keep-old-work --dirty
+          conda-build -c conda-forge -c krande conda --python=${{ matrix.pyver.distver }} --override-channels --keep-old-work --dirty
       - name: install
         run: |
           conda activate ${{ env.CONDAENV }}

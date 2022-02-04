@@ -1,5 +1,5 @@
 compile:
-	conda activate conda-msvc && conda-build -c krande -c conda-forge . --keep-old-work --python 3.9.7
+	conda activate conda-msvc && conda-build -c conda-forge -c krande . --keep-old-work --python 3.9.7
 
 index:
 	conda index ${CONDA_PREFIX}/conda-bld --channel-name local
