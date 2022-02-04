@@ -89,7 +89,7 @@ class BackendGeom(Backend):
         use_quads=False,
         use_hex=False,
         return_assembly=False,
-        **kwargs
+        **kwargs,
     ):
         from ada import Assembly, Part
 

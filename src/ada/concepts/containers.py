@@ -184,9 +184,10 @@ class Beams(BaseCollections):
         if beam.name in self._dmap.keys():
             logging.warning(f'Beam with name "{beam.name}" already exists. Will not add')
             return self._dmap[beam.name]
+
         self._dmap[beam.name] = beam
         self._beams.append(beam)
-        beam.add_beam_to_node_refs()
+
         return beam
 
     def remove(self, beam: Beam) -> None:

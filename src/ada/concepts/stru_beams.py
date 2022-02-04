@@ -447,7 +447,9 @@ class Beam(BackendGeom):
 
     @n1.setter
     def n1(self, value: Node):
+        self._n1.remove_obj_from_refs(self)
         self._n1 = value
+        value.add_obj_to_refs(self)
 
     @property
     def n2(self) -> Node:
@@ -455,7 +457,9 @@ class Beam(BackendGeom):
 
     @n2.setter
     def n2(self, value: Node):
+        self._n2.remove_obj_from_refs(self)
         self._n2 = value
+        value.add_obj_to_refs(self)
 
     @property
     def bbox(self) -> BoundingBox:
