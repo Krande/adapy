@@ -810,11 +810,11 @@ class Nodes:
             no.p = p
 
         if rotate is not None:
-            p1 = np.array(rotate.origin)
+            origin = np.array(rotate.origin)
             rot_mat = rotate.to_rot_matrix()
-            vectors = np.array([n.p - p1 for n in self._nodes])
-            res = np.matmul(vectors, np.transpose(rot_mat))
-            [map_rotations(n, p + p1) for n, p in zip(self._nodes, res)]
+            vectors = np.array([n.p - origin for n in self._nodes])
+            res = np.matmul(vectors, rot_mat.T)
+            [map_rotations(n, p + origin) for n, p in zip(self._nodes, res)]
 
         if move is not None:
             move = np.array(move)

@@ -93,7 +93,12 @@ class Csys(FemBase):
 
     @property
     def coords(self):
+        """Coordinates: (x, y, origin[optional]). y can be anywhere in the x-y plane """
         return self._coords
+
+    @coords.setter
+    def coords(self, value):
+        self._coords = value
 
     def __repr__(self):
         content_map = dict(COORDINATES=self.coords, NODES=self.nodes)

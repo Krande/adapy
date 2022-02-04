@@ -290,7 +290,7 @@ class FemElements:
         cmap = {c.name: c for c in self.connectors}
         return cmap.get(name, None)
 
-    def from_id(self, el_id: int) -> Elem:
+    def from_id(self, el_id: int) -> Union[Elem, Connector]:
         el = self._idmap.get(el_id, None)
         if el is None:
             spring_id_map = {m.id: m for m in self.parent.springs.values()}

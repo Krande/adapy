@@ -32,6 +32,13 @@ class Rotation:
         my_quaternion = Quaternion(axis=self.vector, degrees=self.angle)
         return my_quaternion.rotation_matrix
 
+    def rotate_point(self, p: Union[tuple, list]):
+        p1 = np.array(self.origin)
+        rot_mat = self.to_rot_matrix()
+        p_norm = np.array(p) - p1
+        res = p1 + p_norm@rot_mat.T
+        return res
+
 
 @dataclass
 class Placement:
