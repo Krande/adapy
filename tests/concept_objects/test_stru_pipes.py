@@ -37,7 +37,7 @@ def test_pipe_bend():
         Section("PSec", "PIPE", r=0.10, wt=5e-3),
     )
 
-    assert pytest.approx(pipe1.segments[1].bend_radius, 0.195958125)
+    assert pipe1.segments[1].bend_radius == pytest.approx(0.195958125)
 
     # a = Assembly("MyTest") / (Part("MyPart") / pipe1)
     # a.to_ifc(test_dir / "pipe_bend.ifc")
