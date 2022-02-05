@@ -35,7 +35,7 @@ def run_debug(packages):
         latest = data[package][-1]
         dep_map[package] = latest["depends"]
         with open(tempdir / f"{package}.json", "w") as f:
-            json.dump(latest, f, indent=4)
+            json.dump(data, f, indent=4)
 
     with open(tempdir / "dep_map.json", "w") as f:
         json.dump(dep_map, f, indent=4)

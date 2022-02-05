@@ -5,31 +5,23 @@ import pytest
 
 import ada
 from ada.fem.exceptions.element_support import IncompatibleElements
-from ada.fem.formats import FEATypes as FEA
 from ada.fem.formats.utils import default_fem_res_path
 from ada.fem.meshing.concepts import GmshOptions
 from ada.fem.results import Results
 
-test_dir = ada.config.Settings.scratch_dir / "eigen_fem"
+test_dir = ada.config.Settings.scratch_dir / "static_fem"
 EL_TYPES = ada.fem.Elem.EL_TYPES
 
 
 def is_conditions_unsupported(fem_format, geom_repr, elem_order):
-    if fem_format == FEA.CALCULIX and geom_repr == EL_TYPES.LINE:
-        return True
-    elif fem_format == FEA.CODE_ASTER and geom_repr == EL_TYPES.LINE and elem_order == 2:
-        return True
-    elif fem_format == FEA.SESAM and geom_repr == EL_TYPES.SOLID:
-        return True
-    else:
-        return False
+    return False
 
 
 @pytest.mark.parametrize("use_hex_quad", [True, False])
 @pytest.mark.parametrize("fem_format", ["code_aster", "calculix"])
 @pytest.mark.parametrize("geom_repr", ["line", "shell", "solid"])
 @pytest.mark.parametrize("elem_order", [1, 2])
-def test_fem_eig(
+def test_fem_static(
     beam_fixture,
     fem_format,
     geom_repr,
@@ -42,7 +34,7 @@ def test_fem_eig(
 ):
     geom_repr = geom_repr.upper()
     if name is None:
-        name = f"cantilever_EIG_{fem_format}_{geom_repr}_o{elem_order}_hq{use_hex_quad}"
+        name = f"cantilever_static_{fem_format}_{geom_repr}_o{elem_order}_hq{use_hex_quad}"
 
     p = ada.Part("MyPart")
     a = ada.Assembly("MyAssembly") / [p / beam_fixture]
@@ -52,7 +44,8 @@ def test_fem_eig(
 
     props = dict(use_hex=use_hex_quad) if geom_repr == "SOLID" else dict(use_quads=use_hex_quad)
 
-    a.fem.add_step(ada.fem.StepEigen("Eigen", num_eigen_modes=eigen_modes))
+    step = a.fem.add_step(ada.fem.StepImplicit("gravity", nl_geom=True, init_incr=100.0, total_time=100.0))
+    step.add_load(ada.fem.LoadGravity("grav", -9.81 * 800))
 
     if overwrite is False:
         if is_conditions_unsupported(fem_format, geom_repr, elem_order):

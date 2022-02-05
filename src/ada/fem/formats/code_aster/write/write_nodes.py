@@ -51,3 +51,7 @@ def _write_nodes(part: "Part", time_step, profile, families):
 
     if len(part.fem.nsets.keys()) > 0:
         _add_node_sets(nodes_group, part, points, families)
+
+    assembly = part.get_assembly()
+    if len(assembly.fem.nsets.keys()) > 0:
+        _add_node_sets(nodes_group, assembly, points, families)
