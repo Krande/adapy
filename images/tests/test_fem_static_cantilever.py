@@ -9,7 +9,7 @@ from ada.fem.formats.utils import default_fem_res_path
 from ada.fem.meshing.concepts import GmshOptions
 from ada.fem.results import Results
 
-test_dir = ada.config.Settings.scratch_dir / "static_fem"
+test_dir = ada.config.Settings.scratch_dir / "ada_fem_test_static"
 EL_TYPES = ada.fem.Elem.EL_TYPES
 
 
@@ -45,7 +45,7 @@ def test_fem_static(
     props = dict(use_hex=use_hex_quad) if geom_repr == "SOLID" else dict(use_quads=use_hex_quad)
 
     step = a.fem.add_step(ada.fem.StepImplicit("gravity", nl_geom=True, init_incr=100.0, total_time=100.0))
-    step.add_load(ada.fem.LoadGravity("grav", -9.81 * 800))
+    step.add_load(ada.fem.LoadGravity("grav", -9.81 * 80))
 
     if overwrite is False:
         if is_conditions_unsupported(fem_format, geom_repr, elem_order):

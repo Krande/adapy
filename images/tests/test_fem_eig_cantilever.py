@@ -10,7 +10,7 @@ from ada.fem.formats.utils import default_fem_res_path
 from ada.fem.meshing.concepts import GmshOptions
 from ada.fem.results import Results
 
-test_dir = ada.config.Settings.scratch_dir / "eigen_fem"
+test_dir = ada.config.Settings.scratch_dir / "ada_fem_test_eigen"
 EL_TYPES = ada.fem.Elem.EL_TYPES
 
 
