@@ -15,25 +15,16 @@ requirements:
     - python
   run:
     - python
-    - numpy
     - ifcopenshell
     - pythonocc-core
     - python-gmsh >=4.9.3
-    - vtk
-    - meshio[all]
-    - toolz
-    - lmfit
     - pyquaternion
-    - ccx2paraview
     - pytexit
     - jupyterlab
     - pythreejs
     - pyparsing
     - plotly
     - python-kaleido
-    - ipygany
-    - pydantic
-    - pyvista
 
 
 test:
