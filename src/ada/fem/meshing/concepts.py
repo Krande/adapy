@@ -105,9 +105,12 @@ class GmshSession:
         self.apply_settings()
         temp_dir = Settings.temp_dir
         os.makedirs(temp_dir, exist_ok=True)
-        name = f"{obj.name}_{create_guid()}"
 
         def export_as_step(export_obj):
+            name = f"{obj.name}_{create_guid()}"
+            # TODO: Evaluate the use of ImportShapesNativePointer to move geom to gmsh.
+            # shape_pnt = int(export_obj.solid.this)
+            # ents = gmsh.model.occ.importShapesNativePointer(shape_pnt)
             export_obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent, fuse_piping=True)
             ents = self.model.occ.importShapes(str(temp_dir / f"{name}.stp"))
             return ents

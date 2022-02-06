@@ -1,4 +1,7 @@
+import pytest
+
 from ada.concepts.containers import Nodes
+from ada.concepts.exceptions import DuplicateNodes
 
 
 def test_empty():
@@ -14,9 +17,8 @@ def test_from_sequence(nodes):
 
 def test_with_duplicates(nodes):
     n1, n2, n3, n4, n5, n6, n7, n8, n9, n10 = nodes
-    n = Nodes([n1, n2, n1])
-
-    assert len(n) == 2
+    with pytest.raises(DuplicateNodes):
+        Nodes([n1, n2, n1])
 
 
 def test_from_iterables(nodes):

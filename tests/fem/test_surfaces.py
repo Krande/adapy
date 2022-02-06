@@ -82,7 +82,7 @@ def test_surface_beam(surfaces_test_dir):
     a = ada.Assembly() / p
 
     # Create FEM mesh
-    p.fem = p.to_fem_obj(0.10, "solid", interactive=False, options=GmshOptions(Mesh_ElementOrder=2))
+    p.fem = p.to_fem_obj(0.10, "solid", interactive=True, options=GmshOptions(Mesh_ElementOrder=2))
 
     # Add Step
     step = a.fem.add_step(ada.fem.StepImplicit("MyStep"))

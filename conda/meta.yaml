@@ -18,6 +18,7 @@ requirements:
     - ifcopenshell
     - pythonocc-core
     - python-gmsh >=4.9.3
+    - meshio[all]
     - pyquaternion
     - pytexit
     - jupyterlab
