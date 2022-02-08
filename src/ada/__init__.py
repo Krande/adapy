@@ -6,7 +6,7 @@ from typing import Union
 from ada import fem
 from ada.concepts.connections import Bolts, Weld
 from ada.concepts.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
-from ada.concepts.levels import Assembly, Part
+from ada.concepts.levels import Assembly, Group, Part
 from ada.concepts.piping import Pipe, PipeSegElbow, PipeSegStraight
 from ada.concepts.points import Node
 from ada.concepts.primitives import (
@@ -74,6 +74,7 @@ __all__ = [
     "from_ifc",
     "from_fem",
     "Beam",
+    "Group",
     "Plate",
     "Pipe",
     "PipeSegStraight",

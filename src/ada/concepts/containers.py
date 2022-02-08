@@ -317,11 +317,11 @@ class Plates(BaseCollections):
 class Connections(BaseCollections):
     _counter = Counter(1, "C")
 
-    def __init__(self, connections=None, parent=None):
+    def __init__(self, connections: Iterable[JointBase] = None, parent=None):
         connections = [] if connections is None else connections
         super().__init__(parent)
         self._connections = connections
-        self._dmap = {j.id: j for j in self._connections}
+        self._dmap = {j.name: j for j in self._connections}
         self._joint_centre_nodes = Nodes([c.centre for c in self._connections])
         self._nmap = {self._joint_centre_nodes.index(c.centre): c for c in self._connections}
 
@@ -335,7 +335,7 @@ class Connections(BaseCollections):
     def __len__(self):
         return len(self._connections)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterable[JointBase]:
         return iter(self._connections)
 
     def __getitem__(self, index):
@@ -378,6 +378,14 @@ class Connections(BaseCollections):
         self._dmap[joint.name] = joint
         self._connections.append(joint)
 
+    def remove(self, joint: JointBase):
+        if joint.name in self._dmap.keys():
+            self._dmap.pop(joint.name)
+        if joint in self._connections:
+            self._connections.pop(self._connections.index(joint))
+        if joint.centre in self._nmap.keys():
+            self._nmap.pop(joint.centre)
+
     def find(self, out_of_plane_tol=0.1, joint_func=None, point_tol=Settings.point_tol):
         """
         Find all connections between beams in all parts using a simple clash check.
@@ -407,6 +415,8 @@ class Connections(BaseCollections):
                 joint = JointBase(next(self._counter), mem, node.p, parent=self)
 
             self.add(joint, point_tol=point_tol)
+
+        print(f"Connection search finished. Found a total of {len(self._connections)} connections")
 
 
 class NumericMapped(BaseCollections):
