@@ -89,7 +89,11 @@ jobs:
       - name: install
         run: |
           conda activate ${{ env.CONDAENV }}
-          conda create -n testenv -c local -c krande -c conda-forge ada-py pytest pytest-cov --strict-channel-priority
+          conda create -n testenv -c local -c krande -c conda-forge ada-py --strict-channel-priority
+      - name: install pytest
+        run: |
+          conda activate testenv
+          pytest pytest-cov
       - name: get package version into env variable
         run: |
           echo "CONDAROOT=$CONDA_PREFIX" >> $GITHUB_ENV
