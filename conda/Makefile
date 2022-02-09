@@ -1,5 +1,8 @@
 compile:
-	conda activate condabuild && conda-build -c conda-forge -c krande . --keep-old-work --python 3.9.10
+	conda activate condabuild && conda-build -c krande -c conda-forge . --keep-old-work --python 3.9.10
+
+compile-docker:
+	docker build -t ada/condabuild -f Dockerfile ../
 
 index:
 	conda index ${CONDA_PREFIX}/conda-bld --channel-name local

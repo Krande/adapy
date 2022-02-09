@@ -519,6 +519,11 @@ class Part(BackendGeom):
 
         return fem
 
+    def to_custom_json(self, output_file_path, threads=1, data_type=None):
+        from ada.visualize.write.write_custom_json import to_custom_json
+
+        to_custom_json(self, output_file_path, threads=threads, data_type=data_type)
+
     @property
     def parts(self) -> dict[str, Part]:
         return self._parts

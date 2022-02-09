@@ -1,5 +1,5 @@
 {% set data = load_setup_py_data() %}
-{% set occt_version = "7.5.3" %}
+
 
 package:
   name: ada-py
@@ -10,6 +10,7 @@ source:
 
 build:
   number: 0
+  script: "{{ PYTHON }} -m pip install . -vv"
 
 requirements:
   build:
@@ -19,7 +20,7 @@ requirements:
     - ifcopenshell
     - pythonocc-core
     - python-gmsh >=4.9.3
-    - occt =={{ occt_version }}
+    - occt ==7.5.3
     - meshio[all]
     - pyquaternion
     - pytexit

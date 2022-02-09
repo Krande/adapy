@@ -105,6 +105,11 @@ jobs:
         run: |
           conda activate ${{ env.CONDAENV }}
           anaconda -t=${{ secrets.ANACONDA_TOKEN }} upload ${{ env.CONDAROOT }}/conda-bld/${{ matrix.platform.short }}/ada-py-${{ env.PKG_VERSION }}-${{ matrix.pyver.name }}_0.tar.bz2 --user krande --skip-existing
+      - name: upload to conda -c krande/dev
+        if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+        run: |
+          conda activate ${{ env.CONDAENV }}
+          anaconda -t=${{ secrets.ANACONDA_TOKEN }} upload ${{ env.CONDAROOT }}/conda-bld/${{ matrix.platform.short }}/ada-py-${{ env.PKG_VERSION }}-${{ matrix.pyver.name }}_0.tar.bz2 --user krande --skip-existing --label dev
   pypi:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
