@@ -69,7 +69,7 @@ jobs:
         uses: actions/cache@v2
         env:
           # Increase this value to reset cache if etc/example-environment.yml has not changed
-          CACHE_NUMBER: 0
+          CACHE_NUMBER: 1
         with:
           path: ~/conda_pkgs_dir
           key:
@@ -90,7 +90,8 @@ jobs:
       - name: build
         run: |
           conda activate ${{ env.CONDAENV }}
-          conda-build -c ${{env.CONDALABEL}} -c conda-forge conda --python=${{ matrix.pyver.distver }} --override-channels --keep-old-work --dirty
+          cd conda
+          conda-build -c ${{env.CONDALABEL}} -c conda-forge . --python=${{ matrix.pyver.distver }} --keep-old-work
       - name: install
         run: |
           conda activate ${{ env.CONDAENV }}
