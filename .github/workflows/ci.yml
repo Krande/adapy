@@ -53,6 +53,7 @@ jobs:
       CONDAENV: base
       PKG_VERSION: nothing
       CONDAROOT: nothing
+      CONDALABEL: krande
     strategy:
       fail-fast: false
       matrix:
@@ -82,26 +83,20 @@ jobs:
           environment-file: conda/environment.yml
           auto-update-conda: true
           use-only-tar-bz2: true # IMPORTANT: This needs to be set for caching to work properly!
+      - name: edit conda channel label if not on main
+        if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+        run: |
+          echo "CONDALABEL=krande/label/dev" >> $GITHUB_ENV
       - name: build
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           conda activate ${{ env.CONDAENV }}
-          conda-build -c conda-forge -c krande conda --python=${{ matrix.pyver.distver }} --override-channels --keep-old-work --dirty
-      - name: build (dev)
-        if: github.event_name == 'push' && github.ref != 'refs/heads/main'
-        run: |
-          conda activate ${{ env.CONDAENV }}
-          conda-build -c conda-forge -c krande/label/dev conda --python=${{ matrix.pyver.distver }} --override-channels --keep-old-work --dirty
+          conda-build -c conda-forge -c ${{env.CONDALABEL}} conda --python=${{ matrix.pyver.distver }} --override-channels --keep-old-work --dirty
       - name: install
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           conda activate ${{ env.CONDAENV }}
-          conda create -n testenv -c local -c krande -c conda-forge ada-py --strict-channel-priority
-      - name: install (dev)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          conda activate ${{ env.CONDAENV }}
-          conda create -n testenv -c local -c krande/label/dev -c conda-forge ada-py --strict-channel-priority
+          conda create -n testenv -c local -c ${{env.CONDALABEL}} -c conda-forge ada-py --strict-channel-priority
       - name: install pytest
         run: |
           conda activate testenv
