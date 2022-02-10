@@ -19,7 +19,16 @@ from ada.occ.exceptions.geom_creation import (
 from ..renderer_occ import occ_shape_to_faces
 
 if TYPE_CHECKING:
-    from ada import Assembly, Beam, Part, Pipe, Plate, Shape, Wall
+    from ada import (
+        Assembly,
+        Beam,
+        Part,
+        PipeSegElbow,
+        PipeSegStraight,
+        Plate,
+        Shape,
+        Wall,
+    )
     from ada.fem.results import Results
 
 
@@ -39,14 +48,19 @@ def to_custom_json(ada_obj: Union["Assembly", "Part", "Results"], output_file_pa
 
 def export_assembly_to_json(part: "Part", output_file_path, threads: int = 1):
     all_obj = [obj for p in part.parts.values() for obj in p.get_all_physical_objects()]
+
     all_obj += list(part.get_all_physical_objects())
+
     all_obj_num = len(all_obj)
+
     print(f"Exporting {all_obj_num} physical objects to custom json format.")
     obj_num = 1
+
     part_array = [part_to_json_values(part, threads, obj_num, all_obj_num)]
     for p in part.parts.values():
         pjson = part_to_json_values(p, threads, obj_num, all_obj_num)
         part_array.append(pjson)
+
     output = {
         "name": part.name,
         "created": "dato",
@@ -117,17 +131,27 @@ def convert_obj_to_poly(obj, quality=1.0, render_edges=False, parallel=False):
 
 
 def part_to_json_values(p: "Part", threads, obj_num, all_obj_num) -> dict:
+    from ada import Pipe
+
     if threads != 1:
         id_map = id_map_using_threading(list(p.get_all_physical_objects()), threads)
     else:
         id_map = dict()
         for obj in p.get_all_physical_objects():
             obj_num += 1
-            res = obj_to_json(obj)
-            if res is None:
-                continue
-            id_map[obj.guid] = res
-            print(f'Exporting "{obj.name}" ({obj_num} of {all_obj_num})')
+            if isinstance(obj, Pipe):
+                for seg in obj.segments:
+                    res = obj_to_json(seg)
+                    if res is None:
+                        continue
+                    id_map[seg.guid] = res
+                    print(f'Exporting "{obj.name}" ({obj_num} of {all_obj_num})')
+            else:
+                res = obj_to_json(obj)
+                if res is None:
+                    continue
+                id_map[obj.guid] = res
+                print(f'Exporting "{obj.name}" ({obj_num} of {all_obj_num})')
 
     for inst in p.instances.values():
         id_map[inst.instance_ref.guid]["instances"] = inst.to_list_of_custom_json_matrices()
@@ -170,7 +194,7 @@ def id_map_using_threading(list_in, threads: int):
     return res
 
 
-def obj_to_json(obj: Union[Beam, Plate, Wall, Pipe, Shape]) -> Union[dict, None]:
+def obj_to_json(obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape]) -> Union[dict, None]:
     quality = 1.0
     render_edges = False
     parallel = True

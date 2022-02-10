@@ -9,6 +9,7 @@ source:
   path: ../
 
 build:
+  noarch: python
   number: 0
 
 requirements:
@@ -16,8 +17,8 @@ requirements:
     - python
   run:
     - python
-    - ifcopenshell
-    - pythonocc-core
+    - ifcopenshell ==0.7.0
+    - pythonocc-core ==7.5.3
     - python-gmsh >=4.9.3
     - occt ==7.5.3
     - meshio[all]

@@ -57,7 +57,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pyver: [ { name: py39, distver: '3.9' }, { name: py310, distver: '3.10'}]
+        pyver: [ { name: py39, distver: '3.9.10' }, { name: py310, distver: '3.10.2'}]
         platform: [
           { name: Windows, distver: windows-latest, short: 'win-64' },
           { name: Linux, distver: ubuntu-latest, short: 'linux-64' },
@@ -91,7 +91,7 @@ jobs:
         run: |
           conda activate ${{ env.CONDAENV }}
           cd conda
-          conda-build -c ${{env.CONDALABEL}} -c conda-forge . --python=${{ matrix.pyver.distver }} --keep-old-work
+          conda-build -c ${{env.CONDALABEL}} -c conda-forge . --python=${{ matrix.pyver.distver }} --keep-old-work --user krande --skip-existing --label dev -t=${{ secrets.ANACONDA_TOKEN }}
       - name: install
         run: |
           conda activate ${{ env.CONDAENV }}
@@ -99,7 +99,7 @@ jobs:
       - name: install pytest
         run: |
           conda activate testenv
-          pytest pytest-cov
+          pip install pytest pytest-cov
       - name: get package version into env variable
         run: |
           echo "CONDAROOT=$CONDA_PREFIX" >> $GITHUB_ENV

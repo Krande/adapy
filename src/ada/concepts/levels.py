@@ -147,6 +147,9 @@ class Part(BackendGeom):
         if mat is not None:
             plate.material = mat
 
+        for n in plate.nodes:
+            self.nodes.add(n)
+
         self._plates.add(plate)
         return plate
 
@@ -251,7 +254,8 @@ class Part(BackendGeom):
             shp.add_penetration(pen)
 
         for pipe in self.pipes:
-            pipe.add_penetration(pen)
+            for seg in pipe.segments:
+                seg.add_penetration(pen)
 
         for wall in self.walls:
             wall.add_penetration(pen)
