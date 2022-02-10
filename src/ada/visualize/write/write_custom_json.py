@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -17,7 +19,7 @@ from ada.occ.exceptions.geom_creation import (
 from ..renderer_occ import occ_shape_to_faces
 
 if TYPE_CHECKING:
-    from ada import Assembly, Part
+    from ada import Assembly, Beam, Part, Pipe, Plate, Shape, Wall
     from ada.fem.results import Results
 
 
@@ -115,45 +117,17 @@ def convert_obj_to_poly(obj, quality=1.0, render_edges=False, parallel=False):
 
 
 def part_to_json_values(p: "Part", threads, obj_num, all_obj_num) -> dict:
-    quality = 1.0
-    render_edges = False
-    parallel = True
-
     if threads != 1:
-        id_map = id_map_using_threading(p.get_all_physical_objects(), threads)
+        id_map = id_map_using_threading(list(p.get_all_physical_objects()), threads)
     else:
         id_map = dict()
         for obj in p.get_all_physical_objects():
             obj_num += 1
-            try:
-                geom = obj.solid
-            except UnableToCreateSolidOCCGeom as e:
-                logging.error(e)
+            res = obj_to_json(obj)
+            if res is None:
                 continue
-            except UnableToBuildNSidedWires as e:
-                logging.error(e)
-                continue
-            try:
-                obj_position, poly_indices, normals, _ = occ_shape_to_faces(geom, quality, render_edges, parallel)
-            except UnableToCreateTesselationFromSolidOCCGeom as e:
-                logging.error(e)
-                continue
-
-            obj_buffer_arrays = np.concatenate([obj_position, normals], 1)
-            buffer, indices = np.unique(obj_buffer_arrays, axis=0, return_index=False, return_inverse=True)
-            x, y, z, nx, ny, nz = buffer.T
-            position = np.array([x, y, z]).T
-            normals = np.array([nx, ny, nz]).T
-
-            id_map[obj.guid] = dict(
-                index=indices.astype(int).tolist(),
-                position=position.flatten().astype(float).tolist(),
-                normal=normals.flatten().astype(float).tolist(),
-                color=[*obj.colour_norm, obj.opacity],
-                vertexColor=None,
-                instances=None,
-            )
-            print(f'Exporting"{obj.name}" {obj_num} of {all_obj_num}')
+            id_map[obj.guid] = res
+            print(f'Exporting "{obj.name}" ({obj_num} of {all_obj_num})')
 
     for inst in p.instances.values():
         id_map[inst.instance_ref.guid]["instances"] = inst.to_list_of_custom_json_matrices()
@@ -168,7 +142,63 @@ def part_to_json_values(p: "Part", threads, obj_num, all_obj_num) -> dict:
     }
 
 
+def serialize_evaluator(obj):
+    def serialize_printer(obj_):
+        try:
+            for key, val in obj_.__dict__.items():
+                if type(val) in [type(None), type(float), type(str), type(list)]:
+                    continue
+                if "parent" in key.lower() or "__" in key:
+                    continue
+                print(key, type(val))
+                if "swig" in str(type(val)).lower():
+                    print(key, val)
+                    raise ValueError()
+                serialize_printer(val)
+        except AttributeError:
+            return
+
+    serialize_printer(obj)
+
+
 def id_map_using_threading(list_in, threads: int):
-    res = thread_this(list_in, convert_obj_to_poly, threads)
+    # obj = list_in[0]
+    # obj_str = json.dumps(obj)
+    # serialize_evaluator(obj)
+    res = thread_this(list_in, obj_to_json, threads)
     print(res)
     return res
+
+
+def obj_to_json(obj: Union[Beam, Plate, Wall, Pipe, Shape]) -> Union[dict, None]:
+    quality = 1.0
+    render_edges = False
+    parallel = True
+    try:
+        geom = obj.solid
+    except UnableToCreateSolidOCCGeom as e:
+        logging.error(e)
+        return None
+    except UnableToBuildNSidedWires as e:
+        logging.error(e)
+        return None
+    try:
+        obj_position, poly_indices, normals, _ = occ_shape_to_faces(geom, quality, render_edges, parallel)
+    except UnableToCreateTesselationFromSolidOCCGeom as e:
+        logging.error(e)
+        return None
+
+    obj_buffer_arrays = np.concatenate([obj_position, normals], 1)
+    buffer, indices = np.unique(obj_buffer_arrays, axis=0, return_index=False, return_inverse=True)
+    x, y, z, nx, ny, nz = buffer.T
+    position = np.array([x, y, z]).T
+    normals = np.array([nx, ny, nz]).T
+
+    return dict(
+        index=indices.astype(int).tolist(),
+        position=position.flatten().astype(float).tolist(),
+        normal=normals.flatten().astype(float).tolist(),
+        color=[*obj.colour_norm, obj.opacity],
+        vertexColor=None,
+        instances=None,
+    )

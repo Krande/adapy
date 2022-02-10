@@ -588,3 +588,9 @@ class Beam(BackendGeom):
         secn = self.section.sec_str
         matn = self.material.name
         return f'Beam("{self.name}", {p1s}, {p2s}, "{secn}", "{matn}")'
+
+    def __setstate__(self, state):
+        self.__dict__ = state
+
+    def __getstate__(self):
+        return self.__dict__
