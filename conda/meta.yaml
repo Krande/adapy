@@ -11,16 +11,17 @@ source:
 build:
   noarch: python
   number: 0
+  script: "{{ PYTHON }} -m pip install . -vv"
 
 requirements:
   build:
     - python
   run:
     - python
-    - ifcopenshell ==0.7.0
-    - pythonocc-core ==7.5.3
+    - ifcopenshell >=0.7.0
+    - pythonocc-core >=7.5.3
+    - occt >=7.5.3
     - python-gmsh >=4.9.3
-    - occt ==7.5.3
     - meshio[all]
     - pyquaternion
     - pytexit
@@ -30,7 +31,15 @@ requirements:
     - plotly
     - python-kaleido
 
-
+# Dependencies that are currently left out
+#    - numpy
+#    - vtk
+#    - toolz
+#    - lmfit
+#    - ccx2paraview
+#    - ipygany
+#    - pydantic
+#    - pyvista
 test:
   source_files:
     - tests
@@ -39,6 +48,8 @@ test:
     - pytest
   imports:
     - ada
+  commands:
+    - pytest tests
 
 about:
   home: https://github.com/krande/adapy

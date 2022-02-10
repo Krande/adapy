@@ -1,10 +1,11 @@
 FROM continuumio/miniconda3
 
 # Create the environment:
-COPY . .
-RUN conda env create -f conda/environment.yml
-
+RUN conda create -n condabuild -y -c conda-forge conda-build conda-verify anaconda-client git
+RUN apt-get -y update && apt -y install patch
 # Make RUN commands use the new environment:
-SHELL ["conda", "run", "-n", "myenv", "/bin/bash", "-c"]
+SHELL ["conda", "run", "-n", "condabuild", "/bin/bash", "-c"]
 
-RUN conda-build -c krande -c conda-forge . --keep-old-work --python 3.9.10
+COPY . .
+
+#RUN conda-build -c krande/label/dev -c conda-forge . --keep-old-work --python 3.9.10
