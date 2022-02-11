@@ -226,3 +226,20 @@ def obj_to_json(obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Sha
         vertexColor=None,
         instances=None,
     )
+
+
+def bump_version(name, url, version_file, refresh_ver_file=False):
+    with open(version_file, "r") as f:
+        data = json.load(f)
+        if refresh_ver_file:
+            data = dict()
+
+        if name not in data.keys():
+            data[name] = dict(url=url, version=0)
+        else:
+            obj = data[name]
+            obj["url"] = url
+            obj["version"] += 1
+
+    with open(version_file, "w") as f:
+        json.dump(data, f, indent=4)

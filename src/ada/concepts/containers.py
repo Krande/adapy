@@ -321,9 +321,21 @@ class Connections(BaseCollections):
         connections = [] if connections is None else connections
         super().__init__(parent)
         self._connections = connections
+        self._initialize_connection_data()
+
+    def _initialize_connection_data(self):
         self._dmap = {j.name: j for j in self._connections}
         self._joint_centre_nodes = Nodes([c.centre for c in self._connections])
         self._nmap = {self._joint_centre_nodes.index(c.centre): c for c in self._connections}
+
+    @property
+    def connections(self) -> List[JointBase]:
+        return self._connections
+
+    @connections.setter
+    def connections(self, value: List[JointBase]):
+        self._connections = value
+        self._initialize_connection_data()
 
     @property
     def joint_centre_nodes(self):
@@ -360,6 +372,12 @@ class Connections(BaseCollections):
         rpr.maxlist = 8
         rpr.maxlevel = 1
         return f"Connections({rpr.repr(self._connections) if self._connections else ''})"
+
+    def get_from_name(self, name: str):
+        result = self._dmap.get(name, None)
+        if result is None:
+            logging.error(f'No Joint with the name "{name}" found within this connection object')
+        return result
 
     def add(self, joint: JointBase, point_tol=Settings.point_tol):
         if joint.name is None:
@@ -728,7 +746,10 @@ class Nodes:
 
     def _sort(self):
         self._nodes = sorted(self._nodes, key=attrgetter("x", "y", "z"))
-        self._idmap = {n.id: n for n in sorted(self._nodes, key=attrgetter("id"))}
+        try:
+            self._idmap = {n.id: n for n in sorted(self._nodes, key=attrgetter("id"))}
+        except TypeError as e:
+            raise TypeError(e)
 
     def renumber(self, start_id: int = 1, renumber_map: dict = None):
         """Ensures that the node numberings starts at 1 and has no holes in its numbering."""

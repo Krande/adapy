@@ -91,6 +91,9 @@ class JointBase(BackendGeom, ABC):
         else:
             return members[0]
 
+    def get_all_physical_objects(self):
+        return self.beams
+
     @property
     def main_mem(self) -> Beam:
         return self._main_mem

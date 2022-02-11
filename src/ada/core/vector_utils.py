@@ -4,10 +4,12 @@ import numpy as np
 
 from ada.config import Settings
 
+from .exceptions import VectorNormalizeError
+
 
 def linear_2dtransform_rotate(origin, point, degrees) -> np.ndarray:
     """
-    Rotate
+    Rotate a 2d point given an origin and a degree.
 
     :param origin: (x, y) coordinate of point of rotation
     :param point: (x, y) coordinate of point to rotate
@@ -551,7 +553,7 @@ def unit_vector(vector: np.ndarray):
     """Returns the unit vector of a given vector"""
     norm = vector / np.linalg.norm(vector)
     if np.isnan(norm).any():
-        raise ValueError(f'Error trying to normalize vector "{vector}"')
+        raise VectorNormalizeError(f'Error trying to normalize vector "{vector}"')
 
     return norm
 

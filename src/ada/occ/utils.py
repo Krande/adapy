@@ -760,12 +760,13 @@ def create_beam_geom(beam: Beam, solid=True):
     ydir_neg = tuple_minus(ydir) if beam.section.type not in SectionCat.angular else tuple(ydir)
 
     section_profile = beam.section.get_section_profile(solid)
+    taper_profile = beam.taper.get_section_profile(solid)
 
     placement_1 = Placement(origin=beam.n1.p, xdir=ydir_neg, zdir=xdir)
     placement_2 = Placement(origin=beam.n2.p, xdir=ydir_neg, zdir=xdir)
 
     sec = cross_sec_face(section_profile, placement_1, solid)
-    tap = cross_sec_face(section_profile, placement_2, solid)
+    tap = cross_sec_face(taper_profile, placement_2, solid)
 
     if type(sec) != list and (sec.IsNull() or tap.IsNull()):
         raise UnableToCreateSolidOCCGeom(f"Unable to create solid OCC geometry from Beam '{beam.name}'")
