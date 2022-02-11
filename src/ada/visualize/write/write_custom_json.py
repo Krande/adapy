@@ -229,6 +229,9 @@ def obj_to_json(obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Sha
 
 
 def bump_version(name, url, version_file, refresh_ver_file=False):
+    version_file = pathlib.Path(version_file)
+    os.makedirs(version_file.parent, exist_ok=True)
+
     with open(version_file, "r") as f:
         data = json.load(f)
         if refresh_ver_file:
