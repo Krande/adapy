@@ -48,8 +48,6 @@ test:
     - pytest
   imports:
     - ada
-  commands:
-    - pytest tests
 
 about:
   home: https://github.com/krande/adapy
