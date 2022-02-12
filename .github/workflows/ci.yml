@@ -91,7 +91,7 @@ jobs:
         run: |
           conda activate ${{ env.CONDAENV }}
           cd conda
-          conda-build -c ${{env.CONDALABEL}} -c conda-forge . --python=${{ matrix.pyver.distver }} --keep-old-work --user krande --skip-existing --label dev -t=${{ secrets.ANACONDA_TOKEN }}
+          conda-build -c ${{env.CONDALABEL}} -c conda-forge . --python=${{ matrix.pyver.distver }} --user krande --skip-existing --label dev -t=${{ secrets.ANACONDA_TOKEN }}
       - name: install
         run: |
           conda activate ${{ env.CONDAENV }}
@@ -119,7 +119,7 @@ jobs:
         if: github.event_name == 'push' && github.ref != 'refs/heads/main'
         run: |
           conda activate ${{ env.CONDAENV }}
-          anaconda -t=${{ secrets.ANACONDA_TOKEN }} upload ${{ env.CONDAROOT }}/conda-bld/${{ matrix.platform.short }}/ada-py-${{ env.PKG_VERSION }}-py_0.tar.bz2 --user krande --skip-existing --label dev
+          anaconda -t=${{ secrets.ANACONDA_TOKEN }} upload ${{ env.CONDAROOT }}/conda-bld/noarch/ada-py-${{ env.PKG_VERSION }}-py_0.tar.bz2 --user krande --skip-existing --label dev
   pypi:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test

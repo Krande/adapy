@@ -46,6 +46,7 @@ test:
     - files
   requires:
     - pytest
+    - pytest-cov
   imports:
     - ada
 
