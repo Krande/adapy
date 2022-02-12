@@ -54,6 +54,7 @@ jobs:
       PKG_VERSION: nothing
       CONDAROOT: nothing
       CONDALABEL: krande
+      CONDALABEL2: ''
     strategy:
       fail-fast: false
       matrix:
@@ -87,39 +88,12 @@ jobs:
         if: github.event_name == 'push' && github.ref != 'refs/heads/main'
         run: |
           echo "CONDALABEL=krande/label/dev" >> $GITHUB_ENV
+          echo "CONDALABEL2= --label dev" >> $GITHUB_ENV
       - name: build
         run: |
           conda activate ${{ env.CONDAENV }}
           cd conda
-          conda-build -c ${{env.CONDALABEL}} -c conda-forge . --python=${{ matrix.pyver.distver }} --user krande --skip-existing --label dev -t=${{ secrets.ANACONDA_TOKEN }}
-      - name: install
-        run: |
-          conda activate ${{ env.CONDAENV }}
-          conda create -n testenv -c local -c ${{env.CONDALABEL}} -c conda-forge ada-py --strict-channel-priority
-      - name: install pytest
-        run: |
-          conda activate testenv
-          pip install pytest pytest-cov
-      - name: get package version into env variable
-        run: |
-          echo "CONDAROOT=$CONDA_PREFIX" >> $GITHUB_ENV
-          conda activate testenv
-          python conda/getversion.py
-          cat version.txt >> $GITHUB_ENV
-      - name: test
-        run: |
-          conda activate testenv
-          pytest tests
-      - name: upload to conda -c krande
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          conda activate ${{ env.CONDAENV }}
-          anaconda -t=${{ secrets.ANACONDA_TOKEN }} upload ${{ env.CONDAROOT }}/conda-bld/${{ matrix.platform.short }}/ada-py-${{ env.PKG_VERSION }}-py_0.tar.bz2 --user krande --skip-existing
-      - name: upload to conda -c krande/dev
-        if: github.event_name == 'push' && github.ref != 'refs/heads/main'
-        run: |
-          conda activate ${{ env.CONDAENV }}
-          anaconda -t=${{ secrets.ANACONDA_TOKEN }} upload ${{ env.CONDAROOT }}/conda-bld/noarch/ada-py-${{ env.PKG_VERSION }}-py_0.tar.bz2 --user krande --skip-existing --label dev
+          conda-build -c ${{env.CONDALABEL}} -c conda-forge . --python=${{ matrix.pyver.distver }} --user krande --skip-existing${{env.CONDALABEL2}} --token=${{ secrets.ANACONDA_TOKEN }}
   pypi:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
