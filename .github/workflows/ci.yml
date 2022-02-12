@@ -93,7 +93,7 @@ jobs:
         run: |
           conda activate ${{ env.CONDAENV }}
           cd conda
-          conda-build -c ${{env.CONDALABEL}} -c conda-forge . --python=${{ matrix.pyver.distver }} --user krande --skip-existing${{env.CONDALABEL2}} --token=${{ secrets.ANACONDA_TOKEN }}
+          conda-build -c ${{env.CONDALABEL}} -c conda-forge . --python=${{ matrix.pyver.distver }} --user krande${{env.CONDALABEL2}} --token=${{ secrets.ANACONDA_TOKEN }}
   pypi:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
