@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import pathlib
 from dataclasses import dataclass
 from typing import Iterable, List, Union
 
@@ -95,6 +96,7 @@ class GmshSession:
         mesh_size=None,
         build_native_lines=False,
         point_tol=Settings.point_tol,
+        use_native_pointer=False,
     ):
         from ada.core.utils import Counter
 
@@ -106,23 +108,13 @@ class GmshSession:
         temp_dir = Settings.temp_dir
         os.makedirs(temp_dir, exist_ok=True)
 
-        def export_as_step(export_obj):
-            name = f"{obj.name}_{create_guid()}"
-            # TODO: Evaluate the use of ImportShapesNativePointer to move geom to gmsh.
-            # shape_pnt = int(export_obj.solid.this)
-            # ents = gmsh.model.occ.importShapesNativePointer(shape_pnt)
-            export_obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent, fuse_piping=True)
-            ents = self.model.occ.importShapes(str(temp_dir / f"{name}.stp"))
-            return ents
-
-        # if issubclass(type(obj), Shape) and geom_repr != ElemType.SOLID:
-        #     logging.info(f"geom_repr for object type {type(obj)} must be solid. Changing to that now")
-        #     geom_repr = ElemType.SOLID
-
         if build_native_lines is True and geom_repr == ElemType.LINE and type(obj) is Beam:
             entities = build_bm_lines(self.model, obj, point_tol)
         else:
-            entities = export_as_step(obj)
+            if use_native_pointer:
+                entities = import_into_gmsh_use_nativepointer(obj, geom_repr, self.model)
+            else:
+                entities = import_into_gmsh_using_step(obj, geom_repr, self.model, temp_dir, silent)
 
         obj_name = Counter(1, f"{obj.name}_")
         for dim, ent in entities:
@@ -323,3 +315,38 @@ class GmshSession:
     @property
     def model(self) -> "gmsh.model":
         return self.gmsh.model
+
+
+def import_into_gmsh_using_step(
+    obj, geom_repr: str, model: gmsh.model, temp_dir: pathlib.Path, silent: bool
+) -> List[tuple]:
+    name = f"{obj.name}_{create_guid()}"
+    obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent, fuse_piping=True)
+    ents = model.occ.importShapes(str(temp_dir / f"{name}.stp"))
+    return ents
+
+
+def import_into_gmsh_use_nativepointer(obj, geom_repr: str, model: gmsh.model) -> List[tuple]:
+    from OCC.Extend.TopologyUtils import TopologyExplorer
+
+    ents = []
+    if geom_repr == ElemType.SOLID:
+        geom = obj.solid
+        t = TopologyExplorer(geom)
+        geom_iter = t.solids()
+    elif geom_repr == ElemType.SHELL:
+        geom = obj.shell
+        t = TopologyExplorer(geom)
+        geom_iter = t.faces()
+    else:
+        geom = obj.line
+        t = TopologyExplorer(geom)
+        geom_iter = t.edges()
+
+    for shp in geom_iter:
+        ents += model.occ.importShapesNativePointer(int(shp.this))
+
+    if len(ents) == 0:
+        raise ValueError("No entities found")
+
+    return ents
