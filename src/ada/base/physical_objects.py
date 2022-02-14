@@ -69,6 +69,7 @@ class BackendGeom(Backend):
         use_quads=False,
         use_hex=False,
         name="AdaFEM",
+        interactive=False,
     ) -> FEM:
         from ada.fem.meshing import GmshOptions, GmshSession
 
@@ -76,6 +77,8 @@ class BackendGeom(Backend):
         with GmshSession(silent=silent, options=options) as gs:
             gs.add_obj(self, geom_repr=geom_repr.upper())
             gs.mesh(mesh_size, use_quads=use_quads, use_hex=use_hex)
+            if interactive:
+                gs.open_gui()
             return gs.get_fem(name)
 
     def to_fem(

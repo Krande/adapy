@@ -96,7 +96,7 @@ class GmshSession:
         mesh_size=None,
         build_native_lines=False,
         point_tol=Settings.point_tol,
-        use_native_pointer=False,
+        use_native_pointer=True,
     ):
         from ada.core.utils import Counter
 
@@ -111,7 +111,8 @@ class GmshSession:
         if build_native_lines is True and geom_repr == ElemType.LINE and type(obj) is Beam:
             entities = build_bm_lines(self.model, obj, point_tol)
         else:
-            if use_native_pointer:
+            if use_native_pointer and hasattr(self.model.occ, "importShapesNativePointer"):
+                # Use hasattr to ensure that it works for gmsh < 4.9.*
                 entities = import_into_gmsh_use_nativepointer(obj, geom_repr, self.model)
             else:
                 entities = import_into_gmsh_using_step(obj, geom_repr, self.model, temp_dir, silent)
