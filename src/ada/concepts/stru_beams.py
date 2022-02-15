@@ -134,7 +134,10 @@ class Beam(BackendGeom):
         self._taper.parent = self
 
         # Define orientations
+        self._init_orientation(angle, up)
+        self.add_beam_to_node_refs()
 
+    def _init_orientation(self, angle=None, up=None) -> None:
         xvec = unit_vector(self.n2.p - self.n1.p)
         tol = 1e-3
         zvec = calc_zvec(xvec)
@@ -166,8 +169,6 @@ class Beam(BackendGeom):
         self._yvec = np.array([roundoff(x) for x in yvec])
         self._up = up
         self._angle = angle
-
-        self.add_beam_to_node_refs()
 
     def is_point_on_beam(self, point: Union[np.ndarray, Node]) -> bool:
         if isinstance(point, Node):
@@ -538,6 +539,10 @@ class Beam(BackendGeom):
     @property
     def angle(self) -> float:
         return self._angle
+
+    @angle.setter
+    def angle(self, value: float):
+        self._init_orientation(value)
 
     def add_beam_to_node_refs(self) -> None:
         for beam_node in self.nodes:
