@@ -112,6 +112,11 @@ class BackendGeom(Backend):
         step_export.add_to_step_writer(self, geom_repr, fuse_piping=fuse_piping)
         step_export.write_to_file(destination_file, silent)
 
+    def to_custom_json(self, output_file_path, threads=1, data_type=None):
+        from ada.visualize.write.write_custom_json import to_custom_json
+
+        to_custom_json(self, output_file_path, threads=threads, data_type=data_type)
+
     def render_locally(
         self, addr="localhost", server_port=8080, open_webbrowser=False, render_engine="threejs", resolution=(1800, 900)
     ):

@@ -29,21 +29,55 @@ if TYPE_CHECKING:
         Shape,
         Wall,
     )
+    from ada.base.physical_objects import BackendGeom
+    from ada.concepts.connections import JointBase
     from ada.fem.results import Results
 
+_physical_objects = Union[Assembly, Part, Results, JointBase, BackendGeom]
 
-def to_custom_json(ada_obj: Union["Assembly", "Part", "Results"], output_file_path, threads: int = 1, data_type=None):
+
+def to_custom_json(ada_obj: _physical_objects, output_file_path, threads: int = 1, data_type=None):
     from ada import Part
+    from ada.concepts.connections import JointBase
     from ada.fem.results import Results
 
     if issubclass(type(ada_obj), Part):
         export_assembly_to_json(ada_obj, output_file_path, threads)
+    elif issubclass(type(ada_obj), JointBase):
+        export_joint_to_json(ada_obj, output_file_path, threads)
     elif isinstance(ada_obj, Results):
         if data_type is None:
             raise ValueError('Please pass in a "data_type" value in order to export results mesh')
         export_results_to_json(ada_obj, output_file_path, data_type)
     else:
         NotImplementedError(f'Currently not supporting export of type "{type(ada_obj)}"')
+
+
+def export_joint_to_json(joint: "JointBase", output_file_path, threads: int = 1):
+    all_obj = [obj for obj in joint.beams]
+    all_obj_num = len(all_obj)
+
+    print(f"Exporting {all_obj_num} physical objects to custom json format.")
+    obj_num = 1
+
+    id_map = dict()
+    for obj in all_obj:
+        res = obj_to_json(obj)
+        if res is None:
+            continue
+        id_map[obj.guid] = res
+        print(f'Exporting "{obj.name}" ({obj_num} of {all_obj_num})')
+
+    output = {
+        "name": joint.name,
+        "created": "dato",
+        "project": joint.metadata.get("project", "DummyProject"),
+        "world": [id_map],
+    }
+    output_file_path = pathlib.Path(output_file_path)
+    os.makedirs(output_file_path.parent, exist_ok=True)
+    with open(output_file_path, "w") as f:
+        json.dump(output, f, indent=4)
 
 
 def export_assembly_to_json(part: "Part", output_file_path, threads: int = 1):
