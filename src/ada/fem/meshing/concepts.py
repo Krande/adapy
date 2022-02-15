@@ -113,7 +113,12 @@ class GmshSession:
         else:
             if use_native_pointer and hasattr(self.model.occ, "importShapesNativePointer"):
                 # Use hasattr to ensure that it works for gmsh < 4.9.*
-                entities = import_into_gmsh_use_nativepointer(obj, geom_repr, self.model)
+                if type(obj) is Pipe:
+                    entities = []
+                    for seg in obj.segments:
+                        entities += import_into_gmsh_use_nativepointer(seg, geom_repr, self.model)
+                else:
+                    entities = import_into_gmsh_use_nativepointer(obj, geom_repr, self.model)
             else:
                 entities = import_into_gmsh_using_step(obj, geom_repr, self.model, temp_dir, silent)
 
@@ -330,13 +335,15 @@ def import_into_gmsh_using_step(
 def import_into_gmsh_use_nativepointer(obj, geom_repr: str, model: gmsh.model) -> List[tuple]:
     from OCC.Extend.TopologyUtils import TopologyExplorer
 
+    from ada import PrimBox
+
     ents = []
     if geom_repr == ElemType.SOLID:
         geom = obj.solid
         t = TopologyExplorer(geom)
         geom_iter = t.solids()
     elif geom_repr == ElemType.SHELL:
-        geom = obj.shell
+        geom = obj.shell if type(obj) not in (PrimBox,) else obj.geom
         t = TopologyExplorer(geom)
         geom_iter = t.faces()
     else:
