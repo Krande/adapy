@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import pathlib
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Union
 
 import numpy as np
@@ -33,18 +34,31 @@ if TYPE_CHECKING:
     from ada.concepts.connections import JointBase
     from ada.fem.results import Results
 
-_physical_objects = Union[Assembly, Part, Results, JointBase, BackendGeom]
+
+@dataclass
+class ExportConfig:
+    quality: float = 1.0
+    threads: int = 1
+    parallel: bool = True
 
 
-def to_custom_json(ada_obj: _physical_objects, output_file_path, threads: int = 1, data_type=None):
+def to_custom_json(
+    ada_obj: Union[Assembly, Part, Results, JointBase, BackendGeom],
+    output_file_path,
+    threads: int = 1,
+    data_type=None,
+    quality=1.0,
+    parallel=True,
+):
     from ada import Part
     from ada.concepts.connections import JointBase
     from ada.fem.results import Results
 
+    export_config = ExportConfig(quality, threads, parallel)
     if issubclass(type(ada_obj), Part):
-        export_assembly_to_json(ada_obj, output_file_path, threads)
+        export_assembly_to_json(ada_obj, output_file_path, export_config)
     elif issubclass(type(ada_obj), JointBase):
-        export_joint_to_json(ada_obj, output_file_path, threads)
+        export_joint_to_json(ada_obj, output_file_path, export_config)
     elif isinstance(ada_obj, Results):
         if data_type is None:
             raise ValueError('Please pass in a "data_type" value in order to export results mesh')
@@ -53,7 +67,7 @@ def to_custom_json(ada_obj: _physical_objects, output_file_path, threads: int = 
         NotImplementedError(f'Currently not supporting export of type "{type(ada_obj)}"')
 
 
-def export_joint_to_json(joint: "JointBase", output_file_path, threads: int = 1):
+def export_joint_to_json(joint: "JointBase", output_file_path, export_config: ExportConfig):
     all_obj = [obj for obj in joint.beams]
     all_obj_num = len(all_obj)
 
@@ -62,7 +76,7 @@ def export_joint_to_json(joint: "JointBase", output_file_path, threads: int = 1)
 
     id_map = dict()
     for obj in all_obj:
-        res = obj_to_json(obj)
+        res = obj_to_json(obj, export_config)
         if res is None:
             continue
         id_map[obj.guid] = res
@@ -80,7 +94,7 @@ def export_joint_to_json(joint: "JointBase", output_file_path, threads: int = 1)
         json.dump(output, f, indent=4)
 
 
-def export_assembly_to_json(part: "Part", output_file_path, threads: int = 1):
+def export_assembly_to_json(part: "Part", output_file_path, export_config: ExportConfig):
     all_obj = [obj for p in part.parts.values() for obj in p.get_all_physical_objects()]
 
     all_obj += list(part.get_all_physical_objects())
@@ -90,9 +104,9 @@ def export_assembly_to_json(part: "Part", output_file_path, threads: int = 1):
     print(f"Exporting {all_obj_num} physical objects to custom json format.")
     obj_num = 1
 
-    part_array = [part_to_json_values(part, threads, obj_num, all_obj_num)]
+    part_array = [part_to_json_values(part, export_config, obj_num, all_obj_num)]
     for p in part.parts.values():
-        pjson = part_to_json_values(p, threads, obj_num, all_obj_num)
+        pjson = part_to_json_values(p, export_config, obj_num, all_obj_num)
         part_array.append(pjson)
 
     output = {
@@ -164,24 +178,24 @@ def convert_obj_to_poly(obj, quality=1.0, render_edges=False, parallel=False):
     )
 
 
-def part_to_json_values(p: "Part", threads, obj_num, all_obj_num) -> dict:
+def part_to_json_values(p: "Part", export_config: ExportConfig, obj_num, all_obj_num) -> dict:
     from ada import Pipe
 
-    if threads != 1:
-        id_map = id_map_using_threading(list(p.get_all_physical_objects()), threads)
+    if export_config.threads != 1:
+        id_map = id_map_using_threading(list(p.get_all_physical_objects()), export_config.threads)
     else:
         id_map = dict()
         for obj in p.get_all_physical_objects():
             obj_num += 1
             if isinstance(obj, Pipe):
                 for seg in obj.segments:
-                    res = obj_to_json(seg)
+                    res = obj_to_json(seg, export_config)
                     if res is None:
                         continue
                     id_map[seg.guid] = res
                     print(f'Exporting "{obj.name}" ({obj_num} of {all_obj_num})')
             else:
-                res = obj_to_json(obj)
+                res = obj_to_json(obj, export_config)
                 if res is None:
                     continue
                 id_map[obj.guid] = res
@@ -228,10 +242,10 @@ def id_map_using_threading(list_in, threads: int):
     return res
 
 
-def obj_to_json(obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape]) -> Union[dict, None]:
-    quality = 1.0
+def obj_to_json(
+    obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape], export_config: ExportConfig = ExportConfig()
+) -> Union[dict, None]:
     render_edges = False
-    parallel = True
     try:
         geom = obj.solid
     except UnableToCreateSolidOCCGeom as e:
@@ -241,7 +255,9 @@ def obj_to_json(obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Sha
         logging.error(e)
         return None
     try:
-        obj_position, poly_indices, normals, _ = occ_shape_to_faces(geom, quality, render_edges, parallel)
+        obj_position, poly_indices, normals, _ = occ_shape_to_faces(
+            geom, export_config.quality, render_edges, export_config.parallel
+        )
     except UnableToCreateTesselationFromSolidOCCGeom as e:
         logging.error(e)
         return None
