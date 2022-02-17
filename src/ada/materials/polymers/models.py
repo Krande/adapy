@@ -1,4 +1,5 @@
 import inspect
+import logging
 
 import ipywidgets as widgets
 import numpy as np
@@ -45,14 +46,22 @@ class Calibrate:
 
     def run(self, model, initial_guess, method="leastsq"):
         """
-        Run calibration for a specific model
+        Run calibration for a specific model.
+
+        requires the "lmfit" package.
+
+        conda install -c conda-forge lmfit
 
         :param model: Define which polymer model to calibrate for
         :param initial_guess:
         :param method:
         :return:
         """
-        import lmfit
+        try:
+            import lmfit
+        except ModuleNotFoundError as e:
+            logging.error(e)
+            raise ModuleNotFoundError("Please install the 'lmfit' package using conda install -c conda-forge lmfit")
 
         model_name = model.__name__
         params = [x for x in inspect.getfullargspec(model)[0] if x not in ["strain", "load_type"]]

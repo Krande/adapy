@@ -96,7 +96,7 @@ class Part(BackendGeom):
         self._instances: Dict[Any, Instance] = dict()
         self._shapes = []
         self._parts = dict()
-        self._groups = dict()
+        self._groups: Dict[str, Group] = dict()
 
         if ifc_elem is not None:
             self.metadata["ifctype"] = self._import_part_from_ifc(ifc_elem)
@@ -146,6 +146,9 @@ class Part(BackendGeom):
         mat = self.add_material(plate.material)
         if mat is not None:
             plate.material = mat
+
+        for n in plate.nodes:
+            self.nodes.add(n)
 
         self._plates.add(plate)
         return plate
@@ -225,6 +228,16 @@ class Part(BackendGeom):
             section.units = self.units
         return self._sections.add(section)
 
+    def add_object(self, obj: Union[Part, Beam, Plate, Wall, Pipe, Shape]):
+        from ada import Beam
+
+        if isinstance(obj, Part):
+            self.add_part(obj)
+        elif isinstance(obj, Beam):
+            self.add_beam(obj)
+        else:
+            raise NotImplementedError()
+
     def add_penetration(
         self, pen: Union[Penetration, PrimExtrude, PrimRevolve, PrimCyl, PrimBox], add_pen_to_subparts=True
     ) -> Penetration:
@@ -241,7 +254,8 @@ class Part(BackendGeom):
             shp.add_penetration(pen)
 
         for pipe in self.pipes:
-            pipe.add_penetration(pen)
+            for seg in pipe.segments:
+                seg.add_penetration(pen)
 
         for wall in self.walls:
             wall.add_penetration(pen)
@@ -1047,7 +1061,9 @@ class Assembly(Part):
                 for obj in p.get_all_physical_objects(True):
                     obj.ifc_options.export_props = override_skip_props
 
+        print(f'Beginning writing to IFC file "{destination_file}" using IfcOpenShell')
         write_to_ifc(destination_file, self, include_fem)
+        print("IFC file creation complete")
 
     def push(
         self,
@@ -1215,3 +1231,9 @@ class Group:
             RelatedObjects=relating_objects,
             RelatingGroup=self.ifc_elem,
         )
+
+    def to_part(self, name: str):
+        p = Part(name)
+        for mem in self.members:
+            p.add_object(mem)
+        return p

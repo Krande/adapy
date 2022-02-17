@@ -15,10 +15,3 @@ def test_one(nodes):
 def test_ten(nodes):
     n = Nodes(nodes)
     assert len(n) == 10
-
-
-def test_with_duplicates(nodes):
-    n1, n2, n3, n4, n5, n6, n7, n8, n9, n10 = nodes
-    n = Nodes([n1, n1, n1])
-
-    assert len(n) == 1

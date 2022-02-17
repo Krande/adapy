@@ -1,5 +1,12 @@
 compile:
-	conda activate condabuild && conda-build -c conda-forge -c krande . --keep-old-work --python 3.9.10
+	conda activate condabuild2 && conda-build -c krande/label/dev -c conda-forge . --keep-old-work --python 3.9.10
+
+compile-docker-build:
+	docker build -t ada/condabuild -f Dockerfile ../ && \
+	docker run --name ada-condabuild --rm ada/condabuild
+
+compile-docker:
+	docker exec -it ada-condabuild "conda-build -c krande/label/dev -c conda-forge . --keep-old-work --python 3.9.10"
 
 index:
 	conda index ${CONDA_PREFIX}/conda-bld --channel-name local
@@ -18,4 +25,4 @@ show:
 	conda config --show channels
 
 pre:
-	conda create -n condabuild -c conda-forge conda-build conda-verify anaconda-client
+	conda create -y -n condabuild2 -c conda-forge conda-build conda-verify anaconda-client

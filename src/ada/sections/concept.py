@@ -176,6 +176,11 @@ class Section(Backend):
         """Radius (Outer)"""
         return self._r
 
+    @r.setter
+    def r(self, value: float):
+        self._r = value
+        self._genprops = None
+
     @property
     def wt(self) -> float:
         """Wall thickness"""

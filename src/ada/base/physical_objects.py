@@ -69,6 +69,7 @@ class BackendGeom(Backend):
         use_quads=False,
         use_hex=False,
         name="AdaFEM",
+        interactive=False,
     ) -> FEM:
         from ada.fem.meshing import GmshOptions, GmshSession
 
@@ -76,6 +77,8 @@ class BackendGeom(Backend):
         with GmshSession(silent=silent, options=options) as gs:
             gs.add_obj(self, geom_repr=geom_repr.upper())
             gs.mesh(mesh_size, use_quads=use_quads, use_hex=use_hex)
+            if interactive:
+                gs.open_gui()
             return gs.get_fem(name)
 
     def to_fem(
@@ -108,6 +111,11 @@ class BackendGeom(Backend):
         step_export = StepExporter(schema)
         step_export.add_to_step_writer(self, geom_repr, fuse_piping=fuse_piping)
         step_export.write_to_file(destination_file, silent)
+
+    def to_custom_json(self, output_file_path, threads=1, data_type=None, **kwargs):
+        from ada.visualize.write.write_custom_json import to_custom_json
+
+        to_custom_json(self, output_file_path, threads=threads, data_type=data_type, **kwargs)
 
     def render_locally(
         self, addr="localhost", server_port=8080, open_webbrowser=False, render_engine="threejs", resolution=(1800, 900)

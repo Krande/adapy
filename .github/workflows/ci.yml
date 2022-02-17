@@ -1,5 +1,5 @@
 name: ci-ada-main
-
+# bump 1
 on:
   push:
     paths:
@@ -11,6 +11,7 @@ on:
     branches:
       - main
       - dev
+      - reduce_dependencies
   pull_request:
     paths-ignore:
       - setup.py
@@ -52,10 +53,12 @@ jobs:
       CONDAENV: base
       PKG_VERSION: nothing
       CONDAROOT: nothing
+      CONDALABEL: krande
+      CONDALABEL2: ''
     strategy:
       fail-fast: false
       matrix:
-        pyver: [ { name: py39, distver: '3.9' }, { name: py310, distver: '3.10'}]
+        pyver: [ { name: py39, distver: '3.9.10' }, { name: py310, distver: '3.10.2'}]
         platform: [
           { name: Windows, distver: windows-latest, short: 'win-64' },
           { name: Linux, distver: ubuntu-latest, short: 'linux-64' },
@@ -67,7 +70,7 @@ jobs:
         uses: actions/cache@v2
         env:
           # Increase this value to reset cache if etc/example-environment.yml has not changed
-          CACHE_NUMBER: 0
+          CACHE_NUMBER: 1
         with:
           path: ~/conda_pkgs_dir
           key:
@@ -81,29 +84,16 @@ jobs:
           environment-file: conda/environment.yml
           auto-update-conda: true
           use-only-tar-bz2: true # IMPORTANT: This needs to be set for caching to work properly!
+      - name: edit conda channel label if not on main
+        if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+        run: |
+          echo "CONDALABEL=krande/label/dev" >> $GITHUB_ENV
+          echo "CONDALABEL2= --label dev" >> $GITHUB_ENV
       - name: build
         run: |
           conda activate ${{ env.CONDAENV }}
-          conda-build -c conda-forge -c krande conda --python=${{ matrix.pyver.distver }} --override-channels --keep-old-work --dirty
-      - name: install
-        run: |
-          conda activate ${{ env.CONDAENV }}
-          conda create -n testenv -c local -c krande -c conda-forge ada-py pytest pytest-cov --strict-channel-priority
-      - name: get package version into env variable
-        run: |
-          echo "CONDAROOT=$CONDA_PREFIX" >> $GITHUB_ENV
-          conda activate testenv
-          python conda/getversion.py
-          cat version.txt >> $GITHUB_ENV
-      - name: test
-        run: |
-          conda activate testenv
-          pytest tests
-      - name: upload to conda -c krande
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          conda activate ${{ env.CONDAENV }}
-          anaconda -t=${{ secrets.ANACONDA_TOKEN }} upload ${{ env.CONDAROOT }}/conda-bld/${{ matrix.platform.short }}/ada-py-${{ env.PKG_VERSION }}-${{ matrix.pyver.name }}_0.tar.bz2 --user krande --skip-existing
+          cd conda
+          conda-build -c ${{env.CONDALABEL}} -c conda-forge . --python=${{ matrix.pyver.distver }} --user krande${{env.CONDALABEL2}} --token=${{ secrets.ANACONDA_TOKEN }}
   pypi:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test

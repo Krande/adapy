@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from abc import ABC
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, Any, List
 
 from ada.base.physical_objects import BackendGeom
 from ada.concepts.containers import Beams, Connections
 
 if TYPE_CHECKING:
-    from ada import Beam
+    from ada import Beam, Node
 
 
 @dataclass
@@ -52,7 +52,7 @@ class JointBase(BackendGeom, ABC):
     mem_types: list
     num_mem: int
 
-    def __init__(self, name, members, centre, parent: Connections = None):
+    def __init__(self, name, members: List[Beam], centre: Any[float], parent: Connections = None):
         super(JointBase, self).__init__(name, parent)
         self._init_check(members)
         self._centre = centre
@@ -91,6 +91,9 @@ class JointBase(BackendGeom, ABC):
         else:
             return members[0]
 
+    def get_all_physical_objects(self):
+        return self.beams
+
     @property
     def main_mem(self) -> Beam:
         return self._main_mem
@@ -100,7 +103,7 @@ class JointBase(BackendGeom, ABC):
         return self._beams
 
     @property
-    def centre(self):
+    def centre(self) -> Node:
         return self._centre
 
     def __repr__(self):

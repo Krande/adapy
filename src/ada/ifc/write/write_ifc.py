@@ -50,7 +50,6 @@ def write_to_ifc(destination_file, a: Assembly, include_fem) -> None:
     os.makedirs(dest.parent, exist_ok=True)
     a.ifc_file.write(str(dest))
     a._source_ifc_files = dict()
-    print(f'ifc file created at "{dest}"')
 
 
 def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=False):

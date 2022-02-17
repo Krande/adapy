@@ -8,7 +8,6 @@ import re
 import shutil
 import subprocess
 import sys
-import time
 from contextlib import contextmanager
 from itertools import chain
 from typing import TYPE_CHECKING, Dict, List, Union
@@ -280,7 +279,6 @@ def _overwrite_dir(analysis_dir):
     except WindowsError as e:
         print(f"Failed to delete due to '{e}'")
 
-    time.sleep(0.5)
     os.makedirs(analysis_dir, exist_ok=True)
 
 

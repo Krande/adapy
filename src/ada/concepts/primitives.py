@@ -62,7 +62,7 @@ class Shape(BackendGeom):
         else:
             self._material = get_material(material)
 
-        self._bbox = BoundingBox(self)
+        self._bbox = None
 
     def generate_ifc_solid_geom(self, f):
         raise NotImplementedError()
@@ -94,6 +94,9 @@ class Shape(BackendGeom):
 
     @property
     def bbox(self) -> BoundingBox:
+        if self._bbox is None and self.geom is not None:
+            self._bbox = BoundingBox(self)
+
         return self._bbox
 
     @property
@@ -162,10 +165,20 @@ class Shape(BackendGeom):
 
 class PrimSphere(Shape):
     def __init__(self, name, cog, radius, **kwargs):
-        from ada.occ.utils import make_sphere
-
         self.radius = radius
-        super(PrimSphere, self).__init__(name=name, geom=make_sphere(cog, radius), cog=cog, **kwargs)
+        super(PrimSphere, self).__init__(name=name, geom=None, cog=cog, **kwargs)
+
+    @property
+    def geom(self):
+        from ada.occ.utils import apply_penetrations
+
+        if self._geom is None:
+            from ada.occ.utils import make_sphere
+
+            self._geom = make_sphere(self.cog, self.radius)
+
+        geom = apply_penetrations(self._geom, self.penetrations)
+        return geom
 
     @property
     def units(self):

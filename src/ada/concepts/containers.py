@@ -8,7 +8,6 @@ from operator import attrgetter
 from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 
 import numpy as np
-import toolz
 
 from ada.config import Settings
 from ada.core.utils import Counter, roundoff
@@ -22,6 +21,7 @@ from ada.core.vector_utils import (
 from ada.materials import Material
 from ada.sections import Section
 
+from .exceptions import DuplicateNodes
 from .points import Node
 from .stru_beams import Beam
 from .stru_plates import Plate
@@ -55,12 +55,10 @@ class BaseCollections:
 class Beams(BaseCollections):
     """A collections of Beam objects"""
 
-    def __init__(self, beams: Iterable[Beam] = None, unique_ids=True, parent=None):
+    def __init__(self, beams: Iterable[Beam] = None, parent=None):
 
         super().__init__(parent)
         beams = [] if beams is None else beams
-        if unique_ids:
-            beams = toolz.unique(beams, key=attrgetter("name"))
         self._beams = sorted(beams, key=attrgetter("name"))
         self._dmap = {n.name: n for n in self._beams}
         self._connected_beams_map = None
@@ -245,12 +243,9 @@ class Beams(BaseCollections):
 class Plates(BaseCollections):
     """Plate object collection"""
 
-    def __init__(self, plates: Iterable[Plate] = None, unique_ids=True, parent: Part = None):
+    def __init__(self, plates: Iterable[Plate] = None, parent: Part = None):
         plates = [] if plates is None else plates
         super().__init__(parent)
-
-        if unique_ids:
-            plates = toolz.unique(plates, key=attrgetter("name"))
         self._plates = sorted(plates, key=attrgetter("name"))
         self._idmap = {n.name: n for n in self._plates}
 
@@ -322,13 +317,25 @@ class Plates(BaseCollections):
 class Connections(BaseCollections):
     _counter = Counter(1, "C")
 
-    def __init__(self, connections=None, parent=None):
+    def __init__(self, connections: Iterable[JointBase] = None, parent=None):
         connections = [] if connections is None else connections
         super().__init__(parent)
         self._connections = connections
-        self._dmap = {j.id: j for j in self._connections}
+        self._initialize_connection_data()
+
+    def _initialize_connection_data(self):
+        self._dmap = {j.name: j for j in self._connections}
         self._joint_centre_nodes = Nodes([c.centre for c in self._connections])
         self._nmap = {self._joint_centre_nodes.index(c.centre): c for c in self._connections}
+
+    @property
+    def connections(self) -> List[JointBase]:
+        return self._connections
+
+    @connections.setter
+    def connections(self, value: List[JointBase]):
+        self._connections = value
+        self._initialize_connection_data()
 
     @property
     def joint_centre_nodes(self):
@@ -340,7 +347,7 @@ class Connections(BaseCollections):
     def __len__(self):
         return len(self._connections)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterable[JointBase]:
         return iter(self._connections)
 
     def __getitem__(self, index):
@@ -366,6 +373,12 @@ class Connections(BaseCollections):
         rpr.maxlevel = 1
         return f"Connections({rpr.repr(self._connections) if self._connections else ''})"
 
+    def get_from_name(self, name: str):
+        result = self._dmap.get(name, None)
+        if result is None:
+            logging.error(f'No Joint with the name "{name}" found within this connection object')
+        return result
+
     def add(self, joint: JointBase, point_tol=Settings.point_tol):
         if joint.name is None:
             raise Exception("Name is not allowed to be None.")
@@ -382,6 +395,14 @@ class Connections(BaseCollections):
         joint.parent = self
         self._dmap[joint.name] = joint
         self._connections.append(joint)
+
+    def remove(self, joint: JointBase):
+        if joint.name in self._dmap.keys():
+            self._dmap.pop(joint.name)
+        if joint in self._connections:
+            self._connections.pop(self._connections.index(joint))
+        if joint.centre in self._nmap.keys():
+            self._nmap.pop(joint.centre)
 
     def find(self, out_of_plane_tol=0.1, joint_func=None, point_tol=Settings.point_tol):
         """
@@ -413,6 +434,8 @@ class Connections(BaseCollections):
 
             self.add(joint, point_tol=point_tol)
 
+        print(f"Connection search finished. Found a total of {len(self._connections)} connections")
+
 
 class NumericMapped(BaseCollections):
     def __init__(self, parent):
@@ -434,12 +457,9 @@ class NumericMapped(BaseCollections):
 class Materials(NumericMapped):
     """Collection of materials"""
 
-    def __init__(
-        self, materials: Iterable[Material] = None, unique_ids=True, parent: Union[Part, Assembly] = None, units="m"
-    ):
+    def __init__(self, materials: Iterable[Material] = None, parent: Union[Part, Assembly] = None, units="m"):
         super().__init__(parent)
         self._materials = sorted(materials, key=attrgetter("name")) if materials is not None else []
-        self._unique_ids = unique_ids
         self.recreate_name_and_id_maps(self._materials)
         self._units = units
 
@@ -555,14 +575,10 @@ class Materials(NumericMapped):
 
 
 class Sections(NumericMapped):
-    def __init__(
-        self, sections: Iterable[Section] = None, unique_ids=True, parent: Union[Part, Assembly] = None, units="m"
-    ):
+    def __init__(self, sections: Iterable[Section] = None, parent: Union[Part, Assembly] = None, units="m"):
         sec_id = Counter(1)
         super(Sections, self).__init__(parent=parent)
         sections = [] if sections is None else sections
-        if unique_ids:
-            sections = list(toolz.unique(sections, key=attrgetter("name")))
         self._units = units
         self._sections = sorted(sections, key=attrgetter("name"))
 
@@ -576,7 +592,7 @@ class Sections(NumericMapped):
         self.recreate_name_and_id_maps(self._sections)
 
         if len(self._name_map.keys()) != len(self._id_map.keys()):
-            raise ValueError("Non-unique ids or name are observed..")
+            logging.warning(f"Non-unique ids or name for section container belonging to part '{parent}'")
 
     def renumber_id(self, start_id=1):
         cnt = Counter(start=start_id)
@@ -706,18 +722,20 @@ class Sections(NumericMapped):
 
 
 class Nodes:
-    def __init__(self, nodes=None, unique_ids=True, parent=None, from_np_array=None):
+    def __init__(self, nodes=None, parent=None, from_np_array=None):
         self._parent = parent
+
         if from_np_array is not None:
             self._array = from_np_array
             nodes = self._np_array_to_nlist(from_np_array)
         else:
             nodes = [] if nodes is None else nodes
 
-        if unique_ids is True:
-            nodes = toolz.unique(nodes, key=attrgetter("id"))
-
         self._nodes = list(nodes)
+
+        if len(tuple(set(self._nodes))) != len(self._nodes):
+            raise DuplicateNodes("Duplicate Nodes not allowed in a Nodes object")
+
         self._idmap = dict()
         self._bbox = None
         self._maxid = 0
@@ -728,7 +746,10 @@ class Nodes:
 
     def _sort(self):
         self._nodes = sorted(self._nodes, key=attrgetter("x", "y", "z"))
-        self._idmap = {n.id: n for n in sorted(self._nodes, key=attrgetter("id"))}
+        try:
+            self._idmap = {n.id: n for n in sorted(self._nodes, key=attrgetter("id"))}
+        except TypeError as e:
+            raise TypeError(e)
 
     def renumber(self, start_id: int = 1, renumber_map: dict = None):
         """Ensures that the node numberings starts at 1 and has no holes in its numbering."""

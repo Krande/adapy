@@ -108,7 +108,7 @@ class Elem(FemBase):
 
     @id.setter
     def id(self, value):
-        if type(value) not in (np.int32, int, np.uint64) and issubclass(type(self), Connector) is False:
+        if type(value) not in (np.int32, int, np.uint64, np.int64) and issubclass(type(self), Connector) is False:
             raise ValueError(f'Element ID "{type(value)}" must be numeric')
         self._el_id = value
 

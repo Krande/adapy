@@ -33,6 +33,7 @@ from ada.fem import Elem
 
 if TYPE_CHECKING:
     from ada import Beam, Part, Pipe, Plate, Shape, Wall
+    from ada.concepts.connections import JointBase
 
 __all__ = ["MyRenderer", "SectionRenderer"]
 
@@ -279,8 +280,13 @@ class MyRenderer(JupyterRenderer):
             )
         )
 
+    def display_joint(self, joint: "JointBase"):
+        all_beams = [bm for bm in joint.beams]
+        list(filter(None, map(self.DisplayBeam, all_beams)))
+
     def DisplayObj(self, obj):
         from ada import Beam, Part, Pipe, Plate, Shape
+        from ada.concepts.connections import JointBase
 
         if issubclass(type(obj), Part) is True:
             self.DisplayAdaPart(obj)
@@ -290,6 +296,8 @@ class MyRenderer(JupyterRenderer):
             self.DisplayPlate(obj)
         elif type(obj) is Pipe:
             self.DisplayPipe(obj)
+        elif issubclass(type(obj), JointBase):
+            self.display_joint(obj)
         elif issubclass(type(obj), Shape):
             self.DisplayAdaShape(obj)
         else:

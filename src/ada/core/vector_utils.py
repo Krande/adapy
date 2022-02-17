@@ -4,10 +4,12 @@ import numpy as np
 
 from ada.config import Settings
 
+from .exceptions import VectorNormalizeError
+
 
 def linear_2dtransform_rotate(origin, point, degrees) -> np.ndarray:
     """
-    Rotate
+    Rotate a 2d point given an origin and a degree.
 
     :param origin: (x, y) coordinate of point of rotation
     :param point: (x, y) coordinate of point to rotate
@@ -270,25 +272,14 @@ def is_parallel(ab: np.array, cd: np.array, tol=Settings.point_tol) -> bool:
     return True if np.abs(np.sin(angle_between(ab, cd))) < tol else False
 
 
-def intersect_calc(A, C, AB, CD):
-    """
-    Function for evaluating an intersection point between two vector-lines (AB & CD).  The function returns
-    variables s & t denoting the scalar value multiplied with the two vector equations A + s*AB = C + t*CD.
-
-    :param A:
-    :type A:
-    :param C:
-    :type C:
-    :param AB:
-    :type AB:
-    :param CD:
-    :type CD:
-    """
+def intersect_calc(a: np.ndarray, c: np.ndarray, ab: np.ndarray, cd: np.ndarray):
+    """Function for evaluating an intersection point between two vector-lines (AB & CD).  The function returns
+    variables s & t denoting the scalar value multiplied with the two vector equations A + s*AB = C + t*CD."""
     # Setting up the equation for use in linalg.lstsq
-    a = np.array((AB, -CD)).T
-    b = C - A
+    matrix = np.array((ab, -cd)).T
+    vec = c - a
 
-    st = np.linalg.lstsq(a, b, rcond=None)
+    st = np.linalg.lstsq(matrix, vec, rcond=None)
 
     s = st[0][0]
     t = st[0][1]
@@ -551,7 +542,7 @@ def unit_vector(vector: np.ndarray):
     """Returns the unit vector of a given vector"""
     norm = vector / np.linalg.norm(vector)
     if np.isnan(norm).any():
-        raise ValueError(f'Error trying to normalize vector "{vector}"')
+        raise VectorNormalizeError(f'Error trying to normalize vector "{vector}"')
 
     return norm
 

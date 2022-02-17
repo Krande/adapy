@@ -253,9 +253,12 @@ class PipeSegStraight(BackendGeom):
     @property
     def solid(self):
         from ada.fem.shapes import ElemType
-        from ada.occ.utils import sweep_pipe
+        from ada.occ.utils import apply_penetrations, sweep_pipe
 
-        return sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, ElemType.SOLID)
+        raw_geom = sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, ElemType.SOLID)
+
+        geom = apply_penetrations(raw_geom, self.penetrations)
+        return geom
 
     def _generate_ifc_elem(self):
         from ada.ifc.write.write_pipe import write_pipe_straight_seg
@@ -340,7 +343,7 @@ class PipeSegElbow(BackendGeom):
     @property
     def solid(self):
         from ada.fem.shapes import ElemType
-        from ada.occ.utils import sweep_pipe
+        from ada.occ.utils import apply_penetrations, sweep_pipe
 
         i = self.parent.segments.index(self)
         if i != 0:
@@ -348,8 +351,10 @@ class PipeSegElbow(BackendGeom):
             xvec = pseg.xvec1
         else:
             xvec = self.xvec1
+        raw_geom = sweep_pipe(self.line, xvec, self.section.r, self.section.wt, ElemType.SOLID)
 
-        return sweep_pipe(self.line, xvec, self.section.r, self.section.wt, ElemType.SOLID)
+        geom = apply_penetrations(raw_geom, self.penetrations)
+        return geom
 
     @property
     def arc_seg(self) -> ArcSegment:

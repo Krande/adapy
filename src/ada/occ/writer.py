@@ -38,6 +38,7 @@ class StepExporter:
 
     def add_to_step_writer(self, obj: valid_types, geom_repr=ElemType.SOLID, fuse_piping=False):
         """Write current assembly to STEP file"""
+        from ada.concepts.connections import JointBase
 
         if geom_repr not in ElemType.all:
             raise ValueError(f'Invalid geom_repr: "{geom_repr}". Must be in "{ElemType.all}"')
@@ -48,7 +49,7 @@ class StepExporter:
             self.export_structural(obj, geom_repr)
         elif type(obj) is Pipe:
             self.export_piping(obj, geom_repr, fuse_piping)
-        elif type(obj) in (Part, Assembly):
+        elif type(obj) in (Part, Assembly) or issubclass(type(obj), JointBase):
             for sub_obj in obj.get_all_physical_objects():
                 if type(sub_obj) in (Plate, Beam, Wall):
                     self.export_structural(sub_obj, geom_repr)
