@@ -1053,7 +1053,9 @@ class Assembly(Part):
             import_mesh=import_result_mesh,
         )
 
-    def to_ifc(self, destination_file, include_fem=False, override_skip_props=False) -> None:
+    def to_ifc(
+        self, destination_file, include_fem=False, override_skip_props=False, return_file_obj=False
+    ) -> Union[None, StringIO]:
         from ada.ifc.write.write_ifc import write_to_ifc
 
         if override_skip_props is True:
@@ -1062,8 +1064,9 @@ class Assembly(Part):
                     obj.ifc_options.export_props = override_skip_props
 
         print(f'Beginning writing to IFC file "{destination_file}" using IfcOpenShell')
-        write_to_ifc(destination_file, self, include_fem)
+        file_obj = write_to_ifc(destination_file, self, include_fem, return_file_obj=return_file_obj)
         print("IFC file creation complete")
+        return file_obj
 
     def push(
         self,

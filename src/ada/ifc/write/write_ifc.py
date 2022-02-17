@@ -1,7 +1,9 @@
 import logging
 import os
 import pathlib
+from io import StringIO
 from itertools import chain
+from typing import Union
 
 from ada import Assembly, Part
 from ada.fem.formats.ifc.writer import to_ifc_fem
@@ -14,7 +16,7 @@ from .write_shapes import write_ifc_shape
 from .write_wall import write_ifc_wall
 
 
-def write_to_ifc(destination_file, a: Assembly, include_fem) -> None:
+def write_to_ifc(destination_file, a: Assembly, include_fem, return_file_obj=False) -> Union[None, StringIO]:
 
     f = a.ifc_file
 
@@ -46,6 +48,9 @@ def write_to_ifc(destination_file, a: Assembly, include_fem) -> None:
             False,
             [presentation_style],
         )
+
+    if return_file_obj:
+        return StringIO(a.ifc_file.wrapped_data.to_string())
 
     os.makedirs(dest.parent, exist_ok=True)
     a.ifc_file.write(str(dest))
