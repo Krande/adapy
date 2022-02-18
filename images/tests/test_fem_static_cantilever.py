@@ -29,7 +29,6 @@ def test_fem_static(
     use_hex_quad,
     overwrite=True,
     execute=True,
-    eigen_modes=11,
     name=None,
 ):
     geom_repr = geom_repr.upper()

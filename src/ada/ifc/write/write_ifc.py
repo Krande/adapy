@@ -20,8 +20,6 @@ def write_to_ifc(destination_file, a: Assembly, include_fem, return_file_obj=Fal
 
     f = a.ifc_file
 
-    dest = pathlib.Path(destination_file).with_suffix(".ifc")
-
     for s in a.sections:
         f.add(s.ifc_profile)
         f.add(s.ifc_beam_type)
@@ -52,6 +50,7 @@ def write_to_ifc(destination_file, a: Assembly, include_fem, return_file_obj=Fal
     if return_file_obj:
         return StringIO(a.ifc_file.wrapped_data.to_string())
 
+    dest = pathlib.Path(destination_file).with_suffix(".ifc")
     os.makedirs(dest.parent, exist_ok=True)
     a.ifc_file.write(str(dest))
     a._source_ifc_files = dict()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
@@ -49,6 +50,7 @@ def to_custom_json(
     data_type=None,
     quality=1.0,
     parallel=True,
+    return_file_obj=False,
 ):
     from ada import Part
     from ada.concepts.connections import JointBase
@@ -56,18 +58,26 @@ def to_custom_json(
 
     export_config = ExportConfig(quality, threads, parallel)
     if issubclass(type(ada_obj), Part):
-        export_assembly_to_json(ada_obj, output_file_path, export_config)
+        output = export_assembly_to_json(ada_obj, export_config)
     elif issubclass(type(ada_obj), JointBase):
-        export_joint_to_json(ada_obj, output_file_path, export_config)
+        output = export_joint_to_json(ada_obj, export_config)
     elif isinstance(ada_obj, Results):
         if data_type is None:
             raise ValueError('Please pass in a "data_type" value in order to export results mesh')
-        export_results_to_json(ada_obj, output_file_path, data_type)
+        output = export_results_to_json(ada_obj, data_type)
     else:
-        NotImplementedError(f'Currently not supporting export of type "{type(ada_obj)}"')
+        raise NotImplementedError(f'Currently not supporting export of type "{type(ada_obj)}"')
+
+    if return_file_obj:
+        return io.StringIO(json.dumps(output))
+
+    output_file_path = pathlib.Path(output_file_path)
+    os.makedirs(output_file_path.parent, exist_ok=True)
+    with open(output_file_path, "w") as f:
+        json.dump(output, f, indent=4)
 
 
-def export_joint_to_json(joint: "JointBase", output_file_path, export_config: ExportConfig):
+def export_joint_to_json(joint: "JointBase", export_config: ExportConfig) -> dict:
     all_obj = [obj for obj in joint.beams]
     all_obj_num = len(all_obj)
 
@@ -88,13 +98,10 @@ def export_joint_to_json(joint: "JointBase", output_file_path, export_config: Ex
         "project": joint.metadata.get("project", "DummyProject"),
         "world": [id_map],
     }
-    output_file_path = pathlib.Path(output_file_path)
-    os.makedirs(output_file_path.parent, exist_ok=True)
-    with open(output_file_path, "w") as f:
-        json.dump(output, f, indent=4)
+    return output
 
 
-def export_assembly_to_json(part: "Part", output_file_path, export_config: ExportConfig):
+def export_assembly_to_json(part: "Part", export_config: ExportConfig) -> dict:
     all_obj = [obj for p in part.parts.values() for obj in p.get_all_physical_objects()]
 
     all_obj += list(part.get_all_physical_objects())
@@ -115,13 +122,10 @@ def export_assembly_to_json(part: "Part", output_file_path, export_config: Expor
         "project": part.metadata.get("project", "DummyProject"),
         "world": part_array,
     }
-    output_file_path = pathlib.Path(output_file_path)
-    os.makedirs(output_file_path.parent, exist_ok=True)
-    with open(output_file_path, "w") as f:
-        json.dump(output, f, indent=4)
+    return output
 
 
-def export_results_to_json(results: "Results", output_file_path, data_type):
+def export_results_to_json(results: "Results", data_type) -> dict:
     res_mesh = results.result_mesh
 
     data = np.asarray(res_mesh.mesh.point_data[data_type], dtype="float32")
@@ -158,10 +162,7 @@ def export_results_to_json(results: "Results", output_file_path, data_type):
         "project": results.assembly.metadata.get("project", "DummyProject"),
         "world": part_array,
     }
-    output_file_path = pathlib.Path(output_file_path)
-    os.makedirs(output_file_path.parent, exist_ok=True)
-    with open(output_file_path, "w") as f:
-        json.dump(output, f, indent=4)
+    return output
 
 
 def convert_obj_to_poly(obj, quality=1.0, render_edges=False, parallel=False):

@@ -1054,7 +1054,7 @@ class Assembly(Part):
         )
 
     def to_ifc(
-        self, destination_file, include_fem=False, override_skip_props=False, return_file_obj=False
+        self, destination_file=None, include_fem=False, override_skip_props=False, return_file_obj=False
     ) -> Union[None, StringIO]:
         from ada.ifc.write.write_ifc import write_to_ifc
 
@@ -1063,6 +1063,7 @@ class Assembly(Part):
                 for obj in p.get_all_physical_objects(True):
                     obj.ifc_options.export_props = override_skip_props
 
+        destination_file = "object" if destination_file is None else destination_file
         print(f'Beginning writing to IFC file "{destination_file}" using IfcOpenShell')
         file_obj = write_to_ifc(destination_file, self, include_fem, return_file_obj=return_file_obj)
         print("IFC file creation complete")
