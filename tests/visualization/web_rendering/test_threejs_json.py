@@ -1,7 +1,7 @@
 import pytest
 
 from ada import Assembly, Beam, Part
-from ada.visualize.write.write_threejs_json import to_three_json
+from ada.visualize.formats.threejs.write_threejs_json import to_three_json
 
 
 @pytest.fixture

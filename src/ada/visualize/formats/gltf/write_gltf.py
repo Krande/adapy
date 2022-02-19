@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ..renderer_occ import occ_shape_to_faces
+from ada.visualize.renderer_occ import occ_shape_to_faces
 
 if TYPE_CHECKING:
     from ada import Assembly
@@ -32,3 +32,5 @@ def to_gltf(assembly: "Assembly", output_file_path):
                 adjusted_indices = np_faces + len(indices)
                 indices = np.concatenate([indices, adjusted_indices])
                 id_map[obj.guid] = (int(adjusted_indices[0]), int(adjusted_indices[-1]))
+
+    raise NotImplementedError("Export to GLTF is not yet supported")
