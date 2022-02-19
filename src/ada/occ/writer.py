@@ -1,6 +1,7 @@
 import logging
 import os
 import pathlib
+from io import StringIO
 from typing import Union
 
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse
@@ -60,16 +61,6 @@ class StepExporter:
                 else:
                     raise ValueError("Unknown Geometry type")
 
-    def write_to_file(self, destination_file, silent):
-        destination_file = pathlib.Path(destination_file).with_suffix(".stp")
-        os.makedirs(destination_file.parent, exist_ok=True)
-
-        status = self.writer.Write(str(destination_file))
-        if int(status) > int(IFSelect_RetError):
-            raise Exception("Error during write operation")
-        if silent is False:
-            print(f'step file created at "{destination_file}"')
-
     def add_geom(self, geom, obj, geom_repr=None):
         from ada.concepts.transforms import Placement
         from ada.core.vector_utils import vector_length
@@ -83,7 +74,6 @@ class StepExporter:
         res = obj.placement.absolute_placement()
         if vector_length(res - Placement().origin) > 0:
             geom = transform_shape(geom, transform=tuple(res))
-
         try:
             if geom_repr == ElemType.SHELL:
                 stat = self.writer.Transfer(geom, STEPControl_ShellBasedSurfaceModel)
@@ -130,3 +120,15 @@ class StepExporter:
 
         if fuse_shapes is True:
             self.add_geom(result, pipe)
+
+    def write_to_file(self, destination_file, silent, return_file_obj=False) -> Union[None, StringIO]:
+        if return_file_obj:
+            logging.warning("returning file objects for STEP is not yet supported. But will be from OCCT v7.7.0.")
+        destination_file = pathlib.Path(destination_file).with_suffix(".stp")
+        os.makedirs(destination_file.parent, exist_ok=True)
+
+        status = self.writer.Write(str(destination_file))
+        if int(status) > int(IFSelect_RetError):
+            raise Exception("Error during write operation")
+        if silent is False:
+            print(f'step file created at "{destination_file}"')

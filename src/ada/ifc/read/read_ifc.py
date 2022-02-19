@@ -1,5 +1,7 @@
 import logging
 import pathlib
+from io import StringIO
+from typing import Union
 
 from ifcopenshell.util.element import get_psets
 
@@ -15,10 +17,14 @@ from .read_shapes import import_ifc_shape
 from .reader_utils import add_to_assembly, get_parent, open_ifc, resolve_name
 
 
-def read_ifc_file(ifc_file, ifc_settings, elements2part=False, data_only=False) -> Assembly:
-    ifc_file = pathlib.Path(ifc_file).resolve().absolute()
-    if ifc_file.exists() is False:
-        raise FileNotFoundError(f'Unable to find "{ifc_file}"')
+def read_ifc_file(
+    ifc_file: Union[str, pathlib.Path, StringIO], ifc_settings, elements2part=False, data_only=False
+) -> Assembly:
+    if type(ifc_file) is not StringIO:
+        ifc_file = pathlib.Path(ifc_file).resolve().absolute()
+
+        if ifc_file.exists() is False:
+            raise FileNotFoundError(f'Unable to find "{ifc_file}"')
 
     ifc_ref = IfcRef(ifc_file)
 
@@ -57,8 +63,8 @@ def read_ifc_file(ifc_file, ifc_settings, elements2part=False, data_only=False) 
         obj.metadata["ifc_file"] = ifc_file
 
         add_to_assembly(a, obj, parent, elements2part)
-
-    print(f'Import of IFC file "{ifc_file}" is complete')
+    ifc_file_name = "object" if type(ifc_file) is StringIO else ifc_file
+    print(f'Import of IFC file "{ifc_file_name}" is complete')
     return a
 
 

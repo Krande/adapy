@@ -41,11 +41,11 @@ def test_read_varying_cardinal_points(example_files, ifc_test_dir):
 
 def test_read_varying_extrusion_path(example_files, ifc_test_dir):
     a = ada.from_ifc(example_files / "ifc_files/beams/beam-varying-extrusion-paths.ifc")
-    a.to_ifc(ifc_test_dir / "beam-varying-extrusion-paths.ifc")
+    _ = a.to_ifc(ifc_test_dir / "beam-varying-extrusion-paths.ifc", return_file_obj=True)
     print(a)
 
 
 def test_read_revolved_solid(example_files, ifc_test_dir):
     a = ada.from_ifc(example_files / "ifc_files/beams/beam-revolved-solid.ifc")
-    a.to_ifc(ifc_test_dir / "beam-revolved-solid.ifc")
+    _ = a.to_ifc(ifc_test_dir / "beam-revolved-solid.ifc", return_file_obj=True)
     print(a)

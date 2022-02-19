@@ -1,4 +1,6 @@
 import logging
+import pathlib
+from io import StringIO
 from typing import Tuple, Union
 
 import ifcopenshell
@@ -11,7 +13,9 @@ from ada.config import Settings
 tol_map = dict(m=Settings.mtol, mm=Settings.mmtol)
 
 
-def open_ifc(ifc_file_path):
+def open_ifc(ifc_file_path: Union[str, pathlib.Path, StringIO]):
+    if type(ifc_file_path) is StringIO:
+        return ifcopenshell.file.from_string(str(ifc_file_path.read()))
     return ifcopenshell.open(str(ifc_file_path))
 
 

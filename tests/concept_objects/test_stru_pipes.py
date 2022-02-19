@@ -15,7 +15,7 @@ def test_pipe_straight(dummy_display):
     y0 = -200e-3
     pipe1 = Pipe("Pipe1", [(0, y0, 0), (0, y0, z)], Section("PSec", "PIPE", r=0.10, wt=5e-3))
     p.add_pipe(pipe1)
-    a.to_ifc(test_dir / "pipe_straight.ifc")
+    _ = a.to_ifc(test_dir / "pipe_straight.ifc", return_file_obj=True)
     dummy_display(a)
 
 

@@ -19,6 +19,6 @@ def test_wall_simple(dummy_display):
     p = Part("MyPart")
     a.add_part(p)
     p.add_wall(w)
-    a.to_ifc(test_folder / "my_wall_wDoorsWindows.ifc")
+    _ = a.to_ifc(test_folder / "my_wall_wDoorsWindows.ifc", return_file_obj=True)
 
     dummy_display(a)

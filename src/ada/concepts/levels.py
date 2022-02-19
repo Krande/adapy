@@ -860,7 +860,9 @@ class Assembly(Part):
 
         write_assembly_to_cache(self, self._cache_file)
 
-    def read_ifc(self, ifc_file: Union[str, os.PathLike], data_only=False, elements2part=None, cache_model_now=False):
+    def read_ifc(
+        self, ifc_file: Union[str, os.PathLike, StringIO], data_only=False, elements2part=None, cache_model_now=False
+    ):
         """
         Import from IFC file.
 
@@ -874,7 +876,7 @@ class Assembly(Part):
         """
         from ada.ifc.read.read_ifc import read_ifc_file
 
-        if self._enable_experimental_cache is True:
+        if self._enable_experimental_cache is True and type(ifc_file) is not StringIO:
             if self._from_cache(ifc_file) is True:
                 return None
 
@@ -1062,8 +1064,8 @@ class Assembly(Part):
             for p in self.get_all_subparts():
                 for obj in p.get_all_physical_objects(True):
                     obj.ifc_options.export_props = override_skip_props
-
-        destination_file = "object" if destination_file is None else destination_file
+        if destination_file is None or return_file_obj is True:
+            destination_file = "object"
         print(f'Beginning writing to IFC file "{destination_file}" using IfcOpenShell')
         file_obj = write_to_ifc(destination_file, self, include_fem, return_file_obj=return_file_obj)
         print("IFC file creation complete")

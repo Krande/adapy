@@ -22,11 +22,10 @@ def test_roundtrip_fillets(place1, place2):
     pl2 = ada.Plate("MyPl2", [(0, 0, 0.2), (5, 0, 0.2), (5, 5), (0, 5)], 20e-3, **place2)
     p.add_plate(pl2)
 
-    a.to_ifc(test_dir / "my_plate_simple.ifc")
+    fp = a.to_ifc(test_dir / "my_plate_simple.ifc", return_file_obj=True)
 
-    b = ada.Assembly("MyReimport")
-    b.read_ifc(test_dir / "my_plate_simple.ifc")
-    b.to_ifc(test_dir / "my_plate_simple_re_exported.ifc")
+    b = ada.from_ifc(fp)
+    _ = b.to_ifc(test_dir / "my_plate_simple_re_exported.ifc", return_file_obj=True)
 
 
 def test_2ifc_simple(place2):

@@ -1,5 +1,6 @@
 import pytest
 
+import ada
 from ada import Assembly, Part, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, PrimSweep
 
 
@@ -22,10 +23,9 @@ def test_export_primitives(shape_ifc_test_dir):
             rev_angle=275,
         ),
     ]
-    a.to_ifc(shape_ifc_test_dir / "world_of_shapes.ifc")
+    fp = a.to_ifc(shape_ifc_test_dir / "world_of_shapes.ifc", return_file_obj=True)
 
-    b = Assembly()
-    b.read_ifc(shape_ifc_test_dir / "world_of_shapes.ifc")
+    b = ada.from_ifc(fp)
     assert len(b.shapes) == 4
     print(b)
 
@@ -36,7 +36,7 @@ def test_sweep_shape(shape_ifc_test_dir):
     shape = PrimSweep("MyShape", sweep_curve, (0, 1, 0), (1, 0, 0), ot)
 
     a = Assembly("SweptShapes", units="m") / [Part("MyPart") / [shape]]
-    a.to_ifc(shape_ifc_test_dir / "my_swept_shape_m.ifc")
+    _ = a.to_ifc(shape_ifc_test_dir / "my_swept_shape_m.ifc", return_file_obj=True)
 
     # my_renderer = x3dom_renderer.X3DomRenderer()
     # my_renderer.DisplayShape(shape.profile_curve_outer.wire)

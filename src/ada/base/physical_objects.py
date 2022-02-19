@@ -103,14 +103,16 @@ class BackendGeom(Backend):
             return a
         a.to_fem(name, fem_format, **kwargs)
 
-    def to_stp(self, destination_file, geom_repr=None, schema="AP242", silent=False, fuse_piping=False):
+    def to_stp(
+        self, destination_file, geom_repr=None, schema="AP242", silent=False, fuse_piping=False, return_file_obj=False
+    ):
         from ada.fem.shapes import ElemType
         from ada.occ.writer import StepExporter
 
         geom_repr = ElemType.SOLID if geom_repr is None else geom_repr
         step_export = StepExporter(schema)
         step_export.add_to_step_writer(self, geom_repr, fuse_piping=fuse_piping)
-        step_export.write_to_file(destination_file, silent)
+        return step_export.write_to_file(destination_file, silent, return_file_obj=return_file_obj)
 
     def to_custom_json(self, output_file_path, threads=1, data_type=None, **kwargs):
         from ada.visualize.write.write_custom_json import to_custom_json

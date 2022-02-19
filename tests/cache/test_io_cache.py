@@ -1,10 +1,6 @@
 import time
 
-from ada import Assembly
-from ada.config import Settings
-from ada.param_models.basic_module import SimpleStru
-
-test_dir = Settings.test_dir / "cache"
+from ada import Assembly, Part
 
 
 def cache_validation(a, b):
@@ -30,14 +26,14 @@ def cache_validation(a, b):
     print(b)
 
 
-def test_simplestru_fem_cache():
+def test_simplestru_fem_cache(bm_ipe300):
 
     model_name = "ParamAssembly"
 
     start = time.time()
-    a = Assembly(model_name, clear_cache=True, enable_experimental_cache=True) / SimpleStru("ParamModel")
+    pfem = Part("ParamModel") / bm_ipe300
+    a = Assembly(model_name, clear_cache=True, enable_experimental_cache=True) / pfem
 
-    pfem = a.get_by_name("ParamModel")
     pfem.fem = pfem.to_fem_obj(0.1)
     time1 = time.time() - start
 
