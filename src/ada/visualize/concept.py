@@ -36,12 +36,13 @@ class PolyModel:
             id_sequence=self.id_sequence,
         )
 
-    def __add__(self, res: PolyModel):
+    def __add__(self, other: PolyModel):
         pos_len = int(len(self.position) / 3)
-        new_index = res.index + pos_len
-        mi, ma = min(new_index), max(new_index)
-        self.position = np.concatenate([self.position, res.position])
-        self.normal = np.concatenate([self.normal, res.normal])
+        new_index = other.index + pos_len
+        mi, ma = int(len(self.index)), int((len(other.index) + len(self.index))) - 1
+
         self.index = np.concatenate([self.index, new_index])
-        self.id_sequence[res.guid] = (int(mi), int(ma))
+        self.position = np.concatenate([self.position, other.position])
+        self.normal = np.concatenate([self.normal, other.normal])
+        self.id_sequence[other.guid] = (mi, ma)
         return self
