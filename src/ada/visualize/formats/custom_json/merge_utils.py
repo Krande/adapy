@@ -19,6 +19,8 @@ def merge_objects_into_single_json(guid, colour, opacity, list_of_objects: Itera
 
     for obj in list_of_objects:
         res = obj_to_json(obj)
+        if res is None:
+            continue
         pm += res
 
     return pm
