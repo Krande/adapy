@@ -11,6 +11,7 @@ from ada.occ.exceptions.geom_creation import (
     UnableToCreateSolidOCCGeom,
     UnableToCreateTesselationFromSolidOCCGeom,
 )
+from ada.visualize.concept import PolyModel
 from ada.visualize.renderer_occ import occ_shape_to_faces
 
 from .config import ExportConfig
@@ -35,13 +36,13 @@ def list_of_obj_to_json(
                 res = obj_to_json(seg, export_config)
                 if res is None:
                     continue
-                id_map[seg.guid] = res
+                id_map[seg.guid] = res.to_dict()
                 print(f'Exporting "{obj.name}" ({obj_num} of {all_obj_num})')
         else:
             res = obj_to_json(obj, export_config)
             if res is None:
                 continue
-            id_map[obj.guid] = res
+            id_map[obj.guid] = res.to_dict()
             print(f'Exporting "{obj.name}" ({obj_num} of {all_obj_num})')
 
     return id_map
@@ -49,7 +50,7 @@ def list_of_obj_to_json(
 
 def obj_to_json(
     obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape], export_config: ExportConfig = ExportConfig()
-) -> Union[dict, None]:
+) -> Union[PolyModel, None]:
     render_edges = False
     try:
         geom = obj.solid
@@ -73,14 +74,7 @@ def obj_to_json(
     position = np.array([x, y, z]).T
     normals = np.array([nx, ny, nz]).T
 
-    return dict(
-        index=indices.astype(int).tolist(),
-        position=position.flatten().astype(float).tolist(),
-        normal=normals.flatten().astype(float).tolist(),
-        color=[*obj.colour_norm, obj.opacity],
-        vertexColor=None,
-        instances=None,
-    )
+    return PolyModel(obj.guid, indices, position, normals, [*obj.colour_norm, obj.opacity])
 
 
 def id_map_using_threading(list_in, threads: int):

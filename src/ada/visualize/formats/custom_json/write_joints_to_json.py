@@ -21,7 +21,7 @@ def export_joint_to_json(joint: "JointBase", export_config: ExportConfig) -> dic
         res = obj_to_json(obj, export_config)
         if res is None:
             continue
-        id_map[obj.guid] = res
+        id_map[obj.guid] = res.to_dict()
         print(f'Exporting "{obj.name}" ({obj_num} of {all_obj_num})')
 
     output = {
