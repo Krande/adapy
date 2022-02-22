@@ -6,6 +6,8 @@ import os
 import pathlib
 from typing import TYPE_CHECKING, Union
 
+import numpy as np
+
 from .config import ExportConfig
 
 if TYPE_CHECKING:
@@ -21,6 +23,7 @@ def to_custom_json(
     data_type=None,
     export_config=ExportConfig(),
     return_file_obj=False,
+    indent=None,
 ):
     from ada import Part
     from ada.concepts.connections import JointBase
@@ -47,7 +50,7 @@ def to_custom_json(
     output_file_path = pathlib.Path(output_file_path)
     os.makedirs(output_file_path.parent, exist_ok=True)
     with open(output_file_path, "w") as f:
-        json.dump(output, f, indent=4)
+        json.dump(output, f, indent=indent)
 
 
 def bump_version(name, url, version_file, refresh_ver_file=False):
@@ -70,3 +73,26 @@ def bump_version(name, url, version_file, refresh_ver_file=False):
 
     with open(version_file, "w") as f:
         json.dump(data, f, indent=4)
+
+
+def move_obj_using_specific_translation(poly_obj, translation) -> np.ndarray:
+    position_array = poly_obj["position"]
+    verts = np.array(position_array, dtype="float32").reshape(int(len(position_array) / 3), 3)
+    centered_verts = verts - translation
+    poly_obj["position"] = centered_verts.flatten().astype(float).to_list()
+    poly_obj["translation"] = translation.astype(float).tolist()
+    return translation
+
+
+def move_obj_to_vol_center(poly_obj) -> np.ndarray:
+    position_array = poly_obj["position"]
+    verts = np.array(position_array, dtype="float32").reshape(int(len(position_array) / 3), 3)
+    max_verts = verts.max(axis=0)
+    min_verts = verts.min(axis=0)
+    center = (min_verts + max_verts) / 2
+
+    centered_verts = verts - center
+    result = centered_verts.flatten().astype(float).tolist()
+    poly_obj["position"] = result
+    poly_obj["translation"] = center.astype(float).tolist()
+    return center

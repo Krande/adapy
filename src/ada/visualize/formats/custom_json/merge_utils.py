@@ -17,7 +17,8 @@ def merge_objects_into_single_json(guid, colour, opacity, list_of_objects: Itera
         guid, np.array([], dtype=int), np.array([], dtype=float), np.array([], dtype=float), [*colour, opacity]
     )
 
-    for obj in list_of_objects:
+    for i, obj in enumerate(list_of_objects):
+        print(f'Converting {i} of {len(list(list_of_objects))} to PolyModel')
         res = obj_to_json(obj)
         if res is None:
             continue
@@ -28,6 +29,7 @@ def merge_objects_into_single_json(guid, colour, opacity, list_of_objects: Itera
 
 def merge_by_colours(name, list_of_objects: Iterable[Union[Beam, Plate]]):
     colour_map: Dict[str, List[Union[Beam, Plate]]] = dict()
+
     for obj in list_of_objects:
         if obj.colour not in colour_map.keys():
             colour_map[obj.colour] = []
