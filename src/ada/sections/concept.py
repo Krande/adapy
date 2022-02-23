@@ -186,6 +186,11 @@ class Section(Backend):
         """Wall thickness"""
         return self._wt
 
+    @wt.setter
+    def wt(self, value: float):
+        self._wt = value
+        self._genprops = None
+
     @property
     def sec_str(self):
         def s(x):

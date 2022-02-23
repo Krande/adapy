@@ -79,7 +79,7 @@ def move_obj_using_specific_translation(poly_obj, translation) -> np.ndarray:
     position_array = poly_obj["position"]
     verts = np.array(position_array, dtype="float32").reshape(int(len(position_array) / 3), 3)
     centered_verts = verts - translation
-    poly_obj["position"] = centered_verts.flatten().astype(float).to_list()
+    poly_obj["position"] = centered_verts.flatten().astype(float).tolist()
     poly_obj["translation"] = translation.astype(float).tolist()
     return translation
 
