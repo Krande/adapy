@@ -18,7 +18,7 @@ def merge_objects_into_single_json(guid, colour, opacity, list_of_objects: Itera
     )
 
     for i, obj in enumerate(list_of_objects):
-        print(f'Converting {i} of {len(list(list_of_objects))} to PolyModel')
+        print(f"Converting {i} of {len(list(list_of_objects))} to PolyModel")
         res = obj_to_json(obj)
         if res is None:
             continue
