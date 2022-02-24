@@ -13,12 +13,6 @@ def import_ifc_shape(product, name, ifc_ref: IfcRef, assembly: Assembly):
 
 
 def get_ifc_geometry(ifc_elem, settings):
-    """
-
-    :param ifc_elem:
-    :param settings:
-    :return:
-    """
     pdct_shape = ifcopenshell.geom.create_shape(settings, inst=ifc_elem)
 
     if pdct_shape is None:
@@ -34,12 +28,6 @@ def get_ifc_geometry(ifc_elem, settings):
 
 
 def get_geom(ifc_elem, settings):
-    """
-
-    :param ifc_elem:
-    :param settings:
-    :return:
-    """
     from ifcopenshell.geom.occ_utils import shape_tuple
     from OCC.Core import BRepTools
     from OCC.Core.TopoDS import TopoDS_Compound
