@@ -48,25 +48,53 @@ def list_of_obj_to_json(
     return id_map
 
 
+def ifc_elem_to_json(obj: Shape, export_config: ExportConfig = ExportConfig()):
+    import ifcopenshell.geom
+
+    a = obj.get_assembly()
+    ifc_f = a.get_ifc_source_by_name(obj.ifc_ref.source_ifc_file)
+    ifc_elem = ifc_f.by_guid(obj.guid)
+    settings = ifcopenshell.geom.settings()
+    settings.set(settings.USE_PYTHON_OPENCASCADE, False)
+    settings.set(settings.SEW_SHELLS, False)
+    settings.set(settings.WELD_VERTICES, False)
+    settings.set(settings.INCLUDE_CURVES, False)
+    settings.set(settings.USE_WORLD_COORDS, False)
+    settings.set(settings.VALIDATE_QUANTITIES, False)
+
+    geom = obj.ifc_ref.get_ifc_geom(ifc_elem, settings)
+    obj_position = geom.geometry.verts
+    poly_indices = geom.geometry.faces
+    normals = geom.geometry.normals if len(geom.geometry.normals) == 0 else None
+    mat0 = geom.materials[0]
+    colour = [*mat0.diffuse, mat0.transparency]
+    return obj_position, poly_indices, normals, colour
+
+
+def occ_geom_to_poly_mesh(
+    obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape], export_config: ExportConfig = ExportConfig()
+):
+    geom = obj.solid
+    obj_position, poly_indices, normals, _ = occ_shape_to_faces(
+        geom,
+        export_config.quality,
+        export_config.render_edges,
+        export_config.parallel,
+    )
+    return obj_position, poly_indices, normals, [*obj.colour_norm, obj.opacity]
+
+
 def obj_to_json(
     obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape], export_config: ExportConfig = ExportConfig()
 ) -> Union[PolyModel, None]:
-    render_edges = False
-    try:
-        geom = obj.solid
-    except UnableToCreateSolidOCCGeom as e:
-        logging.error(e)
-        return None
-    except UnableToBuildNSidedWires as e:
-        logging.error(e)
-        return None
-    try:
-        obj_position, poly_indices, normals, _ = occ_shape_to_faces(
-            geom, export_config.quality, render_edges, export_config.parallel
-        )
-    except UnableToCreateTesselationFromSolidOCCGeom as e:
-        logging.error(e)
-        return None
+    if obj.ifc_ref is not None and export_config.ifc_skip_occ is True:
+        obj_position, poly_indices, normals, colour = ifc_elem_to_json(obj)
+    else:
+        try:
+            obj_position, poly_indices, normals, colour = occ_geom_to_poly_mesh(obj, export_config)
+        except (UnableToBuildNSidedWires, UnableToCreateTesselationFromSolidOCCGeom, UnableToCreateSolidOCCGeom) as e:
+            logging.error(e)
+            return None
 
     obj_buffer_arrays = np.concatenate([obj_position, normals], 1)
     buffer, indices = np.unique(obj_buffer_arrays, axis=0, return_index=False, return_inverse=True)
@@ -74,7 +102,7 @@ def obj_to_json(
     position = np.array([x, y, z]).T
     normals = np.array([nx, ny, nz]).T
 
-    return PolyModel(obj.guid, indices, position, normals, [*obj.colour_norm, obj.opacity])
+    return PolyModel(obj.guid, indices, position, normals, colour)
 
 
 def id_map_using_threading(list_in, threads: int):

@@ -21,7 +21,7 @@ def export_part_to_json(part: "Part", export_config: ExportConfig) -> dict:
     if export_config.merge_by_colour is True:
         from .merge_utils import merge_by_colours
 
-        part_array = merge_by_colours(part.name, part.get_all_physical_objects())
+        part_array = merge_by_colours(part.name, part.get_all_physical_objects(), export_config)
     else:
         part_array = [part_to_json_values(part, export_config, obj_num, all_obj_num)]
         for p in part.parts.values():
