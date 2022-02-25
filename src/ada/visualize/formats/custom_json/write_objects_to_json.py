@@ -67,7 +67,9 @@ def ifc_elem_to_json(obj: Shape, export_config: ExportConfig = ExportConfig()):
     poly_indices = np.array(geom.geometry.faces, dtype=int)
     normals = geom.geometry.normals if len(geom.geometry.normals) != 0 else None
     mat0 = geom.geometry.materials[0]
-    colour = [*mat0.diffuse, mat0.transparency]
+
+    opacity = 1.0 - mat0.transparency
+    colour = [*mat0.diffuse, opacity]
     return obj_position, poly_indices, normals, colour
 
 

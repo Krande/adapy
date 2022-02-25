@@ -12,7 +12,7 @@ class PolyModel:
     index: np.ndarray
     position: np.ndarray
     normal: Union[np.ndarray, None]
-    color: list
+    color: list = None
     vertexColor: np.ndarray = None
     instances: np.ndarray = None
     id_sequence: dict = field(default_factory=dict)
@@ -41,12 +41,15 @@ class PolyModel:
     def __add__(self, other: PolyModel):
         pos_len = int(len(self.position) / 3)
         new_index = other.index + pos_len
-        mi, ma = int(len(self.index)), int((len(other.index) + len(self.index))) - 1
+        ma = int((len(other.index) + len(self.index)))
+        mi = int(len(self.index)) + 1 if len(self.index) != 0 else 0
 
         self.index = np.concatenate([self.index, new_index])
         self.position = np.concatenate([self.position, other.position])
+
         if self.color is None:
             self.color = other.color
+
         if self.normal is not None or other.normal is not None:
             self.normal = None
         else:

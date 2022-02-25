@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Dict, Iterable, List, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple, Union
 
 import numpy as np
 
@@ -15,10 +15,18 @@ if TYPE_CHECKING:
 
 
 def merge_objects_into_single_json(
-    guid, colour, opacity, list_of_objects: Iterable[Union[Beam, Plate]], export_config, obj_num, all_num
+    guid,
+    list_of_objects: Iterable[Union[Beam, Plate]],
+    export_config,
+    obj_num,
+    all_num,
 ) -> Tuple[PolyModel, int]:
+
     pm = PolyModel(
-        guid, np.array([], dtype=int), np.array([], dtype=float), np.array([], dtype=float), [*colour, opacity]
+        guid,
+        np.array([], dtype=int),
+        np.array([], dtype=float),
+        np.array([], dtype=float),
     )
 
     for obj in list_of_objects:
@@ -45,10 +53,13 @@ def merge_by_colours(
 
     id_map = dict()
     for colour, elements in colour_map.items():
-        el0 = elements[0]
         guid = create_guid()
         pm, obj_num = merge_objects_into_single_json(
-            guid, el0.colour_norm, el0.opacity, elements, export_config, obj_num, all_obj_num
+            guid,
+            elements,
+            export_config,
+            obj_num,
+            all_obj_num,
         )
         id_map[guid] = pm.to_dict()
 
