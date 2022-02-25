@@ -46,7 +46,6 @@ def merge_by_colours(
     id_map = dict()
     for colour, elements in colour_map.items():
         el0 = elements[0]
-        _ = el0.solid
         guid = create_guid()
         pm, obj_num = merge_objects_into_single_json(
             guid, el0.colour_norm, el0.opacity, elements, export_config, obj_num, all_obj_num
