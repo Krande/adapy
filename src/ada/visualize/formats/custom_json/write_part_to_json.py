@@ -9,10 +9,12 @@ if TYPE_CHECKING:
 
 
 def export_part_to_json(part: "Part", export_config: ExportConfig) -> dict:
-    all_obj = [obj for p in part.parts.values() for obj in p.get_all_physical_objects()]
-
-    all_obj += list(part.get_all_physical_objects())
-
+    all_obj = list(
+        part.get_all_physical_objects(
+            sub_elements_only=False,
+            filter_by_guids=export_config.filter_elements_by_guid,
+        )
+    )
     all_obj_num = len(all_obj)
 
     print(f"Exporting {all_obj_num} physical objects to custom json format.")
@@ -21,10 +23,16 @@ def export_part_to_json(part: "Part", export_config: ExportConfig) -> dict:
     if export_config.merge_by_colour is True:
         from .merge_utils import merge_by_colours
 
-        part_array = merge_by_colours(part.name, part.get_all_physical_objects(), export_config)
+        part_array = merge_by_colours(
+            part.name,
+            part.get_all_physical_objects(filter_by_guids=export_config.filter_elements_by_guid),
+            export_config,
+            obj_num,
+            all_obj_num,
+        )
     else:
-        part_array = [part_to_json_values(part, export_config, obj_num, all_obj_num)]
-        for p in part.parts.values():
+        part_array = []
+        for p in [part, *part.get_all_subparts()]:
             pjson = part_to_json_values(p, export_config, obj_num, all_obj_num)
             part_array.append(pjson)
 

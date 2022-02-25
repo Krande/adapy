@@ -180,7 +180,7 @@ class BackendGeom(Backend):
     def colour_norm(self):
         if self._colour is None:
             self.colour = "white"
-        return [x / 255 for x in self._colour]
+        return [x / 255 for x in self.colour] if any(i > 1 for i in self.colour) else self.colour
 
     @property
     def colour_webgl(self):

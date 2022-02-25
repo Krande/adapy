@@ -63,10 +63,10 @@ def ifc_elem_to_json(obj: Shape, export_config: ExportConfig = ExportConfig()):
     settings.set(settings.VALIDATE_QUANTITIES, False)
 
     geom = obj.ifc_ref.get_ifc_geom(ifc_elem, settings)
-    obj_position = geom.geometry.verts
-    poly_indices = geom.geometry.faces
-    normals = geom.geometry.normals if len(geom.geometry.normals) == 0 else None
-    mat0 = geom.materials[0]
+    obj_position = np.array(geom.geometry.verts, dtype=float)
+    poly_indices = np.array(geom.geometry.faces, dtype=int)
+    normals = geom.geometry.normals if len(geom.geometry.normals) != 0 else None
+    mat0 = geom.geometry.materials[0]
     colour = [*mat0.diffuse, mat0.transparency]
     return obj_position, poly_indices, normals, colour
 
@@ -88,7 +88,7 @@ def obj_to_json(
     obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape], export_config: ExportConfig = ExportConfig()
 ) -> Union[PolyModel, None]:
     if obj.ifc_ref is not None and export_config.ifc_skip_occ is True:
-        obj_position, poly_indices, normals, colour = ifc_elem_to_json(obj)
+        position, indices, normals, colour = ifc_elem_to_json(obj)
     else:
         try:
             obj_position, poly_indices, normals, colour = occ_geom_to_poly_mesh(obj, export_config)
@@ -96,11 +96,11 @@ def obj_to_json(
             logging.error(e)
             return None
 
-    obj_buffer_arrays = np.concatenate([obj_position, normals], 1)
-    buffer, indices = np.unique(obj_buffer_arrays, axis=0, return_index=False, return_inverse=True)
-    x, y, z, nx, ny, nz = buffer.T
-    position = np.array([x, y, z]).T
-    normals = np.array([nx, ny, nz]).T
+        obj_buffer_arrays = np.concatenate([obj_position, normals], 1)
+        buffer, indices = np.unique(obj_buffer_arrays, axis=0, return_index=False, return_inverse=True)
+        x, y, z, nx, ny, nz = buffer.T
+        position = np.array([x, y, z]).T
+        normals = np.array([nx, ny, nz]).T
 
     return PolyModel(obj.guid, indices, position, normals, colour)
 

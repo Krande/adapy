@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Union
 
 import numpy as np
 
@@ -10,7 +11,7 @@ class PolyModel:
     guid: str
     index: np.ndarray
     position: np.ndarray
-    normal: np.ndarray
+    normal: Union[np.ndarray, None]
     color: list
     vertexColor: np.ndarray = None
     instances: np.ndarray = None
@@ -26,10 +27,11 @@ class PolyModel:
             self.normal = self.normal.flatten().astype(float)
 
     def to_dict(self):
+        normal = self.normal.astype(float).tolist() if self.normal is not None else self.normal
         return dict(
             index=self.index.astype(int).tolist(),
             position=self.position.astype(float).tolist(),
-            normal=self.normal.astype(float).tolist(),
+            normal=normal,
             color=self.color,
             vertexColor=self.vertexColor,
             instances=self.instances,
@@ -43,6 +45,11 @@ class PolyModel:
 
         self.index = np.concatenate([self.index, new_index])
         self.position = np.concatenate([self.position, other.position])
-        self.normal = np.concatenate([self.normal, other.normal])
+        if self.color is None:
+            self.color = other.color
+        if self.normal is not None or other.normal is not None:
+            self.normal = None
+        else:
+            self.normal = np.concatenate([self.normal, other.normal])
         self.id_sequence[other.guid] = (mi, ma)
         return self

@@ -1,4 +1,5 @@
 import logging
+from typing import Union
 
 import ifcopenshell.geom
 
@@ -7,9 +8,13 @@ from ada import Assembly, Shape
 from ..concepts import IfcRef
 
 
-def import_ifc_shape(product, name, ifc_ref: IfcRef, assembly: Assembly):
+def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_ref: IfcRef, assembly: Assembly):
     logging.info(f'importing Shape "{name}"')
-    return Shape(name, None, guid=product.GlobalId, ifc_ref=ifc_ref, units=assembly.units)
+    color_res = get_colour(product, assembly)
+    color, opacity = color_res if color_res is not None else None, 1.0
+    return Shape(
+        name, None, guid=product.GlobalId, ifc_ref=ifc_ref, units=assembly.units, colour=color, opacity=opacity
+    )
 
 
 def get_ifc_geometry(ifc_elem, settings):
@@ -25,6 +30,20 @@ def get_ifc_geometry(ifc_elem, settings):
     colour = None if (r, g, b) == (-1, -1, -1) else (r, g, b)
 
     return geom, colour, alpha
+
+
+def get_colour(product: ifcopenshell.entity_instance, assembly: Assembly) -> Union[None, tuple]:
+    triface = list(filter(lambda x: x.is_a("IfcTriangulatedFaceSet"), assembly.ifc_file.traverse(product)))
+    if len(triface) > 0:
+        style = triface[0].StyledByItem[0].Styles[0]
+        colour_rgb = list(filter(lambda x: x.is_a("IfcColourRgb"), assembly.ifc_file.traverse(style)))
+        transparency = list(filter(lambda x: x.is_a("IfcSurfaceStyleRendering"), assembly.ifc_file.traverse(style)))
+        if len(transparency) > 0 and len(colour_rgb) > 0:
+            opacity = transparency[0].Transparency
+            rgb = colour_rgb[0].Red, colour_rgb[0].Green, colour_rgb[0].Blue
+            return rgb, opacity
+
+    return None
 
 
 def get_geom(ifc_elem, settings):

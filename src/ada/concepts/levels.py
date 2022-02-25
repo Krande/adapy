@@ -402,7 +402,7 @@ class Part(BackendGeom):
         return list_of_parts
 
     def get_all_physical_objects(
-        self, sub_elements_only=True, by_type=None
+        self, sub_elements_only=True, by_type=None, filter_by_guids: Union[List[str]] = None
     ) -> Iterable[Union[Beam, Plate, Wall, Pipe, Shape]]:
         physical_objects = []
         if sub_elements_only:
@@ -417,6 +417,10 @@ class Part(BackendGeom):
             res = filter(lambda x: type(x) is by_type, chain.from_iterable(physical_objects))
         else:
             res = chain.from_iterable(physical_objects)
+
+        if filter_by_guids is not None:
+            res = filter(lambda x: x.guid in filter_by_guids, res)
+
         return res
 
     def beam_clash_check(self, margins=5e-5):
