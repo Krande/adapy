@@ -42,7 +42,7 @@ class PolyModel:
         pos_len = int(len(self.position) / 3)
         new_index = other.index + pos_len
         ma = int((len(other.index) + len(self.index)))
-        mi = int(len(self.index)) + 1 if len(self.index) != 0 else 0
+        mi = int(len(self.index))
 
         self.index = np.concatenate([self.index, new_index])
         self.position = np.concatenate([self.position, other.position])
@@ -54,5 +54,6 @@ class PolyModel:
             self.normal = None
         else:
             self.normal = np.concatenate([self.normal, other.normal])
+
         self.id_sequence[other.guid] = (mi, ma)
         return self
