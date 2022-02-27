@@ -65,11 +65,14 @@ def ifc_elem_to_json(obj: Shape, export_config: ExportConfig = ExportConfig()):
     geom = obj.ifc_ref.get_ifc_geom(ifc_elem, settings)
     obj_position = np.array(geom.geometry.verts, dtype=float)
     poly_indices = np.array(geom.geometry.faces, dtype=int)
-    normals = geom.geometry.normals if len(geom.geometry.normals) != 0 else None
-    mat0 = geom.geometry.materials[0]
-
-    opacity = 1.0 - mat0.transparency
-    colour = [*mat0.diffuse, opacity]
+    normals = np.array(geom.geometry.normals) if len(geom.geometry.normals) != 0 else None
+    mats = geom.geometry.materials
+    if len(mats) == 0:
+        colour = [1.0, 0.0, 0.0, 1.0]
+    else:
+        mat0 = mats[0]
+        opacity = 1.0 - mat0.transparency
+        colour = [*mat0.diffuse, opacity]
     return obj_position, poly_indices, normals, colour
 
 
@@ -90,7 +93,11 @@ def obj_to_json(
     obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape], export_config: ExportConfig = ExportConfig()
 ) -> Union[PolyModel, None]:
     if obj.ifc_ref is not None and export_config.ifc_skip_occ is True:
-        position, indices, normals, colour = ifc_elem_to_json(obj)
+        try:
+            position, indices, normals, colour = ifc_elem_to_json(obj)
+        except RuntimeError as e:
+            logging.error(e)
+            return None
     else:
         try:
             obj_position, poly_indices, normals, colour = occ_geom_to_poly_mesh(obj, export_config)

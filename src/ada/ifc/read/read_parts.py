@@ -27,7 +27,8 @@ def import_ifc_hierarchy(assembly: Assembly, product, ifc_ref: IfcRef):
     if pp is None:
         return None, None
 
-    if pr_type not in ["IfcBuilding", "IfcSpace", "IfcBuildingStorey", "IfcSpatialZone"]:
+    # "IfcSpace",
+    if pr_type not in ["IfcBuilding", "IfcBuildingStorey", "IfcSpatialZone"]:
         return None, None
 
     props = get_psets(product)

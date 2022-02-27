@@ -1,0 +1,2 @@
+class NoIfcAxesAttachedError(Exception):
+    pass

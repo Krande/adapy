@@ -9,6 +9,8 @@ from .reader_utils import get_associated_material
 
 
 def import_ifc_plate(ifc_elem, name, ifc_ref: IfcRef, assembly: Assembly) -> Plate:
+    from .exceptions import NoIfcAxesAttachedError
+
     logging.info(f"importing {name}")
     ifc_mat = get_associated_material(ifc_elem)
     mat = None
@@ -22,7 +24,7 @@ def import_ifc_plate(ifc_elem, name, ifc_ref: IfcRef, assembly: Assembly) -> Pla
     # Adding Axis information
     axes = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Axis"]
     if len(axes) != 1:
-        raise NotImplementedError("Geometry with multiple axis is not currently supported")
+        raise NoIfcAxesAttachedError("IfcPlate does not have an Axis representation Item")
     axis = axes[0]
     origin = axis.Items[0].Points[0].Coordinates
 

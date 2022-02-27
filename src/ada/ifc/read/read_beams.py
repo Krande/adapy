@@ -13,24 +13,28 @@ from .reader_utils import get_associated_material, get_placement, get_point
 
 
 def import_ifc_beam(ifc_elem, name, ifc_ref: IfcRef, assembly: Assembly = None) -> Beam:
-    ass = get_associated_material(ifc_elem)
+    from .exceptions import NoIfcAxesAttachedError
+
+    mat_ref = get_associated_material(ifc_elem)
     sec = None
     mat = None
 
     if assembly is not None:
-        sec = assembly.get_by_name(ass.Profile.ProfileName)
-        mat = assembly.get_by_name(ass.Material.Name)
+        sec_name = mat_ref.Profile.ProfileName if hasattr(mat_ref, "Profile") else mat_ref.Name
+        mat_name = mat_ref.Material.Name if hasattr(mat_ref, "Material") else mat_ref.Name
+        sec = assembly.get_by_name(sec_name)
+        mat = assembly.get_by_name(mat_name)
 
     if sec is None:
-        sec = import_section_from_ifc(ass.Profile, units=assembly.units)
+        sec = import_section_from_ifc(mat_ref.Profile, units=assembly.units)
 
     if mat is None:
-        mat = read_material(ass, ifc_ref, assembly)
+        mat = read_material(mat_ref, ifc_ref, assembly)
 
     axes = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Axis"]
 
     if len(axes) != 1:
-        raise ValueError("Number of axis objects attached to element is not 1")
+        raise NoIfcAxesAttachedError("Number of axis objects attached to IfcBeam is not 1")
     if len(axes[0].Items) != 1:
         raise ValueError("Number of items objects attached to axis is not 1")
 

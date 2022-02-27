@@ -46,8 +46,12 @@ def read_ifc_file(
             logging.info(f'Passing product "{product}"')
             continue
         parent = get_parent(product)
-
         name = product.Name
+
+        if parent is None:
+            logging.debug(f'Skipping "{name}". Parent is None')
+            continue
+
         props = get_psets(product)
 
         if name is None:
@@ -69,16 +73,27 @@ def read_ifc_file(
 
 
 def import_physical_ifc_elem(product, name, assembly: Assembly, ifc_ref: IfcRef):
+    from .exceptions import NoIfcAxesAttachedError
+
     pr_type = product.is_a()
 
     if pr_type in ["IfcBeamStandardCase", "IfcBeam"]:
-        obj = import_ifc_beam(product, name, ifc_ref, assembly)
-    elif pr_type in ["IfcPlateStandardCase", "IfcPlate"]:
-        obj = import_ifc_plate(product, name, ifc_ref, assembly)
-    else:
-        if product.is_a("IfcOpeningElement") is True:
-            logging.info(f'skipping opening element "{product}"')
-            return None
-        obj = import_ifc_shape(product, name, ifc_ref, assembly)
+        try:
+            return import_ifc_beam(product, name, ifc_ref, assembly)
+        except NoIfcAxesAttachedError as e:
+            logging.debug(e)
+            pass
+    if pr_type in ["IfcPlateStandardCase", "IfcPlate"]:
+        try:
+            return import_ifc_plate(product, name, ifc_ref, assembly)
+        except NoIfcAxesAttachedError as e:
+            logging.debug(e)
+            pass
+
+    if product.is_a("IfcOpeningElement") is True:
+        logging.info(f'skipping opening element "{product}"')
+        return None
+
+    obj = import_ifc_shape(product, name, ifc_ref, assembly)
 
     return obj

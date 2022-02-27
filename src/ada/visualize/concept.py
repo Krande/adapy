@@ -50,7 +50,7 @@ class PolyModel:
         if self.color is None:
             self.color = other.color
 
-        if self.normal is not None or other.normal is not None:
+        if self.normal is None or other.normal is None:
             self.normal = None
         else:
             self.normal = np.concatenate([self.normal, other.normal])

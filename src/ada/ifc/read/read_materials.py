@@ -10,8 +10,9 @@ if TYPE_CHECKING:
 def read_material(ifc_mat, ifc_ref: "IfcRef", assembly: "Assembly") -> Material:
     from ada.materials.metals import CarbonSteel, Metal
 
-    mat_psets = ifc_mat.HasProperties
-    if len(mat_psets) == 0:
+    mat_psets = ifc_mat.HasProperties if hasattr(ifc_mat, "HasProperties") else None
+
+    if mat_psets is None or len(mat_psets) == 0:
         logging.info(f'No material properties found for "{ifc_mat}"')
         return Material(ifc_mat.Name)
 

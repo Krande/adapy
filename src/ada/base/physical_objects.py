@@ -206,7 +206,7 @@ class BackendGeom(Backend):
     @opacity.setter
     def opacity(self, value):
         if (0.0 <= value <= 1.0) is False:
-            raise ValueError("Opacity is only valid between 1 and 0")
+            raise ValueError(f'Opacity is only valid between 1 and 0. "{value}" was passed in')
 
         self._opacity = value
 
