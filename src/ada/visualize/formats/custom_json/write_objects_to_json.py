@@ -54,12 +54,13 @@ def ifc_elem_to_json(obj: Shape, export_config: ExportConfig = ExportConfig()):
     a = obj.get_assembly()
     ifc_f = a.get_ifc_source_by_name(obj.ifc_ref.source_ifc_file)
     ifc_elem = ifc_f.by_guid(obj.guid)
+
     settings = ifcopenshell.geom.settings()
     settings.set(settings.USE_PYTHON_OPENCASCADE, False)
     settings.set(settings.SEW_SHELLS, False)
     settings.set(settings.WELD_VERTICES, False)
     settings.set(settings.INCLUDE_CURVES, False)
-    settings.set(settings.USE_WORLD_COORDS, False)
+    settings.set(settings.USE_WORLD_COORDS, True)
     settings.set(settings.VALIDATE_QUANTITIES, False)
 
     geom = obj.ifc_ref.get_ifc_geom(ifc_elem, settings)

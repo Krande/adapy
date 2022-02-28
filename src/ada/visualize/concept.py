@@ -41,7 +41,7 @@ class PolyModel:
     def __add__(self, other: PolyModel):
         pos_len = int(len(self.position) / 3)
         new_index = other.index + pos_len
-        ma = int((len(other.index) + len(self.index)))
+        ma = int((len(other.index) + len(self.index))) - 1
         mi = int(len(self.index))
 
         self.index = np.concatenate([self.index, new_index])
