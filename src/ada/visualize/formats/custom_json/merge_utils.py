@@ -43,13 +43,14 @@ def merge_objects_into_single_json(
 def merge_by_colours(
     name, list_of_objects: Iterable[Union[Beam, Plate]], export_config: ExportConfig, obj_num, all_obj_num
 ):
-    colour_map: Dict[str, List[Union[Beam, Plate]]] = dict()
-
+    colour_map: Dict[tuple, List[Union[Beam, Plate]]] = dict()
     for obj in list_of_objects:
-        if obj.colour not in colour_map.keys():
-            colour_map[obj.colour] = []
 
-        colour_map[obj.colour].append(obj)
+        colour = tuple([*obj.colour, obj.opacity]) if obj.colour is not None else None
+        if colour not in colour_map.keys():
+            colour_map[colour] = []
+
+        colour_map[colour].append(obj)
 
     id_map = dict()
     for colour, elements in colour_map.items():

@@ -9,13 +9,14 @@ if TYPE_CHECKING:
 
 
 def export_part_to_json(part: "Part", export_config: ExportConfig) -> dict:
-    all_obj = list(
-        part.get_all_physical_objects(
-            sub_elements_only=False,
-            filter_by_guids=export_config.filter_elements_by_guid,
+    all_obj_num = len(
+        list(
+            part.get_all_physical_objects(
+                sub_elements_only=False,
+                filter_by_guids=export_config.filter_elements_by_guid,
+            )
         )
     )
-    all_obj_num = len(all_obj)
 
     print(f"Exporting {all_obj_num} physical objects to custom json format.")
     obj_num = 1

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Union
 
@@ -49,7 +50,10 @@ class PolyModel:
 
         if self.color is None:
             self.color = other.color
-
+        else:
+            if other.color[-1] == 1.0 and self.color[-1] != 1.0:
+                logging.warning('Will merge colors with different opacity.')
+                self.color[-1] = 1.0
         if self.normal is None or other.normal is None:
             self.normal = None
         else:
