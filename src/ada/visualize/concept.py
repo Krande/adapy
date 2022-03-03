@@ -52,7 +52,7 @@ class PolyModel:
             self.color = other.color
         else:
             if other.color[-1] == 1.0 and self.color[-1] != 1.0:
-                logging.warning('Will merge colors with different opacity.')
+                logging.warning("Will merge colors with different opacity.")
                 self.color[-1] = 1.0
         if self.normal is None or other.normal is None:
             self.normal = None
