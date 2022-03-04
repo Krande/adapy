@@ -119,6 +119,45 @@ class Results:
         with open(dest_file, "w") as f:
             json.dump(res, f, indent=4)
 
+    def save_results_to_excel(self, dest_file, filter_components_by_name=None):
+        """This method is just a sample for how certain results can easily be exported to Excel"""
+
+        try:
+            import xlsxwriter
+        except ModuleNotFoundError:
+            raise ModuleNotFoundError(
+                "xlsxwriter must be installed to export to xlsx.\n"
+                'To install you can use "conda install -c conda-forge xlsxwriter"'
+            )
+
+        dest_file = pathlib.Path(dest_file).with_suffix(".xlsx")
+
+        workbook = xlsxwriter.Workbook(dest_file)
+        worksheet = workbook.add_worksheet()
+
+        worksheet.write("A1", "Step")
+        worksheet.write("B1", "Element")
+        worksheet.write("C1", "ForceComponent")
+        worksheet.write("D1", "Value")
+        i = 2
+        for step in self.history_output.steps:
+            for el_name, el in step.element_data.items():
+                el: ElementDataOutput
+                for force_name, force in el.forces.items():
+                    if filter_components_by_name is not None:
+                        skip_it = False
+                        if force.name.lower() not in [x.lower() for x in filter_components_by_name]:
+                            skip_it = True
+                        if skip_it:
+                            continue
+                    worksheet.write(f"A{i}", step.name)
+                    worksheet.write(f"B{i}", el_name)
+                    worksheet.write(f"C{i}", force.name)
+                    worksheet.write(f"D{i}", force.final_force)
+                    i += 1
+
+        workbook.close()
+
     @property
     def name(self):
         return self._name
@@ -204,10 +243,20 @@ class Results:
 
 
 @dataclass
+class ElemForceComp:
+    name: str
+    data: List[tuple]
+
+    @property
+    def final_force(self):
+        return self.data[-1][-1]
+
+
+@dataclass
 class ElementDataOutput:
     name: str
     displacements: Dict[int, List[tuple]] = field(default_factory=dict)
-    forces: Dict[int, List[tuple]] = field(default_factory=dict)
+    forces: Dict[int, ElemForceComp] = field(default_factory=dict)
 
     @property
     def final_displ(self):
@@ -215,7 +264,7 @@ class ElementDataOutput:
 
     @property
     def final_forces(self):
-        return {x: y[-1][-1] for x, y in self.forces.items()}
+        return {x: y.data[-1][-1] for x, y in self.forces.items()}
 
 
 @dataclass

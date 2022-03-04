@@ -9,10 +9,16 @@ A python library for working with structural analysis and design. `Ada-py` deliv
 CAD/BIM/FEM modelling, interoperability and Finite Elements (FE) post-processing.
 
 
-To install the ada-py package into an existing conda environment
+To install the latest "stable" ada-py package into an existing conda environment
 
 ```
 conda install -c krande -c conda-forge ada-py
+```
+
+or if you wish to download the latest build from any branch passing unittests you can do
+
+```
+conda install -c krande/labels/dev -c conda-forge ada-py
 ```
 
 **Alternatively** create a new isolated environment for the installation like so:
