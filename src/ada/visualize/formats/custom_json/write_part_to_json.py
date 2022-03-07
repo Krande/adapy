@@ -17,6 +17,9 @@ def export_part_to_json(part: "Part", export_config: ExportConfig) -> dict:
                 filter_by_guids=export_config.data_filter.filter_elements_by_guid,
             ):
         meta[obj.guid] = (obj.name, obj.parent.guid)
+        if len(export_config.data_filter.name_filter) > 0:
+            if obj.name not in [fi.lower() for fi in export_config.data_filter.name_filter]:
+                continue
         all_obj_num += 1
 
     for p in part.get_all_parts_in_assembly(True):
