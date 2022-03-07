@@ -88,7 +88,6 @@ def occ_geom_to_poly_mesh(
         export_config.parallel,
     )
 
-
     return obj_position, poly_indices, normals, [*obj.colour_norm, obj.opacity]
 
 

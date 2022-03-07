@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Union, List, Dict
+from typing import Dict, List, Union
 
 import numpy as np
 

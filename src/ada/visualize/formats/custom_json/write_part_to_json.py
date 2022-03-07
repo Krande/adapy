@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Union
 
 import ada
 from ada.visualize.concept import CustomJson, MergedPart
+
 from .config import ExportConfig
 
 if TYPE_CHECKING:

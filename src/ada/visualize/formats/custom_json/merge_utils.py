@@ -5,8 +5,9 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple, Union
 import numpy as np
 
 from ada.ifc.utils import create_guid
-from ada.visualize.concept import PolyModel, MergedPart
+from ada.visualize.concept import MergedPart, PolyModel
 from ada.visualize.formats.custom_json.write_objects_to_json import obj_to_json
+
 from .config import ExportConfig
 
 if TYPE_CHECKING:
