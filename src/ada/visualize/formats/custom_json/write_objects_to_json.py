@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Iterable, Union
+from typing import TYPE_CHECKING, Dict, Iterable, Union
 
 import numpy as np
 
@@ -25,7 +25,7 @@ def list_of_obj_to_json(
     obj_num: int,
     all_obj_num: int,
     export_config: ExportConfig,
-):
+) -> Dict[str, PolyModel]:
     from ada import Pipe
 
     id_map = dict()
@@ -36,13 +36,13 @@ def list_of_obj_to_json(
                 res = obj_to_json(seg, export_config)
                 if res is None:
                     continue
-                id_map[seg.guid] = res.to_dict()
+                id_map[seg.guid] = res
                 print(f'Exporting "{obj.name}" ({obj_num} of {all_obj_num})')
         else:
             res = obj_to_json(obj, export_config)
             if res is None:
                 continue
-            id_map[obj.guid] = res.to_dict()
+            id_map[obj.guid] = res
             print(f'Exporting "{obj.name}" ({obj_num} of {all_obj_num})')
 
     return id_map
@@ -64,9 +64,12 @@ def ifc_elem_to_json(obj: Shape, export_config: ExportConfig = ExportConfig()):
     settings.set(settings.VALIDATE_QUANTITIES, False)
 
     geom = obj.ifc_ref.get_ifc_geom(ifc_elem, settings)
-    obj_position = np.array(geom.geometry.verts, dtype=float)
+    obj_position = np.array(geom.geometry.verts, dtype="float32").reshape(int(len(geom.geometry.verts) / 3), 3)
+    # obj_position = np.array(geom.geometry.verts, dtype=float)
     poly_indices = np.array(geom.geometry.faces, dtype=int)
     normals = np.array(geom.geometry.normals) if len(geom.geometry.normals) != 0 else None
+    if normals is not None and len(normals) > 0:
+        normals = normals.reshape(int(len(normals) / 3), 3)
     mats = geom.geometry.materials
     if len(mats) == 0:
         colour = [1.0, 0.0, 0.0, 1.0]

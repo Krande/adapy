@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 from typing import TYPE_CHECKING, Union
 
 import ada
@@ -55,7 +56,7 @@ def export_part_to_json(part: "Part", export_config: ExportConfig) -> Union[None
 
     return CustomJson(
         name=part.name,
-        created="dato",
+        created=datetime.datetime.utcnow().strftime("%m/%d/%Y, %H:%M:%S"),
         project=part.metadata.get("project", "DummyProject"),
         world=part_array,
         meta=meta,
@@ -63,7 +64,6 @@ def export_part_to_json(part: "Part", export_config: ExportConfig) -> Union[None
 
 
 def part_to_json_values(p: "Part", export_config: ExportConfig, obj_num, all_obj_num) -> MergedPart:
-
     from .write_objects_to_json import id_map_using_threading, list_of_obj_to_json
 
     if export_config.threads != 1:
@@ -72,6 +72,6 @@ def part_to_json_values(p: "Part", export_config: ExportConfig, obj_num, all_obj
         id_map = list_of_obj_to_json(p.get_all_physical_objects(), obj_num, all_obj_num, export_config)
 
     for inst in p.instances.values():
-        id_map[inst.instance_ref.guid]["instances"] = inst.to_list_of_custom_json_matrices()
+        id_map[inst.instance_ref.guid].instances = inst.to_list_of_custom_json_matrices()
 
     return MergedPart(name=p.name, rawdata=True, guiparam=None, id_map=id_map)
