@@ -73,7 +73,6 @@ def merge_by_colours(
         "name": name,
         "rawdata": True,
         "guiParam": None,
-        "treemeta": {},
         "id_map": id_map,
     }
     return [merged_part]

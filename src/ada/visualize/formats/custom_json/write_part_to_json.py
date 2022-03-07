@@ -76,7 +76,5 @@ def part_to_json_values(p: "Part", export_config: ExportConfig, obj_num, all_obj
         "name": p.name,
         "rawdata": True,
         "guiParam": None,
-        "treemeta": {},
         "id_map": id_map,
-        "meta": "url til json",
     }
