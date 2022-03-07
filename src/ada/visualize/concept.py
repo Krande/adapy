@@ -2,9 +2,43 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Union
+from typing import Union, List, Dict
 
 import numpy as np
+
+
+@dataclass
+class CustomJson:
+    name: str
+    created: str
+    project: str
+    world: List[MergedPart]
+    meta: dict
+
+    def to_dict(self):
+        return {
+            "name": self.name,
+            "created": self.created,
+            "project": self.project,
+            "world": [x.to_dict() for x in self.world],
+            "meta": self.meta,
+        }
+
+
+@dataclass
+class MergedPart:
+    name: str
+    rawdata: bool
+    id_map: Dict[str, PolyModel]
+    guiparam: Union[None, dict] = None
+
+    def to_dict(self):
+        return {
+            "name": self.name,
+            "rawdata": self.rawdata,
+            "guiParam": self.guiparam,
+            "id_map": {key: value.to_dict() for key, value in self.id_map.items()},
+        }
 
 
 @dataclass

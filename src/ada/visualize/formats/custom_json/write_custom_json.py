@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from ada.base.physical_objects import BackendGeom
     from ada.concepts.connections import JointBase
     from ada.fem.results import Results
+    from ada.visualize.concept import CustomJson
 
 
 def to_custom_json(
@@ -24,7 +25,7 @@ def to_custom_json(
     export_config: ExportConfig = ExportConfig(),
     return_file_obj=False,
     indent=None,
-):
+) -> Union[None, CustomJson]:
     from ada import Part
     from ada.concepts.connections import JointBase
     from ada.fem.results import Results
@@ -49,7 +50,7 @@ def to_custom_json(
         return None
 
     if return_file_obj:
-        return io.StringIO(json.dumps(output))
+        return output
 
     output_file_path = pathlib.Path(output_file_path)
     os.makedirs(output_file_path.parent, exist_ok=True)

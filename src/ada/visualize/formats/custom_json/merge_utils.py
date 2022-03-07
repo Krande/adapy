@@ -5,9 +5,8 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple, Union
 import numpy as np
 
 from ada.ifc.utils import create_guid
-from ada.visualize.concept import PolyModel
+from ada.visualize.concept import PolyModel, MergedPart
 from ada.visualize.formats.custom_json.write_objects_to_json import obj_to_json
-
 from .config import ExportConfig
 
 if TYPE_CHECKING:
@@ -31,10 +30,6 @@ def merge_objects_into_single_json(
 
     for obj in list_of_objects:
         print(f"Converting {obj_num} of {all_num} to PolyModel")
-        if len(export_config.data_filter.name_filter) > 0:
-            if obj.name not in [fi.lower() for fi in export_config.data_filter.name_filter]:
-                continue
-
         res = obj_to_json(obj, export_config=export_config)
         if res is None:
             continue
@@ -67,12 +62,6 @@ def merge_by_colours(
         )
         if len(pm.index) == 0:
             continue
-        id_map[guid] = pm.to_dict()
+        id_map[guid] = pm
 
-    merged_part = {
-        "name": name,
-        "rawdata": True,
-        "guiParam": None,
-        "id_map": id_map,
-    }
-    return [merged_part]
+    return MergedPart(name=name, rawdata=True, id_map=id_map, guiparam=None)
