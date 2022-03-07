@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import ada
 from .config import ExportConfig
 
 if TYPE_CHECKING:
@@ -9,14 +10,23 @@ if TYPE_CHECKING:
 
 
 def export_part_to_json(part: "Part", export_config: ExportConfig) -> dict:
-    all_obj_num = len(
-        list(
-            part.get_all_physical_objects(
+    meta = dict()
+    all_obj_num = 0
+    for obj in part.get_all_physical_objects(
                 sub_elements_only=False,
-                filter_by_guids=export_config.filter_elements_by_guid,
-            )
-        )
-    )
+                filter_by_guids=export_config.data_filter.filter_elements_by_guid,
+            ):
+        meta[obj.guid] = (obj.name, obj.parent.guid)
+        all_obj_num += 1
+
+    for p in part.get_all_parts_in_assembly(True):
+        parent_id = p.parent.guid if p.parent is not None else None
+        if isinstance(p.parent, ada.Assembly):
+            parent_id = '*'
+        meta[p.guid] = (p.name, parent_id)
+
+    if all_obj_num == 0:
+        return None
 
     print(f"Exporting {all_obj_num} physical objects to custom json format.")
     obj_num = 1
@@ -26,7 +36,7 @@ def export_part_to_json(part: "Part", export_config: ExportConfig) -> dict:
 
         part_array = merge_by_colours(
             part.name,
-            part.get_all_physical_objects(filter_by_guids=export_config.filter_elements_by_guid),
+            part.get_all_physical_objects(filter_by_guids=export_config.data_filter.filter_elements_by_guid),
             export_config,
             obj_num,
             all_obj_num,
@@ -42,6 +52,7 @@ def export_part_to_json(part: "Part", export_config: ExportConfig) -> dict:
         "created": "dato",
         "project": part.metadata.get("project", "DummyProject"),
         "world": part_array,
+        "meta": meta
     }
     return output
 

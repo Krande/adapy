@@ -413,6 +413,7 @@ class Part(BackendGeom):
         for p in iter_parts:
             all_as_iterable = chain(p.plates, p.beams, p.shapes, p.pipes, p.walls)
             physical_objects.append(all_as_iterable)
+
         if by_type is not None:
             res = filter(lambda x: type(x) is by_type, chain.from_iterable(physical_objects))
         else:

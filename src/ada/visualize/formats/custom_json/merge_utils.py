@@ -45,7 +45,6 @@ def merge_by_colours(
 ):
     colour_map: Dict[tuple, List[Union[Beam, Plate]]] = dict()
     for obj in list_of_objects:
-
         colour = tuple([*obj.colour, obj.opacity]) if obj.colour is not None else None
         if colour not in colour_map.keys():
             colour_map[colour] = []
@@ -70,6 +69,5 @@ def merge_by_colours(
         "guiParam": None,
         "treemeta": {},
         "id_map": id_map,
-        "meta": "url til json",
     }
     return [merged_part]

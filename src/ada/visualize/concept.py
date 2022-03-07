@@ -17,6 +17,7 @@ class PolyModel:
     vertexColor: np.ndarray = None
     instances: np.ndarray = None
     id_sequence: dict = field(default_factory=dict)
+    translation: np.ndarray = None
 
     def __post_init__(self):
         pos_shape = np.shape(self.position)
@@ -37,6 +38,7 @@ class PolyModel:
             vertexColor=self.vertexColor,
             instances=self.instances,
             id_sequence=self.id_sequence,
+            translation=self.translation.astype(float).tolist(),
         )
 
     def __add__(self, other: PolyModel):
@@ -54,6 +56,10 @@ class PolyModel:
             if other.color[-1] == 1.0 and self.color[-1] != 1.0:
                 logging.warning("Will merge colors with different opacity.")
                 self.color[-1] = 1.0
+
+        if self.translation is None and other.translation is not None:
+            self.translation = other.translation
+
         if self.normal is None or other.normal is None:
             self.normal = None
         else:

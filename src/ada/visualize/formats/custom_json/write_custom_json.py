@@ -21,7 +21,7 @@ def to_custom_json(
     ada_obj: Union[Assembly, Part, Results, JointBase, BackendGeom],
     output_file_path,
     data_type=None,
-    export_config=ExportConfig(),
+    export_config: ExportConfig = ExportConfig(),
     return_file_obj=False,
     indent=None,
 ):
@@ -43,6 +43,10 @@ def to_custom_json(
         output = export_results_to_json(ada_obj, data_type)
     else:
         raise NotImplementedError(f'Currently not supporting export of type "{type(ada_obj)}"')
+
+    if output is None:
+        print("No writable elements found")
+        return None
 
     if return_file_obj:
         return io.StringIO(json.dumps(output))
@@ -84,13 +88,19 @@ def move_obj_using_specific_translation(poly_obj, translation) -> np.ndarray:
     return translation
 
 
-def move_obj_to_vol_center(poly_obj) -> np.ndarray:
+def get_vol_center(poly_obj) -> np.ndarray:
     position_array = poly_obj["position"]
     verts = np.array(position_array, dtype="float32").reshape(int(len(position_array) / 3), 3)
     max_verts = verts.max(axis=0)
     min_verts = verts.min(axis=0)
     center = (min_verts + max_verts) / 2
+    return center
 
+
+def move_obj_to_vol_center(poly_obj) -> np.ndarray:
+    position_array = poly_obj["position"]
+    verts = np.array(position_array, dtype="float32").reshape(int(len(position_array) / 3), 3)
+    center = get_vol_center(poly_obj)
     centered_verts = verts - center
     result = centered_verts.flatten().astype(float).tolist()
     poly_obj["position"] = result

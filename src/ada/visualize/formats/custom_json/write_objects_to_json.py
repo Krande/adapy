@@ -87,6 +87,8 @@ def occ_geom_to_poly_mesh(
         export_config.render_edges,
         export_config.parallel,
     )
+
+
     return obj_position, poly_indices, normals, [*obj.colour_norm, obj.opacity]
 
 
@@ -112,7 +114,16 @@ def obj_to_json(
         position = np.array([x, y, z]).T
         normals = np.array([nx, ny, nz]).T
 
-    return PolyModel(obj.guid, indices, position, normals, colour)
+    if export_config.auto_center_model is True:
+        if export_config.volume_center is None:
+            max_verts = position.max(axis=0)
+            min_verts = position.min(axis=0)
+            center = (min_verts + max_verts) / 2
+            export_config.volume_center = center
+
+        position -= export_config.volume_center
+
+    return PolyModel(obj.guid, indices, position, normals, colour, translation=export_config.volume_center)
 
 
 def id_map_using_threading(list_in, threads: int):
