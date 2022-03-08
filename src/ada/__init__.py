@@ -32,14 +32,14 @@ from ada.sections import Section
 __author__ = "Kristoffer H. Andersen"
 
 
-def from_ifc(ifc_file: Union[str, pathlib.Path, StringIO], units="m") -> Assembly:
+def from_ifc(ifc_file: Union[str, pathlib.Path, StringIO], units="m", name="Ada") -> Assembly:
     if type(ifc_file) is not StringIO:
         ifc_file = pathlib.Path(ifc_file).resolve().absolute()
         print(f'Reading "{ifc_file}"')
     else:
         print("Reading IFC file object")
 
-    a = Assembly(units=units)
+    a = Assembly(units=units, name=name)
     a.read_ifc(ifc_file)
     return a
 

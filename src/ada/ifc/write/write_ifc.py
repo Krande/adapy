@@ -5,16 +5,17 @@ import os
 import pathlib
 from io import StringIO
 from itertools import chain
-from typing import Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 
 from ada import Assembly, Part
 from ada.fem.formats.ifc.writer import to_ifc_fem
+
+from ..utils import create_guid
 from .write_beams import write_ifc_beam
 from .write_instances import write_mapped_instance
 from .write_plates import write_ifc_plate
 from .write_shapes import write_ifc_shape
 from .write_wall import write_ifc_wall
-from ..utils import create_guid
 
 if TYPE_CHECKING:
     import ifcopenshell
@@ -107,14 +108,13 @@ def add_part_objects_to_ifc(p: Part, f: ifcopenshell.file, assembly: Assembly, i
             ifc_elem = ifc_f.by_guid(shp.guid)
             new_ifc_elem = f.add(ifc_elem)
 
+            # Simple check to ensure that the new IFC element is properly copied
             res = get_container(new_ifc_elem)
-
             if res is not None:
-                parent_ifc_elem_guid = str(res.GlobalId, encoding='utf-8')
-                parent_guid = str(shp.parent.guid, encoding='utf-8')
+                parent_ifc_elem_guid = str(res.GlobalId, encoding="utf-8")
+                parent_guid = str(shp.parent.guid, encoding="utf-8")
                 if parent_ifc_elem_guid != parent_guid:
-                    parent_ifc_elem = f.by_guid(shp.parent.guid)
-                    logging.warning('Parent')
+                    logging.warning(f"Parent guid and generated ifc guid differs for element {shp.name}")
 
             physical_objects.append(new_ifc_elem)
         else:

@@ -3,6 +3,7 @@ import os
 import pathlib
 import shutil
 import time
+from typing import List, Union
 
 
 class SIZE_UNIT:
@@ -101,7 +102,7 @@ def get_unc_path(path_) -> str:
             return path_
 
 
-def get_list_of_files(dir_path, file_ext=None, strict=False):
+def get_list_of_files(dir_path, file_ext=None, strict=False, filter_path_contains: Union[None, List[str]] = None):
     """Get a list of files and sub directories for a given directory"""
     all_files = []
     list_of_file = sorted(os.listdir(dir_path), key=str.lower)
@@ -112,8 +113,16 @@ def get_list_of_files(dir_path, file_ext=None, strict=False):
         full_path = os.path.join(dir_path, entry).replace(os.sep, "/")
         # If entry is a directory then get the list of files in this directory
         if os.path.isdir(full_path):
-            all_files += get_list_of_files(full_path, file_ext, strict)
+            all_files += get_list_of_files(full_path, file_ext, strict, filter_path_contains)
         else:
+            if filter_path_contains is not None:
+                skip_it = False
+                for f in filter_path_contains:
+                    if f in full_path:
+                        skip_it = True
+                        break
+                if skip_it:
+                    continue
             all_files.append(full_path)
 
     if file_ext is not None:
