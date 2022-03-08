@@ -109,12 +109,12 @@ def add_part_objects_to_ifc(p: Part, f: ifcopenshell.file, assembly: Assembly, i
             new_ifc_elem = f.add(ifc_elem)
 
             # Simple check to ensure that the new IFC element is properly copied
-            res = get_container(new_ifc_elem)
-            if res is not None:
-                parent_ifc_elem_guid = str(res.GlobalId, encoding="utf-8")
-                parent_guid = str(shp.parent.guid, encoding="utf-8")
-                if parent_ifc_elem_guid != parent_guid:
-                    logging.warning(f"Parent guid and generated ifc guid differs for element {shp.name}")
+            # res = get_container(new_ifc_elem)
+            # if res is not None:
+            #     parent_ifc_elem_guid = str(res.GlobalId, encoding="utf-8")
+            #     parent_guid = str(shp.parent.guid, encoding="utf-8")
+            #     if parent_ifc_elem_guid != parent_guid:
+            #         logging.warning(f"Parent guid and generated ifc guid differs for element {shp.name}")
 
             physical_objects.append(new_ifc_elem)
         else:
