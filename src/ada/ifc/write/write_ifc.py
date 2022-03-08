@@ -1,24 +1,38 @@
+from __future__ import annotations
+
 import logging
 import os
 import pathlib
 from io import StringIO
 from itertools import chain
-from typing import Union
+from typing import Union, TYPE_CHECKING
 
 from ada import Assembly, Part
 from ada.fem.formats.ifc.writer import to_ifc_fem
-
-from ..utils import create_guid
 from .write_beams import write_ifc_beam
 from .write_instances import write_mapped_instance
 from .write_plates import write_ifc_plate
 from .write_shapes import write_ifc_shape
 from .write_wall import write_ifc_wall
+from ..utils import create_guid
+
+if TYPE_CHECKING:
+    import ifcopenshell
 
 
-def write_to_ifc(destination_file, a: Assembly, include_fem, return_file_obj=False) -> Union[None, StringIO]:
+def write_to_ifc(
+    destination_file,
+    a: Assembly,
+    include_fem,
+    return_file_obj=False,
+    create_new_ifc_file=False,
+) -> Union[None, StringIO]:
+    from ada.ifc.utils import assembly_to_ifc_file
 
-    f = a.ifc_file
+    if create_new_ifc_file:
+        f = assembly_to_ifc_file(a)
+    else:
+        f = a.ifc_file
 
     for s in a.sections:
         f.add(s.ifc_profile)
@@ -48,17 +62,18 @@ def write_to_ifc(destination_file, a: Assembly, include_fem, return_file_obj=Fal
         )
 
     if return_file_obj:
-        return StringIO(a.ifc_file.wrapped_data.to_string())
+        return StringIO(f.wrapped_data.to_string())
 
     dest = pathlib.Path(destination_file).with_suffix(".ifc")
     os.makedirs(dest.parent, exist_ok=True)
-    a.ifc_file.write(str(dest))
+    f.write(str(dest))
     a._source_ifc_files = dict()
 
 
-def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=False):
+def add_part_objects_to_ifc(p: Part, f: ifcopenshell.file, assembly: Assembly, ifc_include_fem=False):
     # TODO: Consider having all of these operations happen upon import of elements as opposed to one big operation
     #  on export
+    from ifcopenshell.util.element import get_container
 
     part_ifc = p.get_ifc_elem()
     owner_history = assembly.user.to_ifc()
@@ -90,8 +105,18 @@ def add_part_objects_to_ifc(p: Part, f, assembly: Assembly, ifc_include_fem=Fals
             ifc_file = shp.metadata["ifc_file"]
             ifc_f = assembly.get_ifc_source_by_name(ifc_file)
             ifc_elem = ifc_f.by_guid(shp.guid)
-            f.add(ifc_elem)
-            physical_objects.append(ifc_elem)
+            new_ifc_elem = f.add(ifc_elem)
+
+            res = get_container(new_ifc_elem)
+
+            if res is not None:
+                parent_ifc_elem_guid = str(res.GlobalId, encoding='utf-8')
+                parent_guid = str(shp.parent.guid, encoding='utf-8')
+                if parent_ifc_elem_guid != parent_guid:
+                    parent_ifc_elem = f.by_guid(shp.parent.guid)
+                    logging.warning('Parent')
+
+            physical_objects.append(new_ifc_elem)
         else:
             ifc_shape = write_ifc_shape(shp)
             f.add(ifc_shape)

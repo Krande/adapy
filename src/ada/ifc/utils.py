@@ -29,6 +29,7 @@ def get_tolerance(units):
 
 
 def create_guid(name=None):
+    """Creates a guid from a random name or bytes or generates a random guid"""
     import hashlib
     import uuid
 
