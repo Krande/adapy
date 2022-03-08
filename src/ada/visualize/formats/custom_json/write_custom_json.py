@@ -54,7 +54,7 @@ def to_custom_json(
     output_file_path = pathlib.Path(output_file_path)
     os.makedirs(output_file_path.parent, exist_ok=True)
     with open(output_file_path, "w") as f:
-        json.dump(output, f, indent=indent)
+        json.dump(output.to_dict(), f, indent=indent)
 
 
 def bump_version(name, url, version_file, refresh_ver_file=False):
