@@ -1077,8 +1077,9 @@ class Assembly(Part):
         if destination_file is None or return_file_obj is True:
             destination_file = "object"
         else:
-            destination_file = pathlib.Path(destination_file)
-        print(f'Beginning writing to IFC file "{destination_file.resolve().absolute()}" using IfcOpenShell')
+            destination_file = pathlib.Path(destination_file).resolve().absolute()
+
+        print(f'Beginning writing to IFC file "{destination_file}" using IfcOpenShell')
         file_obj = write_to_ifc(
             destination_file,
             self,

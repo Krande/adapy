@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, List, Union
 
 from ada.concepts.transforms import Placement
 from ada.core.constants import color_map as _cmap
-from ada.visualize.formats.custom_json import ExportConfig
+from ada.visualize.formats.assembly_mesh import ExportConfig
 
 from .non_phyical_objects import Backend
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from ada.fem import Elem
     from ada.fem.meshing import GmshOptions
     from ada.ifc.concepts import IfcRef
-    from ada.visualize.concept import CustomJson
+    from ada.visualize.concept import AssemblyMesh
 
 
 class BackendGeom(Backend):
@@ -116,12 +116,12 @@ class BackendGeom(Backend):
         step_export.add_to_step_writer(self, geom_repr, fuse_piping=fuse_piping)
         return step_export.write_to_file(destination_file, silent, return_file_obj=return_file_obj)
 
-    def to_custom_json(
+    def to_assembly_mesh(
         self, dest_path=None, data_type=None, export_config=ExportConfig(), return_file_obj=False
-    ) -> Union[None, CustomJson]:
-        from ada.visualize.formats.custom_json import to_custom_json
+    ) -> Union[None, AssemblyMesh]:
+        from ada.visualize.formats.assembly_mesh import to_assembly_mesh
 
-        return to_custom_json(
+        return to_assembly_mesh(
             self, dest_path, export_config=export_config, data_type=data_type, return_file_obj=return_file_obj
         )
 

@@ -17,8 +17,10 @@ def test_viz_structural(dummy_display):
     ]
     a = Assembly("my_test_assembly") / components
 
-    dummy_display(a)
+    res = a.to_assembly_mesh(return_file_obj=True)
+    merged = res.merge_objects_in_parts_by_color()
 
-
-def test_beam_shell(test_shell_beam, dummy_display):
-    dummy_display(test_shell_beam)
+    assert res.num_polygons == 416
+    assert len(res.world[0].id_map.values()) == 6
+    assert merged.num_polygons == 416
+    assert len(merged.world[0].id_map.values()) == 4

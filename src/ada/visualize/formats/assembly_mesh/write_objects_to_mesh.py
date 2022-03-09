@@ -11,7 +11,7 @@ from ada.occ.exceptions.geom_creation import (
     UnableToCreateSolidOCCGeom,
     UnableToCreateTesselationFromSolidOCCGeom,
 )
-from ada.visualize.concept import PolyModel
+from ada.visualize.concept import ObjectMesh
 from ada.visualize.renderer_occ import occ_shape_to_faces
 
 from .config import ExportConfig
@@ -20,12 +20,12 @@ if TYPE_CHECKING:
     from ada import Beam, PipeSegElbow, PipeSegStraight, Plate, Shape, Wall
 
 
-def list_of_obj_to_json(
+def list_of_obj_to_object_mesh_map(
     list_of_all_objects: Iterable[Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape]],
     obj_num: int,
     all_obj_num: int,
     export_config: ExportConfig,
-) -> Dict[str, PolyModel]:
+) -> Dict[str, ObjectMesh]:
     from ada import Pipe
 
     id_map = dict()
@@ -33,13 +33,13 @@ def list_of_obj_to_json(
         obj_num += 1
         if isinstance(obj, Pipe):
             for seg in obj.segments:
-                res = obj_to_json(seg, export_config)
+                res = obj_to_mesh(seg, export_config)
                 if res is None:
                     continue
                 id_map[seg.guid] = res
                 print(f'Exporting "{obj.name}" ({obj_num} of {all_obj_num})')
         else:
-            res = obj_to_json(obj, export_config)
+            res = obj_to_mesh(obj, export_config)
             if res is None:
                 continue
             id_map[obj.guid] = res
@@ -94,9 +94,9 @@ def occ_geom_to_poly_mesh(
     return obj_position, poly_indices, normals, [*obj.colour_norm, obj.opacity]
 
 
-def obj_to_json(
+def obj_to_mesh(
     obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape], export_config: ExportConfig = ExportConfig()
-) -> Union[PolyModel, None]:
+) -> Union[ObjectMesh, None]:
     if obj.ifc_ref is not None and export_config.ifc_skip_occ is True:
         try:
             position, indices, normals, colour = ifc_elem_to_json(obj)
@@ -125,13 +125,13 @@ def obj_to_json(
 
         position -= export_config.volume_center
 
-    return PolyModel(obj.guid, indices, position, normals, colour, translation=export_config.volume_center)
+    return ObjectMesh(obj.guid, indices, position, normals, colour, translation=export_config.volume_center)
 
 
 def id_map_using_threading(list_in, threads: int):
     # obj = list_in[0]
     # obj_str = json.dumps(obj)
     # serialize_evaluator(obj)
-    res = thread_this(list_in, obj_to_json, threads)
+    res = thread_this(list_in, obj_to_mesh, threads)
     print(res)
     return res

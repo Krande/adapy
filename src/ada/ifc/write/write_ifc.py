@@ -74,7 +74,6 @@ def write_to_ifc(
 def add_part_objects_to_ifc(p: Part, f: ifcopenshell.file, assembly: Assembly, ifc_include_fem=False):
     # TODO: Consider having all of these operations happen upon import of elements as opposed to one big operation
     #  on export
-    from ifcopenshell.util.element import get_container
 
     part_ifc = p.get_ifc_elem()
     owner_history = assembly.user.to_ifc()

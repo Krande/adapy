@@ -15,6 +15,7 @@ from ipywidgets import Dropdown, HBox, VBox
 
 from ada.fem.formats import FEATypes
 from ada.visualize.femviz import get_edges_and_faces_from_meshio, magnitude
+from ada.visualize.formats.assembly_mesh import ExportConfig
 from ada.visualize.renderer_pythreejs import MyRenderer
 from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
@@ -26,6 +27,7 @@ from .formats.sesam.results import read_sesam_results
 
 if TYPE_CHECKING:
     from ada import Assembly
+    from ada.visualize.concept import AssemblyMesh
 
 
 class Results:
@@ -157,6 +159,15 @@ class Results:
                     i += 1
 
         workbook.close()
+
+    def to_assembly_mesh(
+        self, dest_path=None, data_type=None, export_config=ExportConfig(), return_file_obj=False
+    ) -> Union[None, AssemblyMesh]:
+        from ada.visualize.formats.assembly_mesh import to_assembly_mesh
+
+        return to_assembly_mesh(
+            self, dest_path, export_config=export_config, data_type=data_type, return_file_obj=return_file_obj
+        )
 
     @property
     def name(self):
