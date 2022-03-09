@@ -31,6 +31,8 @@ def list_of_obj_to_object_mesh_map(
     id_map = dict()
     for obj in list_of_all_objects:
         obj_num += 1
+        if obj.guid not in export_config.data_filter.filter_elements_by_guid:
+            continue
         if isinstance(obj, Pipe):
             for seg in obj.segments:
                 res = obj_to_mesh(seg, export_config)
@@ -115,15 +117,6 @@ def obj_to_mesh(
         x, y, z, nx, ny, nz = buffer.T
         position = np.array([x, y, z]).T
         normals = np.array([nx, ny, nz]).T
-
-    if export_config.auto_center_model is True:
-        if export_config.volume_center is None:
-            max_verts = position.max(axis=0)
-            min_verts = position.min(axis=0)
-            center = (min_verts + max_verts) / 2
-            export_config.volume_center = center
-
-        position -= export_config.volume_center
 
     return ObjectMesh(obj.guid, indices, position, normals, colour, translation=export_config.volume_center)
 

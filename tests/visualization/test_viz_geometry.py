@@ -17,7 +17,7 @@ def test_viz_structural(dummy_display):
     ]
     a = Assembly("my_test_assembly") / components
 
-    res = a.to_assembly_mesh(return_file_obj=True)
+    res = a.to_assembly_mesh()
     merged = res.merge_objects_in_parts_by_color()
 
     assert res.num_polygons == 416

@@ -50,6 +50,7 @@ if TYPE_CHECKING:
     from ada.fem.meshing import GmshOptions
     from ada.fem.results import Results
     from ada.ifc.concepts import IfcRef
+    from ada.visualize.concept import AssemblyMesh
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 
@@ -396,8 +397,8 @@ class Part(BackendGeom):
             list_of_ps += [self]
         return list_of_ps
 
-    def get_all_subparts(self) -> List[Part]:
-        list_of_parts = []
+    def get_all_subparts(self, include_self=False) -> List[Part]:
+        list_of_parts = [] if include_self is False else [self]
         self._flatten_list_of_subparts(self, list_of_parts)
         return list_of_parts
 
@@ -527,6 +528,35 @@ class Part(BackendGeom):
             fem.add_mass(Mass(f"{mass_shape.name}_mass", [n], mass_shape.mass))
 
         return fem
+
+    def to_assembly_mesh(self, export_config=None) -> AssemblyMesh:
+        from ada.visualize.concept import AssemblyMesh
+        from ada.visualize.formats.assembly_mesh import ExportConfig
+        from ada.visualize.formats.assembly_mesh.write_part_to_mesh import (
+            generate_meta,
+            part_to_part_mesh,
+        )
+
+        if export_config is None:
+            export_config = ExportConfig()
+
+        all_obj_num = len(list(self.get_all_physical_objects()))
+        print(f"Exporting {all_obj_num} physical objects to custom json format.")
+
+        obj_num = 0
+        part_array = []
+        for p in self.get_all_subparts(include_self=True):
+            pjson = part_to_part_mesh(p, export_config, obj_num, all_obj_num)
+            part_array.append(pjson)
+
+        amesh = AssemblyMesh(
+            name=self.name,
+            project=self.metadata.get("project", "DummyProject"),
+            world=part_array,
+            meta=generate_meta(self, export_config),
+        )
+
+        return amesh
 
     @property
     def parts(self) -> dict[str, Part]:

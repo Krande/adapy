@@ -15,7 +15,6 @@ from ipywidgets import Dropdown, HBox, VBox
 
 from ada.fem.formats import FEATypes
 from ada.visualize.femviz import get_edges_and_faces_from_meshio, magnitude
-from ada.visualize.formats.assembly_mesh import ExportConfig
 from ada.visualize.renderer_pythreejs import MyRenderer
 from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
@@ -160,14 +159,31 @@ class Results:
 
         workbook.close()
 
-    def to_assembly_mesh(
-        self, dest_path=None, data_type=None, export_config=ExportConfig(), return_file_obj=False
-    ) -> Union[None, AssemblyMesh]:
-        from ada.visualize.formats.assembly_mesh import to_assembly_mesh
+    def to_assembly_mesh(self, data_type) -> Union[None, AssemblyMesh]:
+        from ada.ifc.utils import create_guid
+        from ada.visualize.concept import AssemblyMesh, ObjectMesh, PartMesh
 
-        return to_assembly_mesh(
-            self, dest_path, export_config=export_config, data_type=data_type, return_file_obj=return_file_obj
-        )
+        name = self.assembly.name
+        res_mesh = self.result_mesh
+        data = np.asarray(res_mesh.mesh.point_data[data_type], dtype="float32")
+        vertices = np.asarray([x + u[:3] for x, u in zip(res_mesh.vertices, data)], dtype="float32")
+        colors = res_mesh.colorize_data(data)
+        faces = res_mesh.faces
+        guid = create_guid(name)
+        id_map = {
+            guid: ObjectMesh(
+                guid=guid,
+                index=faces.astype(int),
+                position=vertices.flatten().astype(float),
+                normal=None,
+                color=None,
+                vertexColor=colors.flatten().astype(float),
+                instances=None,
+            )
+        }
+        pm = PartMesh(name=name, rawdata=True, id_map=id_map, guiparam=None)
+        project = self.assembly.metadata.get("project", "DummyProject")
+        return AssemblyMesh(name=name, project=project, world=[pm], meta=None)
 
     @property
     def name(self):

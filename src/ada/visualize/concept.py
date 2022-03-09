@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Union
@@ -21,6 +22,11 @@ class AssemblyMesh:
         if self.created is None:
             self.created = datetime.datetime.utcnow().strftime("%m/%d/%Y, %H:%M:%S")
 
+    def move_objects_to_center(self, override_center=None):
+        for pm in self.world:
+            oc = override_center if override_center is not None else -self.vol_center
+            pm.move_objects_to_center(oc)
+
     @property
     def vol_center(self):
         return (self.bbox[0] + self.bbox[1]) / 2
@@ -34,14 +40,19 @@ class AssemblyMesh:
     def num_polygons(self):
         return sum([x.num_polygons for x in self.world])
 
-    def to_custom_json(self):
-        return {
+    def to_custom_json(self, dest_path=None):
+        output = {
             "name": self.name,
             "created": self.created,
             "project": self.project,
             "world": [x.to_custom_json() for x in self.world],
             "meta": self.meta,
         }
+        if dest_path is None:
+            return output
+
+        with open(dest_path, "w") as f:
+            json.dump(output, f)
 
     def merge_objects_in_parts_by_color(self) -> AssemblyMesh:
         part_list = []
@@ -64,6 +75,15 @@ class PartMesh:
     rawdata: bool
     id_map: Dict[str, ObjectMesh]
     guiparam: Union[None, dict] = None
+
+    def move_objects_to_center(self, override_center=None):
+        for omesh in self.id_map.values():
+            oc = override_center if override_center is not None else self.vol_center
+            omesh.translate(oc)
+
+    @property
+    def vol_center(self):
+        return (self.bbox[0] + self.bbox[1]) / 2
 
     @property
     def bbox(self):
@@ -117,30 +137,23 @@ class ObjectMesh:
     id_sequence: dict = field(default_factory=dict)
     translation: np.ndarray = None
 
+    def translate(self, translation):
+        self.position += translation
+
     @property
     def num_polygons(self):
         return int(len(self.index) / 3)
 
     @property
     def bbox(self):
-        pos: np.ndarray = self.position.reshape(int(len(self.position) / 3), 3)
-        return pos.min(0), pos.max(0)
-
-    def __post_init__(self):
-        pos_shape = np.shape(self.position)
-        normal_shape = np.shape(self.normal)
-
-        if len(pos_shape) > 1 and pos_shape[1] == 3:
-            self.position = self.position.flatten().astype(float)
-        if len(normal_shape) > 1 and normal_shape[1] == 3:
-            self.normal = self.normal.flatten().astype(float)
+        return self.position.min(0), self.position.max(0)
 
     def to_custom_json(self):
-        normal = self.normal.astype(float).tolist() if self.normal is not None else self.normal
+        normal = self.normal.astype(float).flatten().tolist() if self.normal is not None else self.normal
         translation = self.translation.astype(float).tolist() if self.translation is not None else None
         return dict(
-            index=self.index.astype(int).tolist(),
-            position=self.position.astype(float).tolist(),
+            index=self.index.astype(int).flatten().tolist(),
+            position=self.position.astype(float).flatten().tolist(),
             normal=normal,
             color=self.color,
             vertexColor=self.vertexColor,
@@ -156,7 +169,10 @@ class ObjectMesh:
         mi = int(len(self.index))
 
         self.index = np.concatenate([self.index, new_index])
-        self.position = np.concatenate([self.position, other.position])
+        if len(self.position) == 0:
+            self.position = other.position
+        else:
+            self.position = np.concatenate([self.position, other.position])
 
         if self.color is None:
             self.color = other.color
@@ -171,7 +187,10 @@ class ObjectMesh:
         if self.normal is None or other.normal is None:
             self.normal = None
         else:
-            self.normal = np.concatenate([self.normal, other.normal])
+            if len(self.normal) == 0:
+                self.normal = other.normal
+            else:
+                self.normal = np.concatenate([self.normal, other.normal])
 
         self.id_sequence[other.guid] = (mi, ma)
         return self
