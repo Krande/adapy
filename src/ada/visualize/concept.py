@@ -151,12 +151,13 @@ class ObjectMesh:
     def to_custom_json(self):
         normal = self.normal.astype(float).flatten().tolist() if self.normal is not None else self.normal
         translation = self.translation.astype(float).tolist() if self.translation is not None else None
+        vert_color = self.vertexColor.astype(float).tolist() if self.vertexColor is not None else None
         return dict(
             index=self.index.astype(int).flatten().tolist(),
             position=self.position.astype(float).flatten().tolist(),
             normal=normal,
             color=self.color,
-            vertexColor=self.vertexColor,
+            vertexColor=vert_color,
             instances=self.instances,
             id_sequence=self.id_sequence,
             translation=translation,

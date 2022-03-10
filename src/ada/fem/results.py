@@ -179,6 +179,7 @@ class Results:
                 color=None,
                 vertexColor=colors.flatten().astype(float),
                 instances=None,
+                # id_sequence=dict()
             )
         }
         pm = PartMesh(name=name, rawdata=True, id_map=id_map, guiparam=None)
