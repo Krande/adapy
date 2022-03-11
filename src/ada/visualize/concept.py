@@ -40,6 +40,20 @@ class AssemblyMesh:
     def num_polygons(self):
         return sum([x.num_polygons for x in self.world])
 
+    def to_binary_and_json(self, dest_path):
+        output = {
+            "name": self.name,
+            "created": self.created,
+            "project": self.project,
+            "world": [x.to_custom_json() for x in self.world],
+            "meta": self.meta,
+        }
+        if dest_path is None:
+            return output
+
+        with open(dest_path, "w") as f:
+            json.dump(output, f)
+
     def to_custom_json(self, dest_path=None):
         output = {
             "name": self.name,
@@ -147,6 +161,21 @@ class ObjectMesh:
     @property
     def bbox(self):
         return self.position.min(0), self.position.max(0)
+
+    def to_binary_json(self):
+        normal = self.normal.astype(float).flatten().tolist() if self.normal is not None else self.normal
+        translation = self.translation.astype(float).tolist() if self.translation is not None else None
+        vert_color = self.vertexColor.astype(float).tolist() if self.vertexColor is not None else None
+        return dict(
+            index=self.index.astype(int).flatten().tolist(),
+            position=self.position.astype(float).flatten().tolist(),
+            normal=normal,
+            color=self.color,
+            vertexColor=vert_color,
+            instances=self.instances,
+            id_sequence=self.id_sequence,
+            translation=translation,
+        )
 
     def to_custom_json(self):
         normal = self.normal.astype(float).flatten().tolist() if self.normal is not None else self.normal
