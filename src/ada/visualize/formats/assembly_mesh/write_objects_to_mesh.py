@@ -47,7 +47,7 @@ def list_of_obj_to_object_mesh_map(
             if res is None:
                 continue
             id_map[obj.guid] = res
-            print(f'Exporting "{obj.name}" ({obj_num} of {all_obj_num})')
+            print(f'Exporting "{obj.name}" [{obj.get_assembly().name}] ({obj_num} of {all_obj_num})')
 
     return id_map
 
