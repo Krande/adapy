@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import pathlib
 from dataclasses import dataclass, field
 from typing import Dict, List, Union
 
@@ -41,6 +42,17 @@ class AssemblyMesh:
         return sum([x.num_polygons for x in self.world])
 
     def to_binary_and_json(self, dest_path):
+        for world in self.world:
+
+            for key, value in world.id_map.items():
+                value.to_binary_json('temp')
+            wrld_obj = {
+                "name": world.name,
+                "rawdata": world.rawdata,
+                "guiParam": world.guiparam,
+                "id_map": {key: value.to_binary_json() for key, value in world.id_map.items()},
+            }
+
         output = {
             "name": self.name,
             "created": self.created,
@@ -146,7 +158,7 @@ class ObjectMesh:
     position: np.ndarray
     normal: Union[np.ndarray, None]
     color: Union[list, None] = None
-    vertexColor: np.ndarray = None
+    vertex_color: np.ndarray = None
     instances: Union[np.ndarray, None] = None
     id_sequence: dict = field(default_factory=dict)
     translation: np.ndarray = None
@@ -162,35 +174,64 @@ class ObjectMesh:
     def bbox(self):
         return self.position.min(0), self.position.max(0)
 
-    def to_binary_json(self):
-        normal = self.normal.astype(float).flatten().tolist() if self.normal is not None else self.normal
-        translation = self.translation.astype(float).tolist() if self.translation is not None else None
-        vert_color = self.vertexColor.astype(float).tolist() if self.vertexColor is not None else None
+    def to_binary_json(self, dest_dir):
+        dest_dir = pathlib.Path(dest_dir)
+        np.save(str(dest_dir / f"{self.guid}_p"), np.ndarray([self.position_flat, self.normal_flat]))
+        np.save(str(dest_dir / f"{self.guid}_i"), self.index_flat)
         return dict(
-            index=self.index.astype(int).flatten().tolist(),
-            position=self.position.astype(float).flatten().tolist(),
-            normal=normal,
+            index=self.index_norm_flat,
+            position=self.position_norm_flat,
+            normal=self.normal_norm_flat,
             color=self.color,
-            vertexColor=vert_color,
+            vertexColor=self.vertex_color_norm,
             instances=self.instances,
             id_sequence=self.id_sequence,
-            translation=translation,
+            translation=self.translation_norm,
         )
 
     def to_custom_json(self):
-        normal = self.normal.astype(float).flatten().tolist() if self.normal is not None else self.normal
-        translation = self.translation.astype(float).tolist() if self.translation is not None else None
-        vert_color = self.vertexColor.astype(float).tolist() if self.vertexColor is not None else None
         return dict(
-            index=self.index.astype(int).flatten().tolist(),
-            position=self.position.astype(float).flatten().tolist(),
-            normal=normal,
+            index=self.index_norm_flat,
+            position=self.position_norm_flat,
+            normal=self.normal_norm_flat,
             color=self.color,
-            vertexColor=vert_color,
+            vertexColor=self.vertex_color_norm,
             instances=self.instances,
             id_sequence=self.id_sequence,
-            translation=translation,
+            translation=self.translation_norm,
         )
+
+    @property
+    def index_flat(self):
+        return self.index.astype(int).flatten()
+
+    @property
+    def index_norm_flat(self):
+        return self.index_flat.tolist()
+
+    @property
+    def position_flat(self):
+        return self.position.astype(dtype="float32").flatten()
+
+    @property
+    def position_norm_flat(self):
+        return self.position_flat.tolist()
+
+    @property
+    def normal_flat(self):
+        return self.normal.astype(float).flatten() if self.normal is not None else self.normal
+
+    @property
+    def normal_norm_flat(self):
+        return self.normal_flat if self.normal is not None else self.normal
+
+    @property
+    def vertex_color_norm(self):
+        return self.vertex_color.astype(float).tolist() if self.vertex_color is not None else None
+
+    @property
+    def translation_norm(self):
+        return self.translation.astype(float).tolist() if self.translation is not None else None
 
     def __add__(self, other: ObjectMesh):
         pos_len = int(len(self.position) / 3)
