@@ -32,7 +32,8 @@ def list_of_obj_to_object_mesh_map(
     guid_filter = export_config.data_filter.filter_elements_by_guid
     for obj in list_of_all_objects:
         obj_num += 1
-
+        if export_config.max_convert_objects is not None and obj_num > export_config.max_convert_objects:
+            return None
         if guid_filter is not None and obj.guid not in guid_filter:
             continue
         if isinstance(obj, Pipe):

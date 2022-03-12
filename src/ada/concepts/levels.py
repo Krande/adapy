@@ -551,6 +551,8 @@ class Part(BackendGeom):
             id_map = list_of_obj_to_object_mesh_map(p.get_all_physical_objects(), obj_num, all_obj_num, export_config)
             obj_num += len(list(p.get_all_physical_objects()))
             if id_map is None:
+                if export_config.max_convert_objects is not None and obj_num > export_config.max_convert_objects:
+                    return None
                 print(f'Part "{p.name}" has no physical members. Skipping.')
                 continue
             for inst in p.instances.values():

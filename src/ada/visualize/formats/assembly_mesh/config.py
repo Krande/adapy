@@ -22,3 +22,4 @@ class ExportConfig:
     # Position of model
     volume_center: Union[None, np.ndarray] = None
     auto_center_model: bool = True
+    max_convert_objects: int = None
