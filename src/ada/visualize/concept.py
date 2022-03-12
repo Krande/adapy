@@ -21,15 +21,16 @@ class VisMesh:
     world: List[PartMesh]
     meta: Union[None, dict]
     created: str = None
+    translation: np.ndarray = None
 
     def __post_init__(self):
         if self.created is None:
             self.created = datetime.datetime.utcnow().strftime("%m/%d/%Y, %H:%M:%S")
 
     def move_objects_to_center(self, override_center=None):
+        self.translation = override_center if override_center is not None else -self.vol_center
         for pm in self.world:
-            oc = override_center if override_center is not None else -self.vol_center
-            pm.move_objects_to_center(oc)
+            pm.move_objects_to_center(self.translation)
 
     @property
     def vol_center(self):
@@ -80,6 +81,7 @@ class VisMesh:
             "project": self.project,
             "world": [x.to_custom_json() for x in self.world],
             "meta": self.meta,
+            "translation": self.translation.tolist() if self.translation is not None else None
         }
         if dest_path is None:
             return output
