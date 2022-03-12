@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Union
 
 import ada
-from ada.visualize.concept import AssemblyMesh, PartMesh
+from ada.visualize.concept import VisMesh, PartMesh
 
 from .config import ExportConfig
 
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from ada import Part
 
 
-def export_part_to_assembly_mesh(part: "Part", export_config: ExportConfig) -> Union[None, AssemblyMesh]:
+def export_part_to_assembly_mesh(part: "Part", export_config: ExportConfig) -> Union[None, VisMesh]:
     all_obj_num = len(list(part.get_all_physical_objects()))
     print(f"Exporting {all_obj_num} physical objects to custom json format.")
 
@@ -21,7 +21,7 @@ def export_part_to_assembly_mesh(part: "Part", export_config: ExportConfig) -> U
         pjson = part_to_part_mesh(p, export_config, obj_num, all_obj_num)
         part_array.append(pjson)
 
-    return AssemblyMesh(
+    return VisMesh(
         name=part.name,
         project=part.metadata.get("project", "DummyProject"),
         world=part_array,

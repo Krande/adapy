@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ada.visualize.concept import AssemblyMesh, PartMesh
+from ada.visualize.concept import VisMesh, PartMesh
 
 from .config import ExportConfig
 from .write_objects_to_mesh import obj_to_mesh
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from ada.concepts.connections import JointBase
 
 
-def export_joint_to_assembly_mesh(joint: "JointBase", export_config: ExportConfig) -> AssemblyMesh:
+def export_joint_to_assembly_mesh(joint: "JointBase", export_config: ExportConfig) -> VisMesh:
     all_obj = [obj for obj in joint.beams]
     all_obj_num = len(all_obj)
 
@@ -29,7 +29,7 @@ def export_joint_to_assembly_mesh(joint: "JointBase", export_config: ExportConfi
 
     meta = generate_meta(joint.parent, export_config) if joint.parent is not None else None
 
-    return AssemblyMesh(
+    return VisMesh(
         name=joint.name,
         project=joint.metadata.get("project", "DummyProject"),
         world=[PartMesh(joint.name, True, id_map, None)],

@@ -17,7 +17,7 @@ def test_viz_structural():
     ]
     a = Assembly("my_test_assembly") / components
 
-    res = a.to_assembly_mesh()
+    res = a.to_vis_mesh()
     merged = res.merge_objects_in_parts_by_color()
 
     assert res.num_polygons == 416
@@ -40,7 +40,10 @@ def test_viz_to_binary_json():
             use3dnodes=True,
         ),
     ]
+
     a = Assembly("my_test_assembly") / components
 
-    res = a.to_assembly_mesh()
-    res.to_binary_and_json("temp")
+    res = a.to_vis_mesh()
+
+    res.to_binary_and_json("temp/beams")
+    res.to_custom_json("temp/beams.json")

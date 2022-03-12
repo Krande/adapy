@@ -26,7 +26,7 @@ from .formats.sesam.results import read_sesam_results
 
 if TYPE_CHECKING:
     from ada import Assembly
-    from ada.visualize.concept import AssemblyMesh
+    from ada.visualize.concept import VisMesh
 
 
 class Results:
@@ -159,9 +159,9 @@ class Results:
 
         workbook.close()
 
-    def to_assembly_mesh(self, data_type) -> Union[None, AssemblyMesh]:
+    def to_assembly_mesh(self, data_type) -> Union[None, VisMesh]:
         from ada.ifc.utils import create_guid
-        from ada.visualize.concept import AssemblyMesh, ObjectMesh, PartMesh
+        from ada.visualize.concept import VisMesh, ObjectMesh, PartMesh
 
         name = self.assembly.name
         res_mesh = self.result_mesh
@@ -184,7 +184,7 @@ class Results:
         }
         pm = PartMesh(name=name, rawdata=True, id_map=id_map, guiparam=None)
         project = self.assembly.metadata.get("project", "DummyProject")
-        return AssemblyMesh(name=name, project=project, world=[pm], meta=None)
+        return VisMesh(name=name, project=project, world=[pm], meta=None)
 
     @property
     def name(self):

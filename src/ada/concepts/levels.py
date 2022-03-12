@@ -50,7 +50,7 @@ if TYPE_CHECKING:
     from ada.fem.meshing import GmshOptions
     from ada.fem.results import Results
     from ada.ifc.concepts import IfcRef
-    from ada.visualize.concept import AssemblyMesh
+    from ada.visualize.concept import VisMesh
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 
@@ -407,9 +407,9 @@ class Part(BackendGeom):
     ) -> Iterable[Union[Beam, Plate, Wall, Pipe, Shape]]:
         physical_objects = []
         if sub_elements_only:
-            iter_parts = iter(self.get_all_subparts() + [self])
+            iter_parts = iter([self])
         else:
-            iter_parts = iter(self.get_all_parts_in_assembly(True))
+            iter_parts = iter(self.get_all_subparts() + [self])
 
         for p in iter_parts:
             all_as_iterable = chain(p.plates, p.beams, p.shapes, p.pipes, p.walls)
@@ -529,27 +529,34 @@ class Part(BackendGeom):
 
         return fem
 
-    def to_assembly_mesh(self, export_config=None) -> AssemblyMesh:
-        from ada.visualize.concept import AssemblyMesh
+    def to_vis_mesh(self, export_config=None) -> VisMesh:
+        from ada.visualize.concept import VisMesh, PartMesh
         from ada.visualize.formats.assembly_mesh import ExportConfig
         from ada.visualize.formats.assembly_mesh.write_part_to_mesh import (
             generate_meta,
-            part_to_part_mesh,
+        )
+        from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import (
+            list_of_obj_to_object_mesh_map,
         )
 
         if export_config is None:
             export_config = ExportConfig()
 
-        all_obj_num = len(list(self.get_all_physical_objects()))
+        all_obj_num = len(list(self.get_all_physical_objects(sub_elements_only=False)))
         print(f"Exporting {all_obj_num} physical objects to custom json format.")
 
         obj_num = 0
         part_array = []
         for p in self.get_all_subparts(include_self=True):
-            pjson = part_to_part_mesh(p, export_config, obj_num, all_obj_num)
-            part_array.append(pjson)
+            id_map = list_of_obj_to_object_mesh_map(p.get_all_physical_objects(), obj_num, all_obj_num, export_config)
+            if id_map is None:
+                print(f'Part "{p.name}" has no physical members. Skipping.')
+                continue
+            for inst in p.instances.values():
+                id_map[inst.instance_ref.guid].instances = inst.to_list_of_custom_json_matrices()
+            part_array.append(PartMesh(name=p.name, rawdata=True, guiparam=None, id_map=id_map))
 
-        amesh = AssemblyMesh(
+        amesh = VisMesh(
             name=self.name,
             project=self.metadata.get("project", "DummyProject"),
             world=part_array,

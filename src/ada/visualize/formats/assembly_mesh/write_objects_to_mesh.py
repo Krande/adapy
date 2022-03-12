@@ -25,7 +25,7 @@ def list_of_obj_to_object_mesh_map(
     obj_num: int,
     all_obj_num: int,
     export_config: ExportConfig,
-) -> Dict[str, ObjectMesh]:
+) -> Union[None, Dict[str, ObjectMesh]]:
     from ada import Pipe
 
     id_map = dict()
@@ -48,6 +48,9 @@ def list_of_obj_to_object_mesh_map(
                 continue
             id_map[obj.guid] = res
             print(f'Exporting "{obj.name}" [{obj.get_assembly().name}] ({obj_num} of {all_obj_num})')
+
+    if len(id_map) == 0:
+        return None
 
     return id_map
 

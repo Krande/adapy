@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from ada.base.physical_objects import BackendGeom
     from ada.concepts.connections import JointBase
     from ada.fem.results import Results
-    from ada.visualize.concept import AssemblyMesh
+    from ada.visualize.concept import VisMesh
 
 
 def to_assembly_mesh(
@@ -22,7 +22,7 @@ def to_assembly_mesh(
     export_config: ExportConfig = ExportConfig(),
     return_file_obj=False,
     indent=None,
-) -> Union[None, AssemblyMesh]:
+) -> Union[None, VisMesh]:
     from ada import Part
     from ada.concepts.connections import JointBase
     from ada.fem.results import Results

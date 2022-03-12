@@ -3,7 +3,9 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import os
 import pathlib
+import shutil
 from dataclasses import dataclass, field
 from typing import Dict, List, Union
 
@@ -11,7 +13,8 @@ import numpy as np
 
 
 @dataclass
-class AssemblyMesh:
+class VisMesh:
+    """Visual Mesh"""
     name: str
 
     project: str
@@ -42,28 +45,32 @@ class AssemblyMesh:
         return sum([x.num_polygons for x in self.world])
 
     def to_binary_and_json(self, dest_path):
-        for world in self.world:
+        dest_path = pathlib.Path(dest_path)
 
-            for key, value in world.id_map.items():
-                value.to_binary_json('temp')
+        if dest_path.exists():
+            shutil.rmtree(dest_path)
+
+        wrld = []
+        for world in self.world:
             wrld_obj = {
                 "name": world.name,
                 "rawdata": world.rawdata,
                 "guiParam": world.guiparam,
-                "id_map": {key: value.to_binary_json() for key, value in world.id_map.items()},
+                "id_map": {key: value.to_binary_json(dest_path / "data") for key, value in world.id_map.items()},
             }
+            wrld.append(wrld_obj)
 
         output = {
             "name": self.name,
             "created": self.created,
             "project": self.project,
-            "world": [x.to_custom_json() for x in self.world],
+            "world": wrld,
             "meta": self.meta,
         }
         if dest_path is None:
             return output
 
-        with open(dest_path, "w") as f:
+        with open((dest_path / self.name).with_suffix('.json'), "w") as f:
             json.dump(output, f)
 
     def to_custom_json(self, dest_path=None):
@@ -80,19 +87,19 @@ class AssemblyMesh:
         with open(dest_path, "w") as f:
             json.dump(output, f)
 
-    def merge_objects_in_parts_by_color(self) -> AssemblyMesh:
+    def merge_objects_in_parts_by_color(self) -> VisMesh:
         part_list = []
         for pmesh in self.world:
             part_list.append(pmesh.merge_by_color())
-        return AssemblyMesh(name=self.name, created=self.created, project=self.project, world=part_list, meta=self.meta)
+        return VisMesh(name=self.name, created=self.created, project=self.project, world=part_list, meta=self.meta)
 
-    def __add__(self, other: AssemblyMesh):
+    def __add__(self, other: VisMesh):
         new_meta = dict()
         if self.meta is not None:
             new_meta.update(self.meta)
         if other.meta is not None:
             new_meta.update(other.meta)
-        return AssemblyMesh(name=self.name, project=self.project, world=self.world + other.world, meta=new_meta)
+        return VisMesh(name=self.name, project=self.project, world=self.world + other.world, meta=new_meta)
 
 
 @dataclass
@@ -174,16 +181,27 @@ class ObjectMesh:
     def bbox(self):
         return self.position.min(0), self.position.max(0)
 
-    def to_binary_json(self, dest_dir):
-        dest_dir = pathlib.Path(dest_dir)
-        np.save(str(dest_dir / f"{self.guid}_p"), np.ndarray([self.position_flat, self.normal_flat]))
-        np.save(str(dest_dir / f"{self.guid}_i"), self.index_flat)
+    def to_binary_json(self, dest_dir, compressed=False):
+        from ada.ifc.utils import create_guid
+        dest_dir = pathlib.Path(dest_dir).resolve().absolute()
+        pos_guid = create_guid()
+        norm_guid = create_guid()
+        index_guid = create_guid()
+        vertex_guid = create_guid() if self.vertex_color is not None else None
+        os.makedirs(dest_dir, exist_ok=True)
+        save_func = np.save if compressed else np.savez_compressed
+        np.save(str(dest_dir / pos_guid), self.position_flat)
+        np.save(str(dest_dir / norm_guid), self.normal_flat)
+        np.save(str(dest_dir / index_guid), self.index_flat)
+        if vertex_guid is not None:
+            np.save(str(dest_dir / vertex_guid), self.vertex_color)
+
         return dict(
-            index=self.index_norm_flat,
-            position=self.position_norm_flat,
-            normal=self.normal_norm_flat,
+            index=index_guid+'.npy',
+            position=pos_guid+'.npy',
+            normal=norm_guid+'.npy',
             color=self.color,
-            vertexColor=self.vertex_color_norm,
+            vertexColor=vertex_guid+'.npy' if vertex_guid is not None else None,
             instances=self.instances,
             id_sequence=self.id_sequence,
             translation=self.translation_norm,
@@ -219,19 +237,19 @@ class ObjectMesh:
 
     @property
     def normal_flat(self):
-        return self.normal.astype(float).flatten() if self.normal is not None else self.normal
+        return self.normal.astype(dtype="float32").flatten() if self.normal is not None else self.normal
 
     @property
     def normal_norm_flat(self):
-        return self.normal_flat if self.normal is not None else self.normal
+        return self.normal_flat.tolist() if self.normal is not None else self.normal
 
     @property
     def vertex_color_norm(self):
-        return self.vertex_color.astype(float).tolist() if self.vertex_color is not None else None
+        return self.vertex_color.astype(dtype="float32").tolist() if self.vertex_color is not None else None
 
     @property
     def translation_norm(self):
-        return self.translation.astype(float).tolist() if self.translation is not None else None
+        return self.translation.astype(dtype="float32").tolist() if self.translation is not None else None
 
     def __add__(self, other: ObjectMesh):
         pos_len = int(len(self.position) / 3)

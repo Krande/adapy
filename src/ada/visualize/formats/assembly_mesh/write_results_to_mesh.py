@@ -5,13 +5,13 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada.ifc.utils import create_guid
-from ada.visualize.concept import AssemblyMesh, ObjectMesh, PartMesh
+from ada.visualize.concept import VisMesh, ObjectMesh, PartMesh
 
 if TYPE_CHECKING:
     from ada.fem.results import Results
 
 
-def export_results_to_assembly_mesh(results: "Results", data_type) -> AssemblyMesh:
+def export_results_to_assembly_mesh(results: "Results", data_type) -> VisMesh:
     name = results.assembly.name
 
     res_mesh = results.result_mesh
@@ -33,4 +33,4 @@ def export_results_to_assembly_mesh(results: "Results", data_type) -> AssemblyMe
     }
     pm = PartMesh(name=name, rawdata=True, id_map=id_map, guiparam=None)
     project = results.assembly.metadata.get("project", "DummyProject")
-    return AssemblyMesh(name=name, project=project, world=[pm], meta=None)
+    return VisMesh(name=name, project=project, world=[pm], meta=None)
