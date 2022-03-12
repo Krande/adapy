@@ -549,6 +549,7 @@ class Part(BackendGeom):
         part_array = []
         for p in self.get_all_subparts(include_self=True):
             id_map = list_of_obj_to_object_mesh_map(p.get_all_physical_objects(), obj_num, all_obj_num, export_config)
+            obj_num += len(list(p.get_all_physical_objects()))
             if id_map is None:
                 print(f'Part "{p.name}" has no physical members. Skipping.')
                 continue
