@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Union
 
 import ada
-from ada.visualize.concept import VisMesh, PartMesh
+from ada.visualize.concept import PartMesh, VisMesh
 
 from .config import ExportConfig
 

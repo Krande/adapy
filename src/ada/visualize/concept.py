@@ -15,6 +15,7 @@ import numpy as np
 @dataclass
 class VisMesh:
     """Visual Mesh"""
+
     name: str
 
     project: str
@@ -71,7 +72,7 @@ class VisMesh:
         if dest_path is None:
             return output
 
-        with open((dest_path / self.name).with_suffix('.json'), "w") as f:
+        with open((dest_path / self.name).with_suffix(".json"), "w") as f:
             json.dump(output, f)
 
     def to_custom_json(self, dest_path=None):
@@ -81,7 +82,7 @@ class VisMesh:
             "project": self.project,
             "world": [x.to_custom_json() for x in self.world],
             "meta": self.meta,
-            "translation": self.translation.tolist() if self.translation is not None else None
+            "translation": self.translation.tolist() if self.translation is not None else None,
         }
         if dest_path is None:
             return output
@@ -90,10 +91,14 @@ class VisMesh:
             json.dump(output, f)
 
     def merge_objects_in_parts_by_color(self) -> VisMesh:
-        part_list = []
+        to_be_merged_part = None
         for pmesh in self.world:
-            part_list.append(pmesh.merge_by_color())
-        return VisMesh(name=self.name, created=self.created, project=self.project, world=part_list, meta=self.meta)
+            if to_be_merged_part is None:
+                to_be_merged_part = pmesh
+                continue
+            to_be_merged_part += pmesh
+        merged_part = to_be_merged_part.merge_by_color()
+        return VisMesh(name=self.name, created=self.created, project=self.project, world=[merged_part], meta=self.meta)
 
     def __add__(self, other: VisMesh):
         new_meta = dict()
@@ -159,6 +164,10 @@ class PartMesh:
 
         return PartMesh(name=self.name, rawdata=True, id_map=id_map, guiparam=None)
 
+    def __add__(self, other: PartMesh):
+        self.id_map.update(other.id_map)
+        return self
+
 
 @dataclass
 class ObjectMesh:
@@ -185,6 +194,7 @@ class ObjectMesh:
 
     def to_binary_json(self, dest_dir, compressed=False):
         from ada.ifc.utils import create_guid
+
         dest_dir = pathlib.Path(dest_dir).resolve().absolute()
         pos_guid = create_guid()
         norm_guid = create_guid()
@@ -199,11 +209,11 @@ class ObjectMesh:
             np.save(str(dest_dir / vertex_guid), self.vertex_color)
 
         return dict(
-            index=index_guid+'.npy',
-            position=pos_guid+'.npy',
-            normal=norm_guid+'.npy',
+            index=index_guid + ".npy",
+            position=pos_guid + ".npy",
+            normal=norm_guid + ".npy",
             color=self.color,
-            vertexColor=vertex_guid+'.npy' if vertex_guid is not None else None,
+            vertexColor=vertex_guid + ".npy" if vertex_guid is not None else None,
             instances=self.instances,
             id_sequence=self.id_sequence,
             translation=self.translation_norm,
@@ -254,7 +264,7 @@ class ObjectMesh:
         return self.translation.astype(dtype="float32").tolist() if self.translation is not None else None
 
     def __add__(self, other: ObjectMesh):
-        pos_len = int(len(self.position) / 3)
+        pos_len = int(len(self.position))
         new_index = other.index + pos_len
         ma = int((len(other.index) + len(self.index))) - 1
         mi = int(len(self.index))

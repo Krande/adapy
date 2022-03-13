@@ -161,7 +161,7 @@ class Results:
 
     def to_assembly_mesh(self, data_type) -> Union[None, VisMesh]:
         from ada.ifc.utils import create_guid
-        from ada.visualize.concept import VisMesh, ObjectMesh, PartMesh
+        from ada.visualize.concept import ObjectMesh, PartMesh, VisMesh
 
         name = self.assembly.name
         res_mesh = self.result_mesh

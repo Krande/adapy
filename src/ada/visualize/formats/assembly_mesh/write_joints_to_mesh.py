@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ada.visualize.concept import VisMesh, PartMesh
+from ada.visualize.concept import PartMesh, VisMesh
 
 from .config import ExportConfig
 from .write_objects_to_mesh import obj_to_mesh

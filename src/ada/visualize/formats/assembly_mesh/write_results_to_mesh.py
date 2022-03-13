@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada.ifc.utils import create_guid
-from ada.visualize.concept import VisMesh, ObjectMesh, PartMesh
+from ada.visualize.concept import ObjectMesh, PartMesh, VisMesh
 
 if TYPE_CHECKING:
     from ada.fem.results import Results

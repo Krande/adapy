@@ -530,14 +530,12 @@ class Part(BackendGeom):
         return fem
 
     def to_vis_mesh(self, export_config=None) -> VisMesh:
-        from ada.visualize.concept import VisMesh, PartMesh
+        from ada.visualize.concept import PartMesh, VisMesh
         from ada.visualize.formats.assembly_mesh import ExportConfig
-        from ada.visualize.formats.assembly_mesh.write_part_to_mesh import (
-            generate_meta,
-        )
         from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import (
             list_of_obj_to_object_mesh_map,
         )
+        from ada.visualize.formats.assembly_mesh.write_part_to_mesh import generate_meta
 
         if export_config is None:
             export_config = ExportConfig()
@@ -555,8 +553,10 @@ class Part(BackendGeom):
                     return None
                 print(f'Part "{p.name}" has no physical members. Skipping.')
                 continue
+
             for inst in p.instances.values():
                 id_map[inst.instance_ref.guid].instances = inst.to_list_of_custom_json_matrices()
+
             part_array.append(PartMesh(name=p.name, rawdata=True, guiparam=None, id_map=id_map))
 
         amesh = VisMesh(
