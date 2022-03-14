@@ -97,8 +97,17 @@ class VisMesh:
                 to_be_merged_part = pmesh
                 continue
             to_be_merged_part += pmesh
+
         merged_part = to_be_merged_part.merge_by_color()
-        return VisMesh(name=self.name, created=self.created, project=self.project, world=[merged_part], meta=self.meta)
+
+        return VisMesh(
+            name=self.name,
+            created=self.created,
+            project=self.project,
+            world=[merged_part],
+            meta=self.meta,
+            translation=self.translation,
+        )
 
     def __add__(self, other: VisMesh):
         new_meta = dict()
