@@ -99,10 +99,7 @@ def tuple_minus(t):
 
 
 def get_current_user():
-    """
-
-    :return: Name of current user
-    """
+    """Return the username of currently logged in user"""
     import getpass
 
     return getpass.getuser()
