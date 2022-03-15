@@ -108,6 +108,7 @@ class BackendGeom(Backend):
     ):
         from ada.fem.shapes import ElemType
         from ada.occ.writer import StepExporter
+        destination_file = pathlib.Path(destination_file).resolve().absolute()
 
         geom_repr = ElemType.SOLID if geom_repr is None else geom_repr
         step_export = StepExporter(schema)

@@ -51,7 +51,7 @@ class StepExporter:
         elif type(obj) is Pipe:
             self.export_piping(obj, geom_repr, fuse_piping)
         elif type(obj) in (Part, Assembly) or issubclass(type(obj), JointBase):
-            for sub_obj in obj.get_all_physical_objects():
+            for sub_obj in obj.get_all_physical_objects(sub_elements_only=False):
                 if type(sub_obj) in (Plate, Beam, Wall):
                     self.export_structural(sub_obj, geom_repr)
                 elif type(sub_obj) in (Pipe,):
@@ -60,6 +60,8 @@ class StepExporter:
                     self.add_geom(sub_obj.geom, sub_obj, geom_repr=geom_repr)
                 else:
                     raise ValueError("Unknown Geometry type")
+        else:
+            raise ValueError("Unknown Geometry type")
 
     def add_geom(self, geom, obj, geom_repr=None):
         from ada.concepts.transforms import Placement
@@ -124,6 +126,7 @@ class StepExporter:
     def write_to_file(self, destination_file, silent, return_file_obj=False) -> Union[None, StringIO]:
         if return_file_obj:
             logging.warning("returning file objects for STEP is not yet supported. But will be from OCCT v7.7.0.")
+
         destination_file = pathlib.Path(destination_file).with_suffix(".stp")
         os.makedirs(destination_file.parent, exist_ok=True)
 
