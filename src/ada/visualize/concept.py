@@ -86,6 +86,8 @@ class VisMesh:
         }
         if dest_path is None:
             return output
+        dest_path = pathlib.Path(dest_path).resolve().absolute()
+        os.makedirs(dest_path.parent, exist_ok=True)
 
         with open(dest_path, "w") as f:
             json.dump(output, f)

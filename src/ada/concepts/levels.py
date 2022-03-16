@@ -546,8 +546,8 @@ class Part(BackendGeom):
         obj_num = 0
         part_array = []
         for p in self.get_all_subparts(include_self=True):
-            id_map = list_of_obj_to_object_mesh_map(p.get_all_physical_objects(), obj_num, all_obj_num, export_config)
-            obj_num += len(list(p.get_all_physical_objects()))
+            id_map = list_of_obj_to_object_mesh_map(p.get_all_physical_objects(sub_elements_only=True), obj_num, all_obj_num, export_config)
+            obj_num += len(list(p.get_all_physical_objects(sub_elements_only=True)))
             if id_map is None:
                 if export_config.max_convert_objects is not None and obj_num > export_config.max_convert_objects:
                     return None
