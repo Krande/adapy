@@ -26,7 +26,7 @@ def test_viz_structural():
     assert len(merged.world[0].id_map.values()) == 4
 
 
-def test_viz_to_binary_json():
+def test_viz_to_binary_json(test_dir):
     components = [
         Beam("bm1", n1=[0, 0, 0], n2=[2, 0, 0], sec="IPE220", colour="red"),
         Beam("bm2", n1=[0, 0, 1], n2=[2, 0, 1], sec="HP220x10", colour="blue"),
@@ -45,5 +45,5 @@ def test_viz_to_binary_json():
 
     res = a.to_vis_mesh()
 
-    res.to_binary_and_json("temp/beams")
-    res.to_custom_json("temp/beams.json")
+    res.to_binary_and_json(test_dir / "viz/binjson/beams")
+    res.to_custom_json(test_dir / "viz/binjson/beams.json")

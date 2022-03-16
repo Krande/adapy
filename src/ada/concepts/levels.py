@@ -403,7 +403,7 @@ class Part(BackendGeom):
         return list_of_parts
 
     def get_all_physical_objects(
-        self, sub_elements_only=True, by_type=None, filter_by_guids: Union[List[str]] = None
+        self, sub_elements_only=False, by_type=None, filter_by_guids: Union[List[str]] = None
     ) -> Iterable[Union[Beam, Plate, Wall, Pipe, Shape]]:
         physical_objects = []
         if sub_elements_only:
@@ -499,7 +499,7 @@ class Part(BackendGeom):
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
         masses: List[Shape] = []
         with GmshSession(silent=silent, options=options) as gs:
-            for obj in self.get_all_physical_objects():
+            for obj in self.get_all_physical_objects(sub_elements_only=False):
                 if type(obj) is Beam:
                     gs.add_obj(obj, geom_repr=bm_repr.upper(), build_native_lines=False)
                 elif type(obj) is Plate:

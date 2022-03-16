@@ -210,12 +210,13 @@ class ObjectMesh:
         index_guid = create_guid()
         vertex_guid = create_guid() if self.vertex_color is not None else None
         os.makedirs(dest_dir, exist_ok=True)
+
         save_func = np.save if compressed else np.savez_compressed
-        np.save(str(dest_dir / pos_guid), self.position_flat)
-        np.save(str(dest_dir / norm_guid), self.normal_flat)
-        np.save(str(dest_dir / index_guid), self.index_flat)
+        save_func(str(dest_dir / pos_guid), self.position_flat)
+        save_func(str(dest_dir / norm_guid), self.normal_flat)
+        save_func(str(dest_dir / index_guid), self.index_flat)
         if vertex_guid is not None:
-            np.save(str(dest_dir / vertex_guid), self.vertex_color)
+            save_func(str(dest_dir / vertex_guid), self.vertex_color)
 
         return dict(
             index=index_guid + ".npy",
