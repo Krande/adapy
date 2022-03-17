@@ -75,7 +75,7 @@ class VisMesh:
         with open((dest_path / self.name).with_suffix(".json"), "w") as f:
             json.dump(output, f)
 
-    def to_custom_json(self, dest_path=None):
+    def to_custom_json(self, dest_path=None, auto_zip=False):
         output = {
             "name": self.name,
             "created": self.created,
@@ -86,11 +86,19 @@ class VisMesh:
         }
         if dest_path is None:
             return output
+
         dest_path = pathlib.Path(dest_path).resolve().absolute()
         os.makedirs(dest_path.parent, exist_ok=True)
 
         with open(dest_path, "w") as f:
             json.dump(output, f)
+
+        if auto_zip:
+            import zipfile
+
+            zfile = dest_path.with_suffix(".zip")
+            with zipfile.ZipFile(zfile, "w") as zip_archive:
+                zip_archive.write(dest_path, dest_path.name, compress_type=zipfile.ZIP_DEFLATED)
 
     def merge_objects_in_parts_by_color(self) -> VisMesh:
         to_be_merged_part = None

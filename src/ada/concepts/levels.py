@@ -409,7 +409,7 @@ class Part(BackendGeom):
         if sub_elements_only:
             iter_parts = iter([self])
         else:
-            iter_parts = iter(self.get_all_subparts() + [self])
+            iter_parts = iter(self.get_all_subparts(include_self=True))
 
         for p in iter_parts:
             all_as_iterable = chain(p.plates, p.beams, p.shapes, p.pipes, p.walls)
@@ -529,7 +529,7 @@ class Part(BackendGeom):
 
         return fem
 
-    def to_vis_mesh(self, export_config=None) -> VisMesh:
+    def to_vis_mesh(self, export_config=None, auto_merge_by_color=True) -> VisMesh:
         from ada.visualize.concept import PartMesh, VisMesh
         from ada.visualize.formats.assembly_mesh import ExportConfig
         from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import (
@@ -546,7 +546,9 @@ class Part(BackendGeom):
         obj_num = 0
         part_array = []
         for p in self.get_all_subparts(include_self=True):
-            id_map = list_of_obj_to_object_mesh_map(p.get_all_physical_objects(sub_elements_only=True), obj_num, all_obj_num, export_config)
+            id_map = list_of_obj_to_object_mesh_map(
+                p.get_all_physical_objects(sub_elements_only=True), obj_num, all_obj_num, export_config
+            )
             obj_num += len(list(p.get_all_physical_objects(sub_elements_only=True)))
             if id_map is None:
                 if export_config.max_convert_objects is not None and obj_num > export_config.max_convert_objects:
@@ -565,6 +567,8 @@ class Part(BackendGeom):
             world=part_array,
             meta=generate_meta(self, export_config),
         )
+        if auto_merge_by_color:
+            return amesh.merge_objects_in_parts_by_color()
 
         return amesh
 
