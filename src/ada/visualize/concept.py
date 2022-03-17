@@ -8,6 +8,7 @@ import pathlib
 import shutil
 from dataclasses import dataclass, field
 from typing import Dict, List, Union
+from ada.core.file_system import get_list_of_files
 
 import numpy as np
 
@@ -46,19 +47,20 @@ class VisMesh:
     def num_polygons(self):
         return sum([x.num_polygons for x in self.world])
 
-    def to_binary_and_json(self, dest_path):
-        dest_path = pathlib.Path(dest_path)
+    def to_binary_and_json(self, dest_dir, auto_zip=False):
+        dest_dir = pathlib.Path(dest_dir)
 
-        if dest_path.exists():
-            shutil.rmtree(dest_path)
+        if dest_dir.exists():
+            shutil.rmtree(dest_dir)
 
         wrld = []
+        data_dir = dest_dir / "data"
         for world in self.world:
             wrld_obj = {
                 "name": world.name,
                 "rawdata": world.rawdata,
                 "guiParam": world.guiparam,
-                "id_map": {key: value.to_binary_json(dest_path / "data") for key, value in world.id_map.items()},
+                "id_map": {key: value.to_binary_json(dest_dir=data_dir) for key, value in world.id_map.items()},
             }
             wrld.append(wrld_obj)
 
@@ -69,11 +71,30 @@ class VisMesh:
             "world": wrld,
             "meta": self.meta,
         }
-        if dest_path is None:
+        if dest_dir is None:
             return output
 
-        with open((dest_path / self.name).with_suffix(".json"), "w") as f:
+        json_file = (dest_dir / self.name).with_suffix(".json")
+        with open(json_file, "w") as f:
             json.dump(output, f)
+
+        if auto_zip is True:
+            import zipfile
+
+            zip_dir = dest_dir / "export"
+            zip_data = zip_dir / "data"
+            os.makedirs(zip_dir, exist_ok=True)
+            os.makedirs(zip_data, exist_ok=True)
+
+            for f in get_list_of_files(data_dir, ".npy"):
+                fp = pathlib.Path(f)
+                zfile = (zip_data / fp.stem).with_suffix(".zip")
+                with zipfile.ZipFile(zfile, "w") as zip_archive:
+                    zip_archive.write(fp, fp.name, compress_type=zipfile.ZIP_DEFLATED)
+
+            zfile = (zip_dir / json_file.stem).with_suffix(".zip")
+            with zipfile.ZipFile(zfile, "w") as zip_archive:
+                zip_archive.write(json_file, json_file.name, compress_type=zipfile.ZIP_DEFLATED)
 
     def to_custom_json(self, dest_path=None, auto_zip=False):
         output = {
@@ -221,19 +242,19 @@ class ObjectMesh:
         vertex_guid = create_guid() if self.vertex_color is not None else None
         os.makedirs(dest_dir, exist_ok=True)
 
-        save_func = np.save if compressed else np.savez_compressed
-        save_func(str(dest_dir / pos_guid), self.position_flat)
-        save_func(str(dest_dir / norm_guid), self.normal_flat)
-        save_func(str(dest_dir / index_guid), self.index_flat)
+        np.save(str(dest_dir / pos_guid), self.position_flat)
+        np.save(str(dest_dir / norm_guid), self.normal_flat)
+        np.save(str(dest_dir / index_guid), self.index_flat)
+
         if vertex_guid is not None:
-            save_func(str(dest_dir / vertex_guid), self.vertex_color)
+            np.save(str(dest_dir / vertex_guid), self.vertex_color)
 
         return dict(
-            index=index_guid + ".npy",
-            position=pos_guid + ".npy",
-            normal=norm_guid + ".npy",
+            index=index_guid,
+            position=pos_guid,
+            normal=norm_guid,
             color=self.color,
-            vertexColor=vertex_guid + ".npy" if vertex_guid is not None else None,
+            vertexColor=vertex_guid if vertex_guid is not None else None,
             instances=self.instances,
             id_sequence=self.id_sequence,
             translation=self.translation_norm,
