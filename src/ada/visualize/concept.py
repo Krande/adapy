@@ -232,7 +232,7 @@ class ObjectMesh:
     def bbox(self):
         return self.position.min(0), self.position.max(0)
 
-    def to_binary_json(self, dest_dir, compressed=False):
+    def to_binary_json(self, dest_dir):
         from ada.ifc.utils import create_guid
 
         dest_dir = pathlib.Path(dest_dir).resolve().absolute()
