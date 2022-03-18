@@ -102,7 +102,13 @@ def get_unc_path(path_) -> str:
             return path_
 
 
-def get_list_of_files(dir_path, file_ext=None, strict=False, filter_path_contains: Union[None, List[str]] = None):
+def get_list_of_files(
+    dir_path,
+    file_ext=None,
+    strict=False,
+    filter_path_contains: Union[None, List[str], str] = None,
+    keep_path_contains: Union[None, List[str], str] = None,
+):
     """Get a list of files and sub directories for a given directory"""
     all_files = []
     list_of_file = sorted(os.listdir(dir_path), key=str.lower)
@@ -116,10 +122,22 @@ def get_list_of_files(dir_path, file_ext=None, strict=False, filter_path_contain
             all_files += get_list_of_files(full_path, file_ext, strict, filter_path_contains)
         else:
             if filter_path_contains is not None:
+                if type(filter_path_contains) is str:
+                    filter_path_contains = [filter_path_contains]
                 skip_it = False
                 for f in filter_path_contains:
                     if f in full_path:
                         skip_it = True
+                        break
+                if skip_it:
+                    continue
+            if keep_path_contains is not None:
+                if type(keep_path_contains) is str:
+                    keep_path_contains = [keep_path_contains]
+                skip_it = True
+                for f in keep_path_contains:
+                    if f in full_path:
+                        skip_it = False
                         break
                 if skip_it:
                     continue
