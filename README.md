@@ -18,7 +18,7 @@ conda install -c krande -c conda-forge ada-py
 or if you wish to download the latest build from any branch passing unittests you can do
 
 ```
-conda install -c krande/labels/dev -c conda-forge ada-py
+conda install -c krande/label/dev -c conda-forge ada-py
 ```
 
 **Alternatively** create a new isolated environment for the installation like so:
