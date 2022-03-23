@@ -551,8 +551,6 @@ class Part(BackendGeom):
             )
             obj_num += len(list(p.get_all_physical_objects(sub_elements_only=True)))
             if id_map is None:
-                if export_config.max_convert_objects is not None and obj_num > export_config.max_convert_objects:
-                    return None
                 print(f'Part "{p.name}" has no physical members. Skipping.')
                 continue
 
@@ -567,6 +565,7 @@ class Part(BackendGeom):
             world=part_array,
             meta=generate_meta(self, export_config),
         )
+
         if auto_merge_by_color:
             return amesh.merge_objects_in_parts_by_color()
 

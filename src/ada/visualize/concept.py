@@ -8,9 +8,10 @@ import pathlib
 import shutil
 from dataclasses import dataclass, field
 from typing import Dict, List, Union
-from ada.core.file_system import get_list_of_files
 
 import numpy as np
+
+from ada.core.file_system import get_list_of_files
 
 
 @dataclass
@@ -128,8 +129,11 @@ class VisMesh:
                 to_be_merged_part = pmesh
                 continue
             to_be_merged_part += pmesh
-
-        merged_part = to_be_merged_part.merge_by_color()
+        if to_be_merged_part is None:
+            logging.error(f"{self.name} has no parts!?. returning empty model")
+            merged_part = []
+        else:
+            merged_part = to_be_merged_part.merge_by_color()
 
         return VisMesh(
             name=self.name,
