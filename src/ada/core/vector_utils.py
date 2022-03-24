@@ -251,7 +251,9 @@ def is_between_endpoints(p: np.ndarray, start: np.ndarray, end: np.ndarray, incl
 
     ab = end - start
     ap = p - start
-    on_line_segment = 0.0 <= get_vec_fraction(ap, ab) <= 1.0 if incl_endpoints else 0.0 < get_vec_fraction(ap, ab) < 1.0
+
+    vec_fraction = get_vec_fraction(ap, ab)
+    on_line_segment = is_in_interval(vec_fraction, 0., 1., incl_interval_ends=incl_endpoints)
     return is_parallel(ab, ap) and on_line_segment
 
 
@@ -282,6 +284,17 @@ def is_null_vector(ab: np.array, cd: np.array, decimals=Settings.precision) -> b
 def is_parallel(ab: np.array, cd: np.array, tol=Settings.point_tol) -> bool:
     """Check if vectors AB and CD are parallel"""
     return True if np.abs(np.sin(angle_between(ab, cd))) < tol else False
+    # return np.abs(np.sin(angle_between(ab, cd))) < tol
+
+
+def is_perpendicular(ab: np.array, cd: np.array, tol=Settings.point_tol) -> bool:
+    """Returns if the vectors are perpendicular"""
+    return np.abs(np.dot(ab, cd)) < tol
+
+
+def is_angled(vector_1: np.ndarray, vector_2: np.ndarray) -> bool:
+    """Returns true if 2 vectors is not perpendicular nor parallel to each other"""
+    return not (is_perpendicular(vector_1, vector_2) or is_parallel(vector_1, vector_2))
 
 
 def intersect_calc(a: np.ndarray, c: np.ndarray, ab: np.ndarray, cd: np.ndarray):
