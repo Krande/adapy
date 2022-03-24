@@ -157,7 +157,10 @@ class Beams(BaseCollections):
     def connected_beams_map(self) -> dict[Beam, Iterable[Beam]]:
         return self._connected_beams_map
 
-    def index(self, item):
+    def get_beams_at_point(self, point: Union[Node, np.ndarray]) -> list[Beam]:
+        return list(filter(lambda x: x.is_point_on_beam(point), self._beams))
+
+    def index(self, item: Beam) -> int:
         index = bisect_left(self._beams, item)
         if (index != len(self._beams)) and (self._beams[index] == item):
             return index
@@ -692,12 +695,10 @@ class Sections(NumericMapped):
             return self._name_map[section.name]
 
         if section.id is None:
-            section.id = next(section_counter)
+            section.id = self.max_id + 1
 
-        if len(self._sections) > 0:
-            if section.id is None or section.id in self._id_map.keys():
-                new_sec_id = next(section_counter)
-                section.id = new_sec_id
+        if len(self._sections) > 0 and section.id in self._id_map.keys():
+            section.id = self.max_id + 1
 
         self._sections.append(section)
         self._id_map[section.id] = section
@@ -989,7 +990,7 @@ class Nodes:
 
     def remove_standalones(self) -> None:
         """Remove nodes that are without any usage references"""
-        self.remove(filter(lambda x: len(x.refs) == 0, self._nodes))
+        self.remove(filter(lambda x: not x.has_refs, self._nodes))
 
     def merge_coincident(self, tol: float = Settings.point_tol) -> None:
         """
@@ -997,18 +998,14 @@ class Nodes:
         to most elements.
         :return:
         """
-        from ada.core.utils import replace_node
-
-        def replace_duplicate_nodes(duplicates, new_node):
+        def replace_duplicate_nodes(duplicates: Iterable[Node], new_node: Node):
             if duplicates and len(new_node.refs) >= np.max(list(map(lambda x: len(x.refs), duplicates))):
                 for duplicate_node in duplicates:
                     replace_node(duplicate_node, new_node)
-                    new_node.refs.extend(duplicate_node.refs)
-                    duplicate_node.refs.clear()
                     self.remove(duplicate_node)
 
-        for node in filter(lambda x: len(x.refs) > 0, self._nodes):
-            duplicate_nodes = list(filter(lambda x: x.id != node.id, self.get_by_volume(node.p, tol=tol)))
+        for node in filter(lambda x: x.has_refs, self._nodes):
+            duplicate_nodes = list(sorted(filter(lambda x: x.id != node.id, self.get_by_volume(node.p, tol=tol)), key=lambda x: len(x.refs)))
             replace_duplicate_nodes(duplicate_nodes, node)
 
         self._sort()

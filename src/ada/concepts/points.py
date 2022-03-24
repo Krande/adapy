@@ -115,6 +115,11 @@ class Node:
         """Returns if node is valid, i.e. has objects in refs"""
         return len(self.refs) > 0
 
+    def get_main_node_at_point(self) -> Node:
+        nodes = list(filter(lambda x: x.has_refs, self.parent.nodes.get_by_volume(self)))
+        nearest_node, *further_away_nodes = sort_nodes_by_distance(self, nodes)
+        return nearest_node
+
     def __getitem__(self, index):
         return self.p[index]
 
@@ -157,3 +162,9 @@ def get_singular_node_by_volume(nodes: Nodes, p: np.ndarray, tol=Settings.point_
         return node
     else:
         return Node(p)
+
+
+def sort_nodes_by_distance(point: Union[Node, np.ndarray], nodes: list[Node]) -> list[Node]:
+    if isinstance(point, Node):
+        point = point.p
+    return sorted(nodes, key=lambda x: vector_length(x.p - point))
