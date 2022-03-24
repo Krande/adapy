@@ -235,8 +235,20 @@ def sort_points_by_dist(p, points):
     return sorted(points, key=lambda x: vector_length(x - p))
 
 
+def is_in_interval(value: float, interval_start: float, interval_end: float, incl_interval_ends: bool = False) -> bool:
+    if incl_interval_ends:
+        return interval_start <= value <= interval_end
+    else:
+        return interval_start < value < interval_end
+
+
 def is_between_endpoints(p: np.ndarray, start: np.ndarray, end: np.ndarray, incl_endpoints: bool = False) -> bool:
     """Returns if point p is on the line between the points start and end"""
+    if is_null_vector(p, start) or is_null_vector(p, end):
+        if incl_endpoints:
+            return True
+        return False
+
     ab = end - start
     ap = p - start
     on_line_segment = 0.0 <= get_vec_fraction(ap, ab) <= 1.0 if incl_endpoints else 0.0 < get_vec_fraction(ap, ab) < 1.0
@@ -293,10 +305,7 @@ def intersection_point(v1, v2):
     :param v2:
     :return:
     """
-    if len(list(v1[0])) == 2:
-        is2d = True
-    else:
-        is2d = False
+    is2d = len(list(v1[0])) == 2
 
     v1 = [np.array(list(v) + [0.0]) for v in list(v1)] if is2d else v1
     v2 = [np.array(list(v) + [0.0]) for v in list(v2)] if is2d else v2
@@ -387,7 +396,7 @@ def convex_hull(points):
     return [v] + extend(u, v, left) + [u] + extend(v, u, right) + [v]
 
 
-def is_coplanar(x1, y1, z1, x2, y2, z2, x3, y3, z3, x4, y4, z4):
+def is_coplanar(x1, y1, z1, x2, y2, z2, x3, y3, z3, x4, y4, z4) -> bool:
     """
     Python program to check if 4 points in a 3-D plane are Coplanar
     Function to find equation of plane.
@@ -553,10 +562,7 @@ def is_clockwise(points) -> bool:
     for p1, p2 in zip(points[:-1], points[1:]):
         psum += (p2[0] - p1[0]) * (p2[1] + p1[1])
     psum += (points[-1][0] - points[0][0]) * (points[-1][1] + points[0][1])
-    if psum < 0:
-        return False
-    else:
-        return True
+    return not psum < 0
 
 
 def calc_xvec(y_vec, z_vec):
