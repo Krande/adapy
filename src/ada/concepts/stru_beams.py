@@ -361,7 +361,16 @@ class Beam(BackendGeom):
 
     @section.setter
     def section(self, value: Section):
-        self._section = value
+        section = self.parent.add_section(value)
+
+        if self.taper == self.section:
+            self.taper = section
+
+        if self in self.section.refs:
+            self.section.refs.remove(self)
+
+        self._section = section
+        self._section.refs.append(self)
 
     @property
     def taper(self) -> Section:
@@ -369,7 +378,11 @@ class Beam(BackendGeom):
 
     @taper.setter
     def taper(self, value: Section):
+        if self in self.taper.refs:
+            self.taper.refs.remove(self)
+
         self._taper = value
+        self._taper.refs.append(self)
 
     @property
     def material(self) -> Material:
