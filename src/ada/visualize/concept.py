@@ -56,6 +56,9 @@ class VisMesh:
 
         wrld = []
         data_dir = dest_dir / "data"
+        if data_dir.exists():
+            shutil.rmtree(data_dir)
+
         for world in self.world:
             wrld_obj = {
                 "name": world.name,
