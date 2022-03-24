@@ -286,7 +286,7 @@ class Section(Backend):
         display(HBox([fig, html]))
 
     @property
-    def refs(self) -> List[Union["Beam", "FemSection"]]:
+    def refs(self) -> List[Union[Beam, FemSection]]:
         return self._refs
 
     def __hash__(self):

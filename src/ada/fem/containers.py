@@ -16,11 +16,11 @@ from ada.core.utils import Counter
 from ada.materials import Material
 from ada.sections import Section
 
-from .elements import Connector, Elem, Mass, MassTypes
-from .exceptions.model_definition import FemSetNameExists
-from .sections import FemSection
-from .sets import FemSet, SetTypes
-from .shapes import ElemType
+from ada.fem.elements import Connector, Elem, Mass, MassTypes
+from ada.fem.exceptions.model_definition import FemSetNameExists
+from ada.fem.sections import FemSection
+from ada.fem.sets import FemSet, SetTypes
+from ada.fem.shapes import ElemType
 
 if TYPE_CHECKING:
     from ada import FEM
@@ -29,18 +29,33 @@ if TYPE_CHECKING:
 @dataclass
 class COG:
     p: np.array
-    tot_mass: float
+    tot_mass: float = None
     tot_vol: float = None
     sh_mass: float = None
     bm_mass: float = None
     no_mass: float = None
+
+    @property
+    def x(self) -> float:
+        """Returns x-coordinate to the point p"""
+        return self.p[0]
+
+    @property
+    def y(self) -> float:
+        """Returns y-coordinate to the point p"""
+        return self.p[1]
+
+    @property
+    def z(self) -> float:
+        """Returns z-coordinate to the point p"""
+        return self.p[2]
 
 
 class FemElements:
     """Container class for FEM elements"""
 
     def __init__(
-        self, elements: Iterable[Union[Elem, Mass, Connector]] = None, fem_obj: "FEM" = None, from_np_array=None
+        self, elements: Iterable[Union[Elem, Mass, Connector]] = None, fem_obj: FEM = None, from_np_array=None
     ):
         self._fem_obj = fem_obj
         if from_np_array is not None:
@@ -133,7 +148,7 @@ class FemElements:
             self.remove(self._idmap[elem_id])
         self._sort()
 
-    def __contains__(self, item):
+    def __contains__(self, item: Elem):
         return item in self._elements
 
     def __len__(self):
@@ -227,11 +242,11 @@ class FemElements:
         return COG(cog_, tot_mass, tot_vol, sh_mass, bm_mass, no_mass)
 
     @property
-    def parent(self) -> "FEM":
+    def parent(self) -> FEM:
         return self._fem_obj
 
     @parent.setter
-    def parent(self, value):
+    def parent(self, value: FEM):
         self._fem_obj = value
 
     @property
@@ -570,7 +585,7 @@ class FemSections:
 
 
 class FemSets:
-    def __init__(self, sets: List[FemSet] = None, parent: "FEM" = None):
+    def __init__(self, sets: List[FemSet] = None, parent: FEM = None):
         self._fem_obj = parent
         self._sets = sorted(sets, key=attrgetter("type", "name")) if sets is not None else []
         # Merge same name sets
@@ -590,7 +605,7 @@ class FemSets:
             [_map_ref(m, _set) for m in _set.members]
 
     @property
-    def parent(self) -> "FEM":
+    def parent(self) -> FEM:
         return self._fem_obj
 
     @parent.setter

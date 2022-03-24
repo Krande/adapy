@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ada.fem import Constraint, FemSet, Surface
@@ -13,7 +15,7 @@ if TYPE_CHECKING:
 # https://abaqus-docs.mit.edu/2017/English/SIMACAEKEYRefMap/simakey-r-coupling.htm#simakey-r-coupling
 
 
-def constraints_str(fem: "FEM", written_on_assembly_level: bool):
+def constraints_str(fem: FEM, written_on_assembly_level: bool):
     if len(fem.constraints.keys()) == 0:
         return "** No Constraints"
 

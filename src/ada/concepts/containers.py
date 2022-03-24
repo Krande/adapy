@@ -19,17 +19,17 @@ from ada.core.vector_utils import (
     vector_length,
 )
 from ada.materials import Material
-from ada.sections import Section
 
-from .exceptions import DuplicateNodes
-from .points import Node
-from .stru_beams import Beam
-from .stru_plates import Plate
-from .transforms import Rotation
+from ada.concepts.exceptions import DuplicateNodes
+from ada.concepts.points import Node
+from ada.concepts.stru_beams import Beam
+from ada.concepts.stru_plates import Plate
+from ada.concepts.transforms import Rotation
 
 if TYPE_CHECKING:
     from ada import FEM, Assembly, Part
     from ada.concepts.connections import JointBase
+    from ada.sections import Section
 
 __all__ = [
     "Nodes",
@@ -63,7 +63,7 @@ class Beams(BaseCollections):
         self._dmap = {n.name: n for n in self._beams}
         self._connected_beams_map = None
 
-    def __contains__(self, item):
+    def __contains__(self, item: Beam):
         return item.guid in self._dmap.keys()
 
     def __len__(self):
@@ -1014,6 +1014,7 @@ class Nodes:
         self._sort()
 
     def rounding_node_points(self, precision: int = Settings.precision) -> None:
+        """Rounds all nodes to set precision"""
         for node in self.nodes:
             node.p_roundoff(precision=precision)
 

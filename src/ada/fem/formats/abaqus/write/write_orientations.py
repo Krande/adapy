@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from itertools import chain
 from typing import TYPE_CHECKING
 
@@ -8,7 +10,7 @@ if TYPE_CHECKING:
     from ada.fem import Csys
 
 
-def orientations_str(fem: "FEM", written_on_assembly_level: bool) -> str:
+def orientations_str(fem: FEM, written_on_assembly_level: bool) -> str:
     """Add orientations associated with loads"""
     cstr = "** Orientations associated with Loads"
     for step in fem.steps:
@@ -26,7 +28,7 @@ def orientations_str(fem: "FEM", written_on_assembly_level: bool) -> str:
     return cstr.strip()
 
 
-def csys_str(csys: "Csys", written_on_assembly_level: bool):
+def csys_str(csys: Csys, written_on_assembly_level: bool):
     """"""
     name = csys.name
 

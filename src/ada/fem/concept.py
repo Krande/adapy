@@ -40,40 +40,40 @@ _step_types = Union["StepSteadyState", "StepEigen", "StepImplicit", "StepExplici
 
 @dataclass
 class InterfaceNode:
-    node: "Node"
-    constraint: "Constraint" = field(default=None)
-    connector: "Connector" = field(default=None)
+    node: Node
+    constraint: Constraint = field(default=None)
+    connector: Connector = field(default=None)
 
 
 @dataclass
 class FEM:
     name: str
     metadata: Dict = field(default_factory=dict)
-    parent: "Part" = field(init=True, default=None)
+    parent: Part = field(init=True, default=None)
 
-    masses: Dict[str, "Mass"] = field(init=False, default_factory=dict)
-    surfaces: Dict[str, "Surface"] = field(init=False, default_factory=dict)
-    amplitudes: Dict[str, "Amplitude"] = field(init=False, default_factory=dict)
-    connector_sections: Dict[str, "ConnectorSection"] = field(init=False, default_factory=dict)
-    springs: Dict[str, "Spring"] = field(init=False, default_factory=dict)
-    intprops: Dict[str, "InteractionProperty"] = field(init=False, default_factory=dict)
-    interactions: Dict[str, "Interaction"] = field(init=False, default_factory=dict)
-    predefined_fields: Dict[str, "PredefinedField"] = field(init=False, default_factory=dict)
-    lcsys: Dict[str, "Csys"] = field(init=False, default_factory=dict)
-    constraints: Dict[str, "Constraint"] = field(init=False, default_factory=dict)
+    masses: Dict[str, Mass] = field(init=False, default_factory=dict)
+    surfaces: Dict[str, Surface] = field(init=False, default_factory=dict)
+    amplitudes: Dict[str, Amplitude] = field(init=False, default_factory=dict)
+    connector_sections: Dict[str, ConnectorSection] = field(init=False, default_factory=dict)
+    springs: Dict[str, Spring] = field(init=False, default_factory=dict)
+    intprops: Dict[str, InteractionProperty] = field(init=False, default_factory=dict)
+    interactions: Dict[str, Interaction] = field(init=False, default_factory=dict)
+    predefined_fields: Dict[str, PredefinedField] = field(init=False, default_factory=dict)
+    lcsys: Dict[str, Csys] = field(init=False, default_factory=dict)
+    constraints: Dict[str, Constraint] = field(init=False, default_factory=dict)
 
-    bcs: List["Bc"] = field(init=False, default_factory=list)
-    steps: List[Union["StepSteadyState", "StepEigen", "StepImplicit", "StepExplicit"]] = field(
+    bcs: List[Bc] = field(init=False, default_factory=list)
+    steps: List[Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]] = field(
         init=False, default_factory=list
     )
 
-    nodes: "Nodes" = field(default_factory=Nodes, init=True)
-    ref_points: "Nodes" = field(default_factory=Nodes, init=True)
-    ref_sets: "FemSets" = field(default_factory=FemSets, init=True)
+    nodes: Nodes = field(default_factory=Nodes, init=True)
+    ref_points: Nodes = field(default_factory=Nodes, init=True)
+    ref_sets: FemSets = field(default_factory=FemSets, init=True)
 
-    elements: "FemElements" = field(default_factory=FemElements, init=True)
-    sets: "FemSets" = field(default_factory=FemSets, init=True)
-    sections: "FemSections" = field(default_factory=FemSections, init=True)
+    elements: FemElements = field(default_factory=FemElements, init=True)
+    sets: FemSets = field(default_factory=FemSets, init=True)
+    sections: FemSections = field(default_factory=FemSections, init=True)
     initial_state: PredefinedField = field(default=None, init=True)
     subroutine: str = field(default=None, init=True)
 

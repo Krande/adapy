@@ -145,7 +145,7 @@ def tprofiles(sec: Section, return_solid) -> SectionProfile:
     )
 
 
-def box(sec: Section, return_solid):
+def box(sec: Section, return_solid) -> SectionProfile:
     h = sec.h
     wtop = sec.w_top
     wbtn = sec.w_btn

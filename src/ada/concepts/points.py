@@ -73,13 +73,13 @@ class Node:
         if item not in self.refs:
             self.refs.append(item)
         else:
-            logging.warning(f"Item {item} is already in node refs")
+            logging.debug(f"Item {item} is already in node refs {self}")
 
     def remove_obj_from_refs(self, item) -> None:
         if item in self.refs:
             self.refs.remove(item)
         else:
-            logging.warning(f"Item {item} is not in node refs")
+            logging.debug(f"Item {item} is not in node refs {self}")
 
     @property
     def units(self):
