@@ -281,11 +281,11 @@ class ObjectMesh:
 
     @property
     def index_flat(self):
-        return self.index.astype(int).flatten()
+        return self.index.astype(dtype="int32").flatten()
 
     @property
     def index_norm_flat(self):
-        return self.index_flat.tolist()
+        return self.index_flat.astype(dtype="int32").tolist()
 
     @property
     def position_flat(self):

@@ -29,12 +29,18 @@ jobs:
     needs: activate
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repo
-        uses: actions/checkout@v2
-      - name: Set up Python
-        uses: actions/setup-python@v2
-      - name: Run pre-commit
-        uses: pre-commit/action@v2.0.3
+      - uses: actions/setup-python@v2
+        with:
+          python-version: "3.x"
+      - uses: actions/checkout@v2
+      - name: Install lint packages
+        run: pip install isort flake8 black
+      - name: Lint with isort
+        run: isort --check .
+      - name: Lint with flake8
+        run: flake8 .
+      - name: Lint with black
+        run: black --config pyproject.toml --check .
   test:
     needs: lint
     name: ${{ matrix.platform.name }}-${{ matrix.pyver.name }}
