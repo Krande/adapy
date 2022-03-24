@@ -77,7 +77,7 @@ class Csys(FemBase):
         self._system = system
         if nodes is not None:
             for n in nodes:
-                n.refs.append(self)
+                n.add_obj_to_refs(self)
         self._nodes = nodes
         self._coords = coords
 
@@ -92,6 +92,9 @@ class Csys(FemBase):
     @property
     def nodes(self) -> List[Node]:
         return self._nodes
+
+    def updating_nodes(self, old_node: Node, new_node: Node) -> None:
+        """Updating nodes on Csys"""
 
     @property
     def coords(self):

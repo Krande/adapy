@@ -39,7 +39,7 @@ class Elem(FemBase):
 
         if nodes is not None and isinstance(nodes[0], Node):
             for node in nodes:
-                node.refs.append(self)
+                node.add_obj_to_refs(self)
 
         self._nodes = nodes
         self._elset = elset
