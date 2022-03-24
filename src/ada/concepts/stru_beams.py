@@ -473,20 +473,20 @@ class Beam(BackendGeom):
         return self._n1
 
     @n1.setter
-    def n1(self, value: Node):
+    def n1(self, new_node: Node):
         self._n1.remove_obj_from_refs(self)
-        self._n1 = value
-        value.add_obj_to_refs(self)
+        self._n1 = new_node
+        new_node.add_obj_to_refs(self)
 
     @property
     def n2(self) -> Node:
         return self._n2
 
     @n2.setter
-    def n2(self, value: Node):
+    def n2(self, new_node: Node):
         self._n2.remove_obj_from_refs(self)
-        self._n2 = value
-        value.add_obj_to_refs(self)
+        self._n2 = new_node
+        new_node.add_obj_to_refs(self)
 
     @property
     def bbox(self) -> BoundingBox:
