@@ -386,7 +386,7 @@ class FemElements:
 
     def merge_with_coincident_nodes(self):
         def remove_duplicate_nodes():
-            new_nodes = [n for n in elem.nodes if len(n.refs) > 0]
+            new_nodes = [n for n in elem.nodes if n.has_refs]
             elem.nodes.clear()
             elem.nodes.extend(new_nodes)
 
@@ -394,7 +394,7 @@ class FemElements:
         This does not work according to plan. It seems like it is deleting more and more from the model for each
         iteration
         """
-        for elem in filter(lambda x: len(x.nodes) > len([n for n in x.nodes if len(n.refs) > 0]), self._elements):
+        for elem in filter(lambda x: len(x.nodes) > len([n for n in x.nodes if n.has_refs]), self._elements):
             remove_duplicate_nodes()
             elem.update()
 

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Iterable, List, Union
 import numpy as np
 
 from ada.config import Settings
+from ada.core.vector_utils import vector_length
 
 if TYPE_CHECKING:
     from ada import Beam
@@ -108,6 +109,11 @@ class Node:
     @property
     def refs(self) -> List[Union[Elem, Beam, Csys]]:
         return self._refs
+
+    @property
+    def has_refs(self) -> bool:
+        """Returns if node is valid, i.e. has objects in refs"""
+        return len(self.refs) > 0
 
     def __getitem__(self, index):
         return self.p[index]

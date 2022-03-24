@@ -246,6 +246,15 @@ class Beam(BackendGeom):
         self.n2 = node
         return new_beam
 
+    def updating_nodes(self, old_node: Node, new_node: Node) -> None:
+        """Exchanging node on beam"""
+        if old_node is self.n1:
+            self.n1 = new_node
+        elif old_node is self.n2:
+            self.n2 = new_node
+        else:
+            raise NodeNotOnEndpointError(f"{old_node} is on either endpoint: {self.nodes}")
+
     def get_outer_points(self):
         from itertools import chain
 
@@ -548,6 +557,15 @@ class Beam(BackendGeom):
     def angle(self, value: float):
         self._init_orientation(value)
 
+    @property
+    def vector(self) -> np.ndarray:
+        """Returns the full length beam vector"""
+        return self.length * self.xvec
+
+    def is_on_beam(self, point: Node) -> bool:
+        """Returns if a node is on the beam axis including endpoints"""
+        return point in self.nodes or is_between_endpoints(point.p, self.n1.p, self.n2.p)
+
     def add_beam_to_node_refs(self) -> None:
         """Add beam to refs on nodes"""
         for beam_node in self.nodes:
@@ -569,6 +587,14 @@ class Beam(BackendGeom):
             return isinstance(item, Beam) and self.is_equivalent(item) and is_parallel(self.xvec, item.xvec)
 
         return list(filter(is_equal_beamtype, self.n1.refs + self.n2.refs))
+
+    def is_weak_axis_stiffened(self, other_beam: Beam) -> bool:
+        """Assumes rotation local z-vector (up) is weak axis"""
+        return np.abs(np.dot(self.up, other_beam.xvec)) < Settings.point_tol and self is not other_beam
+
+    def is_strong_axis_stiffened(self, other_beam: Beam) -> bool:
+        """Assumes rotation local y-vector is strong axis"""
+        return np.abs(np.dot(self.yvec, other_beam.xvec)) < Settings.point_tol and self is not other_beam
 
     def __hash__(self):
         return hash(self.guid)
@@ -605,3 +631,7 @@ class Beam(BackendGeom):
 
     def __getstate__(self):
         return self.__dict__
+
+
+class NodeNotOnEndpointError(Exception):
+    pass

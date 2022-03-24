@@ -177,6 +177,14 @@ class Elem(FemBase):
         else:
             self._shape = None
 
+    def updating_nodes(self, old_node: Node, new_node: Node) -> None:
+        """Exchanging old node with new node, and updating the element shape"""
+        node_index = self.nodes.index(old_node)
+        self.nodes.pop(node_index)
+        self.nodes.insert(node_index, new_node)
+
+        self.update()
+
     def __repr__(self):
         return f'Elem(ID: {self._el_id}, Type: {self.type}, NodeIds: "{self.nodes}")'
 
@@ -431,6 +439,10 @@ class Mass(Elem):
             return self._mass
         else:
             raise ValueError(f'Unknown mass input "{self.type}"')
+
+    @mass.setter
+    def mass(self, value) -> None:
+        self._mass = value
 
     @property
     def members(self):
