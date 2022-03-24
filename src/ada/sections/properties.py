@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 import logging
-from typing import Union
+from typing import Union, TYPE_CHECKING
 
 import numpy as np
 
 from .categories import SectionCat
-from .concept import GeneralProperties, Section
+from .concept import GeneralProperties
+
+if TYPE_CHECKING:
+    from ada.sections.concept import Section
 
 # List of documents the various formulas are based upon
 #
