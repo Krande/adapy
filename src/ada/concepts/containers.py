@@ -21,7 +21,7 @@ from ada.core.vector_utils import (
 from ada.materials import Material
 
 from ada.concepts.exceptions import DuplicateNodes
-from ada.concepts.points import Node
+from ada.concepts.points import Node, replace_node
 from ada.concepts.stru_beams import Beam
 from ada.concepts.stru_plates import Plate
 from ada.concepts.transforms import Rotation
@@ -188,7 +188,7 @@ class Beams(BaseCollections):
 
         self._dmap[beam.name] = beam
         self._beams.append(beam)
-
+        beam.add_beam_to_node_refs()
         return beam
 
     def remove(self, beam: Beam) -> None:
