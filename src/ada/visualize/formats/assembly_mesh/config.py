@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import List, Union
+from typing import List, Union, Callable
 
 import numpy as np
 
@@ -8,6 +10,8 @@ import numpy as np
 class DataFilter:
     name_filter: Union[None, List[str]] = None
     filter_elements_by_guid: Union[None, List[str]] = None
+    filter_func: Callable = None
+    filter_func_ref: str = None
 
 
 @dataclass
