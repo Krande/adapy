@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Union, Callable
+from typing import Callable, List, Union
 
 import numpy as np
 
