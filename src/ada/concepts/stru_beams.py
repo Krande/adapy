@@ -63,8 +63,8 @@ class Beam(BackendGeom):
     def __init__(
         self,
         name,
-        n1: Node = None,
-        n2: Node = None,
+        n1: Union[Node, Iterable] = None,
+        n2: Union[Node, Iterable] = None,
         sec: Union[str, Section] = None,
         mat: Union[str, Material] = None,
         tap: Union[str, Section] = None,

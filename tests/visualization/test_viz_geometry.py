@@ -17,7 +17,7 @@ def test_viz_structural():
     ]
     a = Assembly("my_test_assembly") / components
 
-    res = a.to_vis_mesh()
+    res = a.to_vis_mesh(auto_merge_by_color=False)
     merged = res.merge_objects_in_parts_by_color()
 
     assert res.num_polygons == 416
