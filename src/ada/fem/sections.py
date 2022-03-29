@@ -32,7 +32,7 @@ class FemSection(FemBase):
         self,
         name,
         sec_type: str,
-        elset: "FemSet",
+        elset: FemSet,
         material: Material,
         section=None,
         local_z=None,

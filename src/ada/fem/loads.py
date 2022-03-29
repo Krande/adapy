@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING, List, Union
 
@@ -55,7 +57,7 @@ class Load(FemBase):
         accr_rot_axis=None,
         csys: Csys = None,
         metadata=None,
-        parent: "Step" = None,
+        parent: Step = None,
     ):
         super().__init__(name, metadata, parent)
         self._type = load_type

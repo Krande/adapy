@@ -79,7 +79,7 @@ class Part(BackendGeom):
         units="m",
         ifc_elem=None,
         guid=None,
-        ifc_ref: "IfcRef" = None,
+        ifc_ref: IfcRef = None,
     ):
         super().__init__(
             name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_elem=ifc_elem, ifc_ref=ifc_ref
@@ -487,7 +487,7 @@ class Part(BackendGeom):
         bm_repr=ElemType.LINE,
         pl_repr=ElemType.SHELL,
         shp_repr=ElemType.SOLID,
-        options: "GmshOptions" = None,
+        options: GmshOptions = None,
         silent=True,
         interactive=False,
         use_quads=False,
@@ -992,7 +992,7 @@ class Assembly(Part):
         make_zip_file=False,
         import_result_mesh=False,
         writable_obj: StringIO = None,
-    ) -> "Results":
+    ) -> Results:
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
         Currently there is limited write support for the following FEM formats:

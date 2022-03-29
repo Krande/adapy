@@ -286,7 +286,7 @@ class Section(Backend):
         display(HBox([fig, html]))
 
     @property
-    def refs(self) -> List[Union["Beam", "FemSection"]]:
+    def refs(self) -> List[Union[Beam, FemSection]]:
         return self._refs
 
     def __hash__(self):
@@ -332,6 +332,12 @@ class GeneralProperties:
     Sfz: float = 1
     Cy: float = None
     Cz: float = None
+
+    @property
+    def modified(self) -> bool:
+        from .properties import calculate_general_properties
+
+        return self != calculate_general_properties(self.parent)
 
     def __eq__(self, other):
         for key, val in self.__dict__.items():

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import traceback
 from itertools import groupby
 from operator import attrgetter
@@ -27,7 +29,7 @@ if TYPE_CHECKING:
     from ada.fem import Interaction, Surface
 
 
-def to_fem(assembly: "Assembly", name, analysis_dir, metadata=None):
+def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
     """Write a Calculix input file stack"""
 
     check_compatibility(assembly)
@@ -274,7 +276,7 @@ def bc_str(bc: Bc) -> str:
 {dofs_str}"""
 
 
-def surface_str(surface: "Surface") -> str:
+def surface_str(surface: Surface) -> str:
     top_line = f"*Surface, type={surface.type}, name={surface.name}"
     id_refs_str = "\n".join([f"{m[0]}, {m[1]}" for m in surface.id_refs]).strip()
     if surface.id_refs is None:
@@ -292,7 +294,7 @@ def surface_str(surface: "Surface") -> str:
 {id_refs_str}"""
 
 
-def interactions_str(interaction: "Interaction") -> str:
+def interactions_str(interaction: Interaction) -> str:
     from ada.fem.steps import Step
 
     if interaction.type == "SURFACE":

@@ -24,7 +24,7 @@ def read_fem(fem_file: os.PathLike, fem_name: str = None):
     return Assembly("TempAssembly") / part
 
 
-def read_sesam_fem(bulk_str, part_name) -> "Part":
+def read_sesam_fem(bulk_str, part_name) -> Part:
     """Reads the content string of a Sesam input file and converts it to FEM objects"""
 
     part = Part(part_name)

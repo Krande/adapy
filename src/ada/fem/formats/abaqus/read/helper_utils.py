@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 from typing import TYPE_CHECKING, Union
 
@@ -98,7 +100,7 @@ def list_cleanup(membulkstr):
     return membulkstr.replace(",\n", ",").replace("\n", ",")
 
 
-def is_set_in_part(part: "Part", set_name: str, set_type) -> Union["FemSet", "Surface"]:
+def is_set_in_part(part: Part, set_name: str, set_type) -> Union[FemSet, Surface]:
     set_map = {"nset": part.fem.nsets, "elset": part.fem.elsets, "surface": part.fem.surfaces}
     id_map = {"nset": part.fem.nodes, "elset": part.fem.elements}
 

@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada.concepts.connections import JointBase
+    from ada.concepts.levels import Part
     from ada.fem.elements import HingeProp
     from ada.ifc.concepts import IfcRef
 
@@ -61,8 +62,8 @@ class Beam(BackendGeom):
     def __init__(
         self,
         name,
-        n1=None,
-        n2=None,
+        n1: Union[Node, Iterable] = None,
+        n2: Union[Node, Iterable] = None,
         sec: Union[str, Section] = None,
         mat: Union[str, Material] = None,
         tap: Union[str, Section] = None,
@@ -73,7 +74,7 @@ class Beam(BackendGeom):
         e1=None,
         e2=None,
         colour=None,
-        parent=None,
+        parent: Part = None,
         metadata=None,
         opacity=1.0,
         units="m",
@@ -176,7 +177,9 @@ class Beam(BackendGeom):
 
         return is_between_endpoints(point, self.n1.p, self.n2.p, incl_endpoints=True)
 
-    def split_beam(self, point: np.ndarray = None, fraction: float = None, length: float = None) -> Optional[Beam]:
+    def split_beam(
+        self, point: Union[Node, np.ndarray] = None, fraction: float = None, length: float = None
+    ) -> Optional[Beam]:
         """
         Split beam into two parts, and returns the new beam. Prioritizes input arguments in given order if  given
         multiple input.
@@ -186,19 +189,22 @@ class Beam(BackendGeom):
         :param length: Length of the beam from Node n1.
         """
 
+        if isinstance(point, Node):
+            point = point.p
+
         if point is not None:
             splitting_node = self.get_node_on_beam_by_point(point)
         elif fraction is not None:
             splitting_node = self.get_node_on_beam_by_fraction(fraction)
         elif length is not None:
-            length_fraction = length / vector_length(self.n2.p - self.n1.p)
+            length_fraction = length / self.length
             splitting_node = self.get_node_on_beam_by_fraction(length_fraction)
         else:
-            logging.warning(f"Beam {self.guid} is not split as inconclusive info is provided.")
+            logging.warning(f"Beam {self} is not split as inconclusive info is provided.")
             return None
 
         node_on_beam = self.parent.fem.nodes.add(splitting_node)
-        splitted_beam = self.new_identical_beam(node_on_beam)
+        splitted_beam = self.get_split_beam(node_on_beam)
         return splitted_beam
 
     def get_node_on_beam_by_point(self, point: np.ndarray) -> Node:
@@ -211,24 +217,23 @@ class Beam(BackendGeom):
     def get_node_on_beam_by_fraction(self, fraction: float) -> Node:
         """Returns node as a fraction of the beam length from n1-node."""
 
-        if fraction <= 0.0 or fraction >= 1.0:
+        if not 0.0 < fraction < 1.0:
             raise ValueError(f"Fraction {fraction} is not between 0 and 1")
 
-        distance = vector_length(self.n2.p - self.n1.p)
-        node = get_singular_node_by_volume(self.parent.fem.nodes, self.n1.p + fraction * distance * self.xvec)
-        return node
+        return get_singular_node_by_volume(self.parent.fem.nodes, self.n1.p + fraction * self.length * self.xvec)
 
-    def new_identical_beam(self, node: Node = None) -> Beam:
+    def get_split_beam(self, node: Node, section: Section = None, material: Material = None) -> Beam:
         """Returns new beam. Setting splitting node to n2-node on self and to n1-node on the new beam."""
 
         new_beam = Beam(
-            f"{self.name}_2",
+            name=f"{self.name}_2",
             n1=node,
             n2=self.n2,
-            sec=self.section,
-            mat=self.material,
+            sec=self.section if section is None else section,
+            mat=self.material if material is None else material,
             tap=self.taper,
             jusl=self.jusl,
+            up=self.up,
             e1=self.e1,
             e2=self.e2,
             colour=self.colour,
@@ -241,6 +246,15 @@ class Beam(BackendGeom):
         self.name = f"{self.name}_1"
         self.n2 = node
         return new_beam
+
+    def updating_nodes(self, old_node: Node, new_node: Node) -> None:
+        """Exchanging node on beam"""
+        if old_node is self.n1:
+            self.n1 = new_node
+        elif old_node is self.n2:
+            self.n2 = new_node
+        else:
+            raise NodeNotOnEndpointError(f"{old_node} is on either endpoint: {self.nodes}")
 
     def get_outer_points(self):
         from itertools import chain
@@ -348,7 +362,16 @@ class Beam(BackendGeom):
 
     @section.setter
     def section(self, value: Section):
-        self._section = value
+        section = self.parent.add_section(value)
+
+        if self.taper == self.section:
+            self.taper = section
+
+        if self in self.section.refs:
+            self.section.refs.remove(self)
+
+        self._section = section
+        self._section.refs.append(self)
 
     @property
     def taper(self) -> Section:
@@ -356,7 +379,11 @@ class Beam(BackendGeom):
 
     @taper.setter
     def taper(self, value: Section):
+        if self in self.taper.refs:
+            self.taper.refs.remove(self)
+
         self._taper = value
+        self._taper.refs.append(self)
 
     @property
     def material(self) -> Material:
@@ -447,20 +474,20 @@ class Beam(BackendGeom):
         return self._n1
 
     @n1.setter
-    def n1(self, value: Node):
+    def n1(self, new_node: Node):
         self._n1.remove_obj_from_refs(self)
-        self._n1 = value
-        value.add_obj_to_refs(self)
+        self._n1 = new_node.get_main_node_at_point()
+        self._n1.add_obj_to_refs(self)
 
     @property
     def n2(self) -> Node:
         return self._n2
 
     @n2.setter
-    def n2(self, value: Node):
+    def n2(self, new_node: Node):
         self._n2.remove_obj_from_refs(self)
-        self._n2 = value
-        value.add_obj_to_refs(self)
+        self._n2 = new_node.get_main_node_at_point()
+        self._n2.add_obj_to_refs(self)
 
     @property
     def bbox(self) -> BoundingBox:
@@ -544,11 +571,22 @@ class Beam(BackendGeom):
     def angle(self, value: float):
         self._init_orientation(value)
 
+    @property
+    def vector(self) -> np.ndarray:
+        """Returns the full length beam vector"""
+        return self.length * self.xvec
+
+    def is_on_beam(self, point: Node) -> bool:
+        """Returns if a node is on the beam axis including endpoints"""
+        return point in self.nodes or is_between_endpoints(point.p, self.n1.p, self.n2.p)
+
     def add_beam_to_node_refs(self) -> None:
+        """Add beam to refs on nodes"""
         for beam_node in self.nodes:
             beam_node.add_obj_to_refs(self)
 
     def remove_beam_from_node_refs(self) -> None:
+        """Remove beam from refs on nodes"""
         for beam_node in self.nodes:
             beam_node.remove_obj_from_refs(self)
 
@@ -563,6 +601,14 @@ class Beam(BackendGeom):
             return isinstance(item, Beam) and self.is_equivalent(item) and is_parallel(self.xvec, item.xvec)
 
         return list(filter(is_equal_beamtype, self.n1.refs + self.n2.refs))
+
+    def is_weak_axis_stiffened(self, other_beam: Beam) -> bool:
+        """Assumes rotation local z-vector (up) is weak axis"""
+        return np.abs(np.dot(self.up, other_beam.xvec)) < Settings.point_tol and self is not other_beam
+
+    def is_strong_axis_stiffened(self, other_beam: Beam) -> bool:
+        """Assumes rotation local y-vector is strong axis"""
+        return np.abs(np.dot(self.yvec, other_beam.xvec)) < Settings.point_tol and self is not other_beam
 
     def __hash__(self):
         return hash(self.guid)
@@ -599,3 +645,7 @@ class Beam(BackendGeom):
 
     def __getstate__(self):
         return self.__dict__
+
+
+class NodeNotOnEndpointError(Exception):
+    pass

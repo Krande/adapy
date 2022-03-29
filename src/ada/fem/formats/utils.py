@@ -181,7 +181,7 @@ def open_file(path_or_buf, mode="r"):
             yield f
 
 
-def get_fem_model_from_assembly(assembly: "Assembly") -> "Part":
+def get_fem_model_from_assembly(assembly: Assembly) -> Part:
     """
     Scans the assembly tree for parts containing FEM elements. If multiple FEM objects are not empty,
     they will be merged
