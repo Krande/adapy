@@ -117,7 +117,7 @@ class Node:
 
     def get_main_node_at_point(self) -> Node:
         nodes = self.sort_by_refs_at_point()
-        nearest_node, = sort_nodes_by_distance(self, nodes)
+        (nearest_node,) = sort_nodes_by_distance(self, nodes)
         return nearest_node
 
     def sort_by_refs_at_point(self) -> list[Node]:

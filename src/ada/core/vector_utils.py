@@ -253,7 +253,7 @@ def is_between_endpoints(p: np.ndarray, start: np.ndarray, end: np.ndarray, incl
     ap = p - start
 
     vec_fraction = get_vec_fraction(ap, ab)
-    on_line_segment = is_in_interval(vec_fraction, 0., 1., incl_interval_ends=incl_endpoints)
+    on_line_segment = is_in_interval(vec_fraction, 0.0, 1.0, incl_interval_ends=incl_endpoints)
     return is_parallel(ab, ap) and on_line_segment
 
 

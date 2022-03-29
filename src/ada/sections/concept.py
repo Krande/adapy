@@ -336,6 +336,7 @@ class GeneralProperties:
     @property
     def modified(self) -> bool:
         from .properties import calculate_general_properties
+
         return self != calculate_general_properties(self.parent)
 
     def __eq__(self, other):

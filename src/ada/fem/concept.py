@@ -63,9 +63,7 @@ class FEM:
     constraints: Dict[str, Constraint] = field(init=False, default_factory=dict)
 
     bcs: List[Bc] = field(init=False, default_factory=list)
-    steps: List[Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]] = field(
-        init=False, default_factory=list
-    )
+    steps: List[Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]] = field(init=False, default_factory=list)
 
     nodes: Nodes = field(default_factory=Nodes, init=True)
     ref_points: Nodes = field(default_factory=Nodes, init=True)

@@ -29,9 +29,8 @@ from ada.sections.utils import get_section
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
-    from ada.concepts.levels import Part
-
     from ada.concepts.connections import JointBase
+    from ada.concepts.levels import Part
     from ada.fem.elements import HingeProp
     from ada.ifc.concepts import IfcRef
 
@@ -178,7 +177,9 @@ class Beam(BackendGeom):
 
         return is_between_endpoints(point, self.n1.p, self.n2.p, incl_endpoints=True)
 
-    def split_beam(self, point: Union[Node, np.ndarray] = None, fraction: float = None, length: float = None) -> Optional[Beam]:
+    def split_beam(
+        self, point: Union[Node, np.ndarray] = None, fraction: float = None, length: float = None
+    ) -> Optional[Beam]:
         """
         Split beam into two parts, and returns the new beam. Prioritizes input arguments in given order if  given
         multiple input.
@@ -216,7 +217,7 @@ class Beam(BackendGeom):
     def get_node_on_beam_by_fraction(self, fraction: float) -> Node:
         """Returns node as a fraction of the beam length from n1-node."""
 
-        if not 0. < fraction < 1.:
+        if not 0.0 < fraction < 1.0:
             raise ValueError(f"Fraction {fraction} is not between 0 and 1")
 
         return get_singular_node_by_volume(self.parent.fem.nodes, self.n1.p + fraction * self.length * self.xvec)

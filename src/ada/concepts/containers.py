@@ -9,6 +9,11 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 
 import numpy as np
 
+from ada.concepts.exceptions import DuplicateNodes
+from ada.concepts.points import Node, replace_node
+from ada.concepts.stru_beams import Beam
+from ada.concepts.stru_plates import Plate
+from ada.concepts.transforms import Rotation
 from ada.config import Settings
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import (
@@ -19,12 +24,6 @@ from ada.core.vector_utils import (
     vector_length,
 )
 from ada.materials import Material
-
-from ada.concepts.exceptions import DuplicateNodes
-from ada.concepts.points import Node, replace_node
-from ada.concepts.stru_beams import Beam
-from ada.concepts.stru_plates import Plate
-from ada.concepts.transforms import Rotation
 
 if TYPE_CHECKING:
     from ada import FEM, Assembly, Part
@@ -677,7 +676,6 @@ class Sections(NumericMapped):
         return self._name_map
 
     def add(self, section: Section) -> Section:
-        from ada.concepts.stru_beams import section_counter
 
         if section.name is None:
             raise Exception("Name is not allowed to be None.")
@@ -998,6 +996,7 @@ class Nodes:
         to most elements.
         :return:
         """
+
         def replace_duplicate_nodes(duplicates: Iterable[Node], new_node: Node):
             if duplicates and len(new_node.refs) >= np.max(list(map(lambda x: len(x.refs), duplicates))):
                 for duplicate_node in duplicates:
@@ -1005,7 +1004,11 @@ class Nodes:
                     self.remove(duplicate_node)
 
         for node in filter(lambda x: x.has_refs, self._nodes):
-            duplicate_nodes = list(sorted(filter(lambda x: x.id != node.id, self.get_by_volume(node.p, tol=tol)), key=lambda x: len(x.refs)))
+            duplicate_nodes = list(
+                sorted(
+                    filter(lambda x: x.id != node.id, self.get_by_volume(node.p, tol=tol)), key=lambda x: len(x.refs)
+                )
+            )
             replace_duplicate_nodes(duplicate_nodes, node)
 
         self._sort()

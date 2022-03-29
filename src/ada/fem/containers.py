@@ -13,14 +13,13 @@ import numpy as np
 from ada.concepts.containers import Materials
 from ada.concepts.points import Node
 from ada.core.utils import Counter
-from ada.materials import Material
-from ada.sections import Section
-
 from ada.fem.elements import Connector, Elem, Mass, MassTypes
 from ada.fem.exceptions.model_definition import FemSetNameExists
 from ada.fem.sections import FemSection
 from ada.fem.sets import FemSet, SetTypes
 from ada.fem.shapes import ElemType
+from ada.materials import Material
+from ada.sections import Section
 
 if TYPE_CHECKING:
     from ada import FEM

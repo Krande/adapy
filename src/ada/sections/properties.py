@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 
 import numpy as np
 
