@@ -35,7 +35,7 @@ class Shape(BackendGeom):
         guid=None,
         material: Union[Material, str] = None,
         placement=Placement(),
-        ifc_ref: "IfcRef" = None,
+        ifc_ref: IfcRef = None,
     ):
 
         super().__init__(

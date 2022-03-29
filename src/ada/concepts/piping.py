@@ -169,16 +169,20 @@ class Pipe(BackendGeom):
         return roundoff(d + corr_t / 2.0)
 
     @property
-    def section(self) -> "Section":
+    def section(self) -> Section:
         return self._section
 
     @property
-    def n1(self):
+    def n1(self) -> Node:
         return self._n1
 
     @property
-    def n2(self):
+    def n2(self) -> Node:
         return self._n2
+
+    @property
+    def nodes(self) -> list[Node]:
+        return [self.n1, self.n2]
 
     @property
     def units(self):

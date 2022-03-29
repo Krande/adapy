@@ -22,7 +22,7 @@ class Material(Backend):
         metadata=None,
         units="m",
         guid=None,
-        ifc_ref: "IfcRef" = None,
+        ifc_ref: IfcRef = None,
     ):
         super(Material, self).__init__(name, guid, metadata, units, ifc_ref=ifc_ref)
         self._mat_model = mat_model

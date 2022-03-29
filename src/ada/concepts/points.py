@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Iterable, List, Union
 import numpy as np
 
 from ada.config import Settings
+from ada.core.vector_utils import vector_length
 
 if TYPE_CHECKING:
     from ada import Beam
@@ -73,13 +74,13 @@ class Node:
         if item not in self.refs:
             self.refs.append(item)
         else:
-            logging.warning(f"Item {item} is already in node refs")
+            logging.debug(f"Item {item} is already in node refs {self}")
 
     def remove_obj_from_refs(self, item) -> None:
         if item in self.refs:
             self.refs.remove(item)
         else:
-            logging.warning(f"Item {item} is not in node refs")
+            logging.debug(f"Item {item} is not in node refs {self}")
 
     @property
     def units(self):
@@ -108,6 +109,23 @@ class Node:
     @property
     def refs(self) -> List[Union[Elem, Beam, Csys]]:
         return self._refs
+
+    @property
+    def has_refs(self) -> bool:
+        """Returns if node is valid, i.e. has objects in refs"""
+        return len(self.refs) > 0
+
+    def get_main_node_at_point(self) -> Node:
+        nodes = self.sort_by_refs_at_point()
+        (nearest_node,) = sort_nodes_by_distance(self, nodes)
+        return nearest_node
+
+    def sort_by_refs_at_point(self) -> list[Node]:
+        nodes = list(filter(lambda n: n.has_refs, self.parent.nodes.get_by_volume(self)))
+        if len(nodes) > 0:
+            return sorted(nodes, key=lambda n: len(n.refs), reverse=True)
+        else:
+            return [self]
 
     def __getitem__(self, index):
         return self.p[index]
@@ -151,3 +169,58 @@ def get_singular_node_by_volume(nodes: Nodes, p: np.ndarray, tol=Settings.point_
         return node
     else:
         return Node(p)
+
+
+def sort_nodes_by_distance(point: Union[Node, np.ndarray], nodes: list[Node]) -> list[Node]:
+    if isinstance(point, Node):
+        point = point.p
+    return sorted(nodes, key=lambda x: vector_length(x.p - point))
+
+
+def replace_nodes_by_tol(nodes, decimals=0, tol=Settings.point_tol):
+    """
+
+    :param nodes:
+    :param decimals:
+    :param tol:
+    :type nodes: ada.core.containers.Nodes
+    """
+
+    def rounding(vec, decimals_):
+        return np.around(vec, decimals=decimals_)
+
+    def n_is_most_precise(n, nearby_nodes_, decimals_=0):
+        most_precise = [np.array_equal(n.p, rounding(n.p, decimals_)) for n in [node] + nearby_nodes_]
+
+        if most_precise[0] and not np.all(most_precise[1:]):
+            return True
+        elif not most_precise[0] and np.any(most_precise[1:]):
+            return False
+        elif decimals_ == 10:
+            logging.error(f"Recursion started at 0 decimals, but are now at {decimals_} decimals. Will proceed with n.")
+            return True
+        else:
+            return n_is_most_precise(n, nearby_nodes_, decimals_ + 1)
+
+    for node in nodes:
+        nearby_nodes = list(filter(lambda x: x != node, nodes.get_by_volume(node.p, tol=tol)))
+        if nearby_nodes and n_is_most_precise(node, nearby_nodes, decimals):
+            for nearby_node in nearby_nodes:
+                replace_node(nearby_node, node)
+
+
+def replace_node(old_node: Node, new_node: Node) -> None:
+    """
+    Exchange the old nod with the new. The refs in old node is cleared, and added to new node ref
+    :param old_node:
+    :param new_node:
+    """
+
+    for obj in old_node.refs.copy():
+        obj: Union[Beam, Csys, Elem]
+        obj.updating_nodes(old_node, new_node)
+
+        old_node.remove_obj_from_refs(obj)
+        new_node.add_obj_to_refs(obj)
+
+        logging.debug(f"{old_node} exchanged with {new_node} --> {obj}")

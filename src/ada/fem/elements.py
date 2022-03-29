@@ -23,12 +23,12 @@ class Elem(FemBase):
     def __init__(
         self,
         el_id,
-        nodes,
+        nodes: list[Node],
         el_type,
         elset=None,
-        fem_sec: "FemSection" = None,
+        fem_sec: FemSection = None,
         mass_props=None,
-        parent: "FEM" = None,
+        parent: FEM = None,
         el_formulation_override=None,
         metadata=None,
     ):
@@ -39,7 +39,7 @@ class Elem(FemBase):
 
         if nodes is not None and isinstance(nodes[0], Node):
             for node in nodes:
-                node.refs.append(self)
+                node.add_obj_to_refs(self)
 
         self._nodes = nodes
         self._elset = elset
@@ -137,15 +137,15 @@ class Elem(FemBase):
         return self._elset
 
     @elset.setter
-    def elset(self, value: "FemSet"):
+    def elset(self, value: FemSet):
         self._elset = value
 
     @property
-    def fem_sec(self) -> "FemSection":
+    def fem_sec(self) -> FemSection:
         return self._fem_sec
 
     @fem_sec.setter
-    def fem_sec(self, value):
+    def fem_sec(self, value: FemSection):
         self._fem_sec = value
 
     @property
@@ -153,7 +153,7 @@ class Elem(FemBase):
         return self._mass_props
 
     @mass_props.setter
-    def mass_props(self, value):
+    def mass_props(self, value: Mass):
         self._mass_props = value
 
     @property
@@ -170,12 +170,20 @@ class Elem(FemBase):
     def formulation_override(self):
         return self._formulation_override if self._formulation_override is not None else self.type
 
-    def update(self):
+    def update(self) -> None:
         self._nodes = list(set(self.nodes))
         if len(self.nodes) <= 1:
             self._el_id = None
         else:
             self._shape = None
+
+    def updating_nodes(self, old_node: Node, new_node: Node) -> None:
+        """Exchanging old node with new node, and updating the element shape"""
+        node_index = self.nodes.index(old_node)
+        self.nodes.pop(node_index)
+        self.nodes.insert(node_index, new_node)
+
+        self.update()
 
     def __repr__(self):
         return f'Elem(ID: {self._el_id}, Type: {self.type}, NodeIds: "{self.nodes}")'
@@ -392,11 +400,11 @@ class Mass(Elem):
             raise ValueError(f'Unknown mass input "{self.type}"')
 
     @property
-    def fem_set(self) -> "FemSet":
+    def fem_set(self) -> FemSet:
         return self._fem_set
 
     @fem_set.setter
-    def fem_set(self, value: "FemSet"):
+    def fem_set(self, value: FemSet):
         self._members = value.members
         self._fem_set = value
 
@@ -432,6 +440,10 @@ class Mass(Elem):
         else:
             raise ValueError(f'Unknown mass input "{self.type}"')
 
+    @mass.setter
+    def mass(self, value) -> None:
+        self._mass = value
+
     @property
     def members(self):
         return self._members
@@ -448,7 +460,7 @@ class Mass(Elem):
     def point_mass_type(self, value):
         self._ptype = value
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"Mass({self.name}, {self.point_mass_type}, [{self.mass}])"
 
 
