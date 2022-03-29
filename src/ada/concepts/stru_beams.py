@@ -475,8 +475,8 @@ class Beam(BackendGeom):
     @n1.setter
     def n1(self, new_node: Node):
         self._n1.remove_obj_from_refs(self)
-        self._n1 = new_node
-        new_node.add_obj_to_refs(self)
+        self._n1 = new_node.get_main_node_at_point()
+        self._n1.add_obj_to_refs(self)
 
     @property
     def n2(self) -> Node:
@@ -485,8 +485,8 @@ class Beam(BackendGeom):
     @n2.setter
     def n2(self, new_node: Node):
         self._n2.remove_obj_from_refs(self)
-        self._n2 = new_node
-        new_node.add_obj_to_refs(self)
+        self._n2 = new_node.get_main_node_at_point()
+        self._n2.add_obj_to_refs(self)
 
     @property
     def bbox(self) -> BoundingBox:

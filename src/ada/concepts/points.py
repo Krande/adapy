@@ -116,9 +116,16 @@ class Node:
         return len(self.refs) > 0
 
     def get_main_node_at_point(self) -> Node:
-        nodes = list(filter(lambda x: x.has_refs, self.parent.nodes.get_by_volume(self)))
-        nearest_node, *further_away_nodes = sort_nodes_by_distance(self, nodes)
+        nodes = self.sort_by_refs_at_point()
+        nearest_node, = sort_nodes_by_distance(self, nodes)
         return nearest_node
+
+    def sort_by_refs_at_point(self) -> list[Node]:
+        nodes = list(filter(lambda n: n.has_refs, self.parent.nodes.get_by_volume(self)))
+        if len(nodes) > 0:
+            return sorted(nodes, key=lambda n: len(n.refs), reverse=True)
+        else:
+            return [self]
 
     def __getitem__(self, index):
         return self.p[index]

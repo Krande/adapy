@@ -284,7 +284,6 @@ def is_null_vector(ab: np.array, cd: np.array, decimals=Settings.precision) -> b
 def is_parallel(ab: np.array, cd: np.array, tol=Settings.point_tol) -> bool:
     """Check if vectors AB and CD are parallel"""
     return True if np.abs(np.sin(angle_between(ab, cd))) < tol else False
-    # return np.abs(np.sin(angle_between(ab, cd))) < tol
 
 
 def is_perpendicular(ab: np.array, cd: np.array, tol=Settings.point_tol) -> bool:
