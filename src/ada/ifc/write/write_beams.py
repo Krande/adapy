@@ -83,7 +83,7 @@ def write_ifc_beam(beam: Beam):
     )
 
     if beam.ifc_options.export_props is True:
-        add_multiple_props_to_elem(beam.metadata.get("props", dict()), ifc_beam, f)
+        add_multiple_props_to_elem(beam.metadata.get("props", dict()), ifc_beam, f, owner_history)
 
     # Material
     mat_profile_set = add_material_assignment(f, beam, ifc_beam, owner_history, beam_type)

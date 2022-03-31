@@ -287,8 +287,8 @@ def create_ifcrightcylinder(ifc_file, ifcaxis2placement, height, radius):
     return ifcextrudedareasolid
 
 
-def create_property_set(name, ifc_file, metadata_props):
-    owner_history = ifc_file.by_type("IfcOwnerHistory")[0]
+def create_property_set(name, ifc_file, metadata_props, owner_history):
+
     properties = []
 
     def ifc_value(v_):
@@ -344,10 +344,10 @@ def create_property_set(name, ifc_file, metadata_props):
     return ifc_file.create_entity("IfcPropertySet", **atts)
 
 
-def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props):
+def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props, owner_history):
     logging.info(f'Adding "{name}" properties to IFC Element "{ifc_elem}"')
-    owner_history = ifc_file.by_type("IfcOwnerHistory")[0]
-    props = create_property_set(name, ifc_file, elem_props)
+
+    props = create_property_set(name, ifc_file, elem_props, owner_history=owner_history)
     ifc_file.createIfcRelDefinesByProperties(
         create_guid(),
         owner_history,
@@ -358,13 +358,13 @@ def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props):
     )
 
 
-def add_multiple_props_to_elem(metadata_props, elem, f):
+def add_multiple_props_to_elem(metadata_props, elem, f, owner_history):
     if len(metadata_props.keys()) > 0:
         if type(list(metadata_props.values())[0]) is dict:
             for pro_id, prop_ in metadata_props.items():
-                add_properties_to_elem(pro_id, f, elem, prop_)
+                add_properties_to_elem(pro_id, f, elem, prop_, owner_history=owner_history)
         else:
-            add_properties_to_elem("Properties", f, elem, metadata_props)
+            add_properties_to_elem("Properties", f, elem, metadata_props, owner_history=owner_history)
 
 
 def to_real(v) -> Union[float, List[float]]:

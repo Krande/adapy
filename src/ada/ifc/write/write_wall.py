@@ -82,7 +82,7 @@ def write_ifc_wall(wall: Wall):
     )
 
     if wall.ifc_options.export_props is True:
-        props = create_property_set("Properties", f, wall.metadata)
+        props = create_property_set("Properties", f, wall.metadata, owner_history)
         f.createIfcRelDefinesByProperties(
             create_guid(),
             owner_history,

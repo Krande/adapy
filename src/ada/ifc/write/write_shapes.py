@@ -91,7 +91,7 @@ def write_ifc_shape(shape: Shape):
         )
 
     if shape.ifc_options.export_props is True:
-        props = create_property_set("Properties", f, shape.metadata)
+        props = create_property_set("Properties", f, shape.metadata, owner_history)
         f.create_entity(
             "IfcRelDefinesByProperties",
             create_guid(),

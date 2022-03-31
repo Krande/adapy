@@ -42,7 +42,7 @@ def write_ifc_assembly(assembly: "Assembly"):
         [site],
     )
 
-    props = create_property_set("Properties", f, assembly.metadata)
+    props = create_property_set("Properties", f, assembly.metadata, owner_history)
     f.createIfcRelDefinesByProperties(
         create_guid(),
         owner_history,
@@ -109,6 +109,6 @@ def write_ifc_part(part: "Part"):
     )
 
     if part.ifc_options.export_props is True:
-        add_multiple_props_to_elem(part.metadata.get("props", dict()), ifc_elem, f)
+        add_multiple_props_to_elem(part.metadata.get("props", dict()), ifc_elem, f, owner_history)
 
     return ifc_elem
