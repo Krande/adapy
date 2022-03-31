@@ -21,7 +21,7 @@ class ExportConfig:
     parallel: bool = True
     merge_by_colour: bool = True
     render_edges: bool = False
-    ifc_skip_occ: bool = False
+    ifc_skip_occ: bool = True
     data_filter: DataFilter = DataFilter()
     # Position of model
     volume_center: Union[None, np.ndarray] = None

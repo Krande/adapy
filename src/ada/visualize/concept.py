@@ -7,7 +7,7 @@ import os
 import pathlib
 import shutil
 from dataclasses import dataclass, field
-from typing import Dict, List, Union
+from typing import Dict, List, Tuple, Union
 
 import numpy as np
 
@@ -36,11 +36,11 @@ class VisMesh:
             pm.move_objects_to_center(self.translation)
 
     @property
-    def vol_center(self):
+    def vol_center(self) -> np.ndarray:
         return (self.bbox[0] + self.bbox[1]) / 2
 
     @property
-    def bbox(self):
+    def bbox(self) -> Tuple[np.ndarray, np.ndarray]:
         res = np.concatenate([np.array(x.bbox) for x in self.world])
         return res.min(0), res.max(0)
 

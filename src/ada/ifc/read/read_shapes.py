@@ -57,7 +57,7 @@ def get_geom(ifc_elem, settings):
         print(f'unable to parse ifc_elem "{ifc_elem}"')
         return
 
-    if type(pdct_shape) is shape_tuple:
+    if isinstance(pdct_shape, shape_tuple):
         shape = pdct_shape[1]
     else:
         shape = pdct_shape.solid
