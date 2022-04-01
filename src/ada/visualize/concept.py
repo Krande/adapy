@@ -48,7 +48,7 @@ class VisMesh:
     def num_polygons(self):
         return sum([x.num_polygons for x in self.world])
 
-    def to_binary_and_json(self, dest_dir, auto_zip=False):
+    def to_binary_and_json(self, dest_dir, auto_zip=True):
         dest_dir = pathlib.Path(dest_dir)
 
         if dest_dir.exists():
