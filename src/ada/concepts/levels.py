@@ -557,7 +557,7 @@ class Part(BackendGeom):
             for inst in p.instances.values():
                 id_map[inst.instance_ref.guid].instances = inst.to_list_of_custom_json_matrices()
 
-            part_array.append(PartMesh(name=p.name, rawdata=True, guiparam=None, id_map=id_map))
+            part_array.append(PartMesh(name=p.name, id_map=id_map))
 
         amesh = VisMesh(
             name=self.name,

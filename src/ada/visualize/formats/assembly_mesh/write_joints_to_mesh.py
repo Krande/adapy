@@ -32,6 +32,6 @@ def export_joint_to_assembly_mesh(joint: "JointBase", export_config: ExportConfi
     return VisMesh(
         name=joint.name,
         project=joint.metadata.get("project", "DummyProject"),
-        world=[PartMesh(joint.name, True, id_map, None)],
+        world=[PartMesh(joint.name, id_map=id_map)],
         meta=meta,
     )

@@ -159,9 +159,9 @@ class VisMesh:
 @dataclass
 class PartMesh:
     name: str
-    rawdata: bool
     id_map: Dict[str, ObjectMesh]
     guiparam: Union[None, dict] = None
+    rawdata: bool = True
 
     def move_objects_to_center(self, override_center=None):
         for omesh in self.id_map.values():
@@ -209,7 +209,7 @@ class PartMesh:
                 continue
             id_map[guid] = pm
 
-        return PartMesh(name=self.name, rawdata=True, id_map=id_map, guiparam=None)
+        return PartMesh(name=self.name, id_map=id_map)
 
     def __add__(self, other: PartMesh):
         self.id_map.update(other.id_map)

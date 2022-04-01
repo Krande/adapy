@@ -182,7 +182,7 @@ class Results:
                 # id_sequence=dict()
             )
         }
-        pm = PartMesh(name=name, rawdata=True, id_map=id_map, guiparam=None)
+        pm = PartMesh(name=name, id_map=id_map)
         project = self.assembly.metadata.get("project", "DummyProject")
         return VisMesh(name=name, project=project, world=[pm], meta=None)
 

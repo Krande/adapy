@@ -43,7 +43,7 @@ def part_to_part_mesh(p: "Part", export_config: ExportConfig, obj_num, all_obj_n
     for inst in p.instances.values():
         id_map[inst.instance_ref.guid].instances = inst.to_list_of_custom_json_matrices()
 
-    return PartMesh(name=p.name, rawdata=True, guiparam=None, id_map=id_map)
+    return PartMesh(name=p.name, id_map=id_map)
 
 
 def generate_meta(part: ada.Part, export_config: ExportConfig):

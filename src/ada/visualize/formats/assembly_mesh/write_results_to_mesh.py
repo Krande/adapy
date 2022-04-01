@@ -31,6 +31,6 @@ def export_results_to_assembly_mesh(results: "Results", data_type) -> VisMesh:
             instances=None,
         )
     }
-    pm = PartMesh(name=name, rawdata=True, id_map=id_map, guiparam=None)
+    pm = PartMesh(name=name, id_map=id_map)
     project = results.assembly.metadata.get("project", "DummyProject")
     return VisMesh(name=name, project=project, world=[pm], meta=None)
