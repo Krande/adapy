@@ -66,16 +66,6 @@ jobs:
         ]
     steps:
       - uses: actions/checkout@v2
-      - name: Cache conda
-        uses: actions/cache@v2
-        env:
-          # Increase this value to reset cache if etc/example-environment.yml has not changed
-          CACHE_NUMBER: 1
-        with:
-          path: ~/conda_pkgs_dir
-          key:
-            ${{ runner.os }}-conda-${{ env.CACHE_NUMBER }}-${{
-            hashFiles('conda/environment.yml') }}
       - uses: conda-incubator/setup-miniconda@v2  # https://github.com/conda-incubator/setup-miniconda
         with:
           activate-environment: ${{ env.CONDAENV }}
@@ -83,7 +73,6 @@ jobs:
           channel-priority: strict
           environment-file: conda/environment.yml
           auto-update-conda: true
-          use-only-tar-bz2: true # IMPORTANT: This needs to be set for caching to work properly!
       - name: edit conda channel label if not on main
         if: github.event_name == 'push' && github.ref != 'refs/heads/main'
         run: |
