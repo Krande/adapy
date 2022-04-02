@@ -54,6 +54,8 @@ if TYPE_CHECKING:
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class _ConvertOptions:
@@ -175,7 +177,7 @@ class Part(BackendGeom):
 
     def add_shape(self, shape: Shape) -> Shape:
         if shape.units != self.units:
-            logging.info(f'shape "{shape}" has different units. changing from "{shape.units}" to "{self.units}"')
+            logger.info(f'shape "{shape}" has different units. changing from "{shape.units}" to "{self.units}"')
             shape.units = self.units
         shape.parent = self
 
@@ -198,7 +200,7 @@ class Part(BackendGeom):
         try:
             part._on_import()
         except NotImplementedError:
-            logging.info(f'Part "{part}" has not defined its "on_import()" method')
+            logger.info(f'Part "{part}" has not defined its "on_import()" method')
         return part
 
     def add_joint(self, joint: JointBase) -> JointBase:
@@ -275,7 +277,7 @@ class Part(BackendGeom):
         if name not in self.groups.keys():
             self.groups[name] = Group(name, set_members, parent=self)
         else:
-            logging.info(f'Appending set "{name}"')
+            logger.info(f'Appending set "{name}"')
             for mem in set_members:
                 if mem not in self.groups[name].members:
                     self.groups[name].members.append(mem)
@@ -349,12 +351,12 @@ class Part(BackendGeom):
 
         if type(self) is Assembly:
             for p_ in self.get_all_parts_in_assembly():
-                logging.info(f'Beginning conversion from fem to structural objects for "{p_.name}"')
+                logger.info(f'Beginning conversion from fem to structural objects for "{p_.name}"')
                 convert_part_objects(p_, skip_plates, skip_beams)
         else:
-            logging.info(f'Beginning conversion from fem to structural objects for "{self.name}"')
+            logger.info(f'Beginning conversion from fem to structural objects for "{self.name}"')
             convert_part_objects(self, skip_plates, skip_beams)
-        logging.info("Conversion complete")
+        logger.info("Conversion complete")
 
     def get_part(self, name: str) -> Part:
         key_map = {key.lower(): key for key in self.parts.keys()}
@@ -386,7 +388,7 @@ class Part(BackendGeom):
                 if mat.name == name:
                     return mat
 
-        logging.debug(f'Unable to find"{name}". Check if the element type is evaluated in the algorithm')
+        logger.debug(f'Unable to find"{name}". Check if the element type is evaluated in the algorithm')
         return None
 
     def get_all_parts_in_assembly(self, include_self=False) -> List[Part]:
@@ -509,7 +511,7 @@ class Part(BackendGeom):
                 elif issubclass(type(obj), Shape):
                     gs.add_obj(obj, geom_repr=shp_repr.upper())
                 else:
-                    logging.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
+                    logger.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
 
             # if interactive is True:
             #     gs.open_gui()
@@ -834,7 +836,7 @@ class Assembly(Part):
                 break
 
         if self._cache_file.exists() is False:
-            logging.debug("Cache file not found")
+            logger.debug("Cache file not found")
             is_cache_outdated = True
 
         if input_file is not None:
@@ -1090,7 +1092,7 @@ class Assembly(Part):
             print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
 
         if out is None and res_path is None:
-            logging.info("No Result file is created")
+            logger.info("No Result file is created")
             return None
 
         return Results(
@@ -1223,7 +1225,7 @@ class Assembly(Part):
                             elif n == ref.n2:
                                 ref.n2 = replace_node
                             else:
-                                logging.warning(f'No matching node found for either n1 or n2 of "{ref}"')
+                                logger.warning(f'No matching node found for either n1 or n2 of "{ref}"')
                         elif isinstance(ref, Csys):
                             index = ref.nodes.index(n)
                             ref.nodes.pop(index)
