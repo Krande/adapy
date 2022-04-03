@@ -29,8 +29,6 @@ requirements:
     - pyparsing
     - plotly
     - python-kaleido
-  test:
-    - python {{ python }}
 
 # Dependencies that are currently left out
 #    - numpy
