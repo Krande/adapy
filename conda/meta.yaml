@@ -17,18 +17,21 @@ requirements:
     - python
   run:
     - python
+    - numpy
     - ifcopenshell >=0.7.0
     - pythonocc-core >=7.5.3
     - occt >=7.5.3
     - python-gmsh >=4.9.3
-    - meshio[all]
     - pyquaternion
     - pytexit
     - jupyterlab
     - pythreejs
     - pyparsing
+    - h5py
     - plotly
     - python-kaleido
+  run_constrained:
+    - meshio
 
 # Dependencies that are currently left out
 #    - numpy

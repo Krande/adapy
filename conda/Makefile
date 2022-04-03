@@ -1,5 +1,5 @@
 compile:
-	conda activate condabuild2 && conda-build -c krande/label/dev -c conda-forge . --keep-old-work --python 3.9.10
+	conda activate condabuild2 && conda-build -c krande/label/dev -c conda-forge . --keep-old-work --python 3.10.2
 
 compile-docker-build:
 	docker build -t ada/condabuild -f Dockerfile ../ && \
