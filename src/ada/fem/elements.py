@@ -186,7 +186,8 @@ class Elem(FemBase):
         self.update()
 
     def __repr__(self):
-        return f'Elem(ID: {self._el_id}, Type: {self.type}, NodeIds: "{self.nodes}")'
+        nodes = self.nodes if hasattr(self, "_nodes") else "Nodes not yet initialized"
+        return f'Elem(ID: {self._el_id}, Type: {self.type}, NodeIds: "{nodes}")'
 
 
 @dataclass
