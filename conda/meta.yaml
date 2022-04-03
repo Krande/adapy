@@ -9,12 +9,11 @@ source:
   path: ../
 
 build:
-  noarch: python
   number: 0
   script: python -m pip install --no-deps --ignore-installed .
 
 requirements:
-  host:
+  build:
     - python {{ python }}
   run:
     - python
