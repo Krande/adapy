@@ -1,5 +1,5 @@
 compile:
-	conda activate condabuild2 && conda-build -c krande/label/dev -c conda-forge . --keep-old-work --python 3.10.2
+	conda activate condabuild && conda-build -c krande/label/dev -c conda-forge . --keep-old-work --python 3.10.2
 
 compile-docker-build:
 	docker build -t ada/condabuild -f Dockerfile ../ && \
@@ -25,4 +25,7 @@ show:
 	conda config --show channels
 
 pre:
-	conda create -y -n condabuild2 -c conda-forge conda-build conda-verify anaconda-client
+	conda create -y -n condabuild -c conda-forge conda-build conda-verify anaconda-client
+
+py310:
+	conda create -n py310 -c krande/label/dev -c conda-forge ifcopenshell h5py python==3.10.2

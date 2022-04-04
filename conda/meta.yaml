@@ -30,7 +30,6 @@ requirements:
     - h5py
     - plotly
     - python-kaleido
-  run_constrained:
     - meshio
 
 # Dependencies that are currently left out
