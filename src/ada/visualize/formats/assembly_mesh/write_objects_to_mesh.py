@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Dict, Iterable, Union
+from typing import TYPE_CHECKING, Callable, Iterable, List, Union
 
 import numpy as np
 
@@ -20,43 +20,31 @@ if TYPE_CHECKING:
     from ada import Beam, PipeSegElbow, PipeSegStraight, Plate, Shape, Wall
 
 
-def list_of_obj_to_object_mesh_map(
+def filter_mesh_objects(
     list_of_all_objects: Iterable[Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape]],
-    obj_num: int,
-    all_obj_num: int,
     export_config: ExportConfig,
-) -> Union[None, Dict[str, ObjectMesh]]:
+) -> Union[None, List[Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape]]]:
     from ada import Pipe
 
-    id_map = dict()
     guid_filter = export_config.data_filter.filter_elements_by_guid
+    obj_list: List[Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape]] = []
+
     for obj in list_of_all_objects:
-        obj_num += 1
-        if export_config.max_convert_objects is not None and obj_num > export_config.max_convert_objects:
-            return None
         if guid_filter is not None and obj.guid not in guid_filter:
             continue
         if isinstance(obj, Pipe):
             for seg in obj.segments:
-                res = obj_to_mesh(seg, export_config)
-                if res is None:
-                    continue
-                id_map[seg.guid] = res
-                print(f'Exporting "{obj.name}" ({obj_num} of {all_obj_num})')
+                obj_list.append(seg)
         else:
-            res = obj_to_mesh(obj, export_config)
-            if res is None:
-                continue
-            id_map[obj.guid] = res
-            print(f'Exporting "{obj.name}" [{obj.get_assembly().name}] ({obj_num} of {all_obj_num})')
+            obj_list.append(obj)
 
-    if len(id_map) == 0:
+    if len(obj_list) == 0:
         return None
 
-    return id_map
+    return obj_list
 
 
-def ifc_elem_to_json(obj: Shape, export_config: ExportConfig = ExportConfig()):
+def ifc_poly_elem_to_json(obj: Shape, export_config: ExportConfig = ExportConfig()):
     import ifcopenshell.geom
 
     a = obj.get_assembly()
@@ -85,6 +73,7 @@ def ifc_elem_to_json(obj: Shape, export_config: ExportConfig = ExportConfig()):
         mat0 = mats[0]
         opacity = 1.0 - mat0.transparency
         colour = [*mat0.diffuse, opacity]
+
     return obj_position, poly_indices, normals, colour
 
 
@@ -103,26 +92,35 @@ def occ_geom_to_poly_mesh(
 
 
 def obj_to_mesh(
-    obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape], export_config: ExportConfig = ExportConfig()
+    obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape],
+    export_config: ExportConfig = ExportConfig(),
+    opt_func: Callable = None,
 ) -> Union[ObjectMesh, None]:
     if obj.ifc_ref is not None and export_config.ifc_skip_occ is True:
-        try:
-            position, indices, normals, colour = ifc_elem_to_json(obj)
-        except RuntimeError as e:
-            logging.error(e)
-            return None
+        convert_func = ifc_poly_elem_to_json
+        occ_export = False
     else:
-        try:
-            obj_position, poly_indices, normals, colour = occ_geom_to_poly_mesh(obj, export_config)
-        except (UnableToBuildNSidedWires, UnableToCreateTesselationFromSolidOCCGeom, UnableToCreateSolidOCCGeom) as e:
-            logging.error(e)
-            return None
+        convert_func = occ_geom_to_poly_mesh
+        occ_export = True
 
-        obj_buffer_arrays = np.concatenate([obj_position, normals], 1)
+    try:
+        position, indices, normals, colour = convert_func(obj, export_config)
+    except RuntimeError as e:
+        logging.error(e)
+        return None
+    except (UnableToBuildNSidedWires, UnableToCreateTesselationFromSolidOCCGeom, UnableToCreateSolidOCCGeom) as e:
+        logging.error(e)
+        return None
+
+    if occ_export:
+        obj_buffer_arrays = np.concatenate([position, normals], 1)
         buffer, indices = np.unique(obj_buffer_arrays, axis=0, return_index=False, return_inverse=True)
         x, y, z, nx, ny, nz = buffer.T
         position = np.array([x, y, z]).T
         normals = np.array([nx, ny, nz]).T
+
+    if opt_func is not None:
+        indices, position, normals = opt_func(indices, position, normals)
 
     return ObjectMesh(obj.guid, indices, position, normals, colour, translation=export_config.volume_center)
 
