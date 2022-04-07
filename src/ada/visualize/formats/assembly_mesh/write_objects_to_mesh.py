@@ -44,7 +44,7 @@ def filter_mesh_objects(
     return obj_list
 
 
-def ifc_poly_elem_to_json(obj: Shape, export_config: ExportConfig = ExportConfig()):
+def ifc_poly_elem_to_json(obj: Shape, export_config: ExportConfig = ExportConfig(), opt_func: Callable = None):
     import ifcopenshell.geom
 
     a = obj.get_assembly()
@@ -60,12 +60,21 @@ def ifc_poly_elem_to_json(obj: Shape, export_config: ExportConfig = ExportConfig
     settings.set(settings.VALIDATE_QUANTITIES, False)
 
     geom = obj.ifc_ref.get_ifc_geom(ifc_elem, settings)
-    obj_position = np.array(geom.geometry.verts, dtype="float32").reshape(int(len(geom.geometry.verts) / 3), 3)
-    # obj_position = np.array(geom.geometry.verts, dtype=float)
-    poly_indices = np.array(geom.geometry.faces, dtype=int)
+
+    vertices = np.array(geom.geometry.verts, dtype="float32").reshape(int(len(geom.geometry.verts) / 3), 3)
+    faces = np.array(geom.geometry.faces, dtype=int)
     normals = np.array(geom.geometry.normals) if len(geom.geometry.normals) != 0 else None
+
     if normals is not None and len(normals) > 0:
-        normals = normals.reshape(int(len(normals) / 3), 3)
+        normals = normals.astype(dtype="float32").reshape(int(len(normals) / 3), 3)
+
+    if opt_func is not None:
+        faces, vertices, normals = opt_func(faces.reshape(int(len(geom.geometry.faces) / 3), 3), vertices, normals)
+        vertices = vertices.astype(dtype="float32").flatten()
+        faces = faces.astype(dtype="int32").flatten()
+        if normals is not None:
+            normals = normals.astype(dtype="float32").flatten()
+
     mats = geom.geometry.materials
     if len(mats) == 0:
         colour = [1.0, 0.0, 0.0, 1.0]
@@ -74,21 +83,28 @@ def ifc_poly_elem_to_json(obj: Shape, export_config: ExportConfig = ExportConfig
         opacity = 1.0 - mat0.transparency
         colour = [*mat0.diffuse, opacity]
 
-    return obj_position, poly_indices, normals, colour
+    return vertices, faces, normals, colour
 
 
 def occ_geom_to_poly_mesh(
-    obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape], export_config: ExportConfig = ExportConfig()
+    obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape],
+    export_config: ExportConfig = ExportConfig(),
+    opt_func: Callable = None,
 ):
     geom = obj.solid
-    obj_position, poly_indices, normals, _ = occ_shape_to_faces(
+    position, indices, normals, _ = occ_shape_to_faces(
         geom,
         export_config.quality,
         export_config.render_edges,
         export_config.parallel,
     )
 
-    return obj_position, poly_indices, normals, [*obj.colour_norm, obj.opacity]
+    if opt_func is not None:
+        indices, position, normals = opt_func(indices, position, normals)
+    else:
+        opt_func_example(indices, position, normals)
+
+    return position, indices, normals, [*obj.colour_norm, obj.opacity]
 
 
 def obj_to_mesh(
@@ -97,30 +113,17 @@ def obj_to_mesh(
     opt_func: Callable = None,
 ) -> Union[ObjectMesh, None]:
     if obj.ifc_ref is not None and export_config.ifc_skip_occ is True:
-        convert_func = ifc_poly_elem_to_json
-        occ_export = False
+        try:
+            position, indices, normals, colour = ifc_poly_elem_to_json(obj, export_config, opt_func)
+        except RuntimeError as e:
+            logging.error(e)
+            return None
     else:
-        convert_func = occ_geom_to_poly_mesh
-        occ_export = True
-
-    try:
-        position, indices, normals, colour = convert_func(obj, export_config)
-    except RuntimeError as e:
-        logging.error(e)
-        return None
-    except (UnableToBuildNSidedWires, UnableToCreateTesselationFromSolidOCCGeom, UnableToCreateSolidOCCGeom) as e:
-        logging.error(e)
-        return None
-
-    if occ_export:
-        obj_buffer_arrays = np.concatenate([position, normals], 1)
-        buffer, indices = np.unique(obj_buffer_arrays, axis=0, return_index=False, return_inverse=True)
-        x, y, z, nx, ny, nz = buffer.T
-        position = np.array([x, y, z]).T
-        normals = np.array([nx, ny, nz]).T
-
-    if opt_func is not None:
-        indices, position, normals = opt_func(indices, position, normals)
+        try:
+            position, indices, normals, colour = occ_geom_to_poly_mesh(obj, export_config, opt_func)
+        except (UnableToBuildNSidedWires, UnableToCreateTesselationFromSolidOCCGeom, UnableToCreateSolidOCCGeom) as e:
+            logging.error(e)
+            return None
 
     return ObjectMesh(obj.guid, indices, position, normals, colour, translation=export_config.volume_center)
 
@@ -132,3 +135,13 @@ def id_map_using_threading(list_in, threads: int):
     res = thread_this(list_in, obj_to_mesh, threads)
     print(res)
     return res
+
+
+def opt_func_example(faces, position, normals):
+    """Optimize by finding removing vertices with same coordinates and normals"""
+    obj_buffer_arrays = np.concatenate([position, normals], 1)
+    buffer, indices = np.unique(obj_buffer_arrays, axis=0, return_index=False, return_inverse=True)
+    x, y, z, nx, ny, nz = buffer.T
+    position = np.array([x, y, z]).T
+    normals = np.array([nx, ny, nz]).T
+    return faces, position, normals

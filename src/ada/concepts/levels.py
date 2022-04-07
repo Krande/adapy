@@ -561,8 +561,8 @@ class Part(BackendGeom):
                 if res is None:
                     continue
                 id_map[obj.guid] = res
-                print(f'Exporting "{obj.name}" [{obj.get_assembly().name}] ({obj_num} of {all_obj_num})')
                 obj_num += 1
+                print(f'Exporting "{obj.name}" [{obj.get_assembly().name}] ({obj_num} of {all_obj_num})')
 
             if id_map is None:
                 print(f'Part "{p.name}" has no physical members. Skipping.')

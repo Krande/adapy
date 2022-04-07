@@ -48,7 +48,32 @@ class VisMesh:
     def num_polygons(self):
         return sum([x.num_polygons for x in self.world])
 
-    def to_binary_and_json(self, dest_dir, auto_zip=True):
+    def to_stl(self, dest_file):
+        try:
+            import trimesh
+            import trimesh.exchange.stl
+        except ModuleNotFoundError as e:
+            logging.error(e)
+            return None
+        mesh: trimesh.Trimesh = None
+        for world in self.world:
+            for key, obj in world.id_map.items():
+                faces = obj.index.reshape(int(len(obj.index) / 3), 3)
+                vertices = obj.position
+                vertex_normals = obj.normal
+                new_mesh = trimesh.Trimesh(
+                    vertices=vertices, faces=faces, vertex_normals=vertex_normals, face_colors=obj.color
+                )
+                if mesh is None:
+                    mesh = new_mesh
+                    continue
+
+                mesh += new_mesh
+
+        with open(dest_file, "wb") as f:
+            f.write(trimesh.exchange.stl.export_stl(mesh))
+
+    def to_binary_and_json(self, dest_dir, auto_zip=True, export_dir=None):
         dest_dir = pathlib.Path(dest_dir)
 
         if dest_dir.exists():
@@ -85,8 +110,11 @@ class VisMesh:
         if auto_zip is True:
             import zipfile
 
-            zip_dir = dest_dir / "export"
+            zip_dir = dest_dir / "export" if export_dir is None else pathlib.Path(export_dir)
             zip_data = zip_dir / "data"
+            if zip_data.exists():
+                shutil.rmtree(zip_data, ignore_errors=True)
+
             os.makedirs(zip_dir, exist_ok=True)
             os.makedirs(zip_data, exist_ok=True)
 
