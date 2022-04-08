@@ -1,5 +1,6 @@
-import ada
 import pytest
+
+import ada
 
 
 def test_basic_plate(pl1, test_meshing_dir):
