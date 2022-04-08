@@ -26,6 +26,24 @@ class VisMesh:
     created: str = None
     translation: np.ndarray = None
 
+    @staticmethod
+    def from_json(json_file: Union[str, pathlib.Path]) -> VisMesh:
+        with open(json_file, "r") as f:
+            data = json.load(f)
+
+        for wrld in data.get("world"):
+            id_map = dict()
+            for guid, obj_mesh in data.get("id_map").items():
+                data.get("id_map")
+                id_map[guid] = ObjectMesh(
+                    guid,
+                )
+            PartMesh(
+                wrld.get("name"),
+            )
+
+        return VisMesh(data.get("name"))
+
     def __post_init__(self):
         if self.created is None:
             self.created = datetime.datetime.utcnow().strftime("%m/%d/%Y, %H:%M:%S")
