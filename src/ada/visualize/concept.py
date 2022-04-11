@@ -7,9 +7,10 @@ import os
 import pathlib
 import shutil
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple, Union
+from typing import Callable, Dict, List, Tuple, Union
 
 import numpy as np
+import trimesh
 
 from ada.core.file_system import get_list_of_files
 
@@ -66,30 +67,40 @@ class VisMesh:
     def num_polygons(self):
         return sum([x.num_polygons for x in self.world])
 
-    def to_stl(self, dest_file):
-        try:
-            import trimesh
-            import trimesh.exchange.stl
-        except ModuleNotFoundError as e:
-            logging.error(e)
-            return None
-        mesh: trimesh.Trimesh = None
+    def _convert_to_trimesh(self) -> trimesh.Trimesh:
+        mesh = None
         for world in self.world:
             for key, obj in world.id_map.items():
                 faces = obj.index.reshape(int(len(obj.index) / 3), 3)
                 vertices = obj.position
                 vertex_normals = obj.normal
                 new_mesh = trimesh.Trimesh(
-                    vertices=vertices, faces=faces, vertex_normals=vertex_normals, face_colors=obj.color
+                    vertices=vertices,
+                    faces=faces,
+                    vertex_normals=vertex_normals,
+                    face_colors=obj.color,
+                    metadata=dict(guid=obj.guid),
                 )
                 if mesh is None:
                     mesh = new_mesh
                     continue
 
                 mesh += new_mesh
+        return mesh
 
-        with open(dest_file, "wb") as f:
-            f.write(trimesh.exchange.stl.export_stl(mesh))
+    def _export_using_trimesh(self, mesh: trimesh.Trimesh, dest_file: pathlib.Path):
+        os.makedirs(dest_file.parent, exist_ok=True)
+        mesh.export(dest_file)
+
+    def to_stl(self, dest_file):
+        dest_file = pathlib.Path(dest_file).with_suffix(".stl")
+        mesh: trimesh.Trimesh = self._convert_to_trimesh()
+        self._export_using_trimesh(mesh, dest_file)
+
+    def to_gltf(self, dest_file):
+        dest_file = pathlib.Path(dest_file).with_suffix(".glb")
+        mesh: trimesh.Trimesh = self._convert_to_trimesh()
+        self._export_using_trimesh(mesh, dest_file)
 
     def to_binary_and_json(self, dest_dir, auto_zip=True, export_dir=None):
         dest_dir = pathlib.Path(dest_dir)
@@ -199,7 +210,12 @@ class VisMesh:
             new_meta.update(self.meta)
         if other.meta is not None:
             new_meta.update(other.meta)
-        return VisMesh(name=self.name, project=self.project, world=self.world + other.world, meta=new_meta)
+        return VisMesh(
+            name=self.name,
+            project=self.project,
+            world=self.world + other.world,
+            meta=new_meta,
+        )
 
 
 @dataclass

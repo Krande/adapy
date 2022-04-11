@@ -23,6 +23,7 @@ requirements:
     - occt >=7.5.3
     - python-gmsh >=4.9.3
     - pyquaternion
+    - trimesh
     - pytexit
     - jupyterlab
     - pythreejs
