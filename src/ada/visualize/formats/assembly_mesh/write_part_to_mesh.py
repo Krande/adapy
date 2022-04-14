@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import ada
-
-from .config import ExportConfig
+from ada.visualize.config import ExportConfig
 
 
 def generate_meta(part: ada.Part, export_config: ExportConfig):

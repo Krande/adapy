@@ -12,9 +12,8 @@ from ada.occ.exceptions.geom_creation import (
     UnableToCreateTesselationFromSolidOCCGeom,
 )
 from ada.visualize.concept import ObjectMesh
+from ada.visualize.config import ExportConfig
 from ada.visualize.renderer_occ import occ_shape_to_faces
-
-from .config import ExportConfig
 
 if TYPE_CHECKING:
     from ada import Beam, PipeSegElbow, PipeSegStraight, Plate, Shape, Wall

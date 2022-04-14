@@ -533,7 +533,7 @@ class Part(BackendGeom):
 
     def to_vis_mesh(self, export_config=None, auto_merge_by_color=True, opt_func: Callable = None) -> VisMesh:
         from ada.visualize.concept import PartMesh, VisMesh
-        from ada.visualize.formats.assembly_mesh import ExportConfig
+        from ada.visualize.config import ExportConfig
         from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import (
             filter_mesh_objects,
             obj_to_mesh,
@@ -546,7 +546,7 @@ class Part(BackendGeom):
         all_obj_num = len(list(self.get_all_physical_objects(sub_elements_only=False)))
         print(f"Exporting {all_obj_num} physical objects to custom json format.")
 
-        obj_num = 0
+        obj_num = 1
         part_array = []
         for p in self.get_all_subparts(include_self=True):
             if export_config.max_convert_objects is not None and obj_num > export_config.max_convert_objects:
@@ -557,12 +557,15 @@ class Part(BackendGeom):
             id_map = dict()
             for obj in obj_list:
 
+                print(f'Exporting "{obj.name}" [{obj.get_assembly().name}] ({obj_num} of {all_obj_num})')
                 res = obj_to_mesh(obj, export_config, opt_func=opt_func)
                 if res is None:
                     continue
                 id_map[obj.guid] = res
                 obj_num += 1
-                print(f'Exporting "{obj.name}" [{obj.get_assembly().name}] ({obj_num} of {all_obj_num})')
+                if export_config.max_convert_objects is not None and obj_num >= export_config.max_convert_objects:
+                    print(f'Maximum number of converted objects of "{export_config.max_convert_objects}" reached')
+                    break
 
             if id_map is None:
                 print(f'Part "{p.name}" has no physical members. Skipping.')

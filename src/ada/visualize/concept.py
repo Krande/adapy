@@ -7,7 +7,7 @@ import os
 import pathlib
 import shutil
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 import numpy as np
 import trimesh
@@ -67,8 +67,10 @@ class VisMesh:
     def num_polygons(self):
         return sum([x.num_polygons for x in self.world])
 
-    def _convert_to_trimesh(self) -> trimesh.Trimesh:
-        mesh = None
+    def _convert_to_trimesh(self) -> trimesh.Scene:
+        scene = trimesh.Scene()
+        from trimesh.visual.material import PBRMaterial
+
         for world in self.world:
             for key, obj in world.id_map.items():
                 faces = obj.index.reshape(int(len(obj.index) / 3), 3)
@@ -78,19 +80,19 @@ class VisMesh:
                     vertices=vertices,
                     faces=faces,
                     vertex_normals=vertex_normals,
-                    face_colors=obj.color,
+                    # face_colors=obj.color,
                     metadata=dict(guid=obj.guid),
                 )
-                if mesh is None:
-                    mesh = new_mesh
-                    continue
+                base_color = [int(x * 255) for x in obj.color]
+                new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color)
+                scene.add_geometry(new_mesh, node_name=key, geom_name=key)
+        return scene
 
-                mesh += new_mesh
-        return mesh
-
-    def _export_using_trimesh(self, mesh: trimesh.Trimesh, dest_file: pathlib.Path):
+    def _export_using_trimesh(self, mesh: trimesh.Scene, dest_file: pathlib.Path):
         os.makedirs(dest_file.parent, exist_ok=True)
-        mesh.export(dest_file)
+        print(f'Writing Visual Mesh to "{dest_file}"')
+        with open(dest_file, "wb") as f:
+            mesh.export(file_obj=f, file_type=dest_file.suffix[1:])
 
     def to_stl(self, dest_file):
         dest_file = pathlib.Path(dest_file).with_suffix(".stl")

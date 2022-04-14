@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ada.visualize.concept import PartMesh, VisMesh
+from ada.visualize.config import ExportConfig
 
-from .config import ExportConfig
 from .write_objects_to_mesh import obj_to_mesh
 from .write_part_to_mesh import generate_meta
 
