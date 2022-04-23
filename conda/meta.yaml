@@ -20,7 +20,7 @@ requirements:
     - numpy
     - ifcopenshell >=0.7.0
     - pythonocc-core >=7.5.3
-    - occt >=7.5.3
+    - occt ==7.5.3
     - python-gmsh >=4.9.3
     - pyquaternion
     - trimesh
