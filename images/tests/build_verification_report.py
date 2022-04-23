@@ -64,7 +64,7 @@ def create_df_of_data(results: List[Results], geom_repr, el_order, hexquad):
 
 
 def retrieve_cached_results(results, cache_dir):
-    from ada.core.utils import get_list_of_files
+    from ada.core.file_system import get_list_of_files
 
     res_names = [r.name for r in results]
     res_elo = [r.metadata["elo"] for r in results]

@@ -8,12 +8,15 @@ from plotly import io as pio
 
 def easy_plotly(
     title: str,
-    in_data: Union[List[tuple], Dict[str, Union[Tuple[float], Dict[str, Tuple[float]]]]],
+    in_data: Union[
+        Tuple[list, list], List[tuple], Dict[str, Union[Tuple[float, float], Dict[str, Tuple[float, float]]]]
+    ],
     xlbl: str = "X-axis",
     ylbl: str = "Y-axis",
     xrange: List[Union[float, int]] = None,
     yrange: List[Union[float, int]] = None,
     yaxformat: str = "E",
+    xaxformat: str = None,
     legend_pos: Dict[str, float] = None,
     autoreverse=False,
     save_filename: Union[str, pathlib.PurePath, pathlib.Path] = None,
@@ -27,6 +30,8 @@ def easy_plotly(
     return_widget=True,
     width=1600,
     height=800,
+    log_x=False,
+    log_y=False,
 ):
     """
     A Plotly template for quick and easy interactive scatter plotting using some pre-defined values. If you need more
@@ -69,7 +74,6 @@ def easy_plotly(
         plot_data += traces
 
     autorange = "reversed" if autoreverse is True else None
-
     layout = go.Layout(
         title=title,
         xaxis=dict(
@@ -77,6 +81,7 @@ def easy_plotly(
             titlefont=dict(family="Arial, monospace", size=18, color="#7f7f7f"),
             autorange=autorange,
             range=xrange,
+            exponentformat=xaxformat,
         ),
         yaxis=dict(
             title=ylbl,
@@ -92,6 +97,11 @@ def easy_plotly(
         layout["annotations"] = annotations
 
     fig = go.FigureWidget(data=plot_data, layout=layout)
+    if log_y is True:
+        fig.update_yaxes(type="log", range=yrange, overwrite=True)  # log range: 10^0=1, 10^5=100000
+    if log_x is True:
+        fig.update_xaxes(type="log", range=xrange, overwrite=True)  # log range: 10^0=1, 10^5=100000
+
     if save_filename is not None:
         save_plot(fig, save_filename, width, height)
     else:

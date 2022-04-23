@@ -5,8 +5,9 @@ import logging
 import os
 import pathlib
 from dataclasses import dataclass
+from io import StringIO
 from itertools import chain
-from typing import TYPE_CHECKING, Dict, Iterable, List, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Union
 
 from ada.base.physical_objects import BackendGeom
 from ada.concepts.connections import JointBase
@@ -28,7 +29,7 @@ from ada.concepts.primitives import (
     PrimRevolve,
     Shape,
 )
-from ada.concepts.transforms import Placement
+from ada.concepts.transforms import Instance, Placement
 from ada.config import Settings, User
 from ada.fem import (
     Connector,
@@ -45,11 +46,15 @@ from ada.fem.elements import ElemType
 from ada.ifc.utils import create_guid
 
 if TYPE_CHECKING:
-    from ada import Beam, Material, Plate, Section, Transform, Wall
+    from ada import Beam, Material, Plate, Section, Wall
     from ada.fem.meshing import GmshOptions
     from ada.fem.results import Results
+    from ada.ifc.concepts import IfcRef
+    from ada.visualize.concept import VisMesh
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -76,8 +81,11 @@ class Part(BackendGeom):
         units="m",
         ifc_elem=None,
         guid=None,
+        ifc_ref: IfcRef = None,
     ):
-        super().__init__(name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_elem=ifc_elem)
+        super().__init__(
+            name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_elem=ifc_elem, ifc_ref=ifc_ref
+        )
         self._nodes = Nodes(parent=self)
         self._beams = Beams(parent=self)
         self._plates = Plates(parent=self)
@@ -88,10 +96,10 @@ class Part(BackendGeom):
         self._sections = Sections(parent=self)
         self._colour = colour
         self._placement = placement
-        self._instances = []
+        self._instances: Dict[Any, Instance] = dict()
         self._shapes = []
         self._parts = dict()
-        self._groups = dict()
+        self._groups: Dict[str, Group] = dict()
 
         if ifc_elem is not None:
             self.metadata["ifctype"] = self._import_part_from_ifc(ifc_elem)
@@ -142,6 +150,9 @@ class Part(BackendGeom):
         if mat is not None:
             plate.material = mat
 
+        for n in plate.nodes:
+            self.nodes.add(n)
+
         self._plates.add(plate)
         return plate
 
@@ -166,7 +177,7 @@ class Part(BackendGeom):
 
     def add_shape(self, shape: Shape) -> Shape:
         if shape.units != self.units:
-            logging.info(f'shape "{shape}" has different units. changing from "{shape.units}" to "{self.units}"')
+            logger.info(f'shape "{shape}" has different units. changing from "{shape.units}" to "{self.units}"')
             shape.units = self.units
         shape.parent = self
 
@@ -189,7 +200,7 @@ class Part(BackendGeom):
         try:
             part._on_import()
         except NotImplementedError:
-            pass
+            logger.info(f'Part "{part}" has not defined its "on_import()" method')
         return part
 
     def add_joint(self, joint: JointBase) -> JointBase:
@@ -220,6 +231,16 @@ class Part(BackendGeom):
             section.units = self.units
         return self._sections.add(section)
 
+    def add_object(self, obj: Union[Part, Beam, Plate, Wall, Pipe, Shape]):
+        from ada import Beam
+
+        if isinstance(obj, Part):
+            self.add_part(obj)
+        elif isinstance(obj, Beam):
+            self.add_beam(obj)
+        else:
+            raise NotImplementedError()
+
     def add_penetration(
         self, pen: Union[Penetration, PrimExtrude, PrimRevolve, PrimCyl, PrimBox], add_pen_to_subparts=True
     ) -> Penetration:
@@ -236,7 +257,8 @@ class Part(BackendGeom):
             shp.add_penetration(pen)
 
         for pipe in self.pipes:
-            pipe.add_penetration(pen)
+            for seg in pipe.segments:
+                seg.add_penetration(pen)
 
         for wall in self.walls:
             wall.add_penetration(pen)
@@ -246,14 +268,16 @@ class Part(BackendGeom):
                 p.add_penetration(pen, False)
         return pen
 
-    def add_instance(self, element, transform: Transform):
-        self._instances[element] = transform
+    def add_instance(self, element, placement: Placement):
+        if element not in self._instances.keys():
+            self._instances[element] = Instance(element)
+        self._instances[element].placements.append(placement)
 
     def add_set(self, name, set_members: List[Union[Part, Beam, Plate, Wall, Pipe, Shape]]) -> Group:
         if name not in self.groups.keys():
             self.groups[name] = Group(name, set_members, parent=self)
         else:
-            logging.info(f'Appending set "{name}"')
+            logger.info(f'Appending set "{name}"')
             for mem in set_members:
                 if mem not in self.groups[name].members:
                     self.groups[name].members.append(mem)
@@ -314,6 +338,7 @@ class Part(BackendGeom):
         from ada.occ.utils import extract_shapes
 
         shapes = extract_shapes(step_path, scale, transform, rotate)
+
         if len(shapes) > 0:
             ada_name = name if name is not None else "CAD" + str(len(self.shapes) + 1)
             for i, shp in enumerate(shapes):
@@ -326,15 +351,16 @@ class Part(BackendGeom):
 
         if type(self) is Assembly:
             for p_ in self.get_all_parts_in_assembly():
-                logging.info(f'Beginning conversion from fem to structural objects for "{p_.name}"')
+                logger.info(f'Beginning conversion from fem to structural objects for "{p_.name}"')
                 convert_part_objects(p_, skip_plates, skip_beams)
         else:
-            logging.info(f'Beginning conversion from fem to structural objects for "{self.name}"')
+            logger.info(f'Beginning conversion from fem to structural objects for "{self.name}"')
             convert_part_objects(self, skip_plates, skip_beams)
-        logging.info("Conversion complete")
+        logger.info("Conversion complete")
 
-    def get_part(self, name) -> Part:
-        return self.parts[name]
+    def get_part(self, name: str) -> Part:
+        key_map = {key.lower(): key for key in self.parts.keys()}
+        return self.parts[key_map[name.lower()]]
 
     def get_by_name(self, name) -> Union[Part, Plate, Beam, Shape, Material, Pipe, None]:
         """Get element of any type by its name."""
@@ -362,7 +388,7 @@ class Part(BackendGeom):
                 if mat.name == name:
                     return mat
 
-        logging.debug(f'Unable to find"{name}". Check if the element type is evaluated in the algorithm')
+        logger.debug(f'Unable to find"{name}". Check if the element type is evaluated in the algorithm')
         return None
 
     def get_all_parts_in_assembly(self, include_self=False) -> List[Part]:
@@ -373,27 +399,32 @@ class Part(BackendGeom):
             list_of_ps += [self]
         return list_of_ps
 
-    def get_all_subparts(self) -> List[Part]:
-        list_of_parts = []
+    def get_all_subparts(self, include_self=False) -> List[Part]:
+        list_of_parts = [] if include_self is False else [self]
         self._flatten_list_of_subparts(self, list_of_parts)
         return list_of_parts
 
     def get_all_physical_objects(
-        self, sub_elements_only=True, by_type=None
+        self, sub_elements_only=False, by_type=None, filter_by_guids: Union[List[str]] = None
     ) -> Iterable[Union[Beam, Plate, Wall, Pipe, Shape]]:
         physical_objects = []
         if sub_elements_only:
-            iter_parts = iter(self.get_all_subparts() + [self])
+            iter_parts = iter([self])
         else:
-            iter_parts = iter(self.get_all_parts_in_assembly(True))
+            iter_parts = iter(self.get_all_subparts(include_self=True))
 
         for p in iter_parts:
             all_as_iterable = chain(p.plates, p.beams, p.shapes, p.pipes, p.walls)
             physical_objects.append(all_as_iterable)
+
         if by_type is not None:
             res = filter(lambda x: type(x) is by_type, chain.from_iterable(physical_objects))
         else:
             res = chain.from_iterable(physical_objects)
+
+        if filter_by_guids is not None:
+            res = filter(lambda x: x.guid in filter_by_guids, res)
+
         return res
 
     def beam_clash_check(self, margins=5e-5):
@@ -457,7 +488,8 @@ class Part(BackendGeom):
         mesh_size: float,
         bm_repr=ElemType.LINE,
         pl_repr=ElemType.SHELL,
-        options: "GmshOptions" = None,
+        shp_repr=ElemType.SOLID,
+        options: GmshOptions = None,
         silent=True,
         interactive=False,
         use_quads=False,
@@ -469,8 +501,7 @@ class Part(BackendGeom):
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
         masses: List[Shape] = []
         with GmshSession(silent=silent, options=options) as gs:
-            # TODO: Beam and plate nodes (and nodes at intersecting beams) are still not properly represented
-            for obj in self.get_all_physical_objects():
+            for obj in self.get_all_physical_objects(sub_elements_only=False):
                 if type(obj) is Beam:
                     gs.add_obj(obj, geom_repr=bm_repr.upper(), build_native_lines=False)
                 elif type(obj) is Plate:
@@ -478,9 +509,9 @@ class Part(BackendGeom):
                 elif issubclass(type(obj), Shape) and obj.mass is not None:
                     masses.append(obj)
                 elif issubclass(type(obj), Shape):
-                    gs.add_obj(obj)
+                    gs.add_obj(obj, geom_repr=shp_repr.upper())
                 else:
-                    logging.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
+                    logger.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
 
             # if interactive is True:
             #     gs.open_gui()
@@ -496,10 +527,66 @@ class Part(BackendGeom):
         for mass_shape in masses:
             cog_absolute = mass_shape.placement.absolute_placement() + mass_shape.cog
             n = fem.nodes.add(Node(cog_absolute))
-            fs = fem.add_set(FemSet(f"{mass_shape.name}_mass_set", [n], "nset"))
-            fem.add_mass(Mass(f"{mass_shape.name}_mass", fs, mass_shape.mass))
+            fem.add_mass(Mass(f"{mass_shape.name}_mass", [n], mass_shape.mass))
 
         return fem
+
+    def to_vis_mesh(self, export_config=None, auto_merge_by_color=True, opt_func: Callable = None) -> VisMesh:
+        from ada.visualize.concept import PartMesh, VisMesh
+        from ada.visualize.config import ExportConfig
+        from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import (
+            filter_mesh_objects,
+            obj_to_mesh,
+        )
+        from ada.visualize.formats.assembly_mesh.write_part_to_mesh import generate_meta
+
+        if export_config is None:
+            export_config = ExportConfig()
+
+        all_obj_num = len(list(self.get_all_physical_objects(sub_elements_only=False)))
+        print(f"Exporting {all_obj_num} physical objects to custom json format.")
+
+        obj_num = 1
+        part_array = []
+        for p in self.get_all_subparts(include_self=True):
+            if export_config.max_convert_objects is not None and obj_num > export_config.max_convert_objects:
+                break
+            obj_list = filter_mesh_objects(p.get_all_physical_objects(sub_elements_only=True), export_config)
+            if obj_list is None:
+                continue
+            id_map = dict()
+            for obj in obj_list:
+
+                print(f'Exporting "{obj.name}" [{obj.get_assembly().name}] ({obj_num} of {all_obj_num})')
+                res = obj_to_mesh(obj, export_config, opt_func=opt_func)
+                if res is None:
+                    continue
+                id_map[obj.guid] = res
+                obj_num += 1
+                if export_config.max_convert_objects is not None and obj_num >= export_config.max_convert_objects:
+                    print(f'Maximum number of converted objects of "{export_config.max_convert_objects}" reached')
+                    break
+
+            if id_map is None:
+                print(f'Part "{p.name}" has no physical members. Skipping.')
+                continue
+
+            for inst in p.instances.values():
+                id_map[inst.instance_ref.guid].instances = inst.to_list_of_custom_json_matrices()
+
+            part_array.append(PartMesh(name=p.name, id_map=id_map))
+
+        amesh = VisMesh(
+            name=self.name,
+            project=self.metadata.get("project", "DummyProject"),
+            world=part_array,
+            meta=generate_meta(self, export_config),
+        )
+
+        if auto_merge_by_color:
+            return amesh.merge_objects_in_parts_by_color()
+
+        return amesh
 
     @property
     def parts(self) -> dict[str, Part]:
@@ -604,32 +691,29 @@ class Part(BackendGeom):
         self._placement = value
 
     @property
+    def instances(self) -> Dict[Any, Instance]:
+        return self._instances
+
+    @property
     def units(self):
         return self._units
 
     @units.setter
     def units(self, value):
-        from ada import Beam, Pipe, Plate, Shape, Wall
-
         if value != self._units:
             for bm in self.beams:
-                assert isinstance(bm, Beam)
                 bm.units = value
 
             for pl in self.plates:
-                assert isinstance(pl, Plate)
                 pl.units = value
 
             for pipe in self._pipes:
-                assert isinstance(pipe, Pipe)
                 pipe.units = value
 
             for shp in self._shapes:
-                assert isinstance(shp, Shape)
                 shp.units = value
 
             for wall in self.walls:
-                assert isinstance(wall, Wall)
                 wall.units = value
 
             for pen in self.penetrations:
@@ -641,6 +725,7 @@ class Part(BackendGeom):
             self.sections.units = value
             self.materials.units = value
             self._units = value
+
             if type(self) is Assembly:
                 assert isinstance(self, Assembly)
                 from ada.ifc.utils import assembly_to_ifc_file
@@ -766,7 +851,7 @@ class Assembly(Part):
                 break
 
         if self._cache_file.exists() is False:
-            logging.debug("Cache file not found")
+            logger.debug("Cache file not found")
             is_cache_outdated = True
 
         if input_file is not None:
@@ -840,7 +925,9 @@ class Assembly(Part):
 
         write_assembly_to_cache(self, self._cache_file)
 
-    def read_ifc(self, ifc_file: Union[str, os.PathLike], data_only=False, elements2part=None, cache_model_now=False):
+    def read_ifc(
+        self, ifc_file: Union[str, os.PathLike, StringIO], data_only=False, elements2part=None, cache_model_now=False
+    ):
         """
         Import from IFC file.
 
@@ -854,11 +941,12 @@ class Assembly(Part):
         """
         from ada.ifc.read.read_ifc import read_ifc_file
 
-        if self._enable_experimental_cache is True:
+        if self._enable_experimental_cache is True and type(ifc_file) is not StringIO:
             if self._from_cache(ifc_file) is True:
                 return None
 
-        a = read_ifc_file(ifc_file, self.ifc_settings, elements2part, data_only)
+        settings = self.ifc_settings
+        a = read_ifc_file(ifc_file, settings, elements2part, data_only)
 
         self.__add__(a)
 
@@ -899,7 +987,6 @@ class Assembly(Part):
         fem_importer, _ = get_fem_converters(fem_file, fem_format, fem_converter)
 
         temp_assembly: Assembly = fem_importer(fem_file, name)
-
         self.__add__(temp_assembly)
 
         if self._enable_experimental_cache is True:
@@ -921,7 +1008,8 @@ class Assembly(Part):
         run_in_shell=False,
         make_zip_file=False,
         import_result_mesh=False,
-    ) -> "Results":
+        writable_obj: StringIO = None,
+    ) -> Results:
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
         Currently there is limited write support for the following FEM formats:
@@ -989,6 +1077,7 @@ class Assembly(Part):
 
             if fem_exporter is None:
                 raise ValueError(f'FEM export for "{fem_format}" using "{fem_converter}" is currently not supported')
+
             fem_inp_files = default_fem_inp_path(name, scratch_dir)
             fem_exporter(self, name, analysis_dir, metadata)
 
@@ -1018,7 +1107,7 @@ class Assembly(Part):
             print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
 
         if out is None and res_path is None:
-            logging.info("No Result file is created")
+            logger.info("No Result file is created")
             return None
 
         return Results(
@@ -1031,10 +1120,35 @@ class Assembly(Part):
             import_mesh=import_result_mesh,
         )
 
-    def to_ifc(self, destination_file, include_fem=False) -> None:
+    def to_ifc(
+        self,
+        destination_file=None,
+        include_fem=False,
+        override_skip_props=False,
+        return_file_obj=False,
+        create_new_ifc_file=False,
+    ) -> Union[None, StringIO]:
         from ada.ifc.write.write_ifc import write_to_ifc
 
-        write_to_ifc(destination_file, self, include_fem)
+        if override_skip_props is True:
+            for p in self.get_all_subparts():
+                for obj in p.get_all_physical_objects(True):
+                    obj.ifc_options.export_props = override_skip_props
+        if destination_file is None or return_file_obj is True:
+            destination_file = "object"
+        else:
+            destination_file = pathlib.Path(destination_file).resolve().absolute()
+
+        print(f'Beginning writing to IFC file "{destination_file}" using IfcOpenShell')
+        file_obj = write_to_ifc(
+            destination_file,
+            self,
+            include_fem,
+            return_file_obj=return_file_obj,
+            create_new_ifc_file=create_new_ifc_file,
+        )
+        print("IFC file creation complete")
+        return file_obj
 
     def push(
         self,
@@ -1110,22 +1224,33 @@ class Assembly(Part):
         return self._convert_options
 
     def __add__(self, other: Union[Assembly, Part]):
+        if other.units != self.units:
+            other.units = self.units
+
         for interface_n in other.fem.interface_nodes:
             n = interface_n.node
             for p in self.get_all_parts_in_assembly(True):
                 res = p.fem.nodes.get_by_volume(n.p)
-                if res is not None:
+                if res is not None and len(res) > 0:
                     replace_node = res[0]
                     for ref in n.refs:
-                        if type(ref) is Connector:
+                        if isinstance(ref, Connector):
                             if n == ref.n1:
                                 ref.n1 = replace_node
-                            if n == ref.n2:
+                            elif n == ref.n2:
                                 ref.n2 = replace_node
-                        elif type(ref) is Csys:
-                            pass
+                            else:
+                                logger.warning(f'No matching node found for either n1 or n2 of "{ref}"')
+                        elif isinstance(ref, Csys):
+                            index = ref.nodes.index(n)
+                            ref.nodes.pop(index)
+                            ref.nodes.insert(index, replace_node)
+                        elif isinstance(ref, FemSet):
+                            index = ref.members.index(n)
+                            ref.members.pop(index)
+                            ref.members.insert(index, replace_node)
                         else:
-                            raise NotImplementedError()
+                            raise NotImplementedError(f'Unsupported type "{type(ref)}"')
                     break
 
         self.fem += other.fem
@@ -1191,3 +1316,9 @@ class Group:
             RelatedObjects=relating_objects,
             RelatingGroup=self.ifc_elem,
         )
+
+    def to_part(self, name: str):
+        p = Part(name)
+        for mem in self.members:
+            p.add_object(mem)
+        return p

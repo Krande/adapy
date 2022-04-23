@@ -26,6 +26,7 @@ from .formats.sesam.results import read_sesam_results
 
 if TYPE_CHECKING:
     from ada import Assembly
+    from ada.visualize.concept import VisMesh
 
 
 class Results:
@@ -119,6 +120,72 @@ class Results:
         with open(dest_file, "w") as f:
             json.dump(res, f, indent=4)
 
+    def save_results_to_excel(self, dest_file, filter_components_by_name=None):
+        """This method is just a sample for how certain results can easily be exported to Excel"""
+
+        try:
+            import xlsxwriter
+        except ModuleNotFoundError:
+            raise ModuleNotFoundError(
+                "xlsxwriter must be installed to export to xlsx.\n"
+                'To install you can use "conda install -c conda-forge xlsxwriter"'
+            )
+
+        dest_file = pathlib.Path(dest_file).with_suffix(".xlsx")
+
+        workbook = xlsxwriter.Workbook(dest_file)
+        worksheet = workbook.add_worksheet()
+
+        worksheet.write("A1", "Step")
+        worksheet.write("B1", "Element")
+        worksheet.write("C1", "ForceComponent")
+        worksheet.write("D1", "Value")
+        i = 2
+        for step in self.history_output.steps:
+            for el_name, el in step.element_data.items():
+                el: ElementDataOutput
+                for force_name, force in el.forces.items():
+                    if filter_components_by_name is not None:
+                        skip_it = False
+                        if force.name.lower() not in [x.lower() for x in filter_components_by_name]:
+                            skip_it = True
+                        if skip_it:
+                            continue
+                    worksheet.write(f"A{i}", step.name)
+                    worksheet.write(f"B{i}", el_name)
+                    worksheet.write(f"C{i}", force.name)
+                    worksheet.write(f"D{i}", force.final_force)
+                    i += 1
+
+        workbook.close()
+
+    def to_assembly_mesh(self, data_type) -> Union[None, VisMesh]:
+        from ada.ifc.utils import create_guid
+        from ada.visualize.concept import ObjectMesh, PartMesh, VisMesh
+
+        name = self.assembly.name
+        res_mesh = self.result_mesh
+        data = np.asarray(res_mesh.mesh.point_data[data_type], dtype="float32")
+        vertices = np.asarray([x + u[:3] for x, u in zip(res_mesh.vertices, data)], dtype="float32")
+        colors = res_mesh.colorize_data(data)
+        faces = res_mesh.faces
+        guid = create_guid(name)
+        id_map = {
+            guid: ObjectMesh(
+                guid=guid,
+                index=faces.astype(int),
+                position=vertices.flatten().astype(float),
+                normal=None,
+                color=None,
+                vertexColor=colors.flatten().astype(float),
+                instances=None,
+                # id_sequence=dict()
+            )
+        }
+        pm = PartMesh(name=name, id_map=id_map)
+        project = self.assembly.metadata.get("project", "DummyProject")
+        return VisMesh(name=name, project=project, world=[pm], meta=None)
+
     @property
     def name(self):
         return self._name
@@ -193,6 +260,7 @@ class Results:
             res = True
 
         if res is False:
+            print("No ")
             return
 
         p3s_renderer = self.result_mesh.renderer
@@ -203,13 +271,28 @@ class Results:
 
 
 @dataclass
+class ElemForceComp:
+    name: str
+    data: List[tuple]
+
+    @property
+    def final_force(self):
+        return self.data[-1][-1]
+
+
+@dataclass
 class ElementDataOutput:
     name: str
     displacements: Dict[int, List[tuple]] = field(default_factory=dict)
+    forces: Dict[int, ElemForceComp] = field(default_factory=dict)
 
     @property
     def final_displ(self):
         return {x: y[-1][-1] for x, y in self.displacements.items()}
+
+    @property
+    def final_forces(self):
+        return {x: y.data[-1][-1] for x, y in self.forces.items()}
 
 
 @dataclass
@@ -287,7 +370,7 @@ class ResultsMesh:
         self.renderer.controls.append(self.render_sets)
         return True
 
-    def _colorize_data(self, data, func=magnitude):
+    def colorize_data(self, data, func=magnitude):
         res = [func(d) for d in data]
         sorte = sorted(res)
         min_r = sorte[0]
@@ -306,7 +389,7 @@ class ResultsMesh:
         default_vertex_color = (8, 8, 8)
 
         data = np.asarray(self.mesh.point_data[data_type], dtype="float32")
-        colors = self._colorize_data(data)
+        colors = self.colorize_data(data)
 
         if renderer is None:
             renderer = MyRenderer()

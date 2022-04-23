@@ -3,9 +3,9 @@ import ada
 
 def test_roundtrip_plate(plate1, ifc_test_dir):
     ifc_beam_file = ifc_test_dir / "plate1.ifc"
-    (ada.Assembly() / (ada.Part("MyPart") / plate1)).to_ifc(ifc_beam_file)
+    fp = (ada.Assembly() / (ada.Part("MyPart") / plate1)).to_ifc(ifc_beam_file, return_file_obj=True)
 
-    a = ada.from_ifc(ifc_beam_file)
+    a = ada.from_ifc(fp)
     pl: ada.Plate = a.get_by_name("MyPlate")
     p = pl.parent
 

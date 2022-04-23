@@ -1,5 +1,5 @@
 import logging
-from typing import Tuple
+from typing import TYPE_CHECKING, List, Tuple, Union
 
 import ifcopenshell
 import ifcopenshell.geom
@@ -10,10 +10,11 @@ from ifcopenshell.util.unit import get_prefix_multiplier
 import ada.core.constants as ifco
 from ada.concepts.transforms import Transform
 from ada.config import Settings
-from ada.core.utils import Counter, get_list_of_files, roundoff
+from ada.core.file_system import get_list_of_files
+from ada.core.utils import roundoff
 
-name_gen = Counter(1, "IfcEl")
-tol_map = dict(m=Settings.mtol, mm=Settings.mmtol)
+if TYPE_CHECKING:
+    from ada import Assembly, Beam
 
 
 def ifc_dir(f: ifcopenshell.file, vec: Tuple[float, float, float]):
@@ -21,12 +22,14 @@ def ifc_dir(f: ifcopenshell.file, vec: Tuple[float, float, float]):
 
 
 def get_tolerance(units):
+    tol_map = dict(m=Settings.mtol, mm=Settings.mmtol)
     if units not in tol_map.keys():
         raise ValueError(f'Unrecognized unit "{units}"')
     return tol_map[units]
 
 
 def create_guid(name=None):
+    """Creates a guid from a random name or bytes or generates a random guid"""
     import hashlib
     import uuid
 
@@ -42,18 +45,11 @@ def create_guid(name=None):
     return result
 
 
-def ifc_p(f, p):
-    """
-
-    :param f:
-    :param p:
-    :type f: ifcopenshell.file.file
-    :return:
-    """
+def ifc_p(f: ifcopenshell.file, p):
     return f.create_entity("IfcCartesianPoint", to_real(p))
 
 
-def create_ifc_placement(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X):
+def create_ifc_placement(f: ifcopenshell.file, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X):
     """
     Creates an IfcAxis2Placement3D from Location, Axis and RefDirection specified as Python tuples
 
@@ -61,17 +57,15 @@ def create_ifc_placement(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X):
     :param origin:
     :param loc_z:
     :param loc_x:
-    :type f: ifcopenshell.file.file
     :return:
     """
 
     ifc_loc_z = f.createIfcDirection(to_real(loc_z))
     ifc_loc_x = f.createIfcDirection(to_real(loc_x))
-    axis2placement = f.createIfcAxis2Placement3D(ifc_p(f, origin), ifc_loc_z, ifc_loc_x)
-    return axis2placement
+    return f.createIfcAxis2Placement3D(ifc_p(f, origin), ifc_loc_z, ifc_loc_x)
 
 
-def create_local_placement(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X, relative_to=None):
+def create_local_placement(f: ifcopenshell.file, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X, relative_to=None):
     """
     Creates an IfcLocalPlacement from Location, Axis and RefDirection,
     specified as Python tuples, and relative placement
@@ -81,7 +75,6 @@ def create_local_placement(f, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X, relativ
     :param loc_z:
     :param loc_x:
     :param relative_to:
-    :type f: ifcopenshell.file.file
     :return: IFC local placement
     """
 
@@ -115,13 +108,7 @@ def create_new_ifc_file(file_name, schema):
     return f
 
 
-def assembly_to_ifc_file(a):
-    """
-
-    :param a:
-    :type a: ada.Assembly
-    :return:
-    """
+def assembly_to_ifc_file(a: "Assembly"):
     return generate_tpl_ifc_file(a.name, a.metadata["project"], a.metadata["schema"], a.units, a.user)
 
 
@@ -245,17 +232,7 @@ def create_ifcindexpolyline2d(ifcfile, points2d, seg_index):
 
 
 def create_ifcrevolveareasolid(f, profile, ifcaxis2placement, origin, revolve_axis, revolve_angle):
-    """
-    Creates an IfcExtrudedAreaSolid from a list of points, specified as Python tuples
-
-    :param f:
-    :param profile:
-    :param ifcaxis2placement:
-    :param origin:
-    :param revolve_axis:
-    :param revolve_angle:
-    :return:
-    """
+    """Creates an IfcExtrudedAreaSolid from a list of points, specified as Python tuples"""
     ifcorigin = f.create_entity("IfcCartesianPoint", to_real(origin))
     ifcaxis1dir = f.create_entity(
         "IfcAxis1Placement", ifcorigin, f.create_entity("IfcDirection", to_real(revolve_axis))
@@ -310,8 +287,8 @@ def create_ifcrightcylinder(ifc_file, ifcaxis2placement, height, radius):
     return ifcextrudedareasolid
 
 
-def create_property_set(name, ifc_file, metadata_props):
-    owner_history = ifc_file.by_type("IfcOwnerHistory")[0]
+def create_property_set(name, ifc_file, metadata_props, owner_history):
+
     properties = []
 
     def ifc_value(v_):
@@ -367,16 +344,10 @@ def create_property_set(name, ifc_file, metadata_props):
     return ifc_file.create_entity("IfcPropertySet", **atts)
 
 
-def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props):
-    """
-    :param name:
-    :param ifc_file:
-    :param ifc_elem:
-    :param elem_props:
-    :return:
-    """
-    owner_history = ifc_file.by_type("IfcOwnerHistory")[0]
-    props = create_property_set(name, ifc_file, elem_props)
+def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props, owner_history):
+    logging.info(f'Adding "{name}" properties to IFC Element "{ifc_elem}"')
+
+    props = create_property_set(name, ifc_file, elem_props, owner_history=owner_history)
     ifc_file.createIfcRelDefinesByProperties(
         create_guid(),
         owner_history,
@@ -387,24 +358,21 @@ def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props):
     )
 
 
-def add_multiple_props_to_elem(metadata_props, elem, f):
+def add_multiple_props_to_elem(metadata_props, elem, f, owner_history):
     if len(metadata_props.keys()) > 0:
         if type(list(metadata_props.values())[0]) is dict:
             for pro_id, prop_ in metadata_props.items():
-                add_properties_to_elem(pro_id, f, elem, prop_)
+                add_properties_to_elem(pro_id, f, elem, prop_, owner_history=owner_history)
         else:
-            add_properties_to_elem("Properties", f, elem, metadata_props)
+            add_properties_to_elem("Properties", f, elem, metadata_props, owner_history=owner_history)
 
 
-def to_real(v):
-    """
-
-    :param v:
-    :return:
-    """
+def to_real(v) -> Union[float, List[float]]:
     from ada import Node
 
-    if type(v) is tuple:
+    if type(v) is float:
+        return v
+    elif type(v) is tuple:
         return [float(x) for x in v]
     elif type(v) is list:
         if type(v[0]) is float:
@@ -485,7 +453,18 @@ def calculate_unit_scale(file):
             unit = unit.ConversionFactor.UnitComponent
         if unit.is_a("IfcSIUnit"):
             unit_scale *= get_prefix_multiplier(unit.Prefix)
+
     return unit_scale
+
+
+def get_unit_type(file):
+    value = calculate_unit_scale(file)
+    if value == 0.001:
+        return "mm"
+    elif value == 1:
+        return "m"
+    else:
+        raise NotImplementedError(f'Unit scale of "{value}" is not yet supported')
 
 
 def scale_ifc_file_object(ifc_file, scale_factor):
@@ -531,11 +510,11 @@ def scale_ifc_file_object(ifc_file, scale_factor):
                         return obj_
                     elif obj_.is_a("IfcPressureMeasure") or obj_.is_a("IfcModulusOfElasticityMeasure"):
                         # sf is a length unit.
-                        conv_unit = 1 / sf ** 2
+                        conv_unit = 1 / sf**2
                         obj_.wrappedValue = obj_.wrappedValue * conv_unit
                         return obj_
                     elif obj_.is_a("IfcMassDensityMeasure"):
-                        conv_unit = 1 / sf ** 3
+                        conv_unit = 1 / sf**3
                         obj_.wrappedValue = obj_.wrappedValue * conv_unit
                         return obj_
                     # Unit-less
@@ -561,10 +540,7 @@ def scale_ifc_file_object(ifc_file, scale_factor):
                 old_val = getattr(element, attribute)
                 if old_val is None:
                     continue
-                try:
-                    setattr(element, attribute, scale_all(old_val, scale_factor))
-                except Exception as e:
-                    raise ValueError(e)
+                # setattr(element, attribute, scale_all(old_val, scale_factor))
                 # new_val = getattr(element, attribute)
     return ifc_file
 
@@ -632,7 +608,7 @@ def merge_ifc_files(parent_dir, output_file_name, clean_files=False, include_ele
     print(f"File written in {time.time() - checkpoint:.2f} seconds")
 
 
-def convert_bm_jusl_to_ifc(bm):
+def convert_bm_jusl_to_ifc(bm: "Beam") -> int:
     """
     IfcCardinalPointReference
 
@@ -658,10 +634,6 @@ def convert_bm_jusl_to_ifc(bm):
     19.     top in line with the shear centre
 
     https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/schema/ifcmaterialresource/lexical/ifccardinalpointreference.htm
-
-    :param bm:
-    :type bm: ada.Beam
-    :return:
     """
     jusl = bm.jusl
     jt = bm.JUSL_TYPES
@@ -696,6 +668,7 @@ def tesselate_shape(shape, schema, tol):
     if serialized_geom is None:
         logging.debug("Starting serialization of geometry")
         serialized_geom = ifcopenshell.geom.tesselate(schema, occ_string, tol)
+
     return serialized_geom
 
 

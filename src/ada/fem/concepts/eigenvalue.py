@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 from typing import List
 
 import numpy as np
-from pydantic import validate_arguments
 
 
 @dataclass
@@ -34,7 +33,6 @@ class EigenDataSummary:
             self.modes.append(EigenMode(no, source_dict=values_dict[no]))
 
 
-@validate_arguments
 @dataclass
 class EigenMode:
     no: int

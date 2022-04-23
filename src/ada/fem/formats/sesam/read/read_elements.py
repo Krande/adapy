@@ -1,5 +1,6 @@
+import logging
 from itertools import chain
-from typing import Dict, Tuple
+from typing import Tuple
 
 import numpy as np
 
@@ -33,23 +34,20 @@ def get_elements(bulk_str: str, fem: FEM) -> Tuple[FemElements, dict, dict, dict
         ]
         eltyp = d["eltyp"]
         el_type = sesam_eltype_2_general(str_to_int(eltyp))
-        if el_type == "MASS":
-            mass_elem[el_no] = dict(gelmnt=d)
-            return None
 
         if el_type in ("SPRING1", "SPRING2"):
             spring_elem[el_no] = dict(gelmnt=d)
             return None
 
         metadata = dict(eltyad=str_to_int(d["eltyad"]), eltyp=eltyp)
-        return Elem(
-            el_no,
-            nodes,
-            el_type,
-            None,
-            parent=fem,
-            metadata=metadata,
-        )
+        elem = Elem(el_no, nodes, el_type, None, parent=fem, metadata=metadata)
+
+        if el_type == Elem.EL_TYPES.MASS_SHAPES.MASS:
+            logging.warning("Mass element interpretation in sesam is undergoing changes. Results should be checked")
+            mass_elem[el_no] = dict(gelmnt=d)
+            fem.sets.add(FemSet(f"m{el_no}", [elem], FemSet.TYPES.ELSET, parent=fem))
+
+        return elem
 
     elements = FemElements(
         filter(lambda x: x is not None, map(grab_elements, cards.re_gelmnt.finditer(bulk_str))), fem_obj=fem
@@ -57,7 +55,7 @@ def get_elements(bulk_str: str, fem: FEM) -> Tuple[FemElements, dict, dict, dict
     return elements, mass_elem, spring_elem, internal_external_element_map
 
 
-def get_mass(bulk_str: str, fem: FEM, mass_elem: dict) -> Dict[str, Mass]:
+def get_mass(bulk_str: str, fem: FEM, mass_elem: dict) -> FemElements:
     def checkEqual2(iterator):
         return len(set(iterator)) <= 1
 
@@ -82,7 +80,14 @@ def get_mass(bulk_str: str, fem: FEM, mass_elem: dict) -> Dict[str, Mass]:
 
         no = fem.nodes.from_id(nodeno)
         fem_set = fem.sets.add(FemSet(f"m{nodeno}", [no], FemSet.TYPES.NSET, parent=fem))
-        return Mass(f"m{nodeno}", fem_set, masses, Mass.TYPES.MASS, ptype=mass_type, parent=fem, mass_id=nodeno)
+        el_id = fem.elements.max_el_id + 1
+        elem = fem.elements.add(Elem(el_id, [no], Elem.EL_TYPES.MASS_SHAPES.MASS, None, parent=fem))
+        mass = Mass(f"m{nodeno}", fem_set, masses, Mass.TYPES.MASS, ptype=mass_type, parent=fem, mass_id=el_id)
+
+        elset = fem.sets.add(FemSet(f"m{nodeno}", [elem], FemSet.TYPES.ELSET, parent=fem))
+        elem.mass_props = mass
+        elem.elset = elset
+        return mass
 
     def find_mgmass(match) -> Mass:
         d = match.groupdict()
@@ -106,7 +111,7 @@ def get_mass(bulk_str: str, fem: FEM, mass_elem: dict) -> Dict[str, Mass]:
                 [r[5], r[10], r[14], r[17], r[19], r[20]],
             ]
         )
-        # use symmetry to complete the 6x6 matri
+        # use symmetry to complete the 6x6 matrix
         mass_matrix_6x6 = np.tril(A) + np.triu(A.T, 1)
         nodeno = str_to_int(mass_el["gelmnt"].get("nids"))
         elno = str_to_int(mass_el["gelmnt"].get("elno"))
@@ -120,8 +125,7 @@ def get_mass(bulk_str: str, fem: FEM, mass_elem: dict) -> Dict[str, Mass]:
 
     bn_masses = map(find_bnmass, cards.re_bnmass.finditer(bulk_str))
     mg_masses = map(find_mgmass, cards.re_mgmass.finditer(bulk_str))
-
-    return {m.name: m for m in chain(bn_masses, mg_masses)}
+    return FemElements(chain(bn_masses, mg_masses), fem_obj=fem)
 
 
 def get_springs(bulk_str, fem: FEM, spring_elem: dict):

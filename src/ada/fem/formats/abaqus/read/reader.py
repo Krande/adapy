@@ -7,7 +7,7 @@ import pathlib
 import re
 from dataclasses import dataclass
 from itertools import chain
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, Dict, List, Union
 
 import numpy as np
 
@@ -18,7 +18,6 @@ from ada.core.utils import Counter
 from ada.fem import (
     Bc,
     Constraint,
-    Csys,
     FemSet,
     Interaction,
     InteractionProperty,
@@ -35,6 +34,7 @@ from .helper_utils import _re_in, get_set_from_assembly, list_cleanup
 from .read_elements import get_elem_from_bulk_str, update_connector_data
 from .read_masses import get_mass_from_bulk
 from .read_materials import get_materials_from_bulk
+from .read_orientations import get_lcsys_from_bulk
 from .read_sections import get_connector_sections_from_bulk, get_sections_from_inp
 
 part_name_counter = Counter(1, "Part")
@@ -108,10 +108,10 @@ def read_fem(fem_file, fem_name=None) -> Assembly:
         update_connector_data(ass_sets, assembly.fem)
 
         assembly.fem.surfaces.update(get_surfaces_from_bulk(ass_sets, assembly.fem))
-        assembly.fem.constraints += get_constraints_from_inp(ass_sets, assembly.fem)
+        assembly.fem.constraints.update(get_constraints_from_inp(ass_sets, assembly.fem))
 
         assembly.fem.bcs += get_bcs_from_bulk(props_str, assembly.fem)
-        assembly.fem.masses.update(get_mass_from_bulk(ass_sets, assembly.fem))
+        assembly.fem.elements += get_mass_from_bulk(ass_sets, assembly.fem)
 
     add_interactions_from_bulk_str(props_str, assembly)
     get_initial_conditions_from_lines(assembly, props_str)
@@ -202,7 +202,7 @@ def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: Ins
     fem.sets += get_sets_from_bulk(bulk_str, fem)
     fem.sections = get_sections_from_inp(bulk_str, fem)
     fem.bcs += get_bcs_from_bulk(bulk_str, fem)
-    fem.masses = get_mass_from_bulk(bulk_str, fem)
+    fem.elements += get_mass_from_bulk(bulk_str, fem)
     fem.surfaces.update(get_surfaces_from_bulk(bulk_str, fem))
     fem.lcsys = get_lcsys_from_bulk(bulk_str, fem)
     fem.constraints = get_constraints_from_inp(bulk_str, fem)
@@ -595,36 +595,7 @@ def get_surfaces_from_bulk(bulk_str, parent):
     return surf_d
 
 
-def get_lcsys_from_bulk(bulk_str: str, parent: FEM) -> dict[str, Csys]:
-    """
-    https://abaqus-docs.mit.edu/2017/English/SIMACAEKEYRefMap/simakey-r-orientation.htm#simakey-r-orientation
-
-
-    :param bulk_str:
-    :param parent:
-    :return:
-    """
-    lcsysd = dict()
-    for m in cards.orientation.regex.finditer(bulk_str):
-        d = m.groupdict()
-        name = d["name"].replace('"', "")
-        defi = d["definition"] if d["definition"] is not None else "COORDINATES"
-        system = d["system"] if d["system"] is not None else "RECTANGULAR"
-        if defi.upper() == "COORDINATES":
-            coords = [
-                (float(d["ax"]), float(d["ay"]), float(d["az"])),
-                (float(d["bx"]), float(d["by"]), float(d["bz"])),
-            ]
-            if d["cx"] is not None:
-                coords += [(float(d["cx"]), float(d["cy"]), float(d["cz"]))]
-            lcsysd[name] = Csys(name, system=system, coords=coords, parent=parent)
-        else:
-            raise NotImplementedError(f'Orientation definition "{defi}" is not yet supported')
-
-    return lcsysd
-
-
-def get_constraints_from_inp(bulk_str: str, fem: FEM):
+def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
     """
 
     ** Constraint: Container_RigidBody
@@ -731,7 +702,7 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM):
 
     mpcs = [get_mpc(mpc_values_in) for mpc_values_in in mpc_dict.values()]
 
-    return list(chain.from_iterable([constraints, couplings, sh2solids, mpcs]))
+    return {c.name: c for c in chain.from_iterable([constraints, couplings, sh2solids, mpcs])}
 
 
 def add_interactions_from_bulk_str(bulk_str, assembly: Assembly) -> None:

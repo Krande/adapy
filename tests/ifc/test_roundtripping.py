@@ -8,10 +8,10 @@ test_dir = ada.config.Settings.test_dir / "ifc_basics"
 
 def test_ifc_roundtrip():
     a = ada.Assembly("my_test_assembly") / SimpleStru("my_simple_stru")
-    a.to_ifc(test_dir / "my_test.ifc")
+    fp = a.to_ifc(test_dir / "my_test.ifc", return_file_obj=True)
 
-    b = ada.from_ifc(test_dir / "my_test.ifc")
-    b.to_ifc(test_dir / "my_test_re_exported.ifc")
+    b = ada.from_ifc(fp)
+    _ = b.to_ifc(test_dir / "my_test_re_exported.ifc", return_file_obj=True)
 
     all_parts = b.get_all_parts_in_assembly()
     assert len(all_parts) == 3
@@ -20,7 +20,7 @@ def test_ifc_roundtrip():
 def test_ifc_reimport():
     # Model to be re-imported
     a = Assembly("my_test_assembly") / SimpleStru("my_simple_stru")
-    a.to_ifc(test_dir / "my_exported_param_model.ifc")
+    fp = a.to_ifc(test_dir / "my_exported_param_model.ifc", return_file_obj=True)
 
     points = [(0, 0, 0), (5, 0, 0), (5, 5, 0)]
     w = Wall("MyWall", points, 3, 0.15, offset="LEFT")
@@ -34,7 +34,7 @@ def test_ifc_reimport():
     a = Assembly("MyTest")
     p = Part("MyPart")
     a.add_part(p)
-    p.add_elements_from_ifc(test_dir / "my_exported_param_model.ifc")
+    p.add_elements_from_ifc(fp)
     p.add_wall(w)
 
     z = 3.2
@@ -52,4 +52,4 @@ def test_ifc_reimport():
         Section("PSec1", "PIPE", r=0.10, wt=5e-3),
     )
     p.add_pipe(pipe1)
-    a.to_ifc(test_dir / "my_reimport_of_elements.ifc")
+    _ = a.to_ifc(test_dir / "my_reimport_of_elements.ifc", return_file_obj=True)

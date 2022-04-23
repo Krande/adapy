@@ -1,4 +1,6 @@
 # coding=utf-8
+from __future__ import annotations
+
 import logging
 import os
 import pathlib
@@ -13,41 +15,6 @@ from ada.config import Settings
 
 if TYPE_CHECKING:
     from ada import Node
-
-
-def copy_bulk(files, destination_dir, substitution_map=None):
-    """
-    Use shutil to copy a list of files to a specified destination directory. Can also parse in a substitution map (a
-    dict with key: value substitution for specified files
-
-    :param files:
-    :param destination_dir:
-    :param substitution_map:
-    :return:
-    """
-    import os
-    import shutil
-    import time
-
-    if os.path.isdir(destination_dir):
-        shutil.rmtree(destination_dir)
-        time.sleep(1)
-    os.makedirs(destination_dir, exist_ok=True)
-
-    for f in files:
-        fname = os.path.basename(f)
-        dest_file = os.path.join(destination_dir, fname)
-        edited = False
-        if substitution_map is not None:
-            if fname in substitution_map.keys():
-                edited = True
-                with open(f, "r") as d:
-                    in_str = d.read()
-                in_str = in_str.replace(substitution_map[fname][0], substitution_map[fname][1])
-                with open(dest_file, "w") as d:
-                    d.write(in_str)
-        if edited is False:
-            shutil.copy(f, dest_file)
 
 
 class NewLine:
@@ -95,35 +62,6 @@ class Counter:
         return self.i if self._prefix is None else f"{self._prefix}{self.i}"
 
 
-class SIZE_UNIT:
-    """
-    Enum for size units
-    """
-
-    BYTES = 1
-    KB = 2
-    MB = 3
-    GB = 4
-
-
-def convert_unit(size_in_bytes, unit):
-    """Convert the size from bytes to other units like KB, MB or GB"""
-    if unit == SIZE_UNIT.KB:
-        return size_in_bytes / 1024
-    elif unit == SIZE_UNIT.MB:
-        return size_in_bytes / (1024 ** 2)
-    elif unit == SIZE_UNIT.GB:
-        return size_in_bytes / (1024 ** 3)
-    else:
-        return size_in_bytes
-
-
-def get_file_size(file_name, size_type=SIZE_UNIT.MB):
-    """Get file in size in given unit like KB, MB or GB"""
-    size = os.path.getsize(file_name)
-    return convert_unit(size, size_type)
-
-
 def random_color():
     from random import randint
 
@@ -132,57 +70,18 @@ def random_color():
     return format_color(randint(0, 255), randint(0, 255), randint(0, 255))
 
 
-def d2npy(node: "Node") -> np.ndarray:
+def d2npy(node: Node) -> np.ndarray:
     """This method takes in a node object and returns a np.array."""
     return np.array([node.x, node.y, node.z], dtype=np.float)
 
 
-def roundoff(x: float, precision=6) -> float:
+def roundoff(x: float, precision=Settings.precision) -> float:
     """Round using a specific number precision using the Decimal package"""
     import warnings
 
     warnings.filterwarnings(action="error", category=np.ComplexWarning)
     xout = float(Decimal(float(x)).quantize(Decimal("." + precision * "0" + "1"), rounding=ROUND_HALF_EVEN))
     return xout if abs(xout) != 0.0 else 0.0
-
-
-def get_short_path_name(long_name):
-    """Gets the short path name of a given long path (http://stackoverflow.com/a/23598461/200291)"""
-    import ctypes
-    from ctypes import wintypes
-
-    _GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
-    _GetShortPathNameW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
-    _GetShortPathNameW.restype = wintypes.DWORD
-
-    output_buf_size = 0
-    while True:
-        output_buf = ctypes.create_unicode_buffer(output_buf_size)
-        needed = _GetShortPathNameW(long_name, output_buf, output_buf_size)
-        if output_buf_size >= needed:
-            return output_buf.value
-        else:
-            output_buf_size = needed
-
-
-def get_unc_path(path_):
-    """
-    Will try to convert path string to UNC path
-
-    :param path_:
-    :return:
-    """
-    import win32wnet
-
-    if path_[0].lower() == "c":
-        return path_
-    else:
-        try:
-            out_path = win32wnet.WNetGetUniversalName(path_)
-            return out_path
-        except BaseException as e:
-            logging.error(e)
-            return path_
 
 
 def in_ipynb():
@@ -200,101 +99,10 @@ def tuple_minus(t):
 
 
 def get_current_user():
-    """
-
-    :return: Name of current user
-    """
+    """Return the username of currently logged in user"""
     import getpass
 
     return getpass.getuser()
-
-
-def get_list_of_files(dir_path, file_ext=None, strict=False):
-    """Get a list of files and sub directories for a given directory"""
-    all_files = []
-    list_of_file = sorted(os.listdir(dir_path), key=str.lower)
-
-    # Iterate over all the entries
-    for entry in list_of_file:
-        # Create full path
-        full_path = os.path.join(dir_path, entry).replace(os.sep, "/")
-        # If entry is a directory then get the list of files in this directory
-        if os.path.isdir(full_path):
-            all_files += get_list_of_files(full_path, file_ext, strict)
-        else:
-            all_files.append(full_path)
-
-    if file_ext is not None:
-        all_files = [f for f in all_files if f.endswith(file_ext)]
-
-    if len(all_files) == 0:
-        msg = f'Files with "{file_ext}"-extension is not found in "{dir_path}" or any sub-folder.'
-        if strict:
-            raise FileNotFoundError(msg)
-        else:
-            logging.info(msg)
-
-    return all_files
-
-
-def getfileprop(filepath: str) -> dict:
-    """Read all properties of a local file and return them as a dictionary"""
-    import win32api
-
-    filepath = str(filepath)
-    propNames = (
-        "Comments",
-        "InternalName",
-        "ProductName",
-        "CompanyName",
-        "LegalCopyright",
-        "ProductVersion",
-        "FileDescription",
-        "LegalTrademarks",
-        "PrivateBuild",
-        "FileVersion",
-        "OriginalFilename",
-        "SpecialBuild",
-    )
-
-    props = {"FixedFileInfo": None, "StringFileInfo": None, "FileVersion": None}
-
-    try:
-        # backslash as parm returns dictionary of numeric info corresponding to VS_FIXEDFILEINFO struc
-        fixedInfo = win32api.GetFileVersionInfo(filepath, "\\")
-        props["FixedFileInfo"] = fixedInfo
-        props["FileVersion"] = "%d.%d.%d.%d" % (
-            fixedInfo["FileVersionMS"] / 65536,
-            fixedInfo["FileVersionMS"] % 65536,
-            fixedInfo["FileVersionLS"] / 65536,
-            fixedInfo["FileVersionLS"] % 65536,
-        )
-
-        # \VarFileInfo\Translation returns list of available (language, codepage)
-        # pairs that can be used to retreive string info. We are using only the first pair.
-        lang, codepage = win32api.GetFileVersionInfo(filepath, "\\VarFileInfo\\Translation")[0]
-
-        # any other must be of the form \StringfileInfo\%04X%04X\parm_name, middle
-        # two are language/codepage pair returned from above
-
-        strInfo = {}
-        for propName in propNames:
-            strInfoPath = "\\StringFileInfo\\%04X%04X\\%s" % (lang, codepage, propName)
-            strInfo[propName] = win32api.GetFileVersionInfo(filepath, strInfoPath)
-
-        props["StringFileInfo"] = strInfo
-    except Exception as e:
-        logging.error(f'Unable to Read file properties due to "{e}"')
-        pass
-
-    return props
-
-
-def path_leaf(path):
-    import ntpath
-
-    head, tail = ntpath.split(path)
-    return tail or ntpath.basename(head)
 
 
 def thread_this(list_in, function, cpus=4):
@@ -491,15 +299,14 @@ def faceted_tol(units):
         return 1
 
 
-def replace_node(old_node, new_node):
-    """
+def replace_node(old_node: Node, new_node: Node) -> None:
+    from ada.fem import FemSet
 
-    :param old_node:
-    :param new_node:
-    :type old_node: ada.Node
-    :type new_node: ada.Node
-    """
     for elem in old_node.refs.copy():
+        if isinstance(elem, FemSet):
+            logging.warning("replace_node does not support updating FemSet")
+            continue
+
         node_index = elem.nodes.index(old_node)
 
         elem.nodes.pop(node_index)

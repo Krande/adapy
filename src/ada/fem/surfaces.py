@@ -79,6 +79,10 @@ class Surface(FemBase):
     def fem_set(self) -> Union[FemSet, List[FemSet]]:
         return self._fem_set
 
+    @fem_set.setter
+    def fem_set(self, value: Union[FemSet, List[FemSet]]):
+        self._fem_set = value
+
     @property
     def weight_factor(self):
         return self._weight_factor
@@ -104,6 +108,7 @@ def create_surface_from_nodes(surface_name: str, nodes: List[Node], fem: "FEM", 
         ElemType.SHELL: get_surface_from_nodes_on_shell_elements,
     }
     surf_writer = surf_map.get(el_type, None)
+
     if surf_writer is None:
         raise NotImplementedError(f'Currently Surface writing on element type "{el_type}" is not supported')
 

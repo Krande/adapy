@@ -10,15 +10,11 @@ from ada.concepts.curves import CurvePoly
 from ada.concepts.points import Node
 from ada.concepts.transforms import Placement
 from ada.config import Settings
-from ada.core.utils import Counter
 from ada.materials import Material
 from ada.materials.metals import CarbonSteel
 
 if TYPE_CHECKING:
-    pass
-
-section_counter = Counter(1)
-material_counter = Counter(1)
+    from ada.ifc.concepts import IfcRef
 
 
 class Plate(BackendGeom):
@@ -46,15 +42,25 @@ class Plate(BackendGeom):
         colour=None,
         parent=None,
         ifc_geom=None,
-        opacity=None,
+        opacity=1.0,
         metadata=None,
         tol=None,
         units="m",
         ifc_elem=None,
         guid=None,
+        ifc_ref: "IfcRef" = None,
     ):
-        # TODO: Support generation of plate object from IFC elem
-        super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem, placement=placement)
+        super().__init__(
+            name,
+            guid=guid,
+            metadata=metadata,
+            units=units,
+            ifc_elem=ifc_elem,
+            placement=placement,
+            ifc_ref=ifc_ref,
+            colour=colour,
+            opacity=opacity,
+        )
 
         points2d = None
         points3d = None
@@ -65,7 +71,7 @@ class Plate(BackendGeom):
             points2d = nodes
 
         self._pl_id = pl_id
-        self._material = mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat))
+        self._material = mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat), parent=parent)
         self._material.refs.append(self)
         self._t = t
 
@@ -86,12 +92,11 @@ class Plate(BackendGeom):
             tol=tol,
             parent=self,
         )
-        self.colour = colour
+
         self._offset = offset
         self._parent = parent
         self._ifc_geom = ifc_geom
         self._bbox = None
-        self._opacity = opacity
 
     def _generate_ifc_elem(self):
         from ada.ifc.write.write_plates import write_ifc_plate

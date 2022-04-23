@@ -17,6 +17,8 @@ from .transforms import Placement
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
+    from ada.ifc.concepts import IfcRef
+
 
 class Shape(BackendGeom):
     def __init__(
@@ -33,9 +35,20 @@ class Shape(BackendGeom):
         guid=None,
         material: Union[Material, str] = None,
         placement=Placement(),
+        ifc_ref: IfcRef = None,
     ):
 
-        super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem, placement=placement)
+        super().__init__(
+            name,
+            guid=guid,
+            metadata=metadata,
+            units=units,
+            ifc_elem=ifc_elem,
+            placement=placement,
+            ifc_ref=ifc_ref,
+            colour=colour,
+            opacity=opacity,
+        )
         if type(geom) in (str, pathlib.WindowsPath, pathlib.PurePath, pathlib.Path):
             from OCC.Extend.DataExchange import read_step_file
 
@@ -44,14 +57,12 @@ class Shape(BackendGeom):
         self._geom = geom
         self._mass = mass
         self._cog = cog
-        self.colour = colour
-        self._opacity = opacity
         if isinstance(material, Material):
             self._material = material
         else:
             self._material = get_material(material)
 
-        self._bbox = BoundingBox(self)
+        self._bbox = None
 
     def generate_ifc_solid_geom(self, f):
         raise NotImplementedError()
@@ -66,21 +77,6 @@ class Shape(BackendGeom):
         return type(self.geom)
 
     @property
-    def transparent(self):
-        return False if self.opacity == 1.0 else True
-
-    @property
-    def opacity(self):
-        return self._opacity
-
-    @opacity.setter
-    def opacity(self, value):
-        if 0.0 <= value <= 1.0:
-            self._opacity = value
-        else:
-            raise ValueError("Opacity is only valid between 1 and 0")
-
-    @property
     def mass(self) -> float:
         return self._mass
 
@@ -90,7 +86,6 @@ class Shape(BackendGeom):
 
     @property
     def cog(self) -> Tuple[float, float, float]:
-
         return self._cog
 
     @cog.setter
@@ -99,6 +94,9 @@ class Shape(BackendGeom):
 
     @property
     def bbox(self) -> BoundingBox:
+        if self._bbox is None and self.geom is not None:
+            self._bbox = BoundingBox(self)
+
         return self._bbox
 
     @property
@@ -126,11 +124,15 @@ class Shape(BackendGeom):
             geom, color, alpha = get_ifc_geometry(ifc_elem, self.ifc_settings)
             self._geom = geom
             self.colour = color
-            self._opacity = alpha
+            self.opacity = alpha
 
         geom = apply_penetrations(self._geom, self.penetrations)
 
         return geom
+
+    @property
+    def solid(self):
+        return self.geom
 
     @property
     def units(self):
@@ -163,10 +165,20 @@ class Shape(BackendGeom):
 
 class PrimSphere(Shape):
     def __init__(self, name, cog, radius, **kwargs):
-        from ada.occ.utils import make_sphere
-
         self.radius = radius
-        super(PrimSphere, self).__init__(name=name, geom=make_sphere(cog, radius), cog=cog, **kwargs)
+        super(PrimSphere, self).__init__(name=name, geom=None, cog=cog, **kwargs)
+
+    @property
+    def geom(self):
+        from ada.occ.utils import apply_penetrations
+
+        if self._geom is None:
+            from ada.occ.utils import make_sphere
+
+            self._geom = make_sphere(self.cog, self.radius)
+
+        geom = apply_penetrations(self._geom, self.penetrations)
+        return geom
 
     @property
     def units(self):
@@ -272,10 +284,12 @@ class PrimExtrude(Shape):
     @units.setter
     def units(self, value):
         if value != self._units:
+            from ada.config import Settings
             from ada.core.utils import unit_length_conversion
 
             scale_factor = unit_length_conversion(self._units, value)
-            self.poly.placement.origin = [x * scale_factor for x in self.poly.placement.origin]
+            tol = Settings.mmtol if value == "mm" else Settings.mtol
+            self.poly.scale(scale_factor, tol)
             self._extrude_depth = self._extrude_depth * scale_factor
             self._units = value
 
@@ -325,10 +339,21 @@ class PrimRevolve(Shape):
     @units.setter
     def units(self, value):
         if value != self._units:
-            raise NotImplementedError()
+            from ada.config import Settings
+            from ada.core.utils import unit_length_conversion
+
+            scale_factor = unit_length_conversion(self._units, value)
+            tol = Settings.mmtol if value == "mm" else Settings.mtol
+            self.poly.scale(scale_factor, tol)
+            self._revolve_origin = [x * scale_factor for x in self.revolve_origin]
+            self._geom = self._poly.make_revolve_solid(
+                self._revolve_axis,
+                self._revolve_angle,
+                self._revolve_origin,
+            )
 
     @property
-    def poly(self):
+    def poly(self) -> CurvePoly:
         return self._poly
 
     @property
@@ -409,7 +434,7 @@ class PrimSweep(Shape):
 class Penetration(BackendGeom):
     _name_gen = Counter(1, "Pen")
     """A penetration object. Wraps around a primitive"""
-    # TODO: Maybe this should be evaluated for removal?
+    # TODO: Maybe this class should be evaluated for removal?
     def __init__(self, primitive, metadata=None, parent=None, units="m", guid=None):
         if issubclass(type(primitive), Shape) is False:
             raise ValueError(f'Unsupported primitive type "{type(primitive)}"')

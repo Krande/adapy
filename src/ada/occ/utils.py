@@ -1,7 +1,7 @@
 import logging
 import math
 import pathlib
-from typing import List, Tuple, Union
+from typing import TYPE_CHECKING, List, Tuple, Union
 
 import numpy as np
 from OCC.Core.Bnd import Bnd_Box
@@ -46,6 +46,14 @@ from ada.core.utils import roundoff, tuple_minus
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem.shapes import ElemType
 
+from .exceptions.geom_creation import (
+    UnableToBuildNSidedWires,
+    UnableToCreateSolidOCCGeom,
+)
+
+if TYPE_CHECKING:
+    from ada import Part
+
 
 def extract_shapes(step_path, scale, transform, rotate):
     shapes = []
@@ -86,7 +94,7 @@ def transform_shape(
 
 
 def walk_shapes(dir_path):
-    from ..core.utils import get_list_of_files
+    from ..core.file_system import get_list_of_files
 
     shps = []
     for stp_file in get_list_of_files(dir_path, ".stp"):
@@ -468,7 +476,9 @@ def make_edge(p1, p2):
     return res
 
 
-def make_ori_vector(name, origin, csys, pnt_r=0.2, cyl_l: Union[float, list, tuple] = 0.3, cyl_r=0.2, units="m"):
+def make_ori_vector(
+    name, origin, csys, pnt_r=0.02, cyl_l: Union[float, list, tuple] = 0.3, cyl_r=0.02, units="m"
+) -> "Part":
     """
     Visualize a local coordinate system with a sphere and 3 cylinders representing origin and.
 
@@ -485,7 +495,7 @@ def make_ori_vector(name, origin, csys, pnt_r=0.2, cyl_l: Union[float, list, tup
     from ada import Part, PrimCyl, PrimSphere
 
     origin = np.array(origin)
-    o_shape = PrimSphere(name + "_origin", origin, pnt_r, units=units, metadata=dict(origin=origin))
+    o_shape = PrimSphere(name + "_origin", origin, pnt_r, units=units, metadata=dict(origin=origin), colour="white")
 
     if type(cyl_l) in (list, tuple):
         cyl_l_x, cyl_l_y, cyl_l_z = cyl_l
@@ -750,12 +760,16 @@ def create_beam_geom(beam: Beam, solid=True):
     ydir_neg = tuple_minus(ydir) if beam.section.type not in SectionCat.angular else tuple(ydir)
 
     section_profile = beam.section.get_section_profile(solid)
+    taper_profile = beam.taper.get_section_profile(solid)
 
     placement_1 = Placement(origin=beam.n1.p, xdir=ydir_neg, zdir=xdir)
     placement_2 = Placement(origin=beam.n2.p, xdir=ydir_neg, zdir=xdir)
 
     sec = cross_sec_face(section_profile, placement_1, solid)
-    tap = cross_sec_face(section_profile, placement_2, solid)
+    tap = cross_sec_face(taper_profile, placement_2, solid)
+
+    if type(sec) != list and (sec.IsNull() or tap.IsNull()):
+        raise UnableToCreateSolidOCCGeom(f"Unable to create solid OCC geometry from Beam '{beam.name}'")
 
     def through_section(sec_a, sec_b, solid_):
         generator_sec = BRepOffsetAPI_ThruSections(solid_, False)
@@ -848,6 +862,9 @@ def wire_to_face(edges: List[TopoDS_Edge]) -> TopoDS_Face:
     n_sided = BRepFill_Filling()
     for edg in edges:
         n_sided.Add(edg, GeomAbs_C0)
-    n_sided.Build()
+    try:
+        n_sided.Build()
+    except RuntimeError as e:
+        raise UnableToBuildNSidedWires(e)
     face = n_sided.Face()
     return face

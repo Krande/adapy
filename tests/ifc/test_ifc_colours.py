@@ -19,4 +19,4 @@ def test_coloured_beams(test_coulour_ifc):
         a += 1
 
     a = Assembly("SiteTest", project="projA", user=User("krande")) / (Part("TestBldg") / beams)
-    a.to_ifc(test_coulour_ifc / "colours.ifc")
+    _ = a.to_ifc(test_coulour_ifc / "colours.ifc", return_file_obj=True)

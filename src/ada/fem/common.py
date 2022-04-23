@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Union
 
@@ -11,7 +13,7 @@ if TYPE_CHECKING:
 
 
 class FemBase:
-    def __init__(self, name, metadata, parent: Union["FEM", "Step"]):
+    def __init__(self, name, metadata, parent: Union[FEM, Step]):
         self.name = name
         self.parent = parent
         self._metadata = metadata if metadata is not None else dict()
@@ -33,7 +35,7 @@ class FemBase:
             self._name = value.strip()
 
     @property
-    def parent(self) -> "FEM":
+    def parent(self) -> FEM:
         return self._parent
 
     @parent.setter
@@ -65,17 +67,17 @@ class Csys(FemBase):
         name,
         definition=TYPES_DEFINITIONS.COORDINATES,
         system=TYPES_SYSTEM.RECTANGULAR,
-        nodes: List["Node"] = None,
+        nodes: List[Node] = None,
         coords=None,
         metadata=None,
-        parent: "FEM" = None,
+        parent: FEM = None,
     ):
         super().__init__(name, metadata, parent)
         self._definition = definition
         self._system = system
         if nodes is not None:
             for n in nodes:
-                n.refs.append(self)
+                n.add_obj_to_refs(self)
         self._nodes = nodes
         self._coords = coords
 
@@ -88,12 +90,20 @@ class Csys(FemBase):
         return self._system
 
     @property
-    def nodes(self) -> List["Node"]:
+    def nodes(self) -> List[Node]:
         return self._nodes
+
+    def updating_nodes(self, old_node: Node, new_node: Node) -> None:
+        """Updating nodes on Csys"""
 
     @property
     def coords(self):
+        """Coordinates: (x, y, origin[optional]). y can be anywhere in the x-y plane"""
         return self._coords
+
+    @coords.setter
+    def coords(self, value):
+        self._coords = value
 
     def __repr__(self):
         content_map = dict(COORDINATES=self.coords, NODES=self.nodes)
@@ -101,7 +111,7 @@ class Csys(FemBase):
 
 
 class Amplitude(FemBase):
-    def __init__(self, name, x, y, smooth=None, metadata=None, parent: "FEM" = None):
+    def __init__(self, name: str, x: List[float], y: List[float], smooth=None, metadata=None, parent: FEM = None):
         super().__init__(name, metadata, parent)
         self._x = x
         self._y = y

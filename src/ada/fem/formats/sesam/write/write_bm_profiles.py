@@ -8,10 +8,11 @@ from .write_utils import write_ff
 
 def general_beam(sec: Section, sec_id) -> str:
     p = sec.properties
+    comp = 1 if p.modified else 0
     return write_ff(
         "GBEAMG",
         [
-            (sec_id, 0, p.Ax, p.Ix),
+            (sec_id, comp, p.Ax, p.Ix),
             (p.Iy, p.Iz, p.Iyz, p.Wxmin),
             (p.Wymin, p.Wzmin, p.Shary, p.Sharz),
             (p.Shceny, p.Shcenz, p.Sy, p.Sz),

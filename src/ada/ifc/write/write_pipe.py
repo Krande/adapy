@@ -101,7 +101,7 @@ def write_pipe_ifc_elem(pipe: "Pipe"):
         [ifc_elem],
     )
     if len(pipe.metadata.keys()) > 0:
-        props = create_property_set("Properties", f, pipe.metadata)
+        props = create_property_set("Properties", f, pipe.metadata, owner_history)
         f.createIfcRelDefinesByProperties(
             create_guid(),
             owner_history,

@@ -152,6 +152,7 @@ class BoxSides:
 
         if return_fem_nodes is True:
             return self._return_fem_nodes(pmin, pmax, fem)
+
         if return_surface is True:
             if surface_name is None:
                 from .exceptions import NameIsNoneError

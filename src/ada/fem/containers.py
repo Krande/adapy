@@ -13,14 +13,13 @@ import numpy as np
 from ada.concepts.containers import Materials
 from ada.concepts.points import Node
 from ada.core.utils import Counter
+from ada.fem.elements import Connector, Elem, Mass, MassTypes
+from ada.fem.exceptions.model_definition import FemSetNameExists
+from ada.fem.sections import FemSection
+from ada.fem.sets import FemSet, SetTypes
+from ada.fem.shapes import ElemType
 from ada.materials import Material
 from ada.sections import Section
-
-from .elements import Elem, MassTypes
-from .exceptions.model_definition import FemSetNameExists
-from .sections import FemSection
-from .sets import FemSet, SetTypes
-from .shapes import ElemType
 
 if TYPE_CHECKING:
     from ada import FEM
@@ -29,17 +28,34 @@ if TYPE_CHECKING:
 @dataclass
 class COG:
     p: np.array
-    tot_mass: float
+    tot_mass: float = None
     tot_vol: float = None
     sh_mass: float = None
     bm_mass: float = None
     no_mass: float = None
 
+    @property
+    def x(self) -> float:
+        """Returns x-coordinate to the point p"""
+        return self.p[0]
+
+    @property
+    def y(self) -> float:
+        """Returns y-coordinate to the point p"""
+        return self.p[1]
+
+    @property
+    def z(self) -> float:
+        """Returns z-coordinate to the point p"""
+        return self.p[2]
+
 
 class FemElements:
     """Container class for FEM elements"""
 
-    def __init__(self, elements: Iterable[Elem] = None, fem_obj: "FEM" = None, from_np_array=None):
+    def __init__(
+        self, elements: Iterable[Union[Elem, Mass, Connector]] = None, fem_obj: FEM = None, from_np_array=None
+    ):
         self._fem_obj = fem_obj
         if from_np_array is not None:
             elements = self.elements_from_array(from_np_array)
@@ -65,6 +81,9 @@ class FemElements:
 
     def _renumber_from_map(self, renumber_map):
         for el in sorted(self._elements, key=attrgetter("id")):
+            if isinstance(el, Mass) or el.type == Elem.EL_TYPES.MASS_SHAPES.MASS:
+                # Mass elements are points and have been renumbered during node-renumbering
+                continue
             el.id = renumber_map[el.id]
 
     def _renumber_linearly(self, start_id):
@@ -128,7 +147,7 @@ class FemElements:
             self.remove(self._idmap[elem_id])
         self._sort()
 
-    def __contains__(self, item):
+    def __contains__(self, item: Elem):
         return item in self._elements
 
     def __len__(self):
@@ -142,8 +161,7 @@ class FemElements:
         return FemElements(result) if isinstance(index, slice) else result
 
     def __add__(self, other: FemElements):
-        max_id = self.max_el_id
-        other.renumber(max_id + 1)
+        other.renumber(self.max_el_id + 1)
         for el in other.elements:
             el.parent = self.parent
 
@@ -194,10 +212,10 @@ class FemElements:
 
             return mass, center, vol_
 
-        def calc_mass_elem(el: Elem):
-            if el.mass_props.type != MassTypes.MASS:
+        def calc_mass_elem(el: Mass):
+            if el.type != MassTypes.MASS:
                 raise NotImplementedError(f'Mass type "{el.mass_props.type}" is not yet implemented')
-            mass = el.mass_props.mass
+            mass = el.mass
             vol_ = 0.0
             return mass, el.nodes[0].p, vol_
 
@@ -223,11 +241,11 @@ class FemElements:
         return COG(cog_, tot_mass, tot_vol, sh_mass, bm_mass, no_mass)
 
     @property
-    def parent(self) -> "FEM":
+    def parent(self) -> FEM:
         return self._fem_obj
 
     @parent.setter
-    def parent(self, value):
+    def parent(self, value: FEM):
         self._fem_obj = value
 
     @property
@@ -245,7 +263,7 @@ class FemElements:
         return min(self._idmap.keys())
 
     @property
-    def elements(self) -> List[Elem]:
+    def elements(self) -> List[Union[Elem, Connector, Mass]]:
         return self._elements
 
     @property
@@ -270,26 +288,25 @@ class FemElements:
         return filter(lambda x: x.eccentricity is not None, self.lines)
 
     @property
-    def connectors(self):
+    def connectors(self) -> Iterable[Connector]:
         return filter(lambda x: x.type == ElemType.CONNECTOR_SHAPES.CONNECTOR, self.elements)
 
     @property
-    def masses(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type in MassTypes.all, self._elements)
+    def masses(self) -> Iterable[Mass]:
+        return filter(lambda x: isinstance(x, Mass), self.elements)
 
     @property
     def stru_elements(self) -> Iterable[Elem]:
         return filter(lambda x: x.type not in ["MASS", "SPRING1", "CONNECTOR"], self._elements)
 
-    def from_id(self, el_id: int) -> Elem:
+    def connector_by_name(self, name: str):
+        """Get Connector by name"""
+        cmap = {c.name: c for c in self.connectors}
+        return cmap.get(name, None)
+
+    def from_id(self, el_id: int) -> Union[Elem, Connector]:
         el = self._idmap.get(el_id, None)
         if el is None:
-            mass_id_map = {m.id: m for m in self.parent.masses.values()}
-
-            res = mass_id_map.get(el_id, None)
-            if res is not None:
-                return res
-
             spring_id_map = {m.id: m for m in self.parent.springs.values()}
             res = spring_id_map.get(el_id, None)
             if res is not None:
@@ -323,7 +340,7 @@ class FemElements:
     def idmap(self):
         return self._idmap
 
-    def add(self, elem: Elem):
+    def add(self, elem: Elem) -> Elem:
         if elem.id is None:
             if len(self._elements) > 0:
                 elem._el_id = self._elements[-1].id + 1
@@ -339,17 +356,18 @@ class FemElements:
         self._idmap[elem.id] = elem
 
         self._group_by_types()
+        return elem
 
     def remove(self, elems: Union[Elem, List[Elem]]):
         """Remove elem or list of elements from container"""
         elems = list(elems) if isinstance(elems, Iterable) else [elems]
         for elem in elems:
             if elem in self._elements:
-                logging.error(f"Removing element {elem}")
+                logging.warning(f"Element removal is WIP. Removing element: {elem}")
                 self._elements.pop(self._elements.index(elem))
             else:
                 logging.error(f"'{elem}' not found in {self.__class__.__name__}-container.")
-        self._sort()
+        # self._sort()
 
     def group_by_type(self):
         return groupby(sorted(self._elements, key=attrgetter("type")), key=attrgetter("type"))
@@ -367,7 +385,7 @@ class FemElements:
 
     def merge_with_coincident_nodes(self):
         def remove_duplicate_nodes():
-            new_nodes = [n for n in elem.nodes if len(n.refs) > 0]
+            new_nodes = [n for n in elem.nodes if n.has_refs]
             elem.nodes.clear()
             elem.nodes.extend(new_nodes)
 
@@ -375,7 +393,7 @@ class FemElements:
         This does not work according to plan. It seems like it is deleting more and more from the model for each
         iteration
         """
-        for elem in filter(lambda x: len(x.nodes) > len([n for n in x.nodes if len(n.refs) > 0]), self._elements):
+        for elem in filter(lambda x: len(x.nodes) > len([n for n in x.nodes if n.has_refs]), self._elements):
             remove_duplicate_nodes()
             elem.update()
 
@@ -401,7 +419,10 @@ class FemSections:
 
         merge_map: Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]] = dict()
         for fs in self.lines:
-            props = (fs.material, fs.section.unique_props(), tuple(), tuple(fs.local_z), 0.0)
+            try:
+                props = (fs.material, fs.section.unique_props(), tuple(), tuple(fs.local_z), 0.0)
+            except TypeError:
+                print("d")
             if props not in merge_map.keys():
                 merge_map[props] = []
 
@@ -563,7 +584,7 @@ class FemSections:
 
 
 class FemSets:
-    def __init__(self, sets: List[FemSet] = None, parent: "FEM" = None):
+    def __init__(self, sets: List[FemSet] = None, parent: FEM = None):
         self._fem_obj = parent
         self._sets = sorted(sets, key=attrgetter("type", "name")) if sets is not None else []
         # Merge same name sets
@@ -583,7 +604,7 @@ class FemSets:
             [_map_ref(m, _set) for m in _set.members]
 
     @property
-    def parent(self) -> "FEM":
+    def parent(self) -> FEM:
         return self._fem_obj
 
     @parent.setter
@@ -679,13 +700,13 @@ class FemSets:
         for name, _set in other.nodes.items():
             _set.parent = self.parent
             if name in self._nomap.keys():
-                raise ValueError("Duplicate node set name. Consider suppressing this error?")
-            self.add(_set)
+                logging.warning(f'Duplicate Node sets. Node set "{name}" exists')
+            self.add(_set, merge_sets_if_duplicate=True)
         for name, _set in other.elements.items():
             _set.parent = self.parent
             if name in self._elmap.keys():
-                raise ValueError("Duplicate element set name. Consider suppressing this error?")
-            self.add(_set)
+                logging.warning(f'Duplicate element sets. Element set "{name}" exists')
+            self.add(_set, merge_sets_if_duplicate=True)
         return self
 
     def get_elset_from_name(self, name: str) -> FemSet:
@@ -696,7 +717,8 @@ class FemSets:
         return result
 
     def get_nset_from_name(self, name: str) -> FemSet:
-        result = self._nomap.get(name, None)
+        lower_map = {key.lower(): value for key, value in self._nomap.items()}
+        result = lower_map.get(name.lower(), None)
         if result is None:
             raise ValueError(f'The nodal set "{name}" is not found')
 
@@ -735,7 +757,7 @@ class FemSets:
         # To evalute if dependencies of set should be checked?
         # Against: This is a downstream object. FemSections would point to this set and remove during concatenation.
 
-    def add(self, fe_set: FemSet, append_suffix_on_exist=False) -> FemSet:
+    def add(self, fe_set: FemSet, append_suffix_on_exist=False, merge_sets_if_duplicate=False) -> FemSet:
         if fe_set.type == SetTypes.NSET:
             if fe_set.name in self._nomap.keys():
                 fem_set = self._nomap[fe_set.name]
@@ -743,8 +765,15 @@ class FemSets:
                 fem_set.add_members(new_mem)
         else:
             if fe_set.name in self._elmap.keys():
-                if append_suffix_on_exist is False:
+                if append_suffix_on_exist is False and merge_sets_if_duplicate is False:
                     raise FemSetNameExists(fe_set.name)
+
+                if merge_sets_if_duplicate is True:
+                    o_set = self._elmap[fe_set.name]
+                    for mem in fe_set.members:
+                        if mem not in o_set.members:
+                            o_set.members.append(mem)
+
                 if fe_set.name not in self._same_names.keys():
                     self._same_names[fe_set.name] = 1
                 else:

@@ -64,15 +64,6 @@ def vertices_to_mesh(name, vertices, vertex_color, vertex_width=5):
 
 
 def faces_to_mesh(name, vertices, faces, colors, opacity=None):
-    """
-
-    :param name:
-    :param vertices:
-    :param faces:
-    :param colors:
-    :param opacity:
-    :return:
-    """
     geometry = BufferGeometry(
         attributes=dict(
             position=BufferAttribute(vertices, normalized=False),

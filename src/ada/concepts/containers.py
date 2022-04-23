@@ -8,22 +8,27 @@ from operator import attrgetter
 from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 
 import numpy as np
-import toolz
 
+from ada.concepts.exceptions import DuplicateNodes
+from ada.concepts.points import Node, replace_node
+from ada.concepts.stru_beams import Beam
+from ada.concepts.stru_plates import Plate
+from ada.concepts.transforms import Rotation
 from ada.config import Settings
 from ada.core.utils import Counter, roundoff
-from ada.core.vector_utils import points_in_cylinder, vector_length
+from ada.core.vector_utils import (
+    is_null_vector,
+    is_parallel,
+    points_in_cylinder,
+    unit_vector,
+    vector_length,
+)
 from ada.materials import Material
-from ada.sections import Section
-
-from .points import Node
-from .stru_beams import Beam
-from .stru_plates import Plate
-from .transforms import Rotation
 
 if TYPE_CHECKING:
     from ada import FEM, Assembly, Part
     from ada.concepts.connections import JointBase
+    from ada.sections import Section
 
 __all__ = [
     "Nodes",
@@ -49,16 +54,15 @@ class BaseCollections:
 class Beams(BaseCollections):
     """A collections of Beam objects"""
 
-    def __init__(self, beams: Iterable[Beam] = None, unique_ids=True, parent=None):
+    def __init__(self, beams: Iterable[Beam] = None, parent=None):
 
         super().__init__(parent)
         beams = [] if beams is None else beams
-        if unique_ids:
-            beams = toolz.unique(beams, key=attrgetter("name"))
         self._beams = sorted(beams, key=attrgetter("name"))
         self._dmap = {n.name: n for n in self._beams}
+        self._connected_beams_map = None
 
-    def __contains__(self, item):
+    def __contains__(self, item: Beam):
         return item.guid in self._dmap.keys()
 
     def __len__(self):
@@ -90,13 +94,78 @@ class Beams(BaseCollections):
         rpr.maxlevel = 1
         return f"Beams({rpr.repr(self._beams) if self._beams else ''})"
 
-    def index(self, item):
+    def merge_connected_beams_by_properties(self) -> None:
+        def append_connected_beams(connected_beams: Iterable[Beam]) -> None:
+            for c_beam in connected_beams:
+                if c_beam not in to_be_merged:
+                    to_be_merged.append(c_beam)
+                    append_connected_beams(self.connected_beams_map[c_beam])
+
+        self.set_connected_beams_map()
+        merged_beams: list[Beam] = list()
+
+        for beam in self._beams.copy():
+            if beam not in merged_beams:
+                to_be_merged: list[Beam] = [beam]
+                append_connected_beams(self.connected_beams_map[beam])
+                merged_beams.extend(to_be_merged)
+                self.merge_beams(to_be_merged)
+
+        self.set_connected_beams_map()
+
+    def merge_beams(self, beam_segments: Iterable[Beam]) -> Beam:
+        """Merge all beam segments into the first entry in beam_segments by changing the beam nodes."""
+
+        def get_end_nodes() -> list[Node]:
+            end_beams = filter(lambda x: len(self.connected_beams_map.get(x, list())) == 1, beam_segments)
+
+            end_nds: list[Node] = list()
+
+            for beam in end_beams:
+                (node_without_connected_beam,) = self.connected_beams_map[beam]
+                end_nds.append(beam.n1 if node_without_connected_beam in beam.n2.refs else beam.n2)
+            return end_nds
+
+        def modify_beam(bm: Beam, new_nodes) -> Beam:
+            n1, n2 = new_nodes
+
+            n1_2_n2_vector = unit_vector(n2.p - n1.p)
+            beam_vector = bm.xvec.round(decimals=Settings.precision)
+
+            if is_parallel(n1_2_n2_vector, bm.xvec) and not is_null_vector(n1_2_n2_vector, bm.xvec):
+                n1, n2 = n2, n1
+            elif not is_parallel(n1_2_n2_vector, bm.xvec):
+                raise ValueError(f"Unit vector error. Beam.xvec: {beam_vector}, nodes unit_vec: {-1 * n1_2_n2_vector}")
+
+            bm.n1, bm.n2 = n1, n2
+            return bm
+
+        if len(list(beam_segments)) > 1:
+            end_nodes = get_end_nodes()
+            modified_beam = modify_beam(beam_segments[0], end_nodes)
+
+            for old_beam in beam_segments[1:]:
+                self.remove(old_beam)
+
+            return modified_beam
+
+    def set_connected_beams_map(self) -> None:
+        self._connected_beams_map = {beam: beam.get_beam_extensions() for beam in self._beams}
+
+    @property
+    def connected_beams_map(self) -> dict[Beam, Iterable[Beam]]:
+        return self._connected_beams_map
+
+    def get_beams_at_point(self, point: Union[Node, np.ndarray]) -> list[Beam]:
+        return list(filter(lambda x: x.is_point_on_beam(point), self._beams))
+
+    def index(self, item: Beam) -> int:
         index = bisect_left(self._beams, item)
         if (index != len(self._beams)) and (self._beams[index] == item):
             return index
         raise ValueError(f"{repr(item)} not found")
 
-    def count(self, item):
+    def count(self, item) -> int:
         return int(item in self)
 
     def from_name(self, name: str) -> Beam:
@@ -115,16 +184,19 @@ class Beams(BaseCollections):
         if beam.name in self._dmap.keys():
             logging.warning(f'Beam with name "{beam.name}" already exists. Will not add')
             return self._dmap[beam.name]
+
         self._dmap[beam.name] = beam
         self._beams.append(beam)
+        beam.add_beam_to_node_refs()
         return beam
 
-    def remove(self, beam: Beam):
+    def remove(self, beam: Beam) -> None:
+        beam.remove_beam_from_node_refs()
         i = self._beams.index(beam)
         self._beams.pop(i)
         self._dmap = {n.name: n for n in self._beams}
 
-    def get_beams_within_volume(self, vol_, margins=None) -> Iterable[Beam]:
+    def get_beams_within_volume(self, vol_, margins=Settings.point_tol) -> Iterable[Beam]:
         """
         :param vol_: List or tuple of tuples [(xmin, xmax), (ymin, ymax), (zmin, zmax)]
         :param margins: Add margins to the volume box (equal in all directions). Input is in meters. Can be negative.
@@ -173,12 +245,9 @@ class Beams(BaseCollections):
 class Plates(BaseCollections):
     """Plate object collection"""
 
-    def __init__(self, plates: Iterable[Plate] = None, unique_ids=True, parent: Part = None):
+    def __init__(self, plates: Iterable[Plate] = None, parent: Part = None):
         plates = [] if plates is None else plates
         super().__init__(parent)
-
-        if unique_ids:
-            plates = toolz.unique(plates, key=attrgetter("name"))
         self._plates = sorted(plates, key=attrgetter("name"))
         self._idmap = {n.name: n for n in self._plates}
 
@@ -250,13 +319,25 @@ class Plates(BaseCollections):
 class Connections(BaseCollections):
     _counter = Counter(1, "C")
 
-    def __init__(self, connections=None, parent=None):
+    def __init__(self, connections: Iterable[JointBase] = None, parent=None):
         connections = [] if connections is None else connections
         super().__init__(parent)
         self._connections = connections
-        self._dmap = {j.id: j for j in self._connections}
+        self._initialize_connection_data()
+
+    def _initialize_connection_data(self):
+        self._dmap = {j.name: j for j in self._connections}
         self._joint_centre_nodes = Nodes([c.centre for c in self._connections])
         self._nmap = {self._joint_centre_nodes.index(c.centre): c for c in self._connections}
+
+    @property
+    def connections(self) -> List[JointBase]:
+        return self._connections
+
+    @connections.setter
+    def connections(self, value: List[JointBase]):
+        self._connections = value
+        self._initialize_connection_data()
 
     @property
     def joint_centre_nodes(self):
@@ -268,7 +349,7 @@ class Connections(BaseCollections):
     def __len__(self):
         return len(self._connections)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterable[JointBase]:
         return iter(self._connections)
 
     def __getitem__(self, index):
@@ -294,6 +375,12 @@ class Connections(BaseCollections):
         rpr.maxlevel = 1
         return f"Connections({rpr.repr(self._connections) if self._connections else ''})"
 
+    def get_from_name(self, name: str):
+        result = self._dmap.get(name, None)
+        if result is None:
+            logging.error(f'No Joint with the name "{name}" found within this connection object')
+        return result
+
     def add(self, joint: JointBase, point_tol=Settings.point_tol):
         if joint.name is None:
             raise Exception("Name is not allowed to be None.")
@@ -310,6 +397,14 @@ class Connections(BaseCollections):
         joint.parent = self
         self._dmap[joint.name] = joint
         self._connections.append(joint)
+
+    def remove(self, joint: JointBase):
+        if joint.name in self._dmap.keys():
+            self._dmap.pop(joint.name)
+        if joint in self._connections:
+            self._connections.pop(self._connections.index(joint))
+        if joint.centre in self._nmap.keys():
+            self._nmap.pop(joint.centre)
 
     def find(self, out_of_plane_tol=0.1, joint_func=None, point_tol=Settings.point_tol):
         """
@@ -341,6 +436,8 @@ class Connections(BaseCollections):
 
             self.add(joint, point_tol=point_tol)
 
+        print(f"Connection search finished. Found a total of {len(self._connections)} connections")
+
 
 class NumericMapped(BaseCollections):
     def __init__(self, parent):
@@ -362,12 +459,9 @@ class NumericMapped(BaseCollections):
 class Materials(NumericMapped):
     """Collection of materials"""
 
-    def __init__(
-        self, materials: Iterable[Material] = None, unique_ids=True, parent: Union[Part, Assembly] = None, units="m"
-    ):
+    def __init__(self, materials: Iterable[Material] = None, parent: Union[Part, Assembly] = None, units="m"):
         super().__init__(parent)
         self._materials = sorted(materials, key=attrgetter("name")) if materials is not None else []
-        self._unique_ids = unique_ids
         self.recreate_name_and_id_maps(self._materials)
         self._units = units
 
@@ -483,13 +577,11 @@ class Materials(NumericMapped):
 
 
 class Sections(NumericMapped):
-    def __init__(self, sections: Iterable[Section] = None, unique_ids=True, parent: Union["Part", "Assembly"] = None):
+    def __init__(self, sections: Iterable[Section] = None, parent: Union[Part, Assembly] = None, units="m"):
         sec_id = Counter(1)
         super(Sections, self).__init__(parent=parent)
         sections = [] if sections is None else sections
-        if unique_ids:
-            sections = list(toolz.unique(sections, key=attrgetter("name")))
-
+        self._units = units
         self._sections = sorted(sections, key=attrgetter("name"))
 
         def section_id_maker(section: Section) -> Section:
@@ -502,7 +594,7 @@ class Sections(NumericMapped):
         self.recreate_name_and_id_maps(self._sections)
 
         if len(self._name_map.keys()) != len(self._id_map.keys()):
-            raise ValueError("Non-unique ids or name are observed..")
+            logging.warning(f"Non-unique ids or name for section container belonging to part '{parent}'")
 
     def renumber_id(self, start_id=1):
         cnt = Counter(start=start_id)
@@ -584,7 +676,6 @@ class Sections(NumericMapped):
         return self._name_map
 
     def add(self, section: Section) -> Section:
-        from ada.concepts.stru_beams import section_counter
 
         if section.name is None:
             raise Exception("Name is not allowed to be None.")
@@ -602,12 +693,10 @@ class Sections(NumericMapped):
             return self._name_map[section.name]
 
         if section.id is None:
-            section.id = next(section_counter)
+            section.id = self.max_id + 1
 
-        if len(self._sections) > 0:
-            if section.id is None or section.id in self._id_map.keys():
-                new_sec_id = next(section_counter)
-                section.id = new_sec_id
+        if len(self._sections) > 0 and section.id in self._id_map.keys():
+            section.id = self.max_id + 1
 
         self._sections.append(section)
         self._id_map[section.id] = section
@@ -619,20 +708,33 @@ class Sections(NumericMapped):
     def sections(self) -> List[Section]:
         return self._sections
 
+    @property
+    def units(self):
+        return self._units
+
+    @units.setter
+    def units(self, value):
+        if value != self._units:
+            for m in self._sections:
+                m.units = value
+            self._units = value
+
 
 class Nodes:
-    def __init__(self, nodes=None, unique_ids=True, parent=None, from_np_array=None):
+    def __init__(self, nodes=None, parent=None, from_np_array=None):
         self._parent = parent
+
         if from_np_array is not None:
             self._array = from_np_array
             nodes = self._np_array_to_nlist(from_np_array)
         else:
             nodes = [] if nodes is None else nodes
 
-        if unique_ids is True:
-            nodes = toolz.unique(nodes, key=attrgetter("id"))
-
         self._nodes = list(nodes)
+
+        if len(tuple(set(self._nodes))) != len(self._nodes):
+            raise DuplicateNodes("Duplicate Nodes not allowed in a Nodes object")
+
         self._idmap = dict()
         self._bbox = None
         self._maxid = 0
@@ -643,7 +745,10 @@ class Nodes:
 
     def _sort(self):
         self._nodes = sorted(self._nodes, key=attrgetter("x", "y", "z"))
-        self._idmap = {n.id: n for n in sorted(self._nodes, key=attrgetter("id"))}
+        try:
+            self._idmap = {n.id: n for n in sorted(self._nodes, key=attrgetter("id"))}
+        except TypeError as e:
+            raise TypeError(e)
 
     def renumber(self, start_id: int = 1, renumber_map: dict = None):
         """Ensures that the node numberings starts at 1 and has no holes in its numbering."""
@@ -726,11 +831,11 @@ class Nodes:
             no.p = p
 
         if rotate is not None:
-            p1 = np.array(rotate.origin)
+            origin = np.array(rotate.origin)
             rot_mat = rotate.to_rot_matrix()
-            vectors = np.array([n.p - p1 for n in self._nodes])
-            res = np.matmul(vectors, np.transpose(rot_mat))
-            [map_rotations(n, p + p1) for n, p in zip(self._nodes, res)]
+            vectors = np.array([n.p - origin for n in self._nodes])
+            res = np.matmul(vectors, rot_mat.T)
+            [map_rotations(n, p + origin) for n, p in zip(self._nodes, res)]
 
         if move is not None:
             move = np.array(move)
@@ -840,11 +945,11 @@ class Nodes:
         else:
             return list(simplesearch)
 
-    def add(self, node: Node, point_tol=Settings.point_tol, allow_coincident=False):
+    def add(self, node: Node, point_tol: float = Settings.point_tol, allow_coincident: bool = False) -> Node:
         """Insert node into sorted list"""
 
         def insert_node(n, i):
-            new_id = self._maxid + 1 if len(self._nodes) > 0 else 1
+            new_id = int(self._maxid + 1) if len(self._nodes) > 0 else 1
             if n.id in self._idmap.keys() or n.id is None:
                 n.id = new_id
 
@@ -864,6 +969,10 @@ class Nodes:
                     return nearest_node
 
         insert_node(node, index)
+
+        if node.parent is None:
+            node.parent = self.parent
+
         return node
 
     def remove(self, nodes: Union[Node, Iterable[Node]]):
@@ -877,34 +986,40 @@ class Nodes:
             else:
                 logging.error(f"'{node}' not found in node-container.")
 
-    def remove_standalones(self):
+    def remove_standalones(self) -> None:
         """Remove nodes that are without any usage references"""
-        self.remove(filter(lambda x: len(x.refs) == 0, self._nodes))
+        self.remove(filter(lambda x: not x.has_refs, self._nodes))
 
-    def merge_coincident(self, tol=Settings.point_tol):
+    def merge_coincident(self, tol: float = Settings.point_tol) -> None:
         """
         Merge nodes which are within the standard default of Nodes.get_by_volume. Nodes merged into the node connected
         to most elements.
         :return:
         """
-        from ada.core.utils import replace_node
 
-        def replace_duplicate_nodes(duplicates, new_node):
+        def replace_duplicate_nodes(duplicates: Iterable[Node], new_node: Node):
             if duplicates and len(new_node.refs) >= np.max(list(map(lambda x: len(x.refs), duplicates))):
                 for duplicate_node in duplicates:
                     replace_node(duplicate_node, new_node)
-                    new_node.refs.extend(duplicate_node.refs)
-                    duplicate_node.refs.clear()
                     self.remove(duplicate_node)
 
-        for node in list(filter(lambda x: len(x.refs) > 0, self._nodes)):
-            duplicate_nodes = list(filter(lambda x: x.id != node.id, self.get_by_volume(node.p, tol=tol)))
+        for node in filter(lambda x: x.has_refs, self._nodes):
+            duplicate_nodes = list(
+                sorted(
+                    filter(lambda x: x.id != node.id, self.get_by_volume(node.p, tol=tol)), key=lambda x: len(x.refs)
+                )
+            )
             replace_duplicate_nodes(duplicate_nodes, node)
 
         self._sort()
 
+    def rounding_node_points(self, precision: int = Settings.precision) -> None:
+        """Rounds all nodes to set precision"""
+        for node in self.nodes:
+            node.p_roundoff(precision=precision)
+
     @property
-    def parent(self) -> Union["Part", "FEM"]:
+    def parent(self) -> Union[Part, FEM]:
         return self._parent
 
     @parent.setter

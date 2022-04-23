@@ -1,7 +1,7 @@
 import pytest
 
 from ada import Assembly
-from ada.fem import FemSet, Load, StepImplicit
+from ada.fem import LoadGravity, StepImplicit
 
 
 @pytest.fixture
@@ -19,9 +19,9 @@ def test_read_C3D20(example_files):
 
 def test_write_test_model(test_shell_beam, test_calculix_dir):
     a = test_shell_beam
-    fs = a.fem.add_set(FemSet("Eall", [el for el in a.get_by_name("MyPart").fem.elements.elements], "elset"))
+
     my_step = StepImplicit("static", total_time=1, max_incr=1, init_incr=1, nl_geom=True)
-    my_step.add_load(Load("Gravity", "gravity", -9.81, fem_set=fs))
+    my_step.add_load(LoadGravity("Gravity"))
     a.fem.add_step(my_step)
 
     a.to_fem("my_calculix", fem_format="calculix", overwrite=True, scratch_dir=test_calculix_dir)

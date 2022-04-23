@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import pathlib
+from io import StringIO
 from typing import Union
 
 from ada import fem
 from ada.concepts.connections import Bolts, Weld
 from ada.concepts.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
-from ada.concepts.levels import Assembly, Part
+from ada.concepts.levels import Assembly, Group, Part
 from ada.concepts.piping import Pipe, PipeSegElbow, PipeSegStraight
 from ada.concepts.points import Node
 from ada.concepts.primitives import (
@@ -22,7 +23,7 @@ from ada.concepts.primitives import (
 from ada.concepts.stru_beams import Beam
 from ada.concepts.stru_plates import Plate
 from ada.concepts.stru_walls import Wall
-from ada.concepts.transforms import Placement, Transform
+from ada.concepts.transforms import Instance, Placement, Transform
 from ada.config import User
 from ada.fem import FEM
 from ada.materials import Material
@@ -31,8 +32,14 @@ from ada.sections import Section
 __author__ = "Kristoffer H. Andersen"
 
 
-def from_ifc(ifc_file: Union[str, pathlib.Path]) -> Assembly:
-    a = Assembly()
+def from_ifc(ifc_file: Union[str, pathlib.Path, StringIO], units="m", name="Ada") -> Assembly:
+    if type(ifc_file) is not StringIO:
+        ifc_file = pathlib.Path(ifc_file).resolve().absolute()
+        print(f'Reading "{ifc_file}"')
+    else:
+        print("Reading IFC file object")
+
+    a = Assembly(units=units, name=name)
     a.read_ifc(ifc_file)
     return a
 
@@ -72,6 +79,7 @@ __all__ = [
     "from_ifc",
     "from_fem",
     "Beam",
+    "Group",
     "Plate",
     "Pipe",
     "PipeSegStraight",
@@ -94,6 +102,7 @@ __all__ = [
     "LineSegment",
     "ArcSegment",
     "Transform",
+    "Instance",
     "User",
     "Bolts",
     "Weld",

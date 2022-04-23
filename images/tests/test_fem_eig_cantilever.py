@@ -9,19 +9,20 @@ from ada.fem.formats import FEATypes as FEA
 from ada.fem.formats.utils import default_fem_res_path
 from ada.fem.meshing.concepts import GmshOptions
 from ada.fem.results import Results
-from ada.materials.metals import CarbonSteel
 
-test_dir = ada.config.Settings.scratch_dir / "eigen_fem"
+test_dir = ada.config.Settings.scratch_dir / "ada_fem_test_eigen"
 EL_TYPES = ada.fem.Elem.EL_TYPES
 
 
-def beam() -> ada.Beam:
-    return ada.Beam("MyBeam", (0, 0.5, 0.5), (3, 0.5, 0.5), "IPE400", ada.Material("S420", CarbonSteel("S420")))
-
-
-@pytest.fixture
-def beam_fixture() -> ada.Beam:
-    return beam()
+def is_conditions_unsupported(fem_format, geom_repr, elem_order):
+    if fem_format == FEA.CALCULIX and geom_repr == EL_TYPES.LINE:
+        return True
+    elif fem_format == FEA.CODE_ASTER and geom_repr == EL_TYPES.LINE and elem_order == 2:
+        return True
+    elif fem_format == FEA.SESAM and geom_repr == EL_TYPES.SOLID:
+        return True
+    else:
+        return False
 
 
 @pytest.mark.parametrize("use_hex_quad", [True, False])
@@ -54,15 +55,10 @@ def test_fem_eig(
     a.fem.add_step(ada.fem.StepEigen("Eigen", num_eigen_modes=eigen_modes))
 
     if overwrite is False:
-        if fem_format == FEA.CALCULIX and geom_repr == EL_TYPES.LINE:
+        if is_conditions_unsupported(fem_format, geom_repr, elem_order):
             return None
-        elif fem_format == FEA.CODE_ASTER and geom_repr == EL_TYPES.LINE and elem_order == 2:
-            return None
-        elif fem_format == FEA.SESAM and geom_repr == EL_TYPES.SOLID:
-            return None
-        else:
-            res_path = default_fem_res_path(name, scratch_dir=test_dir, fem_format=fem_format)
-            return Results(res_path, name, fem_format, a, import_mesh=False)
+        res_path = default_fem_res_path(name, scratch_dir=test_dir, fem_format=fem_format)
+        return Results(res_path, name, fem_format, a, import_mesh=False)
     else:
         p.fem = beam_fixture.to_fem_obj(0.05, geom_repr, options=GmshOptions(Mesh_ElementOrder=elem_order), **props)
         fix_set = p.fem.add_set(
@@ -73,13 +69,7 @@ def test_fem_eig(
     try:
         res = a.to_fem(name, fem_format, overwrite=overwrite, execute=execute, scratch_dir=test_dir)
     except IncompatibleElements as e:
-        if fem_format == FEA.CALCULIX and geom_repr == EL_TYPES.LINE:
-            logging.error(e)
-            return None
-        elif fem_format == FEA.CODE_ASTER and geom_repr == EL_TYPES.LINE and elem_order == 2:
-            logging.error(e)
-            return None
-        elif fem_format == FEA.SESAM and geom_repr == EL_TYPES.SOLID:
+        if is_conditions_unsupported(fem_format, geom_repr, elem_order):
             logging.error(e)
             return None
         raise e

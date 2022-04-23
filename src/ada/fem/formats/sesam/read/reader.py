@@ -24,7 +24,7 @@ def read_fem(fem_file: os.PathLike, fem_name: str = None):
     return Assembly("TempAssembly") / part
 
 
-def read_sesam_fem(bulk_str, part_name) -> "Part":
+def read_sesam_fem(bulk_str, part_name) -> Part:
     """Reads the content string of a Sesam input file and converts it to FEM objects"""
 
     part = Part(part_name)
@@ -36,10 +36,10 @@ def read_sesam_fem(bulk_str, part_name) -> "Part":
     fem.elements.build_sets()
     part._materials = get_materials(bulk_str, part)
     fem.sections = get_sections(bulk_str, fem, mass_elem, spring_elem)
-    fem.masses = get_mass(bulk_str, part.fem, mass_elem)
+    fem.elements += get_mass(bulk_str, part.fem, mass_elem)
     fem.springs = get_springs(bulk_str, fem, spring_elem)
     fem.sets = part.fem.sets + get_sets(bulk_str, fem)
-    fem.constraints += get_constraints(bulk_str, fem)
+    fem.constraints.update(get_constraints(bulk_str, fem))
     fem.bcs += get_bcs(bulk_str, fem)
     renumber_nodes(bulk_str, fem)
     fem.elements.renumber(renumber_map=el_id_map)

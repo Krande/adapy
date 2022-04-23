@@ -14,7 +14,7 @@ from .vector_utils import (
     intersect_calc,
     intersection_point,
     linear_2dtransform_rotate,
-    local_2_global_nodes,
+    local_2_global_points,
     normal_to_points_in_plane,
     unit_vector,
     vector_length_2d,
@@ -678,7 +678,7 @@ def intersect_line_circle(line, center, radius):
 
     a = (x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2
     b = 2 * ((x2 - x1) * (x1 - x3) + (y2 - y1) * (y1 - y3) + (z2 - z1) * (z1 - z3))
-    c = x3 ** 2 + y3 ** 2 + z3 ** 2 + x1 ** 2 + y1 ** 2 + z1 ** 2 - 2 * (x3 * x1 + y3 * y1 + z3 * z1) - radius ** 2
+    c = x3**2 + y3**2 + z3**2 + x1**2 + y1**2 + z1**2 - 2 * (x3 * x1 + y3 * y1 + z3 * z1) - radius**2
 
     tol = 1e-1
     # if abs(b) < tol:
@@ -709,14 +709,6 @@ def intersect_line_circle(line, center, radius):
 
 
 def get_center_from_3_points_and_radius(p1, p2, p3, radius):
-    """
-
-    :param p1:
-    :param p2:
-    :param p3:
-    :param radius:
-    :return:
-    """
     from ada.core.constants import X, Y
 
     p1 = np.array(p1)
@@ -734,7 +726,7 @@ def get_center_from_3_points_and_radius(p1, p2, p3, radius):
     else:
         locn = global_2_local_nodes([xv, yv], p1, points)
         res_loc = calc_2darc_start_end_from_lines_radius(*locn, radius)
-        res_glob = local_2_global_nodes(res_loc, p1, xv, n)
+        res_glob = local_2_global_points(res_loc, p1, xv, n)
     center, start, end, midp = res_glob
 
     return center, start, end, midp

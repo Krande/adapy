@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -6,10 +8,9 @@ import re
 import shutil
 import subprocess
 import sys
-import time
 from contextlib import contextmanager
 from itertools import chain
-from typing import TYPE_CHECKING, Dict
+from typing import TYPE_CHECKING, Dict, List, Union
 
 from send2trash import send2trash
 
@@ -180,7 +181,7 @@ def open_file(path_or_buf, mode="r"):
             yield f
 
 
-def get_fem_model_from_assembly(assembly: "Assembly") -> "Part":
+def get_fem_model_from_assembly(assembly: Assembly) -> Part:
     """
     Scans the assembly tree for parts containing FEM elements. If multiple FEM objects are not empty,
     they will be merged
@@ -278,7 +279,6 @@ def _overwrite_dir(analysis_dir):
     except WindowsError as e:
         print(f"Failed to delete due to '{e}'")
 
-    time.sleep(0.5)
     os.makedirs(analysis_dir, exist_ok=True)
 
 
@@ -358,12 +358,13 @@ def run_tool(exe: LocalExecute, run_cmd, platform):
     out = None
     print(80 * "-")
     print(f'Starting {fem_tool_name} simulation "{exe.analysis_name}" (on {platform}) using {exe.cpus} cpus')
-    props = dict(shell=True, cwd=exe.execute_dir, env=os.environ, capture_output=True, universal_newlines=True)
+    props = dict(shell=True, cwd=exe.execute_dir, env=os.environ, universal_newlines=True)
     if exe.auto_execute is True:
         if exe.run_ext is True:
-            out = subprocess.run(run_cmd, **props)
+            out = subprocess.Popen(run_cmd, **props)
             print(f"Note! This starts {fem_tool_name} in an external window on a separate thread.")
         else:
+            props["capture_output"] = True
             out = subprocess.run(run_cmd, **props)
             print(f'Finished {fem_tool_name} simulation "{exe.analysis_name}"')
     print(80 * "-")
@@ -374,7 +375,7 @@ def run_macOS(exe, run_cmd):
     raise NotImplementedError()
 
 
-def interpret_fem(fem_ref):
+def interpret_fem(fem_ref: str):
     fem_type = None
     if ".fem" in str(fem_ref).lower():
         fem_type = "sesam"
@@ -394,7 +395,7 @@ def should_convert(res_path, overwrite):
         return False
 
 
-def convert_shell_elem_to_plates(elem, parent) -> [Plate]:
+def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> List[Plate]:
     from ada.core.vector_utils import is_coplanar
 
     plates = []
@@ -411,13 +412,13 @@ def convert_shell_elem_to_plates(elem, parent) -> [Plate]:
                 Plate(f"sh{elem.id}", [n.p for n in elem.nodes], fem_sec.thickness, use3dnodes=True, parent=parent)
             )
         else:
-            plates.append(
-                Plate(f"sh{elem.id}", [n.p for n in elem.nodes[:2]], fem_sec.thickness, use3dnodes=True, parent=parent)
-            )
+            el_n1 = [elem.nodes[0].p, elem.nodes[1].p, elem.nodes[2].p]
+            el_n2 = [elem.nodes[0].p, elem.nodes[2].p, elem.nodes[3].p]
+            plates.append(Plate(f"sh{elem.id}", el_n1, fem_sec.thickness, use3dnodes=True, parent=parent))
             plates.append(
                 Plate(
                     f"sh{elem.id}_1",
-                    [elem.nodes[0], elem.nodes[2], elem.nodes[3]],
+                    el_n2,
                     fem_sec.thickness,
                     use3dnodes=True,
                     parent=parent,
@@ -430,17 +431,18 @@ def convert_shell_elem_to_plates(elem, parent) -> [Plate]:
     return plates
 
 
-def convert_part_shell_elements_to_plates(p) -> Plates:
-    return Plates(list(chain.from_iterable([convert_shell_elem_to_plates(sh, p) for sh in p.fem.elements.shell])))
+def convert_part_shell_elements_to_plates(p: Part) -> Plates:
+    return Plates(
+        list(chain.from_iterable([convert_shell_elem_to_plates(sh, p) for sh in p.fem.elements.shell])), parent=p
+    )
 
 
-def convert_part_elem_bm_to_beams(p) -> Beams:
-    return Beams([line_elem_to_beam(bm, p) for bm in p.fem.elements.lines])
+def convert_part_elem_bm_to_beams(p: Part) -> Beams:
+    return Beams([line_elem_to_beam(bm, p) for bm in p.fem.elements.lines], parent=p)
 
 
-def line_elem_to_beam(elem: Elem, parent):
-    """Convert FEM line element to Beam
-    :type parent: ada.Part"""
+def line_elem_to_beam(elem: Elem, parent: Part) -> Beam:
+    """Convert FEM line element to Beam"""
 
     a = parent.get_assembly()
 
@@ -473,15 +475,16 @@ def line_elem_to_beam(elem: Elem, parent):
     )
 
 
-def convert_part_objects(p, skip_plates, skip_beams):
-    """:type p: Part"""
+def convert_part_objects(p: Part, skip_plates, skip_beams):
     if skip_plates is False:
         p._plates = convert_part_shell_elements_to_plates(p)
     if skip_beams is False:
         p._beams = convert_part_elem_bm_to_beams(p)
 
 
-def default_fem_res_path(name, scratch_dir=None, analysis_dir=None, fem_format=None) -> Dict[str, pathlib.Path]:
+def default_fem_res_path(
+    name, scratch_dir=None, analysis_dir=None, fem_format=None
+) -> Union[Dict[str, pathlib.Path], str]:
     if scratch_dir is None and analysis_dir is None:
         scratch_dir = Settings.scratch_dir
 
@@ -493,10 +496,11 @@ def default_fem_res_path(name, scratch_dir=None, analysis_dir=None, fem_format=N
         sesam=(base_path.parent / f"{name}R1").with_suffix(".SIN"),
         usfos=base_path.with_suffix(".fem"),
     )
+
     if fem_format is None:
         return fem_format_map
-    else:
-        return fem_format_map.get(fem_format)
+
+    return fem_format_map.get(fem_format)
 
 
 def default_fem_inp_path(name, scratch_dir=None, analysis_dir=None):

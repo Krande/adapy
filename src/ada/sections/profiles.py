@@ -103,7 +103,49 @@ def iprofiles(sec: Section, return_solid) -> SectionProfile:
     )
 
 
-def box(sec: Section, return_solid):
+def tprofiles(sec: Section, return_solid) -> SectionProfile:
+    h = sec.h
+    wtop = sec.w_top
+
+    # top flange
+    c1 = (-wtop / 2, h / 2)
+    c2 = (wtop / 2, h / 2)
+    # web
+    p3 = (0.0, h / 2)
+    p4 = (0.0, -h / 2)
+
+    outer_curve = None
+    outer_curve_disconnected = None
+    shell_thick_map = None
+    if return_solid is False:
+        disconnected = True
+        input_curve = [(c1, c2), (p3, p4)]
+        outer_curve_disconnected = build_disconnected(input_curve)
+        shell_thick_map = [(SectionParts.TOP_FLANGE, sec.t_ftop), (SectionParts.WEB, sec.t_w)]
+    else:
+        disconnected = False
+        tftop = sec.t_ftop
+        tw = sec.t_w
+        p3 = (wtop / 2, h / 2 - tftop)
+        p4 = (tw / 2, h / 2 - tftop)
+        p5 = (tw / 2, -h / 2)
+        p8 = (-tw / 2, -h / 2)
+        p9 = (-tw / 2, h / 2 - tftop)
+        p10 = (-wtop / 2, h / 2 - tftop)
+        input_curve = [c1, c2, p3, p4, p5, p8, p9, p10]
+        outer_curve = build_joined(input_curve)
+
+    return SectionProfile(
+        sec,
+        return_solid,
+        outer_curve=outer_curve,
+        outer_curve_disconnected=outer_curve_disconnected,
+        disconnected=disconnected,
+        shell_thickness_map=shell_thick_map,
+    )
+
+
+def box(sec: Section, return_solid) -> SectionProfile:
     h = sec.h
     wtop = sec.w_top
     wbtn = sec.w_btn

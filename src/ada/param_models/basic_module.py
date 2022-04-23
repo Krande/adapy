@@ -132,7 +132,7 @@ class SimpleStru(Part):
         self.fem.add_bc(Bc("bc_fix", fem_set_btn, [1, 2, 3]))
 
 
-def make_it_complex():
+def simplestru_with_cutouts():
     pm = SimpleStru("ParametricModel")
     a = Assembly("ParametricSite") / pm
 

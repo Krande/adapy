@@ -1,3 +1,11 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ada import Section
+
+
 class BaseTypes:
     BOX = "BOX"
     TUBULAR = "TUB"
@@ -8,6 +16,7 @@ class BaseTypes:
     CIRCULAR = "CIRC"
     GENERAL = "GENERAL"
     FLATBAR = "FB"
+    POLY = "poly"
 
 
 class SectionCat:
@@ -26,6 +35,7 @@ class SectionCat:
     circular = [BASETYPES.CIRCULAR]
     general = [BASETYPES.GENERAL, "GENBEAM"]
     flatbar = [BASETYPES.FLATBAR]
+    poly = ["POLY"]
 
     @classmethod
     def isbeam(cls, bmtype):
@@ -57,6 +67,7 @@ class SectionCat:
             (cls.is_tubular_profile, cls.BASETYPES.TUBULAR),
             (cls.is_circular_profile, cls.BASETYPES.CIRCULAR),
             (cls.is_general, cls.BASETYPES.GENERAL),
+            (cls.is_poly, cls.BASETYPES.POLY),
         ]
 
         for type_func, return_type in type_map:
@@ -64,47 +75,45 @@ class SectionCat:
                 return return_type
 
     @classmethod
-    def is_i_profile(cls, bmtype):
-        return True if cls._get_sec_type(bmtype) in cls.igirders + cls.iprofiles else False
+    def is_i_profile(cls, bmtype) -> bool:
+        return cls._get_sec_type(bmtype) in cls.igirders + cls.iprofiles
 
     @classmethod
-    def is_t_profile(cls, bmtype):
-        return True if cls._get_sec_type(bmtype) in cls.tprofiles else False
+    def is_t_profile(cls, bmtype) -> bool:
+        return cls._get_sec_type(bmtype) in cls.tprofiles
 
     @classmethod
-    def is_box_profile(cls, bmtype):
-        return True if cls._get_sec_type(bmtype) in cls.box + cls.shs + cls.rhs else False
+    def is_box_profile(cls, bmtype) -> bool:
+        return cls._get_sec_type(bmtype) in cls.box + cls.shs + cls.rhs
 
     @classmethod
-    def is_circular_profile(cls, bmtype):
-        return True if cls._get_sec_type(bmtype) in cls.circular else False
+    def is_circular_profile(cls, bmtype) -> bool:
+        return cls._get_sec_type(bmtype) in cls.circular
 
     @classmethod
-    def is_tubular_profile(cls, bmtype):
-        return True if cls._get_sec_type(bmtype) in cls.tubular else False
+    def is_tubular_profile(cls, bmtype) -> bool:
+        return cls._get_sec_type(bmtype) in cls.tubular
 
     @classmethod
-    def is_channel_profile(cls, bmtype):
-        return True if cls._get_sec_type(bmtype) in cls.channels else False
+    def is_channel_profile(cls, bmtype) -> bool:
+        return cls._get_sec_type(bmtype) in cls.channels
 
     @classmethod
-    def is_flatbar(cls, bmtype):
-        return True if cls._get_sec_type(bmtype) in cls.flatbar else False
+    def is_flatbar(cls, bmtype) -> bool:
+        return cls._get_sec_type(bmtype) in cls.flatbar
 
     @classmethod
-    def is_general(cls, bmtype):
-        return True if cls._get_sec_type(bmtype) in cls.general else False
+    def is_general(cls, bmtype) -> bool:
+        return cls._get_sec_type(bmtype) in cls.general
 
     @classmethod
-    def is_angular(cls, bmtype):
-        return True if cls._get_sec_type(bmtype) in cls.angular else False
+    def is_angular(cls, bmtype) -> bool:
+        return cls._get_sec_type(bmtype) in cls.angular
 
     @classmethod
-    def is_strong_axis_symmetric(cls, section):
-        """
+    def is_poly(cls, bmtype) -> bool:
+        return cls._get_sec_type(bmtype) in cls.poly
 
-        :param section:
-        :type section: ada.Section
-        :return:
-        """
+    @classmethod
+    def is_strong_axis_symmetric(cls, section: Section) -> bool:
         return section.w_top == section.w_btn and section.t_ftop == section.t_fbtn

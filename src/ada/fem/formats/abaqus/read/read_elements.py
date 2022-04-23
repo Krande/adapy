@@ -40,7 +40,7 @@ ada_to_abaqus_format = {
     so.PYRAMID5: ("C3D5", "C3D5H"),
     so.WEDGE: ("C3D6",),
     so.WEDGE15: ("C3D15",),
-    li.LINE: ("B31",),
+    li.LINE: ("B31", "B31H"),
     li.LINE3: ("B32",),
     "MASS": ("MASS",),
     "ROTARYI": ("ROTARYI",),

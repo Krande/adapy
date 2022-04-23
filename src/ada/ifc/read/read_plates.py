@@ -1,36 +1,30 @@
 import logging
 
 from ada import Assembly, Placement, Plate
-from ada.ifc.read.read_shapes import get_ifc_geometry
 
-from ..utils import default_settings
+from ..concepts import IfcRef
 from .read_curves import import_indexedpolycurve, import_polycurve
 from .read_materials import read_material
-from .reader_utils import get_associated_material, get_name, getIfcPropertySets
+from .reader_utils import get_associated_material
 
 
-def import_ifc_plate(ifc_elem, assembly: Assembly) -> Plate:
-    ifc_settings = default_settings() if assembly is None else assembly.ifc_settings
+def import_ifc_plate(ifc_elem, name, ifc_ref: IfcRef, assembly: Assembly) -> Plate:
+    from .exceptions import NoIfcAxesAttachedError
 
-    props = getIfcPropertySets(ifc_elem)
-    name = get_name(ifc_elem)
     logging.info(f"importing {name}")
     ifc_mat = get_associated_material(ifc_elem)
     mat = None
     if assembly is not None:
-        mat = assembly.get_by_name(ifc_mat.Name)
+        mat = assembly.get_by_name(name)
 
     if mat is None:
-        mat = read_material(ifc_mat)
-
-    pdct_shape, color, alpha = get_ifc_geometry(ifc_elem, ifc_settings)
+        mat = read_material(ifc_mat, ifc_ref, assembly)
 
     # TODO: Fix interpretation of IfcIndexedPolyCurve. Should pass origin to get actual 2d coordinates.
-
     # Adding Axis information
     axes = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Axis"]
     if len(axes) != 1:
-        raise NotImplementedError("Geometry with multiple axis is not currently supported")
+        raise NoIfcAxesAttachedError("IfcPlate does not have an Axis representation Item")
     axis = axes[0]
     origin = axis.Items[0].Points[0].Coordinates
 
@@ -58,14 +52,5 @@ def import_ifc_plate(ifc_elem, assembly: Assembly) -> Plate:
     placement = Placement(origin, xdir=xdir, zdir=normal)
 
     return Plate(
-        name,
-        nodes2d,
-        t,
-        mat=mat,
-        placement=placement,
-        guid=ifc_elem.GlobalId,
-        colour=color,
-        opacity=alpha,
-        ifc_geom=pdct_shape,
-        metadata=props,
+        name, nodes2d, t, mat=mat, placement=placement, guid=ifc_elem.GlobalId, ifc_ref=ifc_ref, units=assembly.units
     )

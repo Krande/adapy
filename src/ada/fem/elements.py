@@ -23,12 +23,12 @@ class Elem(FemBase):
     def __init__(
         self,
         el_id,
-        nodes,
+        nodes: list[Node],
         el_type,
         elset=None,
-        fem_sec: "FemSection" = None,
+        fem_sec: FemSection = None,
         mass_props=None,
-        parent: "FEM" = None,
+        parent: FEM = None,
         el_formulation_override=None,
         metadata=None,
     ):
@@ -37,9 +37,9 @@ class Elem(FemBase):
         self._el_id = el_id
         self._shape = None
 
-        if type(nodes[0]) is Node:
+        if nodes is not None and isinstance(nodes[0], Node):
             for node in nodes:
-                node.refs.append(self)
+                node.add_obj_to_refs(self)
 
         self._nodes = nodes
         self._elset = elset
@@ -72,6 +72,16 @@ class Elem(FemBase):
 
         return nodes
 
+    def replace_node_with_other_node(self, old_node: Node, new_node: Node):
+        index = None
+        for i, node in enumerate(self.nodes):
+            if node == old_node:
+                index = i
+        if index is None:
+            raise ValueError(f'Unable to find {old_node.id} in this element "{self.id}"')
+        self.nodes.pop(index)
+        self.nodes.insert(index, new_node)
+
     @property
     def type(self):
         return self._el_type
@@ -98,7 +108,7 @@ class Elem(FemBase):
 
     @id.setter
     def id(self, value):
-        if type(value) not in (np.int32, int, np.uint64) and issubclass(type(self), Connector) is False:
+        if type(value) not in (np.int32, int, np.uint64, np.int64) and issubclass(type(self), Connector) is False:
             raise ValueError(f'Element ID "{type(value)}" must be numeric')
         self._el_id = value
 
@@ -127,15 +137,15 @@ class Elem(FemBase):
         return self._elset
 
     @elset.setter
-    def elset(self, value: "FemSet"):
+    def elset(self, value: FemSet):
         self._elset = value
 
     @property
-    def fem_sec(self) -> "FemSection":
+    def fem_sec(self) -> FemSection:
         return self._fem_sec
 
     @fem_sec.setter
-    def fem_sec(self, value):
+    def fem_sec(self, value: FemSection):
         self._fem_sec = value
 
     @property
@@ -143,7 +153,7 @@ class Elem(FemBase):
         return self._mass_props
 
     @mass_props.setter
-    def mass_props(self, value):
+    def mass_props(self, value: Mass):
         self._mass_props = value
 
     @property
@@ -160,15 +170,24 @@ class Elem(FemBase):
     def formulation_override(self):
         return self._formulation_override if self._formulation_override is not None else self.type
 
-    def update(self):
+    def update(self) -> None:
         self._nodes = list(set(self.nodes))
         if len(self.nodes) <= 1:
             self._el_id = None
         else:
             self._shape = None
 
+    def updating_nodes(self, old_node: Node, new_node: Node) -> None:
+        """Exchanging old node with new node, and updating the element shape"""
+        node_index = self.nodes.index(old_node)
+        self.nodes.pop(node_index)
+        self.nodes.insert(node_index, new_node)
+
+        self.update()
+
     def __repr__(self):
-        return f'Elem(ID: {self._el_id}, Type: {self.type}, NodeIds: "{self.nodes}")'
+        nodes = self.nodes if hasattr(self, "_nodes") else "Nodes not yet initialized"
+        return f'Elem(ID: {self._el_id}, Type: {self.type}, NodeIds: "{nodes}")'
 
 
 @dataclass
@@ -205,8 +224,9 @@ class Eccentricity:
 
 class ConnectorTypes:
     BUSHING = "bushing"
+    CARTESIAN = "cartesian"
 
-    all = [BUSHING]
+    all = [BUSHING, CARTESIAN]
 
 
 class Connector(Elem):
@@ -304,9 +324,9 @@ class Spring(Elem):
 
 
 class MassTypes:
-    MASS = "MASS"
+    MASS = ElemType.POINT_SHAPES.MASS
     NONSTRU = "NONSTRUCTURAL MASS"
-    ROT_INERTIA = "ROTARY INERTIA"
+    ROT_INERTIA = ElemType.POINT_SHAPES.ROTARYI
 
     all = [MASS, NONSTRU, ROT_INERTIA]
 
@@ -318,14 +338,14 @@ class MassPType:
     all = [ISOTROPIC, ANISOTROPIC]
 
 
-class Mass(FemBase):
+class Mass(Elem):
     TYPES = MassTypes
     PTYPES = MassPType
 
     def __init__(
         self,
         name,
-        fem_set: "FemSet",
+        ref: Union[FemSet, List[Node], None],
         mass,
         mass_type=None,
         ptype=None,
@@ -334,23 +354,36 @@ class Mass(FemBase):
         metadata=None,
         parent=None,
     ):
-        super().__init__(name, metadata, parent)
-        self._fem_set = fem_set
+        if hasattr(ref, "members"):
+            self._fem_set = ref
+            members = ref.members
+        else:
+            members = ref
+
         if mass is None:
             raise ValueError("Mass cannot be None")
+
         if type(mass) not in (list, tuple):
             logging.info(f"Mass {type(mass)} converted to list of len=1. Assume equal mass in all 3 transl. DOFs.")
             ptype = self.PTYPES.ISOTROPIC
             mass = [mass]
+
         self._mass = mass
-        self._mass_type = mass_type.upper() if mass_type is not None else self.TYPES.MASS
+        self._el_type = mass_type.upper() if mass_type is not None else self.TYPES.MASS
+
         if self.type not in MassTypes.all:
             raise ValueError(f'Mass type "{self.type}" is not in list of supported types {MassTypes.all}')
+
         if ptype not in MassPType.all and ptype is not None:
             raise ValueError(f'Mass point type "{ptype}" is not in list of supported types {MassPType.all}')
+
+        super(Mass, self).__init__(mass_id, members, self.type)
+        super(Elem, self).__init__(name, metadata, parent)
+
         self.point_mass_type = ptype
         self._units = units
-        self._id = mass_id
+        self._members = members
+        self._elset = None
         self._check_input()
 
     def _check_input(self):
@@ -368,20 +401,21 @@ class Mass(FemBase):
             raise ValueError(f'Unknown mass input "{self.type}"')
 
     @property
-    def id(self):
-        return self._id
-
-    @property
-    def type(self):
-        return self._mass_type
-
-    @property
-    def fem_set(self) -> "FemSet":
+    def fem_set(self) -> FemSet:
         return self._fem_set
 
     @fem_set.setter
-    def fem_set(self, value: Mass):
+    def fem_set(self, value: FemSet):
+        self._members = value.members
         self._fem_set = value
+
+    @property
+    def elset(self):
+        return self._elset
+
+    @elset.setter
+    def elset(self, value):
+        self._elset = value
 
     @property
     def mass(self):
@@ -407,6 +441,14 @@ class Mass(FemBase):
         else:
             raise ValueError(f'Unknown mass input "{self.type}"')
 
+    @mass.setter
+    def mass(self, value) -> None:
+        self._mass = value
+
+    @property
+    def members(self):
+        return self._members
+
     @property
     def units(self):
         return self._units
@@ -419,7 +461,7 @@ class Mass(FemBase):
     def point_mass_type(self, value):
         self._ptype = value
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"Mass({self.name}, {self.point_mass_type}, [{self.mass}])"
 
 

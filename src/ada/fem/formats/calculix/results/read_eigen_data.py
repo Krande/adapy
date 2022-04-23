@@ -1,18 +1,8 @@
-import logging
 import os
-import pathlib
-from typing import TYPE_CHECKING, List, Union
+from typing import List, Union
 
-import meshio
-from ccx2paraview import Converter
-
-from ada.core.utils import get_list_of_files
-from ada.fem import StepEigen
 from ada.fem.concepts.eigenvalue import EigenDataSummary, EigenMode
 from ada.fem.formats.utils import DatFormatReader
-
-if TYPE_CHECKING:
-    from ada.fem.results import Results
 
 
 def get_eigen_data(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
@@ -40,33 +30,14 @@ def get_eigen_data(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
     # Note! participation factors and effective modal mass are each deconstructed into 6 degrees of freedom
     for eig, part, modal in zip(eig_res, part_res, modalmass):
         mode, eig_value, freq_rad, freq_cycl, freq_imag_rad = eig
-        eig_output = dict(eigenvalue=eig_value, f_rad=freq_rad, f_hz=freq_cycl, f_imag_rad=freq_imag_rad)
+        eig_output = dict(
+            eigenvalue=float(eig_value),
+            f_rad=float(freq_rad),
+            f_hz=float(freq_cycl),
+            f_imag_rad=float(freq_imag_rad),
+        )
         participation_data = {pn: p for pn, p in zip(part_factor_names, part[1:])}
         eff_mass_data = {pn: p for pn, p in zip(eff_mass_names, part[1:])}
         eigen_modes.append(EigenMode(no=mode, **eig_output, **participation_data, **eff_mass_data))
 
     return EigenDataSummary(eigen_modes, tot_eff_mass)
-
-
-def read_calculix_results(results: "Results", file_ref: pathlib.Path, overwrite):
-    result_files = get_list_of_files(file_ref.parent, ".vtu")
-    if len(result_files) == 0 or overwrite is True:
-        convert = Converter(str(file_ref), ["vtu"])
-        convert.run()
-        result_files = get_list_of_files(file_ref.parent, ".vtu")
-
-    if len(result_files) == 0:
-        raise FileNotFoundError("No VTU files found. Check if analysis was successfully completed")
-
-    if len(result_files) > 1:
-        logging.error("Currently only reading last step for multi-step Calculix analysis results")
-
-    result_file = result_files[-1]
-    results.results_file_path = pathlib.Path(result_file)
-    print(f'Reading result from "{result_file}"')
-
-    dat_file = file_ref.with_suffix(".dat")
-    if dat_file.exists() and type(results.assembly.fem.steps[0]) == StepEigen:
-        results.eigen_mode_data = get_eigen_data(dat_file)
-
-    return meshio.read(result_file)

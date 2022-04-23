@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import pathlib
 from dataclasses import dataclass
 from typing import Iterable, List, Union
 
@@ -95,6 +96,7 @@ class GmshSession:
         mesh_size=None,
         build_native_lines=False,
         point_tol=Settings.point_tol,
+        use_native_pointer=True,
     ):
         from ada.core.utils import Counter
 
@@ -105,34 +107,27 @@ class GmshSession:
         self.apply_settings()
         temp_dir = Settings.temp_dir
         os.makedirs(temp_dir, exist_ok=True)
-        name = f"{obj.name}_{create_guid()}"
-
-        def export_as_step(export_obj):
-            export_obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent, fuse_piping=True)
-            ents = self.model.occ.importShapes(str(temp_dir / f"{name}.stp"))
-            return ents
-
-        if issubclass(type(obj), Shape) and geom_repr != ElemType.SOLID:
-            logging.info(f"geom_repr for object type {type(obj)} must be solid. Changing to that now")
-            geom_repr = ElemType.SOLID
 
         if build_native_lines is True and geom_repr == ElemType.LINE and type(obj) is Beam:
-            # midpoints = obj.calc_con_points()
             entities = build_bm_lines(self.model, obj, point_tol)
-            # if len(midpoints) > 0:
-            #
-            # else:
-            #     entities = export_as_step(obj)
         else:
-            entities = export_as_step(obj)
-        #
-        # self.model.geo.synchronize()
-        # self.model.occ.synchronize()
+            if use_native_pointer and hasattr(self.model.occ, "importShapesNativePointer"):
+                # Use hasattr to ensure that it works for gmsh < 4.9.*
+                if type(obj) is Pipe:
+                    entities = []
+                    for seg in obj.segments:
+                        entities += import_into_gmsh_use_nativepointer(seg, geom_repr, self.model)
+                else:
+                    entities = import_into_gmsh_use_nativepointer(obj, geom_repr, self.model)
+            else:
+                entities = import_into_gmsh_using_step(obj, geom_repr, self.model, temp_dir, silent)
+
         obj_name = Counter(1, f"{obj.name}_")
         for dim, ent in entities:
             ent_name = next(obj_name)
             self.model.set_physical_name(dim, ent, ent_name)
             self.model.set_entity_name(dim, ent, ent_name)
+
         self.model.occ.synchronize()
         self.model.geo.synchronize()
 
@@ -266,14 +261,14 @@ class GmshSession:
 
         self.model.mesh.recombine()
 
-    def get_fem(self) -> FEM:
+    def get_fem(self, name="AdaFEM") -> FEM:
         from .utils import (
             add_fem_sections,
             get_elements_from_entities,
             get_nodes_from_gmsh,
         )
 
-        fem = FEM("AdaFEM")
+        fem = FEM(name)
         gmsh_nodes = get_nodes_from_gmsh(self.model, fem)
         fem.nodes = Nodes(gmsh_nodes, parent=fem)
 
@@ -326,3 +321,40 @@ class GmshSession:
     @property
     def model(self) -> "gmsh.model":
         return self.gmsh.model
+
+
+def import_into_gmsh_using_step(
+    obj, geom_repr: str, model: gmsh.model, temp_dir: pathlib.Path, silent: bool
+) -> List[tuple]:
+    name = f"{obj.name}_{create_guid()}"
+    obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent, fuse_piping=True)
+    ents = model.occ.importShapes(str(temp_dir / f"{name}.stp"))
+    return ents
+
+
+def import_into_gmsh_use_nativepointer(obj, geom_repr: str, model: gmsh.model) -> List[tuple]:
+    from OCC.Extend.TopologyUtils import TopologyExplorer
+
+    from ada import PrimBox
+
+    ents = []
+    if geom_repr == ElemType.SOLID:
+        geom = obj.solid
+        t = TopologyExplorer(geom)
+        geom_iter = t.solids()
+    elif geom_repr == ElemType.SHELL:
+        geom = obj.shell if type(obj) not in (PrimBox,) else obj.geom
+        t = TopologyExplorer(geom)
+        geom_iter = t.faces()
+    else:
+        geom = obj.line
+        t = TopologyExplorer(geom)
+        geom_iter = t.edges()
+
+    for shp in geom_iter:
+        ents += model.occ.importShapesNativePointer(int(shp.this))
+
+    if len(ents) == 0:
+        raise ValueError("No entities found")
+
+    return ents

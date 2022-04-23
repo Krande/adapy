@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, List, Union
 
 from ada.config import Settings as _Settings
@@ -6,10 +9,26 @@ from ada.ifc.utils import create_guid
 
 if TYPE_CHECKING:
     from ada import Assembly, Part
+    from ada.ifc.concepts import IfcRef
+
+
+@dataclass
+class IfcExportOptions:
+    export_props: bool = field(default=True)
 
 
 class Backend:
-    def __init__(self, name, guid=None, metadata=None, units="m", parent=None, ifc_settings=None, ifc_elem=None):
+    def __init__(
+        self,
+        name,
+        guid=None,
+        metadata=None,
+        units="m",
+        parent=None,
+        ifc_settings=None,
+        ifc_elem=None,
+        ifc_ref: IfcRef = None,
+    ):
         self.name = name
         self.parent = parent
         self._ifc_settings = ifc_settings
@@ -22,6 +41,8 @@ class Backend:
         self._ifc_elem = ifc_elem
         # TODO: Currently not able to keep and edit imported ifc_elem objects
         self._ifc_elem = None
+        self._ifc_ref = ifc_ref
+        self.ifc_options: IfcExportOptions = IfcExportOptions()
 
     @property
     def name(self):
@@ -51,7 +72,7 @@ class Backend:
         self._guid = value
 
     @property
-    def parent(self) -> "Part":
+    def parent(self) -> Part:
         return self._parent
 
     @parent.setter
@@ -87,16 +108,20 @@ class Backend:
             self._ifc_elem = self._generate_ifc_elem()
         return self._ifc_elem
 
-    def get_assembly(self) -> Union["Assembly", "Part"]:
+    @property
+    def ifc_ref(self) -> IfcRef:
+        return self._ifc_ref
+
+    def get_assembly(self) -> Union[Assembly, Part]:
         from ada import Assembly
 
         for ancestor in self.get_ancestors():
-            if type(ancestor) is Assembly:
+            if isinstance(ancestor, Assembly):
                 return ancestor
         logging.info("No Assembly found in ancestry. Returning self")
         return self
 
-    def get_ancestors(self) -> List[Union["Part", "Assembly"]]:
+    def get_ancestors(self) -> List[Union[Part, Assembly]]:
         ancestry = [self]
         current = self
         while current.parent is not None:

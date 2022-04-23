@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import pathlib
 from typing import TYPE_CHECKING, List
@@ -11,6 +13,7 @@ if TYPE_CHECKING:
     from ada import FEM, Penetration
     from ada.fem import Elem
     from ada.fem.meshing import GmshOptions
+    from ada.ifc.concepts import IfcRef
 
 
 class BackendGeom(Backend):
@@ -19,15 +22,26 @@ class BackendGeom(Backend):
     _renderer = None
 
     def __init__(
-        self, name, guid=None, metadata=None, units="m", parent=None, colour=None, ifc_elem=None, placement=Placement()
+        self,
+        name,
+        guid=None,
+        metadata=None,
+        units="m",
+        parent=None,
+        colour=None,
+        ifc_elem=None,
+        placement=Placement(),
+        ifc_ref: IfcRef = None,
+        opacity=1.0,
     ):
-        super().__init__(name, guid, metadata, units, parent, ifc_elem=ifc_elem)
+        super().__init__(name, guid, metadata, units, parent, ifc_elem=ifc_elem, ifc_ref=ifc_ref)
         from ada.visualize.new_render_api import Visualize
 
         self._penetrations = []
         self._placement = placement
         placement.parent = self
         self.colour = colour
+        self.opacity = opacity
         self._elem_refs = []
         self._viz = Visualize(self)
 
@@ -47,24 +61,60 @@ class BackendGeom(Backend):
         return pen
 
     def to_fem_obj(
-        self, mesh_size, geom_repr, options: "GmshOptions" = None, silent=True, use_quads=False, use_hex=False
-    ) -> "FEM":
+        self,
+        mesh_size,
+        geom_repr,
+        options: GmshOptions = None,
+        silent=True,
+        use_quads=False,
+        use_hex=False,
+        name="AdaFEM",
+        interactive=False,
+    ) -> FEM:
         from ada.fem.meshing import GmshOptions, GmshSession
 
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
         with GmshSession(silent=silent, options=options) as gs:
             gs.add_obj(self, geom_repr=geom_repr.upper())
             gs.mesh(mesh_size, use_quads=use_quads, use_hex=use_hex)
-            return gs.get_fem()
+            if interactive:
+                gs.open_gui()
+            return gs.get_fem(name)
 
-    def to_stp(self, destination_file, geom_repr=None, schema="AP242", silent=False, fuse_piping=False):
+    def to_fem(
+        self,
+        mesh_size,
+        geom_repr,
+        name: str,
+        fem_format: str,
+        options: GmshOptions = None,
+        silent=True,
+        use_quads=False,
+        use_hex=False,
+        return_assembly=False,
+        **kwargs,
+    ):
+        from ada import Assembly, Part
+
+        p = Part(name)
+        p.fem = self.to_fem_obj(mesh_size, geom_repr, options, silent, use_quads, use_hex, name)
+        a = Assembly() / (p / self)
+        if return_assembly:
+            return a
+        a.to_fem(name, fem_format, **kwargs)
+
+    def to_stp(
+        self, destination_file, geom_repr=None, schema="AP242", silent=False, fuse_piping=False, return_file_obj=False
+    ):
         from ada.fem.shapes import ElemType
         from ada.occ.writer import StepExporter
+
+        destination_file = pathlib.Path(destination_file).resolve().absolute()
 
         geom_repr = ElemType.SOLID if geom_repr is None else geom_repr
         step_export = StepExporter(schema)
         step_export.add_to_step_writer(self, geom_repr, fuse_piping=fuse_piping)
-        step_export.write_to_file(destination_file, silent)
+        return step_export.write_to_file(destination_file, silent, return_file_obj=return_file_obj)
 
     def render_locally(
         self, addr="localhost", server_port=8080, open_webbrowser=False, render_engine="threejs", resolution=(1800, 900)
@@ -121,6 +171,12 @@ class BackendGeom(Backend):
             self._colour = value
 
     @property
+    def colour_norm(self):
+        if self._colour is None:
+            self.colour = "white"
+        return [x / 255 for x in self.colour] if any(i > 1 for i in self.colour) else self.colour
+
+    @property
     def colour_webgl(self):
         from OCC.Display.WebGl.jupyter_renderer import format_color
 
@@ -138,11 +194,26 @@ class BackendGeom(Backend):
         return colour_formatted
 
     @property
-    def penetrations(self) -> List["Penetration"]:
+    def opacity(self):
+        return self._opacity
+
+    @opacity.setter
+    def opacity(self, value):
+        if (0.0 <= value <= 1.0) is False:
+            raise ValueError(f'Opacity is only valid between 1 and 0. "{value}" was passed in')
+
+        self._opacity = value
+
+    @property
+    def transparent(self):
+        return False if self.opacity == 1.0 else True
+
+    @property
+    def penetrations(self) -> List[Penetration]:
         return self._penetrations
 
     @property
-    def elem_refs(self) -> List["Elem"]:
+    def elem_refs(self) -> List[Elem]:
         return self._elem_refs
 
     @elem_refs.setter

@@ -20,7 +20,7 @@ def test_bbox_viz():
         blist += [Part(sec + "_XYZ") / [bm, PrimBox("Bbox_XYZ_" + sec, *bm.bbox.minmax, colour="red", opacity=0.5)]]
         ypos += 1
     a = Assembly() / blist
-    a.to_ifc(test_dir / "beam_bounding_box.ifc")
+    _ = a.to_ifc(test_dir / "beam_bounding_box.ifc", return_file_obj=True)
 
 
 def test_iprofiles_bbox():

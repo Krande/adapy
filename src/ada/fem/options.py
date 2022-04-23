@@ -1,9 +1,7 @@
-from dataclasses import dataclass
-
 from .formats.abaqus.options import AbaqusOptions
 
 
-@dataclass
 class FemOptions:
-    ABAQUS = AbaqusOptions()
-    CALCULIX = AbaqusOptions()
+    def __init__(self):
+        self.ABAQUS = AbaqusOptions()
+        self.CALCULIX = AbaqusOptions()

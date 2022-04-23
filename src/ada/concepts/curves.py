@@ -13,20 +13,10 @@ if TYPE_CHECKING:
 
 class CurveRevolve:
     def __init__(
-        self,
-        curve_type,
-        p1,
-        p2,
-        radius=None,
-        rot_axis=None,
-        point_on=None,
-        rot_origin=None,
-        angle=180,
-        parent=None,
+        self, p1, p2, radius=None, rot_axis=None, point_on=None, rot_origin=None, angle=180, parent=None, metadata=None
     ):
         self._p1 = p1
         self._p2 = p2
-        self._type = curve_type
         self._angle = angle
         self._radius = radius
         self._rot_axis = rot_axis
@@ -34,11 +24,15 @@ class CurveRevolve:
         self._point_on = point_on
         self._rot_origin = rot_origin
         self._ifc_elem = None
+        self.metadata = metadata if metadata is not None else dict()
 
         if self._point_on is not None:
             from ada.core.constants import O, X, Y, Z
             from ada.core.curve_utils import calc_arc_radius_center_from_3points
-            from ada.core.vector_utils import global_2_local_nodes, local_2_global_nodes
+            from ada.core.vector_utils import (
+                global_2_local_nodes,
+                local_2_global_points,
+            )
 
             p1, p2 = self.p1, self.p2
 
@@ -47,7 +41,7 @@ class CurveRevolve:
             lcenter, radius = calc_arc_radius_center_from_3points(res[0][:2], res[1][:2], res[2][:2])
             if True in np.isnan(lcenter) or np.isnan(radius):
                 raise ValueError("Curve is not valid. Please check your input")
-            res2 = local_2_global_nodes([lcenter], O, X, Z)
+            res2 = local_2_global_points([lcenter], O, X, Z)
             center = res2[0]
 
             self._radius = radius
@@ -69,10 +63,6 @@ class CurveRevolve:
         if self._ifc_elem is None:
             self._ifc_elem = self._generate_ifc_elem()
         return self._ifc_elem
-
-    @property
-    def type(self):
-        return self._type
 
     @property
     def p1(self):
@@ -187,12 +177,12 @@ class CurvePoly:
         self._local2d_to_polycurve(points2d, tol)
 
     def _from_2d_points(self, points2d) -> List[tuple]:
-        from ada.core.vector_utils import local_2_global_nodes
+        from ada.core.vector_utils import local_2_global_points
 
         place = self.placement
 
         points2d_no_r = [n[:2] for n in points2d]
-        points3d = local_2_global_nodes(points2d_no_r, place.origin, place.xdir, place.zdir)
+        points3d = local_2_global_points(points2d_no_r, place.origin, place.xdir, place.zdir)
         for i, p in enumerate(points2d):
             if len(p) == 3:
                 points3d[i] = (
@@ -239,7 +229,7 @@ class CurvePoly:
 
     def _local2d_to_polycurve(self, local_points2d, tol=1e-3):
         from ada.core.curve_utils import build_polycurve, segments_to_indexed_lists
-        from ada.core.vector_utils import local_2_global_nodes
+        from ada.core.vector_utils import local_2_global_points
 
         debug_name = self._parent.name if self._parent is not None else "PolyCurveDebugging"
 
@@ -249,13 +239,13 @@ class CurvePoly:
         for i, seg in enumerate(seg_list):
             if type(seg) is ArcSegment:
                 lpoints = [seg.p1, seg.p2, seg.midpoint]
-                gp = local_2_global_nodes(lpoints, origin, xdir, normal)
+                gp = local_2_global_points(lpoints, origin, xdir, normal)
                 seg.p1 = gp[0]
                 seg.p2 = gp[1]
                 seg.midpoint = gp[2]
             else:
                 lpoints = [seg.p1, seg.p2]
-                gp = local_2_global_nodes(lpoints, origin, xdir, normal)
+                gp = local_2_global_points(lpoints, origin, xdir, normal)
                 seg.p1 = gp[0]
                 seg.p2 = gp[1]
 
@@ -264,10 +254,10 @@ class CurvePoly:
         self._nodes = [Node(p) if len(p) == 3 else Node(p[:3], r=p[3]) for p in self._points3d]
 
     def _update_curves(self):
-        from ada.core.vector_utils import local_2_global_nodes
+        from ada.core.vector_utils import local_2_global_points
 
         points2d_no_r = [n[:2] for n in self.points2d]
-        points3d = local_2_global_nodes(points2d_no_r, self.placement.origin, self.placement.xdir, self.placement.zdir)
+        points3d = local_2_global_points(points2d_no_r, self.placement.origin, self.placement.xdir, self.placement.zdir)
         for i, p in enumerate(self.points2d):
             if len(p) == 3:
                 points3d[i] = (points3d[i][0], points3d[i][1], points3d[i][2], p[-1])

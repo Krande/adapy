@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, List, Union
+from itertools import chain
+from typing import TYPE_CHECKING, Dict, List, Tuple, Union
 
 from ada.concepts.containers import Nodes
 
@@ -39,37 +40,38 @@ _step_types = Union["StepSteadyState", "StepEigen", "StepImplicit", "StepExplici
 
 @dataclass
 class InterfaceNode:
-    node: "Node"
-    constraint: "Constraint" = field(default=None)
-    connector: "Connector" = field(default=None)
+    node: Node
+    constraint: Constraint = field(default=None)
+    connector: Connector = field(default=None)
 
 
 @dataclass
 class FEM:
     name: str
     metadata: Dict = field(default_factory=dict)
-    parent: "Part" = field(init=True, default=None)
+    parent: Part = field(init=True, default=None)
 
-    masses: Dict[str, "Mass"] = field(init=False, default_factory=dict)
-    surfaces: Dict[str, "Surface"] = field(init=False, default_factory=dict)
-    amplitudes: Dict[str, "Amplitude"] = field(init=False, default_factory=dict)
-    connector_sections: Dict[str, "ConnectorSection"] = field(init=False, default_factory=dict)
-    springs: Dict[str, "Spring"] = field(init=False, default_factory=dict)
-    intprops: Dict[str, "InteractionProperty"] = field(init=False, default_factory=dict)
-    interactions: Dict[str, "Interaction"] = field(init=False, default_factory=dict)
-    predefined_fields: Dict[str, "PredefinedField"] = field(init=False, default_factory=dict)
-    lcsys: Dict[str, "Csys"] = field(init=False, default_factory=dict)
+    masses: Dict[str, Mass] = field(init=False, default_factory=dict)
+    surfaces: Dict[str, Surface] = field(init=False, default_factory=dict)
+    amplitudes: Dict[str, Amplitude] = field(init=False, default_factory=dict)
+    connector_sections: Dict[str, ConnectorSection] = field(init=False, default_factory=dict)
+    springs: Dict[str, Spring] = field(init=False, default_factory=dict)
+    intprops: Dict[str, InteractionProperty] = field(init=False, default_factory=dict)
+    interactions: Dict[str, Interaction] = field(init=False, default_factory=dict)
+    predefined_fields: Dict[str, PredefinedField] = field(init=False, default_factory=dict)
+    lcsys: Dict[str, Csys] = field(init=False, default_factory=dict)
+    constraints: Dict[str, Constraint] = field(init=False, default_factory=dict)
 
-    bcs: List["Bc"] = field(init=False, default_factory=list)
-    constraints: List["Constraint"] = field(init=False, default_factory=list)
-    steps: List[Union["StepSteadyState", "StepEigen", "StepImplicit", "StepExplicit"]] = field(
-        init=False, default_factory=list
-    )
+    bcs: List[Bc] = field(init=False, default_factory=list)
+    steps: List[Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]] = field(init=False, default_factory=list)
 
-    nodes: "Nodes" = field(default_factory=Nodes, init=True)
-    elements: "FemElements" = field(default_factory=FemElements, init=True)
-    sets: "FemSets" = field(default_factory=FemSets, init=True)
-    sections: "FemSections" = field(default_factory=FemSections, init=True)
+    nodes: Nodes = field(default_factory=Nodes, init=True)
+    ref_points: Nodes = field(default_factory=Nodes, init=True)
+    ref_sets: FemSets = field(default_factory=FemSets, init=True)
+
+    elements: FemElements = field(default_factory=FemElements, init=True)
+    sets: FemSets = field(default_factory=FemSets, init=True)
+    sections: FemSections = field(default_factory=FemSections, init=True)
     initial_state: PredefinedField = field(default=None, init=True)
     subroutine: str = field(default=None, init=True)
 
@@ -116,10 +118,12 @@ class FEM:
         self.bcs.append(bc)
         return bc
 
-    def add_mass(self, mass: Mass) -> Mass:
+    def add_mass(self, mass: Mass) -> Tuple[Mass, FemSet]:
         mass.parent = self
-        self.masses[mass.name] = mass
-        return mass
+        self.elements.add(mass)
+        elset = self.sets.add(FemSet(mass.name + "_set", [mass], "elset"))
+        mass.elset = elset
+        return mass, elset
 
     def add_set(
         self,
@@ -173,10 +177,16 @@ class FEM:
 
     def add_step(self, step: _step_types) -> _step_types:
         """Add an analysis step to the assembly"""
+        from ada.fem.steps import Step
+
         if len(self.steps) > 0:
-            if self.steps[-1].type != StepEigen.TYPES.EIGEN and step.type == StepEigen.TYPES.COMPLEX_EIG:
+            if self.steps[-1].type != Step.TYPES.EIGEN and step.type == Step.TYPES.COMPLEX_EIG:
                 raise Exception("Complex eigenfrequency analysis step needs to follow eigenfrequency step.")
         step.parent = self
+        for bc in step.bcs.values():
+            if bc.amplitude is not None:
+                if bc.amplitude.parent is None:
+                    self.add_amplitude(bc.amplitude)
         self.steps.append(step)
 
         return step
@@ -189,6 +199,8 @@ class FEM:
     def add_interaction(self, interaction: Interaction) -> Interaction:
         interaction.parent = self
         self.interactions[interaction.name] = interaction
+        if interaction.interaction_property.parent is None:
+            self.add_interaction_property(interaction.interaction_property)
         return interaction
 
     def add_constraint(self, constraint: Constraint) -> Constraint:
@@ -199,7 +211,7 @@ class FEM:
         if constraint.s_set.parent is None:
             self.add_set(constraint.s_set)
 
-        self.constraints.append(constraint)
+        self.constraints[constraint.name] = constraint
         return constraint
 
     def add_lcsys(self, lcsys: Csys) -> Csys:
@@ -223,12 +235,13 @@ class FEM:
         self.add_set(FemSet(name=connector.name, members=[connector], set_type="elset"))
         return connector
 
-    def add_rp(self, name, node: Node):
+    def add_rp(self, name: str, node: Node):
         """Adds a reference point in assembly with a specific name"""
         node.parent = self
-        self.nodes.add(node)
-        fem_set = self.add_set(FemSet(name, [node], "nset"))
-        return node, fem_set
+        node_ = self.ref_points.add(node)
+        fem_set = self.ref_sets.add(FemSet(name, [node_], "nset", parent=self))
+        fem_set.metadata["internal"] = True
+        return node_, fem_set
 
     def add_surface(self, surface: Surface) -> Surface:
         surface.parent = self
@@ -251,12 +264,12 @@ class FEM:
         self.springs[spring.name] = spring
         return spring
 
-    def add_interface_nodes(self, interface_nodes: List[Node, InterfaceNode]):
+    def add_interface_nodes(self, interface_nodes: List[Union[Node, InterfaceNode]]):
         """Nodes used for interfacing between other parts. Pass a custom Constraint if specific coupling is needed"""
         from ada import Node
 
         for n in interface_nodes:
-            n_in = InterfaceNode(n) if type(n) is Node else n
+            n_in = InterfaceNode(n) if isinstance(n, Node) else n
             self.interface_nodes.append(n_in)
 
     def create_fem_elem_from_obj(self, obj, el_type=None) -> Elem:
@@ -301,6 +314,23 @@ class FEM:
 
         return True
 
+    def get_all_bcs(self):
+        """Get all the boundary conditions in the entire assembly"""
+        assembly = self.parent.get_assembly()
+        return chain.from_iterable(
+            (
+                [bc for bc in assembly.fem.bcs],
+                [bc for p in assembly.get_all_parts_in_assembly() for bc in p.fem.bcs],
+            )
+        )
+
+    def get_all_loads(self):
+        loads = []
+        for step in self.steps:
+            for load in step.loads:
+                loads.append(load)
+        return loads
+
     @property
     def instance_name(self):
         return self.name if self.name is not None else f"{self.parent.name}-1"
@@ -342,9 +372,9 @@ class FEM:
             bc.parent = self
             self.bcs.append(bc)
 
-        for con in other.constraints:
+        for con in other.constraints.values():
             con.parent = self
-            self.constraints.append(con)
+            self.constraints[con.name] = con
 
         for name, csys in other.lcsys.items():
             csys.parent = self

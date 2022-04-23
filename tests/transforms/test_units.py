@@ -51,7 +51,7 @@ def test_meter_to_millimeter(test_units_dir):
 def test_ifc_reimport():
     # Model to be re-imported
     a = Assembly("my_test_assembly") / SimpleStru("my_simple_stru")
-    a.to_ifc(test_folder / "my_exported_param_model.ifc")
+    fp = a.to_ifc(test_folder / "my_exported_param_model.ifc", return_file_obj=True)
 
     points = [(0, 0, 0), (5, 0, 0), (5, 5, 0)]
     w = Wall("MyWall", points, 3, 0.15, offset="LEFT")
@@ -64,7 +64,7 @@ def test_ifc_reimport():
 
     p = Part("MyPart")
 
-    p.add_elements_from_ifc(test_folder / "my_exported_param_model.ifc")
+    p.add_elements_from_ifc(fp)
     p.add_wall(w)
 
     z = 3.2
@@ -89,5 +89,5 @@ def test_ifc_reimport():
     b.to_ifc(test_folder / "my_reimport_of_elements_mm.ifc")
     # TODO: Re-import is still not supported. Should look into same approach as BlenderBIM by
     #       only communicating and updating the ifcopenshell file object.
-    # b.units = "m"
+    b.units = "m"
     # b.to_ifc(test_folder / "my_reimport_of_elements_m.ifc")

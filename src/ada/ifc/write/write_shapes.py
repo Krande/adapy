@@ -44,7 +44,8 @@ def write_ifc_shape(shape: Shape):
     schema = a.ifc_file.wrapped_data.schema
 
     shape_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
-    if type(shape) is not Shape:
+
+    if isinstance(shape, (PrimBox, PrimCyl, PrimExtrude, PrimRevolve, PrimSphere, PrimSweep)):
         ifc_shape = generate_parametric_solid(shape, f)
     else:
         tol = get_tolerance(a.units)
@@ -55,7 +56,6 @@ def write_ifc_shape(shape: Shape):
     for rep in ifc_shape.Representations:
         rep.ContextOfItems = context
 
-    guid = shape.metadata.get("guid", create_guid())
     description = shape.metadata.get("description", None)
 
     if "hidden" in shape.metadata.keys():
@@ -68,7 +68,7 @@ def write_ifc_shape(shape: Shape):
 
     ifc_elem = f.create_entity(
         "IfcBuildingElementProxy",
-        guid,
+        shape.guid,
         owner_history,
         shape.name,
         description,
@@ -90,16 +90,17 @@ def write_ifc_shape(shape: Shape):
             pen.ifc_opening,
         )
 
-    props = create_property_set("Properties", f, shape.metadata)
-    f.create_entity(
-        "IfcRelDefinesByProperties",
-        create_guid(),
-        owner_history,
-        "Properties",
-        None,
-        [ifc_elem],
-        props,
-    )
+    if shape.ifc_options.export_props is True:
+        props = create_property_set("Properties", f, shape.metadata, owner_history)
+        f.create_entity(
+            "IfcRelDefinesByProperties",
+            create_guid(),
+            owner_history,
+            "Properties",
+            None,
+            [ifc_elem],
+            props,
+        )
 
     return ifc_elem
 

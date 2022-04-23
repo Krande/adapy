@@ -4,17 +4,16 @@ from ada import Plate
 from ada.core.constants import O, X, Z
 from ada.ifc.utils import (
     add_colour,
+    add_multiple_props_to_elem,
     create_guid,
     create_ifc_placement,
     create_ifcindexpolyline,
     create_ifcpolyline,
     create_local_placement,
-    create_property_set,
 )
 
 
 def write_ifc_plate(plate: Plate):
-
     if plate.parent is None:
         raise ValueError("Ifc element cannot be built without any parent element")
 
@@ -98,15 +97,7 @@ def write_ifc_plate(plate: Plate):
     )
 
     # if "props" in plate.metadata.keys():
-    props = create_property_set("Properties", f, plate.metadata)
-    f.create_entity(
-        "IfcRelDefinesByProperties",
-        create_guid(),
-        owner_history,
-        "Properties",
-        None,
-        [ifc_plate],
-        props,
-    )
+    if plate.ifc_options.export_props is True:
+        add_multiple_props_to_elem(plate.metadata.get("props", dict()), ifc_plate, f, owner_history)
 
     return ifc_plate

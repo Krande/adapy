@@ -1,5 +1,6 @@
 {% set data = load_setup_py_data() %}
 
+
 package:
   name: ada-py
   version: {{ data.get('version') }}
@@ -9,7 +10,7 @@ source:
 
 build:
   number: 0
-  script: "{{ PYTHON }} -m pip install . -vv"
+  script: python -m pip install --no-deps --ignore-installed .
 
 requirements:
   build:
@@ -17,25 +18,39 @@ requirements:
   run:
     - python
     - numpy
-    - ifcopenshell
-    - pythonocc-core 7.5.1
-    - occt 7.5.1
-    - vtk
-    - meshio[all]
-    - toolz
-    - lmfit
-    - gmsh
+    - ifcopenshell >=0.7.0
+    - pythonocc-core >=7.5.3
+    - occt ==7.5.3
+    - python-gmsh >=4.9.3
     - pyquaternion
-    - ccx2paraview
+    - trimesh
     - pytexit
     - jupyterlab
     - pythreejs
     - pyparsing
+    - h5py
     - plotly
     - python-kaleido
-    - ipygany
-    - pydantic
-    - pyvista
+    - meshio
+
+# Dependencies that are currently left out
+#    - numpy
+#    - vtk
+#    - toolz
+#    - lmfit
+#    - ccx2paraview
+#    - ipygany
+#    - pydantic
+#    - pyvista
+test:
+  source_files:
+    - tests
+    - files
+  requires:
+    - pytest
+    - pytest-cov
+  imports:
+    - ada
 
 about:
   home: https://github.com/krande/adapy

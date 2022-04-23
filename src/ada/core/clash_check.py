@@ -57,6 +57,7 @@ def beam_cross_check(bm1: Beam, bm2: Beam, outofplane_tol=0.1):
 
 
 def are_beams_connected(bm1: Beam, beams: List[Beam], out_of_plane_tol, point_tol, nodes, nmap) -> None:
+    # TODO: Function should be renamed, or return boolean. Unclear what the function does at the moment
     for bm2 in beams:
         if bm1 == bm2:
             continue

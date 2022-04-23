@@ -1,32 +1,23 @@
 import logging
+from typing import Union
 
 import ifcopenshell.geom
 
 from ada import Assembly, Shape
 
-from .reader_utils import get_name, getIfcPropertySets
+from ..concepts import IfcRef
 
 
-def import_ifc_shape(product, assembly: Assembly):
-    props = getIfcPropertySets(product)
-    name = get_name(product)
+def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_ref: IfcRef, assembly: Assembly):
     logging.info(f'importing Shape "{name}"')
-    shp = Shape(
-        name,
-        None,
-        guid=product.GlobalId,
-        metadata=dict(props=props),
+    color_res = get_colour(product, assembly)
+    color, opacity = color_res if color_res is not None else None, 1.0
+    return Shape(
+        name, None, guid=product.GlobalId, ifc_ref=ifc_ref, units=assembly.units, colour=color, opacity=opacity
     )
-    return shp
 
 
 def get_ifc_geometry(ifc_elem, settings):
-    """
-
-    :param ifc_elem:
-    :param settings:
-    :return:
-    """
     pdct_shape = ifcopenshell.geom.create_shape(settings, inst=ifc_elem)
 
     if pdct_shape is None:
@@ -41,13 +32,21 @@ def get_ifc_geometry(ifc_elem, settings):
     return geom, colour, alpha
 
 
-def get_geom(ifc_elem, settings):
-    """
+def get_colour(product: ifcopenshell.entity_instance, assembly: Assembly) -> Union[None, tuple]:
+    triface = list(filter(lambda x: x.is_a("IfcTriangulatedFaceSet"), assembly.ifc_file.traverse(product)))
+    if len(triface) > 0:
+        style = triface[0].StyledByItem[0].Styles[0]
+        colour_rgb = list(filter(lambda x: x.is_a("IfcColourRgb"), assembly.ifc_file.traverse(style)))
+        transparency = list(filter(lambda x: x.is_a("IfcSurfaceStyleRendering"), assembly.ifc_file.traverse(style)))
+        if len(transparency) > 0 and len(colour_rgb) > 0:
+            opacity = transparency[0].Transparency
+            rgb = colour_rgb[0].Red, colour_rgb[0].Green, colour_rgb[0].Blue
+            return rgb, opacity
 
-    :param ifc_elem:
-    :param settings:
-    :return:
-    """
+    return None
+
+
+def get_geom(ifc_elem, settings):
     from ifcopenshell.geom.occ_utils import shape_tuple
     from OCC.Core import BRepTools
     from OCC.Core.TopoDS import TopoDS_Compound
@@ -58,7 +57,7 @@ def get_geom(ifc_elem, settings):
         print(f'unable to parse ifc_elem "{ifc_elem}"')
         return
 
-    if type(pdct_shape) is shape_tuple:
+    if isinstance(pdct_shape, shape_tuple):
         shape = pdct_shape[1]
     else:
         shape = pdct_shape.solid

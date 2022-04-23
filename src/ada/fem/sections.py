@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, List, Tuple, Union
+from typing import TYPE_CHECKING, Any, List, Tuple, Union
 
 import numpy as np
 
@@ -32,7 +32,7 @@ class FemSection(FemBase):
         self,
         name,
         sec_type: str,
-        elset: "FemSet",
+        elset: FemSet,
         material: Material,
         section=None,
         local_z=None,
@@ -43,6 +43,7 @@ class FemSection(FemBase):
         parent=None,
         refs=None,
         sec_id=None,
+        is_rigid=False,
     ):
         super().__init__(name, metadata, parent)
         if sec_type is None:
@@ -69,6 +70,7 @@ class FemSection(FemBase):
         self._thickness = thickness
         self._int_points = int_points
         self._refs = refs
+        self._is_rigid = is_rigid
 
     def __hash__(self):
         return hash(f"{self.name}{self.id}")
@@ -187,6 +189,10 @@ class FemSection(FemBase):
     def thickness(self):
         return self._thickness
 
+    @thickness.setter
+    def thickness(self, value):
+        self._thickness = value
+
     @property
     def int_points(self):
         return self._int_points
@@ -233,10 +239,10 @@ class ConnectorSection(FemBase):
     def __init__(
         self,
         name,
-        elastic_comp,
-        damping_comp,
-        plastic_comp=None,
-        rigid_dofs=None,
+        elastic_comp: Union[None, float, List[Any]] = None,
+        damping_comp: Union[None, float, List[Any]] = None,
+        plastic_comp: Union[None, float, List[Any]] = None,
+        rigid_dofs: Union[None, float, List[Any]] = None,
         soft_elastic_dofs=None,
         metadata=None,
         parent=None,

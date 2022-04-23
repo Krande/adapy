@@ -29,11 +29,11 @@ def elem_str(fem: FEM, thick_map) -> str:
                 "GELMNT1",
                 [(el.id, el.id, eltype_2_sesam(el.type), 0)] + write_nodal_data(el),
             )
-            for el in fem.elements
+            for el in fem.elements.stru_elements
         ]
     )
 
-    for el in fem.elements:
+    for el in fem.elements.stru_elements:
         out_str += write_elem(el, thick_map)
 
     return out_str

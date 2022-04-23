@@ -1,6 +1,6 @@
 import pathlib
 
-from ada.core.utils import get_list_of_files
+from ada.core.file_system import get_list_of_files
 
 
 def test_list_of_files(example_files):

@@ -3,6 +3,7 @@ import uuid
 from dataclasses import dataclass
 from itertools import chain
 from random import randint
+from typing import TYPE_CHECKING
 
 import numpy as np
 from OCC.Core.Tesselator import ShapeTesselator
@@ -29,6 +30,10 @@ from pythreejs import (
 )
 
 from ada.fem import Elem
+
+if TYPE_CHECKING:
+    from ada import Beam, Part, Pipe, Plate, Shape, Wall
+    from ada.concepts.connections import JointBase
 
 __all__ = ["MyRenderer", "SectionRenderer"]
 
@@ -121,16 +126,7 @@ class MyRenderer(JupyterRenderer):
         for c in self._displayed_pickable_objects.children:
             self.visible_check(c, "mesh")
 
-    def DisplayMesh(self, part, edge_color=None, vertex_color=None, vertex_width=2):
-        """
-
-        :param part:
-        :param edge_color:
-        :param vertex_color:
-        :param vertex_width:
-        :type part: ada.Part
-        """
-
+    def DisplayMesh(self, part: "Part", edge_color=None, vertex_color=None, vertex_width=2):
         from OCC.Core.BRep import BRep_Builder
         from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
         from OCC.Core.gp import gp_Pnt
@@ -192,13 +188,7 @@ class MyRenderer(JupyterRenderer):
         ]
         self._fem_refs[part.fem.name] = (part.fem, edge_geometry)
 
-    def DisplayAdaShape(self, shp):
-        """
-
-        :param shp:
-        :type shp: ada.Shape
-        :return:
-        """
+    def DisplayAdaShape(self, shp: "Shape"):
         res = self.DisplayShape(
             shp.geom,
             transparency=shp.transparent,
@@ -209,13 +199,7 @@ class MyRenderer(JupyterRenderer):
         for r in res:
             self._refs[r.name] = shp
 
-    def DisplayBeam(self, beam):
-        """
-
-        :param beam:
-        :type beam: ada.Beam
-        """
-
+    def DisplayBeam(self, beam: "Beam"):
         try:
             if "ifc_file" in beam.metadata.keys():
                 from ada.ifc.read.read_shapes import get_ifc_geometry
@@ -234,13 +218,7 @@ class MyRenderer(JupyterRenderer):
         for r in res:
             self._refs[r.name] = beam
 
-    def DisplayPlate(self, plate):
-        """
-
-        :param plate:
-        :type plate: ada.Plate
-        """
-
+    def DisplayPlate(self, plate: "Plate"):
         geom = self._ifc_geom_to_shape(plate._ifc_geom) if plate._ifc_geom is not None else plate.solid
         # self.AddShapeToScene(geom)
         try:
@@ -252,12 +230,7 @@ class MyRenderer(JupyterRenderer):
         for r in res:
             self._refs[r.name] = plate
 
-    def DisplayPipe(self, pipe):
-        """
-
-        :param pipe:
-        :type pipe: ada.Pipe
-        """
+    def DisplayPipe(self, pipe: "Pipe"):
         # self.AddShapeToScene(geom)
         res = []
 
@@ -271,12 +244,7 @@ class MyRenderer(JupyterRenderer):
         for r in res:
             self._refs[r.name] = pipe
 
-    def DisplayWall(self, wall):
-        """
-
-        :param wall:
-        :type wall: ada.Wall
-        """
+    def DisplayWall(self, wall: "Wall"):
         try:
             res = self.DisplayShape(wall.solid, shape_color=wall.colour, opacity=0.5)
         except BaseException as e:
@@ -286,12 +254,7 @@ class MyRenderer(JupyterRenderer):
         for r in res:
             self._refs[r.name] = wall
 
-    def DisplayAdaPart(self, part):
-        """
-
-        :return:
-        :type part: ada.Part
-        """
+    def DisplayAdaPart(self, part: "Part"):
         all_shapes = [shp for p in part.get_all_subparts() for shp in p.shapes] + part.shapes
         all_beams = [bm for p in part.get_all_subparts() for bm in p.beams] + [bm for bm in part.beams]
         all_plates = [pl for p in part.get_all_subparts() for pl in p.plates] + [pl for pl in part.plates]
@@ -317,8 +280,13 @@ class MyRenderer(JupyterRenderer):
             )
         )
 
+    def display_joint(self, joint: "JointBase"):
+        all_beams = [bm for bm in joint.beams]
+        list(filter(None, map(self.DisplayBeam, all_beams)))
+
     def DisplayObj(self, obj):
         from ada import Beam, Part, Pipe, Plate, Shape
+        from ada.concepts.connections import JointBase
 
         if issubclass(type(obj), Part) is True:
             self.DisplayAdaPart(obj)
@@ -328,6 +296,8 @@ class MyRenderer(JupyterRenderer):
             self.DisplayPlate(obj)
         elif type(obj) is Pipe:
             self.DisplayPipe(obj)
+        elif issubclass(type(obj), JointBase):
+            self.display_joint(obj)
         elif issubclass(type(obj), Shape):
             self.DisplayAdaShape(obj)
         else:

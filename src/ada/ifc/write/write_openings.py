@@ -38,6 +38,6 @@ def generate_ifc_opening(penetration: "Penetration"):
         None,
     )
 
-    add_multiple_props_to_elem(penetration.metadata.get("props", dict()), opening_element, f)
+    add_multiple_props_to_elem(penetration.metadata.get("props", dict()), opening_element, f, owner_history)
 
     return opening_element

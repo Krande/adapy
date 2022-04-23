@@ -1,11 +1,23 @@
+from typing import TYPE_CHECKING, Tuple, Union
+
 import numpy as np
 
+from ada.occ.exceptions.geom_creation import UnableToCreateTesselationFromSolidOCCGeom
 
-def occ_shape_to_faces(shape, quality=1.0, render_edges=False, parallel=True):
+if TYPE_CHECKING:
+    from OCC.Core.TopoDS import TopoDS_Shape
+
+
+def occ_shape_to_faces(
+    shape: "TopoDS_Shape", quality=1.0, render_edges=False, parallel=True
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Union[None, np.ndarray]]:
     from OCC.Core.Tesselator import ShapeTesselator
 
     # first, compute the tesselation
-    tess = ShapeTesselator(shape)
+    try:
+        tess = ShapeTesselator(shape)
+    except RuntimeError as e:
+        raise UnableToCreateTesselationFromSolidOCCGeom(e)
     tess.Compute(compute_edges=render_edges, mesh_quality=quality, parallel=parallel)
 
     # get vertices and normals
@@ -26,7 +38,7 @@ def occ_shape_to_faces(shape, quality=1.0, render_edges=False, parallel=True):
     np_faces = np.arange(np_vertices.shape[0], dtype="uint32")
 
     np_normals = np.array(tess.GetNormalsAsTuple(), dtype="float32").reshape(-1, 3)
-    edges = list(
+    edges = np.array(
         map(
             lambda i_edge: [tess.GetEdgeVertex(i_edge, i_vert) for i_vert in range(tess.ObjEdgeGetVertexCount(i_edge))],
             range(tess.ObjGetEdgeCount()),

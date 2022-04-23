@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Dict, List, Union
 
 from .common import FemBase
 from .constraints import Bc
 from .interactions import Interaction
-from .loads import Load, LoadCase, LoadPressure
+from .loads import Load, LoadCase, LoadGravity, LoadPressure
 from .outputs import FieldOutput, HistOutput
 
 if TYPE_CHECKING:
@@ -26,7 +27,8 @@ class _StepTypes:
 class _DynStepType:
     QUASI_STATIC = "QUASI-STATIC"
     TRANSIENT_FIDELITY = "TRANSIENT FIDELITY"
-    all = [QUASI_STATIC, TRANSIENT_FIDELITY]
+    MODERATE_DISSIPATION = "MODERATE DISSIPATION"
+    all = [QUASI_STATIC, TRANSIENT_FIDELITY, MODERATE_DISSIPATION]
 
 
 class StepSolverOptions:
@@ -97,14 +99,15 @@ class Step(FemBase):
             self._field_outputs += [field]
 
     def get_default_output_variables(self):
-        from ada.fem.outputs import Defaults
+        from ada.fem.outputs import defaults
 
-        return Defaults.history_output, Defaults.field_output
+        return defaults()
 
-    def add_load(self, load: Union[Load, LoadPressure]):
-        if type(load) is LoadPressure:
+    def add_load(self, load: Union[Load, LoadPressure, LoadGravity]):
+        if isinstance(load, LoadPressure):
             if load.surface.parent is None:
                 self.parent.add_surface(load.surface)
+        load.parent = self
         self._loads.append(load)
 
     def add_loadcase(self, load_case: LoadCase):
@@ -118,9 +121,10 @@ class Step(FemBase):
     def add_bc(self, bc: Bc):
         bc.parent = self
         self._bcs[bc.name] = bc
-
-        if bc.fem_set not in self.parent.sets and bc.fem_set.parent is None:
+        if bc.fem_set.parent is None and bc.fem_set not in self.parent.sets:
             self.parent.sets.add(bc.fem_set)
+        if bc.amplitude is not None and bc.amplitude.parent is None:
+            self.parent.add_amplitude(bc.amplitude)
 
     def add_history_output(self, hist_output: HistOutput):
         hist_output.parent = self
@@ -210,7 +214,11 @@ class StepImplicit(Step):
         """
         if total_time is not None:
             if init_incr > total_time and nl_geom is True:
-                raise ValueError(f"Initial increment ({init_incr}) must be smaller than total time ({total_time})")
+                logging.warning(
+                    f"Initial increment > Total time ({init_incr} > {total_time}). "
+                    "Adjusted initial increment equal to total time"
+                )
+                init_incr = total_time
         else:
             total_time = init_incr
 

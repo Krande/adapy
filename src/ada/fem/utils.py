@@ -8,6 +8,7 @@ from .shapes import ElemShape
 
 if TYPE_CHECKING:
     from ada import FEM, Assembly, Beam, Node, Part, Plate
+    from ada.fem import FemSet
 
 
 def get_eldata(fem_source: Union["Assembly", "Part", "FEM"]):
@@ -84,3 +85,49 @@ def is_parent_of_node_solid(no: "Node") -> bool:
         if elem.type in ElemShape.TYPES.solids.all:
             return True
     return False
+
+
+def elset_to_part(name: str, elset: "FemSet") -> "Part":
+    """Create a new part based on a specific element set."""
+    from ada import Part
+
+    fem = elset.parent
+    p = Part(name)
+
+    for mem in elset.members:
+        if elset.type == elset.TYPES.ELSET:
+            p.fem.add_elem(mem)
+            if mem.fem_sec.name not in p.fem.sections.name_map.keys():
+                p.fem.add_section(mem.fem_sec)
+                fem.sections.remove(mem.fem_sec)
+            if mem.fem_sec.elset.name not in p.fem.elsets.keys():
+                p.fem.add_set(mem.fem_sec.elset)
+                fem.sets.remove(mem.fem_sec.elset)
+            for n in mem.nodes:
+                if n not in p.fem.nodes:
+                    p.fem.nodes.add(n)
+            # fem.nodes.remove(mem.nodes)
+        else:
+            p.fem.nodes.add(mem)
+
+    if elset.type == elset.TYPES.ELSET:
+        fem.elements.remove_elements_by_set(elset)
+    else:
+        fem.nodes.remove(elset.members)
+
+    return p
+
+
+def split_line_element_in_two(el: Elem) -> Elem:
+    from ada import Node
+
+    n1 = el.nodes[0]
+    n2 = el.nodes[-1]
+    midp = (n1.p + n2.p) / 2
+    new_node = el.parent.nodes.add(Node(midp))
+    el.nodes[-1] = new_node
+    elset = el.elset
+    elem = Elem(None, [new_node, n2], el.type, elset=elset, fem_sec=el.fem_sec, parent=el.parent)
+    fs = el.fem_sec
+    fs.elset.add_members([elem])
+    return elem

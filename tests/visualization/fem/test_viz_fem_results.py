@@ -19,13 +19,13 @@ def test_ca_bm_eig(code_aster_files):
     rmed_bm_eig = code_aster_files / "Cantilever_CA_EIG_bm.rmed"
     eig_res = get_eigen_data(rmed_bm_eig)
     assert type(eig_res) is EigenDataSummary
-    pytest.approx(eig_res.modes[0].f_hz, 4.672562038746128)
-    pytest.approx(eig_res.modes[14].f_hz, 131.94191888574105)
+    assert eig_res.modes[0].f_hz == pytest.approx(4.672562038746128)
+    assert eig_res.modes[14].f_hz == pytest.approx(131.94191888574105)
 
 
 def test_ca_sh_eig(code_aster_files):
     rmed_sh_eig = code_aster_files / "Cantilever_CA_EIG_sh.rmed"
     eig_res = get_eigen_data(rmed_sh_eig)
     assert type(eig_res) is EigenDataSummary
-    pytest.approx(eig_res.modes[0].f_hz, 6.18343412480713)
-    pytest.approx(eig_res.modes[19].f_hz, 258.92237110772226)
+    assert eig_res.modes[0].f_hz == pytest.approx(6.18343412480713)
+    assert eig_res.modes[19].f_hz == pytest.approx(258.92237110772226)

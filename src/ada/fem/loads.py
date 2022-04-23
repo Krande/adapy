@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING, List, Union
 
@@ -10,7 +12,7 @@ from .sets import FemSet
 from .surfaces import Surface
 
 if TYPE_CHECKING:
-    from ada import FEM
+    from ada.fem.steps import Step
 
 
 class LoadTypes:
@@ -55,7 +57,7 @@ class Load(FemBase):
         accr_rot_axis=None,
         csys: Csys = None,
         metadata=None,
-        parent: "FEM" = None,
+        parent: Step = None,
     ):
         super().__init__(name, metadata, parent)
         self._type = load_type
@@ -140,6 +142,10 @@ class Load(FemBase):
     def fem_set(self) -> FemSet:
         return self._fem_set
 
+    @fem_set.setter
+    def fem_set(self, value: FemSet):
+        self._fem_set = value
+
     @property
     def follower_force(self):
         return self._follower_force
@@ -188,6 +194,14 @@ class Load(FemBase):
     def csys(self) -> Csys:
         return self._csys
 
+    @property
+    def parent(self) -> "Step":
+        return self._parent
+
+    @parent.setter
+    def parent(self, value: "Step"):
+        self._parent = value
+
     def __repr__(self):
         forc_str = ",".join(f"{f:.6E}" for f in self.forces)
         return f"Load({self.name}, {self.type}, [{forc_str}])"
@@ -216,8 +230,22 @@ class LoadPressure(Load):
 
 
 class LoadGravity(Load):
-    def __init__(self, name):
-        super(LoadGravity, self).__init__(name, Load.TYPES.GRAVITY, -9.81)
+    def __init__(self, name, acceleration=-9.81):
+        super(LoadGravity, self).__init__(name, Load.TYPES.GRAVITY, acceleration)
+
+
+class LoadPoint(Load):
+    def __init__(self, name, magnitude, fem_set, dof, amplitude=None, follower_force=True, csys=None):
+        super(LoadPoint, self).__init__(
+            name,
+            Load.TYPES.FORCE,
+            magnitude=magnitude,
+            fem_set=fem_set,
+            dof=dof,
+            amplitude=amplitude,
+            follower_force=follower_force,
+            csys=csys,
+        )
 
 
 class LoadCase(FemBase):

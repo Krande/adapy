@@ -1,5 +1,5 @@
 from ada.core.utils import NewLine
-from ada.fem import FieldOutput, HistOutput, PredefinedField
+from ada.fem import FieldOutput, HistOutput
 
 from .helper_utils import get_instance_name
 
@@ -56,17 +56,3 @@ def field_output_str(field_output: FieldOutput) -> str:
 {nodal_str}
 {element_str}
 {contact_str}""".strip()
-
-
-def predefined_field_str(pre_field: PredefinedField) -> str:
-    dofs_str = ""
-    for dof, magn in zip(pre_field.dofs, pre_field.magnitude):
-        if float(magn) == 0.0:
-            continue
-        dofs_str += f"{get_instance_name(pre_field.fem_set, True)}, {dof}, {magn}\n"
-    dofs_str.rstrip()
-    return f"""** PREDEFINED FIELDS
-**
-** Name: {pre_field.name}   Type: {pre_field.type}
-*Initial Conditions, type={pre_field.type}
-{dofs_str}"""

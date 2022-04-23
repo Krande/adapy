@@ -155,7 +155,7 @@ def univec_str(fem: FEM) -> str:
         unit_vecs[tvec] = trans_no
         return trans_no, write_ff("GUNIVEC", data)
 
-    for el in fem.elements:
+    for el in fem.elements.stru_elements:
         local_z = el.fem_sec.local_z
         transno, res_str = write_local_z(local_z)
         if res_str is None:

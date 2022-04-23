@@ -18,7 +18,7 @@ def test_material_ifc_roundtrip(materials_test_dir):
     p = Part("MyPart")
     p.add_material(Material("my_mat"))
     a = Assembly("MyAssembly") / p
-    a.to_ifc(ifc_path)
+    fp = a.to_ifc(ifc_path, return_file_obj=True)
 
-    b = ada.from_ifc(ifc_path)
+    b = ada.from_ifc(fp)
     assert len(b.materials) == 1

@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import TYPE_CHECKING, List, Tuple, Union
 
 from ada.base.non_phyical_objects import Backend
 from ada.concepts.curves import CurvePoly
 from ada.config import Settings
 
 from .categories import BaseTypes, SectionCat
+
+if TYPE_CHECKING:
+    from ada import Beam
+    from ada.fem import FemSection
 
 
 class Section(Backend):
@@ -32,7 +36,7 @@ class Section(Backend):
         from_str=None,
         outer_poly=None,
         inner_poly=None,
-        genprops=None,
+        genprops: GeneralProperties = None,
         metadata=None,
         units="m",
         ifc_elem=None,
@@ -172,10 +176,20 @@ class Section(Backend):
         """Radius (Outer)"""
         return self._r
 
+    @r.setter
+    def r(self, value: float):
+        self._r = value
+        self._genprops = None
+
     @property
     def wt(self) -> float:
         """Wall thickness"""
         return self._wt
+
+    @wt.setter
+    def wt(self, value: float):
+        self._wt = value
+        self._genprops = None
 
     @property
     def sec_str(self):
@@ -272,8 +286,7 @@ class Section(Backend):
         display(HBox([fig, html]))
 
     @property
-    def refs(self):
-        """:rtype: List[ada.Beam | ada.fem.FemSection]"""
+    def refs(self) -> List[Union[Beam, FemSection]]:
         return self._refs
 
     def __hash__(self):
@@ -320,6 +333,12 @@ class GeneralProperties:
     Cy: float = None
     Cz: float = None
 
+    @property
+    def modified(self) -> bool:
+        from .properties import calculate_general_properties
+
+        return self != calculate_general_properties(self.parent)
+
     def __eq__(self, other):
         for key, val in self.__dict__.items():
             if "parent" in key:
@@ -355,6 +374,7 @@ def build_section_profile(sec: Section, is_solid) -> SectionProfile:
     build_map = {
         sec_type.ANGULAR: profile_builder.angular,
         sec_type.IPROFILE: profile_builder.iprofiles,
+        sec_type.TPROFILE: profile_builder.tprofiles,
         sec_type.BOX: profile_builder.box,
         sec_type.FLATBAR: profile_builder.flatbar,
         sec_type.CHANNEL: profile_builder.channel,

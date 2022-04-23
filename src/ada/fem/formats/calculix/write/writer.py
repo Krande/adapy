@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import traceback
 from itertools import groupby
 from operator import attrgetter
@@ -5,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from ada.concepts.containers import Nodes
 from ada.core.utils import NewLine, get_current_user
-from ada.fem import Bc, FemSection, FemSet, Load
+from ada.fem import Bc, FemSection, FemSet
 from ada.fem.formats.abaqus.write.write_bc import aba_bc_map, valid_aba_bcs
 from ada.fem.formats.abaqus.write.write_sections import (
     eval_general_properties,
@@ -19,6 +21,7 @@ from ada.sections import SectionCat as Sc
 from ..compatibility import check_compatibility
 from .templates import main_header_str
 from .write_elements import elements_str
+from .write_loads import get_all_grav_loads
 from .write_steps import step_str
 
 if TYPE_CHECKING:
@@ -26,7 +29,7 @@ if TYPE_CHECKING:
     from ada.fem import Interaction, Surface
 
 
-def to_fem(assembly: "Assembly", name, analysis_dir, metadata=None):
+def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
     """Write a Calculix input file stack"""
 
     check_compatibility(assembly)
@@ -34,6 +37,13 @@ def to_fem(assembly: "Assembly", name, analysis_dir, metadata=None):
     inp_file = (analysis_dir / name).with_suffix(".inp")
 
     p = get_fem_model_from_assembly(assembly)
+
+    # Check if contains gravity load and create a FemSet containing all elements if so
+    all_gl = get_all_grav_loads(assembly.fem)
+    if len(all_gl) > 0 and p.fem.elsets.get("Eall", None) is None:
+        fs = p.fem.add_set(FemSet("Eall", [el for el in p.fem.elements], "elset"))
+        for grav_load in all_gl:
+            grav_load.fem_set = fs
 
     with open(inp_file, "w") as f:
         # Header
@@ -229,7 +239,7 @@ def material_str(material):
 
 def bc_str(bc: Bc) -> str:
 
-    ampl_ref_str = "" if bc.amplitude_name is None else ", amplitude=" + bc.amplitude_name
+    ampl_ref_str = "" if bc.amplitude is None else ", amplitude=" + bc.amplitude.name
 
     if bc.type in valid_aba_bcs:
         aba_type = bc.type
@@ -266,18 +276,7 @@ def bc_str(bc: Bc) -> str:
 {dofs_str}"""
 
 
-def load_str(load: Load):
-    dof = [0, 0, 1] if load.dof is None else load.dof
-    if load.fem_set is None:
-        raise ValueError("Calculix does not accept Loads without reference to a fem_set")
-
-    fem_set = load.fem_set.name
-    return f"""** Name: gravity   Type: Gravity
-*Dload
-{fem_set}, GRAV, {load.magnitude}, {', '.join([str(x) for x in dof[:3]])}"""
-
-
-def surface_str(surface: "Surface") -> str:
+def surface_str(surface: Surface) -> str:
     top_line = f"*Surface, type={surface.type}, name={surface.name}"
     id_refs_str = "\n".join([f"{m[0]}, {m[1]}" for m in surface.id_refs]).strip()
     if surface.id_refs is None:
@@ -295,7 +294,7 @@ def surface_str(surface: "Surface") -> str:
 {id_refs_str}"""
 
 
-def interactions_str(interaction: "Interaction") -> str:
+def interactions_str(interaction: Interaction) -> str:
     from ada.fem.steps import Step
 
     if interaction.type == "SURFACE":

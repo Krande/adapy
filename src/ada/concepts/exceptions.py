@@ -4,3 +4,7 @@ class NoGeomPassedToShapeError(Exception):
 
 class NameIsNoneError(Exception):
     pass
+
+
+class DuplicateNodes(Exception):
+    pass

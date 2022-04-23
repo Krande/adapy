@@ -18,7 +18,7 @@ def write_load(load: Load) -> str:
 
 def gravity_load_str(load: Load) -> str:
     return f"""{load.name} = AFFE_CHAR_MECA(
-    MODELE=model, PESANTEUR=_F(DIRECTION=(0.0, 0.0, 1.0), GRAVITE={-load.magnitude})
+    MODELE=model, PESANTEUR=_F(DIRECTION=(0.0, 0.0, 1.0), GRAVITE={load.magnitude})
 )"""
 
 

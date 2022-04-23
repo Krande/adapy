@@ -10,7 +10,7 @@ from ada.core.vector_utils import (
     angle_between,
     intersection_point,
     linear_2dtransform_rotate,
-    local_2_global_nodes,
+    local_2_global_points,
     unit_vector,
 )
 
@@ -107,10 +107,10 @@ def test_basic_arc2():
     else:
         gamma = -arbp / 2
     midp = linear_2dtransform_rotate(center, start, np.rad2deg(gamma))
-    glob_c = local_2_global_nodes([center], origin, xdir, normal)[0]
-    glob_s = local_2_global_nodes([start], origin, xdir, normal)[0]
-    glob_e = local_2_global_nodes([end], origin, xdir, normal)[0]
-    glob_midp = local_2_global_nodes([midp], origin, xdir, normal)[0]
+    glob_c = local_2_global_points([center], origin, xdir, normal)[0]
+    glob_s = local_2_global_points([start], origin, xdir, normal)[0]
+    glob_e = local_2_global_points([end], origin, xdir, normal)[0]
+    glob_midp = local_2_global_points([midp], origin, xdir, normal)[0]
 
     res_center = (-98.7039754, 0.0, 45.94493759)
     res_start = (-89.00255040102925, 0, 84.75063760025732)

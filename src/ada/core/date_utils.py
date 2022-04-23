@@ -50,7 +50,7 @@ def datetime_to_str(obj):
 
 
 def get_last_file_modified(file_dir, file_ext):
-    from .utils import get_list_of_files
+    from .file_system import get_list_of_files
 
     last_date = None
     for f in get_list_of_files(file_dir, file_ext):
