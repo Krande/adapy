@@ -71,6 +71,31 @@ def write_to_ifc(
     a._source_ifc_files = dict()
 
 
+def copy_deep(ifc_file, element):
+    import ifcopenshell
+
+    new = ifc_file.create_entity(element.is_a())
+    for i, attribute in enumerate(element):
+        if attribute is None:
+            continue
+        if isinstance(attribute, ifcopenshell.entity_instance):
+            attribute = copy_deep(ifc_file, attribute)
+        elif isinstance(attribute, tuple) and attribute and isinstance(attribute[0], ifcopenshell.entity_instance):
+            attribute = list(attribute)
+            for j, item in enumerate(attribute):
+                attribute[j] = copy_deep(ifc_file, item)
+        if type(attribute) is tuple:
+            if type(attribute[0]) is tuple:
+                print("sd")
+                new[i] = attribute
+        try:
+            new[i] = attribute
+        except TypeError as e:
+            logging.error(e)
+            raise TypeError
+    return new
+
+
 def add_part_objects_to_ifc(p: Part, f: ifcopenshell.file, assembly: Assembly, ifc_include_fem=False):
     # TODO: Consider having all of these operations happen upon import of elements as opposed to one big operation
     #  on export
@@ -107,6 +132,7 @@ def add_part_objects_to_ifc(p: Part, f: ifcopenshell.file, assembly: Assembly, i
             ifc_f = assembly.get_ifc_source_by_name(ifc_file)
             ifc_elem = ifc_f.by_guid(shp.guid)
             new_ifc_elem = ifcopenshell.util.element.copy_deep(f, ifc_elem)
+            # new_ifc_elem = copy_deep(f, ifc_elem)
 
             # Simple check to ensure that the new IFC element is properly copied
             # res = get_container(new_ifc_elem)
