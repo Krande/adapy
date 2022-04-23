@@ -74,6 +74,7 @@ def write_to_ifc(
 def add_part_objects_to_ifc(p: Part, f: ifcopenshell.file, assembly: Assembly, ifc_include_fem=False):
     # TODO: Consider having all of these operations happen upon import of elements as opposed to one big operation
     #  on export
+    import ifcopenshell.util.element
 
     part_ifc = p.get_ifc_elem()
     owner_history = assembly.user.to_ifc()
@@ -105,7 +106,7 @@ def add_part_objects_to_ifc(p: Part, f: ifcopenshell.file, assembly: Assembly, i
             ifc_file = shp.metadata["ifc_file"]
             ifc_f = assembly.get_ifc_source_by_name(ifc_file)
             ifc_elem = ifc_f.by_guid(shp.guid)
-            new_ifc_elem = f.add(ifc_elem)
+            new_ifc_elem = ifcopenshell.util.element.copy_deep(f, ifc_elem)
 
             # Simple check to ensure that the new IFC element is properly copied
             # res = get_container(new_ifc_elem)
