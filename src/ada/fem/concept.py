@@ -362,8 +362,6 @@ class FEM:
         if elid_max > other.elements.min_el_id:
             other.elements.renumber(int(elid_max + 10))
 
-        logging.warning("FEM operand type += is still experimental")
-
         self.elements += other.elements
         self.sections += other.sections
         self.sets += other.sets
