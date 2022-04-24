@@ -84,22 +84,23 @@ def copy_deep(ifc_file, element):
             attribute = list(attribute)
             for j, item in enumerate(attribute):
                 attribute[j] = copy_deep(ifc_file, item)
-        if type(attribute) is tuple:
-            if type(attribute[0]) is tuple:
-                print("sd")
-                new[i] = attribute
         try:
             new[i] = attribute
         except TypeError as e:
+            # Handle invalid IFC element created by a certain proprietary CAD software
+            if i != 4 and element.is_a() == "IfcTriangulatedFaceSet":
+                raise TypeError(e)
             logging.error(e)
-            raise TypeError
+            new[i] = None
+
     return new
 
 
 def add_part_objects_to_ifc(p: Part, f: ifcopenshell.file, assembly: Assembly, ifc_include_fem=False):
     # TODO: Consider having all of these operations happen upon import of elements as opposed to one big operation
     #  on export
-    import ifcopenshell.util.element
+
+    from ada.ifc.utils import add_colour
 
     part_ifc = p.get_ifc_elem()
     owner_history = assembly.user.to_ifc()
@@ -131,8 +132,16 @@ def add_part_objects_to_ifc(p: Part, f: ifcopenshell.file, assembly: Assembly, i
             ifc_file = shp.metadata["ifc_file"]
             ifc_f = assembly.get_ifc_source_by_name(ifc_file)
             ifc_elem = ifc_f.by_guid(shp.guid)
-            new_ifc_elem = ifcopenshell.util.element.copy_deep(f, ifc_elem)
-            # new_ifc_elem = copy_deep(f, ifc_elem)
+            new_ifc_elem = copy_deep(f, ifc_elem)
+            body = new_ifc_elem.Representation.Representations[0].Items[0]
+            add_colour(
+                f,
+                body,
+                None,
+                shp.colour,
+                transparency=shp.opacity,
+                use_surface_style_rendering=True,
+            )
 
             # Simple check to ensure that the new IFC element is properly copied
             # res = get_container(new_ifc_elem)

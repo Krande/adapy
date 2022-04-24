@@ -11,7 +11,10 @@ from ..concepts import IfcRef
 def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_ref: IfcRef, assembly: Assembly):
     logging.info(f'importing Shape "{name}"')
     color_res = get_colour(product, assembly)
-    color, opacity = color_res if color_res is not None else None, 1.0
+    if color_res is not None:
+        color, opacity = color_res
+    else:
+        color, opacity = None, 1.0
     return Shape(
         name, None, guid=product.GlobalId, ifc_ref=ifc_ref, units=assembly.units, colour=color, opacity=opacity
     )

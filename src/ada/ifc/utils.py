@@ -425,18 +425,16 @@ def add_negative_extrusion(f, origin, loc_z, loc_x, depth, points, parent):
     return opening_element
 
 
-def add_colour(f, ifc_body, name, colour):
-    """
-
-    :param f:
-    :param ifc_body:
-    :param name:
-    :param colour:
-    :return:
-    """
+def add_colour(f, ifc_body, name, colour, transparency=0.0, use_surface_style_rendering=False):
+    """"""
     colour = f.createIfcColourRgb(name, colour[0], colour[1], colour[2])
-    surfaceStyleShading = f.createIfcSurfaceStyleShading()
-    surfaceStyleShading.SurfaceColour = colour
+
+    if use_surface_style_rendering:
+        surfaceStyleShading = f.createIFCSURFACESTYLERENDERING(colour, transparency)
+    else:
+        surfaceStyleShading = f.createIfcSurfaceStyleShading()
+        surfaceStyleShading.SurfaceColour = colour
+
     surfaceStyle = f.createIfcSurfaceStyle(colour.Name, "BOTH", (surfaceStyleShading,))
     presStyleAssign = f.createIfcPresentationStyleAssignment((surfaceStyle,))
     f.createIfcStyledItem(ifc_body, (presStyleAssign,), colour.Name)
