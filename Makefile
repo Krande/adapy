@@ -9,7 +9,7 @@ install:
 	conda env create -f environment.yml
 
 update:
-	conda env update --name work --file environment.yml --prune
+	conda env update --file environment.yml --prune
 
 format:
 	black . && isort . && flake8 .
