@@ -322,7 +322,16 @@ class Part(BackendGeom):
             self.add_wall(wall)
 
     def read_step_file(
-        self, step_path, name=None, scale=None, transform=None, rotate=None, colour=None, opacity=1.0, source_units="m"
+        self,
+        step_path,
+        name=None,
+        scale=None,
+        transform=None,
+        rotate=None,
+        colour=None,
+        opacity=1.0,
+        source_units="m",
+        include_shells=False,
     ):
         """
 
@@ -337,7 +346,7 @@ class Part(BackendGeom):
         """
         from ada.occ.utils import extract_shapes
 
-        shapes = extract_shapes(step_path, scale, transform, rotate)
+        shapes = extract_shapes(step_path, scale, transform, rotate, include_shells=include_shells)
 
         if len(shapes) > 0:
             ada_name = name if name is not None else "CAD" + str(len(self.shapes) + 1)
