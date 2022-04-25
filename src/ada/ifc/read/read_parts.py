@@ -39,7 +39,7 @@ def import_ifc_hierarchy(assembly: Assembly, product, ifc_ref: IfcRef):
 
     new_part = Part(
         name,
-        metadata=dict(original_name=name, props=props),
+        metadata=dict(original_name=name, props=props, ifc_guid=product.GlobalId),
         guid=product.GlobalId,
         ifc_ref=ifc_ref,
         units=assembly.units,

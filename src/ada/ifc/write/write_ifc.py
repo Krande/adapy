@@ -90,7 +90,7 @@ def copy_deep(ifc_file, element):
             # Handle invalid IFC element created by a certain proprietary CAD software
             if i != 4 and element.is_a() == "IfcTriangulatedFaceSet":
                 raise TypeError(e)
-            logging.error(e)
+            logging.debug(f'Handling invalid property created by proprietary software:\n"{e}"')
             new[i] = None
 
     return new
@@ -131,12 +131,15 @@ def add_part_objects_to_ifc(p: Part, f: ifcopenshell.file, assembly: Assembly, i
         if "ifc_file" in shp.metadata.keys():
             ifc_file = shp.metadata["ifc_file"]
             ifc_f = assembly.get_ifc_source_by_name(ifc_file)
-            ifc_elem = ifc_f.by_guid(shp.guid)
+            ifc_elem = ifc_f.by_guid(shp.metadata["ifc_guid"])
+            # for inv in ifc_f.get_inverse(ifc_elem):
             new_ifc_elem = copy_deep(f, ifc_elem)
-            body = new_ifc_elem.Representation.Representations[0].Items[0]
+            new_ifc_elem.Name = shp.name
+            new_ifc_elem.GlobalId = shp.guid
+            bodies = new_ifc_elem.Representation.Representations[0].Items
             add_colour(
                 f,
-                body,
+                bodies,
                 None,
                 shp.colour,
                 transparency=shp.opacity,

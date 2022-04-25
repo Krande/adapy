@@ -425,7 +425,14 @@ def add_negative_extrusion(f, origin, loc_z, loc_x, depth, points, parent):
     return opening_element
 
 
-def add_colour(f, ifc_body, name, colour, transparency=0.0, use_surface_style_rendering=False) -> None:
+def add_colour(
+    f,
+    ifc_body: Union[List[ifcopenshell.entity_instance], ifcopenshell.entity_instance],
+    name,
+    colour,
+    transparency=0.0,
+    use_surface_style_rendering=False,
+) -> None:
     """Add IFcSurfaceStyle using either IfcSurfaceStyleRendering or IfcSurfaceStyleShading"""
     if colour is None:
         return None
@@ -439,7 +446,11 @@ def add_colour(f, ifc_body, name, colour, transparency=0.0, use_surface_style_re
 
     surfaceStyle = f.createIfcSurfaceStyle(colour.Name, "BOTH", (surfaceStyleShading,))
     presStyleAssign = f.createIfcPresentationStyleAssignment((surfaceStyle,))
-    f.createIfcStyledItem(ifc_body, (presStyleAssign,), colour.Name)
+    if type(ifc_body) in [list, tuple]:
+        for ifc_b in ifc_body:
+            f.createIfcStyledItem(ifc_b, (presStyleAssign,), colour.Name)
+    else:
+        f.createIfcStyledItem(ifc_body, (presStyleAssign,), colour.Name)
 
 
 def calculate_unit_scale(file):
