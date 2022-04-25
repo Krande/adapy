@@ -34,9 +34,9 @@ def get_ifc_geometry(ifc_elem, settings):
 def get_colour(product: ifcopenshell.entity_instance, assembly: Assembly) -> Union[None, tuple]:
     triface = list(filter(lambda x: x.is_a("IfcTriangulatedFaceSet"), assembly.ifc_file.traverse(product)))
     ifcextruded = list(filter(lambda x: x.is_a("IfcExtrudedAreaSolid"), assembly.ifc_file.traverse(product)))
-    style_items = list(filter(lambda x: x.is_a("IfcStyledItem"), assembly.ifc_file.traverse(product)))
+    ifcrevolved = list(filter(lambda x: x.is_a("IfcRevolvedAreaSolid"), assembly.ifc_file.traverse(product)))
 
-    geoms = triface + ifcextruded
+    geoms = triface + ifcextruded + ifcrevolved
 
     if len(geoms) == 0:
         logging.warning(f'Colour not found for IFC product "{product}" due to currently unsupported geometry')

@@ -48,7 +48,7 @@ def ifc_poly_elem_to_json(obj: Shape, export_config: ExportConfig = ExportConfig
 
     a = obj.get_assembly()
     ifc_f = a.get_ifc_source_by_name(obj.ifc_ref.source_ifc_file)
-    ifc_elem = ifc_f.by_guid(obj.guid)
+    ifc_elem = ifc_f.by_guid(obj.metadata["ifc_guid"])
 
     settings = ifcopenshell.geom.settings()
     settings.set(settings.USE_PYTHON_OPENCASCADE, False)
