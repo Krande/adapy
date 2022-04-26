@@ -41,6 +41,9 @@ def get_colour(product: ifcopenshell.entity_instance, assembly: Assembly) -> Uni
     if len(geoms) == 0:
         logging.warning(f'Colour not found for IFC product "{product}" due to currently unsupported geometry')
         return None, 1.0
+    if len(geoms[0].StyledByItem) == 0:
+        logging.warning(f'No style associated with IFC element "{product}"')
+        return None, 1.0
 
     style = geoms[0].StyledByItem[0].Styles[0]
     colour_rgb = list(filter(lambda x: x.is_a("IfcColourRgb"), assembly.ifc_file.traverse(style)))
