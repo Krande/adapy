@@ -32,20 +32,23 @@ def get_ifc_geometry(ifc_elem, settings):
 
 
 def get_colour(product: ifcopenshell.entity_instance, assembly: Assembly) -> Union[None, tuple]:
-    triface = list(filter(lambda x: x.is_a("IfcTriangulatedFaceSet"), assembly.ifc_file.traverse(product)))
-    ifcextruded = list(filter(lambda x: x.is_a("IfcExtrudedAreaSolid"), assembly.ifc_file.traverse(product)))
-    ifcrevolved = list(filter(lambda x: x.is_a("IfcRevolvedAreaSolid"), assembly.ifc_file.traverse(product)))
+    styles = []
+    for geo in assembly.ifc_file.traverse(product):
+        if hasattr(geo, "StyledByItem") is False:
+            continue
+        if len(geo.StyledByItem) != 0:
+            cstyle = geo.StyledByItem[0].Styles[0]
+            if cstyle not in styles:
+                styles.append(cstyle)
 
-    geoms = triface + ifcextruded + ifcrevolved
-
-    if len(geoms) == 0:
-        logging.warning(f'Colour not found for IFC product "{product}" due to currently unsupported geometry')
-        return None, 1.0
-    if len(geoms[0].StyledByItem) == 0:
+    if len(styles) == 0:
         logging.warning(f'No style associated with IFC element "{product}"')
         return None, 1.0
 
-    style = geoms[0].StyledByItem[0].Styles[0]
+    if len(styles) > 1:
+        logging.warning(f"Multiple styles associated to element {product}. Choosing arbitrarily style @ index=0")
+
+    style = styles[0]
     colour_rgb = list(filter(lambda x: x.is_a("IfcColourRgb"), assembly.ifc_file.traverse(style)))
     transparency = list(filter(lambda x: x.is_a("IfcSurfaceStyleRendering"), assembly.ifc_file.traverse(style)))
 
