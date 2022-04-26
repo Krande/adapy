@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Union
 from ada import Assembly, Part
 from ada.fem.formats.ifc.writer import to_ifc_fem
 
-from ..utils import create_guid
+from ..utils import create_guid, create_property_set
 from .write_beams import write_ifc_beam
 from .write_instances import write_mapped_instance
 from .write_plates import write_ifc_plate
@@ -72,9 +72,10 @@ def write_to_ifc(
 
 
 def copy_deep(ifc_file, element):
-    import ifcopenshell
+    import ifcopenshell.util.element
 
     new = ifc_file.create_entity(element.is_a())
+
     for i, attribute in enumerate(element):
         if attribute is None:
             continue
@@ -92,6 +93,24 @@ def copy_deep(ifc_file, element):
                 raise TypeError(e)
             logging.debug(f'Handling invalid property created by proprietary software:\n"{e}"')
             new[i] = None
+
+    # Add properties
+    if hasattr(new, "OwnerHistory") is False:
+        return new
+
+    if hasattr(element, "IsDefinedBy") and len(element.IsDefinedBy) > 0:
+        owner_history = new.OwnerHistory
+        for key, pset in ifcopenshell.util.element.get_psets(element).items():
+            props = create_property_set(key, ifc_file, pset, owner_history=owner_history)
+            ifc_file.create_entity(
+                "IfcRelDefinesByProperties",
+                create_guid(),
+                owner_history,
+                key,
+                None,
+                [new],
+                props,
+            )
 
     return new
 

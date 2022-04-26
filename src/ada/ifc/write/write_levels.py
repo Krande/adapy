@@ -43,7 +43,8 @@ def write_ifc_assembly(assembly: "Assembly"):
     )
 
     props = create_property_set("Properties", f, assembly.metadata, owner_history)
-    f.createIfcRelDefinesByProperties(
+    f.create_entity(
+        "IfcRelDefinesByProperties",
         create_guid(),
         owner_history,
         "Properties",
