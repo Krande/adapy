@@ -17,10 +17,10 @@ from .utils import from_safe_name, str_fix
 def read_assembly_from_cache(h5_filename, assembly=None):
     import h5py
 
-    f = h5py.File(h5_filename, "r")
-    info = f["INFO"].attrs
-    a = Assembly(info["NAME"]) if assembly is None else assembly
-    walk_parts(f.get("PARTS"), a)
+    with h5py.File(h5_filename, "r") as f:
+        info = f["INFO"].attrs
+        a = Assembly(info["NAME"]) if assembly is None else assembly
+        walk_parts(f.get("PARTS"), a)
 
     return a
 

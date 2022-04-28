@@ -79,16 +79,15 @@ class XdmfReader:
         dirname = pathlib.Path(self.filename).resolve().parent
         full_hdf5_path = dirname / filename
 
-        f = h5py.File(full_hdf5_path, "r")
+        with h5py.File(full_hdf5_path, "r") as f:
+            # Some files don't contain the leading slash /.
+            if h5path[0] == "/":
+                h5path = h5path[1:]
 
-        # Some files don't contain the leading slash /.
-        if h5path[0] == "/":
-            h5path = h5path[1:]
-
-        for key in h5path.split("/"):
-            f = f[key]
-        # `[()]` gives a numpy.ndarray
-        return f[()]
+            for key in h5path.split("/"):
+                f = f[key]
+            # `[()]` gives a numpy.ndarray
+            return f[()]
 
     def read_information(self, c_data):
         field_data = {}

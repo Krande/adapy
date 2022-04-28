@@ -34,98 +34,98 @@ def read_fem(fem_file: os.PathLike, fem_name: str = None) -> "Assembly":
 def med_to_fem(fem_file, fem_name) -> "FEM":
     from ada import FEM, Node
 
-    f = h5py.File(fem_file, "r")
+    with h5py.File(fem_file, "r") as f:
+        # Mesh ensemble
+        mesh_ensemble = f["ENS_MAA"]
+        meshes = mesh_ensemble.keys()
+        if len(meshes) != 1:
+            raise ValueError("Must only contain exactly 1 mesh, found {}.".format(len(meshes)))
+        mesh_name = list(meshes)[0]
+        mesh = mesh_ensemble[mesh_name]
 
-    # Mesh ensemble
-    mesh_ensemble = f["ENS_MAA"]
-    meshes = mesh_ensemble.keys()
-    if len(meshes) != 1:
-        raise ValueError("Must only contain exactly 1 mesh, found {}.".format(len(meshes)))
-    mesh_name = list(meshes)[0]
-    mesh = mesh_ensemble[mesh_name]
+        dim = mesh.attrs["ESP"]
 
-    dim = mesh.attrs["ESP"]
+        fem_name = fem_name if fem_name is not None else mesh_name
 
-    fem_name = fem_name if fem_name is not None else mesh_name
+        # Initialize FEM object
+        fem = FEM(fem_name)
 
-    # Initialize FEM object
-    fem = FEM(fem_name)
+        # Possible time-stepping
+        if "NOE" not in mesh:
+            # One needs NOE (node) and MAI (French maillage, meshing) data. If they
+            # are not available in the mesh, check for time-steppings.
+            time_step = mesh.keys()
+            if len(time_step) != 1:
+                raise ValueError(f"Must only contain exactly 1 time-step, found {len(time_step)}.")
+            mesh = mesh[list(time_step)[0]]
 
-    # Possible time-stepping
-    if "NOE" not in mesh:
-        # One needs NOE (node) and MAI (French maillage, meshing) data. If they
-        # are not available in the mesh, check for time-steppings.
-        time_step = mesh.keys()
-        if len(time_step) != 1:
-            raise ValueError(f"Must only contain exactly 1 time-step, found {len(time_step)}.")
-        mesh = mesh[list(time_step)[0]]
+        # Points
+        pts_dataset = mesh["NOE"]["COO"]
+        n_points = pts_dataset.attrs["NBR"]
+        points = pts_dataset[()].reshape((n_points, dim), order="F")
 
-    # Points
-    pts_dataset = mesh["NOE"]["COO"]
-    n_points = pts_dataset.attrs["NBR"]
-    points = pts_dataset[()].reshape((n_points, dim), order="F")
-
-    if "NUM" in mesh["NOE"]:
-        point_num = list(mesh["NOE"]["NUM"])
-    else:
-        logging.warning("No node information is found on MED file")
-        point_num = np.arange(1, len(points) + 1)
-
-    fem.nodes = Nodes([Node(p, point_num[i], parent=fem) for i, p in enumerate(points)], parent=fem)
-
-    # Point tags
-    tags = None
-    if "FAM" in mesh["NOE"]:
-        tags = mesh["NOE"]["FAM"][()]
-
-    # Information for point tags
-    point_tags = {}
-    fas = mesh["FAS"] if "FAS" in mesh else f["FAS"][mesh_name]
-    if "NOEUD" in fas:
-        point_tags = _read_families(fas["NOEUD"])
-
-    point_sets = _point_tags_to_sets(tags, point_tags, fem) if tags is not None else []
-
-    # Information for cell tags
-    cell_tags = {}
-    if "ELEME" in fas:
-        cell_tags = _read_families(fas["ELEME"])
-
-    # CellBlock
-    cell_types = []
-    med_cells = mesh["MAI"]
-
-    elements = []
-    element_sets = dict()
-    for med_cell_type, med_cell_type_group in med_cells.items():
-        if med_cell_type == "PO1":
-            logging.warning("Point elements are still not supported")
-            continue
-
-        cell_type = med_to_ada_type(med_cell_type)
-        cell_types.append(cell_type)
-
-        nod = med_cell_type_group["NOD"]
-        n_cells = nod.attrs["NBR"]
-        nodes_in = nod[()].reshape(n_cells, -1, order="F")
-
-        if "NUM" in med_cell_type_group.keys():
-            num = list(med_cell_type_group["NUM"])
+        if "NUM" in mesh["NOE"]:
+            point_num = list(mesh["NOE"]["NUM"])
         else:
-            num = np.arange(0, len(nodes_in))
+            logging.warning("No node information is found on MED file")
+            point_num = np.arange(1, len(points) + 1)
 
-        element_block = [
-            Elem(num[i], [fem.nodes.from_id(e) for e in c], cell_type, parent=fem) for i, c in enumerate(nodes_in)
-        ]
-        elements += element_block
-        # Cell tags
-        if "FAM" in med_cell_type_group:
-            cell_data = med_cell_type_group["FAM"][()]
-            cell_type_sets = _cell_tag_to_set(cell_data, cell_tags)
-            for key, val in cell_type_sets.items():
-                if key not in element_sets.keys():
-                    element_sets[key] = []
-                element_sets[key] += [element_block[i] for i in set(val)]
+        fem.nodes = Nodes([Node(p, point_num[i], parent=fem) for i, p in enumerate(points)], parent=fem)
+
+        # Point tags
+        tags = None
+        if "FAM" in mesh["NOE"]:
+            tags = mesh["NOE"]["FAM"][()]
+
+        # Information for point tags
+        point_tags = {}
+        fas = mesh["FAS"] if "FAS" in mesh else f["FAS"][mesh_name]
+        if "NOEUD" in fas:
+            point_tags = _read_families(fas["NOEUD"])
+
+        point_sets = _point_tags_to_sets(tags, point_tags, fem) if tags is not None else []
+
+        # Information for cell tags
+        cell_tags = {}
+        if "ELEME" in fas:
+            cell_tags = _read_families(fas["ELEME"])
+
+        # CellBlock
+        cell_types = []
+        med_cells = mesh["MAI"]
+
+        elements = []
+        element_sets = dict()
+        for med_cell_type, med_cell_type_group in med_cells.items():
+            if med_cell_type == "PO1":
+                logging.warning("Point elements are still not supported")
+                continue
+
+            cell_type = med_to_ada_type(med_cell_type)
+            cell_types.append(cell_type)
+
+            nod = med_cell_type_group["NOD"]
+            n_cells = nod.attrs["NBR"]
+            nodes_in = nod[()].reshape(n_cells, -1, order="F")
+
+            if "NUM" in med_cell_type_group.keys():
+                num = list(med_cell_type_group["NUM"])
+            else:
+                num = np.arange(0, len(nodes_in))
+
+            element_block = [
+                Elem(num[i], [fem.nodes.from_id(e) for e in c], cell_type, parent=fem) for i, c in enumerate(nodes_in)
+            ]
+            elements += element_block
+            # Cell tags
+            if "FAM" in med_cell_type_group:
+                cell_data = med_cell_type_group["FAM"][()]
+                cell_type_sets = _cell_tag_to_set(cell_data, cell_tags)
+                for key, val in cell_type_sets.items():
+                    if key not in element_sets.keys():
+                        element_sets[key] = []
+                    # TODO: set(val) returns unordered list
+                    element_sets[key] += [element_block[i] for i in set(val)]
 
     fem.elements = FemElements(elements, fem_obj=fem)
 

@@ -26,16 +26,13 @@ def write_assembly_to_cache(assembly: "Assembly", cache_file_path):
     cache_file_path = pathlib.Path(cache_file_path)
     os.makedirs(cache_file_path.parent, exist_ok=True)
     h5_filename = cache_file_path.with_suffix(".h5")
-    f = h5py.File(h5_filename, "w")
+    with h5py.File(h5_filename, "w") as f:
+        info = f.create_group("INFO")
+        info.attrs.create("NAME", assembly.name)
 
-    info = f.create_group("INFO")
-    info.attrs.create("NAME", assembly.name)
+        parts_group = f.create_group("PARTS")
 
-    parts_group = f.create_group("PARTS")
-
-    walk_parts(parts_group, assembly)
-
-    f.close()
+        walk_parts(parts_group, assembly)
 
     print(f'Saved cached model at "{cache_file_path}"')
 
