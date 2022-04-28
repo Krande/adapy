@@ -6,6 +6,27 @@ from ada.fem.utils import is_line_elem
 from .renderer_occ import occ_shape_to_faces
 
 
+def from_cache(hdf_file, guid):
+    import h5py
+
+    from .concept import ObjectMesh
+
+    with h5py.File(hdf_file, "r") as f:
+        res = f["VISMESH"].get(guid, None)
+        if res is None:
+            return None
+        colour = list(res.attrs["COLOR"])
+        translation = res.attrs["TRANSLATION"]
+        return ObjectMesh(
+            guid,
+            res["INDEX"][()],
+            res["POSITION"][()],
+            res["NORMAL"][()],
+            colour,
+            translation=translation,
+        )
+
+
 def convert_obj_to_poly(obj, quality=1.0, render_edges=False, parallel=False):
     geom = obj.solid
     np_vertices, poly_indices, np_normals, _ = occ_shape_to_faces(geom, quality, render_edges, parallel)

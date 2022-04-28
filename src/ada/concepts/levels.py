@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from ada.fem.results import Results
     from ada.ifc.concepts import IfcRef
     from ada.visualize.concept import VisMesh
+    from ada.visualize.config import ExportConfig
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 
@@ -540,14 +541,20 @@ class Part(BackendGeom):
 
         return fem
 
-    def to_vis_mesh(self, export_config=None, auto_merge_by_color=True, opt_func: Callable = None) -> VisMesh:
+    def to_vis_mesh(
+        self,
+        export_config: ExportConfig = None,
+        auto_merge_by_color=True,
+        opt_func: Callable = None,
+        overwrite_cache=False,
+    ) -> VisMesh:
         from ada.visualize.concept import PartMesh, VisMesh
-        from ada.visualize.config import ExportConfig
         from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import (
             filter_mesh_objects,
             obj_to_mesh,
         )
         from ada.visualize.formats.assembly_mesh.write_part_to_mesh import generate_meta
+        from ada.visualize.utils import from_cache
 
         if export_config is None:
             export_config = ExportConfig()
@@ -565,9 +572,14 @@ class Part(BackendGeom):
                 continue
             id_map = dict()
             for obj in obj_list:
-
                 print(f'Exporting "{obj.name}" [{obj.get_assembly().name}] ({obj_num} of {all_obj_num})')
-                res = obj_to_mesh(obj, export_config, opt_func=opt_func)
+                cache_file = pathlib.Path(f".cache/{self.name}.h5")
+                if export_config.use_cache is True and cache_file.exists():
+                    res = from_cache(cache_file, obj.guid)
+                    if res is None:
+                        res = obj_to_mesh(obj, export_config, opt_func=opt_func)
+                else:
+                    res = obj_to_mesh(obj, export_config, opt_func=opt_func)
                 if res is None:
                     continue
                 id_map[obj.guid] = res
@@ -591,6 +603,8 @@ class Part(BackendGeom):
             world=part_array,
             meta=generate_meta(self, export_config),
         )
+        if export_config.use_cache:
+            amesh.to_cache(overwrite_cache)
 
         if auto_merge_by_color:
             return amesh.merge_objects_in_parts_by_color()

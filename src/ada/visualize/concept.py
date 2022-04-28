@@ -49,6 +49,8 @@ class VisMesh:
         if self.created is None:
             self.created = datetime.datetime.utcnow().strftime("%m/%d/%Y, %H:%M:%S")
 
+        self.cache_file = pathlib.Path(f".cache/{self.name}.h5")
+
     def move_objects_to_center(self, override_center=None):
         self.translation = override_center if override_center is not None else -self.vol_center
         for pm in self.world:
@@ -103,6 +105,30 @@ class VisMesh:
         dest_file = pathlib.Path(dest_file).with_suffix(".glb")
         mesh: trimesh.Trimesh = self._convert_to_trimesh()
         self._export_using_trimesh(mesh, dest_file)
+
+    def to_cache(self, overwrite=False):
+        import h5py
+
+        os.makedirs(".cache", exist_ok=True)
+        if self.cache_file.exists():
+            if overwrite is False:
+                print("Cache already exists and overwrite is not passed")
+                return None
+            os.remove(self.cache_file)
+
+        with h5py.File(self.cache_file, "w") as f:
+            vis_mesh_group = f.create_group("VISMESH")
+            for world in self.world:
+                for key, obj_mesh in world.id_map.items():
+                    # TODO: add last modified date check for original element if cache exists
+                    obj_group = vis_mesh_group.create_group(key)
+                    obj_group.attrs.create("COLOR", obj_mesh.color)
+                    transl = obj_mesh.translation if obj_mesh.translation is not None else np.array([0, 0, 0])
+                    obj_group.attrs.create("TRANSLATION", transl)
+
+                    obj_group.create_dataset("POSITION", data=obj_mesh.position)
+                    obj_group.create_dataset("NORMAL", data=obj_mesh.normal)
+                    obj_group.create_dataset("INDEX", data=obj_mesh.index)
 
     def to_binary_and_json(self, dest_dir, auto_zip=True, export_dir=None):
         dest_dir = pathlib.Path(dest_dir)

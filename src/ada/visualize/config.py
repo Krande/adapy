@@ -28,3 +28,4 @@ class ExportConfig:
     auto_center_model: bool = True
     max_convert_objects: int = None
     do_not_load_by_default: List[str] = None
+    use_cache: bool = False

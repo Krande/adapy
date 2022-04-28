@@ -292,6 +292,11 @@ class Plates(BaseCollections):
     def count(self, item: Plate):
         return int(item in self)
 
+    def remove(self, plate: Plate) -> None:
+        i = self._plates.index(plate)
+        self._plates.pop(i)
+        self._idmap = {n.name: n for n in self._plates}
+
     def get_by_id(self, plate_id: int) -> Plate:
         plate = self._idmap.get(plate_id, None)
         if plate is None:

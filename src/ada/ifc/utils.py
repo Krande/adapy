@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING, List, Tuple, Union
 
@@ -26,6 +28,35 @@ def get_tolerance(units):
     if units not in tol_map.keys():
         raise ValueError(f'Unrecognized unit "{units}"')
     return tol_map[units]
+
+
+def ensure_guid_consistency(a: Assembly, project_prefix):
+    """Function to edit the global IDs of your elements when they are arbitrarily created from upstream data dump"""
+    ensure_uniqueness = dict()
+    for p in a.get_all_parts_in_assembly():
+        p.guid = create_guid(project_prefix + p.name)
+
+        if p.guid in ensure_uniqueness.keys():
+            raise ValueError(f"GUID Uniqueness not maintained for {p.name}")
+        ensure_uniqueness[p.guid] = p
+        for obj in p.get_all_physical_objects(sub_elements_only=True):
+            obj.guid = create_guid(project_prefix + obj.name)
+
+            if obj.guid in ensure_uniqueness.keys():
+                conflicting_obj = ensure_uniqueness[obj.guid]
+                # Handle special case BIM software outputs elements of same name
+                # but one of them are opaque obstruction vols
+                if conflicting_obj.opacity != 0.0:
+                    conflicting_obj.name = conflicting_obj.name + "_INSU"
+                    conflicting_obj.guid = create_guid(project_prefix + obj.name)
+                    ensure_uniqueness[conflicting_obj.guid] = conflicting_obj
+                elif obj.opacity != 0.0:
+                    obj.name = obj.name + "_INSU"
+                    obj.guid = create_guid(project_prefix + obj.name)
+                else:
+                    raise ValueError("GUID Uniqueness not maintained and Neither objects are opaque")
+
+            ensure_uniqueness[obj.guid] = obj
 
 
 def create_guid(name=None):
