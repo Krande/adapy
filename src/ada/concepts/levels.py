@@ -549,6 +549,7 @@ class Part(BackendGeom):
         overwrite_cache=False,
     ) -> VisMesh:
         from ada.visualize.concept import PartMesh, VisMesh
+        from ada.visualize.config import ExportConfig
         from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import (
             filter_mesh_objects,
             obj_to_mesh,
