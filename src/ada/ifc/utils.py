@@ -735,3 +735,7 @@ def export_transform(f: ifcopenshell.file, transform: Transform):
         ifc_dir(f, X),
     )
     raise NotImplementedError()
+
+
+def get_representation_items(f: ifcopenshell.file, ifc_elem: ifcopenshell.entity_instance):
+    return list(filter(lambda x: hasattr(x, "StyledByItem"), f.traverse(ifc_elem)))

@@ -46,6 +46,8 @@ def filter_mesh_objects(
 def ifc_poly_elem_to_json(obj: Shape, export_config: ExportConfig = ExportConfig(), opt_func: Callable = None):
     import ifcopenshell.geom
 
+    from ada.ifc.utils import get_representation_items
+
     a = obj.get_assembly()
     ifc_f = a.get_ifc_source_by_name(obj.ifc_ref.source_ifc_file)
     ifc_elem = ifc_f.by_guid(obj.metadata["ifc_guid"])
@@ -53,11 +55,15 @@ def ifc_poly_elem_to_json(obj: Shape, export_config: ExportConfig = ExportConfig
     settings = ifcopenshell.geom.settings()
     settings.set(settings.USE_PYTHON_OPENCASCADE, False)
     settings.set(settings.SEW_SHELLS, False)
-    settings.set(settings.WELD_VERTICES, False)
+    settings.set(settings.WELD_VERTICES, True)
     settings.set(settings.INCLUDE_CURVES, False)
     settings.set(settings.USE_WORLD_COORDS, True)
     settings.set(settings.VALIDATE_QUANTITIES, False)
 
+    geom_items = get_representation_items(ifc_f, ifc_elem)
+    if len(geom_items) > 1:
+        # TODO: Add option cycle through geometries if element is comprised by multiple
+        pass
     geom = obj.ifc_ref.get_ifc_geom(ifc_elem, settings)
 
     vertices = np.array(geom.geometry.verts, dtype="float32").reshape(int(len(geom.geometry.verts) / 3), 3)
