@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, List, Union
 
 import numpy as np
@@ -29,3 +29,5 @@ class ExportConfig:
     max_convert_objects: int = None
     do_not_load_by_default: List[str] = None
     use_cache: bool = False
+
+    metadata: dict = field(default_factory=dict)

@@ -583,7 +583,11 @@ class Part(BackendGeom):
                     res = obj_to_mesh(obj, export_config, opt_func=opt_func)
                 if res is None:
                     continue
-                id_map[obj.guid] = res
+                if type(res) is list:
+                    for obj_mesh in res:
+                        id_map[obj_mesh.guid] = obj_mesh
+                else:
+                    id_map[obj.guid] = res
                 obj_num += 1
                 if export_config.max_convert_objects is not None and obj_num >= export_config.max_convert_objects:
                     print(f'Maximum number of converted objects of "{export_config.max_convert_objects}" reached')
