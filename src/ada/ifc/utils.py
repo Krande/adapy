@@ -37,9 +37,9 @@ def ensure_guid_consistency(a: Assembly, project_prefix):
         p.guid = create_guid(project_prefix + p.name)
 
         if p.guid in ensure_uniqueness.keys():
-            p_other = ensure_uniqueness.get(p.guid)
-            ancestors1 = p.get_ancestors()
-            ancestors2 = p_other.get_ancestors()
+            # p_other = ensure_uniqueness.get(p.guid)
+            # ancestors1 = p.get_ancestors()
+            # ancestors2 = p_other.get_ancestors()
             raise ValueError(f"GUID Uniqueness not maintained for {p.name}")
         ensure_uniqueness[p.guid] = p
         for obj in p.get_all_physical_objects(sub_elements_only=True):
@@ -57,7 +57,7 @@ def ensure_guid_consistency(a: Assembly, project_prefix):
                     obj.name = obj.name + "_INSU"
                     obj.guid = create_guid(project_prefix + obj.name)
                 else:
-                    raise ValueError("GUID Uniqueness not maintained and Neither objects are opaque")
+                    raise ValueError(f"GUID Uniqueness not maintained for '{obj}' in [{a.name}]")
 
             ensure_uniqueness[obj.guid] = obj
 
@@ -741,5 +741,5 @@ def export_transform(f: ifcopenshell.file, transform: Transform):
 
 
 def get_representation_items(f: ifcopenshell.file, ifc_elem: ifcopenshell.entity_instance):
-    geom_items = ['IfcTriangulatedFaceSet', 'IfcExtrudedAreaSolid', 'IfcRevolvedAreaSolid']
+    geom_items = ["IfcTriangulatedFaceSet", "IfcExtrudedAreaSolid", "IfcRevolvedAreaSolid"]
     return list(filter(lambda x: hasattr(x, "StyledByItem") and x.is_a() in geom_items, f.traverse(ifc_elem)))

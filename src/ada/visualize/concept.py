@@ -282,14 +282,9 @@ class PartMesh:
     def merge_by_color(self):
         from ada.ifc.utils import create_guid
 
-        from .formats.assembly_mesh.merge_utils import merge_mesh_objects
+        from .utils import merge_mesh_objects, organize_by_colour
 
-        colour_map: Dict[tuple, List[ObjectMesh]] = dict()
-        for obj in self.id_map.values():
-            colour = tuple(obj.color) if obj.color is not None else None
-            if colour not in colour_map.keys():
-                colour_map[colour] = []
-            colour_map[colour].append(obj)
+        colour_map = organize_by_colour(self.id_map.values())
 
         id_map = dict()
         for colour, elements in colour_map.items():

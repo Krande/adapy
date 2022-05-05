@@ -48,7 +48,8 @@ def ifc_poly_elem_to_json(
 ) -> List[ObjectMesh]:
     import ifcopenshell.geom
 
-    from ada.ifc.utils import get_representation_items, create_guid
+    from ada.ifc.utils import create_guid, get_representation_items
+    from ada.visualize.utils import merge_mesh_objects, organize_by_colour
 
     a = obj.get_assembly()
     ifc_f = a.get_ifc_source_by_name(obj.ifc_ref.source_ifc_file)
@@ -94,7 +95,34 @@ def ifc_poly_elem_to_json(
 
         obj_mesh = ObjectMesh(guid, faces, vertices, normals, colour, translation=export_config.volume_center)
         meshes.append(obj_mesh)
-    return meshes
+
+    if export_config.merge_subgeometries_by_colour is False:
+        return meshes
+
+    # merge subgeometries by colour
+    colour_map = organize_by_colour(meshes)
+    merged_meshes = []
+    main_obj = False
+    applied_guid = False
+    for i, (colour, elements) in enumerate(colour_map.items()):
+        obj_mesh = merge_mesh_objects(elements)
+
+        if len(obj_mesh.index) == 0:
+            continue
+
+        if colour[-1] == 1.0 and applied_guid is False:
+            main_obj = True
+            obj_mesh.guid = obj.guid
+            applied_guid = True
+
+        merged_meshes.append(obj_mesh)
+
+    if main_obj is False:
+        merged_meshes[0].guid = obj.guid
+
+    # TODO: Optimize Geometry
+
+    return merged_meshes
 
 
 def occ_geom_to_poly_mesh(

@@ -374,17 +374,16 @@ class Part(BackendGeom):
 
     def get_by_name(self, name) -> Union[Part, Plate, Beam, Shape, Material, Pipe, None]:
         """Get element of any type by its name."""
+        pmap = {p.name: p for p in self.get_all_subparts() + [self]}
+        result = pmap.get(name)
+        if result is not None:
+            return result
+
         for p in self.get_all_subparts() + [self]:
-            if p.name == name:
-                return p
-
-            for bm in p.beams:
-                if bm.name == name:
-                    return bm
-
-            for pl in p.plates:
-                if pl.name == name:
-                    return pl
+            for stru_cont in [p.beams, p.plates]:
+                res = stru_cont.from_name(name)
+                if res is not None:
+                    return res
 
             for shp in p.shapes:
                 if shp.name == name:
@@ -564,6 +563,7 @@ class Part(BackendGeom):
         print(f"Exporting {all_obj_num} physical objects to custom json format.")
 
         obj_num = 1
+        subgeometries = dict()
         part_array = []
         for p in self.get_all_subparts(include_self=True):
             if export_config.max_convert_objects is not None and obj_num > export_config.max_convert_objects:
@@ -584,7 +584,12 @@ class Part(BackendGeom):
                 if res is None:
                     continue
                 if type(res) is list:
-                    for obj_mesh in res:
+                    for i, obj_mesh in enumerate(res):
+                        if i > 0:
+                            name = f"{obj.name}_{i}"
+                            guid = create_guid(export_config.name_prefix + name)
+                            obj_mesh.guid = guid
+                            subgeometries[obj_mesh.guid] = (name, obj.parent.guid)
                         id_map[obj_mesh.guid] = obj_mesh
                 else:
                     id_map[obj.guid] = res
@@ -606,7 +611,7 @@ class Part(BackendGeom):
             name=self.name,
             project=self.metadata.get("project", "DummyProject"),
             world=part_array,
-            meta=generate_meta(self, export_config),
+            meta=generate_meta(self, export_config, sub_geometries=subgeometries),
         )
         if export_config.use_cache:
             amesh.to_cache(overwrite_cache)

@@ -59,7 +59,8 @@ class Beams(BaseCollections):
         super().__init__(parent)
         beams = [] if beams is None else beams
         self._beams = sorted(beams, key=attrgetter("name"))
-        self._dmap = {n.name: n for n in self._beams}
+        self._nmap = {n.name: n for n in self._beams}
+        self._dmap = {n.guid: n for n in self._beams}
         self._connected_beams_map = None
 
     def __contains__(self, item: Beam):
@@ -170,10 +171,7 @@ class Beams(BaseCollections):
 
     def from_name(self, name: str) -> Beam:
         """Get beam from its name"""
-        if name not in self._dmap.keys():
-            raise ValueError(f'The beam "{name}" is not found')
-        else:
-            return self._dmap[name]
+        return self._nmap.get(name)
 
     def add(self, beam: Beam) -> Beam:
         from .exceptions import NameIsNoneError
@@ -185,7 +183,8 @@ class Beams(BaseCollections):
             logging.warning(f'Beam with name "{beam.name}" already exists. Will not add')
             return self._dmap[beam.name]
 
-        self._dmap[beam.name] = beam
+        self._dmap[beam.guid] = beam
+        self._nmap[beam.name] = beam
         self._beams.append(beam)
         beam.add_beam_to_node_refs()
         return beam
@@ -194,7 +193,8 @@ class Beams(BaseCollections):
         beam.remove_beam_from_node_refs()
         i = self._beams.index(beam)
         self._beams.pop(i)
-        self._dmap = {n.name: n for n in self._beams}
+        self._dmap = {n.guid: n for n in self._beams}
+        self._nmap = {n.name: n for n in self._beams}
 
     def get_beams_within_volume(self, vol_, margins=Settings.point_tol) -> Iterable[Beam]:
         """
@@ -235,11 +235,15 @@ class Beams(BaseCollections):
         bm_list1 = [(bm.name, bm.n1.x, bm.n1.y, bm.n1.z) for bm in sorted(self._beams, key=lambda bm: bm.n1.x)]
         bm_list2 = [(bm.name, bm.n2.x, bm.n2.y, bm.n2.z) for bm in sorted(self._beams, key=lambda bm: bm.n2.x)]
 
-        return set([self._dmap[bm_id] for bms_ in (bm_list1, bm_list2) for bm_id in sort_beams(bms_)])
+        return set([self.from_name(bm_id) for bms_ in (bm_list1, bm_list2) for bm_id in sort_beams(bms_)])
 
     @property
-    def dmap(self) -> dict[int, Beam]:
+    def dmap(self) -> dict[str, Beam]:
         return self._dmap
+
+    @property
+    def nmap(self) -> dict[str, Beam]:
+        return self._nmap
 
 
 class Plates(BaseCollections):
@@ -249,10 +253,11 @@ class Plates(BaseCollections):
         plates = [] if plates is None else plates
         super().__init__(parent)
         self._plates = sorted(plates, key=attrgetter("name"))
-        self._idmap = {n.name: n for n in self._plates}
+        self._idmap = {n.guid: n for n in self._plates}
+        self._nmap = {n.name: n for n in self._plates}
 
     def __contains__(self, item: Plate):
-        return item.id in self._idmap.keys()
+        return item.guid in self._idmap.keys()
 
     def __len__(self):
         return len(self._plates)
@@ -295,29 +300,33 @@ class Plates(BaseCollections):
     def remove(self, plate: Plate) -> None:
         i = self._plates.index(plate)
         self._plates.pop(i)
-        self._idmap = {n.name: n for n in self._plates}
+        self._idmap = {n.guid: n for n in self._plates}
+        self._nmap = {n.name: n for n in self._plates}
 
-    def get_by_id(self, plate_id: int) -> Plate:
-        plate = self._idmap.get(plate_id, None)
-        if plate is None:
-            raise ValueError(f'The node id "{plate_id}" is not found')
-        return plate
+    def from_name(self, name: str) -> Plate:
+        return self._nmap.get(name, None)
 
     @property
-    def dmap(self) -> dict[int, Plate]:
+    def dmap(self) -> dict[str, Plate]:
         return self._idmap
+
+    @property
+    def nmap(self) -> dict[str, Plate]:
+        return self._nmap
 
     def add(self, plate: Plate) -> Plate:
         if plate.name is None:
             raise Exception("Name is not allowed to be None.")
 
-        if plate.name in self._idmap.keys():
-            return self._idmap[plate.name]
+        if plate.name in self._nmap.keys():
+            return self._nmap[plate.name]
         mat = self._parent.materials.add(plate.material)
         if mat is not None:
             plate.material = mat
 
         self._plates.append(plate)
+        self._nmap[plate.name] = plate
+        self._idmap[plate.guid] = plate
         return plate
 
 
