@@ -25,21 +25,27 @@ class VisMesh:
     name: str
     project: str = None
     world: List[PartMesh] = field(default_factory=list)
+    meshes: Dict[str, VisNode] = field(default_factory=dict)
     meta: Union[None, dict] = None
     created: str = None
     translation: np.ndarray = None
     cache_file: pathlib.Path = ".cache/meshes.h5"
+    overwrite_cache: bool = False
     colors: Dict[str, VisColor] = field(default_factory=dict)
 
     def __enter__(self):
         logging.debug("Starting Visual Mesh session")
         os.makedirs(self.cache_file.parent, exist_ok=True)
+        if self.overwrite_cache is True and self.cache_file.exists():
+            os.remove(self.cache_file)
         self._h5cache = h5py.File(self.cache_file, "w")
         self._h5cache_group = self._h5cache.create_group("VISMESH")
         return self
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
         self._h5cache.close()
+        self._h5cache = None
+        self._h5cache_group = None
 
     @staticmethod
     def from_json(json_file: Union[str, pathlib.Path]) -> VisMesh:
@@ -63,29 +69,29 @@ class VisMesh:
         if self.created is None:
             self.created = datetime.datetime.utcnow().strftime("%m/%d/%Y, %H:%M:%S")
 
-        self.cache_file = pathlib.Path(f".cache/{self.name}.h5")
-
     def move_objects_to_center(self, override_center=None):
         self.translation = override_center if override_center is not None else -self.vol_center
         for pm in self.world:
             pm.move_objects_to_center(self.translation)
 
-    def add_color(self, color: VisColor):
+    def add_color(self, color: VisColor, primitive_guid):
         existing = self.colors.get(color.name, None)
         if existing:
+            existing.used_by.append(primitive_guid)
             return existing
         self.colors[color.name] = color
 
-    def add_mesh(self, guid, position, indices, normals=None, matrix=None, color_ref=None):
-        from ada.ifc.utils import create_guid
+        return color
 
+    def add_mesh(self, guid, parent_guid, position, indices, normals=None, matrix=None, color_ref=None):
         obj_group = self._h5cache_group.create_group(guid)
         obj_group.attrs.create("COLOR", color_ref)
-        obj_group.attrs.create("MATRIX", matrix)
+        if matrix is not None:
+            obj_group.attrs.create("MATRIX", matrix)
         obj_group.create_dataset("POSITION", data=position)
         obj_group.create_dataset("NORMAL", data=normals)
         obj_group.create_dataset("INDEX", data=indices)
-        self.world.append(PartMesh(name, dict(a=ObjectMesh(create_guid(), indices, position, normals))))
+        self.meshes[guid] = VisNode(guid, parent_guid)
 
     @property
     def vol_center(self) -> np.ndarray:
@@ -99,6 +105,56 @@ class VisMesh:
     @property
     def num_polygons(self):
         return sum([x.num_polygons for x in self.world])
+
+    def _get_mesh_obj_from_cache(self, guid, h5) -> ObjectMesh:
+        obj_group = h5[guid]
+        index = obj_group["INDEX"][()]
+        position = obj_group["POSITION"][()]
+        normals = obj_group["NORMAL"][()]
+        color_obj = self.colors[obj_group.attrs["COLOR"]]
+        base_color = color_obj.pbrMetallicRoughness.baseColorFactor
+        faces = index.reshape(int(len(index) / 3), 3)
+        return ObjectMesh(guid, faces, position, normals, base_color)
+
+    def _convert_to_trimesh2(self, only_these_guids: List[str]=None) -> trimesh.Scene:
+        scene = trimesh.Scene()
+        from trimesh.visual.material import PBRMaterial
+
+        h5_file = None
+        if self._h5cache is None and self.cache_file.exists():
+            h5_file = h5py.File(self.cache_file)
+            h5 = h5_file["VISMESH"]
+        else:
+            h5 = self._h5cache_group
+        totnum = len(self.meshes.keys())
+        for i, vn in enumerate(self.meshes.values()):
+            if only_these_guids is not None and vn.guid not in only_these_guids:
+                continue
+            obj_group = h5[vn.guid]
+            index = obj_group["INDEX"][()]
+            position = obj_group["POSITION"][()] * 1e-3
+            normals = obj_group["NORMAL"][()]
+            color = self.colors[obj_group.attrs["COLOR"]]
+            # matrix = obj_group.attrs.get("MATRIX")
+            if index.shape[1] != 3:
+                index = index.reshape(int(len(index) / 3), 3)
+
+            new_mesh = trimesh.Trimesh(
+                vertices=position,
+                faces=index,
+                vertex_normals=normals,
+                # face_colors=obj.color,
+                metadata=dict(guid=vn.guid),
+            )
+            print(f"Exporting ({i} of {totnum})")
+            base_color = [int(x * 255) for x in color.pbrMetallicRoughness.baseColorFactor]
+            new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color)
+            scene.add_geometry(new_mesh, node_name=vn.guid, geom_name=vn.guid)
+
+        if h5_file is not None:
+            h5_file.close()
+
+        return scene
 
     def _convert_to_trimesh(self) -> trimesh.Scene:
         scene = trimesh.Scene()
@@ -133,9 +189,36 @@ class VisMesh:
         mesh: trimesh.Trimesh = self._convert_to_trimesh()
         self._export_using_trimesh(mesh, dest_file)
 
-    def to_gltf(self, dest_file):
+    def merge_meshes_by_color(self) -> List[str]:
+        from ada.ifc.utils import create_guid
+        h5_file = None
+        if self._h5cache is None and self.cache_file.exists():
+            h5_file = h5py.File(self.cache_file)
+            h5 = h5_file["VISMESH"]
+        else:
+            h5 = self._h5cache_group
+
+        listofobj = []
+        for color in self.colors.values():
+            obj0 = self._get_mesh_obj_from_cache(color.used_by[0], h5)
+            tot_num = len(color.used_by[1:])
+            for i, obj_guid in enumerate(color.used_by[1:]):
+                print(f'Merging ({i} of {tot_num}) into color {color.name}')
+                obj1 = self._get_mesh_obj_from_cache(obj_guid, h5)
+                obj0 += obj1
+
+            new_guid = create_guid()
+
+            self.add_mesh(new_guid, create_guid(), obj0.position, obj0.index, obj0.normal, color_ref=color.name)
+            listofobj.append(new_guid)
+
+        if self._h5cache is None and h5_file is not None:
+            h5_file.close()
+        return listofobj
+
+    def to_gltf(self, dest_file, only_these_guids: List[str]=None):
         dest_file = pathlib.Path(dest_file).with_suffix(".glb")
-        mesh: trimesh.Trimesh = self._convert_to_trimesh()
+        mesh: trimesh.Trimesh = self._convert_to_trimesh2(only_these_guids)
         self._export_using_trimesh(mesh, dest_file)
 
     def to_cache(self, overwrite=False):
@@ -460,3 +543,9 @@ class ObjectMesh:
 
         self.id_sequence[other.guid] = (mi, ma)
         return self
+
+
+@dataclass
+class VisNode:
+    guid: str
+    parent: str
