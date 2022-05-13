@@ -29,7 +29,7 @@ class VisMesh:
     meta: Union[None, dict] = None
     created: str = None
     translation: np.ndarray = None
-    cache_file: pathlib.Path = ".cache/meshes.h5"
+    cache_file: pathlib.Path = pathlib.Path(".cache/meshes.h5")
     overwrite_cache: bool = False
     colors: Dict[str, VisColor] = field(default_factory=dict)
 
@@ -204,6 +204,7 @@ class VisMesh:
             tot_num = len(color.used_by[1:])
             for i, obj_guid in enumerate(color.used_by[1:]):
                 print(f'Merging ({i} of {tot_num}) into color {color.name}')
+                # TODO: Optimize this by unwrapping everything before concatenating
                 obj1 = self._get_mesh_obj_from_cache(obj_guid, h5)
                 obj0 += obj1
 
@@ -214,6 +215,7 @@ class VisMesh:
 
         if self._h5cache is None and h5_file is not None:
             h5_file.close()
+
         return listofobj
 
     def to_gltf(self, dest_file, only_these_guids: List[str]=None):
