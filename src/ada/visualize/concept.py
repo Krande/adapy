@@ -9,10 +9,13 @@ import shutil
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Union
 
+import h5py
 import numpy as np
 import trimesh
 
 from ada.core.file_system import get_list_of_files
+
+from .colors import PbrMetallicRoughness, VisColor
 
 
 @dataclass
@@ -20,12 +23,23 @@ class VisMesh:
     """Visual Mesh"""
 
     name: str
-
-    project: str
-    world: List[PartMesh]
-    meta: Union[None, dict]
+    project: str = None
+    world: List[PartMesh] = field(default_factory=list)
+    meta: Union[None, dict] = None
     created: str = None
     translation: np.ndarray = None
+    cache_file: pathlib.Path = ".cache/meshes.h5"
+    colors: Dict[str, VisColor] = field(default_factory=dict)
+
+    def __enter__(self):
+        logging.debug("Starting Visual Mesh session")
+        os.makedirs(self.cache_file.parent, exist_ok=True)
+        self._h5cache = h5py.File(self.cache_file, "w")
+        self._h5cache_group = self._h5cache.create_group("VISMESH")
+        return self
+
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        self._h5cache.close()
 
     @staticmethod
     def from_json(json_file: Union[str, pathlib.Path]) -> VisMesh:
@@ -56,6 +70,23 @@ class VisMesh:
         for pm in self.world:
             pm.move_objects_to_center(self.translation)
 
+    def add_color(self, color: VisColor):
+        existing = self.colors.get(color.name, None)
+        if existing:
+            return existing
+        self.colors[color.name] = color
+
+    def add_mesh(self, guid, position, indices, normals=None, matrix=None, color_ref=None):
+        from ada.ifc.utils import create_guid
+
+        obj_group = self._h5cache_group.create_group(guid)
+        obj_group.attrs.create("COLOR", color_ref)
+        obj_group.attrs.create("MATRIX", matrix)
+        obj_group.create_dataset("POSITION", data=position)
+        obj_group.create_dataset("NORMAL", data=normals)
+        obj_group.create_dataset("INDEX", data=indices)
+        self.world.append(PartMesh(name, dict(a=ObjectMesh(create_guid(), indices, position, normals))))
+
     @property
     def vol_center(self) -> np.ndarray:
         return (self.bbox[0] + self.bbox[1]) / 2
@@ -85,8 +116,9 @@ class VisMesh:
                     # face_colors=obj.color,
                     metadata=dict(guid=obj.guid),
                 )
-                base_color = [int(x * 255) for x in obj.color]
-                new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color)
+                if obj.color is not None:
+                    base_color = [int(x * 255) for x in obj.color]
+                    new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color)
                 scene.add_geometry(new_mesh, node_name=key, geom_name=key)
         return scene
 
@@ -141,12 +173,12 @@ class VisMesh:
         if data_dir.exists():
             shutil.rmtree(data_dir)
 
-        for world in self.world:
+        for part in self.world:
             wrld_obj = {
-                "name": world.name,
-                "rawdata": world.rawdata,
-                "guiParam": world.guiparam,
-                "id_map": {key: value.to_binary_json(dest_dir=data_dir) for key, value in world.id_map.items()},
+                "name": part.name,
+                "rawdata": part.rawdata,
+                "guiParam": part.guiparam,
+                "id_map": {key: value.to_binary_json(dest_dir=data_dir) for key, value in part.id_map.items()},
             }
             wrld.append(wrld_obj)
 

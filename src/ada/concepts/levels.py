@@ -546,6 +546,7 @@ class Part(BackendGeom):
         auto_merge_by_color=True,
         opt_func: Callable = None,
         overwrite_cache=False,
+        use_disk_io=False,
     ) -> VisMesh:
         from ada.visualize.concept import PartMesh, VisMesh
         from ada.visualize.config import ExportConfig
