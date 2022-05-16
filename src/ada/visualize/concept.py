@@ -116,7 +116,7 @@ class VisMesh:
         faces = index.reshape(int(len(index) / 3), 3)
         return ObjectMesh(guid, faces, position, normals, base_color)
 
-    def _convert_to_trimesh2(self, only_these_guids: List[str]=None) -> trimesh.Scene:
+    def _convert_to_trimesh2(self, only_these_guids: List[str] = None) -> trimesh.Scene:
         scene = trimesh.Scene()
         from trimesh.visual.material import PBRMaterial
 
@@ -162,7 +162,10 @@ class VisMesh:
 
         for world in self.world:
             for key, obj in world.id_map.items():
-                faces = obj.index.reshape(int(len(obj.index) / 3), 3)
+                if obj.index.shape[1] != 3:
+                    faces = obj.index.reshape(int(len(obj.index) / 3), 3)
+                else:
+                    faces = obj.index
                 vertices = obj.position
                 vertex_normals = obj.normal
                 new_mesh = trimesh.Trimesh(
@@ -191,6 +194,7 @@ class VisMesh:
 
     def merge_meshes_by_color(self) -> List[str]:
         from ada.ifc.utils import create_guid
+
         h5_file = None
         if self._h5cache is None and self.cache_file.exists():
             h5_file = h5py.File(self.cache_file)
@@ -203,7 +207,7 @@ class VisMesh:
             obj0 = self._get_mesh_obj_from_cache(color.used_by[0], h5)
             tot_num = len(color.used_by[1:])
             for i, obj_guid in enumerate(color.used_by[1:]):
-                print(f'Merging ({i} of {tot_num}) into color {color.name}')
+                print(f"Merging ({i} of {tot_num}) into color {color.name}")
                 # TODO: Optimize this by unwrapping everything before concatenating
                 obj1 = self._get_mesh_obj_from_cache(obj_guid, h5)
                 obj0 += obj1
@@ -218,9 +222,13 @@ class VisMesh:
 
         return listofobj
 
-    def to_gltf(self, dest_file, only_these_guids: List[str]=None):
+    def to_gltf(self, dest_file, only_these_guids: List[str] = None):
         dest_file = pathlib.Path(dest_file).with_suffix(".glb")
-        mesh: trimesh.Trimesh = self._convert_to_trimesh2(only_these_guids)
+        if hasattr(self, "_h5cache"):
+            mesh: trimesh.Trimesh = self._convert_to_trimesh2(only_these_guids)
+        else:
+            mesh: trimesh.Trimesh = self._convert_to_trimesh()
+
         self._export_using_trimesh(mesh, dest_file)
 
     def to_cache(self, overwrite=False):
