@@ -15,7 +15,7 @@ import trimesh
 
 from ada.core.file_system import get_list_of_files
 
-from .colors import PbrMetallicRoughness, VisColor
+from .colors import VisColor
 
 
 @dataclass
@@ -46,24 +46,6 @@ class VisMesh:
         self._h5cache.close()
         self._h5cache = None
         self._h5cache_group = None
-
-    @staticmethod
-    def from_json(json_file: Union[str, pathlib.Path]) -> VisMesh:
-        with open(json_file, "r") as f:
-            data = json.load(f)
-
-        for wrld in data.get("world"):
-            id_map = dict()
-            for guid, obj_mesh in data.get("id_map").items():
-                data.get("id_map")
-                id_map[guid] = ObjectMesh(
-                    guid,
-                )
-            PartMesh(
-                wrld.get("name"),
-            )
-
-        return VisMesh(data.get("name"))
 
     def __post_init__(self):
         if self.created is None:
@@ -282,9 +264,11 @@ class VisMesh:
             "world": wrld,
             "meta": self.meta,
         }
+
         if dest_dir is None:
             return output
 
+        os.makedirs(dest_dir, exist_ok=True)
         json_file = (dest_dir / self.name).with_suffix(".json")
         with open(json_file, "w") as f:
             json.dump(output, f)
