@@ -51,9 +51,9 @@ def convert_unit(size_in_bytes, unit):
     if unit == SIZE_UNIT.KB:
         return size_in_bytes / 1024
     elif unit == SIZE_UNIT.MB:
-        return size_in_bytes / (1024**2)
+        return size_in_bytes / (1024 ** 2)
     elif unit == SIZE_UNIT.GB:
-        return size_in_bytes / (1024**3)
+        return size_in_bytes / (1024 ** 3)
     else:
         return size_in_bytes
 

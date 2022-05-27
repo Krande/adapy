@@ -398,9 +398,9 @@ def neo_hookean(strain, mu, load_type="uniaxial"):
     if load_type == "uniaxial":
         return mu * (lam * lam - 1.0 / lam)
     elif load_type == "biaxial":
-        return mu * (lam * lam - 1.0 / lam**4)
+        return mu * (lam * lam - 1.0 / lam ** 4)
     elif load_type == "planar":
-        return mu * (lam * lam - 1.0 / lam**2)
+        return mu * (lam * lam - 1.0 / lam ** 2)
     else:
         print(f"unknown load type {load_type}")
         return None
@@ -409,13 +409,13 @@ def neo_hookean(strain, mu, load_type="uniaxial"):
 def yeoh(strain, c10, c20, c30, load_type="uniaxial"):
     """Yeoh incompressible"""
     lam = np.exp(strain)
-    i1 = lam**2 + 2.0 / lam
+    i1 = lam ** 2 + 2.0 / lam
     if load_type == "uniaxial":
-        return 2 * (c10 + 2 * c20 * (i1 - 3) + 3 * c30 * (i1 - 3) ** 2) * (lam**2 - 1.0 / lam)
+        return 2 * (c10 + 2 * c20 * (i1 - 3) + 3 * c30 * (i1 - 3) ** 2) * (lam ** 2 - 1.0 / lam)
     elif load_type == "biaxial":
-        return 2 * (c10 + 2 * c20 * (i1 - 3) + 3 * c30 * (i1 - 3) ** 2) * (lam**2 - 1.0 / lam**4)
+        return 2 * (c10 + 2 * c20 * (i1 - 3) + 3 * c30 * (i1 - 3) ** 2) * (lam ** 2 - 1.0 / lam ** 4)
     elif load_type == "planar":
-        return 2 * (c10 + 2 * c20 * (i1 - 3) + 3 * c30 * (i1 - 3) ** 2) * (lam**2 - 1.0 / lam**2)
+        return 2 * (c10 + 2 * c20 * (i1 - 3) + 3 * c30 * (i1 - 3) ** 2) * (lam ** 2 - 1.0 / lam ** 2)
     else:
         print(f"unknown load type {load_type}")
         return None

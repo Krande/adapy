@@ -151,9 +151,9 @@ def eval_general_properties(section: Section) -> GeneralProperties:
     if gp.Iyz <= 0.0:
         gp.Iyz = (gp.Iy + gp.Iz) / 2
         logging.error(f"Section {name} Iyz <= 0.0. Changing to (Iy + Iz) / 2. {log_fin}")
-    if gp.Iy * gp.Iz - gp.Iyz**2 < 0:
+    if gp.Iy * gp.Iz - gp.Iyz ** 2 < 0:
         old_y = str(gp.Iy)
-        gp.Iy = 1.1 * (gp.Iy + (gp.Iyz**2) / gp.Iz)
+        gp.Iy = 1.1 * (gp.Iy + (gp.Iyz ** 2) / gp.Iz)
         logging.error(
             f"Warning! Section {name}: I(11)*I(22)-I(12)**2 MUST BE POSITIVE. " f"Mod Iy={old_y} to {gp.Iy}. {log_fin}"
         )
