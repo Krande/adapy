@@ -237,7 +237,7 @@ class VisMesh:
                     obj_group.create_dataset("NORMAL", data=obj_mesh.normal)
                     obj_group.create_dataset("INDEX", data=obj_mesh.index)
 
-    def to_binary_and_json(self, dest_dir, auto_zip=True, export_dir=None):
+    def to_binary_and_json(self, dest_dir, auto_zip=True, export_dir=None, skip_normals=False):
         dest_dir = pathlib.Path(dest_dir)
 
         if dest_dir.exists():
@@ -253,7 +253,7 @@ class VisMesh:
                 "name": part.name,
                 "rawdata": part.rawdata,
                 "guiParam": part.guiparam,
-                "id_map": {key: value.to_binary_json(dest_dir=data_dir) for key, value in part.id_map.items()},
+                "id_map": {key: value.to_binary_json(dest_dir=data_dir, skip_normals=skip_normals) for key, value in part.id_map.items()},
             }
             wrld.append(wrld_obj)
 
@@ -433,7 +433,7 @@ class ObjectMesh:
     def bbox(self):
         return self.position.min(0), self.position.max(0)
 
-    def to_binary_json(self, dest_dir):
+    def to_binary_json(self, dest_dir, skip_normals=False):
         from ada.ifc.utils import create_guid
 
         dest_dir = pathlib.Path(dest_dir).resolve().absolute()
@@ -444,7 +444,8 @@ class ObjectMesh:
         os.makedirs(dest_dir, exist_ok=True)
 
         np.save(str(dest_dir / pos_guid), self.position_flat)
-        np.save(str(dest_dir / norm_guid), self.normal_flat)
+        if skip_normals is False:
+            np.save(str(dest_dir / norm_guid), self.normal_flat)
         np.save(str(dest_dir / index_guid), self.index_flat)
 
         if vertex_guid is not None:
@@ -453,7 +454,7 @@ class ObjectMesh:
         return dict(
             index=index_guid,
             position=pos_guid,
-            normal=norm_guid,
+            normal=norm_guid if skip_normals is False else None,
             color=self.color,
             vertexColor=vertex_guid if vertex_guid is not None else None,
             instances=self.instances,
