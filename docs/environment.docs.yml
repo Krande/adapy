@@ -3,7 +3,6 @@ channels:
   - krande/label/dev
   - conda-forge
 dependencies:
-  - python==3.9
   - ada-py
   - ipywidgets
   - sphinx
