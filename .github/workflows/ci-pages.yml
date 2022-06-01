@@ -12,14 +12,14 @@ jobs:
         fetch-depth: 0 # otherwise, you will failed to push refs to dest repo
     - uses: conda-incubator/setup-miniconda@v2  # https://github.com/conda-incubator/setup-miniconda
       with:
-        activate-environment: base
+        activate-environment: adadocs
         python-version: "3.10"
         channel-priority: strict
         environment-file: docs/environment.docs.yml
         auto-update-conda: true
     - name: Build and Commit
       run: |
-        sphinx-build docs html
+        sphinx-build docs .
     - name: Push changes
       uses: ad-m/github-push-action@master
       with:
