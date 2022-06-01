@@ -18,7 +18,8 @@ jobs:
         environment-file: docs/environment.docs.yml
         auto-update-conda: true
     - name: Build and Commit
-      uses: sphinx-notes/pages@v2
+      run: |
+        sphinx-build docs html
     - name: Push changes
       uses: ad-m/github-push-action@master
       with:
