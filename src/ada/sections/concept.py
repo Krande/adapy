@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Tuple, Union
 
-from ada.base.non_phyical_objects import Backend
+from ada.base.non_physical_objects import Backend
 from ada.concepts.curves import CurvePoly
 from ada.config import Settings
 

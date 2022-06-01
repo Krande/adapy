@@ -253,7 +253,10 @@ class VisMesh:
                 "name": part.name,
                 "rawdata": part.rawdata,
                 "guiParam": part.guiparam,
-                "id_map": {key: value.to_binary_json(dest_dir=data_dir, skip_normals=skip_normals) for key, value in part.id_map.items()},
+                "id_map": {
+                    key: value.to_binary_json(dest_dir=data_dir, skip_normals=skip_normals)
+                    for key, value in part.id_map.items()
+                },
             }
             wrld.append(wrld_obj)
 

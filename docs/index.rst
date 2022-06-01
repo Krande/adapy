@@ -6,19 +6,35 @@ IFC and various Finite Element formats.
 
 This library is still undergoing significant development so expect there to be occasional bugs and breaking changes.
 
-Try the latest build online here
+Try the latest `"stable"` release online here
 
 .. image:: https://mybinder.org/badge_logo.svg
  :target: https://mybinder.org/v2/gh/Krande/adapy/main
 
+Or try the latest `"unstable"` development version here
 
-**Build, Analyze and Postprocess in Code**
+.. image:: https://mybinder.org/badge_logo.svg
+ :target: https://mybinder.org/v2/gh/Krande/adapy/dev
 
+
+Table of Contents
+=======================================
+.. toctree::
+    :maxdepth: 2
+    :glob:
+
+    documents/meshing
+    documents/code
+
+
+Build, Analyze and Postprocess in Code
+==========================================================
 
 .. figure:: /_static/figures/flow_parametric.png
 
 
-**Steel detailing as a method**
+Steel detailing as a method
+=============================
 
 You can create methods on any Part objects that you can customize to your liking. This enables you to input
 simplified concept analysis models and output fully detailed models simply by using object oriented design
@@ -39,13 +55,14 @@ flexible, robust and fabrication friendly parametric detail that you can re-use.
 
     Create parametric penetration details using code
 
-**Build mesh recipes, not meshes**
+Build mesh recipes, not meshes
+==========================================================
 
-TODO: Add figure and text
+TODO: Add more figure and text
 
 
-
-**Path to Software Agnosticism**
+Path to Software Agnosticism
+==========================================================
 
 The ambition is to enable anyone to start designing something in a tool of their choice and have that design
 effortlessly converted to any FEM simulation formats and/or be importable into any relevant CAD software.
@@ -63,23 +80,3 @@ The picture above shows the design being written in python using a
 in `Abaqus <https://www.3ds.com/products-services/simulia/products/abaqus/>`_ (bottom right) here represented by the
 fem representation being imported into `Abaqus CAE <https://www.3ds.com/products-services/simulia/products/abaqus/abaquscae/>`_
 (a pre/post-processing software).
-
-
-
-
-Table of Contents
-=======================================
-.. toctree::
-    :maxdepth: 2
-    :glob:
-
-    code
-
-
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`

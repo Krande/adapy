@@ -17,6 +17,15 @@ format:
 bump:
 	bumpversion patch setup.py
 
+docs-install:
+	conda env create -f docs/environment.docs.yml
+
+docs-update:
+	conda env update --file docs/environment.docs.yml --prune
+
+docs-build:
+	activate adadocs && cd docs && make html
+
 build:
 	docker build -t ada/base:latest .
 

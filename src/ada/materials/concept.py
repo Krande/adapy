@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ada.base.non_phyical_objects import Backend
+from ada.base.non_physical_objects import Backend
 
 from .metals import CarbonSteel
 

@@ -1,14 +1,15 @@
 name: adadocs
 channels:
+  - krande/label/dev
   - conda-forge
 dependencies:
-  - python==3.8.8
-  - ifcopenshell
-  - pythonocc-core
+  - python==3.9
+  - ada-py
   - ipywidgets
   - sphinx
   - nbsphinx
-  - jupyter
+  - scipy
   - pip
   - pip:
       - sphinx-rtd-theme
+      - furo
