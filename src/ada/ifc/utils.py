@@ -555,11 +555,11 @@ def scale_ifc_file_object(ifc_file, scale_factor):
                         return obj_
                     elif obj_.is_a("IfcPressureMeasure") or obj_.is_a("IfcModulusOfElasticityMeasure"):
                         # sf is a length unit.
-                        conv_unit = 1 / sf**2
+                        conv_unit = 1 / sf ** 2
                         obj_.wrappedValue = obj_.wrappedValue * conv_unit
                         return obj_
                     elif obj_.is_a("IfcMassDensityMeasure"):
-                        conv_unit = 1 / sf**3
+                        conv_unit = 1 / sf ** 3
                         obj_.wrappedValue = obj_.wrappedValue * conv_unit
                         return obj_
                     # Unit-less

@@ -67,7 +67,6 @@ def get_isection(match, sect_names, fem) -> Section:
         w_btn=roundoff(d["bb"]),
         t_ftop=roundoff(d["tt"]),
         t_fbtn=roundoff(d["tb"]),
-        genprops=GeneralProperties(Sfy=float(d["sfy"]), Sfz=float(d["sfz"])),
         parent=fem.parent,
     )
 
@@ -85,7 +84,6 @@ def get_box_section(match, sect_names, fem) -> Section:
         t_w=roundoff(d["ty"]),
         t_ftop=roundoff(d["tt"]),
         t_fbtn=roundoff(d["tb"]),
-        genprops=GeneralProperties(Sfy=float(d["sfy"]), Sfz=float(d["sfz"])),
         parent=fem.parent,
     )
 
@@ -100,7 +98,6 @@ def get_flatbar(match, sect_names, fem) -> Section:
         h=roundoff(d["hz"]),
         w_top=roundoff(d["bt"]),
         w_btn=roundoff(d["bb"]),
-        genprops=GeneralProperties(Sfy=float(d["sfy"]), Sfz=float(d["sfz"])),
         parent=fem.parent,
     )
 
@@ -150,7 +147,6 @@ def get_tubular_section(match, sect_names, fem) -> Section:
         sec_type=Section.TYPES.TUBULAR,
         r=roundoff(float(d["dy"]) / 2),
         wt=roundoff(t),
-        genprops=GeneralProperties(Sfy=float(d["sfy"]), Sfz=float(d["sfz"])),
         parent=fem.parent,
     )
 

@@ -678,7 +678,7 @@ def intersect_line_circle(line, center, radius):
 
     a = (x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2
     b = 2 * ((x2 - x1) * (x1 - x3) + (y2 - y1) * (y1 - y3) + (z2 - z1) * (z1 - z3))
-    c = x3**2 + y3**2 + z3**2 + x1**2 + y1**2 + z1**2 - 2 * (x3 * x1 + y3 * y1 + z3 * z1) - radius**2
+    c = x3 ** 2 + y3 ** 2 + z3 ** 2 + x1 ** 2 + y1 ** 2 + z1 ** 2 - 2 * (x3 * x1 + y3 * y1 + z3 * z1) - radius ** 2
 
     tol = 1e-1
     # if abs(b) < tol:

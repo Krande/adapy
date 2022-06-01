@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, List, Tuple, Union
 
 from ada.base.non_physical_objects import Backend
 from ada.concepts.curves import CurvePoly
 from ada.config import Settings
-
-from .categories import BaseTypes, SectionCat
+from ada.sections.categories import BaseTypes, SectionCat
 
 if TYPE_CHECKING:
     from ada import Beam
@@ -84,6 +83,9 @@ class Section(Backend):
         if genprops is not None:
             genprops.parent = self
             self._genprops = genprops
+        # prop = self.properties
+        # if None in (prop.Cy, prop.Cz) and self.type != Section.TYPES.GENERAL:
+        #     logging.warning("Attribute Cy and Cz is missing from instance of Properties")
 
     # def __eq__(self, other: Section):
     #     props_equal = self.equal_props(other)
@@ -313,7 +315,7 @@ class SectionParts:
 
 @dataclass
 class GeneralProperties:
-    parent: Section = None
+    parent: Section = field(default=None, compare=False)
     Ax: float = None
     Ix: float = None
     Iy: float = None
@@ -335,18 +337,14 @@ class GeneralProperties:
 
     @property
     def modified(self) -> bool:
-        from .properties import calculate_general_properties
+        """Returns true if attributes are not equal to the calculated properties of the parent section"""
+        return self != self.calc_parent_properties()
 
-        return self != calculate_general_properties(self.parent)
+    def calc_parent_properties(self) -> GeneralProperties:
+        """Returns calculated properties based on parent section"""
+        from ada.sections.properties import calculate_general_properties
 
-    def __eq__(self, other):
-        for key, val in self.__dict__.items():
-            if "parent" in key:
-                continue
-            if other.__dict__[key] != val:
-                return False
-
-        return True
+        return calculate_general_properties(self.parent)
 
 
 @dataclass

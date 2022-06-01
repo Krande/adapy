@@ -94,29 +94,29 @@ def get_beam_sections_from_inp(bulk_str: str, fem: FEM) -> Iterable[FemSection]:
                 Ax=h * (a + b) / 2,
                 Ix=h
                 * (
-                    b * h**2
-                    + 3 * a * h**2
-                    + a**3
-                    + 3 * a * c**2
-                    + 3 * c * a**2
-                    + b**3
-                    + c * b**2
-                    + a * b**2
-                    + b * c**2
+                    b * h ** 2
+                    + 3 * a * h ** 2
+                    + a ** 3
+                    + 3 * a * c ** 2
+                    + 3 * c * a ** 2
+                    + b ** 3
+                    + c * b ** 2
+                    + a * b ** 2
+                    + b * c ** 2
                     + 2 * a * b * c
-                    + b * a**2
+                    + b * a ** 2
                 ),
-                Iy=(h**3) * (3 * a + b) / 12,
+                Iy=(h ** 3) * (3 * a + b) / 12,
                 Iz=h
                 * (
-                    a**3
-                    + 3 * a * c**2
-                    + 3 * c * a**2
-                    + b**3
-                    + c * b**2
-                    + a * b**2
+                    a ** 3
+                    + 3 * a * c ** 2
+                    + 3 * c * a ** 2
+                    + b ** 3
+                    + c * b ** 2
+                    + a * b ** 2
                     + 2 * a * b * c
-                    + b * a**2
+                    + b * a ** 2
                 )
                 / 12,
             )

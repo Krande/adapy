@@ -44,7 +44,7 @@ def displ(x, w, E, I, L):
     :eq: $$\\Delta_x=\\frac{wx}{24EI}(L^3-2Lx^2+x^3)$$
 
     """
-    return w * x * (L**3 - 2 * L * x**2 + x**3) / (24 * E * I)
+    return w * x * (L ** 3 - 2 * L * x ** 2 + x ** 3) / (24 * E * I)
 
 
 def moment(x, w, L):

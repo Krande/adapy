@@ -331,7 +331,7 @@ class CarbonSteel(Metal):
             for x in np.where(np.logical_and(self._temp_range > phase2_end, self._temp_range <= phase3_end))
         ]
         phase4_arr = [self._temp_range[x] for x in np.where(self._temp_range > phase3_end)]
-        phase1 = [425 + 7.73 * 1e-1 * t - 1.69 * 1e-3 * (t**2) + 2.22 * 1e-6 * t**3 for t in phase1_arr[0]]
+        phase1 = [425 + 7.73 * 1e-1 * t - 1.69 * 1e-3 * (t ** 2) + 2.22 * 1e-6 * t ** 3 for t in phase1_arr[0]]
         phase2 = [666 + 13002 / (738 - t) for t in phase2_arr[0]]
         phase3 = [545 + 17820 / (t - 731) for t in phase3_arr[0]]
         phase4 = [650 for x in range(phase4_arr[0].shape[0])]
