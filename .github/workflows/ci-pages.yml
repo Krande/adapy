@@ -19,7 +19,7 @@ jobs:
         auto-update-conda: true
     - name: Build and Commit
       run: |
-        sphinx-build docs .
+        activate adadocs && sphinx-build docs .
     - name: Push changes
       uses: ad-m/github-push-action@master
       with:
