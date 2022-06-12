@@ -6,6 +6,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
     steps:
     - uses: actions/checkout@v2
       with:
@@ -19,7 +22,7 @@ jobs:
         auto-update-conda: true
     - name: Build and Commit
       run: |
-        activate adadocs && sphinx-build docs .
+        make docs-build
     - name: Upload to GitHub Pages
       uses: peaceiris/actions-gh-pages@v3
       with:
