@@ -20,8 +20,8 @@ jobs:
     - name: Build and Commit
       run: |
         activate adadocs && sphinx-build docs .
-    - name: Push changes
-      uses: ad-m/github-push-action@master
+    - name: Upload to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
-        branch: gh-pages
+        publish_dir: ./docs/_build/html/
