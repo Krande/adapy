@@ -22,7 +22,7 @@ jobs:
         auto-update-conda: true
     - name: Build and Commit
       run: |
-        make docs-build
+        cd docs && make html
     - name: Upload to GitHub Pages
       uses: peaceiris/actions-gh-pages@v3
       with:
