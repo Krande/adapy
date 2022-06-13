@@ -35,5 +35,7 @@ USER ${NB_USER}
 WORKDIR ${HOME}
 
 COPY examples examples
+RUN mkdir "output"
 
+RUN chown -R ${NB_UID} output
 RUN chown -R ${NB_UID} examples

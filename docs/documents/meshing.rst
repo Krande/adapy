@@ -7,4 +7,4 @@ design and analyze pipeline related to structural engineering.
 
     model -> mesh -> simulate -> postprocess (repeat)
 
-The goal is to
+TODO: Add description of automatic partitioning of meshes using python and gmsh
