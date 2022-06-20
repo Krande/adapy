@@ -1,4 +1,3 @@
-import getpass
 import os
 import pathlib
 from dataclasses import dataclass
@@ -66,7 +65,7 @@ class Settings:
 
 @dataclass
 class User:
-    user_id: str = os.environ.get('ADAUSER', 'AdaUser')
+    user_id: str = os.environ.get("ADAUSER", "AdaUser")
     given_name: str = None
     family_name: str = None
     middle_names: str = None
@@ -79,11 +78,21 @@ class User:
     parent = None
 
     def _build_ifc_elem(self):
-        from ada.ifc.read.reader_utils import get_org, get_person
         import ifcopenshell
 
+        from ada.ifc.read.reader_utils import get_org, get_person
+
         f: ifcopenshell.file = self.parent.ifc_file
-        actor = f.create_entity("IfcActorRole", self.role.upper(), None, None)
+
+        actor = None
+        for ar in f.by_type("IfcActorRole"):
+            if ar.Role == self.role.upper():
+                actor = ar
+                break
+
+        if actor is None:
+            actor = f.create_entity("IfcActorRole", Role=self.role.upper(), UserDefinedRole=None, Description=None)
+
         user_props = dict(
             Identification=self.user_id,
             FamilyName=self.family_name,
@@ -92,9 +101,11 @@ class User:
             PrefixTitles=self.prefix_titles,
             SuffixTitles=self.suffix_titles,
         )
+
         person = get_person(f, self.user_id)
         if person is None:
             person = f.create_entity("IfcPerson", **user_props, Roles=(actor,))
+
         organization = get_org(f, self.org_id)
         if organization is None:
             organization = f.create_entity(
@@ -105,7 +116,7 @@ class User:
             )
 
         p_o = None
-        for po in f.by_type('IfcPersonAndOrganization'):
+        for po in f.by_type("IfcPersonAndOrganization"):
             if po.TheOrganization != organization:
                 continue
             p_o = po
@@ -116,7 +127,7 @@ class User:
 
         app_name = "ADA"
         application = None
-        for app in f.by_type('IfcApplication'):
+        for app in f.by_type("IfcApplication"):
             if app.ApplicationFullName != app_name:
                 continue
             application = app
@@ -127,7 +138,30 @@ class User:
 
         timestamp = int(datetime.now().timestamp())
 
-        return f.create_entity("IfcOwnerHistory", p_o, application, "READWRITE", None, None, None, None, timestamp)
+        owner_history = None
+        for oh in f.by_type("IfcOwnerHistory"):
+            if oh.OwningUser != p_o:
+                continue
+            if oh.OwningApplication != application:
+                continue
+            oh.LastModifiedDate = timestamp
+            owner_history = oh
+            break
+
+        if owner_history is None:
+            owner_history = f.create_entity(
+                "IfcOwnerHistory",
+                OwningUser=p_o,
+                OwningApplication=application,
+                State="READWRITE",
+                ChangeAction=None,
+                LastModifiedDate=None,
+                LastModifyingUser=p_o,
+                LastModifyingApplication=application,
+                CreationDate=timestamp,
+            )
+
+        return owner_history
 
     def to_ifc(self):
         # Important! Needs to create unique owner_history for each use. Will cause seg fault when adding non-unique
