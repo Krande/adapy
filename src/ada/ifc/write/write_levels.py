@@ -100,7 +100,8 @@ def write_ifc_part(part: "Part"):
 
     ifc_elem = f.create_entity(ifc_type, **props)
 
-    f.createIfcRelAggregates(
+    f.create_entity(
+        "IfcRelAggregates",
         create_guid(),
         owner_history,
         "Site Container",
