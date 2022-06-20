@@ -824,7 +824,7 @@ class Assembly(Part):
         name="Ada",
         project="AdaProject",
         user: User = User(),
-        schema="IFC4",
+        schema="IFC4X1",
         settings=Settings(),
         metadata=None,
         units="m",

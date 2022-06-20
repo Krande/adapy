@@ -66,7 +66,7 @@ class Settings:
 
 @dataclass
 class User:
-    user_id: str = getpass.getuser()
+    user_id: str = os.environ.get('ADAUSER', 'AdaUser')
     given_name: str = None
     family_name: str = None
     middle_names: str = None
@@ -80,8 +80,9 @@ class User:
 
     def _build_ifc_elem(self):
         from ada.ifc.read.reader_utils import get_org, get_person
+        import ifcopenshell
 
-        f = self.parent.ifc_file
+        f: ifcopenshell.file = self.parent.ifc_file
         actor = f.create_entity("IfcActorRole", self.role.upper(), None, None)
         user_props = dict(
             Identification=self.user_id,
@@ -102,8 +103,28 @@ class User:
                 Name=self.org_name,
                 Description=self.org_description,
             )
-        p_o = f.create_entity("IfcPersonAndOrganization", person, organization)
-        application = f.create_entity("IfcApplication", organization, "XXX", "ADA", "ADA")
+
+        p_o = None
+        for po in f.by_type('IfcPersonAndOrganization'):
+            if po.TheOrganization != organization:
+                continue
+            p_o = po
+            break
+
+        if p_o is None:
+            p_o = f.create_entity("IfcPersonAndOrganization", person, organization)
+
+        app_name = "ADA"
+        application = None
+        for app in f.by_type('IfcApplication'):
+            if app.ApplicationFullName != app_name:
+                continue
+            application = app
+            break
+
+        if application is None:
+            application = f.create_entity("IfcApplication", organization, "XXX", "ADA", "ADA")
+
         timestamp = int(datetime.now().timestamp())
 
         return f.create_entity("IfcOwnerHistory", p_o, application, "READWRITE", None, None, None, None, timestamp)
