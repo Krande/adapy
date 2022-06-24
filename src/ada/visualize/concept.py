@@ -144,10 +144,12 @@ class VisMesh:
 
         for world in self.world:
             for key, obj in world.id_map.items():
-                if len(obj.index.shape) == 0:
-                    logging.error(f"Shape of index for '{key}' is zero. Skipping for now")
+                try:
+                    shape = obj.index.shape[1]
+                except IndexError as e:
+                    logging.error(f"Index shape of {key} -> Error: {e}")
                     continue
-                if obj.index.shape[1] != 3:
+                if shape != 3:
                     faces = obj.index.reshape(int(len(obj.index) / 3), 3)
                 else:
                     faces = obj.index
