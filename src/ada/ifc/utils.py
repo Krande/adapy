@@ -741,5 +741,21 @@ def export_transform(f: ifcopenshell.file, transform: Transform):
 
 
 def get_representation_items(f: ifcopenshell.file, ifc_elem: ifcopenshell.entity_instance):
-    geom_items = ["IfcTriangulatedFaceSet", "IfcExtrudedAreaSolid", "IfcRevolvedAreaSolid"]
-    return list(filter(lambda x: hasattr(x, "StyledByItem") and x.is_a() in geom_items, f.traverse(ifc_elem)))
+    # TODO: Use ifcopenshell schema definitions to use all subtypes of _IfcGeometricRepresentationItem_ as geom_items
+    # wrap = ifcopenshell.ifcopenshell_wrapper
+    # supertype = "IfcGeometricRepresentationItem"
+
+    geom_items = [
+        "IfcTriangulatedFaceSet",
+        "IfcExtrudedAreaSolid",
+        "IfcRevolvedAreaSolid",
+        "IFCFACETEDBREP",
+        "IFCCLOSEDSHELL",
+    ]
+    geom_lower = [i.lower() for i in geom_items]
+    return list(
+        filter(
+            lambda x: hasattr(x, "StyledByItem") and x.is_a().lower() in geom_lower,
+            f.traverse(ifc_elem),
+        )
+    )

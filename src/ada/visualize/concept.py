@@ -92,11 +92,11 @@ class VisMesh:
         obj_group = h5[guid]
         index = obj_group["INDEX"][()]
         position = obj_group["POSITION"][()]
-        normals = obj_group["NORMAL"][()]
+        # normals = obj_group["NORMAL"][()]
         color_obj = self.colors[obj_group.attrs["COLOR"]]
         base_color = color_obj.pbrMetallicRoughness.baseColorFactor
         faces = index.reshape(int(len(index) / 3), 3)
-        return ObjectMesh(guid, faces, position, normals, base_color)
+        return ObjectMesh(guid, faces, position, None, base_color)
 
     def _convert_to_trimesh2(self, only_these_guids: List[str] = None) -> trimesh.Scene:
         scene = trimesh.Scene()
@@ -144,6 +144,9 @@ class VisMesh:
 
         for world in self.world:
             for key, obj in world.id_map.items():
+                if len(obj.index.shape) == 0:
+                    logging.error(f"Shape of index for '{key}' is zero. Skipping for now")
+                    continue
                 if obj.index.shape[1] != 3:
                     faces = obj.index.reshape(int(len(obj.index) / 3), 3)
                 else:
@@ -234,7 +237,7 @@ class VisMesh:
                     obj_group.attrs.create("TRANSLATION", transl)
 
                     obj_group.create_dataset("POSITION", data=obj_mesh.position)
-                    obj_group.create_dataset("NORMAL", data=obj_mesh.normal)
+                    # obj_group.create_dataset("NORMAL", data=obj_mesh.normal)
                     obj_group.create_dataset("INDEX", data=obj_mesh.index)
 
     def to_binary_and_json(self, dest_dir, auto_zip=True, export_dir=None, skip_normals=False):
