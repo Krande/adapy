@@ -740,17 +740,34 @@ def export_transform(f: ifcopenshell.file, transform: Transform):
     raise NotImplementedError()
 
 
-def get_representation_items(f: ifcopenshell.file, ifc_elem: ifcopenshell.entity_instance):
-    # TODO: Use ifcopenshell schema definitions to use all subtypes of _IfcGeometricRepresentationItem_ as geom_items
-    # wrap = ifcopenshell.ifcopenshell_wrapper
-    # supertype = "IfcGeometricRepresentationItem"
+def get_all_subtypes(entity: ifcopenshell.ifcopenshell_wrapper.entity, subtypes=None):
+    subtypes = [] if subtypes is None else subtypes
+    for subtype in entity.subtypes():
+        if subtype.is_abstract() is False:
+            subtypes.append(subtype.name())
+        get_all_subtypes(subtype, subtypes)
+    return subtypes
 
+
+def get_geom_items(ifc_schema):
+    wrap = ifcopenshell.ifcopenshell_wrapper
+    schema = wrap.schema_by_name(ifc_schema)
+    all_entities = {x.name(): x for x in schema.declarations()}
+    entity: wrap.entity = all_entities["IfcGeometricRepresentationItem"]
+    subtypes = get_all_subtypes(entity)
+
+    return subtypes
+
+
+_geom_items = None
+
+
+def get_representation_items(f: ifcopenshell.file, ifc_elem: ifcopenshell.entity_instance):
     geom_items = [
         "IfcTriangulatedFaceSet",
         "IfcExtrudedAreaSolid",
         "IfcRevolvedAreaSolid",
-        "IFCFACETEDBREP",
-        "IFCCLOSEDSHELL",
+        "IfcClosedShell",
     ]
     geom_lower = [i.lower() for i in geom_items]
     return list(
