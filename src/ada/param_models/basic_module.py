@@ -80,6 +80,7 @@ class SimpleStru(Part):
         csec="HEB200",
         pl_thick=10e-3,
         placement=Placement(),
+        add_bottom_floor=True
     ):
         super(SimpleStru, self).__init__(name, placement=placement)
         self.Params.w = w
@@ -95,7 +96,10 @@ class SimpleStru(Part):
         z0 = 0
         z1 = h
         sec = Section(gsec, from_str=gsec, parent=self)
-        self._elevations = [z0, z1]
+        self._elevations = []
+        if add_bottom_floor:
+            self._elevations += [z0]
+        self._elevations += [z1]
         for elev in self._elevations:
             for p1, p2 in beams:
                 self.add_beam(Beam(next(bm_name), n1=p1(elev), n2=p2(elev), sec=sec, jusl=Beam.JUSL_TYPES.TOS))
