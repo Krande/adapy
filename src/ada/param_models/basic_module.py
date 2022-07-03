@@ -80,7 +80,7 @@ class SimpleStru(Part):
         csec="HEB200",
         pl_thick=10e-3,
         placement=Placement(),
-        add_bottom_floor=True
+        add_bottom_floor=True,
     ):
         super(SimpleStru, self).__init__(name, placement=placement)
         self.Params.w = w
