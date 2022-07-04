@@ -11,6 +11,9 @@ install:
 update:
 	conda env update --file environment.yml --prune
 
+iformat:
+	conda install -c conda-forge pre-commit
+
 format:
 	black . && isort . && flake8 .
 
