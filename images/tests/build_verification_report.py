@@ -7,7 +7,8 @@ from typing import List
 import pandas as pd
 from paradoc import OneDoc
 from paradoc.common import TableFormat
-from test_fem_eig_cantilever import beam, test_fem_eig
+from test_fem_eig_cantilever import test_fem_eig
+from conftest import beam
 
 from ada.fem.results import EigenDataSummary, Results, results_from_cache
 
