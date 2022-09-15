@@ -65,6 +65,7 @@ def read_ifc_file(
 
         obj.metadata.update(dict(props=props))
         obj.metadata["ifc_file"] = ifc_file
+        obj.metadata["ifc_guid"] = product.GlobalId
 
         add_to_assembly(a, obj, parent, elements2part)
     ifc_file_name = "object" if type(ifc_file) is StringIO else ifc_file

@@ -55,12 +55,14 @@ if TYPE_CHECKING:
     from ada import Part
 
 
-def extract_shapes(step_path, scale, transform, rotate):
+def extract_shapes(step_path, scale, transform, rotate, include_shells=False):
     shapes = []
 
     cad_file_path = pathlib.Path(step_path)
     if cad_file_path.is_file():
-        shapes += extract_subshapes(read_step_file(str(cad_file_path), as_compound=False))
+        shapes += extract_subshapes(
+            read_step_file(str(cad_file_path), as_compound=False), include_shells=include_shells
+        )
     elif cad_file_path.is_dir():
         shapes += walk_shapes(cad_file_path)
     else:
@@ -102,9 +104,14 @@ def walk_shapes(dir_path):
     return shps
 
 
-def extract_subshapes(shp_):
+def extract_subshapes(shp_, include_shells=False):
     t = TopologyExplorer(shp_)
-    return list(t.solids())
+    result = list(t.solids())
+    if include_shells:
+        result += list(t.shells())
+        # result += list(t.vertices())
+
+    return result
 
 
 def is_edges_ok(edge1, fillet, edge2):

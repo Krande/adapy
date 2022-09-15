@@ -1,0 +1,30 @@
+name: Pages
+on:
+  push:
+    branches:
+    - dev
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0 # otherwise, you will failed to push refs to dest repo
+    - uses: conda-incubator/setup-miniconda@v2  # https://github.com/conda-incubator/setup-miniconda
+      with:
+        activate-environment: adadocs
+        python-version: "3.10"
+        channel-priority: strict
+        environment-file: docs/environment.docs.yml
+        auto-update-conda: true
+    - name: Build and Commit
+      run: |
+        cd docs && make html
+    - name: Upload to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./docs/_build/html/

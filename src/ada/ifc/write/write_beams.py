@@ -72,15 +72,23 @@ def write_ifc_beam(beam: Beam):
             ifc_beam,
             pen.ifc_opening,
         )
+    found_existing_relationship = False
+    for ifcrel in f.by_type("IfcRelDefinesByType"):
+        if ifcrel.RelatingType == beam_type:
+            ifcrel.RelatedObjects = tuple([*ifcrel.RelatedObjects, ifc_beam])
+            found_existing_relationship = True
+            break
 
-    f.createIfcRelDefinesByType(
-        create_guid(),
-        None,
-        beam.section.type,
-        None,
-        [ifc_beam],
-        beam_type,
-    )
+    if found_existing_relationship is False:
+        f.create_entity(
+            "IfcRelDefinesByType",
+            create_guid(),
+            None,
+            beam.section.type,
+            None,
+            [ifc_beam],
+            beam_type,
+        )
 
     if beam.ifc_options.export_props is True:
         add_multiple_props_to_elem(beam.metadata.get("props", dict()), ifc_beam, f, owner_history)

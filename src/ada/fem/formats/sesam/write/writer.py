@@ -61,7 +61,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None):
         d.write(hinges_str(part.fem))
         d.write(elem_str(part.fem, thick_map))
         d.write(loads_str(assembly.fem) + loads_str(part.fem))
-        d.write("IEND                0.00            0.00            0.00            0.00")
+        d.write("IEND                0.00            0.00            0.00            0.00\n")
 
     print(f'Created an Sesam input deck at "{analysis_dir}"')
 

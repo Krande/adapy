@@ -43,53 +43,93 @@ def filter_mesh_objects(
     return obj_list
 
 
-def ifc_poly_elem_to_json(obj: Shape, export_config: ExportConfig = ExportConfig(), opt_func: Callable = None):
+def ifc_poly_elem_to_json(
+    obj: Shape, export_config: ExportConfig = ExportConfig(), opt_func: Callable = None
+) -> List[ObjectMesh]:
     import ifcopenshell.geom
+
+    from ada.ifc.utils import create_guid, get_representation_items
+    from ada.visualize.utils import merge_mesh_objects, organize_by_colour
 
     a = obj.get_assembly()
     ifc_f = a.get_ifc_source_by_name(obj.ifc_ref.source_ifc_file)
-    ifc_elem = ifc_f.by_guid(obj.guid)
+    ifc_elem = ifc_f.by_guid(obj.metadata["ifc_guid"])
 
     settings = ifcopenshell.geom.settings()
     settings.set(settings.USE_PYTHON_OPENCASCADE, False)
     settings.set(settings.SEW_SHELLS, False)
-    settings.set(settings.WELD_VERTICES, False)
+    settings.set(settings.WELD_VERTICES, True)
     settings.set(settings.INCLUDE_CURVES, False)
     settings.set(settings.USE_WORLD_COORDS, True)
     settings.set(settings.VALIDATE_QUANTITIES, False)
 
-    geom = obj.ifc_ref.get_ifc_geom(ifc_elem, settings)
+    geom_items = get_representation_items(ifc_f, ifc_elem)
+    meshes = []
+    if len(geom_items) == 0:
+        raise ValueError("No IFC geometries found.")
 
-    vertices = np.array(geom.geometry.verts, dtype="float32").reshape(int(len(geom.geometry.verts) / 3), 3)
-    faces = np.array(geom.geometry.faces, dtype=int)
-    normals = np.array(geom.geometry.normals) if len(geom.geometry.normals) != 0 else None
+    for i, ifc_geom in enumerate(geom_items):
+        geometry = obj.ifc_ref.get_ifc_geom(ifc_geom, settings)
+        guid = obj.guid if i == 0 else create_guid()
+        vertices = np.array(geometry.verts, dtype="float32").reshape(int(len(geometry.verts) / 3), 3)
+        faces = np.array(geometry.faces, dtype=int)
+        normals = np.array(geometry.normals) if len(geometry.normals) != 0 else None
 
-    if normals is not None and len(normals) > 0:
-        normals = normals.astype(dtype="float32").reshape(int(len(normals) / 3), 3)
+        if normals is not None and len(normals) > 0:
+            normals = normals.astype(dtype="float32").reshape(int(len(normals) / 3), 3)
 
-    if opt_func is not None:
-        faces, vertices, normals = opt_func(faces.reshape(int(len(geom.geometry.faces) / 3), 3), vertices, normals)
-        vertices = vertices.astype(dtype="float32").flatten()
-        faces = faces.astype(dtype="int32").flatten()
-        if normals is not None:
-            normals = normals.astype(dtype="float32").flatten()
+        if opt_func is not None:
+            faces, vertices, normals = opt_func(faces.reshape(int(len(geometry.faces) / 3), 3), vertices, normals)
+            vertices = vertices.astype(dtype="float32").flatten()
+            faces = faces.astype(dtype="int32").flatten()
+            if normals is not None:
+                normals = normals.astype(dtype="float32").flatten()
 
-    mats = geom.geometry.materials
-    if len(mats) == 0:
-        colour = [1.0, 0.0, 0.0, 1.0]
-    else:
-        mat0 = mats[0]
-        opacity = 1.0 - mat0.transparency
-        colour = [*mat0.diffuse, opacity]
+        mats = geometry.materials
+        if len(mats) == 0:
+            colour = [1.0, 0.0, 0.0, 1.0]
+        else:
+            mat0 = mats[0]
+            opacity = 1.0 - mat0.transparency
+            colour = [*mat0.diffuse, opacity]
 
-    return vertices, faces, normals, colour
+        obj_mesh = ObjectMesh(guid, faces, vertices, normals, colour, translation=export_config.volume_center)
+        meshes.append(obj_mesh)
+
+    if export_config.merge_subgeometries_by_colour is False:
+        return meshes
+
+    # merge subgeometries by colour
+    colour_map = organize_by_colour(meshes)
+    merged_meshes = []
+    main_obj = False
+    applied_guid = False
+    for i, (colour, elements) in enumerate(colour_map.items()):
+        obj_mesh = merge_mesh_objects(elements)
+
+        if len(obj_mesh.index) == 0:
+            continue
+
+        if colour[-1] == 1.0 and applied_guid is False:
+            main_obj = True
+            obj_mesh.guid = obj.guid
+            applied_guid = True
+
+        merged_meshes.append(obj_mesh)
+
+    if main_obj is False:
+        merged_meshes[0].guid = obj.guid
+
+    # TODO: Optimize Geometry
+
+    return merged_meshes
 
 
 def occ_geom_to_poly_mesh(
     obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape],
     export_config: ExportConfig = ExportConfig(),
     opt_func: Callable = None,
-):
+) -> ObjectMesh:
     geom = obj.solid
     position, indices, normals, _ = occ_shape_to_faces(
         geom,
@@ -103,28 +143,30 @@ def occ_geom_to_poly_mesh(
     else:
         opt_func_example(indices, position, normals)
 
-    return position, indices, normals, [*obj.colour_norm, obj.opacity]
+    colour = [*obj.colour_norm, obj.opacity]
+    return ObjectMesh(obj.guid, indices, position, normals, colour, translation=export_config.volume_center)
 
 
 def obj_to_mesh(
     obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape],
     export_config: ExportConfig = ExportConfig(),
     opt_func: Callable = None,
-) -> Union[ObjectMesh, None]:
+) -> Union[None, List[ObjectMesh]]:
     if obj.ifc_ref is not None and export_config.ifc_skip_occ is True:
+
         try:
-            position, indices, normals, colour = ifc_poly_elem_to_json(obj, export_config, opt_func)
+            obj_meshes = ifc_poly_elem_to_json(obj, export_config, opt_func)
         except RuntimeError as e:
             logging.error(e)
             return None
     else:
         try:
-            position, indices, normals, colour = occ_geom_to_poly_mesh(obj, export_config, opt_func)
+            obj_meshes = occ_geom_to_poly_mesh(obj, export_config, opt_func)
         except (UnableToBuildNSidedWires, UnableToCreateTesselationFromSolidOCCGeom, UnableToCreateSolidOCCGeom) as e:
             logging.error(e)
             return None
 
-    return ObjectMesh(obj.guid, indices, position, normals, colour, translation=export_config.volume_center)
+    return obj_meshes
 
 
 def id_map_using_threading(list_in, threads: int):

@@ -14,7 +14,8 @@ def read_hierarchy(f, a: Assembly, ifc_ref: IfcRef):
         if new_part is None:
             continue
         if parent is None:
-            a.add_part(new_part)
+            if new_part.name not in a.parts.keys():
+                a.add_part(new_part)
         elif type(parent) is not Part:
             raise NotImplementedError()
         else:
@@ -27,8 +28,10 @@ def import_ifc_hierarchy(assembly: Assembly, product, ifc_ref: IfcRef):
     if pp is None:
         return None, None
 
-    # "IfcSpace",
-    if pr_type not in ["IfcBuilding", "IfcBuildingStorey", "IfcSpatialZone"]:
+    # Filter IFC Containers for semantical hierarchy of elements
+    if pr_type not in ["IfcBuilding", "IfcBuildingStorey", "IfcSpatialZone", "IfcBuildingElementProxy"]:
+        return None, None
+    if product.Representation is not None:
         return None, None
 
     props = get_psets(product)
@@ -39,7 +42,7 @@ def import_ifc_hierarchy(assembly: Assembly, product, ifc_ref: IfcRef):
 
     new_part = Part(
         name,
-        metadata=dict(original_name=name, props=props),
+        metadata=dict(original_name=name, props=props, ifc_guid=product.GlobalId),
         guid=product.GlobalId,
         ifc_ref=ifc_ref,
         units=assembly.units,

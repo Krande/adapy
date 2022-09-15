@@ -33,7 +33,8 @@ def write_ifc_assembly(assembly: "Assembly"):
         None,
         None,
     )
-    f.createIfcRelAggregates(
+    f.create_entity(
+        "IfcRelAggregates",
         create_guid(),
         owner_history,
         "Project Container",
@@ -43,7 +44,8 @@ def write_ifc_assembly(assembly: "Assembly"):
     )
 
     props = create_property_set("Properties", f, assembly.metadata, owner_history)
-    f.createIfcRelDefinesByProperties(
+    f.create_entity(
+        "IfcRelDefinesByProperties",
         create_guid(),
         owner_history,
         "Properties",
@@ -99,14 +101,23 @@ def write_ifc_part(part: "Part"):
 
     ifc_elem = f.create_entity(ifc_type, **props)
 
-    f.createIfcRelAggregates(
-        create_guid(),
-        owner_history,
-        "Site Container",
-        None,
-        parent,
-        [ifc_elem],
-    )
+    existing_rel_agg = False
+    for rel_agg in f.by_type("IfcRelAggregates"):
+        if rel_agg.RelatingObject == parent:
+            rel_agg.RelatedObjects = tuple([*rel_agg.RelatedObjects, ifc_elem])
+            existing_rel_agg = True
+            break
+
+    if existing_rel_agg is False:
+        f.create_entity(
+            "IfcRelAggregates",
+            GlobalId=create_guid(),
+            OwnerHistory=owner_history,
+            Name="Site Container",
+            Description=None,
+            RelatingObject=parent,
+            RelatedObjects=[ifc_elem],
+        )
 
     if part.ifc_options.export_props is True:
         add_multiple_props_to_elem(part.metadata.get("props", dict()), ifc_elem, f, owner_history)

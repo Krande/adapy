@@ -134,7 +134,7 @@ class Backend:
 
     def remove(self):
         """Remove this element/part from assembly/part"""
-        from ada import Beam, Part, Shape
+        from ada import Beam, Part, Plate, Shape
 
         if self.parent is None:
             logging.error(f"Unable to delete {self.name} as it does not have a parent")
@@ -152,5 +152,7 @@ class Backend:
             self.parent.shapes.pop(self.parent.shapes.index(self))
         elif type(self) is Beam:
             self.parent.beams.remove(self)
+        elif isinstance(self, Plate):
+            self.parent.plates.remove(self)
         else:
             raise NotImplementedError()

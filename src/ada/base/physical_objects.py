@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, List
 from ada.concepts.transforms import Placement
 from ada.core.constants import color_map as _cmap
 
-from .non_phyical_objects import Backend
+from .non_physical_objects import Backend
 
 if TYPE_CHECKING:
     from ada import FEM, Penetration

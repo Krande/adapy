@@ -283,12 +283,12 @@ def is_null_vector(ab: np.array, cd: np.array, decimals=Settings.precision) -> b
 
 def is_parallel(ab: np.array, cd: np.array, tol=Settings.point_tol) -> bool:
     """Check if vectors AB and CD are parallel"""
-    return True if np.abs(np.sin(angle_between(ab, cd))) < tol else False
+    return float(np.abs(np.sin(angle_between(ab, cd)))) < tol
 
 
 def is_perpendicular(ab: np.array, cd: np.array, tol=Settings.point_tol) -> bool:
     """Returns if the vectors are perpendicular"""
-    return np.abs(np.dot(ab, cd)) < tol
+    return float(np.abs(np.dot(ab, cd))) < tol
 
 
 def is_angled(vector_1: np.ndarray, vector_2: np.ndarray) -> bool:
@@ -574,7 +574,7 @@ def is_clockwise(points) -> bool:
     for p1, p2 in zip(points[:-1], points[1:]):
         psum += (p2[0] - p1[0]) * (p2[1] + p1[1])
     psum += (points[-1][0] - points[0][0]) * (points[-1][1] + points[0][1])
-    return not psum < 0
+    return not float(psum) < 0
 
 
 def calc_xvec(y_vec, z_vec):

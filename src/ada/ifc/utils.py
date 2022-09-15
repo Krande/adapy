@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING, List, Tuple, Union
 
@@ -26,6 +28,38 @@ def get_tolerance(units):
     if units not in tol_map.keys():
         raise ValueError(f'Unrecognized unit "{units}"')
     return tol_map[units]
+
+
+def ensure_guid_consistency(a: Assembly, project_prefix):
+    """Function to edit the global IDs of your elements when they are arbitrarily created from upstream data dump"""
+    ensure_uniqueness = dict()
+    for p in a.get_all_parts_in_assembly():
+        p.guid = create_guid(project_prefix + p.name)
+
+        if p.guid in ensure_uniqueness.keys():
+            # p_other = ensure_uniqueness.get(p.guid)
+            # ancestors1 = p.get_ancestors()
+            # ancestors2 = p_other.get_ancestors()
+            raise ValueError(f"GUID Uniqueness not maintained for {p.name}")
+        ensure_uniqueness[p.guid] = p
+        for obj in p.get_all_physical_objects(sub_elements_only=True):
+            obj.guid = create_guid(project_prefix + obj.name)
+
+            if obj.guid in ensure_uniqueness.keys():
+                conflicting_obj = ensure_uniqueness[obj.guid]
+                # Handle special case BIM software outputs elements of same name
+                # but one of them are opaque obstruction vols
+                if conflicting_obj.opacity != 0.0:
+                    conflicting_obj.name = conflicting_obj.name + "_INSU"
+                    conflicting_obj.guid = create_guid(project_prefix + obj.name)
+                    ensure_uniqueness[conflicting_obj.guid] = conflicting_obj
+                elif obj.opacity != 0.0:
+                    obj.name = obj.name + "_INSU"
+                    obj.guid = create_guid(project_prefix + obj.name)
+                else:
+                    raise ValueError(f"GUID Uniqueness not maintained for '{obj}' in [{a.name}]")
+
+            ensure_uniqueness[obj.guid] = obj
 
 
 def create_guid(name=None):
@@ -425,21 +459,32 @@ def add_negative_extrusion(f, origin, loc_z, loc_x, depth, points, parent):
     return opening_element
 
 
-def add_colour(f, ifc_body, name, colour):
-    """
-
-    :param f:
-    :param ifc_body:
-    :param name:
-    :param colour:
-    :return:
-    """
+def add_colour(
+    f,
+    ifc_body: Union[List[ifcopenshell.entity_instance], ifcopenshell.entity_instance],
+    name,
+    colour,
+    transparency=0.0,
+    use_surface_style_rendering=False,
+) -> None:
+    """Add IFcSurfaceStyle using either IfcSurfaceStyleRendering or IfcSurfaceStyleShading"""
+    if colour is None:
+        return None
     colour = f.createIfcColourRgb(name, colour[0], colour[1], colour[2])
-    surfaceStyleShading = f.createIfcSurfaceStyleShading()
-    surfaceStyleShading.SurfaceColour = colour
+
+    if use_surface_style_rendering:
+        surfaceStyleShading = f.createIFCSURFACESTYLERENDERING(colour, transparency)
+    else:
+        surfaceStyleShading = f.createIfcSurfaceStyleShading()
+        surfaceStyleShading.SurfaceColour = colour
+
     surfaceStyle = f.createIfcSurfaceStyle(colour.Name, "BOTH", (surfaceStyleShading,))
     presStyleAssign = f.createIfcPresentationStyleAssignment((surfaceStyle,))
-    f.createIfcStyledItem(ifc_body, (presStyleAssign,), colour.Name)
+    if type(ifc_body) in [list, tuple]:
+        for ifc_b in ifc_body:
+            f.createIfcStyledItem(ifc_b, (presStyleAssign,), colour.Name)
+    else:
+        f.createIfcStyledItem(ifc_body, (presStyleAssign,), colour.Name)
 
 
 def calculate_unit_scale(file):
@@ -693,3 +738,41 @@ def export_transform(f: ifcopenshell.file, transform: Transform):
         ifc_dir(f, X),
     )
     raise NotImplementedError()
+
+
+def get_all_subtypes(entity: ifcopenshell.ifcopenshell_wrapper.entity, subtypes=None):
+    subtypes = [] if subtypes is None else subtypes
+    for subtype in entity.subtypes():
+        if subtype.is_abstract() is False:
+            subtypes.append(subtype.name())
+        get_all_subtypes(subtype, subtypes)
+    return subtypes
+
+
+def get_geom_items(ifc_schema):
+    wrap = ifcopenshell.ifcopenshell_wrapper
+    schema = wrap.schema_by_name(ifc_schema)
+    all_entities = {x.name(): x for x in schema.declarations()}
+    entity: wrap.entity = all_entities["IfcGeometricRepresentationItem"]
+    subtypes = get_all_subtypes(entity)
+
+    return subtypes
+
+
+_geom_items = None
+
+
+def get_representation_items(f: ifcopenshell.file, ifc_elem: ifcopenshell.entity_instance):
+    geom_items = [
+        "IfcTriangulatedFaceSet",
+        "IfcExtrudedAreaSolid",
+        "IfcRevolvedAreaSolid",
+        "IfcClosedShell",
+    ]
+    geom_lower = [i.lower() for i in geom_items]
+    return list(
+        filter(
+            lambda x: hasattr(x, "StyledByItem") and x.is_a().lower() in geom_lower,
+            f.traverse(ifc_elem),
+        )
+    )

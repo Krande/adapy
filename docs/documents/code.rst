@@ -1,12 +1,32 @@
-Documentation
+Code Documentation
 =============================
 
 ADA
 -----------------------------------
 The main library.
 
-.. automodule:: ada
+
+.. automodule:: ada.concepts.levels
    :members:
+
+.. automodule:: ada.concepts.primitives
+   :members:
+
+.. automodule:: ada.concepts.stru_beams
+   :members:
+
+.. automodule:: ada.concepts.stru_plates
+   :members:
+
+.. automodule:: ada.concepts.containers
+   :members:
+
+.. automodule:: ada.base.non_physical_objects
+   :members:
+
+.. automodule:: ada.base.physical_objects
+   :members:
+
 
 
 IFC utilities
@@ -14,13 +34,8 @@ IFC utilities
 
 `IFC4X1 <https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/link/annex-e.htm>`_
 
-.. automodule:: ada.core.ifc_utils
+.. automodule:: ada.ifc
    :members:
-
-
-.. automodule:: ada.core.ifc_template
-   :members:
-
 
 Blender wrapper and utilities
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -46,9 +61,6 @@ Other
 .. automodule:: ada.core.constants
    :members:
 
-
-.. automodule:: ada.core.containers
-   :members:
 
 
 .. automodule:: ada.core.utils
@@ -97,7 +109,7 @@ GMSH
 `GMSH <https://gmsh.info/>`_ is a three-dimensional finite element mesh generator with built-in pre- and
 post-processing facilities
 
-.. automodule:: ada.fem.formats.mesh
+.. automodule:: ada.fem.meshing
    :members:
 
 Abaqus
@@ -184,5 +196,8 @@ Base Classes
 .. automodule:: ada.base
    :members:
 
-.. automodule:: ada.base.renderer
+Visualization Classes
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. automodule:: ada.visualize.concept
    :members:

@@ -9,13 +9,25 @@ install:
 	conda env create -f environment.yml
 
 update:
-	conda env update --name work --file environment.yml --prune
+	conda env update --file environment.yml --prune
+
+iformat:
+	conda install -c conda-forge pre-commit
 
 format:
 	black . && isort . && flake8 .
 
 bump:
 	bumpversion patch setup.py
+
+docs-install:
+	conda env create -f docs/environment.docs.yml
+
+docs-update:
+	conda env update --file docs/environment.docs.yml --prune
+
+docs-build:
+	activate adadocs && cd docs && make html
 
 build:
 	docker build -t ada/base:latest .

@@ -120,35 +120,34 @@ def write_to_med(name, part: "Part", analysis_dir):
     analysis_dir = pathlib.Path(analysis_dir)
     filename = (analysis_dir / name).with_suffix(".med")
 
-    f = h5py.File(filename, "w")
-    mesh_name = name if name is not None else part.fem.name
-    # Strangely the version must be 3.0.x
-    # Any version >= 3.1.0 will NOT work with SALOME 8.3
-    info = f.create_group("INFOS_GENERALES")
-    info.attrs.create("MAJ", 3)
-    info.attrs.create("MIN", 0)
-    info.attrs.create("REL", 0)
+    with h5py.File(filename, "w") as f:
+        mesh_name = name if name is not None else part.fem.name
+        # Strangely the version must be 3.0.x
+        # Any version >= 3.1.0 will NOT work with SALOME 8.3
+        info = f.create_group("INFOS_GENERALES")
+        info.attrs.create("MAJ", 3)
+        info.attrs.create("MIN", 0)
+        info.attrs.create("REL", 0)
 
-    time_step = _write_mesh_presets(f, mesh_name)
+        time_step = _write_mesh_presets(f, mesh_name)
 
-    profile = "MED_NO_PROFILE_INTERNAL"
+        profile = "MED_NO_PROFILE_INTERNAL"
 
-    # Node and Element sets (familles in French)
-    fas = f.create_group("FAS")
-    families = fas.create_group(mesh_name)
-    family_zero = families.create_group("FAMILLE_ZERO")  # must be defined in any case
-    family_zero.attrs.create("NUM", 0)
+        # Node and Element sets (familles in French)
+        fas = f.create_group("FAS")
+        families = fas.create_group(mesh_name)
+        family_zero = families.create_group("FAMILLE_ZERO")  # must be defined in any case
+        family_zero.attrs.create("NUM", 0)
 
-    # Make sure that all member references are updated (TODO: Evaluate if this can be avoided using a smarter algorithm)
-    part.fem.sets.add_references()
+        # Make sure that all member references are updated
+        # TODO: Evaluate if this can be avoided using a smarter algorithm
+        part.fem.sets.add_references()
 
-    # Nodes and node sets
-    _write_nodes(part, time_step, profile, families)
+        # Nodes and node sets
+        _write_nodes(part, time_step, profile, families)
 
-    # Elements (mailles in French) and element sets
-    elements_str(part, time_step, profile, families)
-
-    f.close()
+        # Elements (mailles in French) and element sets
+        elements_str(part, time_step, profile, families)
 
 
 def _write_mesh_presets(f, mesh_name):

@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from ada.fem.results import Results
     from ada.ifc.concepts import IfcRef
     from ada.visualize.concept import VisMesh
+    from ada.visualize.config import ExportConfig
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 
@@ -322,7 +323,16 @@ class Part(BackendGeom):
             self.add_wall(wall)
 
     def read_step_file(
-        self, step_path, name=None, scale=None, transform=None, rotate=None, colour=None, opacity=1.0, source_units="m"
+        self,
+        step_path,
+        name=None,
+        scale=None,
+        transform=None,
+        rotate=None,
+        colour=None,
+        opacity=1.0,
+        source_units="m",
+        include_shells=False,
     ):
         """
 
@@ -337,7 +347,7 @@ class Part(BackendGeom):
         """
         from ada.occ.utils import extract_shapes
 
-        shapes = extract_shapes(step_path, scale, transform, rotate)
+        shapes = extract_shapes(step_path, scale, transform, rotate, include_shells=include_shells)
 
         if len(shapes) > 0:
             ada_name = name if name is not None else "CAD" + str(len(self.shapes) + 1)
@@ -364,17 +374,16 @@ class Part(BackendGeom):
 
     def get_by_name(self, name) -> Union[Part, Plate, Beam, Shape, Material, Pipe, None]:
         """Get element of any type by its name."""
+        pmap = {p.name: p for p in self.get_all_subparts() + [self]}
+        result = pmap.get(name)
+        if result is not None:
+            return result
+
         for p in self.get_all_subparts() + [self]:
-            if p.name == name:
-                return p
-
-            for bm in p.beams:
-                if bm.name == name:
-                    return bm
-
-            for pl in p.plates:
-                if pl.name == name:
-                    return pl
+            for stru_cont in [p.beams, p.plates]:
+                res = stru_cont.from_name(name)
+                if res is not None:
+                    return res
 
             for shp in p.shapes:
                 if shp.name == name:
@@ -531,7 +540,14 @@ class Part(BackendGeom):
 
         return fem
 
-    def to_vis_mesh(self, export_config=None, auto_merge_by_color=True, opt_func: Callable = None) -> VisMesh:
+    def to_vis_mesh(
+        self,
+        export_config: ExportConfig = None,
+        auto_merge_by_color=True,
+        opt_func: Callable = None,
+        overwrite_cache=False,
+        use_disk_io=False,
+    ) -> VisMesh:
         from ada.visualize.concept import PartMesh, VisMesh
         from ada.visualize.config import ExportConfig
         from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import (
@@ -539,6 +555,7 @@ class Part(BackendGeom):
             obj_to_mesh,
         )
         from ada.visualize.formats.assembly_mesh.write_part_to_mesh import generate_meta
+        from ada.visualize.utils import from_cache
 
         if export_config is None:
             export_config = ExportConfig()
@@ -547,6 +564,7 @@ class Part(BackendGeom):
         print(f"Exporting {all_obj_num} physical objects to custom json format.")
 
         obj_num = 1
+        subgeometries = dict()
         part_array = []
         for p in self.get_all_subparts(include_self=True):
             if export_config.max_convert_objects is not None and obj_num > export_config.max_convert_objects:
@@ -556,12 +574,26 @@ class Part(BackendGeom):
                 continue
             id_map = dict()
             for obj in obj_list:
-
                 print(f'Exporting "{obj.name}" [{obj.get_assembly().name}] ({obj_num} of {all_obj_num})')
-                res = obj_to_mesh(obj, export_config, opt_func=opt_func)
+                cache_file = pathlib.Path(f".cache/{self.name}.h5")
+                if export_config.use_cache is True and cache_file.exists():
+                    res = from_cache(cache_file, obj.guid)
+                    if res is None:
+                        res = obj_to_mesh(obj, export_config, opt_func=opt_func)
+                else:
+                    res = obj_to_mesh(obj, export_config, opt_func=opt_func)
                 if res is None:
                     continue
-                id_map[obj.guid] = res
+                if type(res) is list:
+                    for i, obj_mesh in enumerate(res):
+                        if i > 0:
+                            name = f"{obj.name}_{i}"
+                            guid = create_guid(export_config.name_prefix + name)
+                            obj_mesh.guid = guid
+                            subgeometries[obj_mesh.guid] = (name, obj.parent.guid)
+                        id_map[obj_mesh.guid] = obj_mesh
+                else:
+                    id_map[obj.guid] = res
                 obj_num += 1
                 if export_config.max_convert_objects is not None and obj_num >= export_config.max_convert_objects:
                     print(f'Maximum number of converted objects of "{export_config.max_convert_objects}" reached')
@@ -580,8 +612,10 @@ class Part(BackendGeom):
             name=self.name,
             project=self.metadata.get("project", "DummyProject"),
             world=part_array,
-            meta=generate_meta(self, export_config),
+            meta=generate_meta(self, export_config, sub_geometries=subgeometries),
         )
+        if export_config.use_cache:
+            amesh.to_cache(overwrite_cache)
 
         if auto_merge_by_color:
             return amesh.merge_objects_in_parts_by_color()
@@ -790,7 +824,7 @@ class Assembly(Part):
         name="Ada",
         project="AdaProject",
         user: User = User(),
-        schema="IFC4",
+        schema="IFC4X1",
         settings=Settings(),
         metadata=None,
         units="m",

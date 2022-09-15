@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, List, Union
 
 import numpy as np
@@ -20,11 +20,17 @@ class ExportConfig:
     threads: int = 1
     parallel: bool = True
     merge_by_colour: bool = True
+    merge_subgeometries_by_colour: bool = True
     render_edges: bool = False
     ifc_skip_occ: bool = True
     data_filter: DataFilter = DataFilter()
+
     # Position of model
     volume_center: Union[None, np.ndarray] = None
     auto_center_model: bool = True
-    max_convert_objects: int = None
+    max_convert_objects: Union[int, None] = None
     do_not_load_by_default: List[str] = None
+    use_cache: bool = False
+
+    metadata: dict = field(default_factory=dict)
+    name_prefix: str = ""

@@ -5,15 +5,11 @@ make a fork, experiment and create a pull request when you have something you
 would like to add/change/remove. 
 
 Before making a pull request you need to lint with, isort, flake8 and black.
-Assuming you have a cmd terminal open in the adapy package directory you can
-run
 
-````
-pip install black isort flake8
-isort .
-flake8 .
-black .
-````
+The recommended step for `adapy` is to add a pre-commit step for linting.
 
-Or if you have make installed you can just run `make format` 
-to run all three tools at once.
+First install the `pre-commit` package using ```pip install pre-commit``` or ```conda install -c conda-forge pre-commit```
+
+Then go to the `adapy` root directory and run `pre-commit install`.
+
+Now linting is applied on every commit ensuring that only linted code is pushed. 

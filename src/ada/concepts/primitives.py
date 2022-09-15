@@ -118,9 +118,10 @@ class Shape(BackendGeom):
                 a = self.parent.get_assembly()
                 ifc_file = self.metadata["ifc_file"]
                 ifc_f = a.get_ifc_source_by_name(ifc_file)
-                ifc_elem = ifc_f.by_guid(self.guid)
+                ifc_elem = ifc_f.by_guid(self.metadata["ifc_guid"])
             else:
                 raise NoGeomPassedToShapeError(f'No geometry information attached to shape "{self}"')
+
             geom, color, alpha = get_ifc_geometry(ifc_elem, self.ifc_settings)
             self._geom = geom
             self.colour = color
@@ -161,6 +162,9 @@ class Shape(BackendGeom):
     @material.setter
     def material(self, value):
         self._material = value
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}("{self.name}")'
 
 
 class PrimSphere(Shape):

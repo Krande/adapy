@@ -58,7 +58,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pyver: [ { name: py39, distver: '3.9.10' }, { name: py310, distver: '3.10.2'}]
+        pyver: [ { name: py39, distver: '3.9.10' }, { name: py310, distver: '3.10.4'}]
         platform: [
           { name: Windows, distver: windows-latest, short: 'win-64' },
           { name: Linux, distver: ubuntu-latest, short: 'linux-64' },
@@ -82,7 +82,7 @@ jobs:
         run: |
           conda activate ${{ env.CONDAENV }}
           cd conda
-          conda-build -c ${{env.CONDALABEL}} -c conda-forge . --python=${{ matrix.pyver.distver }} --user krande${{env.CONDALABEL2}} --token=${{ secrets.ANACONDA_TOKEN }}
+          conda-build -c conda-forge -c ${{env.CONDALABEL}} . --python=${{ matrix.pyver.distver }} --user krande${{env.CONDALABEL2}} --token=${{ secrets.ANACONDA_TOKEN }}
   pypi:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test

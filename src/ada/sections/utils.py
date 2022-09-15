@@ -14,6 +14,10 @@ digit = r"\d{0,5}\.?\d{0,5}|\d{0,5}|\d{0,5}\/\d{0,5}"
 flex = r"?:\.|[A-Z]|"
 
 
+class UnableToConvertSectionError(Exception):
+    pass
+
+
 def profile_db_collect(sec_type: str, dim: str, units: str = "m"):
     """Return a section object based on values in a profile db json document. Source JSON is in units 'm' meters."""
     scale_map = {"mm": 1000, "m": 1.0}
@@ -69,7 +73,7 @@ def profile_db_collect(sec_type: str, dim: str, units: str = "m"):
     )
 
 
-def interpret_section_str(in_str: str, s=0.001, units="m"):
+def interpret_section_str(in_str: str, s=0.001, units="m") -> Tuple[Section, Section]:
     """
 
     :param in_str:
@@ -373,7 +377,7 @@ def interpret_section_str(in_str: str, s=0.001, units="m"):
             tap = sec
         return sec, tap
 
-    raise ValueError(f'Unable to interpret section str "{in_str}"')
+    raise UnableToConvertSectionError(f'Unable to interpret section str "{in_str}"')
 
 
 def get_section(sec: Union[Section, str]) -> Tuple[Section, Section]:

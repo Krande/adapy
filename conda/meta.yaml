@@ -18,10 +18,10 @@ requirements:
   run:
     - python
     - numpy
-    - ifcopenshell ==0.7.0
-    - pythonocc-core ==7.5.3
-    - occt ==7.5.3
-    - python-gmsh ==4.9.3
+    - ifcopenshell
+    - pythonocc-core
+    - occt
+    - python-gmsh
     - pyquaternion
     - trimesh
     - pytexit
