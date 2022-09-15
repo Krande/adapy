@@ -5,10 +5,10 @@ import pathlib
 from typing import List
 
 import pandas as pd
+from conftest import beam
 from paradoc import OneDoc
 from paradoc.common import TableFormat
 from test_fem_eig_cantilever import test_fem_eig
-from conftest import beam
 
 from ada.fem.results import EigenDataSummary, Results, results_from_cache
 

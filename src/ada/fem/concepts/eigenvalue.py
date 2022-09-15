@@ -25,12 +25,13 @@ class EigenDataSummary:
     def to_dict(self) -> dict:
         res = dict()
         for m in self.modes:
-            res[m.no] = m.to_dict()
+            key = m.no if isinstance(m.no, np.int32) is False else int(m.no)
+            res[key] = m.to_dict()
         return res
 
     def from_dict(self, values_dict: dict):
         for no in sorted(values_dict.keys(), key=int):
-            self.modes.append(EigenMode(no, source_dict=values_dict[no]))
+            self.modes.append(EigenMode(int(no), source_dict=values_dict[no]))
 
 
 @dataclass
