@@ -5,7 +5,6 @@ import numpy as np
 
 from ada.config import Settings
 from ada.core.constants import O, X, Z
-from ada.core.curve_utils import get_center_from_3_points_and_radius
 from ada.core.vector_utils import (
     angle_between,
     normal_to_points_in_plane,
@@ -239,33 +238,48 @@ def elbow_tesselated(self: "PipeSegElbow", f, schema, a):
 
 
 def elbow_revolved_solid(pipe_elbow: "PipeSegElbow", f, context):
+    # from ada.core.curve_utils import get_center_from_3_points_and_radius
 
-    center, _, _, _ = get_center_from_3_points_and_radius(
-        pipe_elbow.p1.p, pipe_elbow.p2.p, pipe_elbow.p3.p, pipe_elbow.bend_radius
-    )
-
-    opening_axis_placement = create_ifc_placement(f, O, Z, X)
+    p1, p2, p3 = pipe_elbow.p1.p, pipe_elbow.p2.p, pipe_elbow.p3.p
+    # center, _, _, _ = get_center_from_3_points_and_radius(p1, p2, p3, pipe_elbow.bend_radius)
 
     profile = pipe_elbow.section.ifc_profile
-    normal = normal_to_points_in_plane([pipe_elbow.arc_seg.p1, pipe_elbow.arc_seg.p2, pipe_elbow.arc_seg.midpoint])
+    normal = normal_to_points_in_plane([p1, p2, p3])
 
-    p0 = pipe_elbow.arc_seg.p1.astype(float).tolist()
-    midp = pipe_elbow.arc_seg.midpoint
+    # Revolve Angle
+    xvec1 = unit_vector(pipe_elbow.xvec1)
+    xvec2 = unit_vector(pipe_elbow.xvec2)
+    revolve_angle = np.rad2deg(angle_between(xvec1, xvec2))
 
-    revolve_axis = midp + normal
-    revolve_angle = 10
+    # Revolve Axis
+    # revolve_axis = normal
+    # revolve_axis_norm = revolve_axis.astype(float).tolist()
 
-    rev_axis_ = f.create_entity("IfcDirection", revolve_axis.astype(float).tolist())
+    # Revolve Point
+    arc_p1 = pipe_elbow.arc_seg.p1
+    mp = np.array(pipe_elbow.arc_seg.midpoint)
+    diff = mp - arc_p1
 
-    ifcorigin = f.create_entity("IfcCartesianPoint", p0)
-    ifcaxis1dir = f.create_entity("IfcAxis1Placement", ifcorigin, rev_axis_)
+    yvec = np.cross(xvec1, normal)
+    # res = transform3d((X, Y, Z), (normal, yvec, xvec1), O, [diff])[0]
+    # res_norm = to_real(unit_vector(res))
+    res_norm = to_real(diff)
 
-    ifc_shape = f.create_entity("IfcRevolvedAreaSolid", profile, opening_axis_placement, ifcaxis1dir, revolve_angle)
+    rev_axis_dir = f.create_entity("IfcDirection", to_real(yvec))
+    revolve_point = f.create_entity("IfcCartesianPoint", res_norm)
+    revolve_axis1 = f.create_entity("IfcAxis1Placement", revolve_point, rev_axis_dir)
 
-    curve = f.create_entity("IfcTrimmedCurve")
+    position = create_ifc_placement(f, arc_p1, xvec1, to_real(yvec))
 
+    # Body representation
+    ifc_shape = f.create_entity("IfcRevolvedAreaSolid", profile, position, revolve_axis1, revolve_angle)
     body = f.create_entity("IfcShapeRepresentation", context, "Body", "SweptSolid", [ifc_shape])
-    axis = f.create_entity("IfcShapeRepresentation", context, "Axis", "Curve3D", [curve])
-    prod_def_shp = f.createIfcProductDefinitionShape(None, None, (axis, body))
+
+    # Axis representation
+    # curve = f.create_entity("IfcTrimmedCurve")
+    # axis = f.create_entity("IfcShapeRepresentation", context, "Axis", "Curve3D", [curve])
+
+    # Final Product Shape
+    prod_def_shp = f.create_entity("IfcProductDefinitionShape", None, None, (body,))
 
     return prod_def_shp

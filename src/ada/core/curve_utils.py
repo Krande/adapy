@@ -709,6 +709,7 @@ def intersect_line_circle(line, center, radius):
 
 
 def get_center_from_3_points_and_radius(p1, p2, p3, radius):
+    """The 3rd number is required to determine the normal, and then 2 numbers and the radii is used to find c"""
     from ada.core.constants import X, Y
 
     p1 = np.array(p1)
