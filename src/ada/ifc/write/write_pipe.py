@@ -248,18 +248,24 @@ def elbow_revolved_solid(pipe_elbow: "PipeSegElbow", f, context):
 
     profile = pipe_elbow.section.ifc_profile
     normal = normal_to_points_in_plane([pipe_elbow.arc_seg.p1, pipe_elbow.arc_seg.p2, pipe_elbow.arc_seg.midpoint])
-    revolve_axis = pipe_elbow.arc_seg.center + normal
+
+    p0 = pipe_elbow.arc_seg.p1.astype(float).tolist()
+    midp = pipe_elbow.arc_seg.midpoint
+
+    revolve_axis = midp + normal
     revolve_angle = 10
 
-    ifcorigin = f.createIfcCartesianPoint(pipe_elbow.arc_seg.p1.astype(float).tolist())
-    ifcaxis1dir = f.createIfcAxis1Placement(ifcorigin, f.createIfcDirection(revolve_axis.astype(float).tolist()))
+    rev_axis_ = f.create_entity("IfcDirection", revolve_axis.astype(float).tolist())
 
-    ifc_shape = f.createIfcRevolvedAreaSolid(profile, opening_axis_placement, ifcaxis1dir, revolve_angle)
+    ifcorigin = f.create_entity("IfcCartesianPoint", p0)
+    ifcaxis1dir = f.create_entity("IfcAxis1Placement", ifcorigin, rev_axis_)
 
-    curve = f.createIfcTrimmedCurve()
+    ifc_shape = f.create_entity("IfcRevolvedAreaSolid", profile, opening_axis_placement, ifcaxis1dir, revolve_angle)
 
-    body = f.createIfcShapeRepresentation(context, "Body", "SweptSolid", [ifc_shape])
-    axis = f.createIfcShapeRepresentation(context, "Axis", "Curve3D", [curve])
+    curve = f.create_entity("IfcTrimmedCurve")
+
+    body = f.create_entity("IfcShapeRepresentation", context, "Body", "SweptSolid", [ifc_shape])
+    axis = f.create_entity("IfcShapeRepresentation", context, "Axis", "Curve3D", [curve])
     prod_def_shp = f.createIfcProductDefinitionShape(None, None, (axis, body))
 
     return prod_def_shp

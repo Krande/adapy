@@ -2,6 +2,7 @@ from typing import Callable, List, Tuple
 
 import numpy as np
 
+import ada
 from ada import Assembly, Beam, Material, Node, Part, Pipe, Plate, PrimSphere, Section
 from ada.concepts.transforms import Placement
 from ada.core.clash_check import penetration_check
@@ -136,7 +137,7 @@ class SimpleStru(Part):
         self.fem.add_bc(Bc("bc_fix", fem_set_btn, [1, 2, 3]))
 
 
-def simplestru_with_cutouts():
+def simplestru_with_cutouts() -> ada.Assembly:
     pm = SimpleStru("ParametricModel")
     a = Assembly("ParametricSite") / pm
 
