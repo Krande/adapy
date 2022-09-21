@@ -4,12 +4,14 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada.config import Settings
-from ada.core.constants import O, X, Z
+from ada.core.constants import O, X, Z, Y
+from ada.core.curve_utils import get_center_from_3_points_and_radius
 from ada.core.vector_utils import (
     angle_between,
     normal_to_points_in_plane,
     unit_vector,
     vector_length,
+    transform3d
 )
 from ada.ifc.utils import (
     create_guid,
@@ -238,11 +240,9 @@ def elbow_tesselated(self: "PipeSegElbow", f, schema, a):
 
 
 def elbow_revolved_solid(pipe_elbow: "PipeSegElbow", f, context):
-    # from ada.core.curve_utils import get_center_from_3_points_and_radius
-
     p1, p2, p3 = pipe_elbow.p1.p, pipe_elbow.p2.p, pipe_elbow.p3.p
-    # center, _, _, _ = get_center_from_3_points_and_radius(p1, p2, p3, pipe_elbow.bend_radius)
 
+    # Profile
     profile = pipe_elbow.section.ifc_profile
     normal = normal_to_points_in_plane([p1, p2, p3])
 
@@ -251,25 +251,26 @@ def elbow_revolved_solid(pipe_elbow: "PipeSegElbow", f, context):
     xvec2 = unit_vector(pipe_elbow.xvec2)
     revolve_angle = np.rad2deg(angle_between(xvec1, xvec2))
 
-    # Revolve Axis
-    # revolve_axis = normal
-    # revolve_axis_norm = revolve_axis.astype(float).tolist()
-
     # Revolve Point
+    cd = get_center_from_3_points_and_radius(p1, p2, p3, pipe_elbow.bend_radius)
     arc_p1 = pipe_elbow.arc_seg.p1
-    mp = np.array(pipe_elbow.arc_seg.midpoint)
-    diff = mp - arc_p1
+    diff = cd.center - arc_p1
 
+    # Transform Axis normal and position to the local coordinate system
     yvec = np.cross(xvec1, normal)
-    # res = transform3d((X, Y, Z), (normal, yvec, xvec1), O, [diff])[0]
-    # res_norm = to_real(unit_vector(res))
-    res_norm = to_real(diff)
+    global_csys = (X, Y, Z)
+    new_csys = (normal, yvec, xvec1)
 
-    rev_axis_dir = f.create_entity("IfcDirection", to_real(yvec))
-    revolve_point = f.create_entity("IfcCartesianPoint", res_norm)
+    n_tra, diff_tra = transform3d(global_csys, new_csys, O, [normal, diff])
+    n_tra_norm = to_real(unit_vector(n_tra))
+    diff_tra_norm = to_real(diff_tra)
+
+    # Revolve Axis
+    rev_axis_dir = f.create_entity("IfcDirection", n_tra_norm)
+    revolve_point = f.create_entity("IfcCartesianPoint", diff_tra_norm)
     revolve_axis1 = f.create_entity("IfcAxis1Placement", revolve_point, rev_axis_dir)
 
-    position = create_ifc_placement(f, arc_p1, xvec1, to_real(yvec))
+    position = create_ifc_placement(f, arc_p1, xvec1, normal)
 
     # Body representation
     ifc_shape = f.create_entity("IfcRevolvedAreaSolid", profile, position, revolve_axis1, revolve_angle)

@@ -463,7 +463,7 @@ def poly_area(x, y):
     return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
 
 
-def global_2_local_nodes(csys, origin, nodes):
+def global_2_local_nodes(csys, origin, nodes, use_quaternion=True):
     """
 
     :param csys: List of tuples containing; [LocalX, LocalY]
@@ -474,7 +474,7 @@ def global_2_local_nodes(csys, origin, nodes):
     from ada import Node
 
     global_csys = [(1, 0, 0), (0, 1, 0)]
-    rmat = rotation_matrix_csys_rotate(global_csys, csys)
+    rmat = rotation_matrix_csys_rotate(global_csys, csys, use_quaternion=use_quaternion)
 
     if type(origin) is Node:
         origin = origin.p

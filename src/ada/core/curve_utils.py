@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
+from dataclasses import dataclass
 from ada.config import Settings as _Settings
 from ada.occ.utils import get_midpoint_of_arc
 
@@ -708,9 +709,17 @@ def intersect_line_circle(line, center, radius):
     return p
 
 
-def get_center_from_3_points_and_radius(p1, p2, p3, radius):
+@dataclass
+class CurveData:
+    center: np.ndarray
+    start: np.ndarray
+    end: np.ndarray
+    midp: np.ndarray
+
+
+def get_center_from_3_points_and_radius(p1, p2, p3, radius) -> CurveData:
     """The 3rd number is required to determine the normal, and then 2 numbers and the radii is used to find c"""
-    from ada.core.constants import X, Y
+    from ada.core.constants import X, Y, O
 
     p1 = np.array(p1)
     p2 = np.array(p2)
@@ -720,17 +729,24 @@ def get_center_from_3_points_and_radius(p1, p2, p3, radius):
     n = normal_to_points_in_plane(points)
     xv = p2 - p1
     yv = calc_yvec(xv, n)
-    if angle_between(xv, X) in (np.pi, 0) and angle_between(yv, Y) in (np.pi, 0):
-        locn = [p - p1 for p in points]
-        res_locn = calc_2darc_start_end_from_lines_radius(*locn, radius)
+
+    point_to_origin = [p - p1 for p in points]
+
+    is_in_xy_plane = angle_between(xv, X) in (np.pi, 0) and angle_between(yv, Y) in (np.pi, 0)
+
+    if is_in_xy_plane:
+        res_locn = calc_2darc_start_end_from_lines_radius(*point_to_origin, radius)
         res_glob = [np.array([p[0], p[1], 0]) + p1 for p in res_locn]
     else:
-        locn = global_2_local_nodes([xv, yv], p1, points)
-        res_loc = calc_2darc_start_end_from_lines_radius(*locn, radius)
-        res_glob = local_2_global_points(res_loc, p1, xv, n)
+        xv_norm, yv_norm = unit_vector(xv), unit_vector(yv)
+        points_in_2d_plane = global_2_local_nodes([xv_norm, yv_norm], O, point_to_origin)
+        res_loc = calc_2darc_start_end_from_lines_radius(*points_in_2d_plane, radius)
+        res_rotated_back = local_2_global_points(res_loc, O, xv_norm, n)
+        res_glob = [p + p1 for p in res_rotated_back]
+
     center, start, end, midp = res_glob
 
-    return center, start, end, midp
+    return CurveData(center, start, end, midp)
 
 
 def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius):

@@ -10,9 +10,10 @@ from ada.ifc.utils import (
     create_local_placement,
     ifc_p,
     to_real,
+    create_reference_subrep,
 )
 
-from .helper_utils import create_reference_subrep, ifc_vertex
+from .helper_utils import ifc_vertex
 
 
 def to_ifc_fem(fem: FEM, f: ifcopenshell.file) -> None:
