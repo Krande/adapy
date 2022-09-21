@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import math
 import pathlib
@@ -53,6 +55,7 @@ from .exceptions.geom_creation import (
 
 if TYPE_CHECKING:
     from ada import Part
+    from ada.core.vector_utils import EquationOfPlane
 
 
 def extract_shapes(step_path, scale, transform, rotate, include_shells=False):
@@ -536,6 +539,16 @@ def make_ori_vector(
         colour="RED",
     )
     return Part(name, units=units) / (o_shape, x_vec_shape, y_vec_shape, z_vec_shape)
+
+
+def make_eq_plane_object(name, eq_plane: EquationOfPlane, **kwargs) -> Part:
+    from ada import Plate
+
+    ori_vec_model = make_ori_vector(name=name, **kwargs)
+    # add flat_surface
+    eq_plane.return_points_in_plane()
+    ori_vec_model.add_plate(Plate("Surface", [()], 0.001))
+    return ori_vec_model
 
 
 def visualize_elem_ori(elem):

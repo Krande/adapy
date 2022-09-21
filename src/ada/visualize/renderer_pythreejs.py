@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import uuid
 from dataclasses import dataclass
@@ -32,7 +34,7 @@ from pythreejs import (
 from ada.fem import Elem
 
 if TYPE_CHECKING:
-    from ada import Beam, Part, Pipe, Plate, Shape, Wall
+    from ada import Beam, Part, Pipe, PipeSegElbow, PipeSegStraight, Plate, Shape, Wall
     from ada.concepts.connections import JointBase
 
 __all__ = ["MyRenderer", "SectionRenderer"]
@@ -188,7 +190,7 @@ class MyRenderer(JupyterRenderer):
         ]
         self._fem_refs[part.fem.name] = (part.fem, edge_geometry)
 
-    def DisplayAdaShape(self, shp: "Shape"):
+    def DisplayAdaShape(self, shp: Shape):
         res = self.DisplayShape(
             shp.geom,
             transparency=shp.transparent,
@@ -199,7 +201,7 @@ class MyRenderer(JupyterRenderer):
         for r in res:
             self._refs[r.name] = shp
 
-    def DisplayBeam(self, beam: "Beam"):
+    def DisplayBeam(self, beam: Beam):
         try:
             if "ifc_file" in beam.metadata.keys():
                 from ada.ifc.read.read_shapes import get_ifc_geometry
@@ -230,8 +232,14 @@ class MyRenderer(JupyterRenderer):
         for r in res:
             self._refs[r.name] = plate
 
-    def DisplayPipe(self, pipe: "Pipe"):
-        # self.AddShapeToScene(geom)
+    def DisplayPipeSeg(self, pipe_seg: PipeSegElbow | PipeSegStraight):
+        res = []
+        res += self.DisplayShape(pipe_seg.solid, shape_color=pipe_seg.parent.colour_webgl, opacity=0.5)
+
+        for r in res:
+            self._refs[r.name] = pipe_seg
+
+    def DisplayPipe(self, pipe: Pipe):
         res = []
 
         for i, geom in enumerate([x.solid for x in pipe.segments]):
@@ -285,7 +293,7 @@ class MyRenderer(JupyterRenderer):
         list(filter(None, map(self.DisplayBeam, all_beams)))
 
     def DisplayObj(self, obj):
-        from ada import Beam, Part, Pipe, Plate, Shape
+        from ada import Beam, Part, Pipe, PipeSegElbow, PipeSegStraight, Plate, Shape
         from ada.concepts.connections import JointBase
 
         if issubclass(type(obj), Part) is True:
@@ -296,6 +304,8 @@ class MyRenderer(JupyterRenderer):
             self.DisplayPlate(obj)
         elif type(obj) is Pipe:
             self.DisplayPipe(obj)
+        elif isinstance(obj, (PipeSegStraight, PipeSegElbow)):
+            self.DisplayPipeSeg(obj)
         elif issubclass(type(obj), JointBase):
             self.display_joint(obj)
         elif issubclass(type(obj), Shape):
@@ -710,6 +720,10 @@ class MyRenderer(JupyterRenderer):
             html_value += table_str
         elif type(selected_part) is Pipe:
             html_value += ", <b>Type:</b> Pipe<br>"
+        elif isinstance(selected_part, PipeSegStraight):
+            html_value += ", <b>Type:</b> PipeSegStraight<br>"
+        elif isinstance(selected_part, PipeSegElbow):
+            html_value += ", <b>Type:</b> PipeSegElbow<br>"
         elif type(selected_part) is Wall:
             html_value += ", <b>Type:</b> Wall<br>"
         else:

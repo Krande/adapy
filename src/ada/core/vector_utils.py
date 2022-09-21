@@ -1,10 +1,37 @@
-from typing import List
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Iterable, List
 
 import numpy as np
 
 from ada.config import Settings
 
 from .exceptions import VectorNormalizeError
+
+
+@dataclass
+class EquationOfPlane:
+    point_in_plane: tuple | list | np.ndarray
+    normal: tuple | list | np.ndarray
+
+    def __post_init__(self):
+        point_in_plane = self.point_in_plane
+        normal = self.normal
+        x1, y1, z1 = point_in_plane
+        a = normal[0]
+        b = normal[1]
+        c = normal[2]
+        self.d = -(a * x1 + b * y1 + c * z1)
+
+    def return_points_in_plane(self, points: np.ndarray) -> np.ndarray:
+        return points[points.dot(self.normal) + self.d == 0]
+
+    def is_point_in_plane(self, point: Iterable):
+        if isinstance(point, np.ndarray) is False:
+            point = np.array(point)
+
+        return point.dot(self.normal) + self.d == 0
 
 
 def linear_2dtransform_rotate(origin, point, degrees) -> np.ndarray:
@@ -542,17 +569,7 @@ def normal_to_points_in_plane(points) -> np.ndarray:
                 break
 
     # the cross product is a vector normal to the plane
-
     n = np.array([x if abs(x) != 0.0 else 0.0 for x in list(np.cross(v1, v2))])
-    # if n[2] < 0.0:
-    #     n *= -1
-    #
-    # if n[2] == 0 and n[1] == -1:
-    #     n *= -1
-    #
-    # if n[2] == 0 and n[0] == -1:
-    #     n *= -1
-
     if n.any() == 0.0:
         raise ValueError("Error in calculating plate normal")
 

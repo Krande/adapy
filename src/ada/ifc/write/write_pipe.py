@@ -4,14 +4,14 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada.config import Settings
-from ada.core.constants import O, X, Z, Y
+from ada.core.constants import O, X, Y, Z
 from ada.core.curve_utils import get_center_from_3_points_and_radius
 from ada.core.vector_utils import (
     angle_between,
     normal_to_points_in_plane,
+    transform3d,
     unit_vector,
     vector_length,
-    transform3d
 )
 from ada.ifc.utils import (
     create_guid,
@@ -203,11 +203,12 @@ def write_pipe_elbow_seg(pipe_elbow: "PipeSegElbow"):
 
     pfitting_placement = create_local_placement(f)
 
-    pfitting = f.createIfcPipeFitting(
+    pfitting = f.create_entity(
+        "IfcPipeFitting",
         create_guid(),
         owner_history,
         pipe_elbow.name,
-        "An awesome Elbow",
+        "An curved pipe segment",
         None,
         pfitting_placement,
         ifc_elbow,
