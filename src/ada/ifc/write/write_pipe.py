@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING
 
@@ -28,8 +30,8 @@ if TYPE_CHECKING:
     from ada import Pipe, PipeSegElbow, PipeSegStraight
 
 
-def write_ifc_pipe(pipe: "Pipe"):
-    from ada import PipeSegElbow, PipeSegStraight
+def write_ifc_pipe(pipe: Pipe):
+    from ada import PipeSegStraight
 
     ifc_pipe = write_pipe_ifc_elem(pipe)
 
@@ -40,11 +42,9 @@ def write_ifc_pipe(pipe: "Pipe"):
 
     segments = []
     for param_seg in pipe.segments:
-        if type(param_seg) is PipeSegStraight:
-            assert isinstance(param_seg, PipeSegStraight)
+        if isinstance(param_seg, PipeSegStraight):
             res = param_seg.get_ifc_elem()
         else:
-            assert isinstance(param_seg, PipeSegElbow)
             res = param_seg.get_ifc_elem()
         if res is None:
             logging.error(f'Branch "{param_seg.name}" was not converted to ifc element')
@@ -63,7 +63,7 @@ def write_ifc_pipe(pipe: "Pipe"):
     return ifc_pipe
 
 
-def write_pipe_ifc_elem(pipe: "Pipe"):
+def write_pipe_ifc_elem(pipe: Pipe):
     if pipe.parent is None:
         raise ValueError("Cannot build ifc element without parent")
 
@@ -115,7 +115,7 @@ def write_pipe_ifc_elem(pipe: "Pipe"):
     return ifc_elem
 
 
-def write_pipe_straight_seg(pipe_seg: "PipeSegStraight"):
+def write_pipe_straight_seg(pipe_seg: PipeSegStraight):
     if pipe_seg.parent is None:
         raise ValueError("Parent cannot be None for IFC export")
 
@@ -182,7 +182,7 @@ def write_pipe_straight_seg(pipe_seg: "PipeSegStraight"):
     return pipe_segment
 
 
-def write_pipe_elbow_seg(pipe_elbow: "PipeSegElbow"):
+def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
     if pipe_elbow.parent is None:
         raise ValueError("Parent cannot be None for IFC export")
 
@@ -227,7 +227,7 @@ def write_pipe_elbow_seg(pipe_elbow: "PipeSegElbow"):
     return pfitting
 
 
-def elbow_tesselated(self: "PipeSegElbow", f, schema, a):
+def elbow_tesselated(self: PipeSegElbow, f, schema, a):
     shape = self.solid
 
     if shape is None:
@@ -240,7 +240,7 @@ def elbow_tesselated(self: "PipeSegElbow", f, schema, a):
     return ifc_shape
 
 
-def elbow_revolved_solid(pipe_elbow: "PipeSegElbow", f, context):
+def elbow_revolved_solid(pipe_elbow: PipeSegElbow, f, context):
     p1, p2, p3 = pipe_elbow.p1.p, pipe_elbow.p2.p, pipe_elbow.p3.p
 
     # Profile
@@ -255,6 +255,7 @@ def elbow_revolved_solid(pipe_elbow: "PipeSegElbow", f, context):
     # Revolve Point
     cd = get_center_from_3_points_and_radius(p1, p2, p3, pipe_elbow.bend_radius)
     arc_p1 = pipe_elbow.arc_seg.p1
+    # dn = arc_p1 + arc_p1 * normal
     diff = cd.center - arc_p1
 
     # Transform Axis normal and position to the local coordinate system

@@ -27,12 +27,12 @@ def test_pipe_multiple_bends(pipe_w_multiple_bends):
 
     Settings.make_param_elbows = True
     a = Assembly("MyTest") / (Part("MyPart") / pipe_w_multiple_bends)
-    a.to_stp(test_dir / "pipe_bend_multiple.stp")
+    # a.to_stp(test_dir / "pipe_bend_multiple.stp")
     a.to_ifc(test_dir / "pipe_bend_multiple.ifc")
     # dummy_display(a)
 
 
-def test_write_multiple_elbow_revolved_solid(pipe_w_single_90_deg_bend):
+def test_write_single_90_deg_elbow_revolved_solid(pipe_w_single_90_deg_bend):
     a = Assembly("MyTest") / (Part("MyPart") / pipe_w_single_90_deg_bend)
     elbow = pipe_w_single_90_deg_bend.segments[1]
     assert elbow.arc_seg.radius == pytest.approx(0.195958125)
