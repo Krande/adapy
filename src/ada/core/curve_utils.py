@@ -1,9 +1,9 @@
 import os
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
-from dataclasses import dataclass
 from ada.config import Settings as _Settings
 from ada.occ.utils import get_midpoint_of_arc
 
@@ -656,7 +656,7 @@ def calc_arc_radius_center_from_3points(start, midpoint, end):
     return center, radius
 
 
-def intersect_line_circle(line, center, radius):
+def intersect_line_circle(line, center, radius, tol=1e-1):
     """
 
     Source:
@@ -665,11 +665,6 @@ def intersect_line_circle(line, center, radius):
 
         # Working with threshold value for real parts
         https://stackoverflow.com/a/28084225/8053631
-
-    :param line:
-    :param center:
-    :param radius:
-    :return:
     """
 
     x1, y1 = line[0][:2]
@@ -680,12 +675,6 @@ def intersect_line_circle(line, center, radius):
     a = (x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2
     b = 2 * ((x2 - x1) * (x1 - x3) + (y2 - y1) * (y1 - y3) + (z2 - z1) * (z1 - z3))
     c = x3**2 + y3**2 + z3**2 + x1**2 + y1**2 + z1**2 - 2 * (x3 * x1 + y3 * y1 + z3 * z1) - radius**2
-
-    tol = 1e-1
-    # if abs(b) < tol:
-    #     b = roundoff(b)
-    # if abs(c) < tol:
-    #     c = roundoff(c)
 
     ev = b * b - 4 * a * c
 
@@ -702,9 +691,9 @@ def intersect_line_circle(line, center, radius):
         p.append(roundoff((pa + pb) / 2, 5))
 
     if ev < 0.0 and abs(ev) > tol:
-        raise ValueError(f'The line "{line}" does not intersect sphere ({center}, {radius})')
+        raise ValueError(f'The line "{line}" does not intersect sphere ({center}, {radius}) using {tol=}')
     elif ev > 0.0 and abs(ev) > tol:
-        raise ValueError(f'The line "{line}" intersects sphere ({center}, {radius}) at multiple points')
+        raise ValueError(f'The line "{line}" intersects sphere ({center}, {radius}) at multiple points using {tol=}')
 
     return p
 
@@ -717,9 +706,9 @@ class CurveData:
     midp: np.ndarray
 
 
-def get_center_from_3_points_and_radius(p1, p2, p3, radius) -> CurveData:
+def get_center_from_3_points_and_radius(p1, p2, p3, radius, tol=1e-1) -> CurveData:
     """The 3rd number is required to determine the normal, and then 2 numbers and the radii is used to find c"""
-    from ada.core.constants import X, Y, O
+    from ada.core.constants import O, X, Y
 
     p1 = np.array(p1)
     p2 = np.array(p2)
@@ -740,7 +729,7 @@ def get_center_from_3_points_and_radius(p1, p2, p3, radius) -> CurveData:
     else:
         xv_norm, yv_norm = unit_vector(xv), unit_vector(yv)
         points_in_2d_plane = global_2_local_nodes([xv_norm, yv_norm], O, point_to_origin)
-        res_loc = calc_2darc_start_end_from_lines_radius(*points_in_2d_plane, radius)
+        res_loc = calc_2darc_start_end_from_lines_radius(*points_in_2d_plane, radius, tol=tol)
         res_rotated_back = local_2_global_points(res_loc, O, xv_norm, n)
         res_glob = [p + p1 for p in res_rotated_back]
 
@@ -749,7 +738,7 @@ def get_center_from_3_points_and_radius(p1, p2, p3, radius) -> CurveData:
     return CurveData(center, start, end, midp)
 
 
-def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius):
+def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius, tol=1e-1):
     """
     From intersecting lines and a given radius return the arc start, end, center of radius and a point on the arc
 
@@ -758,11 +747,6 @@ def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius):
         http://paulbourke.net/geometry/circlesphere/
         https://math.stackexchange.com/questions/797828/calculate-center-of-circle-tangent-to-two-lines-in-space
 
-    :param p1:
-    :param p2:
-    :param p3:
-    :param radius:
-    :return: center, start, end, midp
     """
 
     p1 = p1[:2] if type(p1) is np.ndarray else np.array(p1[:2])
@@ -798,8 +782,8 @@ def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius):
 
     else:
         center = linear_2dtransform_rotate(p2, A, np.rad2deg(theta))
-        start = intersect_line_circle((p1, p2), center, radius)
-        end = intersect_line_circle((p3, p2), center, radius)
+        start = intersect_line_circle((p1, p2), center, radius, tol=tol)
+        end = intersect_line_circle((p3, p2), center, radius, tol=tol)
 
         vc1 = np.array([start[0], start[1], 0.0]) - np.array([center[0], center[1], 0.0])
         vc2 = np.array([end[0], end[1], 0.0]) - np.array([center[0], center[1], 0.0])

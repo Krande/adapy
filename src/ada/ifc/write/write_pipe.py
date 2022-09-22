@@ -5,13 +5,12 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.config import Settings
-from ada.core.constants import O, X, Y, Z
+from ada.core.constants import O, X, Z
 from ada.core.curve_utils import get_center_from_3_points_and_radius
 from ada.core.vector_utils import (
     angle_between,
+    global_2_local_nodes,
     normal_to_points_in_plane,
-    transform3d,
     unit_vector,
     vector_length,
 )
@@ -191,16 +190,8 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
 
     context = f.by_type("IfcGeometricRepresentationContext")[0]
     owner_history = a.user.to_ifc()
-    schema = a.ifc_file.wrapped_data.schema
-
-    if Settings.make_param_elbows is False:
-        ifc_elbow = elbow_tesselated(pipe_elbow, f, schema, a)
-        # Link to representation context
-        for rep in ifc_elbow.Representations:
-            rep.ContextOfItems = context
-    else:
-        ifc_elbow = elbow_revolved_solid(pipe_elbow, f, context)
-        # ifc_elbow = elbow_swept_solid(pipe_elbow, f, context)
+    tol = get_tolerance(a.units)
+    ifc_elbow = elbow_revolved_solid(pipe_elbow, f, context, tol)
 
     pfitting_placement = create_local_placement(f)
 
@@ -241,12 +232,14 @@ def elbow_tesselated(self: PipeSegElbow, f, schema, a):
     return ifc_shape
 
 
-def elbow_revolved_solid(pipe_elbow: PipeSegElbow, f, context):
-    p1, p2, p3 = pipe_elbow.p1.p, pipe_elbow.p2.p, pipe_elbow.p3.p
+def elbow_revolved_solid(pipe_elbow: PipeSegElbow, f, context, tol=1e-1):
+    from ada.core.vector_utils import calc_yvec
 
+    points = [pipe_elbow.p1.p, pipe_elbow.p2.p, pipe_elbow.p3.p]
+    points.reverse()
     # Profile
     profile = pipe_elbow.section.ifc_profile
-    normal = normal_to_points_in_plane([p1, p2, p3])
+    normal = normal_to_points_in_plane(points)
 
     # Revolve Angle
     xvec1 = unit_vector(pipe_elbow.xvec1)
@@ -254,32 +247,20 @@ def elbow_revolved_solid(pipe_elbow: PipeSegElbow, f, context):
     revolve_angle = np.rad2deg(angle_between(xvec1, xvec2))
 
     # Revolve Point
-    cd = get_center_from_3_points_and_radius(p1, p2, p3, pipe_elbow.bend_radius)
+    cd = get_center_from_3_points_and_radius(*points, pipe_elbow.bend_radius, tol=tol)
     extrusion_start_p = pipe_elbow.arc_seg.p1
     # dn = arc_p1 + arc_p1 * normal
     diff = cd.center - extrusion_start_p
 
     # Transform Axis normal and position to the local coordinate system
-    yvec = np.cross(xvec1, normal)
-    global_csys = (X, Y, Z)
+    yvec = calc_yvec(normal, xvec1)
     new_csys = (normal, yvec, xvec1)
 
-    diff_tra = transform3d(global_csys, new_csys, O, [diff])[0]
-    n_tra = transform3d(global_csys, new_csys, O, [normal])[0]
+    diff_tra = global_2_local_nodes(new_csys, O, [diff])[0]
+    n_tra = global_2_local_nodes(new_csys, O, [normal])[0]
 
     n_tra_norm = to_real(unit_vector(n_tra))
     diff_tra_norm = to_real(diff_tra)
-
-    # abs_coord = transform3d(new_csys, global_csys, O, [diff_tra])[0] + extrusion_start_p
-    # eqpn = EquationOfPlane(extrusion_start_p, normal=xvec1, yvec=normal)
-    # if eqpn.is_point_in_plane(abs_coord) is False:
-    #     diff = abs_coord - extrusion_start_p
-    #     dist = diff.dot(eqpn.normal)
-    #     projected_point = abs_coord - dist * eqpn.normal
-
-    # new_p = transform3d(global_csys, new_csys, O, [projected_point - extrusion_start_p])[0]
-    # diff_tra_norm = to_real(new_p)
-    # print('Point is not in XY-plane')
 
     # Revolve Axis
     rev_axis_dir = f.create_entity("IfcDirection", n_tra_norm)
@@ -314,7 +295,10 @@ def elbow_swept_solid(pipe_elbow: PipeSegElbow, f, context):
     curve = f.createIfcIndexedPolyCurve(ifc_point_list)
 
     position = create_ifc_placement(f)
-    position_surf = create_ifc_placement(f, cd.center, )
+    position_surf = create_ifc_placement(
+        f,
+        cd.center,
+    )
 
     # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/lexical/IfcCylindricalSurface.htm
     surface = f.createIfcCylindricalSurface(position_surf, seg.radius)
