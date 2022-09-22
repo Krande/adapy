@@ -55,7 +55,7 @@ from .exceptions.geom_creation import (
 
 if TYPE_CHECKING:
     from ada import Part
-    from ada.core.vector_utils import EquationOfPlane
+    from ada.core.vector_utils import EquationOfPlane, Plane
 
 
 def extract_shapes(step_path, scale, transform, rotate, include_shells=False):
@@ -541,27 +541,18 @@ def make_ori_vector(
     return Part(name, units=units) / (o_shape, x_vec_shape, y_vec_shape, z_vec_shape)
 
 
-def make_eq_plane_object(name, eq_plane: EquationOfPlane, p_dist=1, **kwargs) -> Part:
+def make_eq_plane_object(name, eq_plane: EquationOfPlane, p_dist=1, plane: Plane = None, colour="white") -> Part:
     from ada import Plate
+    from ada.core.vector_utils import Plane
 
-    # add flat_surface
-    p0 = eq_plane.d
-    if sum(abs(eq_plane.normal) - np.array([0, 0, 1])) < 1e-5:
-        vec1 = np.array([1, 0, 0])
-    else:
-        vec1 = np.array([0, 0, 1])
+    if plane is None:
+        plane = Plane.XY
 
-    vec2 = unit_vector(np.cross(eq_plane.normal, vec1))
-    vec3 = unit_vector(np.cross(eq_plane.normal, vec2))
-    csys = [vec2, vec3, eq_plane.normal]
-    ori_vec_model = make_ori_vector(name=name, origin=p0, csys=csys, **kwargs)
+    csys = eq_plane.get_lcsys()
+    points = eq_plane.get_points_in_lcsys_plane(p_dist=p_dist, plane=plane)
+    ori_vec_model = make_ori_vector(name=name, origin=eq_plane.point_in_plane, csys=csys)
 
-    p1 = p0 + vec2 * p_dist + vec3 * p_dist
-    p2 = p0 - vec2 * p_dist + vec3 * p_dist
-    p3 = p0 - vec2 * p_dist - vec3 * p_dist
-    p4 = p0 + vec2 * p_dist - vec3 * p_dist
-
-    ori_vec_model.add_plate(Plate("Surface", [p1, p2, p3, p4], 0.001))
+    ori_vec_model.add_plate(Plate("Surface", points, 0.001, use3dnodes=True, colour=colour, opacity=0.3))
     return ori_vec_model
 
 

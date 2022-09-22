@@ -14,6 +14,7 @@ from ada.core.vector_utils import (
     transform3d,
     unit_vector,
     vector_length,
+    EquationOfPlane,
 )
 from ada.ifc.utils import (
     create_guid,
@@ -254,9 +255,9 @@ def elbow_revolved_solid(pipe_elbow: PipeSegElbow, f, context):
 
     # Revolve Point
     cd = get_center_from_3_points_and_radius(p1, p2, p3, pipe_elbow.bend_radius)
-    arc_p1 = pipe_elbow.arc_seg.p1
+    extrusion_start_p = pipe_elbow.arc_seg.p1
     # dn = arc_p1 + arc_p1 * normal
-    diff = cd.center - arc_p1
+    diff = cd.center - extrusion_start_p
 
     # Transform Axis normal and position to the local coordinate system
     yvec = np.cross(xvec1, normal)
@@ -267,12 +268,24 @@ def elbow_revolved_solid(pipe_elbow: PipeSegElbow, f, context):
     n_tra_norm = to_real(unit_vector(n_tra))
     diff_tra_norm = to_real(diff_tra)
 
+    abs_coord = transform3d(new_csys, global_csys, O, [diff_tra])[0] + extrusion_start_p
+    eqpn = EquationOfPlane(extrusion_start_p, normal=xvec1, yvec=normal)
+    if eqpn.is_point_in_plane(abs_coord) is False:
+        diff = abs_coord - extrusion_start_p
+        dist = diff.dot(eqpn.normal)
+        projected_point = abs_coord - dist * eqpn.normal
+
+        # new_p = transform3d(global_csys, new_csys, O, [projected_point - extrusion_start_p])[0]
+        # diff_tra_norm = to_real(new_p)
+        print('Point is not in XY-plane')
+
+
     # Revolve Axis
     rev_axis_dir = f.create_entity("IfcDirection", n_tra_norm)
     revolve_point = f.create_entity("IfcCartesianPoint", diff_tra_norm)
     revolve_axis1 = f.create_entity("IfcAxis1Placement", revolve_point, rev_axis_dir)
 
-    position = create_ifc_placement(f, arc_p1, xvec1, normal)
+    position = create_ifc_placement(f, extrusion_start_p, xvec1, normal)
 
     # Body representation
     ifc_shape = f.create_entity("IfcRevolvedAreaSolid", profile, position, revolve_axis1, revolve_angle)
