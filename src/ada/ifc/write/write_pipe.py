@@ -9,8 +9,9 @@ from ada.core.constants import O, X, Z
 from ada.core.curve_utils import get_center_from_3_points_and_radius
 from ada.core.vector_utils import (
     angle_between,
+    calc_yvec,
+    calc_zvec,
     global_2_local_nodes,
-    normal_to_points_in_plane,
     unit_vector,
     vector_length,
 )
@@ -232,25 +233,20 @@ def elbow_tesselated(self: PipeSegElbow, f, schema, a):
     return ifc_shape
 
 
-def elbow_revolved_solid(pipe_elbow: PipeSegElbow, f, context, tol=1e-1):
-    from ada.core.vector_utils import calc_yvec
+def elbow_revolved_solid(elbow: PipeSegElbow, f, context, tol=1e-1):
+    xvec1 = unit_vector(elbow.xvec1)
+    xvec2 = unit_vector(elbow.xvec2)
+    normal = unit_vector(calc_zvec(xvec1, xvec2))
 
-    points = [pipe_elbow.p1.p, pipe_elbow.p2.p, pipe_elbow.p3.p]
-    points.reverse()
     # Profile
-    profile = pipe_elbow.section.ifc_profile
-    normal = normal_to_points_in_plane(points)
+    profile = elbow.section.ifc_profile
 
     # Revolve Angle
-    xvec1 = unit_vector(pipe_elbow.xvec1)
-    xvec2 = unit_vector(pipe_elbow.xvec2)
     revolve_angle = np.rad2deg(angle_between(xvec1, xvec2))
 
     # Revolve Point
-    cd = get_center_from_3_points_and_radius(*points, pipe_elbow.bend_radius, tol=tol)
-    extrusion_start_p = pipe_elbow.arc_seg.p1
-    # dn = arc_p1 + arc_p1 * normal
-    diff = cd.center - extrusion_start_p
+    cd = get_center_from_3_points_and_radius(elbow.p1.p, elbow.p2.p, elbow.p3.p, elbow.bend_radius, tol=tol)
+    diff = cd.center - elbow.arc_seg.p1
 
     # Transform Axis normal and position to the local coordinate system
     yvec = calc_yvec(normal, xvec1)
@@ -267,7 +263,7 @@ def elbow_revolved_solid(pipe_elbow: PipeSegElbow, f, context, tol=1e-1):
     revolve_point = f.create_entity("IfcCartesianPoint", diff_tra_norm)
     revolve_axis1 = f.create_entity("IfcAxis1Placement", revolve_point, rev_axis_dir)
 
-    position = create_ifc_placement(f, extrusion_start_p, xvec1, normal)
+    position = create_ifc_placement(f, elbow.arc_seg.p1, xvec1, normal)
 
     # Body representation
     ifc_shape = f.create_entity("IfcRevolvedAreaSolid", profile, position, revolve_axis1, revolve_angle)

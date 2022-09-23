@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, ClassVar
 from enum import Enum
+from typing import ClassVar, Iterable, List
 
 import numpy as np
 
@@ -126,7 +126,7 @@ def rotation_matrix_csys_rotate(csys1_in, csys2_in, inverse=False, use_quaternio
     Resources:
 
         https://en.wikipedia.org/wiki/Rotation_matrix
-        http://kieranwynn.github.io/pyquaternion/
+        https://kieranwynn.github.io/pyquaternion/
 
     :param csys1_in: Coordinate system 1 defined by 2 vectors [LocalX, LocalY]
     :param csys2_in: Coordinate system 1 defined by 2 vectors [LocalX, LocalY]
@@ -657,7 +657,7 @@ def calc_zvec(x_vec, y_vec=None) -> np.ndarray:
             z_vec = np.array(Y)
         return z_vec
     else:
-        np.cross(x_vec, y_vec)
+        return np.cross(x_vec, y_vec)
 
 
 def is_on_line(data):
