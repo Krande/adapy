@@ -21,9 +21,9 @@ conda create -n adaenv -c conda-forge -c krande/label/dev ada-py
 
 Here are some of the goals with `ada-py`:
 
-* To create a toolbox that makes it easy to add support for conversion to/from different FEM packages and 3D model formats
+* To create a toolbox that makes it easy to add support for conversion to/from different FE packages and 3D model formats
 * Provide a path for creating FE meshes from IFC models.
-* Add tools for running and post-processing FE analysis to directly compare results from different open source and proprietary FEM solvers.
+* Add tools for running and post-processing FE analysis to directly compare results from different open source and proprietary FE solvers.
 * Using IFC as the 3d model data structure, provide tools for advanced parametric 3d model design and automated design modification and verification.
 
 ## Quick Links
