@@ -23,6 +23,7 @@ Here are some of the goals with `ada-py`:
 
 * To create a toolbox that makes it easy to add support for conversion to/from different FEM packages and 3D model formats
 * Provide a path for creating FE meshes from IFC models.
+* Add tools for running, post-processing and comparing FEM analysis between different open source and proprietary FEM solvers.
 * Using IFC as the 3d model data structure, provide tools for advanced parametric 3d model design and automated design modification and verification.
 
 ## Quick Links
