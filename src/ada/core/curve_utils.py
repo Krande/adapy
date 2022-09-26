@@ -690,6 +690,10 @@ def intersect_line_circle(line, center, radius, tol=1e-1):
     for pa, pb in zip(p1 + res[1] * vec, p1 + res[1] * vec):
         p.append(roundoff((pa + pb) / 2, 5))
 
+    # It's not necessarily practical to use a 1mm point tolerance for this. Will increase tol to 3mm for now
+    if tol == 1:
+        tol = 3
+
     if ev < 0.0 and abs(ev) > tol:
         raise ValueError(f'The line "{line}" does not intersect sphere ({center}, {radius}) using {tol=}')
     elif ev > 0.0 and abs(ev) > tol:
