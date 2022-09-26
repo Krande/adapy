@@ -695,9 +695,9 @@ def intersect_line_circle(line, center, radius, tol=1e-1):
         tol = 3
 
     if ev < 0.0 and abs(ev) > tol:
-        raise ValueError(f'Line "{line}" does not intersect sphere ({center}, {radius}) {abs(ev)=}>{tol=}')
+        raise ValueError(f'Line "{line}" does not intersect sphere ({center=}, {radius=}) {abs(ev)=}>{tol=}')
     elif ev > 0.0 and abs(ev) > tol:
-        raise ValueError(f'Line "{line}" intersects sphere ({center}, {radius}) at multiple points {abs(ev)=}>{tol=}')
+        raise ValueError(f'Line "{line}" intersects sphere ({center=}, {radius=}) at multiple points {abs(ev)=}>{tol=}')
 
     return p
 
