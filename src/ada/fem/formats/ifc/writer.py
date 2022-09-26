@@ -8,9 +8,9 @@ from ada.ifc.utils import (
     create_guid,
     create_ifc_placement,
     create_local_placement,
+    create_reference_subrep,
     ifc_p,
     to_real,
-    create_reference_subrep,
 )
 
 from .helper_utils import ifc_vertex

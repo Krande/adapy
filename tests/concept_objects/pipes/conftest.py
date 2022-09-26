@@ -1,8 +1,8 @@
+import ifcopenshell
 import pytest
 
 from ada import Pipe, Section
-from ada.ifc.utils import create_reference_subrep, create_ifc_placement
-import ifcopenshell
+from ada.ifc.utils import create_ifc_placement, create_reference_subrep
 
 
 @pytest.fixture

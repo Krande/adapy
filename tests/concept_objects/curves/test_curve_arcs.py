@@ -4,8 +4,8 @@ import pytest
 from ada.core.curve_utils import (
     calc_2darc_start_end_from_lines_radius,
     calc_arc_radius_center_from_3points,
-    intersect_line_circle,
     get_center_from_3_points_and_radius,
+    intersect_line_circle,
 )
 from ada.core.utils import roundoff
 from ada.core.vector_utils import (
