@@ -19,7 +19,7 @@ def open_ifc(ifc_file_path: Union[str, pathlib.Path, StringIO]):
     return ifcopenshell.open(str(ifc_file_path))
 
 
-def getIfcPropertySets(ifcelem):
+def get_ifc_property_sets(ifcelem):
     """Returns a dictionary of {pset_id:[prop_id, prop_id...]} for an IFC object"""
     props = dict()
     for definition in ifcelem.IsDefinedBy:

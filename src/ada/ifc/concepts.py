@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import pathlib
 from dataclasses import dataclass
 from io import StringIO
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class IfcRef:
-    source_ifc_file: Union[str, pathlib.PurePath, StringIO]
+    source_ifc_file: Union[os.PathLike, StringIO]
 
     def get_ifc_geom(self, ifc_elem, settings: ifcopenshell.geom.settings):
         import ifcopenshell.geom

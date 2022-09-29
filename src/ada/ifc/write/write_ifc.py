@@ -190,10 +190,10 @@ def add_part_objects_to_ifc(p: Part, f: ifcopenshell.file, assembly: Assembly, i
 
     f.create_entity(
         "IfcRelContainedInSpatialStructure",
-        create_guid(),
-        owner_history,
-        "Physical model",
-        None,
-        physical_objects,
-        part_ifc,
+        GlobalId=create_guid(),
+        OwnerHistory=owner_history,
+        Name="Physical model",
+        Description=None,
+        RelatedElements=physical_objects,
+        RelatingStructure=part_ifc,
     )

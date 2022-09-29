@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 @dataclass
 class IfcExportOptions:
     export_props: bool = field(default=True)
+    import_props: bool = field(default=True)
 
 
 class Backend:

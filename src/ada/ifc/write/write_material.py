@@ -57,22 +57,19 @@ def write_ifc_mat(material: Material):
         f.create_entity("IfcPropertySingleValue", Name="MassDensity", NominalValue=mass_density),
     ]
 
-    atts = {
-        "GlobalId": create_guid(),
-        "OwnerHistory": owner_history,
-        "Name": material.name,
-        "HasProperties": properties,
-    }
-
-    f.create_entity("IfcPropertySet", **atts)
+    f.create_entity(
+        "IfcPropertySet",
+        GlobalId=create_guid(),
+        OwnerHistory=owner_history,
+        Name=material.name,
+        HasProperties=properties
+    )
 
     f.create_entity(
         "IfcMaterialProperties",
-        **{
-            "Name": "MaterialMechanical",
-            "Description": "A Material property description",
-            "Properties": properties,
-            "Material": ifc_mat,
-        },
+        Name="MaterialMechanical",
+        Description="A Material property description",
+        Properties=properties,
+        Material=ifc_mat,
     )
     return ifc_mat

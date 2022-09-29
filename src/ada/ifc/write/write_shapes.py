@@ -67,7 +67,7 @@ def write_ifc_shape(shape: Shape):
         add_colour(f, ifc_shape.Representations[0].Items[0], str(shape.colour), shape.colour)
 
     ifc_elem = f.create_entity(
-        "IfcBuildingElementProxy",
+        shape.metadata.get("ifc_class_type", "IfcBuildingElementProxy"),
         shape.guid,
         owner_history,
         shape.name,

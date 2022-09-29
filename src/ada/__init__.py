@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import pathlib
 from io import StringIO
 from typing import Union
@@ -32,8 +33,8 @@ from ada.sections import Section
 __author__ = "Kristoffer H. Andersen"
 
 
-def from_ifc(ifc_file: Union[str, pathlib.Path, StringIO], units="m", name="Ada") -> Assembly:
-    if type(ifc_file) is not StringIO:
+def from_ifc(ifc_file: Union[os.PathLike, StringIO], units="m", name="Ada") -> Assembly:
+    if isinstance(ifc_file, os.PathLike):
         ifc_file = pathlib.Path(ifc_file).resolve().absolute()
         print(f'Reading "{ifc_file}"')
     else:
