@@ -178,3 +178,30 @@ def get_placement(ifc_position) -> Placement:
     zdir = get_direction(ifc_position.Axis)
 
     return Placement(origin, xdir=xdir, zdir=zdir)
+
+
+def get_axis_polyline_points_from_product(product) -> list[tuple[float, float, float]]:
+    axis_data = []
+    for axis in filter(lambda x: x.RepresentationIdentifier == "Axis", product.Representation.Representations):
+        if len(axis.Items) != 1:
+            raise ValueError("Axis should only contain 1 item")
+        for cartesian_point in axis.Items[0].Points:
+            axis_data.append(cartesian_point.Coordinates)
+
+    if len(axis_data) != 2:
+        raise ValueError("Axis should be only 2 coordinates")
+
+    return axis_data
+
+
+def get_ifc_body(product) -> ifcopenshell.entity_instance:
+    bodies = []
+    for body in filter(lambda x: x.RepresentationIdentifier != "Axis", product.Representation.Representations):
+        if len(body.Items) != 1:
+            raise ValueError("Axis should only contain 1 item")
+        bodies.append(body.Items[0])
+
+    if len(bodies) != 1:
+        raise ValueError("Currently do not support multi body IFC products")
+
+    return bodies[0]

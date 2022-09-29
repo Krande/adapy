@@ -46,6 +46,8 @@ from ada.fem.elements import ElemType
 from ada.ifc.utils import create_guid
 
 if TYPE_CHECKING:
+    import ifcopenshell
+
     from ada import Beam, Material, Plate, Section, Wall
     from ada.fem.meshing import GmshOptions
     from ada.fem.results import Results
@@ -986,6 +988,7 @@ class Assembly(Part):
         a = read_ifc_file(ifc_file, settings, elements2part, data_only)
 
         self.__add__(a)
+        self._ifc_file = a._ifc_file
 
         if self._enable_experimental_cache is True:
             self._to_cache(ifc_file, cache_model_now)
@@ -1164,13 +1167,14 @@ class Assembly(Part):
         override_skip_props=False,
         return_file_obj=False,
         create_new_ifc_file=False,
-    ) -> Union[None, StringIO]:
+    ) -> None | ifcopenshell.file:
         from ada.ifc.write.write_ifc import write_to_ifc
 
         if override_skip_props is True:
             for p in self.get_all_subparts():
                 for obj in p.get_all_physical_objects(True):
                     obj.ifc_options.export_props = override_skip_props
+
         if destination_file is None or return_file_obj is True:
             destination_file = "object"
         else:
@@ -1218,7 +1222,6 @@ class Assembly(Part):
         from ada.ifc.read.reader_utils import open_ifc
 
         if ifc_file not in self._source_ifc_files.keys():
-
             ifc_f = open_ifc(ifc_file)
             self._source_ifc_files[ifc_file] = ifc_f
         else:

@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import os
 import pathlib
-from io import StringIO
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
 from ada import fem
 from ada.concepts.connections import Bolts, Weld
@@ -30,10 +29,13 @@ from ada.fem import FEM
 from ada.materials import Material
 from ada.sections import Section
 
+if TYPE_CHECKING:
+    import ifcopenshell
+
 __author__ = "Kristoffer H. Andersen"
 
 
-def from_ifc(ifc_file: Union[os.PathLike, StringIO], units="m", name="Ada") -> Assembly:
+def from_ifc(ifc_file: os.PathLike | ifcopenshell.file, units="m", name="Ada") -> Assembly:
     if isinstance(ifc_file, os.PathLike):
         ifc_file = pathlib.Path(ifc_file).resolve().absolute()
         print(f'Reading "{ifc_file}"')

@@ -3,8 +3,7 @@ from __future__ import annotations
 import os
 import pathlib
 from dataclasses import dataclass
-from io import StringIO
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import ifcopenshell.geom
@@ -14,7 +13,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class IfcRef:
-    source_ifc_file: Union[os.PathLike, StringIO]
+    source_ifc_file: os.PathLike | ifcopenshell.file
 
     def get_ifc_geom(self, ifc_elem, settings: ifcopenshell.geom.settings):
         import ifcopenshell.geom

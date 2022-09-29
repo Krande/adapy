@@ -81,7 +81,8 @@ def write_pipe_ifc_elem(pipe: Pipe):
         relative_to=parent.ObjectPlacement,
     )
 
-    ifc_elem = f.createIfcSpace(
+    ifc_elem = f.create_entity(
+        "IfcSpatialZone",
         pipe.guid,
         owner_history,
         pipe.name,

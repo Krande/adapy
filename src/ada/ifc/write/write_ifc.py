@@ -3,9 +3,9 @@ from __future__ import annotations
 import logging
 import os
 import pathlib
-from io import StringIO
 from itertools import chain
-from typing import TYPE_CHECKING, Union
+
+import ifcopenshell
 
 from ada import Assembly, Part
 from ada.fem.formats.ifc.writer import to_ifc_fem
@@ -17,17 +17,10 @@ from .write_plates import write_ifc_plate
 from .write_shapes import write_ifc_shape
 from .write_wall import write_ifc_wall
 
-if TYPE_CHECKING:
-    import ifcopenshell
-
 
 def write_to_ifc(
-    destination_file,
-    a: Assembly,
-    include_fem,
-    return_file_obj=False,
-    create_new_ifc_file=False,
-) -> Union[None, StringIO]:
+    destination_file, a: Assembly, include_fem, return_file_obj=False, create_new_ifc_file=False
+) -> None | ifcopenshell.file:
     from ada.ifc.utils import assembly_to_ifc_file
 
     if create_new_ifc_file:
@@ -63,7 +56,7 @@ def write_to_ifc(
         )
 
     if return_file_obj:
-        return StringIO(f.wrapped_data.to_string())
+        return f
 
     dest = pathlib.Path(destination_file).with_suffix(".ifc")
     os.makedirs(dest.parent, exist_ok=True)
@@ -138,8 +131,9 @@ def add_part_objects_to_ifc(p: Part, f: ifcopenshell.file, assembly: Assembly, i
         physical_objects.append(pl_ifc)
 
     for pi in p.pipes:
-        logging.debug(f'Creating IFC Elem for PIPE "{pi.name}"')
-        f.add(pi.get_ifc_elem())
+        pipe_ifc = pi.get_ifc_elem()
+        f.add(pipe_ifc)
+        physical_objects.append(pipe_ifc)
 
     for wall in p.walls:
         wall_ifc = write_ifc_wall(wall)
@@ -149,9 +143,11 @@ def add_part_objects_to_ifc(p: Part, f: ifcopenshell.file, assembly: Assembly, i
     for shp in p.shapes:
         if "ifc_file" in shp.metadata.keys():
             ifc_file = shp.metadata["ifc_file"]
-            ifc_f = assembly.get_ifc_source_by_name(ifc_file)
+            if isinstance(ifc_file, ifcopenshell.file):
+                ifc_f = ifc_file
+            else:
+                ifc_f = assembly.get_ifc_source_by_name(ifc_file)
             ifc_elem = ifc_f.by_guid(shp.metadata["ifc_guid"])
-            # for inv in ifc_f.get_inverse(ifc_elem):
             new_ifc_elem = copy_deep(f, ifc_elem)
             new_ifc_elem.Name = shp.name
             new_ifc_elem.GlobalId = shp.guid
@@ -164,15 +160,6 @@ def add_part_objects_to_ifc(p: Part, f: ifcopenshell.file, assembly: Assembly, i
                 transparency=shp.opacity,
                 use_surface_style_rendering=True,
             )
-
-            # Simple check to ensure that the new IFC element is properly copied
-            # res = get_container(new_ifc_elem)
-            # if res is not None:
-            #     parent_ifc_elem_guid = str(res.GlobalId, encoding="utf-8")
-            #     parent_guid = str(shp.parent.guid, encoding="utf-8")
-            #     if parent_ifc_elem_guid != parent_guid:
-            #         logging.warning(f"Parent guid and generated ifc guid differs for element {shp.name}")
-
             physical_objects.append(new_ifc_elem)
         else:
             ifc_shape = write_ifc_shape(shp)

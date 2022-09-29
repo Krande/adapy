@@ -64,6 +64,11 @@ class Pipe(BackendGeom):
         props = dict(section=self.section, material=self.material, parent=self, units=self.units)
         angle_tol = 1e-1
         len_tol = _Settings.point_tol if self.units == "m" else _Settings.point_tol * 1000
+
+        if len(segments) == 1:
+            seg_s, seg_e = segments[0]
+            self._segments.append(PipeSegStraight(next(seg_names), seg_s, seg_e, **props))
+
         for i, (seg1, seg2) in enumerate(zip(segments[:-1], segments[1:])):
             p11, p12 = seg1
             p21, p22 = seg2
