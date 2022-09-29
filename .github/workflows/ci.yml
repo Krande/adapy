@@ -11,12 +11,13 @@ on:
     branches:
       - main
       - dev
-      - reduce_dependencies
+      - pipeelbow
   pull_request:
     paths-ignore:
       - setup.py
     branches:
       - main
+
 jobs:
   activate:
     if: |

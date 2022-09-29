@@ -57,7 +57,7 @@ about:
   license: "GNU General Public v3 (GPLv3)"
   license_family: GPL3
   summary: "A python library for structural analysis and design"
-  doc_url: https://adapy.readthedocs.io/en/latest/
+  doc_url: https://krande.github.io/adapy/
 
 extra:
   recipe-maintainers:

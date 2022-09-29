@@ -187,13 +187,13 @@ For installation files of open source FEM software such as Calculix and Code Ast
 If you have to use pip you can do:
 
 ```
-pip install ada-py gmsh
+pip install ada-py
 ```
 
-**Note!** Pip will not install the required conda packages. Therefore you would also have to do
+**Note!** Pip will not install the required conda packages. So you would also have to do
 
 ```
-conda install -c conda-forge ifcopenshell pythonocc-core==7.5.1 occt==7.5.1
+conda install -c conda-forge ifcopenshell pythonocc-core python-gmsh
 ```
 
 **Note!** pip is not a recommended installation method due to an unstable behaviour often 

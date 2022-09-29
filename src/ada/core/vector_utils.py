@@ -1,10 +1,78 @@
-from typing import List
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+from typing import ClassVar, Iterable, List
 
 import numpy as np
 
 from ada.config import Settings
 
 from .exceptions import VectorNormalizeError
+
+
+class Plane(Enum):
+    XY = "xy"
+    XZ = "xz"
+    YZ = "yz"
+
+
+@dataclass
+class EquationOfPlane:
+    point_in_plane: tuple | list | np.ndarray
+    normal: tuple | list | np.ndarray
+    yvec: tuple | list | np.ndarray = None
+
+    PLANE: ClassVar[Plane]
+
+    def __post_init__(self):
+        point_in_plane = self.point_in_plane
+        normal = self.normal
+        x1, y1, z1 = point_in_plane
+        a = normal[0]
+        b = normal[1]
+        c = normal[2]
+        self.d = -(a * x1 + b * y1 + c * z1)
+
+    def return_points_in_plane(self, points: np.ndarray) -> np.ndarray:
+        return points[points.dot(self.normal) + self.d == 0]
+
+    def is_point_in_plane(self, point: Iterable) -> bool:
+        if isinstance(point, np.ndarray) is False:
+            point = np.array(point)
+
+        return bool(point.dot(self.normal) + self.d == 0)
+
+    def get_lcsys(self):
+        if self.yvec is None:
+            if sum(abs(self.normal) - np.array([0, 0, 1])) < 1e-5:
+                vec1 = np.array([1, 0, 0])
+            else:
+                vec1 = np.array([0, 0, 1])
+
+            self.yvec = unit_vector(calc_yvec(vec1, self.normal))
+
+        xvec = unit_vector(calc_xvec(self.yvec, self.normal))
+
+        return [xvec, self.yvec, self.normal]
+
+    def get_points_in_lcsys_plane(self, p_dist: float = 1, plane: Plane = Plane.XY):
+        csys = self.get_lcsys()
+        p0 = self.point_in_plane
+        vec_map = {
+            Plane.XY: (0, 1),
+            Plane.XZ: (0, 2),
+            Plane.YZ: (1, 2),
+        }
+        i, j = vec_map.get(plane)
+        vec2 = csys[i]
+        vec3 = csys[j]
+
+        p1 = p0 + vec2 * p_dist + vec3 * p_dist
+        p2 = p0 - vec2 * p_dist + vec3 * p_dist
+        p3 = p0 - vec2 * p_dist - vec3 * p_dist
+        p4 = p0 + vec2 * p_dist - vec3 * p_dist
+        return [p1, p2, p3, p4]
 
 
 def linear_2dtransform_rotate(origin, point, degrees) -> np.ndarray:
@@ -58,7 +126,7 @@ def rotation_matrix_csys_rotate(csys1_in, csys2_in, inverse=False, use_quaternio
     Resources:
 
         https://en.wikipedia.org/wiki/Rotation_matrix
-        http://kieranwynn.github.io/pyquaternion/
+        https://kieranwynn.github.io/pyquaternion/
 
     :param csys1_in: Coordinate system 1 defined by 2 vectors [LocalX, LocalY]
     :param csys2_in: Coordinate system 1 defined by 2 vectors [LocalX, LocalY]
@@ -463,7 +531,7 @@ def poly_area(x, y):
     return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
 
 
-def global_2_local_nodes(csys, origin, nodes):
+def global_2_local_nodes(csys, origin, nodes, use_quaternion=True):
     """
 
     :param csys: List of tuples containing; [LocalX, LocalY]
@@ -474,7 +542,7 @@ def global_2_local_nodes(csys, origin, nodes):
     from ada import Node
 
     global_csys = [(1, 0, 0), (0, 1, 0)]
-    rmat = rotation_matrix_csys_rotate(global_csys, csys)
+    rmat = rotation_matrix_csys_rotate(global_csys, csys, use_quaternion=use_quaternion)
 
     if type(origin) is Node:
         origin = origin.p
@@ -542,17 +610,7 @@ def normal_to_points_in_plane(points) -> np.ndarray:
                 break
 
     # the cross product is a vector normal to the plane
-
     n = np.array([x if abs(x) != 0.0 else 0.0 for x in list(np.cross(v1, v2))])
-    # if n[2] < 0.0:
-    #     n *= -1
-    #
-    # if n[2] == 0 and n[1] == -1:
-    #     n *= -1
-    #
-    # if n[2] == 0 and n[0] == -1:
-    #     n *= -1
-
     if n.any() == 0.0:
         raise ValueError("Error in calculating plate normal")
 
@@ -578,7 +636,7 @@ def is_clockwise(points) -> bool:
 
 
 def calc_xvec(y_vec, z_vec):
-    return np.cross()
+    return np.cross(y_vec, z_vec)
 
 
 def calc_yvec(x_vec, z_vec=None) -> np.ndarray:
@@ -599,7 +657,7 @@ def calc_zvec(x_vec, y_vec=None) -> np.ndarray:
             z_vec = np.array(Y)
         return z_vec
     else:
-        np.cross(x_vec, y_vec)
+        return np.cross(x_vec, y_vec)
 
 
 def is_on_line(data):

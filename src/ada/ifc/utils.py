@@ -19,6 +19,38 @@ if TYPE_CHECKING:
     from ada import Assembly, Beam
 
 
+def create_reference_subrep(f, global_axes):
+    model_rep = f.create_entity("IfcGeometricRepresentationContext", None, "Model", 3, 1.0e-05, global_axes, None)
+    body_sub_rep = f.create_entity(
+        "IfcGeometricRepresentationSubContext",
+        "Body",
+        "Model",
+        None,
+        None,
+        None,
+        None,
+        model_rep,
+        None,
+        "MODEL_VIEW",
+        None,
+    )
+    ref_sub_rep = f.create_entity(
+        "IfcGeometricRepresentationSubContext",
+        "Reference",
+        "Model",
+        None,
+        None,
+        None,
+        None,
+        model_rep,
+        None,
+        "GRAPH_VIEW",
+        None,
+    )
+
+    return {"model": model_rep, "body": body_sub_rep, "reference": ref_sub_rep}
+
+
 def ifc_dir(f: ifcopenshell.file, vec: Tuple[float, float, float]):
     return f.create_entity("IfcDirection", to_real(vec))
 
@@ -94,9 +126,9 @@ def create_ifc_placement(f: ifcopenshell.file, origin=ifco.O, loc_z=ifco.Z, loc_
     :return:
     """
 
-    ifc_loc_z = f.createIfcDirection(to_real(loc_z))
-    ifc_loc_x = f.createIfcDirection(to_real(loc_x))
-    return f.createIfcAxis2Placement3D(ifc_p(f, origin), ifc_loc_z, ifc_loc_x)
+    ifc_loc_z = f.create_entity("IfcDirection", to_real(loc_z))
+    ifc_loc_x = f.create_entity("IfcDirection", to_real(loc_x))
+    return f.create_entity("IfcAxis2Placement3D", ifc_p(f, origin), ifc_loc_z, ifc_loc_x)
 
 
 def create_local_placement(f: ifcopenshell.file, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X, relative_to=None):

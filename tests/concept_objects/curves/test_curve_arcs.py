@@ -1,8 +1,10 @@
 import numpy as np
+import pytest
 
 from ada.core.curve_utils import (
     calc_2darc_start_end_from_lines_radius,
     calc_arc_radius_center_from_3points,
+    get_center_from_3_points_and_radius,
     intersect_line_circle,
 )
 from ada.core.utils import roundoff
@@ -128,3 +130,21 @@ def test_basic_arc2():
 
     for r, e in zip(res_center, glob_c):
         assert roundoff(r, 4) == roundoff(e, 4)
+
+
+def test_center_of_arc_3_points_xy_plane():
+    r = 0.19595812499999998
+    curve_data = get_center_from_3_points_and_radius((0, 0, 0), (5, 0, 0), (5, 5, 0), r)
+    assert sum(curve_data.center - np.array([4.804042, 195.958e-03, 0])) == pytest.approx(0.0)
+
+
+def test_center_of_arc_3_points_out_of_plane():
+    r = 0.19595812499999998
+    curve_data = get_center_from_3_points_and_radius((5.2, -0.00404, 3.2), (5.2, 4.8, 3.2), (10.0, 4.8, 5.2), r)
+    assert sum(curve_data.center - np.array([5.380884, 4.604042, 3.275369])) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_center_of_arc_3_points_out_of_plane_2():
+    r = 0.19595812499999998
+    curve_data = get_center_from_3_points_and_radius((5.38088, 4.8, 3.27537), (10.0, 4.8, 5.2), (10.0, 4.8, 13.2), r)
+    assert sum(curve_data.center - np.array([9.804042, 4.8, 5.330639])) == pytest.approx(0.0, abs=1e-6)

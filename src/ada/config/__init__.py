@@ -26,7 +26,7 @@ class Settings:
     convert_bad_names = False
     convert_bad_names_for_fem = True
     use_occ_bounding_box_algo = False
-    make_param_elbows = False
+
     use_param_profiles = True
     silence_display = False
     use_experimental_cache = False

@@ -189,14 +189,17 @@ class Part(BackendGeom):
         self._shapes.append(shape)
         return shape
 
-    def add_part(self, part: Part) -> Part:
+    def add_part(self, part: Part, overwrite: bool = False) -> Part:
         if issubclass(type(part), Part) is False:
             raise ValueError("Added Part must be a subclass or instance of Part")
+
         if part.units != self.units:
             part.units = self.units
         part.parent = self
-        if part.name in self._parts.keys():
-            raise ValueError(f'Part name "{part.name}" already exists and cannot be overwritten')
+
+        if part.name in self._parts.keys() and overwrite is False:
+            raise ValueError(f'Part name "{part.name}" already exists. Pass "overwrite=True" to replace existing part.')
+
         self._parts[part.name] = part
         try:
             part._on_import()

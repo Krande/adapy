@@ -109,7 +109,7 @@ def get_face_from_satd(face: tuple, satd: dict):
     coedge_next_id = coedge_first[next_coedge_idx]
     edges = [coedge_first]
 
-    max_iter = 100
+    max_iter = 500
     i = 0
     while next_coedge is True:
         coedge = get_value_from_satd(coedge_next_id, satd)
