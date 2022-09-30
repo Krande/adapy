@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import logging
 import pathlib
 from io import StringIO
-from typing import Tuple, Union
+from typing import TYPE_CHECKING, Tuple, Union
 
 import ifcopenshell
 import ifcopenshell.geom
@@ -9,6 +11,9 @@ from ifcopenshell.util.element import get_psets
 
 from ada.concepts.transforms import Placement
 from ada.config import Settings
+
+if TYPE_CHECKING:
+    from ada import Part, Pipe
 
 tol_map = dict(m=Settings.mtol, mm=Settings.mmtol)
 
@@ -19,10 +24,10 @@ def open_ifc(ifc_file_path: Union[str, pathlib.Path, StringIO]):
     return ifcopenshell.open(str(ifc_file_path))
 
 
-def get_ifc_property_sets(ifcelem):
+def get_ifc_property_sets(ifc_elem):
     """Returns a dictionary of {pset_id:[prop_id, prop_id...]} for an IFC object"""
     props = dict()
-    for definition in ifcelem.IsDefinedBy:
+    for definition in ifc_elem.IsDefinedBy:
         if definition.is_a("IfcRelDefinesByProperties") is False:
             continue
         property_set = definition.RelatingPropertyDefinition
@@ -32,11 +37,13 @@ def get_ifc_property_sets(ifcelem):
         pset_name = property_set.Name.split(":")[0].strip()
         props[pset_name] = dict()
         for prop in property_set.HasProperties:
-            if prop.is_a("IfcPropertySingleValue") is False:
+            if prop.is_a() not in ("IfcPropertySingleValue", "IfcPropertyListValue"):
                 continue
-
-            res = prop.NominalValue.wrappedValue
-            props[pset_name][prop.Name] = res
+            if prop.is_a("IfcPropertySingleValue"):
+                res = prop.NominalValue.wrappedValue
+                props[pset_name][prop.Name] = res
+            else:
+                props[pset_name][prop.Name] = [x.wrappedValue for x in prop.ListValues]
 
     return props
 
@@ -128,6 +135,8 @@ def get_org(f, org_id):
 
 
 def add_to_assembly(assembly, obj, ifc_parent, elements2part):
+    from ada import Pipe
+
     pp_name = ifc_parent.Name
     if pp_name is None:
         pp_name = resolve_name(get_psets(ifc_parent), ifc_parent)
@@ -145,21 +154,37 @@ def add_to_assembly(assembly, obj, ifc_parent, elements2part):
                 add_to_parent(p, obj)
                 imported = True
                 break
+        if imported is False:
+            for pipe in assembly.get_all_physical_objects(by_type=Pipe):
+                if pipe.name == pp_name or pipe.metadata.get("original_name") == pp_name:
+                    add_to_parent(pipe, obj)
+                    imported = True
+                    break
 
     if imported is False:
         logging.info(f'Unable to find parent "{pp_name}" for {type(obj)} "{obj.name}". Adding to Assembly')
         assembly.add_shape(obj)
 
 
-def add_to_parent(parent, obj):
-    from ada import Beam, Plate, Shape
+def add_to_parent(parent: Part | Pipe, obj):
+    from ada import Beam, Part, Pipe, PipeSegElbow, PipeSegStraight, Plate, Shape
 
     if type(obj) is Beam:
         parent.add_beam(obj)
     elif type(obj) is Plate:
         parent.add_plate(obj)
-    elif issubclass(type(obj), Shape):
+    elif issubclass(type(obj), Shape) and isinstance(parent, Part):
         parent.add_shape(obj)
+    elif isinstance(obj, (PipeSegStraight, PipeSegElbow)) and isinstance(parent, Part):
+        pipe = Pipe.from_segments(parent.name, [obj])
+        parent.parent.add_pipe(pipe)
+        parent.parent.parts.pop(parent.name)
+    elif isinstance(obj, (PipeSegStraight, PipeSegElbow)) and isinstance(parent, Pipe):
+        # Todo: PipeSegments should not really be resolved here.
+        obj.parent = parent
+        parent.segments.append(obj)
+    elif isinstance(obj, Pipe):
+        parent.add_pipe(obj)
     else:
         raise NotImplementedError("")
 
@@ -187,9 +212,6 @@ def get_axis_polyline_points_from_product(product) -> list[tuple[float, float, f
             raise ValueError("Axis should only contain 1 item")
         for cartesian_point in axis.Items[0].Points:
             axis_data.append(cartesian_point.Coordinates)
-
-    if len(axis_data) != 2:
-        raise ValueError("Axis should be only 2 coordinates")
 
     return axis_data
 

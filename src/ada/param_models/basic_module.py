@@ -47,7 +47,7 @@ class ReinforcedFloor(Part):
         else:
             snum = int((ymax - ymin) / spacing) - 1
 
-        z = plate.poly.placement.origin[2]
+        z = plate.poly.placement.origin[2] - plate.t / 2
 
         tot_spacing = snum * spacing
         diff = xmax - xmin - tot_spacing
@@ -62,7 +62,7 @@ class ReinforcedFloor(Part):
                 p1 = (xmin, y, z)
                 p2 = (xmax, y, z)
                 y += spacing
-            self.add_beam(Beam(next(bm_name), p1, p2, sec=s_type))
+            self.add_beam(Beam(f"{name}_{next(bm_name)}", p1, p2, sec=s_type))
 
 
 class SimpleStru(Part):
@@ -101,6 +101,7 @@ class SimpleStru(Part):
         if add_bottom_floor:
             self._elevations += [z0]
         self._elevations += [z1]
+
         for elev in self._elevations:
             for p1, p2 in beams:
                 self.add_beam(Beam(next(bm_name), n1=p1(elev), n2=p2(elev), sec=sec, jusl=Beam.JUSL_TYPES.TOS))

@@ -36,9 +36,9 @@ __author__ = "Kristoffer H. Andersen"
 
 
 def from_ifc(ifc_file: os.PathLike | ifcopenshell.file, units="m", name="Ada") -> Assembly:
-    if isinstance(ifc_file, os.PathLike):
+    if isinstance(ifc_file, (os.PathLike, str)):
         ifc_file = pathlib.Path(ifc_file).resolve().absolute()
-        print(f'Reading "{ifc_file}"')
+        print(f'Reading "{ifc_file.name}"')
     else:
         print("Reading IFC file object")
 

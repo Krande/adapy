@@ -6,15 +6,11 @@ import ifcopenshell.geom
 from ada import Assembly, Shape
 
 from ..concepts import IfcRef
-from ada.ifc.read.reader_utils import get_ifc_property_sets
 
 
 def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_ref: IfcRef, assembly: Assembly):
     logging.info(f'importing Shape "{name}"')
     color, opacity = get_colour(product, assembly)
-    metadata = None
-    # if assembly.ifc_options.import_props is True:
-    #     metadata = get_ifc_property_sets(product)
 
     return Shape(
         name,
@@ -24,7 +20,6 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_ref: IfcRe
         units=assembly.units,
         colour=color,
         opacity=opacity,
-        metadata=metadata,
     )
 
 
@@ -54,7 +49,7 @@ def get_colour(product: ifcopenshell.entity_instance, assembly: Assembly) -> Uni
                 styles.append(cstyle)
 
     if len(styles) == 0:
-        logging.warning(f'No style associated with IFC element "{product}"')
+        logging.info(f'No style associated with IFC element "{product}"')
         return None, 1.0
 
     if len(styles) > 1:

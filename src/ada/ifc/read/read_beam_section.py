@@ -42,10 +42,10 @@ def import_section_from_ifc(profile_def, units="m") -> Section:
         # sec = Section(ifc_elem.ProfileName)
     else:
         try:
-            logging.warning(f'No Native support for Ifc beam object "{profile_def}"')
+            logging.info(f'No Native support for Ifc beam "{profile_def=}"')
             sec, tap = interpret_section_str(profile_def.ProfileName)
         except ValueError as e:
-            logging.debug(f'Unable to process section "{profile_def.ProfileName}" -> error: "{e}" ')
+            logging.warning(f'Unable to process section "{profile_def.ProfileName}" -> error: "{e}" ')
             sec = None
         if sec is None:
             raise NotImplementedError(f'IFC section type "{profile_def}" is not yet implemented')

@@ -5,7 +5,6 @@ import os
 import pathlib
 
 import ifcopenshell
-from ifcopenshell.util.element import get_psets
 
 from ada import Assembly
 from ada.ifc.utils import get_unit_type
@@ -17,7 +16,13 @@ from .read_parts import read_hierarchy
 from .read_pipe import import_pipe_segment
 from .read_plates import import_ifc_plate
 from .read_shapes import import_ifc_shape
-from .reader_utils import add_to_assembly, get_parent, open_ifc, resolve_name
+from .reader_utils import (
+    add_to_assembly,
+    get_ifc_property_sets,
+    get_parent,
+    open_ifc,
+    resolve_name,
+)
 
 
 def read_ifc_file(
@@ -59,7 +64,7 @@ def read_ifc_file(
             logging.debug(f'Skipping "{name}". Parent is None')
             continue
 
-        props = get_psets(product)
+        props = get_ifc_property_sets(product)
 
         if name is None:
             name = resolve_name(props, product)
@@ -105,6 +110,9 @@ def import_physical_ifc_elem(product, name, assembly: Assembly, ifc_ref: IfcRef)
 
     if product.is_a() in ("IfcPipeSegment", "IfcPipeFitting"):
         return import_pipe_segment(product, name, ifc_ref, assembly)
+
+    if product.is_a("IfcPipeFitting"):
+        logging.info('"IfcPipeFitting" is not yet added')
 
     obj = import_ifc_shape(product, name, ifc_ref, assembly)
 

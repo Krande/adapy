@@ -1,11 +1,11 @@
 import logging
 import traceback
 from itertools import chain
-from typing import Iterable, List
+from typing import Callable, Iterable, List
 
 import numpy as np
 
-from ada import Beam, Node, Part, PipeSegStraight, Plate, PrimCyl
+from ada import Assembly, Beam, Node, Part, Pipe, PipeSegStraight, Plate, PrimCyl
 
 from .utils import Counter
 from .vector_utils import intersect_calc, is_parallel, vector_length
@@ -160,3 +160,42 @@ def penetration_check(part: Part):
                         part.add_penetration(
                             PrimCyl(f"{p.name}_{pipe.name}_{segment.name}_pen", p1.p, p2.p, pipe.section.r + 0.1)
                         )
+
+
+def pipe_penetration_check(a: Assembly, reinforcement_detailing: Callable[[Plate, Pipe], None] = None) -> None:
+    plates = list(a.get_all_physical_objects(by_type=Plate))
+    pipes = list(a.get_all_physical_objects(by_type=Pipe))
+    pipe_segments = []
+    for pipe in pipes:
+        pipe_segments += list(filter(lambda x: isinstance(x, PipeSegStraight), pipe.segments))
+
+    for seg in pipe_segments:
+        p1 = seg.p1.p
+        p2 = seg.p2.p
+        for plate in plates:
+            origin = plate.placement.origin
+            normal = plate.placement.zdir
+
+            v1 = (p1 - origin) * normal
+            v2 = (p2 - origin) * normal
+            is_clashing = np.dot(v1, v2) < 0
+            if is_clashing:
+                print(f"{seg.name=} {is_clashing=} with {plate.name=}")
+                if reinforcement_detailing is None:
+                    reinforce_plate_pipe_pen(plate, seg)
+                else:
+                    reinforcement_detailing(plate, seg)
+
+
+def reinforce_plate_pipe_pen(plate: Plate, seg: PipeSegStraight):
+    p1 = seg.p1.p
+    p2 = seg.p2.p
+
+    pipe = seg.parent
+    part = plate.parent
+
+    # Cut away in plate and stringers here
+    part.add_penetration(PrimCyl(f"{plate.name}_{pipe.name}_{seg.name}_pen", p1, p2, seg.section.r + 0.1))
+
+    # Add reinforcement here
+    # part.add_beam(Beam())

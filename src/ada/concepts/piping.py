@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from itertools import chain
 from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
@@ -216,6 +217,14 @@ class Pipe(BackendGeom):
     def __repr__(self):
         return f"Pipe({self.name}, {self.section})"
 
+    @staticmethod
+    def from_segments(name: str, segments: list[PipeSegStraight | PipeSegElbow]) -> Pipe:
+        points = list(chain.from_iterable([(Node(x.p1), Node(x.p2)) for x in segments]))
+        seg0 = segments[0]
+        seg0_section = seg0.section
+        seg0_material = seg0.material
+        return Pipe(name, points, seg0_section, seg0_material)
+
 
 class PipeSegStraight(BackendGeom):
     def __init__(
@@ -294,8 +303,9 @@ class PipeSegElbow(BackendGeom):
         units="m",
         colour=None,
         arc_seg=None,
+        ifc_elem=None,
     ):
-        super(PipeSegElbow, self).__init__(name, guid, metadata, units, parent, colour)
+        super(PipeSegElbow, self).__init__(name, guid, metadata, units, parent, colour, ifc_elem=ifc_elem)
         self.p1 = p1
         self.p2 = p2
         self.p3 = p3

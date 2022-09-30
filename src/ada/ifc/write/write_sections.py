@@ -12,7 +12,7 @@ from ..utils import create_guid, create_ifcindexpolyline, create_ifcpolyline
 
 def export_beam_section(section: Section):
     if section.parent is None or section.parent.parent is None:
-        raise ValueError("Lack")
+        raise ValueError("Lacking parent")
     a = section.parent.parent.get_assembly()
     f = a.ifc_file
     sec_props = dict(ProfileType="AREA", ProfileName=section.name)

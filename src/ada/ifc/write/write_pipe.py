@@ -16,11 +16,11 @@ from ada.core.vector_utils import (
     vector_length,
 )
 from ada.ifc.utils import (
+    add_multiple_props_to_elem,
     create_guid,
     create_ifc_placement,
     create_ifcpolyline,
     create_local_placement,
-    create_property_set,
     get_tolerance,
     tesselate_shape,
     to_real,
@@ -31,8 +31,6 @@ if TYPE_CHECKING:
 
 
 def write_ifc_pipe(pipe: Pipe):
-    from ada import PipeSegStraight
-
     ifc_pipe = write_pipe_ifc_elem(pipe)
 
     a = pipe.get_assembly()
@@ -42,16 +40,14 @@ def write_ifc_pipe(pipe: Pipe):
 
     segments = []
     for param_seg in pipe.segments:
-        if isinstance(param_seg, PipeSegStraight):
-            res = param_seg.get_ifc_elem()
-        else:
-            res = param_seg.get_ifc_elem()
+        res = param_seg.get_ifc_elem()
         if res is None:
             logging.error(f'Branch "{param_seg.name}" was not converted to ifc element')
         f.add(res)
         segments += [res]
 
-    f.createIfcRelContainedInSpatialStructure(
+    f.create_entity(
+        "IfcRelContainedInSpatialStructure",
         create_guid(),
         owner_history,
         "Pipe Segments",
@@ -103,15 +99,7 @@ def write_pipe_ifc_elem(pipe: Pipe):
         [ifc_elem],
     )
     if len(pipe.metadata.keys()) > 0:
-        props = create_property_set("Properties", f, pipe.metadata, owner_history)
-        f.createIfcRelDefinesByProperties(
-            create_guid(),
-            owner_history,
-            "Properties",
-            None,
-            [ifc_elem],
-            props,
-        )
+        add_multiple_props_to_elem(pipe.metadata.get("props", dict()), ifc_elem, f, owner_history)
 
     return ifc_elem
 
@@ -193,6 +181,7 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
     context = f.by_type("IfcGeometricRepresentationContext")[0]
     owner_history = a.user.to_ifc()
     tol = get_tolerance(a.units)
+
     ifc_elbow = elbow_revolved_solid(pipe_elbow, f, context, tol)
 
     pfitting_placement = create_local_placement(f)
@@ -218,6 +207,15 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
     mat_profile_set = f.createIfcMaterialProfileSetUsage(mat_profile_set, 8, None)
     f.createIfcRelAssociatesMaterial(create_guid(), None, None, None, [pfitting], mat_profile_set)
 
+    props = dict(
+        bend_radius=pipe_elbow.bend_radius,
+        p1=pipe_elbow.arc_seg.p1,
+        p2=pipe_elbow.arc_seg.p2,
+        midpoint=pipe_elbow.arc_seg.midpoint,
+    )
+
+    add_multiple_props_to_elem(props, pfitting, f, owner_history)
+
     return pfitting
 
 
@@ -238,6 +236,7 @@ def elbow_revolved_solid(elbow: PipeSegElbow, f, context, tol=1e-1):
     xvec1 = unit_vector(elbow.xvec1)
     xvec2 = unit_vector(elbow.xvec2)
     normal = unit_vector(calc_zvec(xvec1, xvec2))
+    p1, p2, p3 = elbow.p1.p, elbow.p2.p, elbow.p3.p
 
     # Profile
     profile = elbow.section.ifc_profile
@@ -246,7 +245,7 @@ def elbow_revolved_solid(elbow: PipeSegElbow, f, context, tol=1e-1):
     revolve_angle = np.rad2deg(angle_between(xvec1, xvec2))
 
     # Revolve Point
-    cd = get_center_from_3_points_and_radius(elbow.p1.p, elbow.p2.p, elbow.p3.p, elbow.bend_radius, tol=tol)
+    cd = get_center_from_3_points_and_radius(p1, p2, p3, elbow.bend_radius, tol=tol)
     diff = cd.center - elbow.arc_seg.p1
 
     # Transform Axis normal and position to the local coordinate system
@@ -271,49 +270,10 @@ def elbow_revolved_solid(elbow: PipeSegElbow, f, context, tol=1e-1):
     body = f.create_entity("IfcShapeRepresentation", context, "Body", "SweptSolid", [ifc_shape])
 
     # Axis representation
-    # curve = f.create_entity("IfcTrimmedCurve")
-    # axis = f.create_entity("IfcShapeRepresentation", context, "Axis", "Curve3D", [curve])
+    polyline = create_ifcpolyline(f, [p1, p2, p3])
+    axis = f.create_entity("IfcShapeRepresentation", context, "Axis", "Curve3D", [polyline])
 
     # Final Product Shape
-    prod_def_shp = f.create_entity("IfcProductDefinitionShape", None, None, (body,))
+    prod_def_shp = f.create_entity("IfcProductDefinitionShape", None, None, (body, axis))
 
-    return prod_def_shp
-
-
-def elbow_swept_solid(pipe_elbow: PipeSegElbow, f, context):
-    profile = pipe_elbow.section.ifc_profile
-    seg = pipe_elbow.arc_seg
-    points = [to_real(seg.p1), to_real(seg.midpoint), to_real(seg.p2)]
-
-    p1, p2, p3 = pipe_elbow.p1.p, pipe_elbow.p2.p, pipe_elbow.p3.p
-    cd = get_center_from_3_points_and_radius(p1, p2, p3, pipe_elbow.bend_radius)
-
-    ifc_point_list = f.createIfcCartesianPointList3D(points)
-    curve = f.createIfcIndexedPolyCurve(ifc_point_list)
-
-    position = create_ifc_placement(f)
-    position_surf = create_ifc_placement(
-        f,
-        cd.center,
-    )
-
-    # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/lexical/IfcCylindricalSurface.htm
-    surface = f.createIfcCylindricalSurface(position_surf, seg.radius)
-    ifc_shape = f.create_entity(
-        "IfcSurfaceCurveSweptAreaSolid", SweptArea=profile, Position=position, Directrix=curve, ReferenceSurface=surface
-    )
-
-    # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/lexical/IfcFixedReferenceSweptAreaSolid.htm
-    # normal = normal_to_points_in_plane([p1, p2, p3])
-    # xvec1 = unit_vector(pipe_elbow.xvec1)
-    # f_ref_dir = to_real(xvec1)
-    # f_ref = f.create_entity("IfcDirection", f_ref_dir)
-    #
-    # ifc_shape = f.create_entity(
-    #     "IfcFixedReferenceSweptAreaSolid", SweptArea=profile, Position=position, Directrix=curve, FixedReference=f_ref
-    # )
-
-    body = f.create_entity("IfcShapeRepresentation", context, "Body", "SweptSolid", [ifc_shape])
-
-    prod_def_shp = f.create_entity("IfcProductDefinitionShape", None, None, (body,))
     return prod_def_shp

@@ -116,6 +116,7 @@ def add_part_objects_to_ifc(p: Part, f: ifcopenshell.file, assembly: Assembly, i
 
     part_ifc = p.get_ifc_elem()
     owner_history = assembly.user.to_ifc()
+
     physical_objects = []
     for m in p.materials.name_map.values():
         f.add(m.ifc_mat)

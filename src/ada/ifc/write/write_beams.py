@@ -63,15 +63,17 @@ def write_ifc_beam(beam: Beam):
     beam._ifc_elem = ifc_beam
 
     # Add penetrations
-    for pen in beam.penetrations:
-        f.createIfcRelVoidsElement(
-            create_guid(),
-            owner_history,
-            None,
-            None,
-            ifc_beam,
-            pen.ifc_opening,
-        )
+    if len(beam.penetrations) > 0:
+        for pen in beam.penetrations:
+            f.create_entity(
+                "IfcRelVoidsElement",
+                create_guid(),
+                owner_history,
+                None,
+                None,
+                ifc_beam,
+                pen.ifc_opening,
+            )
     found_existing_relationship = False
     for ifcrel in f.by_type("IfcRelDefinesByType"):
         if ifcrel.RelatingType == beam_type:
