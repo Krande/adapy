@@ -18,6 +18,7 @@ def import_section_from_ifc(profile_def, units="m") -> Section:
             t_ftop=profile_def.FlangeThickness,
             t_fbtn=profile_def.FlangeThickness,
             units=units,
+            sec_str=profile_def.ProfileName
         )
     elif profile_def.is_a("IfcTShapeProfileDef"):
         sec = Section(

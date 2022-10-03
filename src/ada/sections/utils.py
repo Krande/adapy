@@ -52,15 +52,17 @@ def profile_db_collect(sec_type: str, dim: str, units: str = "m"):
         sec_name = sec_name_alt2
     else:
         return None
+
     h = float(profile_db[sec_type][sec_name]["Height"]) * scale_factor
     w_top = float(profile_db[sec_type][sec_name]["Width"]) * scale_factor
     w_btn = float(profile_db[sec_type][sec_name]["Width"]) * scale_factor
     t_w = float(profile_db[sec_type][sec_name]["t_w"]) * scale_factor
     t_fbtn = float(profile_db[sec_type][sec_name]["t_f"]) * scale_factor
     t_ftop = float(profile_db[sec_type][sec_name]["t_f"]) * scale_factor
+    proper_sec_type = SectionCat.get_shape_type(sec_type)
     return Section(
         sec_name,
-        sec_type=sec_type,
+        sec_type=proper_sec_type,
         h=h,
         w_top=w_top,
         w_btn=w_btn,

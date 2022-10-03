@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import os
 import pathlib
@@ -10,25 +9,12 @@ from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Union
 
 from ada.base.physical_objects import BackendGeom
+from ada.cache.store import CacheStore
 from ada.concepts.connections import JointBase
-from ada.concepts.containers import (
-    Beams,
-    Connections,
-    Materials,
-    Nodes,
-    Plates,
-    Sections,
-)
+from ada.concepts.containers import Beams, Connections, Materials, Nodes, Plates, Sections
 from ada.concepts.piping import Pipe
 from ada.concepts.points import Node
-from ada.concepts.primitives import (
-    Penetration,
-    PrimBox,
-    PrimCyl,
-    PrimExtrude,
-    PrimRevolve,
-    Shape,
-)
+from ada.concepts.primitives import Penetration, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.concepts.transforms import Instance, Placement
 from ada.config import Settings, User
 from ada.fem import (
@@ -120,6 +106,7 @@ class Part(BackendGeom):
         if beam.units != self.units:
             beam.units = self.units
         beam.parent = self
+
         mat = self.add_material(beam.material)
         if mat != beam.material:
             beam.material = mat
@@ -140,6 +127,7 @@ class Part(BackendGeom):
         if old_node != beam.n2:
             beam.n2 = old_node
 
+        beam.change_type = beam.change_type.ADDED
         self.beams.add(beam)
         return beam
 
@@ -156,6 +144,7 @@ class Part(BackendGeom):
         for n in plate.nodes:
             self.nodes.add(n)
 
+        plate.change_type = plate.change_type.ADDED
         self._plates.add(plate)
         return plate
 
@@ -168,6 +157,7 @@ class Part(BackendGeom):
         if mat is not None:
             pipe.material = mat
 
+        pipe.change_type = pipe.change_type.ADDED
         self._pipes.append(pipe)
         return pipe
 
@@ -188,6 +178,7 @@ class Part(BackendGeom):
         if mat != shape.material:
             shape.material = mat
 
+        shape.change_type = shape.change_type.ADDED
         self._shapes.append(shape)
         return shape
 
@@ -207,6 +198,8 @@ class Part(BackendGeom):
             part._on_import()
         except NotImplementedError:
             logger.info(f'Part "{part}" has not defined its "on_import()" method')
+
+        part.change_type = part.change_type.ADDED
         return part
 
     def add_joint(self, joint: JointBase) -> JointBase:
@@ -250,24 +243,26 @@ class Part(BackendGeom):
     def add_penetration(
         self, pen: Union[Penetration, PrimExtrude, PrimRevolve, PrimCyl, PrimBox], add_pen_to_subparts=True
     ) -> Penetration:
-        if type(pen) in (PrimExtrude, PrimRevolve, PrimCyl, PrimBox):
-            pen = Penetration(pen, parent=self)
+        def create_pen(pen_):
+            if isinstance(pen_, (PrimExtrude, PrimRevolve, PrimCyl, PrimBox)):
+                return Penetration(pen_, parent=self)
+            return pen_
 
         for bm in self.beams:
-            bm.add_penetration(pen)
+            bm.add_penetration(create_pen(pen))
 
         for pl in self.plates:
-            pl.add_penetration(pen)
+            pl.add_penetration(create_pen(pen))
 
         for shp in self.shapes:
-            shp.add_penetration(pen)
+            shp.add_penetration(create_pen(pen))
 
         for pipe in self.pipes:
             for seg in pipe.segments:
-                seg.add_penetration(pen)
+                seg.add_penetration(create_pen(pen))
 
         for wall in self.walls:
-            wall.add_penetration(pen)
+            wall.add_penetration(create_pen(pen))
 
         if add_pen_to_subparts:
             for p in self.get_all_subparts():
@@ -834,8 +829,8 @@ class Assembly(Part):
         metadata=None,
         units="m",
         ifc_settings=None,
-        clear_cache=False,
-        enable_experimental_cache=None,
+        enable_cache: bool = False,
+        clear_cache: bool = False,
     ):
         from ada.ifc.utils import assembly_to_ifc_file
 
@@ -855,50 +850,10 @@ class Assembly(Part):
         self._ifc_settings = ifc_settings
         self._presentation_layers = []
 
-        # Model Cache
-        if enable_experimental_cache is None:
-            enable_experimental_cache = Settings.use_experimental_cache
-        self._enable_experimental_cache = enable_experimental_cache
-
-        state_path = pathlib.Path("").parent.resolve().absolute() / ".state" / self.name
-        self._state_file = state_path.with_suffix(".json")
-        self._cache_file = state_path.with_suffix(".h5")
-
-        if self._enable_experimental_cache is True:
-            if self._cache_file.exists() and clear_cache:
-                os.remove(self._cache_file)
-            if self._state_file.exists() and clear_cache:
-                os.remove(self._state_file)
-
-            self._cache_loaded = False
-            self._from_cache()
-
-    def is_cache_outdated(self, input_file=None):
-        is_cache_outdated = False
-        state = self._get_file_state()
-
-        for name, props in state.items():
-            in_file = pathlib.Path(props.get("fp"))
-            last_modified_state = props.get("lm")
-            if in_file.exists() is False:
-                is_cache_outdated = True
-                break
-
-            last_modified = os.path.getmtime(in_file)
-            if last_modified != last_modified_state:
-                is_cache_outdated = True
-                break
-
-        if self._cache_file.exists() is False:
-            logger.debug("Cache file not found")
-            is_cache_outdated = True
-
-        if input_file is not None:
-            curr_in_file = pathlib.Path(input_file)
-            if curr_in_file.name not in state.keys():
-                is_cache_outdated = True
-
-        return is_cache_outdated
+        self._cache_store = None
+        if enable_cache:
+            self._cache_store = CacheStore(name)
+            self.cache_store.sync(self, clear_cache=clear_cache)
 
     def reset_ifc_file(self):
         from ada.ifc.utils import assembly_to_ifc_file
@@ -910,78 +865,14 @@ class Assembly(Part):
             for bm in p.beams:
                 bm._ifc_elem = None
 
-    def _from_cache(self, input_file=None):
-        is_cache_outdated = self.is_cache_outdated(input_file)
-        if input_file is None and is_cache_outdated is False:
-            self._read_cache()
-            return True
-
-        if is_cache_outdated is False and self._cache_loaded is False:
-            self._read_cache()
-            return True
-        elif is_cache_outdated is False and self._cache_loaded is True:
-            return True
-        else:
-            return False
-
-    def _get_file_state(self):
-        state_file = self._state_file
-        if state_file.exists() is True:
-            with open(state_file, "r") as f:
-                state = json.load(f)
-                return state
-        return dict()
-
-    def _update_file_state(self, input_file=None):
-        in_file = pathlib.Path(input_file)
-        fna = in_file.name
-        last_modified = os.path.getmtime(in_file)
-        state_file = self._state_file
-        state = self._get_file_state()
-
-        state.get(fna, dict())
-        state[fna] = dict(lm=last_modified, fp=str(in_file))
-
-        os.makedirs(state_file.parent, exist_ok=True)
-
-        with open(state_file, "w") as f:
-            json.dump(state, f, indent=4)
-
-    def _to_cache(self, input_file, write_to_cache: bool):
-        self._update_file_state(input_file)
-        if write_to_cache:
-            self.update_cache()
-
-    def _read_cache(self):
-        from ada.cache.reader import read_assembly_from_cache
-
-        read_assembly_from_cache(self._cache_file, self)
-        self._cache_loaded = True
-        print(f"Finished Loading model from cache {self._cache_file}")
-
-    def update_cache(self):
-        from ada.cache.writer import write_assembly_to_cache
-
-        write_assembly_to_cache(self, self._cache_file)
-
     def read_ifc(
-        self, ifc_file: Union[str, os.PathLike, StringIO], data_only=False, elements2part=None, cache_model_now=False
+        self, ifc_file: str | os.PathLike | ifcopenshell.file, data_only=False, elements2part=None, create_cache=False
     ):
-        """
-        Import from IFC file.
-
-
-        Note! Currently only geometry is imported into individual shapes.
-
-        :param ifc_file:
-        :param data_only: Set True if data is relevant, not geometry
-        :param elements2part: Grab all physical elements from ifc and import it to the parsed in Part object.
-        :param cache_model_now:
-        """
+        """Import from IFC file."""
         from ada.ifc.read.read_ifc import read_ifc_file
 
-        if self._enable_experimental_cache is True and type(ifc_file) is not StringIO:
-            if self._from_cache(ifc_file) is True:
+        if self.cache_store is not None and isinstance(ifc_file, ifcopenshell.file) is False:
+            if self.cache_store.from_cache(self, ifc_file) is True:
                 return None
 
         settings = self.ifc_settings
@@ -990,8 +881,8 @@ class Assembly(Part):
         self.__add__(a)
         self._ifc_file = a._ifc_file
 
-        if self._enable_experimental_cache is True:
-            self._to_cache(ifc_file, cache_model_now)
+        if self.cache_store is not None:
+            self.cache_store.to_cache(self, ifc_file, create_cache)
 
     def read_fem(
         self,
@@ -1001,27 +892,15 @@ class Assembly(Part):
         fem_converter="default",
         cache_model_now=False,
     ):
-        """
-        Import a Finite Element model.
-
-        Currently supported FEM formats: Abaqus, Sesam and Calculix
-
-        :param fem_file: Path to fem file
-        :param fem_format: Fem Format
-        :param name:
-        :param fem_converter: Set desired fem converter. Use either 'default' or 'meshio'.
-        :param cache_model_now:
-
-        Note! The meshio fem converter implementation currently only supports reading elements and nodes.
-        """
+        """Import a Finite Element model. Currently supported FEM formats: Abaqus, Sesam and Calculix"""
         from ada.fem.formats.general import get_fem_converters
 
         fem_file = pathlib.Path(fem_file)
         if fem_file.exists() is False:
             raise FileNotFoundError(fem_file)
 
-        if self._enable_experimental_cache is True:
-            if self._from_cache(fem_file) is True:
+        if self.cache_store is not None:
+            if self.cache_store.from_cache(self, fem_file) is True:
                 return None
 
         fem_importer, _ = get_fem_converters(fem_file, fem_format, fem_converter)
@@ -1029,8 +908,8 @@ class Assembly(Part):
         temp_assembly: Assembly = fem_importer(fem_file, name)
         self.__add__(temp_assembly)
 
-        if self._enable_experimental_cache is True:
-            self._to_cache(fem_file, cache_model_now)
+        if self.cache_store is not None:
+            self.cache_store.to_cache(self, fem_file, cache_model_now)
 
     def to_fem(
         self,
@@ -1095,12 +974,7 @@ class Assembly(Part):
 
         """
         from ada.fem.formats.general import fem_executables, get_fem_converters
-        from ada.fem.formats.utils import (
-            default_fem_inp_path,
-            default_fem_res_path,
-            folder_prep,
-            should_convert,
-        )
+        from ada.fem.formats.utils import default_fem_inp_path, default_fem_res_path, folder_prep, should_convert
         from ada.fem.results import Results
 
         scratch_dir = Settings.scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
@@ -1191,16 +1065,7 @@ class Assembly(Part):
         print("IFC file creation complete")
         return file_obj
 
-    def push(
-        self,
-        comment,
-        bimserver_url,
-        username,
-        password,
-        project,
-        merge=False,
-        sync=False,
-    ):
+    def push(self, comment, bimserver_url, username, password, project, merge=False, sync=False):
         """Push current assembly to BimServer with a comment tag that defines the revision name"""
         from ada.core.bimserver import BimServerConnect
 
@@ -1262,6 +1127,10 @@ class Assembly(Part):
     @property
     def convert_options(self) -> _ConvertOptions:
         return self._convert_options
+
+    @property
+    def cache_store(self) -> CacheStore:
+        return self._cache_store
 
     def __add__(self, other: Union[Assembly, Part]):
         if other.units != self.units:

@@ -20,7 +20,7 @@ class ReinforcedFloor(Part):
     def __init__(
         self,
         name,
-        points: List[tuple],
+        points: list[tuple],
         pl_thick: float,
         spacing=0.4,
         s_type="HP140x8",
@@ -47,7 +47,7 @@ class ReinforcedFloor(Part):
         else:
             snum = int((ymax - ymin) / spacing) - 1
 
-        z = plate.poly.placement.origin[2] - plate.t / 2
+        z = plate.poly.placement.origin[2] - plate.t
 
         tot_spacing = snum * spacing
         diff = xmax - xmin - tot_spacing

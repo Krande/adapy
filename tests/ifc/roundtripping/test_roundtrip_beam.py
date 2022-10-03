@@ -9,6 +9,7 @@ def ifc_roundtrip_test_dir(ifc_test_dir):
 
 
 def test_roundtrip_ipe_beam(bm_ipe300, ifc_roundtrip_test_dir):
+    sec_o = bm_ipe300.section
     ifc_beam_file = ifc_roundtrip_test_dir / "ipe300.ifc"
     fp = (ada.Assembly() / (ada.Part("MyPart") / bm_ipe300)).to_ifc(ifc_beam_file, return_file_obj=True)
 
@@ -19,7 +20,7 @@ def test_roundtrip_ipe_beam(bm_ipe300, ifc_roundtrip_test_dir):
 
     assert p.name == "MyPart"
     assert bm.name == "MyIPE300"
-    assert sec.type == "I"
+    assert sec.type == sec_o.type
 
     assert tuple(bm.n1.p) == tuple(bm_ipe300.n1.p)
     assert tuple(bm.n2.p) == tuple(bm_ipe300.n2.p)

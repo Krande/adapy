@@ -188,6 +188,7 @@ def generate_tpl_ifc_file(file_name, project, schema, units, user):
     :type user: ada.config.User
     :return:
     """
+    from ada.base.non_physical_objects import Units
 
     import time
 
@@ -197,9 +198,9 @@ def generate_tpl_ifc_file(file_name, project, schema, units, user):
     timestring = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(timestamp))
     application, application_version = "IfcOpenShell", "0.6"
     project_globalid = create_guid()
-    if units == "m":
+    if units == Units.M:
         units_str = "$,.METRE."
-    elif units == "mm":
+    elif units == Units.MM:
         units_str = ".MILLI.,.METRE."
     else:
         raise ValueError(f'Unrecognized unit prefix "{units}"')

@@ -10,11 +10,13 @@ from ada.sections.categories import SectionCat
 from ..utils import create_guid, create_ifcindexpolyline, create_ifcpolyline
 
 
-def export_beam_section(section: Section):
+def export_beam_section_profile_def(section: Section):
     if section.parent is None or section.parent.parent is None:
         raise ValueError("Lacking parent")
+
     a = section.parent.parent.get_assembly()
     f = a.ifc_file
+
     sec_props = dict(ProfileType="AREA", ProfileName=section.name)
     section_profile = section.get_section_profile(True)
     gen_type = SectionCat.get_shape_type(section)
@@ -46,20 +48,20 @@ def export_beam_section(section: Section):
 
     profile = f.create_entity(ifc_sec_type, **sec_props)
 
-    beamtype = f.create_entity(
+    return profile
+
+
+def export_ifc_beam_type(section: Section):
+    a = section.parent.parent.get_assembly()
+    f = a.ifc_file
+    return f.create_entity(
         "IfcBeamType",
-        create_guid(),
-        a.user.to_ifc(),
-        section.name,
-        section.sec_str,
-        None,
-        None,
-        None,
-        None,
-        None,
-        "BEAM",
+        GlobalId=create_guid(),
+        OwnerHistory=a.user.to_ifc(),
+        Name=section.name,
+        Description=section.sec_str,
+        PredefinedType="BEAM",
     )
-    return profile, beamtype
 
 
 def write_iprofile(f, section, section_profile) -> Tuple[dict, str]:

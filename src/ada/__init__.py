@@ -57,11 +57,11 @@ def from_fem(
     fem_file: Union[str, list, pathlib.Path],
     fem_format: Union[str, list] = None,
     name: Union[str, list] = None,
-    enable_experimental_cache=False,
+    enable_cache=False,
     source_units="m",
     fem_converter="default",
 ) -> Assembly:
-    a = Assembly(enable_experimental_cache=enable_experimental_cache, units=source_units)
+    a = Assembly(enable_cache=enable_cache, units=source_units)
     if type(fem_file) is str or issubclass(type(fem_file), pathlib.Path):
         a.read_fem(fem_file, fem_format, name, fem_converter=fem_converter)
     elif type(fem_file) is list:

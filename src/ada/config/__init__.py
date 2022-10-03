@@ -3,6 +3,8 @@ import pathlib
 from dataclasses import dataclass
 from datetime import datetime
 
+import ifcopenshell
+
 
 def _get_platform_home():
     """Home location for each platform"""
@@ -77,92 +79,89 @@ class User:
     role: str = "Engineer"
     parent = None
 
-    def _build_ifc_elem(self):
-        import ifcopenshell
+    def to_ifc(self, f: ifcopenshell.file = None):
+        f = self.parent.ifc_file if f is None else f
+        return create_owner_history_from_user(self, f)
 
-        from ada.ifc.read.reader_utils import get_org, get_person
 
-        f: ifcopenshell.file = self.parent.ifc_file
+def create_owner_history_from_user(user: User, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    from ada.ifc.read.reader_utils import get_org, get_person
 
-        actor = None
-        for ar in f.by_type("IfcActorRole"):
-            if ar.Role == self.role.upper():
-                actor = ar
-                break
+    actor = None
+    for ar in f.by_type("IfcActorRole"):
+        if ar.Role == user.role.upper():
+            actor = ar
+            break
 
-        if actor is None:
-            actor = f.create_entity("IfcActorRole", Role=self.role.upper(), UserDefinedRole=None, Description=None)
+    if actor is None:
+        actor = f.create_entity("IfcActorRole", Role=user.role.upper(), UserDefinedRole=None, Description=None)
 
-        user_props = dict(
-            Identification=self.user_id,
-            FamilyName=self.family_name,
-            GivenName=self.given_name,
-            MiddleNames=self.middle_names,
-            PrefixTitles=self.prefix_titles,
-            SuffixTitles=self.suffix_titles,
+    user_props = dict(
+        Identification=user.user_id,
+        FamilyName=user.family_name,
+        GivenName=user.given_name,
+        MiddleNames=user.middle_names,
+        PrefixTitles=user.prefix_titles,
+        SuffixTitles=user.suffix_titles,
+    )
+
+    person = get_person(f, user.user_id)
+    if person is None:
+        person = f.create_entity("IfcPerson", **user_props, Roles=(actor,))
+
+    organization = get_org(f, user.org_id)
+    if organization is None:
+        organization = f.create_entity(
+            "IfcOrganization",
+            Identification=user.org_id,
+            Name=user.org_name,
+            Description=user.org_description,
         )
 
-        person = get_person(f, self.user_id)
-        if person is None:
-            person = f.create_entity("IfcPerson", **user_props, Roles=(actor,))
+    p_o = None
+    for po in f.by_type("IfcPersonAndOrganization"):
+        if po.TheOrganization != organization:
+            continue
+        p_o = po
+        break
 
-        organization = get_org(f, self.org_id)
-        if organization is None:
-            organization = f.create_entity(
-                "IfcOrganization",
-                Identification=self.org_id,
-                Name=self.org_name,
-                Description=self.org_description,
-            )
+    if p_o is None:
+        p_o = f.create_entity("IfcPersonAndOrganization", person, organization)
 
-        p_o = None
-        for po in f.by_type("IfcPersonAndOrganization"):
-            if po.TheOrganization != organization:
-                continue
-            p_o = po
-            break
+    app_name = "ADA"
+    application = None
+    for app in f.by_type("IfcApplication"):
+        if app.ApplicationFullName != app_name:
+            continue
+        application = app
+        break
 
-        if p_o is None:
-            p_o = f.create_entity("IfcPersonAndOrganization", person, organization)
+    if application is None:
+        application = f.create_entity("IfcApplication", organization, "XXX", "ADA", "ADA")
 
-        app_name = "ADA"
-        application = None
-        for app in f.by_type("IfcApplication"):
-            if app.ApplicationFullName != app_name:
-                continue
-            application = app
-            break
+    timestamp = int(datetime.now().timestamp())
 
-        if application is None:
-            application = f.create_entity("IfcApplication", organization, "XXX", "ADA", "ADA")
+    owner_history = None
+    for oh in f.by_type("IfcOwnerHistory"):
+        if oh.OwningUser != p_o:
+            continue
+        if oh.OwningApplication != application:
+            continue
+        oh.LastModifiedDate = timestamp
+        owner_history = oh
+        break
 
-        timestamp = int(datetime.now().timestamp())
+    if owner_history is None:
+        owner_history = f.create_entity(
+            "IfcOwnerHistory",
+            OwningUser=p_o,
+            OwningApplication=application,
+            State="READWRITE",
+            ChangeAction=None,
+            LastModifiedDate=None,
+            LastModifyingUser=p_o,
+            LastModifyingApplication=application,
+            CreationDate=timestamp,
+        )
 
-        owner_history = None
-        for oh in f.by_type("IfcOwnerHistory"):
-            if oh.OwningUser != p_o:
-                continue
-            if oh.OwningApplication != application:
-                continue
-            oh.LastModifiedDate = timestamp
-            owner_history = oh
-            break
-
-        if owner_history is None:
-            owner_history = f.create_entity(
-                "IfcOwnerHistory",
-                OwningUser=p_o,
-                OwningApplication=application,
-                State="READWRITE",
-                ChangeAction=None,
-                LastModifiedDate=None,
-                LastModifyingUser=p_o,
-                LastModifyingApplication=application,
-                CreationDate=timestamp,
-            )
-
-        return owner_history
-
-    def to_ifc(self):
-        # Important! Needs to create unique owner_history for each use. Will cause seg fault when adding non-unique
-        return self._build_ifc_elem()
+    return owner_history

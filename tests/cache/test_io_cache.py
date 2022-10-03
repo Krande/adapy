@@ -32,14 +32,14 @@ def test_simplestru_fem_cache(bm_ipe300):
 
     start = time.time()
     pfem = Part("ParamModel") / bm_ipe300
-    a = Assembly(model_name, clear_cache=True, enable_experimental_cache=True) / pfem
+    a = Assembly(model_name, clear_cache=True, enable_cache=True) / pfem
 
     pfem.fem = pfem.to_fem_obj(0.1)
     time1 = time.time() - start
 
-    a.update_cache()
+    a.cache_store.update_cache(a)
     start = time.time()
-    b = Assembly(model_name, enable_experimental_cache=True)
+    b = Assembly(model_name, enable_cache=True)
     time2 = time.time() - start
     cache_validation(a, b)
 

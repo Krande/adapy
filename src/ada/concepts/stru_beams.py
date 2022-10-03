@@ -4,6 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Iterable, List, Optional, Union
 
 import numpy as np
+from enum import Enum
 
 from ada.base.physical_objects import BackendGeom
 from ada.concepts.bounding_box import BoundingBox
@@ -38,7 +39,7 @@ section_counter = Counter(1)
 material_counter = Counter(1)
 
 
-class Justification:
+class Justification(Enum):
     NA = "neutral axis"
     TOS = "top of steel"
 

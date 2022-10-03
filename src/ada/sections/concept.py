@@ -38,11 +38,10 @@ class Section(Backend):
         genprops: GeneralProperties = None,
         metadata=None,
         units="m",
-        ifc_elem=None,
         guid=None,
         refs=None,
     ):
-        super(Section, self).__init__(name, guid, metadata, units, ifc_elem=ifc_elem, parent=parent)
+        super(Section, self).__init__(name, guid, metadata, units, parent=parent)
         self._type = sec_type
         self._h = h
         self._w_top = w_top
@@ -59,10 +58,6 @@ class Section(Backend):
 
         self._ifc_profile = None
         self._ifc_beam_type = None
-
-        if ifc_elem is not None:
-            props = self._import_from_ifc_profile(ifc_elem)
-            self.__dict__.update(props.__dict__)
 
         if from_str is not None:
             from ada.sections.utils import interpret_section_str
@@ -83,29 +78,6 @@ class Section(Backend):
         if genprops is not None:
             genprops.parent = self
             self._genprops = genprops
-        # prop = self.properties
-        # if None in (prop.Cy, prop.Cz) and self.type != Section.TYPES.GENERAL:
-        #     logging.warning("Attribute Cy and Cz is missing from instance of Properties")
-
-    # def __eq__(self, other: Section):
-    #     props_equal = self.equal_props(other)
-    #     if props_equal is False:
-    #         return False
-    #     if other.name != self.name:
-    #         return False
-    #
-    #     return True
-
-    def _generate_ifc_section_data(self):
-        from ada.ifc.write.write_sections import export_beam_section
-
-        return export_beam_section(self)
-
-    def _import_from_ifc_profile(self, ifc_elem):
-        from ada.ifc.read.read_beam_section import import_section_from_ifc
-
-        self._ifc_profile = ifc_elem
-        return import_section_from_ifc(ifc_elem)
 
     def equal_props(self, other: Section):
         props = ["type", "h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "wt", "poly_outer", "poly_inner"]
@@ -257,13 +229,16 @@ class Section(Backend):
     @property
     def ifc_profile(self):
         if self._ifc_profile is None:
-            self._ifc_profile, self._ifc_beam_type = self._generate_ifc_section_data()
+            from ada.ifc.write.write_sections import export_beam_section_profile_def
+            self._ifc_profile = export_beam_section_profile_def(self)
         return self._ifc_profile
 
     @property
     def ifc_beam_type(self):
         if self._ifc_beam_type is None:
-            self._ifc_profile, self._ifc_beam_type = self._generate_ifc_section_data()
+            from ada.ifc.write.write_sections import export_ifc_beam_type
+            self._ifc_beam_type = export_ifc_beam_type(self)
+
         return self._ifc_beam_type
 
     @property

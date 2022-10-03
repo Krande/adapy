@@ -74,6 +74,11 @@ class EquationOfPlane:
         p4 = p0 + vec2 * p_dist - vec3 * p_dist
         return [p1, p2, p3, p4]
 
+    def project_point_onto_plane(self, point: Iterable) -> np.ndarray:
+        p = np.array(point)
+        dist = p.dot(self.normal) + self.d
+        return p - dist * self.normal
+
 
 def linear_2dtransform_rotate(origin, point, degrees) -> np.ndarray:
     """

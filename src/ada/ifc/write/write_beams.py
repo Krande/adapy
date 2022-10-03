@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING
 
+import ifcopenshell
 import numpy as np
 
 from ada import Beam, CurvePoly, CurveRevolve
@@ -21,14 +22,14 @@ if TYPE_CHECKING:
     from ifcopenshell import file as ifile
 
 
-def write_ifc_beam(beam: Beam):
+def write_ifc_beam(beam: Beam, f: ifcopenshell.file = None):
     if beam.parent is None:
         raise ValueError("Parent cannot be None for IFC export")
 
     a = beam.parent.get_assembly()
-    f = a.ifc_file
+    f = a.ifc_file if f is None else f
 
-    owner_history = a.user.to_ifc()
+    owner_history = a.user.to_ifc(f)
 
     beam_type = beam.section.ifc_beam_type
     profile = beam.section.ifc_profile
@@ -99,8 +100,8 @@ def write_ifc_beam(beam: Beam):
     mat_profile_set = add_material_assignment(f, beam, ifc_beam, owner_history, beam_type)
 
     # Cardinality
-    mat_usage = f.createIfcMaterialProfileSetUsage(mat_profile_set, convert_bm_jusl_to_ifc(beam))
-    f.createIfcRelAssociatesMaterial(create_guid(), owner_history, None, None, [ifc_beam], mat_usage)
+    mat_usage = f.create_entity("IfcMaterialProfileSetUsage", mat_profile_set, convert_bm_jusl_to_ifc(beam))
+    f.create_entity("IfcRelAssociatesMaterial", create_guid(), owner_history, None, None, [ifc_beam], mat_usage)
 
     return ifc_beam
 

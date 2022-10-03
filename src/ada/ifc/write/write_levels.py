@@ -12,7 +12,6 @@ if TYPE_CHECKING:
 
 
 def write_ifc_assembly(assembly: "Assembly"):
-
     f = assembly.ifc_file
     owner_history = assembly.user.to_ifc()
     site_placement = create_local_placement(f)

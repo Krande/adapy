@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING, List, Union
 
 from ada.config import Settings as _Settings
@@ -12,6 +13,34 @@ if TYPE_CHECKING:
     from ada.ifc.concepts import IfcRef
 
 
+class InvalidUnit(Exception):
+    pass
+
+
+class ChangeAction(Enum):
+    ADDED = "ADDED"
+    DELETED = "DELETED"
+    MODIFIED = "MODIFIED"
+    NOCHANGE = "NOCHANGE"
+    NOTDEFINED = "NOTDEFINED"
+
+
+class Units(Enum):
+    M = "m"
+    MM = "mm"
+
+    @staticmethod
+    def is_valid_unit(unit: str):
+        return unit.lower() in list([x.value.lower() for x in Units])
+
+    @staticmethod
+    def from_str(unit: str):
+        units_map = {x.value.lower(): x for x in Units}
+        unit_safe = units_map.get(unit.lower())
+        if unit_safe is None:
+            raise InvalidUnit
+
+
 @dataclass
 class IfcExportOptions:
     export_props: bool = field(default=True)
@@ -19,24 +48,28 @@ class IfcExportOptions:
 
 
 class Backend:
+    UNITS: Units = Units
+
     def __init__(
         self,
         name,
         guid=None,
         metadata=None,
-        units="m",
+        units: Units | str = Units.M,
         parent=None,
         ifc_settings=None,
         ifc_elem=None,
         ifc_ref: IfcRef = None,
+        change_type: ChangeAction = ChangeAction.NOTDEFINED,
     ):
         self.name = name
         self.parent = parent
+        self.change_type = change_type
         self._ifc_settings = ifc_settings
         self.guid = create_guid() if guid is None else guid
-        units = units.lower()
-        if units not in _Settings.valid_units:
-            raise ValueError(f'Unit type "{units}"')
+
+        if isinstance(units, str):
+            units = Units.from_str(units)
         self._units = units
         self._metadata = metadata if metadata is not None else dict(props=dict())
         self._ifc_elem = ifc_elem
