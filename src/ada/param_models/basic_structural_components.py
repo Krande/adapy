@@ -1,6 +1,7 @@
 import numpy as np
 
 from ada import CurvePoly, Shape
+from ada.base.units import Units
 from ada.concepts.stru_walls import WallInsert
 
 
@@ -15,11 +16,12 @@ class Window(WallInsert):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value == self._units:
             return
-        from ada.core.utils import unit_length_conversion
 
-        scale_factor = unit_length_conversion(self._units, value)
+        scale_factor = Units.get_scale_factor(self._units, value)
         self.placement.origin = np.array([x * scale_factor for x in self.placement.origin])
         self._width *= scale_factor
         self._height *= scale_factor
@@ -48,10 +50,10 @@ class Door(WallInsert):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
-            from ada.core.utils import unit_length_conversion
-
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
             self.placement.origin = np.array([x * scale_factor for x in self.placement.origin])
             self._width *= scale_factor
             self._height *= scale_factor

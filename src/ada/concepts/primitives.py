@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Tuple, Union
 import numpy as np
 
 from ada.base.physical_objects import BackendGeom
+from ada.base.units import Units
 from ada.core.utils import Counter, roundoff
 from ada.materials import Material
 from ada.materials.utils import get_material
@@ -30,7 +31,7 @@ class Shape(BackendGeom):
         mass: float = None,
         cog: Tuple[float, float, float] = None,
         metadata=None,
-        units="m",
+        units=Units.M,
         ifc_elem=None,
         guid=None,
         material: Union[Material, str] = None,
@@ -141,10 +142,10 @@ class Shape(BackendGeom):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
-            from ada.core.utils import unit_length_conversion
-
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
             if self._geom is not None:
                 from ada.occ.utils import transform_shape
 
@@ -190,11 +191,12 @@ class PrimSphere(Shape):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
-            from ada.core.utils import unit_length_conversion
             from ada.occ.utils import make_sphere
 
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
             self.cog = tuple([x * scale_factor for x in self.cog])
             self.radius = self.radius * scale_factor
             self._geom = make_sphere(self.cog, self.radius)
@@ -221,11 +223,12 @@ class PrimBox(Shape):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
-            from ada.core.utils import unit_length_conversion
             from ada.occ.utils import make_box_by_points
 
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
             self.p1 = tuple([x * scale_factor for x in self.p1])
             self.p2 = tuple([x * scale_factor for x in self.p2])
             self._geom = make_box_by_points(self.p1, self.p2)
@@ -250,12 +253,12 @@ class PrimCyl(Shape):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         from ada.occ.utils import make_cylinder_from_points
 
         if value != self._units:
-            from ada.core.utils import unit_length_conversion
-
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
             self.p1 = [x * scale_factor for x in self.p1]
             self.p2 = [x * scale_factor for x in self.p2]
             self.r = self.r * scale_factor
@@ -287,11 +290,12 @@ class PrimExtrude(Shape):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
             from ada.config import Settings
-            from ada.core.utils import unit_length_conversion
 
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
             tol = Settings.mmtol if value == "mm" else Settings.mtol
             self.poly.scale(scale_factor, tol)
             self._extrude_depth = self._extrude_depth * scale_factor
@@ -342,11 +346,12 @@ class PrimRevolve(Shape):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
             from ada.config import Settings
-            from ada.core.utils import unit_length_conversion
 
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
             tol = Settings.mmtol if value == "mm" else Settings.mtol
             self.poly.scale(scale_factor, tol)
             self._revolve_origin = [x * scale_factor for x in self.revolve_origin]
@@ -416,6 +421,8 @@ class PrimSweep(Shape):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
             raise NotImplementedError()
 
@@ -439,7 +446,7 @@ class Penetration(BackendGeom):
     _name_gen = Counter(1, "Pen")
     """A penetration object. Wraps around a primitive"""
     # TODO: Maybe this class should be evaluated for removal?
-    def __init__(self, primitive, metadata=None, parent=None, units="m", guid=None):
+    def __init__(self, primitive, metadata=None, parent=None, units=Units.M, guid=None):
         if issubclass(type(primitive), Shape) is False:
             raise ValueError(f'Unsupported primitive type "{type(primitive)}"')
 
@@ -462,6 +469,8 @@ class Penetration(BackendGeom):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
             self.primitive.units = value
             self._units = value

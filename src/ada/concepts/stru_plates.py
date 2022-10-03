@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, List
 import numpy as np
 
 from ada.base.physical_objects import BackendGeom
+from ada.base.units import Units
 from ada.concepts.bounding_box import BoundingBox
 from ada.concepts.curves import CurvePoly
 from ada.concepts.points import Node
@@ -45,7 +46,7 @@ class Plate(BackendGeom):
         opacity=1.0,
         metadata=None,
         tol=None,
-        units="m",
+        units=Units.M,
         ifc_elem=None,
         guid=None,
         ifc_ref: "IfcRef" = None,
@@ -76,12 +77,7 @@ class Plate(BackendGeom):
         self._t = t
 
         if tol is None:
-            if units == "mm":
-                tol = Settings.mmtol
-            elif units == "m":
-                tol = Settings.mtol
-            else:
-                raise ValueError(f'Unknown unit "{units}"')
+            tol = Units.get_general_point_tol(units)
 
         self._poly = CurvePoly(
             points3d=points3d,
@@ -179,10 +175,10 @@ class Plate(BackendGeom):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if self._units != value:
-            from ada.core.utils import unit_length_conversion
-
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
             tol = Settings.mmtol if value == "mm" else Settings.mtol
             self._t *= scale_factor
             self.poly.scale(scale_factor, tol)

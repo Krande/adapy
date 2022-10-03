@@ -9,12 +9,27 @@ from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Union
 
 from ada.base.physical_objects import BackendGeom
+from ada.base.units import Units
 from ada.cache.store import CacheStore
 from ada.concepts.connections import JointBase
-from ada.concepts.containers import Beams, Connections, Materials, Nodes, Plates, Sections
+from ada.concepts.containers import (
+    Beams,
+    Connections,
+    Materials,
+    Nodes,
+    Plates,
+    Sections,
+)
 from ada.concepts.piping import Pipe
 from ada.concepts.points import Node
-from ada.concepts.primitives import Penetration, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
+from ada.concepts.primitives import (
+    Penetration,
+    PrimBox,
+    PrimCyl,
+    PrimExtrude,
+    PrimRevolve,
+    Shape,
+)
 from ada.concepts.transforms import Instance, Placement
 from ada.config import Settings, User
 from ada.fem import (
@@ -38,6 +53,7 @@ if TYPE_CHECKING:
     from ada.fem.meshing import GmshOptions
     from ada.fem.results import Results
     from ada.ifc.concepts import IfcRef
+    from ada.ifc.store import IfcStore
     from ada.visualize.concept import VisMesh
     from ada.visualize.config import ExportConfig
 
@@ -67,7 +83,7 @@ class Part(BackendGeom):
         settings: Settings = Settings(),
         metadata=None,
         parent=None,
-        units="m",
+        units: Units = Units.M,
         ifc_elem=None,
         guid=None,
         ifc_ref: IfcRef = None,
@@ -331,7 +347,7 @@ class Part(BackendGeom):
         rotate=None,
         colour=None,
         opacity=1.0,
-        source_units="m",
+        source_units=Units.M,
         include_shells=False,
     ):
         """
@@ -734,7 +750,10 @@ class Part(BackendGeom):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
+
             for bm in self.beams:
                 bm.units = value
 
@@ -760,8 +779,7 @@ class Part(BackendGeom):
             self.materials.units = value
             self._units = value
 
-            if type(self) is Assembly:
-                assert isinstance(self, Assembly)
+            if isinstance(self, Assembly):
                 from ada.ifc.utils import assembly_to_ifc_file
 
                 self._ifc_file = assembly_to_ifc_file(self)
@@ -775,27 +793,27 @@ class Part(BackendGeom):
 
         if type(other_object) in [list, tuple]:
             for obj in other_object:
-                if type(obj) is Beam:
+                if isinstance(obj, Beam):
                     self.add_beam(obj)
-                elif type(obj) is Plate:
+                elif isinstance(obj, Plate):
                     self.add_plate(obj)
-                elif type(obj) is Pipe:
+                elif isinstance(obj, Pipe):
                     self.add_pipe(obj)
                 elif issubclass(type(obj), Part):
                     self.add_part(obj)
                 elif issubclass(type(obj), Shape):
                     self.add_shape(obj)
-                elif type(obj) is Wall:
+                elif isinstance(obj, Wall):
                     self.add_wall(obj)
                 else:
                     raise NotImplementedError(f'"{type(obj)}" is not yet supported for smart append')
         elif issubclass(type(other_object), Part):
             self.add_part(other_object)
-        elif type(other_object) is Beam:
+        elif isinstance(other_object, Beam):
             self.add_beam(other_object)
-        elif type(other_object) is Plate:
+        elif isinstance(other_object, Plate):
             self.add_plate(other_object)
-        elif type(other_object) is Pipe:
+        elif isinstance(other_object, Pipe):
             self.add_pipe(other_object)
         elif issubclass(type(other_object), Shape):
             self.add_shape(other_object)
@@ -827,7 +845,7 @@ class Assembly(Part):
         schema="IFC4X1",
         settings=Settings(),
         metadata=None,
-        units="m",
+        units: Units | str = Units.M,
         ifc_settings=None,
         enable_cache: bool = False,
         clear_cache: bool = False,
@@ -850,26 +868,18 @@ class Assembly(Part):
         self._ifc_settings = ifc_settings
         self._presentation_layers = []
 
+        self._ifc_store = None
         self._cache_store = None
         if enable_cache:
             self._cache_store = CacheStore(name)
             self.cache_store.sync(self, clear_cache=clear_cache)
-
-    def reset_ifc_file(self):
-        from ada.ifc.utils import assembly_to_ifc_file
-
-        self._ifc_file = assembly_to_ifc_file(self)
-
-        for p in self.get_all_parts_in_assembly(True):
-            p._ifc_elem = None
-            for bm in p.beams:
-                bm._ifc_elem = None
 
     def read_ifc(
         self, ifc_file: str | os.PathLike | ifcopenshell.file, data_only=False, elements2part=None, create_cache=False
     ):
         """Import from IFC file."""
         from ada.ifc.read.read_ifc import read_ifc_file
+        from ada.ifc.store import IfcStore
 
         if self.cache_store is not None and isinstance(ifc_file, ifcopenshell.file) is False:
             if self.cache_store.from_cache(self, ifc_file) is True:
@@ -880,6 +890,8 @@ class Assembly(Part):
 
         self.__add__(a)
         self._ifc_file = a._ifc_file
+
+        self._ifc_store = IfcStore(ifc_file, assembly=self)
 
         if self.cache_store is not None:
             self.cache_store.to_cache(self, ifc_file, create_cache)
@@ -974,7 +986,12 @@ class Assembly(Part):
 
         """
         from ada.fem.formats.general import fem_executables, get_fem_converters
-        from ada.fem.formats.utils import default_fem_inp_path, default_fem_res_path, folder_prep, should_convert
+        from ada.fem.formats.utils import (
+            default_fem_inp_path,
+            default_fem_res_path,
+            folder_prep,
+            should_convert,
+        )
         from ada.fem.results import Results
 
         scratch_dir = Settings.scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
@@ -1131,6 +1148,10 @@ class Assembly(Part):
     @property
     def cache_store(self) -> CacheStore:
         return self._cache_store
+
+    @property
+    def ifc_store(self) -> IfcStore:
+        return self._ifc_store
 
     def __add__(self, other: Union[Assembly, Part]):
         if other.units != self.units:

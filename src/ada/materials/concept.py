@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ada.base.non_physical_objects import Backend
+from ada.base.units import Units
 
 from .metals import CarbonSteel
 
@@ -101,6 +102,8 @@ class Material(Backend):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         self.model.units = value
 
     @property

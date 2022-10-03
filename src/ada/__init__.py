@@ -5,6 +5,7 @@ import pathlib
 from typing import TYPE_CHECKING, Union
 
 from ada import fem
+from ada.base.units import Units
 from ada.concepts.connections import Bolts, Weld
 from ada.concepts.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
 from ada.concepts.levels import Assembly, Group, Part
@@ -35,7 +36,7 @@ if TYPE_CHECKING:
 __author__ = "Kristoffer H. Andersen"
 
 
-def from_ifc(ifc_file: os.PathLike | ifcopenshell.file, units="m", name="Ada") -> Assembly:
+def from_ifc(ifc_file: os.PathLike | ifcopenshell.file, units=Units.M, name="Ada") -> Assembly:
     if isinstance(ifc_file, (os.PathLike, str)):
         ifc_file = pathlib.Path(ifc_file).resolve().absolute()
         print(f'Reading "{ifc_file.name}"')
@@ -47,7 +48,7 @@ def from_ifc(ifc_file: os.PathLike | ifcopenshell.file, units="m", name="Ada") -
     return a
 
 
-def from_step(step_file: Union[str, pathlib.Path], source_units="m", **kwargs) -> Assembly:
+def from_step(step_file: Union[str, pathlib.Path], source_units=Units.M, **kwargs) -> Assembly:
     a = Assembly()
     a.read_step_file(step_file, source_units=source_units, **kwargs)
     return a
@@ -58,7 +59,7 @@ def from_fem(
     fem_format: Union[str, list] = None,
     name: Union[str, list] = None,
     enable_cache=False,
-    source_units="m",
+    source_units=Units.M,
     fem_converter="default",
 ) -> Assembly:
     a = Assembly(enable_cache=enable_cache, units=source_units)

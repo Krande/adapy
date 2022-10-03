@@ -1,4 +1,5 @@
 from ada import Part, Wall
+from ada.base.units import Units
 from ada.core.constants import O, X, Z
 from ada.ifc.utils import (
     add_negative_extrusion,
@@ -8,7 +9,6 @@ from ada.ifc.utils import (
     create_ifcpolyline,
     create_local_placement,
     create_property_set,
-    get_tolerance,
     tesselate_shape,
 )
 
@@ -109,7 +109,7 @@ def add_ifc_insert_elem(wall: Wall, shape_, opening_element, wall_el, ifc_type):
 
     shape = shape_.geom
 
-    insert_shape_ = tesselate_shape(shape, schema, get_tolerance(a.units))
+    insert_shape_ = tesselate_shape(shape, schema, Units.get_general_point_tol(a.units))
     insert_shape = f.add(insert_shape_)
 
     # Link to representation context

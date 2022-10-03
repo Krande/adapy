@@ -1,9 +1,10 @@
 import logging
 
+from ada.base.units import Units
 from ada.sections import Section
 
 
-def import_section_from_ifc(profile_def, units="m") -> Section:
+def import_section_from_ifc(profile_def, units=Units.M) -> Section:
     """Takes any subclass of ProfileDef"""
     from ada.sections.utils import interpret_section_str
 
@@ -18,7 +19,7 @@ def import_section_from_ifc(profile_def, units="m") -> Section:
             t_ftop=profile_def.FlangeThickness,
             t_fbtn=profile_def.FlangeThickness,
             units=units,
-            sec_str=profile_def.ProfileName
+            sec_str=profile_def.ProfileName,
         )
     elif profile_def.is_a("IfcTShapeProfileDef"):
         sec = Section(

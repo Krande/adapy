@@ -6,6 +6,7 @@ import numpy as np
 
 from ada import Part
 from ada.base.physical_objects import BackendGeom
+from ada.base.units import Units
 from ada.concepts.curves import CurvePoly
 from ada.concepts.primitives import PrimBox
 from ada.concepts.transforms import Placement
@@ -44,7 +45,7 @@ class Wall(BackendGeom):
         metadata=None,
         colour=None,
         ifc_elem=None,
-        units="m",
+        units=Units.M,
         guid=None,
         opacity=1.0,
     ):
@@ -239,7 +240,7 @@ class Wall(BackendGeom):
         from ada.concepts.levels import Part
 
         op_extrudes = []
-        if self.units == "m":
+        if self.units == Units.M:
             tol = 0.4
         else:
             tol = 400
@@ -279,10 +280,10 @@ class Wall(BackendGeom):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
-            from ada.core.utils import unit_length_conversion
-
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
             self._height *= scale_factor
             self._thickness *= scale_factor
             self._offset *= scale_factor

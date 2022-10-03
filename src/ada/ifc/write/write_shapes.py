@@ -12,6 +12,7 @@ from ada import (
     PrimSweep,
     Shape,
 )
+from ada.base.units import Units
 from ada.core.constants import O, X, Z
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.ifc.utils import (
@@ -25,7 +26,6 @@ from ada.ifc.utils import (
     create_ifcrevolveareasolid,
     create_local_placement,
     create_property_set,
-    get_tolerance,
     tesselate_shape,
     to_real,
 )
@@ -48,7 +48,7 @@ def write_ifc_shape(shape: Shape):
     if isinstance(shape, (PrimBox, PrimCyl, PrimExtrude, PrimRevolve, PrimSphere, PrimSweep)):
         ifc_shape = generate_parametric_solid(shape, f)
     else:
-        tol = get_tolerance(a.units)
+        tol = Units.get_general_point_tol(a.units)
         serialized_geom = tesselate_shape(shape.geom, schema, tol)
         ifc_shape = f.add(serialized_geom)
 

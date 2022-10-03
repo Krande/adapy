@@ -11,7 +11,6 @@ from ifcopenshell.util.unit import get_prefix_multiplier
 
 import ada.core.constants as ifco
 from ada.concepts.transforms import Transform
-from ada.config import Settings
 from ada.core.file_system import get_list_of_files
 
 if TYPE_CHECKING:
@@ -52,13 +51,6 @@ def create_reference_subrep(f, global_axes):
 
 def ifc_dir(f: ifcopenshell.file, vec: Tuple[float, float, float]):
     return f.create_entity("IfcDirection", to_real(vec))
-
-
-def get_tolerance(units):
-    tol_map = dict(m=Settings.mtol, mm=Settings.mmtol)
-    if units not in tol_map.keys():
-        raise ValueError(f'Unrecognized unit "{units}"')
-    return tol_map[units]
 
 
 def ensure_guid_consistency(a: Assembly, project_prefix):
@@ -188,9 +180,9 @@ def generate_tpl_ifc_file(file_name, project, schema, units, user):
     :type user: ada.config.User
     :return:
     """
-    from ada.base.non_physical_objects import Units
-
     import time
+
+    from ada.base.non_physical_objects import Units
 
     from .ifc_template import tpl_create
 

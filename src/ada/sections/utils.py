@@ -5,6 +5,7 @@ from collections import OrderedDict
 from typing import Tuple, Union
 
 import ada.core.utils
+from ada.base.units import Units
 from ada.core.exceptions import UnsupportedUnits
 
 from . import Section
@@ -18,11 +19,10 @@ class UnableToConvertSectionError(Exception):
     pass
 
 
-def profile_db_collect(sec_type: str, dim: str, units: str = "m"):
+def profile_db_collect(sec_type: str, dim: str, units: Units = Units.M):
     """Return a section object based on values in a profile db json document. Source JSON is in units 'm' meters."""
-    scale_map = {"mm": 1000, "m": 1.0}
 
-    scale_factor = scale_map.get(units, None)
+    scale_factor = Units.get_scale_factor(units, Units.M)
 
     if scale_factor is None:
         raise UnsupportedUnits(f'Units "{units}" is not supported')

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, List, Union
 import numpy as np
 
 from ada.base.physical_objects import BackendGeom
+from ada.base.units import Units
 from ada.config import Settings as _Settings
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_length
@@ -30,7 +31,7 @@ class Pipe(BackendGeom):
         content=None,
         metadata=None,
         colour=None,
-        units="m",
+        units: Units = Units.M,
         guid=None,
         ifc_elem=None,
     ):
@@ -64,7 +65,8 @@ class Pipe(BackendGeom):
         # Make elbows and adjust segments
         props = dict(section=self.section, material=self.material, parent=self, units=self.units)
         angle_tol = 1e-1
-        len_tol = _Settings.point_tol if self.units == "m" else _Settings.point_tol * 1000
+
+        len_tol = _Settings.point_tol if self.units == Units.M else _Settings.point_tol * 1000
 
         if len(segments) == 1:
             seg_s, seg_e = segments[0]
@@ -167,8 +169,8 @@ class Pipe(BackendGeom):
         wt = self.section.wt
         r = self.section.r
         d = r * 2
-        w_tol = 0.125 if self.units == "m" else 125
-        cor_tol = 0.003 if self.units == "m" else 3
+        w_tol = 0.125 if self.units == Units.M else 125
+        cor_tol = 0.003 if self.units == Units.M else 3
         corr_t = (wt - (wt * w_tol)) - cor_tol
         d -= 2.0 * corr_t
 
@@ -196,6 +198,8 @@ class Pipe(BackendGeom):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
             self.n1.units = value
             self.n2.units = value
@@ -237,7 +241,7 @@ class PipeSegStraight(BackendGeom):
         parent=None,
         guid=None,
         metadata=None,
-        units="m",
+        units=Units.M,
         colour=None,
         ifc_elem=None,
     ):
@@ -300,7 +304,7 @@ class PipeSegElbow(BackendGeom):
         parent=None,
         guid=None,
         metadata=None,
-        units="m",
+        units=Units.M,
         colour=None,
         arc_seg=None,
         ifc_elem=None,

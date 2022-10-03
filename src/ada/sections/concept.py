@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, List, Tuple, Union
 
 from ada.base.non_physical_objects import Backend
+from ada.base.units import Units
 from ada.concepts.curves import CurvePoly
 from ada.config import Settings
 from ada.sections.categories import BaseTypes, SectionCat
@@ -37,11 +38,11 @@ class Section(Backend):
         inner_poly=None,
         genprops: GeneralProperties = None,
         metadata=None,
-        units="m",
+        units=Units.M,
         guid=None,
         refs=None,
     ):
-        super(Section, self).__init__(name, guid, metadata, units, parent=parent)
+        super(Section, self).__init__(name=name, guid=guid, metadata=metadata, units=units, parent=parent)
         self._type = sec_type
         self._h = h
         self._w_top = w_top
@@ -62,9 +63,9 @@ class Section(Backend):
         if from_str is not None:
             from ada.sections.utils import interpret_section_str
 
-            if units == "m":
+            if units == Units.M:
                 scalef = 0.001
-            elif units == "mm":
+            elif units == Units.MM:
                 scalef = 1.0
             else:
                 raise ValueError(f'Unknown units "{units}"')
@@ -207,10 +208,10 @@ class Section(Backend):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if self._units != value:
-            from ada.core.utils import unit_length_conversion
-
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
 
             if self.poly_inner is not None:
                 self.poly_inner.scale(scale_factor, Settings.point_tol)
@@ -230,6 +231,7 @@ class Section(Backend):
     def ifc_profile(self):
         if self._ifc_profile is None:
             from ada.ifc.write.write_sections import export_beam_section_profile_def
+
             self._ifc_profile = export_beam_section_profile_def(self)
         return self._ifc_profile
 
@@ -237,6 +239,7 @@ class Section(Backend):
     def ifc_beam_type(self):
         if self._ifc_beam_type is None:
             from ada.ifc.write.write_sections import export_ifc_beam_type
+
             self._ifc_beam_type = export_ifc_beam_type(self)
 
         return self._ifc_beam_type

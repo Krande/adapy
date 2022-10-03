@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 
 import numpy as np
 
+from ada.base.units import Units
 from ada.concepts.exceptions import DuplicateNodes
 from ada.concepts.points import Node, replace_node
 from ada.concepts.stru_beams import Beam
@@ -473,7 +474,7 @@ class NumericMapped(BaseCollections):
 class Materials(NumericMapped):
     """Collection of materials"""
 
-    def __init__(self, materials: Iterable[Material] = None, parent: Union[Part, Assembly] = None, units="m"):
+    def __init__(self, materials: Iterable[Material] = None, parent: Union[Part, Assembly] = None, units=Units.M):
         super().__init__(parent)
         self._materials = sorted(materials, key=attrgetter("name")) if materials is not None else []
         self.recreate_name_and_id_maps(self._materials)
@@ -572,6 +573,8 @@ class Materials(NumericMapped):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
             for m in self._materials:
                 m.units = value
@@ -591,7 +594,7 @@ class Materials(NumericMapped):
 
 
 class Sections(NumericMapped):
-    def __init__(self, sections: Iterable[Section] = None, parent: Union[Part, Assembly] = None, units="m"):
+    def __init__(self, sections: Iterable[Section] = None, parent: Union[Part, Assembly] = None, units=Units.M):
         sec_id = Counter(1)
         super(Sections, self).__init__(parent=parent)
         sections = [] if sections is None else sections
@@ -728,6 +731,8 @@ class Sections(NumericMapped):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
             for m in self._sections:
                 m.units = value

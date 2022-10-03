@@ -287,18 +287,6 @@ def flatten(t):
     return [item for sublist in t for item in sublist]
 
 
-def faceted_tol(units):
-    """
-
-    :param units:
-    :return:
-    """
-    if units == "m":
-        return 1e-2
-    else:
-        return 1
-
-
 def replace_node(old_node: Node, new_node: Node) -> None:
     from ada.fem import FemSet
 
@@ -352,13 +340,3 @@ def replace_nodes_by_tol(nodes, decimals=0, tol=Settings.point_tol):
 
 class UnitTypes:
     LENGTH = "length"
-
-
-def unit_length_conversion(ori_unit, value):
-    if value == "m" and ori_unit == "mm":
-        scale_factor = 0.001
-    elif value == "mm" and ori_unit == "m":
-        scale_factor = 1000
-    else:
-        raise ValueError(f'Unrecognized unit conversion from "{ori_unit}" to "{value}"')
-    return scale_factor

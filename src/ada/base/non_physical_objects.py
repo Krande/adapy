@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, List, Union
 from ada.config import Settings as _Settings
 from ada.ifc.utils import create_guid
 
+from .units import Units
+
 if TYPE_CHECKING:
     from ada import Assembly, Part
     from ada.ifc.concepts import IfcRef
@@ -23,22 +25,6 @@ class ChangeAction(Enum):
     MODIFIED = "MODIFIED"
     NOCHANGE = "NOCHANGE"
     NOTDEFINED = "NOTDEFINED"
-
-
-class Units(Enum):
-    M = "m"
-    MM = "mm"
-
-    @staticmethod
-    def is_valid_unit(unit: str):
-        return unit.lower() in list([x.value.lower() for x in Units])
-
-    @staticmethod
-    def from_str(unit: str):
-        units_map = {x.value.lower(): x for x in Units}
-        unit_safe = units_map.get(unit.lower())
-        if unit_safe is None:
-            raise InvalidUnit
 
 
 @dataclass

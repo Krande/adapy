@@ -4,6 +4,7 @@ import os
 import pathlib
 from typing import TYPE_CHECKING, List
 
+from ada.base.units import Units
 from ada.concepts.transforms import Placement
 from ada.core.constants import color_map as _cmap
 
@@ -26,7 +27,7 @@ class BackendGeom(Backend):
         name,
         guid=None,
         metadata=None,
-        units="m",
+        units=Units.M,
         parent=None,
         colour=None,
         ifc_elem=None,

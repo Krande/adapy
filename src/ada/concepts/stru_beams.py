@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import logging
+from enum import Enum
 from typing import TYPE_CHECKING, Iterable, List, Optional, Union
 
 import numpy as np
-from enum import Enum
 
 from ada.base.physical_objects import BackendGeom
+from ada.base.units import Units
 from ada.concepts.bounding_box import BoundingBox
 from ada.concepts.curves import CurvePoly, CurveRevolve
 from ada.concepts.points import Node, get_singular_node_by_volume
@@ -78,7 +79,7 @@ class Beam(BackendGeom):
         parent: Part = None,
         metadata=None,
         opacity=1.0,
-        units="m",
+        units=Units.M,
         ifc_elem=None,
         guid=None,
         placement=Placement(),
@@ -348,14 +349,18 @@ class Beam(BackendGeom):
 
     @units.setter
     def units(self, value):
-        if self._units != value:
-            self.n1.units = value
-            self.n2.units = value
-            self.section.units = value
-            self.material.units = value
-            for pen in self.penetrations:
-                pen.units = value
-            self._units = value
+        if isinstance(value, str):
+            value = Units.from_str(value)
+        if self._units == value:
+            return
+
+        self.n1.units = value
+        self.n2.units = value
+        self.section.units = value
+        self.material.units = value
+        for pen in self.penetrations:
+            pen.units = value
+        self._units = value
 
     @property
     def section(self) -> Section:

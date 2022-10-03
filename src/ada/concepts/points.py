@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Iterable, List, Union
 
 import numpy as np
 
+from ada.base.units import Units
 from ada.config import Settings
 from ada.core.vector_utils import vector_length
 
@@ -20,7 +21,7 @@ class Node:
     """Base node object"""
 
     def __init__(
-        self, p: Iterable[numeric, numeric, numeric], nid=None, bc=None, r=None, parent=None, units="m", refs=None
+        self, p: Iterable[numeric, numeric, numeric], nid=None, bc=None, r=None, parent=None, units=Units.M, refs=None
     ):
         self._id = nid
         self.p: np.ndarray = np.array([*p], dtype=np.float64) if type(p) != np.ndarray else p
@@ -88,10 +89,11 @@ class Node:
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
-            from ada.core.utils import unit_length_conversion
+            scale_factor = Units.get_scale_factor(self._units, value)
 
-            scale_factor = unit_length_conversion(self._units, value)
             self.p_roundoff(scale_factor)
 
             if self._r is not None:

@@ -55,8 +55,3 @@ def plate1():
 @pytest.fixture
 def bm_ipe300():
     return ada.Beam("MyIPE300", (0, 0, 0), (5, 0, 0), "IPE300")
-
-
-@pytest.fixture
-def pipe1():
-    return ada.Pipe("MyPipe", [(0, 0, 0), (1, 0, 0), (1, 0.2)])

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ada.base.units import Units
 from ada.core.constants import O, X, Z
 from ada.core.curve_utils import get_center_from_3_points_and_radius
 from ada.core.vector_utils import (
@@ -21,7 +22,6 @@ from ada.ifc.utils import (
     create_ifc_placement,
     create_ifcpolyline,
     create_local_placement,
-    get_tolerance,
     tesselate_shape,
     to_real,
 )
@@ -180,7 +180,8 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
 
     context = f.by_type("IfcGeometricRepresentationContext")[0]
     owner_history = a.user.to_ifc()
-    tol = get_tolerance(a.units)
+
+    tol = Units.get_general_point_tol(a.units)
 
     ifc_elbow = elbow_revolved_solid(pipe_elbow, f, context, tol)
 
@@ -225,8 +226,8 @@ def elbow_tesselated(self: PipeSegElbow, f, schema, a):
     if shape is None:
         logging.error(f"Unable to create geometry for Branch {self.name}")
         return None
-
-    serialized_geom = tesselate_shape(shape, schema, get_tolerance(a.units))
+    point_tol = Units.get_general_point_tol(a.units)
+    serialized_geom = tesselate_shape(shape, schema, point_tol)
     ifc_shape = f.add(serialized_geom)
 
     return ifc_shape
