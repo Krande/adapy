@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from ada.concepts.connections import JointBase
     from ada.concepts.levels import Part
     from ada.fem.elements import HingeProp
-    from ada.ifc.concepts import IfcRef
+    from ada.ifc.store import IfcStore
 
 section_counter = Counter(1)
 material_counter = Counter(1)
@@ -83,7 +83,7 @@ class Beam(BackendGeom):
         ifc_elem=None,
         guid=None,
         placement=Placement(),
-        ifc_ref: IfcRef = None,
+        ifc_store: IfcStore = None,
     ):
         super().__init__(
             name,
@@ -92,7 +92,7 @@ class Beam(BackendGeom):
             guid=guid,
             ifc_elem=ifc_elem,
             placement=placement,
-            ifc_ref=ifc_ref,
+            ifc_store=ifc_store,
             colour=colour,
             opacity=opacity,
         )

@@ -6,8 +6,9 @@ import pathlib
 from dataclasses import dataclass
 from io import StringIO
 from itertools import chain
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Union
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Union
 
+from ada.base.changes import ChangeAction
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.cache.store import CacheStore
@@ -52,10 +53,10 @@ if TYPE_CHECKING:
     from ada import Beam, Material, Plate, Section, Wall
     from ada.fem.meshing import GmshOptions
     from ada.fem.results import Results
-    from ada.ifc.concepts import IfcRef
     from ada.ifc.store import IfcStore
     from ada.visualize.concept import VisMesh
     from ada.visualize.config import ExportConfig
+
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 
@@ -86,10 +87,10 @@ class Part(BackendGeom):
         units: Units = Units.M,
         ifc_elem=None,
         guid=None,
-        ifc_ref: IfcRef = None,
+        ifc_store: IfcStore = None,
     ):
         super().__init__(
-            name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_elem=ifc_elem, ifc_ref=ifc_ref
+            name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_elem=ifc_elem, ifc_store=ifc_store
         )
         self._nodes = Nodes(parent=self)
         self._beams = Beams(parent=self)
@@ -101,10 +102,10 @@ class Part(BackendGeom):
         self._sections = Sections(parent=self)
         self._colour = colour
         self._placement = placement
-        self._instances: Dict[Any, Instance] = dict()
+        self._instances: dict[Any, Instance] = dict()
         self._shapes = []
         self._parts = dict()
-        self._groups: Dict[str, Group] = dict()
+        self._groups: dict[str, Group] = dict()
 
         if ifc_elem is not None:
             self.metadata["ifctype"] = self._import_part_from_ifc(ifc_elem)
@@ -184,7 +185,7 @@ class Part(BackendGeom):
         self._walls.append(wall)
         return wall
 
-    def add_shape(self, shape: Shape) -> Shape:
+    def add_shape(self, shape: Shape, change_type: ChangeAction = ChangeAction.ADDED) -> Shape:
         if shape.units != self.units:
             logger.info(f'shape "{shape}" has different units. changing from "{shape.units}" to "{self.units}"')
             shape.units = self.units
@@ -194,7 +195,7 @@ class Part(BackendGeom):
         if mat != shape.material:
             shape.material = mat
 
-        shape.change_type = shape.change_type.ADDED
+        shape.change_type = change_type
         self._shapes.append(shape)
         return shape
 
@@ -246,7 +247,7 @@ class Part(BackendGeom):
             section.units = self.units
         return self._sections.add(section)
 
-    def add_object(self, obj: Union[Part, Beam, Plate, Wall, Pipe, Shape]):
+    def add_object(self, obj: Part | Beam | Plate | Wall | Pipe | Shape):
         from ada import Beam
 
         if isinstance(obj, Part):
@@ -257,7 +258,7 @@ class Part(BackendGeom):
             raise NotImplementedError()
 
     def add_penetration(
-        self, pen: Union[Penetration, PrimExtrude, PrimRevolve, PrimCyl, PrimBox], add_pen_to_subparts=True
+        self, pen: Penetration | PrimExtrude | PrimRevolve | PrimCyl | PrimBox, add_pen_to_subparts=True
     ) -> Penetration:
         def create_pen(pen_):
             if isinstance(pen_, (PrimExtrude, PrimRevolve, PrimCyl, PrimBox)):
@@ -290,7 +291,7 @@ class Part(BackendGeom):
             self._instances[element] = Instance(element)
         self._instances[element].placements.append(placement)
 
-    def add_set(self, name, set_members: List[Union[Part, Beam, Plate, Wall, Pipe, Shape]]) -> Group:
+    def add_set(self, name, set_members: list[Part | Beam | Plate | Wall | Pipe | Shape]) -> Group:
         if name not in self.groups.keys():
             self.groups[name] = Group(name, set_members, parent=self)
         else:
@@ -388,7 +389,7 @@ class Part(BackendGeom):
         key_map = {key.lower(): key for key in self.parts.keys()}
         return self.parts[key_map[name.lower()]]
 
-    def get_by_name(self, name) -> Union[Part, Plate, Beam, Shape, Material, Pipe, None]:
+    def get_by_name(self, name) -> Part | Plate | Beam | Shape | Material | Pipe | None:
         """Get element of any type by its name."""
         pmap = {p.name: p for p in self.get_all_subparts() + [self]}
         result = pmap.get(name)
@@ -416,7 +417,7 @@ class Part(BackendGeom):
         logger.debug(f'Unable to find"{name}". Check if the element type is evaluated in the algorithm')
         return None
 
-    def get_all_parts_in_assembly(self, include_self=False) -> List[Part]:
+    def get_all_parts_in_assembly(self, include_self=False) -> list[Part]:
         parent = self.get_assembly()
         list_of_ps = []
         self._flatten_list_of_subparts(parent, list_of_ps)
@@ -424,14 +425,14 @@ class Part(BackendGeom):
             list_of_ps += [self]
         return list_of_ps
 
-    def get_all_subparts(self, include_self=False) -> List[Part]:
+    def get_all_subparts(self, include_self=False) -> list[Part]:
         list_of_parts = [] if include_self is False else [self]
         self._flatten_list_of_subparts(self, list_of_parts)
         return list_of_parts
 
     def get_all_physical_objects(
-        self, sub_elements_only=False, by_type=None, filter_by_guids: Union[List[str]] = None
-    ) -> Iterable[Union[Beam, Plate, Wall, Pipe, Shape]]:
+        self, sub_elements_only=False, by_type=None, filter_by_guids: list[str] = None
+    ) -> Iterable[Beam | Plate | Wall | Pipe | Shape]:
         physical_objects = []
         if sub_elements_only:
             iter_parts = iter([self])
@@ -524,7 +525,7 @@ class Part(BackendGeom):
         from ada.fem.meshing import GmshOptions, GmshSession
 
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
-        masses: List[Shape] = []
+        masses: list[Shape] = []
         with GmshSession(silent=silent, options=options) as gs:
             for obj in self.get_all_physical_objects(sub_elements_only=False):
                 if type(obj) is Beam:
@@ -643,11 +644,11 @@ class Part(BackendGeom):
         return self._parts
 
     @property
-    def shapes(self) -> List[Shape]:
+    def shapes(self) -> list[Shape]:
         return self._shapes
 
     @shapes.setter
-    def shapes(self, value: List[Shape]):
+    def shapes(self, value: list[Shape]):
         self._shapes = value
 
     @property
@@ -667,19 +668,19 @@ class Part(BackendGeom):
         self._plates = value
 
     @property
-    def pipes(self) -> List[Pipe]:
+    def pipes(self) -> list[Pipe]:
         return self._pipes
 
     @pipes.setter
-    def pipes(self, value: List[Pipe]):
+    def pipes(self, value: list[Pipe]):
         self._pipes = value
 
     @property
-    def walls(self) -> List[Wall]:
+    def walls(self) -> list[Wall]:
         return self._walls
 
     @walls.setter
-    def walls(self, value: List[Wall]):
+    def walls(self, value: list[Wall]):
         self._walls = value
 
     @property
@@ -741,7 +742,7 @@ class Part(BackendGeom):
         self._placement = value
 
     @property
-    def instances(self) -> Dict[Any, Instance]:
+    def instances(self) -> dict[Any, Instance]:
         return self._instances
 
     @property
@@ -785,7 +786,7 @@ class Part(BackendGeom):
                 self._ifc_file = assembly_to_ifc_file(self)
 
     @property
-    def groups(self) -> Dict[str, Group]:
+    def groups(self) -> dict[str, Group]:
         return self._groups
 
     def __truediv__(self, other_object):
@@ -889,16 +890,16 @@ class Assembly(Part):
         a = read_ifc_file(ifc_file, settings, elements2part, data_only)
 
         self.__add__(a)
-        self._ifc_file = a._ifc_file
+        self._ifc_file = a.ifc_file
 
-        self._ifc_store = IfcStore(ifc_file, assembly=self)
+        self._ifc_store = IfcStore(ifc_file, assembly=self, f=a.ifc_file)
 
         if self.cache_store is not None:
             self.cache_store.to_cache(self, ifc_file, create_cache)
 
     def read_fem(
         self,
-        fem_file: Union[str, os.PathLike],
+        fem_file: str | os.PathLike,
         fem_format: str = None,
         name: str = None,
         fem_converter="default",
@@ -1153,7 +1154,7 @@ class Assembly(Part):
     def ifc_store(self) -> IfcStore:
         return self._ifc_store
 
-    def __add__(self, other: Union[Assembly, Part]):
+    def __add__(self, other: Assembly | Part):
         if other.units != self.units:
             other.units = self.units
 
@@ -1217,8 +1218,8 @@ class Assembly(Part):
 @dataclass
 class Group:
     name: str
-    members: List[Union[Part, Beam, Plate, Wall, Pipe, Shape]]
-    parent: Union[Part, Assembly]
+    members: list[Part | Beam | Plate | Wall | Pipe | Shape]
+    parent: Part | Assembly
     description: str = ""
     ifc_elem = None
 

@@ -8,7 +8,7 @@ from ada.base.units import Units
 from .metals import CarbonSteel
 
 if TYPE_CHECKING:
-    from ada.ifc.concepts import IfcRef
+    from ada.ifc.store import IfcStore
 
 
 class Material(Backend):
@@ -21,11 +21,11 @@ class Material(Backend):
         mat_id=None,
         parent=None,
         metadata=None,
-        units="m",
+        units=Units.M,
         guid=None,
-        ifc_ref: IfcRef = None,
+        ifc_store: IfcStore = None,
     ):
-        super(Material, self).__init__(name, guid, metadata, units, ifc_ref=ifc_ref)
+        super(Material, self).__init__(name, guid, metadata, units, ifc_store=ifc_store)
         self._mat_model = mat_model
         mat_model.parent = self
         self._mat_id = mat_id

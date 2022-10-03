@@ -1,35 +1,40 @@
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada import Assembly, Beam
+from ada import Beam
 from ada.concepts.curves import CurveRevolve
 from ada.core.vector_utils import calc_yvec, vector_length
 
-from ..concepts import IfcRef
 from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
 from .reader_utils import get_associated_material, get_placement, get_point
 
+if TYPE_CHECKING:
+    from ada.ifc.store import IfcStore
 
-def import_ifc_beam(ifc_elem, name, ifc_ref: IfcRef, assembly: Assembly = None) -> Beam:
+
+def import_ifc_beam(ifc_elem, name, ifc_store: IfcStore) -> Beam:
     from .exceptions import NoIfcAxesAttachedError
 
     mat_ref = get_associated_material(ifc_elem)
     sec = None
     mat = None
 
-    if assembly is not None:
+    if ifc_store.assembly is not None:
         sec_name = mat_ref.Profile.ProfileName if hasattr(mat_ref, "Profile") else mat_ref.Name
         mat_name = mat_ref.Material.Name if hasattr(mat_ref, "Material") else mat_ref.Name
-        sec = assembly.get_by_name(sec_name)
-        mat = assembly.get_by_name(mat_name)
+        sec = ifc_store.assembly.get_by_name(sec_name)
+        mat = ifc_store.assembly.get_by_name(mat_name)
 
     if sec is None:
-        sec = import_section_from_ifc(mat_ref.Profile, units=assembly.units)
+        sec = import_section_from_ifc(mat_ref.Profile, units=ifc_store.assembly.units)
 
     if mat is None:
-        mat = read_material(mat_ref, ifc_ref, assembly)
+        mat = read_material(mat_ref, ifc_store)
 
     axes = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Axis"]
 
@@ -40,11 +45,11 @@ def import_ifc_beam(ifc_elem, name, ifc_ref: IfcRef, assembly: Assembly = None) 
 
     axis = axes[0].Items[0]
     if axis.is_a("IfcPolyline") and len(axis.Points) != 2:
-        return import_polyline_beam(ifc_elem, axis, name, sec, mat, ifc_ref, assembly)
+        return import_polyline_beam(ifc_elem, axis, name, sec, mat, ifc_store)
     elif axis.is_a("IfcTrimmedCurve"):
-        return import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_ref, assembly)
+        return import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_store)
     else:
-        return import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_ref, assembly)
+        return import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store)
 
 
 def get_beam_geom(ifc_elem, ifc_settings):
@@ -64,7 +69,7 @@ def get_beam_geom(ifc_elem, ifc_settings):
         print(colour)
 
 
-def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_ref: IfcRef, assembly: Assembly) -> Beam:
+def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) -> Beam:
     p1_loc = axis.Points[0].Coordinates
     p2_loc = axis.Points[1].Coordinates
 
@@ -82,11 +87,19 @@ def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_ref: IfcRef, assemb
     p2 = np.array(p1) + local_z * vlen
 
     return Beam(
-        name, p1, p2, sec=sec, mat=mat, up=local_y, guid=ifc_elem.GlobalId, ifc_ref=ifc_ref, units=assembly.units
+        name,
+        p1,
+        p2,
+        sec=sec,
+        mat=mat,
+        up=local_y,
+        guid=ifc_elem.GlobalId,
+        ifc_store=ifc_store,
+        units=ifc_store.assembly.units,
     )
 
 
-def import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_ref: IfcRef, assembly: Assembly) -> Beam:
+def import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) -> Beam:
     from ada import Placement
     from ada.core.vector_utils import transform3d
 
@@ -106,8 +119,10 @@ def import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_ref: IfcRef, assemb
 
     curve = CurveRevolve(p1g, p2g, radius=r, rot_axis=rot_axis, rot_origin=rot_origin, angle=np.rad2deg(angle))
 
-    return Beam(name, curve=curve, sec=sec, mat=mat, guid=ifc_elem.GlobalId, ifc_ref=ifc_ref, units=assembly.units)
+    return Beam(
+        name, curve=curve, sec=sec, mat=mat, guid=ifc_elem.GlobalId, ifc_store=ifc_store, units=ifc_store.assembly.units
+    )
 
 
-def import_polyline_beam(ifc_elem, axis, name, sec, mat, ifc_ref: IfcRef, assembly: Assembly) -> Beam:
+def import_polyline_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) -> Beam:
     raise NotImplementedError("Reading beams swept along IfcPolyLines of length > 2 is not yet supported")

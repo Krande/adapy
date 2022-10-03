@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ada import FEM, Penetration
     from ada.fem import Elem
     from ada.fem.meshing import GmshOptions
-    from ada.ifc.concepts import IfcRef
+    from ada.ifc.store import IfcStore
 
 
 class BackendGeom(Backend):
@@ -32,10 +32,10 @@ class BackendGeom(Backend):
         colour=None,
         ifc_elem=None,
         placement=Placement(),
-        ifc_ref: IfcRef = None,
+        ifc_store: IfcStore = None,
         opacity=1.0,
     ):
-        super().__init__(name, guid, metadata, units, parent, ifc_elem=ifc_elem, ifc_ref=ifc_ref)
+        super().__init__(name, guid, metadata, units, parent, ifc_elem=ifc_elem, ifc_store=ifc_store)
         from ada.visualize.new_render_api import Visualize
 
         self._penetrations = []

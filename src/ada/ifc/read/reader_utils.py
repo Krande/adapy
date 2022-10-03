@@ -13,7 +13,7 @@ from ada.concepts.transforms import Placement
 from ada.config import Settings
 
 if TYPE_CHECKING:
-    from ada import Part, Pipe
+    from ada import Assembly, Part, Pipe
 
 tol_map = dict(m=Settings.mtol, mm=Settings.mmtol)
 
@@ -134,7 +134,7 @@ def get_org(f, org_id):
     return None
 
 
-def add_to_assembly(assembly, obj, ifc_parent, elements2part):
+def add_to_assembly(assembly: Assembly, obj, ifc_parent, elements2part):
     from ada import Pipe
 
     pp_name = ifc_parent.Name

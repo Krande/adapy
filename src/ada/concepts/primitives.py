@@ -18,7 +18,7 @@ from .transforms import Placement
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
-    from ada.ifc.concepts import IfcRef
+    from ada.ifc.store import IfcStore
 
 
 class Shape(BackendGeom):
@@ -36,7 +36,7 @@ class Shape(BackendGeom):
         guid=None,
         material: Union[Material, str] = None,
         placement=Placement(),
-        ifc_ref: IfcRef = None,
+        ifc_store: IfcStore = None,
     ):
 
         super().__init__(
@@ -46,7 +46,7 @@ class Shape(BackendGeom):
             units=units,
             ifc_elem=ifc_elem,
             placement=placement,
-            ifc_ref=ifc_ref,
+            ifc_store=ifc_store,
             colour=colour,
             opacity=opacity,
         )

@@ -1,23 +1,26 @@
+from __future__ import annotations
+
 import logging
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
 import ifcopenshell.geom
 
 from ada import Assembly, Shape
 
-from ..concepts import IfcRef
+if TYPE_CHECKING:
+    from ada.ifc.store import IfcStore
 
 
-def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_ref: IfcRef, assembly: Assembly):
+def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: IfcStore):
     logging.info(f'importing Shape "{name}"')
-    color, opacity = get_colour(product, assembly)
+    color, opacity = get_colour(product, ifc_store.assembly)
 
     return Shape(
         name,
         None,
         guid=product.GlobalId,
-        ifc_ref=ifc_ref,
-        units=assembly.units,
+        ifc_store=ifc_store,
+        units=ifc_store.assembly.units,
         colour=color,
         opacity=opacity,
     )

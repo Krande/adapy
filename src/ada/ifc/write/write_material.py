@@ -62,7 +62,7 @@ def write_ifc_mat(material: Material):
         GlobalId=create_guid(),
         OwnerHistory=owner_history,
         Name=material.name,
-        HasProperties=properties
+        HasProperties=properties,
     )
 
     f.create_entity(

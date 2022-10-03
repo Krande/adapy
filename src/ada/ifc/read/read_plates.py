@@ -1,24 +1,29 @@
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
 
-from ada import Assembly, Placement, Plate
+from ada import Placement, Plate
 
-from ..concepts import IfcRef
 from .read_curves import import_indexedpolycurve, import_polycurve
 from .read_materials import read_material
 from .reader_utils import get_associated_material
 
+if TYPE_CHECKING:
+    from ada.ifc.store import IfcStore
 
-def import_ifc_plate(ifc_elem, name, ifc_ref: IfcRef, assembly: Assembly) -> Plate:
+
+def import_ifc_plate(ifc_elem, name, ifc_store: IfcStore) -> Plate:
     from .exceptions import NoIfcAxesAttachedError
 
     logging.info(f"importing {name}")
     ifc_mat = get_associated_material(ifc_elem)
     mat = None
-    if assembly is not None:
-        mat = assembly.get_by_name(name)
+    if ifc_store.assembly is not None:
+        mat = ifc_store.assembly.get_by_name(name)
 
     if mat is None:
-        mat = read_material(ifc_mat, ifc_ref, assembly)
+        mat = read_material(ifc_mat, ifc_store)
 
     # TODO: Fix interpretation of IfcIndexedPolyCurve. Should pass origin to get actual 2d coordinates.
     # Adding Axis information
@@ -52,5 +57,12 @@ def import_ifc_plate(ifc_elem, name, ifc_ref: IfcRef, assembly: Assembly) -> Pla
     placement = Placement(origin, xdir=xdir, zdir=normal)
 
     return Plate(
-        name, nodes2d, t, mat=mat, placement=placement, guid=ifc_elem.GlobalId, ifc_ref=ifc_ref, units=assembly.units
+        name,
+        nodes2d,
+        t,
+        mat=mat,
+        placement=placement,
+        guid=ifc_elem.GlobalId,
+        ifc_store=ifc_store,
+        units=ifc_store.assembly.units,
     )

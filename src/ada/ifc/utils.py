@@ -524,11 +524,13 @@ def calculate_unit_scale(file):
 
 
 def get_unit_type(file):
+    from ada.base.units import Units
+
     value = calculate_unit_scale(file)
     if value == 0.001:
-        return "mm"
+        return Units.MM
     elif value == 1:
-        return "m"
+        return Units.M
     else:
         raise NotImplementedError(f'Unit scale of "{value}" is not yet supported')
 

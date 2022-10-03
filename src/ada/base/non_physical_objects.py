@@ -2,29 +2,17 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import TYPE_CHECKING, List, Union
 
 from ada.config import Settings as _Settings
 from ada.ifc.utils import create_guid
 
+from .changes import ChangeAction
 from .units import Units
 
 if TYPE_CHECKING:
     from ada import Assembly, Part
-    from ada.ifc.concepts import IfcRef
-
-
-class InvalidUnit(Exception):
-    pass
-
-
-class ChangeAction(Enum):
-    ADDED = "ADDED"
-    DELETED = "DELETED"
-    MODIFIED = "MODIFIED"
-    NOCHANGE = "NOCHANGE"
-    NOTDEFINED = "NOTDEFINED"
+    from ada.ifc.store import IfcStore
 
 
 @dataclass
@@ -45,7 +33,7 @@ class Backend:
         parent=None,
         ifc_settings=None,
         ifc_elem=None,
-        ifc_ref: IfcRef = None,
+        ifc_store: IfcStore = None,
         change_type: ChangeAction = ChangeAction.NOTDEFINED,
     ):
         self.name = name
@@ -61,7 +49,7 @@ class Backend:
         self._ifc_elem = ifc_elem
         # TODO: Currently not able to keep and edit imported ifc_elem objects
         self._ifc_elem = None
-        self._ifc_ref = ifc_ref
+        self._ifc_store = ifc_store
         self.ifc_options: IfcExportOptions = IfcExportOptions()
 
     @property
@@ -129,8 +117,8 @@ class Backend:
         return self._ifc_elem
 
     @property
-    def ifc_ref(self) -> IfcRef:
-        return self._ifc_ref
+    def ifc_store(self) -> IfcStore:
+        return self._ifc_store
 
     def get_assembly(self) -> Union[Assembly, Part]:
         from ada import Assembly

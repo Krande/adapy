@@ -1,16 +1,17 @@
 from __future__ import annotations
+
 import logging
 import traceback
+from dataclasses import dataclass
 from itertools import chain
 from typing import Iterable, List
 
-from dataclasses import dataclass
 import numpy as np
 
 from ada import Assembly, Beam, Node, Part, Pipe, PipeSegStraight, Plate, PrimCyl
 
 from .utils import Counter
-from .vector_utils import intersect_calc, is_parallel, vector_length, EquationOfPlane
+from .vector_utils import EquationOfPlane, intersect_calc, is_parallel, vector_length
 
 
 def basic_intersect(bm: Beam, margins, all_parts: [Part]):
@@ -214,7 +215,7 @@ class PipeClash:
         eop = EquationOfPlane(plate.placement.origin, plate.placement.zdir, plate.placement.ydir)
         xdir, ydir, zdir = eop.get_lcsys()
 
-        pp = eop.project_point_onto_plane(p1) + plate.t*plate.placement.zdir
+        pp = eop.project_point_onto_plane(p1) + plate.t * plate.placement.zdir
 
         dist = 3 * seg.section.r
 
@@ -223,7 +224,7 @@ class PipeClash:
         bm_p3 = pp + dist * xdir + dist * ydir
         bm_p4 = pp - dist * xdir + dist * ydir
 
-        part.add_beam(Beam(next(reinforce_name), bm_p1, bm_p2, 'HP140x8'))
-        part.add_beam(Beam(next(reinforce_name), bm_p2, bm_p3, 'HP140x8'))
-        part.add_beam(Beam(next(reinforce_name), bm_p3, bm_p4, 'HP140x8'))
-        part.add_beam(Beam(next(reinforce_name), bm_p4, bm_p1, 'HP140x8'))
+        part.add_beam(Beam(next(reinforce_name), bm_p1, bm_p2, "HP140x8"))
+        part.add_beam(Beam(next(reinforce_name), bm_p2, bm_p3, "HP140x8"))
+        part.add_beam(Beam(next(reinforce_name), bm_p3, bm_p4, "HP140x8"))
+        part.add_beam(Beam(next(reinforce_name), bm_p4, bm_p1, "HP140x8"))

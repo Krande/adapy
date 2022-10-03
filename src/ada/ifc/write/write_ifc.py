@@ -146,6 +146,8 @@ def add_part_objects_to_ifc(p: Part, f: ifcopenshell.file, assembly: Assembly, i
             ifc_file = shp.metadata["ifc_file"]
             if isinstance(ifc_file, ifcopenshell.file):
                 ifc_f = ifc_file
+            elif ifc_file is None:
+                raise ValueError("Shape not from IFC")
             else:
                 ifc_f = assembly.get_ifc_source_by_name(ifc_file)
             ifc_elem = ifc_f.by_guid(shp.metadata["ifc_guid"])
