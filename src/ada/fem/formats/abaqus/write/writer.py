@@ -20,7 +20,7 @@ from .write_steps import write_step
 from .write_surfaces import surfaces_str
 
 if TYPE_CHECKING:
-    from ada.concepts.levels import Assembly
+    from ada.concepts.spatial import Assembly
 
 __all__ = ["to_fem"]
 

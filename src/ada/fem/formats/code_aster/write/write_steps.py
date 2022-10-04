@@ -5,7 +5,7 @@ from ada.fem import StepEigen, StepImplicit
 from .write_loads import write_load
 
 if TYPE_CHECKING:
-    from ada.concepts.levels import Part
+    from ada.concepts.spatial import Part
 
 
 def step_static_str(step: StepImplicit, part: "Part") -> str:

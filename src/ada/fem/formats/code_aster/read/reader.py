@@ -18,7 +18,8 @@ from .read_sets import (
 )
 
 if TYPE_CHECKING:
-    from ada.concepts.levels import FEM, Assembly
+    from ada.concepts.spatial import Assembly
+    from ada.fem import FEM
 
 
 def read_fem(fem_file: os.PathLike, fem_name: str = None) -> "Assembly":

@@ -47,7 +47,6 @@ class Plate(BackendGeom):
         metadata=None,
         tol=None,
         units=Units.M,
-        ifc_elem=None,
         guid=None,
         ifc_store: IfcStore = None,
     ):
@@ -56,7 +55,6 @@ class Plate(BackendGeom):
             guid=guid,
             metadata=metadata,
             units=units,
-            ifc_elem=ifc_elem,
             placement=placement,
             ifc_store=ifc_store,
             colour=colour,

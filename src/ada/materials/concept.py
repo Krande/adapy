@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ada.base.non_physical_objects import Backend
+from ada.base.root import Root
 from ada.base.units import Units
 
 from .metals import CarbonSteel
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
 
 
-class Material(Backend):
+class Material(Root):
     """The base material class. Currently only supports Metals"""
 
     def __init__(
@@ -56,9 +56,6 @@ class Material(Backend):
                 return False
 
         return True
-
-    def equal_props(self, other: Material):
-        self.model.__eq__()
 
     def __hash__(self):
         return hash(self.guid)

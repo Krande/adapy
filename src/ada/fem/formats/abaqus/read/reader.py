@@ -41,7 +41,8 @@ part_name_counter = Counter(1, "Part")
 
 
 if TYPE_CHECKING:
-    from ada.concepts.levels import FEM, Assembly, Part
+    from ada.concepts.spatial import Assembly, Part
+    from ada.fem import FEM
 
 
 @dataclass

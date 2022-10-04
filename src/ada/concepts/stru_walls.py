@@ -44,14 +44,11 @@ class Wall(BackendGeom):
         offset=TYPES_JUSL.CENTER,
         metadata=None,
         colour=None,
-        ifc_elem=None,
         units=Units.M,
         guid=None,
         opacity=1.0,
     ):
-        super().__init__(
-            name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem, colour=colour, opacity=opacity
-        )
+        super().__init__(name, guid=guid, metadata=metadata, units=units, colour=colour, opacity=opacity)
 
         self._name = name
         self.placement = placement
@@ -237,7 +234,7 @@ class Wall(BackendGeom):
 
     @property
     def openings_extrusions(self):
-        from ada.concepts.levels import Part
+        from ada.concepts.spatial import Part
 
         op_extrudes = []
         if self.units == Units.M:

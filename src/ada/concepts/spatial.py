@@ -9,6 +9,7 @@ from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Union
 
 from ada.base.changes import ChangeAction
+from ada.base.ifc_types import SpatialTypes
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.cache.store import CacheStore
@@ -21,6 +22,7 @@ from ada.concepts.containers import (
     Plates,
     Sections,
 )
+from ada.concepts.groups import Group
 from ada.concepts.piping import Pipe
 from ada.concepts.points import Node
 from ada.concepts.primitives import (
@@ -32,7 +34,8 @@ from ada.concepts.primitives import (
     Shape,
 )
 from ada.concepts.transforms import Instance, Placement
-from ada.config import Settings, User
+from ada.concepts.user import User
+from ada.config import Settings
 from ada.fem import (
     Connector,
     Csys,
@@ -85,13 +88,11 @@ class Part(BackendGeom):
         metadata=None,
         parent=None,
         units: Units = Units.M,
-        ifc_elem=None,
         guid=None,
         ifc_store: IfcStore = None,
+        ifc_class: SpatialTypes = SpatialTypes.IfcBuildingStorey,
     ):
-        super().__init__(
-            name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_elem=ifc_elem, ifc_store=ifc_store
-        )
+        super().__init__(name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_store=ifc_store)
         self._nodes = Nodes(parent=self)
         self._beams = Beams(parent=self)
         self._plates = Plates(parent=self)
@@ -106,13 +107,7 @@ class Part(BackendGeom):
         self._shapes = []
         self._parts = dict()
         self._groups: dict[str, Group] = dict()
-
-        if ifc_elem is not None:
-            self.metadata["ifctype"] = self._import_part_from_ifc(ifc_elem)
-        else:
-            if self.metadata.get("ifctype") is None:
-                self.metadata["ifctype"] = "site" if type(self) is Assembly else "storey"
-
+        self._ifc_class = ifc_class
         self._props = settings
         if fem is not None:
             fem.parent = self
@@ -483,28 +478,6 @@ class Part(BackendGeom):
             list_of_parts.append(value)
             self._flatten_list_of_subparts(value, list_of_parts)
 
-    def get_ifc_elem(self):
-        if self._ifc_elem is None:
-            self._ifc_elem = self._generate_ifc_elem()
-        return self._ifc_elem
-
-    def _generate_ifc_elem(self):
-        from ada.ifc.write.write_levels import write_ifc_part
-
-        return write_ifc_part(self)
-
-    def _import_part_from_ifc(self, ifc_elem):
-        convert = dict(
-            site="IfcSite",
-            space="IfcSpace",
-            building="IfcBuilding",
-            storey="IfcBuildingStorey",
-            spatial="IfcSpatialZone",
-        )
-        opposite = {val: key for key, val in convert.items()}
-        pr_type = ifc_elem.is_a()
-        return opposite[pr_type]
-
     def _on_import(self):
         """A method call that will be triggered when a Part is imported into an existing Assembly/Part"""
         raise NotImplementedError()
@@ -789,6 +762,10 @@ class Part(BackendGeom):
     def groups(self) -> dict[str, Group]:
         return self._groups
 
+    @property
+    def ifc_class(self) -> SpatialTypes:
+        return self._ifc_class
+
     def __truediv__(self, other_object):
         from ada import Beam, Part, Pipe, Plate, Shape, Wall
 
@@ -850,7 +827,9 @@ class Assembly(Part):
         ifc_settings=None,
         enable_cache: bool = False,
         clear_cache: bool = False,
+        ifc_class: SpatialTypes = SpatialTypes.IfcSite,
     ):
+        from ada.ifc.store import IfcStore
         from ada.ifc.utils import assembly_to_ifc_file
 
         metadata = dict() if metadata is None else metadata
@@ -861,6 +840,7 @@ class Assembly(Part):
         user.parent = self
         self._user = user
 
+        self._ifc_class = ifc_class
         self._ifc_file = assembly_to_ifc_file(self)
         self._convert_options = _ConvertOptions()
         self._ifc_sections = None
@@ -869,7 +849,7 @@ class Assembly(Part):
         self._ifc_settings = ifc_settings
         self._presentation_layers = []
 
-        self._ifc_store = None
+        self._ifc_store = IfcStore(assembly=self)
         self._cache_store = None
         if enable_cache:
             self._cache_store = CacheStore(name)
@@ -879,20 +859,12 @@ class Assembly(Part):
         self, ifc_file: str | os.PathLike | ifcopenshell.file, data_only=False, elements2part=None, create_cache=False
     ):
         """Import from IFC file."""
-        from ada.ifc.read.read_ifc import read_ifc_file
-        from ada.ifc.store import IfcStore
 
         if self.cache_store is not None and isinstance(ifc_file, ifcopenshell.file) is False:
             if self.cache_store.from_cache(self, ifc_file) is True:
                 return None
 
-        settings = self.ifc_settings
-        a = read_ifc_file(ifc_file, settings, elements2part, data_only)
-
-        self.__add__(a)
-        self._ifc_file = a.ifc_file
-
-        self._ifc_store = IfcStore(ifc_file, assembly=self, f=a.ifc_file)
+        self.ifc_store.load_ifc_content_from_file(ifc_file, data_only=data_only, elements2part=elements2part)
 
         if self.cache_store is not None:
             self.cache_store.to_cache(self, ifc_file, create_cache)
@@ -1056,16 +1028,9 @@ class Assembly(Part):
         self,
         destination_file=None,
         include_fem=False,
-        override_skip_props=False,
         return_file_obj=False,
         create_new_ifc_file=False,
     ) -> None | ifcopenshell.file:
-        from ada.ifc.write.write_ifc import write_to_ifc
-
-        if override_skip_props is True:
-            for p in self.get_all_subparts():
-                for obj in p.get_all_physical_objects(True):
-                    obj.ifc_options.export_props = override_skip_props
 
         if destination_file is None or return_file_obj is True:
             destination_file = "object"
@@ -1073,15 +1038,13 @@ class Assembly(Part):
             destination_file = pathlib.Path(destination_file).resolve().absolute()
 
         print(f'Beginning writing to IFC file "{destination_file}" using IfcOpenShell')
-        file_obj = write_to_ifc(
-            destination_file,
-            self,
-            include_fem,
-            return_file_obj=return_file_obj,
-            create_new_ifc_file=create_new_ifc_file,
-        )
+
+        self.ifc_store.sync()
+        if return_file_obj is False:
+            self.ifc_store.save_to_file(destination_file)
+
         print("IFC file creation complete")
-        return file_obj
+        return self.ifc_store.f
 
     def push(self, comment, bimserver_url, username, password, project, merge=False, sync=False):
         """Push current assembly to BimServer with a comment tag that defines the revision name"""
@@ -1096,11 +1059,6 @@ class Assembly(Part):
         bimcon = BimServerConnect(bimserver_url, username, password, self)
         bimcon.pull(project, checkout)
 
-    def _generate_ifc_elem(self):
-        from ada.ifc.write.write_levels import write_ifc_assembly
-
-        return write_ifc_assembly(self)
-
     def get_ifc_source_by_name(self, ifc_file):
         from ada.ifc.read.reader_utils import open_ifc
 
@@ -1113,26 +1071,12 @@ class Assembly(Part):
         return ifc_f
 
     @property
-    def ifc_sections(self):
-        if self._ifc_sections is None:
-            secrel = dict()
-            for sec in self.sections:
-                secrel[sec.name] = sec.ifc_profile, sec.ifc_beam_type
-            self._ifc_sections = secrel
-        return self._ifc_sections
+    def ifc_store(self) -> IfcStore:
+        return self._ifc_store
 
-    @property
-    def ifc_materials(self):
-        if self._ifc_materials is None:
-            matrel = dict()
-            for mat in self.materials.name_map.values():
-                matrel[mat.name] = mat.ifc_mat
-            self._ifc_materials = matrel
-        return self._ifc_materials
-
-    @property
-    def ifc_file(self):
-        return self._ifc_file
+    @ifc_store.setter
+    def ifc_store(self, value):
+        self._ifc_store = value
 
     @property
     def presentation_layers(self):
@@ -1149,10 +1093,6 @@ class Assembly(Part):
     @property
     def cache_store(self) -> CacheStore:
         return self._cache_store
-
-    @property
-    def ifc_store(self) -> IfcStore:
-        return self._ifc_store
 
     def __add__(self, other: Assembly | Part):
         if other.units != self.units:
@@ -1213,43 +1153,3 @@ class Assembly(Part):
             f'Assembly("{self.name}": Beams: {nbms}, Plates: {npls}, Pipes: {npipes}, '
             f"Shapes: {nshps}, Elements: {nels}, Nodes: {nns})"
         )
-
-
-@dataclass
-class Group:
-    name: str
-    members: list[Part | Beam | Plate | Wall | Pipe | Shape]
-    parent: Part | Assembly
-    description: str = ""
-    ifc_elem = None
-
-    def _generate_ifc_elem(self, f):
-        a = self.parent.get_assembly()
-        owner_history = a.user.to_ifc()
-        return f.create_entity("IfcGroup", create_guid(), owner_history, self.name, self.description)
-
-    def to_ifc(self, f):
-        a = self.parent.get_assembly()
-        owner_history = a.user.to_ifc()
-        if self.ifc_elem is None:
-            self.ifc_elem = self._generate_ifc_elem(f)
-
-        relating_objects = []
-        for m in self.members:
-            relating_objects.append(m.get_ifc_elem())
-
-        f.create_entity(
-            "IfcRelAssignsToGroup",
-            create_guid(),
-            owner_history,
-            self.name,
-            self.description,
-            RelatedObjects=relating_objects,
-            RelatingGroup=self.ifc_elem,
-        )
-
-    def to_part(self, name: str):
-        p = Part(name)
-        for mem in self.members:
-            p.add_object(mem)
-        return p

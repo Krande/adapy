@@ -15,7 +15,7 @@ def export_beam_section_profile_def(section: Section):
         raise ValueError("Lacking parent")
 
     a = section.parent.parent.get_assembly()
-    f = a.ifc_file
+    f = a.ifc_store.f
 
     sec_props = dict(ProfileType="AREA", ProfileName=section.name)
     section_profile = section.get_section_profile(True)
@@ -53,11 +53,11 @@ def export_beam_section_profile_def(section: Section):
 
 def export_ifc_beam_type(section: Section):
     a = section.parent.parent.get_assembly()
-    f = a.ifc_file
+    f = a.ifc_store.f
     return f.create_entity(
         "IfcBeamType",
         GlobalId=create_guid(),
-        OwnerHistory=a.user.to_ifc(),
+        OwnerHistory=a.ifc_store.owner_history,
         Name=section.name,
         Description=section.sec_str,
         PredefinedType="BEAM",

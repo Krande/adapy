@@ -7,13 +7,14 @@ import ifcopenshell
 from ifcopenshell.util.element import get_psets
 
 from ada import Assembly, Part
+from ada.base.ifc_types import SpatialTypes
 from ada.ifc.store import IfcStore
 
 from .reader_utils import get_ifc_property_sets, get_parent, resolve_name
 
 
 def valid_spatial_classes(product: ifcopenshell.entity_instance):
-    is_ok_class = product.is_a() in ["IfcBuilding", "IfcBuildingStorey", "IfcSpatialZone", "IfcBuildingElementProxy"]
+    is_ok_class = SpatialTypes.is_valid_spatial_type(product.is_a())
     has_no_geom = product.Representation is None
 
     if is_ok_class is True and has_no_geom is True:

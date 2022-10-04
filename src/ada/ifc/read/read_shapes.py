@@ -43,7 +43,8 @@ def get_ifc_geometry(ifc_elem, settings):
 
 def get_colour(product: ifcopenshell.entity_instance, assembly: Assembly) -> Union[None, tuple]:
     styles = []
-    for geo in assembly.ifc_file.traverse(product):
+    f = assembly.ifc_store.f
+    for geo in f.traverse(product):
         if hasattr(geo, "StyledByItem") is False:
             continue
         if len(geo.StyledByItem) != 0:
@@ -59,8 +60,8 @@ def get_colour(product: ifcopenshell.entity_instance, assembly: Assembly) -> Uni
         logging.warning(f"Multiple styles associated to element {product}. Choosing arbitrarily style @ index=0")
 
     style = styles[0]
-    colour_rgb = list(filter(lambda x: x.is_a("IfcColourRgb"), assembly.ifc_file.traverse(style)))
-    transparency = list(filter(lambda x: x.is_a("IfcSurfaceStyleRendering"), assembly.ifc_file.traverse(style)))
+    colour_rgb = list(filter(lambda x: x.is_a("IfcColourRgb"), f.traverse(style)))
+    transparency = list(filter(lambda x: x.is_a("IfcSurfaceStyleRendering"), f.traverse(style)))
 
     if len(colour_rgb) == 0:
         logging.warning(f'ColourRGB not found for IFC product "{product}"')

@@ -17,13 +17,13 @@ from ada.core.vector_utils import (
     vector_length,
 )
 from ada.ifc.utils import (
-    add_multiple_props_to_elem,
     create_guid,
     create_ifc_placement,
     create_ifcpolyline,
     create_local_placement,
     tesselate_shape,
     to_real,
+    write_elem_property_sets,
 )
 
 if TYPE_CHECKING:
@@ -64,9 +64,9 @@ def write_pipe_ifc_elem(pipe: Pipe):
         raise ValueError("Cannot build ifc element without parent")
 
     a = pipe.get_assembly()
-    f = a.ifc_file
+    f = a.ifc_store.f
 
-    owner_history = a.user.to_ifc()
+    owner_history = a.ifc_store.owner_history
     parent = pipe.parent.get_ifc_elem()
 
     placement = create_local_placement(
@@ -98,8 +98,8 @@ def write_pipe_ifc_elem(pipe: Pipe):
         parent,
         [ifc_elem],
     )
-    if len(pipe.metadata.keys()) > 0:
-        add_multiple_props_to_elem(pipe.metadata.get("props", dict()), ifc_elem, f, owner_history)
+
+    write_elem_property_sets(pipe.metadata.get("props", dict()), ifc_elem, f, owner_history)
 
     return ifc_elem
 
@@ -215,7 +215,7 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
         midpoint=pipe_elbow.arc_seg.midpoint,
     )
 
-    add_multiple_props_to_elem(props, pfitting, f, owner_history)
+    write_elem_property_sets(props, pfitting, f, owner_history)
 
     return pfitting
 

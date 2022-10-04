@@ -9,8 +9,9 @@ from ada import (
     PrimExtrude,
     PrimRevolve,
     Section,
+    User,
 )
-from ada.config import Settings, User
+from ada.config import Settings
 
 test_dir = Settings.test_dir / "penetrations"
 

@@ -9,9 +9,9 @@ def write_ifc_mat(material: Material):
         raise ValueError("Parent cannot be None")
 
     a = material.parent.get_assembly()
-    f = a.ifc_file
+    f = a.ifc_store.f
 
-    owner_history = a.user.to_ifc()
+    owner_history = a.ifc_store.owner_history
 
     ifc_mat = f.createIfcMaterial(material.name, None, "Steel")
     properties = []

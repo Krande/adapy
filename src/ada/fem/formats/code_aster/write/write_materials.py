@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from ada import Material
 
 if TYPE_CHECKING:
-    from ada.concepts.levels import Assembly
+    from ada.concepts.spatial import Assembly
 
 
 def materials_str(assembly: "Assembly") -> str:

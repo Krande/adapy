@@ -8,8 +8,8 @@ from ada.ifc.utils import (
     create_ifcextrudedareasolid,
     create_ifcpolyline,
     create_local_placement,
-    create_property_set,
     tesselate_shape,
+    write_elem_property_sets,
 )
 
 from .write_stru_components import write_door, write_window
@@ -81,16 +81,7 @@ def write_ifc_wall(wall: Wall):
         parent,
     )
 
-    if wall.ifc_options.export_props is True:
-        props = create_property_set("Properties", f, wall.metadata, owner_history)
-        f.createIfcRelDefinesByProperties(
-            create_guid(),
-            owner_history,
-            "Properties",
-            None,
-            [wall_el],
-            props,
-        )
+    write_elem_property_sets(wall.metadata.get("props", dict()), wall_el, f, owner_history)
 
     return wall_el
 

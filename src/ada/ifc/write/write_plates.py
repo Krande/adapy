@@ -4,12 +4,12 @@ from ada import Plate
 from ada.core.constants import O, X, Z
 from ada.ifc.utils import (
     add_colour,
-    add_multiple_props_to_elem,
     create_guid,
     create_ifc_placement,
     create_ifcindexpolyline,
     create_ifcpolyline,
     create_local_placement,
+    write_elem_property_sets,
 )
 
 
@@ -18,10 +18,10 @@ def write_ifc_plate(plate: Plate):
         raise ValueError("Ifc element cannot be built without any parent element")
 
     a = plate.parent.get_assembly()
-    f = a.ifc_file
+    f = a.ifc_store.f
 
     context = f.by_type("IfcGeometricRepresentationContext")[0]
-    owner_history = a.user.to_ifc()
+    owner_history = a.ifc_store.owner_history
     parent = plate.parent.get_ifc_elem()
 
     xvec = plate.poly.xdir
@@ -96,8 +96,6 @@ def write_ifc_plate(plate: Plate):
         plate.material.ifc_mat,
     )
 
-    # if "props" in plate.metadata.keys():
-    if plate.ifc_options.export_props is True:
-        add_multiple_props_to_elem(plate.metadata.get("props", dict()), ifc_plate, f, owner_history)
+    write_elem_property_sets(plate.metadata.get("props", dict()), ifc_plate, f, owner_history)
 
     return ifc_plate

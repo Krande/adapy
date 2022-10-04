@@ -23,19 +23,9 @@ if TYPE_CHECKING:
 
 class Pipe(BackendGeom):
     def __init__(
-        self,
-        name,
-        points,
-        sec,
-        mat="S355",
-        content=None,
-        metadata=None,
-        colour=None,
-        units: Units = Units.M,
-        guid=None,
-        ifc_elem=None,
+        self, name, points, sec, mat="S355", content=None, metadata=None, colour=None, units: Units = Units.M, guid=None
     ):
-        super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem)
+        super().__init__(name, guid=guid, metadata=metadata, units=units)
 
         self._section, _ = get_section(sec)
         self._section.parent = self
@@ -232,20 +222,9 @@ class Pipe(BackendGeom):
 
 class PipeSegStraight(BackendGeom):
     def __init__(
-        self,
-        name,
-        p1,
-        p2,
-        section,
-        material,
-        parent=None,
-        guid=None,
-        metadata=None,
-        units=Units.M,
-        colour=None,
-        ifc_elem=None,
+        self, name, p1, p2, section, material, parent=None, guid=None, metadata=None, units=Units.M, colour=None
     ):
-        super(PipeSegStraight, self).__init__(name, guid, metadata, units, parent, colour, ifc_elem=ifc_elem)
+        super(PipeSegStraight, self).__init__(name, guid, metadata, units, parent, colour)
         self.p1 = p1
         self.p2 = p2
         self.section = section
@@ -307,9 +286,8 @@ class PipeSegElbow(BackendGeom):
         units=Units.M,
         colour=None,
         arc_seg=None,
-        ifc_elem=None,
     ):
-        super(PipeSegElbow, self).__init__(name, guid, metadata, units, parent, colour, ifc_elem=ifc_elem)
+        super(PipeSegElbow, self).__init__(name, guid, metadata, units, parent, colour)
         self.p1 = p1
         self.p2 = p2
         self.p3 = p3

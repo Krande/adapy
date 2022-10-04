@@ -177,7 +177,7 @@ class Results:
                 position=vertices.flatten().astype(float),
                 normal=None,
                 color=None,
-                vertexColor=colors.flatten().astype(float),
+                vertex_color=colors.flatten().astype(float),
                 instances=None,
                 # id_sequence=dict()
             )

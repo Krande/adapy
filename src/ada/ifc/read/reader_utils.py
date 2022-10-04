@@ -63,6 +63,8 @@ def get_parent(instance):
         if len(decompositions):
             return decompositions[0].RelatingObject
 
+    return None
+
 
 def get_associated_material(ifc_elem):
     """

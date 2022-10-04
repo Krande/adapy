@@ -25,10 +25,12 @@ from ada.ifc.utils import (
     create_ifcpolyline,
     create_ifcrevolveareasolid,
     create_local_placement,
-    create_property_set,
     tesselate_shape,
     to_real,
+    write_elem_property_sets,
 )
+
+from .write_curves import write_curve_poly
 
 
 def write_ifc_shape(shape: Shape):
@@ -36,12 +38,12 @@ def write_ifc_shape(shape: Shape):
         raise ValueError("Parent cannot be None for IFC export")
 
     a = shape.parent.get_assembly()
-    f = a.ifc_file
+    f = a.ifc_store.f
 
     context = f.by_type("IfcGeometricRepresentationContext")[0]
-    owner_history = a.user.to_ifc()
+    owner_history = a.ifc_store.owner_history
     parent = shape.parent.get_ifc_elem()
-    schema = a.ifc_file.wrapped_data.schema
+    schema = a.ifc_store.f.wrapped_data.schema
 
     shape_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
 
@@ -90,17 +92,7 @@ def write_ifc_shape(shape: Shape):
             pen.ifc_opening,
         )
 
-    if shape.ifc_options.export_props is True:
-        props = create_property_set("Properties", f, shape.metadata, owner_history)
-        f.create_entity(
-            "IfcRelDefinesByProperties",
-            create_guid(),
-            owner_history,
-            "Properties",
-            None,
-            [ifc_elem],
-            props,
-        )
+    write_elem_property_sets(shape.metadata.get("props", dict()), ifc_elem, f, owner_history)
 
     return ifc_elem
 
@@ -226,8 +218,9 @@ def generate_ifc_prim_revolve_geom(shape: PrimRevolve, f):
 
 
 def generate_ifc_prim_sweep_geom(shape: PrimSweep, f):
-    sweep_curve = shape.sweep_curve.get_ifc_elem()
-    profile = f.create_entity("IfcArbitraryClosedProfileDef", "AREA", None, shape.profile_curve_outer.get_ifc_elem())
+    sweep_curve = write_curve_poly(shape.sweep_curve)
+    outer_curve = write_curve_poly(shape.profile_curve_outer)
+    profile = f.create_entity("IfcArbitraryClosedProfileDef", "AREA", None, outer_curve)
     ifc_xdir = f.create_entity("IfcDirection", [float(x) for x in shape.profile_curve_outer.xdir])
     opening_axis_placement = create_ifc_placement(f, O, Z, X)
 

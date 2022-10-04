@@ -8,7 +8,7 @@ from .write_predefined_state import predefined_fields_str
 from .write_steps import constraint_control, main_step_inp_str
 
 if TYPE_CHECKING:
-    from ada.concepts.levels import Assembly, Part
+    from ada.concepts.spatial import Assembly, Part
 
 
 def write_main_inp_str(assembly: "Assembly", analysis_dir) -> str:

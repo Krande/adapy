@@ -20,7 +20,7 @@ from . import cards
 _re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 
 if TYPE_CHECKING:
-    from ada.concepts.levels import FEM
+    from ada.fem import FEM
 
 sh = ElemShape.TYPES.shell
 so = ElemShape.TYPES.solids

@@ -182,7 +182,7 @@ def generate_tpl_ifc_file(file_name, project, schema, units, user):
     """
     import time
 
-    from ada.base.non_physical_objects import Units
+    from ada.base.units import Units
 
     from .ifc_template import tpl_create
 
@@ -411,7 +411,7 @@ def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props, owner_history):
     )
 
 
-def add_multiple_props_to_elem(metadata_props, elem, f, owner_history) -> None:
+def write_elem_property_sets(metadata_props, elem, f, owner_history) -> None:
     if len(metadata_props.keys()) == 0:
         return None
 

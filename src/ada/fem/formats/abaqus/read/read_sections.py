@@ -18,7 +18,8 @@ part_name_counter = Counter(1, "Part")
 _re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 
 if TYPE_CHECKING:
-    from ada.concepts.levels import FEM, Assembly
+    from ada.concepts.spatial import Assembly
+    from ada.fem import FEM
 
 
 def get_sections_from_inp(bulk_str, fem: FEM) -> FemSections:

@@ -5,3 +5,4 @@ channels:
 dependencies:
   - ada-py
   - paradoc
+  - toposort

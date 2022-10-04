@@ -5,8 +5,9 @@ from typing import Union
 import meshio
 import numpy as np
 
-from ada.concepts.levels import FEM, Assembly
+from ada.concepts.spatial import Assembly
 from ada.config import Settings as _Settings
+from ada.fem import FEM
 from ada.fem.shapes import ElemShape
 
 

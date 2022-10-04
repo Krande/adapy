@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada.concepts.connections import JointBase
-    from ada.concepts.levels import Part
+    from ada.concepts.spatial import Part
     from ada.fem.elements import HingeProp
     from ada.ifc.store import IfcStore
 
@@ -80,7 +80,6 @@ class Beam(BackendGeom):
         metadata=None,
         opacity=1.0,
         units=Units.M,
-        ifc_elem=None,
         guid=None,
         placement=Placement(),
         ifc_store: IfcStore = None,
@@ -90,7 +89,6 @@ class Beam(BackendGeom):
             metadata=metadata,
             units=units,
             guid=guid,
-            ifc_elem=ifc_elem,
             placement=placement,
             ifc_store=ifc_store,
             colour=colour,
@@ -278,11 +276,6 @@ class Beam(BackendGeom):
         nodes_p2 = local_2_global_points(ot, p2, yv, xv)
 
         return nodes_p1, nodes_p2
-
-    def _generate_ifc_elem(self):
-        from ada.ifc.write.write_beams import write_ifc_beam
-
-        return write_ifc_beam(self)
 
     def calc_con_points(self, point_tol=Settings.point_tol):
         from ada.core.vector_utils import sort_points_by_dist

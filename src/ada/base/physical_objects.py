@@ -4,11 +4,10 @@ import os
 import pathlib
 from typing import TYPE_CHECKING, List
 
+from ada.base.root import Root
 from ada.base.units import Units
 from ada.concepts.transforms import Placement
 from ada.core.constants import color_map as _cmap
-
-from .non_physical_objects import Backend
 
 if TYPE_CHECKING:
     from ada import FEM, Penetration
@@ -17,7 +16,7 @@ if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
 
 
-class BackendGeom(Backend):
+class BackendGeom(Root):
     """The backend of all physical components (Beam, Plate, etc.) or aggregate of components (Part, Assembly)"""
 
     _renderer = None
@@ -30,12 +29,11 @@ class BackendGeom(Backend):
         units=Units.M,
         parent=None,
         colour=None,
-        ifc_elem=None,
         placement=Placement(),
         ifc_store: IfcStore = None,
         opacity=1.0,
     ):
-        super().__init__(name, guid, metadata, units, parent, ifc_elem=ifc_elem, ifc_store=ifc_store)
+        super().__init__(name, guid, metadata, units, parent, ifc_store=ifc_store)
         from ada.visualize.new_render_api import Visualize
 
         self._penetrations = []

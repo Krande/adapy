@@ -17,7 +17,7 @@ from .write_sections import create_sections_str
 from .write_steps import create_step_str
 
 if TYPE_CHECKING:
-    from ada.concepts.levels import Assembly, Part
+    from ada.concepts.spatial import Assembly, Part
 
 
 def to_fem(assembly: "Assembly", name, analysis_dir, metadata=None):

@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, List, Tuple, Union
 
-from ada.base.non_physical_objects import Backend
+from ada.base.root import Root
 from ada.base.units import Units
 from ada.concepts.curves import CurvePoly
 from ada.config import Settings
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from ada.fem import FemSection
 
 
-class Section(Backend):
+class Section(Root):
     TYPES = BaseTypes
 
     def __init__(

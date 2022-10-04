@@ -26,7 +26,9 @@ def test_write_single_90_deg_elbow_revolved_solid(pipe_w_single_90_deg_bend):
     elbow = pipe_w_single_90_deg_bend.segments[1]
     assert elbow.arc_seg.radius == pytest.approx(0.195958125)
 
-    elbow_revolved_solid(elbow, a.ifc_file, a.ifc_file.by_type("IfcGeometricRepresentationContext")[0])
+    f = a.ifc_store.f
+
+    elbow_revolved_solid(elbow, f, f.by_type("IfcGeometricRepresentationContext")[0])
 
     # a.to_stp(test_dir / "pipe_bend.stp")
     # a.to_ifc(test_dir / "pipe_bend.ifc")
@@ -44,13 +46,14 @@ def test_pipe_multiple_bends(pipe_w_multiple_bends):
 
 def test_write_elbow_revolved_solid_ifc_gen(pipe_w_multiple_bends):
     a = Assembly("MyTest") / (Part("MyPart") / pipe_w_multiple_bends)
+    f = a.ifc_store.f
 
     elbows = list(filter(lambda x: isinstance(x, PipeSegElbow), pipe_w_multiple_bends.segments))
-    context = a.ifc_file.by_type("IfcGeometricRepresentationContext")[0]
+    context = f.by_type("IfcGeometricRepresentationContext")[0]
 
     elbow1 = elbows[0]
 
-    shape1 = elbow_revolved_solid(elbow1, a.ifc_file, context)
+    shape1 = elbow_revolved_solid(elbow1, f, context)
     ifc_revolved_solid1 = shape1.Representations[0].Items[0]
 
     assert ifc_revolved_solid1.Angle == 90.0
@@ -67,7 +70,7 @@ def test_write_elbow_revolved_solid_ifc_gen(pipe_w_multiple_bends):
 
     elbow2 = elbows[1]
 
-    shape2 = elbow_revolved_solid(elbow2, a.ifc_file, context)
+    shape2 = elbow_revolved_solid(elbow2, f, context)
     ifc_revolved_solid2 = shape2.Representations[0].Items[0]
 
     assert ifc_revolved_solid2.Angle == 90.0
@@ -84,5 +87,5 @@ def test_write_elbow_revolved_solid_ifc_gen(pipe_w_multiple_bends):
 
     # elbow3 = elbows[2]
 
-    # shape3 = elbow_revolved_solid(elbow3, a.ifc_file, context)
+    # shape3 = elbow_revolved_solid(elbow3, f, context)
     # ifc_revolved_solid2 = shape2.Representations[0].Items[0]

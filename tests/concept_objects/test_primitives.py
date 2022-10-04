@@ -10,6 +10,8 @@ def shape_ifc_test_dir(test_dir):
 
 
 def test_export_primitives(shape_ifc_test_dir):
+    ifc_file = shape_ifc_test_dir / "world_of_shapes.ifc"
+
     a = Assembly("Site") / [
         PrimBox("VolBox", (0.2, 0.2, 2), (1.2, 1.2, 4)),
         PrimCyl("VolCyl", (2, 2, 2), (4, 4, 4), 0.2),
@@ -23,7 +25,7 @@ def test_export_primitives(shape_ifc_test_dir):
             rev_angle=275,
         ),
     ]
-    fp = a.to_ifc(shape_ifc_test_dir / "world_of_shapes.ifc", return_file_obj=True)
+    fp = a.to_ifc(ifc_file, return_file_obj=False)
 
     b = ada.from_ifc(fp)
     assert len(b.shapes) == 4
