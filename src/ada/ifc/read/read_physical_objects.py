@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 
 
 def import_physical_ifc_elem(product, name, ifc_store: IfcStore):
-
     pr_type = product.is_a()
 
     if pr_type in ["IfcBeamStandardCase", "IfcBeam"]:

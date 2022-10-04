@@ -42,6 +42,10 @@ class PartImporter:
 
     def load_hierarchies(self) -> None:
         for product in filter(valid_spatial_classes, self.ifc_store.f.by_type("IfcProduct")):
+            class_type = SpatialTypes.from_str(product.is_a())
+            if class_type == SpatialTypes.IfcSite:
+                self.update_assembly(product)
+                continue
             new_part = self.import_ifc_hierarchy(product)
             parent = self.get_parent(product)
             if parent is None:
@@ -59,10 +63,24 @@ class PartImporter:
             logging.debug(f'Name was not found for the IFC element "{product}". Will look for ref to name in props')
             name = resolve_name(props, product)
 
+        ifc_class = SpatialTypes.from_str(product.is_a())
+
         return Part(
             name,
-            metadata=dict(original_name=name, props=props, ifc_guid=product.GlobalId),
+            metadata=props,
             guid=product.GlobalId,
             ifc_store=self.ifc_store,
             units=self.ifc_store.assembly.units,
+            ifc_class=ifc_class,
         )
+
+    def update_assembly(self, product: ifcopenshell.entity_instance):
+        props = get_ifc_property_sets(product)
+        name = product.Name
+        if name is None:
+            logging.debug(f'Name was not found for the IFC element "{product}". Will look for ref to name in props')
+            name = resolve_name(props, product)
+
+        self.ifc_store.assembly.name = name
+        self.ifc_store.assembly.guid = product.GlobalId
+        self.ifc_store.assembly.metadata.update(props)

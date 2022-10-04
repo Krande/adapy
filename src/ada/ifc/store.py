@@ -16,17 +16,30 @@ from ada.ifc.read.reader_utils import (
     get_parent,
     resolve_name,
 )
-from ada.ifc.utils import assembly_to_ifc_file, create_guid, default_settings
-
-from .write.write_beams import write_ifc_beam
-from .write.write_pipe import write_ifc_pipe
-from .write.write_plates import write_ifc_plate
-from .write.write_shapes import write_ifc_shape
-from .write.write_spatial_elements import write_ifc_part, write_ifc_spatial_hierarchy
-from .write.write_user import create_owner_history_from_user
+from ada.ifc.utils import (
+    assembly_to_ifc_file,
+    create_guid,
+    default_settings,
+    get_unit_type,
+)
+from ada.ifc.write.write_beams import write_ifc_beam
+from ada.ifc.write.write_instances import write_mapped_instance
+from ada.ifc.write.write_material import write_ifc_mat
+from ada.ifc.write.write_pipe import write_ifc_pipe
+from ada.ifc.write.write_plates import write_ifc_plate
+from ada.ifc.write.write_sections import (
+    export_beam_section_profile_def,
+    export_ifc_beam_type,
+)
+from ada.ifc.write.write_shapes import write_ifc_shape
+from ada.ifc.write.write_spatial_elements import (
+    write_ifc_part,
+    write_ifc_spatial_hierarchy,
+)
+from ada.ifc.write.write_user import create_owner_history_from_user
 
 if TYPE_CHECKING:
-    from ada import Assembly, Beam, Pipe, Plate, Shape, User
+    from ada import Assembly, Beam, Part, Pipe, Plate, Shape, User
 
 
 @dataclass
@@ -37,6 +50,9 @@ class IfcStore:
 
     f: ifcopenshell.file = None
     owner_history: ifcopenshell.entity_instance = None
+
+    section_profile_map: dict[str, ifcopenshell.entity_instance] = field(default_factory=dict)
+    materials_map: dict[str, ifcopenshell.entity_instance] = field(default_factory=dict)
 
     def __post_init__(self):
         if self.f is None:
@@ -50,11 +66,12 @@ class IfcStore:
     def update_owner(self, user: User):
         self.owner_history = create_owner_history_from_user(user, self.f)
 
-    def sync(self):
+    def sync(self, include_fem=False):
         def is_added(x):
             return x.change_type == x.change_type.ADDED
 
         a = self.assembly
+
         self.update_owner(a.user)
 
         if len(list(self.f.by_type("IfcSite"))) == 0:
@@ -62,27 +79,53 @@ class IfcStore:
 
         num_new_spatial_objects = 0
         for part in filter(is_added, a.get_all_parts_in_assembly()):
-            self.add(part)
+            self.add_part(part, include_fem=include_fem)
             num_new_spatial_objects += 1
 
-        num_new_objects = 0
+        self.sync_sections()
+        self.sync_materials()
 
+        num_new_objects = 0
         contained_in_spatial = {x.guid: [] for x in a.get_all_parts_in_assembly(include_self=True)}
         for to_be_added in filter(is_added, a.get_all_physical_objects()):
             ifc_elem = self.add(to_be_added)
-            parent_guid = to_be_added.parent.guid
-            if parent_guid not in contained_in_spatial.keys():
-                print("sd")
             contained_in_spatial[to_be_added.parent.guid].append(ifc_elem)
             num_new_objects += 1
 
         for spatial_elem_guid, relating_elements in contained_in_spatial.items():
             self.add_related_elements_to_spatial_container(relating_elements, spatial_elem_guid)
 
+        self.sync_instancing()
+
         print(f"Synced {num_new_objects} objects and {num_new_spatial_objects} spatial elements")
 
+    def sync_sections(self):
+        section_profile_map = dict()
+        for sec in self.assembly.get_all_sections():
+            _ = export_ifc_beam_type(sec)
+            ifc_profile_def = export_beam_section_profile_def(sec)
+            section_profile_map[sec.guid] = ifc_profile_def
+
+        self.section_profile_map = section_profile_map
+
+    def sync_materials(self):
+        materials_map = dict()
+        for mat in self.assembly.get_all_materials():
+            ifc_mat = write_ifc_mat(mat)
+            materials_map[mat.guid] = ifc_mat
+
+        self.materials_map = materials_map
+
+    def sync_instancing(self):
+        for part in self.assembly.get_all_parts_in_assembly(include_self=True):
+            for instance in part.instances.values():
+                write_mapped_instance(instance, self.f)
+
+    def add_part(self, part: Part, include_fem):
+        return write_ifc_part(self, part, include_fem=include_fem)
+
     def add(self, obj: Beam | Plate | Pipe | Shape) -> ifcopenshell.entity_instance:
-        from ada import Beam, Part, Pipe, Plate, Shape
+        from ada import Beam, Pipe, Plate, Shape
 
         if isinstance(obj, Beam):
             return write_ifc_beam(self, obj)
@@ -92,8 +135,6 @@ class IfcStore:
             return write_ifc_pipe(obj)
         elif issubclass(type(obj), Shape):
             return write_ifc_shape(obj)
-        elif issubclass(type(obj), Part):
-            return write_ifc_part(self, obj)
         else:
             raise NotImplementedError()
 
@@ -116,6 +157,13 @@ class IfcStore:
         if self.assembly is None:
             raise ValueError("Assembly must be attached before loading IFC content")
 
+        target_units = None
+        unit_type = get_unit_type(self.f)
+
+        if unit_type != self.assembly.units:
+            target_units = self.assembly.units
+            self.assembly.units = unit_type
+
         if elements2part is None:
             self.load_spatial_hierarchy()
 
@@ -123,7 +171,10 @@ class IfcStore:
         self.load_materials()
 
         # Load physical elements
-        self.load_objects(data_only=data_only)
+        self.load_objects(data_only=data_only, elements2part=elements2part)
+
+        if target_units is not None:
+            self.assembly.units = target_units
 
         ifc_file_name = "object" if self.ifc_file_path is None else self.ifc_file_path
 
@@ -147,7 +198,7 @@ class IfcStore:
     def get_by_guid(self, guid: str) -> ifcopenshell.entity_instance:
         return self.f.by_guid(guid)
 
-    def load_objects(self, data_only=False, elements2part=False):
+    def load_objects(self, data_only=False, elements2part=None):
         for product in self.f.by_type("IfcProduct"):
             if product.Representation is None or data_only is True:
                 logging.info(f'Passing product "{product}"')

@@ -63,14 +63,6 @@ class Shape(BackendGeom):
 
         self._bbox = None
 
-    def generate_ifc_solid_geom(self, f):
-        raise NotImplementedError()
-
-    def _generate_ifc_elem(self):
-        from ada.ifc.write.write_shapes import write_ifc_shape
-
-        return write_ifc_shape(self)
-
     @property
     def type(self):
         return type(self.geom)
@@ -111,17 +103,13 @@ class Shape(BackendGeom):
         if self._geom is None:
             from ada.ifc.read.read_shapes import get_ifc_geometry
 
-            if self._ifc_elem is not None:
-                ifc_elem = self._ifc_elem
-            elif "ifc_file" in self.metadata.keys():
-                a = self.parent.get_assembly()
-                ifc_file = self.metadata["ifc_file"]
-                ifc_f = a.get_ifc_source_by_name(ifc_file)
-                ifc_elem = ifc_f.by_guid(self.metadata["ifc_guid"])
+            a = self.get_assembly()
+            if a.ifc_store is not None:
+                ifc_elem = a.ifc_store.get_by_guid(self.guid)
             else:
                 raise NoGeomPassedToShapeError(f'No geometry information attached to shape "{self}"')
 
-            geom, color, alpha = get_ifc_geometry(ifc_elem, self.ifc_settings)
+            geom, color, alpha = get_ifc_geometry(ifc_elem, a.ifc_store.settings)
             self._geom = geom
             self.colour = color
             self.opacity = alpha

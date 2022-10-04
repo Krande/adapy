@@ -16,7 +16,7 @@ def test_beam_to_from_ifc():
     )
 
     a = Assembly("MyAssembly") / [Part("MyPart") / bm]
-    fp = a.to_ifc(test_dir / "my_beam_profile.ifc", return_file_obj=False)
+    fp = a.to_ifc(test_dir / "my_beam_profile.ifc", return_file_obj=True)
 
     a2 = Assembly("MyNewAssembly")
     a2.read_ifc(fp)

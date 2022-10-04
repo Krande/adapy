@@ -25,7 +25,7 @@ def test_export_primitives(shape_ifc_test_dir):
             rev_angle=275,
         ),
     ]
-    fp = a.to_ifc(ifc_file, return_file_obj=False)
+    fp = a.to_ifc(ifc_file, return_file_obj=True)
 
     b = ada.from_ifc(fp)
     assert len(b.shapes) == 4

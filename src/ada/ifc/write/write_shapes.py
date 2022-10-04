@@ -42,8 +42,8 @@ def write_ifc_shape(shape: Shape):
 
     context = f.by_type("IfcGeometricRepresentationContext")[0]
     owner_history = a.ifc_store.owner_history
-    parent = shape.parent.get_ifc_elem()
-    schema = a.ifc_store.f.wrapped_data.schema
+    parent = f.by_guid(shape.parent.guid)
+    schema = f.wrapped_data.schema
 
     shape_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
 

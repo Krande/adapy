@@ -17,7 +17,7 @@ from .helper_utils import ifc_vertex
 
 
 def to_ifc_fem(fem: FEM, f: ifcopenshell.file) -> None:
-    owner_history = fem.parent.get_assembly().user.to_ifc()
+    owner_history = fem.parent.get_assembly().ifc_store.owner_history
     f.create_entity(
         "IfcStructuralAnalysisModel",
         create_guid(),

@@ -35,7 +35,7 @@ def read_pipe_straight_segment(segment, name, ifc_store: IfcStore) -> PipeSegStr
     section = import_section_from_ifc(mat_ref.Profile)
     mat = read_material(mat_ref, ifc_store)
 
-    pipe_segment = PipeSegStraight(name, Node(p1), Node(p2), section, mat, guid=segment.GlobalId, ifc_elem=segment)
+    pipe_segment = PipeSegStraight(name, Node(p1), Node(p2), section, mat, guid=segment.GlobalId)
 
     return pipe_segment
 
@@ -58,6 +58,5 @@ def read_pipe_elbow(segment, name, ifc_store: IfcStore) -> PipeSegElbow:
     mat = read_material(mat_ref, ifc_store)
 
     arc = ArcSegment(arc_p1, arc_p2, arc_midpoint, bend_radius)
-    guid = segment.GlobalId
-    elbow = PipeSegElbow(name, p1, p2, p3, bend_radius, section, mat, arc_seg=arc, guid=guid, ifc_elem=segment)
+    elbow = PipeSegElbow(name, p1, p2, p3, bend_radius, section, mat, arc_seg=arc, guid=segment.GlobalId)
     return elbow

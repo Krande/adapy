@@ -22,7 +22,7 @@ def write_ifc_plate(plate: Plate):
 
     context = f.by_type("IfcGeometricRepresentationContext")[0]
     owner_history = a.ifc_store.owner_history
-    parent = plate.parent.get_ifc_elem()
+    parent = f.by_guid(plate.parent.guid)
 
     xvec = plate.poly.xdir
     zvec = plate.poly.normal
@@ -65,8 +65,6 @@ def write_ifc_plate(plate: Plate):
         product_shape,
         None,
     )
-
-    plate._ifc_elem = ifc_plate
 
     # Add colour
     if plate.colour is not None:

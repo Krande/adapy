@@ -29,4 +29,4 @@ def shorten_material_names(assembly):
                 if short_mat_name in p.materials.name_map.keys():
                     short_mat_name = short_mat_name[:-3] + str(next(short_suffix))
                 mat.name = short_mat_name
-                p.materials.recreate_name_and_id_maps(p.materials._materials)
+                p.materials.recreate_name_and_id_maps(p.materials.materials)

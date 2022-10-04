@@ -45,8 +45,9 @@ class IfcBeamWriter:
 
         owner_history = self.ifc_store.owner_history
 
-        beam_type = beam.section.ifc_beam_type
-        profile = beam.section.ifc_profile
+        profile = self.ifc_store.section_profile_map.get(beam.section.guid)
+        if profile is None:
+            raise ValueError()
 
         if isinstance(beam.curve, CurveRevolve):
             axis, body, loc_plac = create_revolved_beam(beam, f, profile)
@@ -75,7 +76,6 @@ class IfcBeamWriter:
             beam.name,
             None,
         )
-        beam._ifc_elem = ifc_beam
 
         # Add penetrations
         if len(beam.penetrations) > 0:
@@ -90,6 +90,9 @@ class IfcBeamWriter:
                     pen.ifc_opening,
                 )
         found_existing_relationship = False
+
+        beam_type = f.by_guid(beam.section.guid)
+
         for ifcrel in f.by_type("IfcRelDefinesByType"):
             if ifcrel.RelatingType == beam_type:
                 ifcrel.RelatedObjects = tuple([*ifcrel.RelatedObjects, ifc_beam])
@@ -119,7 +122,7 @@ class IfcBeamWriter:
         return ifc_beam
 
 
-def extrude_straight_beam(beam, f: "ifile", profile):
+def extrude_straight_beam(beam, f: ifile, profile):
     extrude_dir = ifc_dir(f, (0.0, 0.0, 1.0))
     parent = f.by_guid(beam.parent.guid)
     global_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
@@ -131,7 +134,7 @@ def extrude_straight_beam(beam, f: "ifile", profile):
 
     profile_e = None
     if beam.section != beam.taper:
-        profile_e = beam.taper.ifc_profile
+        profile_e = f.by_guid(beam.taper.guid)
 
     # Transform coordinates to local coords
     p1 = tuple([float(x) + float(e1[i]) for i, x in enumerate(beam.n1.p)])
@@ -225,10 +228,10 @@ def sweep_beam(beam, f, profile, global_placement, extrude_dir):
 
 def add_material_assignment(f, beam: Beam, ifc_beam, owner_history, beam_type):
     sec = beam.section
-    ifc_mat = beam.material.ifc_mat
-    mat_profile = f.createIfcMaterialProfile(
-        sec.name, "A material profile", ifc_mat, beam.section.ifc_profile, None, "LoadBearing"
-    )
+
+    ifc_mat = f.by_guid(beam.material.guid)
+    ifc_profile = beam.parent.get_assembly().ifc_store.section_profile_map.get(beam.section.guid)
+    mat_profile = f.createIfcMaterialProfile(sec.name, "A material profile", ifc_mat, ifc_profile, None, "LoadBearing")
     mat_profile_set = f.createIfcMaterialProfileSet(sec.name, None, [mat_profile], None)
 
     f.createIfcRelAssociatesMaterial(create_guid(), owner_history, None, None, [beam_type], mat_profile_set)

@@ -60,11 +60,6 @@ class Material(Root):
     def __hash__(self):
         return hash(self.guid)
 
-    def _generate_ifc_mat(self):
-        from ada.ifc.write.write_material import write_ifc_mat
-
-        return write_ifc_mat(self)
-
     @property
     def id(self):
         return self._mat_id
@@ -106,12 +101,6 @@ class Material(Root):
     @property
     def refs(self):
         return self._refs
-
-    @property
-    def ifc_mat(self):
-        if self._ifc_mat is None:
-            self._ifc_mat = self._generate_ifc_mat()
-        return self._ifc_mat
 
     def __repr__(self):
         return f'Material(Name: "{self.name}" Material Model: "{self.model}'

@@ -228,23 +228,6 @@ class Section(Root):
             self._units = value
 
     @property
-    def ifc_profile(self):
-        if self._ifc_profile is None:
-            from ada.ifc.write.write_sections import export_beam_section_profile_def
-
-            self._ifc_profile = export_beam_section_profile_def(self)
-        return self._ifc_profile
-
-    @property
-    def ifc_beam_type(self):
-        if self._ifc_beam_type is None:
-            from ada.ifc.write.write_sections import export_ifc_beam_type
-
-            self._ifc_beam_type = export_ifc_beam_type(self)
-
-        return self._ifc_beam_type
-
-    @property
     def poly_outer(self) -> CurvePoly:
         return self._outer_poly
 

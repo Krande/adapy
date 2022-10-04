@@ -7,7 +7,7 @@ from ada import Section
 from ada.config import Settings
 from ada.sections.categories import SectionCat
 
-from ..utils import create_guid, create_ifcindexpolyline, create_ifcpolyline
+from ..utils import create_ifcindexpolyline, create_ifcpolyline
 
 
 def export_beam_section_profile_def(section: Section):
@@ -56,7 +56,7 @@ def export_ifc_beam_type(section: Section):
     f = a.ifc_store.f
     return f.create_entity(
         "IfcBeamType",
-        GlobalId=create_guid(),
+        GlobalId=section.guid,
         OwnerHistory=a.ifc_store.owner_history,
         Name=section.name,
         Description=section.sec_str,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from ada.fem.formats.ifc.writer import to_ifc_fem
 from ada.ifc.utils import create_guid, create_local_placement, write_elem_property_sets
 
 if TYPE_CHECKING:
@@ -15,9 +16,15 @@ def write_ifc_spatial_hierarchy(ifc_store: IfcStore):
     sw.create_ifc_site()
 
 
-def write_ifc_part(ifc_store: IfcStore, part: Part):
+def write_ifc_part(ifc_store: IfcStore, part: Part, include_fem):
     sw = SpatialWriter(ifc_store)
-    return sw.create_ifc_part(part)
+
+    ifc_part = sw.create_ifc_part(part)
+
+    if len(part.fem.nodes) > 0 and include_fem is True:
+        to_ifc_fem(part.fem, ifc_store.f)
+
+    return ifc_part
 
 
 @dataclass

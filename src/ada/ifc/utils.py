@@ -523,7 +523,7 @@ def calculate_unit_scale(file):
     return unit_scale
 
 
-def get_unit_type(file):
+def get_unit_type(file: ifcopenshell.file):
     from ada.base.units import Units
 
     value = calculate_unit_scale(file)

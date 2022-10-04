@@ -11,7 +11,12 @@ from ada.core.vector_utils import calc_yvec, vector_length
 
 from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
-from .reader_utils import get_associated_material, get_placement, get_point
+from .reader_utils import (
+    get_associated_material,
+    get_beam_type,
+    get_placement,
+    get_point,
+)
 
 if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
@@ -21,6 +26,7 @@ def import_ifc_beam(ifc_elem, name, ifc_store: IfcStore) -> Beam:
     from .exceptions import NoIfcAxesAttachedError
 
     mat_ref = get_associated_material(ifc_elem)
+    beam_type = get_beam_type(ifc_elem)
     sec = None
     mat = None
 
@@ -32,6 +38,8 @@ def import_ifc_beam(ifc_elem, name, ifc_store: IfcStore) -> Beam:
 
     if sec is None:
         sec = import_section_from_ifc(mat_ref.Profile, units=ifc_store.assembly.units)
+
+    sec.guid = beam_type.GlobalId
 
     if mat is None:
         mat = read_material(mat_ref, ifc_store)

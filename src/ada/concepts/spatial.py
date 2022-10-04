@@ -169,6 +169,11 @@ class Part(BackendGeom):
         if mat is not None:
             pipe.material = mat
 
+        for seg in pipe.segments:
+            sec = self.add_section(seg.section)
+            if sec is not None:
+                seg.section = sec
+
         pipe.change_type = pipe.change_type.ADDED
         self._pipes.append(pipe)
         return pipe
@@ -411,6 +416,18 @@ class Part(BackendGeom):
 
         logger.debug(f'Unable to find"{name}". Check if the element type is evaluated in the algorithm')
         return None
+
+    def get_all_materials(self, include_self=True) -> list[Material]:
+        materials = []
+        for sec in filter(lambda x: len(x.materials) > 0, self.get_all_parts_in_assembly(include_self=include_self)):
+            materials += sec.materials.materials
+        return materials
+
+    def get_all_sections(self, include_self=True) -> list[Section]:
+        sections = []
+        for sec in filter(lambda x: len(x.sections) > 0, self.get_all_parts_in_assembly(include_self=include_self)):
+            sections += sec.sections.sections
+        return sections
 
     def get_all_parts_in_assembly(self, include_self=False) -> list[Part]:
         parent = self.get_assembly()
@@ -1024,13 +1041,7 @@ class Assembly(Part):
             import_mesh=import_result_mesh,
         )
 
-    def to_ifc(
-        self,
-        destination_file=None,
-        include_fem=False,
-        return_file_obj=False,
-        create_new_ifc_file=False,
-    ) -> None | ifcopenshell.file:
+    def to_ifc(self, destination_file=None, include_fem=False, return_file_obj=False) -> ifcopenshell.file:
 
         if destination_file is None or return_file_obj is True:
             destination_file = "object"
@@ -1039,7 +1050,8 @@ class Assembly(Part):
 
         print(f'Beginning writing to IFC file "{destination_file}" using IfcOpenShell')
 
-        self.ifc_store.sync()
+        self.ifc_store.sync(include_fem=include_fem)
+
         if return_file_obj is False:
             self.ifc_store.save_to_file(destination_file)
 

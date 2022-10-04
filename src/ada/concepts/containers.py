@@ -476,32 +476,32 @@ class Materials(NumericMapped):
 
     def __init__(self, materials: Iterable[Material] = None, parent: Union[Part, Assembly] = None, units=Units.M):
         super().__init__(parent)
-        self._materials = sorted(materials, key=attrgetter("name")) if materials is not None else []
-        self.recreate_name_and_id_maps(self._materials)
+        self.materials = sorted(materials, key=attrgetter("name")) if materials is not None else []
+        self.recreate_name_and_id_maps(self.materials)
         self._units = units
 
     def __contains__(self, item: Material):
         return item.name in self._name_map.keys()
 
     def __len__(self) -> int:
-        return len(self._materials)
+        return len(self.materials)
 
     def __iter__(self) -> Iterable[Material]:
-        return iter(self._materials)
+        return iter(self.materials)
 
     def __getitem__(self, index):
-        result = self._materials[index]
+        result = self.materials[index]
         return Materials(result) if isinstance(index, slice) else result
 
     def __eq__(self, other: Materials):
         if not isinstance(other, Materials):
             return NotImplemented
-        return self._materials == other._materials
+        return self.materials == other.materials
 
     def __ne__(self, other: Materials):
         if not isinstance(other, Materials):
             return NotImplemented
-        return self._materials != other._materials
+        return self.materials != other.materials
 
     def __add__(self, other: Materials):
         if self.parent is None:
@@ -515,13 +515,13 @@ class Materials(NumericMapped):
         rpr = reprlib.Repr()
         rpr.maxlist = 8
         rpr.maxlevel = 1
-        return f"Materials({rpr.repr(self._materials) if self._materials else ''})"
+        return f"Materials({rpr.repr(self.materials) if self.materials else ''})"
 
     def merge_materials_by_properties(self):
         models = []
 
         final_mats = []
-        for i, mat in enumerate(self._materials):
+        for i, mat in enumerate(self.materials):
             if mat.model.unique_props() not in models:
                 models.append(mat.model.unique_props())
                 final_mats.append(mat)
@@ -531,11 +531,11 @@ class Materials(NumericMapped):
                 for ref in mat.refs:
                     ref.material = replacement_mat
 
-        self._materials = final_mats
-        self.recreate_name_and_id_maps(self._materials)
+        self.materials = final_mats
+        self.recreate_name_and_id_maps(self.materials)
 
     def index(self, item: Material):
-        return self._materials.index(item)
+        return self.materials.index(item)
 
     def count(self, item: Material):
         return int(item in self)
@@ -557,7 +557,7 @@ class Materials(NumericMapped):
         for mat_id in sorted(self.id_map.keys()):
             mat = self.get_by_id(mat_id)
             mat.id = next(cnt)
-        self.recreate_name_and_id_maps(self._materials)
+        self.recreate_name_and_id_maps(self.materials)
 
     @property
     def name_map(self) -> Dict[str, Material]:
@@ -576,7 +576,7 @@ class Materials(NumericMapped):
         if isinstance(value, str):
             value = Units.from_str(value)
         if value != self._units:
-            for m in self._materials:
+            for m in self.materials:
                 m.units = value
             self._units = value
 
@@ -585,10 +585,10 @@ class Materials(NumericMapped):
             return self._name_map[material.name]
 
         if material.id is None or material.id in self._id_map.keys():
-            material.id = len(self._materials) + 1
+            material.id = len(self.materials) + 1
         self._id_map[material.id] = material
         self._name_map[material.name] = material
-        self._materials.append(material)
+        self.materials.append(material)
 
         return material
 

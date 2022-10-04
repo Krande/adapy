@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import ifcopenshell
 import numpy as np
 
 from ada.base.units import Units
@@ -34,13 +35,13 @@ def write_ifc_pipe(pipe: Pipe):
     ifc_pipe = write_pipe_ifc_elem(pipe)
 
     a = pipe.get_assembly()
-    f = a.ifc_file
+    f = a.ifc_store.f
 
-    owner_history = a.user.to_ifc()
+    owner_history = a.ifc_store.owner_history
 
     segments = []
     for param_seg in pipe.segments:
-        res = param_seg.get_ifc_elem()
+        res = write_pipe_segment(param_seg)
         if res is None:
             logging.error(f'Branch "{param_seg.name}" was not converted to ifc element')
         f.add(res)
@@ -59,6 +60,17 @@ def write_ifc_pipe(pipe: Pipe):
     return ifc_pipe
 
 
+def write_pipe_segment(segment: PipeSegElbow | PipeSegStraight) -> ifcopenshell.entity_instance:
+    from ada import PipeSegElbow, PipeSegStraight
+
+    if isinstance(segment, PipeSegElbow):
+        return write_pipe_elbow_seg(segment)
+    elif isinstance(segment, PipeSegStraight):
+        return write_pipe_straight_seg(segment)
+    else:
+        raise ValueError(f'Unrecognized Pipe Segment type "{type(segment)}"')
+
+
 def write_pipe_ifc_elem(pipe: Pipe):
     if pipe.parent is None:
         raise ValueError("Cannot build ifc element without parent")
@@ -67,7 +79,7 @@ def write_pipe_ifc_elem(pipe: Pipe):
     f = a.ifc_store.f
 
     owner_history = a.ifc_store.owner_history
-    parent = pipe.parent.get_ifc_elem()
+    parent = f.by_guid(pipe.parent.guid)
 
     placement = create_local_placement(
         f,
@@ -108,11 +120,12 @@ def write_pipe_straight_seg(pipe_seg: PipeSegStraight):
     if pipe_seg.parent is None:
         raise ValueError("Parent cannot be None for IFC export")
 
-    a = pipe_seg.parent.get_assembly()
-    f = a.ifc_file
+    assembly = pipe_seg.parent.get_assembly()
+    ifc_store = assembly.ifc_store
+    f = ifc_store.f
 
     context = f.by_type("IfcGeometricRepresentationContext")[0]
-    owner_history = a.user.to_ifc()
+    owner_history = ifc_store.owner_history
 
     p1 = pipe_seg.p1
     p2 = pipe_seg.p2
@@ -129,7 +142,11 @@ def write_pipe_straight_seg(pipe_seg: PipeSegStraight):
 
     extrusion_placement = create_ifc_placement(f, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
 
-    solid = f.createIfcExtrudedAreaSolid(pipe_seg.section.ifc_profile, extrusion_placement, ifcdir, seg_l)
+    section_profile = ifc_store.section_profile_map.get(pipe_seg.section.guid)
+    if section_profile is None:
+        raise ValueError("Section profile not found")
+
+    solid = f.createIfcExtrudedAreaSolid(section_profile, extrusion_placement, ifcdir, seg_l)
 
     polyline = create_ifcpolyline(f, [rp1, rp2])
 
@@ -150,7 +167,7 @@ def write_pipe_straight_seg(pipe_seg: PipeSegStraight):
     local_placement = f.createIfcLocalPlacement(d237, d236)
 
     pipe_segment = f.createIfcPipeSegment(
-        create_guid(),
+        pipe_seg.guid,
         owner_history,
         pipe_seg.name,
         "An awesome pipe",
@@ -160,10 +177,9 @@ def write_pipe_straight_seg(pipe_seg: PipeSegStraight):
         None,
     )
 
-    ifc_mat = pipe_seg.material.ifc_mat
-    mat_profile = f.createIfcMaterialProfile(
-        pipe_seg.material.name, None, ifc_mat, pipe_seg.section.ifc_profile, None, None
-    )
+    ifc_mat = ifc_store.materials_map.get(pipe_seg.material.guid)
+    ifc_profile = ifc_store.section_profile_map.get(pipe_seg.section.guid)
+    mat_profile = f.create_entity("IfcMaterialProfile", pipe_seg.material.name, None, ifc_mat, ifc_profile, None, None)
     mat_profile_set = f.createIfcMaterialProfileSet(None, None, [mat_profile], None)
     mat_profile_set = f.createIfcMaterialProfileSetUsage(mat_profile_set, 8, None)
     f.createIfcRelAssociatesMaterial(create_guid(), None, None, None, [pipe_segment], mat_profile_set)
@@ -176,10 +192,10 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
         raise ValueError("Parent cannot be None for IFC export")
 
     a = pipe_elbow.parent.get_assembly()
-    f = a.ifc_file
+    f = a.ifc_store.f
 
     context = f.by_type("IfcGeometricRepresentationContext")[0]
-    owner_history = a.user.to_ifc()
+    owner_history = a.ifc_store.owner_history
 
     tol = Units.get_general_point_tol(a.units)
 
@@ -239,8 +255,10 @@ def elbow_revolved_solid(elbow: PipeSegElbow, f, context, tol=1e-1):
     normal = unit_vector(calc_zvec(xvec1, xvec2))
     p1, p2, p3 = elbow.p1.p, elbow.p2.p, elbow.p3.p
 
+    assembly = elbow.get_assembly()
+
     # Profile
-    profile = elbow.section.ifc_profile
+    profile = assembly.ifc_store.section_profile_map.get(elbow.section.guid)
 
     # Revolve Angle
     revolve_angle = np.rad2deg(angle_between(xvec1, xvec2))

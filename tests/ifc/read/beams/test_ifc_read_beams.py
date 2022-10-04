@@ -6,7 +6,7 @@ def test_read_standard_case_beams(example_files, ifc_test_dir):
 
     # a.to_ifc(ifc_test_dir / "beam-standard-case-re-exported.ifc")
 
-    p = a.get_part("Building")
+    p = a.get_by_name("Building")
     assert len(p.beams) == 18
 
     bm_a1: ada.Beam = p.get_by_name("A-1")

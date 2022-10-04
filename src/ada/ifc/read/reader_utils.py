@@ -24,7 +24,7 @@ def open_ifc(ifc_file_path: Union[str, pathlib.Path, StringIO]):
     return ifcopenshell.open(str(ifc_file_path))
 
 
-def get_ifc_property_sets(ifc_elem):
+def get_ifc_property_sets(ifc_elem) -> dict:
     """Returns a dictionary of {pset_id:[prop_id, prop_id...]} for an IFC object"""
     props = dict()
     for definition in ifc_elem.IsDefinedBy:
@@ -66,32 +66,34 @@ def get_parent(instance):
     return None
 
 
-def get_associated_material(ifc_elem):
-    """
-
-    :param ifc_elem:
-    :return:
-    """
+def get_associated_material(ifc_elem: ifcopenshell.entity_instance):
     c = None
     for association in ifc_elem.HasAssociations:
-        if association.is_a("IfcRelAssociatesMaterial"):
-            material = association.RelatingMaterial
-            if material.is_a("IfcMaterialProfileSet"):
-                # For now, we only deal with a single profile
-                c = material.MaterialProfiles[0]
-            if material.is_a("IfcMaterialProfileSetUsage"):
-                c = material.ForProfileSet.MaterialProfiles[0]
-            if material.is_a("IfcRelAssociatesMaterial"):
-                c = material.RelatingMaterial
-            if material.is_a("IfcMaterial"):
-                c = material
+        if association.is_a("IfcRelAssociatesMaterial") is False:
+            continue
+        material = association.RelatingMaterial
+        if material.is_a("IfcMaterialProfileSet"):
+            # For now, we only deal with a single profile
+            c = material.MaterialProfiles[0]
+        if material.is_a("IfcMaterialProfileSetUsage"):
+            c = material.ForProfileSet.MaterialProfiles[0]
+        if material.is_a("IfcRelAssociatesMaterial"):
+            c = material.RelatingMaterial
+        if material.is_a("IfcMaterial"):
+            c = material
     if c is None:
         raise ValueError(f'IfcElem "{ifc_elem.Name}" lacks associated Material properties')
 
     return c
 
 
-def get_name_from_props(props: dict) -> Union[str, None]:
+def get_beam_type(ifc_elem: ifcopenshell.entity_instance) -> ifcopenshell.entity_instance:
+    for typed_by in ifc_elem.IsTypedBy:
+        if typed_by.RelatingType.is_a("IfcBeamType"):
+            return typed_by.RelatingType
+
+
+def get_name_from_props(props: dict) -> str | None:
     name = None
     for key, val in props.items():
         if type(val) is dict:
@@ -140,6 +142,7 @@ def add_to_assembly(assembly: Assembly, obj, ifc_parent, elements2part):
     from ada import Pipe
 
     pp_name = ifc_parent.Name
+
     if pp_name is None:
         pp_name = resolve_name(get_psets(ifc_parent), ifc_parent)
         if pp_name is None:
@@ -150,12 +153,11 @@ def add_to_assembly(assembly: Assembly, obj, ifc_parent, elements2part):
         add_to_parent(assembly, obj)
         imported = True
     else:
-        all_parts = assembly.get_all_parts_in_assembly()
-        for p in all_parts:
-            if p.name == pp_name or p.metadata.get("original_name") == pp_name:
-                add_to_parent(p, obj)
-                imported = True
-                break
+        res = assembly.get_by_name(pp_name)
+        if res is not None:
+            add_to_parent(res, obj)
+            imported = True
+
         if imported is False:
             for pipe in assembly.get_all_physical_objects(by_type=Pipe):
                 if pipe.name == pp_name or pipe.metadata.get("original_name") == pp_name:

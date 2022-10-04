@@ -52,8 +52,8 @@ def ifc_poly_elem_to_json(
     from ada.visualize.utils import merge_mesh_objects, organize_by_colour
 
     a = obj.get_assembly()
-    ifc_f = a.get_ifc_source_by_name(obj.ifc_store.ifc_file_path)
-    ifc_elem = ifc_f.by_guid(obj.metadata["ifc_guid"])
+    ifc_f = a.ifc_store.f
+    ifc_elem = ifc_f.by_guid(obj.guid)
 
     settings = ifcopenshell.geom.settings()
     settings.set(settings.USE_PYTHON_OPENCASCADE, False)
@@ -69,7 +69,7 @@ def ifc_poly_elem_to_json(
         raise ValueError("No IFC geometries found.")
 
     for i, ifc_geom in enumerate(geom_items):
-        geometry = obj.ifc_store.get_ifc_geom(ifc_geom, settings)
+        geometry = a.ifc_store.get_ifc_geom(ifc_geom, settings)
         guid = obj.guid if i == 0 else create_guid()
         vertices = np.array(geometry.verts, dtype="float32").reshape(int(len(geometry.verts) / 3), 3)
         faces = np.array(geometry.faces, dtype=int)
@@ -148,12 +148,12 @@ def occ_geom_to_poly_mesh(
 
 
 def obj_to_mesh(
-    obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape],
+    obj: Beam | Plate | Wall | PipeSegElbow | PipeSegStraight | Shape,
     export_config: ExportConfig = ExportConfig(),
     opt_func: Callable = None,
-) -> Union[None, List[ObjectMesh]]:
-    if obj.ifc_store is not None and export_config.ifc_skip_occ is True:
+) -> None | list[ObjectMesh]:
 
+    if obj.parent.get_assembly().ifc_store is not None and export_config.ifc_skip_occ is True:
         try:
             obj_meshes = ifc_poly_elem_to_json(obj, export_config, opt_func)
         except RuntimeError as e:

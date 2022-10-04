@@ -14,9 +14,10 @@ def generate_ifc_opening(penetration: "Penetration"):
         raise ValueError("This penetration has no parent")
 
     a = penetration.parent.parent.get_assembly()
+    parent_part = penetration.parent.parent
     f = a.ifc_store.f
 
-    geom_parent = penetration.parent.parent.get_ifc_elem()
+    geom_parent = f.by_guid(parent_part.guid)
     owner_history = a.ifc_store.owner_history
 
     # Create and associate an opening for the window in the wall
