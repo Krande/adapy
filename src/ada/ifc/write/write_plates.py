@@ -9,19 +9,20 @@ from ada.ifc.utils import (
     create_ifcindexpolyline,
     create_ifcpolyline,
     create_local_placement,
-    write_elem_property_sets,
 )
+from ada.ifc.write.write_openings import generate_ifc_opening
 
 
 def write_ifc_plate(plate: Plate):
     if plate.parent is None:
         raise ValueError("Ifc element cannot be built without any parent element")
 
-    a = plate.parent.get_assembly()
-    f = a.ifc_store.f
+    a = plate.get_assembly()
+    ifc_store = a.ifc_store
+    f = ifc_store.f
 
     context = f.by_type("IfcGeometricRepresentationContext")[0]
-    owner_history = a.ifc_store.owner_history
+    owner_history = ifc_store.owner_history
     parent = f.by_guid(plate.parent.guid)
 
     xvec = plate.poly.xdir
@@ -73,27 +74,17 @@ def write_ifc_plate(plate: Plate):
     # Add penetrations
     # elements = []
     for pen in plate.penetrations:
-        # elements.append(pen.ifc_opening)
+        ifc_opening = generate_ifc_opening(pen)
         f.createIfcRelVoidsElement(
             create_guid(),
             owner_history,
             None,
             None,
             ifc_plate,
-            pen.ifc_opening,
+            ifc_opening,
         )
 
     # Material
-    f.create_entity(
-        "IfcRelAssociatesMaterial",
-        create_guid(),
-        owner_history,
-        plate.material.name,
-        plate.name,
-        [ifc_plate],
-        plate.material.ifc_mat,
-    )
-
-    write_elem_property_sets(plate.metadata.get("props", dict()), ifc_plate, f, owner_history)
+    ifc_store.associate_elem_with_material(plate.material, ifc_plate)
 
     return ifc_plate

@@ -27,7 +27,6 @@ from ada.ifc.utils import (
     create_local_placement,
     tesselate_shape,
     to_real,
-    write_elem_property_sets,
 )
 
 from .write_curves import write_curve_poly
@@ -81,7 +80,7 @@ def write_ifc_shape(shape: Shape):
         None,
     )
 
-    for pen in shape._penetrations:
+    for pen in shape.penetrations:
         # elements.append(pen.ifc_opening)
         f.createIfcRelVoidsElement(
             create_guid(),
@@ -91,8 +90,6 @@ def write_ifc_shape(shape: Shape):
             ifc_elem,
             pen.ifc_opening,
         )
-
-    write_elem_property_sets(shape.metadata.get("props", dict()), ifc_elem, f, owner_history)
 
     return ifc_elem
 

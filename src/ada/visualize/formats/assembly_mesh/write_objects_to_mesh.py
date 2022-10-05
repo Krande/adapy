@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Callable, Iterable, List, Union
+from typing import TYPE_CHECKING, Callable, Iterable, Union
 
 import numpy as np
 
@@ -22,11 +22,11 @@ if TYPE_CHECKING:
 def filter_mesh_objects(
     list_of_all_objects: Iterable[Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape]],
     export_config: ExportConfig,
-) -> Union[None, List[Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape]]]:
+) -> None | list[Beam | Plate | Wall | PipeSegElbow | PipeSegStraight | Shape]:
     from ada import Pipe
 
     guid_filter = export_config.data_filter.filter_elements_by_guid
-    obj_list: List[Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape]] = []
+    obj_list: list[Beam | Plate | Wall | PipeSegElbow | PipeSegStraight | Shape] = []
 
     for obj in list_of_all_objects:
         if guid_filter is not None and obj.guid not in guid_filter:
@@ -45,14 +45,15 @@ def filter_mesh_objects(
 
 def ifc_poly_elem_to_json(
     obj: Shape, export_config: ExportConfig = ExportConfig(), opt_func: Callable = None
-) -> List[ObjectMesh]:
+) -> list[ObjectMesh]:
     import ifcopenshell.geom
 
     from ada.ifc.utils import create_guid, get_representation_items
     from ada.visualize.utils import merge_mesh_objects, organize_by_colour
 
     a = obj.get_assembly()
-    ifc_f = a.ifc_store.f
+    ifc_store = a.ifc_store
+    ifc_f = ifc_store.f
     ifc_elem = ifc_f.by_guid(obj.guid)
 
     settings = ifcopenshell.geom.settings()
@@ -69,7 +70,7 @@ def ifc_poly_elem_to_json(
         raise ValueError("No IFC geometries found.")
 
     for i, ifc_geom in enumerate(geom_items):
-        geometry = a.ifc_store.get_ifc_geom(ifc_geom, settings)
+        geometry = ifc_store.get_ifc_geom(ifc_geom, settings)
         guid = obj.guid if i == 0 else create_guid()
         vertices = np.array(geometry.verts, dtype="float32").reshape(int(len(geometry.verts) / 3), 3)
         faces = np.array(geometry.faces, dtype=int)
@@ -96,7 +97,7 @@ def ifc_poly_elem_to_json(
         obj_mesh = ObjectMesh(guid, faces, vertices, normals, colour, translation=export_config.volume_center)
         meshes.append(obj_mesh)
 
-    if export_config.merge_subgeometries_by_colour is False:
+    if export_config.merge_subgeometries_by_colour is False or len(meshes) == 1:
         return meshes
 
     # merge subgeometries by colour
@@ -119,8 +120,6 @@ def ifc_poly_elem_to_json(
 
     if main_obj is False:
         merged_meshes[0].guid = obj.guid
-
-    # TODO: Optimize Geometry
 
     return merged_meshes
 

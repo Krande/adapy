@@ -224,7 +224,8 @@ class PipeClash:
         bm_p3 = pp + dist * xdir + dist * ydir
         bm_p4 = pp - dist * xdir + dist * ydir
 
-        part.add_beam(Beam(next(reinforce_name), bm_p1, bm_p2, "HP140x8"))
+        bm1 = Beam(next(reinforce_name), bm_p1, bm_p2, "HP140x8")
+        part.add_beam(bm1)
         part.add_beam(Beam(next(reinforce_name), bm_p2, bm_p3, "HP140x8"))
         part.add_beam(Beam(next(reinforce_name), bm_p3, bm_p4, "HP140x8"))
         part.add_beam(Beam(next(reinforce_name), bm_p4, bm_p1, "HP140x8"))

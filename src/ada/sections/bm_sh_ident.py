@@ -78,8 +78,7 @@ def eval_thick_normal_from_cog_of_beam_plate(section: Section, cog, normal, plac
         bt.FLATBAR: get_thick_normal_from_flatbar_beams,
     }
 
-    base_shape = SectionCat.get_shape_type(section)
-    thick_identifier = eval_map.get(base_shape, None)
+    thick_identifier = eval_map.get(section.type, None)
     if thick_identifier is None:
         raise NotImplementedError("Not yet supported ")
 

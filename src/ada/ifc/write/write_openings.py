@@ -13,7 +13,7 @@ def generate_ifc_opening(penetration: "Penetration"):
     if penetration.parent is None:
         raise ValueError("This penetration has no parent")
 
-    a = penetration.parent.parent.get_assembly()
+    a = penetration.get_assembly()
     parent_part = penetration.parent.parent
     f = a.ifc_store.f
 
@@ -36,6 +36,6 @@ def generate_ifc_opening(penetration: "Penetration"):
         None,
     )
 
-    write_elem_property_sets(penetration.metadata.get("props", dict()), opening_element, f, owner_history)
+    write_elem_property_sets(penetration.metadata, opening_element, f, owner_history)
 
     return opening_element

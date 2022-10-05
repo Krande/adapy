@@ -33,7 +33,7 @@ class Settings:
     convert_bad_names_for_fem = True
     use_occ_bounding_box_algo = False
 
-    use_param_profiles = True
+    force_param_profiles = True
     silence_display = False
     use_experimental_cache = False
 

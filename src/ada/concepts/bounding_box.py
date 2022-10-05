@@ -50,11 +50,10 @@ class BoundingBox:
 
         from ada import Beam, Section
         from ada.core.utils import roundoff
-
-        from ..sections import SectionCat
+        from ada.sections.categories import BaseTypes
 
         bm = self.parent
-        if SectionCat.is_circular_profile(bm.section.type) or SectionCat.is_tubular_profile(bm.section.type):
+        if bm.section.type == BaseTypes.CIRCULAR or bm.section.type == BaseTypes.TUBULAR:
             d = bm.section.r * 2
             dummy_beam = Beam("dummy", bm.n1.p, bm.n2.p, Section("DummySec", "BG", h=d, w_btn=d, w_top=d))
             outer_curve = dummy_beam.get_outer_points()

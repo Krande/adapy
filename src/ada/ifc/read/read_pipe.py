@@ -11,6 +11,7 @@ from .reader_utils import (
     get_associated_material,
     get_axis_polyline_points_from_product,
     get_ifc_property_sets,
+    get_swept_area,
 )
 
 if TYPE_CHECKING:
@@ -32,7 +33,8 @@ def import_pipe_segment(segment, name, ifc_store: IfcStore) -> PipeSegStraight |
 def read_pipe_straight_segment(segment, name, ifc_store: IfcStore) -> PipeSegStraight:
     p1, p2 = get_axis_polyline_points_from_product(segment)
     mat_ref = get_associated_material(segment)
-    section = import_section_from_ifc(mat_ref.Profile)
+    swept_area = get_swept_area(segment)
+    section = import_section_from_ifc(swept_area)
     mat = read_material(mat_ref, ifc_store)
 
     pipe_segment = PipeSegStraight(name, Node(p1), Node(p2), section, mat, guid=segment.GlobalId)
@@ -54,7 +56,8 @@ def read_pipe_elbow(segment, name, ifc_store: IfcStore) -> PipeSegElbow:
 
     bend_radius = float(bend_radius)
     mat_ref = get_associated_material(segment)
-    section = import_section_from_ifc(mat_ref.Profile)
+    swept_area = get_swept_area(segment)
+    section = import_section_from_ifc(swept_area)
     mat = read_material(mat_ref, ifc_store)
 
     arc = ArcSegment(arc_p1, arc_p2, arc_midpoint, bend_radius)

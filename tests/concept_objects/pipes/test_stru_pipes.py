@@ -17,7 +17,7 @@ def test_pipe_straight(dummy_display):
     pipe1 = Pipe("Pipe1", [(0, y0, 0), (0, y0, z)], Section("PSec", "PIPE", r=0.10, wt=5e-3))
     p.add_pipe(pipe1)
 
-    _ = a.to_ifc(test_dir / "pipe_straight.ifc", return_file_obj=True)
+    _ = a.to_ifc(test_dir / "pipe_straight.ifc", file_obj_only=True)
     dummy_display(a)
 
 
@@ -27,6 +27,7 @@ def test_write_single_90_deg_elbow_revolved_solid(pipe_w_single_90_deg_bend):
     assert elbow.arc_seg.radius == pytest.approx(0.195958125)
 
     f = a.ifc_store.f
+    a.ifc_store.sync()
 
     elbow_revolved_solid(elbow, f, f.by_type("IfcGeometricRepresentationContext")[0])
 
@@ -40,12 +41,14 @@ def test_pipe_multiple_bends(pipe_w_multiple_bends):
 
     a = Assembly("MyTest") / (Part("MyPart") / pipe_w_multiple_bends)
     # a.to_stp(test_dir / "pipe_bend_multiple.stp")
-    _ = a.to_ifc(test_dir / "pipe_bend_multiple.ifc", return_file_obj=True)
+    _ = a.to_ifc(test_dir / "pipe_bend_multiple.ifc", file_obj_only=True)
     # dummy_display(a)
 
 
 def test_write_elbow_revolved_solid_ifc_gen(pipe_w_multiple_bends):
     a = Assembly("MyTest") / (Part("MyPart") / pipe_w_multiple_bends)
+    a.ifc_store.sync()
+
     f = a.ifc_store.f
 
     elbows = list(filter(lambda x: isinstance(x, PipeSegElbow), pipe_w_multiple_bends.segments))

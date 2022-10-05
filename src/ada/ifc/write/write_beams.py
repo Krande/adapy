@@ -17,9 +17,9 @@ from ada.ifc.utils import (
     ifc_dir,
     ifc_p,
     to_real,
-    write_elem_property_sets,
 )
 from ada.ifc.write.write_curves import write_curve_poly
+from ada.ifc.write.write_openings import generate_ifc_opening
 
 if TYPE_CHECKING:
     from ifcopenshell import file as ifile
@@ -44,10 +44,7 @@ class IfcBeamWriter:
         f = self.ifc_store.f
 
         owner_history = self.ifc_store.owner_history
-
-        profile = self.ifc_store.section_profile_map.get(beam.section.guid)
-        if profile is None:
-            raise ValueError()
+        profile = self.ifc_store.get_profile_def(beam.section)
 
         if isinstance(beam.curve, CurveRevolve):
             axis, body, loc_plac = create_revolved_beam(beam, f, profile)
@@ -66,20 +63,19 @@ class IfcBeamWriter:
 
         ifc_beam = f.create_entity(
             "IfcBeam",
-            beam.guid,
-            owner_history,
-            beam.name,
-            beam.section.sec_str,
-            "Beam",
-            loc_plac,
-            prod_def_shp,
-            beam.name,
-            None,
+            GlobalId=beam.guid,
+            OwnerHistory=owner_history,
+            Name=beam.name,
+            Description=beam.section.sec_str,
+            ObjectType="Beam",
+            ObjectPlacement=loc_plac,
+            Representation=prod_def_shp,
         )
 
         # Add penetrations
         if len(beam.penetrations) > 0:
             for pen in beam.penetrations:
+                ifc_opening = generate_ifc_opening(pen)
                 f.create_entity(
                     "IfcRelVoidsElement",
                     create_guid(),
@@ -87,7 +83,7 @@ class IfcBeamWriter:
                     None,
                     None,
                     ifc_beam,
-                    pen.ifc_opening,
+                    ifc_opening,
                 )
         found_existing_relationship = False
 
@@ -102,22 +98,15 @@ class IfcBeamWriter:
         if found_existing_relationship is False:
             f.create_entity(
                 "IfcRelDefinesByType",
-                create_guid(),
-                None,
-                beam.section.type,
-                None,
-                [ifc_beam],
-                beam_type,
+                GlobalId=create_guid(),
+                OwnerHistory=owner_history,
+                Name=beam.section.type.value,
+                Description=None,
+                RelatedObjects=[ifc_beam],
+                RelatingType=beam_type,
             )
 
-        write_elem_property_sets(beam.metadata.get("props", dict()), ifc_beam, f, owner_history)
-
-        # Material
-        mat_profile_set = add_material_assignment(f, beam, ifc_beam, owner_history, beam_type)
-
-        # Cardinality
-        mat_usage = f.create_entity("IfcMaterialProfileSetUsage", mat_profile_set, convert_bm_jusl_to_ifc(beam))
-        f.create_entity("IfcRelAssociatesMaterial", create_guid(), owner_history, None, None, [ifc_beam], mat_usage)
+        add_material_assignment(f, beam, ifc_beam, owner_history)
 
         return ifc_beam
 
@@ -226,22 +215,20 @@ def sweep_beam(beam, f, profile, global_placement, extrude_dir):
     return extrude_area_solid, loc_plac, ifc_polyline
 
 
-def add_material_assignment(f, beam: Beam, ifc_beam, owner_history, beam_type):
+def add_material_assignment(f, beam: Beam, ifc_beam, owner_history):
     sec = beam.section
+    ifc_store = beam.get_assembly().ifc_store
 
-    ifc_mat = f.by_guid(beam.material.guid)
-    ifc_profile = beam.parent.get_assembly().ifc_store.section_profile_map.get(beam.section.guid)
+    ifc_mat_rel = ifc_store.f.by_guid(beam.material.guid)
+    ifc_mat = ifc_mat_rel.RelatingMaterial
+
+    ifc_profile = ifc_store.get_profile_def(beam.section)
     mat_profile = f.createIfcMaterialProfile(sec.name, "A material profile", ifc_mat, ifc_profile, None, "LoadBearing")
     mat_profile_set = f.createIfcMaterialProfileSet(sec.name, None, [mat_profile], None)
 
-    f.createIfcRelAssociatesMaterial(create_guid(), owner_history, None, None, [beam_type], mat_profile_set)
+    mat_usage = f.create_entity("IfcMaterialProfileSetUsage", mat_profile_set, convert_bm_jusl_to_ifc(beam))
+    f.create_entity("IfcRelAssociatesMaterial", create_guid(), owner_history, None, None, [ifc_beam], mat_usage)
 
-    f.createIfcRelAssociatesMaterial(
-        create_guid(),
-        owner_history,
-        beam.material.name,
-        f"Associated Material to beam {beam.name}",
-        [ifc_beam],
-        mat_profile_set,
-    )
+    ifc_store.associate_elem_with_material(beam.material, ifc_beam)
+
     return mat_profile_set

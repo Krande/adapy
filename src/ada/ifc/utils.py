@@ -776,6 +776,8 @@ def get_representation_items(f: ifcopenshell.file, ifc_elem: ifcopenshell.entity
     geom_items = [
         "IfcTriangulatedFaceSet",
         "IfcExtrudedAreaSolid",
+        "IfcExtrudedAreaSolid",
+        "IfcExtrudedAreaSolidTapered",
         "IfcRevolvedAreaSolid",
         "IfcClosedShell",
     ]

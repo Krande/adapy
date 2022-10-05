@@ -81,8 +81,9 @@ def get_associated_material(ifc_elem: ifcopenshell.entity_instance):
             c = material.RelatingMaterial
         if material.is_a("IfcMaterial"):
             c = material
+
     if c is None:
-        raise ValueError(f'IfcElem "{ifc_elem.Name}" lacks associated Material properties')
+        raise ValueError(f"{ifc_elem=} lacks associated Material properties")
 
     return c
 
@@ -231,3 +232,8 @@ def get_ifc_body(product) -> ifcopenshell.entity_instance:
         raise ValueError("Currently do not support multi body IFC products")
 
     return bodies[0]
+
+
+def get_swept_area(product: ifcopenshell.entity_instance) -> ifcopenshell.entity_instance:
+    body = get_ifc_body(product)
+    return body.SweptArea

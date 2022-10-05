@@ -57,7 +57,7 @@ class SpatialWriter:
             [site],
         )
 
-        write_elem_property_sets(assembly.metadata.get("props", dict()), site, f, owner_history)
+        write_elem_property_sets(assembly.metadata, site, f, owner_history)
 
         return site
 
@@ -115,6 +115,6 @@ class SpatialWriter:
                 RelatedObjects=[ifc_elem],
             )
 
-        write_elem_property_sets(part.metadata.get("props", dict()), ifc_elem, f, owner_history)
+        write_elem_property_sets(part.metadata, ifc_elem, f, owner_history)
 
         return ifc_elem

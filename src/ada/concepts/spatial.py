@@ -48,7 +48,6 @@ from ada.fem import (
 )
 from ada.fem.concept import FEM
 from ada.fem.elements import ElemType
-from ada.ifc.utils import create_guid
 
 if TYPE_CHECKING:
     import ifcopenshell
@@ -168,6 +167,8 @@ class Part(BackendGeom):
         mat = self.add_material(pipe.material)
         if mat is not None:
             pipe.material = mat
+            for seg in pipe.segments:
+                seg.material = mat
 
         for seg in pipe.segments:
             sec = self.add_section(seg.section)
@@ -175,7 +176,7 @@ class Part(BackendGeom):
                 seg.section = sec
 
         pipe.change_type = pipe.change_type.ADDED
-        self._pipes.append(pipe)
+        self.pipes.append(pipe)
         return pipe
 
     def add_wall(self, wall: Wall) -> Wall:
@@ -303,41 +304,33 @@ class Part(BackendGeom):
         return self.groups[name]
 
     def add_elements_from_ifc(self, ifc_file_path: os.PathLike, data_only=False):
+        from ada import Beam, Pipe, Plate, Shape, Wall
+
         a = Assembly("temp")
         a.read_ifc(ifc_file_path, data_only=data_only)
-        all_shapes = [shp for p in a.get_all_subparts() for shp in p.shapes] + a.shapes
-        for shp in all_shapes:
-            self.add_shape(shp)
+        for sec in a.get_all_sections():
+            res = self.add_section(sec)
+            if res == sec:
+                sec.change_type = ChangeAction.ADDED
 
-        all_beams = [bm for p in a.get_all_subparts() for bm in p.beams] + [bm for bm in a.beams]
-        for bm in all_beams:
-            ids = self.beams.dmap.keys()
-            names = [b.name for b in self.beams.dmap.values()]
-            if bm.guid in ids:
-                raise NotImplementedError("Have not considered merging ifc elements with identical IDs yet.")
-            if bm.name in names:
-                start = max(ids) + 1
-                bm_name = f"bm{start}"
-                if bm_name not in names:
-                    bm.name = bm_name
-                else:
-                    while bm_name in names:
-                        bm_name = f"bm{start}"
-                        bm.name = bm_name
-                        start += 1
-            self.add_beam(bm)
+        for mat in a.get_all_materials():
+            res = self.add_material(mat)
+            if res == mat:
+                mat.change_type = ChangeAction.ADDED
 
-        all_plates = [pl for p in a.get_all_subparts() for pl in p.plates] + [pl for pl in a.plates]
-        for pl in all_plates:
-            self.add_plate(pl)
-
-        all_pipes = [pipe for p in a.get_all_subparts() for pipe in p.pipes] + a.pipes
-        for pipe in all_pipes:
-            self.add_pipe(pipe)
-
-        all_walls = [wall for p in a.get_all_subparts() for wall in p.walls] + a.walls
-        for wall in all_walls:
-            self.add_wall(wall)
+        for obj in a.get_all_physical_objects():
+            if issubclass(type(obj), Shape):
+                self.add_shape(obj)
+            elif isinstance(obj, Beam):
+                self.add_beam(obj)
+            elif isinstance(obj, Plate):
+                self.add_plate(obj)
+            elif isinstance(obj, Wall):
+                self.add_wall(obj)
+            elif isinstance(obj, Pipe):
+                self.add_pipe(obj)
+            else:
+                raise ValueError(f"Unrecognized {type(obj)=}")
 
     def read_step_file(
         self,
@@ -550,84 +543,18 @@ class Part(BackendGeom):
     def to_vis_mesh(
         self,
         export_config: ExportConfig = None,
-        auto_merge_by_color=True,
+        merge_by_color=True,
         opt_func: Callable = None,
         overwrite_cache=False,
-        use_disk_io=False,
+        auto_sync_ifc_store=True,
+        use_experimental=True,
     ) -> VisMesh:
-        from ada.visualize.concept import PartMesh, VisMesh
-        from ada.visualize.config import ExportConfig
-        from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import (
-            filter_mesh_objects,
-            obj_to_mesh,
-        )
-        from ada.visualize.formats.assembly_mesh.write_part_to_mesh import generate_meta
-        from ada.visualize.utils import from_cache
+        from ada.visualize.interface import part_to_vis_mesh, part_to_vis_mesh2
 
-        if export_config is None:
-            export_config = ExportConfig()
-
-        all_obj_num = len(list(self.get_all_physical_objects(sub_elements_only=False)))
-        print(f"Exporting {all_obj_num} physical objects to custom json format.")
-
-        obj_num = 1
-        subgeometries = dict()
-        part_array = []
-        for p in self.get_all_subparts(include_self=True):
-            if export_config.max_convert_objects is not None and obj_num > export_config.max_convert_objects:
-                break
-            obj_list = filter_mesh_objects(p.get_all_physical_objects(sub_elements_only=True), export_config)
-            if obj_list is None:
-                continue
-            id_map = dict()
-            for obj in obj_list:
-                print(f'Exporting "{obj.name}" [{obj.get_assembly().name}] ({obj_num} of {all_obj_num})')
-                cache_file = pathlib.Path(f".cache/{self.name}.h5")
-                if export_config.use_cache is True and cache_file.exists():
-                    res = from_cache(cache_file, obj.guid)
-                    if res is None:
-                        res = obj_to_mesh(obj, export_config, opt_func=opt_func)
-                else:
-                    res = obj_to_mesh(obj, export_config, opt_func=opt_func)
-                if res is None:
-                    continue
-                if type(res) is list:
-                    for i, obj_mesh in enumerate(res):
-                        if i > 0:
-                            name = f"{obj.name}_{i}"
-                            guid = create_guid(export_config.name_prefix + name)
-                            obj_mesh.guid = guid
-                            subgeometries[obj_mesh.guid] = (name, obj.parent.guid)
-                        id_map[obj_mesh.guid] = obj_mesh
-                else:
-                    id_map[obj.guid] = res
-                obj_num += 1
-                if export_config.max_convert_objects is not None and obj_num >= export_config.max_convert_objects:
-                    print(f'Maximum number of converted objects of "{export_config.max_convert_objects}" reached')
-                    break
-
-            if id_map is None:
-                print(f'Part "{p.name}" has no physical members. Skipping.')
-                continue
-
-            for inst in p.instances.values():
-                id_map[inst.instance_ref.guid].instances = inst.to_list_of_custom_json_matrices()
-
-            part_array.append(PartMesh(name=p.name, id_map=id_map))
-
-        amesh = VisMesh(
-            name=self.name,
-            project=self.metadata.get("project", "DummyProject"),
-            world=part_array,
-            meta=generate_meta(self, export_config, sub_geometries=subgeometries),
-        )
-        if export_config.use_cache:
-            amesh.to_cache(overwrite_cache)
-
-        if auto_merge_by_color:
-            return amesh.merge_objects_in_parts_by_color()
-
-        return amesh
+        if use_experimental:
+            return part_to_vis_mesh2(self, auto_sync_ifc_store)
+        else:
+            return part_to_vis_mesh(self, auto_sync_ifc_store, export_config, opt_func, merge_by_color, overwrite_cache)
 
     @property
     def parts(self) -> dict[str, Part]:
@@ -971,7 +898,7 @@ class Assembly(Part):
             'ecc_to_mpc': Runs the method :func:`~ada.fem.FEM.convert_ecc_to_mpc` . Default is True
             'hinges_to_coupling': Runs the method :func:`~ada.fem.FEM.convert_hinges_2_couplings` . Default is True
 
-            Important Note! The the ecc_to_mpc and hinges_to_coupling will make permanent modifications to the model.
+            Important Note! The ecc_to_mpc and hinges_to_coupling will make permanent modifications to the model.
             If this proves to create issues regarding performance this should be evaluated further.
 
         """
@@ -1041,9 +968,9 @@ class Assembly(Part):
             import_mesh=import_result_mesh,
         )
 
-    def to_ifc(self, destination_file=None, include_fem=False, return_file_obj=False) -> ifcopenshell.file:
+    def to_ifc(self, destination_file=None, include_fem=False, file_obj_only=False) -> ifcopenshell.file:
 
-        if destination_file is None or return_file_obj is True:
+        if destination_file is None or file_obj_only is True:
             destination_file = "object"
         else:
             destination_file = pathlib.Path(destination_file).resolve().absolute()
@@ -1052,7 +979,7 @@ class Assembly(Part):
 
         self.ifc_store.sync(include_fem=include_fem)
 
-        if return_file_obj is False:
+        if file_obj_only is False:
             self.ifc_store.save_to_file(destination_file)
 
         print("IFC file creation complete")

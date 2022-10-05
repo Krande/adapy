@@ -56,5 +56,8 @@ class MaterialImporter:
             mat_model = Metal(sig_u=None, **mat_props)
 
         return Material(
-            name=ifc_mat.Name, mat_model=mat_model, ifc_store=self.ifc_store, units=self.ifc_store.assembly.units
+            name=ifc_mat.Name,
+            mat_model=mat_model,
+            ifc_store=self.ifc_store,
+            units=self.ifc_store.assembly.units,
         )

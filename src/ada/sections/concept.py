@@ -21,7 +21,7 @@ class Section(Root):
     def __init__(
         self,
         name,
-        sec_type=None,
+        sec_type: BaseTypes | str = None,
         h=None,
         w_top=None,
         w_btn=None,
@@ -43,6 +43,9 @@ class Section(Root):
         refs=None,
     ):
         super(Section, self).__init__(name=name, guid=guid, metadata=metadata, units=units, parent=parent)
+        if isinstance(sec_type, str):
+            sec_type = BaseTypes.from_str(sec_type)
+
         self._type = sec_type
         self._h = h
         self._w_top = w_top
@@ -71,8 +74,6 @@ class Section(Root):
                 raise ValueError(f'Unknown units "{units}"')
             sec, tap = interpret_section_str(from_str, scalef, units=units)
             self.__dict__.update(sec.__dict__)
-        elif outer_poly:
-            self._type = "poly"
 
         self._genprops = None
         self._refs = refs if refs is not None else []
@@ -96,7 +97,7 @@ class Section(Root):
         return tuple([getattr(self, p) for p in props])
 
     @property
-    def type(self):
+    def type(self) -> BaseTypes:
         return self._type
 
     @property
@@ -171,26 +172,32 @@ class Section(Root):
         def s(x):
             return x / 0.001
 
-        if self.type in SectionCat.box + SectionCat.igirders + SectionCat.tprofiles + SectionCat.shs + SectionCat.rhs:
-            sec_str = "{}{:g}x{:g}x{:g}x{:g}".format(self.type, s(self.h), s(self.w_top), s(self.t_w), s(self.t_ftop))
-        elif self.type in SectionCat.tubular:
-            sec_str = "{}{:g}x{:g}".format(self.type, s(self.r), s(self.wt))
-        elif self.type in SectionCat.circular:
+        if self.type == BaseTypes.BOX:
+            sec_str = "{}{:g}x{:g}x{:g}x{:g}".format(
+                self.type.value, s(self.h), s(self.w_top), s(self.t_w), s(self.t_ftop)
+            )
+        elif self.type == BaseTypes.TUBULAR:
+            sec_str = "{}{:g}x{:g}".format(self.type.value, s(self.r), s(self.wt))
+        elif self.type == BaseTypes.CIRCULAR:
             sec_str = "{}{:g}".format(self.type, s(self.r))
-        elif self.type in SectionCat.angular:
-            sec_str = "{}{:g}x{:g}".format(self.type, s(self.h), s(self.t_w))
-        elif self.type in SectionCat.iprofiles:
+        elif self.type == BaseTypes.ANGULAR:
+            sec_str = "{}{:g}x{:g}".format(self.type.value, s(self.h), s(self.t_w))
+        elif self.type == BaseTypes.IPROFILE:
             sec_str = self._sec_str
-        elif self.type in SectionCat.channels:
-            sec_str = "{}{:g}".format(self.type, s(self.h))
-        elif self.type in SectionCat.general:
-            sec_str = "{}{}".format(self.type, self.id)
-        elif self.type in SectionCat.flatbar:
+        elif self.type == BaseTypes.TPROFILE:
+            sec_str = "{}{:g}x{:g}x{:g}".format(self.type.value, s(self.h), s(self.w_top), s(self.t_w))
+        elif self.type == BaseTypes.CHANNEL:
+            sec_str = "{}{:g}".format(self.type.value, s(self.h))
+        elif self.type == BaseTypes.GENERAL:
+            sec_str = "{}{}".format(self.type.value, self.id)
+        elif self.type == BaseTypes.FLATBAR:
             sec_str = f"{self.type}{s(self.h)}x{s(self.w_top)}"
-        elif self.type == "poly":
+        elif self.type == BaseTypes.POLY:
             sec_str = "PolyCurve"
+
         else:
             raise ValueError(f'Section type "{self.type}" has not been given a section str')
+
         return sec_str.replace(".", "_") if sec_str is not None else None
 
     @property
@@ -323,23 +330,20 @@ class SectionProfile:
 def build_section_profile(sec: Section, is_solid) -> SectionProfile:
     import ada.sections.profiles as profile_builder
 
-    section_shape_type = SectionCat.get_shape_type(sec)
-
-    if section_shape_type in SectionCat.tubular + SectionCat.circular + SectionCat.general:
+    if sec.type in [BaseTypes.TUBULAR, BaseTypes.CIRCULAR, BaseTypes.GENERAL]:
         logging.info("Tubular profiles do not need curve representations")
         return SectionProfile(sec, is_solid)
 
-    sec_type = SectionCat.BASETYPES
     build_map = {
-        sec_type.ANGULAR: profile_builder.angular,
-        sec_type.IPROFILE: profile_builder.iprofiles,
-        sec_type.TPROFILE: profile_builder.tprofiles,
-        sec_type.BOX: profile_builder.box,
-        sec_type.FLATBAR: profile_builder.flatbar,
-        sec_type.CHANNEL: profile_builder.channel,
+        BaseTypes.ANGULAR: profile_builder.angular,
+        BaseTypes.IPROFILE: profile_builder.iprofiles,
+        BaseTypes.TPROFILE: profile_builder.tprofiles,
+        BaseTypes.BOX: profile_builder.box,
+        BaseTypes.FLATBAR: profile_builder.flatbar,
+        BaseTypes.CHANNEL: profile_builder.channel,
     }
 
-    section_builder = build_map.get(section_shape_type, None)
+    section_builder = build_map.get(sec.type, None)
 
     if section_builder is None and sec.poly_outer is None:
         raise ValueError("Currently geometry build is unsupported for profile type {ptype}".format(ptype=sec.type))

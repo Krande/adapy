@@ -693,6 +693,7 @@ class Sections(NumericMapped):
         return self._name_map
 
     def add(self, section: Section) -> Section:
+        from ada import Assembly
 
         if section.name is None:
             raise Exception("Name is not allowed to be None.")
@@ -700,6 +701,16 @@ class Sections(NumericMapped):
         # Note: Evaluate if parent should be "Sections" not Part object?
         if section.parent is None:
             section.parent = self._parent
+        else:
+            a = section.parent.get_assembly()
+            if isinstance(a, Assembly):
+                global_name_map = {sec.name: sec for sec in a.get_all_sections()}
+                existing_sec = global_name_map.get(section.name)
+                if existing_sec is not None:
+                    logging.info(
+                        f'Section with same name "{section.name}" already exists. Will use that section instead'
+                    )
+                    return existing_sec
 
         if section in self._sections:
             index = self._sections.index(section)

@@ -91,4 +91,4 @@ def test_cone_beam():
 
     bm = Beam("MyCone", (2, 2, 2), (4, 4, 4), sec=section_s, tap=section_e)
     a = Assembly("Level1", project="Project0", units="mm") / (Part("Level2") / bm)
-    _ = a.to_ifc(test_dir / "cone_ex.ifc", return_file_obj=True)
+    _ = a.to_ifc(test_dir / "cone_ex.ifc", file_obj_only=True)

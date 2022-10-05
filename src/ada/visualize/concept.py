@@ -24,12 +24,12 @@ class VisMesh:
 
     name: str
     project: str = None
-    world: List[PartMesh] = field(default_factory=list)
-    meshes: Dict[str, VisNode] = field(default_factory=dict)
-    meta: Union[None, dict] = None
+    world: List[PartMesh] = field(default_factory=list, repr=False)
+    meshes: Dict[str, VisNode] = field(default_factory=dict, repr=False)
+    meta: Union[None, dict] = field(default=None, repr=False)
     created: str = None
     translation: np.ndarray = None
-    cache_file: pathlib.Path = pathlib.Path(".cache/meshes.h5")
+    cache_file: pathlib.Path = field(default=pathlib.Path(".cache/meshes.h5"), repr=False)
     overwrite_cache: bool = False
     colors: Dict[str, VisColor] = field(default_factory=dict)
 
@@ -153,19 +153,27 @@ class VisMesh:
                     faces = obj.index.reshape(int(len(obj.index) / 3), 3)
                 else:
                     faces = obj.index
+
                 vertices = obj.position
                 vertex_normals = obj.normal
                 new_mesh = trimesh.Trimesh(
-                    vertices=vertices,
-                    faces=faces,
-                    vertex_normals=vertex_normals,
-                    # face_colors=obj.color,
-                    metadata=dict(guid=obj.guid),
+                    vertices=vertices, faces=faces, vertex_normals=vertex_normals, metadata=dict(guid=obj.guid)
                 )
                 if obj.color is not None:
-                    base_color = [int(x * 255) for x in obj.color]
-                    new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color)
+                    needs_to_be_scaled = True
+                    for x in obj.color:
+                        if x > 1.0:
+                            needs_to_be_scaled = False
+
+                    if needs_to_be_scaled:
+                        base_color = [int(x * 255) for x in obj.color[:3]] + [obj.color[3]]
+                    else:
+                        base_color = obj.color
+
+                    new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color[:3])
+
                 scene.add_geometry(new_mesh, node_name=key, geom_name=key)
+
         return scene
 
     def _export_using_trimesh(self, mesh: trimesh.Scene, dest_file: pathlib.Path):
@@ -210,11 +218,19 @@ class VisMesh:
         return listofobj
 
     def to_gltf(self, dest_file, only_these_guids: List[str] = None):
+        from ada.core.vector_utils import rot_matrix
+
         dest_file = pathlib.Path(dest_file).with_suffix(".glb")
         if hasattr(self, "_h5cache"):
             mesh: trimesh.Trimesh = self._convert_to_trimesh2(only_these_guids)
         else:
             mesh: trimesh.Trimesh = self._convert_to_trimesh()
+
+        # Trimesh automatically transforms by setting up = Y. This will counteract that transform
+        m3x3 = rot_matrix((0, -1, 0))
+        m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
+        m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
+        mesh.apply_transform(m4x4)
 
         self._export_using_trimesh(mesh, dest_file)
 

@@ -1,3 +1,6 @@
+import logging
+
+import ifcopenshell.validate
 import pytest
 
 import ada
@@ -21,7 +24,8 @@ def test_to_fem(param_models_test_dir):
     my_step.add_load(ada.fem.Load("Gravity", "gravity", -9.81))
 
     a.to_fem("SimpleStru_ca", fem_format="code_aster", overwrite=True, execute=False)
-    _ = a.to_ifc(param_models_test_dir / "SimpleStru", return_file_obj=True)
+    fp = a.to_ifc(param_models_test_dir / "SimpleStru", file_obj_only=True)
+    ifcopenshell.validate.validate(fp, logging)
 
     assert abs(roundoff(cog.p[0]) - 2.5) < tol
     assert abs(roundoff(cog.p[1]) - 2.5) < tol

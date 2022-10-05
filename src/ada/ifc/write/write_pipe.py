@@ -64,11 +64,17 @@ def write_pipe_segment(segment: PipeSegElbow | PipeSegStraight) -> ifcopenshell.
     from ada import PipeSegElbow, PipeSegStraight
 
     if isinstance(segment, PipeSegElbow):
-        return write_pipe_elbow_seg(segment)
+        pipe_seg = write_pipe_elbow_seg(segment)
     elif isinstance(segment, PipeSegStraight):
-        return write_pipe_straight_seg(segment)
+        pipe_seg = write_pipe_straight_seg(segment)
     else:
         raise ValueError(f'Unrecognized Pipe Segment type "{type(segment)}"')
+
+    assembly = segment.get_assembly()
+    ifc_store = assembly.ifc_store
+    ifc_store.associate_elem_with_material(segment.material, pipe_seg)
+
+    return pipe_seg
 
 
 def write_pipe_ifc_elem(pipe: Pipe):
@@ -111,8 +117,6 @@ def write_pipe_ifc_elem(pipe: Pipe):
         [ifc_elem],
     )
 
-    write_elem_property_sets(pipe.metadata.get("props", dict()), ifc_elem, f, owner_history)
-
     return ifc_elem
 
 
@@ -142,7 +146,7 @@ def write_pipe_straight_seg(pipe_seg: PipeSegStraight):
 
     extrusion_placement = create_ifc_placement(f, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
 
-    section_profile = ifc_store.section_profile_map.get(pipe_seg.section.guid)
+    section_profile = ifc_store.get_profile_def(pipe_seg.section)
     if section_profile is None:
         raise ValueError("Section profile not found")
 
@@ -177,13 +181,6 @@ def write_pipe_straight_seg(pipe_seg: PipeSegStraight):
         None,
     )
 
-    ifc_mat = ifc_store.materials_map.get(pipe_seg.material.guid)
-    ifc_profile = ifc_store.section_profile_map.get(pipe_seg.section.guid)
-    mat_profile = f.create_entity("IfcMaterialProfile", pipe_seg.material.name, None, ifc_mat, ifc_profile, None, None)
-    mat_profile_set = f.createIfcMaterialProfileSet(None, None, [mat_profile], None)
-    mat_profile_set = f.createIfcMaterialProfileSetUsage(mat_profile_set, 8, None)
-    f.createIfcRelAssociatesMaterial(create_guid(), None, None, None, [pipe_segment], mat_profile_set)
-
     return pipe_segment
 
 
@@ -215,14 +212,6 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
         None,
         None,
     )
-
-    ifc_mat = pipe_elbow.material.ifc_mat
-    mat_profile = f.createIfcMaterialProfile(
-        pipe_elbow.material.name, None, ifc_mat, pipe_elbow.section.ifc_profile, None, None
-    )
-    mat_profile_set = f.createIfcMaterialProfileSet(None, None, [mat_profile], None)
-    mat_profile_set = f.createIfcMaterialProfileSetUsage(mat_profile_set, 8, None)
-    f.createIfcRelAssociatesMaterial(create_guid(), None, None, None, [pfitting], mat_profile_set)
 
     props = dict(
         bend_radius=pipe_elbow.bend_radius,
@@ -258,7 +247,7 @@ def elbow_revolved_solid(elbow: PipeSegElbow, f, context, tol=1e-1):
     assembly = elbow.get_assembly()
 
     # Profile
-    profile = assembly.ifc_store.section_profile_map.get(elbow.section.guid)
+    profile = assembly.ifc_store.get_profile_def(elbow.section)
 
     # Revolve Angle
     revolve_angle = np.rad2deg(angle_between(xvec1, xvec2))

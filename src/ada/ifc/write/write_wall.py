@@ -20,11 +20,12 @@ def write_ifc_wall(wall: Wall):
         raise ValueError("Ifc element cannot be built without any parent element")
 
     a = wall.parent.get_assembly()
-    f = a.ifc_file
+    ifc_store = a.ifc_store
+    f = ifc_store.f
 
     context = f.by_type("IfcGeometricRepresentationContext")[0]
-    owner_history = a.user.to_ifc()
-    parent = wall.parent.get_ifc_elem()
+    owner_history = ifc_store.owner_history
+    parent = f.by_guid(wall.parent.guid)
     elevation = wall.placement.origin[2]
 
     # Wall creation: Define the wall shape as a polyline axis and an extruded area solid
@@ -81,7 +82,7 @@ def write_ifc_wall(wall: Wall):
         parent,
     )
 
-    write_elem_property_sets(wall.metadata.get("props", dict()), wall_el, f, owner_history)
+    write_elem_property_sets(wall.metadata, wall_el, f, owner_history)
 
     return wall_el
 
@@ -89,11 +90,12 @@ def write_ifc_wall(wall: Wall):
 def add_ifc_insert_elem(wall: Wall, shape_, opening_element, wall_el, ifc_type):
 
     a = wall.parent.get_assembly()
-    f = a.ifc_file
+    ifc_store = a.ifc_store
+    f = ifc_store.f
 
     context = f.by_type("IfcGeometricRepresentationContext")[0]
-    owner_history = a.user.to_ifc()
-    schema = a.ifc_file.wrapped_data.schema
+    owner_history = ifc_store.owner_history
+    schema = f.wrapped_data.schema
 
     # Create a simplified representation for the Window
     insert_placement = create_local_placement(f, O, Z, X, wall_el.ObjectPlacement)

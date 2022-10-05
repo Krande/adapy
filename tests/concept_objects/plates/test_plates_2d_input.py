@@ -1,4 +1,7 @@
+import logging
+
 import numpy as np
+from ifcopenshell.validate import validate
 
 import ada
 from ada.config import Settings
@@ -22,10 +25,12 @@ def test_roundtrip_fillets(place1, place2):
     pl2 = ada.Plate("MyPl2", [(0, 0, 0.2), (5, 0, 0.2), (5, 5), (0, 5)], 20e-3, **place2)
     p.add_plate(pl2)
 
-    fp = a.to_ifc(test_dir / "my_plate_simple.ifc", return_file_obj=True)
+    fp = a.to_ifc(test_dir / "my_plate_simple.ifc", file_obj_only=False)
+
+    validate(fp, logging)
 
     b = ada.from_ifc(fp)
-    _ = b.to_ifc(test_dir / "my_plate_simple_re_exported.ifc", return_file_obj=True)
+    _ = b.to_ifc(test_dir / "my_plate_simple_re_exported.ifc", file_obj_only=True)
 
 
 def test_2ifc_simple(place2):

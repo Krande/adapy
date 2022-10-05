@@ -7,9 +7,8 @@ def write_ifc_mat(material: Material):
         raise ValueError("Parent cannot be None")
 
     a = material.parent.get_assembly()
-    f = a.ifc_store.f
-
-    owner_history = a.ifc_store.owner_history
+    ifc_store = a.ifc_store
+    f = ifc_store.f
 
     ifc_mat = f.create_entity("IfcMaterial", Name=material.name, Category="Steel")
 
@@ -59,18 +58,11 @@ def write_ifc_mat(material: Material):
     ]
 
     f.create_entity(
-        "IfcPropertySet",
-        GlobalId=material.guid,
-        OwnerHistory=owner_history,
-        Name=material.name,
-        HasProperties=properties,
-    )
-
-    f.create_entity(
         "IfcMaterialProperties",
         Name="MaterialMechanical",
         Description="A Material property description",
         Properties=properties,
         Material=ifc_mat,
     )
+
     return ifc_mat

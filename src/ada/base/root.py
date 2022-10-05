@@ -25,7 +25,7 @@ class Root:
         units: Units | str = Units.M,
         parent=None,
         ifc_store: IfcStore = None,
-        change_type: ChangeAction = ChangeAction.NOTDEFINED,
+        change_type: ChangeAction = ChangeAction.ADDED,
     ):
         self.name = name
         self.parent = parent
@@ -35,7 +35,7 @@ class Root:
         if isinstance(units, str):
             units = Units.from_str(units)
         self._units = units
-        self._metadata = metadata if metadata is not None else dict(props=dict())
+        self._metadata = metadata if metadata is not None else dict()
         self._ifc_store = ifc_store
 
     @property
@@ -76,6 +76,10 @@ class Root:
     @property
     def metadata(self):
         return self._metadata
+
+    @metadata.setter
+    def metadata(self, value):
+        self._metadata = value
 
     @property
     def units(self):

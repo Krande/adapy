@@ -51,7 +51,7 @@ def test_meter_to_millimeter(test_units_dir):
 def test_ifc_reimport():
     # Model to be re-imported
     a = Assembly("my_test_assembly") / SimpleStru("my_simple_stru")
-    fp = a.to_ifc(test_folder / "my_exported_param_model.ifc", return_file_obj=True)
+    fp = a.to_ifc(test_folder / "my_exported_param_model.ifc", file_obj_only=True)
 
     points = [(0, 0, 0), (5, 0, 0), (5, 5, 0)]
     w = Wall("MyWall", points, 3, 0.15, offset="LEFT")

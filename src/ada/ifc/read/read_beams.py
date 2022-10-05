@@ -13,9 +13,9 @@ from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
 from .reader_utils import (
     get_associated_material,
-    get_beam_type,
     get_placement,
     get_point,
+    get_swept_area,
 )
 
 if TYPE_CHECKING:
@@ -26,23 +26,14 @@ def import_ifc_beam(ifc_elem, name, ifc_store: IfcStore) -> Beam:
     from .exceptions import NoIfcAxesAttachedError
 
     mat_ref = get_associated_material(ifc_elem)
-    beam_type = get_beam_type(ifc_elem)
-    sec = None
-    mat = None
 
-    if ifc_store.assembly is not None:
-        sec_name = mat_ref.Profile.ProfileName if hasattr(mat_ref, "Profile") else mat_ref.Name
-        mat_name = mat_ref.Material.Name if hasattr(mat_ref, "Material") else mat_ref.Name
-        sec = ifc_store.assembly.get_by_name(sec_name)
-        mat = ifc_store.assembly.get_by_name(mat_name)
-
-    if sec is None:
-        sec = import_section_from_ifc(mat_ref.Profile, units=ifc_store.assembly.units)
-
-    sec.guid = beam_type.GlobalId
-
+    mat_name = mat_ref.Material.Name if hasattr(mat_ref, "Material") else mat_ref.Name
+    mat = ifc_store.assembly.get_by_name(mat_name)
     if mat is None:
         mat = read_material(mat_ref, ifc_store)
+
+    swept_area = get_swept_area(ifc_elem)
+    sec = import_section_from_ifc(swept_area, units=ifc_store.assembly.units)
 
     axes = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Axis"]
 

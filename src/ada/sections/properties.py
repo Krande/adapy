@@ -36,13 +36,11 @@ def calculate_general_properties(section: Section) -> Union[None, GeneralPropert
         bt.TPROFILE: calc_isec,
     }
 
-    base_type = SectionCat.get_shape_type(section)
-
-    if base_type == bt.GENERAL:
+    if section.type == bt.GENERAL:
         logging.error("Re-Calculating a general section")
         return None
 
-    calc_func = section_map.get(base_type, None)
+    calc_func = section_map.get(section.type, None)
 
     if calc_func is None:
         raise Exception(

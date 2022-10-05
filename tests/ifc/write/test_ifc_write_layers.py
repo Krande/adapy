@@ -53,7 +53,7 @@ def test_export_layers():
     a = Assembly("MySite", project="MyLayersProject") / (p / [bm, pl1, pl2, pl3, pl4])
 
     ifc_name = "MyLayerTest.ifc"
-    fp = a.to_ifc(test_dir / ifc_name, return_file_obj=True)
+    fp = a.to_ifc(test_dir / ifc_name, file_obj_only=True)
     print(a)
     b = ada.from_ifc(fp)
     print(b)

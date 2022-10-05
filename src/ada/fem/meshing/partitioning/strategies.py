@@ -20,14 +20,11 @@ def partition_objects_with_holes(gmsh_data: "GmshData", gmsh_session: "GmshSessi
 
 
 def partition_solid_beams(gmsh_data: "GmshData", gmsh_session: "GmshSession"):
-    from ada.sections.categories import SectionCat
-
     obj: Beam = gmsh_data.obj
 
     partition_map = {Section.TYPES.IPROFILE: ibeam}
 
-    base_type = SectionCat.get_shape_type(obj.section)
-    partition_tool = partition_map.get(base_type, None)
+    partition_tool = partition_map.get(obj.section.type, None)
 
     if partition_tool is None:
         raise NotImplementedError(f'Partitioning of "{obj.section.type}" Beams is not yet supported')

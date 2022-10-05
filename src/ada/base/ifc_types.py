@@ -3,6 +3,20 @@ from __future__ import annotations
 from enum import Enum
 
 
+class SectionTypes(Enum):
+    IfcIShapeProfileDef = "IfcIShapeProfileDef"
+    IfcArbitraryClosedProfileDef = "IfcArbitraryClosedProfileDef"
+    IfcArbitraryProfileDefWithVoids = "IfcArbitraryProfileDefWithVoids"
+    IfcCircleProfileDef = "IfcCircleProfileDef"
+    IfcCircleHollowProfileDef = "IfcCircleHollowProfileDef"
+    IfcUShapeProfileDef = "IfcUShapeProfileDef"
+
+    @staticmethod
+    def from_str(class_name: str):
+        key_map = {x.value.lower(): x for x in SectionTypes}
+        return key_map.get(class_name.lower())
+
+
 class SpatialTypes(Enum):
     # TODO: Check to see if this enum can be grabbed from ifcopenshell directly
     # Non-physical Container Top Element

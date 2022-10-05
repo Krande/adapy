@@ -92,11 +92,6 @@ class Plate(BackendGeom):
         self._ifc_geom = ifc_geom
         self._bbox = None
 
-    def _generate_ifc_elem(self):
-        from ada.ifc.write.write_plates import write_ifc_plate
-
-        return write_ifc_plate(self)
-
     @property
     def id(self):
         return self._pl_id
@@ -142,10 +137,6 @@ class Plate(BackendGeom):
             self._bbox = BoundingBox(self)
 
         return self._bbox
-
-    @property
-    def metadata(self):
-        return self._metadata
 
     @property
     def line(self):
