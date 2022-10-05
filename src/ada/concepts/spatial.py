@@ -422,6 +422,22 @@ class Part(BackendGeom):
             sections += sec.sections.sections
         return sections
 
+    def consolidate_sections(self, include_self=True):
+        sections: dict[str, Section] = dict()
+        to_be_removed = []
+        for sec in self.get_all_sections(include_self=include_self):
+            existing_section = sections.get(sec.name)
+            if existing_section is not None:
+                to_be_removed.append((existing_section, sec))
+            else:
+                sections[sec.name] = sec
+
+        for existing_section, tbr in to_be_removed:
+            for obj in tbr.refs:
+                obj.section = existing_section
+            tbr.remove()
+        return list(sections.values())
+
     def get_all_parts_in_assembly(self, include_self=False) -> list[Part]:
         parent = self.get_assembly()
         list_of_ps = []

@@ -108,7 +108,7 @@ class Root:
 
     def remove(self):
         """Remove this element/part from assembly/part"""
-        from ada import Beam, Part, Plate, Shape
+        from ada import Beam, Part, Plate, Section, Shape
 
         if self.parent is None:
             logging.error(f"Unable to delete {self.name} as it does not have a parent")
@@ -122,5 +122,7 @@ class Root:
             self.parent.beams.remove(self)
         elif isinstance(self, Plate):
             self.parent.plates.remove(self)
+        elif isinstance(self, Section):
+            print("sd")
         else:
             raise NotImplementedError()

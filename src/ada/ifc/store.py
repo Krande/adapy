@@ -83,6 +83,7 @@ class IfcStore:
             return x.change_type == x.change_type.ADDED
 
         a = self.assembly
+        a.consolidate_sections()
 
         self.update_owner(a.user)
 
