@@ -1,35 +1,57 @@
 from __future__ import annotations
 
-import os
+import logging
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-import ifcopenshell
+from ada.ifc.read.read_physical_objects import import_physical_ifc_elem
+from ada.ifc.read.reader_utils import (
+    add_to_assembly,
+    get_ifc_property_sets,
+    get_parent,
+    resolve_name,
+)
 
-from ada import Assembly
-from ada.ifc.utils import get_unit_type
+from .read_materials import MaterialImporter
+from .read_parts import PartImporter
 
-
-def read_ifc_file(ifc_file: os.PathLike | ifcopenshell.file, elements2part=False, data_only=False) -> Assembly:
+if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
 
-    ifc_store = IfcStore.from_ifc(ifc_file)
 
-    unit = get_unit_type(ifc_store.f)
+@dataclass
+class IfcReader:
+    ifc_store: IfcStore
 
-    a = Assembly("TempAssembly", units=unit)
+    def load_spatial_hierarchy(self):
 
-    ifc_store.assembly = a
+        pi = PartImporter(self.ifc_store)
+        pi.load_hierarchies()
 
-    # Get hierarchy
-    if elements2part is None:
-        ifc_store.load_spatial_hierarchy()
+    def load_materials(self):
 
-    # Get Materials
-    ifc_store.load_materials()
+        mi = MaterialImporter(self.ifc_store)
+        mi.load_ifc_materials()
 
-    # Get physical elements
-    ifc_store.load_objects(data_only=data_only)
+    def load_objects(self, data_only=False, elements2part=None):
+        for product in self.ifc_store.f.by_type("IfcProduct"):
+            if product.Representation is None or data_only is True:
+                logging.info(f'Passing product "{product}"')
+                continue
 
-    ifc_file_name = "object" if isinstance(ifc_file, ifcopenshell.file) else ifc_file
+            parent = get_parent(product)
+            name = product.Name
 
-    print(f'Import of IFC file "{ifc_file_name}" is complete')
-    return a
+            props = get_ifc_property_sets(product)
+
+            if name is None:
+                name = resolve_name(props, product)
+
+            logging.info(f"importing {name}")
+
+            obj = import_physical_ifc_elem(product, name, self.ifc_store)
+            if obj is None:
+                continue
+
+            obj.metadata = props
+            add_to_assembly(self.ifc_store.assembly, obj, parent, elements2part)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 import ifcopenshell.geom
 
@@ -41,7 +41,7 @@ def get_ifc_geometry(ifc_elem, settings):
     return geom, colour, alpha
 
 
-def get_colour(product: ifcopenshell.entity_instance, assembly: Assembly) -> Union[None, tuple]:
+def get_colour(product: ifcopenshell.entity_instance, assembly: Assembly) -> None | tuple:
     styles = []
     f = assembly.ifc_store.f
     for geo in f.traverse(product):

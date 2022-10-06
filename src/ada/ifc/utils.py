@@ -350,7 +350,7 @@ def create_property_set(name, ifc_file, metadata_props, owner_history):
     properties = []
 
     def ifc_value_type(v_):
-        if type(v_) in (np.float64, np.float):
+        if type(v_) in (np.float64,):
             v_ = float(v_)
         ifc_type = value_map.get(type(v_), None)
         if ifc_type is None:

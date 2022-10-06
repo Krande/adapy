@@ -115,8 +115,8 @@ class IfcBeamWriter:
 
         mat_usage = f.create_entity("IfcMaterialProfileSetUsage", mat_profile_set, convert_bm_jusl_to_ifc(beam))
 
-        ifc_store.create_rel_associates_material(create_guid(), mat_usage, [ifc_beam])
-        ifc_store.associate_elem_with_material(beam.material, ifc_beam)
+        ifc_store.writer.create_rel_associates_material(create_guid(), mat_usage, [ifc_beam])
+        ifc_store.writer.associate_elem_with_material(beam.material, ifc_beam)
 
         return mat_profile_set
 

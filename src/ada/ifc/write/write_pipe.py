@@ -72,7 +72,7 @@ def write_pipe_segment(segment: PipeSegElbow | PipeSegStraight) -> ifcopenshell.
 
     assembly = segment.get_assembly()
     ifc_store = assembly.ifc_store
-    ifc_store.associate_elem_with_material(segment.material, pipe_seg)
+    ifc_store.writer.associate_elem_with_material(segment.material, pipe_seg)
 
     return pipe_seg
 
