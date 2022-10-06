@@ -4,13 +4,11 @@ from ada import Plate
 from ada.core.constants import O, X, Z
 from ada.ifc.utils import (
     add_colour,
-    create_guid,
     create_ifc_placement,
     create_ifcindexpolyline,
     create_ifcpolyline,
     create_local_placement,
 )
-from ada.ifc.write.write_openings import generate_ifc_opening
 
 
 def write_ifc_plate(plate: Plate):
@@ -70,19 +68,6 @@ def write_ifc_plate(plate: Plate):
     # Add colour
     if plate.colour is not None:
         add_colour(f, ifcextrudedareasolid, str(plate.colour), plate.colour)
-
-    # Add penetrations
-    # elements = []
-    for pen in plate.penetrations:
-        ifc_opening = generate_ifc_opening(pen)
-        f.createIfcRelVoidsElement(
-            create_guid(),
-            owner_history,
-            None,
-            None,
-            ifc_plate,
-            ifc_opening,
-        )
 
     # Material
     ifc_store.associate_elem_with_material(plate.material, ifc_plate)

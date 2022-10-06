@@ -177,6 +177,10 @@ class FemSection(FemBase):
     def section(self) -> Section:
         return self._section
 
+    @section.setter
+    def section(self, value):
+        self._section = value
+
     @property
     def material(self) -> Material:
         return self._material
@@ -227,9 +231,14 @@ class FemSection(FemBase):
     #     return self_perm == other_perm
 
     def __repr__(self):
+        fem_sec_type = self.type
+        name = self.name
+        sec_name = self.section.name if self.section is not None else "SHELL"
+        mat_name = self.material.name
+        elset_name = self.elset.name
         return (
-            f'FemSection({self.type} - name: "{self.name}", sec: "{self.section.name}", '
-            f'mat: "{self.material.name}",  elset: "{self.elset.name}")'
+            f'FemSection({fem_sec_type} - name: "{name}", sec: "{sec_name}", '
+            f'mat: "{mat_name}",  elset: "{elset_name}")'
         )
 
 

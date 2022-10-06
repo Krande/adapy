@@ -27,11 +27,11 @@ from ada.ifc.utils import (
 from ada.ifc.write.write_beams import write_ifc_beam
 from ada.ifc.write.write_instances import write_mapped_instance
 from ada.ifc.write.write_material import write_ifc_mat
+from ada.ifc.write.write_openings import generate_ifc_opening
 from ada.ifc.write.write_pipe import write_ifc_pipe
 from ada.ifc.write.write_plates import write_ifc_plate
 from ada.ifc.write.write_sections import (
     export_beam_section_profile_def,
-    export_ifc_beam_type,
     get_profile_class,
 )
 from ada.ifc.write.write_shapes import write_ifc_shape
@@ -82,8 +82,13 @@ class IfcStore:
         def is_added(x):
             return x.change_type == x.change_type.ADDED
 
+        def is_modified(x):
+            return x.change_type == x.change_type.MODIFIED
+
         a = self.assembly
+
         a.consolidate_sections()
+        a.consolidate_materials()
 
         self.update_owner(a.user)
 
@@ -99,11 +104,24 @@ class IfcStore:
         self.sync_sections()
         self.sync_materials()
 
+        mat_map = {mat.guid: mat for mat in self.assembly.get_all_materials()}
+        rel_mats_map = {
+            m.GlobalId: m
+            for m in filter(
+                lambda x: x.RelatingMaterial.is_a("IfcMaterial"), self.f.by_type("IfcRelAssociatesMaterial")
+            )
+        }
+
         num_new_objects = 0
         contained_in_spatial = {x.guid: [] for x in a.get_all_parts_in_assembly(include_self=True)}
+
         for to_be_added in filter(is_added, a.get_all_physical_objects()):
+            self.eval_validity(to_be_added, mat_map, rel_mats_map)
+
             ifc_elem = self.add(to_be_added)
+            self.create_ifc_openings(to_be_added, ifc_elem)
             write_elem_property_sets(to_be_added.metadata, ifc_elem, self.f, self.owner_history)
+
             contained_in_spatial[to_be_added.parent.guid].append(ifc_elem)
             to_be_added.change_type = ChangeAction.NOCHANGE
             num_new_objects += 1
@@ -115,7 +133,32 @@ class IfcStore:
 
         self.sync_mapped_instances()
 
-        print(f"Synced {num_new_objects} objects and {num_new_spatial_objects} spatial elements")
+        num_mod = 0
+        for to_be_modified in filter(is_modified, a.get_all_physical_objects()):
+            self.create_ifc_openings(to_be_modified)
+            to_be_modified.change_type = ChangeAction.NOCHANGE
+            num_mod += 1
+
+        add_str = f"Added {num_new_objects} objects and {num_new_spatial_objects} spatial elements"
+        mod_str = f"Modified {num_mod} objects"
+
+        print(f"Sync Complete. {add_str}. {mod_str}")
+
+    def eval_validity(self, to_be_added, mat_map, rel_mats_map):
+        from ada import Pipe, Shape, Wall
+
+        if isinstance(to_be_added, Wall) is False and issubclass(type(to_be_added), Shape) is False:
+            if to_be_added.material.guid not in mat_map.keys():
+                raise ValueError(f"Object {to_be_added.material} is not among synced materials {mat_map}")
+            if to_be_added.material.guid not in rel_mats_map.keys():
+                raise ValueError(f"Object {to_be_added.material} is not among synced materials {rel_mats_map}")
+
+        elif isinstance(to_be_added, Pipe):
+            for seg in to_be_added.segments:
+                if seg.material.guid not in mat_map.keys():
+                    raise ValueError(f"Object {to_be_added.material} is not among synced materials {mat_map}")
+                if seg.material.guid not in rel_mats_map.keys():
+                    raise ValueError(f"Object {to_be_added.material} is not among synced materials {rel_mats_map}")
 
     def sync_sections(self):
         for sec in self.assembly.get_all_sections():
@@ -123,14 +166,26 @@ class IfcStore:
                 continue
 
             self.create_ifc_profile_def(sec)
+            self.create_ifc_beam_type(sec)
             sec.change_type = ChangeAction.NOCHANGE
 
     def sync_materials(self):
-        for mat in self.assembly.get_all_materials():
+        all_mats = self.assembly.get_all_materials()
+        for mat in all_mats:
             if mat.change_type != ChangeAction.ADDED:
                 continue
             self.create_ifc_material(mat)
             mat.change_type = ChangeAction.NOCHANGE
+
+        mat_map = {mat.guid for mat in self.assembly.get_all_materials()}
+        rel_mats_map = {
+            m.GlobalId
+            for m in filter(
+                lambda x: x.RelatingMaterial.is_a("IfcMaterial"), self.f.by_type("IfcRelAssociatesMaterial")
+            )
+        }
+        if len(mat_map - rel_mats_map) != 0:
+            raise ValueError("Syncing of Materials failed")
 
     def sync_mapped_instances(self):
         for part in self.assembly.get_all_parts_in_assembly(include_self=True):
@@ -225,11 +280,18 @@ class IfcStore:
     def get_ifc_geom(self, ifc_elem, settings: ifcopenshell.geom.settings):
         return ifcopenshell.geom.create_shape(settings, inst=ifc_elem)
 
-    def get_ifc_geom_iterator(self, settings: ifcopenshell.geom.settings):
+    def get_ifc_geom_iterator(self, settings: ifcopenshell.geom.settings, cpus: int = None):
         import multiprocessing
 
-        products = [self.f.by_guid(x.guid) for x in self.assembly.get_all_physical_objects()]
-        return ifcopenshell.geom.iterator(settings, self.f, multiprocessing.cpu_count(), include=products)
+        products = []
+        for x in self.assembly.get_all_physical_objects(pipe_to_segments=True):
+            try:
+                product = self.f.by_guid(x.guid)
+            except RuntimeError as e:
+                raise RuntimeError(e)
+            products.append(product)
+        cpus = multiprocessing.cpu_count() if cpus is None else cpus
+        return ifcopenshell.geom.iterator(settings, self.f, cpus, include=products)
 
     def get_by_guid(self, guid: str) -> ifcopenshell.entity_instance:
         return self.f.by_guid(guid)
@@ -270,12 +332,16 @@ class IfcStore:
         )
 
     def associate_elem_with_material(self, material: Material, ifc_elem: ifcopenshell.entity_instance):
-        rel_mat = self.f.by_guid(material.guid)
+        try:
+            rel_mat = self.f.by_guid(material.guid)
+        except RuntimeError as e:
+            raise RuntimeError(e)
         related_objects = [*rel_mat.RelatedObjects, ifc_elem]
         rel_mat.RelatedObjects = related_objects
         return rel_mat
 
     def associate_elem_with_profiledef(self, section: Section, ifc_elem: ifcopenshell.entity_instance):
+        """This is only for IFC 4.3++"""
         rel_profile_def = self.f.by_guid(section.guid)
         related_objects = [*rel_profile_def.RelatedObjects, ifc_elem]
         rel_profile_def.RelatedObjects = related_objects
@@ -283,7 +349,21 @@ class IfcStore:
 
     def create_ifc_profile_def(self, section: Section):
         export_beam_section_profile_def(section)
-        _ = export_ifc_beam_type(section)
+
+    def create_ifc_beam_type(self, section: Section):
+        self.f.create_entity(
+            "IfcBeamType",
+            GlobalId=section.guid,
+            OwnerHistory=self.owner_history,
+            Name=section.name,
+            Description=section.sec_str,
+            PredefinedType="BEAM",
+        )
+
+    def get_beam_type(self, section: Section, match_description=False) -> ifcopenshell.entity_instance:
+        for beam_type in self.f.by_type("IfcBeamType"):
+            if section.name == beam_type.Name:
+                return beam_type
 
     def get_profile_def(self, section: Section) -> ifcopenshell.entity_instance:
         profile_class = get_profile_class(section)
@@ -293,16 +373,51 @@ class IfcStore:
 
     def create_ifc_material(self, material: Material):
         ifc_mat = write_ifc_mat(material)
+        self.create_rel_associates_material(material.guid, ifc_mat)
+        return ifc_mat
 
+    def create_rel_associates_material(self, guid: str, relating_mat: ifcopenshell.entity_instance, related_objs=None):
         return self.f.create_entity(
             "IfcRelAssociatesMaterial",
-            GlobalId=material.guid,
+            GlobalId=guid,
             OwnerHistory=self.owner_history,
-            Name=ifc_mat.Name,
-            Description=f"Objects related to {ifc_mat.Name}",
-            RelatedObjects=[],
-            RelatingMaterial=ifc_mat,
+            Name=relating_mat.Name if hasattr(relating_mat, "Name") else None,
+            Description=f"Objects related to {relating_mat.Name}" if hasattr(relating_mat, "Description") else None,
+            RelatedObjects=[] if related_objs is None else related_objs,
+            RelatingMaterial=relating_mat,
         )
+
+    def create_ifc_openings(self, obj: Beam | Plate | Pipe | Shape | Wall, ifc_obj=None):
+        from ada import Part, Wall
+        from ada.core.constants import O, X, Z
+        from ada.ifc.write.write_wall import add_negative_extrusion
+
+        if ifc_obj is None:
+            try:
+                ifc_obj = self.f.by_guid(obj.guid)
+            except RuntimeError as e:
+                raise RuntimeError(e)
+
+        if isinstance(obj, Wall):
+            if len(obj.inserts) > 0:
+                for i, insert in enumerate(obj.inserts):
+                    add_negative_extrusion(self.f, O, Z, X, insert.height, obj.openings_extrusions[i], ifc_obj)
+                    if issubclass(type(insert), Part) is False:
+                        raise ValueError(f'Unrecognized type "{type(insert)}"')
+
+        else:
+            if len(obj.penetrations) > 0:
+                for pen in obj.penetrations:
+                    ifc_opening = generate_ifc_opening(pen)
+                    self.f.create_entity(
+                        "IfcRelVoidsElement",
+                        GlobalId=create_guid(),
+                        OwnerHistory=self.owner_history,
+                        Name=None,
+                        Description=None,
+                        RelatingBuildingElement=ifc_obj,
+                        RelatedOpeningElement=ifc_opening,
+                    )
 
     @staticmethod
     def from_ifc(ifc_file: str | os.PathLike | ifcopenshell.file, make_a_copy=True) -> IfcStore:

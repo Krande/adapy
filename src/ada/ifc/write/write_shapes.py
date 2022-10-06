@@ -1,4 +1,4 @@
-from typing import Union
+from __future__ import annotations
 
 import numpy as np
 
@@ -17,7 +17,6 @@ from ada.core.constants import O, X, Z
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.ifc.utils import (
     add_colour,
-    create_guid,
     create_ifc_placement,
     create_ifcextrudedareasolid,
     create_IfcFixedReferenceSweptAreaSolid,
@@ -57,44 +56,24 @@ def write_ifc_shape(shape: Shape):
     for rep in ifc_shape.Representations:
         rep.ContextOfItems = context
 
-    description = shape.metadata.get("description", None)
-
-    if "hidden" in shape.metadata.keys():
-        if shape.metadata["hidden"] is True:
-            a.presentation_layers.append(ifc_shape)
-
     # Add colour
     if shape.colour is not None:
         add_colour(f, ifc_shape.Representations[0].Items[0], str(shape.colour), shape.colour)
 
     ifc_elem = f.create_entity(
-        shape.metadata.get("ifc_class_type", "IfcBuildingElementProxy"),
-        shape.guid,
-        owner_history,
-        shape.name,
-        description,
-        None,
-        shape_placement,
-        ifc_shape,
-        None,
-        None,
+        str(shape.ifc_class.value),
+        GlobalId=shape.guid,
+        OwnerHistory=owner_history,
+        Name=shape.name,
+        ObjectType=None,
+        ObjectPlacement=shape_placement,
+        Representation=ifc_shape,
     )
-
-    for pen in shape.penetrations:
-        # elements.append(pen.ifc_opening)
-        f.createIfcRelVoidsElement(
-            create_guid(),
-            owner_history,
-            None,
-            None,
-            ifc_elem,
-            pen.ifc_opening,
-        )
 
     return ifc_elem
 
 
-def generate_parametric_solid(shape: Union[Shape, PrimSphere], f):
+def generate_parametric_solid(shape: Shape | PrimSphere, f):
     context = f.by_type("IfcGeometricRepresentationContext")[0]
 
     param_solid_map = {
@@ -117,10 +96,6 @@ def generate_parametric_solid(shape: Union[Shape, PrimSphere], f):
 
     shape_representation = f.create_entity("IfcShapeRepresentation", context, "Body", "SweptSolid", [solid_geom])
     ifc_shape = f.create_entity("IfcProductDefinitionShape", None, None, [shape_representation])
-
-    # Link to representation context
-    for rep in ifc_shape.Representations:
-        rep.ContextOfItems = context
 
     return ifc_shape
 

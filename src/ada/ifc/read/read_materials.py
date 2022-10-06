@@ -55,9 +55,14 @@ class MaterialImporter:
         else:
             mat_model = Metal(sig_u=None, **mat_props)
 
+        guid = None
+        if len(ifc_mat.AssociatedTo) == 1:
+            guid = ifc_mat.AssociatedTo[0].GlobalId
+
         return Material(
             name=ifc_mat.Name,
             mat_model=mat_model,
             ifc_store=self.ifc_store,
             units=self.ifc_store.assembly.units,
+            guid=guid,
         )

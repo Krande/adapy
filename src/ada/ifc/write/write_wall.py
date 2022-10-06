@@ -1,15 +1,13 @@
-from ada import Part, Wall
+from ada import Wall
 from ada.base.units import Units
 from ada.core.constants import O, X, Z
 from ada.ifc.utils import (
-    add_negative_extrusion,
     create_guid,
     create_ifc_placement,
     create_ifcextrudedareasolid,
     create_ifcpolyline,
     create_local_placement,
     tesselate_shape,
-    write_elem_property_sets,
 )
 
 from .write_stru_components import write_door, write_window
@@ -31,7 +29,6 @@ def write_ifc_wall(wall: Wall):
     # Wall creation: Define the wall shape as a polyline axis and an extruded area solid
     wall_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
 
-    # polyline = wall.create_ifcpolyline(f, [(0.0, 0.0, 0.0), (5.0, 0.0, 0.0)])
     polyline2d = create_ifcpolyline(f, wall.points)
     axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve2D", [polyline2d])
 
@@ -51,38 +48,14 @@ def write_ifc_wall(wall: Wall):
 
     wall_el = f.create_entity(
         "IfcWall",
-        wall.guid,
-        owner_history,
-        wall.name,
-        "An awesome wall",
-        None,
-        wall_placement,
-        product_shape,
-        None,
+        GlobalId=wall.guid,
+        OwnerHistory=owner_history,
+        Name=wall.name,
+        Description="An awesome wall",
+        ObjectType=None,
+        ObjectPlacement=wall_placement,
+        Representation=product_shape,
     )
-
-    # Check for penetrations
-    elements = []
-    if len(wall.inserts) > 0:
-        for i, insert in enumerate(wall.inserts):
-            opening_element = add_negative_extrusion(f, O, Z, X, insert.height, wall.openings_extrusions[i], wall_el)
-            if issubclass(type(insert), Part) is False:
-                raise ValueError(f'Unrecognized type "{type(insert)}"')
-            elements.append(opening_element)
-            # for shape_ in insert.shapes:
-            #     insert_el = add_ifc_insert_elem(wall, shape_, opening_element, wall_el, insert.metadata["ifc_type"])
-            #     elements.append(insert_el)
-
-    f.createIfcRelContainedInSpatialStructure(
-        create_guid(),
-        owner_history,
-        "Wall Elements",
-        None,
-        [wall_el] + elements,
-        parent,
-    )
-
-    write_elem_property_sets(wall.metadata, wall_el, f, owner_history)
 
     return wall_el
 

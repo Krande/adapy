@@ -582,10 +582,15 @@ class Materials(NumericMapped):
 
     def add(self, material) -> Material:
         if material in self:
-            return self._name_map[material.name]
+            existing_mat = self._name_map[material.name]
+            for elem in material.refs:
+                if elem not in existing_mat.refs:
+                    existing_mat.refs.append(elem)
+            return existing_mat
 
         if material.id is None or material.id in self._id_map.keys():
             material.id = len(self.materials) + 1
+
         self._id_map[material.id] = material
         self._name_map[material.name] = material
         self.materials.append(material)
@@ -594,7 +599,7 @@ class Materials(NumericMapped):
 
 
 class Sections(NumericMapped):
-    def __init__(self, sections: Iterable[Section] = None, parent: Union[Part, Assembly] = None, units=Units.M):
+    def __init__(self, sections: Iterable[Section] = None, parent: Part | Assembly = None, units=Units.M):
         sec_id = Counter(1)
         super(Sections, self).__init__(parent=parent)
         sections = [] if sections is None else sections
@@ -693,32 +698,30 @@ class Sections(NumericMapped):
         return self._name_map
 
     def add(self, section: Section) -> Section:
-        from ada import Assembly
-
         if section.name is None:
             raise Exception("Name is not allowed to be None.")
 
         # Note: Evaluate if parent should be "Sections" not Part object?
         if section.parent is None:
             section.parent = self._parent
-        else:
-            a = section.parent.get_assembly()
-            if isinstance(a, Assembly):
-                global_name_map = {sec.name: sec for sec in a.get_all_sections()}
-                existing_sec = global_name_map.get(section.name)
-                if existing_sec is not None:
-                    logging.info(
-                        f'Section with same name "{section.name}" already exists. Will use that section instead'
-                    )
-                    return existing_sec
 
         if section in self._sections:
             index = self._sections.index(section)
-            return self._sections[index]
+            existing_section = self._sections[index]
+            for elem in section.refs:
+                elem.section = existing_section
+                if elem not in existing_section.refs:
+                    existing_section.refs.append(elem)
+            return existing_section
 
         if section.name in self._name_map.keys():
             logging.info(f'Section with same name "{section.name}" already exists. Will use that section instead')
-            return self._name_map[section.name]
+            existing_section = self._name_map[section.name]
+            for elem in section.refs:
+                elem.section = existing_section
+                if elem not in existing_section.refs:
+                    existing_section.refs.append(elem)
+            return existing_section
 
         if section.id is None:
             section.id = self.max_id + 1
@@ -733,7 +736,7 @@ class Sections(NumericMapped):
         return section
 
     @property
-    def sections(self) -> List[Section]:
+    def sections(self) -> list[Section]:
         return self._sections
 
     @property

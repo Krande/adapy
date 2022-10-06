@@ -1,3 +1,7 @@
+import logging
+
+import ifcopenshell.validate
+
 from ada import Assembly, Part, Wall
 from ada.config import Settings
 from ada.param_models.basic_structural_components import Door, Window
@@ -19,6 +23,6 @@ def test_wall_simple(dummy_display):
     p = Part("MyPart")
     a.add_part(p)
     p.add_wall(w)
-    _ = a.to_ifc(test_folder / "my_wall_wDoorsWindows.ifc", file_obj_only=True)
-
+    f = a.to_ifc(test_folder / "my_wall_wDoorsWindows.ifc", file_obj_only=False)
+    ifcopenshell.validate.validate(f, logging)
     dummy_display(a)

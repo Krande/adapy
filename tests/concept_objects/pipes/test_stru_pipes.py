@@ -9,15 +9,10 @@ test_dir = Settings.test_dir / "pipes"
 
 def test_pipe_straight(dummy_display):
     a = Assembly("MyTest")
-
-    p = Part("MyPart")
-    a.add_part(p)
-    z = 3.2
+    p = a.add_part(Part("MyPart"))
     y0 = -200e-3
-    pipe1 = Pipe("Pipe1", [(0, y0, 0), (0, y0, z)], Section("PSec", "PIPE", r=0.10, wt=5e-3))
-    p.add_pipe(pipe1)
-
-    _ = a.to_ifc(test_dir / "pipe_straight.ifc", file_obj_only=True)
+    p.add_pipe(Pipe("Pipe1", [(0, y0, 0), (0, y0, 3.2)], Section("PSec", "PIPE", r=0.10, wt=5e-3)))
+    _ = a.to_ifc(test_dir / "pipe_straight.ifc", file_obj_only=True, validate=True)
     dummy_display(a)
 
 

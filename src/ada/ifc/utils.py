@@ -441,18 +441,6 @@ def to_real(v) -> Union[float, List[float]]:
 
 
 def add_negative_extrusion(f, origin, loc_z, loc_x, depth, points, parent):
-    """
-
-    :param f:
-    :param origin:
-    :param loc_z:
-    :param loc_x:
-    :param depth:
-    :param points:
-    :param parent:
-    :return:
-    """
-
     context = f.by_type("IfcGeometricRepresentationContext")[0]
     owner_history = f.by_type("IfcOwnerHistory")[0]
 

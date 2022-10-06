@@ -77,6 +77,8 @@ class _ConvertOptions:
 class Part(BackendGeom):
     """A Part superclass design to host all relevant information for cad and FEM modelling."""
 
+    IFC_CLASSES = SpatialTypes
+
     def __init__(
         self,
         name,
@@ -165,15 +167,25 @@ class Part(BackendGeom):
         pipe.parent = self
 
         mat = self.add_material(pipe.material)
-        if mat is not None:
+        if mat != pipe.material:
             pipe.material = mat
-            for seg in pipe.segments:
-                seg.material = mat
+            mat.refs.append(pipe)
+
+        sec = self.add_section(pipe.section)
+        if sec != pipe.section:
+            pipe.section = sec
+            sec.refs.append(pipe)
 
         for seg in pipe.segments:
+            mat = self.add_material(seg.material)
+            if mat != seg.material:
+                seg.material = mat
+                mat.refs.append(seg)
+
             sec = self.add_section(seg.section)
-            if sec is not None:
+            if sec != seg.section:
                 seg.section = sec
+                sec.refs.append(seg)
 
         pipe.change_type = pipe.change_type.ADDED
         self.pipes.append(pipe)
@@ -249,14 +261,22 @@ class Part(BackendGeom):
         return self._sections.add(section)
 
     def add_object(self, obj: Part | Beam | Plate | Wall | Pipe | Shape):
-        from ada import Beam
+        from ada import Beam, Part, Pipe, Plate, Shape, Wall
 
-        if isinstance(obj, Part):
-            self.add_part(obj)
-        elif isinstance(obj, Beam):
+        if isinstance(obj, Beam):
             self.add_beam(obj)
+        elif isinstance(obj, Plate):
+            self.add_plate(obj)
+        elif isinstance(obj, Pipe):
+            self.add_pipe(obj)
+        elif issubclass(type(obj), Part):
+            self.add_part(obj)
+        elif issubclass(type(obj), Shape):
+            self.add_shape(obj)
+        elif isinstance(obj, Wall):
+            self.add_wall(obj)
         else:
-            raise NotImplementedError()
+            raise NotImplementedError(f'"{type(obj)}" is not yet supported for smart append')
 
     def add_penetration(
         self, pen: Penetration | PrimExtrude | PrimRevolve | PrimCyl | PrimBox, add_pen_to_subparts=True
@@ -285,6 +305,7 @@ class Part(BackendGeom):
         if add_pen_to_subparts:
             for p in self.get_all_subparts():
                 p.add_penetration(pen, False)
+
         return pen
 
     def add_instance(self, element, placement: Placement):
@@ -303,7 +324,7 @@ class Part(BackendGeom):
 
         return self.groups[name]
 
-    def add_elements_from_ifc(self, ifc_file_path: os.PathLike, data_only=False):
+    def add_elements_from_ifc(self, ifc_file_path: os.PathLike | str, data_only=False):
         from ada import Beam, Pipe, Plate, Shape, Wall
 
         a = Assembly("temp")
@@ -382,38 +403,45 @@ class Part(BackendGeom):
         key_map = {key.lower(): key for key in self.parts.keys()}
         return self.parts[key_map[name.lower()]]
 
-    def get_by_name(self, name) -> Part | Plate | Beam | Shape | Material | Pipe | None:
-        """Get element of any type by its name."""
-        pmap = {p.name: p for p in self.get_all_subparts() + [self]}
-        result = pmap.get(name)
+    def _get_by_prop(self, value: str, prop: str) -> Part | Plate | Beam | Shape | Material | Pipe | None:
+        pmap = {getattr(p, prop): p for p in self.get_all_subparts() + [self]}
+        result = pmap.get(value)
         if result is not None:
             return result
 
         for p in self.get_all_subparts() + [self]:
             for stru_cont in [p.beams, p.plates]:
-                res = stru_cont.from_name(name)
+                res = stru_cont.from_name(value)
                 if res is not None:
                     return res
 
             for shp in p.shapes:
-                if shp.name == name:
+                if getattr(shp, prop) == value:
                     return shp
 
             for pi in p.pipes:
-                if pi.name == name:
+                if getattr(pi, prop) == value:
                     return pi
 
             for mat in p.materials:
-                if mat.name == name:
+                if getattr(mat, prop) == value:
                     return mat
 
-        logger.debug(f'Unable to find"{name}". Check if the element type is evaluated in the algorithm')
+        logger.debug(f'Unable to find"{value}". Check if the element type is evaluated in the algorithm')
         return None
+
+    def get_by_guid(self, guid) -> Part | Plate | Beam | Shape | Material | Pipe | None:
+        return self._get_by_prop(guid, "guid")
+
+    def get_by_name(self, name) -> Part | Plate | Beam | Shape | Material | Pipe | None:
+        """Get element of any type by its name."""
+        return self._get_by_prop(name, "name")
 
     def get_all_materials(self, include_self=True) -> list[Material]:
         materials = []
-        for sec in filter(lambda x: len(x.materials) > 0, self.get_all_parts_in_assembly(include_self=include_self)):
-            materials += sec.materials.materials
+        for part in filter(lambda x: len(x.materials) > 0, self.get_all_parts_in_assembly(include_self=include_self)):
+            materials += part.materials.materials
+
         return materials
 
     def get_all_sections(self, include_self=True) -> list[Section]:
@@ -423,20 +451,73 @@ class Part(BackendGeom):
         return sections
 
     def consolidate_sections(self, include_self=True):
-        sections: dict[str, Section] = dict()
-        to_be_removed = []
-        for sec in self.get_all_sections(include_self=include_self):
-            existing_section = sections.get(sec.name)
-            if existing_section is not None:
-                to_be_removed.append((existing_section, sec))
-            else:
-                sections[sec.name] = sec
+        from ada import Beam
+        from ada.fem import FemSection
 
-        for existing_section, tbr in to_be_removed:
-            for obj in tbr.refs:
-                obj.section = existing_section
-            tbr.remove()
-        return list(sections.values())
+        new_sections = Sections(parent=self)
+        refs_num = 0
+
+        for sec in self.get_all_sections(include_self=include_self):
+            res = new_sections.add(sec)
+            if res.guid != sec.guid:
+                refs = [r for r in sec.refs]
+                for elem in refs:
+                    refs_num += 1
+                    sec.refs.pop(sec.refs.index(elem))
+                    if elem not in res.refs:
+                        res.refs.append(elem)
+                    if isinstance(elem, (Beam, FemSection)):
+                        if isinstance(elem, Beam) and sec.guid == elem.taper.guid:
+                            elem.taper = res
+                        elem.section = res
+                    else:
+                        raise NotImplementedError(f"Not yet support section {type(elem)=}")
+
+        for part in filter(lambda x: len(x.sections) > 0, self.get_all_parts_in_assembly(include_self=include_self)):
+            part.sections = Sections(parent=part)
+
+        sec_map = {sec.guid: sec for sec in new_sections.sections}
+
+        not_found = []
+        for beam in self.get_all_physical_objects(by_type=Beam):
+            if beam.taper.guid not in sec_map.keys():
+                not_found.append((beam, "taper", beam.taper))
+            if beam.section.guid not in sec_map.keys():
+                not_found.append((beam, "section", beam.section))
+
+        if len(not_found) > 0:
+            raise ValueError(f"The following beam sections are not consolidated {not_found}")
+
+        self.sections = new_sections
+
+        return self.sections.sections
+
+    def consolidate_materials(self, include_self=True):
+        from ada import Beam, Pipe, PipeSegElbow, PipeSegStraight, Plate
+        from ada.fem import FemSection
+
+        num_elem_changed = 0
+        new_materials = Materials(parent=self)
+        for mat in self.get_all_materials(include_self=include_self):
+            res = new_materials.add(mat)
+            if res.guid != mat.guid:
+                refs = [r for r in mat.refs]
+                for elem in refs:
+                    mat.refs.pop(mat.refs.index(elem))
+                    if elem not in res.refs:
+                        res.refs.append(elem)
+                    if isinstance(elem, (Beam, Plate, FemSection, PipeSegStraight, PipeSegElbow, Pipe)):
+                        elem.material = res
+                        num_elem_changed += 1
+                    else:
+                        raise NotImplementedError(f"Not yet support section {type(elem)=}")
+
+        for part in filter(lambda x: len(x.materials) > 0, self.get_all_parts_in_assembly(include_self=include_self)):
+            part.materials = Materials(parent=part)
+
+        self.materials = new_materials
+
+        return self.materials.materials
 
     def get_all_parts_in_assembly(self, include_self=False) -> list[Part]:
         parent = self.get_assembly()
@@ -452,7 +533,7 @@ class Part(BackendGeom):
         return list_of_parts
 
     def get_all_physical_objects(
-        self, sub_elements_only=False, by_type=None, filter_by_guids: list[str] = None
+        self, sub_elements_only=False, by_type=None, filter_by_guids: list[str] = None, pipe_to_segments=False
     ) -> Iterable[Beam | Plate | Wall | Pipe | Shape]:
         physical_objects = []
         if sub_elements_only:
@@ -461,7 +542,11 @@ class Part(BackendGeom):
             iter_parts = iter(self.get_all_subparts(include_self=True))
 
         for p in iter_parts:
-            all_as_iterable = chain(p.plates, p.beams, p.shapes, p.pipes, p.walls)
+            if pipe_to_segments:
+                segments = chain.from_iterable([pipe.segments for pipe in p.pipes])
+                all_as_iterable = chain(p.plates, p.beams, p.shapes, segments, p.walls)
+            else:
+                all_as_iterable = chain(p.plates, p.beams, p.shapes, p.pipes, p.walls)
             physical_objects.append(all_as_iterable)
 
         if by_type is not None:
@@ -564,11 +649,12 @@ class Part(BackendGeom):
         overwrite_cache=False,
         auto_sync_ifc_store=True,
         use_experimental=True,
+        cpus: int = None,
     ) -> VisMesh:
         from ada.visualize.interface import part_to_vis_mesh, part_to_vis_mesh2
 
         if use_experimental:
-            return part_to_vis_mesh2(self, auto_sync_ifc_store)
+            return part_to_vis_mesh2(self, auto_sync_ifc_store, cpus=cpus)
         else:
             return part_to_vis_mesh(self, auto_sync_ifc_store, export_config, opt_func, merge_by_color, overwrite_cache)
 
@@ -727,36 +813,12 @@ class Part(BackendGeom):
         return self._ifc_class
 
     def __truediv__(self, other_object):
-        from ada import Beam, Part, Pipe, Plate, Shape, Wall
-
         if type(other_object) in [list, tuple]:
             for obj in other_object:
-                if isinstance(obj, Beam):
-                    self.add_beam(obj)
-                elif isinstance(obj, Plate):
-                    self.add_plate(obj)
-                elif isinstance(obj, Pipe):
-                    self.add_pipe(obj)
-                elif issubclass(type(obj), Part):
-                    self.add_part(obj)
-                elif issubclass(type(obj), Shape):
-                    self.add_shape(obj)
-                elif isinstance(obj, Wall):
-                    self.add_wall(obj)
-                else:
-                    raise NotImplementedError(f'"{type(obj)}" is not yet supported for smart append')
-        elif issubclass(type(other_object), Part):
-            self.add_part(other_object)
-        elif isinstance(other_object, Beam):
-            self.add_beam(other_object)
-        elif isinstance(other_object, Plate):
-            self.add_plate(other_object)
-        elif isinstance(other_object, Pipe):
-            self.add_pipe(other_object)
-        elif issubclass(type(other_object), Shape):
-            self.add_shape(other_object)
+                self.add_object(obj)
         else:
-            raise NotImplementedError(f'"{type(other_object)}" is not yet supported for smart append')
+            self.add_object(other_object)
+
         return self
 
     def __repr__(self):
@@ -984,19 +1046,23 @@ class Assembly(Part):
             import_mesh=import_result_mesh,
         )
 
-    def to_ifc(self, destination_file=None, include_fem=False, file_obj_only=False) -> ifcopenshell.file:
+    def to_ifc(self, destination=None, include_fem=False, file_obj_only=False, validate=False) -> ifcopenshell.file:
+        import ifcopenshell.validate
 
-        if destination_file is None or file_obj_only is True:
-            destination_file = "object"
+        if destination is None or file_obj_only is True:
+            destination = "object"
         else:
-            destination_file = pathlib.Path(destination_file).resolve().absolute()
+            destination = pathlib.Path(destination).resolve().absolute()
 
-        print(f'Beginning writing to IFC file "{destination_file}" using IfcOpenShell')
+        print(f'Beginning writing to IFC file "{destination}" using IfcOpenShell')
 
         self.ifc_store.sync(include_fem=include_fem)
 
         if file_obj_only is False:
-            self.ifc_store.save_to_file(destination_file)
+            self.ifc_store.save_to_file(destination)
+
+        if validate:
+            ifcopenshell.validate.validate(self.ifc_store.f, logging)
 
         print("IFC file creation complete")
         return self.ifc_store.f

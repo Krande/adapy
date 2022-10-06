@@ -18,10 +18,9 @@ class SectionTypes(Enum):
 
 
 class SpatialTypes(Enum):
-    # TODO: Check to see if this enum can be grabbed from ifcopenshell directly
-    # Non-physical Container Top Element
+    # Spatial Top Element
     IfcSite = "IfcSite"
-    # Non-physical Container SubElements
+    # Spatial SubElements
     IfcBuilding = "IfcBuilding"
     IfcSpatialZone = "IfcSpatialZone"
     IfcBuildingStorey = "IfcBuildingStorey"
@@ -37,3 +36,7 @@ class SpatialTypes(Enum):
             ifc_class = SpatialTypes.from_str(ifc_class)
 
         return ifc_class in list(SpatialTypes)
+
+
+class ShapeTypes(Enum):
+    IfcBuildingElementProxy = "IfcBuildingElementProxy"

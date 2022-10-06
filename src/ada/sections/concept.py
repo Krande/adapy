@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List, Tuple, Union
+from typing import TYPE_CHECKING, List, Tuple
 
 from ada.base.root import Root
 from ada.base.units import Units
@@ -11,7 +11,7 @@ from ada.config import Settings
 from ada.sections.categories import BaseTypes, SectionCat
 
 if TYPE_CHECKING:
-    from ada import Beam
+    from ada import Beam, Pipe, PipeSegElbow, PipeSegStraight
     from ada.fem import FemSection
 
 
@@ -256,7 +256,7 @@ class Section(Root):
         display(HBox([fig, html]))
 
     @property
-    def refs(self) -> List[Union[Beam, FemSection]]:
+    def refs(self) -> list[Beam | FemSection | Pipe | PipeSegStraight | PipeSegElbow]:
         return self._refs
 
     def __hash__(self):

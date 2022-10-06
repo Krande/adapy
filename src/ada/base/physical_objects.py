@@ -46,6 +46,7 @@ class BackendGeom(Root):
 
     def add_penetration(self, pen):
         from ada import Penetration, Shape
+        from ada.base.changes import ChangeAction
 
         pen.parent = self
 
@@ -56,6 +57,9 @@ class BackendGeom(Root):
             self._penetrations.append(pen)
         else:
             raise ValueError("")
+
+        if self.change_type in (ChangeAction.NOCHANGE, ChangeAction.NOTDEFINED):
+            self.change_type = ChangeAction.MODIFIED
 
         return pen
 

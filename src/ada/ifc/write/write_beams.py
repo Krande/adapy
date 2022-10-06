@@ -19,7 +19,6 @@ from ada.ifc.utils import (
     to_real,
 )
 from ada.ifc.write.write_curves import write_curve_poly
-from ada.ifc.write.write_openings import generate_ifc_opening
 
 if TYPE_CHECKING:
     from ifcopenshell import file as ifile
@@ -72,22 +71,11 @@ class IfcBeamWriter:
             Representation=prod_def_shp,
         )
 
-        # Add penetrations
-        if len(beam.penetrations) > 0:
-            for pen in beam.penetrations:
-                ifc_opening = generate_ifc_opening(pen)
-                f.create_entity(
-                    "IfcRelVoidsElement",
-                    create_guid(),
-                    owner_history,
-                    None,
-                    None,
-                    ifc_beam,
-                    ifc_opening,
-                )
         found_existing_relationship = False
 
-        beam_type = f.by_guid(beam.section.guid)
+        beam_type = self.ifc_store.get_beam_type(beam.section)
+        if beam_type is None:
+            raise ValueError()
 
         for ifcrel in f.by_type("IfcRelDefinesByType"):
             if ifcrel.RelatingType == beam_type:
@@ -106,9 +94,31 @@ class IfcBeamWriter:
                 RelatingType=beam_type,
             )
 
-        add_material_assignment(f, beam, ifc_beam, owner_history)
+        self.add_material_assignment(beam, ifc_beam)
 
         return ifc_beam
+
+    def add_material_assignment(self, beam: Beam, ifc_beam):
+        sec = beam.section
+        mat = beam.material
+        ifc_store = self.ifc_store
+        f = ifc_store.f
+
+        ifc_mat_rel = ifc_store.f.by_guid(mat.guid)
+        ifc_mat = ifc_mat_rel.RelatingMaterial
+
+        ifc_profile = ifc_store.get_profile_def(beam.section)
+        mat_profile = f.createIfcMaterialProfile(
+            sec.name, "A material profile", ifc_mat, ifc_profile, None, "LoadBearing"
+        )
+        mat_profile_set = f.createIfcMaterialProfileSet(sec.name, None, [mat_profile], None)
+
+        mat_usage = f.create_entity("IfcMaterialProfileSetUsage", mat_profile_set, convert_bm_jusl_to_ifc(beam))
+
+        ifc_store.create_rel_associates_material(create_guid(), mat_usage, [ifc_beam])
+        ifc_store.associate_elem_with_material(beam.material, ifc_beam)
+
+        return mat_profile_set
 
 
 def extrude_straight_beam(beam, f: ifile, profile):
@@ -122,7 +132,7 @@ def extrude_straight_beam(beam, f: ifile, profile):
         e1 = beam.e1
 
     profile_e = None
-    if beam.section != beam.taper:
+    if beam.taper is not None and beam.section != beam.taper:
         profile_e = f.by_guid(beam.taper.guid)
 
     # Transform coordinates to local coords
@@ -213,22 +223,3 @@ def sweep_beam(beam, f, profile, global_placement, extrude_dir):
     )
     loc_plac = create_ifc_placement(f)
     return extrude_area_solid, loc_plac, ifc_polyline
-
-
-def add_material_assignment(f, beam: Beam, ifc_beam, owner_history):
-    sec = beam.section
-    ifc_store = beam.get_assembly().ifc_store
-
-    ifc_mat_rel = ifc_store.f.by_guid(beam.material.guid)
-    ifc_mat = ifc_mat_rel.RelatingMaterial
-
-    ifc_profile = ifc_store.get_profile_def(beam.section)
-    mat_profile = f.createIfcMaterialProfile(sec.name, "A material profile", ifc_mat, ifc_profile, None, "LoadBearing")
-    mat_profile_set = f.createIfcMaterialProfileSet(sec.name, None, [mat_profile], None)
-
-    mat_usage = f.create_entity("IfcMaterialProfileSetUsage", mat_profile_set, convert_bm_jusl_to_ifc(beam))
-    f.create_entity("IfcRelAssociatesMaterial", create_guid(), owner_history, None, None, [ifc_beam], mat_usage)
-
-    ifc_store.associate_elem_with_material(beam.material, ifc_beam)
-
-    return mat_profile_set

@@ -97,7 +97,7 @@ def part_to_vis_mesh(
     return amesh
 
 
-def part_to_vis_mesh2(part: Part, auto_sync_ifc_store=True):
+def part_to_vis_mesh2(part: Part, auto_sync_ifc_store=True, cpus: int = None):
     ifc_store = part.get_assembly().ifc_store
     if auto_sync_ifc_store:
         ifc_store.sync()
@@ -110,7 +110,7 @@ def part_to_vis_mesh2(part: Part, auto_sync_ifc_store=True):
     settings.set(settings.USE_WORLD_COORDS, True)
     settings.set(settings.VALIDATE_QUANTITIES, False)
 
-    iterator = ifc_store.get_ifc_geom_iterator(settings)
+    iterator = ifc_store.get_ifc_geom_iterator(settings, cpus=cpus)
     iterator.initialize()
     id_map = dict()
 

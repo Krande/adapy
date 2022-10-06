@@ -10,9 +10,8 @@ from ada.core.vector_utils import vector_length
 test_dir = Settings.test_dir / "plates"
 
 
-def test_2dinit(place1, dummy_display):
-    pl1 = ada.Plate("MyPl", [(0, 0, 0.2), (5, 0), (5, 5), (0, 5)], 20e-3, **place1)
-    dummy_display(pl1)
+def test_2dinit(basic_2d_plate, dummy_display):
+    dummy_display(basic_2d_plate)
 
 
 def test_roundtrip_fillets(place1, place2):

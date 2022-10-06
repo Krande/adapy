@@ -123,6 +123,6 @@ class Root:
         elif isinstance(self, Plate):
             self.parent.plates.remove(self)
         elif isinstance(self, Section):
-            print("sd")
+            logging.warning("Section removal is not yet supported")
         else:
             raise NotImplementedError()

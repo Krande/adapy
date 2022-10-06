@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Tuple, Union
 
 import numpy as np
 
+from ada.base.ifc_types import ShapeTypes
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.core.utils import Counter, roundoff
@@ -22,6 +23,8 @@ if TYPE_CHECKING:
 
 
 class Shape(BackendGeom):
+    IFC_CLASSES = ShapeTypes
+
     def __init__(
         self,
         name,
@@ -36,6 +39,7 @@ class Shape(BackendGeom):
         material: Union[Material, str] = None,
         placement=Placement(),
         ifc_store: IfcStore = None,
+        ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
     ):
 
         super().__init__(
@@ -62,6 +66,7 @@ class Shape(BackendGeom):
             self._material = get_material(material)
 
         self._bbox = None
+        self._ifc_class = ifc_class
 
     @property
     def type(self):
@@ -76,11 +81,11 @@ class Shape(BackendGeom):
         self._mass = value
 
     @property
-    def cog(self) -> Tuple[float, float, float]:
+    def cog(self) -> tuple[float, float, float]:
         return self._cog
 
     @cog.setter
-    def cog(self, value: Tuple[float, float, float]):
+    def cog(self, value: tuple[float, float, float]):
         self._cog = value
 
     @property
@@ -149,6 +154,10 @@ class Shape(BackendGeom):
     @material.setter
     def material(self, value):
         self._material = value
+
+    @property
+    def ifc_class(self) -> ShapeTypes:
+        return self._ifc_class
 
     def __repr__(self):
         return f'{self.__class__.__name__}("{self.name}")'

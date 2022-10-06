@@ -49,7 +49,7 @@ def test_export_layers():
             xdir=(1, 0, 0),
         ),
     )
-    p = Part("MyBldg", metadata=dict(ifctype="building"))
+    p = Part("MyBldg")
     a = Assembly("MySite", project="MyLayersProject") / (p / [bm, pl1, pl2, pl3, pl4])
 
     ifc_name = "MyLayerTest.ifc"

@@ -68,19 +68,6 @@ def export_beam_section_profile_def(section: Section):
     return profile
 
 
-def export_ifc_beam_type(section: Section):
-    a = section.parent.parent.get_assembly()
-    f = a.ifc_store.f
-    return f.create_entity(
-        "IfcBeamType",
-        GlobalId=section.guid,
-        OwnerHistory=a.ifc_store.owner_history,
-        Name=section.name,
-        Description=section.sec_str,
-        PredefinedType="BEAM",
-    )
-
-
 @dataclass
 class ProfileBase:
     section: Section

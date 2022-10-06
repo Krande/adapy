@@ -108,6 +108,7 @@ class VisMesh:
             h5 = h5_file["VISMESH"]
         else:
             h5 = self._h5cache_group
+
         totnum = len(self.meshes.keys())
         for i, vn in enumerate(self.meshes.values()):
             if only_these_guids is not None and vn.guid not in only_these_guids:
@@ -117,6 +118,7 @@ class VisMesh:
             position = obj_group["POSITION"][()] * 1e-3
             normals = obj_group["NORMAL"][()]
             color = self.colors[obj_group.attrs["COLOR"]]
+
             # matrix = obj_group.attrs.get("MATRIX")
             if index.shape[1] != 3:
                 index = index.reshape(int(len(index) / 3), 3)

@@ -33,6 +33,9 @@ class Pipe(BackendGeom):
         self._content = content
         self.colour = colour
 
+        self.section.refs.append(self)
+        self.material.refs.append(self)
+
         self._n1 = points[0] if type(points[0]) is Node else Node(points[0], units=units)
         self._n2 = points[-1] if type(points[-1]) is Node else Node(points[-1], units=units)
         self._points = [Node(n, units=units) if type(n) is not Node else n for n in points]
@@ -82,6 +85,10 @@ class Pipe(BackendGeom):
     def section(self) -> Section:
         return self._section
 
+    @section.setter
+    def section(self, value):
+        self._section = value
+
     @property
     def n1(self) -> Node:
         return self._n1
@@ -121,18 +128,27 @@ class Pipe(BackendGeom):
         seg0 = segments[0]
         seg0_section = seg0.section
         seg0_material = seg0.material
-        return Pipe(name, points, seg0_section, seg0_material)
+
+        pipe = Pipe(name, points, seg0_section, seg0_material)
+        for i, seg in enumerate(segments):
+            pipe.segments[i].guid = seg.guid
+
+        return pipe
 
 
 class PipeSegStraight(BackendGeom):
     def __init__(
         self, name, p1, p2, section, material, parent=None, guid=None, metadata=None, units=Units.M, colour=None
     ):
-        super(PipeSegStraight, self).__init__(name, guid, metadata, units, parent, colour)
+        super(PipeSegStraight, self).__init__(
+            name=name, guid=guid, metadata=metadata, units=units, parent=parent, colour=colour
+        )
         self.p1 = p1
         self.p2 = p2
         self.section = section
         self.material = material
+        section.refs.append(self)
+        material.refs.append(self)
 
     @property
     def xvec1(self):
@@ -165,11 +181,6 @@ class PipeSegStraight(BackendGeom):
         geom = apply_penetrations(raw_geom, self.penetrations)
         return geom
 
-    def _generate_ifc_elem(self):
-        from ada.ifc.write.write_pipe import write_pipe_straight_seg
-
-        return write_pipe_straight_seg(self)
-
     def __repr__(self):
         return f"PipeSegStraight({self.name}, p1={self.p1}, p2={self.p2})"
 
@@ -191,7 +202,9 @@ class PipeSegElbow(BackendGeom):
         colour=None,
         arc_seg=None,
     ):
-        super(PipeSegElbow, self).__init__(name, guid, metadata, units, parent, colour)
+        super(PipeSegElbow, self).__init__(
+            name=name, guid=guid, metadata=metadata, units=units, parent=parent, colour=colour
+        )
         self.p1 = p1
         self.p2 = p2
         self.p3 = p3
@@ -199,6 +212,8 @@ class PipeSegElbow(BackendGeom):
         self.section = section
         self.material = material
         self._arc_seg = arc_seg
+        section.refs.append(self)
+        material.refs.append(self)
 
     @property
     def parent(self) -> Pipe:
