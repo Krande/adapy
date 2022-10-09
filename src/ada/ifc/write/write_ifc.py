@@ -176,15 +176,26 @@ class IfcWriter:
 
     def add_related_elements_to_spatial_container(self, elements: list[ifcopenshell.entity_instance], guid: str):
         parent_ifc_elem = self.ifc_store.get_by_guid(guid)
-        self.ifc_store.f.create_entity(
-            "IfcRelContainedInSpatialStructure",
-            GlobalId=create_guid(),
-            OwnerHistory=self.ifc_store.owner_history,
-            Name="Physical model",
-            Description=None,
-            RelatedElements=elements,
-            RelatingStructure=parent_ifc_elem,
-        )
+
+        existing_spatial = None
+        for existing_rel in self.ifc_store.f.by_type("IfcRelContainedInSpatialStructure"):
+            if parent_ifc_elem == existing_rel.RelatingStructure:
+                existing_spatial = existing_rel
+                break
+
+        if existing_spatial is not None:
+            existing_spatial.OwnerHistory = self.ifc_store.owner_history
+            existing_spatial.RelatedElements = list(existing_spatial.RelatedElements) + elements
+        else:
+            self.ifc_store.f.create_entity(
+                "IfcRelContainedInSpatialStructure",
+                GlobalId=create_guid(),
+                OwnerHistory=self.ifc_store.owner_history,
+                Name="Physical model",
+                Description=None,
+                RelatedElements=elements,
+                RelatingStructure=parent_ifc_elem,
+            )
 
     def associate_elem_with_material(self, material: Material, ifc_elem: ifcopenshell.entity_instance):
         try:
