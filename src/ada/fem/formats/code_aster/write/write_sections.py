@@ -1,10 +1,7 @@
-from typing import TYPE_CHECKING, Iterable, Tuple
+from typing import Iterable
 
 from ada.fem import FemSection
 from ada.fem.containers import FemSections
-
-if TYPE_CHECKING:
-    pass
 
 
 def create_sections_str(fem_sections: FemSections) -> str:
@@ -51,7 +48,7 @@ element = AFFE_CARA_ELEM(
 """
 
 
-def write_shell_section(fem_sec: FemSection) -> Tuple[str, str]:
+def write_shell_section(fem_sec: FemSection) -> tuple[str, str]:
     mat_name = fem_sec.material.name
     sec_name = fem_sec.elset.name
     #
@@ -66,7 +63,7 @@ def write_shell_section(fem_sec: FemSection) -> Tuple[str, str]:
     return mat_, sec_str
 
 
-def write_beam_section(fem_sec: FemSection) -> Tuple[str, str, str]:
+def write_beam_section(fem_sec: FemSection) -> tuple[str, str, str]:
     mat_name = fem_sec.material.name
     sec_name = fem_sec.elset.name
     p = fem_sec.section.properties

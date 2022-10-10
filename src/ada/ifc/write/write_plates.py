@@ -48,10 +48,6 @@ def write_ifc_plate(plate: Plate):
 
     body = f.createIfcShapeRepresentation(context, "Body", "SolidModel", [ifcextrudedareasolid])
 
-    if "hidden" in plate.metadata.keys():
-        if plate.metadata["hidden"] is True:
-            a.presentation_layers.append(body)
-
     product_shape = f.createIfcProductDefinitionShape(None, None, [axis_representation, body])
 
     ifc_plate = f.createIfcPlate(

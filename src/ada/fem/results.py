@@ -159,11 +159,11 @@ class Results:
 
         workbook.close()
 
-    def to_assembly_mesh(self, data_type) -> Union[None, VisMesh]:
+    def to_vis_mesh(self, data_type: str, name: str = "na") -> VisMesh:
         from ada.ifc.utils import create_guid
         from ada.visualize.concept import ObjectMesh, PartMesh, VisMesh
 
-        name = self.assembly.name
+        name = self.assembly.name if self.assembly is not None else name
         res_mesh = self.result_mesh
         data = np.asarray(res_mesh.mesh.point_data[data_type], dtype="float32")
         vertices = np.asarray([x + u[:3] for x, u in zip(res_mesh.vertices, data)], dtype="float32")
@@ -183,7 +183,7 @@ class Results:
             )
         }
         pm = PartMesh(name=name, id_map=id_map)
-        project = self.assembly.metadata.get("project", "DummyProject")
+        project = self.assembly.metadata.get("project", "DummyProject") if self.assembly is not None else "DummyProject"
         return VisMesh(name=name, project=project, world=[pm], meta=None)
 
     @property

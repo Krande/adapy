@@ -195,7 +195,7 @@ class PipeClash:
                     clashes.append(PipeClash(seg, plate))
         return clashes
 
-    def reinforce_plate_pipe_pen(self):
+    def reinforce_plate_pipe_pen(self, add_to_layer: str = None):
         seg = self.seg
         plate = self.plate
 
@@ -207,7 +207,7 @@ class PipeClash:
 
         # Cut away in plate and stringers here
         name = f"{plate.name}_{pipe.name}_{seg.name}_pen"
-        part.add_penetration(PrimCyl(name, p1, p2, seg.section.r + 0.1))
+        part.add_penetration(PrimCyl(name, p1, p2, seg.section.r + 0.1), add_to_layer=add_to_layer)
 
         # specify reinforcement here
         reinforce_name = Counter(prefix=f"{plate.name}_{pipe.name}_{seg.name}_reinf_")
@@ -224,8 +224,7 @@ class PipeClash:
         bm_p3 = pp + dist * xdir + dist * ydir
         bm_p4 = pp - dist * xdir + dist * ydir
 
-        bm1 = Beam(next(reinforce_name), bm_p1, bm_p2, "HP140x8")
-        part.add_beam(bm1)
-        part.add_beam(Beam(next(reinforce_name), bm_p2, bm_p3, "HP140x8"))
-        part.add_beam(Beam(next(reinforce_name), bm_p3, bm_p4, "HP140x8"))
-        part.add_beam(Beam(next(reinforce_name), bm_p4, bm_p1, "HP140x8"))
+        part.add_beam(Beam(next(reinforce_name), bm_p1, bm_p2, "HP140x8"), add_to_layer=add_to_layer)
+        part.add_beam(Beam(next(reinforce_name), bm_p2, bm_p3, "HP140x8"), add_to_layer=add_to_layer)
+        part.add_beam(Beam(next(reinforce_name), bm_p3, bm_p4, "HP140x8"), add_to_layer=add_to_layer)
+        part.add_beam(Beam(next(reinforce_name), bm_p4, bm_p1, "HP140x8"), add_to_layer=add_to_layer)

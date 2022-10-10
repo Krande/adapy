@@ -7,6 +7,7 @@ import ifcopenshell
 import ifcopenshell.geom
 
 from ada.base.changes import ChangeAction
+from ada.ifc.read.reader_utils import get_ifc_body
 from ada.ifc.utils import add_negative_extrusion, create_guid, write_elem_property_sets
 from ada.ifc.write.write_beams import write_ifc_beam
 from ada.ifc.write.write_instances import write_mapped_instance
@@ -28,11 +29,15 @@ if TYPE_CHECKING:
 
 
 def is_added(x):
-    return x.change_type == x.change_type.ADDED
+    return x.change_type == ChangeAction.ADDED
 
 
 def is_modified(x):
-    return x.change_type == x.change_type.MODIFIED
+    return x.change_type == ChangeAction.MODIFIED
+
+
+def is_deleted(x):
+    return x.change_type == ChangeAction.DELETED
 
 
 @dataclass
@@ -88,6 +93,82 @@ class IfcWriter:
             to_be_modified.change_type = ChangeAction.NOCHANGE
             num_mod += 1
         return num_mod
+
+    def sync_deleted_physical_objects(self) -> int:
+        num_mod = 0
+        for to_be_modified in filter(is_deleted, self.ifc_store.assembly.get_all_physical_objects()):
+            self.create_ifc_openings(to_be_modified)
+            to_be_modified.change_type = ChangeAction.NOCHANGE
+            num_mod += 1
+        return num_mod
+
+    def sync_presentation_layers(self) -> int:
+        from ada import Part, Penetration, Pipe
+
+        num_added = 0
+        f = self.ifc_store.f
+
+        def append_bodies(ifc_ref: str | ifcopenshell.entity_instance, assigned_items_):
+            if isinstance(ifc_ref, str):
+                ifc_obj_ = f.by_guid(ifc_ref)
+            else:
+                ifc_obj_ = ifc_ref
+
+            ifc_body_ = get_ifc_body(ifc_obj_, allow_multiple=True)
+            if isinstance(ifc_body_, list):
+                for body_ in ifc_body_:
+                    assigned_items_.append(body_)
+            else:
+                assigned_items_.append(ifc_body_)
+
+        for layer in self.ifc_store.assembly.presentation_layers.layers.values():
+            assigned_items = []
+            for member in layer.members:
+                if isinstance(member, Pipe):
+                    for seg in member.segments:
+                        append_bodies(seg.guid, assigned_items)
+
+                elif isinstance(member, Part):
+                    continue
+                elif isinstance(member, Penetration):
+                    for ifc_opening in f.by_type("IfcOpeningElement"):
+                        if ifc_opening.Name != member.name:
+                            continue
+                        append_bodies(ifc_opening, assigned_items)
+
+                else:
+                    append_bodies(member.guid, assigned_items)
+
+            exist_layer = None
+            for ifc_layer in f.by_type("IfcPresentationLayerAssignment"):
+                if ifc_layer.Name == layer.name:
+                    exist_layer = ifc_layer
+                    break
+            if len(assigned_items) == 0:
+                continue
+
+            if exist_layer is None:
+                f.create_entity(
+                    "IfcPresentationLayerAssignment",
+                    Name=layer.name,
+                    Description=layer.description,
+                    AssignedItems=assigned_items,
+                    Identifier=layer.identifier,
+                    # LayerOn=True,
+                    # LayerFrozen=False,
+                    # LayerBlocked=False,
+                    # LayerStyles=[presentation_style],
+                )
+            else:
+                updated_assigned_items = list(exist_layer.AssignedItems)
+                for ai in assigned_items:
+                    if ai not in updated_assigned_items:
+                        updated_assigned_items.append(ai)
+                exist_layer.AssignedItems = updated_assigned_items
+
+            layer.change_type = ChangeAction.NOCHANGE
+
+        return num_added
 
     def sync_mapped_instances(self):
         for part in self.ifc_store.assembly.get_all_parts_in_assembly(include_self=True):

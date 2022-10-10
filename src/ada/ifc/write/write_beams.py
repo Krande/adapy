@@ -39,7 +39,6 @@ class IfcBeamWriter:
         if beam.parent is None:
             raise ValueError("Parent cannot be None for IFC export")
 
-        a = beam.parent.get_assembly()
         f = self.ifc_store.f
 
         owner_history = self.ifc_store.owner_history
@@ -55,10 +54,6 @@ class IfcBeamWriter:
             axis, body, loc_plac = extrude_straight_beam(beam, f, profile)
 
         prod_def_shp = f.create_entity("IfcProductDefinitionShape", None, None, (axis, body))
-
-        if "hidden" in beam.metadata.keys():
-            if beam.metadata["hidden"] is True:
-                a.presentation_layers.append(body)
 
         ifc_beam = f.create_entity(
             "IfcBeam",

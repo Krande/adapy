@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Union
 
 from ada.fem import StepEigen, StepImplicit
@@ -8,7 +10,7 @@ if TYPE_CHECKING:
     from ada.concepts.spatial import Part
 
 
-def step_static_str(step: StepImplicit, part: "Part") -> str:
+def step_static_str(step: StepImplicit, part: Part) -> str:
     from ada.fem.exceptions.model_definition import (
         NoBoundaryConditionsApplied,
         NoLoadsApplied,
@@ -18,7 +20,11 @@ def step_static_str(step: StepImplicit, part: "Part") -> str:
     if len(step.loads) == 0:
         raise NoLoadsApplied(f"No loads are applied in step '{step}'")
     load = step.loads[0]
-    all_boundary_conditions = part.get_assembly().fem.bcs + part.fem.bcs
+    all_boundary_conditions = part.fem.bcs
+    assembly = part.get_assembly()
+    if assembly != part:
+        all_boundary_conditions += part.get_assembly().fem.bcs
+
     if len(all_boundary_conditions) == 0:
         raise NoBoundaryConditionsApplied("No boundary condition is found for the specified model")
 
@@ -131,12 +137,15 @@ IMPR_RESU(
 )"""
 
 
-def step_eig_str(step: StepEigen, part: "Part") -> str:
-    bcs = part.fem.bcs + part.get_assembly().fem.bcs
+def step_eig_str(step: StepEigen, part: Part) -> str:
+    bcs = part.fem.bcs
+
+    assembly = part.get_assembly()
+    if part != assembly:
+        bcs += assembly.fem.bcs
 
     if len(bcs) > 1 or len(bcs) == 0:
-
-        raise NotImplementedError("Number of BC sets is for now limited to 1 for eigenfrequency analysis")
+        raise NotImplementedError(f"Number of BC sets {len(bcs)=} is for now limited to 1 for eigenfrequency analysis")
 
     eig_map = dict(sorensen="SORENSEN", lanczos="TRI_DIAG")
     eig_type = step.metadata.get("eig_method", "sorensen")

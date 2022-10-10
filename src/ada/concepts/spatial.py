@@ -25,6 +25,7 @@ from ada.concepts.containers import (
 from ada.concepts.groups import Group
 from ada.concepts.piping import Pipe
 from ada.concepts.points import Node
+from ada.concepts.presentation_layers import PresentationLayers
 from ada.concepts.primitives import (
     Penetration,
     PrimBox,
@@ -115,7 +116,7 @@ class Part(BackendGeom):
 
         self.fem = FEM(name + "-1", parent=self) if fem is None else fem
 
-    def add_beam(self, beam: Beam) -> Beam:
+    def add_beam(self, beam: Beam, add_to_layer: str = None) -> Beam:
         if beam.units != self.units:
             beam.units = self.units
         beam.parent = self
@@ -142,9 +143,14 @@ class Part(BackendGeom):
 
         beam.change_type = beam.change_type.ADDED
         self.beams.add(beam)
+
+        if add_to_layer is not None:
+            a = self.get_assembly()
+            a.presentation_layers.add_object(beam, add_to_layer)
+
         return beam
 
-    def add_plate(self, plate: Plate) -> Plate:
+    def add_plate(self, plate: Plate, add_to_layer: str = None) -> Plate:
         if plate.units != self.units:
             plate.units = self.units
 
@@ -159,9 +165,14 @@ class Part(BackendGeom):
 
         plate.change_type = plate.change_type.ADDED
         self._plates.add(plate)
+
+        if add_to_layer is not None:
+            a = self.get_assembly()
+            a.presentation_layers.add_object(plate, add_to_layer)
+
         return plate
 
-    def add_pipe(self, pipe: Pipe) -> Pipe:
+    def add_pipe(self, pipe: Pipe, add_to_layer: str = None) -> Pipe:
         if pipe.units != self.units:
             pipe.units = self.units
         pipe.parent = self
@@ -189,6 +200,11 @@ class Part(BackendGeom):
 
         pipe.change_type = pipe.change_type.ADDED
         self.pipes.append(pipe)
+
+        if add_to_layer is not None:
+            a = self.get_assembly()
+            a.presentation_layers.add_object(pipe, add_to_layer)
+
         return pipe
 
     def add_wall(self, wall: Wall) -> Wall:
@@ -212,7 +228,7 @@ class Part(BackendGeom):
         self._shapes.append(shape)
         return shape
 
-    def add_part(self, part: Part, overwrite: bool = False) -> Part:
+    def add_part(self, part: Part, overwrite: bool = False, add_to_layer: str = None) -> Part:
         if issubclass(type(part), Part) is False:
             raise ValueError("Added Part must be a subclass or instance of Part")
 
@@ -230,6 +246,10 @@ class Part(BackendGeom):
             logger.info(f'Part "{part}" has not defined its "on_import()" method')
 
         part.change_type = part.change_type.ADDED
+        if add_to_layer is not None:
+            a = self.get_assembly()
+            a.presentation_layers.add_object(part, add_to_layer)
+
         return part
 
     def add_joint(self, joint: JointBase) -> JointBase:
@@ -279,7 +299,10 @@ class Part(BackendGeom):
             raise NotImplementedError(f'"{type(obj)}" is not yet supported for smart append')
 
     def add_penetration(
-        self, pen: Penetration | PrimExtrude | PrimRevolve | PrimCyl | PrimBox, add_pen_to_subparts=True
+        self,
+        pen: Penetration | PrimExtrude | PrimRevolve | PrimCyl | PrimBox,
+        add_pen_to_subparts=True,
+        add_to_layer: str = None,
     ) -> Penetration:
         def create_pen(pen_):
             if isinstance(pen_, (PrimExtrude, PrimRevolve, PrimCyl, PrimBox)):
@@ -287,24 +310,24 @@ class Part(BackendGeom):
             return pen_
 
         for bm in self.beams:
-            bm.add_penetration(create_pen(pen))
+            bm.add_penetration(create_pen(pen), add_to_layer=add_to_layer)
 
         for pl in self.plates:
-            pl.add_penetration(create_pen(pen))
+            pl.add_penetration(create_pen(pen), add_to_layer=add_to_layer)
 
         for shp in self.shapes:
-            shp.add_penetration(create_pen(pen))
+            shp.add_penetration(create_pen(pen), add_to_layer=add_to_layer)
 
         for pipe in self.pipes:
             for seg in pipe.segments:
-                seg.add_penetration(create_pen(pen))
+                seg.add_penetration(create_pen(pen), add_to_layer=add_to_layer)
 
         for wall in self.walls:
-            wall.add_penetration(create_pen(pen))
+            wall.add_penetration(create_pen(pen), add_to_layer=add_to_layer)
 
         if add_pen_to_subparts:
             for p in self.get_all_subparts():
-                p.add_penetration(pen, False)
+                p.add_penetration(pen, False, add_to_layer=add_to_layer)
 
         return pen
 
@@ -422,6 +445,9 @@ class Part(BackendGeom):
             for pi in p.pipes:
                 if getattr(pi, prop) == value:
                     return pi
+                for seg in pi.segments:
+                    if getattr(seg, prop) == value:
+                        return seg
 
             for mat in p.materials:
                 if getattr(mat, prop) == value:
@@ -869,7 +895,7 @@ class Assembly(Part):
         self._ifc_materials = None
         self._source_ifc_files = dict()
         self._ifc_settings = ifc_settings
-        self._presentation_layers = []
+        self._presentation_layers = PresentationLayers()
 
         self._ifc_store = IfcStore(assembly=self)
         self._cache_store = None
@@ -1100,8 +1126,12 @@ class Assembly(Part):
         self._ifc_store = value
 
     @property
-    def presentation_layers(self):
+    def presentation_layers(self) -> PresentationLayers:
         return self._presentation_layers
+
+    @presentation_layers.setter
+    def presentation_layers(self, value):
+        self._presentation_layers = value
 
     @property
     def user(self) -> User:

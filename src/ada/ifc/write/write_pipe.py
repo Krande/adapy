@@ -35,9 +35,8 @@ def write_ifc_pipe(pipe: Pipe):
     ifc_pipe = write_pipe_ifc_elem(pipe)
 
     a = pipe.get_assembly()
-    f = a.ifc_store.f
-
-    owner_history = a.ifc_store.owner_history
+    ifc_store = a.ifc_store
+    f = ifc_store.f
 
     segments = []
     for param_seg in pipe.segments:
@@ -47,15 +46,7 @@ def write_ifc_pipe(pipe: Pipe):
         f.add(res)
         segments += [res]
 
-    f.create_entity(
-        "IfcRelContainedInSpatialStructure",
-        create_guid(),
-        owner_history,
-        "Pipe Segments",
-        None,
-        segments,
-        ifc_pipe,
-    )
+    ifc_store.writer.add_related_elements_to_spatial_container(segments, ifc_pipe.GlobalId)
 
     return ifc_pipe
 
@@ -202,7 +193,7 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
 
     pfitting = f.create_entity(
         "IfcPipeFitting",
-        create_guid(),
+        pipe_elbow.guid,
         owner_history,
         pipe_elbow.name,
         "An curved pipe segment",

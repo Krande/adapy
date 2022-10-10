@@ -221,7 +221,7 @@ def get_axis_polyline_points_from_product(product) -> list[tuple[float, float, f
     return axis_data
 
 
-def get_ifc_body(product) -> ifcopenshell.entity_instance:
+def get_ifc_body(product, allow_multiple=False) -> ifcopenshell.entity_instance:
     bodies = []
     for body in filter(lambda x: x.RepresentationIdentifier != "Axis", product.Representation.Representations):
         if len(body.Items) != 1:
@@ -229,7 +229,10 @@ def get_ifc_body(product) -> ifcopenshell.entity_instance:
         bodies.append(body.Items[0])
 
     if len(bodies) != 1:
-        raise ValueError("Currently do not support multi body IFC products")
+        if allow_multiple is False:
+            raise ValueError("Currently do not support multi body IFC products")
+        else:
+            return bodies
 
     return bodies[0]
 

@@ -46,7 +46,10 @@ def create_comm_str(assembly: "Assembly", part: "Part") -> str:
     """Create COMM file input str"""
     mat_str = materials_str(assembly)
     sections_str = create_sections_str(part.fem.sections)
-    bc_str = "\n".join([create_bc_str(bc) for bc in assembly.fem.bcs + part.fem.bcs])
+    bcs = part.fem.bcs
+    if assembly != part:
+        bcs += assembly.fem.bcs
+    bc_str = "\n".join([create_bc_str(bc) for bc in bcs])
     step_str = "\n".join([create_step_str(s, part) for s in assembly.fem.steps])
 
     type_tmpl_str = "_F(GROUP_MA={elset_str}, PHENOMENE='MECANIQUE', MODELISATION='{el_formula}',),"

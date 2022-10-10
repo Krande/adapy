@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from ada.base.changes import ChangeAction
 from ada.ifc.read.read_physical_objects import import_physical_ifc_elem
 from ada.ifc.read.reader_utils import (
     add_to_assembly,
@@ -32,6 +33,36 @@ class IfcReader:
 
         mi = MaterialImporter(self.ifc_store)
         mi.load_ifc_materials()
+
+    def load_presentation_layers(self):
+        from ada.concepts.presentation_layers import (
+            PresentationLayer,
+            PresentationLayers,
+        )
+
+        layers = dict()
+        for obj in self.ifc_store.f.by_type("IfcPresentationLayerAssignment"):
+            members = []
+            for x in obj.AssignedItems:
+                guid = None
+                for inverse in self.ifc_store.f.get_inverse(x):
+                    if inverse.is_a("IfcShapeRepresentation"):
+                        product = inverse.OfProductRepresentation[0].ShapeOfProduct[0]
+                        guid = product.GlobalId
+                        break
+                elem = self.ifc_store.assembly.get_by_guid(guid)
+                if elem is None:
+                    # raise ValueError()
+                    continue
+                if elem not in members:
+                    members.append(elem)
+
+            pl = PresentationLayer(
+                obj.Name, obj.Description, members, identifier=obj.Identifier, change_type=ChangeAction.NOCHANGE
+            )
+            layers[pl.name] = pl
+
+        self.ifc_store.assembly.presentation_layers = PresentationLayers(layers)
 
     def load_objects(self, data_only=False, elements2part=None):
         for product in self.ifc_store.f.by_type("IfcProduct"):

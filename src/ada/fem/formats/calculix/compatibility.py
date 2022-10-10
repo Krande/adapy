@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ada.fem.exceptions.element_support import IncompatibleElements
@@ -10,7 +12,7 @@ if TYPE_CHECKING:
     from ada import Assembly
 
 
-def check_compatibility(assembly: "Assembly"):
+def check_compatibility(assembly: Assembly):
 
     p = get_fem_model_from_assembly(assembly)
     step = assembly.fem.steps[0] if len(assembly.fem.steps) > 0 else None

@@ -24,14 +24,14 @@ class VisMesh:
 
     name: str
     project: str = None
-    world: List[PartMesh] = field(default_factory=list, repr=False)
-    meshes: Dict[str, VisNode] = field(default_factory=dict, repr=False)
-    meta: Union[None, dict] = field(default=None, repr=False)
+    world: list[PartMesh] = field(default_factory=list, repr=False)
+    meshes: dict[str, VisNode] = field(default_factory=dict, repr=False)
+    meta: None | dict = field(default=None, repr=False)
     created: str = None
     translation: np.ndarray = None
     cache_file: pathlib.Path = field(default=pathlib.Path(".cache/meshes.h5"), repr=False)
     overwrite_cache: bool = False
-    colors: Dict[str, VisColor] = field(default_factory=dict)
+    colors: dict[str, VisColor] = field(default_factory=dict)
 
     def __enter__(self):
         logging.debug("Starting Visual Mesh session")
@@ -146,21 +146,49 @@ class VisMesh:
 
         for world in self.world:
             for key, obj in world.id_map.items():
-                if len(obj.index.shape) == 1:
-                    shape = len(obj.index.shape)
-                else:
-                    shape = obj.index.shape[1]
+                indices_shape = get_shape(obj.index)
+                verts_shape = get_shape(obj.position)
 
-                if shape != 3:
+                if indices_shape == 1:
                     faces = obj.index.reshape(int(len(obj.index) / 3), 3)
                 else:
                     faces = obj.index
 
-                vertices = obj.position
-                vertex_normals = obj.normal
+                if verts_shape == 1:
+                    vertices = obj.position.reshape(int(len(obj.position) / 3), 3)
+                else:
+                    vertices = obj.position
+
+                vertex_color = None
+                if obj.vertex_color is not None:
+                    verts_shape = get_shape(obj.vertex_color)
+                    if verts_shape == 1:
+                        vcolor = obj.vertex_color.reshape(int(len(obj.vertex_color) / 3), 3)
+                    else:
+                        vcolor = obj.vertex_color
+
+                    vertex_color = np.array([[i * 255 for i in x] + [1] for x in vcolor], dtype=np.uint8)
+                    # vertex_color = [int(x * 255) for x in obj.vertex_color]
+
+                # vertex_normals = obj.normal
                 new_mesh = trimesh.Trimesh(
-                    vertices=vertices, faces=faces, vertex_normals=vertex_normals, metadata=dict(guid=obj.guid)
+                    vertices=vertices,
+                    faces=faces,
+                    # vertex_normals=vertex_normals,
+                    # metadata=dict(guid=obj.guid),
+                    vertex_colors=vertex_color,
                 )
+                if vertex_color is not None:
+                    np.save("temp/vertices", vertices)
+                    np.save("temp/colors", vertex_color)
+                    np.save("temp/faces", faces)
+
+                    # res = trimesh.visual.random_color()
+                    # new_mesh.vertex_attributes["vertex_colors"] = vertex_color
+                    # new_mesh.visual.material = PBRMaterial(doubleSided=True)
+                    print("sd")
+                    pass
+
                 if obj.color is not None:
                     needs_to_be_scaled = True
                     for x in obj.color:
@@ -172,7 +200,8 @@ class VisMesh:
                     else:
                         base_color = obj.color
 
-                    new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color[:3])
+                    if vertex_color is None:
+                        new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color[:3])
 
                 scene.add_geometry(new_mesh, node_name=key, geom_name=key)
 
@@ -219,7 +248,7 @@ class VisMesh:
 
         return listofobj
 
-    def to_gltf(self, dest_file, only_these_guids: List[str] = None):
+    def to_gltf(self, dest_file, only_these_guids: list[str] = None):
         from ada.core.vector_utils import rot_matrix
 
         dest_file = pathlib.Path(dest_file).with_suffix(".glb")
@@ -441,10 +470,10 @@ class ObjectMesh:
     guid: str
     index: np.ndarray
     position: np.ndarray
-    normal: Union[np.ndarray, None]
-    color: Union[list, None] = None
+    normal: np.ndarray | None
+    color: list | None = None
     vertex_color: np.ndarray = None
-    instances: Union[np.ndarray, None] = None
+    instances: np.ndarray | None = None
     id_sequence: dict = field(default_factory=dict)
     translation: np.ndarray = None
 
@@ -570,3 +599,11 @@ class ObjectMesh:
 class VisNode:
     guid: str
     parent: str
+
+
+def get_shape(np_array: np.ndarray) -> int:
+    if len(np_array.shape) == 1:
+        shape = len(np_array.shape)
+    else:
+        shape = np_array.shape[1]
+    return shape

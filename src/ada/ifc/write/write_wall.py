@@ -40,10 +40,6 @@ def write_ifc_wall(wall: Wall):
     solid = create_ifcextrudedareasolid(f, profile, extrusion_placement, (0.0, 0.0, 1.0), wall.height)
     body = f.createIfcShapeRepresentation(context, "Body", "SweptSolid", [solid])
 
-    if "hidden" in wall.metadata.keys():
-        if wall.metadata["hidden"] is True:
-            a.presentation_layers.append(body)
-
     product_shape = f.createIfcProductDefinitionShape(None, None, [axis_representation, body])
 
     wall_el = f.create_entity(

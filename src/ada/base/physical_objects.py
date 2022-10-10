@@ -44,7 +44,7 @@ class BackendGeom(Root):
         self._elem_refs = []
         self._viz = Visualize(self)
 
-    def add_penetration(self, pen):
+    def add_penetration(self, pen, add_to_layer: str = None):
         from ada import Penetration, Shape
         from ada.base.changes import ChangeAction
 
@@ -60,6 +60,10 @@ class BackendGeom(Root):
 
         if self.change_type in (ChangeAction.NOCHANGE, ChangeAction.NOTDEFINED):
             self.change_type = ChangeAction.MODIFIED
+
+        if add_to_layer is not None:
+            a = self.get_assembly()
+            a.presentation_layers.add_object(pen, add_to_layer)
 
         return pen
 

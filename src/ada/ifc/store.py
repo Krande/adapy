@@ -65,10 +65,15 @@ class IfcStore:
 
         num_mod = self.writer.sync_modified_physical_objects()
 
+        self.writer.sync_presentation_layers()
+
+        num_del = self.writer.sync_deleted_physical_objects()
+
         add_str = f"Added {num_new_objects} objects and {num_new_spatial_objects} spatial elements"
         mod_str = f"Modified {num_mod} objects"
+        del_str = f"Deleted {num_del} objects"
 
-        print(f"Sync Complete. {add_str}. {mod_str}")
+        print(f"Sync Complete. {add_str}. {mod_str}. {del_str}")
 
     def save_to_file(self, filepath: str | os.PathLike):
         with open(filepath, "w") as f:
@@ -111,6 +116,8 @@ class IfcStore:
 
         if target_units is not None:
             self.assembly.units = target_units
+
+        self.reader.load_presentation_layers()
 
         ifc_file_name = "object" if self.ifc_file_path is None else self.ifc_file_path
 

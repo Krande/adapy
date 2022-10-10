@@ -29,12 +29,17 @@ class FemSet(FemBase):
 
     TYPES = SetTypes
 
-    def __init__(self, name, members: Union[None, List[Union[Elem, Node]]], set_type=None, metadata=None, parent=None):
+    def __init__(self, name, members: None | list[Elem | Node], set_type=None, metadata=None, parent=None):
         super().__init__(name, metadata, parent)
         if set_type is None:
             set_type = eval_set_type_from_members(members)
+
+        if members is None:
+            members = []
+
         for m in members:
             m.refs.append(self)
+
         self._set_type = set_type
         if self.type not in SetTypes.all:
             raise ValueError(f'set type "{set_type}" is not valid')
@@ -61,14 +66,14 @@ class FemSet(FemBase):
         return self._set_type.lower()
 
     @property
-    def members(self) -> List[Union[Elem, Node]]:
+    def members(self) -> list[Elem | Node]:
         return self._members
 
     def __repr__(self):
         return f'FemSet({self.name}, type: "{self.type}", members: "{len(self.members)}")'
 
 
-def eval_set_type_from_members(members: List[Union[Elem, Node]]) -> str:
+def eval_set_type_from_members(members: list[Elem | Node]) -> str:
     from ada.fem import Elem
 
     res = set([type(mem) for mem in members])
@@ -83,7 +88,7 @@ def eval_set_type_from_members(members: List[Union[Elem, Node]]) -> str:
         # return "mixed"
 
 
-def is_lazy(members: List[Union[Elem, Node]]) -> bool:
+def is_lazy(members: list[Elem | Node]) -> bool:
     res = set([type(mem) for mem in members])
     if len(res) == 1 and type(members[0]) is tuple:
         return True

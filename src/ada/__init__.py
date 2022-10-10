@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import pathlib
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 from ada import fem
 from ada.base.units import Units
@@ -33,6 +33,9 @@ from ada.sections import Section
 if TYPE_CHECKING:
     import ifcopenshell
 
+    from ada.fem.results import Results
+
+
 __author__ = "Kristoffer H. Andersen"
 
 
@@ -48,16 +51,16 @@ def from_ifc(ifc_file: os.PathLike | ifcopenshell.file, units=Units.M, name="Ada
     return a
 
 
-def from_step(step_file: Union[str, pathlib.Path], source_units=Units.M, **kwargs) -> Assembly:
+def from_step(step_file: str | pathlib.Path, source_units=Units.M, **kwargs) -> Assembly:
     a = Assembly()
     a.read_step_file(step_file, source_units=source_units, **kwargs)
     return a
 
 
 def from_fem(
-    fem_file: Union[str, list, pathlib.Path],
-    fem_format: Union[str, list] = None,
-    name: Union[str, list] = None,
+    fem_file: str | list | pathlib.Path,
+    fem_format: str | list = None,
+    name: str | list = None,
     enable_cache=False,
     source_units=Units.M,
     fem_converter="default",
@@ -74,6 +77,12 @@ def from_fem(
         raise ValueError(f'fem_file must be either string or list. Passed type was "{type(fem_file)}"')
 
     return a
+
+
+def from_fem_res(fem_file: str | pathlib.Path, fem_format: str = None, **kwargs) -> Results:
+    from ada.fem.results import Results
+
+    return Results(fem_file, fem_format=fem_format, **kwargs)
 
 
 def from_genie_xml(xml_path, **kwargs) -> Assembly:

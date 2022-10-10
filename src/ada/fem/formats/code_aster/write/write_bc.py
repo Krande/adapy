@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ada.fem import Bc
 
 
-def create_bc_str(bc: "Bc") -> str:
+def create_bc_str(bc: Bc) -> str:
     from ada.fem.utils import is_parent_of_node_solid
 
     set_name = bc.fem_set.name
