@@ -5,8 +5,6 @@ import trimesh
 
 from ada import Beam
 
-os.makedirs("temp", exist_ok=True)
-
 
 def test_vertex_coloring_simple():
     vertices = np.asarray([(0, 0, 0), (0, 1, 0), (1, 1, 0)], dtype="float32")
@@ -20,15 +18,24 @@ def test_vertex_coloring_simple():
 
     scene.add_geometry(new_mesh, node_name="test", geom_name="test")
 
-    scene.export(file_obj="temp/polygon.glb", file_type=".glb")
+    # os.makedirs("temp", exist_ok=True)
+    # scene.export(file_obj="temp/polygon.glb", file_type=".glb")
 
 
 def test_instanced_mapped_geometry():
-    bm = Beam("bm1", (0, 0, 0), (1, 0, 0))
+    bm = Beam("bm1", (0, 0, 0), (1, 0, 0), sec="IPE300")
+    obj_mesh = bm.to_obj_mesh()
 
-    _ = bm.to_fem_obj(0.1, "line")
-    # for el in fem.elements.lines:
-    #     el.nodes
+    fem = bm.to_fem_obj(0.1, "line")
+    line_p = []
+    for el in fem.elements.lines:
+        n1, n2 = el.nodes[0], el.nodes[-1]
+        line_p.append((n1, n2))
+
+    scene = trimesh.Scene()
+    new_mesh = obj_mesh.to_trimesh()
+    new_mesh.apply_scale(bm.xvec * 0.1)
+    scene.add_geometry(new_mesh, bm.name, bm.name)
 
 
 def test_vertex_coloring_advanced():
@@ -45,4 +52,4 @@ def test_vertex_coloring_advanced():
 
     scene.add_geometry(new_mesh, node_name="test", geom_name="test")
     os.makedirs("temp", exist_ok=True)
-    scene.export(file_obj="temp/planes.glb", file_type=".glb")
+    # scene.export(file_obj="temp/planes.glb", file_type=".glb")

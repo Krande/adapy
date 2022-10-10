@@ -142,67 +142,10 @@ class VisMesh:
 
     def _convert_to_trimesh(self) -> trimesh.Scene:
         scene = trimesh.Scene()
-        from trimesh.visual.material import PBRMaterial
 
         for world in self.world:
             for key, obj in world.id_map.items():
-                indices_shape = get_shape(obj.index)
-                verts_shape = get_shape(obj.position)
-
-                if indices_shape == 1:
-                    faces = obj.index.reshape(int(len(obj.index) / 3), 3)
-                else:
-                    faces = obj.index
-
-                if verts_shape == 1:
-                    vertices = obj.position.reshape(int(len(obj.position) / 3), 3)
-                else:
-                    vertices = obj.position
-
-                vertex_color = None
-                if obj.vertex_color is not None:
-                    verts_shape = get_shape(obj.vertex_color)
-                    if verts_shape == 1:
-                        vcolor = obj.vertex_color.reshape(int(len(obj.vertex_color) / 3), 3)
-                    else:
-                        vcolor = obj.vertex_color
-
-                    vertex_color = np.array([[i * 255 for i in x] + [1] for x in vcolor], dtype=np.uint8)
-                    # vertex_color = [int(x * 255) for x in obj.vertex_color]
-
-                # vertex_normals = obj.normal
-                new_mesh = trimesh.Trimesh(
-                    vertices=vertices,
-                    faces=faces,
-                    # vertex_normals=vertex_normals,
-                    # metadata=dict(guid=obj.guid),
-                    vertex_colors=vertex_color,
-                )
-                if vertex_color is not None:
-                    np.save("temp/vertices", vertices)
-                    np.save("temp/colors", vertex_color)
-                    np.save("temp/faces", faces)
-
-                    # res = trimesh.visual.random_color()
-                    # new_mesh.vertex_attributes["vertex_colors"] = vertex_color
-                    # new_mesh.visual.material = PBRMaterial(doubleSided=True)
-                    print("sd")
-                    pass
-
-                if obj.color is not None:
-                    needs_to_be_scaled = True
-                    for x in obj.color:
-                        if x > 1.0:
-                            needs_to_be_scaled = False
-
-                    if needs_to_be_scaled:
-                        base_color = [int(x * 255) for x in obj.color[:3]] + [obj.color[3]]
-                    else:
-                        base_color = obj.color
-
-                    if vertex_color is None:
-                        new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color[:3])
-
+                new_mesh = obj.to_trimesh()
                 scene.add_geometry(new_mesh, node_name=key, geom_name=key)
 
         return scene
@@ -528,6 +471,67 @@ class ObjectMesh:
             id_sequence=self.id_sequence,
             translation=self.translation_norm,
         )
+
+    def to_trimesh(self) -> trimesh.Trimesh:
+        from trimesh.visual.material import PBRMaterial
+
+        indices_shape = get_shape(self.index)
+        verts_shape = get_shape(self.position)
+
+        if indices_shape == 1:
+            faces = self.index.reshape(int(len(self.index) / 3), 3)
+        else:
+            faces = self.index
+
+        if verts_shape == 1:
+            vertices = self.position.reshape(int(len(self.position) / 3), 3)
+        else:
+            vertices = self.position
+
+        vertex_color = None
+        if self.vertex_color is not None:
+            verts_shape = get_shape(self.vertex_color)
+            if verts_shape == 1:
+                vcolor = self.vertex_color.reshape(int(len(self.vertex_color) / 3), 3)
+            else:
+                vcolor = self.vertex_color
+
+            vertex_color = np.array([[i * 255 for i in x] + [1] for x in vcolor], dtype=np.uint8)
+            # vertex_color = [int(x * 255) for x in self.vertex_color]
+
+        # vertex_normals = self.normal
+        new_mesh = trimesh.Trimesh(
+            vertices=vertices,
+            faces=faces,
+            # vertex_normals=vertex_normals,
+            # metadata=dict(guid=self.guid),
+            vertex_colors=vertex_color,
+        )
+        if vertex_color is not None:
+            np.save("temp/vertices", vertices)
+            np.save("temp/colors", vertex_color)
+            np.save("temp/faces", faces)
+
+            # res = trimesh.visual.random_color()
+            # new_mesh.vertex_attributes["vertex_colors"] = vertex_color
+            # new_mesh.visual.material = PBRMaterial(doubleSided=True)
+            print("sd")
+            pass
+
+        if self.color is not None:
+            needs_to_be_scaled = True
+            for x in self.color:
+                if x > 1.0:
+                    needs_to_be_scaled = False
+
+            if needs_to_be_scaled:
+                base_color = [int(x * 255) for x in self.color[:3]] + [self.color[3]]
+            else:
+                base_color = self.color
+
+            if vertex_color is None:
+                new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color[:3])
+        return new_mesh
 
     @property
     def index_flat(self):

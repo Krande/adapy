@@ -8,6 +8,7 @@ from ada.base.root import Root
 from ada.base.units import Units
 from ada.concepts.transforms import Placement
 from ada.core.constants import color_map as _cmap
+from ada.visualize.config import ExportConfig
 
 if TYPE_CHECKING:
     from ada import FEM, Penetration
@@ -113,15 +114,24 @@ class BackendGeom(Root):
     def to_stp(
         self, destination_file, geom_repr=None, schema="AP242", silent=False, fuse_piping=False, return_file_obj=False
     ):
-        from ada.fem.shapes import ElemType
-        from ada.occ.writer import StepExporter
+        occ_export = self._get_occ_export(geom_repr, schema, fuse_piping)
+        return occ_export.write_to_file(destination_file, silent, return_file_obj=return_file_obj)
 
-        destination_file = pathlib.Path(destination_file).resolve().absolute()
+    def _get_occ_export(self, geom_repr=None, schema="AP242", fuse_piping=False):
+        from ada.fem.shapes import ElemType
+        from ada.occ.writer import OCCExporter
 
         geom_repr = ElemType.SOLID if geom_repr is None else geom_repr
-        step_export = StepExporter(schema)
-        step_export.add_to_step_writer(self, geom_repr, fuse_piping=fuse_piping)
-        return step_export.write_to_file(destination_file, silent, return_file_obj=return_file_obj)
+        occ_export = OCCExporter(schema)
+        occ_export.add_to_step_writer(self, geom_repr, fuse_piping=fuse_piping)
+        return occ_export
+
+    def to_obj_mesh(self, export_config: ExportConfig = ExportConfig()):
+        from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import (
+            occ_geom_to_poly_mesh,
+        )
+
+        return occ_geom_to_poly_mesh(self, export_config=export_config)
 
     def render_locally(
         self, addr="localhost", server_port=8080, open_webbrowser=False, render_engine="threejs", resolution=(1800, 900)
