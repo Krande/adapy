@@ -107,7 +107,7 @@ def ifc_poly_elem_to_json(
     for i, (colour, elements) in enumerate(colour_map.items()):
         obj_mesh = merge_mesh_objects(elements)
 
-        if len(obj_mesh.index) == 0:
+        if len(obj_mesh.faces) == 0:
             continue
 
         if colour[-1] == 1.0 and applied_guid is False:

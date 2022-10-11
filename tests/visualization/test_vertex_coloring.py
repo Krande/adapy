@@ -4,6 +4,7 @@ import pathlib
 import numpy as np
 import pytest
 import trimesh
+from trimesh.path.entities import Line
 from trimesh.visual.material import PBRMaterial
 
 from ada import Beam
@@ -85,11 +86,25 @@ def test_vertex_coloring_advanced():
     scene.export(file_obj="temp/planes.glb", file_type=".glb")
 
 
-def test_line_segments():
+def test_single_line_segments():
     scene = trimesh.Scene()
     points = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (1, 1, 1)]
     path = trimesh.load_path(np.asarray(points))
-    # vertex_color = np.asarray([(245, 40, 145), (128, 50, 0), (200, 50, 0)], dtype="uint8")
-    # entity = path.entities[0]
     scene.add_geometry(path)
     scene.export(file_obj="temp/lines.glb", file_type=".glb")
+
+
+def test_multiple_line_segments():
+    from ada.core.vector_utils import rot_matrix
+
+    scene = trimesh.Scene()
+    points = np.asarray([(0, 0, 0.5), (1, 0, 0.5), (0, 1, 0.5), (1, 1, 0.5)], dtype=float)
+    path = trimesh.path.Path3D(entities=[Line([0, 1]), Line([2, 3])], vertices=points)
+    scene.add_geometry(path)
+
+    m3x3 = rot_matrix((0, -1, 0))
+    m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
+    m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
+    scene.apply_transform(m4x4)
+    os.makedirs("temp", exist_ok=True)
+    scene.export(file_obj="temp/multi_lines.glb", file_type=".glb")

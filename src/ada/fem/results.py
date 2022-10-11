@@ -5,7 +5,7 @@ import os
 import pathlib
 import subprocess
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, List, Union
+from typing import TYPE_CHECKING, Dict, List
 
 import meshio
 import numpy as np
@@ -17,6 +17,7 @@ from ada.fem.formats import FEATypes
 from ada.visualize.femviz import get_edges_and_faces_from_meshio, magnitude
 from ada.visualize.renderer_pythreejs import MyRenderer
 from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
+
 from .concepts.eigenvalue import EigenDataSummary
 from .formats.abaqus.results import read_abaqus_results
 from .formats.calculix.results import read_calculix_results
@@ -25,7 +26,7 @@ from .formats.sesam.results import read_sesam_results
 
 if TYPE_CHECKING:
     from ada import Assembly
-    from ada.visualize.concept import VisMesh, PartMesh, ObjectMesh
+    from ada.visualize.concept import PartMesh, VisMesh
 
 
 class Results:
@@ -41,7 +42,7 @@ class Results:
         res_path,
         name: str = None,
         fem_format: str = None,
-        assembly: Union[None, "Assembly"] = None,
+        assembly: None | Assembly = None,
         palette=None,
         output=None,
         overwrite=True,
@@ -440,7 +441,7 @@ class ResultsMesh:
             self.create_viz_geom(data, renderer=self.renderer)
 
     def to_part_mesh(self, name: str, data_type: str = None) -> PartMesh:
-        from ada.visualize.concept import PartMesh, ObjectMesh
+        from ada.visualize.concept import ObjectMesh, PartMesh
 
         if data_type is not None:
             step_names = [data_type]
@@ -458,14 +459,16 @@ class ResultsMesh:
 
             colors = self.colorize_data(data)
             faces = self.faces
+            edges = self.edges
 
             id_map[step] = ObjectMesh(
                 guid=step,
-                index=faces.astype(int),
+                faces=faces.astype(int),
                 position=vertices.flatten().astype(float),
                 normal=None,
                 color=None,
                 vertex_color=colors.flatten().astype(float),
+                edges=edges,
                 instances=None,
                 # id_sequence=dict()
             )

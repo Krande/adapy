@@ -23,7 +23,7 @@ def export_results_to_assembly_mesh(results: "Results", data_type) -> VisMesh:
     id_map = {
         guid: ObjectMesh(
             guid=guid,
-            index=faces.astype(int),
+            faces=faces.astype(int),
             position=vertices.flatten().astype(float),
             normal=None,
             color=None,

@@ -7,7 +7,7 @@ import os
 import pathlib
 import shutil
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple, Union
+from typing import List, Tuple
 
 import h5py
 import numpy as np
@@ -145,8 +145,11 @@ class VisMesh:
 
         for world in self.world:
             for key, obj in world.id_map.items():
-                new_mesh = obj.to_trimesh()
-                scene.add_geometry(new_mesh, node_name=key, geom_name=key)
+                parent = None
+                for i, new_mesh in enumerate(obj.to_trimesh()):
+                    name = key if i == 0 else f"{key}_{i:02d}"
+                    scene.add_geometry(new_mesh, node_name=name, geom_name=name, parent_node_name=parent)
+                    parent = name
 
         return scene
 
@@ -183,7 +186,7 @@ class VisMesh:
 
             new_guid = create_guid()
 
-            self.add_mesh(new_guid, create_guid(), obj0.position, obj0.index, obj0.normal, color_ref=color.name)
+            self.add_mesh(new_guid, create_guid(), obj0.position, obj0.faces, obj0.normal, color_ref=color.name)
             listofobj.append(new_guid)
 
         if self._h5cache is None and h5_file is not None:
@@ -230,7 +233,7 @@ class VisMesh:
 
                     obj_group.create_dataset("POSITION", data=obj_mesh.position)
                     # obj_group.create_dataset("NORMAL", data=obj_mesh.normal)
-                    obj_group.create_dataset("INDEX", data=obj_mesh.index)
+                    obj_group.create_dataset("INDEX", data=obj_mesh.faces)
 
     def to_binary_and_json(self, dest_dir, auto_zip=True, export_dir=None, skip_normals=False):
         dest_dir = pathlib.Path(dest_dir)
@@ -397,7 +400,7 @@ class PartMesh:
         for colour, elements in colour_map.items():
             guid = create_guid()
             pm = merge_mesh_objects(elements)
-            if len(pm.index) == 0:
+            if len(pm.faces) == 0:
                 continue
             id_map[guid] = pm
 
@@ -411,10 +414,11 @@ class PartMesh:
 @dataclass
 class ObjectMesh:
     guid: str
-    index: np.ndarray
+    faces: np.ndarray
     position: np.ndarray
     normal: np.ndarray | None
     color: list | None = None
+    edges: np.ndarray = None
     vertex_color: np.ndarray = None
     instances: np.ndarray | None = None
     id_sequence: dict = field(default_factory=dict)
@@ -425,7 +429,7 @@ class ObjectMesh:
 
     @property
     def num_polygons(self):
-        return int(len(self.index) / 3)
+        return int(len(self.faces) / 3)
 
     @property
     def bbox(self):
@@ -472,16 +476,16 @@ class ObjectMesh:
             translation=self.translation_norm,
         )
 
-    def to_trimesh(self) -> trimesh.Trimesh:
+    def to_trimesh(self) -> list[trimesh.Trimesh]:
         from trimesh.visual.material import PBRMaterial
 
-        indices_shape = get_shape(self.index)
+        indices_shape = get_shape(self.faces)
         verts_shape = get_shape(self.position)
 
         if indices_shape == 1:
-            faces = self.index.reshape(int(len(self.index) / 3), 3)
+            faces = self.faces.reshape(int(len(self.faces) / 3), 3)
         else:
-            faces = self.index
+            faces = self.faces
 
         if verts_shape == 1:
             vertices = self.position.reshape(int(len(self.position) / 3), 3)
@@ -524,11 +528,24 @@ class ObjectMesh:
             if vertex_color is None:
                 new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color[:3])
 
-        return new_mesh
+        meshes = [new_mesh]
+        if self.edges is not None:
+            from trimesh.path.entities import Line
+
+            shape_edges = get_shape(self.edges)
+            if shape_edges == 1:
+                reshaped = self.edges.reshape(int(len(self.edges) / 2), 2)
+                edge_mesh = trimesh.path.Path3D(entities=[Line(x[0]) for x in reshaped], vertices=vertices)
+            else:
+                raise NotImplementedError()
+
+            meshes.append(edge_mesh)
+
+        return meshes
 
     @property
     def index_flat(self):
-        return self.index.astype(dtype="int32").flatten()
+        return self.faces.astype(dtype="int32").flatten()
 
     @property
     def index_norm_flat(self):
@@ -560,11 +577,11 @@ class ObjectMesh:
 
     def __add__(self, other: ObjectMesh):
         pos_len = int(len(self.position))
-        new_index = other.index + pos_len
-        ma = int((len(other.index) + len(self.index))) - 1
-        mi = int(len(self.index))
+        new_index = other.faces + pos_len
+        ma = int((len(other.faces) + len(self.faces))) - 1
+        mi = int(len(self.faces))
 
-        self.index = np.concatenate([self.index, new_index])
+        self.faces = np.concatenate([self.faces, new_index])
         if len(self.position) == 0:
             self.position = other.position
         else:
