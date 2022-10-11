@@ -356,8 +356,8 @@ class VisMesh:
 @dataclass
 class PartMesh:
     name: str
-    id_map: Dict[str, ObjectMesh]
-    guiparam: Union[None, dict] = None
+    id_map: dict[str, ObjectMesh]
+    guiparam: None | dict = None
     rawdata: bool = True
 
     def move_objects_to_center(self, override_center=None):
@@ -447,7 +447,7 @@ class ObjectMesh:
         np.save(str(dest_dir / index_guid), self.index_flat)
 
         if vertex_guid is not None:
-            np.save(str(dest_dir / vertex_guid), self.vertex_color)
+            np.save(str(dest_dir / vertex_guid), self.vertex_color.astype(dtype="float32").flatten())
 
         return dict(
             index=index_guid,
@@ -504,19 +504,11 @@ class ObjectMesh:
             vertices=vertices,
             faces=faces,
             # vertex_normals=vertex_normals,
-            # metadata=dict(guid=self.guid),
+            metadata=dict(guid=self.guid),
             vertex_colors=vertex_color,
         )
         if vertex_color is not None:
-            np.save("temp/vertices", vertices)
-            np.save("temp/colors", vertex_color)
-            np.save("temp/faces", faces)
-
-            # res = trimesh.visual.random_color()
-            # new_mesh.vertex_attributes["vertex_colors"] = vertex_color
-            # new_mesh.visual.material = PBRMaterial(doubleSided=True)
-            print("sd")
-            pass
+            new_mesh.visual.material = PBRMaterial(doubleSided=True)
 
         if self.color is not None:
             needs_to_be_scaled = True
@@ -531,6 +523,7 @@ class ObjectMesh:
 
             if vertex_color is None:
                 new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color[:3])
+
         return new_mesh
 
     @property

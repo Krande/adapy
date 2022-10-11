@@ -5,7 +5,7 @@ import os
 import pathlib
 import subprocess
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, List, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Union
 
 import meshio
 import numpy as np
@@ -17,7 +17,6 @@ from ada.fem.formats import FEATypes
 from ada.visualize.femviz import get_edges_and_faces_from_meshio, magnitude
 from ada.visualize.renderer_pythreejs import MyRenderer
 from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
-
 from .concepts.eigenvalue import EigenDataSummary
 from .formats.abaqus.results import read_abaqus_results
 from .formats.calculix.results import read_calculix_results
@@ -26,7 +25,7 @@ from .formats.sesam.results import read_sesam_results
 
 if TYPE_CHECKING:
     from ada import Assembly
-    from ada.visualize.concept import VisMesh
+    from ada.visualize.concept import VisMesh, PartMesh, ObjectMesh
 
 
 class Results:
@@ -62,13 +61,18 @@ class Results:
         self._history_output = None
         self._import_mesh = import_mesh
         if res_path is not None:
-            self._read_result_file(self.results_file_path)
+            self.load_data_from_result_file(self.results_file_path)
             if self.results_file_path.exists():
                 self._last_modified = os.path.getmtime(str(self.results_file_path))
             else:
                 self._last_modified = None
 
-    def _read_result_file(self, file_ref, overwrite=False):
+    def load_data_from_result_file(self, file_ref=None, overwrite=False):
+        file_ref = self.results_file_path if file_ref is None else file_ref
+
+        if file_ref is None:
+            return None
+
         if file_ref.exists() is False:
             return None
 
@@ -159,30 +163,12 @@ class Results:
 
         workbook.close()
 
-    def to_vis_mesh(self, data_type: str, name: str = "na") -> VisMesh:
-        from ada.ifc.utils import create_guid
-        from ada.visualize.concept import ObjectMesh, PartMesh, VisMesh
+    def to_vis_mesh(self, data_type: str = None, name: str = "AdaFEM") -> VisMesh:
+        from ada.visualize.concept import VisMesh
 
         name = self.assembly.name if self.assembly is not None else name
-        res_mesh = self.result_mesh
-        data = np.asarray(res_mesh.mesh.point_data[data_type], dtype="float32")
-        vertices = np.asarray([x + u[:3] for x, u in zip(res_mesh.vertices, data)], dtype="float32")
-        colors = res_mesh.colorize_data(data)
-        faces = res_mesh.faces
-        guid = create_guid(name)
-        id_map = {
-            guid: ObjectMesh(
-                guid=guid,
-                index=faces.astype(int),
-                position=vertices.flatten().astype(float),
-                normal=None,
-                color=None,
-                vertex_color=colors.flatten().astype(float),
-                instances=None,
-                # id_sequence=dict()
-            )
-        }
-        pm = PartMesh(name=name, id_map=id_map)
+        pm = self.result_mesh.to_part_mesh(name=name, data_type=data_type)
+
         project = self.assembly.metadata.get("project", "DummyProject") if self.assembly is not None else "DummyProject"
         return VisMesh(name=name, project=project, world=[pm], meta=None)
 
@@ -317,16 +303,16 @@ class ResultsHistoryOutput:
 @dataclass
 class ResultsMesh:
 
-    palette: List[tuple]
+    palette: list[tuple]
     parent: Results
     fem_format: str
     renderer: MyRenderer = None
     render_sets: Dropdown = None
     mesh: meshio.Mesh = None
-    undeformed_mesh: Union[None, pythreejs.Mesh] = None
-    deformed_mesh: Tuple[pythreejs.Mesh, pythreejs.Points, pythreejs.LineSegments] = None
-    point_data: List = field(default_factory=list)
-    cell_data: List = field(default_factory=list)
+    undeformed_mesh: None | pythreejs.Mesh = None
+    deformed_mesh: tuple[pythreejs.Mesh, pythreejs.Points, pythreejs.LineSegments] = None
+    point_data: list = field(default_factory=list)
+    cell_data: list = field(default_factory=list)
 
     vertices: np.ndarray = None
     edges: np.ndarray = None
@@ -452,6 +438,39 @@ class ResultsMesh:
             self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
         else:
             self.create_viz_geom(data, renderer=self.renderer)
+
+    def to_part_mesh(self, name: str, data_type: str = None) -> PartMesh:
+        from ada.visualize.concept import PartMesh, ObjectMesh
+
+        if data_type is not None:
+            step_names = [data_type]
+        else:
+            step_names = self.point_data
+
+        id_map = dict()
+        for step in step_names:
+            data = np.asarray(self.mesh.point_data[step], dtype="float32")
+            try:
+                vertices = np.asarray([x + u[:3] for x, u in zip(self.vertices, data)], dtype="float32")
+            except IndexError:
+                logging.warning(f"Data step {step} contains invalid data. Skipping")
+                continue
+
+            colors = self.colorize_data(data)
+            faces = self.faces
+
+            id_map[step] = ObjectMesh(
+                guid=step,
+                index=faces.astype(int),
+                position=vertices.flatten().astype(float),
+                normal=None,
+                color=None,
+                vertex_color=colors.flatten().astype(float),
+                instances=None,
+                # id_sequence=dict()
+            )
+
+        return PartMesh(name=name, id_map=id_map)
 
 
 def get_fem_stats(fem_file, dest_md_file, data_file="data.json"):
