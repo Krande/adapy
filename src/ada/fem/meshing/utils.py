@@ -7,6 +7,7 @@ import gmsh
 import numpy as np
 
 from ada import FEM, Beam, Node, Pipe, Plate, Shape
+from ada.base.types import GeomRepr
 from ada.concepts.transforms import Placement
 from ada.core.utils import make_name_fem_ready
 from ada.fem import Elem, FemSection, FemSet
@@ -20,14 +21,14 @@ from .concepts import GmshData
 def add_fem_sections(
     model: gmsh.model, fem: FEM, model_obj: Union[Beam, Plate, Pipe, Shape], gmsh_data: GmshData
 ) -> None:
-    if type(model_obj) is Beam and gmsh_data.geom_repr == ElemType.SHELL:
+    if type(model_obj) is Beam and gmsh_data.geom_repr == GeomRepr.SHELL:
         get_sh_sections_for_beam_obj(model, model_obj, gmsh_data, fem)
         return None
 
-    if type(model_obj) is Pipe and gmsh_data.geom_repr == ElemType.SHELL:
+    if type(model_obj) is Pipe and gmsh_data.geom_repr == GeomRepr.SHELL:
         get_sh_sections_for_pipe_obj(model, model_obj, gmsh_data, fem)
         return None
-    if gmsh_data.geom_repr == ElemType.SHELL:
+    if gmsh_data.geom_repr == GeomRepr.SHELL:
         if isinstance(model_obj, Plate):
             get_sh_sections_for_plate_obj(model, model_obj, gmsh_data, fem)
         elif issubclass(type(model_obj), Shape):
@@ -36,9 +37,9 @@ def add_fem_sections(
             raise NotImplementedError(
                 f"Unsupported combination of geom_repr={gmsh_data.geom_repr}, and {type(model_obj)}"
             )
-    elif gmsh_data.geom_repr == ElemType.SOLID:
+    elif gmsh_data.geom_repr == GeomRepr.SOLID:
         get_so_sections(model, model_obj, gmsh_data, fem)
-    elif gmsh_data.geom_repr == ElemType.LINE:
+    elif gmsh_data.geom_repr == GeomRepr.LINE:
         get_bm_sections(model, model_obj, gmsh_data, fem)
     else:
         raise ValueError(

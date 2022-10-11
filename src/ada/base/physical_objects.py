@@ -5,6 +5,7 @@ import pathlib
 from typing import TYPE_CHECKING, List
 
 from ada.base.root import Root
+from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.concepts.transforms import Placement
 from ada.core.constants import color_map as _cmap
@@ -71,7 +72,7 @@ class BackendGeom(Root):
     def to_fem_obj(
         self,
         mesh_size,
-        geom_repr,
+        geom_repr: str | GeomRepr,
         options: GmshOptions = None,
         silent=True,
         use_quads=False,
@@ -81,9 +82,12 @@ class BackendGeom(Root):
     ) -> FEM:
         from ada.fem.meshing import GmshOptions, GmshSession
 
+        if isinstance(geom_repr, str):
+            geom_repr = GeomRepr.from_str(geom_repr)
+
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
         with GmshSession(silent=silent, options=options) as gs:
-            gs.add_obj(self, geom_repr=geom_repr.upper())
+            gs.add_obj(self, geom_repr=geom_repr)
             gs.mesh(mesh_size, use_quads=use_quads, use_hex=use_hex)
             if interactive:
                 gs.open_gui()
@@ -112,26 +116,33 @@ class BackendGeom(Root):
         a.to_fem(name, fem_format, **kwargs)
 
     def to_stp(
-        self, destination_file, geom_repr=None, schema="AP242", silent=False, fuse_piping=False, return_file_obj=False
+        self,
+        destination_file,
+        geom_repr: GeomRepr = None,
+        schema="AP242",
+        silent=False,
+        fuse_piping=False,
+        return_file_obj=False,
     ):
         occ_export = self._get_occ_export(geom_repr, schema, fuse_piping)
         return occ_export.write_to_file(destination_file, silent, return_file_obj=return_file_obj)
 
-    def _get_occ_export(self, geom_repr=None, schema="AP242", fuse_piping=False):
-        from ada.fem.shapes import ElemType
+    def _get_occ_export(self, geom_repr: GeomRepr = None, schema="AP242", fuse_piping=False):
         from ada.occ.writer import OCCExporter
 
-        geom_repr = ElemType.SOLID if geom_repr is None else geom_repr
+        geom_repr = GeomRepr.SOLID if geom_repr is None else geom_repr
         occ_export = OCCExporter(schema)
         occ_export.add_to_step_writer(self, geom_repr, fuse_piping=fuse_piping)
         return occ_export
 
-    def to_obj_mesh(self, export_config: ExportConfig = ExportConfig()):
+    def to_obj_mesh(self, geom_repr: str | GeomRepr = GeomRepr.SOLID, export_config: ExportConfig = ExportConfig()):
         from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import (
             occ_geom_to_poly_mesh,
         )
 
-        return occ_geom_to_poly_mesh(self, export_config=export_config)
+        if isinstance(geom_repr, str):
+            geom_repr = GeomRepr.from_str(geom_repr)
+        return occ_geom_to_poly_mesh(self, geom_repr=geom_repr, export_config=export_config)
 
     def render_locally(
         self, addr="localhost", server_port=8080, open_webbrowser=False, render_engine="threejs", resolution=(1800, 900)
@@ -266,3 +277,15 @@ class BackendGeom(Root):
         self._renderer = renderer
         display(HBox([VBox([HBox(renderer.controls), renderer.renderer]), renderer.html]))
         return ""
+
+    @property
+    def solid(self):
+        raise NotImplementedError()
+
+    @property
+    def shell(self):
+        raise NotImplementedError()
+
+    @property
+    def line(self):
+        raise NotImplementedError()

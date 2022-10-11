@@ -25,9 +25,9 @@ def test_to_fem(param_models_test_dir):
 
     assert abs(roundoff(cog.p[0]) - 2.5) < tol
     assert abs(roundoff(cog.p[1]) - 2.5) < tol
-    assert abs(roundoff(cog.p[2]) - 1.5) < tol
-    assert abs(roundoff(cog.tot_mass) - 6672.406) < tol
-    assert abs(roundoff(cog.tot_vol) - 0.85) < tol
+    assert abs(roundoff(cog.p[2]) - 1.4695) < tol
+    assert abs(roundoff(cog.tot_mass) - 6790.6268) < tol
+    assert abs(roundoff(cog.tot_vol) - 0.865048) < tol
 
 
 def build_test_simplestru_fem(mesh_size=0.3, make_fem=True, use_quads=False) -> ada.Assembly:

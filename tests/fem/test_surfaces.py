@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import pytest
 
 import ada
+from ada.base.types import GeomRepr
 
 
 @pytest.fixture
@@ -8,14 +11,17 @@ def surfaces_test_dir(test_dir):
     return test_dir / "surfaces"
 
 
-def build_box_model(geom_repr, use_hex_quad):
+def build_box_model(geom_repr: str | GeomRepr, use_hex_quad):
     # Build Model
+    if isinstance(geom_repr, str):
+        geom_repr = GeomRepr.from_str(geom_repr)
+
     box = ada.PrimBox("MyBoxShape", (0, 0, 0), (1, 1, 1))
     a = ada.Assembly() / (ada.Part("MyBoxPart") / [box])
 
     # Create FEM mesh
     p = a.get_part("MyBoxPart")
-    if geom_repr.upper() == ada.fem.Elem.EL_TYPES.SOLID:
+    if geom_repr == geom_repr.SOLID:
         props = dict(use_hex=use_hex_quad)
         surf_props = dict()
     else:  # geom_repr is ada.fem.Elem.EL_TYPES.SHELL:

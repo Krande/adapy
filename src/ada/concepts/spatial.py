@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable, Union
 from ada.base.changes import ChangeAction
 from ada.base.ifc_types import SpatialTypes
 from ada.base.physical_objects import BackendGeom
+from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.cache.store import CacheStore
 from ada.concepts.connections import JointBase
@@ -48,7 +49,6 @@ from ada.fem import (
     StepSteadyState,
 )
 from ada.fem.concept import FEM
-from ada.fem.elements import ElemType
 
 if TYPE_CHECKING:
     import ifcopenshell
@@ -622,9 +622,9 @@ class Part(BackendGeom):
     def to_fem_obj(
         self,
         mesh_size: float,
-        bm_repr=ElemType.LINE,
-        pl_repr=ElemType.SHELL,
-        shp_repr=ElemType.SOLID,
+        bm_repr: GeomRepr = GeomRepr.LINE,
+        pl_repr: GeomRepr = GeomRepr.SHELL,
+        shp_repr: GeomRepr = GeomRepr.SOLID,
         options: GmshOptions = None,
         silent=True,
         interactive=False,
@@ -634,18 +634,25 @@ class Part(BackendGeom):
         from ada import Beam, Plate, Shape
         from ada.fem.meshing import GmshOptions, GmshSession
 
+        if isinstance(bm_repr, str):
+            bm_repr = GeomRepr.from_str(bm_repr)
+        if isinstance(pl_repr, str):
+            pl_repr = GeomRepr.from_str(pl_repr)
+        if isinstance(shp_repr, str):
+            shp_repr = GeomRepr.from_str(shp_repr)
+
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
         masses: list[Shape] = []
         with GmshSession(silent=silent, options=options) as gs:
             for obj in self.get_all_physical_objects(sub_elements_only=False):
-                if type(obj) is Beam:
-                    gs.add_obj(obj, geom_repr=bm_repr.upper(), build_native_lines=False)
-                elif type(obj) is Plate:
-                    gs.add_obj(obj, geom_repr=pl_repr.upper())
+                if isinstance(obj, Beam):
+                    gs.add_obj(obj, geom_repr=bm_repr, build_native_lines=False)
+                elif isinstance(obj, Plate):
+                    gs.add_obj(obj, geom_repr=pl_repr)
                 elif issubclass(type(obj), Shape) and obj.mass is not None:
                     masses.append(obj)
                 elif issubclass(type(obj), Shape):
-                    gs.add_obj(obj, geom_repr=shp_repr.upper())
+                    gs.add_obj(obj, geom_repr=shp_repr)
                 else:
                     logger.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
 

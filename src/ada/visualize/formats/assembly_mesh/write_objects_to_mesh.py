@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Callable, Iterable, Union
+from typing import TYPE_CHECKING, Callable, Iterable
 
 import numpy as np
 
+from ada.base.physical_objects import BackendGeom
+from ada.base.types import GeomRepr
 from ada.core.utils import thread_this
 from ada.occ.exceptions.geom_creation import (
     UnableToBuildNSidedWires,
@@ -19,16 +21,13 @@ if TYPE_CHECKING:
     from ada import Beam, PipeSegElbow, PipeSegStraight, Plate, Shape, Wall
 
 
-def filter_mesh_objects(
-    list_of_all_objects: Iterable[Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape]],
-    export_config: ExportConfig,
-) -> None | list[Beam | Plate | Wall | PipeSegElbow | PipeSegStraight | Shape]:
+def filter_mesh_objects(objects: Iterable[BackendGeom], export_config: ExportConfig) -> None | list[BackendGeom]:
     from ada import Pipe
 
     guid_filter = export_config.data_filter.filter_elements_by_guid
-    obj_list: list[Beam | Plate | Wall | PipeSegElbow | PipeSegStraight | Shape] = []
+    obj_list: list[BackendGeom] = []
 
-    for obj in list_of_all_objects:
+    for obj in objects:
         if guid_filter is not None and obj.guid not in guid_filter:
             continue
         if isinstance(obj, Pipe):
@@ -125,11 +124,19 @@ def ifc_poly_elem_to_json(
 
 
 def occ_geom_to_poly_mesh(
-    obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape],
+    obj: BackendGeom,
     export_config: ExportConfig = ExportConfig(),
     opt_func: Callable = None,
+    geom_repr: GeomRepr = GeomRepr.SOLID,
 ) -> ObjectMesh:
-    geom = obj.solid
+    if geom_repr == GeomRepr.SOLID:
+        geom = obj.solid
+    elif geom_repr == GeomRepr.SHELL:
+        geom = obj.shell
+    else:
+        export_config.render_edges = True
+        geom = obj.line
+
     position, indices, normals, _ = occ_shape_to_faces(
         geom,
         export_config.quality,
