@@ -32,7 +32,6 @@ requirements:
     - plotly
     - python-kaleido
     - meshio
-    - toposort
 
 # Dependencies that are currently left out
 #    - numpy
