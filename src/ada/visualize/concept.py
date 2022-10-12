@@ -535,7 +535,8 @@ class ObjectMesh:
             shape_edges = get_shape(self.edges)
             if shape_edges == 1:
                 reshaped = self.edges.reshape(int(len(self.edges) / 2), 2)
-                edge_mesh = trimesh.path.Path3D(entities=[Line(x[0]) for x in reshaped], vertices=vertices)
+                entities = [Line(x) for x in reshaped]
+                edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
             else:
                 raise NotImplementedError()
 

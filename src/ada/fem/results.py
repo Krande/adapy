@@ -164,12 +164,13 @@ class Results:
 
         workbook.close()
 
-    def to_vis_mesh(self, data_type: str = None, name: str = "AdaFEM") -> VisMesh:
+    def to_vis_mesh(self, data_type: str = None, name: str = "AdaFEM") -> VisMesh | None:
         from ada.visualize.concept import VisMesh
 
         name = self.assembly.name if self.assembly is not None else name
         pm = self.result_mesh.to_part_mesh(name=name, data_type=data_type)
-
+        if len(pm.id_map) == 0:
+            return None
         project = self.assembly.metadata.get("project", "DummyProject") if self.assembly is not None else "DummyProject"
         return VisMesh(name=name, project=project, world=[pm], meta=None)
 

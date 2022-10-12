@@ -6,6 +6,7 @@ import pytest
 import trimesh
 from trimesh.path.entities import Line
 from trimesh.visual.material import PBRMaterial
+from ada.core.vector_utils import rot_matrix, unit_vector
 
 from ada import Beam
 
@@ -46,29 +47,57 @@ def test_polygon_animation_simple(polygon_mesh):
             }
         ]
 
+    def add_animation_to_buffer(buffer_items, tree):
+        from trimesh.exchange.gltf import _data_append, uint32
+
+        _ = _data_append(
+            acc=tree["accessors"],
+            buff=buffer_items,
+            blob={"componentType": 5125, "type": "SCALAR"},
+            data=polygon_mesh.faces.astype(uint32),
+        )
+
     os.makedirs("temp", exist_ok=True)
-    scene.export(file_obj="temp/polygon_animation.glb", file_type=".glb", tree_postprocessor=add_animation_to_tree)
+    scene.export(
+        file_obj="temp/polygon_animation.glb",
+        file_type=".glb",
+        tree_postprocessor=add_animation_to_tree,
+        buffer_postprocessor=add_animation_to_buffer,
+    )
 
 
 def test_instanced_mapped_geometry():
+
     bm = Beam("bm1", (0, 0, 0), (1, 0, 0), sec="IPE300")
     obj_mesh = bm.to_obj_mesh()
-    new_mesh = obj_mesh.to_trimesh()
-    new_mesh.apply_scale(bm.xvec * 0.1)
-    meshes = [new_mesh]
-    fem = bm.to_fem_obj(0.1, "line")
-    for el in fem.elements.lines:
-        n1, n2 = el.nodes[0], el.nodes[-1]
-        _ = np.array([n1.p, n2.p])
-        # new_mesh
-        #
-        # instanced_mesh = None
-        # meshes.append(instanced_mesh)
+    scale_vector = bm.xvec * 0.1
+    scale_vector[scale_vector == 0.0] = 1.0
 
+    base_mesh = obj_mesh.to_trimesh()[0]
+    base_mesh.apply_scale(scale_vector.astype(float))
     scene = trimesh.Scene()
 
-    scene.add_geometry(meshes, bm.name, bm.name)
-    scene.export(file_obj="temp/lines.glb", file_type=".glb")
+    fem = bm.to_fem_obj(0.1, "line")
+    for el in fem.elements.lines:
+        name = f"bm_el_{el.id}"
+        n1, n2 = el.nodes[0].p, el.nodes[-1].p
+        delta = n2 - n1
+
+        vec = unit_vector(delta)
+        x, y, z = n1
+        m3x3 = rot_matrix(vec, bm.xvec)
+        m3x3_with_col = np.append(m3x3, np.array([[x], [y], [z]]), axis=1)
+        m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
+
+        scene.add_geometry(base_mesh, name, name, transform=m4x4)
+
+    # rotate scene before exporting
+    m3x3 = rot_matrix((0, -1, 0))
+    m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
+    m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
+    scene.apply_transform(m4x4)
+
+    scene.export(file_obj="temp/mapped_instances.glb", file_type=".glb")
 
 
 def test_vertex_coloring_advanced():
