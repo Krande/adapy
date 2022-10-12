@@ -17,3 +17,8 @@ def beam() -> ada.Beam:
 @pytest.fixture
 def beam_fixture() -> ada.Beam:
     return beam()
+
+
+if __name__ == "__main__":
+    bm = beam()
+    print("")
