@@ -77,7 +77,7 @@ def flatbar(sec: Section, sec_id) -> str:
 
 def write_bm_section(sec: Section, sec_id: int) -> str:
     bt = SectionCat.BASETYPES
-    base_type = SectionCat.get_shape_type(sec)
+
     sec_map = {
         bt.ANGULAR: angular,
         bt.BOX: box,
@@ -90,8 +90,8 @@ def write_bm_section(sec: Section, sec_id: int) -> str:
 
     sec_str = general_beam(sec, sec_id)
 
-    sec_str_writer = sec_map.get(base_type, None)
-    if base_type == bt.GENERAL:
+    sec_str_writer = sec_map.get(sec.type, None)
+    if sec.type == bt.GENERAL:
         return sec_str
 
     if sec_str_writer is None:

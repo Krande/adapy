@@ -11,9 +11,7 @@ from ifcopenshell.util.unit import get_prefix_multiplier
 
 import ada.core.constants as ifco
 from ada.concepts.transforms import Transform
-from ada.config import Settings
 from ada.core.file_system import get_list_of_files
-from ada.core.utils import roundoff
 
 if TYPE_CHECKING:
     from ada import Assembly, Beam
@@ -53,13 +51,6 @@ def create_reference_subrep(f, global_axes):
 
 def ifc_dir(f: ifcopenshell.file, vec: Tuple[float, float, float]):
     return f.create_entity("IfcDirection", to_real(vec))
-
-
-def get_tolerance(units):
-    tol_map = dict(m=Settings.mtol, mm=Settings.mmtol)
-    if units not in tol_map.keys():
-        raise ValueError(f'Unrecognized unit "{units}"')
-    return tol_map[units]
 
 
 def ensure_guid_consistency(a: Assembly, project_prefix):
@@ -189,8 +180,9 @@ def generate_tpl_ifc_file(file_name, project, schema, units, user):
     :type user: ada.config.User
     :return:
     """
-
     import time
+
+    from ada.base.units import Units
 
     from .ifc_template import tpl_create
 
@@ -198,9 +190,9 @@ def generate_tpl_ifc_file(file_name, project, schema, units, user):
     timestring = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(timestamp))
     application, application_version = "IfcOpenShell", "0.6"
     project_globalid = create_guid()
-    if units == "m":
+    if units == Units.M:
         units_str = "$,.METRE."
-    elif units == "mm":
+    elif units == Units.MM:
         units_str = ".MILLI.,.METRE."
     else:
         raise ValueError(f'Unrecognized unit prefix "{units}"')
@@ -354,49 +346,44 @@ def create_ifcrightcylinder(ifc_file, ifcaxis2placement, height, radius):
 
 
 def create_property_set(name, ifc_file, metadata_props, owner_history):
-
+    value_map = {str: "IfcText", float: "IfcReal", int: "IfcInteger", bool: "IfcBoolean"}
     properties = []
 
-    def ifc_value(v_):
-        return ifc_file.create_entity("IfcText", str(v_))
+    def ifc_value_type(v_):
+        if type(v_) in (np.float64,):
+            v_ = float(v_)
+        ifc_type = value_map.get(type(v_), None)
+        if ifc_type is None:
+            logging.warning(f'Unable to find suitable IFC type for "{type(v_)}". Will convert it to string')
+            return ifc_file.create_entity("IfcText", str(v_))
 
-    def to_str(in_enum):
-        return (
-            f"{in_enum}".replace("(", "")
-            .replace(")", "")
-            .replace(" ", "")
-            .replace(",", ";")
-            .replace("[", "")
-            .replace("]", "")
-        )
+        return ifc_file.create_entity(ifc_type, v_)
+
+    def ifc_list_value(n: str, list_value):
+        list_values = []
+        for x in list_value:
+            if isinstance(x, (list, tuple, np.ndarray)):
+                list_values.append(ifc_list_value(f"{n}_sub", x))
+            elif isinstance(x, dict):
+                list_values.append(create_property_set(f"{n}_sub", ifc_file, value, owner_history))
+            else:
+                list_values.append(ifc_value_type(x))
+
+        return ifc_file.create_entity("IfcPropertyListValue", Name=n, ListValues=list_values)
 
     for key, value in metadata_props.items():
-        if type(value) in (tuple, list):
-            if type(value[0]) in (list, tuple, np.ndarray):
-                for i, v in enumerate(value):
-                    if type(v) is np.ndarray:
-                        v = [roundoff(x) for x in v]
-                    properties.append(
-                        ifc_file.create_entity(
-                            "IfcPropertySingleValue",
-                            Name=f"{key}_{i}",
-                            NominalValue=ifc_value(to_str(v)),
-                        )
-                    )
-            else:
-                properties.append(
-                    ifc_file.create_entity(
-                        "IfcPropertySingleValue",
-                        Name=key,
-                        NominalValue=ifc_value(to_str(value)),
-                    )
-                )
+        if isinstance(value, (list, tuple, np.ndarray)):
+            properties.append(ifc_list_value(key, value))
+        elif isinstance(value, dict):
+            if len(value.keys()) == 0:
+                continue
+            properties.append(create_property_set(f"{name}_sub", ifc_file, value, owner_history))
         else:
             properties.append(
                 ifc_file.create_entity(
                     "IfcPropertySingleValue",
                     Name=key,
-                    NominalValue=ifc_value(value),
+                    NominalValue=ifc_value_type(value),
                 )
             )
 
@@ -424,13 +411,15 @@ def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props, owner_history):
     )
 
 
-def add_multiple_props_to_elem(metadata_props, elem, f, owner_history):
-    if len(metadata_props.keys()) > 0:
-        if type(list(metadata_props.values())[0]) is dict:
-            for pro_id, prop_ in metadata_props.items():
-                add_properties_to_elem(pro_id, f, elem, prop_, owner_history=owner_history)
-        else:
-            add_properties_to_elem("Properties", f, elem, metadata_props, owner_history=owner_history)
+def write_elem_property_sets(metadata_props, elem, f, owner_history) -> None:
+    if len(metadata_props.keys()) == 0:
+        return None
+
+    if type(list(metadata_props.values())[0]) is dict:
+        for pro_id, prop_ in metadata_props.items():
+            add_properties_to_elem(pro_id, f, elem, prop_, owner_history=owner_history)
+    else:
+        add_properties_to_elem("Properties", f, elem, metadata_props, owner_history=owner_history)
 
 
 def to_real(v) -> Union[float, List[float]]:
@@ -452,18 +441,6 @@ def to_real(v) -> Union[float, List[float]]:
 
 
 def add_negative_extrusion(f, origin, loc_z, loc_x, depth, points, parent):
-    """
-
-    :param f:
-    :param origin:
-    :param loc_z:
-    :param loc_x:
-    :param depth:
-    :param points:
-    :param parent:
-    :return:
-    """
-
     context = f.by_type("IfcGeometricRepresentationContext")[0]
     owner_history = f.by_type("IfcOwnerHistory")[0]
 
@@ -534,12 +511,14 @@ def calculate_unit_scale(file):
     return unit_scale
 
 
-def get_unit_type(file):
+def get_unit_type(file: ifcopenshell.file):
+    from ada.base.units import Units
+
     value = calculate_unit_scale(file)
     if value == 0.001:
-        return "mm"
+        return Units.MM
     elif value == 1:
-        return "m"
+        return Units.M
     else:
         raise NotImplementedError(f'Unit scale of "{value}" is not yet supported')
 
@@ -781,23 +760,12 @@ def get_all_subtypes(entity: ifcopenshell.ifcopenshell_wrapper.entity, subtypes=
     return subtypes
 
 
-def get_geom_items(ifc_schema):
-    wrap = ifcopenshell.ifcopenshell_wrapper
-    schema = wrap.schema_by_name(ifc_schema)
-    all_entities = {x.name(): x for x in schema.declarations()}
-    entity: wrap.entity = all_entities["IfcGeometricRepresentationItem"]
-    subtypes = get_all_subtypes(entity)
-
-    return subtypes
-
-
-_geom_items = None
-
-
 def get_representation_items(f: ifcopenshell.file, ifc_elem: ifcopenshell.entity_instance):
     geom_items = [
         "IfcTriangulatedFaceSet",
         "IfcExtrudedAreaSolid",
+        "IfcExtrudedAreaSolid",
+        "IfcExtrudedAreaSolidTapered",
         "IfcRevolvedAreaSolid",
         "IfcClosedShell",
     ]

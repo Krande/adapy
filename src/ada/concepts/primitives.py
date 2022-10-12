@@ -5,7 +5,9 @@ from typing import TYPE_CHECKING, Tuple, Union
 
 import numpy as np
 
+from ada.base.ifc_types import ShapeTypes
 from ada.base.physical_objects import BackendGeom
+from ada.base.units import Units
 from ada.core.utils import Counter, roundoff
 from ada.materials import Material
 from ada.materials.utils import get_material
@@ -17,10 +19,12 @@ from .transforms import Placement
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
-    from ada.ifc.concepts import IfcRef
+    from ada.ifc.store import IfcStore
 
 
 class Shape(BackendGeom):
+    IFC_CLASSES = ShapeTypes
+
     def __init__(
         self,
         name,
@@ -30,12 +34,12 @@ class Shape(BackendGeom):
         mass: float = None,
         cog: Tuple[float, float, float] = None,
         metadata=None,
-        units="m",
-        ifc_elem=None,
+        units=Units.M,
         guid=None,
         material: Union[Material, str] = None,
         placement=Placement(),
-        ifc_ref: IfcRef = None,
+        ifc_store: IfcStore = None,
+        ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
     ):
 
         super().__init__(
@@ -43,9 +47,8 @@ class Shape(BackendGeom):
             guid=guid,
             metadata=metadata,
             units=units,
-            ifc_elem=ifc_elem,
             placement=placement,
-            ifc_ref=ifc_ref,
+            ifc_store=ifc_store,
             colour=colour,
             opacity=opacity,
         )
@@ -63,14 +66,7 @@ class Shape(BackendGeom):
             self._material = get_material(material)
 
         self._bbox = None
-
-    def generate_ifc_solid_geom(self, f):
-        raise NotImplementedError()
-
-    def _generate_ifc_elem(self):
-        from ada.ifc.write.write_shapes import write_ifc_shape
-
-        return write_ifc_shape(self)
+        self._ifc_class = ifc_class
 
     @property
     def type(self):
@@ -85,11 +81,11 @@ class Shape(BackendGeom):
         self._mass = value
 
     @property
-    def cog(self) -> Tuple[float, float, float]:
+    def cog(self) -> tuple[float, float, float]:
         return self._cog
 
     @cog.setter
-    def cog(self, value: Tuple[float, float, float]):
+    def cog(self, value: tuple[float, float, float]):
         self._cog = value
 
     @property
@@ -112,17 +108,13 @@ class Shape(BackendGeom):
         if self._geom is None:
             from ada.ifc.read.read_shapes import get_ifc_geometry
 
-            if self._ifc_elem is not None:
-                ifc_elem = self._ifc_elem
-            elif "ifc_file" in self.metadata.keys():
-                a = self.parent.get_assembly()
-                ifc_file = self.metadata["ifc_file"]
-                ifc_f = a.get_ifc_source_by_name(ifc_file)
-                ifc_elem = ifc_f.by_guid(self.metadata["ifc_guid"])
+            a = self.get_assembly()
+            if a.ifc_store is not None:
+                ifc_elem = a.ifc_store.get_by_guid(self.guid)
             else:
                 raise NoGeomPassedToShapeError(f'No geometry information attached to shape "{self}"')
 
-            geom, color, alpha = get_ifc_geometry(ifc_elem, self.ifc_settings)
+            geom, color, alpha = get_ifc_geometry(ifc_elem, a.ifc_store.settings)
             self._geom = geom
             self.colour = color
             self.opacity = alpha
@@ -141,10 +133,10 @@ class Shape(BackendGeom):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
-            from ada.core.utils import unit_length_conversion
-
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
             if self._geom is not None:
                 from ada.occ.utils import transform_shape
 
@@ -162,6 +154,10 @@ class Shape(BackendGeom):
     @material.setter
     def material(self, value):
         self._material = value
+
+    @property
+    def ifc_class(self) -> ShapeTypes:
+        return self._ifc_class
 
     def __repr__(self):
         return f'{self.__class__.__name__}("{self.name}")'
@@ -190,11 +186,12 @@ class PrimSphere(Shape):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
-            from ada.core.utils import unit_length_conversion
             from ada.occ.utils import make_sphere
 
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
             self.cog = tuple([x * scale_factor for x in self.cog])
             self.radius = self.radius * scale_factor
             self._geom = make_sphere(self.cog, self.radius)
@@ -221,11 +218,12 @@ class PrimBox(Shape):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
-            from ada.core.utils import unit_length_conversion
             from ada.occ.utils import make_box_by_points
 
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
             self.p1 = tuple([x * scale_factor for x in self.p1])
             self.p2 = tuple([x * scale_factor for x in self.p2])
             self._geom = make_box_by_points(self.p1, self.p2)
@@ -250,12 +248,12 @@ class PrimCyl(Shape):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         from ada.occ.utils import make_cylinder_from_points
 
         if value != self._units:
-            from ada.core.utils import unit_length_conversion
-
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
             self.p1 = [x * scale_factor for x in self.p1]
             self.p2 = [x * scale_factor for x in self.p2]
             self.r = self.r * scale_factor
@@ -287,11 +285,12 @@ class PrimExtrude(Shape):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
             from ada.config import Settings
-            from ada.core.utils import unit_length_conversion
 
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
             tol = Settings.mmtol if value == "mm" else Settings.mtol
             self.poly.scale(scale_factor, tol)
             self._extrude_depth = self._extrude_depth * scale_factor
@@ -342,11 +341,12 @@ class PrimRevolve(Shape):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
             from ada.config import Settings
-            from ada.core.utils import unit_length_conversion
 
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
             tol = Settings.mmtol if value == "mm" else Settings.mtol
             self.poly.scale(scale_factor, tol)
             self._revolve_origin = [x * scale_factor for x in self.revolve_origin]
@@ -416,6 +416,8 @@ class PrimSweep(Shape):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
             raise NotImplementedError()
 
@@ -439,7 +441,7 @@ class Penetration(BackendGeom):
     _name_gen = Counter(1, "Pen")
     """A penetration object. Wraps around a primitive"""
     # TODO: Maybe this class should be evaluated for removal?
-    def __init__(self, primitive, metadata=None, parent=None, units="m", guid=None):
+    def __init__(self, primitive, metadata=None, parent=None, units=Units.M, guid=None):
         if issubclass(type(primitive), Shape) is False:
             raise ValueError(f'Unsupported primitive type "{type(primitive)}"')
 
@@ -462,6 +464,8 @@ class Penetration(BackendGeom):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
             self.primitive.units = value
             self._units = value

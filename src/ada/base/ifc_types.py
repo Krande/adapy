@@ -1,13 +1,42 @@
-from enum import Enum, auto
+from __future__ import annotations
+
+from enum import Enum
 
 
-class IfcType(Enum):
-    # TODO: Check to see if this enum can be grabbed from ifcopenshell directly
-    # Non-physical Container Top Element
-    IfcSite = auto()
-    # Non-physical Container SubElements
-    IfcBuilding = auto()
-    IfcSpatialZone = auto()
-    IfcBuildingStorey = auto()
-    # Is this valid though?
-    IfcSpace = auto()
+class SectionTypes(Enum):
+    IfcIShapeProfileDef = "IfcIShapeProfileDef"
+    IfcArbitraryClosedProfileDef = "IfcArbitraryClosedProfileDef"
+    IfcArbitraryProfileDefWithVoids = "IfcArbitraryProfileDefWithVoids"
+    IfcCircleProfileDef = "IfcCircleProfileDef"
+    IfcCircleHollowProfileDef = "IfcCircleHollowProfileDef"
+    IfcUShapeProfileDef = "IfcUShapeProfileDef"
+
+    @staticmethod
+    def from_str(class_name: str):
+        key_map = {x.value.lower(): x for x in SectionTypes}
+        return key_map.get(class_name.lower())
+
+
+class SpatialTypes(Enum):
+    # Spatial Top Element
+    IfcSite = "IfcSite"
+    # Spatial SubElements
+    IfcBuilding = "IfcBuilding"
+    IfcSpatialZone = "IfcSpatialZone"
+    IfcBuildingStorey = "IfcBuildingStorey"
+
+    @staticmethod
+    def from_str(class_name: str):
+        key_map = {x.value.lower(): x for x in SpatialTypes}
+        return key_map.get(class_name.lower())
+
+    @staticmethod
+    def is_valid_spatial_type(ifc_class: str | SpatialTypes) -> bool:
+        if isinstance(ifc_class, str):
+            ifc_class = SpatialTypes.from_str(ifc_class)
+
+        return ifc_class in list(SpatialTypes)
+
+
+class ShapeTypes(Enum):
+    IfcBuildingElementProxy = "IfcBuildingElementProxy"

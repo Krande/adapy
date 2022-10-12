@@ -4,22 +4,24 @@ import pathlib
 import pytest
 
 import ada
+from ada.base.types import GeomRepr
+from ada.config import Settings
 from ada.fem.exceptions.element_support import IncompatibleElements
 from ada.fem.formats import FEATypes as FEA
 from ada.fem.formats.utils import default_fem_res_path
 from ada.fem.meshing.concepts import GmshOptions
 from ada.fem.results import Results
 
-test_dir = ada.config.Settings.scratch_dir / "ada_fem_test_eigen"
+test_dir = Settings.scratch_dir / "ada_fem_test_eigen"
 EL_TYPES = ada.fem.Elem.EL_TYPES
 
 
 def is_conditions_unsupported(fem_format, geom_repr, elem_order):
-    if fem_format == FEA.CALCULIX and geom_repr == EL_TYPES.LINE:
+    if fem_format == FEA.CALCULIX and geom_repr == GeomRepr.LINE:
         return True
-    elif fem_format == FEA.CODE_ASTER and geom_repr == EL_TYPES.LINE and elem_order == 2:
+    elif fem_format == FEA.CODE_ASTER and geom_repr == GeomRepr.LINE and elem_order == 2:
         return True
-    elif fem_format == FEA.SESAM and geom_repr == EL_TYPES.SOLID:
+    elif fem_format == FEA.SESAM and geom_repr == GeomRepr.SOLID:
         return True
     else:
         return False
@@ -40,17 +42,17 @@ def test_fem_eig(
     eigen_modes=11,
     name=None,
 ):
-    geom_repr = geom_repr.upper()
+    geom_repr = GeomRepr.from_str(geom_repr)
     if name is None:
-        name = f"cantilever_EIG_{fem_format}_{geom_repr}_o{elem_order}_hq{use_hex_quad}"
+        name = f"cantilever_EIG_{fem_format}_{geom_repr.value}_o{elem_order}_hq{use_hex_quad}"
 
     p = ada.Part("MyPart")
     a = ada.Assembly("MyAssembly") / [p / beam_fixture]
 
-    if geom_repr == "LINE" and use_hex_quad is True:
+    if geom_repr == GeomRepr.LINE and use_hex_quad is True:
         return None
 
-    props = dict(use_hex=use_hex_quad) if geom_repr == "SOLID" else dict(use_quads=use_hex_quad)
+    props = dict(use_hex=use_hex_quad) if geom_repr == GeomRepr.SOLID else dict(use_quads=use_hex_quad)
 
     a.fem.add_step(ada.fem.StepEigen("Eigen", num_eigen_modes=eigen_modes))
 

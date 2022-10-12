@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ada import Section
 
 
-class BaseTypes:
+class BaseTypes(Enum):
     BOX = "BOX"
     TUBULAR = "TUB"
     IPROFILE = "I"
@@ -18,45 +19,43 @@ class BaseTypes:
     FLATBAR = "FB"
     POLY = "poly"
 
+    @staticmethod
+    def from_str(type_str: str):
+        key_map = {x.value.lower(): x for x in BaseTypes}
+        result = key_map.get(type_str.lower(), None)
+
+        if result is None:
+            result = SectionCat.get_shape_type(type_str.upper())
+            if result is None:
+                raise ValueError()
+
+        return result
+
 
 class SectionCat:
 
     BASETYPES = BaseTypes
 
-    box = [BASETYPES.BOX, "BG", "CG"]
+    box = [BASETYPES.BOX.value, "BG", "CG"]
     shs = ["SHS"]
     rhs = ["RHS", "URHS"]
-    tubular = [BASETYPES.TUBULAR, "PIPE", "OD"]
+    tubular = [BASETYPES.TUBULAR.value, "PIPE", "OD"]
     iprofiles = ["HEA", "HEB", "HEM", "IPE"]
-    igirders = [BASETYPES.IPROFILE, "IG"]
-    tprofiles = [BASETYPES.TPROFILE, "TG"]
-    angular = [BASETYPES.ANGULAR]
-    channels = [BASETYPES.CHANNEL]
-    circular = [BASETYPES.CIRCULAR]
-    general = [BASETYPES.GENERAL, "GENBEAM"]
-    flatbar = [BASETYPES.FLATBAR]
+    igirders = [BASETYPES.IPROFILE.value, "IG"]
+    tprofiles = [BASETYPES.TPROFILE.value, "TG"]
+    angular = [BASETYPES.ANGULAR.value]
+    channels = [BASETYPES.CHANNEL.value]
+    circular = [BASETYPES.CIRCULAR.value]
+    general = [BASETYPES.GENERAL.value, "GENBEAM"]
+    flatbar = [BASETYPES.FLATBAR.value]
     poly = ["POLY"]
 
-    @classmethod
-    def isbeam(cls, bmtype):
-        for key, val in cls.__dict__.items():
-            if bmtype in val:
-                return True
-        return False
-
     @staticmethod
-    def _get_sec_type(section_ref):
-        from ada import Beam, Section
-
-        if type(section_ref) is Section:
-            return section_ref.type.upper()
-        if type(section_ref) is Beam:
-            return section_ref.section.type.upper()
-        else:
-            return section_ref.upper()
+    def _get_sec_type(section_ref: str) -> str:
+        return section_ref.upper()
 
     @classmethod
-    def get_shape_type(cls, bmtype):
+    def get_shape_type(cls, bm_type):
         type_map = [
             (cls.is_i_profile, cls.BASETYPES.IPROFILE),
             (cls.is_angular, cls.BASETYPES.ANGULAR),
@@ -71,7 +70,7 @@ class SectionCat:
         ]
 
         for type_func, return_type in type_map:
-            if type_func(bmtype):
+            if type_func(bm_type):
                 return return_type
 
     @classmethod

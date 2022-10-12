@@ -1,18 +1,28 @@
+from __future__ import annotations
+
 import logging
-from typing import Union
+from typing import TYPE_CHECKING
 
 import ifcopenshell.geom
 
 from ada import Assembly, Shape
 
-from ..concepts import IfcRef
+if TYPE_CHECKING:
+    from ada.ifc.store import IfcStore
 
 
-def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_ref: IfcRef, assembly: Assembly):
+def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: IfcStore):
     logging.info(f'importing Shape "{name}"')
-    color, opacity = get_colour(product, assembly)
+    color, opacity = get_colour(product, ifc_store.assembly)
+
     return Shape(
-        name, None, guid=product.GlobalId, ifc_ref=ifc_ref, units=assembly.units, colour=color, opacity=opacity
+        name,
+        None,
+        guid=product.GlobalId,
+        ifc_store=ifc_store,
+        units=ifc_store.assembly.units,
+        colour=color,
+        opacity=opacity,
     )
 
 
@@ -31,9 +41,10 @@ def get_ifc_geometry(ifc_elem, settings):
     return geom, colour, alpha
 
 
-def get_colour(product: ifcopenshell.entity_instance, assembly: Assembly) -> Union[None, tuple]:
+def get_colour(product: ifcopenshell.entity_instance, assembly: Assembly) -> None | tuple:
     styles = []
-    for geo in assembly.ifc_file.traverse(product):
+    f = assembly.ifc_store.f
+    for geo in f.traverse(product):
         if hasattr(geo, "StyledByItem") is False:
             continue
         if len(geo.StyledByItem) != 0:
@@ -42,15 +53,15 @@ def get_colour(product: ifcopenshell.entity_instance, assembly: Assembly) -> Uni
                 styles.append(cstyle)
 
     if len(styles) == 0:
-        logging.warning(f'No style associated with IFC element "{product}"')
+        logging.info(f'No style associated with IFC element "{product}"')
         return None, 1.0
 
     if len(styles) > 1:
         logging.warning(f"Multiple styles associated to element {product}. Choosing arbitrarily style @ index=0")
 
     style = styles[0]
-    colour_rgb = list(filter(lambda x: x.is_a("IfcColourRgb"), assembly.ifc_file.traverse(style)))
-    transparency = list(filter(lambda x: x.is_a("IfcSurfaceStyleRendering"), assembly.ifc_file.traverse(style)))
+    colour_rgb = list(filter(lambda x: x.is_a("IfcColourRgb"), f.traverse(style)))
+    transparency = list(filter(lambda x: x.is_a("IfcSurfaceStyleRendering"), f.traverse(style)))
 
     if len(colour_rgb) == 0:
         logging.warning(f'ColourRGB not found for IFC product "{product}"')

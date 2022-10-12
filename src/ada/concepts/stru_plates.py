@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, List
 import numpy as np
 
 from ada.base.physical_objects import BackendGeom
+from ada.base.units import Units
 from ada.concepts.bounding_box import BoundingBox
 from ada.concepts.curves import CurvePoly
 from ada.concepts.points import Node
@@ -14,7 +15,7 @@ from ada.materials import Material
 from ada.materials.metals import CarbonSteel
 
 if TYPE_CHECKING:
-    from ada.ifc.concepts import IfcRef
+    from ada.ifc.store import IfcStore
 
 
 class Plate(BackendGeom):
@@ -45,19 +46,17 @@ class Plate(BackendGeom):
         opacity=1.0,
         metadata=None,
         tol=None,
-        units="m",
-        ifc_elem=None,
+        units=Units.M,
         guid=None,
-        ifc_ref: "IfcRef" = None,
+        ifc_store: IfcStore = None,
     ):
         super().__init__(
             name,
             guid=guid,
             metadata=metadata,
             units=units,
-            ifc_elem=ifc_elem,
             placement=placement,
-            ifc_ref=ifc_ref,
+            ifc_store=ifc_store,
             colour=colour,
             opacity=opacity,
         )
@@ -76,12 +75,7 @@ class Plate(BackendGeom):
         self._t = t
 
         if tol is None:
-            if units == "mm":
-                tol = Settings.mmtol
-            elif units == "m":
-                tol = Settings.mtol
-            else:
-                raise ValueError(f'Unknown unit "{units}"')
+            tol = Units.get_general_point_tol(units)
 
         self._poly = CurvePoly(
             points3d=points3d,
@@ -97,11 +91,6 @@ class Plate(BackendGeom):
         self._parent = parent
         self._ifc_geom = ifc_geom
         self._bbox = None
-
-    def _generate_ifc_elem(self):
-        from ada.ifc.write.write_plates import write_ifc_plate
-
-        return write_ifc_plate(self)
 
     @property
     def id(self):
@@ -150,10 +139,6 @@ class Plate(BackendGeom):
         return self._bbox
 
     @property
-    def metadata(self):
-        return self._metadata
-
-    @property
     def line(self):
         return self._poly.wire
 
@@ -179,10 +164,10 @@ class Plate(BackendGeom):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if self._units != value:
-            from ada.core.utils import unit_length_conversion
-
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
             tol = Settings.mmtol if value == "mm" else Settings.mtol
             self._t *= scale_factor
             self.poly.scale(scale_factor, tol)

@@ -9,8 +9,9 @@ from ada import (
     PrimExtrude,
     PrimRevolve,
     Section,
+    User,
 )
-from ada.config import Settings, User
+from ada.config import Settings
 
 test_dir = Settings.test_dir / "penetrations"
 
@@ -46,7 +47,7 @@ def test_mix_extrude():
     x = 1.0
     bm.add_penetration(PrimBox("my_pen6", (x, -0.1, -0.1), (x + 0.2, 0.1, 0.1)))
 
-    _ = a.to_ifc(test_dir / "penetrations_mix.ifc", return_file_obj=True)
+    _ = a.to_ifc(test_dir / "penetrations_mix.ifc", file_obj_only=True)
 
 
 def test_poly_extrude():
@@ -81,7 +82,7 @@ def test_poly_extrude():
         (0, 0.25, r),
     ]
     bm.add_penetration(PrimExtrude("my_pen4", points, h, normal, origin, xdir))
-    _ = a.to_ifc(test_dir / "penetrations_poly.ifc", return_file_obj=True)
+    _ = a.to_ifc(test_dir / "penetrations_poly.ifc", file_obj_only=True)
 
 
 def test_poly_revolve():
@@ -96,4 +97,4 @@ def test_poly_revolve():
     bm.add_penetration(PrimRevolve("my_pen_revolved", points2d, origin, xdir, normal, rev_angle))
 
     a.to_stp(test_dir / "penetrations_revolve.stp", return_file_obj=True)
-    _ = a.to_ifc(test_dir / "penetrations_revolve.ifc", return_file_obj=True)
+    _ = a.to_ifc(test_dir / "penetrations_revolve.ifc", file_obj_only=True)

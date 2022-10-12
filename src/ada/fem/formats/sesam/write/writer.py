@@ -2,7 +2,7 @@ import datetime
 import logging
 from operator import attrgetter
 
-from ada.concepts.levels import Part
+from ada.concepts.spatial import Part
 from ada.core.utils import Counter, get_current_user
 from ada.fem import FEM
 

@@ -6,7 +6,7 @@ def test_read_standard_case_beams(example_files, ifc_test_dir):
 
     # a.to_ifc(ifc_test_dir / "beam-standard-case-re-exported.ifc")
 
-    p = a.get_part("Building")
+    p = a.get_by_name("Building")
     assert len(p.beams) == 18
 
     bm_a1: ada.Beam = p.get_by_name("A-1")
@@ -41,11 +41,11 @@ def test_read_varying_cardinal_points(example_files, ifc_test_dir):
 
 def test_read_varying_extrusion_path(example_files, ifc_test_dir):
     a = ada.from_ifc(example_files / "ifc_files/beams/beam-varying-extrusion-paths.ifc")
-    _ = a.to_ifc(ifc_test_dir / "beam-varying-extrusion-paths.ifc", return_file_obj=True)
+    _ = a.to_ifc(ifc_test_dir / "beam-varying-extrusion-paths.ifc", file_obj_only=True)
     print(a)
 
 
 def test_read_revolved_solid(example_files, ifc_test_dir):
     a = ada.from_ifc(example_files / "ifc_files/beams/beam-revolved-solid.ifc")
-    _ = a.to_ifc(ifc_test_dir / "beam-revolved-solid.ifc", return_file_obj=True)
+    _ = a.to_ifc(ifc_test_dir / "beam-revolved-solid.ifc", file_obj_only=True)
     print(a)

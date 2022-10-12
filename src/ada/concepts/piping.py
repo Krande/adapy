@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, List, Union
+from itertools import chain
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from ada.base.physical_objects import BackendGeom
+from ada.base.units import Units
 from ada.config import Settings as _Settings
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_length
@@ -21,19 +23,9 @@ if TYPE_CHECKING:
 
 class Pipe(BackendGeom):
     def __init__(
-        self,
-        name,
-        points,
-        sec,
-        mat="S355",
-        content=None,
-        metadata=None,
-        colour=None,
-        units="m",
-        guid=None,
-        ifc_elem=None,
+        self, name, points, sec, mat="S355", content=None, metadata=None, colour=None, units: Units = Units.M, guid=None
     ):
-        super().__init__(name, guid=guid, metadata=metadata, units=units, ifc_elem=ifc_elem)
+        super().__init__(name, guid=guid, metadata=metadata, units=units)
 
         self._section, _ = get_section(sec)
         self._section.parent = self
@@ -41,95 +33,16 @@ class Pipe(BackendGeom):
         self._content = content
         self.colour = colour
 
+        self.section.refs.append(self)
+        self.material.refs.append(self)
+
         self._n1 = points[0] if type(points[0]) is Node else Node(points[0], units=units)
         self._n2 = points[-1] if type(points[-1]) is Node else Node(points[-1], units=units)
         self._points = [Node(n, units=units) if type(n) is not Node else n for n in points]
-        self._segments = []
-        self._build_pipe()
-
-    def _build_pipe(self):
-        from ada.core.curve_utils import make_arc_segment
-
-        segs = []
-        for p1, p2 in zip(self.points[:-1], self.points[1:]):
-            if vector_length(p2.p - p1.p) == 0.0:
-                logging.info("skipping zero length segment")
-                continue
-            segs.append([p1, p2])
-        segments = segs
-
-        seg_names = Counter(prefix=self.name + "_")
-
-        # Make elbows and adjust segments
-        props = dict(section=self.section, material=self.material, parent=self, units=self.units)
-        angle_tol = 1e-1
-        len_tol = _Settings.point_tol if self.units == "m" else _Settings.point_tol * 1000
-        for i, (seg1, seg2) in enumerate(zip(segments[:-1], segments[1:])):
-            p11, p12 = seg1
-            p21, p22 = seg2
-            vlen1 = vector_length(seg1[1].p - seg1[0].p)
-            vlen2 = vector_length(seg2[1].p - seg2[0].p)
-
-            if vlen1 < len_tol or vlen2 == len_tol:
-                logging.error(f'Segment Length is below point tolerance for unit "{self.units}". Skipping')
-                continue
-
-            xvec1 = unit_vector(p12.p - p11.p)
-            xvec2 = unit_vector(p22.p - p21.p)
-            a = angle_between(xvec1, xvec2)
-            res = True if abs(abs(a) - abs(np.pi)) < angle_tol or abs(abs(a) - 0.0) < angle_tol else False
-
-            if res is True:
-                self._segments.append(PipeSegStraight(next(seg_names), p11, p12, **props))
-            else:
-                if p12 != p21:
-                    logging.error("No shared point found")
-
-                if i != 0 and len(self._segments) > 0:
-                    pseg = self._segments[-1]
-                    prev_p = (pseg.p1.p, pseg.p2.p)
-                else:
-                    prev_p = (p11.p, p12.p)
-                try:
-                    seg1, arc, seg2 = make_arc_segment(prev_p[0], prev_p[1], p22.p, self.pipe_bend_radius * 0.99)
-                except ValueError as e:
-                    logging.error(f"Error: {e}")  # , traceback: "{traceback.format_exc()}"')
-                    continue
-                except RuntimeError as e:
-                    logging.error(f"Error: {e}")  # , traceback: "{traceback.format_exc()}"')
-                    continue
-
-                if i == 0 or len(self._segments) == 0:
-                    self._segments.append(
-                        PipeSegStraight(
-                            next(seg_names), Node(seg1.p1, units=self.units), Node(seg1.p2, units=self.units), **props
-                        )
-                    )
-                else:
-                    if len(self._segments) == 0:
-                        continue
-                    pseg = self._segments[-1]
-                    pseg.p2 = Node(seg1.p2, units=self.units)
-
-                self._segments.append(
-                    PipeSegElbow(
-                        next(seg_names) + "_Elbow",
-                        Node(seg1.p1, units=self.units),
-                        Node(p21.p, units=self.units),
-                        Node(seg2.p2, units=self.units),
-                        arc.radius,
-                        **props,
-                        arc_seg=arc,
-                    )
-                )
-                self._segments.append(
-                    PipeSegStraight(
-                        next(seg_names), Node(seg2.p1, units=self.units), Node(seg2.p2, units=self.units), **props
-                    )
-                )
+        self._segments = build_pipe_segments(self)
 
     @property
-    def segments(self) -> List[Union[PipeSegStraight, PipeSegElbow]]:
+    def segments(self) -> list[PipeSegStraight | PipeSegElbow]:
         return self._segments
 
     @property
@@ -161,8 +74,8 @@ class Pipe(BackendGeom):
         wt = self.section.wt
         r = self.section.r
         d = r * 2
-        w_tol = 0.125 if self.units == "m" else 125
-        cor_tol = 0.003 if self.units == "m" else 3
+        w_tol = 0.125 if self.units == Units.M else 125
+        cor_tol = 0.003 if self.units == Units.M else 3
         corr_t = (wt - (wt * w_tol)) - cor_tol
         d -= 2.0 * corr_t
 
@@ -171,6 +84,10 @@ class Pipe(BackendGeom):
     @property
     def section(self) -> Section:
         return self._section
+
+    @section.setter
+    def section(self, value):
+        self._section = value
 
     @property
     def n1(self) -> Node:
@@ -190,48 +107,48 @@ class Pipe(BackendGeom):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
             self.n1.units = value
             self.n2.units = value
             self.section.units = value
             self.material.units = value
-            self._segments = []
             for p in self.points:
                 p.units = value
-            self._build_pipe()
+            self._segments = build_pipe_segments(self)
             self._units = value
-
-    def get_ifc_elem(self):
-        if self._ifc_elem is None:
-            from ada.ifc.write.write_pipe import write_ifc_pipe
-
-            self._ifc_elem = write_ifc_pipe(self)
-        return self._ifc_elem
 
     def __repr__(self):
         return f"Pipe({self.name}, {self.section})"
 
+    @staticmethod
+    def from_segments(name: str, segments: list[PipeSegStraight | PipeSegElbow]) -> Pipe:
+        points = list(chain.from_iterable([(Node(x.p1), Node(x.p2)) for x in segments]))
+        seg0 = segments[0]
+        seg0_section = seg0.section
+        seg0_material = seg0.material
+
+        pipe = Pipe(name, points, seg0_section, seg0_material)
+        for i, seg in enumerate(segments):
+            pipe.segments[i].guid = seg.guid
+
+        return pipe
+
 
 class PipeSegStraight(BackendGeom):
     def __init__(
-        self,
-        name,
-        p1,
-        p2,
-        section,
-        material,
-        parent=None,
-        guid=None,
-        metadata=None,
-        units="m",
-        colour=None,
-        ifc_elem=None,
+        self, name, p1, p2, section, material, parent=None, guid=None, metadata=None, units=Units.M, colour=None
     ):
-        super(PipeSegStraight, self).__init__(name, guid, metadata, units, parent, colour, ifc_elem=ifc_elem)
+        super(PipeSegStraight, self).__init__(
+            name=name, guid=guid, metadata=metadata, units=units, parent=parent, colour=colour
+        )
         self.p1 = p1
         self.p2 = p2
         self.section = section
         self.material = material
+        section.refs.append(self)
+        material.refs.append(self)
 
     @property
     def xvec1(self):
@@ -264,11 +181,6 @@ class PipeSegStraight(BackendGeom):
         geom = apply_penetrations(raw_geom, self.penetrations)
         return geom
 
-    def _generate_ifc_elem(self):
-        from ada.ifc.write.write_pipe import write_pipe_straight_seg
-
-        return write_pipe_straight_seg(self)
-
     def __repr__(self):
         return f"PipeSegStraight({self.name}, p1={self.p1}, p2={self.p2})"
 
@@ -286,11 +198,13 @@ class PipeSegElbow(BackendGeom):
         parent=None,
         guid=None,
         metadata=None,
-        units="m",
+        units=Units.M,
         colour=None,
         arc_seg=None,
     ):
-        super(PipeSegElbow, self).__init__(name, guid, metadata, units, parent, colour)
+        super(PipeSegElbow, self).__init__(
+            name=name, guid=guid, metadata=metadata, units=units, parent=parent, colour=colour
+        )
         self.p1 = p1
         self.p2 = p2
         self.p3 = p3
@@ -298,6 +212,8 @@ class PipeSegElbow(BackendGeom):
         self.section = section
         self.material = material
         self._arc_seg = arc_seg
+        section.refs.append(self)
+        material.refs.append(self)
 
     @property
     def parent(self) -> Pipe:
@@ -364,10 +280,96 @@ class PipeSegElbow(BackendGeom):
     def arc_seg(self) -> ArcSegment:
         return self._arc_seg
 
-    def _generate_ifc_elem(self):
-        from ada.ifc.write.write_pipe import write_pipe_elbow_seg
-
-        return write_pipe_elbow_seg(self)
-
     def __repr__(self):
         return f"PipeSegElbow({self.name}, r={self.bend_radius}, p1={self.p1}, p2={self.p2}, p3={self.p3})"
+
+
+def build_pipe_segments(pipe: Pipe) -> list[PipeSegStraight, PipeSegElbow]:
+    from ada.core.curve_utils import make_arc_segment
+
+    segs = []
+    for p1, p2 in zip(pipe.points[:-1], pipe.points[1:]):
+        if vector_length(p2.p - p1.p) == 0.0:
+            logging.info("skipping zero length segment")
+            continue
+        segs.append([p1, p2])
+    segments = segs
+
+    seg_names = Counter(prefix=pipe.name + "_")
+
+    # Make elbows and adjust segments
+    props = dict(section=pipe.section, material=pipe.material, parent=pipe, units=pipe.units)
+    angle_tol = 1e-1
+
+    len_tol = _Settings.point_tol if pipe.units == Units.M else _Settings.point_tol * 1000
+
+    pipe_segments = []
+    if len(segments) == 1:
+        seg_s, seg_e = segments[0]
+        pipe_segments.append(PipeSegStraight(next(seg_names), seg_s, seg_e, **props))
+
+    for i, (seg1, seg2) in enumerate(zip(segments[:-1], segments[1:])):
+        p11, p12 = seg1
+        p21, p22 = seg2
+        vlen1 = vector_length(seg1[1].p - seg1[0].p)
+        vlen2 = vector_length(seg2[1].p - seg2[0].p)
+
+        if vlen1 < len_tol or vlen2 == len_tol:
+            logging.error(f'Segment Length is below point tolerance for unit "{pipe.units}". Skipping')
+            continue
+
+        xvec1 = unit_vector(p12.p - p11.p)
+        xvec2 = unit_vector(p22.p - p21.p)
+        a = angle_between(xvec1, xvec2)
+        res = True if abs(abs(a) - abs(np.pi)) < angle_tol or abs(abs(a) - 0.0) < angle_tol else False
+
+        if res is True:
+            pipe_segments.append(PipeSegStraight(next(seg_names), p11, p12, **props))
+        else:
+            if p12 != p21:
+                logging.error("No shared point found")
+
+            if i != 0 and len(pipe_segments) > 0:
+                pseg = pipe_segments[-1]
+                prev_p = (pseg.p1.p, pseg.p2.p)
+            else:
+                prev_p = (p11.p, p12.p)
+            try:
+                seg1, arc, seg2 = make_arc_segment(prev_p[0], prev_p[1], p22.p, pipe.pipe_bend_radius * 0.99)
+            except ValueError as e:
+                logging.error(f"Error: {e}")  # , traceback: "{traceback.format_exc()}"')
+                continue
+            except RuntimeError as e:
+                logging.error(f"Error: {e}")  # , traceback: "{traceback.format_exc()}"')
+                continue
+
+            if i == 0 or len(pipe_segments) == 0:
+                pipe_segments.append(
+                    PipeSegStraight(
+                        next(seg_names), Node(seg1.p1, units=pipe.units), Node(seg1.p2, units=pipe.units), **props
+                    )
+                )
+            else:
+                if len(pipe_segments) == 0:
+                    continue
+                pseg = pipe_segments[-1]
+                pseg.p2 = Node(seg1.p2, units=pipe.units)
+
+            pipe_segments.append(
+                PipeSegElbow(
+                    next(seg_names) + "_Elbow",
+                    Node(seg1.p1, units=pipe.units),
+                    Node(p21.p, units=pipe.units),
+                    Node(seg2.p2, units=pipe.units),
+                    arc.radius,
+                    **props,
+                    arc_seg=arc,
+                )
+            )
+            pipe_segments.append(
+                PipeSegStraight(
+                    next(seg_names), Node(seg2.p1, units=pipe.units), Node(seg2.p2, units=pipe.units), **props
+                )
+            )
+
+    return pipe_segments

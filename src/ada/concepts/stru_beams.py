@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
+from enum import Enum
 from typing import TYPE_CHECKING, Iterable, List, Optional, Union
 
 import numpy as np
 
 from ada.base.physical_objects import BackendGeom
+from ada.base.units import Units
 from ada.concepts.bounding_box import BoundingBox
 from ada.concepts.curves import CurvePoly, CurveRevolve
 from ada.concepts.points import Node, get_singular_node_by_volume
@@ -30,15 +32,15 @@ if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada.concepts.connections import JointBase
-    from ada.concepts.levels import Part
+    from ada.concepts.spatial import Part
     from ada.fem.elements import HingeProp
-    from ada.ifc.concepts import IfcRef
+    from ada.ifc.store import IfcStore
 
 section_counter = Counter(1)
 material_counter = Counter(1)
 
 
-class Justification:
+class Justification(Enum):
     NA = "neutral axis"
     TOS = "top of steel"
 
@@ -62,35 +64,33 @@ class Beam(BackendGeom):
     def __init__(
         self,
         name,
-        n1: Union[Node, Iterable] = None,
-        n2: Union[Node, Iterable] = None,
-        sec: Union[str, Section] = None,
-        mat: Union[str, Material] = None,
-        tap: Union[str, Section] = None,
+        n1: Node | Iterable = None,
+        n2: Node | Iterable = None,
+        sec: str | Section = None,
+        mat: str | Material = None,
+        tap: str | Section = None,
         jusl=JUSL_TYPES.NA,
         up=None,
         angle=0.0,
-        curve: Union[CurvePoly, CurveRevolve] = None,
+        curve: CurvePoly | CurveRevolve = None,
         e1=None,
         e2=None,
         colour=None,
         parent: Part = None,
         metadata=None,
         opacity=1.0,
-        units="m",
-        ifc_elem=None,
+        units=Units.M,
         guid=None,
         placement=Placement(),
-        ifc_ref: IfcRef = None,
+        ifc_store: IfcStore = None,
     ):
         super().__init__(
             name,
             metadata=metadata,
             units=units,
             guid=guid,
-            ifc_elem=ifc_elem,
             placement=placement,
-            ifc_ref=ifc_ref,
+            ifc_store=ifc_store,
             colour=colour,
             opacity=opacity,
         )
@@ -124,12 +124,14 @@ class Beam(BackendGeom):
         # Section and Material setup
         self._section, self._taper = get_section(sec)
         self._section.refs.append(self)
-        self._taper.refs.append(self)
+
         self._material = get_material(mat)
         self._material.refs.append(self)
 
         if tap is not None:
             self._taper, _ = get_section(tap)
+
+        self._taper.refs.append(self)
 
         self._section.parent = self
         self._taper.parent = self
@@ -277,11 +279,6 @@ class Beam(BackendGeom):
 
         return nodes_p1, nodes_p2
 
-    def _generate_ifc_elem(self):
-        from ada.ifc.write.write_beams import write_ifc_beam
-
-        return write_ifc_beam(self)
-
     def calc_con_points(self, point_tol=Settings.point_tol):
         from ada.core.vector_utils import sort_points_by_dist
 
@@ -347,14 +344,18 @@ class Beam(BackendGeom):
 
     @units.setter
     def units(self, value):
-        if self._units != value:
-            self.n1.units = value
-            self.n2.units = value
-            self.section.units = value
-            self.material.units = value
-            for pen in self.penetrations:
-                pen.units = value
-            self._units = value
+        if isinstance(value, str):
+            value = Units.from_str(value)
+        if self._units == value:
+            return
+
+        self.n1.units = value
+        self.n2.units = value
+        self.section.units = value
+        self.material.units = value
+        for pen in self.penetrations:
+            pen.units = value
+        self._units = value
 
     @property
     def section(self) -> Section:
@@ -362,16 +363,7 @@ class Beam(BackendGeom):
 
     @section.setter
     def section(self, value: Section):
-        section = self.parent.add_section(value)
-
-        if self.taper == self.section:
-            self.taper = section
-
-        if self in self.section.refs:
-            self.section.refs.remove(self)
-
-        self._section = section
-        self._section.refs.append(self)
+        self._section = value
 
     @property
     def taper(self) -> Section:
@@ -379,11 +371,7 @@ class Beam(BackendGeom):
 
     @taper.setter
     def taper(self, value: Section):
-        if self in self.taper.refs:
-            self.taper.refs.remove(self)
-
         self._taper = value
-        self._taper.refs.append(self)
 
     @property
     def material(self) -> Material:

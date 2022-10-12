@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import os
 import pathlib
@@ -26,7 +28,7 @@ shp_names = Counter(1, "shp")
 valid_types = Union[BackendGeom, Beam, Plate, Wall, Part, Assembly, Shape, Pipe]
 
 
-class StepExporter:
+class OCCExporter:
     def __init__(self, schema="AP242", assembly_mode=1):
         self.writer = STEPControl_Writer()
         fp = self.writer.WS().TransferWriter().FinderProcess()
@@ -94,7 +96,7 @@ class StepExporter:
         else:
             item.SetName(TCollection_HAsciiString(name))
 
-    def export_structural(self, stru_obj: Union[Plate, Beam, Wall], geom_repr):
+    def export_structural(self, stru_obj: Plate | Beam | Wall, geom_repr):
         if geom_repr == ElemType.SHELL:
             self.add_geom(stru_obj.shell, stru_obj)
         elif geom_repr == ElemType.LINE:
@@ -123,7 +125,7 @@ class StepExporter:
         if fuse_shapes is True:
             self.add_geom(result, pipe)
 
-    def write_to_file(self, destination_file, silent, return_file_obj=False) -> Union[None, StringIO]:
+    def write_to_file(self, destination_file, silent, return_file_obj=False) -> None | StringIO:
         if return_file_obj:
             logging.warning("returning file objects for STEP is not yet supported. But will be from OCCT v7.7.0.")
 
@@ -135,3 +137,16 @@ class StepExporter:
             raise Exception("Error during write operation")
         if silent is False:
             print(f'step file created at "{destination_file}"')
+
+    def to_obj_mesh(self):
+        # from ada.visualize.renderer_occ import occ_shape_to_faces
+
+        # model = self.writer.
+
+        # position, indices, normals, _ = occ_shape_to_faces(
+        #     self.writer,
+        #     export_config.quality,
+        #     export_config.render_edges,
+        #     export_config.parallel,
+        # )
+        pass

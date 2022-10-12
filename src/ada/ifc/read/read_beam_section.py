@@ -1,48 +1,55 @@
 import logging
 
+from ada.base.units import Units
 from ada.sections import Section
 
 
-def import_section_from_ifc(ifc_elem, units="m") -> Section:
+def import_section_from_ifc(profile_def, units=Units.M) -> Section:
+    """Takes any subclass of ProfileDef"""
     from ada.sections.utils import interpret_section_str
 
-    if ifc_elem.is_a("IfcIShapeProfileDef"):
+    if profile_def.is_a("IfcIShapeProfileDef"):
         sec = Section(
-            name=ifc_elem.ProfileName,
+            name=profile_def.ProfileName,
             sec_type=Section.TYPES.IPROFILE,
-            h=ifc_elem.OverallDepth,
-            w_top=ifc_elem.OverallWidth,
-            w_btn=ifc_elem.OverallWidth,
-            t_w=ifc_elem.WebThickness,
-            t_ftop=ifc_elem.FlangeThickness,
-            t_fbtn=ifc_elem.FlangeThickness,
+            h=profile_def.OverallDepth,
+            w_top=profile_def.OverallWidth,
+            w_btn=profile_def.OverallWidth,
+            t_w=profile_def.WebThickness,
+            t_ftop=profile_def.FlangeThickness,
+            t_fbtn=profile_def.FlangeThickness,
             units=units,
+            sec_str=profile_def.ProfileName,
         )
-    elif ifc_elem.is_a("IfcTShapeProfileDef"):
+    elif profile_def.is_a("IfcTShapeProfileDef"):
         sec = Section(
-            name=ifc_elem.ProfileName,
+            name=profile_def.ProfileName,
             sec_type=Section.TYPES.TPROFILE,
-            h=ifc_elem.Depth,
-            w_top=ifc_elem.FlangeWidth,
-            t_w=ifc_elem.WebThickness,
-            t_ftop=ifc_elem.FlangeThickness,
+            h=profile_def.Depth,
+            w_top=profile_def.FlangeWidth,
+            t_w=profile_def.WebThickness,
+            t_ftop=profile_def.FlangeThickness,
             units=units,
         )
-    elif ifc_elem.is_a("IfcCircleHollowProfileDef"):
+    elif profile_def.is_a("IfcCircleHollowProfileDef"):
         sec = Section(
-            name=ifc_elem.ProfileName, sec_type="TUB", r=ifc_elem.Radius, wt=ifc_elem.WallThickness, units=units
+            name=profile_def.ProfileName,
+            sec_type="TUB",
+            r=profile_def.Radius,
+            wt=profile_def.WallThickness,
+            units=units,
         )
-    elif ifc_elem.is_a("IfcUShapeProfileDef"):
-        raise NotImplementedError(f'IFC section type "{ifc_elem}" is not yet implemented')
+    elif profile_def.is_a("IfcUShapeProfileDef"):
+        raise NotImplementedError(f'IFC section type "{profile_def}" is not yet implemented')
         # sec = Section(ifc_elem.ProfileName)
     else:
         try:
-            logging.warning(f'No Native support for Ifc beam object "{ifc_elem}"')
-            sec, tap = interpret_section_str(ifc_elem.ProfileName)
+            logging.info(f'No Native support for Ifc beam "{profile_def=}"')
+            sec, tap = interpret_section_str(profile_def.ProfileName)
         except ValueError as e:
-            logging.debug(f'Unable to process section "{ifc_elem.ProfileName}" -> error: "{e}" ')
+            logging.warning(f'Unable to process section "{profile_def.ProfileName}" -> error: "{e}" ')
             sec = None
         if sec is None:
-            raise NotImplementedError(f'IFC section type "{ifc_elem}" is not yet implemented')
+            raise NotImplementedError(f'IFC section type "{profile_def}" is not yet implemented')
 
     return sec

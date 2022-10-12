@@ -1,14 +1,17 @@
+from __future__ import annotations
+
 import logging
 import traceback
+from dataclasses import dataclass
 from itertools import chain
 from typing import Iterable, List
 
 import numpy as np
 
-from ada import Beam, Node, Part, PipeSegStraight, Plate, PrimCyl
+from ada import Assembly, Beam, Node, Part, Pipe, PipeSegStraight, Plate, PrimCyl
 
 from .utils import Counter
-from .vector_utils import intersect_calc, is_parallel, vector_length
+from .vector_utils import EquationOfPlane, intersect_calc, is_parallel, vector_length
 
 
 def basic_intersect(bm: Beam, margins, all_parts: [Part]):
@@ -160,3 +163,68 @@ def penetration_check(part: Part):
                         part.add_penetration(
                             PrimCyl(f"{p.name}_{pipe.name}_{segment.name}_pen", p1.p, p2.p, pipe.section.r + 0.1)
                         )
+
+
+@dataclass
+class PipeClash:
+    seg: PipeSegStraight
+    plate: Plate
+
+    @staticmethod
+    def pipe_penetration_check(a: Assembly) -> list[PipeClash]:
+        plates = list(a.get_all_physical_objects(by_type=Plate))
+        pipes = list(a.get_all_physical_objects(by_type=Pipe))
+        pipe_segments = []
+        for pipe in pipes:
+            pipe_segments += list(filter(lambda x: isinstance(x, PipeSegStraight), pipe.segments))
+
+        clashes = []
+
+        for seg in pipe_segments:
+            p1 = seg.p1.p
+            p2 = seg.p2.p
+            for plate in plates:
+                origin = plate.placement.origin
+                normal = plate.placement.zdir
+
+                v1 = (p1 - origin) * normal
+                v2 = (p2 - origin) * normal
+                is_clashing = np.dot(v1, v2) < 0
+                if is_clashing:
+                    print(f"{seg.name=} {is_clashing=} with {plate.name=}")
+                    clashes.append(PipeClash(seg, plate))
+        return clashes
+
+    def reinforce_plate_pipe_pen(self, add_to_layer: str = None):
+        seg = self.seg
+        plate = self.plate
+
+        p1 = seg.p1.p
+        p2 = seg.p2.p
+
+        pipe = seg.parent
+        part = plate.parent
+
+        # Cut away in plate and stringers here
+        name = f"{plate.name}_{pipe.name}_{seg.name}_pen"
+        part.add_penetration(PrimCyl(name, p1, p2, seg.section.r + 0.1), add_to_layer=add_to_layer)
+
+        # specify reinforcement here
+        reinforce_name = Counter(prefix=f"{plate.name}_{pipe.name}_{seg.name}_reinf_")
+
+        eop = EquationOfPlane(plate.placement.origin, plate.placement.zdir, plate.placement.ydir)
+        xdir, ydir, zdir = eop.get_lcsys()
+
+        pp = eop.project_point_onto_plane(p1) + plate.t * plate.placement.zdir
+
+        dist = 3 * seg.section.r
+
+        bm_p1 = pp - dist * xdir - dist * ydir
+        bm_p2 = pp + dist * xdir - dist * ydir
+        bm_p3 = pp + dist * xdir + dist * ydir
+        bm_p4 = pp - dist * xdir + dist * ydir
+
+        part.add_beam(Beam(next(reinforce_name), bm_p1, bm_p2, "HP140x8"), add_to_layer=add_to_layer)
+        part.add_beam(Beam(next(reinforce_name), bm_p2, bm_p3, "HP140x8"), add_to_layer=add_to_layer)
+        part.add_beam(Beam(next(reinforce_name), bm_p3, bm_p4, "HP140x8"), add_to_layer=add_to_layer)
+        part.add_beam(Beam(next(reinforce_name), bm_p4, bm_p1, "HP140x8"), add_to_layer=add_to_layer)

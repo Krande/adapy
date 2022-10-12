@@ -1,4 +1,6 @@
-from typing import TYPE_CHECKING, Tuple, Union
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -9,8 +11,8 @@ if TYPE_CHECKING:
 
 
 def occ_shape_to_faces(
-    shape: "TopoDS_Shape", quality=1.0, render_edges=False, parallel=True
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Union[None, np.ndarray]]:
+    shape: TopoDS_Shape, quality=1.0, render_edges=False, parallel=True
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, None | np.ndarray]:
     from OCC.Core.Tesselator import ShapeTesselator
 
     # first, compute the tesselation
@@ -18,6 +20,7 @@ def occ_shape_to_faces(
         tess = ShapeTesselator(shape)
     except RuntimeError as e:
         raise UnableToCreateTesselationFromSolidOCCGeom(e)
+
     tess.Compute(compute_edges=render_edges, mesh_quality=quality, parallel=parallel)
 
     # get vertices and normals

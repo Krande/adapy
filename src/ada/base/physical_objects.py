@@ -4,19 +4,21 @@ import os
 import pathlib
 from typing import TYPE_CHECKING, List
 
+from ada.base.root import Root
+from ada.base.types import GeomRepr
+from ada.base.units import Units
 from ada.concepts.transforms import Placement
 from ada.core.constants import color_map as _cmap
-
-from .non_physical_objects import Backend
+from ada.visualize.config import ExportConfig
 
 if TYPE_CHECKING:
     from ada import FEM, Penetration
     from ada.fem import Elem
     from ada.fem.meshing import GmshOptions
-    from ada.ifc.concepts import IfcRef
+    from ada.ifc.store import IfcStore
 
 
-class BackendGeom(Backend):
+class BackendGeom(Root):
     """The backend of all physical components (Beam, Plate, etc.) or aggregate of components (Part, Assembly)"""
 
     _renderer = None
@@ -26,15 +28,14 @@ class BackendGeom(Backend):
         name,
         guid=None,
         metadata=None,
-        units="m",
+        units=Units.M,
         parent=None,
         colour=None,
-        ifc_elem=None,
         placement=Placement(),
-        ifc_ref: IfcRef = None,
+        ifc_store: IfcStore = None,
         opacity=1.0,
     ):
-        super().__init__(name, guid, metadata, units, parent, ifc_elem=ifc_elem, ifc_ref=ifc_ref)
+        super().__init__(name, guid, metadata, units, parent, ifc_store=ifc_store)
         from ada.visualize.new_render_api import Visualize
 
         self._penetrations = []
@@ -45,8 +46,9 @@ class BackendGeom(Backend):
         self._elem_refs = []
         self._viz = Visualize(self)
 
-    def add_penetration(self, pen):
+    def add_penetration(self, pen, add_to_layer: str = None):
         from ada import Penetration, Shape
+        from ada.base.changes import ChangeAction
 
         pen.parent = self
 
@@ -58,12 +60,19 @@ class BackendGeom(Backend):
         else:
             raise ValueError("")
 
+        if self.change_type in (ChangeAction.NOCHANGE, ChangeAction.NOTDEFINED):
+            self.change_type = ChangeAction.MODIFIED
+
+        if add_to_layer is not None:
+            a = self.get_assembly()
+            a.presentation_layers.add_object(pen, add_to_layer)
+
         return pen
 
     def to_fem_obj(
         self,
         mesh_size,
-        geom_repr,
+        geom_repr: str | GeomRepr,
         options: GmshOptions = None,
         silent=True,
         use_quads=False,
@@ -73,9 +82,12 @@ class BackendGeom(Backend):
     ) -> FEM:
         from ada.fem.meshing import GmshOptions, GmshSession
 
+        if isinstance(geom_repr, str):
+            geom_repr = GeomRepr.from_str(geom_repr)
+
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
         with GmshSession(silent=silent, options=options) as gs:
-            gs.add_obj(self, geom_repr=geom_repr.upper())
+            gs.add_obj(self, geom_repr=geom_repr)
             gs.mesh(mesh_size, use_quads=use_quads, use_hex=use_hex)
             if interactive:
                 gs.open_gui()
@@ -104,17 +116,33 @@ class BackendGeom(Backend):
         a.to_fem(name, fem_format, **kwargs)
 
     def to_stp(
-        self, destination_file, geom_repr=None, schema="AP242", silent=False, fuse_piping=False, return_file_obj=False
+        self,
+        destination_file,
+        geom_repr: GeomRepr = None,
+        schema="AP242",
+        silent=False,
+        fuse_piping=False,
+        return_file_obj=False,
     ):
-        from ada.fem.shapes import ElemType
-        from ada.occ.writer import StepExporter
+        occ_export = self._get_occ_export(geom_repr, schema, fuse_piping)
+        return occ_export.write_to_file(destination_file, silent, return_file_obj=return_file_obj)
 
-        destination_file = pathlib.Path(destination_file).resolve().absolute()
+    def _get_occ_export(self, geom_repr: GeomRepr = None, schema="AP242", fuse_piping=False):
+        from ada.occ.writer import OCCExporter
 
-        geom_repr = ElemType.SOLID if geom_repr is None else geom_repr
-        step_export = StepExporter(schema)
-        step_export.add_to_step_writer(self, geom_repr, fuse_piping=fuse_piping)
-        return step_export.write_to_file(destination_file, silent, return_file_obj=return_file_obj)
+        geom_repr = GeomRepr.SOLID if geom_repr is None else geom_repr
+        occ_export = OCCExporter(schema)
+        occ_export.add_to_step_writer(self, geom_repr, fuse_piping=fuse_piping)
+        return occ_export
+
+    def to_obj_mesh(self, geom_repr: str | GeomRepr = GeomRepr.SOLID, export_config: ExportConfig = ExportConfig()):
+        from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import (
+            occ_geom_to_poly_mesh,
+        )
+
+        if isinstance(geom_repr, str):
+            geom_repr = GeomRepr.from_str(geom_repr)
+        return occ_geom_to_poly_mesh(self, geom_repr=geom_repr, export_config=export_config)
 
     def render_locally(
         self, addr="localhost", server_port=8080, open_webbrowser=False, render_engine="threejs", resolution=(1800, 900)
@@ -249,3 +277,15 @@ class BackendGeom(Backend):
         self._renderer = renderer
         display(HBox([VBox([HBox(renderer.controls), renderer.renderer]), renderer.html]))
         return ""
+
+    @property
+    def solid(self):
+        raise NotImplementedError()
+
+    @property
+    def shell(self):
+        raise NotImplementedError()
+
+    @property
+    def line(self):
+        raise NotImplementedError()

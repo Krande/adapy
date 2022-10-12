@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 from ada.fem import FemSection
 from ada.fem.steps import StepExplicit
-from ada.sections import GeneralProperties, Section, SectionCat
+from ada.sections import GeneralProperties, Section
 
 if TYPE_CHECKING:
     from ada import FEM
@@ -110,7 +110,7 @@ def line_cross_sec_type_str(fem_sec: FemSection):
     from ada.sections.categories import BaseTypes
 
     bt = BaseTypes
-    base_type = SectionCat.get_shape_type(fem_sec.section)
+
     sec_map = {
         bt.CIRCULAR: "CIRC",
         bt.IPROFILE: "I",
@@ -121,11 +121,11 @@ def line_cross_sec_type_str(fem_sec: FemSection):
         bt.CHANNEL: "GENERAL",
         bt.FLATBAR: "RECT",
     }
-    sec_str = sec_map.get(base_type, None)
+    sec_str = sec_map.get(fem_sec.section.type, None)
     if sec_str is None:
         raise Exception(f'Section type "{sec_type}" is not added to Abaqus beam export yet')
 
-    if base_type in [bt.CHANNEL]:
+    if fem_sec.section.type in [bt.CHANNEL]:
         logging.error(f'Profile type "{sec_type}" is not supported by Abaqus. Using a General Section instead')
 
     return sec_str

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, List, Tuple, Union
 
 import numpy as np
 
+from ada.base.types import GeomRepr
 from ada.core.utils import Counter
 from ada.core.vector_utils import (
     calc_yvec,
@@ -31,7 +32,7 @@ class FemSection(FemBase):
     def __init__(
         self,
         name,
-        sec_type: str,
+        sec_type: GeomRepr | str,
         elset: FemSet,
         material: Material,
         section=None,
@@ -46,11 +47,9 @@ class FemSection(FemBase):
         is_rigid=False,
     ):
         super().__init__(name, metadata, parent)
-        if sec_type is None:
-            raise ValueError("Section type cannot be None")
-        sec_type = sec_type.upper()
-        if sec_type not in ElemType.all:
-            raise ValueError(f'Element section type "{sec_type}" is not supported. Must be in {ElemType.all}')
+        if isinstance(sec_type, str):
+            sec_type = GeomRepr.from_str(sec_type)
+
         self._id = sec_id if sec_id is not None else next(FemSection.id_count)
         self._sec_type = sec_type
         self._elset = elset
@@ -177,6 +176,10 @@ class FemSection(FemBase):
     def section(self) -> Section:
         return self._section
 
+    @section.setter
+    def section(self, value):
+        self._section = value
+
     @property
     def material(self) -> Material:
         return self._material
@@ -227,9 +230,14 @@ class FemSection(FemBase):
     #     return self_perm == other_perm
 
     def __repr__(self):
+        fem_sec_type = self.type
+        name = self.name
+        sec_name = self.section.name if self.section is not None else "SHELL"
+        mat_name = self.material.name
+        elset_name = self.elset.name
         return (
-            f'FemSection({self.type} - name: "{self.name}", sec: "{self.section.name}", '
-            f'mat: "{self.material.name}",  elset: "{self.elset.name}")'
+            f'FemSection({fem_sec_type} - name: "{name}", sec: "{sec_name}", '
+            f'mat: "{mat_name}",  elset: "{elset_name}")'
         )
 
 

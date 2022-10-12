@@ -1,6 +1,6 @@
 import os
 
-from ada.concepts.levels import Assembly, Part
+from ada.concepts.spatial import Assembly, Part
 from ada.core.utils import Counter
 
 from .read_constraints import get_bcs, get_constraints

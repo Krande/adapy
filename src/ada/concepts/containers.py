@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 
 import numpy as np
 
+from ada.base.units import Units
 from ada.concepts.exceptions import DuplicateNodes
 from ada.concepts.points import Node, replace_node
 from ada.concepts.stru_beams import Beam
@@ -473,34 +474,34 @@ class NumericMapped(BaseCollections):
 class Materials(NumericMapped):
     """Collection of materials"""
 
-    def __init__(self, materials: Iterable[Material] = None, parent: Union[Part, Assembly] = None, units="m"):
+    def __init__(self, materials: Iterable[Material] = None, parent: Union[Part, Assembly] = None, units=Units.M):
         super().__init__(parent)
-        self._materials = sorted(materials, key=attrgetter("name")) if materials is not None else []
-        self.recreate_name_and_id_maps(self._materials)
+        self.materials = sorted(materials, key=attrgetter("name")) if materials is not None else []
+        self.recreate_name_and_id_maps(self.materials)
         self._units = units
 
     def __contains__(self, item: Material):
         return item.name in self._name_map.keys()
 
     def __len__(self) -> int:
-        return len(self._materials)
+        return len(self.materials)
 
     def __iter__(self) -> Iterable[Material]:
-        return iter(self._materials)
+        return iter(self.materials)
 
     def __getitem__(self, index):
-        result = self._materials[index]
+        result = self.materials[index]
         return Materials(result) if isinstance(index, slice) else result
 
     def __eq__(self, other: Materials):
         if not isinstance(other, Materials):
             return NotImplemented
-        return self._materials == other._materials
+        return self.materials == other.materials
 
     def __ne__(self, other: Materials):
         if not isinstance(other, Materials):
             return NotImplemented
-        return self._materials != other._materials
+        return self.materials != other.materials
 
     def __add__(self, other: Materials):
         if self.parent is None:
@@ -514,13 +515,13 @@ class Materials(NumericMapped):
         rpr = reprlib.Repr()
         rpr.maxlist = 8
         rpr.maxlevel = 1
-        return f"Materials({rpr.repr(self._materials) if self._materials else ''})"
+        return f"Materials({rpr.repr(self.materials) if self.materials else ''})"
 
     def merge_materials_by_properties(self):
         models = []
 
         final_mats = []
-        for i, mat in enumerate(self._materials):
+        for i, mat in enumerate(self.materials):
             if mat.model.unique_props() not in models:
                 models.append(mat.model.unique_props())
                 final_mats.append(mat)
@@ -530,11 +531,11 @@ class Materials(NumericMapped):
                 for ref in mat.refs:
                     ref.material = replacement_mat
 
-        self._materials = final_mats
-        self.recreate_name_and_id_maps(self._materials)
+        self.materials = final_mats
+        self.recreate_name_and_id_maps(self.materials)
 
     def index(self, item: Material):
-        return self._materials.index(item)
+        return self.materials.index(item)
 
     def count(self, item: Material):
         return int(item in self)
@@ -556,7 +557,7 @@ class Materials(NumericMapped):
         for mat_id in sorted(self.id_map.keys()):
             mat = self.get_by_id(mat_id)
             mat.id = next(cnt)
-        self.recreate_name_and_id_maps(self._materials)
+        self.recreate_name_and_id_maps(self.materials)
 
     @property
     def name_map(self) -> Dict[str, Material]:
@@ -572,26 +573,33 @@ class Materials(NumericMapped):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
-            for m in self._materials:
+            for m in self.materials:
                 m.units = value
             self._units = value
 
     def add(self, material) -> Material:
         if material in self:
-            return self._name_map[material.name]
+            existing_mat = self._name_map[material.name]
+            for elem in material.refs:
+                if elem not in existing_mat.refs:
+                    existing_mat.refs.append(elem)
+            return existing_mat
 
         if material.id is None or material.id in self._id_map.keys():
-            material.id = len(self._materials) + 1
+            material.id = len(self.materials) + 1
+
         self._id_map[material.id] = material
         self._name_map[material.name] = material
-        self._materials.append(material)
+        self.materials.append(material)
 
         return material
 
 
 class Sections(NumericMapped):
-    def __init__(self, sections: Iterable[Section] = None, parent: Union[Part, Assembly] = None, units="m"):
+    def __init__(self, sections: Iterable[Section] = None, parent: Part | Assembly = None, units=Units.M):
         sec_id = Counter(1)
         super(Sections, self).__init__(parent=parent)
         sections = [] if sections is None else sections
@@ -690,7 +698,6 @@ class Sections(NumericMapped):
         return self._name_map
 
     def add(self, section: Section) -> Section:
-
         if section.name is None:
             raise Exception("Name is not allowed to be None.")
 
@@ -700,11 +707,21 @@ class Sections(NumericMapped):
 
         if section in self._sections:
             index = self._sections.index(section)
-            return self._sections[index]
+            existing_section = self._sections[index]
+            for elem in section.refs:
+                elem.section = existing_section
+                if elem not in existing_section.refs:
+                    existing_section.refs.append(elem)
+            return existing_section
 
         if section.name in self._name_map.keys():
             logging.info(f'Section with same name "{section.name}" already exists. Will use that section instead')
-            return self._name_map[section.name]
+            existing_section = self._name_map[section.name]
+            for elem in section.refs:
+                elem.section = existing_section
+                if elem not in existing_section.refs:
+                    existing_section.refs.append(elem)
+            return existing_section
 
         if section.id is None:
             section.id = self.max_id + 1
@@ -719,7 +736,7 @@ class Sections(NumericMapped):
         return section
 
     @property
-    def sections(self) -> List[Section]:
+    def sections(self) -> list[Section]:
         return self._sections
 
     @property
@@ -728,6 +745,8 @@ class Sections(NumericMapped):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if value != self._units:
             for m in self._sections:
                 m.units = value

@@ -9,7 +9,7 @@ from ..common import ada_to_med_type
 from .write_sets import _add_cell_sets
 
 if TYPE_CHECKING:
-    from ada.concepts.levels import Part
+    from ada.concepts.spatial import Part
 
 
 def elements_str(part: "Part", time_step, profile, families):

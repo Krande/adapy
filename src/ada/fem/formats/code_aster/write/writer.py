@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pathlib
 from typing import TYPE_CHECKING
 
@@ -17,10 +19,10 @@ from .write_sections import create_sections_str
 from .write_steps import create_step_str
 
 if TYPE_CHECKING:
-    from ada.concepts.levels import Assembly, Part
+    from ada.concepts.spatial import Assembly, Part
 
 
-def to_fem(assembly: "Assembly", name, analysis_dir, metadata=None):
+def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
     """Write Code_Aster .med and .comm file from Assembly data"""
     from ada.materials.utils import shorten_material_names
 
@@ -42,11 +44,14 @@ def to_fem(assembly: "Assembly", name, analysis_dir, metadata=None):
     print(f'Created a Code_Aster input deck at "{analysis_dir}"')
 
 
-def create_comm_str(assembly: "Assembly", part: "Part") -> str:
+def create_comm_str(assembly: Assembly, part: Part) -> str:
     """Create COMM file input str"""
     mat_str = materials_str(assembly)
     sections_str = create_sections_str(part.fem.sections)
-    bc_str = "\n".join([create_bc_str(bc) for bc in assembly.fem.bcs + part.fem.bcs])
+    bcs = part.fem.bcs
+    if assembly != part:
+        bcs += assembly.fem.bcs
+    bc_str = "\n".join([create_bc_str(bc) for bc in bcs])
     step_str = "\n".join([create_step_str(s, part) for s in assembly.fem.steps])
 
     type_tmpl_str = "_F(GROUP_MA={elset_str}, PHENOMENE='MECANIQUE', MODELISATION='{el_formula}',),"
@@ -114,7 +119,7 @@ def create_comm_str(assembly: "Assembly", part: "Part") -> str:
     return comm_str
 
 
-def write_to_med(name, part: "Part", analysis_dir):
+def write_to_med(name, part: Part, analysis_dir):
     """Custom Method for writing a part directly based on meshio"""
 
     analysis_dir = pathlib.Path(analysis_dir)
@@ -151,12 +156,6 @@ def write_to_med(name, part: "Part", analysis_dir):
 
 
 def _write_mesh_presets(f, mesh_name):
-    """
-
-    :param f:
-    :param mesh_name:
-    :return: Time step 0
-    """
     numpy_void_str = np.string_("")
     dim = 3
 

@@ -1,10 +1,10 @@
-from typing import Union
+from __future__ import annotations
 
 from ada.core.utils import bool2text
 from ada.fem.steps import Step, StepEigen, StepImplicit
 
 
-def step_str(step: Union[StepEigen, StepImplicit]):
+def step_str(step: StepEigen | StepImplicit):
     from .write_loads import load_str
     from .writer import bc_str, interactions_str
 

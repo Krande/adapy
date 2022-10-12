@@ -88,7 +88,7 @@ def add_sections_to_cache(part, parts_group):
         return [x if x is not None else 0 for x in [s.r, s.wt, s.h, s.w_top, s.w_btn, s.t_w, s.t_ftop, s.t_fbtn, s.id]]
 
     def add_strings_to_cache(s: Section):
-        return [s.guid, s.name, s.units, s.type]
+        return [s.guid, s.name, s.units.value, s.type.value]
 
     parts_group.create_dataset(f"{prefix}_STR", data=[add_strings_to_cache(bm) for bm in part.sections])
     parts_group.create_dataset(f"{prefix}_INT", data=[add_ints_to_cache(bm) for bm in part.sections])
@@ -102,7 +102,7 @@ def add_materials_to_cache(part, parts_group):
         return [m.E, m.rho, m.sig_y, e.id]
 
     def add_strings_to_cache(e: Material):
-        return [e.guid, e.name, e.units]
+        return [e.guid, e.name, e.units.value]
 
     parts_group.create_dataset(f"{prefix}_INT", data=[add_ints_to_cache(bm) for bm in part.materials])
     parts_group.create_dataset(f"{prefix}_STR", data=[add_strings_to_cache(bm) for bm in part.materials])

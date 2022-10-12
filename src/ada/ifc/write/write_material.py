@@ -1,25 +1,23 @@
 from ada import Material
 from ada.materials.metals import CarbonSteel
 
-from ..utils import create_guid
-
 
 def write_ifc_mat(material: Material):
     if material.parent is None:
         raise ValueError("Parent cannot be None")
 
     a = material.parent.get_assembly()
-    f = a.ifc_file
+    ifc_store = a.ifc_store
+    f = ifc_store.f
 
-    owner_history = a.user.to_ifc()
+    ifc_mat = f.create_entity("IfcMaterial", Name=material.name, Category="Steel")
 
-    ifc_mat = f.createIfcMaterial(material.name, None, "Steel")
     properties = []
     if type(material.model) is CarbonSteel:
         strength_grade = f.create_entity("IfcText", material.model.grade)
         strength_grade_prop = f.create_entity("IfcPropertySingleValue", Name="Grade", NominalValue=strength_grade)
         properties.append(strength_grade_prop)
-    mass_density = f.create_entity("IfcMassDensityMeasure", float(material.model.rho))
+
     if material.model.sig_y is not None:
         yield_stress = f.create_entity("IfcPressureMeasure", float(material.model.sig_y))
         properties += [
@@ -29,6 +27,8 @@ def write_ifc_mat(material: Material):
                 NominalValue=yield_stress,
             )
         ]
+
+    mass_density = f.create_entity("IfcMassDensityMeasure", float(material.model.rho))
     young_modulus = f.create_entity("IfcModulusOfElasticityMeasure", float(material.model.E))
     poisson_ratio = f.create_entity("IfcPositiveRatioMeasure", float(material.model.v))
     therm_exp_coeff = f.create_entity("IfcThermalExpansionCoefficientMeasure", float(material.model.alpha))
@@ -57,22 +57,12 @@ def write_ifc_mat(material: Material):
         f.create_entity("IfcPropertySingleValue", Name="MassDensity", NominalValue=mass_density),
     ]
 
-    atts = {
-        "GlobalId": create_guid(),
-        "OwnerHistory": owner_history,
-        "Name": material.name,
-        "HasProperties": properties,
-    }
-
-    f.create_entity("IfcPropertySet", **atts)
-
     f.create_entity(
         "IfcMaterialProperties",
-        **{
-            "Name": "MaterialMechanical",
-            "Description": "A Material property description",
-            "Properties": properties,
-            "Material": ifc_mat,
-        },
+        Name="MaterialMechanical",
+        Description="A Material property description",
+        Properties=properties,
+        Material=ifc_mat,
     )
+
     return ifc_mat

@@ -50,7 +50,7 @@ def get_eigen_frequency_deformed_meshes(rmed_file):
 
 
 def read_code_aster_results(results: "Results", file_ref: pathlib.Path, overwrite):
-    if type(results.assembly.fem.steps[0]) is StepEigen:
+    if results.assembly is not None and isinstance(results.assembly.fem.steps[0], StepEigen):
         results.eigen_mode_data = get_eigen_data(file_ref)
 
     fem = med_to_fem(file_ref, "temp")

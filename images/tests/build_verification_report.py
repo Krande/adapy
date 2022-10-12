@@ -71,7 +71,11 @@ def retrieve_cached_results(results, cache_dir):
     res_elo = [r.metadata["elo"] for r in results]
     for res_file in get_list_of_files(cache_dir, ".json"):
         with open(res_file, "r") as f:
-            res = json.load(f)
+            try:
+                res = json.load(f)
+            except json.decoder.JSONDecodeError as e:
+                logging.error((res_file, e))
+                continue
             if res["name"] in res_names:
                 continue
         cached_results = results_from_cache(res)
@@ -198,4 +202,4 @@ def main(overwrite, execute):
 
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)
-    main(overwrite=True, execute=True)
+    main(overwrite=False, execute=False)

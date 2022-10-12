@@ -20,7 +20,7 @@ class ReinforcedFloor(Part):
     def __init__(
         self,
         name,
-        points: List[tuple],
+        points: list[tuple],
         pl_thick: float,
         spacing=0.4,
         s_type="HP140x8",
@@ -62,7 +62,7 @@ class ReinforcedFloor(Part):
                 p1 = (xmin, y, z)
                 p2 = (xmax, y, z)
                 y += spacing
-            self.add_beam(Beam(next(bm_name), p1, p2, sec=s_type))
+            self.add_beam(Beam(f"{name}_{next(bm_name)}", p1, p2, sec=s_type))
 
 
 class SimpleStru(Part):
@@ -101,6 +101,7 @@ class SimpleStru(Part):
         if add_bottom_floor:
             self._elevations += [z0]
         self._elevations += [z1]
+
         for elev in self._elevations:
             for p1, p2 in beams:
                 self.add_beam(Beam(next(bm_name), n1=p1(elev), n2=p2(elev), sec=sec, jusl=Beam.JUSL_TYPES.TOS))
@@ -109,6 +110,7 @@ class SimpleStru(Part):
             self.add_set("floors", [p])
 
         # Columns
+        z0 -= 0.5
         columns = [(c1(z0), c1(h)), (c2(z0), c2(h)), (c3(z0), c3(h)), (c4(z0), c4(h))]
         for p1, p2 in columns:
             bm = self.add_beam(Beam(next(bm_name), n1=p1, n2=p2, sec=csec))

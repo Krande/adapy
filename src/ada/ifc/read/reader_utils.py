@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import logging
 import pathlib
 from io import StringIO
-from typing import Tuple, Union
+from typing import TYPE_CHECKING, Tuple, Union
 
 import ifcopenshell
 import ifcopenshell.geom
@@ -9,6 +11,9 @@ from ifcopenshell.util.element import get_psets
 
 from ada.concepts.transforms import Placement
 from ada.config import Settings
+
+if TYPE_CHECKING:
+    from ada import Assembly, Part, Pipe
 
 tol_map = dict(m=Settings.mtol, mm=Settings.mmtol)
 
@@ -19,10 +24,10 @@ def open_ifc(ifc_file_path: Union[str, pathlib.Path, StringIO]):
     return ifcopenshell.open(str(ifc_file_path))
 
 
-def getIfcPropertySets(ifcelem):
+def get_ifc_property_sets(ifc_elem) -> dict:
     """Returns a dictionary of {pset_id:[prop_id, prop_id...]} for an IFC object"""
     props = dict()
-    for definition in ifcelem.IsDefinedBy:
+    for definition in ifc_elem.IsDefinedBy:
         if definition.is_a("IfcRelDefinesByProperties") is False:
             continue
         property_set = definition.RelatingPropertyDefinition
@@ -32,11 +37,13 @@ def getIfcPropertySets(ifcelem):
         pset_name = property_set.Name.split(":")[0].strip()
         props[pset_name] = dict()
         for prop in property_set.HasProperties:
-            if prop.is_a("IfcPropertySingleValue") is False:
+            if prop.is_a() not in ("IfcPropertySingleValue", "IfcPropertyListValue"):
                 continue
-
-            res = prop.NominalValue.wrappedValue
-            props[pset_name][prop.Name] = res
+            if prop.is_a("IfcPropertySingleValue"):
+                res = prop.NominalValue.wrappedValue
+                props[pset_name][prop.Name] = res
+            else:
+                props[pset_name][prop.Name] = [x.wrappedValue for x in prop.ListValues]
 
     return props
 
@@ -56,33 +63,38 @@ def get_parent(instance):
         if len(decompositions):
             return decompositions[0].RelatingObject
 
+    return None
 
-def get_associated_material(ifc_elem):
-    """
 
-    :param ifc_elem:
-    :return:
-    """
+def get_associated_material(ifc_elem: ifcopenshell.entity_instance):
     c = None
     for association in ifc_elem.HasAssociations:
-        if association.is_a("IfcRelAssociatesMaterial"):
-            material = association.RelatingMaterial
-            if material.is_a("IfcMaterialProfileSet"):
-                # For now, we only deal with a single profile
-                c = material.MaterialProfiles[0]
-            if material.is_a("IfcMaterialProfileSetUsage"):
-                c = material.ForProfileSet.MaterialProfiles[0]
-            if material.is_a("IfcRelAssociatesMaterial"):
-                c = material.RelatingMaterial
-            if material.is_a("IfcMaterial"):
-                c = material
+        if association.is_a("IfcRelAssociatesMaterial") is False:
+            continue
+        material = association.RelatingMaterial
+        if material.is_a("IfcMaterialProfileSet"):
+            # For now, we only deal with a single profile
+            c = material.MaterialProfiles[0]
+        if material.is_a("IfcMaterialProfileSetUsage"):
+            c = material.ForProfileSet.MaterialProfiles[0]
+        if material.is_a("IfcRelAssociatesMaterial"):
+            c = material.RelatingMaterial
+        if material.is_a("IfcMaterial"):
+            c = material
+
     if c is None:
-        raise ValueError(f'IfcElem "{ifc_elem.Name}" lacks associated Material properties')
+        raise ValueError(f"{ifc_elem=} lacks associated Material properties")
 
     return c
 
 
-def get_name_from_props(props: dict) -> Union[str, None]:
+def get_beam_type(ifc_elem: ifcopenshell.entity_instance) -> ifcopenshell.entity_instance:
+    for typed_by in ifc_elem.IsTypedBy:
+        if typed_by.RelatingType.is_a("IfcBeamType"):
+            return typed_by.RelatingType
+
+
+def get_name_from_props(props: dict) -> str | None:
     name = None
     for key, val in props.items():
         if type(val) is dict:
@@ -127,8 +139,11 @@ def get_org(f, org_id):
     return None
 
 
-def add_to_assembly(assembly, obj, ifc_parent, elements2part):
+def add_to_assembly(assembly: Assembly, obj, ifc_parent, elements2part):
+    from ada import Pipe
+
     pp_name = ifc_parent.Name
+
     if pp_name is None:
         pp_name = resolve_name(get_psets(ifc_parent), ifc_parent)
         if pp_name is None:
@@ -139,27 +154,42 @@ def add_to_assembly(assembly, obj, ifc_parent, elements2part):
         add_to_parent(assembly, obj)
         imported = True
     else:
-        all_parts = assembly.get_all_parts_in_assembly()
-        for p in all_parts:
-            if p.name == pp_name or p.metadata.get("original_name") == pp_name:
-                add_to_parent(p, obj)
-                imported = True
-                break
+        res = assembly.get_by_name(pp_name)
+        if res is not None:
+            add_to_parent(res, obj)
+            imported = True
+
+        if imported is False:
+            for pipe in assembly.get_all_physical_objects(by_type=Pipe):
+                if pipe.name == pp_name or pipe.metadata.get("original_name") == pp_name:
+                    add_to_parent(pipe, obj)
+                    imported = True
+                    break
 
     if imported is False:
         logging.info(f'Unable to find parent "{pp_name}" for {type(obj)} "{obj.name}". Adding to Assembly')
         assembly.add_shape(obj)
 
 
-def add_to_parent(parent, obj):
-    from ada import Beam, Plate, Shape
+def add_to_parent(parent: Part | Pipe, obj):
+    from ada import Beam, Part, Pipe, PipeSegElbow, PipeSegStraight, Plate, Shape
 
     if type(obj) is Beam:
         parent.add_beam(obj)
     elif type(obj) is Plate:
         parent.add_plate(obj)
-    elif issubclass(type(obj), Shape):
+    elif issubclass(type(obj), Shape) and isinstance(parent, Part):
         parent.add_shape(obj)
+    elif isinstance(obj, (PipeSegStraight, PipeSegElbow)) and isinstance(parent, Part):
+        pipe = Pipe.from_segments(parent.name, [obj])
+        parent.parent.add_pipe(pipe)
+        parent.parent.parts.pop(parent.name)
+    elif isinstance(obj, (PipeSegStraight, PipeSegElbow)) and isinstance(parent, Pipe):
+        # Todo: PipeSegments should not really be resolved here.
+        obj.parent = parent
+        parent.segments.append(obj)
+    elif isinstance(obj, Pipe):
+        parent.add_pipe(obj)
     else:
         raise NotImplementedError("")
 
@@ -178,3 +208,35 @@ def get_placement(ifc_position) -> Placement:
     zdir = get_direction(ifc_position.Axis)
 
     return Placement(origin, xdir=xdir, zdir=zdir)
+
+
+def get_axis_polyline_points_from_product(product) -> list[tuple[float, float, float]]:
+    axis_data = []
+    for axis in filter(lambda x: x.RepresentationIdentifier == "Axis", product.Representation.Representations):
+        if len(axis.Items) != 1:
+            raise ValueError("Axis should only contain 1 item")
+        for cartesian_point in axis.Items[0].Points:
+            axis_data.append(cartesian_point.Coordinates)
+
+    return axis_data
+
+
+def get_ifc_body(product, allow_multiple=False) -> ifcopenshell.entity_instance:
+    bodies = []
+    for body in filter(lambda x: x.RepresentationIdentifier != "Axis", product.Representation.Representations):
+        if len(body.Items) != 1:
+            raise ValueError("Axis should only contain 1 item")
+        bodies.append(body.Items[0])
+
+    if len(bodies) != 1:
+        if allow_multiple is False:
+            raise ValueError("Currently do not support multi body IFC products")
+        else:
+            return bodies
+
+    return bodies[0]
+
+
+def get_swept_area(product: ifcopenshell.entity_instance) -> ifcopenshell.entity_instance:
+    body = get_ifc_body(product)
+    return body.SweptArea

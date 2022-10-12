@@ -9,8 +9,9 @@ def ifc_roundtrip_test_dir(ifc_test_dir):
 
 
 def test_roundtrip_ipe_beam(bm_ipe300, ifc_roundtrip_test_dir):
+    sec_o = bm_ipe300.section
     ifc_beam_file = ifc_roundtrip_test_dir / "ipe300.ifc"
-    fp = (ada.Assembly() / (ada.Part("MyPart") / bm_ipe300)).to_ifc(ifc_beam_file, return_file_obj=True)
+    fp = (ada.Assembly() / (ada.Part("MyPart") / bm_ipe300)).to_ifc(ifc_beam_file, file_obj_only=True)
 
     a = ada.from_ifc(fp)
     bm: ada.Beam = a.get_by_name("MyIPE300")
@@ -19,7 +20,7 @@ def test_roundtrip_ipe_beam(bm_ipe300, ifc_roundtrip_test_dir):
 
     assert p.name == "MyPart"
     assert bm.name == "MyIPE300"
-    assert sec.type == "I"
+    assert sec.type == sec_o.type
 
     assert tuple(bm.n1.p) == tuple(bm_ipe300.n1.p)
     assert tuple(bm.n2.p) == tuple(bm_ipe300.n2.p)
@@ -51,7 +52,7 @@ def test_beam_offset(ifc_roundtrip_test_dir):
     )
 
     a = ada.Assembly("Toplevel") / [ada.Part("MyPart") / [bm1, bm2]]
-    _ = a.to_ifc(ifc_roundtrip_test_dir / "beams_offset.ifc", return_file_obj=True)
+    _ = a.to_ifc(ifc_roundtrip_test_dir / "beams_offset.ifc", file_obj_only=True)
 
 
 def test_beam_orientation(ifc_roundtrip_test_dir):
@@ -59,7 +60,7 @@ def test_beam_orientation(ifc_roundtrip_test_dir):
     bm1 = ada.Beam("bm_up", **props, up=(0, 0, 1))
     bm2 = ada.Beam("bm_down", **props, up=(0, 0, -1))
     fp = (ada.Assembly("MyAssembly") / (ada.Part("MyPart") / [bm1, bm2])).to_ifc(
-        ifc_roundtrip_test_dir / "up_down", return_file_obj=True
+        ifc_roundtrip_test_dir / "up_down", file_obj_only=True
     )
 
     a = ada.from_ifc(fp)
@@ -81,4 +82,4 @@ def test_beam_directions(ifc_roundtrip_test_dir):
         ada.Beam("bm_test2Y90", n1=[0, 0, 3], n2=[0, 5, 3], angle=90, sec=sec),
     ]
     a = ada.Assembly("AdaRotatedProfiles") / (ada.Part("Part") / beams)
-    _ = a.to_ifc(ifc_roundtrip_test_dir / "my_angled_profiles.ifc", return_file_obj=True)
+    _ = a.to_ifc(ifc_roundtrip_test_dir / "my_angled_profiles.ifc", file_obj_only=True)

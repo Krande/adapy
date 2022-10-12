@@ -1,14 +1,12 @@
-from ada import Part, Wall
+from ada import Wall
+from ada.base.units import Units
 from ada.core.constants import O, X, Z
 from ada.ifc.utils import (
-    add_negative_extrusion,
     create_guid,
     create_ifc_placement,
     create_ifcextrudedareasolid,
     create_ifcpolyline,
     create_local_placement,
-    create_property_set,
-    get_tolerance,
     tesselate_shape,
 )
 
@@ -20,17 +18,17 @@ def write_ifc_wall(wall: Wall):
         raise ValueError("Ifc element cannot be built without any parent element")
 
     a = wall.parent.get_assembly()
-    f = a.ifc_file
+    ifc_store = a.ifc_store
+    f = ifc_store.f
 
     context = f.by_type("IfcGeometricRepresentationContext")[0]
-    owner_history = a.user.to_ifc()
-    parent = wall.parent.get_ifc_elem()
+    owner_history = ifc_store.owner_history
+    parent = f.by_guid(wall.parent.guid)
     elevation = wall.placement.origin[2]
 
     # Wall creation: Define the wall shape as a polyline axis and an extruded area solid
     wall_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
 
-    # polyline = wall.create_ifcpolyline(f, [(0.0, 0.0, 0.0), (5.0, 0.0, 0.0)])
     polyline2d = create_ifcpolyline(f, wall.points)
     axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve2D", [polyline2d])
 
@@ -42,55 +40,18 @@ def write_ifc_wall(wall: Wall):
     solid = create_ifcextrudedareasolid(f, profile, extrusion_placement, (0.0, 0.0, 1.0), wall.height)
     body = f.createIfcShapeRepresentation(context, "Body", "SweptSolid", [solid])
 
-    if "hidden" in wall.metadata.keys():
-        if wall.metadata["hidden"] is True:
-            a.presentation_layers.append(body)
-
     product_shape = f.createIfcProductDefinitionShape(None, None, [axis_representation, body])
 
     wall_el = f.create_entity(
         "IfcWall",
-        wall.guid,
-        owner_history,
-        wall.name,
-        "An awesome wall",
-        None,
-        wall_placement,
-        product_shape,
-        None,
+        GlobalId=wall.guid,
+        OwnerHistory=owner_history,
+        Name=wall.name,
+        Description="An awesome wall",
+        ObjectType=None,
+        ObjectPlacement=wall_placement,
+        Representation=product_shape,
     )
-
-    # Check for penetrations
-    elements = []
-    if len(wall.inserts) > 0:
-        for i, insert in enumerate(wall.inserts):
-            opening_element = add_negative_extrusion(f, O, Z, X, insert.height, wall.openings_extrusions[i], wall_el)
-            if issubclass(type(insert), Part) is False:
-                raise ValueError(f'Unrecognized type "{type(insert)}"')
-            elements.append(opening_element)
-            # for shape_ in insert.shapes:
-            #     insert_el = add_ifc_insert_elem(wall, shape_, opening_element, wall_el, insert.metadata["ifc_type"])
-            #     elements.append(insert_el)
-
-    f.createIfcRelContainedInSpatialStructure(
-        create_guid(),
-        owner_history,
-        "Wall Elements",
-        None,
-        [wall_el] + elements,
-        parent,
-    )
-
-    if wall.ifc_options.export_props is True:
-        props = create_property_set("Properties", f, wall.metadata, owner_history)
-        f.createIfcRelDefinesByProperties(
-            create_guid(),
-            owner_history,
-            "Properties",
-            None,
-            [wall_el],
-            props,
-        )
 
     return wall_el
 
@@ -98,18 +59,19 @@ def write_ifc_wall(wall: Wall):
 def add_ifc_insert_elem(wall: Wall, shape_, opening_element, wall_el, ifc_type):
 
     a = wall.parent.get_assembly()
-    f = a.ifc_file
+    ifc_store = a.ifc_store
+    f = ifc_store.f
 
     context = f.by_type("IfcGeometricRepresentationContext")[0]
-    owner_history = a.user.to_ifc()
-    schema = a.ifc_file.wrapped_data.schema
+    owner_history = ifc_store.owner_history
+    schema = f.wrapped_data.schema
 
     # Create a simplified representation for the Window
     insert_placement = create_local_placement(f, O, Z, X, wall_el.ObjectPlacement)
 
     shape = shape_.geom
 
-    insert_shape_ = tesselate_shape(shape, schema, get_tolerance(a.units))
+    insert_shape_ = tesselate_shape(shape, schema, Units.get_general_point_tol(a.units))
     insert_shape = f.add(insert_shape_)
 
     # Link to representation context

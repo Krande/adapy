@@ -4,8 +4,6 @@ from ada import Plate
 from ada.core.constants import O, X, Z
 from ada.ifc.utils import (
     add_colour,
-    add_multiple_props_to_elem,
-    create_guid,
     create_ifc_placement,
     create_ifcindexpolyline,
     create_ifcpolyline,
@@ -17,12 +15,13 @@ def write_ifc_plate(plate: Plate):
     if plate.parent is None:
         raise ValueError("Ifc element cannot be built without any parent element")
 
-    a = plate.parent.get_assembly()
-    f = a.ifc_file
+    a = plate.get_assembly()
+    ifc_store = a.ifc_store
+    f = ifc_store.f
 
     context = f.by_type("IfcGeometricRepresentationContext")[0]
-    owner_history = a.user.to_ifc()
-    parent = plate.parent.get_ifc_elem()
+    owner_history = ifc_store.owner_history
+    parent = f.by_guid(plate.parent.guid)
 
     xvec = plate.poly.xdir
     zvec = plate.poly.normal
@@ -49,10 +48,6 @@ def write_ifc_plate(plate: Plate):
 
     body = f.createIfcShapeRepresentation(context, "Body", "SolidModel", [ifcextrudedareasolid])
 
-    if "hidden" in plate.metadata.keys():
-        if plate.metadata["hidden"] is True:
-            a.presentation_layers.append(body)
-
     product_shape = f.createIfcProductDefinitionShape(None, None, [axis_representation, body])
 
     ifc_plate = f.createIfcPlate(
@@ -66,38 +61,11 @@ def write_ifc_plate(plate: Plate):
         None,
     )
 
-    plate._ifc_elem = ifc_plate
-
     # Add colour
     if plate.colour is not None:
         add_colour(f, ifcextrudedareasolid, str(plate.colour), plate.colour)
 
-    # Add penetrations
-    # elements = []
-    for pen in plate.penetrations:
-        # elements.append(pen.ifc_opening)
-        f.createIfcRelVoidsElement(
-            create_guid(),
-            owner_history,
-            None,
-            None,
-            ifc_plate,
-            pen.ifc_opening,
-        )
-
     # Material
-    f.create_entity(
-        "IfcRelAssociatesMaterial",
-        create_guid(),
-        owner_history,
-        plate.material.name,
-        plate.name,
-        [ifc_plate],
-        plate.material.ifc_mat,
-    )
-
-    # if "props" in plate.metadata.keys():
-    if plate.ifc_options.export_props is True:
-        add_multiple_props_to_elem(plate.metadata.get("props", dict()), ifc_plate, f, owner_history)
+    ifc_store.writer.associate_elem_with_material(plate.material, ifc_plate)
 
     return ifc_plate

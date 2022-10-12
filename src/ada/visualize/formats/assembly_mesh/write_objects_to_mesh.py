@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Callable, Iterable, List, Union
+from typing import TYPE_CHECKING, Callable, Iterable
 
 import numpy as np
 
+from ada.base.physical_objects import BackendGeom
+from ada.base.types import GeomRepr
 from ada.core.utils import thread_this
 from ada.occ.exceptions.geom_creation import (
     UnableToBuildNSidedWires,
@@ -19,16 +21,13 @@ if TYPE_CHECKING:
     from ada import Beam, PipeSegElbow, PipeSegStraight, Plate, Shape, Wall
 
 
-def filter_mesh_objects(
-    list_of_all_objects: Iterable[Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape]],
-    export_config: ExportConfig,
-) -> Union[None, List[Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape]]]:
+def filter_mesh_objects(objects: Iterable[BackendGeom], export_config: ExportConfig) -> None | list[BackendGeom]:
     from ada import Pipe
 
     guid_filter = export_config.data_filter.filter_elements_by_guid
-    obj_list: List[Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape]] = []
+    obj_list: list[BackendGeom] = []
 
-    for obj in list_of_all_objects:
+    for obj in objects:
         if guid_filter is not None and obj.guid not in guid_filter:
             continue
         if isinstance(obj, Pipe):
@@ -45,15 +44,16 @@ def filter_mesh_objects(
 
 def ifc_poly_elem_to_json(
     obj: Shape, export_config: ExportConfig = ExportConfig(), opt_func: Callable = None
-) -> List[ObjectMesh]:
+) -> list[ObjectMesh]:
     import ifcopenshell.geom
 
     from ada.ifc.utils import create_guid, get_representation_items
     from ada.visualize.utils import merge_mesh_objects, organize_by_colour
 
     a = obj.get_assembly()
-    ifc_f = a.get_ifc_source_by_name(obj.ifc_ref.source_ifc_file)
-    ifc_elem = ifc_f.by_guid(obj.metadata["ifc_guid"])
+    ifc_store = a.ifc_store
+    ifc_f = ifc_store.f
+    ifc_elem = ifc_f.by_guid(obj.guid)
 
     settings = ifcopenshell.geom.settings()
     settings.set(settings.USE_PYTHON_OPENCASCADE, False)
@@ -69,7 +69,7 @@ def ifc_poly_elem_to_json(
         raise ValueError("No IFC geometries found.")
 
     for i, ifc_geom in enumerate(geom_items):
-        geometry = obj.ifc_ref.get_ifc_geom(ifc_geom, settings)
+        geometry = ifc_store.get_ifc_geom(ifc_geom, settings)
         guid = obj.guid if i == 0 else create_guid()
         vertices = np.array(geometry.verts, dtype="float32").reshape(int(len(geometry.verts) / 3), 3)
         faces = np.array(geometry.faces, dtype=int)
@@ -96,7 +96,7 @@ def ifc_poly_elem_to_json(
         obj_mesh = ObjectMesh(guid, faces, vertices, normals, colour, translation=export_config.volume_center)
         meshes.append(obj_mesh)
 
-    if export_config.merge_subgeometries_by_colour is False:
+    if export_config.merge_subgeometries_by_colour is False or len(meshes) == 1:
         return meshes
 
     # merge subgeometries by colour
@@ -107,7 +107,7 @@ def ifc_poly_elem_to_json(
     for i, (colour, elements) in enumerate(colour_map.items()):
         obj_mesh = merge_mesh_objects(elements)
 
-        if len(obj_mesh.index) == 0:
+        if len(obj_mesh.faces) == 0:
             continue
 
         if colour[-1] == 1.0 and applied_guid is False:
@@ -120,17 +120,23 @@ def ifc_poly_elem_to_json(
     if main_obj is False:
         merged_meshes[0].guid = obj.guid
 
-    # TODO: Optimize Geometry
-
     return merged_meshes
 
 
 def occ_geom_to_poly_mesh(
-    obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape],
+    obj: BackendGeom,
     export_config: ExportConfig = ExportConfig(),
     opt_func: Callable = None,
+    geom_repr: GeomRepr = GeomRepr.SOLID,
 ) -> ObjectMesh:
-    geom = obj.solid
+    if geom_repr == GeomRepr.SOLID:
+        geom = obj.solid
+    elif geom_repr == GeomRepr.SHELL:
+        geom = obj.shell
+    else:
+        export_config.render_edges = True
+        geom = obj.line
+
     position, indices, normals, _ = occ_shape_to_faces(
         geom,
         export_config.quality,
@@ -148,12 +154,12 @@ def occ_geom_to_poly_mesh(
 
 
 def obj_to_mesh(
-    obj: Union[Beam, Plate, Wall, PipeSegElbow, PipeSegStraight, Shape],
+    obj: Beam | Plate | Wall | PipeSegElbow | PipeSegStraight | Shape,
     export_config: ExportConfig = ExportConfig(),
     opt_func: Callable = None,
-) -> Union[None, List[ObjectMesh]]:
-    if obj.ifc_ref is not None and export_config.ifc_skip_occ is True:
+) -> None | list[ObjectMesh]:
 
+    if obj.parent.get_assembly().ifc_store is not None and export_config.ifc_skip_occ is True:
         try:
             obj_meshes = ifc_poly_elem_to_json(obj, export_config, opt_func)
         except RuntimeError as e:

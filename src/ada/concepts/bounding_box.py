@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List, Tuple, Union
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class BoundingBox:
-    parent: Union[PrimBox, Beam, Plate]
+    parent: PrimBox | Beam | Plate
     placement: Placement = field(default=None, init=False)
     sides: BoxSides = field(default=None, init=False)
     p1: np.array = field(default=None, init=False)
@@ -33,28 +33,27 @@ class BoundingBox:
         if issubclass(type(self.parent), Shape):
             self.p1, self.p2 = self._calc_bbox_of_shape()
             self.placement = self.parent.placement
-        elif type(self.parent) is Beam:
+        elif isinstance(self.parent, Beam):
             self.p1, self.p2 = self._calc_bbox_of_beam()
             self.placement = Placement(
                 self.parent.placement.origin, xdir=self.parent.yvec, ydir=self.parent.xvec, zdir=self.parent.up
             )
-        elif type(self.parent) is Plate:
+        elif isinstance(self.parent, Plate):
             self.p1, self.p2 = self._calc_bbox_of_plate()
         else:
             raise NotImplementedError(f'Bounding Box Support for object type "{type(self.parent)}" is not yet added')
         self.sides = BoxSides(self)
 
-    def _calc_bbox_of_beam(self) -> Tuple[tuple, tuple]:
+    def _calc_bbox_of_beam(self) -> tuple[tuple, tuple]:
         """Get the bounding box of a beam"""
         from itertools import chain
 
         from ada import Beam, Section
         from ada.core.utils import roundoff
-
-        from ..sections import SectionCat
+        from ada.sections.categories import BaseTypes
 
         bm = self.parent
-        if SectionCat.is_circular_profile(bm.section.type) or SectionCat.is_tubular_profile(bm.section.type):
+        if bm.section.type == BaseTypes.CIRCULAR or bm.section.type == BaseTypes.TUBULAR:
             d = bm.section.r * 2
             dummy_beam = Beam("dummy", bm.n1.p, bm.n2.p, Section("DummySec", "BG", h=d, w_btn=d, w_top=d))
             outer_curve = dummy_beam.get_outer_points()
@@ -70,7 +69,7 @@ class BoundingBox:
         zmin, zmax = zv[0], zv[-1]
         return (xmin, ymin, zmin), (xmax, ymax, zmax)
 
-    def _calc_bbox_of_shape(self) -> Tuple[tuple, tuple]:
+    def _calc_bbox_of_shape(self) -> tuple[tuple, tuple]:
         from .exceptions import NoGeomPassedToShapeError
         from .primitives import PrimBox
 
@@ -85,7 +84,7 @@ class BoundingBox:
                 logging.info(f'Shape "{self.parent.name}" has no attached geometry. Error "{e}"')
                 return (0, 0, 0), (1, 1, 1)
 
-    def _calc_bbox_of_plate(self) -> Tuple[tuple, tuple]:
+    def _calc_bbox_of_plate(self) -> tuple[tuple, tuple]:
         """Calculate the Bounding Box of a plate"""
         xs = []
         ys = []
@@ -141,7 +140,7 @@ class BoxSides:
 
     def _return_data(
         self, pmin, pmax, fem, return_fem_nodes, return_surface, surface_name, shell_positive
-    ) -> Union[Tuple[tuple, tuple], List[Node], Surface]:
+    ) -> tuple[tuple, tuple] | list[Node] | Surface:
         if return_fem_nodes is True or return_surface is True:
             part = self.parent.parent.parent
             if fem is None and self.parent is not None and part.fem.is_empty() is False:
@@ -164,7 +163,7 @@ class BoxSides:
             return self._return_surface(surface_name, nodes, fem, shell_positive)
         return pmin, pmax
 
-    def _return_surface(self, surface_name: str, nodes: List[Node], fem: FEM, shell_positive):
+    def _return_surface(self, surface_name: str, nodes: list[Node], fem: FEM, shell_positive):
         from ada.fem.surfaces import create_surface_from_nodes
 
         return create_surface_from_nodes(surface_name, nodes, fem, shell_positive)

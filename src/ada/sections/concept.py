@@ -2,25 +2,26 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List, Tuple, Union
+from typing import TYPE_CHECKING, List, Tuple
 
-from ada.base.non_physical_objects import Backend
+from ada.base.root import Root
+from ada.base.units import Units
 from ada.concepts.curves import CurvePoly
 from ada.config import Settings
 from ada.sections.categories import BaseTypes, SectionCat
 
 if TYPE_CHECKING:
-    from ada import Beam
+    from ada import Beam, Pipe, PipeSegElbow, PipeSegStraight
     from ada.fem import FemSection
 
 
-class Section(Backend):
+class Section(Root):
     TYPES = BaseTypes
 
     def __init__(
         self,
         name,
-        sec_type=None,
+        sec_type: BaseTypes | str = None,
         h=None,
         w_top=None,
         w_btn=None,
@@ -37,12 +38,14 @@ class Section(Backend):
         inner_poly=None,
         genprops: GeneralProperties = None,
         metadata=None,
-        units="m",
-        ifc_elem=None,
+        units=Units.M,
         guid=None,
         refs=None,
     ):
-        super(Section, self).__init__(name, guid, metadata, units, ifc_elem=ifc_elem, parent=parent)
+        super(Section, self).__init__(name=name, guid=guid, metadata=metadata, units=units, parent=parent)
+        if isinstance(sec_type, str):
+            sec_type = BaseTypes.from_str(sec_type)
+
         self._type = sec_type
         self._h = h
         self._w_top = w_top
@@ -60,52 +63,23 @@ class Section(Backend):
         self._ifc_profile = None
         self._ifc_beam_type = None
 
-        if ifc_elem is not None:
-            props = self._import_from_ifc_profile(ifc_elem)
-            self.__dict__.update(props.__dict__)
-
         if from_str is not None:
             from ada.sections.utils import interpret_section_str
 
-            if units == "m":
+            if units == Units.M:
                 scalef = 0.001
-            elif units == "mm":
+            elif units == Units.MM:
                 scalef = 1.0
             else:
                 raise ValueError(f'Unknown units "{units}"')
             sec, tap = interpret_section_str(from_str, scalef, units=units)
             self.__dict__.update(sec.__dict__)
-        elif outer_poly:
-            self._type = "poly"
 
         self._genprops = None
         self._refs = refs if refs is not None else []
         if genprops is not None:
             genprops.parent = self
             self._genprops = genprops
-        # prop = self.properties
-        # if None in (prop.Cy, prop.Cz) and self.type != Section.TYPES.GENERAL:
-        #     logging.warning("Attribute Cy and Cz is missing from instance of Properties")
-
-    # def __eq__(self, other: Section):
-    #     props_equal = self.equal_props(other)
-    #     if props_equal is False:
-    #         return False
-    #     if other.name != self.name:
-    #         return False
-    #
-    #     return True
-
-    def _generate_ifc_section_data(self):
-        from ada.ifc.write.write_sections import export_beam_section
-
-        return export_beam_section(self)
-
-    def _import_from_ifc_profile(self, ifc_elem):
-        from ada.ifc.read.read_beam_section import import_section_from_ifc
-
-        self._ifc_profile = ifc_elem
-        return import_section_from_ifc(ifc_elem)
 
     def equal_props(self, other: Section):
         props = ["type", "h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "wt", "poly_outer", "poly_inner"]
@@ -123,7 +97,7 @@ class Section(Backend):
         return tuple([getattr(self, p) for p in props])
 
     @property
-    def type(self):
+    def type(self) -> BaseTypes:
         return self._type
 
     @property
@@ -198,26 +172,32 @@ class Section(Backend):
         def s(x):
             return x / 0.001
 
-        if self.type in SectionCat.box + SectionCat.igirders + SectionCat.tprofiles + SectionCat.shs + SectionCat.rhs:
-            sec_str = "{}{:g}x{:g}x{:g}x{:g}".format(self.type, s(self.h), s(self.w_top), s(self.t_w), s(self.t_ftop))
-        elif self.type in SectionCat.tubular:
-            sec_str = "{}{:g}x{:g}".format(self.type, s(self.r), s(self.wt))
-        elif self.type in SectionCat.circular:
+        if self.type == BaseTypes.BOX:
+            sec_str = "{}{:g}x{:g}x{:g}x{:g}".format(
+                self.type.value, s(self.h), s(self.w_top), s(self.t_w), s(self.t_ftop)
+            )
+        elif self.type == BaseTypes.TUBULAR:
+            sec_str = "{}{:g}x{:g}".format(self.type.value, s(self.r), s(self.wt))
+        elif self.type == BaseTypes.CIRCULAR:
             sec_str = "{}{:g}".format(self.type, s(self.r))
-        elif self.type in SectionCat.angular:
-            sec_str = "{}{:g}x{:g}".format(self.type, s(self.h), s(self.t_w))
-        elif self.type in SectionCat.iprofiles:
+        elif self.type == BaseTypes.ANGULAR:
+            sec_str = "{}{:g}x{:g}".format(self.type.value, s(self.h), s(self.t_w))
+        elif self.type == BaseTypes.IPROFILE:
             sec_str = self._sec_str
-        elif self.type in SectionCat.channels:
-            sec_str = "{}{:g}".format(self.type, s(self.h))
-        elif self.type in SectionCat.general:
-            sec_str = "{}{}".format(self.type, self.id)
-        elif self.type in SectionCat.flatbar:
+        elif self.type == BaseTypes.TPROFILE:
+            sec_str = "{}{:g}x{:g}x{:g}".format(self.type.value, s(self.h), s(self.w_top), s(self.t_w))
+        elif self.type == BaseTypes.CHANNEL:
+            sec_str = "{}{:g}".format(self.type.value, s(self.h))
+        elif self.type == BaseTypes.GENERAL:
+            sec_str = "{}{}".format(self.type.value, self.id)
+        elif self.type == BaseTypes.FLATBAR:
             sec_str = f"{self.type}{s(self.h)}x{s(self.w_top)}"
-        elif self.type == "poly":
+        elif self.type == BaseTypes.POLY:
             sec_str = "PolyCurve"
+
         else:
             raise ValueError(f'Section type "{self.type}" has not been given a section str')
+
         return sec_str.replace(".", "_") if sec_str is not None else None
 
     @property
@@ -235,10 +215,10 @@ class Section(Backend):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         if self._units != value:
-            from ada.core.utils import unit_length_conversion
-
-            scale_factor = unit_length_conversion(self._units, value)
+            scale_factor = Units.get_scale_factor(self._units, value)
 
             if self.poly_inner is not None:
                 self.poly_inner.scale(scale_factor, Settings.point_tol)
@@ -253,18 +233,6 @@ class Section(Backend):
                     if key[1:] in vals:
                         self.__dict__[key] *= scale_factor
             self._units = value
-
-    @property
-    def ifc_profile(self):
-        if self._ifc_profile is None:
-            self._ifc_profile, self._ifc_beam_type = self._generate_ifc_section_data()
-        return self._ifc_profile
-
-    @property
-    def ifc_beam_type(self):
-        if self._ifc_beam_type is None:
-            self._ifc_profile, self._ifc_beam_type = self._generate_ifc_section_data()
-        return self._ifc_beam_type
 
     @property
     def poly_outer(self) -> CurvePoly:
@@ -288,7 +256,7 @@ class Section(Backend):
         display(HBox([fig, html]))
 
     @property
-    def refs(self) -> List[Union[Beam, FemSection]]:
+    def refs(self) -> list[Beam | FemSection | Pipe | PipeSegStraight | PipeSegElbow]:
         return self._refs
 
     def __hash__(self):
@@ -362,23 +330,20 @@ class SectionProfile:
 def build_section_profile(sec: Section, is_solid) -> SectionProfile:
     import ada.sections.profiles as profile_builder
 
-    section_shape_type = SectionCat.get_shape_type(sec)
-
-    if section_shape_type in SectionCat.tubular + SectionCat.circular + SectionCat.general:
+    if sec.type in [BaseTypes.TUBULAR, BaseTypes.CIRCULAR, BaseTypes.GENERAL]:
         logging.info("Tubular profiles do not need curve representations")
         return SectionProfile(sec, is_solid)
 
-    sec_type = SectionCat.BASETYPES
     build_map = {
-        sec_type.ANGULAR: profile_builder.angular,
-        sec_type.IPROFILE: profile_builder.iprofiles,
-        sec_type.TPROFILE: profile_builder.tprofiles,
-        sec_type.BOX: profile_builder.box,
-        sec_type.FLATBAR: profile_builder.flatbar,
-        sec_type.CHANNEL: profile_builder.channel,
+        BaseTypes.ANGULAR: profile_builder.angular,
+        BaseTypes.IPROFILE: profile_builder.iprofiles,
+        BaseTypes.TPROFILE: profile_builder.tprofiles,
+        BaseTypes.BOX: profile_builder.box,
+        BaseTypes.FLATBAR: profile_builder.flatbar,
+        BaseTypes.CHANNEL: profile_builder.channel,
     }
 
-    section_builder = build_map.get(section_shape_type, None)
+    section_builder = build_map.get(sec.type, None)
 
     if section_builder is None and sec.poly_outer is None:
         raise ValueError("Currently geometry build is unsupported for profile type {ptype}".format(ptype=sec.type))

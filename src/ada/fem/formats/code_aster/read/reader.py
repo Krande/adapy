@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import os
 from typing import TYPE_CHECKING
@@ -18,10 +20,11 @@ from .read_sets import (
 )
 
 if TYPE_CHECKING:
-    from ada.concepts.levels import FEM, Assembly
+    from ada.concepts.spatial import Assembly
+    from ada.fem import FEM
 
 
-def read_fem(fem_file: os.PathLike, fem_name: str = None) -> "Assembly":
+def read_fem(fem_file: os.PathLike, fem_name: str = None) -> Assembly:
     from ada import Assembly, Part
 
     fem = med_to_fem(fem_file, fem_name)
@@ -31,7 +34,7 @@ def read_fem(fem_file: os.PathLike, fem_name: str = None) -> "Assembly":
     return Assembly("TempAssembly") / Part(fem_name, fem=fem)
 
 
-def med_to_fem(fem_file, fem_name) -> "FEM":
+def med_to_fem(fem_file, fem_name) -> FEM:
     from ada import FEM, Node
 
     with h5py.File(fem_file, "r") as f:
@@ -40,6 +43,7 @@ def med_to_fem(fem_file, fem_name) -> "FEM":
         meshes = mesh_ensemble.keys()
         if len(meshes) != 1:
             raise ValueError("Must only contain exactly 1 mesh, found {}.".format(len(meshes)))
+
         mesh_name = list(meshes)[0]
         mesh = mesh_ensemble[mesh_name]
 

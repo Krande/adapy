@@ -208,25 +208,6 @@ class CurvePoly:
                 points2d[i] = (points2d[i][0], points2d[i][1])
         return points2d
 
-    def _generate_ifc_elem(self):
-        a = self.parent.parent.get_assembly()
-        f = a.ifc_file
-
-        ifc_segments = []
-        for seg_ind in self.seg_index:
-            if len(seg_ind) == 2:
-                ifc_segments.append(f.createIfcLineIndex(seg_ind))
-            elif len(seg_ind) == 3:
-                ifc_segments.append(f.createIfcArcIndex(seg_ind))
-            else:
-                raise ValueError("Unrecognized number of values")
-
-        # TODO: Investigate using 2DLists instead is it could reduce complexity?
-        points = [tuple(x.astype(float).tolist()) for x in self.seg_global_points]
-        ifc_point_list = f.createIfcCartesianPointList3D(points)
-        segindex = f.createIfcIndexedPolyCurve(ifc_point_list, ifc_segments)
-        return segindex
-
     def _local2d_to_polycurve(self, local_points2d, tol=1e-3):
         from ada.core.curve_utils import build_polycurve, segments_to_indexed_lists
         from ada.core.vector_utils import local_2_global_points
@@ -355,11 +336,6 @@ class CurvePoly:
     @parent.setter
     def parent(self, value):
         self._parent = value
-
-    def get_ifc_elem(self):
-        if self._ifc_elem is None:
-            self._ifc_elem = self._generate_ifc_elem()
-        return self._ifc_elem
 
 
 class LineSegment:

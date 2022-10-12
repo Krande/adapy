@@ -19,7 +19,7 @@ class ExportConfig:
     quality: float = 1.0
     threads: int = 1
     parallel: bool = True
-    merge_by_colour: bool = True
+    merge_by_colour: bool = False
     merge_subgeometries_by_colour: bool = True
     render_edges: bool = False
     ifc_skip_occ: bool = True
@@ -27,7 +27,7 @@ class ExportConfig:
 
     # Position of model
     volume_center: Union[None, np.ndarray] = None
-    auto_center_model: bool = True
+    auto_center_model: bool = False
     max_convert_objects: Union[int, None] = None
     do_not_load_by_default: List[str] = None
     use_cache: bool = False

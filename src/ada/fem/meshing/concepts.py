@@ -11,6 +11,7 @@ import numpy as np
 
 from ada import FEM, Beam, Pipe, Plate, Shape
 from ada.base.physical_objects import BackendGeom
+from ada.base.types import GeomRepr
 from ada.concepts.containers import Nodes
 from ada.config import Settings
 from ada.fem import Elem
@@ -89,8 +90,8 @@ class GmshSession:
 
     def add_obj(
         self,
-        obj: Union[BackendGeom, Shape, Beam, Plate, Pipe],
-        geom_repr=ElemType.SOLID,
+        obj: BackendGeom | Shape | Beam | Plate | Pipe,
+        geom_repr: GeomRepr | str = ElemType.SOLID,
         el_order=1,
         silent=True,
         mesh_size=None,
@@ -102,7 +103,8 @@ class GmshSession:
 
         from .utils import build_bm_lines
 
-        geom_repr = geom_repr.upper()
+        if isinstance(geom_repr, str):
+            geom_repr = GeomRepr.from_str(geom_repr)
 
         self.apply_settings()
         temp_dir = Settings.temp_dir
@@ -251,8 +253,8 @@ class GmshSession:
                 self.model.mesh.setRecombine(dim, tag)
 
         for obj, model in self.model_map.items():
-            if model.geom_repr == ElemType.SOLID:
-                if type(obj) is Beam:
+            if model.geom_repr == GeomRepr.SOLID:
+                if isinstance(obj, Beam):
                     partition_solid_beams(model, self)
                 else:
                     for dim, tag in model.entities:
@@ -324,7 +326,7 @@ class GmshSession:
 
 
 def import_into_gmsh_using_step(
-    obj, geom_repr: str, model: gmsh.model, temp_dir: pathlib.Path, silent: bool
+    obj, geom_repr: GeomRepr, model: gmsh.model, temp_dir: pathlib.Path, silent: bool
 ) -> List[tuple]:
     name = f"{obj.name}_{create_guid()}"
     obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent, fuse_piping=True)
@@ -332,17 +334,17 @@ def import_into_gmsh_using_step(
     return ents
 
 
-def import_into_gmsh_use_nativepointer(obj, geom_repr: str, model: gmsh.model) -> List[tuple]:
+def import_into_gmsh_use_nativepointer(obj, geom_repr: GeomRepr, model: gmsh.model) -> List[tuple]:
     from OCC.Extend.TopologyUtils import TopologyExplorer
 
     from ada import PrimBox
 
     ents = []
-    if geom_repr == ElemType.SOLID:
+    if geom_repr == GeomRepr.SOLID:
         geom = obj.solid
         t = TopologyExplorer(geom)
         geom_iter = t.solids()
-    elif geom_repr == ElemType.SHELL:
+    elif geom_repr == GeomRepr.SHELL:
         geom = obj.shell if type(obj) not in (PrimBox,) else obj.geom
         t = TopologyExplorer(geom)
         geom_iter = t.faces()

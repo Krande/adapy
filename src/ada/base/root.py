@@ -1,48 +1,42 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, List, Union
 
 from ada.config import Settings as _Settings
 from ada.ifc.utils import create_guid
 
+from .changes import ChangeAction
+from .units import Units
+
 if TYPE_CHECKING:
     from ada import Assembly, Part
-    from ada.ifc.concepts import IfcRef
+    from ada.ifc.store import IfcStore
 
 
-@dataclass
-class IfcExportOptions:
-    export_props: bool = field(default=True)
+class Root:
+    UNITS: Units = Units
 
-
-class Backend:
     def __init__(
         self,
         name,
         guid=None,
         metadata=None,
-        units="m",
+        units: Units | str = Units.M,
         parent=None,
-        ifc_settings=None,
-        ifc_elem=None,
-        ifc_ref: IfcRef = None,
+        ifc_store: IfcStore = None,
+        change_type: ChangeAction = ChangeAction.ADDED,
     ):
         self.name = name
         self.parent = parent
-        self._ifc_settings = ifc_settings
+        self.change_type = change_type
         self.guid = create_guid() if guid is None else guid
-        units = units.lower()
-        if units not in _Settings.valid_units:
-            raise ValueError(f'Unit type "{units}"')
+
+        if isinstance(units, str):
+            units = Units.from_str(units)
         self._units = units
-        self._metadata = metadata if metadata is not None else dict(props=dict())
-        self._ifc_elem = ifc_elem
-        # TODO: Currently not able to keep and edit imported ifc_elem objects
-        self._ifc_elem = None
-        self._ifc_ref = ifc_ref
-        self.ifc_options: IfcExportOptions = IfcExportOptions()
+        self._metadata = metadata if metadata is not None else dict()
+        self._ifc_store = ifc_store
 
     @property
     def name(self):
@@ -83,6 +77,10 @@ class Backend:
     def metadata(self):
         return self._metadata
 
+    @metadata.setter
+    def metadata(self, value):
+        self._metadata = value
+
     @property
     def units(self):
         return self._units
@@ -90,27 +88,6 @@ class Backend:
     @units.setter
     def units(self, value):
         raise NotImplementedError("Assigning units is not yet represented for this object")
-
-    @property
-    def ifc_settings(self):
-        if self._ifc_settings is None:
-            from ada.ifc.utils import default_settings
-
-            self._ifc_settings = default_settings()
-        return self._ifc_settings
-
-    @ifc_settings.setter
-    def ifc_settings(self, value):
-        self._ifc_settings = value
-
-    def get_ifc_elem(self):
-        if self._ifc_elem is None:
-            self._ifc_elem = self._generate_ifc_elem()
-        return self._ifc_elem
-
-    @property
-    def ifc_ref(self) -> IfcRef:
-        return self._ifc_ref
 
     def get_assembly(self) -> Union[Assembly, Part]:
         from ada import Assembly
@@ -129,30 +106,23 @@ class Backend:
             current = current.parent
         return ancestry
 
-    def _generate_ifc_elem(self):
-        raise NotImplementedError("")
-
     def remove(self):
         """Remove this element/part from assembly/part"""
-        from ada import Beam, Part, Plate, Shape
+        from ada import Beam, Part, Plate, Section, Shape
 
         if self.parent is None:
             logging.error(f"Unable to delete {self.name} as it does not have a parent")
             return
 
-        # if self._ifc_elem is not None:
-        #     a = self.parent.get_assembly()
-        # f = a.ifc_file
-        # This returns results in a failure error
-        # f.remove(self.ifc_elem)
-
-        if type(self) is Part:
+        if issubclass(type(self), Part):
             self.parent.parts.pop(self.name)
         elif issubclass(type(self), Shape):
             self.parent.shapes.pop(self.parent.shapes.index(self))
-        elif type(self) is Beam:
+        elif isinstance(self, Beam):
             self.parent.beams.remove(self)
         elif isinstance(self, Plate):
             self.parent.plates.remove(self)
+        elif isinstance(self, Section):
+            logging.warning("Section removal is not yet supported")
         else:
             raise NotImplementedError()

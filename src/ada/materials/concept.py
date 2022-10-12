@@ -2,15 +2,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ada.base.non_physical_objects import Backend
+from ada.base.root import Root
+from ada.base.units import Units
 
 from .metals import CarbonSteel
 
 if TYPE_CHECKING:
-    from ada.ifc.concepts import IfcRef
+    from ada.ifc.store import IfcStore
 
 
-class Material(Backend):
+class Material(Root):
     """The base material class. Currently only supports Metals"""
 
     def __init__(
@@ -20,11 +21,11 @@ class Material(Backend):
         mat_id=None,
         parent=None,
         metadata=None,
-        units="m",
+        units=Units.M,
         guid=None,
-        ifc_ref: IfcRef = None,
+        ifc_store: IfcStore = None,
     ):
-        super(Material, self).__init__(name, guid, metadata, units, ifc_ref=ifc_ref)
+        super(Material, self).__init__(name, guid, metadata, units, ifc_store=ifc_store)
         self._mat_model = mat_model
         mat_model.parent = self
         self._mat_id = mat_id
@@ -56,16 +57,8 @@ class Material(Backend):
 
         return True
 
-    def equal_props(self, other: Material):
-        self.model.__eq__()
-
     def __hash__(self):
         return hash(self.guid)
-
-    def _generate_ifc_mat(self):
-        from ada.ifc.write.write_material import write_ifc_mat
-
-        return write_ifc_mat(self)
 
     @property
     def id(self):
@@ -101,17 +94,13 @@ class Material(Backend):
 
     @units.setter
     def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
         self.model.units = value
 
     @property
     def refs(self):
         return self._refs
-
-    @property
-    def ifc_mat(self):
-        if self._ifc_mat is None:
-            self._ifc_mat = self._generate_ifc_mat()
-        return self._ifc_mat
 
     def __repr__(self):
         return f'Material(Name: "{self.name}" Material Model: "{self.model}'

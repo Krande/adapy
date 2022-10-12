@@ -49,7 +49,7 @@ def test_simple_stru_with_equipment(simple_stru, eq_model_4legged, param_models_
     simple_stru.add_bcs()
     assert len(simple_stru.fem.sections) == 76
     simple_stru.fem.sections.merge_by_properties()
-    assert len(simple_stru.fem.sections) == 8
+    assert len(simple_stru.fem.sections) == 6
 
     # Add loads
     # step = simple_stru.fem.add_step(StepImplicit("Static", nl_geom=True))

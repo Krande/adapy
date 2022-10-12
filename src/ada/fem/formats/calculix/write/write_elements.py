@@ -6,7 +6,6 @@ from ada.core.utils import NewLine
 from ada.fem import Elem, FemSection
 from ada.fem.containers import FemElements
 from ada.fem.shapes import ElemShape
-from ada.sections import SectionCat as Sc
 
 
 def elements_str(fem_elements: FemElements) -> str:
@@ -45,7 +44,9 @@ def el_type_sub(el_type, fem_sec: FemSection) -> str:
 
 
 def must_be_converted_to_general_section(sec_type):
-    if sec_type in Sc.circular + Sc.igirders + Sc.iprofiles + Sc.general + Sc.angular:
+    from ada.sections.categories import BaseTypes
+
+    if sec_type in [BaseTypes.CIRCULAR, BaseTypes.IPROFILE, BaseTypes.GENERAL, BaseTypes.ANGULAR]:
         return True
     else:
         return False

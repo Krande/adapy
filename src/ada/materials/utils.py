@@ -1,10 +1,15 @@
-from typing import Union
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from . import Material
 from .metals import CarbonSteel
 
+if TYPE_CHECKING:
+    from ada import Assembly
 
-def get_material(mat: Union[Material, str], mat_type="metal"):
+
+def get_material(mat: Material | str, mat_type="metal"):
     if isinstance(mat, Material):
         return mat
     else:
@@ -16,8 +21,7 @@ def get_material(mat: Union[Material, str], mat_type="metal"):
             raise NotImplementedError(f'Material type "{mat_type}" is not yet supported')
 
 
-def shorten_material_names(assembly):
-    """:type assembly: ada.Assembly"""
+def shorten_material_names(assembly: Assembly):
     from ada.core.utils import Counter
 
     short_suffix = Counter(1)
@@ -29,4 +33,4 @@ def shorten_material_names(assembly):
                 if short_mat_name in p.materials.name_map.keys():
                     short_mat_name = short_mat_name[:-3] + str(next(short_suffix))
                 mat.name = short_mat_name
-                p.materials.recreate_name_and_id_maps(p.materials._materials)
+                p.materials.recreate_name_and_id_maps(p.materials.materials)

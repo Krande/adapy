@@ -7,7 +7,7 @@ import os
 import pathlib
 import shutil
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple, Union
+from typing import List, Tuple
 
 import h5py
 import numpy as np
@@ -24,14 +24,14 @@ class VisMesh:
 
     name: str
     project: str = None
-    world: List[PartMesh] = field(default_factory=list)
-    meshes: Dict[str, VisNode] = field(default_factory=dict)
-    meta: Union[None, dict] = None
+    world: list[PartMesh] = field(default_factory=list, repr=False)
+    meshes: dict[str, VisNode] = field(default_factory=dict, repr=False)
+    meta: None | dict = field(default=None, repr=False)
     created: str = None
     translation: np.ndarray = None
-    cache_file: pathlib.Path = pathlib.Path(".cache/meshes.h5")
+    cache_file: pathlib.Path = field(default=pathlib.Path(".cache/meshes.h5"), repr=False)
     overwrite_cache: bool = False
-    colors: Dict[str, VisColor] = field(default_factory=dict)
+    colors: dict[str, VisColor] = field(default_factory=dict)
 
     def __enter__(self):
         logging.debug("Starting Visual Mesh session")
@@ -108,6 +108,7 @@ class VisMesh:
             h5 = h5_file["VISMESH"]
         else:
             h5 = self._h5cache_group
+
         totnum = len(self.meshes.keys())
         for i, vn in enumerate(self.meshes.values()):
             if only_these_guids is not None and vn.guid not in only_these_guids:
@@ -117,6 +118,7 @@ class VisMesh:
             position = obj_group["POSITION"][()] * 1e-3
             normals = obj_group["NORMAL"][()]
             color = self.colors[obj_group.attrs["COLOR"]]
+
             # matrix = obj_group.attrs.get("MATRIX")
             if index.shape[1] != 3:
                 index = index.reshape(int(len(index) / 3), 3)
@@ -140,32 +142,15 @@ class VisMesh:
 
     def _convert_to_trimesh(self) -> trimesh.Scene:
         scene = trimesh.Scene()
-        from trimesh.visual.material import PBRMaterial
 
         for world in self.world:
             for key, obj in world.id_map.items():
-                if len(obj.index.shape) == 1:
-                    shape = len(obj.index.shape)
-                else:
-                    shape = obj.index.shape[1]
+                parent = None
+                for i, new_mesh in enumerate(obj.to_trimesh()):
+                    name = key if i == 0 else f"{key}_{i:02d}"
+                    scene.add_geometry(new_mesh, node_name=name, geom_name=name, parent_node_name=parent)
+                    parent = name
 
-                if shape != 3:
-                    faces = obj.index.reshape(int(len(obj.index) / 3), 3)
-                else:
-                    faces = obj.index
-                vertices = obj.position
-                vertex_normals = obj.normal
-                new_mesh = trimesh.Trimesh(
-                    vertices=vertices,
-                    faces=faces,
-                    vertex_normals=vertex_normals,
-                    # face_colors=obj.color,
-                    metadata=dict(guid=obj.guid),
-                )
-                if obj.color is not None:
-                    base_color = [int(x * 255) for x in obj.color]
-                    new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color)
-                scene.add_geometry(new_mesh, node_name=key, geom_name=key)
         return scene
 
     def _export_using_trimesh(self, mesh: trimesh.Scene, dest_file: pathlib.Path):
@@ -201,7 +186,7 @@ class VisMesh:
 
             new_guid = create_guid()
 
-            self.add_mesh(new_guid, create_guid(), obj0.position, obj0.index, obj0.normal, color_ref=color.name)
+            self.add_mesh(new_guid, create_guid(), obj0.position, obj0.faces, obj0.normal, color_ref=color.name)
             listofobj.append(new_guid)
 
         if self._h5cache is None and h5_file is not None:
@@ -209,12 +194,20 @@ class VisMesh:
 
         return listofobj
 
-    def to_gltf(self, dest_file, only_these_guids: List[str] = None):
+    def to_gltf(self, dest_file, only_these_guids: list[str] = None):
+        from ada.core.vector_utils import rot_matrix
+
         dest_file = pathlib.Path(dest_file).with_suffix(".glb")
         if hasattr(self, "_h5cache"):
             mesh: trimesh.Trimesh = self._convert_to_trimesh2(only_these_guids)
         else:
             mesh: trimesh.Trimesh = self._convert_to_trimesh()
+
+        # Trimesh automatically transforms by setting up = Y. This will counteract that transform
+        m3x3 = rot_matrix((0, -1, 0))
+        m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
+        m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
+        mesh.apply_transform(m4x4)
 
         self._export_using_trimesh(mesh, dest_file)
 
@@ -240,7 +233,7 @@ class VisMesh:
 
                     obj_group.create_dataset("POSITION", data=obj_mesh.position)
                     # obj_group.create_dataset("NORMAL", data=obj_mesh.normal)
-                    obj_group.create_dataset("INDEX", data=obj_mesh.index)
+                    obj_group.create_dataset("INDEX", data=obj_mesh.faces)
 
     def to_binary_and_json(self, dest_dir, auto_zip=True, export_dir=None, skip_normals=False):
         dest_dir = pathlib.Path(dest_dir)
@@ -366,8 +359,8 @@ class VisMesh:
 @dataclass
 class PartMesh:
     name: str
-    id_map: Dict[str, ObjectMesh]
-    guiparam: Union[None, dict] = None
+    id_map: dict[str, ObjectMesh]
+    guiparam: None | dict = None
     rawdata: bool = True
 
     def move_objects_to_center(self, override_center=None):
@@ -407,7 +400,7 @@ class PartMesh:
         for colour, elements in colour_map.items():
             guid = create_guid()
             pm = merge_mesh_objects(elements)
-            if len(pm.index) == 0:
+            if len(pm.faces) == 0:
                 continue
             id_map[guid] = pm
 
@@ -421,12 +414,13 @@ class PartMesh:
 @dataclass
 class ObjectMesh:
     guid: str
-    index: np.ndarray
+    faces: np.ndarray
     position: np.ndarray
-    normal: Union[np.ndarray, None]
-    color: Union[list, None] = None
+    normal: np.ndarray | None
+    color: list | None = None
+    edges: np.ndarray = None
     vertex_color: np.ndarray = None
-    instances: Union[np.ndarray, None] = None
+    instances: np.ndarray | None = None
     id_sequence: dict = field(default_factory=dict)
     translation: np.ndarray = None
 
@@ -435,7 +429,7 @@ class ObjectMesh:
 
     @property
     def num_polygons(self):
-        return int(len(self.index) / 3)
+        return int(len(self.faces) / 3)
 
     @property
     def bbox(self):
@@ -457,7 +451,7 @@ class ObjectMesh:
         np.save(str(dest_dir / index_guid), self.index_flat)
 
         if vertex_guid is not None:
-            np.save(str(dest_dir / vertex_guid), self.vertex_color)
+            np.save(str(dest_dir / vertex_guid), self.vertex_color.astype(dtype="float32").flatten())
 
         return dict(
             index=index_guid,
@@ -482,9 +476,77 @@ class ObjectMesh:
             translation=self.translation_norm,
         )
 
+    def to_trimesh(self) -> list[trimesh.Trimesh]:
+        from trimesh.visual.material import PBRMaterial
+
+        indices_shape = get_shape(self.faces)
+        verts_shape = get_shape(self.position)
+
+        if indices_shape == 1:
+            faces = self.faces.reshape(int(len(self.faces) / 3), 3)
+        else:
+            faces = self.faces
+
+        if verts_shape == 1:
+            vertices = self.position.reshape(int(len(self.position) / 3), 3)
+        else:
+            vertices = self.position
+
+        vertex_color = None
+        if self.vertex_color is not None:
+            verts_shape = get_shape(self.vertex_color)
+            if verts_shape == 1:
+                vcolor = self.vertex_color.reshape(int(len(self.vertex_color) / 3), 3)
+            else:
+                vcolor = self.vertex_color
+
+            vertex_color = np.array([[i * 255 for i in x] + [1] for x in vcolor], dtype=np.uint8)
+            # vertex_color = [int(x * 255) for x in self.vertex_color]
+
+        # vertex_normals = self.normal
+        new_mesh = trimesh.Trimesh(
+            vertices=vertices,
+            faces=faces,
+            # vertex_normals=vertex_normals,
+            metadata=dict(guid=self.guid),
+            vertex_colors=vertex_color,
+        )
+        if vertex_color is not None:
+            new_mesh.visual.material = PBRMaterial(doubleSided=True)
+
+        if self.color is not None:
+            needs_to_be_scaled = True
+            for x in self.color:
+                if x > 1.0:
+                    needs_to_be_scaled = False
+
+            if needs_to_be_scaled:
+                base_color = [int(x * 255) for x in self.color[:3]] + [self.color[3]]
+            else:
+                base_color = self.color
+
+            if vertex_color is None:
+                new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color[:3])
+
+        meshes = [new_mesh]
+        if self.edges is not None:
+            from trimesh.path.entities import Line
+
+            shape_edges = get_shape(self.edges)
+            if shape_edges == 1:
+                reshaped = self.edges.reshape(int(len(self.edges) / 2), 2)
+                entities = [Line(x) for x in reshaped]
+                edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
+            else:
+                raise NotImplementedError()
+
+            meshes.append(edge_mesh)
+
+        return meshes
+
     @property
     def index_flat(self):
-        return self.index.astype(dtype="int32").flatten()
+        return self.faces.astype(dtype="int32").flatten()
 
     @property
     def index_norm_flat(self):
@@ -516,11 +578,11 @@ class ObjectMesh:
 
     def __add__(self, other: ObjectMesh):
         pos_len = int(len(self.position))
-        new_index = other.index + pos_len
-        ma = int((len(other.index) + len(self.index))) - 1
-        mi = int(len(self.index))
+        new_index = other.faces + pos_len
+        ma = int((len(other.faces) + len(self.faces))) - 1
+        mi = int(len(self.faces))
 
-        self.index = np.concatenate([self.index, new_index])
+        self.faces = np.concatenate([self.faces, new_index])
         if len(self.position) == 0:
             self.position = other.position
         else:
@@ -552,3 +614,11 @@ class ObjectMesh:
 class VisNode:
     guid: str
     parent: str
+
+
+def get_shape(np_array: np.ndarray) -> int:
+    if len(np_array.shape) == 1:
+        shape = len(np_array.shape)
+    else:
+        shape = np_array.shape[1]
+    return shape

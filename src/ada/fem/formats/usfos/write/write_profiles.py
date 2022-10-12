@@ -2,7 +2,7 @@ from typing import Dict
 
 from ada import FEM
 from ada.fem import FemSection
-from ada.sections import SectionCat
+from ada.sections.categories import BaseTypes
 
 
 def sections_str(fem: FEM):
@@ -24,7 +24,7 @@ def sections_str(fem: FEM):
     sections: Dict[int, FemSection] = {fs.fem_sec.id: fs.fem_sec for fs in fem.elements.lines}
     for s_id, fs in sorted(sections.items()):
         s = fs.section
-        if SectionCat.is_box_profile(s):
+        if s.type == BaseTypes.BOX:
             # BOX      100000001    0.500   0.016   0.016   0.016    0.500
             box_str += box.format(
                 id=fs.id,
@@ -34,13 +34,13 @@ def sections_str(fem: FEM):
                 t_fbtn=s.t_fbtn,
                 w_top=s.w_top,
             )
-        elif SectionCat.is_tubular_profile(s):
+        elif s.type == BaseTypes.TUBULAR:
             # PIPE      60000001       1.010       0.045
             tub_str += tub.format(id=fs.id, d=s.r * 2, wt=s.wt)
-        elif SectionCat.is_circular_profile(s):
+        elif s.type == BaseTypes.CIRCULAR:
             # PIPE      60000001       1.010       0.045
             circ_str += tub.format(id=fs.id, d=s.r * 2, wt=s.r * 0.99)
-        elif SectionCat.is_i_profile(s):
+        elif s.type == BaseTypes.IPROFILE:
             # IHPROFIL     11011    0.590   0.013    0.300   0.025    0.300   0.025
             ip_str += ipe.format(
                 id=fs.id,
@@ -51,7 +51,7 @@ def sections_str(fem: FEM):
                 w_btn=s.w_btn,
                 t_fbtn=s.t_fbtn,
             )
-        elif SectionCat.is_t_profile(s):
+        elif s.type == BaseTypes.TPROFILE:
             print(f'T-Profiles currently not considered. Relevant for bm id "{fs.id}". Will use IPE for now')
             # IHPROFIL     11011    0.590   0.013    0.300   0.025    0.300   0.025
             tp_str += ipe.format(
@@ -64,17 +64,17 @@ def sections_str(fem: FEM):
                 t_fbtn=s.t_fbtn,
             )
 
-        elif SectionCat.is_angular(s):
+        elif s.type == BaseTypes.ANGULAR:
             print(f'Angular-Profiles are not supported by USFOS. Bm "{fs.id}" will use GENBEAM')
             gens_str += general_beam(fs)
             # raise ValueError('Angular profiles currently not considered. Relevant for bm id "{}"'.format(fs.id))
 
-        elif SectionCat.is_channel_profile(s):
+        elif s.type == BaseTypes.CHANNEL:
             print(f'Channel-Profiles are not supported by USFOS. Bm "{fs.id}" will use GENBEAM')
             gens_str += general_beam(fs)
             # raise ValueError('Channel profiles currently not considered. Relevant for bm id "{}"'.format(fs.id))
 
-        elif SectionCat.is_general(s):
+        elif s.type == BaseTypes.GENERAL:
             gens_str += general_beam(fs)
         else:
             raise ValueError(f'Unknown section string "{s.type}"')

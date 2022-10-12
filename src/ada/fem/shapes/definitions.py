@@ -5,6 +5,8 @@ from typing import Union
 
 import numpy as np
 
+from ada.base.types import GeomRepr
+
 # The element names are based on the naming scheme by meshio
 
 
@@ -61,9 +63,9 @@ class PointShapes:
 
 
 class ElemType:
-    SHELL = "SHELL"
-    SOLID = "SOLID"
-    LINE = "LINE"
+    SHELL = GeomRepr.SHELL
+    SOLID = GeomRepr.SOLID
+    LINE = GeomRepr.LINE
 
     LINE_SHAPES = LineShapes
     SHELL_SHAPES = ShellShapes

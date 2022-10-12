@@ -1,4 +1,4 @@
-from typing import Union
+from __future__ import annotations
 
 import numpy as np
 
@@ -12,11 +12,11 @@ from ada import (
     PrimSweep,
     Shape,
 )
+from ada.base.units import Units
 from ada.core.constants import O, X, Z
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.ifc.utils import (
     add_colour,
-    create_guid,
     create_ifc_placement,
     create_ifcextrudedareasolid,
     create_IfcFixedReferenceSweptAreaSolid,
@@ -24,11 +24,11 @@ from ada.ifc.utils import (
     create_ifcpolyline,
     create_ifcrevolveareasolid,
     create_local_placement,
-    create_property_set,
-    get_tolerance,
     tesselate_shape,
     to_real,
 )
+
+from .write_curves import write_curve_poly
 
 
 def write_ifc_shape(shape: Shape):
@@ -36,19 +36,19 @@ def write_ifc_shape(shape: Shape):
         raise ValueError("Parent cannot be None for IFC export")
 
     a = shape.parent.get_assembly()
-    f = a.ifc_file
+    f = a.ifc_store.f
 
     context = f.by_type("IfcGeometricRepresentationContext")[0]
-    owner_history = a.user.to_ifc()
-    parent = shape.parent.get_ifc_elem()
-    schema = a.ifc_file.wrapped_data.schema
+    owner_history = a.ifc_store.owner_history
+    parent = f.by_guid(shape.parent.guid)
+    schema = f.wrapped_data.schema
 
     shape_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
 
     if isinstance(shape, (PrimBox, PrimCyl, PrimExtrude, PrimRevolve, PrimSphere, PrimSweep)):
         ifc_shape = generate_parametric_solid(shape, f)
     else:
-        tol = get_tolerance(a.units)
+        tol = Units.get_general_point_tol(a.units)
         serialized_geom = tesselate_shape(shape.geom, schema, tol)
         ifc_shape = f.add(serialized_geom)
 
@@ -56,56 +56,24 @@ def write_ifc_shape(shape: Shape):
     for rep in ifc_shape.Representations:
         rep.ContextOfItems = context
 
-    description = shape.metadata.get("description", None)
-
-    if "hidden" in shape.metadata.keys():
-        if shape.metadata["hidden"] is True:
-            a.presentation_layers.append(ifc_shape)
-
     # Add colour
     if shape.colour is not None:
         add_colour(f, ifc_shape.Representations[0].Items[0], str(shape.colour), shape.colour)
 
     ifc_elem = f.create_entity(
-        "IfcBuildingElementProxy",
-        shape.guid,
-        owner_history,
-        shape.name,
-        description,
-        None,
-        shape_placement,
-        ifc_shape,
-        None,
-        None,
+        str(shape.ifc_class.value),
+        GlobalId=shape.guid,
+        OwnerHistory=owner_history,
+        Name=shape.name,
+        ObjectType=None,
+        ObjectPlacement=shape_placement,
+        Representation=ifc_shape,
     )
-
-    for pen in shape._penetrations:
-        # elements.append(pen.ifc_opening)
-        f.createIfcRelVoidsElement(
-            create_guid(),
-            owner_history,
-            None,
-            None,
-            ifc_elem,
-            pen.ifc_opening,
-        )
-
-    if shape.ifc_options.export_props is True:
-        props = create_property_set("Properties", f, shape.metadata, owner_history)
-        f.create_entity(
-            "IfcRelDefinesByProperties",
-            create_guid(),
-            owner_history,
-            "Properties",
-            None,
-            [ifc_elem],
-            props,
-        )
 
     return ifc_elem
 
 
-def generate_parametric_solid(shape: Union[Shape, PrimSphere], f):
+def generate_parametric_solid(shape: Shape | PrimSphere, f):
     context = f.by_type("IfcGeometricRepresentationContext")[0]
 
     param_solid_map = {
@@ -128,10 +96,6 @@ def generate_parametric_solid(shape: Union[Shape, PrimSphere], f):
 
     shape_representation = f.create_entity("IfcShapeRepresentation", context, "Body", "SweptSolid", [solid_geom])
     ifc_shape = f.create_entity("IfcProductDefinitionShape", None, None, [shape_representation])
-
-    # Link to representation context
-    for rep in ifc_shape.Representations:
-        rep.ContextOfItems = context
 
     return ifc_shape
 
@@ -226,8 +190,9 @@ def generate_ifc_prim_revolve_geom(shape: PrimRevolve, f):
 
 
 def generate_ifc_prim_sweep_geom(shape: PrimSweep, f):
-    sweep_curve = shape.sweep_curve.get_ifc_elem()
-    profile = f.create_entity("IfcArbitraryClosedProfileDef", "AREA", None, shape.profile_curve_outer.get_ifc_elem())
+    sweep_curve = write_curve_poly(shape.sweep_curve)
+    outer_curve = write_curve_poly(shape.profile_curve_outer)
+    profile = f.create_entity("IfcArbitraryClosedProfileDef", "AREA", None, outer_curve)
     ifc_xdir = f.create_entity("IfcDirection", [float(x) for x in shape.profile_curve_outer.xdir])
     opening_axis_placement = create_ifc_placement(f, O, Z, X)
 
