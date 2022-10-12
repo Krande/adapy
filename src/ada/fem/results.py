@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import pathlib
@@ -112,8 +113,6 @@ class Results:
             f.write(self.output.stdout)
 
     def save_results_to_json(self, dest_file):
-        import json
-
         dest_file = pathlib.Path(dest_file).with_suffix(".json")
         res = dict(
             name=self.name,
@@ -123,7 +122,10 @@ class Results:
             last_modified=self.last_modified,
         )
         with open(dest_file, "w") as f:
-            json.dump(res, f, indent=4)
+            try:
+                json.dump(res, f, indent=4)
+            except TypeError as e:
+                raise TypeError(e)
 
     def save_results_to_excel(self, dest_file, filter_components_by_name=None):
         """This method is just a sample for how certain results can easily be exported to Excel"""

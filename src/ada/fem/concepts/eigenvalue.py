@@ -70,6 +70,10 @@ class EigenMode:
         for key, value in self.__dict__.items():
             if key[0] == "_":
                 continue
+            if isinstance(value, np.int32):
+                value = int(value)
+            elif isinstance(value, np.float64):
+                value = float(value)
             res[key] = value
         return res
 
