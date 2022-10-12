@@ -6,9 +6,9 @@ import pytest
 import trimesh
 from trimesh.path.entities import Line
 from trimesh.visual.material import PBRMaterial
-from ada.core.vector_utils import rot_matrix, unit_vector
 
 from ada import Beam
+from ada.core.vector_utils import rot_matrix, unit_vector
 
 
 @pytest.fixture

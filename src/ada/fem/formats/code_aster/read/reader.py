@@ -10,13 +10,14 @@ import numpy as np
 from ada.concepts.containers import Nodes
 from ada.fem import Elem
 from ada.fem.containers import FemElements, FemSets
+
+from ..common import med_to_ada_type
 from .read_sets import (
     _cell_tag_to_set,
     _element_set_dict_to_list_of_femset,
     _point_tags_to_sets,
     _read_families,
 )
-from ..common import med_to_ada_type
 
 if TYPE_CHECKING:
     from ada.concepts.spatial import Assembly
