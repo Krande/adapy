@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 from ada.fem import StepEigen, StepImplicit
 
@@ -142,7 +142,9 @@ def step_eig_str(step: StepEigen, part: Part) -> str:
 
     assembly = part.get_assembly()
     if part != assembly:
-        bcs += assembly.fem.bcs
+        for bc in assembly.fem.bcs:
+            if bc not in bcs:
+                bcs.append(bc)
 
     if len(bcs) > 1 or len(bcs) == 0:
         raise NotImplementedError(f"Number of BC sets {len(bcs)=} is for now limited to 1 for eigenfrequency analysis")
@@ -202,7 +204,7 @@ IMPR_RESU(
 """
 
 
-def create_step_str(step: Union[StepEigen, StepImplicit], part: "Part") -> str:
+def create_step_str(step: StepEigen | StepImplicit, part: Part) -> str:
     st = StepEigen.TYPES
     step_map = {st.STATIC: step_static_str, st.EIGEN: step_eig_str}
 

@@ -1092,6 +1092,7 @@ class Assembly(Part):
         self.ifc_store.sync(include_fem=include_fem)
 
         if file_obj_only is False:
+            os.makedirs(destination.parent, exist_ok=True)
             self.ifc_store.save_to_file(destination)
 
         if validate:
