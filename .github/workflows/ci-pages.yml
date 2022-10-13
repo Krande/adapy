@@ -3,6 +3,7 @@ on:
   push:
     branches:
     - dev
+    - fem-static
 jobs:
   build:
     runs-on: ubuntu-latest
