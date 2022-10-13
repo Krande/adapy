@@ -3,10 +3,10 @@
   <head><meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width,initial-scale=1"/>
     <meta name="color-scheme" content="light dark"><meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
-<link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="next" title="Path to Software Agnosticism" href="path_to_software_agnosticism.html" /><link rel="prev" title="Assembly for Design &amp; Analysis (ADA)" href="../index.html" />
+<link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="next" title="IFC Database" href="ifc_database.html" /><link rel="prev" title="FEA Software" href="fea_software.html" />
 
     <meta name="generator" content="sphinx-5.2.3, furo 2022.09.29"/>
-        <title>Steel detailing as a method - ADA - Assembly for Design &amp; Analysis</title>
+        <title>Configuring adapy - ADA - Assembly for Design &amp; Analysis</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?digest=d81277517bee4d6b0349d71bb2661d4890b5617c" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?digest=30d1aed668e5c3a91c3e3bf6a60b675221979f0e" />
@@ -135,7 +135,7 @@
           <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
         </button>
       </div>
-      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
         <div class="visually-hidden">Toggle table of contents sidebar</div>
         <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
       </label>
@@ -156,8 +156,8 @@
 </form>
 <div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
   <p class="caption" role="heading"><span class="caption-text">Features</span></p>
-<ul class="current">
-<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Steel detailing as a method</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="steel_detailing.html">Steel detailing as a method</a></li>
 <li class="toctree-l1"><a class="reference internal" href="path_to_software_agnosticism.html">Path to Software Agnosticism</a></li>
 <li class="toctree-l1"><a class="reference internal" href="meshing.html">Build mesh recipes, not meshes</a></li>
 </ul>
@@ -166,8 +166,8 @@
 <li class="toctree-l1"><a class="reference internal" href="fea_software.html">FEA Software</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Tips &amp; Tricks</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="config.html">Configuring adapy</a></li>
+<ul class="current">
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Configuring adapy</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Ongoing Work</span></p>
 <ul>
@@ -204,29 +204,47 @@
               <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
             </button>
           </div>
-          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
             <div class="visually-hidden">Toggle table of contents sidebar</div>
             <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
           </label>
         </div>
         <article role="main">
-          <section id="steel-detailing-as-a-method">
-<h1>Steel detailing as a method<a class="headerlink" href="#steel-detailing-as-a-method" title="Permalink to this heading">#</a></h1>
-<p>You can create methods on any Part objects that you can customize to your liking. This enables you to input
-simplified concept analysis models and output fully detailed models simply by using object oriented design
-together with parametric modelling.</p>
-<p>In the example below a method is created on a <cite>Reinforced Floor</cite> (basically just a plate with HP profiles underneath)
-class inherited from the <cite>Part</cite> class. The method checks for all penetrating piping segments and for each penetration
-do the necessary detailing. For the sake of simplicity in this example the detailing was just a cylindrical cutout
-through the deck plate and stringer.</p>
-<p>With little effort you can add reinforcements to the detail and end up with a
-flexible, robust and fabrication friendly parametric detail that you can re-use.</p>
-<figure class="align-center" id="id1">
-<img alt="Parametric penetration details" src="../_images/flow_auto_penetrations.png" />
-<figcaption>
-<p><span class="caption-text">Create parametric penetration details using code</span><a class="headerlink" href="#id1" title="Permalink to this image">#</a></p>
-</figcaption>
-</figure>
+          <section id="configuring-adapy">
+<h1>Configuring adapy<a class="headerlink" href="#configuring-adapy" title="Permalink to this heading">#</a></h1>
+<section id="setting-paths-to-your-fe-tools-in-python">
+<h2>Setting paths to your FE tools in python<a class="headerlink" href="#setting-paths-to-your-fe-tools-in-python" title="Permalink to this heading">#</a></h2>
+<p>If you cannot or wont tamper with your computer environmental variables, here’s a 3rd option for doing so</p>
+<ol class="arabic simple" start="3">
+<li><p>Set parameters in python by using environment variables or the ada.config.Settings class, like so:</p></li>
+</ol>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">os</span>
+
+<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;ADA_calculix_exe&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;&lt;absolute path to ccx.exe&gt;&quot;</span>
+<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;ADA_abaqus_exe&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;&lt;absolute path to abaqus.bat&gt;&quot;</span>
+<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;ADA_code_aster_exe&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;&lt;absolute path to as_run.bat&gt;&quot;</span>
+</pre></div>
+</div>
+<p>or</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">ada.config</span> <span class="kn">import</span> <span class="n">Settings</span>
+
+<span class="n">Settings</span><span class="o">.</span><span class="n">fem_exe_paths</span><span class="p">[</span><span class="s2">&quot;calculix&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;&lt;absolute path to ccx.exe&gt;&quot;</span>
+<span class="n">Settings</span><span class="o">.</span><span class="n">fem_exe_paths</span><span class="p">[</span><span class="s2">&quot;abaqus&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;&lt;absolute path to abaqus.bat&gt;&quot;</span>
+<span class="n">Settings</span><span class="o">.</span><span class="n">fem_exe_paths</span><span class="p">[</span><span class="s2">&quot;code_aster&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;&lt;absolute path to as_run.bat&gt;&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="alternative-installation-methods">
+<h2>Alternative Installation methods<a class="headerlink" href="#alternative-installation-methods" title="Permalink to this heading">#</a></h2>
+<p>If you have to use pip you can do:</p>
+<blockquote>
+<div><p>pip install ada-py</p>
+</div></blockquote>
+<p><strong>Note!</strong> Pip will not install the required conda packages. So you would also have to do</p>
+<blockquote>
+<div><p>conda install -c conda-forge ifcopenshell pythonocc-core python-gmsh</p>
+</div></blockquote>
+</section>
 </section>
 
         </article>
@@ -234,23 +252,23 @@ flexible, robust and fabrication friendly parametric detail that you can re-use.
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="path_to_software_agnosticism.html">
+          <a class="next-page" href="ifc_database.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">Path to Software Agnosticism</div>
+                <div class="title">IFC Database</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          <a class="prev-page" href="../index.html">
+          <a class="prev-page" href="fea_software.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Home</div>
+                <div class="title">FEA Software</div>
                 
               </div>
             </a>
@@ -274,8 +292,28 @@ flexible, robust and fabrication friendly parametric detail that you can re-use.
         
       </footer>
     </div>
-    <aside class="toc-drawer no-toc">
+    <aside class="toc-drawer">
       
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Configuring adapy</a><ul>
+<li><a class="reference internal" href="#setting-paths-to-your-fe-tools-in-python">Setting paths to your FE tools in python</a></li>
+<li><a class="reference internal" href="#alternative-installation-methods">Alternative Installation methods</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
       
       
     </aside>

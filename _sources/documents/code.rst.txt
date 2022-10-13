@@ -21,7 +21,7 @@ The main library.
 .. automodule:: ada.concepts.containers
    :members:
 
-.. automodule:: ada.base.non_physical_objects
+.. automodule:: ada.base.root
    :members:
 
 .. automodule:: ada.base.physical_objects

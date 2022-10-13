@@ -5,10 +5,10 @@
     <meta name="color-scheme" content="light dark"><meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
 <link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="prev" title="IFC Database" href="ifc_database.html" />
 
-    <meta name="generator" content="sphinx-5.1.1, furo 2022.06.21"/>
+    <meta name="generator" content="sphinx-5.2.3, furo 2022.09.29"/>
         <title>Code Documentation - ADA - Assembly for Design &amp; Analysis</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
-    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?digest=40978830699223671f4072448e654b5958f38b89" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?digest=d81277517bee4d6b0349d71bb2661d4890b5617c" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?digest=30d1aed668e5c3a91c3e3bf6a60b675221979f0e" />
     <link rel="stylesheet" type="text/css" href="../_static/custom.css" />
     
@@ -161,6 +161,14 @@
 <li class="toctree-l1"><a class="reference internal" href="path_to_software_agnosticism.html">Path to Software Agnosticism</a></li>
 <li class="toctree-l1"><a class="reference internal" href="meshing.html">Build mesh recipes, not meshes</a></li>
 </ul>
+<p class="caption" role="heading"><span class="caption-text">FEA</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="fea_software.html">FEA Software</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Tips &amp; Tricks</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="config.html">Configuring adapy</a></li>
+</ul>
 <p class="caption" role="heading"><span class="caption-text">Ongoing Work</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="ifc_database.html">IFC Database</a></li>
@@ -187,7 +195,8 @@
           <span>Back to top</span>
         </a>
         <div class="content-icon-container">
-          <div class="theme-toggle-container theme-toggle-content">
+          
+<div class="theme-toggle-container theme-toggle-content">
             <button class="theme-toggle">
               <div class="visually-hidden">Toggle Light / Dark / Auto color theme</div>
               <svg class="theme-icon-when-auto"><use href="#svg-sun-half"></use></svg>
@@ -673,11 +682,6 @@ described by an id (index) and a Node object.</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="ada.concepts.containers.Sections">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ada.concepts.containers.</span></span><span class="sig-name descname"><span class="pre">Sections</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sections</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Iterable</span><span class="p"><span class="pre">[</span></span><span class="pre">Section</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#ada.concepts.levels.Part" title="ada.concepts.levels.Part"><span class="pre">Part</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#ada.concepts.levels.Assembly" title="ada.concepts.levels.Assembly"><span class="pre">Assembly</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'m'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.concepts.containers.Sections" title="Permalink to this definition">#</a></dt>
-<dd></dd></dl>
-
-<span class="target" id="module-ada.base.non_physical_objects"></span><dl class="py class">
-<dt class="sig sig-object py" id="ada.base.non_physical_objects.IfcExportOptions">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ada.base.non_physical_objects.</span></span><span class="sig-name descname"><span class="pre">IfcExportOptions</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">export_props</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'bool'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.base.non_physical_objects.IfcExportOptions" title="Permalink to this definition">#</a></dt>
 <dd></dd></dl>
 
 <span class="target" id="module-ada.base.physical_objects"></span><dl class="py class">
@@ -1869,7 +1873,7 @@ the vector of experimental strain values)</p></li>
         <div class="related-pages">
           
           <a class="prev-page" href="ifc_database.html">
-              <svg><use href="#svg-arrow-right"></use></svg>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
@@ -1905,7 +1909,7 @@ the vector of experimental strain values)</p></li>
       <div class="toc-sticky toc-scroll">
         <div class="toc-title-container">
           <span class="toc-title">
-            Contents
+            On this page
           </span>
         </div>
         <div class="toc-tree-container">
@@ -1913,36 +1917,261 @@ the vector of experimental strain values)</p></li>
             <ul>
 <li><a class="reference internal" href="#">Code Documentation</a><ul>
 <li><a class="reference internal" href="#ada">ADA</a><ul>
+<li><a class="reference internal" href="#ada.concepts.levels.Assembly"><code class="docutils literal notranslate"><span class="pre">Assembly</span></code></a><ul>
+<li><a class="reference internal" href="#ada.concepts.levels.Assembly.push"><code class="docutils literal notranslate"><span class="pre">Assembly.push()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.levels.Assembly.read_fem"><code class="docutils literal notranslate"><span class="pre">Assembly.read_fem()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.levels.Assembly.read_ifc"><code class="docutils literal notranslate"><span class="pre">Assembly.read_ifc()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.levels.Assembly.to_fem"><code class="docutils literal notranslate"><span class="pre">Assembly.to_fem()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#ada.concepts.levels.Group"><code class="docutils literal notranslate"><span class="pre">Group</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.levels.Part"><code class="docutils literal notranslate"><span class="pre">Part</span></code></a><ul>
+<li><a class="reference internal" href="#ada.concepts.levels.Part.add_joint"><code class="docutils literal notranslate"><span class="pre">Part.add_joint()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.levels.Part.beam_clash_check"><code class="docutils literal notranslate"><span class="pre">Part.beam_clash_check()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.levels.Part.create_objects_from_fem"><code class="docutils literal notranslate"><span class="pre">Part.create_objects_from_fem()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.levels.Part.get_by_name"><code class="docutils literal notranslate"><span class="pre">Part.get_by_name()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.levels.Part.read_step_file"><code class="docutils literal notranslate"><span class="pre">Part.read_step_file()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#ada.concepts.primitives.Penetration"><code class="docutils literal notranslate"><span class="pre">Penetration</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.primitives.PrimBox"><code class="docutils literal notranslate"><span class="pre">PrimBox</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.primitives.PrimCyl"><code class="docutils literal notranslate"><span class="pre">PrimCyl</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.primitives.PrimExtrude"><code class="docutils literal notranslate"><span class="pre">PrimExtrude</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.primitives.PrimRevolve"><code class="docutils literal notranslate"><span class="pre">PrimRevolve</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.primitives.PrimSphere"><code class="docutils literal notranslate"><span class="pre">PrimSphere</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.primitives.PrimSweep"><code class="docutils literal notranslate"><span class="pre">PrimSweep</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.primitives.Shape"><code class="docutils literal notranslate"><span class="pre">Shape</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam"><code class="docutils literal notranslate"><span class="pre">Beam</span></code></a><ul>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.add_beam_to_node_refs"><code class="docutils literal notranslate"><span class="pre">Beam.add_beam_to_node_refs()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.bbox"><code class="docutils literal notranslate"><span class="pre">Beam.bbox</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.get_beam_extensions"><code class="docutils literal notranslate"><span class="pre">Beam.get_beam_extensions()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.get_node_on_beam_by_fraction"><code class="docutils literal notranslate"><span class="pre">Beam.get_node_on_beam_by_fraction()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.get_node_on_beam_by_point"><code class="docutils literal notranslate"><span class="pre">Beam.get_node_on_beam_by_point()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.get_split_beam"><code class="docutils literal notranslate"><span class="pre">Beam.get_split_beam()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.is_equivalent"><code class="docutils literal notranslate"><span class="pre">Beam.is_equivalent()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.is_on_beam"><code class="docutils literal notranslate"><span class="pre">Beam.is_on_beam()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.is_strong_axis_stiffened"><code class="docutils literal notranslate"><span class="pre">Beam.is_strong_axis_stiffened()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.is_weak_axis_stiffened"><code class="docutils literal notranslate"><span class="pre">Beam.is_weak_axis_stiffened()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.jusl"><code class="docutils literal notranslate"><span class="pre">Beam.jusl</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.length"><code class="docutils literal notranslate"><span class="pre">Beam.length</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.ori"><code class="docutils literal notranslate"><span class="pre">Beam.ori</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.remove_beam_from_node_refs"><code class="docutils literal notranslate"><span class="pre">Beam.remove_beam_from_node_refs()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.split_beam"><code class="docutils literal notranslate"><span class="pre">Beam.split_beam()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.updating_nodes"><code class="docutils literal notranslate"><span class="pre">Beam.updating_nodes()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.vector"><code class="docutils literal notranslate"><span class="pre">Beam.vector</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.xvec"><code class="docutils literal notranslate"><span class="pre">Beam.xvec</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.xvec_e"><code class="docutils literal notranslate"><span class="pre">Beam.xvec_e</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.Beam.yvec"><code class="docutils literal notranslate"><span class="pre">Beam.yvec</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#ada.concepts.stru_beams.NodeNotOnEndpointError"><code class="docutils literal notranslate"><span class="pre">NodeNotOnEndpointError</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_plates.Plate"><code class="docutils literal notranslate"><span class="pre">Plate</span></code></a><ul>
+<li><a class="reference internal" href="#ada.concepts.stru_plates.Plate.bbox"><code class="docutils literal notranslate"><span class="pre">Plate.bbox</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_plates.Plate.n"><code class="docutils literal notranslate"><span class="pre">Plate.n</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.stru_plates.Plate.t"><code class="docutils literal notranslate"><span class="pre">Plate.t</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#ada.concepts.containers.Beams"><code class="docutils literal notranslate"><span class="pre">Beams</span></code></a><ul>
+<li><a class="reference internal" href="#ada.concepts.containers.Beams.from_name"><code class="docutils literal notranslate"><span class="pre">Beams.from_name()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.containers.Beams.get_beams_within_volume"><code class="docutils literal notranslate"><span class="pre">Beams.get_beams_within_volume()</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.containers.Beams.merge_beams"><code class="docutils literal notranslate"><span class="pre">Beams.merge_beams()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#ada.concepts.containers.Connections"><code class="docutils literal notranslate"><span class="pre">Connections</span></code></a><ul>
+<li><a class="reference internal" href="#ada.concepts.containers.Connections.find"><code class="docutils literal notranslate"><span class="pre">Connections.find()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#ada.concepts.containers.Materials"><code class="docutils literal notranslate"><span class="pre">Materials</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.containers.Plates"><code class="docutils literal notranslate"><span class="pre">Plates</span></code></a></li>
+<li><a class="reference internal" href="#ada.concepts.containers.Sections"><code class="docutils literal notranslate"><span class="pre">Sections</span></code></a></li>
+<li><a class="reference internal" href="#ada.base.physical_objects.BackendGeom"><code class="docutils literal notranslate"><span class="pre">BackendGeom</span></code></a><ul>
+<li><a class="reference internal" href="#ada.base.physical_objects.BackendGeom.get_render_snippet"><code class="docutils literal notranslate"><span class="pre">BackendGeom.get_render_snippet()</span></code></a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#ifc-utilities">IFC utilities</a></li>
-<li><a class="reference internal" href="#blender-wrapper-and-utilities">Blender wrapper and utilities</a></li>
-<li><a class="reference internal" href="#bimserver-utilities">Bimserver utilities</a></li>
-<li><a class="reference internal" href="#module-ada.core.constants">Other</a></li>
+<li><a class="reference internal" href="#blender-wrapper-and-utilities">Blender wrapper and utilities</a><ul>
+<li><a class="reference internal" href="#ada.core.blender.Blender"><code class="docutils literal notranslate"><span class="pre">Blender</span></code></a><ul>
+<li><a class="reference internal" href="#ada.core.blender.Blender.run"><code class="docutils literal notranslate"><span class="pre">Blender.run()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#bimserver-utilities">Bimserver utilities</a><ul>
+<li><a class="reference internal" href="#ada.core.bimserver.BimServerApi"><code class="docutils literal notranslate"><span class="pre">BimServerApi</span></code></a></li>
+<li><a class="reference internal" href="#ada.core.bimserver.BimServerConnect"><code class="docutils literal notranslate"><span class="pre">BimServerConnect</span></code></a><ul>
+<li><a class="reference internal" href="#ada.core.bimserver.BimServerConnect.pull"><code class="docutils literal notranslate"><span class="pre">BimServerConnect.pull()</span></code></a></li>
+<li><a class="reference internal" href="#ada.core.bimserver.BimServerConnect.push"><code class="docutils literal notranslate"><span class="pre">BimServerConnect.push()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#ada.core.bimserver.bs_get_project"><code class="docutils literal notranslate"><span class="pre">bs_get_project()</span></code></a></li>
+<li><a class="reference internal" href="#ada.core.bimserver.bs_push"><code class="docutils literal notranslate"><span class="pre">bs_push()</span></code></a></li>
+<li><a class="reference internal" href="#ada.core.bimserver.download_extract_zip"><code class="docutils literal notranslate"><span class="pre">download_extract_zip()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#module-ada.core.constants">Other</a><ul>
+<li><a class="reference internal" href="#ada.core.utils.closest_val_in_dict"><code class="docutils literal notranslate"><span class="pre">closest_val_in_dict()</span></code></a></li>
+<li><a class="reference internal" href="#ada.core.utils.d2npy"><code class="docutils literal notranslate"><span class="pre">d2npy()</span></code></a></li>
+<li><a class="reference internal" href="#ada.core.utils.download_to"><code class="docutils literal notranslate"><span class="pre">download_to()</span></code></a></li>
+<li><a class="reference internal" href="#ada.core.utils.faceted_tol"><code class="docutils literal notranslate"><span class="pre">faceted_tol()</span></code></a></li>
+<li><a class="reference internal" href="#ada.core.utils.get_current_user"><code class="docutils literal notranslate"><span class="pre">get_current_user()</span></code></a></li>
+<li><a class="reference internal" href="#ada.core.utils.make_name_fem_ready"><code class="docutils literal notranslate"><span class="pre">make_name_fem_ready()</span></code></a></li>
+<li><a class="reference internal" href="#ada.core.utils.replace_nodes_by_tol"><code class="docutils literal notranslate"><span class="pre">replace_nodes_by_tol()</span></code></a></li>
+<li><a class="reference internal" href="#ada.core.utils.roundoff"><code class="docutils literal notranslate"><span class="pre">roundoff()</span></code></a></li>
+<li><a class="reference internal" href="#ada.core.utils.thread_this"><code class="docutils literal notranslate"><span class="pre">thread_this()</span></code></a></li>
+<li><a class="reference internal" href="#ada.core.utils.traverse_hdf_datasets"><code class="docutils literal notranslate"><span class="pre">traverse_hdf_datasets()</span></code></a></li>
+<li><a class="reference internal" href="#ada.core.utils.zip_dir"><code class="docutils literal notranslate"><span class="pre">zip_dir()</span></code></a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li><a class="reference internal" href="#fem-finite-element-method">FEM (Finite Element Method)</a><ul>
-<li><a class="reference internal" href="#module-ada.fem">Main</a></li>
-<li><a class="reference internal" href="#module-ada.fem.containers">FEM Containers</a></li>
-<li><a class="reference internal" href="#module-ada.fem.utils">Utils</a></li>
+<li><a class="reference internal" href="#module-ada.fem">Main</a><ul>
+<li><a class="reference internal" href="#ada.fem.ConnectorSection"><code class="docutils literal notranslate"><span class="pre">ConnectorSection</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.FEM"><code class="docutils literal notranslate"><span class="pre">FEM</span></code></a><ul>
+<li><a class="reference internal" href="#ada.fem.FEM.add_interface_nodes"><code class="docutils literal notranslate"><span class="pre">FEM.add_interface_nodes()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.FEM.add_rp"><code class="docutils literal notranslate"><span class="pre">FEM.add_rp()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.FEM.add_set"><code class="docutils literal notranslate"><span class="pre">FEM.add_set()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.FEM.add_step"><code class="docutils literal notranslate"><span class="pre">FEM.add_step()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.FEM.create_fem_elem_from_obj"><code class="docutils literal notranslate"><span class="pre">FEM.create_fem_elem_from_obj()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.FEM.get_all_bcs"><code class="docutils literal notranslate"><span class="pre">FEM.get_all_bcs()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#ada.fem.FemSet"><code class="docutils literal notranslate"><span class="pre">FemSet</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.FieldOutput"><code class="docutils literal notranslate"><span class="pre">FieldOutput</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.HistOutput"><code class="docutils literal notranslate"><span class="pre">HistOutput</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.Interaction"><code class="docutils literal notranslate"><span class="pre">Interaction</span></code></a><ul>
+<li><a class="reference internal" href="#ada.fem.Interaction.parent"><code class="docutils literal notranslate"><span class="pre">Interaction.parent</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#ada.fem.Load"><code class="docutils literal notranslate"><span class="pre">Load</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.LoadGravity"><code class="docutils literal notranslate"><span class="pre">LoadGravity</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.LoadPoint"><code class="docutils literal notranslate"><span class="pre">LoadPoint</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.LoadPressure"><code class="docutils literal notranslate"><span class="pre">LoadPressure</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.StepEigen"><code class="docutils literal notranslate"><span class="pre">StepEigen</span></code></a><ul>
+<li><a class="reference internal" href="#ada.fem.StepEigen.num_eigen_modes"><code class="docutils literal notranslate"><span class="pre">StepEigen.num_eigen_modes</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#ada.fem.StepExplicit"><code class="docutils literal notranslate"><span class="pre">StepExplicit</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.StepImplicit"><code class="docutils literal notranslate"><span class="pre">StepImplicit</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.StepSteadyState"><code class="docutils literal notranslate"><span class="pre">StepSteadyState</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.Surface"><code class="docutils literal notranslate"><span class="pre">Surface</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#module-ada.fem.containers">FEM Containers</a><ul>
+<li><a class="reference internal" href="#ada.fem.containers.COG"><code class="docutils literal notranslate"><span class="pre">COG</span></code></a><ul>
+<li><a class="reference internal" href="#ada.fem.containers.COG.x"><code class="docutils literal notranslate"><span class="pre">COG.x</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.containers.COG.y"><code class="docutils literal notranslate"><span class="pre">COG.y</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.containers.COG.z"><code class="docutils literal notranslate"><span class="pre">COG.z</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#ada.fem.containers.FemElements"><code class="docutils literal notranslate"><span class="pre">FemElements</span></code></a><ul>
+<li><a class="reference internal" href="#ada.fem.containers.FemElements.build_sets"><code class="docutils literal notranslate"><span class="pre">FemElements.build_sets()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.containers.FemElements.calc_cog"><code class="docutils literal notranslate"><span class="pre">FemElements.calc_cog()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.containers.FemElements.connector_by_name"><code class="docutils literal notranslate"><span class="pre">FemElements.connector_by_name()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.containers.FemElements.filter_elements"><code class="docutils literal notranslate"><span class="pre">FemElements.filter_elements()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.containers.FemElements.link_nodes"><code class="docutils literal notranslate"><span class="pre">FemElements.link_nodes()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.containers.FemElements.remove"><code class="docutils literal notranslate"><span class="pre">FemElements.remove()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.containers.FemElements.remove_elements_by_id"><code class="docutils literal notranslate"><span class="pre">FemElements.remove_elements_by_id()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.containers.FemElements.remove_elements_by_set"><code class="docutils literal notranslate"><span class="pre">FemElements.remove_elements_by_set()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.containers.FemElements.renumber"><code class="docutils literal notranslate"><span class="pre">FemElements.renumber()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#module-ada.fem.utils">Utils</a><ul>
+<li><a class="reference internal" href="#ada.fem.utils.elset_to_part"><code class="docutils literal notranslate"><span class="pre">elset_to_part()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.utils.get_beam_end_nodes"><code class="docutils literal notranslate"><span class="pre">get_beam_end_nodes()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.utils.get_eldata"><code class="docutils literal notranslate"><span class="pre">get_eldata()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.utils.get_nodes_along_plate_edges"><code class="docutils literal notranslate"><span class="pre">get_nodes_along_plate_edges()</span></code></a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#io">IO</a><ul>
-<li><a class="reference internal" href="#code-aster">Code Aster</a></li>
-<li><a class="reference internal" href="#gmsh">GMSH</a></li>
-<li><a class="reference internal" href="#abaqus">Abaqus</a></li>
-<li><a class="reference internal" href="#calculix">Calculix</a></li>
-<li><a class="reference internal" href="#sesam">Sesam</a></li>
+<li><a class="reference internal" href="#code-aster">Code Aster</a><ul>
+<li><a class="reference internal" href="#ada.fem.formats.code_aster.run_code_aster"><code class="docutils literal notranslate"><span class="pre">run_code_aster()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.formats.code_aster.to_fem"><code class="docutils literal notranslate"><span class="pre">to_fem()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#gmsh">GMSH</a><ul>
+<li><a class="reference internal" href="#ada.fem.meshing.GmshData"><code class="docutils literal notranslate"><span class="pre">GmshData</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.meshing.GmshOptions"><code class="docutils literal notranslate"><span class="pre">GmshOptions</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.meshing.GmshTask"><code class="docutils literal notranslate"><span class="pre">GmshTask</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#abaqus">Abaqus</a><ul>
+<li><a class="reference internal" href="#ada.fem.formats.abaqus.read_fem"><code class="docutils literal notranslate"><span class="pre">read_fem()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.formats.abaqus.to_fem"><code class="docutils literal notranslate"><span class="pre">to_fem()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#calculix">Calculix</a><ul>
+<li><a class="reference internal" href="#ada.fem.formats.calculix.to_fem"><code class="docutils literal notranslate"><span class="pre">to_fem()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#sesam">Sesam</a><ul>
+<li><a class="reference internal" href="#ada.fem.formats.sesam.read_fem"><code class="docutils literal notranslate"><span class="pre">read_fem()</span></code></a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#usfos">Usfos</a></li>
-<li><a class="reference internal" href="#utilities">Utilities</a></li>
+<li><a class="reference internal" href="#utilities">Utilities</a><ul>
+<li><a class="reference internal" href="#ada.fem.formats.utils.LocalExecute"><code class="docutils literal notranslate"><span class="pre">LocalExecute</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.formats.utils.get_fem_model_from_assembly"><code class="docutils literal notranslate"><span class="pre">get_fem_model_from_assembly()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.formats.utils.get_ff_regex"><code class="docutils literal notranslate"><span class="pre">get_ff_regex()</span></code></a></li>
+<li><a class="reference internal" href="#ada.fem.formats.utils.line_elem_to_beam"><code class="docutils literal notranslate"><span class="pre">line_elem_to_beam()</span></code></a></li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>
 </li>
 <li><a class="reference internal" href="#materials">Materials</a><ul>
 <li><a class="reference internal" href="#module-ada.materials.metals">Metals</a></li>
-<li><a class="reference internal" href="#module-ada.materials.polymers">Polymers</a></li>
+<li><a class="reference internal" href="#module-ada.materials.polymers">Polymers</a><ul>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate"><code class="docutils literal notranslate"><span class="pre">Calibrate</span></code></a><ul>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.aba_str"><code class="docutils literal notranslate"><span class="pre">Calibrate.aba_str</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.bia_eps"><code class="docutils literal notranslate"><span class="pre">Calibrate.bia_eps</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.biaxial"><code class="docutils literal notranslate"><span class="pre">Calibrate.biaxial</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.mat_data"><code class="docutils literal notranslate"><span class="pre">Calibrate.mat_data</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.pla_eps"><code class="docutils literal notranslate"><span class="pre">Calibrate.pla_eps</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.planar"><code class="docutils literal notranslate"><span class="pre">Calibrate.planar</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.plot"><code class="docutils literal notranslate"><span class="pre">Calibrate.plot()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.run"><code class="docutils literal notranslate"><span class="pre">Calibrate.run()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.uni_eps"><code class="docutils literal notranslate"><span class="pre">Calibrate.uni_eps</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.uniaxial"><code class="docutils literal notranslate"><span class="pre">Calibrate.uniaxial</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.NH_3D"><code class="docutils literal notranslate"><span class="pre">NH_3D()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Yeoh_3D"><code class="docutils literal notranslate"><span class="pre">Yeoh_3D()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.biaxial_stress"><code class="docutils literal notranslate"><span class="pre">biaxial_stress()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.neo_hookean"><code class="docutils literal notranslate"><span class="pre">neo_hookean()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.planar_stress"><code class="docutils literal notranslate"><span class="pre">planar_stress()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.uniaxial_stress"><code class="docutils literal notranslate"><span class="pre">uniaxial_stress()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.yeoh"><code class="docutils literal notranslate"><span class="pre">yeoh()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.utils.E_from_mu_kappa"><code class="docutils literal notranslate"><span class="pre">E_from_mu_kappa()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.utils.S_from_sig"><code class="docutils literal notranslate"><span class="pre">S_from_sig()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.utils.coeff_det"><code class="docutils literal notranslate"><span class="pre">coeff_det()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.utils.e_from_eps"><code class="docutils literal notranslate"><span class="pre">e_from_eps()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.utils.msd"><code class="docutils literal notranslate"><span class="pre">msd()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.utils.nmad"><code class="docutils literal notranslate"><span class="pre">nmad()</span></code></a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li><a class="reference internal" href="#module-ada.sections">Sections</a><ul>
+<li><a class="reference internal" href="#ada.sections.GeneralProperties"><code class="docutils literal notranslate"><span class="pre">GeneralProperties</span></code></a><ul>
+<li><a class="reference internal" href="#ada.sections.GeneralProperties.calc_parent_properties"><code class="docutils literal notranslate"><span class="pre">GeneralProperties.calc_parent_properties()</span></code></a></li>
+<li><a class="reference internal" href="#ada.sections.GeneralProperties.modified"><code class="docutils literal notranslate"><span class="pre">GeneralProperties.modified</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#ada.sections.utils.UnableToConvertSectionError"><code class="docutils literal notranslate"><span class="pre">UnableToConvertSectionError</span></code></a></li>
+<li><a class="reference internal" href="#ada.sections.utils.interpret_section_str"><code class="docutils literal notranslate"><span class="pre">interpret_section_str()</span></code></a></li>
+<li><a class="reference internal" href="#ada.sections.utils.profile_db_collect"><code class="docutils literal notranslate"><span class="pre">profile_db_collect()</span></code></a></li>
 <li><a class="reference internal" href="#module-ada.base">Base Classes</a></li>
-<li><a class="reference internal" href="#module-ada.visualize.concept">Visualization Classes</a></li>
+<li><a class="reference internal" href="#module-ada.visualize.concept">Visualization Classes</a><ul>
+<li><a class="reference internal" href="#ada.visualize.concept.ObjectMesh"><code class="docutils literal notranslate"><span class="pre">ObjectMesh</span></code></a></li>
+<li><a class="reference internal" href="#ada.visualize.concept.PartMesh"><code class="docutils literal notranslate"><span class="pre">PartMesh</span></code></a></li>
+<li><a class="reference internal" href="#ada.visualize.concept.VisMesh"><code class="docutils literal notranslate"><span class="pre">VisMesh</span></code></a></li>
+<li><a class="reference internal" href="#ada.visualize.concept.VisNode"><code class="docutils literal notranslate"><span class="pre">VisNode</span></code></a></li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>
@@ -1961,6 +2190,7 @@ the vector of experimental strain values)</p></li>
     <script src="../_static/underscore.js"></script>
     <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
     <script src="../_static/doctools.js"></script>
+    <script src="../_static/sphinx_highlight.js"></script>
     <script src="../_static/scripts/furo.js"></script>
     </body>
 </html>

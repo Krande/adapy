@@ -3,10 +3,10 @@
   <head><meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width,initial-scale=1"/>
     <meta name="color-scheme" content="light dark"><meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
-<link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="next" title="Path to Software Agnosticism" href="path_to_software_agnosticism.html" /><link rel="prev" title="Assembly for Design &amp; Analysis (ADA)" href="../index.html" />
+<link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="next" title="Configuring adapy" href="config.html" /><link rel="prev" title="Build mesh recipes, not meshes" href="meshing.html" />
 
     <meta name="generator" content="sphinx-5.2.3, furo 2022.09.29"/>
-        <title>Steel detailing as a method - ADA - Assembly for Design &amp; Analysis</title>
+        <title>FEA Software - ADA - Assembly for Design &amp; Analysis</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?digest=d81277517bee4d6b0349d71bb2661d4890b5617c" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?digest=30d1aed668e5c3a91c3e3bf6a60b675221979f0e" />
@@ -135,7 +135,7 @@
           <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
         </button>
       </div>
-      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
         <div class="visually-hidden">Toggle table of contents sidebar</div>
         <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
       </label>
@@ -156,14 +156,14 @@
 </form>
 <div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
   <p class="caption" role="heading"><span class="caption-text">Features</span></p>
-<ul class="current">
-<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Steel detailing as a method</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="steel_detailing.html">Steel detailing as a method</a></li>
 <li class="toctree-l1"><a class="reference internal" href="path_to_software_agnosticism.html">Path to Software Agnosticism</a></li>
 <li class="toctree-l1"><a class="reference internal" href="meshing.html">Build mesh recipes, not meshes</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FEA</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="fea_software.html">FEA Software</a></li>
+<ul class="current">
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">FEA Software</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Tips &amp; Tricks</span></p>
 <ul>
@@ -204,29 +204,27 @@
               <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
             </button>
           </div>
-          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
             <div class="visually-hidden">Toggle table of contents sidebar</div>
             <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
           </label>
         </div>
         <article role="main">
-          <section id="steel-detailing-as-a-method">
-<h1>Steel detailing as a method<a class="headerlink" href="#steel-detailing-as-a-method" title="Permalink to this heading">#</a></h1>
-<p>You can create methods on any Part objects that you can customize to your liking. This enables you to input
-simplified concept analysis models and output fully detailed models simply by using object oriented design
-together with parametric modelling.</p>
-<p>In the example below a method is created on a <cite>Reinforced Floor</cite> (basically just a plate with HP profiles underneath)
-class inherited from the <cite>Part</cite> class. The method checks for all penetrating piping segments and for each penetration
-do the necessary detailing. For the sake of simplicity in this example the detailing was just a cylindrical cutout
-through the deck plate and stringer.</p>
-<p>With little effort you can add reinforcements to the detail and end up with a
-flexible, robust and fabrication friendly parametric detail that you can re-use.</p>
-<figure class="align-center" id="id1">
-<img alt="Parametric penetration details" src="../_images/flow_auto_penetrations.png" />
-<figcaption>
-<p><span class="caption-text">Create parametric penetration details using code</span><a class="headerlink" href="#id1" title="Permalink to this image">#</a></p>
-</figcaption>
-</figure>
+          <section id="fea-software">
+<h1>FEA Software<a class="headerlink" href="#fea-software" title="Permalink to this heading">#</a></h1>
+<p>Here is a collection of useful links and information regarding the currently supported FEA solvers</p>
+<section id="calculix">
+<h2>Calculix<a class="headerlink" href="#calculix" title="Permalink to this heading">#</a></h2>
+<p>More information <a class="reference external" href="http://www.dhondt.de/">http://www.dhondt.de/</a></p>
+<p><a class="reference external" href="http://www.dhondt.de/calculix_2.20_4win.zip">Download latest executable for Windows (v2.20)</a></p>
+<p><a class="reference external" href="https://github.com/Dhondtguido/CalculiXSource">Source Code</a></p>
+</section>
+<section id="code-aster">
+<h2>Code Aster<a class="headerlink" href="#code-aster" title="Permalink to this heading">#</a></h2>
+<p>More information <a class="reference external" href="https://www.code-aster.org/spip.php?rubrique2">https://www.code-aster.org</a></p>
+<p><a class="reference external" href="https://gitlab.com/codeaster/src">Source Code</a></p>
+<p><a class="reference external" href="https://gitlab.com/codeaster-opensource-documentation/opensource-installation-development">Installation information</a></p>
+</section>
 </section>
 
         </article>
@@ -234,23 +232,23 @@ flexible, robust and fabrication friendly parametric detail that you can re-use.
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="path_to_software_agnosticism.html">
+          <a class="next-page" href="config.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">Path to Software Agnosticism</div>
+                <div class="title">Configuring adapy</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          <a class="prev-page" href="../index.html">
+          <a class="prev-page" href="meshing.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Home</div>
+                <div class="title">Build mesh recipes, not meshes</div>
                 
               </div>
             </a>
@@ -274,8 +272,28 @@ flexible, robust and fabrication friendly parametric detail that you can re-use.
         
       </footer>
     </div>
-    <aside class="toc-drawer no-toc">
+    <aside class="toc-drawer">
       
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">FEA Software</a><ul>
+<li><a class="reference internal" href="#calculix">Calculix</a></li>
+<li><a class="reference internal" href="#code-aster">Code Aster</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
       
       
     </aside>
