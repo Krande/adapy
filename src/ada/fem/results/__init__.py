@@ -1,3 +1,3 @@
-from .interface import EigenDataSummary, Results
+from .concepts import EigenDataSummary, Results
 
 __all__ = ["Results", "EigenDataSummary"]

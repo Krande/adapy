@@ -126,7 +126,7 @@ class CcxResultModel:
         if stripped.startswith("2C"):
             split = stripped.split()
             num_len = int(float(split[1]))
-            # Note! np.fromiter can have issues on older numpy versions..
+            # Note! np.fromiter have issues on older numpy versions such as (1.22.3)
             self.nodes = np.fromiter(self.collect_nodes(), dtype=np.dtype((float, 4)), count=num_len)
 
         if stripped.startswith("3C"):
@@ -210,4 +210,13 @@ def read_from_frd_file(frd_file) -> meshio.Mesh:
         ccx_res_model.load()
 
     mesh = ccx_res_model.to_meshio_mesh()
+    return mesh
+
+
+def read_from_frd_file_proto(frd_file) -> FEAResult:
+    with open(frd_file, "r") as f:
+        ccx_res_model = CcxResultModel(f)
+        ccx_res_model.load()
+
+    mesh = ccx_res_model.to_fea_result_obj()
     return mesh

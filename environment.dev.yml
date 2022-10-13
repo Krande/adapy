@@ -1,0 +1,8 @@
+name: ada
+channels:
+#  - ifcopenshell
+  - conda-forge
+  - krande
+dependencies:
+  - ada-py
+  - pytest

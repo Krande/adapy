@@ -25,3 +25,15 @@ def read_calculix_results(results: Results, file_ref: pathlib.Path, overwrite) -
         results.eigen_mode_data = get_eigen_data(dat_file)
 
     return mesh
+
+
+def read_calculix_results_proto(results: Results, file_ref: pathlib.Path, overwrite) -> meshio.Mesh:
+    from .read_frd_file import read_from_frd_file
+
+    mesh = read_from_frd_file(file_ref)
+
+    dat_file = file_ref.with_suffix(".dat")
+    if results.assembly is not None and dat_file.exists() and isinstance(results.assembly.fem.steps[0], StepEigen):
+        results.eigen_mode_data = get_eigen_data(dat_file)
+
+    return mesh

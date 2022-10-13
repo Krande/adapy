@@ -1,6 +1,7 @@
 import pytest
 
 import ada
+from ada.fem.formats.general import FEATypes
 from ada.fem.formats.utils import default_fem_inp_path
 
 
@@ -19,7 +20,7 @@ def test_merge_fem_sections(test_merge_sections_dir):
     assert len(p.fem.sections) == 2
 
     name = "Merges_Sections"
-    fem_format = "sesam"
+    fem_format = FEATypes.SESAM
 
     a.to_fem(name, fem_format, overwrite=True, scratch_dir=test_merge_sections_dir)
 
