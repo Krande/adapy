@@ -51,9 +51,9 @@ def run_code_aster(
 
 class CodeAsterExecute(LocalExecute):
     def run(self, exit_on_complete=True):
-        from ada.fem.formats import FEATypes
+        from ada.fem.formats import FEASolvers
 
-        exe_path = self.get_exe(FEATypes.CODE_ASTER)
+        exe_path = self.get_exe(FEASolvers.CODE_ASTER)
         out = self._run_local(f'"{exe_path}" {self.analysis_name}.export', exit_on_complete=exit_on_complete)
         return out
 

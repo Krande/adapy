@@ -1,21 +1,23 @@
+from __future__ import annotations
+
 import logging
 import os
 import pathlib
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, List
 
 from ada.fem import StepEigen
-from ada.fem.concepts.eigenvalue import EigenDataSummary, EigenMode
 from ada.fem.exceptions.fea_execution import (
     FEAnalysisUnableToStart,
     FEAnalysisUnsuccessfulError,
 )
 from ada.fem.formats.utils import DatFormatReader
+from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
 
 if TYPE_CHECKING:
     from ada.fem.results import Results
 
 
-def get_eigen_data(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
+def get_eigen_data(dat_file: str | os.PathLike) -> EigenDataSummary:
     dtr = DatFormatReader()
 
     re_compiled = dtr.compile_ff_re([int] + [float] * 5)

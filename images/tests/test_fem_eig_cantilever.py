@@ -7,7 +7,7 @@ import ada
 from ada.base.types import GeomRepr
 from ada.config import Settings
 from ada.fem.exceptions.element_support import IncompatibleElements
-from ada.fem.formats import FEATypes as FEA
+from ada.fem.formats import FEASolvers as FEA
 from ada.fem.formats.utils import default_fem_res_path
 from ada.fem.meshing.concepts import GmshOptions
 from ada.fem.results import Results

@@ -10,18 +10,18 @@ import subprocess
 import sys
 from contextlib import contextmanager
 from itertools import chain
-from typing import TYPE_CHECKING, Dict, List, Union
+from typing import TYPE_CHECKING
 
 from send2trash import send2trash
 
-from ada import Beam, Plate
 from ada.concepts.containers import Beams, Plates
 from ada.config import Settings
 from ada.fem import Elem
 from ada.fem.exceptions import FEASolverNotInstalled
 
 if TYPE_CHECKING:
-    from ada import Assembly, Part
+    from ada import Assembly, Part, Beam, Plate
+    from ada.fem.formats.general import FEATypes
 
 
 class DatFormatReader:
@@ -198,11 +198,20 @@ def get_fem_model_from_assembly(assembly: Assembly) -> Part:
     return parts[0]
 
 
-def get_exe_path(exe_name: str):
+def get_exe_path(fea_type: FEATypes):
+    from ada.fem.formats.general import FEATypes
+
+    if isinstance(fea_type, FEATypes):
+        exe_name = fea_type.value
+    else:
+        exe_name = fea_type
+
+    env_name = f"ADA_{exe_name}_exe"
+
     if Settings.fem_exe_paths.get(exe_name, None) is not None:
         exe_path = Settings.fem_exe_paths[exe_name]
-    elif os.getenv(f"ADA_{exe_name}_exe"):
-        exe_path = os.getenv(f"ADA_{exe_name}_exe")
+    elif os.getenv(env_name):
+        exe_path = os.getenv(env_name)
     elif shutil.which(f"{exe_name}.exe"):
         exe_path = shutil.which(f"{exe_name}.exe")
     elif shutil.which(f"{exe_name}.bat"):
@@ -376,11 +385,14 @@ def run_macOS(exe, run_cmd):
 
 
 def interpret_fem(fem_ref: str):
+    from ada.fem.formats.general import FEATypes
+
     fem_type = None
     if ".fem" in str(fem_ref).lower():
-        fem_type = "sesam"
+        fem_type = FEATypes.SESAM
     elif ".inp" in str(fem_ref).lower():
-        fem_type = "abaqus"
+        fem_type = FEATypes.ABAQUS
+
     return fem_type
 
 
@@ -395,7 +407,8 @@ def should_convert(res_path, overwrite):
         return False
 
 
-def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> List[Plate]:
+def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> list[Plate]:
+    from ada import Plate
     from ada.core.vector_utils import is_coplanar
 
     plates = []
@@ -484,18 +497,20 @@ def convert_part_objects(p: Part, skip_plates, skip_beams):
 
 def default_fem_res_path(
     name, scratch_dir=None, analysis_dir=None, fem_format=None
-) -> Union[Dict[str, pathlib.Path], str]:
+) -> dict[FEATypes, pathlib.Path] | str:
+    from ada.fem.formats.general import FEATypes
+
     if scratch_dir is None and analysis_dir is None:
         scratch_dir = Settings.scratch_dir
 
     base_path = scratch_dir / name / name if analysis_dir is None else analysis_dir / name
-    fem_format_map = dict(
-        code_aster=base_path.with_suffix(".rmed"),
-        abaqus=base_path.with_suffix(".odb"),
-        calculix=base_path.with_suffix(".frd"),
-        sesam=(base_path.parent / f"{name}R1").with_suffix(".SIN"),
-        usfos=base_path.with_suffix(".fem"),
-    )
+    fem_format_map = {
+        FEATypes.CODE_ASTER: base_path.with_suffix(".rmed"),
+        FEATypes.ABAQUS: base_path.with_suffix(".odb"),
+        FEATypes.CALCULIX: base_path.with_suffix(".frd"),
+        FEATypes.SESAM: (base_path.parent / f"{name}R1").with_suffix(".SIN"),
+        FEATypes.USFOS: base_path.with_suffix(".fem"),
+    }
 
     if fem_format is None:
         return fem_format_map
@@ -504,11 +519,13 @@ def default_fem_res_path(
 
 
 def default_fem_inp_path(name, scratch_dir=None, analysis_dir=None):
+    from ada.fem.formats.general import FEATypes
+
     base_path = scratch_dir / name / name if analysis_dir is None else analysis_dir / name
-    return dict(
-        code_aster=base_path.with_suffix(".export"),
-        abaqus=base_path.with_suffix(".inp"),
-        calculix=base_path.with_suffix(".inp"),
-        sesam=(base_path.parent / f"{name}T1").with_suffix(".FEM"),
-        usfos=base_path.with_suffix(".raf"),
-    )
+    return {
+        FEATypes.CODE_ASTER: base_path.with_suffix(".export"),
+        FEATypes.ABAQUS: base_path.with_suffix(".inp"),
+        FEATypes.CALCULIX: base_path.with_suffix(".inp"),
+        FEATypes.SESAM: (base_path.parent / f"{name}T1").with_suffix(".FEM"),
+        FEATypes.USFOS: base_path.with_suffix(".raf"),
+    }

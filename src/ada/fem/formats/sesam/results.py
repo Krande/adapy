@@ -1,24 +1,28 @@
+from __future__ import annotations
+
 import logging
 import os
 import pathlib
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING
 
 from ada.fem import StepEigen
-from ada.fem.concepts.eigenvalue import EigenDataSummary, EigenMode
 from ada.fem.formats.utils import DatFormatReader
 
 if TYPE_CHECKING:
+    from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
     from ada.fem.results import Results
 
 
-def get_eigen_data(dat_file: Union[str, os.PathLike]) -> EigenDataSummary:
+def get_eigen_data(dat_file: str | os.PathLike) -> EigenDataSummary:
+    from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
+
     dtr = DatFormatReader()
 
     re_compiled = dtr.compile_ff_re([int] + [float] * 3, separator=";")
 
     eig_str = "printofeigenvalues"
     eig_res = dtr.read_data_lines(dat_file, re_compiled, eig_str, split_data=True)
-    eigen_modes: List[EigenMode] = []
+    eigen_modes: list[EigenMode] = []
 
     # Note! participation factors and effective modal mass are each deconstructed into 6 degrees of freedom
     for mode, eig_value, eig_freq, period in eig_res:

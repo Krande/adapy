@@ -79,10 +79,10 @@ def from_fem(
     return a
 
 
-def from_fem_res(fem_file: str | pathlib.Path, fem_format: str = None, **kwargs) -> Results:
+def from_fem_res(fem_file: str | pathlib.Path, fem_format: str = None, import_mesh=True, **kwargs) -> Results:
     from ada.fem.results import Results
 
-    return Results(fem_file, fem_format=fem_format, **kwargs)
+    return Results(fem_file, fem_format=fem_format, import_mesh=import_mesh, **kwargs)
 
 
 def from_genie_xml(xml_path, **kwargs) -> Assembly:

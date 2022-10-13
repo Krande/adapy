@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import pathlib
 from typing import TYPE_CHECKING
@@ -7,16 +9,17 @@ import meshio
 import numpy as np
 
 from ada.fem import StepEigen
-from ada.fem.concepts.eigenvalue import EigenDataSummary, EigenMode
 from ada.fem.elements import ElemShape
-
 from .read.reader import med_to_fem
 
 if TYPE_CHECKING:
+    from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
     from ada.fem.results import Results
 
 
 def get_eigen_data(rmed_file) -> EigenDataSummary:
+    from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
+
     with h5py.File(rmed_file) as f:
         modes = f.get("CHA/modes___DEPL")
         eigen_modes = []

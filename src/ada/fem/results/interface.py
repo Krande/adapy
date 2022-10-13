@@ -14,16 +14,16 @@ import pythreejs
 from IPython.display import display
 from ipywidgets import Dropdown, HBox, VBox
 
-from ada.fem.formats import FEATypes
+from ada.fem.formats.general import FEATypes
 from ada.visualize.femviz import get_edges_and_faces_from_meshio, magnitude
 from ada.visualize.renderer_pythreejs import MyRenderer
 from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
-from .concepts.eigenvalue import EigenDataSummary
-from .formats.abaqus.results import read_abaqus_results
-from .formats.calculix.results import read_calculix_results
-from .formats.code_aster.results import read_code_aster_results
-from .formats.sesam.results import read_sesam_results
+from .eigenvalue import EigenDataSummary
+from ..formats.abaqus.results import read_abaqus_results
+from ..formats.calculix.results import read_calculix_results
+from ..formats.code_aster.results import read_code_aster_results
+from ..formats.sesam.results import read_sesam_results
 
 if TYPE_CHECKING:
     from ada import Assembly
@@ -42,7 +42,7 @@ class Results:
         self,
         res_path,
         name: str = None,
-        fem_format: str = None,
+        fem_format: str | FEATypes = None,
         assembly: None | Assembly = None,
         palette=None,
         output=None,
@@ -50,6 +50,9 @@ class Results:
         metadata=None,
         import_mesh=False,
     ):
+        if isinstance(fem_format, str):
+            fem_format = FEATypes.from_str(fem_format)
+
         self._name = name
         self._visualizer = ResultsMesh(palette, fem_format=fem_format, parent=self)
         self._eigen_mode_data = None
@@ -172,6 +175,7 @@ class Results:
         name = self.assembly.name if self.assembly is not None else name
         pm = self.result_mesh.to_part_mesh(name=name, data_type=data_type)
         if len(pm.id_map) == 0:
+            logging.warning("Created Part mesh contains no object meshes")
             return None
         project = self.assembly.metadata.get("project", "DummyProject") if self.assembly is not None else "DummyProject"
         return VisMesh(name=name, project=project, world=[pm], meta=None)
@@ -181,13 +185,15 @@ class Results:
         return self._name
 
     @property
-    def fem_format(self):
+    def fem_format(self) -> FEATypes:
         return self._fem_format
 
     @fem_format.setter
-    def fem_format(self, value):
-        if value not in FEATypes.all:
-            raise ValueError(f'Unsupported FEA Type "{value}"')
+    def fem_format(self, value: FEATypes):
+        if isinstance(value, str):
+            value = FEATypes.from_str(value)
+            if value is None:
+                raise ValueError(f'Unsupported FEA Type "{value}"')
         self._fem_format = value
 
     @property
@@ -273,8 +279,8 @@ class ElemForceComp:
 @dataclass
 class ElementDataOutput:
     name: str
-    displacements: Dict[int, List[tuple]] = field(default_factory=dict)
-    forces: Dict[int, ElemForceComp] = field(default_factory=dict)
+    displacements: dict[int, List[tuple]] = field(default_factory=dict)
+    forces: dict[int, ElemForceComp] = field(default_factory=dict)
 
     @property
     def final_displ(self):
@@ -459,8 +465,12 @@ class ResultsMesh:
             except IndexError:
                 logging.warning(f"Data step {step} contains invalid data. Skipping")
                 continue
+            try:
+                colors = self.colorize_data(data)
+            except IndexError:
+                logging.warning(f"Data step {step} was unable to colorize data. Skipping")
+                continue
 
-            colors = self.colorize_data(data)
             faces = self.faces
             edges = self.edges
 

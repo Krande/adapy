@@ -1,20 +1,27 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, Dict
+from typing import Callable
 
+from ada.base.types import BaseEnum
 from . import abaqus, calculix, code_aster, sesam, usfos
 from .utils import interpret_fem
 
 
-class FEATypes:
+class FEATypes(BaseEnum):
     CODE_ASTER = "code_aster"
     CALCULIX = "calculix"
     ABAQUS = "abaqus"
     SESAM = "sesam"
     USFOS = "usfos"
 
-    all = [CODE_ASTER, CALCULIX, ABAQUS, SESAM, USFOS]
+    # formats only
+    XDMF = "xdmf"
+
+    @staticmethod
+    def get_solvers_only():
+        non_solvers = [FEATypes.XDMF]
+        return [x for x in FEATypes if x not in non_solvers]
 
 
 fem_imports = {
@@ -31,7 +38,7 @@ fem_exports = {
     FEATypes.USFOS: usfos.to_fem,
 }
 
-fem_executables: Dict[str, Callable] = {
+fem_executables: dict[FEATypes, Callable] = {
     FEATypes.ABAQUS: abaqus.run_abaqus,
     FEATypes.CALCULIX: calculix.run_calculix,
     FEATypes.CODE_ASTER: code_aster.run_code_aster,
@@ -41,22 +48,26 @@ fem_executables: Dict[str, Callable] = {
 fem_solver_map = {FEATypes.SESAM: "sestra", FEATypes.CALCULIX: "ccx"}
 
 
-class FemConverters:
+class FemConverters(BaseEnum):
     DEFAULT = "default"
     MESHIO = "meshio"
 
 
-def get_fem_converters(fem_file, fem_format, fem_converter):
+def get_fem_converters(fem_file, fem_format: str | FEATypes, fem_converter: str | FemConverters):
     from ada.fem.formats.mesh_io import meshio_read_fem, meshio_to_fem
+
+    if isinstance(fem_format, str):
+        fem_format = FEATypes.from_str(fem_format)
+    if isinstance(fem_converter, str):
+        fem_converter = FemConverters.from_str(fem_converter)
 
     if fem_format is None:
         fem_format = interpret_fem(fem_file)
 
     if fem_converter == FemConverters.DEFAULT:
-        fem_format = fem_format.lower()
         fem_importer = fem_imports.get(fem_format, None)
         fem_exporter = fem_exports.get(fem_format, None)
-    elif fem_converter.lower() == FemConverters.MESHIO:
+    elif fem_converter == FemConverters.MESHIO:
         fem_importer = meshio_read_fem
         fem_exporter = meshio_to_fem
     else:

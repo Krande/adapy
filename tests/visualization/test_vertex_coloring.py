@@ -101,7 +101,7 @@ def test_instanced_mapped_geometry():
 
 
 def test_vertex_coloring_advanced():
-    neutral_dir = pathlib.Path(__file__).parent.resolve() / "../../files/fem_files/meshes/neutral"
+    neutral_dir = pathlib.Path(__file__).parent.resolve() / "../../files/fem_files/numpy_files/simple_stru_eig1"
     vertices = np.load(neutral_dir / "vertices.npy")
     faces = np.load(neutral_dir / "faces.npy")
     vertex_color = np.load(neutral_dir / "colors.npy")

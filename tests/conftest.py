@@ -4,6 +4,7 @@ import pathlib
 import pytest
 
 import ada
+from ada.config import Settings
 from ada.visualize.renderer_pythreejs import MyRenderer, SectionRenderer
 
 is_printed = False
@@ -31,7 +32,7 @@ def this_dir() -> pathlib.Path:
 
 @pytest.fixture
 def test_dir() -> pathlib.Path:
-    testing_dir = ada.config.Settings.test_dir
+    testing_dir = Settings.test_dir
     os.makedirs(testing_dir, exist_ok=True)
     return testing_dir
 
@@ -39,6 +40,11 @@ def test_dir() -> pathlib.Path:
 @pytest.fixture
 def example_files(this_dir) -> pathlib.Path:
     return this_dir / ".." / "files"
+
+
+@pytest.fixture
+def fem_files(example_files) -> pathlib.Path:
+    return example_files / "fem_files"
 
 
 @pytest.fixture

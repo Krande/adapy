@@ -52,7 +52,7 @@ from ada.fem.concept import FEM
 
 if TYPE_CHECKING:
     import ifcopenshell
-
+    from ada.fem.formats.general import FEATypes, FemConverters
     from ada import Beam, Material, Plate, Section, Wall
     from ada.fem.meshing import GmshOptions
     from ada.fem.results import Results
@@ -927,9 +927,9 @@ class Assembly(Part):
     def read_fem(
         self,
         fem_file: str | os.PathLike,
-        fem_format: str = None,
+        fem_format: FEATypes | str = None,
         name: str = None,
-        fem_converter="default",
+        fem_converter: FemConverters | str = "default",
         cache_model_now=False,
     ):
         """Import a Finite Element model. Currently supported FEM formats: Abaqus, Sesam and Calculix"""
@@ -954,7 +954,7 @@ class Assembly(Part):
     def to_fem(
         self,
         name: str,
-        fem_format: str,
+        fem_format: FEATypes | str,
         scratch_dir=None,
         metadata=None,
         execute=False,
@@ -1013,21 +1013,19 @@ class Assembly(Part):
             If this proves to create issues regarding performance this should be evaluated further.
 
         """
-        from ada.fem.formats.general import fem_executables, get_fem_converters
-        from ada.fem.formats.utils import (
-            default_fem_inp_path,
-            default_fem_res_path,
-            folder_prep,
-            should_convert,
-        )
+        from ada.fem.formats.general import fem_executables, get_fem_converters, FEATypes
+        from ada.fem.formats.utils import default_fem_inp_path, default_fem_res_path, folder_prep, should_convert
         from ada.fem.results import Results
+
+        if isinstance(fem_format, str):
+            fem_format = FEATypes.from_str(fem_format)
 
         scratch_dir = Settings.scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
         fem_res_files = default_fem_res_path(name, scratch_dir=scratch_dir)
 
         res_path = fem_res_files.get(fem_format, None)
         metadata = dict() if metadata is None else metadata
-        metadata["fem_format"] = fem_format
+        metadata["fem_format"] = fem_format.value
 
         out = None
         if should_convert(res_path, overwrite):

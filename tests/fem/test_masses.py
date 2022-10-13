@@ -4,7 +4,7 @@ import pytest
 
 from ada.fem import Bc, FemSet, Mass, StepEigen
 from ada.fem.exceptions.element_support import IncompatibleElements
-from ada.fem.formats import FEATypes
+from ada.fem.formats.general import FEATypes
 from ada.fem.utils import get_beam_end_nodes
 
 from .test_model_fixtures import beam_model_line
@@ -27,7 +27,7 @@ def test_fem_mass_dir(test_dir):
     return test_dir / "fem_mass"
 
 
-@pytest.mark.parametrize("fem_format", FEATypes.all)
+@pytest.mark.parametrize("fem_format", [str(x.value) for x in FEATypes.get_solvers_only()])
 def test_beam_with_isotropic_mass(beam_model_line, isotropic_mass: Mass, fem_format, test_fem_mass_dir):
     bm = beam_model_line.get_by_name("Bm")
     fix_nodes = get_beam_end_nodes(bm)

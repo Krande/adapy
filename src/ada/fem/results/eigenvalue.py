@@ -8,7 +8,7 @@ import numpy as np
 
 @dataclass
 class EigenDataSummary:
-    modes: List[EigenMode]
+    modes: list[EigenMode]
     tot_eff_mass: List[float] = None
 
     def calc_tot_eff_mass(self):

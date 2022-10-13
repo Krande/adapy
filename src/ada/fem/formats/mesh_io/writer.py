@@ -8,6 +8,7 @@ import numpy as np
 from ada.concepts.spatial import Assembly
 from ada.config import Settings as _Settings
 from ada.fem import FEM
+from ada.fem.formats.general import FEATypes
 from ada.fem.shapes import ElemShape
 
 
@@ -17,16 +18,21 @@ def meshio_to_fem(assembly: Assembly, name: str, scratch_dir=None, metadata=None
         scratch_dir = _Settings.scratch_dir
 
     mesh_format = metadata["fem_format"]
+
+    mesh_name = mesh_format
+    if isinstance(mesh_format, FEATypes):
+        mesh_name = mesh_format.value
+
     analysis_dir = os.path.join(scratch_dir, name)
 
     os.makedirs(analysis_dir, exist_ok=True)
-
+    prefix_mapper = {FEATypes.ABAQUS: "inp"}
     for p in assembly.get_all_parts_in_assembly(include_self=True):
         mesh = fem_to_meshio(p.fem)
         if mesh is None:
             continue
-        prefix_mapper = dict(abaqus="inp")
-        if mesh_format in ["abaqus"]:
+
+        if mesh_format in [FEATypes.ABAQUS]:
             prefix = prefix_mapper[mesh_format]
         else:
             prefix = mesh_format
@@ -36,7 +42,7 @@ def meshio_to_fem(assembly: Assembly, name: str, scratch_dir=None, metadata=None
         meshio.write(
             part_file,  # str, os.PathLike, or buffer/ open file
             mesh,
-            file_format=mesh_format,
+            file_format=mesh_name,
         )
         print(f'Exported "{mesh_format}" using meshio to "{analysis_dir}"')
 

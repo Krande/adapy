@@ -1,45 +1,66 @@
-# Calculix reader inspired by the wonderful work by https://github.com/rsmith-nl/calculix-frdconvert
 from __future__ import annotations
 
+from enum import Enum
 from dataclasses import dataclass, field
 from typing import Iterator
+from ada.base.types import BaseEnum
+from ada.fem.results.common import FeaResultSet, FeaResult
 
 import meshio
 import numpy as np
 
 
-@dataclass
-class CcxResult:
-    name: str
-    step: int
-    components: list[str]
-    values: list[tuple] = field(repr=False)
+class ReadFrdFailedException(Exception):
+    ...
+
+
+class PointData(BaseEnum):
+    DISP = "DISP"
+    FORC = "FORC"
+    STRESS = "STRESS"
+    PE = "PE"
+    ERROR = "ERROR"
+
+
+class FieldData(BaseEnum):
+    pass
+
+
+class ElemShape(Enum):
+    WEDGE = "wedge"
+    HEX = "hexahedron"
+
+    @staticmethod
+    def get_type_from_elem_array_shape(elements: np.ndarray) -> ElemShape:
+        shape = elements.shape
+        if shape[1] == 10:
+            return ElemShape.WEDGE
+        elif shape[1] == 12:
+            return ElemShape.HEX
+        else:
+            raise NotImplementedError()
 
 
 @dataclass
 class CcxResultModel:
     file: Iterator
 
-    nodes: list[tuple] = None
+    ccx_version: str = None
+    nodes: np.ndarray = None
     elements: list[tuple] = None
-    results: list[CcxResult] = field(default_factory=list)
+    results: list[FeaResultSet] = field(default_factory=list)
 
     _curr_step: int = None
 
     def collect_nodes(self):
-        nodes = []
         while True:
             data = next(self.file)
             stripped = data.strip()
             if stripped.startswith("-1") is False:
                 break
             split = stripped.split()
-            nid = int(float(split[1]))
-            coords = [float(x) for x in split[2:]]
-            nodes.append((nid, *coords))
-
-        self.nodes = nodes
-        self.eval_flags(data)
+            data = [float(x) for x in split[1:]]
+            yield data
 
     def collect_elements(self):
         elements = []
@@ -90,13 +111,19 @@ class CcxResultModel:
             else:
                 break
 
-        self.results.append(CcxResult(name, self._curr_step, component_names, component_data))
+        self.results.append(FeaResultSet(name, self._curr_step, component_names, component_data))
         self.eval_flags(data)
 
-    def eval_flags(self, data):
+    def eval_flags(self, data: str):
         stripped = data.strip()
+        if stripped.startswith("1UVERSION"):
+            res = stripped.split()
+            self.ccx_version = res[-1].lower().replace('version', '').strip()
+
         if stripped.startswith("2C"):
-            self.collect_nodes()
+            split = stripped.split()
+            num_len = int(float(split[1]))
+            self.nodes = np.fromiter(self.collect_nodes(), dtype=np.dtype((float, 4)), count=num_len)
 
         if stripped.startswith("3C"):
             self.collect_elements()
@@ -116,13 +143,64 @@ class CcxResultModel:
             except StopIteration:
                 break
 
+    def get_last_step_results(self, data_type: BaseEnum) -> list[FeaResultSet]:
+        results = dict()
+        for res in self.results:
+            if data_type.from_str(res.name) is None:
+                continue
+            existing_step = results.get(res.name)
+            if existing_step is not None:
+                if res.step > existing_step.step:
+                    results[res.name] = res
+            else:
+                results[res.name] = res
+
+        return list(results.values())
+
+    def to_meshio_mesh(self) -> meshio.Mesh:
+        # Points
+        nodes = self.nodes
+        if nodes is None:
+            raise ReadFrdFailedException("No nodes found. Maybe there was an issue with the analysis")
+
+        points = nodes[:, 1:]
+        monotonic_point_map = dict()
+        for i, x in enumerate(nodes[:, 0].astype(int), start=0):
+            monotonic_point_map[x] = i
+
+        # Cells
+        elements = np.asarray(self.elements)
+        cells = elements[:, 4:]
+        for original_num, new_num in monotonic_point_map.items():
+            cells[cells == original_num] = new_num
+
+        shape = ElemShape.get_type_from_elem_array_shape(elements)
+        cell_block = meshio.CellBlock(str(shape.value), cells)
+
+        # Point Data
+        # Multiple steps are AFAIK not supported in the meshio Mesh object. So only the last step is used
+        point_data = dict()
+        for res in self.get_last_step_results(PointData):
+            values = np.asarray(res.values)[:, 1:]
+            point_data[res.name] = values
+
+        # Field Data
+        cell_data = dict()
+        for res in self.get_last_step_results(FieldData):
+            values = np.asarray(res.values)[:, 1:]
+            cell_data[res.name] = [values]
+
+        mesh = meshio.Mesh(points=points, cells=[cell_block], cell_data=cell_data, point_data=point_data)
+        return mesh
+
+    def to_fea_result_obj(self) -> FeaResult:
+
+        FeaResult()
 
 def read_from_frd_file(frd_file) -> meshio.Mesh:
     with open(frd_file, "r") as f:
         ccx_res_model = CcxResultModel(f)
         ccx_res_model.load()
 
-    nodes = np.asarray(ccx_res_model.nodes)
-    cells = np.asarray(ccx_res_model.elements)
-    mesh = meshio.Mesh(points=nodes, cells=cells)
+    mesh = ccx_res_model.to_meshio_mesh()
     return mesh

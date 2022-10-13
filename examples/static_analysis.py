@@ -1,13 +1,19 @@
+import os
 import pathlib
 
 import ada
+from ada.fem.formats.calculix.results.read_frd_file import read_from_frd_file
 from ada.materials.metals import CarbonSteel, DnvGl16Mat
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 frd_res_file = pathlib.Path(__file__).parent / "../files/fem_files/calculix/static_cantilever_calculix.frd"
 
 
 def gravity_step():
-    step = ada.fem.StepImplicit("gravity", nl_geom=True, init_incr=100.0, total_time=100.0)
+    step = ada.fem.StepImplicit("gravity", nl_geom=True, init_incr=50.0, total_time=100.0)
     step.add_load(ada.fem.LoadGravity("grav", -9.81 * 80))
     return step
 
@@ -30,19 +36,23 @@ def main():
 
     # a.to_fem('static_cantilever_ses', 'sesam', overwrite=True, execute=True)
     # a.to_fem("static_cantilever_code_aster", "code_aster", overwrite=True, execute=True)
-    # a.to_fem("static_cantilever_calculix", "calculix", overwrite=True, execute=True)
-    _ = ada.from_fem_res(r"C:\ADA\scratch\static_cantilever_calculix\static_cantilever_calculix.frd")
-    print("sd")
+    rerun = True
+    result_obj = a.to_fem("static_cantilever_calculix_line", "calculix", overwrite=rerun, execute=rerun)
+    mesh = read_from_frd_file(result_obj.results_file_path)
+    mesh.write(result_obj.results_file_path.with_suffix(".vtu"))
+
     # a.to_fem("static_cantilever_abaqus", "abaqus", overwrite=True, execute=True)
 
 
 def read_frd_file():
-    from ada.fem.formats.calculix.results.read_frd_file import read_from_frd_file
 
-    data_model = read_from_frd_file(frd_res_file)
-    print(data_model)
+    mesh = read_from_frd_file(frd_res_file)
+    os.makedirs("temp", exist_ok=True)
+    mesh.write("temp/test_hex.vtu")
+    print(mesh)
 
 
 if __name__ == "__main__":
-    read_frd_file()
-    # main()
+
+    # read_frd_file()
+    main()
