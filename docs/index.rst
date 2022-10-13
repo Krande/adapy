@@ -30,6 +30,25 @@ Or try the latest `"unstable"` development version here
     documents/path_to_software_agnosticism
     documents/meshing
 
+
+.. toctree::
+    :hidden:
+    :maxdepth: 2
+    :glob:
+    :caption: FEA
+
+    documents/fea_software
+
+
+.. toctree::
+    :hidden:
+    :maxdepth: 2
+    :glob:
+    :caption: Tips & Tricks
+
+    documents/config
+
+
 .. toctree::
     :hidden:
     :maxdepth: 2

@@ -9,8 +9,8 @@ from ada.fem import StepEigen
 from ada.fem.formats.utils import DatFormatReader
 
 if TYPE_CHECKING:
-    from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
     from ada.fem.results import Results
+    from ada.fem.results.eigenvalue import EigenDataSummary
 
 
 def get_eigen_data(dat_file: str | os.PathLike) -> EigenDataSummary:

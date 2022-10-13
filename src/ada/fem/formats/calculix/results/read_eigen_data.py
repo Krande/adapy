@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import os
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 from ada.fem.formats.utils import DatFormatReader
 
 if TYPE_CHECKING:
-    from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
+    from ada.fem.results.eigenvalue import EigenDataSummary
 
 
 def get_eigen_data(dat_file: str | os.PathLike) -> EigenDataSummary:
     from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
-    
+
     dtr = DatFormatReader()
 
     re_compiled = dtr.compile_ff_re([int] + [float] * 4)

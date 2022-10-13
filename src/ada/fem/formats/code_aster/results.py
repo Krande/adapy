@@ -10,11 +10,12 @@ import numpy as np
 
 from ada.fem import StepEigen
 from ada.fem.elements import ElemShape
+
 from .read.reader import med_to_fem
 
 if TYPE_CHECKING:
-    from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
     from ada.fem.results import Results
+    from ada.fem.results.eigenvalue import EigenDataSummary
 
 
 def get_eigen_data(rmed_file) -> EigenDataSummary:

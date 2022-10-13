@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import meshio
 
 from ada.fem import StepEigen
+
 from .read_eigen_data import get_eigen_data
 
 if TYPE_CHECKING:

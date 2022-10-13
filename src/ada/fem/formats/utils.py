@@ -20,7 +20,7 @@ from ada.fem import Elem
 from ada.fem.exceptions import FEASolverNotInstalled
 
 if TYPE_CHECKING:
-    from ada import Assembly, Part, Beam, Plate
+    from ada import Assembly, Beam, Part, Plate
     from ada.fem.formats.general import FEATypes
 
 

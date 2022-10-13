@@ -52,8 +52,9 @@ from ada.fem.concept import FEM
 
 if TYPE_CHECKING:
     import ifcopenshell
-    from ada.fem.formats.general import FEATypes, FemConverters
+
     from ada import Beam, Material, Plate, Section, Wall
+    from ada.fem.formats.general import FEATypes, FemConverters
     from ada.fem.meshing import GmshOptions
     from ada.fem.results import Results
     from ada.ifc.store import IfcStore
@@ -1013,8 +1014,17 @@ class Assembly(Part):
             If this proves to create issues regarding performance this should be evaluated further.
 
         """
-        from ada.fem.formats.general import fem_executables, get_fem_converters, FEATypes
-        from ada.fem.formats.utils import default_fem_inp_path, default_fem_res_path, folder_prep, should_convert
+        from ada.fem.formats.general import (
+            FEATypes,
+            fem_executables,
+            get_fem_converters,
+        )
+        from ada.fem.formats.utils import (
+            default_fem_inp_path,
+            default_fem_res_path,
+            folder_prep,
+            should_convert,
+        )
         from ada.fem.results import Results
 
         if isinstance(fem_format, str):

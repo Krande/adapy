@@ -19,11 +19,11 @@ from ada.visualize.femviz import get_edges_and_faces_from_meshio, magnitude
 from ada.visualize.renderer_pythreejs import MyRenderer
 from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
-from .eigenvalue import EigenDataSummary
 from ..formats.abaqus.results import read_abaqus_results
 from ..formats.calculix.results import read_calculix_results
 from ..formats.code_aster.results import read_code_aster_results
 from ..formats.sesam.results import read_sesam_results
+from .eigenvalue import EigenDataSummary
 
 if TYPE_CHECKING:
     from ada import Assembly

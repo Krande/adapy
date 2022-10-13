@@ -101,17 +101,6 @@ def get_edges_and_faces_from_meshio(mesh: meshio.Mesh):
     return edges, faces
 
 
-def get_faces_for_bm_elem(elem):
-    """
-
-    :param elem:
-    :type elem: ada.fem.Elem
-    :return:
-    """
-
-    # if ElemShapes.beam
-
-
 def get_bounding_box(vertices):
     return np.min(vertices, 0), np.max(vertices, 0)
 

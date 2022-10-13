@@ -4,6 +4,7 @@ import logging
 from typing import Callable
 
 from ada.base.types import BaseEnum
+
 from . import abaqus, calculix, code_aster, sesam, usfos
 from .utils import interpret_fem
 

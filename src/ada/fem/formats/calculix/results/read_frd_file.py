@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from enum import Enum
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Iterator
-from ada.base.types import BaseEnum
-from ada.fem.results.common import FeaResultSet, FeaResult
 
 import meshio
 import numpy as np
+
+from ada.base.types import BaseEnum
+from ada.fem.results.common import FEAResult, FEAResultSet
 
 
 class ReadFrdFailedException(Exception):
@@ -29,6 +30,7 @@ class FieldData(BaseEnum):
 class ElemShape(Enum):
     WEDGE = "wedge"
     HEX = "hexahedron"
+    TET = "tetra"
 
     @staticmethod
     def get_type_from_elem_array_shape(elements: np.ndarray) -> ElemShape:
@@ -37,8 +39,10 @@ class ElemShape(Enum):
             return ElemShape.WEDGE
         elif shape[1] == 12:
             return ElemShape.HEX
+        elif shape[1] == 8:
+            return ElemShape.TET
         else:
-            raise NotImplementedError()
+            raise NotImplementedError(f"{shape=}")
 
 
 @dataclass
@@ -48,7 +52,7 @@ class CcxResultModel:
     ccx_version: str = None
     nodes: np.ndarray = None
     elements: list[tuple] = None
-    results: list[FeaResultSet] = field(default_factory=list)
+    results: list[FEAResultSet] = field(default_factory=list)
 
     _curr_step: int = None
 
@@ -59,8 +63,7 @@ class CcxResultModel:
             if stripped.startswith("-1") is False:
                 break
             split = stripped.split()
-            data = [float(x) for x in split[1:]]
-            yield data
+            yield [float(x) for x in split[1:]]
 
     def collect_elements(self):
         elements = []
@@ -111,18 +114,19 @@ class CcxResultModel:
             else:
                 break
 
-        self.results.append(FeaResultSet(name, self._curr_step, component_names, component_data))
+        self.results.append(FEAResultSet(name, self._curr_step, component_names, component_data))
         self.eval_flags(data)
 
     def eval_flags(self, data: str):
         stripped = data.strip()
         if stripped.startswith("1UVERSION"):
             res = stripped.split()
-            self.ccx_version = res[-1].lower().replace('version', '').strip()
+            self.ccx_version = res[-1].lower().replace("version", "").strip()
 
         if stripped.startswith("2C"):
             split = stripped.split()
             num_len = int(float(split[1]))
+            # Note! np.fromiter can have issues on older numpy versions..
             self.nodes = np.fromiter(self.collect_nodes(), dtype=np.dtype((float, 4)), count=num_len)
 
         if stripped.startswith("3C"):
@@ -143,7 +147,7 @@ class CcxResultModel:
             except StopIteration:
                 break
 
-    def get_last_step_results(self, data_type: BaseEnum) -> list[FeaResultSet]:
+    def get_last_step_results(self, data_type: BaseEnum) -> list[FEAResultSet]:
         results = dict()
         for res in self.results:
             if data_type.from_str(res.name) is None:
@@ -193,9 +197,12 @@ class CcxResultModel:
         mesh = meshio.Mesh(points=points, cells=[cell_block], cell_data=cell_data, point_data=point_data)
         return mesh
 
-    def to_fea_result_obj(self) -> FeaResult:
+    def to_fea_result_obj(self) -> FEAResult:
+        from ada.fem.formats.general import FEATypes
 
-        FeaResult()
+        name = f"Adapy - Calculix ({self.ccx_version}) Results"
+        return FEAResult(name, FEATypes.CALCULIX, self.results)
+
 
 def read_from_frd_file(frd_file) -> meshio.Mesh:
     with open(frd_file, "r") as f:
