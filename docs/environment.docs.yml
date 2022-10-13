@@ -1,7 +1,7 @@
 name: adadocs
 channels:
-  - krande/label/dev
   - conda-forge
+  - krande
 dependencies:
   - ada-py
   - sphinx
