@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 from ada.fem import StepEigen
 from ada.fem.formats.utils import DatFormatReader
 
+from .sin2sif import convert_sin_to_sif
+
 if TYPE_CHECKING:
     from ada.fem.results import Results
     from ada.fem.results.eigenvalue import EigenDataSummary
@@ -39,6 +41,8 @@ def read_sesam_results(results: "Results", file_ref: pathlib.Path, overwrite):
     dat_file = (file_ref.parent / "SESTRA").with_suffix(".LIS")
     if dat_file.exists() and type(results.assembly.fem.steps[0]) == StepEigen:
         results.eigen_mode_data = get_eigen_data(dat_file)
+
+    convert_sin_to_sif(results.results_file_path)
 
     logging.error("Result mesh data extraction is not supported for sesam")
     return None
