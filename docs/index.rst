@@ -37,7 +37,8 @@ Or try the latest `"unstable"` development version here
     :glob:
     :caption: FEA
 
-    documents/fea_software
+    documents/fea/fea_software
+    documents/fea/fea_data_structure
 
 
 .. toctree::

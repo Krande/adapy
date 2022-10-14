@@ -11,15 +11,17 @@ from ada.fem.exceptions.fea_execution import (
     FEAnalysisUnsuccessfulError,
 )
 from ada.fem.formats.utils import DatFormatReader
-from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
 
-from .odb_utils import get_odb_data
+from .read_odb import get_odb_data
 
 if TYPE_CHECKING:
     from ada.fem.results.concepts import ElementDataOutput, FEMDataOutput, Results
+    from ada.fem.results.eigenvalue import EigenDataSummary
 
 
 def get_eigen_data(dat_file: str | os.PathLike) -> EigenDataSummary:
+    from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
+
     dtr = DatFormatReader()
 
     re_compiled = dtr.compile_ff_re([int] + [float] * 5)
