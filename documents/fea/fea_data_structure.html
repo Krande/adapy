@@ -3,14 +3,14 @@
   <head><meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width,initial-scale=1"/>
     <meta name="color-scheme" content="light dark"><meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
-<link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="next" title="Build mesh recipes, not meshes" href="meshing.html" /><link rel="prev" title="Steel detailing as a method" href="steel_detailing.html" />
+<link rel="index" title="Index" href="../../genindex.html" /><link rel="search" title="Search" href="../../search.html" /><link rel="next" title="Configuring adapy" href="../config.html" /><link rel="prev" title="FEA Software" href="fea_software.html" />
 
     <meta name="generator" content="sphinx-5.2.3, furo 2022.09.29"/>
-        <title>Path to Software Agnosticism - ADA - Assembly for Design &amp; Analysis</title>
-      <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
-    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?digest=d81277517bee4d6b0349d71bb2661d4890b5617c" />
-    <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?digest=30d1aed668e5c3a91c3e3bf6a60b675221979f0e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css" />
+        <title>FEA Data Structure - ADA - Assembly for Design &amp; Analysis</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/styles/furo.css?digest=d81277517bee4d6b0349d71bb2661d4890b5617c" />
+    <link rel="stylesheet" type="text/css" href="../../_static/styles/furo-extensions.css?digest=30d1aed668e5c3a91c3e3bf6a60b675221979f0e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css" />
     
     
 
@@ -124,7 +124,7 @@
       </label>
     </div>
     <div class="header-center">
-      <a href="../index.html"><div class="brand">ADA - Assembly for Design & Analysis</div></a>
+      <a href="../../index.html"><div class="brand">ADA - Assembly for Design & Analysis</div></a>
     </div>
     <div class="header-right">
       <div class="theme-toggle-container theme-toggle-header">
@@ -144,39 +144,39 @@
   <aside class="sidebar-drawer">
     <div class="sidebar-container">
       
-      <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../../index.html">
   
   
   <span class="sidebar-brand-text">ADA - Assembly for Design & Analysis</span>
   
-</a><form class="sidebar-search-container" method="get" action="../search.html" role="search">
+</a><form class="sidebar-search-container" method="get" action="../../search.html" role="search">
   <input class="sidebar-search" placeholder=Search name="q" aria-label="Search">
   <input type="hidden" name="check_keywords" value="yes">
   <input type="hidden" name="area" value="default">
 </form>
 <div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
   <p class="caption" role="heading"><span class="caption-text">Features</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="steel_detailing.html">Steel detailing as a method</a></li>
-<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Path to Software Agnosticism</a></li>
-<li class="toctree-l1"><a class="reference internal" href="meshing.html">Build mesh recipes, not meshes</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../steel_detailing.html">Steel detailing as a method</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../path_to_software_agnosticism.html">Path to Software Agnosticism</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../meshing.html">Build mesh recipes, not meshes</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FEA</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="fea/fea_software.html">FEA Software</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fea/fea_data_structure.html">FEA Data Structure</a></li>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="fea_software.html">FEA Software</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">FEA Data Structure</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Tips &amp; Tricks</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="config.html">Configuring adapy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../config.html">Configuring adapy</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Ongoing Work</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="ifc_database.html">IFC Database</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ifc_database.html">IFC Database</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Code</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="code.html">Code Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../code.html">Code Documentation</a></li>
 </ul>
 
 </div>
@@ -211,19 +211,37 @@
           </label>
         </div>
         <article role="main">
-          <section id="path-to-software-agnosticism">
-<h1>Path to Software Agnosticism<a class="headerlink" href="#path-to-software-agnosticism" title="Permalink to this heading">#</a></h1>
-<p>The ambition is to enable anyone to start designing something in a tool of their choice and have that design
-effortlessly converted to any FEM simulation formats and/or be importable into any relevant CAD software.</p>
-<p>Say you want to use python to design something and run a FEM analysis in Abaqus and export to a CAD package all in one
-fluent operation.</p>
-<img alt="../_images/flow_fem_ifc_simple.png" src="../_images/flow_fem_ifc_simple.png" />
-<p>The picture above shows the design being written in python using a
-<a class="reference external" href="https://jupyter.org/">Jupyter Notebook</a>, exported to IFC and further inspected using
-<a class="reference external" href="https://docs.xbim.net/downloads/xbimxplorer.html">XbimXplorer</a> (bottom left), then simulated
-in <a class="reference external" href="https://www.3ds.com/products-services/simulia/products/abaqus/">Abaqus</a> (bottom right) here represented by the
-fem representation being imported into <a class="reference external" href="https://www.3ds.com/products-services/simulia/products/abaqus/abaquscae/">Abaqus CAE</a>
-(a pre/post-processing software).</p>
+          <section id="fea-data-structure">
+<h1>FEA Data Structure<a class="headerlink" href="#fea-data-structure" title="Permalink to this heading">#</a></h1>
+<p>Here are some thoughts regarding a generalized data structure for FEA.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>I am writing this document primarily to organize my thoughts.</p>
+<p>Consequently, this document will be randomly updated and for the most part appear chaotic and inconsistent.</p>
+</div>
+<p>There are <span style="text-decoration: underline">a lot</span> of different FEA formats floating around. The common
+practice is that each FEA solver uses its own custom format for input and results.</p>
+<p>But there are certain things that are present in all of them.</p>
+<ul class="simple">
+<li><p>Points</p>
+<ul>
+<li><p>1 integer: <code class="docutils literal notranslate"><span class="pre">ID</span></code></p></li>
+<li><p>3 floats: coordinates <code class="docutils literal notranslate"><span class="pre">X</span></code>, <code class="docutils literal notranslate"><span class="pre">Y</span></code>, <code class="docutils literal notranslate"><span class="pre">Z</span></code></p></li>
+</ul>
+</li>
+<li><p>Elements</p>
+<ul>
+<li><p>1 integer: <code class="docutils literal notranslate"><span class="pre">ID</span></code></p></li>
+<li><p>1 string: <code class="docutils literal notranslate"><span class="pre">element</span> <span class="pre">type</span></code></p></li>
+<li><p>N number of integers: point ID’s making up the element</p></li>
+</ul>
+</li>
+</ul>
+<p>Sources:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://gitlab.kitware.com/xdmf/xdmf/-/issues/29">https://gitlab.kitware.com/xdmf/xdmf/-/issues/29</a></p></li>
+<li><p><a class="reference external" href="https://kitware.github.io/vtk-examples/site/VTKFileFormats/">https://kitware.github.io/vtk-examples/site/VTKFileFormats/</a></p></li>
+</ul>
 </section>
 
         </article>
@@ -231,23 +249,23 @@ fem representation being imported into <a class="reference external" href="https
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="meshing.html">
+          <a class="next-page" href="../config.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">Build mesh recipes, not meshes</div>
+                <div class="title">Configuring adapy</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          <a class="prev-page" href="steel_detailing.html">
+          <a class="prev-page" href="fea_software.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Steel detailing as a method</div>
+                <div class="title">FEA Software</div>
                 
               </div>
             </a>
@@ -277,12 +295,12 @@ fem representation being imported into <a class="reference external" href="https
       
     </aside>
   </div>
-</div><script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
-    <script src="../_static/jquery.js"></script>
-    <script src="../_static/underscore.js"></script>
-    <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
-    <script src="../_static/doctools.js"></script>
-    <script src="../_static/sphinx_highlight.js"></script>
-    <script src="../_static/scripts/furo.js"></script>
+</div><script data-url_root="../../" id="documentation_options" src="../../_static/documentation_options.js"></script>
+    <script src="../../_static/jquery.js"></script>
+    <script src="../../_static/underscore.js"></script>
+    <script src="../../_static/_sphinx_javascript_frameworks_compat.js"></script>
+    <script src="../../_static/doctools.js"></script>
+    <script src="../../_static/sphinx_highlight.js"></script>
+    <script src="../../_static/scripts/furo.js"></script>
     </body>
 </html>
