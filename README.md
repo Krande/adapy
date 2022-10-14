@@ -25,6 +25,7 @@ Here are some of the goals with `ada-py`:
 * Provide a path for creating FE meshes from IFC models.
 * Add tools for running and post-processing FE analysis to directly compare results from different open source and proprietary FE solvers.
 * Using IFC as the 3d model data structure, provide tools for advanced parametric 3d model design and automated design modification and verification.
+* The library should strive for user ergonomics.
 
 ## Quick Links
 
@@ -32,13 +33,13 @@ Try ada-py online (main branch / dev branch) with code-aster and calculix pre-in
 
 [![Binder-main](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Krande/adapy/main) / [![Binder-dev](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Krande/adapy/dev)
 
-* 
+
 * Feel free to start/join any informal topic related to adapy [here](https://github.com/Krande/adapy/discussions).
 * Issues related to adapy can be raised [here](https://github.com/Krande/adapy/issues)
 
 
 ## Usage
-Some examples of using the ada package 
+Some examples of using the ada-py package 
 
 
 ### Create an IFC file
