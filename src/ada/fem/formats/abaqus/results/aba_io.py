@@ -11,6 +11,7 @@ import numpy as np
 from odbAccess import (
     ELEMENT_NODAL,
     INTEGRATION_POINT,
+    NODAL,
     OdbInstanceType,
     OdbStepType,
     openOdb,
@@ -30,6 +31,9 @@ def filter1(obj, attr):
 
 def get_data_from_attr(obj, attributes, serializer):
     return {attr: serializer(getattr(obj, attr)) for attr in filter(lambda attr: filter1(obj, attr), attributes)}
+
+
+instance_names = []
 
 
 def serialize(obj):
@@ -52,8 +56,12 @@ def serialize(obj):
             return serialize(list(obj.values()))
         else:
             if isinstance(obj, OdbInstanceType):
-                # Elements and nodes are enough for now
-                return instance_data(obj)
+                if obj.name not in instance_names:
+                    instance_names.append(obj.name)
+                    # Elements and nodes are enough for now
+                    return instance_data(obj)
+                else:
+                    return obj.name
             if isinstance(obj, OdbStepType):
                 data = get_data_from_attr(obj, attributes, serialize)
                 # frames does not get exported automatically
@@ -77,6 +85,9 @@ def get_field_data(field):
     curr_pos = field.locations[0].position
     if curr_pos == INTEGRATION_POINT:
         nodal_data = field.getSubset(position=ELEMENT_NODAL)
+        return [(int(n.nodeLabel), serialize(n.data)) for n in nodal_data.values]
+    if curr_pos == NODAL:
+        nodal_data = field.getSubset(position=NODAL)
         return [(int(n.nodeLabel), serialize(n.data)) for n in nodal_data.values]
 
     return None
