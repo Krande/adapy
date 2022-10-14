@@ -4,15 +4,17 @@
 import logging
 import os
 import sys
-
-try:
-    import cPickle as pickle
-except:
-    import pickle
 import traceback
 
+import cPickle as pickle
 import numpy as np
-from odbAccess import OdbInstanceType, openOdb, OdbStepType, ELEMENT_NODAL, INTEGRATION_POINT
+from odbAccess import (
+    ELEMENT_NODAL,
+    INTEGRATION_POINT,
+    OdbInstanceType,
+    OdbStepType,
+    openOdb,
+)
 
 
 def filter1(obj, attr):
@@ -71,6 +73,7 @@ def instance_data(obj):
 
 
 def get_field_data(field):
+    # TODO: this does not export displacements. Should perhaps add element nodal as curr pos also.
     curr_pos = field.locations[0].position
     if curr_pos == INTEGRATION_POINT:
         nodal_data = field.getSubset(position=ELEMENT_NODAL)
