@@ -27,7 +27,7 @@ def main():
     fix_set = fem.add_set(ada.fem.FemSet("bc_nodes", beam.bbox.sides.back(return_fem_nodes=True, fem=fem)))
     a.fem.add_bc(ada.fem.Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
 
-    is_static = False
+    is_static = True
     if is_static:
         prefix = "static"
         a.fem.add_step(gravity_step())

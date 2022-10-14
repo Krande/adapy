@@ -67,13 +67,13 @@ try:
             rootAssembly=odb.rootAssembly,
             userdata=odb.userData,
             steps=odb.steps,
-            last_updated=os.path.getmtime(os.path.join(parent_dir, fname)),
+            last_updated=os.path.getmtime(analysis_path),
         )
     )
     logging.info("serialization complete")
 
     logging.info("Starting export to pickle")
-    with open(os.path.join(parent_dir, "aba_data.pckle"), "wb") as f:
+    with open(os.path.join(parent_dir, fname.replace(".odb", ".pckle")), "wb") as f:
         pickle.dump(res, f, 2)
 
 except (BaseException, RuntimeError) as e:

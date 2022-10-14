@@ -13,20 +13,20 @@ ABA_IO = _script_dir / "aba_io.py"
 
 def get_odb_data(odb_path, overwrite=False, use_aba_version=None):
     odb_path = pathlib.Path(odb_path)
-    pickle_path = odb_path.parent / "aba_data.pckle"
+    pickle_path = odb_path.with_suffix(".pckle")
 
     if pickle_path.exists() is False or overwrite is True:
         aba_ver = "abaqus" if use_aba_version is None else use_aba_version
         aba_exe_path = pathlib.Path(shutil.which(aba_ver))
 
         odb_path = pathlib.Path(odb_path)
-        pickle_path = odb_path.parent / "aba_data.pckle"
+
         if os.path.isfile(pickle_path):
             os.remove(pickle_path)
 
         print(f'Extracting ODB data from "{odb_path.name}" using Abaqus/Python')
 
-        backup_odb = odb_path.parent / "backup.odb"
+        backup_odb = odb_path.parent / f"{odb_path.stem}_backup.odb"
         if backup_odb.exists() is False:
             print(f'Copying a backup of the odb file to "{backup_odb}" in case python corrupts the odb file')
             shutil.copy(odb_path, backup_odb)
