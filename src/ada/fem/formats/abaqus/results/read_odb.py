@@ -46,6 +46,7 @@ def get_odb_data(odb_path, overwrite=False, use_aba_version=None):
 
 
 def read_odb_pckle_file(pickle_path: str | pathlib.Path):
+    """Todo: Find a different long-term storage container for abaqus files given that pickle files are not suited"""
     with open(pickle_path, "rb") as f:
         data = pickle.load(f)
     _ = data
