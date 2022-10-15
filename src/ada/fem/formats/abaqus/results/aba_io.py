@@ -81,15 +81,17 @@ def instance_data(obj):
 
 
 def get_field_data(field):
-    # TODO: this does not export displacements. Should perhaps add element nodal as curr pos also.
     curr_pos = field.locations[0].position
     if curr_pos == INTEGRATION_POINT:
+        # ELEMENT_NODAL, specifying the values obtained by extrapolating results calculated at the integration points.
         nodal_data = field.getSubset(position=ELEMENT_NODAL)
-        return [(int(n.nodeLabel), serialize(n.data)) for n in nodal_data.values]
+        return "ELEMENT_NODAL", [(int(n.nodeLabel), serialize(n.data)) for n in nodal_data.values]
     if curr_pos == NODAL:
+        # NODAL, specifying the values calculated at the nodes.
         nodal_data = field.getSubset(position=NODAL)
-        return [(int(n.nodeLabel), serialize(n.data)) for n in nodal_data.values]
+        return "NODAL", [(int(n.nodeLabel), serialize(n.data)) for n in nodal_data.values]
 
+    logging.info("Skipping unsupported field position {}".format(curr_pos))
     return None
 
 
