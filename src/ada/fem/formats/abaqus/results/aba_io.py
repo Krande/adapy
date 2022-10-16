@@ -81,6 +81,9 @@ def instance_data(obj):
 
 
 def get_field_data(field):
+    num_locs = len(field.locations)
+    if num_locs > 1:
+        logging.info('FieldOutput {} contains multiple section locations'.format(field.name))
     curr_pos = field.locations[0].position
     if curr_pos == INTEGRATION_POINT:
         # ELEMENT_NODAL, specifying the values obtained by extrapolating results calculated at the integration points.
@@ -108,7 +111,7 @@ def get_frame_data(frame):
     return data
 
 
-analysis_path = sys.argv[1]
+analysis_path = r'c:\AibelProgs\ADA\scratch\static_cantilever_abaqus\static_cantilever_abaqus.odb' # sys.argv[1]
 parent_dir = os.path.dirname(analysis_path)
 logging.basicConfig(
     filename=os.path.join(parent_dir, "aba_io.log"),
