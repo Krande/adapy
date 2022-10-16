@@ -154,7 +154,7 @@ def add_fem_to_cache(fem: "FEM", part_group):
     # Add elements
     elements_group = fem_group.create_group("MESH")
     for group, elements in groupby(sorted(fem.elements, key=attrgetter("type")), key=attrgetter("type")):
-        med_cells = elements_group.create_group(group)
+        med_cells = elements_group.create_group(group.value)
         med_cells.create_dataset("ELEMENTS", data=[[int(el.id), *[int(n.id) for n in el.nodes]] for el in elements])
 
 

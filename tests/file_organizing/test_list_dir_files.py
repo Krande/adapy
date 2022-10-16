@@ -15,9 +15,7 @@ def test_list_of_files(example_files):
         "abaqus/README.md",
         "abaqus/UUea.inp",
         "calculix/contact2e.inp",
-        "calculix/static_cantilever_calculix.frd",
         "calculix/u1general.inp",
-        "code_aster/box.med",
     ]
     for p_actual, p_desired in zip(list_of_files, desired_list):
         pa = pathlib.Path(p_actual).resolve().absolute()

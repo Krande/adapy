@@ -16,6 +16,16 @@ def test_read_static_calculix_results(cantilever_dir):
     print("ds")
 
 
-def test_read_static_abaqus_results(cantilever_dir):
-    _ = read_odb_pckle_file(cantilever_dir / "abaqus/static_cantilever_abaqus.pckle")
+def test_read_eigen_line_abaqus_results(cantilever_dir):
+    _ = read_odb_pckle_file(cantilever_dir / "abaqus/eigen_line_cantilever_abaqus.pckle")
+    print("ds")
+
+
+def test_read_static_line_abaqus_results(cantilever_dir):
+    _ = read_odb_pckle_file(cantilever_dir / "abaqus/static_line_cantilever_abaqus.pckle")
+    print("ds")
+
+
+def test_read_static_shell_abaqus_results(cantilever_dir):
+    _ = read_odb_pckle_file(cantilever_dir / "abaqus/static_shell_cantilever_abaqus.pckle")
     print("ds")

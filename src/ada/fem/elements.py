@@ -10,6 +10,8 @@ from ada.concepts.points import Node
 
 from .common import Csys, FemBase
 from .shapes import ElemShape, ElemType
+from .shapes import definitions as shape_def
+from .shapes.definitions import LineShapes, ShapeResolver, ShellShapes, SolidShapes
 
 if TYPE_CHECKING:
     from ada import FEM, Beam, Pipe, Plate, Shape, Wall
@@ -24,7 +26,7 @@ class Elem(FemBase):
         self,
         el_id,
         nodes: list[Node],
-        el_type,
+        el_type: str | ShellShapes | LineShapes | SolidShapes,
         elset=None,
         fem_sec: FemSection = None,
         mass_props=None,
@@ -33,7 +35,7 @@ class Elem(FemBase):
         metadata=None,
     ):
         super(Elem, self).__init__(el_id, metadata, parent)
-        self.type = el_type.upper()
+        self.type = el_type
         self._el_id = el_id
         self._shape = None
 
@@ -83,16 +85,19 @@ class Elem(FemBase):
         self.nodes.insert(index, new_node)
 
     @property
-    def type(self):
+    def type(self) -> ShellShapes | LineShapes | SolidShapes:
         return self._el_type
 
     @type.setter
-    def type(self, value):
-        from .shapes import ElemShape
+    def type(self, value: str | ShellShapes | LineShapes | SolidShapes):
+        if isinstance(value, str):
+            result = ShapeResolver.get_el_type_from_str(value)
+            if result is None:
+                raise ValueError(f'Currently unsupported element type "{value}".')
+        else:
+            result = value
 
-        if ElemShape.is_valid_elem(value) is False:
-            raise ValueError(f'Currently unsupported element type "{value}".')
-        self._el_type = value.upper()
+        self._el_type = result
 
     @property
     def name(self):
@@ -324,9 +329,9 @@ class Spring(Elem):
 
 
 class MassTypes:
-    MASS = ElemType.POINT_SHAPES.MASS
+    MASS = shape_def.MassTypes.MASS
     NONSTRU = "NONSTRUCTURAL MASS"
-    ROT_INERTIA = ElemType.POINT_SHAPES.ROTARYI
+    ROT_INERTIA = shape_def.MassTypes.ROTARYI
 
     all = [MASS, NONSTRU, ROT_INERTIA]
 
@@ -345,7 +350,7 @@ class Mass(Elem):
     def __init__(
         self,
         name,
-        ref: Union[FemSet, List[Node], None],
+        ref: FemSet | list[Node] | None,
         mass,
         mass_type=None,
         ptype=None,
@@ -364,15 +369,20 @@ class Mass(Elem):
             raise ValueError("Mass cannot be None")
 
         if type(mass) not in (list, tuple):
-            logging.info(f"Mass {type(mass)} converted to list of len=1. Assume equal mass in all 3 transl. DOFs.")
+            logging.info(f"Mass {type(mass)} converted to list of len=1. Assume equal mass in get_all 3 transl. DOFs.")
             ptype = self.PTYPES.ISOTROPIC
             mass = [mass]
 
         self._mass = mass
-        self._el_type = mass_type.upper() if mass_type is not None else self.TYPES.MASS
+        if isinstance(mass_type, str):
+            mass_type = shape_def.MassTypes.from_str(mass_type)
+            if mass_type is None:
+                raise ValueError(f'Mass type "{self.type}" is not {shape_def.MassTypes}')
 
-        if self.type not in MassTypes.all:
-            raise ValueError(f'Mass type "{self.type}" is not in list of supported types {MassTypes.all}')
+        elif mass_type is None:
+            mass_type = self.TYPES.MASS
+
+        self._el_type = mass_type
 
         if ptype not in MassPType.all and ptype is not None:
             raise ValueError(f'Mass point type "{ptype}" is not in list of supported types {MassPType.all}')

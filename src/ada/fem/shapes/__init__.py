@@ -1,3 +1,3 @@
-from .definitions import ElemShape, ElemShapeTypes, ElemType
+from .definitions import ElemShape, ElemShapeTypes, ElemType, ShapeResolver
 
-__all__ = [ElemShape, ElemType, ElemShapeTypes]
+__all__ = ["ElemShape", "ElemType", "ElemShapeTypes", "ShapeResolver"]

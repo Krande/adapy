@@ -8,14 +8,14 @@ import meshio
 import numpy as np
 
 from ada.base.types import BaseEnum
-from ada.fem.results.common import FEAResult, FEAResultSet
+from ada.fem.results.common import FEAResult, FieldData
 
 
 class ReadFrdFailedException(Exception):
     ...
 
 
-class PointData(BaseEnum):
+class CcxPointData(BaseEnum):
     DISP = "DISP"
     FORC = "FORC"
     STRESS = "STRESS"
@@ -23,7 +23,7 @@ class PointData(BaseEnum):
     ERROR = "ERROR"
 
 
-class FieldData(BaseEnum):
+class CcxFieldData(BaseEnum):
     pass
 
 
@@ -52,7 +52,7 @@ class CcxResultModel:
     ccx_version: str = None
     nodes: np.ndarray = None
     elements: list[tuple] = None
-    results: list[FEAResultSet] = field(default_factory=list)
+    results: list[FieldData] = field(default_factory=list)
 
     _curr_step: int = None
 
@@ -114,7 +114,7 @@ class CcxResultModel:
             else:
                 break
 
-        self.results.append(FEAResultSet(name, self._curr_step, component_names, component_data))
+        self.results.append(FieldData(name, self._curr_step, component_names, component_data))
         self.eval_flags(data)
 
     def eval_flags(self, data: str):
@@ -147,7 +147,7 @@ class CcxResultModel:
             except StopIteration:
                 break
 
-    def get_last_step_results(self, data_type: BaseEnum) -> list[FEAResultSet]:
+    def get_last_step_results(self, data_type: BaseEnum) -> list[FieldData]:
         results = dict()
         for res in self.results:
             if data_type.from_str(res.name) is None:
@@ -184,13 +184,13 @@ class CcxResultModel:
         # Point Data
         # Multiple steps are AFAIK not supported in the meshio Mesh object. So only the last step is used
         point_data = dict()
-        for res in self.get_last_step_results(PointData):
+        for res in self.get_last_step_results(CcxPointData):
             values = np.asarray(res.values)[:, 1:]
             point_data[res.name] = values
 
         # Field Data
         cell_data = dict()
-        for res in self.get_last_step_results(FieldData):
+        for res in self.get_last_step_results(CcxFieldData):
             values = np.asarray(res.values)[:, 1:]
             cell_data[res.name] = [values]
 

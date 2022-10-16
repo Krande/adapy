@@ -1,4 +1,10 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ada.fem.shapes import definitions as shape_def
 
 
 class AbaqusDefaultShellTypes:
@@ -34,14 +40,14 @@ class AbaqusDefaultElemTypes:
         self.SHELL = AbaqusDefaultShellTypes()
         self.SOLID = AbaqusDefaultSolidTypes()
 
-    def get_element_type(self, el_type: str) -> str:
+    def get_element_type(self, el_type: shape_def.LineShapes | shape_def.ShellShapes | shape_def.SolidShapes) -> str:
         from ada.fem.shapes import ElemType
-        from ada.fem.shapes.definitions import get_elem_type_group
+        from ada.fem.shapes.definitions import ConnectorTypes, MassTypes, ShapeResolver
 
-        if el_type in ("MASS", "ROTARYI", "CONNECTOR"):
-            return el_type
+        if isinstance(el_type, (MassTypes, ConnectorTypes)):
+            return str(el_type.value)
 
-        type_group = get_elem_type_group(el_type)
+        type_group = ShapeResolver.to_geom_repr(el_type)
 
         type_map = {
             ElemType.LINE: self.LINE,
@@ -49,7 +55,7 @@ class AbaqusDefaultElemTypes:
             ElemType.SOLID: self.SOLID,
         }
 
-        res = getattr(type_map[type_group], el_type, None)
+        res = getattr(type_map[type_group], el_type.value.upper(), None)
 
         if res is None:
             raise ValueError(f'Unrecognized element type "{el_type}"')

@@ -268,16 +268,16 @@ class FemElements:
 
     @property
     def solids(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type in Elem.EL_TYPES.SOLID_SHAPES.all, self.stru_elements)
+        return filter(lambda x: isinstance(x.type, Elem.EL_TYPES.SOLID_SHAPES), self.stru_elements)
 
     @property
     def shell(self) -> Iterable[Elem]:
 
-        return filter(lambda x: x.type in Elem.EL_TYPES.SHELL_SHAPES.all, self.stru_elements)
+        return filter(lambda x: isinstance(x.type, Elem.EL_TYPES.SHELL_SHAPES), self.stru_elements)
 
     @property
     def lines(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type in Elem.EL_TYPES.LINE_SHAPES.all, self.stru_elements)
+        return filter(lambda x: isinstance(x.type, Elem.EL_TYPES.LINE_SHAPES), self.stru_elements)
 
     @property
     def lines_hinged(self) -> Iterable[Elem]:
@@ -289,7 +289,7 @@ class FemElements:
 
     @property
     def connectors(self) -> Iterable[Connector]:
-        return filter(lambda x: x.type == ElemType.CONNECTOR_SHAPES.CONNECTOR, self.elements)
+        return filter(lambda x: isinstance(x.type, Connector), self.elements)
 
     @property
     def masses(self) -> Iterable[Mass]:
@@ -297,7 +297,8 @@ class FemElements:
 
     @property
     def stru_elements(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type not in ["MASS", "SPRING1", "CONNECTOR"], self._elements)
+        not_strus = (Mass, Connector)
+        return filter(lambda x: isinstance(x, not_strus) is False, self._elements)
 
     def connector_by_name(self, name: str):
         """Get Connector by name"""
@@ -374,7 +375,9 @@ class FemElements:
 
     def _group_by_types(self):
         if len(self._elements) > 0:
-            self._by_types = groupby(self._elements, key=attrgetter("type", SetTypes.ELSET))
+            self._by_types = groupby(
+                sorted(self._elements, key=attrgetter("type")), key=attrgetter("type", SetTypes.ELSET)
+            )
         else:
             self._by_types = dict()
 

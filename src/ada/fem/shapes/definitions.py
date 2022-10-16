@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Union
+from enum import Enum
 
 import numpy as np
 
@@ -10,14 +10,36 @@ from ada.base.types import GeomRepr
 # The element names are based on the naming scheme by meshio
 
 
-class LineShapes:
+class UnsupportedFeaShapeException(Exception):
+    pass
+
+
+class BaseShapeEnum(Enum):
+    @classmethod
+    def from_str(cls, value: str, default=None):
+        if isinstance(value, cls):
+            return value
+        key_map = {x.value.lower(): x for x in cls}
+        result = key_map.get(value.lower(), default)
+        if result is None:
+            raise UnsupportedFeaShapeException("Unsupported")
+
+        return result
+
+    @classmethod
+    def get_all(cls) -> list:
+        return [x for x in cls]
+
+    def __gt__(self, other):
+        return self.value > other.value
+
+
+class LineShapes(BaseShapeEnum):
     LINE = "LINE"
     LINE3 = "LINE3"
 
-    all = [LINE, LINE3]
 
-
-class ShellShapes:
+class ShellShapes(BaseShapeEnum):
     TRI = "TRIANGLE"
     TRI6 = "TRIANGLE6"
     TRI7 = "TRIANGLE7"
@@ -25,15 +47,8 @@ class ShellShapes:
     QUAD8 = "QUAD8"
     QUAD9 = "QUAD9"
 
-    all = [TRI, TRI7, TRI6, QUAD, QUAD8, QUAD9]
 
-
-class ConnectorShapes:
-    CONNECTOR = "CONNECTOR"
-    all = [CONNECTOR]
-
-
-class SolidShapes:
+class SolidShapes(BaseShapeEnum):
     HEX8 = "HEXAHEDRON"
     HEX20 = "HEXAHEDRON20"
     HEX27 = "HEXAHEDRON27"
@@ -44,22 +59,65 @@ class SolidShapes:
     WEDGE = "WEDGE"
     WEDGE15 = "WEDGE15"
 
-    all = [HEX8, HEX20, HEX27, TETRA10, TETRA, WEDGE, WEDGE15, PYRAMID5, PYRAMID13]
+
+class ConnectorTypes(BaseShapeEnum):
+    CONNECTOR = "CONNECTOR"
 
 
-class MassShapes:
+class MassTypes(BaseShapeEnum):
     MASS = "MASS"
     ROTARYI = "ROTARYI"
 
-    all = [MASS, ROTARYI]
 
-
-class PointShapes:
-    MASS = MassShapes.MASS
-    ROTARYI = MassShapes.ROTARYI
+class SpringTypes(BaseShapeEnum):
     SPRING1 = "SPRING1"
 
-    all = [MASS, ROTARYI, SPRING1]
+
+class ShapeResolver:
+    NUM_MAP = {
+        1: MassTypes.get_all() + SpringTypes.get_all(),
+        2: [LineShapes.LINE] + ConnectorTypes.get_all(),
+        3: [LineShapes.LINE3, ShellShapes.TRI],
+        4: [ShellShapes.QUAD, SolidShapes.TETRA],
+        5: [SolidShapes.PYRAMID5],
+        6: [ShellShapes.TRI6, SolidShapes.WEDGE],
+        8: [SolidShapes.HEX8, ShellShapes.QUAD8],
+        10: [SolidShapes.TETRA10],
+        15: [SolidShapes.WEDGE15],
+        20: [SolidShapes.HEX20],
+        27: [SolidShapes.HEX27],
+    }
+
+    @staticmethod
+    def get_el_type_from_str(el_type: str) -> LineShapes | ShellShapes | SolidShapes | None:
+        for shape in [LineShapes, ShellShapes, SolidShapes]:
+            try:
+                result = shape.from_str(el_type)
+            except UnsupportedFeaShapeException:
+                continue
+
+            return result
+
+        return None
+
+    @staticmethod
+    def get_el_nodes_from_type(el_type: LineShapes | ShellShapes | SolidShapes):
+        for num, el_types in ShapeResolver.NUM_MAP.items():
+            if el_type in el_types:
+                return num
+
+        raise ValueError(f'element type "{el_type}" is not yet supported')
+
+    @staticmethod
+    def to_geom_repr(el_type):
+        if isinstance(el_type, SolidShapes):
+            return ElemType.SOLID
+        elif isinstance(el_type, ShellShapes):
+            return ElemType.SHELL
+        elif isinstance(el_type, LineShapes):
+            return ElemType.LINE
+        else:
+            raise ValueError(f'Unrecognized Shape Type: "{el_type}"')
 
 
 class ElemType:
@@ -70,9 +128,9 @@ class ElemType:
     LINE_SHAPES = LineShapes
     SHELL_SHAPES = ShellShapes
     SOLID_SHAPES = SolidShapes
-    POINT_SHAPES = PointShapes
-    MASS_SHAPES = MassShapes
-    CONNECTOR_SHAPES = ConnectorShapes
+
+    MASS_SHAPES = MassTypes
+    CONNECTOR_SHAPES = ConnectorTypes
 
     all = [SHELL, SOLID, LINE]
 
@@ -81,6 +139,7 @@ class ElemShapeTypes:
     shell = ShellShapes
     solids = SolidShapes
     lines = LineShapes
+
     spring1n = ["SPRING1"]
     spring2n = ["SPRING2"]
     springs = spring1n + spring2n
@@ -112,7 +171,7 @@ class ElemShape:
 
     @property
     def faces(self):
-        if self.type in ElemShapeTypes.solids.all:
+        if isinstance(self.type, SolidShapes):
             faces_seq = self.solids_face_seq
         else:
             faces_seq = self.faces_seq
@@ -127,23 +186,25 @@ class ElemShape:
 
     @property
     def elem_type_group(self):
-        if self.type in up(SolidShapes.all):
+        if isinstance(self.type, SolidShapes):
             return ElemType.SOLID
-        elif self.type in up(ShellShapes.all):
+        elif isinstance(self.type, ShellShapes):
             return ElemType.SHELL
-        elif self.type in up(LineShapes.all):
+        elif isinstance(self.type, LineShapes):
             return ElemType.LINE
         else:
             raise ValueError(f'Unrecognized Element Type: "{self.type}"')
 
     def update(self, el_type=None, nodes=None):
         if el_type is not None:
-            self.type = el_type.upper()
-            if ElemShape.is_valid_elem(el_type) is False:
+            if isinstance(el_type, str):
+                el_type = ShapeResolver.get_el_type_from_str(el_type)
+            if el_type is None:
                 raise ValueError(f'Currently unsupported element type "{el_type}".')
+            self.type = el_type
 
         nodes = self.nodes if nodes is None else nodes
-        num_nodes = ElemShape.num_nodes(self.type)
+        num_nodes = ShapeResolver.get_el_nodes_from_type(self.type)
         if len(nodes) != num_nodes:
             raise ValueError(f'Number of passed nodes "{len(nodes)}" does not match expected "{num_nodes}" ')
 
@@ -151,7 +212,7 @@ class ElemShape:
         self._edges = None
 
     @property
-    def edges_seq(self) -> Union[np.ndarray, None]:
+    def edges_seq(self) -> np.ndarray | None:
         from .lines import line_edges
         from .shells import shell_edges
         from .solids import solid_edges
@@ -198,52 +259,30 @@ class ElemShape:
     @staticmethod
     def is_valid_elem(elem_type):
         valid_element_types = (
-            ElemType.LINE_SHAPES.all
-            + ElemType.SHELL_SHAPES.all
-            + ElemType.SOLID_SHAPES.all
-            + ElemType.POINT_SHAPES.all
-            + ElemType.CONNECTOR_SHAPES.all
+            LineShapes.get_all()
+            + ShellShapes.get_all()
+            + SolidShapes.get_all()
+            + MassTypes.get_all()
+            + SpringTypes.get_all()
+            + ConnectorTypes.get_all()
         )
-        valid_element_types_upper = [x.upper() for x in valid_element_types]
+        valid_element_types_upper = [x.value.upper() for x in valid_element_types]
         value = elem_type.upper()
         if value in valid_element_types_upper:
             return True
         else:
             return False
 
-    @staticmethod
-    def num_nodes(el_name):
-        num_map = {
-            1: ElemShapeTypes.masses + ElemShapeTypes.spring1n,
-            2: [LineShapes.LINE] + ElemShapeTypes.connectors,
-            3: [LineShapes.LINE3, ShellShapes.TRI],
-            4: [ShellShapes.QUAD, SolidShapes.TETRA],
-            5: [SolidShapes.PYRAMID5],
-            6: [ShellShapes.TRI6, SolidShapes.WEDGE],
-            8: [SolidShapes.HEX8, ShellShapes.QUAD8],
-            10: [SolidShapes.TETRA10],
-            15: [SolidShapes.WEDGE15],
-            20: [SolidShapes.HEX20],
-            27: [SolidShapes.HEX27],
-        }
-        for num, el_types in num_map.items():
-            if el_name in el_types or el_name.lower() in el_types:
-                return num
-
-        raise ValueError(f'element type "{el_name}" is not yet supported')
-
     def __repr__(self):
         return f'{self.__class__.__name__}(Type: {self.type}, NodeIds: "{self.nodes}")'
 
 
 def get_elem_type_group(el_type):
-    el_type = el_type.upper()
-
-    if el_type in up(SolidShapes.all):
+    if isinstance(el_type, SolidShapes):
         return ElemType.SOLID
-    elif el_type in up(ShellShapes.all):
+    elif el_type in up(ShellShapes.get_all):
         return ElemType.SHELL
-    elif el_type in up(LineShapes.all):
+    elif el_type in up(LineShapes.get_all):
         return ElemType.LINE
     else:
         raise ValueError(f'Unrecognized Element Type: "{el_type}"')

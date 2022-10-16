@@ -1,8 +1,8 @@
 import logging
 
 import ada
-from ada.fem.formats.calculix.results.read_frd_file import ReadFrdFailedException
 from ada.fem.exceptions.element_support import IncompatibleElements
+from ada.fem.formats.calculix.results.read_frd_file import ReadFrdFailedException
 from ada.materials.metals import CarbonSteel, DnvGl16Mat
 
 
@@ -41,7 +41,9 @@ def main():
 
             rerun = True
             res_files = []
-            for fea_software in ["abaqus", "sesam", "code_aster", "calculix"]:
+            software_to_analyze = ["code_aster", "calculix"]
+            # software_to_analyze += ["abaqus", "sesam", ]
+            for fea_software in software_to_analyze:
                 try:
                     res = a.to_fem(f"{prefix}_cantilever_{fea_software}", fea_software, overwrite=rerun, execute=rerun)
                 except (ReadFrdFailedException, IncompatibleElements) as e:

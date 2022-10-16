@@ -13,7 +13,7 @@ def test_hex_meshed_plate(test_meshing_dir):
 
     fem.options.ABAQUS.default_elements.SOLID.HEXAHEDRON = "C3D8"
 
-    el_types = {el_type: list(group) for el_type, group in fem.elements.group_by_type()}
+    el_types = {el_type.value: list(group) for el_type, group in fem.elements.group_by_type()}
 
     assert len(el_types.keys()) == 1
     assert len(el_types["HEXAHEDRON"]) == 100
@@ -31,7 +31,7 @@ def test_hex_meshed_beam(test_meshing_dir):
         gs.mesh(0.1, use_hex=True)
         fem = gs.get_fem()
 
-    el_types = {el_type: list(group) for el_type, group in fem.elements.group_by_type()}
+    el_types = {el_type.value: list(group) for el_type, group in fem.elements.group_by_type()}
 
     # (ada.Assembly() / (ada.Part("MyPart", fem=fem) / bm)).to_fem(
     #     "HexMesh_beam_ca", "code_aster", overwrite=True, scratch_dir=test_meshing_dir
@@ -49,7 +49,7 @@ def test_hex20_meshed_beam(test_meshing_dir):
         gs.mesh(0.1, use_hex=True)
         fem = gs.get_fem()
 
-    el_types = {el_type: list(group) for el_type, group in fem.elements.group_by_type()}
+    el_types = {el_type.value: list(group) for el_type, group in fem.elements.group_by_type()}
 
     # (ada.Assembly() / (ada.Part("MyPart", fem=fem) / bm)).to_fem(
     #     "HexMesh_beam_ca", "code_aster", overwrite=True, scratch_dir=test_meshing_dir

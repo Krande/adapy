@@ -6,6 +6,10 @@ import pathlib
 import pickle
 import shutil
 import subprocess
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ada.fem.results.common import FEAResult
 
 _script_dir = pathlib.Path(__file__).parent.resolve().absolute()
 
@@ -45,9 +49,26 @@ def get_odb_data(odb_path, overwrite=False, use_aba_version=None):
     return data
 
 
-def read_odb_pckle_file(pickle_path: str | pathlib.Path):
-    """Todo: Find a different long-term storage container for abaqus files given that pickle files are not suited"""
+def read_odb_pckle_file(pickle_path: str | pathlib.Path) -> FEAResult:
+    from ada.fem.results.common import (
+        ElementBlock,
+        ElementType,
+        FEAResult,
+        FieldData,
+        Mesh,
+        Nodes,
+    )
+
     with open(pickle_path, "rb") as f:
         data = pickle.load(f)
     _ = data
-    print("sd")
+    nodes = Nodes(coords=data["rootAssembly"])
+
+    ElementType()
+    el_block = ElementBlock()
+    el_blocks = [el_block]
+    mesh = Mesh(elements=el_blocks, nodes=nodes)
+
+    field = FieldData()
+    fields = [field]
+    return FEAResult(mesh=mesh, results=fields)

@@ -15,7 +15,7 @@ def test_quad_meshed_plate(plate, test_meshing_dir):
         gs.mesh(0.1, use_quads=True)
         fem = gs.get_fem()
 
-    el_types = {el_type: list(group) for el_type, group in fem.elements.group_by_type()}
+    el_types = {el_type.value: list(group) for el_type, group in fem.elements.group_by_type()}
 
     assert len(el_types.keys()) == 1
     assert len(el_types["QUAD"]) == 100
@@ -34,7 +34,7 @@ def test_quad_quadratic_meshed_plate(plate, test_meshing_dir):
 
     fem.options.ABAQUS.default_elements.SHELL.QUAD8 = "S8R"
 
-    el_types = {el_type: list(group) for el_type, group in fem.elements.group_by_type()}
+    el_types = {el_type.value: list(group) for el_type, group in fem.elements.group_by_type()}
 
     assert len(el_types.keys()) == 1
     assert len(el_types["QUAD8"]) == 100
@@ -52,7 +52,7 @@ def test_quad_meshed_beam(test_meshing_dir):
         gs.mesh(0.1, use_quads=True)
         fem = gs.get_fem()
 
-    el_types = {el_type: list(group) for el_type, group in fem.elements.group_by_type()}
+    el_types = {el_type.value: list(group) for el_type, group in fem.elements.group_by_type()}
 
     assert len(el_types.keys()) == 1
     assert len(el_types["QUAD"]) == 120
@@ -71,7 +71,7 @@ def test_quad_meshed_plate_with_hole(test_meshing_dir):
         gs.mesh(0.1, use_quads=True)
         fem = gs.get_fem()
 
-    el_types = {el_type: list(group) for el_type, group in fem.elements.group_by_type()}
+    el_types = {el_type.value: list(group) for el_type, group in fem.elements.group_by_type()}
 
     assert len(el_types.keys()) == 1
     assert len(el_types["QUAD"]) == 117

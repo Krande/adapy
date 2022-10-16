@@ -83,7 +83,7 @@ def instance_data(obj):
 def get_field_data(field):
     num_locs = len(field.locations)
     if num_locs > 1:
-        logging.info('FieldOutput {} contains multiple section locations'.format(field.name))
+        logging.info("FieldOutput {} contains multiple section locations".format(field.name))
     curr_pos = field.locations[0].position
     if curr_pos == INTEGRATION_POINT:
         # ELEMENT_NODAL, specifying the values obtained by extrapolating results calculated at the integration points.
