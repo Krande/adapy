@@ -13,12 +13,12 @@ def test_read_static_calculix_results(cantilever_dir):
     res = ada.from_fem_res(cantilever_dir / "calculix/static_cantilever_calculix.frd", proto_reader=False)
     vm = res.to_vis_mesh()
     vm.to_gltf("temp/model.glb")
-    print("ds")
 
 
 def test_read_eigen_line_abaqus_results(cantilever_dir):
-    _ = read_odb_pckle_file(cantilever_dir / "abaqus/eigen_line_cantilever_abaqus.pckle")
-    print("ds")
+    odb_res = read_odb_pckle_file(cantilever_dir / "abaqus/eigen_line_cantilever_abaqus.pckle")
+    steps = odb_res.get_steps()
+    assert steps == 21
 
 
 def test_read_static_line_abaqus_results(cantilever_dir):

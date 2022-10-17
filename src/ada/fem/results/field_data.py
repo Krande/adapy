@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import ClassVar
 
 import numpy as np
 
@@ -8,20 +9,19 @@ class FieldData:
     name: str
     step: int
     components: list[str]
+    values: np.ndarray
 
 
 @dataclass
 class NodalFieldData(FieldData):
-    values: np.ndarray
+    COLS: ClassVar[list[str]] = ["node_label"]
 
 
 @dataclass
 class ElementFieldData(FieldData):
     """Values from element integration points"""
 
-    el_label: int
-    no_label: int
-    values: dict[int, np.ndarray]
+    COLS: ClassVar[list[str]] = ["elem_label", "sec_num", "node_label"]
 
 
 class LineSectionIntegrationPoints:

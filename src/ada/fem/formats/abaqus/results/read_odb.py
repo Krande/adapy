@@ -52,7 +52,8 @@ def get_odb_data(odb_path, overwrite=False, use_aba_version=None):
 
 
 def read_odb_pckle_file(pickle_path: str | pathlib.Path) -> FEAResult:
-    from ada.fem.results.common import FEAResult, FieldData
+    from ada.fem.formats.general import FEATypes
+    from ada.fem.results.common import FEAResult
 
     with open(pickle_path, "rb") as f:
         data = pickle.load(f)
@@ -60,12 +61,31 @@ def read_odb_pckle_file(pickle_path: str | pathlib.Path) -> FEAResult:
     mesh = get_odb_instance_data(data["rootAssembly"]["instances"])
     fields = get_odb_frame_data(data["steps"])
 
-    return FEAResult(mesh=mesh, results=fields)
+    return FEAResult(name=pickle_path.stem, software=FEATypes.ABAQUS, mesh=mesh, results=fields)
 
 
 def get_odb_field_data(field_name, field_data, frame_num):
+    from ada.fem.results.field_data import ElementFieldData, NodalFieldData
 
-    field = FieldData(field_name, step=frame_num, components=comps, values=vals)
+    field_type, components, data = field_data
+
+    if len(components) == 0:
+        data_col = ["data"]
+        data_format = [float]
+    else:
+        data_col = components
+        data_format = len(components) * [float]
+
+    if field_type == "ELEMENT_NODAL":
+        dtype = np.dtype({"names": ElementFieldData.COLS + data_col, "formats": [int, int, int] + data_format})
+        field_values = np.fromiter(yield_elem_nodal_data(data), dtype=dtype, count=len(data))
+        return ElementFieldData(field_name, frame_num, components, values=field_values)
+    elif field_type == "NODAL":
+        dtype = np.dtype({"names": NodalFieldData.COLS + data_col, "formats": [int] + data_format})
+        field_values = np.fromiter(yield_nodal_data(data), dtype=dtype, count=len(data))
+        return NodalFieldData(field_name, frame_num, components, field_values)
+    else:
+        raise NotImplementedError()
 
 
 def get_odb_frame_data(steps: dict) -> list[FieldData]:
@@ -73,10 +93,10 @@ def get_odb_frame_data(steps: dict) -> list[FieldData]:
     fields = []
     for step_name, step_data in dict(sorted(steps.items(), key=lambda x: x[1]["totalTime"])).items():
         for frame in step_data["frames"]:
-            comps = None
-            vals = None
             for key, value in frame.items():
-                field = get_odb_field_data(key, value, frame_num)
+                field = get_odb_field_data(key, value["values"], frame_num)
+                fields.append(field)
+            frame_num += 1
 
     return fields
 
@@ -96,6 +116,7 @@ def get_odb_instance_data(instances) -> Mesh:
     el_type_set = set(el_type_array)
     if len(el_type_set) != 1:
         raise NotImplementedError("Mixed element sets not yet supported")
+
     el_type = el_type_array[0]
     shape = abaqus_el_type_to_ada(el_type)
     elem_type = ElementType(type=shape, source_software=FEATypes.ABAQUS, source_type=el_type)
@@ -105,3 +126,19 @@ def get_odb_instance_data(instances) -> Mesh:
     el_blocks = [el_block]
     nodes = Nodes(coords=np.array(coords, dtype=float), identifiers=np.array(ids, dtype=int))
     return Mesh(elements=el_blocks, nodes=nodes)
+
+
+def yield_elem_nodal_data(data):
+    for x in data:
+        spn = x["sec_p_num"]
+        if isinstance(spn, dict):
+            spn = -1
+        if isinstance(x["data"], list) is False:
+            x["data"] = [x["data"]]
+
+        yield x["elementLabel"], spn, x["nodeLabel"], *x["data"]
+
+
+def yield_nodal_data(data):
+    for x in data:
+        yield x[0], *x[1]

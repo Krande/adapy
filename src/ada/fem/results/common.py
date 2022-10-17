@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -43,10 +43,24 @@ class FEAResult:
     results: list[FieldData]
     mesh: Mesh
 
+    def get_steps(self):
+        steps = []
+        for x in self.results:
+            if x.step not in steps:
+                steps.append(x.step)
+        return steps
+
+    def get_frame(self, frame_num: int, section_point: int, field_variable: str):
+        for x in self.results:
+            if x.name != field_variable or x.step != frame_num:
+                continue
+
+        print("sd")
+
     def to_gltf(self):
         from ada.visualize.femviz import get_edges_and_faces_from_meshio
 
-        _ = np.asarray(self.mesh.points, dtype="float32")
+        _ = self.mesh.nodes.coords
 
         edges, faces = get_edges_and_faces_from_meshio(self.mesh)
         _ = np.asarray(edges, dtype="uint16").ravel()
