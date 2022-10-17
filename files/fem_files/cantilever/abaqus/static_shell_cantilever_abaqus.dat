@@ -1,6 +1,6 @@
 1
 
-   Abaqus 2021.HF4                                  Date 17-okt-2022   Time 14:05:41
+   Abaqus 2021.HF4                                  Date 17-okt-2022   Time 17:24:16
    For use by Company X under license from Dassault Systemes or its subsidiary.
 
 
@@ -161,10 +161,10 @@
        USER TIME (SEC)      =  0.20000    
        SYSTEM TIME (SEC)    =   0.0000    
        TOTAL CPU TIME (SEC) =  0.20000    
-       WALLCLOCK TIME (SEC) =          1
+       WALLCLOCK TIME (SEC) =          0
 1
 
-   Abaqus 2021.HF4                                  Date 17-okt-2022   Time 14:05:51
+   Abaqus 2021.HF4                                  Date 17-okt-2022   Time 17:24:25
    For use by Company X under license from Dassault Systemes or its subsidiary.
 
                                                                                                STEP    1  INCREMENT    1
@@ -270,7 +270,7 @@
 
 
      JOB TIME SUMMARY
-       USER TIME (SEC)      =  0.60000    
+       USER TIME (SEC)      =  0.50000    
        SYSTEM TIME (SEC)    =  0.10000    
-       TOTAL CPU TIME (SEC) =  0.70000    
-       WALLCLOCK TIME (SEC) =          0
+       TOTAL CPU TIME (SEC) =  0.60000    
+       WALLCLOCK TIME (SEC) =          1

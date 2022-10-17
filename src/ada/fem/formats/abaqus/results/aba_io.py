@@ -1,6 +1,7 @@
 # ABAQUS/PYTHON POST PROCESSING SCRIPT
 # Run using abaqus python / abaqus viewer -noGUI / abaqus cae -noGUI
 # Tip! Import this into Abaqus PDE directly to further develop this script.
+import inspect
 import logging
 import os
 import sys
@@ -8,6 +9,7 @@ import traceback
 
 import cPickle as pickle
 import numpy as np
+import symbolicConstants
 from odbAccess import (
     ELEMENT_NODAL,
     INTEGRATION_POINT,
@@ -19,6 +21,9 @@ from odbAccess import (
     OdbStepType,
     openOdb,
 )
+from symbolicConstants import SymbolicConstant
+
+_constants = [x[1] for x in inspect.getmembers(symbolicConstants, inspect.isclass)]
 
 
 def filter1(obj, attr):
@@ -32,15 +37,23 @@ def filter1(obj, attr):
     return True
 
 
-def get_data_from_attr(obj, attributes, serializer, get_instance_data=False):
+def is_constant(value):
+    if value in _constants:
+        return True
+    if isinstance(value, SymbolicConstant):
+        return True
+    return False
+
+
+def get_data_from_attr(obj, attributes):
     att_filter = filter(lambda attr: filter1(obj, attr), attributes)
-    return {attr: serializer(getattr(obj, attr), get_instance_data) for attr in att_filter}
+    return {attr: serialize(getattr(obj, attr)) for attr in att_filter}
 
 
 instance_names = []
 
 
-def serialize(obj, get_instance_data=False):
+def serialize(obj):
     """Recursively walk object's hierarchy."""
     if isinstance(obj, (int, float)):
         return obj
@@ -57,10 +70,10 @@ def serialize(obj, get_instance_data=False):
     elif isinstance(obj, object):
         attributes = dir(obj)
         if "values" in attributes:
-            return serialize({key: value for key, value in obj.items()})
+            return serialize({key: serialize(value) for key, value in obj.items()})
         else:
             if isinstance(obj, OdbAssemblyType):
-                data = get_data_from_attr(obj, attributes, serialize)
+                data = get_data_from_attr(obj, attributes)
                 data["instances"] = [instance_data(x) for x in obj.instances.values()]
                 return data
             if isinstance(obj, OdbInstanceType):
@@ -70,11 +83,14 @@ def serialize(obj, get_instance_data=False):
             if isinstance(obj, OdbMeshNodeArrayType):
                 return [x.label for x in obj]
             if isinstance(obj, OdbStepType):
-                data = get_data_from_attr(obj, attributes, serialize)
+                data = get_data_from_attr(obj, attributes)
                 # frames does not get exported automatically
                 data["frames"] = [get_frame_data(frame) for frame in obj.frames]
                 return data
-            return get_data_from_attr(obj, attributes, serialize)
+            if is_constant(obj):
+                return str(obj)
+
+            return get_data_from_attr(obj, attributes)
     else:
         raise ValueError('Unknown entity "{}", "{}"'.format(type(obj), obj))
 
@@ -99,7 +115,6 @@ def get_nodal_value(n):
     node_label = int(n.nodeLabel)
     element_label = int(n.elementLabel)
     sec_p = int(n.sectionPoint.number) if n.sectionPoint is not None else None
-    # int_p = int(n.integrationPoint.number) if n.integrationPoint is not None else None
     return dict(nodeLabel=node_label, elementLabel=element_label, sec_p_num=sec_p, data=serialize(n.data))
 
 
@@ -108,13 +123,11 @@ def get_field_data(field):
     if num_locs > 1:
         logging.info("FieldOutput {} contains multiple section locations".format(field.name))
     curr_pos = field.locations[0].position
-    if curr_pos == INTEGRATION_POINT:
-        # ELEMENT_NODAL, specifying the values obtained by extrapolating results calculated at the integration points.
+    if curr_pos == INTEGRATION_POINT:  # values obtained by extrapolating results calculated at the integration points.
         nodal_data = field.getSubset(position=ELEMENT_NODAL)
         components = nodal_data.componentLabels
         return "ELEMENT_NODAL", components, [get_nodal_value(n) for n in nodal_data.values]
-    if curr_pos == NODAL:
-        # NODAL, specifying the values calculated at the nodes.
+    if curr_pos == NODAL:  # specifying the values calculated at the nodes.
         nodal_data = field.getSubset(position=NODAL)
         components = nodal_data.componentLabels
         return "NODAL", components, [(int(n.nodeLabel), serialize(n.data)) for n in nodal_data.values]
@@ -133,6 +146,15 @@ def get_frame_data(frame):
         field_data["values"] = field_values
         data[key] = field_data
 
+    return data
+
+
+def get_section_data(section_obj):
+    data = dict(name=section_obj.name)
+    if hasattr(section_obj, "profile"):
+        data["profile"] = serialize(getattr(section_obj, "profile"))
+    elif hasattr(section_obj, "thickness"):
+        data["thickness"] = serialize(getattr(section_obj, "thickness"))
     return data
 
 
@@ -157,6 +179,8 @@ try:
     res = serialize(
         dict(
             rootAssembly=odb.rootAssembly,
+            sections={key: get_section_data(value) for key, value in odb.sections.items()},
+            profiles={key: dict(name=value.__class__.__name__, value=value) for key, value in odb.profiles.items()},
             userdata=odb.userData,
             steps=odb.steps,
             last_updated=os.path.getmtime(analysis_path),
