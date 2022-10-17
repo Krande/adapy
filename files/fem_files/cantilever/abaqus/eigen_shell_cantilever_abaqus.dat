@@ -1,6 +1,6 @@
 1
 
-   Abaqus 2021.HF4                                  Date 16-okt-2022   Time 15:30:22
+   Abaqus 2021.HF4                                  Date 17-okt-2022   Time 14:07:14
    For use by Company X under license from Dassault Systemes or its subsidiary.
 
 
@@ -86,6 +86,7 @@
   *elastic
   *density
   *expansion
+  *plastic
   *shellsection, elset=ASSEMBLY_ADAFEM_ELMYBEAM_E1_TOP_FL_SH, material=S420
   *shellsection, elset=ASSEMBLY_ADAFEM_ELMYBEAM_E2_TOP_FL_SH, material=S420
   *shellsection, elset=ASSEMBLY_ADAFEM_ELMYBEAM_E3_WEB_SH, material=S420
@@ -205,13 +206,13 @@
 
 
      JOB TIME SUMMARY
-       USER TIME (SEC)      =  0.30000    
+       USER TIME (SEC)      =  0.20000    
        SYSTEM TIME (SEC)    =  0.10000    
-       TOTAL CPU TIME (SEC) =  0.40000    
-       WALLCLOCK TIME (SEC) =          1
+       TOTAL CPU TIME (SEC) =  0.30000    
+       WALLCLOCK TIME (SEC) =          0
 1
 
-   Abaqus 2021.HF4                                  Date 16-okt-2022   Time 15:30:32
+   Abaqus 2021.HF4                                  Date 17-okt-2022   Time 14:07:23
    For use by Company X under license from Dassault Systemes or its subsidiary.
 
                                                                                                STEP    1  INCREMENT    1
@@ -406,7 +407,7 @@
 
 
      JOB TIME SUMMARY
-       USER TIME (SEC)      =  0.70000    
+       USER TIME (SEC)      =  0.60000    
        SYSTEM TIME (SEC)    =  0.10000    
-       TOTAL CPU TIME (SEC) =  0.80000    
+       TOTAL CPU TIME (SEC) =  0.70000    
        WALLCLOCK TIME (SEC) =          1

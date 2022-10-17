@@ -1,6 +1,6 @@
 1
 
-   Abaqus 2021.HF4                                  Date 16-okt-2022   Time 15:28:30
+   Abaqus 2021.HF4                                  Date 17-okt-2022   Time 14:05:41
    For use by Company X under license from Dassault Systemes or its subsidiary.
 
 
@@ -86,6 +86,7 @@
   *elastic
   *density
   *expansion
+  *plastic
   *shellsection, elset=ASSEMBLY_ADAFEM_ELMYBEAM_E1_TOP_FL_SH, material=S420
   *shellsection, elset=ASSEMBLY_ADAFEM_ELMYBEAM_E2_TOP_FL_SH, material=S420
   *shellsection, elset=ASSEMBLY_ADAFEM_ELMYBEAM_E3_WEB_SH, material=S420
@@ -129,15 +130,6 @@
  ***WARNING: OUTPUT REQUEST A IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
 
  ***WARNING: OUTPUT REQUEST V IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
-
- ***NOTE: OUTPUT REQUEST PE IS NOT AVAILABLE FOR THE MATERIAL FOR ELEMENT TYPE 
-          S4R
-
- ***NOTE: OUTPUT REQUEST PEEQ IS NOT AVAILABLE FOR THE MATERIAL FOR ELEMENT 
-          TYPE S4R
-
- ***NOTE: OUTPUT REQUEST PEMAG IS NOT AVAILABLE FOR THE MATERIAL FOR ELEMENT 
-          TYPE S4R
   *constraintcontrols, print=YES
   *boundary
   *Step, name=gravity, nlgeom=YES, unsymm=NO, inc=1000
@@ -169,10 +161,10 @@
        USER TIME (SEC)      =  0.20000    
        SYSTEM TIME (SEC)    =   0.0000    
        TOTAL CPU TIME (SEC) =  0.20000    
-       WALLCLOCK TIME (SEC) =          0
+       WALLCLOCK TIME (SEC) =          1
 1
 
-   Abaqus 2021.HF4                                  Date 16-okt-2022   Time 15:28:39
+   Abaqus 2021.HF4                                  Date 17-okt-2022   Time 14:05:51
    For use by Company X under license from Dassault Systemes or its subsidiary.
 
                                                                                                STEP    1  INCREMENT    1
@@ -278,7 +270,7 @@
 
 
      JOB TIME SUMMARY
-       USER TIME (SEC)      =  0.50000    
-       SYSTEM TIME (SEC)    =  0.20000    
+       USER TIME (SEC)      =  0.60000    
+       SYSTEM TIME (SEC)    =  0.10000    
        TOTAL CPU TIME (SEC) =  0.70000    
-       WALLCLOCK TIME (SEC) =          1
+       WALLCLOCK TIME (SEC) =          0

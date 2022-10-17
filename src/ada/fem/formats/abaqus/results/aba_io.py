@@ -12,7 +12,10 @@ from odbAccess import (
     ELEMENT_NODAL,
     INTEGRATION_POINT,
     NODAL,
+    OdbAssemblyType,
     OdbInstanceType,
+    OdbMeshElementArrayType,
+    OdbMeshNodeArrayType,
     OdbStepType,
     openOdb,
 )
@@ -29,14 +32,15 @@ def filter1(obj, attr):
     return True
 
 
-def get_data_from_attr(obj, attributes, serializer):
-    return {attr: serializer(getattr(obj, attr)) for attr in filter(lambda attr: filter1(obj, attr), attributes)}
+def get_data_from_attr(obj, attributes, serializer, get_instance_data=False):
+    att_filter = filter(lambda attr: filter1(obj, attr), attributes)
+    return {attr: serializer(getattr(obj, attr), get_instance_data) for attr in att_filter}
 
 
 instance_names = []
 
 
-def serialize(obj):
+def serialize(obj, get_instance_data=False):
     """Recursively walk object's hierarchy."""
     if isinstance(obj, (int, float)):
         return obj
@@ -53,15 +57,18 @@ def serialize(obj):
     elif isinstance(obj, object):
         attributes = dir(obj)
         if "values" in attributes:
-            return serialize(list(obj.values()))
+            return serialize({key: value for key, value in obj.items()})
         else:
+            if isinstance(obj, OdbAssemblyType):
+                data = get_data_from_attr(obj, attributes, serialize)
+                data["instances"] = [instance_data(x) for x in obj.instances.values()]
+                return data
             if isinstance(obj, OdbInstanceType):
-                if obj.name not in instance_names:
-                    instance_names.append(obj.name)
-                    # Elements and nodes are enough for now
-                    return instance_data(obj)
-                else:
-                    return obj.name
+                return obj.name
+            if isinstance(obj, OdbMeshElementArrayType):
+                return [x.label for x in obj]
+            if isinstance(obj, OdbMeshNodeArrayType):
+                return [x.label for x in obj]
             if isinstance(obj, OdbStepType):
                 data = get_data_from_attr(obj, attributes, serialize)
                 # frames does not get exported automatically
@@ -75,9 +82,25 @@ def serialize(obj):
 def instance_data(obj):
     data = dict(name=obj.name)
 
+    sc_ = {el.sectionCategory.name: el.sectionCategory for el in obj.elements}
+    sc = {key: (i, [serialize(x) for x in value.sectionPoints]) for i, (key, value) in enumerate(sc_.items())}
+    data["section_cats"] = sc
+
+    data["nodeSets"] = serialize(obj.nodeSets)
+    data["elementSets"] = serialize(obj.elementSets)
+    data["beamOrientations"] = [x.vector for x in obj.beamOrientations] if obj.beamOrientations is not None else None
     data["nodes"] = [(n.label, [float(x) for x in n.coordinates]) for n in obj.nodes]
-    data["elements"] = [(e.label, e.connectivity) for e in obj.elements]
+    data["elements"] = [(el.label, el.type, el.connectivity, sc.get(el.sectionCategory.name)[0]) for el in obj.elements]
+
     return data
+
+
+def get_nodal_value(n):
+    node_label = int(n.nodeLabel)
+    element_label = int(n.elementLabel)
+    sec_p = int(n.sectionPoint.number) if n.sectionPoint is not None else None
+    # int_p = int(n.integrationPoint.number) if n.integrationPoint is not None else None
+    return dict(nodeLabel=node_label, elementLabel=element_label, sec_p_num=sec_p, data=serialize(n.data))
 
 
 def get_field_data(field):
@@ -88,11 +111,13 @@ def get_field_data(field):
     if curr_pos == INTEGRATION_POINT:
         # ELEMENT_NODAL, specifying the values obtained by extrapolating results calculated at the integration points.
         nodal_data = field.getSubset(position=ELEMENT_NODAL)
-        return "ELEMENT_NODAL", [(int(n.nodeLabel), serialize(n.data)) for n in nodal_data.values]
+        components = nodal_data.componentLabels
+        return "ELEMENT_NODAL", components, [get_nodal_value(n) for n in nodal_data.values]
     if curr_pos == NODAL:
         # NODAL, specifying the values calculated at the nodes.
         nodal_data = field.getSubset(position=NODAL)
-        return "NODAL", [(int(n.nodeLabel), serialize(n.data)) for n in nodal_data.values]
+        components = nodal_data.componentLabels
+        return "NODAL", components, [(int(n.nodeLabel), serialize(n.data)) for n in nodal_data.values]
 
     logging.info("Skipping unsupported field position {}".format(curr_pos))
     return None
@@ -140,7 +165,8 @@ try:
     logging.info("serialization complete")
 
     logging.info("Starting export to pickle")
-    with open(os.path.join(parent_dir, fname.replace(".odb", ".pckle")), "wb") as f:
+    pckle_name = fname.replace(".odb", ".pckle")
+    with open(os.path.join(parent_dir, pckle_name), "wb") as f:
         pickle.dump(res, f, 2)
 
 except (BaseException, RuntimeError) as e:

@@ -7,6 +7,8 @@ import numpy as np
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
 
+from .field_data import FieldData
+
 
 @dataclass
 class ElementType:
@@ -19,7 +21,7 @@ class ElementType:
 class ElementBlock:
     type: ElementType
     nodes: np.ndarray
-    elements: np.ndarray
+    identifiers: np.ndarray
 
 
 @dataclass
@@ -32,14 +34,6 @@ class Nodes:
 class Mesh:
     elements: list[ElementBlock]
     nodes: Nodes
-
-
-@dataclass
-class FieldData:
-    name: str
-    step: int
-    components: list[str]
-    values: list[tuple] = field(repr=False)
 
 
 @dataclass

@@ -85,14 +85,14 @@ def odb_data_to_results(odb_file: pathlib.Path, results: Results) -> None:
     odb_data = get_odb_data(odb_file)
     res = ResultsHistoryOutput()
 
-    for step in odb_data["steps"]:
+    for step in odb_data["steps"].values():
         name = step["name"]
         step_type = step["procedure"]
         step_res = HistoryStepDataOutput(name=name, step_type=step_type)
         res.steps.append(step_res)
 
-        for reg in step["historyRegions"]:
-            history_outputs = reg["historyOutputs"]
+        for reg in step["historyRegions"].values():
+            history_outputs = reg["historyOutputs"].values()
             name = reg["name"]
             if "element" in name.lower():
                 step_res.element_data[name] = get_element_component_data(name, history_outputs)

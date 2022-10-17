@@ -1,6 +1,6 @@
 1
 
-   Abaqus 2021.HF4                                  Date 16-okt-2022   Time 15:29:10
+   Abaqus 2021.HF4                                  Date 17-okt-2022   Time 14:06:13
    For use by Company X under license from Dassault Systemes or its subsidiary.
 
 
@@ -82,6 +82,7 @@
   *elastic
   *density
   *expansion
+  *plastic
   *solidsection, elset=ASSEMBLY_ADAFEM_ELMYBEAM_SO, material=S420
   *solidsection, elset=ASSEMBLY_ADAFEM_ELMYBEAM_SO, material=S420
   *constraintcontrols, print=YES
@@ -118,14 +119,7 @@
 
  ***WARNING: OUTPUT REQUEST V IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
 
- ***NOTE: OUTPUT REQUEST PE IS NOT AVAILABLE FOR THE MATERIAL FOR ELEMENT TYPE 
-          C3D8
-
- ***NOTE: OUTPUT REQUEST PEEQ IS NOT AVAILABLE FOR THE MATERIAL FOR ELEMENT 
-          TYPE C3D8
-
- ***NOTE: OUTPUT REQUEST PEMAG IS NOT AVAILABLE FOR THE MATERIAL FOR ELEMENT 
-          TYPE C3D8
+ ***WARNING: OUTPUT REQUEST SE IS NOT AVAILABLE FOR ELEMENT TYPE C3D8
   *constraintcontrols, print=YES
   *boundary
   *Step, name=gravity, nlgeom=YES, unsymm=NO, inc=1000
@@ -163,7 +157,7 @@
        WALLCLOCK TIME (SEC) =          0
 1
 
-   Abaqus 2021.HF4                                  Date 16-okt-2022   Time 15:29:19
+   Abaqus 2021.HF4                                  Date 17-okt-2022   Time 14:06:22
    For use by Company X under license from Dassault Systemes or its subsidiary.
 
                                                                                                STEP    1  INCREMENT    1
@@ -264,12 +258,12 @@
 
 
                               ANALYSIS COMPLETE
-                              WITH      3 WARNING MESSAGES ON THE DAT FILE
+                              WITH      4 WARNING MESSAGES ON THE DAT FILE
 
 
 
      JOB TIME SUMMARY
-       USER TIME (SEC)      =  0.60000    
-       SYSTEM TIME (SEC)    =  0.10000    
-       TOTAL CPU TIME (SEC) =  0.70000    
+       USER TIME (SEC)      =  0.50000    
+       SYSTEM TIME (SEC)    =   0.0000    
+       TOTAL CPU TIME (SEC) =  0.50000    
        WALLCLOCK TIME (SEC) =          1

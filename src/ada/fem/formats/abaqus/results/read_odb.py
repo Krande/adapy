@@ -8,8 +8,10 @@ import shutil
 import subprocess
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 if TYPE_CHECKING:
-    from ada.fem.results.common import FEAResult
+    from ada.fem.results.common import FEAResult, FieldData, Mesh
 
 _script_dir = pathlib.Path(__file__).parent.resolve().absolute()
 
@@ -50,25 +52,56 @@ def get_odb_data(odb_path, overwrite=False, use_aba_version=None):
 
 
 def read_odb_pckle_file(pickle_path: str | pathlib.Path) -> FEAResult:
-    from ada.fem.results.common import (
-        ElementBlock,
-        ElementType,
-        FEAResult,
-        FieldData,
-        Mesh,
-        Nodes,
-    )
+    from ada.fem.results.common import FEAResult, FieldData
 
     with open(pickle_path, "rb") as f:
         data = pickle.load(f)
-    _ = data
-    nodes = Nodes(coords=data["rootAssembly"])
 
-    ElementType()
-    el_block = ElementBlock()
-    el_blocks = [el_block]
-    mesh = Mesh(elements=el_blocks, nodes=nodes)
+    mesh = get_odb_instance_data(data["rootAssembly"]["instances"])
+    fields = get_odb_frame_data(data["steps"])
 
-    field = FieldData()
-    fields = [field]
     return FEAResult(mesh=mesh, results=fields)
+
+
+def get_odb_field_data(field_name, field_data, frame_num):
+
+    field = FieldData(field_name, step=frame_num, components=comps, values=vals)
+
+
+def get_odb_frame_data(steps: dict) -> list[FieldData]:
+    frame_num = 0
+    fields = []
+    for step_name, step_data in dict(sorted(steps.items(), key=lambda x: x[1]["totalTime"])).items():
+        for frame in step_data["frames"]:
+            comps = None
+            vals = None
+            for key, value in frame.items():
+                field = get_odb_field_data(key, value, frame_num)
+
+    return fields
+
+
+def get_odb_instance_data(instances) -> Mesh:
+    from ada.fem.formats.abaqus.elem_shapes import abaqus_el_type_to_ada
+    from ada.fem.formats.general import FEATypes
+    from ada.fem.results.common import ElementBlock, ElementType, Mesh, Nodes
+
+    if len(instances) > 1:
+        raise NotImplementedError("Multi-instances results are not yet supported")
+
+    instance = instances[0]
+
+    ids, coords = zip(*instance["nodes"])
+    el_ids, el_type_array, nodes_connectivity, sec_cat = zip(*instance["elements"])
+    el_type_set = set(el_type_array)
+    if len(el_type_set) != 1:
+        raise NotImplementedError("Mixed element sets not yet supported")
+    el_type = el_type_array[0]
+    shape = abaqus_el_type_to_ada(el_type)
+    elem_type = ElementType(type=shape, source_software=FEATypes.ABAQUS, source_type=el_type)
+    el_block = ElementBlock(
+        type=elem_type, nodes=np.array(nodes_connectivity, dtype=int), identifiers=np.array(el_ids, dtype=int)
+    )
+    el_blocks = [el_block]
+    nodes = Nodes(coords=np.array(coords, dtype=float), identifiers=np.array(ids, dtype=int))
+    return Mesh(elements=el_blocks, nodes=nodes)
