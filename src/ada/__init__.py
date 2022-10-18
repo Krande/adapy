@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 from ada import fem
 from ada.base.units import Units
-from ada.concepts.connections import Bolts, Weld
 from ada.concepts.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
+from ada.concepts.fasteners import Bolts, Weld
 from ada.concepts.piping import Pipe, PipeSegElbow, PipeSegStraight
 from ada.concepts.points import Node
 from ada.concepts.primitives import (

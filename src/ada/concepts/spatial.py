@@ -53,7 +53,7 @@ from ada.fem.concept import FEM
 if TYPE_CHECKING:
     import ifcopenshell
 
-    from ada import Beam, Material, Plate, Section, Wall
+    from ada import Beam, Material, Plate, Section, Wall, Weld
     from ada.fem.formats.general import FEATypes, FemConverters
     from ada.fem.meshing import GmshOptions
     from ada.fem.results import Results
@@ -108,6 +108,7 @@ class Part(BackendGeom):
         self._placement = placement
         self._instances: dict[Any, Instance] = dict()
         self._shapes = []
+        self._welds = []
         self._parts = dict()
         self._groups: dict[str, Group] = dict()
         self._ifc_class = ifc_class
@@ -270,6 +271,17 @@ class Part(BackendGeom):
         self._connections.add(joint)
         return joint
 
+    def add_weld(self, weld: Weld) -> Weld:
+        weld.parent = self
+        self._welds.append(weld)
+
+        sec = self.add_section(weld.section)
+        if sec != weld.section:
+            weld.section = sec
+            sec.refs.append(weld)
+
+        return weld
+
     def add_material(self, material: Material) -> Material:
         if material.units != self.units:
             material.units = self.units
@@ -281,8 +293,8 @@ class Part(BackendGeom):
             section.units = self.units
         return self._sections.add(section)
 
-    def add_object(self, obj: Part | Beam | Plate | Wall | Pipe | Shape):
-        from ada import Beam, Part, Pipe, Plate, Shape, Wall
+    def add_object(self, obj: Part | Beam | Plate | Wall | Pipe | Shape | Weld):
+        from ada import Beam, Part, Pipe, Plate, Shape, Wall, Weld
 
         if isinstance(obj, Beam):
             self.add_beam(obj)
@@ -296,6 +308,8 @@ class Part(BackendGeom):
             self.add_shape(obj)
         elif isinstance(obj, Wall):
             self.add_wall(obj)
+        elif isinstance(obj, Weld):
+            self.add_weld(obj)
         else:
             raise NotImplementedError(f'"{type(obj)}" is not yet supported for smart append')
 
@@ -727,6 +741,10 @@ class Part(BackendGeom):
     @pipes.setter
     def pipes(self, value: list[Pipe]):
         self._pipes = value
+
+    @property
+    def welds(self) -> list[Weld]:
+        return self._welds
 
     @property
     def walls(self) -> list[Wall]:

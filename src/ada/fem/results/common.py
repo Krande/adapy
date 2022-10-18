@@ -85,15 +85,19 @@ class FEAResult:
             results[x.name].append(x)
         return results
 
-    def to_meshio_mesh(self):
-        from .field_data import ElementFieldData, NodalFieldData
-
+    def _get_cell_blocks(self):
         cells = []
         for cb in self.mesh.elements:
             ncopy = cb.nodes.copy()
             for i, v in enumerate(self.mesh.nodes.identifiers):
                 ncopy[np.where(ncopy == v)] = i
             cells += [meshio.CellBlock(cell_type=cb.elem_info.type.value.lower(), data=ncopy)]
+        return cells
+
+    def to_meshio_mesh(self):
+        from .field_data import ElementFieldData, NodalFieldData
+
+        cells = self._get_cell_blocks()
 
         cell_data = dict()
         point_data = dict()
@@ -109,6 +113,17 @@ class FEAResult:
                     raise ValueError()
 
         return meshio.Mesh(points=self.mesh.nodes.coords, cells=cells, cell_data=cell_data, point_data=point_data)
+
+    def to_xdmf(self, filepath):
+        cells = self._get_cell_blocks()
+        with meshio.xdmf.TimeSeriesWriter(filepath) as writer:
+            writer.write_points_cells(self.mesh.nodes.coords, cells)
+            for key, values in self.get_results_grouped_by_field_value().items():
+                if key != "U":
+                    continue
+                for x in values:
+                    point_data = None
+                    writer.write_data(x.step, point_data=point_data)
 
     def to_gltf(self):
         from ada.visualize.femviz import get_edges_and_faces_from_meshio

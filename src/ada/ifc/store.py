@@ -42,6 +42,9 @@ class IfcStore:
     def update_owner(self, user: User):
         self.owner_history = create_owner_history_from_user(user, self.f)
 
+    def get_context(self):
+        return self.f.by_type("IfcGeometricRepresentationContext")[0]
+
     def sync(self, include_fem=False):
         from ada.ifc.write.write_ifc import IfcWriter
 
@@ -60,7 +63,7 @@ class IfcStore:
         self.writer.sync_materials()
 
         num_new_objects = self.writer.sync_added_physical_objects()
-
+        self.writer.sync_added_welds()
         self.writer.sync_mapped_instances()
 
         num_mod = self.writer.sync_modified_physical_objects()

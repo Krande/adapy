@@ -10,6 +10,7 @@ from ada.base.changes import ChangeAction
 from ada.ifc.read.reader_utils import get_ifc_body
 from ada.ifc.utils import add_negative_extrusion, create_guid, write_elem_property_sets
 from ada.ifc.write.write_beams import write_ifc_beam
+from ada.ifc.write.write_fasteners import write_ifc_fastener
 from ada.ifc.write.write_instances import write_mapped_instance
 from ada.ifc.write.write_material import write_ifc_mat
 from ada.ifc.write.write_openings import generate_ifc_opening
@@ -93,6 +94,12 @@ class IfcWriter:
             to_be_modified.change_type = ChangeAction.NOCHANGE
             num_mod += 1
         return num_mod
+
+    def sync_added_welds(self):
+        for weld in self.ifc_store.assembly.welds:
+            ifc_weld = write_ifc_fastener(weld)
+            spatial_elem_guid = weld.parent.guid
+            self.add_related_elements_to_spatial_container([ifc_weld], spatial_elem_guid)
 
     def sync_deleted_physical_objects(self) -> int:
         num_mod = 0

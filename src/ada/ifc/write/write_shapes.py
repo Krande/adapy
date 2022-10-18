@@ -38,7 +38,6 @@ def write_ifc_shape(shape: Shape):
     a = shape.parent.get_assembly()
     f = a.ifc_store.f
 
-    context = f.by_type("IfcGeometricRepresentationContext")[0]
     owner_history = a.ifc_store.owner_history
     parent = f.by_guid(shape.parent.guid)
     schema = f.wrapped_data.schema
@@ -54,7 +53,7 @@ def write_ifc_shape(shape: Shape):
 
     # Link to representation context
     for rep in ifc_shape.Representations:
-        rep.ContextOfItems = context
+        rep.ContextOfItems = a.ifc_store.get_context()
 
     # Add colour
     if shape.colour is not None:

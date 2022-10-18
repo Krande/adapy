@@ -231,6 +231,11 @@ def create_ifcpolyline(ifcfile, point_list):
     return polyline
 
 
+def create_axis(f, points, context):
+    polyline = create_ifcpolyline(f, points)
+    return f.createIfcShapeRepresentation(context, "Axis", "Curve3D", [polyline])
+
+
 def create_ifcindexpolyline(ifcfile, points, seg_index):
     """
     Assumes a point list whereas all points that are to be used for creating arc-segments will have 4 values
@@ -422,7 +427,7 @@ def write_elem_property_sets(metadata_props, elem, f, owner_history) -> None:
         add_properties_to_elem("Properties", f, elem, metadata_props, owner_history=owner_history)
 
 
-def to_real(v) -> Union[float, List[float]]:
+def to_real(v) -> float | list[float]:
     from ada import Node
 
     if type(v) is float:
