@@ -95,7 +95,7 @@ def get_odb_frame_data(steps: dict) -> list[FieldData]:
 def get_odb_instance_data(instances) -> Mesh:
     from ada.fem.formats.abaqus.elem_shapes import abaqus_el_type_to_ada
     from ada.fem.formats.general import FEATypes
-    from ada.fem.results.common import ElementBlock, ElementType, Mesh, Nodes
+    from ada.fem.results.common import ElementBlock, ElementInfo, FemNodes, Mesh
 
     if len(instances) > 1:
         raise NotImplementedError("Multi-instances results are not yet supported")
@@ -110,12 +110,13 @@ def get_odb_instance_data(instances) -> Mesh:
 
     el_type = el_type_array[0]
     shape = abaqus_el_type_to_ada(el_type)
-    elem_type = ElementType(type=shape, source_software=FEATypes.ABAQUS, source_type=el_type)
+    elem_info = ElementInfo(type=shape, source_software=FEATypes.ABAQUS, source_type=el_type)
     el_block = ElementBlock(
-        type=elem_type, nodes=np.array(nodes_connectivity, dtype=int), identifiers=np.array(el_ids, dtype=int)
+        elem_info=elem_info, nodes=np.array(nodes_connectivity, dtype=int), identifiers=np.array(el_ids, dtype=int)
     )
     el_blocks = [el_block]
-    nodes = Nodes(coords=np.array(coords, dtype=float), identifiers=np.array(ids, dtype=int))
+    nodes = FemNodes(coords=np.array(coords, dtype=float), identifiers=np.array(ids, dtype=int))
+
     return Mesh(elements=el_blocks, nodes=nodes)
 
 
