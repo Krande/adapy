@@ -41,7 +41,7 @@ def get_profile_class(section: Section) -> ProfileBase:
     elif section.type == st.POLY:
         return PolyProfile(section)
     else:
-        raise UnrecognizedSectionType
+        raise UnrecognizedSectionType(f"Type -> {section.type}")
 
 
 def export_beam_section_profile_def(section: Section):

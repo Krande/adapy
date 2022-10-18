@@ -422,24 +422,41 @@ def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> list[Plate]:
             *elem.nodes[3].p,
         ):
             plates.append(
-                Plate(f"sh{elem.id}", [n.p for n in elem.nodes], fem_sec.thickness, use3dnodes=True, parent=parent)
+                Plate(
+                    f"sh{elem.id}",
+                    [n.p for n in elem.nodes],
+                    fem_sec.thickness,
+                    mat=fem_sec.material,
+                    use3dnodes=True,
+                    parent=parent,
+                )
             )
         else:
             el_n1 = [elem.nodes[0].p, elem.nodes[1].p, elem.nodes[2].p]
             el_n2 = [elem.nodes[0].p, elem.nodes[2].p, elem.nodes[3].p]
-            plates.append(Plate(f"sh{elem.id}", el_n1, fem_sec.thickness, use3dnodes=True, parent=parent))
+            plates.append(
+                Plate(f"sh{elem.id}", el_n1, fem_sec.thickness, mat=fem_sec.material, use3dnodes=True, parent=parent)
+            )
             plates.append(
                 Plate(
                     f"sh{elem.id}_1",
                     el_n2,
                     fem_sec.thickness,
                     use3dnodes=True,
+                    mat=fem_sec.material,
                     parent=parent,
                 )
             )
     else:
         plates.append(
-            Plate(f"sh{elem.id}", [n.p for n in elem.nodes], fem_sec.thickness, use3dnodes=True, parent=parent)
+            Plate(
+                f"sh{elem.id}",
+                [n.p for n in elem.nodes],
+                fem_sec.thickness,
+                mat=fem_sec.material,
+                use3dnodes=True,
+                parent=parent,
+            )
         )
     return plates
 
@@ -456,6 +473,7 @@ def convert_part_elem_bm_to_beams(p: Part) -> Beams:
 
 def line_elem_to_beam(elem: Elem, parent: Part) -> Beam:
     """Convert FEM line element to Beam"""
+    from ada import Beam
 
     a = parent.get_assembly()
 
@@ -479,8 +497,8 @@ def line_elem_to_beam(elem: Elem, parent: Part) -> Beam:
         f"bm{elem.id}",
         n1,
         n2,
-        elem.fem_sec.section,
-        elem.fem_sec.material,
+        sec=elem.fem_sec.section,
+        mat=elem.fem_sec.material,
         up=elem.fem_sec.local_z,
         e1=e1,
         e2=e2,

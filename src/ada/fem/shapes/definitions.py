@@ -90,7 +90,7 @@ class ShapeResolver:
 
     @staticmethod
     def get_el_type_from_str(el_type: str) -> LineShapes | ShellShapes | SolidShapes | None:
-        for shape in [LineShapes, ShellShapes, SolidShapes]:
+        for shape in [LineShapes, ShellShapes, SolidShapes, SpringTypes, ConnectorTypes]:
             try:
                 result = shape.from_str(el_type)
             except UnsupportedFeaShapeException:

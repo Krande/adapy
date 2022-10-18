@@ -63,6 +63,11 @@ class Root:
     def guid(self, value):
         if value is None:
             raise ValueError("guid cannot be None")
+        if hasattr(self, "_guid") and self.guid is not None:
+            existing_guid = self.guid
+            a = self.get_assembly()
+            original_el = a.ifc_store.f.by_guid(existing_guid)
+            original_el.GlobalId = value
         self._guid = value
 
     @property

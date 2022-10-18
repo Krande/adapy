@@ -324,14 +324,18 @@ class FemElements:
         :param keep_elem:
         :param delete_elem:
         """
-        keep_elem = [el_.lower() for el_ in keep_elem] if keep_elem is not None else None
-        delete_elem = [el_.lower() for el_ in delete_elem] if delete_elem is not None else None
+        from ada.fem.shapes.definitions import ShapeResolver
+
+        keep_elem = [ShapeResolver.get_el_type_from_str(el_) for el_ in keep_elem] if keep_elem is not None else None
+        delete_elem = (
+            [ShapeResolver.get_el_type_from_str(el_) for el_ in delete_elem] if delete_elem is not None else None
+        )
 
         def eval_elem(el):
             if keep_elem is not None:
-                return True if el.type.lower() in keep_elem else False
+                return True if el.type in keep_elem else False
             else:
-                return False if el.type.lower() in delete_elem else True
+                return False if el.type in delete_elem else True
 
         self._elements = list(filter(eval_elem, self._elements))
         self._by_types = dict(self.group_by_type())

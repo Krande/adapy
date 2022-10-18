@@ -35,7 +35,7 @@ def interpret_section_props(name, sec_prop, parent: Part) -> Section:
 def box_sec(name, sec_prop) -> Section:
     return Section(
         name=name,
-        sec_type="BG",
+        sec_type=Section.TYPES.BOX,
         sec_str=name,
         h=float(sec_prop.attrib["h"]),
         w_top=float(sec_prop.attrib["b"]),
@@ -148,4 +148,5 @@ def general_section(name, sec_prop) -> Section:
 
 
 def cone_section(name, sec_prop) -> Section:
-    return Section(name, sec_type=None)
+
+    return Section(name, sec_type=Section.TYPES.GENERAL, genprops=GeneralProperties(Ax=0.1))

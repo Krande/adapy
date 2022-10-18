@@ -8,7 +8,8 @@ import meshio
 import numpy as np
 
 from ada.base.types import BaseEnum
-from ada.fem.results.common import FEAResult, FieldData
+from ada.fem.results.common import FEAResult
+from ada.fem.results.field_data import FieldData
 
 
 class ReadFrdFailedException(Exception):

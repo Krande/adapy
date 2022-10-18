@@ -9,7 +9,7 @@ from ada.concepts.spatial import Assembly
 from ada.config import Settings as _Settings
 from ada.fem import FEM
 from ada.fem.formats.general import FEATypes
-from ada.fem.shapes import ElemShape
+from ada.fem.shapes.definitions import MassTypes, SpringTypes
 
 
 def meshio_to_fem(assembly: Assembly, name: str, scratch_dir=None, metadata=None) -> None:
@@ -69,7 +69,7 @@ def fem_to_meshio(fem: FEM) -> Union[meshio.Mesh, None]:
 
     cells = []
     for element_type, elements in fem.elements.group_by_type():
-        if element_type in ElemShape.TYPES.masses + ElemShape.TYPES.springs:
+        if isinstance(element_type, (MassTypes, SpringTypes)):
             logging.error("NotImplemented: Skipping Mass or Spring Elements")
             continue
         med_el = ada_to_meshio[element_type]

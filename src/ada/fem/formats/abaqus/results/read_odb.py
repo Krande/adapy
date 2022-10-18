@@ -69,20 +69,11 @@ def get_odb_field_data(field_name, field_data, frame_num):
 
     field_type, components, data = field_data
 
-    if len(components) == 0:
-        data_col = ["data"]
-        data_format = [float]
-    else:
-        data_col = components
-        data_format = len(components) * [float]
-
     if field_type == "ELEMENT_NODAL":
-        dtype = np.dtype({"names": ElementFieldData.COLS + data_col, "formats": [int, int, int] + data_format})
-        field_values = np.fromiter(yield_elem_nodal_data(data), dtype=dtype, count=len(data))
+        field_values = np.array(list(yield_elem_nodal_data(data)))
         return ElementFieldData(field_name, frame_num, components, values=field_values)
     elif field_type == "NODAL":
-        dtype = np.dtype({"names": NodalFieldData.COLS + data_col, "formats": [int] + data_format})
-        field_values = np.fromiter(yield_nodal_data(data), dtype=dtype, count=len(data))
+        field_values = np.array(list(yield_nodal_data(data)))
         return NodalFieldData(field_name, frame_num, components, field_values)
     else:
         raise NotImplementedError()

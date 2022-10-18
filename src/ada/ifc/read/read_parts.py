@@ -82,5 +82,5 @@ class PartImporter:
             name = resolve_name(props, product)
 
         self.ifc_store.assembly.name = name
-        self.ifc_store.assembly.guid = product.GlobalId
+        self.ifc_store.assembly._guid = product.GlobalId
         self.ifc_store.assembly.metadata.update(props)

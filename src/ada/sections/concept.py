@@ -44,7 +44,10 @@ class Section(Root):
     ):
         super(Section, self).__init__(name=name, guid=guid, metadata=metadata, units=units, parent=parent)
         if isinstance(sec_type, str):
-            sec_type = BaseTypes.from_str(sec_type)
+            sec_type_in = sec_type
+            sec_type = BaseTypes.from_str(sec_type_in)
+            if sec_type is None:
+                raise ValueError(f"Unrecognized section type {sec_type_in}]")
 
         self._type = sec_type
         self._h = h

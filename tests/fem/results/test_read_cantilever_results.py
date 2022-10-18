@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 import ada
@@ -18,7 +20,7 @@ def test_read_static_calculix_results(cantilever_dir):
 def test_read_eigen_line_abaqus_results(cantilever_dir):
     odb_res = read_odb_pckle_file(cantilever_dir / "abaqus/eigen_line_cantilever_abaqus.pckle")
     steps = odb_res.get_steps()
-    assert steps == 21
+    assert len(steps) == 21
 
 
 def test_read_static_line_abaqus_results(cantilever_dir):
@@ -27,5 +29,8 @@ def test_read_static_line_abaqus_results(cantilever_dir):
 
 
 def test_read_static_shell_abaqus_results(cantilever_dir):
-    _ = read_odb_pckle_file(cantilever_dir / "abaqus/static_shell_cantilever_abaqus.pckle")
+    results = read_odb_pckle_file(cantilever_dir / "abaqus/static_shell_cantilever_abaqus.pckle")
+    mesh = results.to_meshio_mesh()
+    os.makedirs("temp", exist_ok=True)
+    mesh.write("temp/test.vtu")
     print("ds")

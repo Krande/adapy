@@ -24,6 +24,7 @@ def get_plates(xml_root: ET.Element, parent: Part) -> Plates:
 
     plates = []
     for plate_elem in xml_root.findall(".//flat_plate") + xml_root.findall(".//curved_shell"):
+        mat = parent.materials.get_by_name(plate_elem.attrib["material_ref"])
         for i, res in enumerate(plate_elem.findall(".//face"), start=1):
             face_ref = res.attrib["face_ref"]
             points = sat_ref_d.get(face_ref, None)
@@ -40,6 +41,7 @@ def get_plates(xml_root: ET.Element, parent: Part) -> Plates:
                 name,
                 points,
                 t,
+                mat=mat,
                 metadata=dict(props=dict(gxml_face_ref=face_ref)),
                 use3dnodes=True,
                 parent=parent,

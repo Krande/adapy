@@ -55,10 +55,10 @@ def ifc_dir(f: ifcopenshell.file, vec: Tuple[float, float, float]):
 
 def ensure_guid_consistency(a: Assembly, project_prefix):
     """Function to edit the global IDs of your elements when they are arbitrarily created from upstream data dump"""
+    a.ifc_store.sync()
     ensure_uniqueness = dict()
     for p in a.get_all_parts_in_assembly():
         p.guid = create_guid(project_prefix + p.name)
-
         if p.guid in ensure_uniqueness.keys():
             # p_other = ensure_uniqueness.get(p.guid)
             # ancestors1 = p.get_ancestors()
