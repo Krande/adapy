@@ -94,23 +94,28 @@ class FEAResult:
             cells += [meshio.CellBlock(cell_type=cb.elem_info.type.value.lower(), data=ncopy)]
         return cells
 
-    def to_meshio_mesh(self):
+    def _get_point_and_cell_data(self) -> tuple[dict, dict]:
         from .field_data import ElementFieldData, NodalFieldData
-
-        cells = self._get_cell_blocks()
 
         cell_data = dict()
         point_data = dict()
         for key, values in self.get_results_grouped_by_field_value().items():
             for x in values:
-                res = x.get_values_only()
+                res = x.get_all_values()
                 name = f"{x.name} - {x.step}" if len(values) > 1 else x.name
                 if isinstance(x, NodalFieldData):
                     point_data[name] = res
-                elif isinstance(x, ElementFieldData):
-                    cell_data[name] = res
+                elif isinstance(x, ElementFieldData) and x.field_pos == x.field_pos.NODAL:
+                    point_data[name] = res
+                elif isinstance(x, ElementFieldData) and x.field_pos == x.field_pos.INT:
+                    raise NotImplementedError("Currently not supporting element data directly from int. points")
                 else:
                     raise ValueError()
+        return cell_data, point_data
+
+    def to_meshio_mesh(self):
+        cells = self._get_cell_blocks()
+        cell_data, point_data = self._get_point_and_cell_data()
 
         return meshio.Mesh(points=self.mesh.nodes.coords, cells=cells, cell_data=cell_data, point_data=point_data)
 
@@ -119,10 +124,19 @@ class FEAResult:
         with meshio.xdmf.TimeSeriesWriter(filepath) as writer:
             writer.write_points_cells(self.mesh.nodes.coords, cells)
             for key, values in self.get_results_grouped_by_field_value().items():
-                if key != "U":
-                    continue
                 for x in values:
-                    point_data = None
+                    res = x.get_all_values()
+                    name = x.name
+                    point_data = dict()
+                    if isinstance(x, NodalFieldData):
+                        point_data[name] = res
+                    elif isinstance(x, ElementFieldData) and x.field_pos == x.field_pos.NODAL:
+                        point_data[name] = res
+                    elif isinstance(x, ElementFieldData) and x.field_pos == x.field_pos.INT:
+                        raise NotImplementedError("Currently not supporting element data directly from int. points")
+                    else:
+                        raise ValueError()
+
                     writer.write_data(x.step, point_data=point_data)
 
     def to_gltf(self):

@@ -55,6 +55,9 @@ def read_odb_pckle_file(pickle_path: str | pathlib.Path) -> FEAResult:
     from ada.fem.formats.general import FEATypes
     from ada.fem.results.common import FEAResult
 
+    if isinstance(pickle_path, pathlib.Path) is False:
+        pickle_path = pathlib.Path(pickle_path)
+
     with open(pickle_path, "rb") as f:
         data = pickle.load(f)
 

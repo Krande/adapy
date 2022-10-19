@@ -1,7 +1,7 @@
 name: ada
 channels:
-  - krande
   - conda-forge
+  - krande
 dependencies:
   - ada-py
   - paradoc
