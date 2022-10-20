@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import pathlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -58,6 +60,30 @@ class Mesh:
                 nodes = self.nodes.get_node_by_id(node_ids)
                 return Elem(elem_id, nodes, block.elem_info.type)
 
+    def get_edges_and_faces_from_mesh(self) -> tuple[np.ndarray, np.ndarray]:
+        from ada.fem.shapes import ElemShape
+        from ada.fem.shapes import definitions as shape_def
+
+        nmap = {x: i for i, x in enumerate(self.nodes.identifiers)}
+        edges = []
+        faces = []
+        for cell_block in self.elements:
+            el_type = cell_block.elem_info.type
+            nodes_copy = cell_block.nodes.copy()
+            for old, new in nmap.items():
+                nodes_copy[nodes_copy == old] = new
+
+            for elem in nodes_copy:
+                elem_shape = ElemShape(el_type, elem)
+                edges += elem_shape.edges
+                if isinstance(elem_shape.type, shape_def.LineShapes):
+                    continue
+                faces += elem_shape.faces
+
+        faces = np.array(faces).reshape(int(len(faces) / 3), 3)
+        edges = np.array(edges).reshape(int(len(edges) / 2), 2)
+        return edges, faces
+
 
 @dataclass
 class FEAResult:
@@ -77,7 +103,7 @@ class FEAResult:
                 steps.append(x.step)
         return steps
 
-    def get_results_grouped_by_field_value(self) -> dict:
+    def get_results_grouped_by_field_value(self) -> dict[str, list[ElementFieldData | NodalFieldData]]:
         results = dict()
         for x in self.results:
             if x.name not in results.keys():
@@ -139,13 +165,45 @@ class FEAResult:
 
                     writer.write_data(x.step, point_data=point_data)
 
-    def to_gltf(self):
-        from ada.visualize.femviz import get_edges_and_faces_from_meshio
+    def to_gltf(self, dest_file, step: int, field: str, warp_vector_scale=None):
+        import trimesh
+        from trimesh.path.entities import Line
 
-        mesh = self.to_meshio_mesh()
+        from ada.core.vector_utils import rot_matrix
+        from ada.visualize.colors import DataColorizer
 
-        # see to_trimesh method for the simplest possible conversion to gltf
-        _ = np.asarray(mesh.points, dtype="float32")
-        edges, faces = get_edges_and_faces_from_meshio(self.mesh)
-        _ = np.asarray(edges, dtype="uint16").ravel()
-        _ = np.asarray(faces, dtype="uint16").ravel()
+        dest_file = pathlib.Path(dest_file)
+
+        vertices = self.mesh.nodes.coords
+        edges, faces = self.mesh.get_edges_and_faces_from_mesh()
+        steps = self.get_results_grouped_by_field_value().get(field)
+        all_field_data = [x for x in steps if x.step == step]
+        if len(all_field_data) != 1:
+            raise ValueError("Non-unique results of field data")
+        field_data = all_field_data[0]
+        data = field_data.get_all_values()
+        vcolor = DataColorizer.colorize_data(data)
+        vertex_color = np.array([[i * 255 for i in x] + [1] for x in vcolor], dtype=np.uint8)
+
+        if warp_vector_scale is not None:
+            vertices += data * warp_vector_scale
+
+        new_mesh = trimesh.Trimesh(vertices=vertices, faces=faces, vertex_color=vertex_color)
+
+        entities = [Line(x) for x in edges]
+        edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
+
+        scene = trimesh.Scene()
+        scene.add_geometry(new_mesh, node_name=self.name, geom_name="faces")
+        scene.add_geometry(edge_mesh, node_name=f"{self.name}_edges", geom_name="edges")
+
+        # Trimesh automatically transforms by setting up = Y. This will counteract that transform
+        m3x3 = rot_matrix((0, -1, 0))
+        m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
+        m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
+        scene.apply_transform(m4x4)
+
+        os.makedirs(dest_file.parent, exist_ok=True)
+        print(f'Writing Visual Mesh to "{dest_file}"')
+        with open(dest_file, "wb") as f:
+            scene.export(file_obj=f, file_type=dest_file.suffix[1:])
