@@ -350,35 +350,37 @@ def create_ifcrightcylinder(ifc_file, ifcaxis2placement, height, radius):
     return ifcextrudedareasolid
 
 
-def create_property_set(name, ifc_file, metadata_props, owner_history):
+def ifc_value_map(f, value):
     value_map = {str: "IfcText", float: "IfcReal", int: "IfcInteger", bool: "IfcBoolean"}
+    if type(value) in (np.float64,):
+        value = float(value)
+    ifc_type = value_map.get(type(value), None)
+    if ifc_type is None:
+        logging.warning(f'Unable to find suitable IFC type for "{type(value)}". Will convert it to string')
+        return f.create_entity("IfcText", str(value))
+
+    return f.create_entity(ifc_type, value)
+
+
+def ifc_list_value(f, name: str, list_value: list, owner_history):
+    list_values = []
+    for x in list_value:
+        if isinstance(x, (list, tuple, np.ndarray)):
+            list_values.append(ifc_list_value(f, f"{name}_sub", x, owner_history))
+        elif isinstance(x, dict):
+            list_values.append(create_property_set(f"{name}_sub", f, x, owner_history))
+        else:
+            list_values.append(ifc_value_map(f, x))
+
+    return f.create_entity("IfcPropertyListValue", Name=name, ListValues=list_values)
+
+
+def create_property_set(name, ifc_file, metadata_props, owner_history):
     properties = []
-
-    def ifc_value_type(v_):
-        if type(v_) in (np.float64,):
-            v_ = float(v_)
-        ifc_type = value_map.get(type(v_), None)
-        if ifc_type is None:
-            logging.warning(f'Unable to find suitable IFC type for "{type(v_)}". Will convert it to string')
-            return ifc_file.create_entity("IfcText", str(v_))
-
-        return ifc_file.create_entity(ifc_type, v_)
-
-    def ifc_list_value(n: str, list_value):
-        list_values = []
-        for x in list_value:
-            if isinstance(x, (list, tuple, np.ndarray)):
-                list_values.append(ifc_list_value(f"{n}_sub", x))
-            elif isinstance(x, dict):
-                list_values.append(create_property_set(f"{n}_sub", ifc_file, value, owner_history))
-            else:
-                list_values.append(ifc_value_type(x))
-
-        return ifc_file.create_entity("IfcPropertyListValue", Name=n, ListValues=list_values)
 
     for key, value in metadata_props.items():
         if isinstance(value, (list, tuple, np.ndarray)):
-            properties.append(ifc_list_value(key, value))
+            properties.append(ifc_list_value(ifc_file, key, value, owner_history))
         elif isinstance(value, dict):
             if len(value.keys()) == 0:
                 continue
@@ -388,7 +390,7 @@ def create_property_set(name, ifc_file, metadata_props, owner_history):
                 ifc_file.create_entity(
                     "IfcPropertySingleValue",
                     Name=key,
-                    NominalValue=ifc_value_type(value),
+                    NominalValue=ifc_value_map(ifc_file, value),
                 )
             )
 

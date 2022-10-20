@@ -34,3 +34,11 @@ def test_read_static_shell_abaqus_results(cantilever_dir):
     os.makedirs("temp", exist_ok=True)
     mesh.write("temp/test.vtu")
     print("ds")
+
+
+def test_ec3_code_check_results(cantilever_dir):
+    # UfTot -> 0.68 uf654
+    from ada.core.utils import traverse_hdf_datasets
+
+    traverse_hdf_datasets(cantilever_dir / "sesam/static/Eurocode3_Loads1.h5")
+    traverse_hdf_datasets(cantilever_dir / "sesam/static/Eurocode31.h5")

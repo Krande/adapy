@@ -98,8 +98,22 @@ class IfcWriter:
     def sync_added_welds(self):
         for weld in self.ifc_store.assembly.welds:
             ifc_weld = write_ifc_fastener(weld)
-            spatial_elem_guid = weld.parent.guid
-            self.add_related_elements_to_spatial_container([ifc_weld], spatial_elem_guid)
+            self.add_related_elements_to_spatial_container([ifc_weld], weld.parent.guid)
+            if weld.groove is None:
+                continue
+
+            for mem in weld.members:
+                rel_ifc_mem = self.ifc_store.f.by_guid(mem.guid)
+                ifc_opening = generate_ifc_opening(weld.groove)
+                self.ifc_store.f.create_entity(
+                    "IfcRelVoidsElement",
+                    GlobalId=create_guid(),
+                    OwnerHistory=self.ifc_store.owner_history,
+                    Name=None,
+                    Description=None,
+                    RelatingBuildingElement=rel_ifc_mem,
+                    RelatedOpeningElement=ifc_opening,
+                )
 
     def sync_deleted_physical_objects(self) -> int:
         num_mod = 0
@@ -217,18 +231,15 @@ class IfcWriter:
         from ada import Part, Wall
         from ada.core.constants import O, X, Z
 
+        f = self.ifc_store.f
+
         if ifc_obj is None:
-            try:
-                ifc_obj = self.ifc_store.f.by_guid(obj.guid)
-            except RuntimeError as e:
-                raise RuntimeError(e)
+            ifc_obj = f.by_guid(obj.guid)
 
         if isinstance(obj, Wall):
             if len(obj.inserts) > 0:
                 for i, insert in enumerate(obj.inserts):
-                    add_negative_extrusion(
-                        self.ifc_store.f, O, Z, X, insert.height, obj.openings_extrusions[i], ifc_obj
-                    )
+                    add_negative_extrusion(f, O, Z, X, insert.height, obj.openings_extrusions[i], ifc_obj)
                     if issubclass(type(insert), Part) is False:
                         raise ValueError(f'Unrecognized type "{type(insert)}"')
 
@@ -236,7 +247,7 @@ class IfcWriter:
             if len(obj.penetrations) > 0:
                 for pen in obj.penetrations:
                     ifc_opening = generate_ifc_opening(pen)
-                    self.ifc_store.f.create_entity(
+                    f.create_entity(
                         "IfcRelVoidsElement",
                         GlobalId=create_guid(),
                         OwnerHistory=self.ifc_store.owner_history,

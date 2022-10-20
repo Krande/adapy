@@ -51,10 +51,6 @@ def write_ifc_shape(shape: Shape):
         serialized_geom = tesselate_shape(shape.geom, schema, tol)
         ifc_shape = f.add(serialized_geom)
 
-    # Link to representation context
-    for rep in ifc_shape.Representations:
-        rep.ContextOfItems = a.ifc_store.get_context()
-
     # Add colour
     if shape.colour is not None:
         add_colour(f, ifc_shape.Representations[0].Items[0], str(shape.colour), shape.colour)
@@ -73,7 +69,8 @@ def write_ifc_shape(shape: Shape):
 
 
 def generate_parametric_solid(shape: Shape | PrimSphere, f):
-    context = f.by_type("IfcGeometricRepresentationContext")[0]
+    a = shape.parent.get_assembly()
+    body_context = a.ifc_store.get_context("Body")
 
     param_solid_map = {
         PrimSphere: generate_ifc_PrimSphere_geom,
@@ -93,7 +90,7 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
     if type(shape) is Penetration:
         raise ValueError(f'Penetration type "{shape}" is not yet supported')
 
-    shape_representation = f.create_entity("IfcShapeRepresentation", context, "Body", "SweptSolid", [solid_geom])
+    shape_representation = f.create_entity("IfcShapeRepresentation", body_context, "Body", "SweptSolid", [solid_geom])
     ifc_shape = f.create_entity("IfcProductDefinitionShape", None, None, [shape_representation])
 
     return ifc_shape

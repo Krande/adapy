@@ -47,7 +47,7 @@ def test_write_elbow_revolved_solid_ifc_gen(pipe_w_multiple_bends):
     f = a.ifc_store.f
 
     elbows = list(filter(lambda x: isinstance(x, PipeSegElbow), pipe_w_multiple_bends.segments))
-    context = f.by_type("IfcGeometricRepresentationContext")[0]
+    context = a.ifc_store.get_context("Body")
 
     elbow1 = elbows[0]
 
@@ -68,7 +68,7 @@ def test_write_elbow_revolved_solid_ifc_gen(pipe_w_multiple_bends):
 
     elbow2 = elbows[1]
 
-    shape2 = elbow_revolved_solid(elbow2, f, context)
+    shape2 = elbow_revolved_solid(elbow2, f)
     ifc_revolved_solid2 = shape2.Representations[0].Items[0]
 
     assert ifc_revolved_solid2.Angle == 90.0

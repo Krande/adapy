@@ -275,11 +275,6 @@ class Part(BackendGeom):
         weld.parent = self
         self._welds.append(weld)
 
-        sec = self.add_section(weld.section)
-        if sec != weld.section:
-            weld.section = sec
-            sec.refs.append(weld)
-
         return weld
 
     def add_material(self, material: Material) -> Material:

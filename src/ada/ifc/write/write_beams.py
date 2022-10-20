@@ -116,11 +116,13 @@ class IfcBeamWriter:
         return mat_profile_set
 
 
-def extrude_straight_beam(beam, f: ifile, profile):
+def extrude_straight_beam(beam: Beam, f: ifile, profile):
     extrude_dir = ifc_dir(f, (0.0, 0.0, 1.0))
     parent = f.by_guid(beam.parent.guid)
+    a = beam.parent.get_assembly()
+
     global_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
-    context = f.by_type("IfcGeometricRepresentationContext")[0]
+
     e1 = (0.0, 0.0, 0.0)
 
     if Settings.ifc_export.include_ecc and beam.e1 is not None:
@@ -153,23 +155,29 @@ def extrude_straight_beam(beam, f: ifile, profile):
     if beam.colour is not None:
         add_colour(f, extrude_area_solid, str(beam.colour), beam.colour)
 
+    body_context = a.ifc_store.get_context("Body")
+    axis_context = a.ifc_store.get_context("Axis")
     ax23d = f.create_entity("IfcAxis2Placement3D", p1_ifc, ifc_dir(f, beam.xvec_e), ifc_dir(f, beam.yvec))
     loc_plac = f.create_entity("IfcLocalPlacement", global_placement, ax23d)
-    body = f.create_entity("IfcShapeRepresentation", context, "Body", "SweptSolid", [extrude_area_solid])
-    axis = f.create_entity("IfcShapeRepresentation", context, "Axis", "Curve3D", [ifc_polyline])
+    body = f.create_entity("IfcShapeRepresentation", body_context, "Body", "SweptSolid", [extrude_area_solid])
+    axis = f.create_entity("IfcShapeRepresentation", axis_context, "Axis", "Curve3D", [ifc_polyline])
+
     return body, axis, loc_plac
 
 
-def create_revolved_beam(beam, f: "ifile", profile):
-    context = f.by_type("IfcGeometricRepresentationContext")[0]
+def create_revolved_beam(beam: Beam, f: "ifile", profile):
+    a = beam.parent.get_assembly()
+    body_context = a.ifc_store.get_context("Body")
+    axis_context = a.ifc_store.get_context("Axis")
+
     curve: CurveRevolve = beam.curve
 
     ifc_trim_curve = create_ifc_trimmed_curve(curve, f)
     placement = create_local_placement(f, curve.p1, (0, 0, 1))
     solid = create_ifcrevolveareasolid(f, profile, placement, curve.p1, curve.rot_axis, np.deg2rad(curve.angle))
 
-    axis = f.create_entity("IfcShapeRepresentation", context, "Axis", "Curve3D", [ifc_trim_curve])
-    body = f.create_entity("IfcShapeRepresentation", context, "Body", "SweptSolid", [solid])
+    axis = f.create_entity("IfcShapeRepresentation", axis_context, "Axis", "Curve3D", [ifc_trim_curve])
+    body = f.create_entity("IfcShapeRepresentation", body_context, "Body", "SweptSolid", [solid])
 
     return body, axis, placement
 

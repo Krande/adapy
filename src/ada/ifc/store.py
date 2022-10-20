@@ -38,12 +38,56 @@ class IfcStore:
                     self.f = ifcopenshell.open(self.ifc_file_path)
             elif self.assembly is not None:
                 self.f = assembly_to_ifc_file(self.assembly)
+                self.add_standard_contexts()
+
+    def add_standard_contexts(self):
+        contexts = list(self.f.by_type("IfcGeometricRepresentationContext"))
+        model_context = list(filter(lambda x: x.ContextType.upper() == "MODEL", contexts))[0]
+        for cid, target_view in [("Body", "MODEL_VIEW"), ("Axis", "GRAPH_VIEW"), ("Box", "MODEL_VIEW")]:
+            self.f.create_entity(
+                "IfcGeometricRepresentationSubContext",
+                ContextIdentifier=cid,
+                ContextType="Model",
+                ParentContext=model_context,
+                TargetView=target_view,
+            )
+        plan_context = self.f.create_entity(
+            "IfcGeometricRepresentationContext",
+            ContextType="Plan",
+            CoordinateSpaceDimension=2,
+            Precision=1e-5,
+            WorldCoordinateSystem=model_context.WorldCoordinateSystem,
+        )
+        for cid, target_view in [
+            ("Axis", "GRAPH_VIEW"),
+            ("Annotation", "PLAN_VIEW"),
+            ("Annotation", "SECTION_VIEW"),
+            ("Annotation", "ELEVATION_VIEW"),
+        ]:
+            self.f.create_entity(
+                "IfcGeometricRepresentationSubContext",
+                ContextIdentifier=cid,
+                ContextType="Plan",
+                ParentContext=plan_context,
+                TargetView=target_view,
+            )
 
     def update_owner(self, user: User):
         self.owner_history = create_owner_history_from_user(user, self.f)
 
-    def get_context(self):
-        return self.f.by_type("IfcGeometricRepresentationContext")[0]
+    def get_context(self, context_id):
+        contexts = list(self.f.by_type("IfcGeometricRepresentationContext"))
+        subcontexts = list(self.f.by_type("IfcGeometricRepresentationSubContext"))
+        if len(contexts) == 1 and len(subcontexts) == 0:
+            return contexts[0]
+
+        contexts = [x for x in contexts if x.ContextIdentifier == context_id and x.ContextType == "Model"]
+        if len(contexts) == 0:
+            raise ValueError(f'0 IfcGeometry Subcontexts found with "{context_id=}"')
+        if len(contexts) > 1:
+            raise ValueError(f'Multiple Subcontexts found with "{context_id=}"')
+
+        return contexts[0]
 
     def sync(self, include_fem=False):
         from ada.ifc.write.write_ifc import IfcWriter
@@ -63,7 +107,9 @@ class IfcStore:
         self.writer.sync_materials()
 
         num_new_objects = self.writer.sync_added_physical_objects()
+
         self.writer.sync_added_welds()
+
         self.writer.sync_mapped_instances()
 
         num_mod = self.writer.sync_modified_physical_objects()

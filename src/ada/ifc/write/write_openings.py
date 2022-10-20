@@ -9,25 +9,33 @@ from ada.ifc.utils import create_guid, create_local_placement, write_elem_proper
 from .write_shapes import generate_parametric_solid
 
 if TYPE_CHECKING:
-    from ada import Penetration
+    from ada import Penetration, Shape
 
 pen_counter = Counter(prefix="P")
 
 
-def generate_ifc_opening(penetration: Penetration):
-    if penetration.parent is None:
+def generate_ifc_opening(primitive: Penetration | Shape):
+    from ada import Penetration, Shape
+
+    if primitive.parent is None:
         raise ValueError("This penetration has no parent")
-    pen_name = f"{penetration.name}_{next(pen_counter)}"
-    a = penetration.get_assembly()
-    parent_part = penetration.parent.parent
+    pen_name = f"{primitive.name}_{next(pen_counter)}"
+    a = primitive.get_assembly()
+    parent_part = primitive.parent.parent
     f = a.ifc_store.f
 
     geom_parent = f.by_guid(parent_part.guid)
     owner_history = a.ifc_store.owner_history
 
     # Create and associate an opening for the window in the wall
-    opening_placement = create_local_placement(f, O, Z, X, geom_parent.ObjectPlacement)
-    opening_shape = generate_parametric_solid(penetration.primitive, f)
+    opening_placement = create_local_placement(f, O, Z, X, relative_to=geom_parent.ObjectPlacement)
+    if isinstance(primitive, Penetration):
+        prim = primitive.primitive
+    elif issubclass(type(primitive), Shape):
+        prim = primitive
+    else:
+        raise NotImplementedError()
+    opening_shape = generate_parametric_solid(prim, f)
 
     opening_element = f.create_entity(
         "IfcOpeningElement",
@@ -39,6 +47,6 @@ def generate_ifc_opening(penetration: Penetration):
         Representation=opening_shape,
     )
 
-    write_elem_property_sets(penetration.metadata, opening_element, f, owner_history)
+    write_elem_property_sets(primitive.metadata, opening_element, f, owner_history)
 
     return opening_element

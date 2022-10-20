@@ -118,8 +118,6 @@ def write_pipe_straight_seg(pipe_seg: PipeSegStraight):
     assembly = pipe_seg.parent.get_assembly()
     ifc_store = assembly.ifc_store
     f = ifc_store.f
-
-    context = f.by_type("IfcGeometricRepresentationContext")[0]
     owner_history = ifc_store.owner_history
 
     p1 = pipe_seg.p1
@@ -145,8 +143,8 @@ def write_pipe_straight_seg(pipe_seg: PipeSegStraight):
 
     polyline = create_ifcpolyline(f, [rp1, rp2])
 
-    axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve3D", [polyline])
-    body_representation = f.createIfcShapeRepresentation(context, "Body", "SweptSolid", [solid])
+    axis_representation = f.createIfcShapeRepresentation(ifc_store.get_context("Axis"), "Axis", "Curve3D", [polyline])
+    body_representation = f.createIfcShapeRepresentation(ifc_store.get_context("Body"), "Body", "SweptSolid", [solid])
 
     product_shape = f.createIfcProductDefinitionShape(None, None, [axis_representation, body_representation])
 
@@ -182,12 +180,11 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
     a = pipe_elbow.parent.get_assembly()
     f = a.ifc_store.f
 
-    context = f.by_type("IfcGeometricRepresentationContext")[0]
     owner_history = a.ifc_store.owner_history
 
     tol = Units.get_general_point_tol(a.units)
 
-    ifc_elbow = elbow_revolved_solid(pipe_elbow, f, context, tol)
+    ifc_elbow = elbow_revolved_solid(pipe_elbow, f, tol)
 
     pfitting_placement = create_local_placement(f)
 
@@ -229,16 +226,17 @@ def elbow_tesselated(self: PipeSegElbow, f, schema, a):
     return ifc_shape
 
 
-def elbow_revolved_solid(elbow: PipeSegElbow, f, context, tol=1e-1):
+def elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
     xvec1 = unit_vector(elbow.xvec1)
     xvec2 = unit_vector(elbow.xvec2)
     normal = unit_vector(calc_zvec(xvec1, xvec2))
     p1, p2, p3 = elbow.p1.p, elbow.p2.p, elbow.p3.p
 
-    assembly = elbow.get_assembly()
+    a = elbow.get_assembly()
+    ifc_store = a.ifc_store
 
     # Profile
-    profile = assembly.ifc_store.get_profile_def(elbow.section)
+    profile = ifc_store.get_profile_def(elbow.section)
 
     # Revolve Angle
     revolve_angle = np.rad2deg(angle_between(xvec1, xvec2))
@@ -265,12 +263,13 @@ def elbow_revolved_solid(elbow: PipeSegElbow, f, context, tol=1e-1):
     position = create_ifc_placement(f, elbow.arc_seg.p1, xvec1, normal)
 
     # Body representation
+
     ifc_shape = f.create_entity("IfcRevolvedAreaSolid", profile, position, revolve_axis1, revolve_angle)
-    body = f.create_entity("IfcShapeRepresentation", context, "Body", "SweptSolid", [ifc_shape])
+    body = f.create_entity("IfcShapeRepresentation", ifc_store.get_context("Body"), "Body", "SweptSolid", [ifc_shape])
 
     # Axis representation
     polyline = create_ifcpolyline(f, [p1, p2, p3])
-    axis = f.create_entity("IfcShapeRepresentation", context, "Axis", "Curve3D", [polyline])
+    axis = f.create_entity("IfcShapeRepresentation", ifc_store.get_context("Axis"), "Axis", "Curve3D", [polyline])
 
     # Final Product Shape
     prod_def_shp = f.create_entity("IfcProductDefinitionShape", None, None, (body, axis))

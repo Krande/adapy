@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List, Tuple
+from typing import TYPE_CHECKING
 
 from ada.base.root import Root
 from ada.base.units import Units
-from ada.concepts.curves import CurvePoly
 from ada.config import Settings
 from ada.sections.categories import BaseTypes, SectionCat
 
 if TYPE_CHECKING:
-    from ada import Beam, Pipe, PipeSegElbow, PipeSegStraight
+    from ada import Beam, CurvePoly, Pipe, PipeSegElbow, PipeSegStraight
     from ada.fem import FemSection
 
 
@@ -34,8 +33,8 @@ class Section(Root):
         parent=None,
         sec_str=None,
         from_str=None,
-        outer_poly=None,
-        inner_poly=None,
+        outer_poly: CurvePoly = None,
+        inner_poly: CurvePoly = None,
         genprops: GeneralProperties = None,
         metadata=None,
         units=Units.M,
@@ -324,10 +323,10 @@ class SectionProfile:
     is_solid: bool
     outer_curve: CurvePoly = None
     inner_curve: CurvePoly = None
-    outer_curve_disconnected: List[CurvePoly] = None
-    inner_curve_disconnected: List[CurvePoly] = None
+    outer_curve_disconnected: list[CurvePoly] = None
+    inner_curve_disconnected: list[CurvePoly] = None
     disconnected: bool = None
-    shell_thickness_map: List[Tuple[str, float]] = None
+    shell_thickness_map: list[tuple[str, float]] = None
 
 
 def build_section_profile(sec: Section, is_solid) -> SectionProfile:
