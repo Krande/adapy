@@ -29,7 +29,7 @@ jobs:
     name: Test-FEM-analysis
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: satackey/action-docker-layer-caching@v0.0.11
         continue-on-error: true
       - run: echo ${{ env.DATE }}

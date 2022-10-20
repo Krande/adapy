@@ -30,10 +30,10 @@ jobs:
     needs: activate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
           python-version: "3.x"
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Install lint packages
         run: pip install isort flake8 black
       - name: Lint with isort
@@ -66,7 +66,7 @@ jobs:
           { name: macOS, distver: macos-latest, short: 'osx-64' }
         ]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: conda-incubator/setup-miniconda@v2  # https://github.com/conda-incubator/setup-miniconda
         with:
           activate-environment: ${{ env.CONDAENV }}
@@ -93,8 +93,8 @@ jobs:
         shell: bash -l {0}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-python@v2
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
         with:
           python-version: '3.x'
       - name: Build and upload package for pypi
