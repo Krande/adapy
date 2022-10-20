@@ -66,8 +66,9 @@ def get_res():
     os.makedirs("temp", exist_ok=True)
     mesh.write("temp/test.vtu")
     results.to_xdmf("cantilever.xdmf")
+    results.to_gltf()
 
 
 if __name__ == "__main__":
-    main()
-    # get_res()
+    # main()
+    get_res()

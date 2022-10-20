@@ -142,8 +142,10 @@ class FEAResult:
     def to_gltf(self):
         from ada.visualize.femviz import get_edges_and_faces_from_meshio
 
-        _ = self.mesh.nodes.coords
+        mesh = self.to_meshio_mesh()
 
+        # see to_trimesh method for the simplest possible conversion to gltf
+        _ = np.asarray(mesh.points, dtype="float32")
         edges, faces = get_edges_and_faces_from_meshio(self.mesh)
         _ = np.asarray(edges, dtype="uint16").ravel()
         _ = np.asarray(faces, dtype="uint16").ravel()

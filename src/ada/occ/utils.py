@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import math
 import pathlib
-from typing import TYPE_CHECKING, List, Tuple, Union
+from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 from OCC.Core.Bnd import Bnd_Box
@@ -76,7 +76,7 @@ def extract_shapes(step_path, scale, transform, rotate, include_shells=False):
 
 
 def transform_shape(
-    shape: Union[TopoDS_Shape], scale=None, transform: Union[Placement, tuple, list] = None, rotate: Rotation = None
+    shape: TopoDS_Shape, scale=None, transform: Placement | tuple | list = None, rotate: Rotation = None
 ) -> TopoDS_Shape:
 
     trsf = gp_Trsf()
@@ -143,7 +143,7 @@ def make_wire_from_points(points):
     return make_wire([BRepBuilderAPI_MakeEdge(gp_Pnt(*p1), gp_Pnt(*p2)).Edge()])
 
 
-def get_boundingbox(shape: TopoDS_Shape, tol=1e-6, use_mesh=True) -> Tuple[tuple, tuple]:
+def get_boundingbox(shape: TopoDS_Shape, tol=1e-6, use_mesh=True) -> tuple[tuple, tuple]:
     """
 
     :param shape: TopoDS_Shape or a subclass such as TopoDS_Face the shape to compute the bounding box from
