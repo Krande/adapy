@@ -45,7 +45,7 @@ def get_sections(bulk_str, fem: FEM, mass_elem, spring_elem) -> FemSections:
     total_geo = count(1)
     res = (
         get_femsecs(m, total_geo, geom, lcsysd, hinges, ecc, thick, fem, mass_elem, spring_elem)
-        for m in cards.re_gelref1.finditer(bulk_str)
+        for m in cards.GELREF1.to_ff_re().finditer(bulk_str)
     )
     sections = filter(lambda x: type(x) is FemSection, res)
 

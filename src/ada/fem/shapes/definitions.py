@@ -71,6 +71,7 @@ class MassTypes(BaseShapeEnum):
 
 class SpringTypes(BaseShapeEnum):
     SPRING1 = "SPRING1"
+    SPRING2 = "SPRING2"
 
 
 class ShapeResolver:

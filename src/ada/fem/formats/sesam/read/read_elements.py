@@ -1,19 +1,18 @@
 import logging
 from itertools import chain
-from typing import Tuple
 
 import numpy as np
 
 from ada.core.utils import roundoff
 from ada.fem import FEM, Elem, FemSet, Mass, Spring
 from ada.fem.containers import FemElements
+from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.utils import str_to_int
 
 from . import cards
-from .helper_utils import sesam_eltype_2_general
 
 
-def get_elements(bulk_str: str, fem: FEM) -> Tuple[FemElements, dict, dict, dict]:
+def get_elements(bulk_str: str, fem: FEM) -> tuple[FemElements, dict, dict, dict]:
     """Import elements from Sesam Bulk str"""
 
     mass_elem = dict()
@@ -50,7 +49,7 @@ def get_elements(bulk_str: str, fem: FEM) -> Tuple[FemElements, dict, dict, dict
         return elem
 
     elements = FemElements(
-        filter(lambda x: x is not None, map(grab_elements, cards.re_gelmnt.finditer(bulk_str))), fem_obj=fem
+        filter(lambda x: x is not None, map(grab_elements, cards.GELMNT1.to_ff_re().finditer(bulk_str))), fem_obj=fem
     )
     return elements, mass_elem, spring_elem, internal_external_element_map
 

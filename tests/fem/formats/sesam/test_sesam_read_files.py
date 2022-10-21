@@ -20,3 +20,8 @@ def test_read_hinged_beams_and_mass(example_files):
     p.fem.sections.merge_by_properties()
     assert len(p.fem.sections.lines) == 4
     assert len(p.materials) == 1
+
+
+def test_sesam_xml(example_files):
+    xml_file = (example_files / "fem_files/sesam/curved_plates.xml").resolve().absolute()
+    _ = ada.from_genie_xml(xml_file)

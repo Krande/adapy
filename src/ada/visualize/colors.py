@@ -23,8 +23,15 @@ class DataColorizer:
     default_palette = [(0, 149 / 255, 239 / 255), (1, 0, 0)]
 
     @staticmethod
-    def colorize_data(data, func=None, palette=None):
-        func = magnitude if func is None else func
+    def colorize_data(data: np.ndarray, func=None, palette=None):
+        if func is None:
+            shape = data.shape
+            num_cols = shape[1]
+            if num_cols == 3:
+                func = magnitude
+            elif num_cols == 1:
+                func = magnitude1d
+
         palette = DataColorizer.default_palette if palette is None else palette
 
         res = [func(d) for d in data]
@@ -44,3 +51,11 @@ class DataColorizer:
 
 def magnitude(u):
     return np.sqrt(u[0] ** 2 + u[1] ** 2 + u[2] ** 2)
+
+
+def magnitude2d(u):
+    return np.sqrt(u[0] ** 2 + u[1] ** 2)
+
+
+def magnitude1d(u):
+    return u

@@ -57,16 +57,11 @@ def main():
 
 
 def get_res():
-    import os
-
     from ada.fem.formats.abaqus.results.read_odb import read_odb_pckle_file
 
     results = read_odb_pckle_file("../files/fem_files/cantilever/abaqus/static_shell_cantilever_abaqus.pckle")
-    # mesh = results.to_meshio_mesh()
-    os.makedirs("temp", exist_ok=True)
-    # mesh.write("temp/test.vtu")
-    # results.to_xdmf("cantilever.xdmf")
-    results.to_gltf("temp/test.glb", 2, "U")
+
+    results.to_gltf("temp/test.glb", step=2, field="U", warp_field="U", warp_step=2, warp_scale=20)
 
 
 if __name__ == "__main__":

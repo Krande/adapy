@@ -8,7 +8,7 @@ from .read_sets import get_sets
 
 def from_xml_file(xml_path, extract_joints=False, skip_beams=False, skip_plates=False, name=None) -> Assembly:
     print(f'Beginning importing Genie XML from "{xml_path}"')
-    root = ET.parse(xml_path).getroot()
+    root = ET.parse(str(xml_path)).getroot()
     model = root.find(".//model")
 
     p = Part(model.attrib["name"] if name is None else name)

@@ -1,30 +1,50 @@
 import re
+from dataclasses import dataclass
+from typing import Iterable
 
 from ada.fem.formats.utils import get_ff_regex
 
 re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 
+
+@dataclass
+class DataCard:
+    name: str
+    components: Iterable[str]
+
+    def __post_init__(self):
+        self._index_map = {x: i for i, x in enumerate(self.components)}
+
+    def to_ff_re(self):
+        return get_ff_regex(self.name, *self.components)
+
+    def get_indices_from_names(self, names: list[str]):
+        return [self._index_map[n] for n in names]
+
+
 # Nodes
-re_gnode_in = get_ff_regex("GNODE", "nodex", "nodeno", "ndof", "odof")
-re_gcoord_in = get_ff_regex("GCOORD", "id", "x", "y", "z")
+GNODE = DataCard("GNODE", ("nodex", "nodeno", "ndof", "odof"))
+GCOORD = DataCard("GCOORD", ("id", "x", "y", "z"))
 
 # Elements
-re_gelmnt = get_ff_regex("GELMNT1", "elnox", "elno", "eltyp", "eltyad", "nids")
-re_gelref1 = get_ff_regex(
+GELMNT1 = DataCard("GELMNT1", ("elnox", "elno", "eltyp", "eltyad", "nids"))
+GELREF1 = DataCard(
     "GELREF1",
-    "elno",
-    "matno",
-    "addno",
-    "intno",
-    "mintno",
-    "strano",
-    "streno",
-    "strepono",
-    "geono",
-    "fixno",
-    "eccno",
-    "transno",
-    "members|",
+    (
+        "elno",
+        "matno",
+        "addno",
+        "intno",
+        "mintno",
+        "strano",
+        "streno",
+        "strepono",
+        "geono",
+        "fixno",
+        "eccno",
+        "transno",
+        "members|",
+    ),
 )
 
 # Beam Sections
@@ -136,13 +156,15 @@ re_morsmel = get_ff_regex(
 )
 
 # Results
+RVNODDIS = DataCard(
+    "RVNODDIS", ["nfield", "ires", "inod", "irdva|", "itrans|", "U1|", "U2|", "U3|", "U4|", "U5|", "U6|"]
+)
+
 re_rsumreac = get_ff_regex("RSUMREAC", "nfield", "ires", "ircomp", "x", "y", "z", "rx", "ry", "rz")
 re_rvnodrea = get_ff_regex(
     "RVNODREA", "nfield", "ires", "inod", "irrea|", "irboc|", "itrans|", "F1|", "F2|", "F3|", "F4|", "F5|", "F6|"
 )
-re_rvnoddis = get_ff_regex(
-    "RVNODDIS", "nfield", "ires", "inod", "irdva|", "itrans|", "U1|", "U2|", "U3|", "U4|", "U5|", "U6|"
-)
+
 re_rdrescmb = get_ff_regex("RDRESCMB", "nfield", "ires", "complx", "nres", "bulk")
 re_rvforces = get_ff_regex("RVFORCES", "nfield", "ires", "ielno", "ispalt", "irforc|", "bulk|")
 re_rdforces = get_ff_regex("RDFORCES", "nfield", "irforc", "lenrec", "bulk|")

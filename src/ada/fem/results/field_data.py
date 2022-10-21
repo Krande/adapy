@@ -80,7 +80,8 @@ class ElementFieldData(FieldData):
                 result_data[i] = averaged_data
 
             return result_data
-
+        else:
+            raise NotImplementedError()
         if num_comp == 0:
             values = self.values[:, -1]
         else:

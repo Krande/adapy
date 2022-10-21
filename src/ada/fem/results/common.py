@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import pathlib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 import meshio
 import numpy as np
@@ -22,13 +22,13 @@ if TYPE_CHECKING:
 class ElementInfo:
     type: LineShapes | SolidShapes | ShellShapes
     source_software: FEATypes
-    source_type: str
+    source_type: str | int
 
 
 @dataclass
 class ElementBlock:
     elem_info: ElementInfo
-    nodes: np.ndarray
+    node_refs: np.ndarray
     identifiers: np.ndarray
 
 
@@ -56,7 +56,7 @@ class Mesh:
 
         for block in self.elements:
             res = np.where(block.identifiers == elem_id)
-            for node_ids in block.nodes[res]:
+            for node_ids in block.node_refs[res]:
                 nodes = self.nodes.get_node_by_id(node_ids)
                 return Elem(elem_id, nodes, block.elem_info.type)
 
@@ -69,7 +69,7 @@ class Mesh:
         faces = []
         for cell_block in self.elements:
             el_type = cell_block.elem_info.type
-            nodes_copy = cell_block.nodes.copy()
+            nodes_copy = cell_block.node_refs.copy()
             for old, new in nmap.items():
                 nodes_copy[nodes_copy == old] = new
 
@@ -93,6 +93,9 @@ class FEAResult:
     mesh: Mesh
 
     def __post_init__(self):
+        if self.results is None:
+            self.results = []
+
         for res in self.results:
             res._mesh = self.mesh
 
@@ -114,7 +117,7 @@ class FEAResult:
     def _get_cell_blocks(self):
         cells = []
         for cb in self.mesh.elements:
-            ncopy = cb.nodes.copy()
+            ncopy = cb.node_refs.copy()
             for i, v in enumerate(self.mesh.nodes.identifiers):
                 ncopy[np.where(ncopy == v)] = i
             cells += [meshio.CellBlock(cell_type=cb.elem_info.type.value.lower(), data=ncopy)]
@@ -139,7 +142,7 @@ class FEAResult:
                     raise ValueError()
         return cell_data, point_data
 
-    def to_meshio_mesh(self):
+    def to_meshio_mesh(self) -> meshio.Mesh:
         cells = self._get_cell_blocks()
         cell_data, point_data = self._get_point_and_cell_data()
 
@@ -165,37 +168,56 @@ class FEAResult:
 
                     writer.write_data(x.step, point_data=point_data)
 
-    def to_gltf(self, dest_file, step: int, field: str, warp_vector_scale=None):
-        import trimesh
-        from trimesh.path.entities import Line
-
-        from ada.core.vector_utils import rot_matrix
-        from ada.visualize.colors import DataColorizer
-
-        dest_file = pathlib.Path(dest_file)
-
-        vertices = self.mesh.nodes.coords
-        edges, faces = self.mesh.get_edges_and_faces_from_mesh()
+    def get_data(self, field: str, step: int):
         steps = self.get_results_grouped_by_field_value().get(field)
         all_field_data = [x for x in steps if x.step == step]
         if len(all_field_data) != 1:
             raise ValueError("Non-unique results of field data")
+
         field_data = all_field_data[0]
-        data = field_data.get_all_values()
-        vcolor = DataColorizer.colorize_data(data)
-        vertex_color = np.array([[i * 255 for i in x] + [1] for x in vcolor], dtype=np.uint8)
+        return field_data.get_all_values()
 
-        if warp_vector_scale is not None:
-            vertices += data * warp_vector_scale
+    def _colorize_data(self, field: str, step: int, colorize_function: Callable = None):
+        from ada.visualize.colors import DataColorizer
 
-        new_mesh = trimesh.Trimesh(vertices=vertices, faces=faces, vertex_color=vertex_color)
+        data = self.get_data(field, step)
+        vertex_colors = DataColorizer.colorize_data(data, func=colorize_function)
+        return np.array([[i * 255 for i in x] + [1] for x in vertex_colors], dtype=np.int32)
+
+    def _warp_data(self, vertices: np.ndarray, field: str, step, scale: float = 1.0):
+        data = self.get_data(field, step)
+        result = vertices + data * scale
+        return result
+
+    def to_gltf(self, dest_file, step: int, field: str, warp_field=None, warp_step=None, warp_scale=None, cfunc=None):
+        import trimesh
+        from trimesh.path.entities import Line
+        from trimesh.visual.material import PBRMaterial
+
+        from ada.core.vector_utils import rot_matrix
+
+        dest_file = pathlib.Path(dest_file).resolve().absolute()
+
+        vertices = self.mesh.nodes.coords
+        edges, faces = self.mesh.get_edges_and_faces_from_mesh()
+
+        # Colorize data
+        vertex_color = self._colorize_data(field, step, cfunc)
+
+        # Warp data
+        if warp_field is not None:
+            warped_vertices = self._warp_data(vertices, warp_field, warp_step, warp_scale)
+            vertices = warped_vertices
+
+        new_mesh = trimesh.Trimesh(vertices=vertices, faces=faces, vertex_colors=vertex_color)
+        new_mesh.visual.material = PBRMaterial(doubleSided=True)
 
         entities = [Line(x) for x in edges]
         edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
 
         scene = trimesh.Scene()
         scene.add_geometry(new_mesh, node_name=self.name, geom_name="faces")
-        scene.add_geometry(edge_mesh, node_name=f"{self.name}_edges", geom_name="edges")
+        scene.add_geometry(edge_mesh, node_name=f"{self.name}_edges", geom_name="edges", parent_node_name=self.name)
 
         # Trimesh automatically transforms by setting up = Y. This will counteract that transform
         m3x3 = rot_matrix((0, -1, 0))

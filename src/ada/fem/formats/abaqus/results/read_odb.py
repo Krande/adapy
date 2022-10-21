@@ -115,7 +115,7 @@ def get_odb_instance_data(instances) -> Mesh:
     shape = abaqus_el_type_to_ada(el_type)
     elem_info = ElementInfo(type=shape, source_software=FEATypes.ABAQUS, source_type=el_type)
     el_block = ElementBlock(
-        elem_info=elem_info, nodes=np.array(nodes_connectivity, dtype=int), identifiers=np.array(el_ids, dtype=int)
+        elem_info=elem_info, node_refs=np.array(nodes_connectivity, dtype=int), identifiers=np.array(el_ids, dtype=int)
     )
     el_blocks = [el_block]
     nodes = FemNodes(coords=np.array(coords, dtype=float), identifiers=np.array(ids, dtype=int))

@@ -1,0 +1,390 @@
+<?xml version="1.0" encoding="ASCII"?>
+<DNV_structure_concept_protocol version="1.6">
+	<administrative>
+		<program program="GeniE" version="V8.4-06" version_date="23-Sep-2022" platform="64bit" />
+		<session_info date="21-Oct-2022" time="09:31:39" user="userX" />
+	</administrative>
+	<model name="sdfsdfsdfd">
+		<units>
+			<model_units length="m" time="s" temp_diff="delC" force="N" angle="rad" mass="" />
+			<acis_units length="m" />
+			<input_units>
+				<input_unit phenomenon="Angle" unit="deg" />
+			</input_units>
+		</units>
+		<structure_domain>
+			<properties>
+				<sections>
+					<section name="FB300x20" description="FB">
+						<bar_section h="0.3" b="0.02" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
+					</section>
+				</sections>
+				<materials>
+					<material name="S355" default="true">
+						<isotropic_linear_material yield_stress="355000000" density="7850" youngs_modulus="2.1e+11" poissons_ratio="0.3" thermal_expansion="1.2e-05" damping="0" />
+					</material>
+				</materials>
+				<thicknesses>
+					<thickness name="thk00">
+						<constant_thickness th="0.0001" />
+					</thickness>
+					<thickness name="thk10">
+						<constant_thickness th="0.01" />
+					</thickness>
+					<thickness name="thk15">
+						<constant_thickness th="0.015" />
+					</thickness>
+					<thickness name="thk20">
+						<constant_thickness th="0.02" />
+					</thickness>
+				</thicknesses>
+				<effective_flange />
+				<wet_surfaces />
+				<beam_types>
+					<beam_type name="non_struc_beam">
+						<beam_type_nonstructural />
+					</beam_type>
+				</beam_types>
+				<beam_classifications />
+				<slot_lug />
+				<corrosion_additions>
+					<corrosion_addition name="cThk00" addition="0" isStainless="false" />
+				</corrosion_additions>
+				<sn_curves />
+				<mass_density_factors />
+				<mesh_options />
+				<permeable_properties>
+					<permeable_property name="perm" permeable="true" />
+				</permeable_properties>
+				<thickness_corrections />
+				<pile_characteristics />
+				<plate_types>
+					<plate_type name="non_struc_plate">
+						<plate_type_non_structural name="non_struc_plate" />
+					</plate_type>
+				</plate_types>
+				<reinforcements />
+				<load_interfaces />
+				<structure_types />
+				<mesh_properties>
+					<mesh_densities>
+						<mesh_density name="mesh0001" density="0.001" enforce_density="false" />
+					</mesh_densities>
+					<number_of_elements_properties>
+						<number_of_elements_property name="mesh1element" number_of_elements="1" />
+					</number_of_elements_properties>
+					<sniping_properties />
+					<mesh_options_holes />
+				</mesh_properties>
+				<hydro_properties>
+					<air_drag_coefficients />
+					<morison_diameters />
+					<buoyancy_areas />
+					<hydro_element_refinements />
+					<flooding_coefficients />
+					<morison_coefficients />
+					<marine_growths />
+					<hydro_permeabilities />
+					<conductor_shieldings />
+				</hydro_properties>
+			</properties>
+			<structures>
+				<structure>
+					<curved_shell name="col1mainskin_elev3plate11" thickness_ref="thk15" material_ref="S355">
+						<segmentation />
+						<front corrosion_addition_ref="cThk00" />
+						<back corrosion_addition_ref="cThk10" />
+						<local_system>
+							<sense_flag sense="false" />
+						</local_system>
+						<geometry>
+							<sheet>
+								<sat_reference>
+									<face face_ref="FACE00000001" />
+									<face face_ref="FACE00000002" />
+									<face face_ref="FACE00000003" />
+									<face face_ref="FACE00000004" />
+								</sat_reference>
+							</sheet>
+						</geometry>
+					</curved_shell>
+				</structure>
+				<structure>
+					<curved_shell name="col1mainskin_elev4plate11" thickness_ref="thk20" material_ref="S355">
+						<segmentation />
+						<front corrosion_addition_ref="cThk00" />
+						<back corrosion_addition_ref="cThk10" />
+						<local_system>
+							<sense_flag sense="false" />
+						</local_system>
+						<geometry>
+							<sheet>
+								<sat_reference>
+									<face face_ref="FACE00000005" />
+								</sat_reference>
+							</sheet>
+						</geometry>
+					</curved_shell>
+				</structure>
+				<structure>
+					<curved_shell name="col1mainskin_elev5plate11" thickness_ref="thk15" material_ref="S355">
+						<segmentation />
+						<front corrosion_addition_ref="cThk00" />
+						<back corrosion_addition_ref="cThk10" />
+						<local_system>
+							<sense_flag sense="false" />
+						</local_system>
+						<geometry>
+							<sheet>
+								<sat_reference>
+									<face face_ref="FACE00000006" />
+									<face face_ref="FACE00000007" />
+									<face face_ref="FACE00000008" />
+									<face face_ref="FACE00000009" />
+								</sat_reference>
+							</sheet>
+						</geometry>
+					</curved_shell>
+				</structure>
+			</structures>
+			<manual_overlap_managers />
+			<feature_concepts />
+			<sets>
+				<set name="col1main_guideGeo" />
+				<set name="col1main_skin">
+					<concepts>
+						<concept concept_ref="col1mainskin_elev3plate11" />
+						<concept concept_ref="col1mainskin_elev4plate11" />
+						<concept concept_ref="col1mainskin_elev5plate11" />
+					</concepts>
+				</set>
+				<set name="col1main_all">
+					<concepts>
+						<concept concept_ref="col1mainskin_elev3plate11" />
+						<concept concept_ref="col1mainskin_elev4plate11" />
+						<concept concept_ref="col1mainskin_elev5plate11" />
+					</concepts>
+				</set>
+				<set name="col1main_struc">
+					<concepts>
+						<concept concept_ref="col1mainskin_elev3plate11" />
+						<concept concept_ref="col1mainskin_elev4plate11" />
+						<concept concept_ref="col1mainskin_elev5plate11" />
+					</concepts>
+				</set>
+				<set name="pon2y_guideGeo" />
+				<set name="tuningStructure" />
+				<set name="pon1x_skin" />
+				<set name="pon1x_struc" />
+				<set name="pon1x_guideGeo" />
+				<set name="pon1x_all" />
+				<set name="pon2y_all" />
+				<set name="pon2y_skin" />
+				<set name="pon2y_struc" />
+				<set name="col2inner_guideGeo" />
+				<set name="col2inner_skin" />
+				<set name="col2inner_all" />
+				<set name="col2inner_struc" />
+			</sets>
+			<geometry>
+				<sat_embedded encoding="base64" compression="zip" tag_name="dnvscp"><![CDATA[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]]></sat_embedded>
+			</geometry>
+			<fatigue />
+		</structure_domain>
+		<utilities>
+			<guide_geometry />
+			<mesh_priorities />
+		</utilities>
+		<rules>
+			<meshing basic_lc_factor="1" analysis_folders="true" prefer_linear_dependencies="true" use_uniformized_face_parameterization="false" longitudinal_mass_on_nonstructural_elements="true">
+				<general>
+					<fem_options element_type="1st_order" super_element_type="1" />
+					<model_topology_performed_before_meshing auto_simply_topology="true" auto_split_periodic_geometry="false" repair_split_topology="false" />
+					<element_type_preferences>
+						<prefer_rectangular_mesh flag="false" />
+						<allow_triangular_elements flag="true" />
+						<prefer_point_mass_as_node_mass flag="true" />
+						<use_drilling_elements flag="false" />
+						<use_thick_override_thin_shell_elements flag="false" />
+						<use_eccentric_hinges flag="true" />
+					</element_type_preferences>
+					<idealizations eliminate_internal_edges="false" eliminate_internal_vertices="true" ignore_structure_not_part_of_subset_when_idealizing="false" />
+					<other_preferences automate_fem_load_case_numbering="combinations_automatic" use_cocentricbeams="false" loads_based_on_gross_dimensions="true" ignore_eccentricities="false" scantlings="gross_tickness">
+						<include_unused_properties flag="false" />
+						<mesh_density_rounded flag="false" />
+					</other_preferences>
+					<naming_preferences>
+						<use_long_loadcase_names flag="true" />
+						<use_long_set_names flag="true" />
+						<use_long_property_names flag="true" />
+					</naming_preferences>
+					<face_mesher face_mesh_strategy="sesam_quad_mesher" />
+					<edge_mesher edge_mesh_strategy="uniform_distribution" />
+				</general>
+				<min_max_angle>
+					<min_angle>
+						<split active="false" value="0.2617993878" />
+						<error active="false" value="0.01745329252" />
+					</min_angle>
+					<max_angle>
+						<split active="false" value="2.879793266" />
+						<error active="true" value="3.124139361" />
+					</max_angle>
+				</min_max_angle>
+				<jacobi>
+					<max_relative_jacobi>
+						<split active="false" value="5" />
+						<error active="false" value="10" />
+					</max_relative_jacobi>
+					<min_normalized_jacobi>
+						<split active="false" value="0.2" />
+						<error active="false" value="0" />
+					</min_normalized_jacobi>
+				</jacobi>
+				<eliminate_short_edges>
+					<none />
+				</eliminate_short_edges>
+				<chord_height>
+					<adjust_curved_edges value="0.2" active="false" />
+				</chord_height>
+				<max_twist_angle>
+					<split active="false" value="0.1745329252" />
+					<error active="false" value="0.5235987756" />
+				</max_twist_angle>
+				<adjust_number_of_elements flag="true" />
+				<write_loads_seperate flag="true" />
+				<eliminate_internal_eccentricities flag="false" />
+				<ignore_fillet_radius flag="false" />
+				<min_max_density_ratio>
+					<min_max_density_ratio_value value="0.1" active="false" />
+				</min_max_density_ratio>
+			</meshing>
+			<set_rules use_compact_scripting="true" />
+			<imported_file_history />
+			<compatibility user_defined_compatibility="false">
+				<compatibility_options>
+					<option option="SetDefaultNames" value="true" />
+					<option option="CaseInsensitiveFunctions" value="true" />
+					<option option="JournalledDefaultPrefix" value="true" />
+					<option option="SimplifyTopologyEnhancedVertexRemoval" value="true" />
+					<option option="PlateSnapping" value="true" />
+					<option option="PlateSortingCOGFirst" value="true" />
+					<option option="CurveSnapping" value="true" />
+					<option option="DefaultLongFemNames" value="true" />
+					<option option="DefaultEccentricHinghes" value="true" />
+					<option option="AutomaticallySaveModelAfterAnalysis" value="false" />
+					<option option="ValidateTransforms" value="true" />
+					<option option="CheckPlatesForErrorsDuringCreation" value="true" />
+					<option option="UseTopologySimplificationVersion7" value="true" />
+					<option option="UseSpliceVersionV" value="true" />
+					<option option="UseSpliceSecondOrderMoments" value="true" />
+					<option option="EccentricBasedCapacityMemberRecognition" value="true" />
+					<option option="ImprovedJointDesign" value="true" />
+					<option option="PreferLinearDependencies" value="true" />
+					<option option="PostponeLoadApplication" value="true" />
+					<option option="PostponeFEMFileWrite" value="true" />
+					<option option="UseSestra10" value="true" />
+					<option option="BucklingCapacityForSegmentedMembers" value="false" />
+					<option option="AlternativeJointBraceClassification" value="false" />
+					<option option="UseAutoSegmentation" value="false" />
+					<option option="AccurateCorrosionAddition" value="false" />
+					<option option="ParallellMeshing" value="false" />
+				</compatibility_options>
+			</compatibility>
+			<tolerances use_tolerant_modelling="true" angle="0" point="0.01" />
+			<geometry_rules guide_curve_topology_snapping="true" beam_topology_snapping="true" creation_grouping="creation_grouping_off" />
+			<joint_creation_rules auto_generate="false" selection_aware="false">
+				<exclusion_rules>
+					<exclusion_rule exclude="tb_free" in_use="true" />
+					<exclusion_rule exclude="tb_int_pure" in_use="true" />
+					<exclusion_rule exclude="tb_int_all" in_use="false" />
+					<exclusion_rule exclude="eb_free" in_use="true" />
+					<exclusion_rule exclude="eb_int_aligned" in_use="true" />
+					<exclusion_rule exclude="eb_int_all" in_use="false" />
+				</exclusion_rules>
+			</joint_creation_rules>
+			<connected_move_rules default_connected="false" use_geometric_points="false" rearrange_x_joints="false" />
+			<tubular_joint_rules copy_reinforcement_on_copy="false" auto_adjust_segment_lengths="false">
+				<can default_can_fac="0.25" default_can_min="0.3" chord_alignment_tolerance="0.0872664626" />
+				<stub default_stub_fac="1" default_stub_min="0.6" />
+				<gap min_gap="0.0508" gap_tolerance="0.001" plane_tolerance="0.01745329252" brace_angle_move_limit="0.1745329252" iterations="2" flush_braces="false" gap_method="planewise" />
+				<cone cone_angle="0.1651486774" />
+			</tubular_joint_rules>
+			<beam_creation_rules>
+				<default_curve_orientation>
+					<customizable_curve_orientation use_default_rule="false">
+						<orientation>
+							<local_system>
+								<xvector x="1" y="0" z="0" />
+								<zvector x="0" y="0" z="1" />
+								<yvector x="0" y="1" z="0" />
+							</local_system>
+						</orientation>
+					</customizable_curve_orientation>
+				</default_curve_orientation>
+			</beam_creation_rules>
+			<transformation_rules copy_transformer_method="use_model_transformer" default_connected_copy="true" />
+		</rules>
+		<equipment_domain>
+			<equipment_concepts />
+		</equipment_domain>
+		<evaluators>
+			<slicer_concepts />
+		</evaluators>
+		<environment>
+			<environment_properties>
+				<wind_spectra />
+				<wind_profiles />
+				<wave_spectra />
+				<current_profiles />
+				<directions />
+				<frequency_sets />
+				<phase_sets />
+				<regular_wave_sets />
+				<scours />
+				<seabed_properties />
+				<soil_properties />
+				<soil_data_properties />
+				<spreading_functions />
+				<wave_height_evaluators />
+			</environment_properties>
+			<environment_concepts />
+		</environment>
+		<compartments>
+			<compartment_properties>
+				<compartment_contents>
+					<compartment_content name="Content1">
+						<liquid_content density="1025" content_type="water_ballast">
+							<shape_function>
+								<elevation_content_shape_function />
+							</shape_function>
+						</liquid_content>
+					</compartment_content>
+				</compartment_contents>
+			</compartment_properties>
+			<compartment_outlines />
+		</compartments>
+		<palette_manager default_palette="default" light_mode="true" include_all_items="false" include_legend_title="true" include_visible_objects_only="true" dim_not_color_coded="true" enable_edge_color_override="false">
+			<ambiguous r="0.2196078431" g="0.2196078431" b="0.2196078431" a="NaN" />
+			<not_found r="NaN" g="NaN" b="NaN" a="NaN" />
+			<not_specified r="NaN" g="NaN" b="NaN" a="NaN" />
+			<edge_override r="0.8" g="0.8" b="0.8" a="NaN" />
+			<providers>
+				<provider heading="Permeability Status" category="Compartments">
+					<palette>
+						<PermeabilityStatus_color_palette>
+							<color_map />
+						</PermeabilityStatus_color_palette>
+					</palette>
+				</provider>
+			</providers>
+		</palette_manager>
+		<model_views>
+			<model_view name="ModelViewTest">
+				<model_view_elements>
+					<display_configuration background="paper" configuration_name="" />
+				</model_view_elements>
+			</model_view>
+		</model_views>
+	</model>
+</DNV_structure_concept_protocol>

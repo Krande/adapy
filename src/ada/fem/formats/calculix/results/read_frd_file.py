@@ -162,55 +162,13 @@ class CcxResultModel:
 
         return list(results.values())
 
-    def to_meshio_mesh(self) -> meshio.Mesh:
-        # Points
-        nodes = self.nodes
-        if nodes is None:
-            raise ReadFrdFailedException("No nodes found. Maybe there was an issue with the analysis")
-
-        points = nodes[:, 1:]
-        monotonic_point_map = dict()
-        for i, x in enumerate(nodes[:, 0].astype(int), start=0):
-            monotonic_point_map[x] = i
-
-        # Cells
-        elements = np.asarray(self.elements)
-        cells = elements[:, 4:]
-        for original_num, new_num in monotonic_point_map.items():
-            cells[cells == original_num] = new_num
-
-        shape = ElemShape.get_type_from_elem_array_shape(elements)
-        cell_block = meshio.CellBlock(str(shape.value), cells)
-
-        # Point Data
-        # Multiple steps are AFAIK not supported in the meshio Mesh object. So only the last step is used
-        point_data = dict()
-        for res in self.get_last_step_results(CcxPointData):
-            values = np.asarray(res.values)[:, 1:]
-            point_data[res.name] = values
-
-        # Field Data
-        cell_data = dict()
-        for res in self.get_last_step_results(CcxFieldData):
-            values = np.asarray(res.values)[:, 1:]
-            cell_data[res.name] = [values]
-
-        mesh = meshio.Mesh(points=points, cells=[cell_block], cell_data=cell_data, point_data=point_data)
-        return mesh
-
-    def to_fea_result_obj(self) -> FEAResult:
-        from ada.fem.formats.general import FEATypes
-
-        name = f"Adapy - Calculix ({self.ccx_version}) Results"
-        return FEAResult(name, FEATypes.CALCULIX, self.results)
-
 
 def read_from_frd_file(frd_file) -> meshio.Mesh:
     with open(frd_file, "r") as f:
         ccx_res_model = CcxResultModel(f)
         ccx_res_model.load()
 
-    mesh = ccx_res_model.to_meshio_mesh()
+    mesh = to_meshio_mesh(ccx_res_model)
     return mesh
 
 
@@ -219,5 +177,49 @@ def read_from_frd_file_proto(frd_file) -> FEAResult:
         ccx_res_model = CcxResultModel(f)
         ccx_res_model.load()
 
-    mesh = ccx_res_model.to_fea_result_obj()
+    mesh = to_fea_result_obj(ccx_res_model)
     return mesh
+
+
+def to_meshio_mesh(ccx_results: CcxResultModel) -> meshio.Mesh:
+    # Points
+    nodes = ccx_results.nodes
+    if nodes is None:
+        raise ReadFrdFailedException("No nodes found. Maybe there was an issue with the analysis")
+
+    points = nodes[:, 1:]
+    monotonic_point_map = dict()
+    for i, x in enumerate(nodes[:, 0].astype(int), start=0):
+        monotonic_point_map[x] = i
+
+    # Cells
+    elements = np.asarray(ccx_results.elements)
+    cells = elements[:, 4:]
+    for original_num, new_num in monotonic_point_map.items():
+        cells[cells == original_num] = new_num
+
+    shape = ElemShape.get_type_from_elem_array_shape(elements)
+    cell_block = meshio.CellBlock(str(shape.value), cells)
+
+    # Point Data
+    # Multiple steps are AFAIK not supported in the meshio Mesh object. So only the last step is used
+    point_data = dict()
+    for res in ccx_results.get_last_step_results(CcxPointData):
+        values = np.asarray(res.values)[:, 1:]
+        point_data[res.name] = values
+
+    # Field Data
+    cell_data = dict()
+    for res in ccx_results.get_last_step_results(CcxFieldData):
+        values = np.asarray(res.values)[:, 1:]
+        cell_data[res.name] = [values]
+
+    mesh = meshio.Mesh(points=points, cells=[cell_block], cell_data=cell_data, point_data=point_data)
+    return mesh
+
+
+def to_fea_result_obj(ccx_results: CcxResultModel) -> FEAResult:
+    from ada.fem.formats.general import FEATypes
+
+    name = f"Adapy - Calculix ({ccx_results.ccx_version}) Results"
+    return FEAResult(name, FEATypes.CALCULIX, ccx_results.results)
