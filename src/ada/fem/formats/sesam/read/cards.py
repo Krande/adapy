@@ -156,9 +156,16 @@ re_morsmel = get_ff_regex(
 )
 
 # Results
+RDNODRES = DataCard("RDNODRES", ["nfield", "irdva", "lenrec"])
 RVNODDIS = DataCard(
     "RVNODDIS", ["nfield", "ires", "inod", "irdva|", "itrans|", "U1|", "U2|", "U3|", "U4|", "U5|", "U6|"]
 )
+RDPOINTS = DataCard(
+    "RDPOINTS", ["nfield", "ispalt", "iielno", "icoref", "ieltyp", "nsp", "ijkdim", "nsptra", "nlay", "bulk"]
+)
+RDSTRESS = DataCard("RDSTRESS", ["nfield", "irstrs", "lenrec", "bulk"])
+RVSTRESS = DataCard("RVSTRESS", ["nfield", "ires", "iielno", "ispalt", "irstrs"])
+
 
 re_rsumreac = get_ff_regex("RSUMREAC", "nfield", "ires", "ircomp", "x", "y", "z", "rx", "ry", "rz")
 re_rvnodrea = get_ff_regex(

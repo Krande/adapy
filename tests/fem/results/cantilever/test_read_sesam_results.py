@@ -1,13 +1,9 @@
-import os
-
 from ada.fem.formats.sesam.results.read_sif import read_sif_file
 
 
 def test_read_static_shell_results(cantilever_dir):
     results = read_sif_file(cantilever_dir / "sesam/static/STATIC_CANTILEVER_SESAMR1.SIF")
-    m = results.to_meshio_mesh()
-    os.makedirs("temp", exist_ok=True)
-    m.write("temp/sesam.vtu")
+    results.to_gltf('temp/sesam.glb', 1, 'RVNODDIS', warp_field="RVNODDIS", warp_step=1, warp_scale=10)
 
 
 def test_ec3_code_check_results(cantilever_dir):

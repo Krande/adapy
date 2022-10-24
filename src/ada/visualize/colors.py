@@ -27,7 +27,7 @@ class DataColorizer:
         if func is None:
             shape = data.shape
             num_cols = shape[1]
-            if num_cols == 3:
+            if num_cols in (3, 6):
                 func = magnitude
             elif num_cols == 1:
                 func = magnitude1d

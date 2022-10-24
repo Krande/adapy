@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import numpy as np
 import pathlib
 from dataclasses import dataclass, field
 from itertools import groupby
 from typing import TYPE_CHECKING, Iterator
-
-import numpy as np
 
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
@@ -144,19 +143,27 @@ def get_sif_mesh(sif: SifReader) -> Mesh:
     return Mesh(elements=elem_blocks, nodes=nodes)
 
 
-def get_nodal_results(res) -> NodalFieldData:
-    _ = []
-    indices = cards.RVNODDIS.get_indices_from_names(["inod", "U1|", "U2|", "U3|", "U4|", "U5|", "U6|"])
-    for ires, data in groupby(res[1:], key=lambda x: x[1]):
-        _, _ = [(x[indices[0]], x[indices[1] : indices[-1]]) for x in data]
+def get_nodal_results(res) -> list[NodalFieldData]:
+    from ada.fem.results.common import NodalFieldData
 
-    return NodalFieldData()
+    comps = "U1|", "U2|", "U3|", "U4|", "U5|", "U6|"
+    indices = cards.RVNODDIS.get_indices_from_names(["inod", *comps])
+    nid = indices[0]
+    start = indices[1]
+    stop = indices[-1] + 1
+    results = []
+    for ires, data in groupby(res[1:], key=lambda x: x[1]):
+        field_data = np.asarray([(x[nid], *x[start:stop]) for x in data], dtype=float)
+        fd = NodalFieldData(cards.RVNODDIS.name, int(ires), [x.replace("|", "") for x in comps], field_data)
+        results.append(fd)
+
+    return results
 
 
 def get_sif_results(sif: SifReader) -> list[ElementFieldData | NodalFieldData]:
     result_blocks = []
     for res in sif.results:
         if res[0] == cards.RVNODDIS.name:
-            result_blocks.append(get_nodal_results(res[1]))
+            result_blocks += get_nodal_results(res[1])
 
     return result_blocks

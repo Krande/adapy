@@ -186,7 +186,8 @@ class FEAResult:
 
     def _warp_data(self, vertices: np.ndarray, field: str, step, scale: float = 1.0):
         data = self.get_data(field, step)
-        result = vertices + data * scale
+
+        result = vertices + data[:, :3] * scale
         return result
 
     def to_gltf(self, dest_file, step: int, field: str, warp_field=None, warp_step=None, warp_scale=None, cfunc=None):
