@@ -183,18 +183,55 @@ def get_stresses(sif: SifReader) -> list[ElementFieldData | NodalFieldData]:
     rdielcor_map = {int(x[1]): x[2:] for x in rdielcor[0][1]}
 
     ires_i, iielno_i, ispalt_i, irstrs_i = cards.RVSTRESS.get_indices_from_names(["ires", "iielno", "ispalt", "irstrs"])
-    icoref_i = cards.RDPOINTS.get_indices_from_names(["icoref"])
-    for x in rvstress[0][1][1:]:
-        ires = int(x[ires_i])
-        iielno = int(x[iielno_i])
-        ispalt = int(x[ispalt_i])
-        rdpoints_res = rdpoints_map[ispalt]
-        ref = int(rdpoints_res[icoref_i])
-        rdielcor_res = rdielcor_map[ref]
-        irstrs = int(x[irstrs_i])
+    icoref_i, ijkdim_i, nsp_i, nlay_i = cards.RDPOINTS.get_indices_from_names(["icoref", "ijkdim", "nsp", "nlay"])
+
+    for rv_stress in rvstress[0][1][1:]:
+        ires = int(rv_stress[ires_i])
+        iielno = int(rv_stress[iielno_i])
+        ispalt = int(rv_stress[ispalt_i])
+        irstrs = int(rv_stress[irstrs_i])
+
         rdstress_res = rdstress_map[irstrs]
+        rdpoints_res = rdpoints_map[ispalt]
+        rdielcor_res = rdielcor_map[int(rdpoints_res[icoref_i])]
+
+        ijkdim = rdpoints_res[ijkdim_i]
+
+        nok = int(ijkdim / 10000)
+        noj = int((ijkdim % 10000) / 100)
+        noi = int(ijkdim % 100)
+        # _test = nok*10000+noj*100+noi
+        # Test was OK
+
+        _ = rdpoints_res[nlay_i]
+        nox_data = rdpoints_res[nlay_i + 1 : nlay_i + 1 + int(nok * noj * noi)]
+        nox_data_clean = dict()
+        data_iter = iter(nox_data)
+        init_el = next(data_iter)
+        if init_el == -1:
+            remaining_el = 0
+        else:
+            remaining_el = 3
+        curr_el_id = int(init_el)
+        nox_data_clean[curr_el_id] = []
+
+        while True:
+            try:
+                curr_el = next(data_iter)
+            except StopIteration:
+                break
+
+            if remaining_el > 0:
+                nox_data_clean[curr_el_id].append(curr_el)
+                remaining_el -= 1
+            else:
+                curr_el_id = int(curr_el)
+
+        _ = np.array(nox_data).reshape((len(nox_data), noj, noi))
+
+        nsp = int(rdpoints_res[nsp_i])
         stress_types = [stress_map[c] for c in rdstress_res]
-        data = x[irstrs_i + 1 :]
+        data = np.array(rv_stress[irstrs_i + 1 :]).reshape((nsp, len(rdstress_res)))
         print(ires, iielno, rdpoints_res, rdstress_res, data, rdielcor_res, stress_types)
 
 
