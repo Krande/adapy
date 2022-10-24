@@ -1,10 +1,10 @@
 *
 * Sestra listing file (SESTRA.LIS)
-* Fri Oct 14 11:48:25 2022
+* Thu Oct 20 13:20:34 2022
 *
 * Program version: 10.14.0.72
 *
-* Input Interface File: eigen_cantilever_sesamT1.FEM
+* Input Interface File: eigen_shell_cantilever_sesamT1.FEM
 *
 
 Mass centre (total mass) with respect to (0, 0, 0):

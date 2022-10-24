@@ -1,10 +1,10 @@
 *
 * Sestra listing file (SESTRA.LIS)
-* Fri Oct 14 11:49:16 2022
+* Thu Oct 20 13:18:48 2022
 *
 * Program version: 10.14.0.72
 *
-* Input Interface File: static_cantilever_sesamT1.FEM
+* Input Interface File: static_shell_cantilever_sesamT1.FEM
 *
 
 Mass centre (total mass) with respect to (0, 0, 0):
@@ -30,11 +30,11 @@ Load sum for all result cases (internal number):
 
 Reaction force sum for all result cases (internal number):
    result case;            tx;            ty;            tz;            rx;            ry;            rz
-             1;  9.138603e-09;  2.826528e-08;  1.534009e+05;  7.670046e+04; -2.301014e+05;  4.746835e-08
+             1;  6.606570e-09;  2.782690e-08;  1.534009e+05;  7.670046e+04; -2.301014e+05;  4.757749e-08
 
 Sum of load sum and reaction force sum for all result cases (internal number):
    result case;            tx;            ty;            tz;            rx;            ry;            rz;     magnitude
-             1;  9.138823e-09;  2.826528e-08; -8.568168e-08; -5.698530e-08;  1.207809e-07;  4.746824e-08;  1.682628e-07
+             1;  6.606790e-09;  2.782690e-08; -8.850475e-08; -5.803304e-08;  1.291628e-07;  4.757738e-08;  1.759703e-07
 
 Overview of result cases:
  Name; FEM load case id; Int. result case id; Ext. result case id
