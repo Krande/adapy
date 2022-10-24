@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass
 from typing import Iterable
@@ -18,8 +20,9 @@ class DataCard:
     def to_ff_re(self):
         return get_ff_regex(self.name, *self.components)
 
-    def get_indices_from_names(self, names: list[str]):
-        return [self._index_map[n] for n in names]
+    def get_indices_from_names(self, names: list[str]) -> list[str] | str:
+        res = [self._index_map[n] for n in names]
+        return res if len(res) != 1 else res[0]
 
 
 # Nodes
@@ -165,7 +168,7 @@ RDPOINTS = DataCard(
 )
 RDSTRESS = DataCard("RDSTRESS", ["nfield", "irstrs", "lenrec", "bulk"])
 RVSTRESS = DataCard("RVSTRESS", ["nfield", "ires", "iielno", "ispalt", "irstrs"])
-
+RDIELCOR = DataCard("RDIELCOR", ["nfield, icoref", "igrid"])
 
 re_rsumreac = get_ff_regex("RSUMREAC", "nfield", "ires", "ircomp", "x", "y", "z", "rx", "ry", "rz")
 re_rvnodrea = get_ff_regex(

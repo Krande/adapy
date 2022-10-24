@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import numpy as np
 import pathlib
 from dataclasses import dataclass, field
 from itertools import groupby
 from typing import TYPE_CHECKING, Iterator
+
+import numpy as np
 
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
@@ -41,11 +42,10 @@ class SifReader:
     def _read_multi_line_statements(self, startswith: str, first_line: str):
         curr_elements = [float(x) for x in first_line.split()[1:]]
         while True:
-            line = next(self.file)
-            stripped = line.strip()
+            stripped = next(self.file).strip()
 
             if stripped.startswith(startswith) is False and stripped[0].isnumeric() is False and stripped[0] != "-":
-                self._last_line = line
+                self._last_line = stripped
                 yield curr_elements
                 break
 
@@ -78,6 +78,8 @@ class SifReader:
         for data in self._read_multi_line_statements(result_variable, first_line):
             yield data
 
+        self.eval_flags(self._last_line)
+
     def eval_flags(self, line: str):
         stripped = line.strip()
 
@@ -92,8 +94,9 @@ class SifReader:
             self.elements = list(self.read_gelmnts(stripped))
 
         # Results
-        if stripped.startswith(cards.RVNODDIS.name):  # Nodal
-            self.results.append((cards.RVNODDIS.name, list(self.read_results(cards.RVNODDIS.name, stripped))))
+        for res_card in (cards.RVNODDIS, cards.RVSTRESS, cards.RDPOINTS, cards.RDSTRESS, cards.RDIELCOR):
+            if stripped.startswith(res_card.name):
+                self.results.append((res_card.name, list(self.read_results(res_card.name, stripped))))
 
     def load(self):
         while True:
@@ -160,10 +163,47 @@ def get_nodal_results(res) -> list[NodalFieldData]:
     return results
 
 
+def get_stresses(sif: SifReader) -> list[ElementFieldData | NodalFieldData]:
+    stress_map = {
+        1: ("SIGXX", "Normal Stress x-direction"),
+        2: ("SIGYY", "Normal Stress y-direction"),
+        4: ("TAUXY", "Shear stress in y-direction, yz-plane"),
+    }
+    rdstress = list(filter(lambda x: x[0] == cards.RDSTRESS.name, sif.results))
+    rdpoints = list(filter(lambda x: x[0] == cards.RDPOINTS.name, sif.results))
+    rvstress = list(filter(lambda x: x[0] == cards.RVSTRESS.name, sif.results))
+    rdielcor = list(filter(lambda x: x[0] == cards.RDIELCOR.name, sif.results))
+
+    for x in [rdpoints, rdstress, rvstress, rdielcor]:
+        if len(x) != 1:
+            raise ValueError("Result data length != 1")
+
+    rdpoints_map = {int(x[1]): x for x in rdpoints[0][1][1:]}
+    rdstress_map = {int(x[1]): tuple([int(i) for i in x[3:]]) for x in rdstress[0][1]}
+    rdielcor_map = {int(x[1]): x[2:] for x in rdielcor[0][1]}
+
+    ires_i, iielno_i, ispalt_i, irstrs_i = cards.RVSTRESS.get_indices_from_names(["ires", "iielno", "ispalt", "irstrs"])
+    icoref_i = cards.RDPOINTS.get_indices_from_names(["icoref"])
+    for x in rvstress[0][1][1:]:
+        ires = int(x[ires_i])
+        iielno = int(x[iielno_i])
+        ispalt = int(x[ispalt_i])
+        rdpoints_res = rdpoints_map[ispalt]
+        ref = int(rdpoints_res[icoref_i])
+        rdielcor_res = rdielcor_map[ref]
+        irstrs = int(x[irstrs_i])
+        rdstress_res = rdstress_map[irstrs]
+        stress_types = [stress_map[c] for c in rdstress_res]
+        data = x[irstrs_i + 1 :]
+        print(ires, iielno, rdpoints_res, rdstress_res, data, rdielcor_res, stress_types)
+
+
 def get_sif_results(sif: SifReader) -> list[ElementFieldData | NodalFieldData]:
     result_blocks = []
     for res in sif.results:
         if res[0] == cards.RVNODDIS.name:
             result_blocks += get_nodal_results(res[1])
+
+    result_blocks += get_stresses(sif)
 
     return result_blocks
