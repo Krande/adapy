@@ -367,7 +367,7 @@ def run_tool(exe: LocalExecute, run_cmd, platform):
     out = None
     print(80 * "-")
     print(f'Starting {fem_tool_name} simulation "{exe.analysis_name}" (on {platform}) using {exe.cpus} cpus')
-    props = dict(shell=True, cwd=exe.execute_dir, env=os.environ, universal_newlines=True)
+    props = dict(shell=True, cwd=exe.execute_dir, env=os.environ, universal_newlines=True, encoding="utf8")
     if exe.auto_execute is True:
         if exe.run_ext is True:
             out = subprocess.Popen(run_cmd, **props)

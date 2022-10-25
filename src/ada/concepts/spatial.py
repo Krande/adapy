@@ -4,7 +4,6 @@ import logging
 import os
 import pathlib
 from dataclasses import dataclass
-from io import StringIO
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Union
 
@@ -981,7 +980,6 @@ class Assembly(Part):
         run_in_shell=False,
         make_zip_file=False,
         import_result_mesh=False,
-        writable_obj: StringIO = None,
     ) -> Results:
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
@@ -1083,6 +1081,8 @@ class Assembly(Part):
                     exit_on_complete=exit_on_complete,
                     run_in_shell=run_in_shell,
                 )
+                with open(inp_path.parent / "run_log.txt", "w", encoding="utf8") as f:
+                    f.write(out.stdout + out.stderr)
         else:
             print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
 

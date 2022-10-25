@@ -56,7 +56,6 @@ class ElementFieldData(FieldData):
             start = row_ids[i]
             end = row_ids[i + 1]
             res_array[i] = self.values[start:end, 2:]
-        print("sd")
 
     def get_all_values(self):
         num_cols = len(self.COLS)

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable
+import subprocess
+from typing import TYPE_CHECKING, Callable
 
 from ada.base.types import BaseEnum
 
 from . import abaqus, calculix, code_aster, sesam, usfos
 from .utils import interpret_fem
+
+if TYPE_CHECKING:
+    from ada import Assembly
 
 
 class FEATypes(BaseEnum):
@@ -25,7 +29,7 @@ class FEATypes(BaseEnum):
         return [x for x in FEATypes if x not in non_solvers]
 
 
-fem_imports = {
+fem_imports: dict[FEATypes, Callable[..., Assembly]] = {
     FEATypes.ABAQUS: abaqus.read_fem,
     FEATypes.SESAM: sesam.read_fem,
     FEATypes.CODE_ASTER: code_aster.read_fem,
@@ -39,7 +43,7 @@ fem_exports = {
     FEATypes.USFOS: usfos.to_fem,
 }
 
-fem_executables: dict[FEATypes, Callable] = {
+fem_executables: dict[FEATypes, Callable[..., subprocess.CompletedProcess]] = {
     FEATypes.ABAQUS: abaqus.run_abaqus,
     FEATypes.CALCULIX: calculix.run_calculix,
     FEATypes.CODE_ASTER: code_aster.run_code_aster,

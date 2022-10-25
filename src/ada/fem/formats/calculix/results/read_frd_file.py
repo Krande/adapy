@@ -8,7 +8,7 @@ import meshio
 import numpy as np
 
 from ada.base.types import BaseEnum
-from ada.fem.results.common import FEAResult
+from ada.fem.results.common import ElementBlock, FEAResult, FemNodes, Mesh
 from ada.fem.results.field_data import FieldData
 
 
@@ -222,4 +222,7 @@ def to_fea_result_obj(ccx_results: CcxResultModel) -> FEAResult:
     from ada.fem.formats.general import FEATypes
 
     name = f"Adapy - Calculix ({ccx_results.ccx_version}) Results"
-    return FEAResult(name, FEATypes.CALCULIX, ccx_results.results)
+    elem_block = ElementBlock()
+    nodes = FemNodes()
+    mesh = Mesh(elements=[elem_block], nodes=nodes)
+    return FEAResult(name, FEATypes.CALCULIX, ccx_results.results, mesh=mesh)

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import numpy as np
 import pathlib
 from dataclasses import dataclass, field
 from itertools import groupby
 from typing import TYPE_CHECKING, Iterator
+
+import numpy as np
 
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
@@ -17,6 +18,7 @@ STRESS_MAP = {
     2: ("SIGYY", "Normal Stress y-direction"),
     4: ("TAUXY", "Shear stress in y-direction, yz-plane"),
 }
+INT_LOCATIONS = {24: [()]}
 RESULT_CARDS = [cards.RVNODDIS, cards.RVSTRESS, cards.RDPOINTS, cards.RDSTRESS, cards.RDIELCOR, cards.RDRESREF]
 
 
@@ -204,7 +206,7 @@ def get_sif_results(sif: SifReader, mesh: Mesh) -> list[ElementFieldData | Nodal
         if res[0] == cards.RVNODDIS.name:
             result_blocks += get_nodal_results(res[1])
 
-    result_blocks += get_stresses(sif, mesh)
+    result_blocks += get_stresses(sif)
 
     return result_blocks
 
@@ -241,48 +243,49 @@ def _get_rdpoints_nox_data(rdpoints_res, nlay_i, nsptra_len):
     return nox_data_clean
 
 
-def _iter_stress(sif) -> Iterator:
-    rvstress = sif.get_result(cards.RVSTRESS.name)
-    # rdresref = sif.get_result(cards.RDRESREF.name)
-    # complx_i = cards.RDRESREF.get_indices_from_names(['complx'])
-    # res = rdresref[0][1][0][complx_i]
-    rdpoints_map = sif.get_rdpoints_map()
+def _iter_stress(rv_stresses: Iterator, sif, nsp) -> Iterator:
     rdstress_map = sif.get_rdstress_map()
-    rdielcor_map = sif.get_rdielcor_map()
-
     ires_i, iielno_i, ispalt_i, irstrs_i = cards.RVSTRESS.get_indices_from_names(["ires", "iielno", "ispalt", "irstrs"])
-    icoref_i, ijkdim_i, nsp_i, nlay_i, nsptra_i = cards.RDPOINTS.get_indices_from_names(
-        ["icoref", "ijkdim", "nsp", "nlay", "nsptra"]
-    )
-
-    for rv_stress in rvstress[0][1][1:]:
-        ires = int(rv_stress[ires_i])
+    for rv_stress in rv_stresses:
         iielno = int(rv_stress[iielno_i])
-        ispalt = int(rv_stress[ispalt_i])
         irstrs = int(rv_stress[irstrs_i])
-
         rdstress_res = rdstress_map[irstrs]
-        rdpoints_res = rdpoints_map[ispalt]
-        rdielcor_res = rdielcor_map[int(rdpoints_res[icoref_i])]
-
-        ijkdim = rdpoints_res[ijkdim_i]
-        nok = int(ijkdim / 10000)
-        noj = int((ijkdim % 10000) / 100)
-        noi = int(ijkdim % 100)
-        nsp = int(rdpoints_res[nsp_i])
-        # _test = nok*10000+noj*100+noi
-        # Test was OK
-        nsptra_len = int(rdpoints_res[nsptra_i] * 9)
-        # nlay = rdpoints_res[nlay_i]
-        rdp_nox = _get_rdpoints_nox_data(rdpoints_res, nlay_i, nsptra_len)
-        stress_types = [STRESS_MAP[c] for c in rdstress_res]
         data = np.array(rv_stress[irstrs_i + 1 :])
-        data_reshaped = data.reshape((nsp, len(rdstress_res)))
-        yield ires, iielno, data, stress_types, rdp_nox
+        for i, data_per_int in enumerate(data.reshape((nsp, len(rdstress_res))), start=1):
+            yield iielno, i, *data_per_int
 
 
-def get_stresses(sif: SifReader, mesh: Mesh) -> list[ElementFieldData | NodalFieldData]:
-    for ires, iel_no, data, stress_types, rdp_nox in _iter_stress(sif):
-        elem = mesh.get_elem_by_id(iel_no)
+def get_int_positions(sif, rdpoints_res) -> list:
+    ieltyp_i, icoref_i, ijkdim_i = cards.RDPOINTS.get_indices_from_names(["ieltyp", "icoref", "ijkdim"])
+    rdielcor_map = sif.get_rdielcor_map()
+    ijkdim = rdpoints_res[ijkdim_i]
+    nok = int(ijkdim / 10000)
+    noj = int((ijkdim % 10000) / 100)
+    noi = int(ijkdim % 100)
+    rdielcor_res = rdielcor_map[int(rdpoints_res[icoref_i])]
+    el_type = int(rdpoints_res[ieltyp_i])
+    print(nok, noj, noi, rdielcor_res, el_type)
 
-    return []
+
+def get_stresses(sif: SifReader) -> list[ElementFieldData | NodalFieldData]:
+    from ada.fem.results.common import ElementFieldData
+
+    ires_i, ispalt_i, irstrs_i = cards.RVSTRESS.get_indices_from_names(["ires", "ispalt", "irstrs"])
+    nsp_i, nsptra_i, nlay_i = cards.RDPOINTS.get_indices_from_names(["nsp", "nsptra", "nlay"])
+    rdstress_map = sif.get_rdstress_map()
+    rdpoints_map = sif.get_rdpoints_map()
+
+    def keyfunc(x):
+        return x[ires_i], x[ispalt_i], x[irstrs_i]
+
+    field_results = []
+    field_pos = ElementFieldData.field_pos.INT
+    for (ires, ispalt, irstrs), rv_stresses in groupby(sif.get_result(cards.RVSTRESS.name)[0][1][1:], key=keyfunc):
+        rdpoints_res = rdpoints_map[ispalt]
+        _ = get_int_positions(sif, rdpoints_res)
+        stress_types = [STRESS_MAP[c][0] for c in rdstress_map[irstrs]]
+        data = np.array(list(_iter_stress(rv_stresses, sif, int(rdpoints_res[nsp_i]))))
+        field_data = ElementFieldData("STRESS", int(ires), components=stress_types, values=data, field_pos=field_pos)
+        field_results.append(field_data)
+
+    return field_results
