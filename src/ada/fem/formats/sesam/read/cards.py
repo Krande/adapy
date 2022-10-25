@@ -169,6 +169,7 @@ RDPOINTS = DataCard(
 RDSTRESS = DataCard("RDSTRESS", ["nfield", "irstrs", "lenrec", "bulk"])
 RVSTRESS = DataCard("RVSTRESS", ["nfield", "ires", "iielno", "ispalt", "irstrs"])
 RDIELCOR = DataCard("RDIELCOR", ["nfield, icoref", "igrid"])
+RDRESREF = DataCard("RDRESREF", ['nfield', 'ires', 'irno', 'ieres', 'icalty', 'complx', 'numtyp', 'bulk'])
 
 re_rsumreac = get_ff_regex("RSUMREAC", "nfield", "ires", "ircomp", "x", "y", "z", "rx", "ry", "rz")
 re_rvnodrea = get_ff_regex(

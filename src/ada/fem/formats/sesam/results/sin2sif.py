@@ -7,7 +7,7 @@ import subprocess
 from ada.core.file_system import get_short_path_name
 
 
-def convert_sin_to_sif(sin_file: str | pathlib.Path) -> None:
+def convert_sin_to_sif(sin_file: str | pathlib.Path, use_siu=False) -> None:
     if isinstance(sin_file, str):
         sin_file = pathlib.Path(sin_file)
 
@@ -16,9 +16,9 @@ def convert_sin_to_sif(sin_file: str | pathlib.Path) -> None:
         raise FileNotFoundError("Prepost executable is not set. Please set it using `ADA_prepost_exe`")
 
     analysis_name = sin_file.stem
-
+    formatting = "SIF-FORMATTED" if use_siu is False else "SIU-UNFORMATTED"
     jnl_file_str = f"OPEN SIN-DIRECT-ACCESS '' {analysis_name} OLD READ-ONLY\n"
-    jnl_file_str += f"WRITE SIF-FORMATTED '' {analysis_name} 1\nEND\nEXIT"
+    jnl_file_str += f"WRITE {formatting} '' {analysis_name} 1\nEND\nEXIT"
 
     with open(sin_file.parent / "run_prepost.jnl", "w") as f:
         f.write(jnl_file_str)

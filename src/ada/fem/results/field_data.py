@@ -82,12 +82,6 @@ class ElementFieldData(FieldData):
             return result_data
         else:
             raise NotImplementedError()
-        if num_comp == 0:
-            values = self.values[:, -1]
-        else:
-            values = np.array([self.values[:, i] for i in cr])
-
-        return values
 
 
 class LineSectionIntegrationPoints:

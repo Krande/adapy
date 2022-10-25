@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+import numpy as np
 import pathlib
 from dataclasses import dataclass, field
 from itertools import groupby
 from typing import TYPE_CHECKING, Iterator
-
-import numpy as np
 
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
 
 if TYPE_CHECKING:
     from ada.fem.results.common import ElementFieldData, FEAResult, Mesh, NodalFieldData
+
+STRESS_MAP = {
+    1: ("SIGXX", "Normal Stress x-direction"),
+    2: ("SIGYY", "Normal Stress y-direction"),
+    4: ("TAUXY", "Shear stress in y-direction, yz-plane"),
+}
+RESULT_CARDS = [cards.RVNODDIS, cards.RVSTRESS, cards.RDPOINTS, cards.RDSTRESS, cards.RDIELCOR, cards.RDRESREF]
 
 
 @dataclass
@@ -23,6 +29,7 @@ class SifReader:
     elements: list[tuple] = None
     results: list[tuple] = field(default_factory=list)
 
+    skipped_flags: list[str] = field(default_factory=list)
     _last_line: str = None
 
     def _read_single_line_statements(self, startswith: str, first_line: str):
@@ -82,21 +89,30 @@ class SifReader:
 
     def eval_flags(self, line: str):
         stripped = line.strip()
+        is_skipped_flag = False
 
         # Nodes
         if stripped.startswith("GCOORD"):
             self.nodes = np.array(list(self.read_gcoords(stripped)))
-        if stripped.startswith("GNODE"):
+        elif stripped.startswith("GNODE"):
             self.node_ids = np.array(list(self.read_gnodes(stripped)))
 
         # Elements
-        if stripped.startswith("GELMNT1"):
+        elif stripped.startswith("GELMNT1"):
             self.elements = list(self.read_gelmnts(stripped))
+        elif stripped[0].isnumeric() is False and stripped[0] != "-":
+            is_skipped_flag = True
 
         # Results
-        for res_card in (cards.RVNODDIS, cards.RVSTRESS, cards.RDPOINTS, cards.RDSTRESS, cards.RDIELCOR):
+        for res_card in RESULT_CARDS:
             if stripped.startswith(res_card.name):
                 self.results.append((res_card.name, list(self.read_results(res_card.name, stripped))))
+                is_skipped_flag = False
+
+        if is_skipped_flag:
+            flag = stripped.split()[0]
+            if flag not in self.skipped_flags:
+                self.skipped_flags.append(flag)
 
     def load(self):
         while True:
@@ -105,6 +121,25 @@ class SifReader:
                 self.eval_flags(line)
             except StopIteration:
                 break
+
+    def get_result(self, name: str) -> list:
+        result = list(filter(lambda x: x[0] == name, self.results))
+        if len(result) != 1:
+            raise NotImplementedError("")
+
+        return result
+
+    def get_rdpoints_map(self) -> dict:
+        rdpoints = self.get_result(cards.RDPOINTS.name)
+        return {int(x[1]): x for x in rdpoints[0][1][1:]}
+
+    def get_rdstress_map(self) -> dict:
+        rdstress = self.get_result(cards.RDSTRESS.name)
+        return {int(x[1]): tuple([int(i) for i in x[3:]]) for x in rdstress[0][1]}
+
+    def get_rdielcor_map(self) -> dict:
+        rdielcor = self.get_result(cards.RDIELCOR.name)
+        return {int(x[1]): x[2:] for x in rdielcor[0][1]}
 
 
 def read_sif_file(sif_file: str | pathlib.Path) -> FEAResult:
@@ -117,7 +152,7 @@ def read_sif_file(sif_file: str | pathlib.Path) -> FEAResult:
         sif.load()
 
     mesh = get_sif_mesh(sif)
-    results = get_sif_results(sif)
+    results = get_sif_results(sif, mesh)
 
     return FEAResult(sif_file.stem, FEATypes.SESAM, results=results, mesh=mesh)
 
@@ -163,27 +198,62 @@ def get_nodal_results(res) -> list[NodalFieldData]:
     return results
 
 
-def get_stresses(sif: SifReader) -> list[ElementFieldData | NodalFieldData]:
-    stress_map = {
-        1: ("SIGXX", "Normal Stress x-direction"),
-        2: ("SIGYY", "Normal Stress y-direction"),
-        4: ("TAUXY", "Shear stress in y-direction, yz-plane"),
-    }
-    rdstress = list(filter(lambda x: x[0] == cards.RDSTRESS.name, sif.results))
-    rdpoints = list(filter(lambda x: x[0] == cards.RDPOINTS.name, sif.results))
-    rvstress = list(filter(lambda x: x[0] == cards.RVSTRESS.name, sif.results))
-    rdielcor = list(filter(lambda x: x[0] == cards.RDIELCOR.name, sif.results))
+def get_sif_results(sif: SifReader, mesh: Mesh) -> list[ElementFieldData | NodalFieldData]:
+    result_blocks = []
+    for res in sif.results:
+        if res[0] == cards.RVNODDIS.name:
+            result_blocks += get_nodal_results(res[1])
 
-    for x in [rdpoints, rdstress, rvstress, rdielcor]:
-        if len(x) != 1:
-            raise ValueError("Result data length != 1")
+    result_blocks += get_stresses(sif, mesh)
 
-    rdpoints_map = {int(x[1]): x for x in rdpoints[0][1][1:]}
-    rdstress_map = {int(x[1]): tuple([int(i) for i in x[3:]]) for x in rdstress[0][1]}
-    rdielcor_map = {int(x[1]): x[2:] for x in rdielcor[0][1]}
+    return result_blocks
+
+
+def _get_rdpoints_nox_data(rdpoints_res, nlay_i, nsptra_len):
+    nox_data = rdpoints_res[nlay_i + 1 : -nsptra_len]
+    nox_data_clean = dict()
+    data_iter = iter(nox_data)
+    init_el = next(data_iter)
+    if init_el == -1:
+        remaining_el = 0
+    else:
+        remaining_el = 3
+    curr_el_id = int(init_el)
+    nox_data_clean[curr_el_id] = []
+
+    while True:
+        try:
+            curr_el = next(data_iter)
+        except StopIteration:
+            break
+
+        if remaining_el > 0:
+            nox_data_clean[curr_el_id].append(curr_el)
+            remaining_el -= 1
+        else:
+            curr_el_id = int(curr_el)
+            if curr_el_id == -1:
+                remaining_el = 0
+            else:
+                remaining_el = 3
+                nox_data_clean[curr_el_id] = []
+
+    return nox_data_clean
+
+
+def _iter_stress(sif) -> Iterator:
+    rvstress = sif.get_result(cards.RVSTRESS.name)
+    # rdresref = sif.get_result(cards.RDRESREF.name)
+    # complx_i = cards.RDRESREF.get_indices_from_names(['complx'])
+    # res = rdresref[0][1][0][complx_i]
+    rdpoints_map = sif.get_rdpoints_map()
+    rdstress_map = sif.get_rdstress_map()
+    rdielcor_map = sif.get_rdielcor_map()
 
     ires_i, iielno_i, ispalt_i, irstrs_i = cards.RVSTRESS.get_indices_from_names(["ires", "iielno", "ispalt", "irstrs"])
-    icoref_i, ijkdim_i, nsp_i, nlay_i = cards.RDPOINTS.get_indices_from_names(["icoref", "ijkdim", "nsp", "nlay"])
+    icoref_i, ijkdim_i, nsp_i, nlay_i, nsptra_i = cards.RDPOINTS.get_indices_from_names(
+        ["icoref", "ijkdim", "nsp", "nlay", "nsptra"]
+    )
 
     for rv_stress in rvstress[0][1][1:]:
         ires = int(rv_stress[ires_i])
@@ -196,51 +266,23 @@ def get_stresses(sif: SifReader) -> list[ElementFieldData | NodalFieldData]:
         rdielcor_res = rdielcor_map[int(rdpoints_res[icoref_i])]
 
         ijkdim = rdpoints_res[ijkdim_i]
-
         nok = int(ijkdim / 10000)
         noj = int((ijkdim % 10000) / 100)
         noi = int(ijkdim % 100)
+        nsp = int(rdpoints_res[nsp_i])
         # _test = nok*10000+noj*100+noi
         # Test was OK
-
-        _ = rdpoints_res[nlay_i]
-        nox_data = rdpoints_res[nlay_i + 1 : nlay_i + 1 + int(nok * noj * noi)]
-        nox_data_clean = dict()
-        data_iter = iter(nox_data)
-        init_el = next(data_iter)
-        if init_el == -1:
-            remaining_el = 0
-        else:
-            remaining_el = 3
-        curr_el_id = int(init_el)
-        nox_data_clean[curr_el_id] = []
-
-        while True:
-            try:
-                curr_el = next(data_iter)
-            except StopIteration:
-                break
-
-            if remaining_el > 0:
-                nox_data_clean[curr_el_id].append(curr_el)
-                remaining_el -= 1
-            else:
-                curr_el_id = int(curr_el)
-
-        _ = np.array(nox_data).reshape((len(nox_data), noj, noi))
-
-        nsp = int(rdpoints_res[nsp_i])
-        stress_types = [stress_map[c] for c in rdstress_res]
-        data = np.array(rv_stress[irstrs_i + 1 :]).reshape((nsp, len(rdstress_res)))
-        print(ires, iielno, rdpoints_res, rdstress_res, data, rdielcor_res, stress_types)
+        nsptra_len = int(rdpoints_res[nsptra_i] * 9)
+        # nlay = rdpoints_res[nlay_i]
+        rdp_nox = _get_rdpoints_nox_data(rdpoints_res, nlay_i, nsptra_len)
+        stress_types = [STRESS_MAP[c] for c in rdstress_res]
+        data = np.array(rv_stress[irstrs_i + 1 :])
+        data_reshaped = data.reshape((nsp, len(rdstress_res)))
+        yield ires, iielno, data, stress_types, rdp_nox
 
 
-def get_sif_results(sif: SifReader) -> list[ElementFieldData | NodalFieldData]:
-    result_blocks = []
-    for res in sif.results:
-        if res[0] == cards.RVNODDIS.name:
-            result_blocks += get_nodal_results(res[1])
+def get_stresses(sif: SifReader, mesh: Mesh) -> list[ElementFieldData | NodalFieldData]:
+    for ires, iel_no, data, stress_types, rdp_nox in _iter_stress(sif):
+        elem = mesh.get_elem_by_id(iel_no)
 
-    result_blocks += get_stresses(sif)
-
-    return result_blocks
+    return []

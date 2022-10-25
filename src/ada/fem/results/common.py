@@ -1,16 +1,14 @@
 from __future__ import annotations
 
+import meshio
+import numpy as np
 import os
 import pathlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
-import meshio
-import numpy as np
-
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
-
 from .field_data import ElementFieldData, NodalFieldData
 
 if TYPE_CHECKING:
@@ -38,12 +36,14 @@ class FemNodes:
     identifiers: np.ndarray
 
     def get_node_by_id(self, node_id: int | list[int]) -> list[Node]:
+        from typing import Iterable
         from ada import Node
 
-        if isinstance(node_id, int):
+        if isinstance(node_id, Iterable) is False:
             node_id = [node_id]
+
         node_indices = [np.where(self.identifiers == x)[0][0] for x in node_id]
-        return [Node(x, node_id[i]) for i, x in enumerate(self.coords[node_indices])]
+        return [Node(x, int(node_id[i])) for i, x in enumerate(self.coords[node_indices])]
 
 
 @dataclass
@@ -142,6 +142,28 @@ class FEAResult:
                     raise ValueError()
         return cell_data, point_data
 
+    def get_data(self, field: str, step: int):
+        steps = self.get_results_grouped_by_field_value().get(field)
+        all_field_data = [x for x in steps if x.step == step]
+        if len(all_field_data) != 1:
+            raise ValueError("Non-unique results of field data")
+
+        field_data = all_field_data[0]
+        return field_data.get_all_values()
+
+    def _colorize_data(self, field: str, step: int, colorize_function: Callable = None):
+        from ada.visualize.colors import DataColorizer
+
+        data = self.get_data(field, step)
+        vertex_colors = DataColorizer.colorize_data(data, func=colorize_function)
+        return np.array([[i * 255 for i in x] + [1] for x in vertex_colors], dtype=np.int32)
+
+    def _warp_data(self, vertices: np.ndarray, field: str, step, scale: float = 1.0):
+        data = self.get_data(field, step)
+
+        result = vertices + data[:, :3] * scale
+        return result
+
     def to_meshio_mesh(self) -> meshio.Mesh:
         cells = self._get_cell_blocks()
         cell_data, point_data = self._get_point_and_cell_data()
@@ -168,27 +190,12 @@ class FEAResult:
 
                     writer.write_data(x.step, point_data=point_data)
 
-    def get_data(self, field: str, step: int):
-        steps = self.get_results_grouped_by_field_value().get(field)
-        all_field_data = [x for x in steps if x.step == step]
-        if len(all_field_data) != 1:
-            raise ValueError("Non-unique results of field data")
+    def to_fem_file(self, fem_file: str | pathlib.Path):
+        if isinstance(fem_file, str):
+            fem_file = pathlib.Path(fem_file)
 
-        field_data = all_field_data[0]
-        return field_data.get_all_values()
-
-    def _colorize_data(self, field: str, step: int, colorize_function: Callable = None):
-        from ada.visualize.colors import DataColorizer
-
-        data = self.get_data(field, step)
-        vertex_colors = DataColorizer.colorize_data(data, func=colorize_function)
-        return np.array([[i * 255 for i in x] + [1] for x in vertex_colors], dtype=np.int32)
-
-    def _warp_data(self, vertices: np.ndarray, field: str, step, scale: float = 1.0):
-        data = self.get_data(field, step)
-
-        result = vertices + data[:, :3] * scale
-        return result
+        mesh = self.to_meshio_mesh()
+        mesh.write(fem_file)
 
     def to_gltf(self, dest_file, step: int, field: str, warp_field=None, warp_step=None, warp_scale=None, cfunc=None):
         import trimesh
