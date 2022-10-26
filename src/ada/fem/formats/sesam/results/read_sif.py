@@ -11,6 +11,7 @@ from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
 
 if TYPE_CHECKING:
+    from ada.fem import FemSection
     from ada.fem.results.common import ElementFieldData, FEAResult, Mesh, NodalFieldData
 
 STRESS_MAP = {
@@ -47,6 +48,8 @@ INT_LOCATIONS = {
     ],
     15: [(0, 0), (1, 0.5), (2, 1)],
 }
+OTHER_CARDS = [cards.GUNIVEC, cards.TDSECT]
+SECTION_CARDS = [cards.GIORH, cards.GBOX]
 RESULT_CARDS = [
     cards.RVNODDIS,
     cards.RVSTRESS,
@@ -70,6 +73,10 @@ class SifReader:
 
     skipped_flags: list[str] = field(default_factory=list)
     _last_line: str = None
+
+    _gelref1: list = None
+    _other: dict[str, list] = field(default_factory=dict)
+    _sections: dict[str, list] = field(default_factory=dict)
 
     def _read_single_line_statements(self, startswith: str, first_line: str):
         first_vals = [float(x) for x in first_line.split()[1:]]
@@ -126,21 +133,49 @@ class SifReader:
 
         self.eval_flags(self._last_line)
 
+    def read_fem_sections(self) -> list[FemSection]:
+        from ada import Section
+
+        sec_map: dict[str, cards.DataCard] = {s.name: s for s in SECTION_CARDS}
+        sections = dict()
+        for sec_name, sec_data in self._sections.items():
+            sec_card = sec_map[sec_name]
+            sec_card.get_indices_from_names([])
+            res = sec_card.get_indices_from_names(["geono", "hz", "ty", "bt", "tt", "bb", "tb"])
+            sec_id = res[0]
+            sec = Section()
+            sections[sec_id] = sec
+
     def eval_flags(self, line: str):
         stripped = line.strip()
         is_skipped_flag = False
 
         # Nodes
-        if stripped.startswith("GCOORD"):
+        if stripped.startswith(cards.GCOORD.name):
             self.nodes = np.array(list(self.read_gcoords(stripped)))
-        elif stripped.startswith("GNODE"):
+        elif stripped.startswith(cards.GNODE.name):
             self.node_ids = np.array(list(self.read_gnodes(stripped)))
 
         # Elements
-        elif stripped.startswith("GELMNT1"):
+        elif stripped.startswith(cards.GELMNT1.name):
             self.elements = list(self.read_gelmnts(stripped))
         elif stripped[0].isnumeric() is False and stripped[0] != "-":
             is_skipped_flag = True
+
+        # Sections
+        if stripped.startswith(cards.GELREF1.name):
+            self._gelref1 = list(cards.GELREF1.iter(self.file, stripped, next_func=self.eval_flags))
+
+        for other_card in OTHER_CARDS:
+            if stripped.startswith(other_card.name):
+                self._other[other_card.name] = list(other_card.iter(self.file, stripped, next_func=self.eval_flags))
+
+        for sec_card in SECTION_CARDS:
+            if stripped.startswith(sec_card.name):
+                self._sections[sec_card.name] = list(sec_card.iter(self.file, stripped, next_func=self.eval_flags))
+
+        if len(self._other) > 0 and self._gelref1 is not None and len(self._sections) > 0:
+            self.read_fem_sections()
 
         # Results
         for res_card in RESULT_CARDS:

@@ -23,7 +23,7 @@ def get_sections(bulk_str, fem: FEM, mass_elem, spring_elem) -> FemSections:
     # Section Names
     sect_names = {sec_id: name for sec_id, name in map(get_section_names, cards.re_sectnames.finditer(bulk_str))}
     # Local Coordinate Systems
-    lcsysd = {transno: vec for transno, vec in map(get_lcsys, cards.re_lcsys.finditer(bulk_str))}
+    lcsysd = {transno: vec for transno, vec in map(get_lcsys, cards.GUNIVEC.to_ff_re().finditer(bulk_str))}
     # Hinges
     hinges = {fixno: values for fixno, values in map(get_hinges, cards.re_belfix.finditer(bulk_str))}
     # Thickness'
@@ -32,8 +32,8 @@ def get_sections(bulk_str, fem: FEM, mass_elem, spring_elem) -> FemSections:
     ecc = {eccno: values for eccno, values in map(get_eccentricities, cards.re_geccen.finditer(bulk_str))}
 
     list_of_sections = chain(
-        (get_isection(m, sect_names, fem) for m in cards.re_giorh.finditer(bulk_str)),
-        (get_box_section(m, sect_names, fem) for m in cards.re_gbox.finditer(bulk_str)),
+        (get_isection(m, sect_names, fem) for m in cards.GIORH.to_ff_re().finditer(bulk_str)),
+        (get_box_section(m, sect_names, fem) for m in cards.GBOX.to_ff_re().finditer(bulk_str)),
         (get_tubular_section(m, sect_names, fem) for m in cards.re_gpipe.finditer(bulk_str)),
         (get_flatbar(m, sect_names, fem) for m in cards.re_gbarm.finditer(bulk_str)),
     )

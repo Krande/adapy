@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Callable, Iterator
 
 from ada.fem.formats.utils import get_ff_regex
 
@@ -12,7 +12,7 @@ re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 @dataclass
 class DataCard:
     name: str
-    components: Iterable[str]
+    components: tuple
 
     def __post_init__(self):
         self._index_map = {x: i for i, x in enumerate(self.components)}
@@ -23,6 +23,45 @@ class DataCard:
     def get_indices_from_names(self, names: list[str]) -> list[str] | str:
         res = [self._index_map[n] for n in names]
         return res if len(res) != 1 else res[0]
+
+    @staticmethod
+    def is_numeric(stripped: str):
+        if stripped[0].isnumeric() is False and stripped[0] != "-":
+            return False
+        return True
+
+    @staticmethod
+    def list_to_proper_types(split_str: str) -> list[float | str]:
+        return [float(x) if DataCard.is_numeric(x) else x for x in split_str.split()[1:]]
+
+    def iter(self, f: Iterator, curr_line: str, yield_specific_values: list[str] = None, next_func: Callable = None):
+        curr_elements = [float(x) for x in curr_line.split()[1:]]
+        startswith = self.name
+
+        n_field = None
+        if self.components[0] == "nfield":
+            n_field = int(curr_elements[0])
+
+        while True:
+            stripped = next(f).strip()
+            if n_field is not None and len(stripped) >= n_field:
+                curr_elements += self.list_to_proper_types(stripped)
+                yield curr_elements
+                break
+
+            if n_field is None:
+                if stripped.startswith(startswith) is False and self.is_numeric(stripped) is False:
+                    yield curr_elements
+                    break
+
+                if stripped.startswith(startswith):
+                    yield curr_elements
+                    curr_elements = [float(x) if self.is_numeric(x) else x for x in stripped.split()[1:]]
+                    continue
+
+            curr_elements += self.list_to_proper_types(stripped)
+
+        next_func(stripped)
 
 
 # Nodes
@@ -63,7 +102,8 @@ GELREF1 = DataCard(
 # GIORHR
 # GCHANR
 # GLSECR
-re_sectnames = get_ff_regex("TDSECT", "nfield", "geono", "codnam", "codtxt", "set_name")
+TDSECT = DataCard("TDSECT", ("nfield", "geono", "codnam", "codtxt", "set_name"))
+re_sectnames = TDSECT.to_ff_re()
 re_gbeamg = get_ff_regex(
     "GBEAMG",
     "geono",
@@ -86,27 +126,14 @@ re_gbeamg = get_ff_regex(
     "wz|",
     "fabr|",
 )
-re_giorh = get_ff_regex(
-    "GIORH ",
-    "geono",
-    "hz",
-    "ty",
-    "bt",
-    "tt",
-    "bb",
-    "tb",
-    "sfy",
-    "sfz",
-    "NLOBYT|",
-    "NLOBYB|",
-    "NLOBZ|",
-)
-re_gbox = get_ff_regex("GBOX", "geono", "hz", "ty", "tb", "tt", "by", "sfy", "sfz")
+GIORH = DataCard("GIORH", ("geono", "hz", "ty", "bt", "tt", "bb", "tb", "sfy", "sfz", "NLOBYT|", "NLOBYB|", "NLOBZ|"))
+GBOX = DataCard("GBOX", ("geono", "hz", "ty", "tb", "tt", "by", "sfy", "sfz"))
+re_gbox = GBOX.to_ff_re()
 re_gpipe = get_ff_regex("GPIPE", "geono", "di", "dy", "t", "sfy", "sfz")
 re_gbarm = get_ff_regex("GBARM", "geono", "hz", "bt", "bb", "sfy", "sfz")
 
 # Coordinate System
-re_lcsys = get_ff_regex("GUNIVEC", "transno", "unix", "uniy", "uniz")
+GUNIVEC = DataCard("GUNIVEC", ("transno", "unix", "uniy", "uniz"))
 
 # Shell section
 re_thick = get_ff_regex("GELTH", "geono", "th")
