@@ -18,8 +18,45 @@ STRESS_MAP = {
     2: ("SIGYY", "Normal Stress y-direction"),
     4: ("TAUXY", "Shear stress in y-direction, yz-plane"),
 }
-INT_LOCATIONS = {24: [()]}
-RESULT_CARDS = [cards.RVNODDIS, cards.RVSTRESS, cards.RDPOINTS, cards.RDSTRESS, cards.RDIELCOR, cards.RDRESREF]
+FORCE_MAP = {
+    1: ("NXX", "Normal force in x-direction, yz-plane"),
+    2: ("NXY", "Shear force in y-direction, yz-plane"),
+    3: ("NXZ", "Shear force in z-direction, yz-plane"),
+    10: ("MXX", "Torsion moment around x-axis, yz-plane"),
+    11: ("MXY", "Bending moment around y-axis, yz-plane"),
+    12: ("MXZ", "Bending moment around z-axis, yz-plane"),
+}
+# Integration Point location.
+# If Integration point is in nodal position
+# (Int ID, Node ID, Thickness offset)
+# Else
+# (Int ID, (X relative Coord, Y relative Coord, Thickness offset))
+
+INT_LOCATIONS = {
+    24: [
+        (0, 0, -0.5),
+        (1, 1, -0.5),
+        (2, (0.5, 0.5, -0.5)),
+        (3, 2, -0.5),
+        (4, 3, -0.5),
+        (5, 0, 0.5),
+        (6, 1, 0.5),
+        (7, (0.5, 0.5, 0.5)),
+        (8, 2, 0.5),
+        (9, 3, 0.5),
+    ],
+    15: [(0, 0), (1, 0.5), (2, 1)],
+}
+RESULT_CARDS = [
+    cards.RVNODDIS,
+    cards.RVSTRESS,
+    cards.RDPOINTS,
+    cards.RDSTRESS,
+    cards.RDIELCOR,
+    cards.RDRESREF,
+    cards.RVFORCES,
+    cards.RDFORCES,
+]
 
 
 @dataclass
@@ -126,7 +163,7 @@ class SifReader:
 
     def get_result(self, name: str) -> list:
         result = list(filter(lambda x: x[0] == name, self.results))
-        if len(result) != 1:
+        if len(result) > 1:
             raise NotImplementedError("")
 
         return result
@@ -143,44 +180,188 @@ class SifReader:
         rdielcor = self.get_result(cards.RDIELCOR.name)
         return {int(x[1]): x[2:] for x in rdielcor[0][1]}
 
+    def get_rdforces_map(self) -> dict:
+        rdforces = self.get_result(cards.RDFORCES.name)
+        return {int(x[1]): tuple([int(i) for i in x[3:]]) for x in rdforces[0][1]}
+
 
 def read_sif_file(sif_file: str | pathlib.Path) -> FEAResult:
-    from ada.fem.results.common import FEAResult, FEATypes
-
     sif_file = pathlib.Path(sif_file)
 
     with open(sif_file, "r") as f:
         sif = SifReader(f)
         sif.load()
 
-    mesh = get_sif_mesh(sif)
-    results = get_sif_results(sif, mesh)
+    s2m = Sif2Mesh(sif)
+    fea_results = s2m.convert(sif_file)
 
-    return FEAResult(sif_file.stem, FEATypes.SESAM, results=results, mesh=mesh)
+    return fea_results
 
 
-def get_sif_mesh(sif: SifReader) -> Mesh:
+@dataclass
+class Sif2Mesh:
+    sif: SifReader
 
-    from ada.fem.results.common import (
-        ElementBlock,
-        ElementInfo,
-        FEATypes,
-        FemNodes,
-        Mesh,
-    )
+    mesh: Mesh = None
 
-    nodes = FemNodes(coords=sif.nodes[:, 1:], identifiers=sif.node_ids[:, 0])
-    elem_blocks = []
-    for eltype, elements in groupby(sif.elements, key=lambda x: x[0]):
-        elem_type = int(eltype)
-        elem_data = list(elements)
-        elem_identifiers = np.array([x[1] for x in elem_data], dtype=int)
-        elem_node_refs = np.array([x[2] for x in elem_data], dtype=float)
-        res = sesam_eltype_2_general(elem_type)
-        elem_info = ElementInfo(type=res, source_software=FEATypes.SESAM, source_type=elem_type)
-        elem_blocks.append(ElementBlock(elem_info=elem_info, node_refs=elem_node_refs, identifiers=elem_identifiers))
+    def convert(self, sif_file) -> FEAResult:
+        from ada.fem.results.common import FEAResult, FEATypes
 
-    return Mesh(elements=elem_blocks, nodes=nodes)
+        self.mesh = self.get_sif_mesh()
+        results = self.get_sif_results()
+
+        return FEAResult(sif_file.stem, FEATypes.SESAM, results=results, mesh=self.mesh)
+
+    def get_sif_mesh(self) -> Mesh:
+        from ada.fem.results.common import (
+            ElementBlock,
+            ElementInfo,
+            FEATypes,
+            FemNodes,
+            Mesh,
+        )
+        from ada.fem.shapes.definitions import ShapeResolver
+
+        sif = self.sif
+        nodes = FemNodes(coords=sif.nodes[:, 1:], identifiers=sif.node_ids[:, 0])
+        elem_blocks = []
+        for eltype, elements in groupby(sif.elements, key=lambda x: x[0]):
+            elem_type = int(eltype)
+            elem_data = list(elements)
+            general_elem_type = sesam_eltype_2_general(elem_type)
+            num_nodes = ShapeResolver.get_el_nodes_from_type(general_elem_type)
+            elem_identifiers = np.array([x[1] for x in elem_data], dtype=int)
+            elem_node_refs = np.array([x[2][:num_nodes] for x in elem_data], dtype=float)
+            res = sesam_eltype_2_general(elem_type)
+            elem_info = ElementInfo(type=res, source_software=FEATypes.SESAM, source_type=elem_type)
+            elem_blocks.append(
+                ElementBlock(elem_info=elem_info, node_refs=elem_node_refs, identifiers=elem_identifiers)
+            )
+
+        return Mesh(elements=elem_blocks, nodes=nodes)
+
+    def get_sif_results(self) -> list[ElementFieldData | NodalFieldData]:
+        result_blocks = self.get_nodal_data()
+        result_blocks += self.get_field_data()
+
+        return result_blocks
+
+    def get_nodal_data(self) -> list[NodalFieldData]:
+        return get_nodal_results(self.sif.get_result(cards.RVNODDIS.name)[0][1])
+
+    def get_field_data(self) -> list[ElementFieldData | NodalFieldData]:
+        sif = self.sif
+        field_results = []
+        if len(sif.get_result(cards.RVSTRESS.name)) > 0:
+            field_results += self.get_field_shell_data()
+
+        if len(sif.get_result(cards.RVFORCES.name)) > 0:
+            field_results += self.get_field_line_data()
+
+        return field_results
+
+    def get_field_line_data(self):
+        ires_i, ispalt_i, irforc_i = cards.RVFORCES.get_indices_from_names(["ires", "ispalt", "irforc|"])
+        nsp_i, eltyp_i = cards.RDPOINTS.get_indices_from_names(["nsp", "ieltyp"])
+
+        rdpoints_map = self.sif.get_rdpoints_map()
+
+        def keyfunc(x):
+            return x[ires_i], x[ispalt_i], x[irforc_i]
+
+        field_results = []
+
+        force_res_name = cards.RVFORCES.name
+        for (ires, ispalt, irforc), rv_forces in groupby(self.sif.get_result(force_res_name)[0][1][1:], key=keyfunc):
+            rdpoints_res = rdpoints_map[ispalt]
+            elem_type = int(rdpoints_res[eltyp_i])
+            nsp = int(rdpoints_res[nsp_i])
+            field_data = self._get_line_field_data(rv_forces, int(ires), int(irforc), elem_type, nsp)
+            field_results.append(field_data)
+
+        return field_results
+
+    def _get_line_field_data(self, rv_forces, ires, irforc, elem_type, nsp) -> ElementFieldData:
+        from ada.fem.results.common import ElementFieldData
+
+        rdforces_map = self.sif.get_rdforces_map()
+        force_types = [FORCE_MAP[c][0] for c in rdforces_map[irforc]]
+        data = np.array(list(_iter_line_forces(rv_forces, rdforces_map, nsp)))
+        return ElementFieldData(
+            "FORCES",
+            int(ires),
+            components=force_types,
+            values=data,
+            field_pos=ElementFieldData.field_pos.INT,
+            int_positions=INT_LOCATIONS[elem_type],
+        )
+
+    def get_field_shell_data(self):
+        sif = self.sif
+        ires_i, ispalt_i, irstrs_i = cards.RVSTRESS.get_indices_from_names(["ires", "ispalt", "irstrs"])
+        nsp_i, eltyp_i = cards.RDPOINTS.get_indices_from_names(["nsp", "ieltyp"])
+
+        rdpoints_map = sif.get_rdpoints_map()
+
+        def keyfunc(x):
+            return x[ires_i], x[ispalt_i], x[irstrs_i]
+
+        field_results = []
+
+        for (ires, ispalt, irstrs), rv_stresses in groupby(sif.get_result(cards.RVSTRESS.name)[0][1][1:], key=keyfunc):
+            rdpoints_res = rdpoints_map[ispalt]
+            nsp = int(rdpoints_res[nsp_i])
+            elem_type = int(rdpoints_res[eltyp_i])
+
+            field_data = self._get_shell_field_data(rv_stresses, ires, irstrs, elem_type, nsp)
+            field_results.append(field_data)
+
+        return field_results
+
+    def _get_shell_field_data(self, rv_stresses, ires, irstrs, elem_type: int, nsp) -> ElementFieldData:
+        from ada.fem.results.common import ElementFieldData
+
+        rdstress_map = self.sif.get_rdstress_map()
+        stress_types = [STRESS_MAP[c][0] for c in rdstress_map[irstrs]]
+        data = np.array(list(_iter_shell_stress(rv_stresses, rdstress_map, nsp)))
+        return ElementFieldData(
+            "STRESS",
+            int(ires),
+            components=stress_types,
+            values=data,
+            field_pos=ElementFieldData.field_pos.INT,
+            int_positions=INT_LOCATIONS[elem_type],
+        )
+
+    def get_int_positions(self, rdpoints_res, nlay_i, nsptra_i) -> list:
+        iielno_i, ieltyp_i, icoref_i, ijkdim_i = cards.RDPOINTS.get_indices_from_names(
+            ["iielno", "ieltyp", "icoref", "ijkdim"]
+        )
+        iielno = int(rdpoints_res[iielno_i])
+        elem = self.mesh.get_elem_by_id(iielno)
+        points = [n.p for n in elem.nodes]
+        nsptra_len = int(rdpoints_res[nsptra_i] * 9)
+        # rmat = np.array(rdpoints_res[-nsptra_len:]).reshape((3, 3))
+        nox_data = _get_rdpoints_nox_data(rdpoints_res, nlay_i, nsptra_len)
+        p0 = points[0]
+        relative_points = np.zeros((len(nox_data), 3))
+        for i, v in enumerate(nox_data.values()):
+            rel_p = p0 - np.array(v)
+            relative_points[i] = rel_p
+        # rdielcor_map = sif.get_rdielcor_map()
+        # ijkdim = rdpoints_res[ijkdim_i]
+        # nok = int(ijkdim / 10000)
+        # noj = int((ijkdim % 10000) / 100)
+        # noi = int(ijkdim % 100)
+
+        # rdielcor_res = rdielcor_map[int(rdpoints_res[icoref_i])]
+        # rdielcor_res_copy = copy.deepcopy(rdielcor_res)
+        # gamma = [rdielcor_res_copy.pop() for x in range(0, nok)]
+        # beta = [rdielcor_res_copy.pop() for x in range(0, noj)]
+        # alpha = [rdielcor_res_copy.pop() for x in range(0, noi)]
+        el_type = int(rdpoints_res[ieltyp_i])
+
+        return INT_LOCATIONS[el_type]
 
 
 def get_nodal_results(res) -> list[NodalFieldData]:
@@ -200,51 +381,40 @@ def get_nodal_results(res) -> list[NodalFieldData]:
     return results
 
 
-def get_sif_results(sif: SifReader, mesh: Mesh) -> list[ElementFieldData | NodalFieldData]:
-    result_blocks = []
-    for res in sif.results:
-        if res[0] == cards.RVNODDIS.name:
-            result_blocks += get_nodal_results(res[1])
-
-    result_blocks += get_stresses(sif)
-
-    return result_blocks
-
-
 def _get_rdpoints_nox_data(rdpoints_res, nlay_i, nsptra_len):
     nox_data = rdpoints_res[nlay_i + 1 : -nsptra_len]
     nox_data_clean = dict()
     data_iter = iter(nox_data)
-    init_el = next(data_iter)
-    if init_el == -1:
+    init_int_point = next(data_iter)
+    if init_int_point == -1:
         remaining_el = 0
     else:
         remaining_el = 3
-    curr_el_id = int(init_el)
-    nox_data_clean[curr_el_id] = []
+
+    curr_int_id = int(init_int_point)
+    nox_data_clean[curr_int_id] = []
 
     while True:
         try:
-            curr_el = next(data_iter)
+            curr_int_point = next(data_iter)
         except StopIteration:
             break
 
         if remaining_el > 0:
-            nox_data_clean[curr_el_id].append(curr_el)
+            nox_data_clean[curr_int_id].append(curr_int_point)
             remaining_el -= 1
         else:
-            curr_el_id = int(curr_el)
-            if curr_el_id == -1:
+            curr_int_id = int(curr_int_point)
+            if curr_int_id == -1:
                 remaining_el = 0
             else:
                 remaining_el = 3
-                nox_data_clean[curr_el_id] = []
+                nox_data_clean[curr_int_id] = []
 
     return nox_data_clean
 
 
-def _iter_stress(rv_stresses: Iterator, sif, nsp) -> Iterator:
-    rdstress_map = sif.get_rdstress_map()
+def _iter_shell_stress(rv_stresses: Iterator, rdstress_map, nsp) -> Iterator:
     ires_i, iielno_i, ispalt_i, irstrs_i = cards.RVSTRESS.get_indices_from_names(["ires", "iielno", "ispalt", "irstrs"])
     for rv_stress in rv_stresses:
         iielno = int(rv_stress[iielno_i])
@@ -255,37 +425,13 @@ def _iter_stress(rv_stresses: Iterator, sif, nsp) -> Iterator:
             yield iielno, i, *data_per_int
 
 
-def get_int_positions(sif, rdpoints_res) -> list:
-    ieltyp_i, icoref_i, ijkdim_i = cards.RDPOINTS.get_indices_from_names(["ieltyp", "icoref", "ijkdim"])
-    rdielcor_map = sif.get_rdielcor_map()
-    ijkdim = rdpoints_res[ijkdim_i]
-    nok = int(ijkdim / 10000)
-    noj = int((ijkdim % 10000) / 100)
-    noi = int(ijkdim % 100)
-    rdielcor_res = rdielcor_map[int(rdpoints_res[icoref_i])]
-    el_type = int(rdpoints_res[ieltyp_i])
-    print(nok, noj, noi, rdielcor_res, el_type)
+def _iter_line_forces(rv_forces: Iterator, rdforces_map, nsp) -> Iterator:
+    ires_i, iielno_i, ispalt_i, irforc_i = cards.RVFORCES.get_indices_from_names(["ires", "ielno", "ispalt", "irforc|"])
 
-
-def get_stresses(sif: SifReader) -> list[ElementFieldData | NodalFieldData]:
-    from ada.fem.results.common import ElementFieldData
-
-    ires_i, ispalt_i, irstrs_i = cards.RVSTRESS.get_indices_from_names(["ires", "ispalt", "irstrs"])
-    nsp_i, nsptra_i, nlay_i = cards.RDPOINTS.get_indices_from_names(["nsp", "nsptra", "nlay"])
-    rdstress_map = sif.get_rdstress_map()
-    rdpoints_map = sif.get_rdpoints_map()
-
-    def keyfunc(x):
-        return x[ires_i], x[ispalt_i], x[irstrs_i]
-
-    field_results = []
-    field_pos = ElementFieldData.field_pos.INT
-    for (ires, ispalt, irstrs), rv_stresses in groupby(sif.get_result(cards.RVSTRESS.name)[0][1][1:], key=keyfunc):
-        rdpoints_res = rdpoints_map[ispalt]
-        _ = get_int_positions(sif, rdpoints_res)
-        stress_types = [STRESS_MAP[c][0] for c in rdstress_map[irstrs]]
-        data = np.array(list(_iter_stress(rv_stresses, sif, int(rdpoints_res[nsp_i]))))
-        field_data = ElementFieldData("STRESS", int(ires), components=stress_types, values=data, field_pos=field_pos)
-        field_results.append(field_data)
-
-    return field_results
+    for rv_force in rv_forces:
+        iielno = int(rv_force[iielno_i])
+        irforc = int(rv_force[irforc_i])
+        rdstress_res = rdforces_map[irforc]
+        data = np.array(rv_force[irforc_i + 1 :])
+        for i, data_per_int in enumerate(data.reshape((nsp, len(rdstress_res))), start=1):
+            yield iielno, i, *data_per_int

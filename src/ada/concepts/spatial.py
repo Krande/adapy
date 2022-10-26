@@ -66,6 +66,10 @@ _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 logger = logging.getLogger(__name__)
 
 
+class FormatNotSupportedException(Exception):
+    pass
+
+
 @dataclass
 class _ConvertOptions:
     ecc_to_mpc: bool = True
@@ -957,6 +961,9 @@ class Assembly(Part):
                 return None
 
         fem_importer, _ = get_fem_converters(fem_file, fem_format, fem_converter)
+        if fem_importer is None:
+            suffix = fem_file.suffix
+            raise FormatNotSupportedException(f'File "{fem_file.name}" [{suffix}] is not a supported FEM format.')
 
         temp_assembly: Assembly = fem_importer(fem_file, name)
         self.__add__(temp_assembly)

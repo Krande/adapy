@@ -169,7 +169,12 @@ RDPOINTS = DataCard(
 RDSTRESS = DataCard("RDSTRESS", ["nfield", "irstrs", "lenrec", "bulk"])
 RVSTRESS = DataCard("RVSTRESS", ["nfield", "ires", "iielno", "ispalt", "irstrs"])
 RDIELCOR = DataCard("RDIELCOR", ["nfield, icoref", "igrid"])
-RDRESREF = DataCard("RDRESREF", ['nfield', 'ires', 'irno', 'ieres', 'icalty', 'complx', 'numtyp', 'bulk'])
+RDRESREF = DataCard("RDRESREF", ["nfield", "ires", "irno", "ieres", "icalty", "complx", "numtyp", "bulk"])
+RVFORCES = DataCard("RVFORCES", ["nfield", "ires", "ielno", "ispalt", "irforc|", "bulk|"])
+RDFORCES = DataCard("RDFORCES", ["nfield", "irforc", "lenrec", "bulk|"])
+
+re_rvforces = RVFORCES.to_ff_re()
+re_rdforces = RDFORCES.to_ff_re()
 
 re_rsumreac = get_ff_regex("RSUMREAC", "nfield", "ires", "ircomp", "x", "y", "z", "rx", "ry", "rz")
 re_rvnodrea = get_ff_regex(
@@ -177,7 +182,6 @@ re_rvnodrea = get_ff_regex(
 )
 
 re_rdrescmb = get_ff_regex("RDRESCMB", "nfield", "ires", "complx", "nres", "bulk")
-re_rvforces = get_ff_regex("RVFORCES", "nfield", "ires", "ielno", "ispalt", "irforc|", "bulk|")
-re_rdforces = get_ff_regex("RDFORCES", "nfield", "irforc", "lenrec", "bulk|")
+
 re_tdresref = get_ff_regex("TDRESREF", "nfield", "ires", "codnam", "codtxt", "name")
 re_tdload = get_ff_regex("TDLOAD", "nfield", "llc", "codnam", "codtxt", "name")

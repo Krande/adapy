@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-import meshio
-import numpy as np
 import os
 import pathlib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Iterable
+
+import meshio
+import numpy as np
 
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
+
 from .field_data import ElementFieldData, NodalFieldData
 
 if TYPE_CHECKING:
@@ -37,6 +39,7 @@ class FemNodes:
 
     def get_node_by_id(self, node_id: int | list[int]) -> list[Node]:
         from typing import Iterable
+
         from ada import Node
 
         if isinstance(node_id, Iterable) is False:
@@ -114,13 +117,38 @@ class FEAResult:
             results[x.name].append(x)
         return results
 
+    def get_field_value_by_name(
+        self, name: str, step: int = None
+    ) -> ElementFieldData | NodalFieldData | list[ElementFieldData | NodalFieldData]:
+        data = self.get_results_grouped_by_field_value()
+        values = data.get(name)
+        if values is None:
+            raise ValueError(f"Unable to find field data '{name}'. Available are {list(data.keys())}")
+
+        if len(values) == 1:
+            return values[0]
+
+        if step is not None:
+            val_selected = [val for val in values if val.step == step]
+            if val_selected == 0:
+                raise ValueError(f"Unable to find step=={step}. Available steps are {[x.step for x in values]}")
+
+            return val_selected[0]
+
+        return values
+
+    def iter_results_by_field_value(self) -> Iterable[ElementFieldData | NodalFieldData]:
+        for x in self.results:
+            yield x
+
     def _get_cell_blocks(self):
         cells = []
         for cb in self.mesh.elements:
+            cell_type = cb.elem_info.type.value.lower()
             ncopy = cb.node_refs.copy()
             for i, v in enumerate(self.mesh.nodes.identifiers):
                 ncopy[np.where(ncopy == v)] = i
-            cells += [meshio.CellBlock(cell_type=cb.elem_info.type.value.lower(), data=ncopy)]
+            cells += [meshio.CellBlock(cell_type=cell_type, data=ncopy)]
         return cells
 
     def _get_point_and_cell_data(self) -> tuple[dict, dict]:
@@ -128,7 +156,7 @@ class FEAResult:
 
         cell_data = dict()
         point_data = dict()
-        for key, values in self.get_results_grouped_by_field_value().items():
+        for values in self.get_results_grouped_by_field_value().values():
             for x in values:
                 res = x.get_all_values()
                 name = f"{x.name} - {x.step}" if len(values) > 1 else x.name
@@ -137,9 +165,13 @@ class FEAResult:
                 elif isinstance(x, ElementFieldData) and x.field_pos == x.field_pos.NODAL:
                     point_data[name] = res
                 elif isinstance(x, ElementFieldData) and x.field_pos == x.field_pos.INT:
-                    raise NotImplementedError("Currently not supporting element data directly from int. points")
+                    if isinstance(res, dict):
+                        cell_data.update(res)
+                    else:
+                        cell_data[name] = [res]
                 else:
                     raise ValueError()
+
         return cell_data, point_data
 
     def get_data(self, field: str, step: int):
