@@ -144,13 +144,21 @@ class VisMesh:
         scene = trimesh.Scene()
 
         for world in self.world:
-            for key, obj in world.id_map.items():
-                parent = None
-                for i, new_mesh in enumerate(obj.to_trimesh()):
-                    name = key if i == 0 else f"{key}_{i:02d}"
-                    scene.add_geometry(new_mesh, node_name=name, geom_name=name, parent_node_name=parent)
-                    parent = name
+            meta_set = set(self.meta.keys())
+            world_map_set = set(world.id_map.keys())
+            res = meta_set - world_map_set
+            for spatial_node in res:
+                spatial_name, spatial_parent = self.meta.get(spatial_node)
+                scene.graph.update(frame_to=spatial_name, frame_from=spatial_parent if spatial_parent != "*" else None)
 
+            for key, obj in world.id_map.items():
+                name, parent_guid = self.meta.get(key)
+                parent_name, _ = self.meta.get(parent_guid)
+                for i, new_mesh in enumerate(obj.to_trimesh()):
+                    name = name if i == 0 else f"{name}_{i:02d}"
+                    scene.add_geometry(new_mesh, node_name=name, geom_name=name, parent_node_name=parent_name)
+
+        scene.metadata["meta"] = self.meta
         return scene
 
     def _export_using_trimesh(self, mesh: trimesh.Scene, dest_file: pathlib.Path):

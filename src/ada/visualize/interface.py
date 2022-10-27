@@ -97,7 +97,7 @@ def part_to_vis_mesh(
     return amesh
 
 
-def part_to_vis_mesh2(part: Part, auto_sync_ifc_store=True, cpus: int = None):
+def part_to_vis_mesh2(part: Part, auto_sync_ifc_store=True, cpus: int = None) -> VisMesh:
     ifc_store = part.get_assembly().ifc_store
     if auto_sync_ifc_store:
         ifc_store.sync()
@@ -123,9 +123,14 @@ def part_to_vis_mesh2(part: Part, auto_sync_ifc_store=True, cpus: int = None):
         if not iterator.next():
             break
 
-    part = PartMesh(name=part.name, id_map=id_map)
-
-    return VisMesh(part.name, world=[part])
+    pm = PartMesh(name=part.name, id_map=id_map)
+    meta = {
+        p.guid: (p.name, p.parent.name if p.parent is not None else "*")
+        for p in part.get_all_subparts(include_self=True)
+    }
+    parts_d = {p.guid: (p.name, p.parent.guid) for p in part.get_all_physical_objects()}
+    meta.update(parts_d)
+    return VisMesh(part.name, world=[pm], meta=meta)
 
 
 def product_to_obj_mesh(shape: ifcopenshell.ifcopenshell_wrapper.TriangulationElement) -> ObjectMesh:

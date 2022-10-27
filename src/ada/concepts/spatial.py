@@ -704,6 +704,12 @@ class Part(BackendGeom):
         else:
             return part_to_vis_mesh(self, auto_sync_ifc_store, export_config, opt_func, merge_by_color, overwrite_cache)
 
+    def to_gltf(self, gltf_file: str | pathlib.Path, auto_sync_ifc_store=True, cpus=None, limit_to_guids=None):
+        from ada.visualize.interface import part_to_vis_mesh2
+
+        vm = part_to_vis_mesh2(self, auto_sync_ifc_store, cpus=cpus)
+        vm.to_gltf(gltf_file, only_these_guids=limit_to_guids)
+
     @property
     def parts(self) -> dict[str, Part]:
         return self._parts
