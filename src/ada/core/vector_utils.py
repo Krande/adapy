@@ -25,6 +25,13 @@ class EquationOfPlane:
 
     PLANE: ClassVar[Plane]
 
+    @staticmethod
+    def from_arbitrary_points(points):
+        points = np.array(points)
+        normal = normal_to_points_in_plane(points)
+        pip = points[0]
+        return EquationOfPlane(pip, normal)
+
     def __post_init__(self):
         point_in_plane = self.point_in_plane
         normal = self.normal

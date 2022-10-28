@@ -20,8 +20,8 @@ def test_to_fem(param_models_test_dir):
     my_step = a.fem.add_step(ada.fem.StepImplicit("static", total_time=1, max_incr=1, init_incr=1, nl_geom=False))
     my_step.add_load(ada.fem.Load("Gravity", "gravity", -9.81))
 
-    a.to_fem("SimpleStru_ca", fem_format="code_aster", overwrite=True, execute=False)
-    a.to_ifc(param_models_test_dir / "SimpleStru", file_obj_only=True, validate=True)
+    # a.to_fem("SimpleStru_ca", fem_format="code_aster", overwrite=True, execute=False)
+    # a.to_ifc(param_models_test_dir / "SimpleStru", file_obj_only=True, validate=True)
 
     assert abs(roundoff(cog.p[0]) - 2.5) < tol
     assert abs(roundoff(cog.p[1]) - 2.5) < tol
