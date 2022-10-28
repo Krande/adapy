@@ -158,7 +158,6 @@ class VisMesh:
                     name = name if i == 0 else f"{name}_{i:02d}"
                     scene.add_geometry(new_mesh, node_name=name, geom_name=name, parent_node_name=parent_name)
 
-        scene.metadata["meta"] = self.meta
         return scene
 
     def _export_using_trimesh(self, mesh: trimesh.Scene, dest_file: pathlib.Path):
