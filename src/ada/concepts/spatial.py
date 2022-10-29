@@ -558,12 +558,16 @@ class Part(BackendGeom):
 
         return self.materials.materials
 
-    def get_all_parts_in_assembly(self, include_self=False) -> list[Part]:
+    def get_all_parts_in_assembly(self, include_self=False, by_type=None) -> list[Part]:
         parent = self.get_assembly()
         list_of_ps = []
         self._flatten_list_of_subparts(parent, list_of_ps)
         if include_self:
             list_of_ps += [self]
+
+        if by_type is not None:
+            return list(filter(lambda x: issubclass(type(x), by_type), list_of_ps))
+
         return list_of_ps
 
     def get_all_subparts(self, include_self=False) -> list[Part]:
