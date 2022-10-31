@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from itertools import chain
 from typing import TYPE_CHECKING
@@ -8,7 +10,7 @@ if TYPE_CHECKING:
     from ada.concepts.spatial import Assembly
 
 
-def materials_str(assembly: "Assembly") -> str:
+def materials_str(assembly: Assembly) -> str:
     all_mat = chain.from_iterable([p.materials for p in assembly.get_all_parts_in_assembly(True)])
     all_mat_unique = {x.name: x for x in all_mat}
     return "\n".join([material_str(mat) for mat in all_mat_unique.values()])

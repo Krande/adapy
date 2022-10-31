@@ -12,7 +12,7 @@ update:
 	conda env update --file environment.yml --prune
 
 dev:
-	conda env update --file environment.dev.yml --prune
+	mamba env update --file environment.dev.yml --prune
 
 iformat:
 	conda install -c conda-forge pre-commit
