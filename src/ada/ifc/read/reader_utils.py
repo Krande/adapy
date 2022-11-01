@@ -40,7 +40,7 @@ def get_ifc_property_sets(ifc_elem) -> dict:
             if prop.is_a() not in ("IfcPropertySingleValue", "IfcPropertyListValue"):
                 continue
             if prop.is_a("IfcPropertySingleValue"):
-                res = prop.NominalValue.wrappedValue
+                res = prop.NominalValue.wrappedValue if prop.NominalValue is not None else None
                 props[pset_name][prop.Name] = res
             else:
                 props[pset_name][prop.Name] = [x.wrappedValue for x in prop.ListValues]
@@ -49,6 +49,8 @@ def get_ifc_property_sets(ifc_elem) -> dict:
 
 
 def get_parent(instance):
+    from ifcopenshell.util.element import get_container
+
     if instance.is_a("IfcOpeningElement"):
         return instance.VoidsElements[0].RelatingBuildingElement
     if instance.is_a("IfcElement"):
@@ -63,7 +65,7 @@ def get_parent(instance):
         if len(decompositions):
             return decompositions[0].RelatingObject
 
-    return None
+    return get_container(instance)
 
 
 def get_associated_material(ifc_elem: ifcopenshell.entity_instance):
@@ -238,5 +240,10 @@ def get_ifc_body(product, allow_multiple=False) -> ifcopenshell.entity_instance:
 
 
 def get_swept_area(product: ifcopenshell.entity_instance) -> ifcopenshell.entity_instance:
+    from .exceptions import UnableToConvertBoolResToBeamException
+
     body = get_ifc_body(product)
+    if body.is_a("IfcBooleanResult"):
+        raise UnableToConvertBoolResToBeamException(f"Unable to convert {product} to beam")
+
     return body.SweptArea

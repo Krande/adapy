@@ -11,9 +11,9 @@ from .write_profiles import sections_str
 
 def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None):
     metadata = dict() if metadata is None else metadata
-    parts = list(filter(lambda x: len(x.fem.nodes) > 0, assembly.get_all_subparts()))
+    parts = list(filter(lambda x: len(x.fem.nodes) > 0, assembly.get_all_subparts(include_self=True)))
     if len(parts) != 1:
-        raise ValueError("Usfos writer currently only works for a single part")
+        raise ValueError(f"Usfos writer currently only works for a single part. Passed {len(parts)=}")
     part = parts[0]
 
     head = """ HEAD\n\n\n"""

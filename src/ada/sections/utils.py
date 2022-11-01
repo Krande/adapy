@@ -108,7 +108,7 @@ def interpret_section_str(in_str: str, s=0.001, units=Units.M) -> Tuple[Section,
     raise UnableToConvertSectionError(f'Unable to interpret section str "{in_str}"')
 
 
-def get_section(sec: Section | str) -> Tuple[Section, Section]:
+def get_section(sec: Section | str) -> tuple[Section, Section]:
     if type(sec) is Section:
         return sec, sec
     elif type(sec) is str:

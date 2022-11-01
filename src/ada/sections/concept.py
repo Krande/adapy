@@ -74,6 +74,7 @@ class Section(Root):
                 scalef = 1.0
             else:
                 raise ValueError(f'Unknown units "{units}"')
+
             sec, tap = interpret_section_str(from_str, scalef, units=units)
             self.__dict__.update(sec.__dict__)
 

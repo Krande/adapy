@@ -647,6 +647,7 @@ class Part(BackendGeom):
         interactive=False,
         use_quads=False,
         use_hex=False,
+        experimental_bm_splitting=False,
     ) -> FEM:
         from ada import Beam, Plate, Shape
         from ada.fem.meshing import GmshOptions, GmshSession
@@ -677,6 +678,10 @@ class Part(BackendGeom):
             #     gs.open_gui()
 
             gs.split_plates_by_beams()
+
+            if experimental_bm_splitting is True and len(list(self.get_all_physical_objects(by_type=Plate))) == 0:
+                gs.split_crossing_beams()
+
             gs.mesh(mesh_size, use_quads=use_quads, use_hex=use_hex)
 
             if interactive is True:
@@ -701,12 +706,9 @@ class Part(BackendGeom):
         use_experimental=True,
         cpus: int = None,
     ) -> VisMesh:
-        from ada.visualize.interface import part_to_vis_mesh, part_to_vis_mesh2
+        from ada.visualize.interface import part_to_vis_mesh2
 
-        if use_experimental:
-            return part_to_vis_mesh2(self, auto_sync_ifc_store, cpus=cpus)
-        else:
-            return part_to_vis_mesh(self, auto_sync_ifc_store, export_config, opt_func, merge_by_color, overwrite_cache)
+        return part_to_vis_mesh2(self, auto_sync_ifc_store, cpus=cpus)
 
     def to_gltf(self, gltf_file: str | pathlib.Path, auto_sync_ifc_store=True, cpus=None, limit_to_guids=None):
         from ada.visualize.interface import part_to_vis_mesh2

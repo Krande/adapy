@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-
 import datetime
 import logging
 from operator import attrgetter
-
 from typing import TYPE_CHECKING
-from ada.concepts.spatial import Part
+
 from ada.core.utils import Counter, get_current_user
 from ada.fem import FEM
 
@@ -15,6 +13,7 @@ from .write_utils import write_ff
 
 if TYPE_CHECKING:
     from ada import Material
+
 
 def to_fem(assembly, name, analysis_dir=None, metadata=None):
     from .write_constraints import constraint_str
@@ -59,8 +58,6 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None):
         with open(analysis_dir / "sestra.inp", "w") as f:
             f.write(write_sestra_inp(name, step))
 
-
-
     with open(inp_file_path, "w") as d:
         d.write(top_level_fem_str.format(date_str=date_str, clock_str=clock_str, user=user))
         d.write(units)
@@ -80,9 +77,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None):
 
 
 def materials_str(materials: list[Material]):
-    out_str = "".join(
-        [write_ff("TDMATER", [(4, mat.id, 100 + len(mat.name), 0), (mat.name,)]) for mat in materials]
-    )
+    out_str = "".join([write_ff("TDMATER", [(4, mat.id, 100 + len(mat.name), 0), (mat.name,)]) for mat in materials])
 
     out_str += "".join(
         [

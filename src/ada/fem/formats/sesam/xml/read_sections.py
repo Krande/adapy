@@ -20,6 +20,7 @@ def interpret_section_props(name, sec_prop, parent: Part) -> Section:
         bar_section=bar_section,
         general_section=general_section,
         cone_section=cone_section,
+        pgb_section=pgb_section,
     )
     sec_interpreter = sec_map.get(sec_prop.tag, None)
 
@@ -150,3 +151,14 @@ def general_section(name, sec_prop) -> Section:
 def cone_section(name, sec_prop) -> Section:
 
     return Section(name, sec_type=Section.TYPES.GENERAL, genprops=GeneralProperties(Ax=0.1))
+
+
+def pgb_section(name, sec_prop):
+    # circ = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
+    h, b, tw, otw, tf = [float(sec_prop.attrib[x]) for x in ("h", "b", "tw", "otw", "tf")]
+
+    # ot = [(x * h / 2, y * b / 2) for x, y in circ]
+    # it1 = [(x * h / 2 + otw, y * b / 2 + tf) for x, y in circ]
+    # it2 = [(b / 2 + tw + x * h / 2 + otw, y * b / 2 + tf) for x, y in circ]
+
+    return Section(name, Section.TYPES.BOX, h=h, w_btn=b, w_top=b, t_w=otw, t_fbtn=tf, t_ftop=tf)
