@@ -12,6 +12,8 @@ from .utils import interpret_fem
 if TYPE_CHECKING:
     from ada import Assembly
 
+logger = logging.getLogger(__name__)
+
 
 class FEATypes(BaseEnum):
     CODE_ASTER = "code_aster"
@@ -91,3 +93,43 @@ def export_fem(assembly, name, analysis_dir, fem_format, fem_converter, metadata
     except IOError as e:
         logging.error(e)
         return False
+
+
+def write_to_fem(
+    assembly: Assembly,
+    name: str,
+    fem_format: FEATypes,
+    overwrite: bool,
+    fem_converter: str,
+    scratch_dir,
+    metadata: dict,
+    make_zip_file,
+):
+    from ada.fem.formats.utils import default_fem_res_path, folder_prep, should_convert
+
+    fem_res_files = default_fem_res_path(name, scratch_dir=scratch_dir)
+
+    res_path = fem_res_files.get(fem_format, None)
+    metadata = dict() if metadata is None else metadata
+    metadata["fem_format"] = fem_format.value
+
+    out = None
+    if should_convert(res_path, overwrite):
+        analysis_dir = folder_prep(scratch_dir, name, overwrite)
+        _, fem_exporter = get_fem_converters("", fem_format, fem_converter)
+
+        if fem_exporter is None:
+            raise ValueError(f'FEM export for "{fem_format}" using "{fem_converter}" is currently not supported')
+
+        fem_exporter(assembly, name, analysis_dir, metadata)
+
+        if make_zip_file is True:
+            import shutil
+
+            shutil.make_archive(name, "zip", str(analysis_dir))
+    else:
+        print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
+
+    if out is None and res_path is None:
+        logger.info("No Result file is created")
+        return None

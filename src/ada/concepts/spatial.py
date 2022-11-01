@@ -647,7 +647,7 @@ class Part(BackendGeom):
         interactive=False,
         use_quads=False,
         use_hex=False,
-        experimental_bm_splitting=False,
+        experimental_bm_splitting=True,
     ) -> FEM:
         from ada import Beam, Plate, Shape
         from ada.fem.meshing import GmshOptions, GmshSession
@@ -1044,70 +1044,24 @@ class Assembly(Part):
             If this proves to create issues regarding performance this should be evaluated further.
 
         """
-        from ada.fem.formats.general import (
-            FEATypes,
-            fem_executables,
-            get_fem_converters,
-        )
-        from ada.fem.formats.utils import (
-            default_fem_inp_path,
-            default_fem_res_path,
-            folder_prep,
-            should_convert,
-        )
+        from ada.fem.formats.execute import execute_fem
+        from ada.fem.formats.general import FEATypes, write_to_fem
+        from ada.fem.formats.utils import default_fem_res_path
         from ada.fem.results import Results
 
         if isinstance(fem_format, str):
             fem_format = FEATypes.from_str(fem_format)
 
         scratch_dir = Settings.scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
+
+        write_to_fem(self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file)
+
+        out = execute_fem(
+            name, fem_format, scratch_dir, cpus, gpus, run_ext, metadata, execute, exit_on_complete, run_in_shell
+        )
+
         fem_res_files = default_fem_res_path(name, scratch_dir=scratch_dir)
-
         res_path = fem_res_files.get(fem_format, None)
-        metadata = dict() if metadata is None else metadata
-        metadata["fem_format"] = fem_format.value
-
-        out = None
-        if should_convert(res_path, overwrite):
-            analysis_dir = folder_prep(scratch_dir, name, overwrite)
-            _, fem_exporter = get_fem_converters("", fem_format, fem_converter)
-
-            if fem_exporter is None:
-                raise ValueError(f'FEM export for "{fem_format}" using "{fem_converter}" is currently not supported')
-
-            fem_inp_files = default_fem_inp_path(name, scratch_dir)
-            fem_exporter(self, name, analysis_dir, metadata)
-
-            if make_zip_file is True:
-                import shutil
-
-                shutil.make_archive(name, "zip", str(analysis_dir))
-
-            if execute is True:
-                exe_func = fem_executables.get(fem_format, None)
-                inp_path = fem_inp_files.get(fem_format, None)
-                if exe_func is None:
-                    raise NotImplementedError(f'The FEM format "{fem_format}" has no execute function')
-                if inp_path is None:
-                    raise ValueError("")
-                out = exe_func(
-                    inp_path=inp_path,
-                    cpus=cpus,
-                    gpus=gpus,
-                    run_ext=run_ext,
-                    metadata=metadata,
-                    execute=execute,
-                    exit_on_complete=exit_on_complete,
-                    run_in_shell=run_in_shell,
-                )
-                with open(inp_path.parent / "run_log.txt", "w", encoding="utf8") as f:
-                    f.write(out.stdout + out.stderr)
-        else:
-            print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
-
-        if out is None and res_path is None:
-            logger.info("No Result file is created")
-            return None
 
         return Results(
             res_path,

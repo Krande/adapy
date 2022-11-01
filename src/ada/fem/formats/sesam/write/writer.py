@@ -29,9 +29,9 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None):
     if "control_file" not in metadata.keys():
         metadata["control_file"] = None
 
-    parts = list(filter(lambda x: len(x.fem.nodes) > 0, assembly.get_all_subparts()))
+    parts = list(filter(lambda x: len(x.fem.nodes) > 0, assembly.get_all_subparts(include_self=True)))
     if len(parts) != 1:
-        raise ValueError("Sesam writer currently only works for a single part")
+        raise ValueError(f"Sesam writer currently only works for a single part. Currently found {len(parts)}")
 
     if len(assembly.fem.steps) > 1:
         logging.error("Sesam writer currently only supports 1 step. Will only use 1st step")

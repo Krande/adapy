@@ -176,6 +176,9 @@ class GmshSession:
         # Todo: base this algo on beams that are actually clashing
 
         beams = [obj for obj in self.model_map.keys() if type(obj) is Beam]
+        if len(beams) == 1:
+            return None
+
         intersecting_beams = []
         int_bm_map = dict()
         for bm in beams:
