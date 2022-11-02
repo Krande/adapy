@@ -64,4 +64,4 @@ def product_to_obj_mesh(shape: ifcopenshell.ifcopenshell_wrapper.TriangulationEl
         opacity = 1.0 - mat0.transparency
         colour = [*mat0.diffuse, opacity]
 
-    return ObjectMesh(shape.guid, faces, vertices, normals, colour)
+    return ObjectMesh(shape.guid, faces, vertices, normals, color=colour)

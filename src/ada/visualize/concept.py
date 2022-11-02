@@ -528,12 +528,12 @@ class ObjectMesh:
                     needs_to_be_scaled = False
 
             if needs_to_be_scaled:
-                base_color = [int(x * 255) for x in self.color[:3]] + [self.color[3]]
+                base_color = [int(x * 255) for x in self.color[:3]] + [int(self.color[3])]
             else:
                 base_color = self.color
 
             if vertex_color is None:
-                new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color[:3])
+                new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color)
 
         meshes = [new_mesh]
         if self.edges is not None:
