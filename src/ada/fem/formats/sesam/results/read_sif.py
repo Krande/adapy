@@ -38,6 +38,16 @@ SEC_MAP = {
         (("hz", "h"), ("ty", "t_w"), ("bt", "w_top"), ("tt", "t_ftop"), ("bb", "w_btn"), ("tb", "t_fbtn")),
     )
 }
+MAT_MAP = {
+    "MISOSEL": (
+        ("young", "E"),
+        ("poiss", "v"),
+        ("rho", "rho"),
+        ("damp", "zeta"),
+        ("alpha", "alpha"),
+        ("yield", "sig_y"),
+    )
+}
 # Integration Point location.
 # If Integration point is in nodal position
 # (Int ID, Node ID, Thickness offset)
@@ -59,7 +69,7 @@ INT_LOCATIONS = {
     ],
     15: [(0, 0), (1, 0.5), (2, 1)],
 }
-OTHER_CARDS = [cards.GUNIVEC, cards.TDSECT]
+OTHER_CARDS = [cards.GUNIVEC, cards.TDSECT, cards.TDMATER, cards.MISOSEL, cards.MORSMEL]
 SECTION_CARDS = [cards.GIORH, cards.GBOX]
 RESULT_CARDS = [
     cards.RVNODDIS,
@@ -144,7 +154,7 @@ class SifReader:
 
         self.eval_flags(self._last_line)
 
-    def read_fem_sections(self) -> dict[int, Section]:
+    def get_sections(self) -> dict[int, Section]:
         from ada import Section
 
         sec_map: dict[str, cards.DataCard] = {s.name: s for s in SECTION_CARDS}
@@ -164,11 +174,16 @@ class SifReader:
             sec = Section(name=sec_name, sec_id=sec_id, sec_type=sec_type, **prop_map)
             sections[sec_id] = sec
 
-        _ = cards.GELREF1.cast_to_structured_np(
-            ["elno", "matno", "geono", "transno"], self._gelref1, ["elid", "matid", "geoid", "transid"]
-        )
-
         return sections
+
+    def get_materials(self):
+        _ = {x[1]: x[-1] for x in self._other.get("TDMATER")}
+
+        for _ in self._other.get("TDMATER"):
+            print("sd")
+
+    def get_gelref(self):
+        return self._gelref1
 
     def eval_flags(self, line: str):
         stripped = line.strip()
@@ -183,6 +198,7 @@ class SifReader:
         # Elements
         elif stripped.startswith(cards.GELMNT1.name):
             self.elements = list(self.read_gelmnts(stripped))
+
         elif stripped[0].isnumeric() is False and stripped[0] != "-":
             is_skipped_flag = True
 
@@ -198,8 +214,8 @@ class SifReader:
             if stripped.startswith(sec_card.name):
                 self._sections[sec_card.name] = list(sec_card.iter(self.file, stripped, next_func=self.eval_flags))
 
-        if len(self._other) > 0 and self._gelref1 is not None and len(self._sections) > 0:
-            self.read_fem_sections()
+        # if len(self._other) > 0 and self._gelref1 is not None and len(self._sections) > 0:
+        #     self.read_fem_sections()
 
         # Results
         for res_card in RESULT_CARDS:
@@ -288,6 +304,12 @@ class Sif2Mesh:
         from ada.fem.shapes.definitions import ShapeResolver
 
         sif = self.sif
+
+        _ = self.sif.get_sections()
+        _ = self.sif.get_materials()
+        _ = cards.GELREF1.cast_to_structured_np(
+            ["elno", "matno", "geono", "transno"], self.sif.get_gelref(), ["elid", "matid", "secid", "transid"]
+        )
         nodes = FemNodes(coords=sif.nodes[:, 1:], identifiers=sif.node_ids[:, 0])
         elem_blocks = []
         for eltype, elements in groupby(sif.elements, key=lambda x: x[0]):

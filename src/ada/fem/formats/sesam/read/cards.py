@@ -47,12 +47,11 @@ class DataCard:
 
     @staticmethod
     def str_to_proper_types(split_str: str) -> list[float | str]:
-        return [float(x) if DataCard.is_numeric(x) else x for x in split_str.split()[1:]]
+        return [float(x) if DataCard.is_numeric(x) else x for x in split_str.split()]
 
     def iter(self, f: Iterator, curr_line: str, yield_specific_values: list[str] = None, next_func: Callable = None):
         curr_elements = [float(x) for x in curr_line.split()[1:]]
         startswith = self.name
-
         n_field = None
         if self.components[0] == "nfield":
             n_field = int(curr_elements[0])
@@ -181,27 +180,29 @@ re_setmembs = get_ff_regex("GSETMEMB", "nfield", "isref", "index", "istype", "is
 re_setnames = get_ff_regex("TDSETNAM", "nfield", "isref", "codnam", "codtxt", "set_name")
 
 # Materials
-re_matnames = get_ff_regex("TDMATER", "nfield", "geo_no", "codnam", "codtxt", "name")
-re_misosel = get_ff_regex("MISOSEL", "matno", "young", "poiss", "rho", "damp", "alpha", "iyield", "yield")
-re_morsmel = get_ff_regex(
+TDMATER = DataCard("TDMATER", ("nfield", "geo_no", "codnam", "codtxt", "name"))
+MISOSEL = DataCard("MISOSEL", ("matno", "young", "poiss", "rho", "damp", "alpha", "iyield", "yield"))
+MORSMEL = DataCard(
     "MORSMEL",
-    "matno",
-    "q1",
-    "q2",
-    "q3",
-    "rho",
-    "d11",
-    "d21",
-    "d22",
-    "d31",
-    "d32",
-    "d33",
-    "ps1",
-    "ps2",
-    "damp1",
-    "damp2",
-    "alpha1",
-    "alpha2",
+    (
+        "matno",
+        "q1",
+        "q2",
+        "q3",
+        "rho",
+        "d11",
+        "d21",
+        "d22",
+        "d31",
+        "d32",
+        "d33",
+        "ps1",
+        "ps2",
+        "damp1",
+        "damp2",
+        "alpha1",
+        "alpha2",
+    ),
 )
 
 # Results
