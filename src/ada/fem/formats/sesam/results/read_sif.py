@@ -9,6 +9,7 @@ import numpy as np
 
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
+from ada.sections.categories import BaseTypes
 
 if TYPE_CHECKING:
     from ada.fem import FemSection
@@ -26,6 +27,13 @@ FORCE_MAP = {
     10: ("MXX", "Torsion moment around x-axis, yz-plane"),
     11: ("MXY", "Bending moment around y-axis, yz-plane"),
     12: ("MXZ", "Bending moment around z-axis, yz-plane"),
+}
+
+SEC_MAP = {
+    "GIORH": (
+        BaseTypes.IPROFILE,
+        (("hz", "h"), ("ty", "t_w"), ("bt", "w_top"), ("tt", "t_ftop"), ("bb", "w_btn"), ("tb", "t_fbtn")),
+    )
 }
 # Integration Point location.
 # If Integration point is in nodal position
@@ -140,10 +148,14 @@ class SifReader:
         sections = dict()
         for sec_name, sec_data in self._sections.items():
             sec_card = sec_map[sec_name]
-            sec_card.get_indices_from_names([])
-            res = sec_card.get_indices_from_names(["geono", "hz", "ty", "bt", "tt", "bb", "tb"])
-            sec_id = res[0]
-            sec = Section()
+            if len(sec_data) != 1:
+                raise NotImplementedError()
+            res = sec_card.get_data_map_from_names(["geono", "hz", "ty", "bt", "tt", "bb", "tb"], sec_data[0])
+            sec_id = int(float(res["geono"]))
+            sm = SEC_MAP[sec_name]
+            sec_type = sm[0]
+            prop_map = {ada_n: res[ses_n] for ses_n, ada_n in sm[1]}
+            sec = Section(sec_id=sec_id, sec_type=sec_type, **prop_map)
             sections[sec_id] = sec
 
     def eval_flags(self, line: str):

@@ -222,7 +222,10 @@ def to_fea_result_obj(ccx_results: CcxResultModel) -> FEAResult:
     from ada.fem.formats.general import FEATypes
 
     name = f"Adapy - Calculix ({ccx_results.ccx_version}) Results"
+
     elem_block = ElementBlock()
     nodes = FemNodes()
+
     mesh = Mesh(elements=[elem_block], nodes=nodes)
+
     return FEAResult(name, FEATypes.CALCULIX, ccx_results.results, mesh=mesh)

@@ -182,7 +182,7 @@ class Section(Root):
         elif self.type == BaseTypes.TUBULAR:
             sec_str = "{}{:g}x{:g}".format(self.type.value, s(self.r), s(self.wt))
         elif self.type == BaseTypes.CIRCULAR:
-            sec_str = "{}{:g}".format(self.type, s(self.r))
+            sec_str = "{}{:g}".format(self.type.value, s(self.r))
         elif self.type == BaseTypes.ANGULAR:
             sec_str = "{}{:g}x{:g}".format(self.type.value, s(self.h), s(self.t_w))
         elif self.type == BaseTypes.IPROFILE:
@@ -194,7 +194,7 @@ class Section(Root):
         elif self.type == BaseTypes.GENERAL:
             sec_str = "{}{}".format(self.type.value, self.id)
         elif self.type == BaseTypes.FLATBAR:
-            sec_str = f"{self.type}{s(self.h)}x{s(self.w_top)}"
+            sec_str = f"{self.type.value}{s(self.h)}x{s(self.w_top)}"
         elif self.type == BaseTypes.POLY:
             sec_str = "PolyCurve"
 

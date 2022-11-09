@@ -226,7 +226,7 @@ def get_elements_from_entity(model: gmsh.model, ent, fem: FEM, dim) -> List[Elem
             if new_nodes is not None:
                 nodes = new_nodes
 
-            el = Elem(eltag, nodes, elem_type, parent=fem)
+            el = Elem(el_id=eltag, nodes=nodes, el_type=elem_type, parent=fem)
             elements.append(el)
     return elements
 

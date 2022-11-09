@@ -24,6 +24,13 @@ class DataCard:
         res = [self._index_map[n] for n in names]
         return res if len(res) != 1 else res[0]
 
+    def get_data_map_from_names(self, names: list[str], data: list) -> dict:
+        indices = self.get_indices_from_names(names)
+        output = dict()
+        for i, name in zip(indices, names):
+            output[name] = data[i]
+        return output
+
     @staticmethod
     def is_numeric(stripped: str):
         if stripped[0].isnumeric() is False and stripped[0] != "-":

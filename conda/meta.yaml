@@ -33,15 +33,6 @@ requirements:
     - python-kaleido
     - meshio
 
-# Dependencies that are currently left out
-#    - numpy
-#    - vtk
-#    - toolz
-#    - lmfit
-#    - ccx2paraview
-#    - ipygany
-#    - pydantic
-#    - pyvista
 test:
   source_files:
     - tests

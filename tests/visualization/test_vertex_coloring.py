@@ -58,11 +58,13 @@ def test_polygon_animation_simple(polygon_mesh):
         )
 
     os.makedirs("temp", exist_ok=True)
+
+    # Todo: Add support for this in the next release of AdaPy
     scene.export(
         file_obj="temp/polygon_animation.glb",
         file_type=".glb",
         tree_postprocessor=add_animation_to_tree,
-        buffer_postprocessor=add_animation_to_buffer,
+        # buffer_postprocessor=add_animation_to_buffer,
     )
 
 

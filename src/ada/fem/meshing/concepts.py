@@ -72,7 +72,7 @@ class GmshData:
     entities: Iterable
     geom_repr: str
     order: int
-    obj: Union[Shape, Beam, Plate, Pipe]
+    obj: Shape | Beam | Plate | Pipe
     mesh_size: float = None
 
 
@@ -298,7 +298,7 @@ class GmshSession:
         gmsh_nodes = get_nodes_from_gmsh(self.model, fem)
         fem.nodes = Nodes(gmsh_nodes, parent=fem)
 
-        def add_obj_to_elem_ref(el: Elem, obj: Union[Shape, Beam, Plate, Pipe]):
+        def add_obj_to_elem_ref(el: Elem, obj: Shape | Beam | Plate | Pipe):
             el.refs.append(obj)
 
         # Get Elements
