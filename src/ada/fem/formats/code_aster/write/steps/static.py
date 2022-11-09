@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ada.fem import StepImplicit
+
 from .static_lin import step_static_lin_str
 from .static_nonlin import step_static_nonlin_str
 

@@ -22,5 +22,5 @@ def main():
     a.to_fem("ca_param_model_ses", "sesam", overwrite=True, execute=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

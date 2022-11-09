@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ada.fem import StepImplicit
+
 from ..write_loads import write_load
 
 if TYPE_CHECKING:

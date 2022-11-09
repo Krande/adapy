@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from collections import OrderedDict
-
 import json
 import pathlib
 import re
+from collections import OrderedDict
 
 import ada.core.utils
 from ada.base.units import Units
 from ada.core.exceptions import UnsupportedUnits
+
 from . import Section
 from .categories import SectionCat
 

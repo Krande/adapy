@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Iterator
 
+import numpy as np
+
 from ada.fem.formats.utils import get_ff_regex
 
 re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
@@ -31,6 +33,12 @@ class DataCard:
             output[name] = data[i]
         return output
 
+    def cast_to_structured_np(self, names, data, new_col_names=None) -> np.ndarray:
+        indices = self.get_indices_from_names(names)
+        names = new_col_names if new_col_names is not None else names
+        dtype = [(n, float) for n in names]
+        return np.array([[d[i] for i in indices] for d in data], dtype=dtype)
+
     @staticmethod
     def is_numeric(stripped: str):
         if stripped[0].isnumeric() is False and stripped[0] != "-":
@@ -38,7 +46,7 @@ class DataCard:
         return True
 
     @staticmethod
-    def list_to_proper_types(split_str: str) -> list[float | str]:
+    def str_to_proper_types(split_str: str) -> list[float | str]:
         return [float(x) if DataCard.is_numeric(x) else x for x in split_str.split()[1:]]
 
     def iter(self, f: Iterator, curr_line: str, yield_specific_values: list[str] = None, next_func: Callable = None):
@@ -51,8 +59,12 @@ class DataCard:
 
         while True:
             stripped = next(f).strip()
-            if n_field is not None and len(stripped) >= n_field:
-                curr_elements += self.list_to_proper_types(stripped)
+            if n_field is not None and len(curr_elements) >= n_field:
+                result = self.str_to_proper_types(stripped)
+                if len(result) == 0:
+                    curr_elements += [stripped]
+                else:
+                    curr_elements += result
                 yield curr_elements
                 break
 
@@ -66,7 +78,7 @@ class DataCard:
                     curr_elements = [float(x) if self.is_numeric(x) else x for x in stripped.split()[1:]]
                     continue
 
-            curr_elements += self.list_to_proper_types(stripped)
+            curr_elements += self.str_to_proper_types(stripped)
 
         next_func(stripped)
 

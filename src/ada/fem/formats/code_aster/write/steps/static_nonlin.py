@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ada.fem import StepImplicit
+
 from ..write_loads import write_load
 
 if TYPE_CHECKING:
@@ -10,7 +11,10 @@ if TYPE_CHECKING:
 
 
 def step_static_nonlin_str(step: StepImplicit, part: Part) -> str:
-    from ada.fem.exceptions.model_definition import NoBoundaryConditionsApplied, NoLoadsApplied
+    from ada.fem.exceptions.model_definition import (
+        NoBoundaryConditionsApplied,
+        NoLoadsApplied,
+    )
 
     load_str = "\n".join(list(map(write_load, step.loads)))
     if len(step.loads) == 0:

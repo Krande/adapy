@@ -7,13 +7,16 @@ from typing import TYPE_CHECKING, Iterator
 
 import numpy as np
 
+from ada.core.utils import Counter
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
 from ada.sections.categories import BaseTypes
 
 if TYPE_CHECKING:
-    from ada.fem import FemSection
+    from ada import Section
     from ada.fem.results.common import ElementFieldData, FEAResult, Mesh, NodalFieldData
+
+FEM_SEC_NAME = Counter(prefix="FS")
 
 STRESS_MAP = {
     1: ("SIGXX", "Normal Stress x-direction"),
@@ -141,10 +144,12 @@ class SifReader:
 
         self.eval_flags(self._last_line)
 
-    def read_fem_sections(self) -> list[FemSection]:
+    def read_fem_sections(self) -> dict[int, Section]:
         from ada import Section
 
         sec_map: dict[str, cards.DataCard] = {s.name: s for s in SECTION_CARDS}
+        td_sect_map = self.get_tdsect_map()
+
         sections = dict()
         for sec_name, sec_data in self._sections.items():
             sec_card = sec_map[sec_name]
@@ -155,8 +160,15 @@ class SifReader:
             sm = SEC_MAP[sec_name]
             sec_type = sm[0]
             prop_map = {ada_n: res[ses_n] for ses_n, ada_n in sm[1]}
-            sec = Section(sec_id=sec_id, sec_type=sec_type, **prop_map)
+            sec_name = td_sect_map.get(sec_id)[-1]
+            sec = Section(name=sec_name, sec_id=sec_id, sec_type=sec_type, **prop_map)
             sections[sec_id] = sec
+
+        _ = cards.GELREF1.cast_to_structured_np(
+            ["elno", "matno", "geono", "transno"], self._gelref1, ["elid", "matid", "geoid", "transid"]
+        )
+
+        return sections
 
     def eval_flags(self, line: str):
         stripped = line.strip()
@@ -230,6 +242,12 @@ class SifReader:
     def get_rdforces_map(self) -> dict:
         rdforces = self.get_result(cards.RDFORCES.name)
         return {int(x[1]): tuple([int(i) for i in x[3:]]) for x in rdforces[0][1]}
+
+    def get_tdsect_map(self):
+        res = self._other.get("TDSECT")
+        if res is None:
+            raise ValueError("TDSECT is not yet imported from SIF file")
+        return {x[1]: x for x in res}
 
 
 def read_sif_file(sif_file: str | pathlib.Path) -> FEAResult:
