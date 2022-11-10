@@ -14,7 +14,7 @@ from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
 from .field_data import ElementFieldData, NodalFieldData
 
 if TYPE_CHECKING:
-    from ada import Node
+    from ada import Node, Material, Section
     from ada.fem import Elem
 
 
@@ -53,6 +53,11 @@ class FemNodes:
 class Mesh:
     elements: list[ElementBlock]
     nodes: FemNodes
+
+    sections: dict[int, Section] = None
+    materials: dict[int, Material] = None
+    vectors: dict[int, list] = None
+    elem_data: np.ndarray = None
 
     def get_elem_by_id(self, elem_id: int) -> Elem:
         from ada.fem import Elem

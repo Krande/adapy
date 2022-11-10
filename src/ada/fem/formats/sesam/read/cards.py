@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import numpy as np
 import re
 from dataclasses import dataclass
 from typing import Callable, Iterator
 
-import numpy as np
-
 from ada.fem.formats.utils import get_ff_regex
+from ada.sections.categories import BaseTypes
 
 re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 
@@ -33,11 +33,9 @@ class DataCard:
             output[name] = data[i]
         return output
 
-    def cast_to_structured_np(self, names, data, new_col_names=None) -> np.ndarray:
+    def cast_to_np(self, names, data):
         indices = self.get_indices_from_names(names)
-        names = new_col_names if new_col_names is not None else names
-        dtype = [(n, float) for n in names]
-        return np.array([[d[i] for i in indices] for d in data], dtype=dtype)
+        return np.array([[d[i] for i in indices] for d in data])
 
     @staticmethod
     def is_numeric(stripped: str):
@@ -82,6 +80,24 @@ class DataCard:
         next_func(stripped)
 
 
+SEC_MAP = {
+    "GIORH": (
+        BaseTypes.IPROFILE,
+        (("hz", "h"), ("ty", "t_w"), ("bt", "w_top"), ("tt", "t_ftop"), ("bb", "w_btn"), ("tb", "t_fbtn")),
+    )
+}
+MAT_MAP = {
+    "MISOSEL": (
+        ("young", "E"),
+        ("poiss", "v"),
+        ("rho", "rho"),
+        ("damp", "zeta"),
+        ("alpha", "alpha"),
+        ("yield", "sig_y"),
+    ),
+    "MORSMEL": (("d11", "E"), ("ps1", "v"), ("rho", "rho"), ("alpha1", "alpha"), ("damp1", "zeta")),
+}
+
 # Nodes
 GNODE = DataCard("GNODE", ("nodex", "nodeno", "ndof", "odof"))
 GCOORD = DataCard("GCOORD", ("id", "x", "y", "z"))
@@ -120,6 +136,8 @@ GELREF1 = DataCard(
 # GIORHR
 # GCHANR
 # GLSECR
+
+
 TDSECT = DataCard("TDSECT", ("nfield", "geono", "codnam", "codtxt", "set_name"))
 re_sectnames = TDSECT.to_ff_re()
 re_gbeamg = get_ff_regex(
@@ -180,6 +198,7 @@ re_setmembs = get_ff_regex("GSETMEMB", "nfield", "isref", "index", "istype", "is
 re_setnames = get_ff_regex("TDSETNAM", "nfield", "isref", "codnam", "codtxt", "set_name")
 
 # Materials
+
 TDMATER = DataCard("TDMATER", ("nfield", "geo_no", "codnam", "codtxt", "name"))
 MISOSEL = DataCard("MISOSEL", ("matno", "young", "poiss", "rho", "damp", "alpha", "iyield", "yield"))
 MORSMEL = DataCard(

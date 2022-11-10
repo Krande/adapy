@@ -10,10 +10,9 @@ import numpy as np
 from ada.core.utils import Counter
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
-from ada.sections.categories import BaseTypes
 
 if TYPE_CHECKING:
-    from ada import Section
+    from ada import Section, Material
     from ada.fem.results.common import ElementFieldData, FEAResult, Mesh, NodalFieldData
 
 FEM_SEC_NAME = Counter(prefix="FS")
@@ -30,23 +29,6 @@ FORCE_MAP = {
     10: ("MXX", "Torsion moment around x-axis, yz-plane"),
     11: ("MXY", "Bending moment around y-axis, yz-plane"),
     12: ("MXZ", "Bending moment around z-axis, yz-plane"),
-}
-
-SEC_MAP = {
-    "GIORH": (
-        BaseTypes.IPROFILE,
-        (("hz", "h"), ("ty", "t_w"), ("bt", "w_top"), ("tt", "t_ftop"), ("bb", "w_btn"), ("tb", "t_fbtn")),
-    )
-}
-MAT_MAP = {
-    "MISOSEL": (
-        ("young", "E"),
-        ("poiss", "v"),
-        ("rho", "rho"),
-        ("damp", "zeta"),
-        ("alpha", "alpha"),
-        ("yield", "sig_y"),
-    )
 }
 # Integration Point location.
 # If Integration point is in nodal position
@@ -165,9 +147,10 @@ class SifReader:
             sec_card = sec_map[sec_name]
             if len(sec_data) != 1:
                 raise NotImplementedError()
+
             res = sec_card.get_data_map_from_names(["geono", "hz", "ty", "bt", "tt", "bb", "tb"], sec_data[0])
             sec_id = int(float(res["geono"]))
-            sm = SEC_MAP[sec_name]
+            sm = cards.SEC_MAP[sec_name]
             sec_type = sm[0]
             prop_map = {ada_n: res[ses_n] for ses_n, ada_n in sm[1]}
             sec_name = td_sect_map.get(sec_id)[-1]
@@ -176,11 +159,43 @@ class SifReader:
 
         return sections
 
-    def get_materials(self):
-        _ = {x[1]: x[-1] for x in self._other.get("TDMATER")}
+    def get_materials(self) -> dict[int, Material]:
+        from ada import Material
+        from ada.materials.metals import CarbonSteel
 
-        for _ in self._other.get("TDMATER"):
-            print("sd")
+        mat_map = {int(x[1]): x[-1] for x in self._other.get("TDMATER", [])}
+        isotrop_mats = {int(x[0]): x for x in self._other.get("MISOSEL", [])}
+        anisotrop_mats = {int(x[0]): x for x in self._other.get("MORSMEL", [])}
+
+        sm_anisotropic = cards.MAT_MAP["MORSMEL"]
+        anisotropic_keys = [s[0] for s in sm_anisotropic]
+
+        sm_isotropic = cards.MAT_MAP["MISOSEL"]
+        isotropic_keys = [s[0] for s in sm_isotropic]
+
+        materials = dict()
+        for mat_id, mat_data in isotrop_mats.items():
+            res = cards.MISOSEL.get_data_map_from_names(isotropic_keys, mat_data)
+            mat_name = mat_map[mat_id]
+            prop_map = {ada_n: res[ses_n] for ses_n, ada_n in sm_isotropic}
+            grade = get_grade(prop_map["sig_y"])
+            model = CarbonSteel(grade=grade, **prop_map)
+            mat = Material(name=mat_name, mat_id=mat_id, mat_model=model)
+            materials[mat_id] = mat
+
+        for mat_id, mat_data in anisotrop_mats.items():
+            res = cards.MORSMEL.get_data_map_from_names(anisotropic_keys, mat_data)
+            mat_name = mat_map[mat_id]
+            prop_map = {ada_n: res[ses_n] for ses_n, ada_n in sm_anisotropic}
+            grade = get_grade(prop_map["sig_y"])
+            model = CarbonSteel(grade=grade, **prop_map)
+            mat = Material(name=mat_name, mat_id=mat_id, mat_model=model)
+            materials[mat_id] = mat
+
+        return materials
+
+    def get_vectors(self) -> dict[int, list]:
+        return {x[0]: x[1:] for x in self._other.get("GUNIVEC")}
 
     def get_gelref(self):
         return self._gelref1
@@ -305,11 +320,6 @@ class Sif2Mesh:
 
         sif = self.sif
 
-        _ = self.sif.get_sections()
-        _ = self.sif.get_materials()
-        _ = cards.GELREF1.cast_to_structured_np(
-            ["elno", "matno", "geono", "transno"], self.sif.get_gelref(), ["elid", "matid", "secid", "transid"]
-        )
         nodes = FemNodes(coords=sif.nodes[:, 1:], identifiers=sif.node_ids[:, 0])
         elem_blocks = []
         for eltype, elements in groupby(sif.elements, key=lambda x: x[0]):
@@ -325,7 +335,19 @@ class Sif2Mesh:
                 ElementBlock(elem_info=elem_info, node_refs=elem_node_refs, identifiers=elem_identifiers)
             )
 
-        return Mesh(elements=elem_blocks, nodes=nodes)
+        sections = self.sif.get_sections()
+        materials = self.sif.get_materials()
+        vectors = self.sif.get_vectors()
+        elem_refs = cards.GELREF1.cast_to_np(["elno", "matno", "geono", "transno"], self.sif.get_gelref())
+
+        return Mesh(
+            elements=elem_blocks,
+            nodes=nodes,
+            sections=sections,
+            materials=materials,
+            vectors=vectors,
+            elem_data=elem_refs,
+        )
 
     def get_sif_results(self) -> list[ElementFieldData | NodalFieldData]:
         result_blocks = self.get_nodal_data()
@@ -522,3 +544,16 @@ def _iter_line_forces(rv_forces: Iterator, rdforces_map, nsp) -> Iterator:
         data = np.array(rv_force[irforc_i + 1 :])
         for i, data_per_int in enumerate(data.reshape((nsp, len(rdstress_res))), start=1):
             yield iielno, i, *data_per_int
+
+
+def get_grade(sig_y, tol=1):
+    from ada.materials.metals import CarbonSteel
+
+    if abs(sig_y - 420e6) < tol:
+        grade = CarbonSteel.TYPES.S420
+    elif abs(sig_y - 355e6) < tol:
+        grade = CarbonSteel.TYPES.S355
+    else:
+        grade = "NA"
+
+    return grade
