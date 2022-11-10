@@ -15,6 +15,14 @@ class CCData:
     components: list[str]
     values: list[np.ndarray]
 
+    def get_component_data(self, name):
+        field_map = {x: i for i, x in enumerate(self.components)}
+        index = field_map.get(name)
+        results = []
+        for value in self.values:
+            results.append(value[index])
+        return results
+
     def get_max_utilization(self, specific_code: str = None):
         field_map = {x: i for i, x in enumerate(self.components) if x.startswith("uf")}
         max_uf = (0.0, None, None)

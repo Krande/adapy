@@ -1,0 +1,120 @@
+#
+#   COMM file created by ADA (Assembly for Design and Analysis)
+#
+
+# Units: N, m
+
+DEBUT(LANG="EN", INFO=1)
+
+mesh = LIRE_MAILLAGE(FORMAT="MED", UNITE=20)
+
+sh_sets = ('elMyBeam_e1_top_fl_sh','elMyBeam_e2_top_fl_sh','elMyBeam_e3_web_sh','elMyBeam_e4_top_fl_sh','elMyBeam_e5_top_fl_sh',)
+
+
+model = AFFE_MODELE(
+    AFFE=(
+        _F(GROUP_MA=sh_sets, PHENOMENE='MECANIQUE', MODELISATION='DKT',),
+    ),
+    MAILLAGE=mesh
+)
+
+# Materials
+
+
+S420 = DEFI_MATERIAU(
+    ELAS=_F(E=210000000000.0, NU=0.3, RHO=7850),
+)
+
+
+# Sections
+
+material = AFFE_MATERIAU(
+    MODELE=model,
+    AFFE=(
+		_F(MATER=(S420,), GROUP_MA="elMyBeam_e1_top_fl_sh"),
+		_F(MATER=(S420,), GROUP_MA="elMyBeam_e2_top_fl_sh"),
+		_F(MATER=(S420,), GROUP_MA="elMyBeam_e3_web_sh"),
+		_F(MATER=(S420,), GROUP_MA="elMyBeam_e4_top_fl_sh"),
+		_F(MATER=(S420,), GROUP_MA="elMyBeam_e5_top_fl_sh"),
+
+    )
+)
+
+
+# Shell elements:
+#   EPAIS: thickness
+#   VECTEUR: a direction of reference in the tangent plan
+
+element = AFFE_CARA_ELEM(
+        MODELE=model,
+        COQUE=(
+            _F(
+                GROUP_MA=("elMyBeam_e1_top_fl_sh"),
+                EPAIS=0.0135,
+                VECTEUR=(1.0, 0.0, 0.0),
+            ),
+            _F(
+                GROUP_MA=("elMyBeam_e2_top_fl_sh"),
+                EPAIS=0.0135,
+                VECTEUR=(1.0, 0.0, 0.0),
+            ),
+            _F(
+                GROUP_MA=("elMyBeam_e3_web_sh"),
+                EPAIS=0.0086,
+                VECTEUR=(1.0, 0.0, 0.0),
+            ),
+            _F(
+                GROUP_MA=("elMyBeam_e4_top_fl_sh"),
+                EPAIS=0.0135,
+                VECTEUR=(1.0, 0.0, 0.0),
+            ),
+            _F(
+                GROUP_MA=("elMyBeam_e5_top_fl_sh"),
+                EPAIS=0.0135,
+                VECTEUR=(1.0, 0.0, 0.0),
+            ),
+
+        ),
+        POUTRE=(),
+    )
+
+
+# Boundary Conditions
+dofs = dict(
+    GROUP_NO="bc_nodes",
+    DX=0, DY=0, DZ=0, DRX=0, DRY=0, DRZ=0, 
+)
+Fixed = AFFE_CHAR_MECA(
+    MODELE=model, DDL_IMPO=_F(**dofs)
+)
+
+# Step Information
+
+grav = AFFE_CHAR_MECA(
+    MODELE=model, PESANTEUR=_F(DIRECTION=(0.0, 0.0, 1.0), GRAVITE=-784.8000000000001)
+)
+
+result = MECA_STATIQUE(
+    MODELE=model,
+    CHAM_MATER=material,
+    CARA_ELEM=element,
+    EXCIT=(_F(CHARGE=Fixed),_F(CHARGE=grav))
+)
+
+result = CALC_CHAMP(
+    reuse=result,
+    RESULTAT=result,
+    CONTRAINTE=("SIGM_ELGA", "SIGM_ELNO"),
+    CRITERES=("SIEQ_ELGA", "SIEQ_ELNO"),
+)
+
+IMPR_RESU(
+    RESU=_F(RESULTAT=result),
+    UNITE=80
+)
+
+
+
+# Results Information
+
+FIN()

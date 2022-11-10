@@ -710,11 +710,21 @@ class Part(BackendGeom):
 
         return part_to_vis_mesh2(self, auto_sync_ifc_store, cpus=cpus)
 
-    def to_gltf(self, gltf_file: str | pathlib.Path, auto_sync_ifc_store=True, cpus=None, limit_to_guids=None):
+    def to_gltf(
+        self,
+        gltf_file: str | pathlib.Path,
+        auto_sync_ifc_store=True,
+        cpus=None,
+        limit_to_guids=None,
+        embed_meta=False,
+        merge_by_color=False,
+    ):
         from ada.visualize.interface import part_to_vis_mesh2
 
         vm = part_to_vis_mesh2(self, auto_sync_ifc_store, cpus=cpus)
-        vm.to_gltf(gltf_file, only_these_guids=limit_to_guids)
+        if merge_by_color:
+            vm = vm.merge_objects_in_parts_by_color()
+        vm.to_gltf(gltf_file, only_these_guids=limit_to_guids, embed_meta=embed_meta)
 
     @property
     def parts(self) -> dict[str, Part]:
@@ -1056,9 +1066,11 @@ class Assembly(Part):
 
         write_to_fem(self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file)
 
-        out = execute_fem(
-            name, fem_format, scratch_dir, cpus, gpus, run_ext, metadata, execute, exit_on_complete, run_in_shell
-        )
+        out = None
+        if execute:
+            out = execute_fem(
+                name, fem_format, scratch_dir, cpus, gpus, run_ext, metadata, execute, exit_on_complete, run_in_shell
+            )
 
         fem_res_files = default_fem_res_path(name, scratch_dir=scratch_dir)
         res_path = fem_res_files.get(fem_format, None)

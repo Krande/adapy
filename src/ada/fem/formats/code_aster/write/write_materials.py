@@ -13,18 +13,23 @@ if TYPE_CHECKING:
 def materials_str(assembly: Assembly) -> str:
     all_mat = chain.from_iterable([p.materials for p in assembly.get_all_parts_in_assembly(True)])
     all_mat_unique = {x.name: x for x in all_mat}
-    return "\n".join([material_str(mat) for mat in all_mat_unique.values()])
+    nl_geom = False
+    for x in assembly.fem.get_all_steps():
+        if x.nl_geom is True:
+            nl_geom = True
+
+    return "\n".join([material_str(mat, nl_geom) for mat in all_mat_unique.values()])
 
 
-def material_str(material: Material) -> str:
+def material_str(material: Material, nl_geom) -> str:
     from ada.core.utils import NewLine
 
     # Bi-linear hardening ECRO_LINE=_F(D_SIGM_EPSI=2.0e06, SY=2.35e06,)
 
     model = material.model
     nl = NewLine(3, suffix="	")
-
-    if model.plasticity_model is not None and model.plasticity_model.eps_p is not None:
+    has_plasticity = model.plasticity_model is not None and model.plasticity_model.eps_p is not None
+    if has_plasticity and nl_geom is True:
         nl_mat = "nl_mat=(	\n	"
         eps = [e for e in model.plasticity_model.eps_p]
         eps[0] = 1e-5  # Epsilon index=0 cannot be zero

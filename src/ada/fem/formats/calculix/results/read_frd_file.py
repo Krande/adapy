@@ -8,8 +8,8 @@ import meshio
 import numpy as np
 
 from ada.base.types import BaseEnum
-from ada.fem.results.common import ElementBlock, FEAResult, FemNodes, Mesh
-from ada.fem.results.field_data import FieldData
+from ada.fem.results.common import ElementBlock, ElementInfo, FEAResult, FemNodes, Mesh
+from ada.fem.results.field_data import ElementFieldData, FieldData, NodalFieldData
 
 
 class ReadFrdFailedException(Exception):
@@ -45,6 +45,19 @@ class ElemShape(Enum):
         else:
             raise NotImplementedError(f"{shape=}")
 
+    @staticmethod
+    def el_shape_to_baseshape(shape: ElemShape):
+        from ada.fem.shapes.definitions import SolidShapes
+
+        if shape == ElemShape.HEX:
+            return SolidShapes.HEX8
+        elif shape == ElemShape.WEDGE:
+            return SolidShapes.WEDGE
+        elif shape == ElemShape.TET:
+            return SolidShapes.TETRA
+        else:
+            raise NotImplementedError(f"{shape=}")
+
 
 @dataclass
 class CcxResultModel:
@@ -52,8 +65,8 @@ class CcxResultModel:
 
     ccx_version: str = None
     nodes: np.ndarray = None
-    elements: list[tuple] = None
-    results: list[FieldData] = field(default_factory=list)
+    elements: np.ndarray = None
+    results: list[NodalFieldData | ElementFieldData] = field(default_factory=list)
 
     _curr_step: int = None
 
@@ -90,7 +103,7 @@ class CcxResultModel:
             else:
                 break
 
-        self.elements = elements
+        self.elements = np.asarray(elements)
         self.eval_flags(data)
 
     def collect_results(self, first_line):
@@ -115,7 +128,7 @@ class CcxResultModel:
             else:
                 break
 
-        self.results.append(FieldData(name, self._curr_step, component_names, component_data))
+        self.results.append(NodalFieldData(name, self._curr_step, component_names, np.asarray(component_data)))
         self.eval_flags(data)
 
     def eval_flags(self, data: str):
@@ -193,7 +206,7 @@ def to_meshio_mesh(ccx_results: CcxResultModel) -> meshio.Mesh:
         monotonic_point_map[x] = i
 
     # Cells
-    elements = np.asarray(ccx_results.elements)
+    elements = ccx_results.elements
     cells = elements[:, 4:]
     for original_num, new_num in monotonic_point_map.items():
         cells[cells == original_num] = new_num
@@ -222,10 +235,17 @@ def to_fea_result_obj(ccx_results: CcxResultModel) -> FEAResult:
     from ada.fem.formats.general import FEATypes
 
     name = f"Adapy - Calculix ({ccx_results.ccx_version}) Results"
+    shape = ElemShape.get_type_from_elem_array_shape(ccx_results.elements)
+    node_refs = ccx_results.elements[:, 4:]
+    elem_info = ElementInfo(
+        type=ElemShape.el_shape_to_baseshape(shape), source_software=FEATypes.CALCULIX, source_type=str(shape.value)
+    )
+    identifiers = ccx_results.elements[:, 0]
+    elem_block = ElementBlock(elem_info=elem_info, node_refs=node_refs, identifiers=identifiers)
 
-    elem_block = ElementBlock()
-    nodes = FemNodes()
-
+    coords = ccx_results.nodes[:, 1:]
+    identifiers = ccx_results.nodes[:, 0]
+    nodes = FemNodes(coords=coords, identifiers=identifiers)
     mesh = Mesh(elements=[elem_block], nodes=nodes)
 
     return FEAResult(name, FEATypes.CALCULIX, ccx_results.results, mesh=mesh)

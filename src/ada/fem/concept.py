@@ -34,6 +34,7 @@ if TYPE_CHECKING:
         StepSteadyState,
         Surface,
     )
+    from ada.fem.steps import Step
 
 _step_types = Union["StepSteadyState", "StepEigen", "StepImplicit", "StepExplicit"]
 
@@ -313,6 +314,15 @@ class FEM:
                 return False
 
         return True
+
+    def get_all_steps(self) -> list[Step]:
+        assembly = self.parent.get_assembly()
+        steps = []
+        for p in assembly.get_all_parts_in_assembly(include_self=True):
+            if len(p.fem.steps) == 0:
+                continue
+            steps += p.fem.steps
+        return steps
 
     def get_all_bcs(self):
         """Get all the boundary conditions in the entire assembly"""

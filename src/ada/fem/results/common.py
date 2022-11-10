@@ -14,7 +14,7 @@ from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
 from .field_data import ElementFieldData, NodalFieldData
 
 if TYPE_CHECKING:
-    from ada import Node, Material, Section
+    from ada import Material, Node, Section
     from ada.fem import Elem
 
 
@@ -57,16 +57,28 @@ class Mesh:
     sections: dict[int, Section] = None
     materials: dict[int, Material] = None
     vectors: dict[int, list] = None
-    elem_data: np.ndarray = None
+    elem_data: np.ndarray = None  # el_id, mat_id, sec_id, vec_id
 
     def get_elem_by_id(self, elem_id: int) -> Elem:
-        from ada.fem import Elem
+        from ada.base.types import GeomRepr
+        from ada.fem import Elem, FemSection, FemSet
 
+        el_id, mat_id, sec_id, vec_id = self.elem_data[np.where(self.elem_data[:, 0] == elem_id)[0], :][0]
+        mat = self.materials.get(int(mat_id))
+        sec = self.sections.get(int(sec_id))
+        vec = self.vectors.get(int(vec_id))
+
+        elem = None
         for block in self.elements:
             res = np.where(block.identifiers == elem_id)
             for node_ids in block.node_refs[res]:
                 nodes = self.nodes.get_node_by_id(node_ids)
-                return Elem(elem_id, nodes, block.elem_info.type)
+                elem = Elem(elem_id, nodes, block.elem_info.type)
+                break
+
+        fs = FemSection(f"FS{sec_id}", GeomRepr.LINE, FemSet(f"El{el_id}", [elem]), mat, sec, local_z=vec)
+        elem.fem_sec = fs
+        return elem
 
     def get_edges_and_faces_from_mesh(self) -> tuple[np.ndarray, np.ndarray]:
         from ada.fem.shapes import ElemShape

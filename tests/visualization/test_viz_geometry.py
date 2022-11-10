@@ -21,6 +21,11 @@ def model_with_components() -> Assembly:
     return Assembly("my_test_assembly") / components
 
 
+def test_viz_structural_glb(model_with_components):
+    model_with_components.to_gltf("temp/model_merged.glb", embed_meta=True, merge_by_color=True)
+    model_with_components.to_gltf("temp/model.glb", embed_meta=True)
+
+
 def test_viz_structural(model_with_components):
     a = model_with_components
 
@@ -32,10 +37,3 @@ def test_viz_structural(model_with_components):
     assert len(res.world[0].id_map.values()) == 6
     assert merged.num_polygons == 640
     assert len(merged.world[0].id_map.values()) == 4
-
-
-def test_viz_to_binary_json(test_dir, model_with_components):
-    res = model_with_components.to_vis_mesh()
-
-    res.to_binary_and_json(test_dir / "viz/binjson/beams")
-    res.to_custom_json(test_dir / "viz/binjson/beams.json")

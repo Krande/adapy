@@ -54,36 +54,28 @@ Fixed = AFFE_CHAR_MECA(
 
 # Step Information
 
-#modal analysis
-ASSEMBLAGE(
+grav = AFFE_CHAR_MECA(
+    MODELE=model, PESANTEUR=_F(DIRECTION=(0.0, 0.0, 1.0), GRAVITE=-784.8000000000001)
+)
+
+result = MECA_STATIQUE(
     MODELE=model,
     CHAM_MATER=material,
-    CHARGE=Fixed,
-    NUME_DDL=CO('dofs_eig'),
-    MATR_ASSE = (
-        _F(MATRICE=CO('stiff'), OPTION ='RIGI_MECA',),
-        _F(MATRICE=CO('mass'), OPTION ='MASS_MECA', ),
-    ),
-)
-# Using Subspace Iteration method ('SORENSEN' AND 'PLUS_PETITE')
-# See https://www.code-aster.org/V2/UPLOAD/DOC/Formations/01-modal-analysis.pdf for more information
-#
-
-modes = CALC_MODES(
-    CALC_FREQ=_F(NMAX_FREQ=20, ) ,
-    SOLVEUR_MODAL=_F(METHODE='SORENSEN'),
-    MATR_MASS=mass,
-    MATR_RIGI=stiff,
-    OPTION='PLUS_PETITE',
-    VERI_MODE=_F(STOP_ERREUR='NON')
+    EXCIT=(_F(CHARGE=Fixed),_F(CHARGE=grav))
 )
 
-
+result = CALC_CHAMP(
+    reuse=result,
+    RESULTAT=result,
+    CONTRAINTE=("SIGM_ELGA", "SIGM_ELNO"),
+    CRITERES=("SIEQ_ELGA", "SIEQ_ELNO"),
+)
 
 IMPR_RESU(
-    RESU=_F(RESULTAT=modes, TOUT_CHAM='OUI'),
+    RESU=_F(RESULTAT=result),
     UNITE=80
 )
+
 
 
 # Results Information

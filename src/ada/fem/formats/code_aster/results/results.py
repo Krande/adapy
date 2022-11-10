@@ -10,8 +10,7 @@ import numpy as np
 
 from ada.fem import StepEigen
 from ada.fem.elements import ElemShape
-
-from .read.reader import med_to_fem
+from ada.fem.formats.code_aster.read.reader import med_to_fem
 
 if TYPE_CHECKING:
     from ada.fem.results import Results

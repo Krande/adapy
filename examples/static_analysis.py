@@ -7,7 +7,7 @@ from ada.materials.metals import CarbonSteel, DnvGl16Mat
 
 
 def gravity_step():
-    step = ada.fem.StepImplicit("gravity", nl_geom=True, init_incr=50.0, total_time=100.0)
+    step = ada.fem.StepImplicit("gravity", nl_geom=False, init_incr=50.0, total_time=100.0)
     step.add_load(ada.fem.LoadGravity("grav", -9.81 * 80))
     return step
 
@@ -41,9 +41,9 @@ def main():
 
             rerun = True
             res_files = []
-            # software_to_analyze = ["code_aster"]
+            software_to_analyze = ["code_aster"]
             # software_to_analyze = ["calculix"]
-            software_to_analyze = ["sesam"]
+            # software_to_analyze = ["sesam"]
             # software_to_analyze = ["abaqus"]
             for fea_software in software_to_analyze:
                 try:

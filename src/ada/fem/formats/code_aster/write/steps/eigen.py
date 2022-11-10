@@ -24,6 +24,10 @@ def step_eig_str(step: StepEigen, part: Part) -> str:
     eig_type = step.metadata.get("eig_method", "sorensen")
     eig_method = eig_map[eig_type]
 
+    sec_str = ""
+    if len(part.fem.sections.lines) > 0 or len(part.fem.sections.shells) > 0:
+        sec_str = "\n    CARA_ELEM=element,"
+
     # TODO: Add check for second order shell elements. If exists add conversion of results back from TRI7 to TRI6
     _ = """
     model_0 = AFFE_MODELE(
@@ -44,8 +48,7 @@ modes_0 = PROJ_CHAMP(
 #modal analysis
 ASSEMBLAGE(
     MODELE=model,
-    CHAM_MATER=material,
-    CARA_ELEM=element,
+    CHAM_MATER=material,{sec_str}
     CHARGE={bc.name},
     NUME_DDL=CO('dofs_eig'),
     MATR_ASSE = (

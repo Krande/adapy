@@ -34,13 +34,16 @@ def step_static_lin_str(step: StepImplicit, part: Part) -> str:
     for bc in all_boundary_conditions:
         bc_str += f"_F(CHARGE={bc.name}),"
 
+    sec_str = ""
+    if len(part.fem.sections.lines) > 0 or len(part.fem.sections.shells) > 0:
+        sec_str = "\n    CARA_ELEM=element,"
+
     return f"""
 {load_str}
 
 result = MECA_STATIQUE(
     MODELE=model,
-    CHAM_MATER=material,
-    CARA_ELEM=element,
+    CHAM_MATER=material,{sec_str}
     EXCIT=({bc_str}_F(CHARGE={load.name}))
 )
 

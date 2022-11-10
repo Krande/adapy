@@ -35,6 +35,10 @@ def step_static_nonlin_str(step: StepImplicit, part: Part) -> str:
     for bc in all_boundary_conditions:
         bc_str += f"_F(CHARGE={bc.name}),"
 
+    sec_str = ""
+    if len(part.fem.sections.lines) > 0 or len(part.fem.sections.shells) > 0:
+        sec_str = "\n    CARA_ELEM=element,"
+
     return f"""
 {load_str}
 
@@ -44,8 +48,7 @@ bc_step = DEFI_FONCTION(NOM_PARA="INST", VALE=(0.0, 0.0, 1.0, 1.0))
 
 result = STAT_NON_LINE(
     MODELE=model,
-    CHAM_MATER=material,
-    CARA_ELEM=element,
+    CHAM_MATER=material,{sec_str}
     # COMPORTEMENT=(_F(DEFORMATION="PETIT", RELATION="VMIS_ISOT_TRAC", TOUT="OUI")),
     COMPORTEMENT=(_F(DEFORMATION="PETIT", TOUT="OUI")),
     CONVERGENCE=_F(ARRET="OUI", ITER_GLOB_MAXI=8,),

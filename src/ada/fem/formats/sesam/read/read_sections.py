@@ -27,7 +27,7 @@ def get_sections(bulk_str, fem: FEM, mass_elem, spring_elem) -> FemSections:
     # Hinges
     hinges = {fixno: values for fixno, values in map(get_hinges, cards.re_belfix.finditer(bulk_str))}
     # Thickness'
-    thick = {geono: t for geono, t in map(get_thicknesses, cards.re_thick.finditer(bulk_str))}
+    thick = {geono: t for geono, t in map(get_thicknesses, cards.GELTH.to_ff_re().finditer(bulk_str))}
     # Eccentricities
     ecc = {eccno: values for eccno, values in map(get_eccentricities, cards.re_geccen.finditer(bulk_str))}
 

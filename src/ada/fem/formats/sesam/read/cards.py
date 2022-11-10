@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import numpy as np
 import re
 from dataclasses import dataclass
 from typing import Callable, Iterator
+
+import numpy as np
 
 from ada.fem.formats.utils import get_ff_regex
 from ada.sections.categories import BaseTypes
@@ -172,7 +173,7 @@ re_gbarm = get_ff_regex("GBARM", "geono", "hz", "bt", "bb", "sfy", "sfz")
 GUNIVEC = DataCard("GUNIVEC", ("transno", "unix", "uniy", "uniz"))
 
 # Shell section
-re_thick = get_ff_regex("GELTH", "geono", "th")
+GELTH = DataCard("GELTH", ("geono", "th"))
 
 # Other
 re_bnbcd = get_ff_regex("BNBCD", "nodeno", "ndof", "content")

@@ -12,7 +12,7 @@ from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
 
 if TYPE_CHECKING:
-    from ada import Section, Material
+    from ada import Material, Section
     from ada.fem.results.common import ElementFieldData, FEAResult, Mesh, NodalFieldData
 
 FEM_SEC_NAME = Counter(prefix="FS")
@@ -195,7 +195,10 @@ class SifReader:
         return materials
 
     def get_vectors(self) -> dict[int, list]:
-        return {x[0]: x[1:] for x in self._other.get("GUNIVEC")}
+        res = self._other.get("GUNIVEC")
+        if res is None:
+            return None
+        return {x[0]: x[1:] for x in res}
 
     def get_gelref(self):
         return self._gelref1
@@ -277,7 +280,7 @@ class SifReader:
     def get_tdsect_map(self):
         res = self._other.get("TDSECT")
         if res is None:
-            raise ValueError("TDSECT is not yet imported from SIF file")
+            return None
         return {x[1]: x for x in res}
 
 
