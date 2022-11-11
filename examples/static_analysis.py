@@ -24,7 +24,7 @@ def main():
         "IPE400",
         ada.Material("S420", CarbonSteel("S420", plasticity_model=DnvGl16Mat(15e-3, "S355"))),
     )
-    for is_static in [True, False]:
+    for is_static in [True]:  # , False]:
         for geom_repr in ["line", "shell", "solid"]:
             fem = beam.to_fem_obj(0.1, geom_repr=geom_repr, use_hex=True, use_quads=True)
             a = ada.Assembly("static_cantilever") / (ada.Part("P1", fem=fem) / beam)
@@ -42,9 +42,9 @@ def main():
             rerun = True
             res_files = []
             software_to_analyze = ["code_aster"]
-            software_to_analyze += ["calculix"]
-            software_to_analyze += ["sesam"]
-            software_to_analyze += ["abaqus"]
+            # software_to_analyze += ["calculix"]
+            # software_to_analyze += ["sesam"]
+            # software_to_analyze += ["abaqus"]
 
             for fea_software in software_to_analyze:
                 try:

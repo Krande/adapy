@@ -1,6 +1,9 @@
 import pytest
 
-from ada.fem.formats.calculix.results.read_frd_file import read_from_frd_file_proto, ReadFrdFailedException
+from ada.fem.formats.calculix.results.read_frd_file import (
+    ReadFrdFailedException,
+    read_from_frd_file_proto,
+)
 
 
 def test_read_static_line_calculix_results(cantilever_dir):

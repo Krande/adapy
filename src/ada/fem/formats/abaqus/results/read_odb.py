@@ -28,11 +28,11 @@ def convert_to_pckle(odb_path, pickle_path, use_aba_version=None):
     if os.path.isfile(pickle_path):
         os.remove(pickle_path)
 
-    print(f'Extracting ODB data from "{odb_path.name}" using Abaqus/Python')
+    logging.info(f'Extracting ODB data from "{odb_path.name}" using Abaqus/Python')
 
     backup_odb = odb_path.parent / f"{odb_path.stem}_backup.odb"
     if backup_odb.exists() is False:
-        print(f'Copying a backup of the odb file to "{backup_odb}" in case python corrupts the odb file')
+        logging.info(f'Copying a backup of the odb file to "{backup_odb}" in case python corrupts the odb file')
         shutil.copy(odb_path, backup_odb)
 
     res = subprocess.run([aba_exe_path, "python", ABA_IO, odb_path], cwd=ABA_IO.parent, capture_output=True)
@@ -62,8 +62,8 @@ def read_odb_pckle_file(pickle_path: str | pathlib.Path) -> FEAResult:
     if isinstance(pickle_path, pathlib.Path) is False:
         pickle_path = pathlib.Path(pickle_path)
 
-    if pickle_path.suffix.lower() == '.odb':
-        pickle_path = pickle_path.with_suffix('.pckle')
+    if pickle_path.suffix.lower() == ".odb":
+        pickle_path = pickle_path.with_suffix(".pckle")
 
     with open(pickle_path, "rb") as f:
         data = pickle.load(f)

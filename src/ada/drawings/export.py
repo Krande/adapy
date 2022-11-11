@@ -1,9 +1,9 @@
 from __future__ import annotations
+
+import os
 import pathlib
 
 import ifcopenshell
-import os
-
 import ifcopenshell.draw as draw
 
 

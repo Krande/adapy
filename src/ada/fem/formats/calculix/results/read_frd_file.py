@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import meshio
-import numpy as np
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterator
+
+import meshio
+import numpy as np
 
 from ada.base.types import BaseEnum
 from ada.fem.results.common import ElementBlock, ElementInfo, FEAResult, FemNodes, Mesh
@@ -185,7 +186,7 @@ def read_from_frd_file(frd_file) -> meshio.Mesh:
 
 
 def read_from_frd_file_proto(frd_file) -> FEAResult:
-    with open(frd_file, "r", encoding='utf8') as f:
+    with open(frd_file, "r", encoding="utf8") as f:
         ccx_res_model = CcxResultModel(f)
         ccx_res_model.load()
 

@@ -16,7 +16,7 @@ def postprocess(res_path: str | pathlib.Path, fem_format: FEATypes = None) -> FE
     from ada.fem.formats.sesam.results.read_sif import read_sif_file
 
     if fem_format is None:
-        raise NotImplementedError('Interpreting fem format from results file path is not yet added')
+        raise NotImplementedError("Interpreting fem format from results file path is not yet added")
 
     if fem_format == FEATypes.SESAM:
         return read_sif_file(res_path)

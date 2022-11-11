@@ -1,8 +1,8 @@
 import pathlib
 import shutil
 
-from ada.fem.formats.utils import LocalExecute
 from ada.fem.formats.abaqus.results.read_odb import convert_to_pckle
+from ada.fem.formats.utils import LocalExecute
 
 
 def run_abaqus(
@@ -27,8 +27,8 @@ def run_abaqus(
         inp_path, cpus=cpus, run_ext=run_ext, metadata=metadata, auto_execute=execute, run_in_shell=run_in_shell
     )
     out = aba_exe.run(exit_on_complete, run_cmd=run_cmd, bat_start_str=custom_bat_str)
-    odb_path = inp_path.with_suffix('.odb')
-    pickle_path =inp_path.with_suffix('.pckle')
+    odb_path = inp_path.with_suffix(".odb")
+    pickle_path = inp_path.with_suffix(".pckle")
 
     convert_to_pckle(odb_path, pickle_path)
     return out

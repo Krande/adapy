@@ -22,6 +22,9 @@ if TYPE_CHECKING:
 def read_rmed_file(rmed_file: str | pathlib.Path) -> FEAResult:
     from ada.fem.results.common import FEAResult, FEATypes
 
+    if isinstance(rmed_file, str):
+        rmed_file = pathlib.Path(rmed_file)
+
     mr = MedReader(rmed_file)
     mr.load()
 
@@ -103,9 +106,9 @@ class MedReader:
         return blocks
 
     def get_results(self) -> list[ElementFieldData | NodalFieldData]:
-        from ada.fem.formats.code_aster.common import med_to_ada_type
-
         fields = self.f.get("CHA")
+        results = []
+
         for name, data in fields.items():
             nom = data.attrs.get("NOM")
             if nom is None:
@@ -113,28 +116,31 @@ class MedReader:
 
             components = nom.decode().split()
             time_step = sorted(data.keys())  # associated time-steps
+            time_steps = []
             if len(time_step) == 1:  # single time-step
                 names = [name]  # do not change field name
+                res = data[time_step[0]].attrs.get("PDT")
+                time_steps.append(res)
             else:  # many time-steps
                 names = [None] * len(time_step)
                 for i, key in enumerate(time_step):
                     t = data[key].attrs["PDT"]  # current time
+                    time_steps.append(float(t))
                     names[i] = name + f"[{i:d}] - {t:g}"
 
-            results = []
             # MED field can contain multiple types of data
             for i, key in enumerate(time_step):
                 med_data = data[key]  # at a particular time step
                 step_name = names[i]
                 for supp in med_data:
                     if supp == "NOE":  # continuous nodal (NOEU) data
-                        result = self._load_nodal_field_data(step_name, med_data, i + 1, components)
+                        result = self._load_nodal_field_data(step_name, med_data, time_steps[i], components)
                         results.append(result)
                     else:  # Gauss points (ELGA) or DG (ELNO) data
-                        result = self._load_element_field_data(step_name, med_data[supp], i + 1, components)
+                        result = self._load_element_field_data(step_name, med_data[supp], time_steps[i], components)
                         results.append(result)
 
-            return results
+        return results
 
     def _load_element_field_data(self, name, med_data, step, components) -> ElementFieldData:
         from ada.fem.results.common import ElementFieldData
@@ -146,11 +152,7 @@ class MedReader:
         if profile.decode() == "MED_NO_PROFILE_INTERNAL":  # default profile with everything
             values = data_profile["CO"][()].reshape(n_cells, n_gauss_points, -1, order="F")
         else:
-            n_data = profiles[profile].attrs["NBR"]
-            index_profile = profiles[profile]["PFL"][()] - 1
-            values_profile = data_profile["CO"][()].reshape(n_data, n_gauss_points, -1, order="F")
-            values = np.full((n_cells, values_profile.shape[1], values_profile.shape[2]), np.nan)
-            values[index_profile] = values_profile
+            raise NotImplementedError()
 
         # Only 1 data point per cell, shape -> (n_cells, n_components)
         if n_gauss_points == 1:
@@ -169,11 +171,7 @@ class MedReader:
         if profile.decode() == "MED_NO_PROFILE_INTERNAL":  # default profile with everything
             values = data_profile["CO"][()].reshape(n_points, -1, order="F")
         else:
-            n_data = profiles[profile].attrs["NBR"]
-            index_profile = profiles[profile]["PFL"][()] - 1
-            values_profile = data_profile["CO"][()].reshape(n_data, -1, order="F")
-            values = np.full((n_points, values_profile.shape[1]), np.nan)
-            values[index_profile] = values_profile
+            raise NotImplementedError()
 
         if values.shape[-1] == 1:  # cut off for scalars
             values = values[:, 0]

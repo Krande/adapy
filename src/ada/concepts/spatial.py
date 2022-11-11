@@ -1056,8 +1056,8 @@ class Assembly(Part):
         """
         from ada.fem.formats.execute import execute_fem
         from ada.fem.formats.general import FEATypes, write_to_fem
-        from ada.fem.formats.utils import default_fem_res_path
         from ada.fem.formats.postprocess import postprocess
+        from ada.fem.formats.utils import default_fem_res_path
 
         if isinstance(fem_format, str):
             fem_format = FEATypes.from_str(fem_format)

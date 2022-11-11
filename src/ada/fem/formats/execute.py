@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pathlib
-
 from subprocess import CompletedProcess
 
 from ada.fem.formats.general import fem_executables

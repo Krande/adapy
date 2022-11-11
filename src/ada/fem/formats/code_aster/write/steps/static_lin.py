@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from ada.fem import StepImplicit
 
 from ..write_loads import write_load
+from .fields import create_field_output_str
 
 if TYPE_CHECKING:
     from ada.concepts.spatial import Part
@@ -38,6 +39,8 @@ def step_static_lin_str(step: StepImplicit, part: Part) -> str:
     if len(part.fem.sections.lines) > 0 or len(part.fem.sections.shells) > 0:
         sec_str = "\n    CARA_ELEM=element,"
 
+    field_str = create_field_output_str(step)
+
     return f"""
 {load_str}
 
@@ -47,12 +50,7 @@ result = MECA_STATIQUE(
     EXCIT=({bc_str}_F(CHARGE={load.name}))
 )
 
-result = CALC_CHAMP(
-    reuse=result,
-    RESULTAT=result,
-    CONTRAINTE=("SIGM_ELGA", "SIGM_ELNO"),
-    CRITERES=("SIEQ_ELGA", "SIEQ_ELNO"),
-)
+{field_str}
 
 IMPR_RESU(
     RESU=_F(RESULTAT=result),

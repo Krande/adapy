@@ -36,13 +36,13 @@ material = AFFE_MATERIAU(
     )
 )
 
-
 # Shell elements:
 #   EPAIS: thickness
 #   VECTEUR: a direction of reference in the tangent plan
 
 element = AFFE_CARA_ELEM(
-        MODELE=model,
+
+    MODELE=model,
         COQUE=(),
         POUTRE=(
             _F(
@@ -61,7 +61,7 @@ element = AFFE_CARA_ELEM(
             ),
 
         ),
-    )
+)
 
 
 # Boundary Conditions
@@ -86,15 +86,27 @@ result = MECA_STATIQUE(
     EXCIT=(_F(CHARGE=Fixed),_F(CHARGE=grav))
 )
 
+
 result = CALC_CHAMP(
-    reuse=result,
-    RESULTAT=result,
-    CONTRAINTE=("SIGM_ELGA", "SIGM_ELNO"),
-    CRITERES=("SIEQ_ELGA", "SIEQ_ELNO"),
+        reuse=result, RESULTAT=result,
+        CONTRAINTE=("EFGE_ELNO","EFGE_NOEU","SIGM_ELNO","SIEF_ELNO","SIPO_ELNO","SIPM_ELNO"),
+        FORCE= ("REAC_NODA"),
 )
 
+
 IMPR_RESU(
-    RESU=_F(RESULTAT=result),
+    RESU=(
+		_F(
+            NOM_CHAM=("DEPL", "EFGE_ELNO", "EFGE_NOEU"),
+            NOM_CHAM_MED=("DISP", "GEN_FORCES_ELEM", "GEN_FORCES_NODES"),
+            RESULTAT=result,
+        ),
+        _F(
+            NOM_CHAM=("SIGM_ELNO", "SIGM_NOEU"),
+            NOM_CHAM_MED=("STRESSES_ELEM", "STRESSES_NODES"),
+            RESULTAT=stress,
+        ),
+	),
     UNITE=80
 )
 

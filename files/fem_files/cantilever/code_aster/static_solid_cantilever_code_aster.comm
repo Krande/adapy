@@ -64,12 +64,13 @@ result = MECA_STATIQUE(
     EXCIT=(_F(CHARGE=Fixed),_F(CHARGE=grav))
 )
 
+
 result = CALC_CHAMP(
-    reuse=result,
-    RESULTAT=result,
-    CONTRAINTE=("SIGM_ELGA", "SIGM_ELNO"),
-    CRITERES=("SIEQ_ELGA", "SIEQ_ELNO"),
+        reuse=result, RESULTAT=result,
+        CONTRAINTE=("EFGE_ELNO","EFGE_NOEU","SIGM_ELNO","SIEF_ELNO","SIPO_ELNO","SIPM_ELNO"),
+        FORCE= ("REAC_NODA"),
 )
+
 
 IMPR_RESU(
     RESU=_F(RESULTAT=result),
