@@ -524,10 +524,11 @@ def default_fem_res_path(
     base_path = scratch_dir / name / name if analysis_dir is None else analysis_dir / name
     fem_format_map = {
         FEATypes.CODE_ASTER: base_path.with_suffix(".rmed"),
-        FEATypes.ABAQUS: base_path.with_suffix(".odb"),
+        FEATypes.ABAQUS: base_path.with_suffix(".pckle"),
         FEATypes.CALCULIX: base_path.with_suffix(".frd"),
-        FEATypes.SESAM: (base_path.parent / f"{name}R1").with_suffix(".SIN"),
+        FEATypes.SESAM: (base_path.parent / f"{name}R1").with_suffix(".SIF"),
         FEATypes.USFOS: base_path.with_suffix(".fem"),
+        FEATypes.XDMF: base_path.with_suffix(".xdmf"),
     }
 
     if fem_format is None:

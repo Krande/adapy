@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pathlib
+
 from subprocess import CompletedProcess
 
 from ada.fem.formats.general import fem_executables
@@ -22,6 +24,9 @@ def execute_fem(
 
     if inp_path is None:
         raise ValueError(f"FEM format '{fem_format}' is not supported")
+
+    if isinstance(inp_path, str):
+        inp_path = pathlib.Path(inp_path)
 
     out = exe_func(
         inp_path=inp_path,

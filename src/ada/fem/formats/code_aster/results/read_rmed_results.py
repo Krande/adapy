@@ -24,7 +24,10 @@ def read_rmed_file(rmed_file: str | pathlib.Path) -> FEAResult:
 
     mr = MedReader(rmed_file)
     mr.load()
-    return FEAResult(rmed_file.name, software=FEATypes.CODE_ASTER, results=mr.results, mesh=mr.mesh)
+
+    return FEAResult(
+        rmed_file.name, software=FEATypes.CODE_ASTER, results=mr.results, mesh=mr.mesh, results_file_path=rmed_file
+    )
 
 
 @dataclass
@@ -89,7 +92,7 @@ class MedReader:
             node_refs = nod[()].reshape(n_cells, -1, order="F")
 
             if "NUM" in med_cell_type_group.keys():
-                num = list(med_cell_type_group["NUM"])
+                num = np.array(med_cell_type_group["NUM"])
             else:
                 num = np.arange(0, len(node_refs))
 
@@ -100,7 +103,83 @@ class MedReader:
         return blocks
 
     def get_results(self) -> list[ElementFieldData | NodalFieldData]:
-        ...
+        from ada.fem.formats.code_aster.common import med_to_ada_type
+
+        fields = self.f.get("CHA")
+        for name, data in fields.items():
+            nom = data.attrs.get("NOM")
+            if nom is None:
+                raise ValueError()
+
+            components = nom.decode().split()
+            time_step = sorted(data.keys())  # associated time-steps
+            if len(time_step) == 1:  # single time-step
+                names = [name]  # do not change field name
+            else:  # many time-steps
+                names = [None] * len(time_step)
+                for i, key in enumerate(time_step):
+                    t = data[key].attrs["PDT"]  # current time
+                    names[i] = name + f"[{i:d}] - {t:g}"
+
+            results = []
+            # MED field can contain multiple types of data
+            for i, key in enumerate(time_step):
+                med_data = data[key]  # at a particular time step
+                step_name = names[i]
+                for supp in med_data:
+                    if supp == "NOE":  # continuous nodal (NOEU) data
+                        result = self._load_nodal_field_data(step_name, med_data, i + 1, components)
+                        results.append(result)
+                    else:  # Gauss points (ELGA) or DG (ELNO) data
+                        result = self._load_element_field_data(step_name, med_data[supp], i + 1, components)
+                        results.append(result)
+
+            return results
+
+    def _load_element_field_data(self, name, med_data, step, components) -> ElementFieldData:
+        from ada.fem.results.common import ElementFieldData
+
+        profile = med_data.attrs["PFL"]
+        data_profile = med_data[profile]
+        n_cells = data_profile.attrs["NBR"]
+        n_gauss_points = data_profile.attrs["NGA"]
+        if profile.decode() == "MED_NO_PROFILE_INTERNAL":  # default profile with everything
+            values = data_profile["CO"][()].reshape(n_cells, n_gauss_points, -1, order="F")
+        else:
+            n_data = profiles[profile].attrs["NBR"]
+            index_profile = profiles[profile]["PFL"][()] - 1
+            values_profile = data_profile["CO"][()].reshape(n_data, n_gauss_points, -1, order="F")
+            values = np.full((n_cells, values_profile.shape[1], values_profile.shape[2]), np.nan)
+            values[index_profile] = values_profile
+
+        # Only 1 data point per cell, shape -> (n_cells, n_components)
+        if n_gauss_points == 1:
+            values = values[:, 0, :]
+            if values.shape[-1] == 1:  # cut off for scalars
+                values = values[:, 0]
+
+        return ElementFieldData(name, step, components, values)
+
+    def _load_nodal_field_data(self, name, med_data, step, components) -> NodalFieldData:
+        from ada.fem.results.common import NodalFieldData
+
+        profile = med_data["NOE"].attrs["PFL"]
+        data_profile = med_data["NOE"][profile]
+        n_points = data_profile.attrs["NBR"]
+        if profile.decode() == "MED_NO_PROFILE_INTERNAL":  # default profile with everything
+            values = data_profile["CO"][()].reshape(n_points, -1, order="F")
+        else:
+            n_data = profiles[profile].attrs["NBR"]
+            index_profile = profiles[profile]["PFL"][()] - 1
+            values_profile = data_profile["CO"][()].reshape(n_data, -1, order="F")
+            values = np.full((n_points, values_profile.shape[1]), np.nan)
+            values[index_profile] = values_profile
+
+        if values.shape[-1] == 1:  # cut off for scalars
+            values = values[:, 0]
+        node_ids = self.mesh.nodes.identifiers
+        values = np.insert(values, 0, node_ids, axis=1)
+        return NodalFieldData(name, step, components, values)
 
     def _load_mesh(self):
         mesh_ensemble = self.f["ENS_MAA"]

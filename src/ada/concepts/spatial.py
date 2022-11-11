@@ -55,7 +55,7 @@ if TYPE_CHECKING:
     from ada import Beam, Material, Plate, Section, Wall, Weld
     from ada.fem.formats.general import FEATypes, FemConverters
     from ada.fem.meshing import GmshOptions
-    from ada.fem.results import Results
+    from ada.fem.results.common import FEAResult
     from ada.ifc.store import IfcStore
     from ada.visualize.concept import VisMesh
     from ada.visualize.config import ExportConfig
@@ -1008,8 +1008,8 @@ class Assembly(Part):
         exit_on_complete=True,
         run_in_shell=False,
         make_zip_file=False,
-        import_result_mesh=False,
-    ) -> Results:
+        return_fea_results=True,
+    ) -> FEAResult | None:
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
         Currently there is limited write support for the following FEM formats:
@@ -1041,7 +1041,7 @@ class Assembly(Part):
         :param exit_on_complete:
         :param run_in_shell:
         :param make_zip_file:
-        :param import_result_mesh: Automatically import the result mesh into
+        :param return_fea_results: Automatically import the result mesh into
 
             Note! Meshio implementation currently only supports reading & writing elements and nodes.
 
@@ -1057,7 +1057,7 @@ class Assembly(Part):
         from ada.fem.formats.execute import execute_fem
         from ada.fem.formats.general import FEATypes, write_to_fem
         from ada.fem.formats.utils import default_fem_res_path
-        from ada.fem.results import Results
+        from ada.fem.formats.postprocess import postprocess
 
         if isinstance(fem_format, str):
             fem_format = FEATypes.from_str(fem_format)
@@ -1066,24 +1066,18 @@ class Assembly(Part):
 
         write_to_fem(self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file)
 
-        out = None
         if execute:
-            out = execute_fem(
+            execute_fem(
                 name, fem_format, scratch_dir, cpus, gpus, run_ext, metadata, execute, exit_on_complete, run_in_shell
             )
 
         fem_res_files = default_fem_res_path(name, scratch_dir=scratch_dir)
         res_path = fem_res_files.get(fem_format, None)
 
-        return Results(
-            res_path,
-            name,
-            fem_format=fem_format,
-            assembly=self,
-            output=out,
-            overwrite=overwrite,
-            import_mesh=import_result_mesh,
-        )
+        if res_path.exists() is False or return_fea_results is False:
+            return None
+
+        return postprocess(res_path, fem_format=fem_format)
 
     def to_ifc(self, destination=None, include_fem=False, file_obj_only=False, validate=False) -> ifcopenshell.file:
         import ifcopenshell.validate

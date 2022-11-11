@@ -42,9 +42,10 @@ def main():
             rerun = True
             res_files = []
             software_to_analyze = ["code_aster"]
-            # software_to_analyze = ["calculix"]
-            # software_to_analyze = ["sesam"]
-            # software_to_analyze = ["abaqus"]
+            software_to_analyze += ["calculix"]
+            software_to_analyze += ["sesam"]
+            software_to_analyze += ["abaqus"]
+
             for fea_software in software_to_analyze:
                 try:
                     res = a.to_fem(f"{prefix}_cantilever_{fea_software}", fea_software, overwrite=rerun, execute=rerun)

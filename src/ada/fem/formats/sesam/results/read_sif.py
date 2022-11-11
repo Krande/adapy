@@ -309,7 +309,7 @@ class Sif2Mesh:
         self.mesh = self.get_sif_mesh()
         results = self.get_sif_results()
 
-        return FEAResult(sif_file.stem, FEATypes.SESAM, results=results, mesh=self.mesh)
+        return FEAResult(sif_file.stem, FEATypes.SESAM, results=results, mesh=self.mesh, results_file_path=sif_file)
 
     def get_sif_mesh(self) -> Mesh:
         from ada.fem.results.common import (

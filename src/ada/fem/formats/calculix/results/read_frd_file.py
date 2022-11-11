@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import meshio
+import numpy as np
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterator
-
-import meshio
-import numpy as np
 
 from ada.base.types import BaseEnum
 from ada.fem.results.common import ElementBlock, ElementInfo, FEAResult, FemNodes, Mesh
@@ -186,12 +185,35 @@ def read_from_frd_file(frd_file) -> meshio.Mesh:
 
 
 def read_from_frd_file_proto(frd_file) -> FEAResult:
-    with open(frd_file, "r") as f:
+    with open(frd_file, "r", encoding='utf8') as f:
         ccx_res_model = CcxResultModel(f)
         ccx_res_model.load()
 
-    mesh = to_fea_result_obj(ccx_res_model)
+    if ccx_res_model.elements is None:
+        raise ReadFrdFailedException("No element information from Calculix")
+
+    mesh = to_fea_result_obj(ccx_res_model, frd_file)
     return mesh
+
+
+def to_fea_result_obj(ccx_results: CcxResultModel, frd_file) -> FEAResult:
+    from ada.fem.formats.general import FEATypes
+
+    name = f"Adapy - Calculix ({ccx_results.ccx_version}) Results"
+    shape = ElemShape.get_type_from_elem_array_shape(ccx_results.elements)
+    node_refs = ccx_results.elements[:, 4:]
+    elem_info = ElementInfo(
+        type=ElemShape.el_shape_to_baseshape(shape), source_software=FEATypes.CALCULIX, source_type=str(shape.value)
+    )
+    identifiers = ccx_results.elements[:, 0]
+    elem_block = ElementBlock(elem_info=elem_info, node_refs=node_refs, identifiers=identifiers)
+
+    coords = ccx_results.nodes[:, 1:]
+    identifiers = ccx_results.nodes[:, 0]
+    nodes = FemNodes(coords=coords, identifiers=identifiers)
+    mesh = Mesh(elements=[elem_block], nodes=nodes)
+
+    return FEAResult(name, FEATypes.CALCULIX, ccx_results.results, mesh=mesh, results_file_path=frd_file)
 
 
 def to_meshio_mesh(ccx_results: CcxResultModel) -> meshio.Mesh:
@@ -229,23 +251,3 @@ def to_meshio_mesh(ccx_results: CcxResultModel) -> meshio.Mesh:
 
     mesh = meshio.Mesh(points=points, cells=[cell_block], cell_data=cell_data, point_data=point_data)
     return mesh
-
-
-def to_fea_result_obj(ccx_results: CcxResultModel) -> FEAResult:
-    from ada.fem.formats.general import FEATypes
-
-    name = f"Adapy - Calculix ({ccx_results.ccx_version}) Results"
-    shape = ElemShape.get_type_from_elem_array_shape(ccx_results.elements)
-    node_refs = ccx_results.elements[:, 4:]
-    elem_info = ElementInfo(
-        type=ElemShape.el_shape_to_baseshape(shape), source_software=FEATypes.CALCULIX, source_type=str(shape.value)
-    )
-    identifiers = ccx_results.elements[:, 0]
-    elem_block = ElementBlock(elem_info=elem_info, node_refs=node_refs, identifiers=identifiers)
-
-    coords = ccx_results.nodes[:, 1:]
-    identifiers = ccx_results.nodes[:, 0]
-    nodes = FemNodes(coords=coords, identifiers=identifiers)
-    mesh = Mesh(elements=[elem_block], nodes=nodes)
-
-    return FEAResult(name, FEATypes.CALCULIX, ccx_results.results, mesh=mesh)

@@ -38,8 +38,9 @@ def convert_sin_to_sif(sin_file: str | pathlib.Path, use_siu=False) -> None:
     props["capture_output"] = True
     out = subprocess.run(str(run_bat_file), **props)
     print(f'Finished SIN2SIF operation on "{analysis_name}"')
+
     res_str = str(out.stderr + out.stdout)
-    with open(sin_file.parent / "run_log.txt", "w") as f:
+    with open(sin_file.parent / "run_prepost_log.txt", "w") as f:
         f.write(res_str)
 
     return out

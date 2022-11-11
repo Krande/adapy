@@ -111,6 +111,7 @@ class FEAResult:
     software: str | FEATypes
     results: list[ElementFieldData | NodalFieldData]
     mesh: Mesh
+    results_file_path: pathlib.Path = None
 
     def __post_init__(self):
         if self.results is None:

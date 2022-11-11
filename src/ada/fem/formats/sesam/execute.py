@@ -1,10 +1,14 @@
+import pathlib
+import re
+
 import logging
 
 from ada.fem.formats.utils import LocalExecute
+from ada.fem.formats.sesam.results.sin2sif import convert_sin_to_sif
 
 
 def run_sesam(
-    inp_path,
+    inp_path: pathlib.Path,
     cpus=2,
     gpus=None,
     run_ext=False,
@@ -15,10 +19,18 @@ def run_sesam(
 ):
     logging.info("sestra runs on single core only. changing cpus=1")
     cpus = 1
-    aba_exe = SesamExecute(
+    ses_exe = SesamExecute(
         inp_path, cpus=cpus, run_ext=run_ext, metadata=metadata, auto_execute=execute, run_in_shell=run_in_shell
     )
-    return aba_exe.run(exit_on_complete)
+    out = ses_exe.run(exit_on_complete)
+    reg_res = re.search(r'T([0-9]{0,4})\.FEM', inp_path.name)
+    tbr = reg_res.group()
+    num = reg_res.group(1)
+
+    sin_file = inp_path.parent / inp_path.name.replace(tbr, f'R{num}.SIN')
+    convert_sin_to_sif(sin_file)
+
+    return out
 
 
 class SesamExecute(LocalExecute):
