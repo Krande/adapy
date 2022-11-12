@@ -9,29 +9,30 @@ source:
   path: ../
 
 build:
+  noarch: python
   number: 0
-  script: python -m pip install --no-deps --ignore-installed .
+  script: {{ PYTHON }} -m pip install . --no-deps -vv
 
 requirements:
   build:
-    - python
+    - python >=3.9
   run:
-    - python
+    - python >=3.9
     - numpy
     - ifcopenshell
     - pythonocc-core
-    - occt
     - python-gmsh
     - pyquaternion
     - trimesh
-    - pytexit
     - jupyterlab
-    - pythreejs
     - pyparsing
     - h5py
     - plotly
     - python-kaleido
     - meshio
+    - pythreejs
+  run_constrained:
+    - pytexit
 
 test:
   source_files:

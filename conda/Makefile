@@ -1,5 +1,5 @@
 compile:
-	conda activate condabuild && conda-build -c conda-forge -c krande . --keep-old-work --python 3.10.4
+	conda activate condabuild && conda mambabuild -c conda-forge -c krande . --keep-old-work --python 3.10.4
 
 compile-docker-build:
 	docker build -t ada/condabuild -f Dockerfile ../ && \
@@ -25,7 +25,7 @@ show:
 	conda config --show channels
 
 pre:
-	conda create -y -n condabuild -c conda-forge conda-build conda-verify anaconda-client
+	mamba env update --file environment.yml --prune
 
 py310:
 	conda create -n py310 -c krande/label/dev -c conda-forge ifcopenshell h5py python==3.10.2
