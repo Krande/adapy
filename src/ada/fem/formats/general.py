@@ -21,13 +21,14 @@ class FEATypes(BaseEnum):
     ABAQUS = "abaqus"
     SESAM = "sesam"
     USFOS = "usfos"
+    GMSH = "gmsh"
 
     # formats only
     XDMF = "xdmf"
 
     @staticmethod
     def get_solvers_only():
-        non_solvers = [FEATypes.XDMF]
+        non_solvers = [FEATypes.XDMF, FEATypes.GMSH]
         return [x for x in FEATypes if x not in non_solvers]
 
 

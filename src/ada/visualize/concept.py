@@ -62,10 +62,11 @@ class VisMesh:
 
     def _convert_to_trimesh(self, embed_meta=True) -> trimesh.Scene:
         scene = trimesh.Scene()
+        meta_set = set(self.meta.keys())
 
         id_sequence = dict()
+
         for world in self.world:
-            meta_set = set(self.meta.keys())
             world_map_set = set(world.id_map.keys())
             res = meta_set - world_map_set
             if self.merged is False:
@@ -160,8 +161,6 @@ class VisMesh:
 class PartMesh:
     name: str
     id_map: dict[str, ObjectMesh]
-    guiparam: None | dict = None
-    rawdata: bool = True
 
     def move_objects_to_center(self, override_center=None):
         for omesh in self.id_map.values():
@@ -216,7 +215,7 @@ class ObjectMesh:
     guid: str
     faces: np.ndarray
     position: np.ndarray
-    normal: np.ndarray | None
+    normal: np.ndarray | None = None
     color: list | None = None
     edges: np.ndarray = None
     vertex_color: np.ndarray = None
@@ -335,11 +334,13 @@ class ObjectMesh:
             shape_edges = get_shape(self.edges)
             if shape_edges == 1:
                 reshaped = self.edges.reshape(int(len(self.edges) / 2), 2)
-                entities = [Line(x) for x in reshaped]
-                edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
+            elif shape_edges == 2:
+                reshaped = self.edges
             else:
-                raise NotImplementedError()
+                raise NotImplementedError("Edges consisting of more than 2 vertices is not supported")
 
+            entities = [Line(x) for x in reshaped]
+            edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
             meshes.append(edge_mesh)
 
         return meshes

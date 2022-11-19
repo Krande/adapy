@@ -29,6 +29,7 @@ from ada.materials import Material
 if TYPE_CHECKING:
     from ada import FEM, Assembly, Part
     from ada.concepts.connections import JointBase
+    from ada.fem.results.common import FemNodes
     from ada.sections import Section
 
 __all__ = [
@@ -813,6 +814,15 @@ class Nodes:
             return np.array([(n.id, *n.p) for n in self._nodes])
         else:
             return np.array([n.p for n in self._nodes])
+
+    def to_fem_nodes(self) -> FemNodes:
+        from ada.fem.results.common import FemNodes
+
+        node_refs = self.to_np_array(include_id=True)
+        identifiers = node_refs[:, 0]
+        coords = node_refs[:, 1:]
+
+        return FemNodes(coords, identifiers)
 
     def __contains__(self, item):
         return item in self._nodes

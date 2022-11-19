@@ -23,6 +23,7 @@ from ada.sections import Section
 
 if TYPE_CHECKING:
     from ada import FEM
+    from ada.fem.results.common import ElementBlock
 
 
 @dataclass
@@ -146,6 +147,19 @@ class FemElements:
         for elem_id in ids:
             self.remove(self._idmap[elem_id])
         self._sort()
+
+    def to_elem_blocks(self) -> list[ElementBlock]:
+        from ada.fem.results.common import ElementBlock, ElementInfo, FEATypes
+
+        elements = []
+        for el_type, el_group in self.group_by_type():
+            info = ElementInfo(el_type, FEATypes.GMSH, None)
+            elem_data = np.array([tuple([e.id, *[n.id for n in e.nodes]]) for e in el_group], dtype=int)
+            el_identifiers = elem_data[:, 0]
+            node_refs = elem_data[:, 1:]
+            block = ElementBlock(info, node_refs, el_identifiers)
+            elements.append(block)
+        return elements
 
     def __contains__(self, item: Elem):
         return item in self._elements

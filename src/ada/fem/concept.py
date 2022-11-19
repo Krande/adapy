@@ -34,6 +34,7 @@ if TYPE_CHECKING:
         StepSteadyState,
         Surface,
     )
+    from ada.fem.results.common import Mesh
     from ada.fem.steps import Step
 
 _step_types = Union["StepSteadyState", "StepEigen", "StepImplicit", "StepExplicit"]
@@ -340,6 +341,13 @@ class FEM:
             for load in step.loads:
                 loads.append(load)
         return loads
+
+    def to_mesh(self) -> Mesh:
+        from ada.fem.results.common import Mesh
+
+        fem_nodes = self.nodes.to_fem_nodes()
+        elem_blocks = self.elements.to_elem_blocks()
+        return Mesh(elem_blocks, fem_nodes)
 
     @property
     def instance_name(self):

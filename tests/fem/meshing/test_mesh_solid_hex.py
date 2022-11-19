@@ -2,6 +2,19 @@ import ada
 from ada.fem.meshing import GmshOptions, GmshSession
 
 
+def test_hex_element():
+    box = ada.PrimBox("box", (0, 0, 0), (1, 1, 1))
+    fem = box.to_fem_obj(10, "solid", use_hex=True)
+    assert len(fem.elements.elements) == 1
+    mesh = fem.to_mesh()
+    coords = mesh.nodes.coords
+    edges, faces = mesh.get_edges_and_faces_from_mesh()
+    print(coords, edges, faces)
+    a = ada.Assembly("Assembly") / (ada.Part("BoxP", fem=fem) / box)
+    a.to_gltf("temp/Box.glb")
+    print()
+
+
 def test_hex_meshed_plate(test_meshing_dir):
     pl = ada.Plate("pl1", [(0, 0), (1, 0), (1, 1), (0, 1)], 10e-3)
 

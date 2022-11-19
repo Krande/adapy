@@ -14,14 +14,14 @@ def test_read_static_shell_results(cantilever_dir):
     results = read_rmed_file(cantilever_dir / "code_aster/static_shell_cantilever_code_aster.rmed")
     assert len(results.results) == 7
 
-    # results.to_gltf("temp/ca_shell.glb", 1, 'result__DEPL', warp_field='result__DEPL', warp_step=1, warp_scale=10)
+    # results.to_gltf("temp/ca_sh_stat.glb", -1, 'result__DEPL', warp_field='result__DEPL', warp_step=-1, warp_scale=10)
 
 
 def test_read_static_solid_results(cantilever_dir):
     results = read_rmed_file(cantilever_dir / "code_aster/static_solid_cantilever_code_aster.rmed")
     assert len(results.results) == 5
 
-    # results.to_gltf("temp/ca_solid.glb", 1, 'result__DEPL', warp_field='result__DEPL', warp_step=1, warp_scale=10)
+    # results.to_gltf("temp/ca_so_stat.glb", -1, 'result__DEPL', warp_field='result__DEPL', warp_step=-1, warp_scale=10)
 
 
 def test_read_eigen_line_results(cantilever_dir):
@@ -33,7 +33,7 @@ def test_read_eigen_line_results(cantilever_dir):
 
     assert eigen_res[:3] == pytest.approx(eig_assert)
 
-    # results.to_gltf("temp/ca_line.glb", 1, 'result__DEPL', warp_field='result__DEPL', warp_step=1, warp_scale=10)
+    # results.to_gltf("temp/ca_li_eig.glb", 1, 'result__DEPL', warp_field='result__DEPL', warp_step=1, warp_scale=10)
 
 
 def test_read_eigen_shell_results(cantilever_dir):
@@ -44,7 +44,7 @@ def test_read_eigen_shell_results(cantilever_dir):
     eig_assert = (13.53625675820233, 20.32094643858448, 52.155714162868584)
     assert eigen_res[:3] == pytest.approx(eig_assert)
 
-    # results.to_gltf("temp/ca_line.glb", 1, 'result__DEPL', warp_field='result__DEPL', warp_step=1, warp_scale=10)
+    # results.to_gltf("temp/ca_sh_eig.glb", 1, 'result__DEPL', warp_field='result__DEPL', warp_step=1, warp_scale=10)
 
 
 def test_read_eigen_solid_results(cantilever_dir):
@@ -55,4 +55,4 @@ def test_read_eigen_solid_results(cantilever_dir):
     eig_assert = (14.275450399786994, 21.568363891531334, 51.08924173189885)
     assert eigen_res[:3] == pytest.approx(eig_assert)
 
-    # results.to_gltf("temp/ca_line.glb", 1, 'result__DEPL', warp_field='result__DEPL', warp_step=1, warp_scale=10)
+    # results.to_gltf("temp/ca_so_eig.glb", 1, 'result__DEPL', warp_field='result__DEPL', warp_step=1, warp_scale=10)

@@ -194,11 +194,15 @@ class FEAResult:
 
     def get_data(self, field: str, step: int):
         steps = self.get_results_grouped_by_field_value().get(field)
-        all_field_data = [x for x in steps if x.step == step]
-        if len(all_field_data) != 1:
-            raise ValueError("Non-unique results of field data")
+        if step == -1:
+            field_data = list(sorted(steps, key=lambda x: x.step))[-1]
+        else:
+            all_field_data = [x for x in steps if x.step == step]
+            if len(all_field_data) != 1:
+                raise ValueError("Non-unique results of field data")
 
-        field_data = all_field_data[0]
+            field_data = all_field_data[0]
+
         return field_data.get_all_values()
 
     def _colorize_data(self, field: str, step: int, colorize_function: Callable = None):

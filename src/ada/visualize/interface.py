@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import ifcopenshell.geom
 import numpy as np
 
+from ada.ifc.utils import create_guid
 from ada.visualize.concept import ObjectMesh, PartMesh, VisMesh
 
 if TYPE_CHECKING:
@@ -44,6 +45,20 @@ def part_to_vis_mesh2(part: Part, auto_sync_ifc_store=True, cpus: int = None) ->
     }
     parts_d = {p.guid: (p.name, p.parent.guid) for p in part.get_all_physical_objects()}
     meta.update(parts_d)
+
+    for p in part.get_all_subparts(include_self=True):
+        if p.fem.is_empty() is True:
+            continue
+
+        mesh = p.fem.to_mesh()
+        coords = mesh.nodes.coords
+        edges, faces = mesh.get_edges_and_faces_from_mesh()
+        guid = create_guid()
+        name = p.fem.name
+        meta.update({guid: (name, p.guid)})
+
+        id_map.update({guid: ObjectMesh(guid, faces, coords, edges=edges)})
+
     return VisMesh(part.name, world=[pm], meta=meta)
 
 
