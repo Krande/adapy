@@ -9,10 +9,11 @@ def test_hex_element():
     mesh = fem.to_mesh()
     coords = mesh.nodes.coords
     edges, faces = mesh.get_edges_and_faces_from_mesh()
-    print(coords, edges, faces)
-    a = ada.Assembly("Assembly") / (ada.Part("BoxP", fem=fem) / box)
-    a.to_gltf("temp/Box.glb")
-    print()
+    assert faces.shape == (12, 3)
+    assert edges.shape == (13, 2)
+    assert coords.shape == (8, 3)
+
+    # ada.Assembly("Assembly") / (ada.Part("BoxP", fem=fem) / box).to_gltf("temp/Box.glb")
 
 
 def test_hex_meshed_plate(test_meshing_dir):
