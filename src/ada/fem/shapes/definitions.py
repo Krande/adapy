@@ -170,6 +170,24 @@ class ElemShape:
 
         return self._edges
 
+    def get_faces(self):
+        from itertools import chain
+
+        def hex_face_to_tris(q):
+            return [(q[0], q[1], q[2]), (q[0], q[2], q[3])]
+
+        if isinstance(self.type, SolidShapes):
+            faces_seq = self.solids_face_seq
+            if self.type in (SolidShapes.HEX8, SolidShapes.HEX20):
+                faces_seq = list(chain.from_iterable([hex_face_to_tris(x) for x in faces_seq]))
+        else:
+            faces_seq = self.faces_seq
+
+        if self._faces is None:
+            self._faces = [self.nodes[e] for ed_seq in faces_seq for e in ed_seq]
+
+        return self._faces
+
     @property
     def faces(self):
         if isinstance(self.type, SolidShapes):
@@ -255,6 +273,7 @@ class ElemShape:
         if solid_face_res is None:
             logging.error(f"Element type {self.type} is currently not supported")
             return None
+
         return solid_face_res
 
     @staticmethod

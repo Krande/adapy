@@ -21,7 +21,7 @@ def test_read_static_solid_results(cantilever_dir):
     results = read_rmed_file(cantilever_dir / "code_aster/static_solid_cantilever_code_aster.rmed")
     assert len(results.results) == 5
 
-    # results.to_gltf("temp/ca_so_stat.glb", -1, 'result__DEPL', warp_field='result__DEPL', warp_step=-1, warp_scale=10)
+    results.to_gltf("temp/ca_so_stat.glb", -1, "result__DEPL", warp_field="result__DEPL", warp_step=-1, warp_scale=10)
 
 
 def test_read_eigen_line_results(cantilever_dir):

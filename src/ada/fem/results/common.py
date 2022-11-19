@@ -98,7 +98,7 @@ class Mesh:
                 edges += elem_shape.edges
                 if isinstance(elem_shape.type, shape_def.LineShapes):
                     continue
-                faces += elem_shape.faces
+                faces += elem_shape.get_faces()
 
         faces = np.array(faces).reshape(int(len(faces) / 3), 3)
         edges = np.array(edges).reshape(int(len(edges) / 2), 2)
