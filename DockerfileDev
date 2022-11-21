@@ -7,4 +7,4 @@ RUN mkdir "tmp/install"
 WORKDIR "tmp/install"
 COPY . .
 
-RUN activate adadev && pip install .
+RUN /opt/conda/envs/adadev/bin/pip install .
