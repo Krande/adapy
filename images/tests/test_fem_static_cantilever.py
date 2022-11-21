@@ -1,6 +1,5 @@
 import logging
 import pathlib
-
 import pytest
 
 import ada

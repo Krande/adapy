@@ -16,16 +16,16 @@ def test_read_static_line_results(cantilever_dir):
     elem_force_results = data.values[np.where(data.values[:, 0] == elem_id)[0], len(data.COLS) :][0]
     _ = ec3_654(elem_1, elem_force_results, 1)
 
-    results.to_fem_file("temp/sesam_line.vtu")
-    results.to_gltf("temp/sesam_line.glb", 1, "RVNODDIS", warp_field="RVNODDIS", warp_step=1, warp_scale=10)
+    # results.to_fem_file("temp/sesam_line.vtu")
+    # results.to_gltf("temp/sesam_line.glb", 1, "RVNODDIS", warp_field="RVNODDIS", warp_step=1, warp_scale=10)
 
 
 def test_read_static_shell_results(cantilever_dir):
     results = read_sif_file(cantilever_dir / "sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIF")
     assert len(results.results) == 2
 
-    results.to_fem_file("temp/sesam_shell.vtu")
-    results.to_gltf("temp/sesam.glb", 1, "RVNODDIS", warp_field="RVNODDIS", warp_step=1, warp_scale=10)
+    # results.to_fem_file("temp/sesam_shell.vtu")
+    # results.to_gltf("temp/sesam.glb", 1, "RVNODDIS", warp_field="RVNODDIS", warp_step=1, warp_scale=10)
 
 
 def test_ec3_code_check_results(cantilever_dir):

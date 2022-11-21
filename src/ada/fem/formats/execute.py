@@ -41,7 +41,12 @@ def execute_fem(
     if out is None:
         return None
 
+    out_str = ""
+    for out_stream in [out.stdout, out.stderr]:
+        if out_stream is not None:
+            out_str += out_stream
+
     with open(inp_path.parent / "run_log.txt", "w", encoding="utf8") as f:
-        f.write(out.stdout + out.stderr)
+        f.write(out_str)
 
     return out
