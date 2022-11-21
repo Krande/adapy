@@ -1,6 +1,6 @@
 FROM condaforge/mambaforge:22.9.0-2
 
-RUN conda env create -n adadev -c conda-forge -c krande ada-py
+RUN mamba create -y -n adadev -c conda-forge -c krande ada-py
 
 RUN mkdir "tmp/install"
 
