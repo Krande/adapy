@@ -602,10 +602,15 @@ def transform3d(csys_1, csys_2, origin, points) -> List[np.ndarray]:
     return [np.array(origin, dtype=np.float64) + np.dot(rmat, n) for n in points]
 
 
-def normal_to_points_in_plane(points) -> np.ndarray:
+def normal_to_points_in_plane(points_) -> np.ndarray:
     """Get normal to the plane created by a list of points"""
-    if len(points) <= 2:
+    if len(points_) <= 2:
         raise ValueError("Insufficient number of points")
+
+    # remove duplicate points
+    points = [np.array(y) for y in set(tuple(x) for x in points_)]
+
+    # take 3 arbitrary points and create a normal
     p1 = points[0]
     p2 = points[1]
     p3 = points[2]

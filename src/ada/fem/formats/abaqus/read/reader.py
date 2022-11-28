@@ -194,6 +194,8 @@ def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: Ins
     from ada import FEM, Part
 
     instance_name = name if instance_data.instance_name is None else instance_data.instance_name
+    if name in assembly.parts.keys():
+        name = instance_name
     part = assembly.add_part(Part(name, fem=FEM(name=instance_name)))
     fem = part.fem
     fem.nodes = get_nodes_from_inp(bulk_str, fem)
@@ -568,7 +570,6 @@ def get_surfaces_from_bulk(bulk_str, parent):
                     weight_factor = float(set_id_ref)
                 el_face_index = None
             else:
-
                 weight_factor = None
                 fem_set = parent.sets.get_elset_from_name(set_ref)
                 el_type = find_element_type_from_list(fem_set.members)
@@ -577,7 +578,7 @@ def get_surfaces_from_bulk(bulk_str, parent):
                 elif el_type == ElemType.SHELL:
                     el_face_index = -1 if set_id_ref == "SNEG" else 1
                 else:
-                    raise NotImplementedError("Importing surfaces for line elements is not yet supported")
+                    el_face_index = set_id_ref
         else:
             fem_set = None
             weight_factor = None
