@@ -783,3 +783,58 @@ def get_representation_items(f: ifcopenshell.file, ifc_elem: ifcopenshell.entity
             f.traverse(ifc_elem),
         )
     )
+
+
+def ifc_file_to_stp(ifc_file, stp_file, step_schema="AP242", step_assembly_mode=1):
+    """Convert an IFC file to STEP file"""
+
+    import os
+    import pathlib
+
+    from OCC.Core.IFSelect import IFSelect_RetError
+    from OCC.Core.Interface import Interface_Static_SetCVal
+    from OCC.Core.STEPConstruct import stepconstruct_FindEntity
+    from OCC.Core.STEPControl import STEPControl_AsIs, STEPControl_Writer
+    from OCC.Core.TCollection import TCollection_HAsciiString
+
+    settings = ifcopenshell.geom.settings()
+    settings.set(settings.USE_PYTHON_OPENCASCADE, True)
+    # settings.set(settings.SEW_SHELLS, False)
+    # settings.set(settings.WELD_VERTICES, True)
+    # settings.set(settings.INCLUDE_CURVES, False)
+    settings.set(settings.USE_WORLD_COORDS, True)
+    # settings.set(settings.VALIDATE_QUANTITIES, False)
+
+    f = ifcopenshell.open(ifc_file)
+    writer = STEPControl_Writer()
+    fp = writer.WS().TransferWriter().FinderProcess()
+
+    Interface_Static_SetCVal("write.step.schema", step_schema)
+    Interface_Static_SetCVal("write.precision.mode", "1")
+    Interface_Static_SetCVal("write.step.assembly", str(step_assembly_mode))
+    iterator = ifcopenshell.geom.iterator(settings, f)
+    iterator.initialize()
+
+    while True:
+        shape = iterator.get()
+        if shape:
+            geom = shape.geometry
+            name = f.by_id(shape[0].id).Name
+            Interface_Static_SetCVal("write.step.product.name", name)
+            writer.Transfer(geom, STEPControl_AsIs)
+            item = stepconstruct_FindEntity(fp, geom)
+            if not item:
+                logging.debug("STEP item not found for FindEntity")
+            else:
+                item.SetName(TCollection_HAsciiString(name))
+        if not iterator.next():
+            break
+
+    destination_file = pathlib.Path(stp_file).with_suffix(".stp")
+    os.makedirs(destination_file.parent, exist_ok=True)
+
+    status = writer.Write(str(destination_file))
+    if int(status) > int(IFSelect_RetError):
+        raise Exception("Error during write operation")
+
+    print(f'step file created at "{destination_file}"')

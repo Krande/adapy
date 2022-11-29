@@ -608,7 +608,11 @@ def normal_to_points_in_plane(points_) -> np.ndarray:
         raise ValueError("Insufficient number of points")
 
     # remove duplicate points
-    points = [np.array(y) for y in set(tuple(x) for x in points_)]
+    set_data = set(tuple(x) for x in points_)
+    if len(set_data) != len(points_):
+        points = [np.array(y) for y in set_data]
+    else:
+        points = points_
 
     # take 3 arbitrary points and create a normal
     p1 = points[0]
