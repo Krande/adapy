@@ -1,26 +1,24 @@
 from __future__ import annotations
 
-import logging
 import pathlib
 
+from ada.fem.formats.sesam.results.read_sif import read_sif_file
+from ada.fem.formats.sesam.results.sin2sif import convert_sin_to_sif
+from ada.fem.results.common import FEAResult
 
-def get_results_from_result_file(file_ref, overwrite=False, results=None):
-    from .concepts import Results
 
-    file_ref = pathlib.Path(file_ref)
+def from_results_file(fem_res: str | pathlib.Path, fem_format: str = None, force_conversion=False) -> FEAResult:
+    file_ref = pathlib.Path(fem_res)
     suffix = file_ref.suffix.lower()
 
-    res_reader, fem_format = Results.res_map.get(suffix, (None, None))
+    if suffix == ".sin":
+        sif_file = file_ref.with_suffix(".sif")
+        if sif_file.exists() and force_conversion is False:
+            return read_sif_file(sif_file)
 
-    if res_reader is None:
-        logging.error(f'Results class currently does not support filetype "{suffix}"')
-        return None
-
-    return res_reader(results, file_ref, overwrite)
-
-
-def from_results_file(fem_res: str | pathlib.Path, fem_format: str = None):
-
-    _ = get_results_from_result_file(fem_res, fem_format)
-
-    get_results_from_result_file()
+        convert_sin_to_sif(file_ref)
+        return read_sif_file(sif_file)
+    elif suffix == ".sif":
+        return read_sif_file(file_ref.with_suffix(".sif"))
+    else:
+        raise NotImplementedError()

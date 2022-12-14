@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Callable, Iterator
 
 import numpy as np
 
@@ -18,13 +17,13 @@ class DataCard:
     components: tuple
 
     def __post_init__(self):
-        self._index_map = {x: i for i, x in enumerate(self.components)}
+        self._index_map = {x.upper(): i for i, x in enumerate(self.components)}
 
     def to_ff_re(self):
         return get_ff_regex(self.name, *self.components)
 
     def get_indices_from_names(self, names: list[str]) -> list[str] | str:
-        res = [self._index_map[n] for n in names]
+        res = [self._index_map[n.upper()] for n in names]
         return res if len(res) != 1 else res[0]
 
     def get_data_map_from_names(self, names: list[str], data: list) -> dict:
@@ -48,44 +47,16 @@ class DataCard:
     def str_to_proper_types(split_str: str) -> list[float | str]:
         return [float(x) if DataCard.is_numeric(x) else x for x in split_str.split()]
 
-    def iter(self, f: Iterator, curr_line: str, yield_specific_values: list[str] = None, next_func: Callable = None):
-        curr_elements = [float(x) for x in curr_line.split()[1:]]
-        startswith = self.name
-        n_field = None
-        if self.components[0] == "nfield":
-            n_field = int(curr_elements[0])
-
-        while True:
-            stripped = next(f).strip()
-            if n_field is not None and len(curr_elements) >= n_field:
-                result = self.str_to_proper_types(stripped)
-                if len(result) == 0:
-                    curr_elements += [stripped]
-                else:
-                    curr_elements += result
-                yield curr_elements
-                break
-
-            if n_field is None:
-                if stripped.startswith(startswith) is False and self.is_numeric(stripped) is False:
-                    yield curr_elements
-                    break
-
-                if stripped.startswith(startswith):
-                    yield curr_elements
-                    curr_elements = [float(x) if self.is_numeric(x) else x for x in stripped.split()[1:]]
-                    continue
-
-            curr_elements += self.str_to_proper_types(stripped)
-
-        next_func(stripped)
-
 
 SEC_MAP = {
     "GIORH": (
         BaseTypes.IPROFILE,
         (("hz", "h"), ("ty", "t_w"), ("bt", "w_top"), ("tt", "t_ftop"), ("bb", "w_btn"), ("tb", "t_fbtn")),
-    )
+    ),
+    "GBOX": (
+        BaseTypes.BOX,
+        (("hz", "h"), ("ty", "t_w"), ("by", "w_top"), ("tt", "t_ftop"), ("by", "w_btn"), ("tb", "t_fbtn")),
+    ),
 }
 MAT_MAP = {
     "MISOSEL": (
@@ -195,8 +166,12 @@ re_bnmass = get_ff_regex("BNMASS", "nodeno", "ndof", "m1", "m2", "m3", "m4", "m5
 re_mgmass = get_ff_regex("MGMASS", "matno", "ndof", "bulk")
 re_geccen = get_ff_regex("GECCEN", "eccno", "ex", "ey", "ez")
 re_bldep = get_ff_regex("BLDEP", "slave", "master", "nddof", "ndep", "bulk")
-re_setmembs = get_ff_regex("GSETMEMB", "nfield", "isref", "index", "istype", "isorig", "members")
-re_setnames = get_ff_regex("TDSETNAM", "nfield", "isref", "codnam", "codtxt", "set_name")
+
+GSETMEMB = DataCard("GSETMEMB", ("nfield", "isref", "index", "istype", "isorig", "members"))
+re_setmembs = GSETMEMB.to_ff_re()
+
+TDSETNAM = DataCard("TDSETNAM", ("nfield", "isref", "codnam", "codtxt", "set_name"))
+re_setnames = TDSETNAM.to_ff_re()
 
 # Materials
 
@@ -250,5 +225,6 @@ re_rvnodrea = get_ff_regex(
 
 re_rdrescmb = get_ff_regex("RDRESCMB", "nfield", "ires", "complx", "nres", "bulk")
 
-re_tdresref = get_ff_regex("TDRESREF", "nfield", "ires", "codnam", "codtxt", "name")
+TDRESREF = DataCard("TDRESREF", ("nfield", "ires", "codnam", "codtxt", "name"))
+re_tdresref = TDRESREF.to_ff_re()
 re_tdload = get_ff_regex("TDLOAD", "nfield", "llc", "codnam", "codtxt", "name")

@@ -108,7 +108,7 @@ def get_list_of_files(
     strict=False,
     filter_path_contains: Union[None, List[str], str] = None,
     keep_path_contains: Union[None, List[str], str] = None,
-):
+) -> list[str]:
     """Get a list of files and sub directories for a given directory"""
     all_files = []
     list_of_file = sorted(os.listdir(dir_path), key=str.lower)

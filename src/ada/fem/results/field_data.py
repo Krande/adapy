@@ -57,6 +57,14 @@ class ElementFieldData(FieldData):
             start = row_ids[i]
             end = row_ids[i + 1]
             res_array[i] = self.values[start:end, 2:]
+        return res_array
+
+    def get_by_element_id(self, elem_ids: list[int]):
+        data = []
+        for x in self.values:
+            if int(x[0]) in elem_ids:
+                data.append(x)
+        return np.array(data)
 
     def _get_field_nodal(self, cr: int):
         nodes = self.values[:, 2]

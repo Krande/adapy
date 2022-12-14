@@ -15,7 +15,7 @@ from .field_data import ElementFieldData, NodalFieldData
 
 if TYPE_CHECKING:
     from ada import Material, Node, Section
-    from ada.fem import Elem
+    from ada.fem import Elem, FemSet
 
 
 @dataclass
@@ -58,6 +58,7 @@ class Mesh:
     materials: dict[int, Material] = None
     vectors: dict[int, list] = None
     elem_data: np.ndarray = None  # el_id, mat_id, sec_id, vec_id
+    sets: dict[str, FemSet] = None
 
     def get_elem_by_id(self, elem_id: int) -> Elem:
         from ada.base.types import GeomRepr
@@ -112,6 +113,7 @@ class FEAResult:
     results: list[ElementFieldData | NodalFieldData]
     mesh: Mesh
     results_file_path: pathlib.Path = None
+    step_name_map: dict[int | float, str] = None
 
     def __post_init__(self):
         if self.results is None:
@@ -134,6 +136,17 @@ class FEAResult:
                 results[x.name] = []
             results[x.name].append(x)
         return results
+
+    def get_data_by_field_name_and_set_name(self, field, set_name, field_name=None):
+        data = self.get_results_grouped_by_field_value()
+        values = data.get(field)
+        fs = self.mesh.sets.get(set_name)
+
+        output_res = []
+        for sdata in values:
+            output_res.append(sdata.get_by_element_id(fs.members))
+
+        return output_res
 
     def get_field_value_by_name(
         self, name: str, step: int = None
@@ -158,6 +171,19 @@ class FEAResult:
     def iter_results_by_field_value(self) -> Iterable[ElementFieldData | NodalFieldData]:
         for x in self.results:
             yield x
+
+    def get_data(self, field: str, step: int):
+        steps = self.get_results_grouped_by_field_value().get(field)
+        if step == -1:
+            field_data = list(sorted(steps, key=lambda x: x.step))[-1]
+        else:
+            all_field_data = [x for x in steps if x.step == step]
+            if len(all_field_data) != 1:
+                raise ValueError("Non-unique results of field data")
+
+            field_data = all_field_data[0]
+
+        return field_data.get_all_values()
 
     def _get_cell_blocks(self):
         cells = []
@@ -191,19 +217,6 @@ class FEAResult:
                     raise ValueError()
 
         return cell_data, point_data
-
-    def get_data(self, field: str, step: int):
-        steps = self.get_results_grouped_by_field_value().get(field)
-        if step == -1:
-            field_data = list(sorted(steps, key=lambda x: x.step))[-1]
-        else:
-            all_field_data = [x for x in steps if x.step == step]
-            if len(all_field_data) != 1:
-                raise ValueError("Non-unique results of field data")
-
-            field_data = all_field_data[0]
-
-        return field_data.get_all_values()
 
     def _colorize_data(self, field: str, step: int, colorize_function: Callable = None):
         from ada.visualize.colors import DataColorizer
