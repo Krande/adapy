@@ -44,11 +44,14 @@ class ElementFieldData(FieldData):
     COLS: ClassVar[list[str]] = ["elem_label", "sec_num"]
     int_positions: list[tuple] = None
 
-    def get_by_element_id(self, elem_ids: list[int]):
+    def get_by_element_id(self, elem_ids: list[int], int_points: list[int] = None) -> ElementFieldData:
         data = []
         for x in self.values:
-            if int(x[0]) in elem_ids:
-                data.append(x)
+            if int(x[0]) not in elem_ids:
+                continue
+            if int_points is not None and x[1] not in int_points:
+                continue
+            data.append(x)
 
         return ElementFieldData(self.name, self.step, self.components, np.array(data))
 

@@ -137,16 +137,18 @@ class FEAResult:
             results[x.name].append(x)
         return results
 
-    def get_data_by_field_name_and_set_name(self, field, set_name, field_name=None):
+    def get_data_by_field_and_elem_ids(self, field: str, elem_ids: list[int], int_points: list[int] = None) -> list[ElementFieldData]:
         data = self.get_results_grouped_by_field_value()
         values = data.get(field)
-        fs = self.mesh.sets.get(set_name)
-
         output_res = []
         for sdata in values:
-            output_res.append(sdata.get_by_element_id(fs.members))
+            output_res.append(sdata.get_by_element_id(elem_ids, int_points))
 
         return output_res
+
+    def get_data_by_field_name_and_set_name(self, field, set_name, int_points=None) -> list[ElementFieldData]:
+        fs = self.mesh.sets.get(set_name)
+        return self.get_data_by_field_and_elem_ids(field, fs.members, int_points)
 
     def get_field_value_by_name(
         self, name: str, step: int = None
