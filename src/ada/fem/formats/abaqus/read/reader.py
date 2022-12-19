@@ -107,9 +107,12 @@ def read_fem(fem_file, fem_name=None) -> Assembly:
         assembly.fem.sets.link_data()
 
         update_connector_data(ass_sets, assembly.fem)
-
         assembly.fem.surfaces.update(get_surfaces_from_bulk(ass_sets, assembly.fem))
-        assembly.fem.constraints.update(get_constraints_from_inp(ass_sets, assembly.fem))
+
+        try:
+            assembly.fem.constraints.update(get_constraints_from_inp(ass_sets, assembly.fem))
+        except KeyError as e:
+            logging.error(e)
 
         assembly.fem.bcs += get_bcs_from_bulk(props_str, assembly.fem)
         assembly.fem.elements += get_mass_from_bulk(ass_sets, assembly.fem)
