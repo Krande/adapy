@@ -34,7 +34,7 @@ def cross_sec_face(sec_profile: SectionProfile, placement: Placement, solid_repr
                 inner_shape = inner_curve.wire
         else:
             if sec_profile.outer_curve_disconnected is None:
-                raise ValueError(f'Section profile {sec_profile.sec.name} has no Curve associated with it')
+                raise ValueError(f"Section profile {sec_profile.sec.name} has no Curve associated with it")
 
             outer_shape = []
             for curve in sec_profile.outer_curve_disconnected:

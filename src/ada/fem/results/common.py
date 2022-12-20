@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-
 import os
 import pathlib
 from dataclasses import dataclass
@@ -143,7 +142,9 @@ class FEAResult:
             results[x.name].append(x)
         return results
 
-    def get_data_by_field_and_elem_ids(self, field: str, elem_ids: list[int], int_points: list[int] = None) -> list[ElementFieldData]:
+    def get_data_by_field_and_elem_ids(
+        self, field: str, elem_ids: list[int], int_points: list[int] = None
+    ) -> list[ElementFieldData]:
         data = self.get_results_grouped_by_field_value()
         values = data.get(field)
         output_res = []

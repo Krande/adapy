@@ -238,7 +238,12 @@ class ElemShape:
         from .shells import shell_edges
         from .solids import solid_edges
 
-        edge_map = {ElemType.LINE: line_edges, ElemType.SHELL: shell_edges, ElemType.SOLID: solid_edges, SpringTypes.SPRING2: line_edges}
+        edge_map = {
+            ElemType.LINE: line_edges,
+            ElemType.SHELL: shell_edges,
+            ElemType.SOLID: solid_edges,
+            SpringTypes.SPRING2: line_edges,
+        }
         generalized_type = self.type
         edges_repo = edge_map[self.elem_type_group]
         if generalized_type not in edges_repo.keys():
