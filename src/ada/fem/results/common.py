@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import os
 import pathlib
 from dataclasses import dataclass
@@ -96,7 +98,11 @@ class Mesh:
 
             for elem in nodes_copy:
                 elem_shape = ElemShape(el_type, elem)
-                edges += elem_shape.edges
+                try:
+                    edges += elem_shape.edges
+                except IndexError as e:
+                    logging.error(e)
+                    continue
                 if isinstance(elem_shape.type, shape_def.LineShapes):
                     continue
                 faces += elem_shape.get_faces()
