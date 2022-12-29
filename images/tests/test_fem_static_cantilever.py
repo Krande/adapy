@@ -20,7 +20,7 @@ def is_conditions_unsupported(fem_format, geom_repr, elem_order):
 
 
 @pytest.mark.parametrize("use_hex_quad", [True, False])
-@pytest.mark.parametrize("fem_format", ["code_aster", "calculix", "sesam", "abaqus"])
+@pytest.mark.parametrize("fem_format", ["code_aster", "calculix"])  #, "sesam", "abaqus"])
 @pytest.mark.parametrize("geom_repr", ["line", "shell", "solid"])
 @pytest.mark.parametrize("elem_order", [1, 2])
 @pytest.mark.parametrize("nl_geom", [True, False])
