@@ -338,6 +338,9 @@ class Beam(BackendGeom):
 
         return midpoints
 
+    def copy_to(self, p1, p2, name: str) -> Beam:
+        return Beam(name, p1, p2, sec=self.section, tap=self.taper, mat=self.material)
+
     @property
     def units(self):
         return self._units

@@ -400,11 +400,14 @@ def run_macOS(exe, run_cmd):
 def interpret_fem(fem_ref: str):
     from ada.fem.formats.general import FEATypes
 
+    suffix = pathlib.Path(fem_ref).suffix.lower()
     fem_type = None
-    if ".fem" in str(fem_ref).lower():
+    if suffix in (".fem", ".sif"):
         fem_type = FEATypes.SESAM
-    elif ".inp" in str(fem_ref).lower():
+    elif suffix == ".inp":
         fem_type = FEATypes.ABAQUS
+    else:
+        logging.error(f'unrecognized suffix "{suffix}"')
 
     return fem_type
 
