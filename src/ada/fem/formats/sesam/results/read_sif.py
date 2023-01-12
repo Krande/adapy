@@ -13,6 +13,7 @@ from ada.fem.formats.sesam.read import cards
 
 if TYPE_CHECKING:
     from ada import Material, Section
+    from ada.fem.formats.sesam.read.cards import DataCard
     from ada.fem.results.common import ElementFieldData, FEAResult, Mesh, NodalFieldData
 
 FEM_SEC_NAME = Counter(prefix="FS")
@@ -49,9 +50,28 @@ INT_LOCATIONS = {
         (8, 2, 0.5),
         (9, 3, 0.5),
     ],
+    25: [
+        (0, 0, -0.5),
+        (1, 1, -0.5),
+        (2, (0.5, 0.5), -0.5),
+        (3, 2, -0.5),
+        (4, 0, 0.5),
+        (5, 1, 0.5),
+        (6, (0.5, 0.5), 0.5),
+        (7, 2, 0.5),
+    ],
     15: [(0, 0), (1, 0.5), (2, 1)],
 }
-OTHER_CARDS = [cards.GUNIVEC, cards.TDSECT, cards.TDMATER, cards.MISOSEL, cards.MORSMEL]
+OTHER_CARDS = [
+    cards.GUNIVEC,
+    cards.TDSECT,
+    cards.TDMATER,
+    cards.MISOSEL,
+    cards.MORSMEL,
+    cards.TDSETNAM,
+    cards.GSETMEMB,
+    cards.TDRESREF,
+]
 SECTION_CARDS = [cards.GIORH, cards.GBOX]
 RESULT_CARDS = [
     cards.RVNODDIS,
@@ -75,7 +95,8 @@ class SifReader:
     results: list[tuple] = field(default_factory=list)
 
     skipped_flags: list[str] = field(default_factory=list)
-    _last_line: str = None
+
+    _last_line: str | None = None
 
     _gelref1: list = None
     _other: dict[str, list] = field(default_factory=dict)
@@ -115,26 +136,18 @@ class SifReader:
         for data in self._read_single_line_statements("GCOORD", first_line):
             yield data
 
-        self.eval_flags(self._last_line)
-
     def read_gnodes(self, first_line: str):
         for data in self._read_single_line_statements("GNODE", first_line):
             yield data[:2]
-
-        self.eval_flags(self._last_line)
 
     def read_gelmnts(self, first_line: str):
         elno_id, eltyp, members = cards.GELMNT1.get_indices_from_names(["elno", "eltyp", "nids"])
         for data in self._read_multi_line_statements("GELMNT1", first_line):
             yield data[eltyp], data[elno_id], data[members:]
 
-        self.eval_flags(self._last_line)
-
     def read_results(self, result_variable: str, first_line: str) -> tuple:
         for data in self._read_multi_line_statements(result_variable, first_line):
             yield data
-
-        self.eval_flags(self._last_line)
 
     def get_sections(self) -> dict[int, Section]:
         from ada import Section
@@ -145,19 +158,38 @@ class SifReader:
         sections = dict()
         for sec_name, sec_data in self._sections.items():
             sec_card = sec_map[sec_name]
-            if len(sec_data) != 1:
-                raise NotImplementedError()
-
-            res = sec_card.get_data_map_from_names(["geono", "hz", "ty", "bt", "tt", "bb", "tb"], sec_data[0])
-            sec_id = int(float(res["geono"]))
             sm = cards.SEC_MAP[sec_name]
             sec_type = sm[0]
-            prop_map = {ada_n: res[ses_n] for ses_n, ada_n in sm[1]}
-            sec_name = td_sect_map.get(sec_id)[-1]
-            sec = Section(name=sec_name, sec_id=sec_id, sec_type=sec_type, **prop_map)
-            sections[sec_id] = sec
+            keys = [x[0] for x in sm[1]]
+            for s in sec_data:
+                res = sec_card.get_data_map_from_names(["geono", *keys], s)
+                sec_id = int(float(res["geono"]))
+                prop_map = {ada_n: res[ses_n] for ses_n, ada_n in sm[1]}
+                sec_tdsect = td_sect_map.get(sec_id)
+                if sec_tdsect is None:
+                    raise ValueError(f"TDSECT is not set for section ID {sec_id}")
+                sec_name = sec_tdsect[-1]
+                sec = Section(name=sec_name, sec_id=sec_id, sec_type=sec_type, **prop_map)
+                sections[sec_id] = sec
 
         return sections
+
+    def get_sets(self):
+        from ada.fem import FemSet
+
+        member_map = self.get_gsetmemb()
+        if member_map is None:
+            return None
+        set_map = self.get_tdsetnam_map()
+        istype_i, isorig_i = cards.GSETMEMB.get_indices_from_names(["ISTYPE", "ISORIG"])
+        sets = dict()
+        for set_id, props in member_map.items():
+            eltype = props[istype_i]
+            set_type = "nset" if eltype == 1 else "elset"
+            set_name = set_map[set_id][-1]
+            members = props[isorig_i:]
+            sets[set_name] = FemSet(set_name, members, set_type=set_type)
+        return sets
 
     def get_materials(self) -> dict[int, Material]:
         from ada import Material
@@ -222,15 +254,18 @@ class SifReader:
 
         # Sections
         if stripped.startswith(cards.GELREF1.name):
-            self._gelref1 = list(cards.GELREF1.iter(self.file, stripped, next_func=self.eval_flags))
+            self._gelref1 = list(self.iter_card(cards.GELREF1, self.file, stripped))
 
         for other_card in OTHER_CARDS:
             if stripped.startswith(other_card.name):
-                self._other[other_card.name] = list(other_card.iter(self.file, stripped, next_func=self.eval_flags))
+                if other_card.name in self._other.keys():
+                    self._other[other_card.name] += list(self.iter_card(other_card, self.file, stripped))
+                else:
+                    self._other[other_card.name] = list(self.iter_card(other_card, self.file, stripped))
 
         for sec_card in SECTION_CARDS:
             if stripped.startswith(sec_card.name):
-                self._sections[sec_card.name] = list(sec_card.iter(self.file, stripped, next_func=self.eval_flags))
+                self._sections[sec_card.name] = list(self.iter_card(sec_card, self.file, stripped))
 
         # if len(self._other) > 0 and self._gelref1 is not None and len(self._sections) > 0:
         #     self.read_fem_sections()
@@ -246,24 +281,64 @@ class SifReader:
             if flag not in self.skipped_flags:
                 self.skipped_flags.append(flag)
 
+    def iter_card(self, datacard: DataCard, f: Iterator, curr_line: str):
+        curr_elements = [float(x) for x in curr_line.split()[1:]]
+        startswith = datacard.name
+        n_field = None
+        if datacard.components[0] == "nfield":
+            n_field = int(curr_elements[0])
+
+        while True:
+            num_el = len(curr_elements)
+            stripped = next(f).strip()
+
+            if n_field is not None and num_el >= n_field:
+                result = datacard.str_to_proper_types(stripped)
+                if len(result) == 0:
+                    curr_elements += [stripped]
+                else:
+                    if datacard.name in ("TDSECT", "TDSETNAM", "TDMATER", "TDRESREF"):
+                        curr_elements += result
+                yield curr_elements
+                break
+
+            if n_field is None:
+                if stripped.startswith(startswith) is False and datacard.is_numeric(stripped) is False:
+                    yield curr_elements
+                    break
+
+                if stripped.startswith(startswith):
+                    yield curr_elements
+                    curr_elements = [float(x) if datacard.is_numeric(x) else x for x in stripped.split()[1:]]
+                    continue
+
+            curr_elements += datacard.str_to_proper_types(stripped)
+
+        self._last_line = stripped
+
     def load(self):
         while True:
             try:
-                line = next(self.file)
+                if self._last_line is not None:
+                    line = self._last_line
+                    self._last_line = None
+                else:
+                    line = next(self.file)
                 self.eval_flags(line)
             except StopIteration:
                 break
 
     def get_result(self, name: str) -> list:
         result = list(filter(lambda x: x[0] == name, self.results))
+
         if len(result) > 1:
             raise NotImplementedError("")
 
         return result
 
     def get_rdpoints_map(self) -> dict:
-        rdpoints = self.get_result(cards.RDPOINTS.name)
-        return {int(x[1]): x for x in rdpoints[0][1][1:]}
+        rdpoints = self.get_result(cards.RDPOINTS.name)[0][1]
+        return {x[2]: x for x in rdpoints[1:]}
 
     def get_rdstress_map(self) -> dict:
         rdstress = self.get_result(cards.RDSTRESS.name)
@@ -278,10 +353,34 @@ class SifReader:
         return {int(x[1]): tuple([int(i) for i in x[3:]]) for x in rdforces[0][1]}
 
     def get_tdsect_map(self):
-        res = self._other.get("TDSECT")
+        res = self._other.get(cards.TDSECT.name)
         if res is None:
             return None
         return {x[1]: x for x in res}
+
+    def get_tdsetnam_map(self):
+        res = self._other.get(cards.TDSETNAM.name)
+        if res is None:
+            return None
+        return {int(x[1]): x for x in res}
+
+    def get_gsetmemb(self):
+        res = self._other.get(cards.GSETMEMB.name)
+        if res is None:
+            return None
+        return {int(x[1]): [int(i) for i in x] for x in res}
+
+    def get_rdresref(self):
+        res = self.get_result(cards.RDRESREF.name)[0][1]
+        if res is None:
+            return None
+        return {int(x[1]): [int(i) for i in x] for x in res}
+
+    def get_tdresref(self):
+        res = self._other.get(cards.TDRESREF.name)
+        if res is None:
+            return None
+        return {int(x[1]): x for x in res}
 
 
 def read_sif_file(sif_file: str | pathlib.Path) -> FEAResult:
@@ -308,8 +407,16 @@ class Sif2Mesh:
 
         self.mesh = self.get_sif_mesh()
         results = self.get_sif_results()
+        rnames = self.get_result_name_map()
 
-        return FEAResult(sif_file.stem, FEATypes.SESAM, results=results, mesh=self.mesh, results_file_path=sif_file)
+        return FEAResult(
+            sif_file.stem,
+            FEATypes.SESAM,
+            results=results,
+            mesh=self.mesh,
+            results_file_path=sif_file,
+            step_name_map=rnames,
+        )
 
     def get_sif_mesh(self) -> Mesh:
         from ada.fem.results.common import (
@@ -338,6 +445,7 @@ class Sif2Mesh:
                 ElementBlock(elem_info=elem_info, node_refs=elem_node_refs, identifiers=elem_identifiers)
             )
 
+        sets = self.sif.get_sets()
         sections = self.sif.get_sections()
         materials = self.sif.get_materials()
         vectors = self.sif.get_vectors()
@@ -350,6 +458,7 @@ class Sif2Mesh:
             materials=materials,
             vectors=vectors,
             elem_data=elem_refs,
+            sets=sets,
         )
 
     def get_sif_results(self) -> list[ElementFieldData | NodalFieldData]:
@@ -358,12 +467,18 @@ class Sif2Mesh:
 
         return result_blocks
 
+    def get_result_name_map(self):
+        tdresref = self.sif.get_tdresref()
+        rdresref = self.sif.get_rdresref()
+        return {key: tdresref[value[1]][-1] for key, value in rdresref.items()}
+
     def get_nodal_data(self) -> list[NodalFieldData]:
         return get_nodal_results(self.sif.get_result(cards.RVNODDIS.name)[0][1])
 
     def get_field_data(self) -> list[ElementFieldData | NodalFieldData]:
         sif = self.sif
         field_results = []
+
         if len(sif.get_result(cards.RVSTRESS.name)) > 0:
             field_results += self.get_field_shell_data()
 
@@ -373,21 +488,26 @@ class Sif2Mesh:
         return field_results
 
     def get_field_line_data(self):
-        ires_i, ispalt_i, irforc_i = cards.RVFORCES.get_indices_from_names(["ires", "ispalt", "irforc|"])
+        ires_i, ielno_i, irforc_i = cards.RVFORCES.get_indices_from_names(["ires", "ielno", "irforc|"])
         nsp_i, eltyp_i = cards.RDPOINTS.get_indices_from_names(["nsp", "ieltyp"])
 
         rdpoints_map = self.sif.get_rdpoints_map()
 
         def keyfunc(x):
-            return x[ires_i], x[ispalt_i], x[irforc_i]
+            iielno = x[ielno_i]
+            rdpoints_res = rdpoints_map[iielno]
+            _nsp = int(rdpoints_res[nsp_i])
+            _elem_type = int(rdpoints_res[eltyp_i])
+            return x[ires_i], _nsp, _elem_type, x[irforc_i]
 
         field_results = []
 
         force_res_name = cards.RVFORCES.name
-        for (ires, ispalt, irforc), rv_forces in groupby(self.sif.get_result(force_res_name)[0][1][1:], key=keyfunc):
-            rdpoints_res = rdpoints_map[ispalt]
-            elem_type = int(rdpoints_res[eltyp_i])
-            nsp = int(rdpoints_res[nsp_i])
+        for (ires, nsp, elem_type, irforc), rv_forces in groupby(
+            sorted(self.sif.get_result(force_res_name)[0][1][1:], key=keyfunc), key=keyfunc
+        ):
+            if elem_type not in (15,):
+                continue
             field_data = self._get_line_field_data(rv_forces, int(ires), int(irforc), elem_type, nsp)
             field_results.append(field_data)
 
@@ -410,20 +530,25 @@ class Sif2Mesh:
 
     def get_field_shell_data(self):
         sif = self.sif
-        ires_i, ispalt_i, irstrs_i = cards.RVSTRESS.get_indices_from_names(["ires", "ispalt", "irstrs"])
+        ires_i, irstrs_i, iielno_i = cards.RVSTRESS.get_indices_from_names(["ires", "irstrs", "iielno"])
         nsp_i, eltyp_i = cards.RDPOINTS.get_indices_from_names(["nsp", "ieltyp"])
 
         rdpoints_map = sif.get_rdpoints_map()
 
         def keyfunc(x):
-            return x[ires_i], x[ispalt_i], x[irstrs_i]
+            iielno = x[iielno_i]
+            rdpoints_res = rdpoints_map[iielno]
+            _nsp = int(rdpoints_res[nsp_i])
+            _elem_type = int(rdpoints_res[eltyp_i])
+            return x[ires_i], _nsp, _elem_type, x[irstrs_i]
 
         field_results = []
 
-        for (ires, ispalt, irstrs), rv_stresses in groupby(sif.get_result(cards.RVSTRESS.name)[0][1][1:], key=keyfunc):
-            rdpoints_res = rdpoints_map[ispalt]
-            nsp = int(rdpoints_res[nsp_i])
-            elem_type = int(rdpoints_res[eltyp_i])
+        for (ires, nsp, elem_type, irstrs), rv_stresses in groupby(
+            sorted(sif.get_result(cards.RVSTRESS.name)[0][1][1:], key=keyfunc), key=keyfunc
+        ):
+            if elem_type not in (25, 24):
+                continue
 
             field_data = self._get_shell_field_data(rv_stresses, ires, irstrs, elem_type, nsp)
             field_results.append(field_data)
@@ -533,7 +658,10 @@ def _iter_shell_stress(rv_stresses: Iterator, rdstress_map, nsp) -> Iterator:
         irstrs = int(rv_stress[irstrs_i])
         rdstress_res = rdstress_map[irstrs]
         data = np.array(rv_stress[irstrs_i + 1 :])
-        for i, data_per_int in enumerate(data.reshape((nsp, len(rdstress_res))), start=1):
+
+        reshaped_data = data.reshape((nsp, len(rdstress_res)))
+
+        for i, data_per_int in enumerate(reshaped_data, start=1):
             yield iielno, i, *data_per_int
 
 

@@ -31,6 +31,8 @@ class FemSet(FemBase):
 
     def __init__(self, name, members: None | list[Elem | Node], set_type=None, metadata=None, parent=None):
         super().__init__(name, metadata, parent)
+        from ada.fem import Elem
+
         if set_type is None:
             set_type = eval_set_type_from_members(members)
 
@@ -38,7 +40,8 @@ class FemSet(FemBase):
             members = []
 
         for m in members:
-            m.refs.append(self)
+            if isinstance(m, (Elem, Node)):
+                m.refs.append(self)
 
         self._set_type = set_type
         if self.type not in SetTypes.all:

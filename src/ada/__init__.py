@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     import ifcopenshell
 
     from ada.fem.results import Results
+    from ada.fem.results.common import FEAResult
 
 
 __author__ = "Kristoffer H. Andersen"
@@ -81,12 +82,12 @@ def from_fem(
 
 def from_fem_res(
     fem_file: str | pathlib.Path, fem_format: str = None, import_mesh=True, proto_reader=False, **kwargs
-) -> Results:
+) -> Results | FEAResult:
     from ada.fem.results import Results
     from ada.fem.results.interface import from_results_file
 
     if proto_reader:
-        return from_results_file(fem_file, fem_format)
+        return from_results_file(fem_file, fem_format, **kwargs)
     else:
         return Results(fem_file, fem_format=fem_format, import_mesh=import_mesh, **kwargs)
 

@@ -37,15 +37,19 @@ def get_plates(xml_root: ET.Element, parent: Part) -> Plates:
                 name += f"_{i:02d}"
 
             t = thick_map.get(plate_elem.attrib["thickness_ref"])
-            pl = Plate(
-                name,
-                points,
-                t,
-                mat=mat,
-                metadata=dict(props=dict(gxml_face_ref=face_ref)),
-                use3dnodes=True,
-                parent=parent,
-            )
+            try:
+                pl = Plate(
+                    name,
+                    points,
+                    t,
+                    mat=mat,
+                    metadata=dict(props=dict(gxml_face_ref=face_ref)),
+                    use3dnodes=True,
+                    parent=parent,
+                )
+            except BaseException as e:
+                logging.error(f"Failed converting plate {name} due to {e}")
+                continue
 
             plates.append(pl)
 

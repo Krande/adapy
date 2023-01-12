@@ -2,12 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 
 import numpy as np
-
-if TYPE_CHECKING:
-    pass
 
 
 @dataclass
@@ -47,16 +44,16 @@ class ElementFieldData(FieldData):
     COLS: ClassVar[list[str]] = ["elem_label", "sec_num"]
     int_positions: list[tuple] = None
 
-    def get_by_element_label(self):
-        unique_elements, row_ids = np.unique(self.values[:, 0], return_index=True)
-        num_comp = max(len(self.components), 1)
+    def get_by_element_id(self, elem_ids: list[int], int_points: list[int] = None) -> ElementFieldData:
+        data = []
+        for x in self.values:
+            if int(x[0]) not in elem_ids:
+                continue
+            if int_points is not None and x[1] not in int_points:
+                continue
+            data.append(x)
 
-        res_array = np.zeros((len(unique_elements), num_comp))
-        for i, el_id in enumerate(unique_elements):
-            # res = self._mesh.get_elem_by_id(el_id)
-            start = row_ids[i]
-            end = row_ids[i + 1]
-            res_array[i] = self.values[start:end, 2:]
+        return ElementFieldData(self.name, self.step, self.components, np.array(data))
 
     def _get_field_nodal(self, cr: int):
         nodes = self.values[:, 2]

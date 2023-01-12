@@ -123,7 +123,8 @@ def get_beam_sections_from_inp(bulk_str: str, fem: FEM) -> Iterable[FemSection]:
             )
             return Section(profile_name, "GENBEAM", genprops=genprops, parent=fem)
         else:
-            raise ValueError(f'Currently unsupported section type "{sec_type}"')
+            logging.error(f'Currently unsupported section type "{sec_type}". Will return None')
+            return None
 
     def grab_beam(match):
         d = match.groupdict()
@@ -136,6 +137,8 @@ def get_beam_sections_from_inp(bulk_str: str, fem: FEM) -> Iterable[FemSection]:
         section_type = d["sec_type"]
         geo_props = d["line1"]
         sec = interpret_section(profile_name, section_type, geo_props)
+        if sec is None:
+            return None
         beam_y = [float(x.strip()) for x in d["line2"].split(",") if x.strip() != ""]
         metadata = dict(
             temperature=temperature,
@@ -157,7 +160,7 @@ def get_beam_sections_from_inp(bulk_str: str, fem: FEM) -> Iterable[FemSection]:
             parent=fem,
         )
 
-    return map(grab_beam, cards.re_beam.finditer(bulk_str))
+    return filter(lambda x: x is not None, map(grab_beam, cards.re_beam.finditer(bulk_str)))
 
 
 def get_solid_sections_from_inp(bulk_str, fem: FEM):

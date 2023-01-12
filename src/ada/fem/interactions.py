@@ -36,7 +36,7 @@ class InteractionProperty(FemBase):
         super().__init__(name, metadata, parent)
         self._friction = friction if friction is not None else 0.0
         self._pressure_overclosure = pressure_overclosure
-        if self.pressure_overclosure not in IntPropTypes.all:
+        if self.pressure_overclosure.upper() not in IntPropTypes.all:
             raise ValueError(f'Pressure overclosure type "{pressure_overclosure}" is not supported')
         self._tabular = tabular
 

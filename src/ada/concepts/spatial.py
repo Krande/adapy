@@ -724,6 +724,7 @@ class Part(BackendGeom):
         vm = part_to_vis_mesh2(self, auto_sync_ifc_store, cpus=cpus)
         if merge_by_color:
             vm = vm.merge_objects_in_parts_by_color()
+
         vm.to_gltf(gltf_file, only_these_guids=limit_to_guids, embed_meta=embed_meta)
 
     @property

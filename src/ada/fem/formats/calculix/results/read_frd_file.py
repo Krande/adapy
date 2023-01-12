@@ -13,7 +13,7 @@ from ada.fem.results.field_data import ElementFieldData, FieldData, NodalFieldDa
 
 
 class ReadFrdFailedException(Exception):
-    ...
+    pass
 
 
 class CcxPointData(BaseEnum):
