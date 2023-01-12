@@ -9,7 +9,7 @@ import meshio
 import numpy as np
 
 from ada.fem.formats.general import FEATypes
-from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
+from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
 
 from .field_data import ElementFieldData, NodalFieldData
 
@@ -95,6 +95,8 @@ class Mesh:
 
             for elem in nodes_copy:
                 elem_shape = ElemShape(el_type, elem)
+                if elem_shape.type in (MassTypes.MASS,):
+                    continue
                 edges += elem_shape.edges
                 if isinstance(elem_shape.type, shape_def.LineShapes):
                     continue

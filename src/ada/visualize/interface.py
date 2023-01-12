@@ -25,18 +25,21 @@ def part_to_vis_mesh2(part: Part, auto_sync_ifc_store=True, cpus: int = None) ->
     settings.set(settings.USE_WORLD_COORDS, True)
     settings.set(settings.VALIDATE_QUANTITIES, False)
 
-    iterator = ifc_store.get_ifc_geom_iterator(settings, cpus=cpus)
-    iterator.initialize()
     id_map = dict()
 
-    while True:
-        shape = iterator.get()
-        if shape:
-            obj_mesh = product_to_obj_mesh(shape)
-            id_map[shape.guid] = obj_mesh
+    res = list(ifc_store.assembly.get_all_physical_objects())
 
-        if not iterator.next():
-            break
+    if len(res) > 0:
+        iterator = ifc_store.get_ifc_geom_iterator(settings, cpus=cpus)
+        iterator.initialize()
+        while True:
+            shape = iterator.get()
+            if shape:
+                obj_mesh = product_to_obj_mesh(shape)
+                id_map[shape.guid] = obj_mesh
+
+            if not iterator.next():
+                break
 
     pm = PartMesh(name=part.name, id_map=id_map)
     meta = {
