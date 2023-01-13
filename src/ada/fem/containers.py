@@ -359,7 +359,7 @@ class FemElements:
     def idmap(self):
         return self._idmap
 
-    def add(self, elem: Elem) -> Elem:
+    def add(self, elem: Elem, skip_grouping=False) -> Elem:
         if elem.id is None:
             if len(self._elements) > 0:
                 elem._el_id = self._elements[-1].id + 1
@@ -373,6 +373,9 @@ class FemElements:
 
         self._elements.append(elem)
         self._idmap[elem.id] = elem
+
+        if skip_grouping:
+            return elem
 
         self._group_by_types()
         return elem

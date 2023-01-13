@@ -80,7 +80,7 @@ def get_mass(bulk_str: str, fem: FEM, mass_elem: dict) -> FemElements:
         no = fem.nodes.from_id(nodeno)
         fem_set = fem.sets.add(FemSet(f"m{nodeno}", [no], FemSet.TYPES.NSET, parent=fem))
         el_id = fem.elements.max_el_id + 1
-        elem = fem.elements.add(Elem(el_id, [no], Elem.EL_TYPES.MASS_SHAPES.MASS, None, parent=fem))
+        elem = fem.elements.add(Elem(el_id, [no], Elem.EL_TYPES.MASS_SHAPES.MASS, None, parent=fem), skip_grouping=True)
         mass = Mass(f"m{nodeno}", fem_set, masses, Mass.TYPES.MASS, ptype=mass_type, parent=fem, mass_id=el_id)
 
         elset = fem.sets.add(FemSet(f"m{nodeno}", [elem], FemSet.TYPES.ELSET, parent=fem))
