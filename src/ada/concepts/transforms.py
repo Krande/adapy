@@ -42,7 +42,7 @@ class Rotation:
 
 @dataclass
 class Placement:
-    origin: Union[list, tuple, np.ndarray] = np.array([0, 0, 0], dtype=float)
+    origin: Union[list, tuple, np.ndarray] = (0, 0, 0)
     xdir: Union[list, tuple, np.ndarray] = None
     ydir: Union[list, tuple, np.ndarray] = None
     zdir: Union[list, tuple, np.ndarray] = None
@@ -70,7 +70,7 @@ class Placement:
         self.ydir = np.array(self.ydir, dtype=float)
         self.zdir = np.array(self.zdir, dtype=float)
 
-        if type(self.origin) is not np.ndarray:
+        if not isinstance(self.origin, np.ndarray):
             self.origin = np.array(self.origin, dtype=float)
 
     def absolute_placement(self):

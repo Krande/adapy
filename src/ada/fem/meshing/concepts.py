@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import pathlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable, List, Union
 
 import gmsh
@@ -53,7 +53,7 @@ class GmshTask:
     ada_obj: List[Union[Shape, Beam, Plate]]
     geom_repr: str
     mesh_size: float
-    options: GmshOptions = GmshOptions()
+    options: GmshOptions = field(default_factory=GmshOptions)
 
 
 @dataclass

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import List, Tuple, Union
 
@@ -27,7 +27,7 @@ class Camera:
 class Visualize:
     parent: Union[Assembly, Part, Beam, Plate, Wall, Shape, Pipe, FEM] = None
     renderer: Renderer = Renderer.PYVISTA
-    camera: Camera = Camera()
+    camera: Camera = field(default_factory=Camera)
     objects: List[VizObj] = None
     edge_color = (32, 32, 32)
 

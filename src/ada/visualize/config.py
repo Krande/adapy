@@ -23,7 +23,7 @@ class ExportConfig:
     merge_subgeometries_by_colour: bool = True
     render_edges: bool = False
     ifc_skip_occ: bool = True
-    data_filter: DataFilter = DataFilter()
+    data_filter: DataFilter = field(default_factory=DataFilter)
 
     # Position of model
     volume_center: Union[None, np.ndarray] = None

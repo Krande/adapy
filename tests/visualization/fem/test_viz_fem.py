@@ -18,22 +18,6 @@ def bm_fem():
     return part
 
 
-@pytest.fixture
-def mix_fem():
-    bm = ada.Beam("bm1", n1=[0, 0, 0], n2=[2, 0, 0], sec="IPE220", colour="red")
-    poly = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
-
-    objects = beams_along_polyline(poly, bm)
-    objects += [ada.Plate("pl1", poly, 0.01)]
-
-    a = ada.Assembly() / (ada.Part("BeamFEM") / objects)
-    part = a.get_part("BeamFEM")
-    p = ada.Part("FEMOnly")
-    p.fem = part.to_fem_obj(0.1)
-
-    return ada.Assembly() / p
-
-
 def test_beam_as_edges(bm_fem):
     assert len(bm_fem.fem.elements) == 20
     _ = get_edges_from_fem(bm_fem.fem)
@@ -60,6 +44,18 @@ def test_bm_fem():
     (ada.Assembly() / p).to_gltf("temp/bm.glb")
 
 
-def test_mix_fem(mix_fem):
-    mix_fem.to_fem("mixed-fem", "usfos", "temp")
+def test_mix_fem():
+    bm = ada.Beam("bm1", n1=[0, 0, 0], n2=[2, 0, 0], sec="IPE220", colour="red")
+    poly = [(0, 0, 0), (1, 0, 0), (1, 1, 0)]  # , (0, 1, 0)]
+
+    objects = beams_along_polyline(poly, bm)
+    objects += [ada.Plate("pl1", poly, 0.01)]
+
+    a = ada.Assembly() / (ada.Part("BeamFEM") / objects)
+    part = a.get_part("BeamFEM")
+    p = ada.Part("FEMOnly")
+    p.fem = part.to_fem_obj(0.5)
+    mix_fem = ada.Assembly() / p
+
+    mix_fem.to_fem("mixed-fem", "usfos", "temp", overwrite=True)
     mix_fem.to_gltf("temp/mix_fem.glb")

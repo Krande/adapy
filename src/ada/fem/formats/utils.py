@@ -375,7 +375,7 @@ def run_tool(exe: LocalExecute, run_cmd, platform):
         out = subprocess.Popen(run_cmd, **props)
         print(f"Note! This starts {fem_tool_name} in an external window on a separate thread.")
     else:
-        rstr = ''
+        rstr = ""
         for out in execute(cmd=run_cmd, **props):
             print(out)
             rstr += out
@@ -392,6 +392,7 @@ def execute(cmd, cwd, encoding, run_ext=False):
     return_code = popen.wait()
     if return_code:
         raise subprocess.CalledProcessError(return_code, cmd)
+
 
 def run_macOS(exe, run_cmd):
     raise NotImplementedError()

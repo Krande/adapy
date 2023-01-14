@@ -5,7 +5,7 @@ import mmap
 import os
 import pathlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import chain
 from typing import TYPE_CHECKING, Dict, List, Union
 
@@ -50,7 +50,7 @@ class InstanceData:
     part_ref: str
     instance_name: str
     instance_bulk: str
-    transform: Transform = Transform()
+    transform: Transform = field(default_factory=Transform)
 
 
 def read_fem(fem_file, fem_name=None) -> Assembly:
