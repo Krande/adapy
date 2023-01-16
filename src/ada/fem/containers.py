@@ -596,7 +596,9 @@ class FemSections:
 
         for fs in fs_in:
             index = self._sections.index(fs)
-            self._sections.pop(index)
+            rem_fs = self._sections.pop(index)
+            if len(rem_fs.elset.refs) == 1 and rem_fs.elset.refs[0] == rem_fs:
+                rem_fs.parent.sets.remove(rem_fs.elset)
 
         self._name_map = {e.name: e for e in self._sections} if len(self._sections) > 0 else dict()
         self._id_map = {e.id: e for e in self._sections} if len(self._sections) > 0 else dict()

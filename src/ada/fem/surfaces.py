@@ -70,6 +70,9 @@ class Surface(FemBase):
         self._weight_factor = weight_factor
         self._el_face_index = el_face_index
         self._id_refs = id_refs
+        self._refs = []
+        if isinstance(fem_set, FemSet):
+            fem_set.refs.append(self)
 
     @property
     def type(self):
@@ -94,6 +97,10 @@ class Surface(FemBase):
     @property
     def id_refs(self):
         return self._id_refs
+
+    @property
+    def refs(self):
+        return self._refs
 
 
 def create_surface_from_nodes(surface_name: str, nodes: List[Node], fem: "FEM", shell_positive=True) -> Surface:

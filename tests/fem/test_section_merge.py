@@ -27,10 +27,13 @@ def test_merge_fem_sections(test_merge_sections_dir):
     inp_path = default_fem_inp_path(name, test_merge_sections_dir)[fem_format]
     b = ada.from_fem(inp_path)
     pb = b.get_part("T1")
+
+    assert len(pb.fem.elsets) == 10
     assert len(pb.fem.sections) == 10
 
     pb.fem.sections.merge_by_properties()
 
     assert len(pb.fem.sections) == 2
+    assert len(pb.fem.elsets) == 2
 
     # b.to_fem("SectionsMerged", "abaqus", overwrite=True)

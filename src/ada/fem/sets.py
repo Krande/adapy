@@ -47,6 +47,7 @@ class FemSet(FemBase):
         if self.type not in SetTypes.all:
             raise ValueError(f'set type "{set_type}" is not valid')
         self._members = members
+        self._refs = []
 
     def __len__(self):
         return len(self._members)
@@ -71,6 +72,10 @@ class FemSet(FemBase):
     @property
     def members(self) -> list[Elem | Node]:
         return self._members
+
+    @property
+    def refs(self):
+        return self._refs
 
     def __repr__(self):
         return f'FemSet({self.name}, type: "{self.type}", members: "{len(self.members)}")'
