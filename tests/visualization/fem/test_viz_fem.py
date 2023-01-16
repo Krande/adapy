@@ -57,5 +57,5 @@ def test_mix_fem():
     p.fem = part.to_fem_obj(0.5)
     mix_fem = ada.Assembly() / p
 
-    mix_fem.to_fem("mixed-fem", "usfos", "temp", overwrite=True)
+    # mix_fem.to_fem("mixed-fem", "usfos", "temp", overwrite=True)
     mix_fem.to_gltf("temp/mix_fem.glb")

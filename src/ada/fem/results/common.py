@@ -89,9 +89,16 @@ class Mesh:
         nmap = {x: i for i, x in enumerate(self.nodes.identifiers)}
         edges = []
         faces = []
+
+        def sub_node_ids(nrefs):
+            for no in nrefs:
+                yield no
+
         for cell_block in self.elements:
             el_type = cell_block.elem_info.type
+
             nodes_copy = cell_block.node_refs.copy()
+            # TODO: This does not produce correct output. Will have to investigate closer
             for old, new in nmap.items():
                 nodes_copy[nodes_copy == old] = new
 
@@ -99,6 +106,7 @@ class Mesh:
                 elem_shape = ElemShape(el_type, elem)
                 if elem_shape.type in (MassTypes.MASS,):
                     continue
+
                 try:
                     edges += elem_shape.edges
                 except IndexError as e:
@@ -107,6 +115,9 @@ class Mesh:
                 if isinstance(elem_shape.type, shape_def.LineShapes):
                     continue
                 faces += elem_shape.get_faces()
+
+        # res = np.asarray(nmap.values())
+        # res2 = res[np.searchsorted(nmap.keys(), edges)]
 
         faces = np.array(faces).reshape(int(len(faces) / 3), 3)
         edges = np.array(edges).reshape(int(len(edges) / 2), 2)
