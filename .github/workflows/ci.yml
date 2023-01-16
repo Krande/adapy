@@ -60,9 +60,9 @@ jobs:
       fail-fast: false
       matrix:
         pyver: [
-          { name: py39, distver: '3.9.x' },
-          { name: py310, distver: '3.10.x'},
-          { name: py311, distver: '3.11.x'}
+          { name: py39, distver: '3.9.*' },
+          { name: py310, distver: '3.10.*'},
+          { name: py311, distver: '3.11.*'}
         ]
         platform: [
           { name: Windows, distver: windows-latest, short: 'win-64' },
