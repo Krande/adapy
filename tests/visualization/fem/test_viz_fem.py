@@ -40,7 +40,7 @@ def test_double_ses_elem(fem_files):
 def test_bm_fem():
     bm = ada.Beam("bm1", n1=[0, 0, 0], n2=[1, 0, 0], sec="IPE220", colour="red")
     p = ada.Part("MyBmFEM")
-    p.fem = bm.to_fem_obj(0.5, "line")
+    p.fem = bm.to_fem_obj(0.5, "shell")
     (ada.Assembly() / p).to_gltf("temp/bm.glb")
 
 
