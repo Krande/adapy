@@ -490,6 +490,7 @@ class Part(BackendGeom):
         return sections
 
     def consolidate_sections(self, include_self=True):
+        """Moves all sections from all sub-parts to this part"""
         from ada import Beam
         from ada.fem import FemSection
 
@@ -693,6 +694,11 @@ class Part(BackendGeom):
             cog_absolute = mass_shape.placement.absolute_placement() + mass_shape.cog
             n = fem.nodes.add(Node(cog_absolute))
             fem.add_mass(Mass(f"{mass_shape.name}_mass", [n], mass_shape.mass))
+
+        # Move FEM mesh to match part placement origin
+        x, y, z = self.placement.origin
+        if x != 0.0 or y != 0.0 or z == 0.0:
+            fem.nodes.move(self.placement.origin)
 
         return fem
 

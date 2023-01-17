@@ -88,7 +88,7 @@ class SimpleStru(Part):
         self.Params.h = h
         self.Params.l = l
 
-        # Define the 5 corner points of each storey
+        # Define the 4 corner points of each storey
         c1, c2, c3, c4 = self.c1, self.c2, self.c3, self.c4
 
         # Define the relationship of corners that make up the 4 support beams
@@ -111,6 +111,7 @@ class SimpleStru(Part):
 
         # Columns
         z0 -= 0.5
+        self._btn_col = z0
         columns = [(c1(z0), c1(h)), (c2(z0), c2(h)), (c3(z0), c3(h)), (c4(z0), c4(h))]
         for p1, p2 in columns:
             bm = self.add_beam(Beam(next(bm_name), n1=p1, n2=p2, sec=csec))
@@ -132,10 +133,15 @@ class SimpleStru(Part):
         funcs: List[Callable] = [self.c1, self.c2, self.c3, self.c4]
         fem_set_btn = self.fem.add_set(FemSet("fix", [], FemSet.TYPES.NSET))
         nodes: List[Node] = []
+        col_btn_offset = np.array([0, 0, self._btn_col])
         for bc_loc in funcs:
-            location = self.placement.origin + bc_loc(self._elevations[0])
+            location = self.placement.origin + bc_loc(self._elevations[0]) + col_btn_offset
             nodes += self.fem.nodes.get_by_volume(location)
+
         fem_set_btn.add_members(nodes)
+        if len(fem_set_btn.members) == 0:
+            raise ValueError('Number of Boundary Conditions cannot be zero')
+
         self.fem.add_bc(Bc("bc_fix", fem_set_btn, [1, 2, 3]))
 
 

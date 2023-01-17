@@ -70,7 +70,7 @@ def fem_to_meshio(fem: FEM) -> Union[meshio.Mesh, None]:
     cells = []
     for element_type, elements in fem.elements.group_by_type():
         if isinstance(element_type, (MassTypes, SpringTypes)):
-            logging.error("NotImplemented: Skipping Mass or Spring Elements")
+            logging.warning("NotImplemented: Skipping Mass or Spring Elements")
             continue
         med_el = ada_to_meshio[element_type]
         elements = list(elements)

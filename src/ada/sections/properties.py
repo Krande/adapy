@@ -37,7 +37,7 @@ def calculate_general_properties(section: Section) -> Union[None, GeneralPropert
     }
 
     if section.type == bt.GENERAL:
-        logging.error("Re-Calculating a general section")
+        logging.info("Skipping re-calculating a general section as it makes no sense")
         return None
 
     calc_func = section_map.get(section.type, None)

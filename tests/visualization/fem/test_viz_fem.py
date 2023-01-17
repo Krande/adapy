@@ -54,7 +54,7 @@ def test_mix_fem():
     a = ada.Assembly() / (ada.Part("BeamFEM") / objects)
     part = a.get_part("BeamFEM")
     p = ada.Part("FEMOnly")
-    p.fem = part.to_fem_obj(0.5, interactive=True)
+    p.fem = part.to_fem_obj(0.5, interactive=False)
     mix_fem = ada.Assembly() / p
 
     mix_fem.to_fem("mixed-fem", "usfos", "temp", overwrite=True)

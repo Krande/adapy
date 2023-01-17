@@ -18,28 +18,28 @@ class Section(Root):
     TYPES = BaseTypes
 
     def __init__(
-        self,
-        name,
-        sec_type: BaseTypes | str = None,
-        h=None,
-        w_top=None,
-        w_btn=None,
-        t_w=None,
-        t_ftop=None,
-        t_fbtn=None,
-        r=None,
-        wt=None,
-        sec_id=None,
-        parent=None,
-        sec_str=None,
-        from_str=None,
-        outer_poly: CurvePoly = None,
-        inner_poly: CurvePoly = None,
-        genprops: GeneralProperties = None,
-        metadata=None,
-        units=Units.M,
-        guid=None,
-        refs=None,
+            self,
+            name,
+            sec_type: BaseTypes | str = None,
+            h=None,
+            w_top=None,
+            w_btn=None,
+            t_w=None,
+            t_ftop=None,
+            t_fbtn=None,
+            r=None,
+            wt=None,
+            sec_id=None,
+            parent=None,
+            sec_str=None,
+            from_str=None,
+            outer_poly: CurvePoly = None,
+            inner_poly: CurvePoly = None,
+            genprops: GeneralProperties = None,
+            metadata=None,
+            units=Units.M,
+            guid=None,
+            refs=None,
     ):
         super(Section, self).__init__(name=name, guid=guid, metadata=metadata, units=units, parent=parent)
         if isinstance(sec_type, str):
@@ -85,10 +85,6 @@ class Section(Root):
             self._genprops = genprops
 
     def equal_props(self, other: Section):
-        props = ["type", "h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "wt", "poly_outer", "poly_inner"]
-        if self.type == self.TYPES.GENERAL:
-            props += ["properties"]
-
         for propa, propb in zip(self.unique_props(), other.unique_props()):
             if propa != propb:
                 return False
@@ -97,6 +93,8 @@ class Section(Root):
 
     def unique_props(self):
         props = ["type", "h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "wt", "poly_outer", "poly_inner"]
+        if self.type == self.TYPES.GENERAL:
+            props += ["properties"]
         return tuple([getattr(self, p) for p in props])
 
     @property
@@ -286,7 +284,7 @@ class SectionParts:
 
 @dataclass
 class GeneralProperties:
-    parent: Section = field(default=None, compare=False)
+    parent: Section = field(default=None, compare=False, repr=False)
     Ax: float = None
     Ix: float = None
     Iy: float = None
@@ -305,6 +303,10 @@ class GeneralProperties:
     Sfz: float = 1
     Cy: float = None
     Cz: float = None
+
+    def __hash__(self):
+        return hash((self.Ax, self.Ix, self.Iy, self.Iz, self.Iyz, self.Wxmin, self.Wymin, self.Wzmin, self.Shary,
+                     self.Sharz, self.Shceny, self.Shcenz, self.Sy, self.Sz, self.Sfy, self.Sfz, self.Cy, self.Cz))
 
     @property
     def modified(self) -> bool:

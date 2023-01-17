@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterator
@@ -71,13 +72,18 @@ class CcxResultModel:
     _curr_step: int = None
 
     def collect_nodes(self):
+
         while True:
             data = next(self.file)
             stripped = data.strip()
             if stripped.startswith("-1") is False:
                 break
             split = stripped.split()
-            yield [float(x) for x in split[1:]]
+            try:
+                yield [float(x) for x in split[1:]]
+            except ValueError:  # Typically it's a - character separating two columns not whitespace
+                split = list(filter(lambda x: x.strip() != "", re.split(r"(?=\s|(?<=[0-9])-(?=[0-9]))", stripped)))
+                yield [float(x) for x in split[1:]]
 
     def collect_elements(self):
         elements = []
@@ -252,3 +258,7 @@ def to_meshio_mesh(ccx_results: CcxResultModel) -> meshio.Mesh:
 
     mesh = meshio.Mesh(points=points, cells=[cell_block], cell_data=cell_data, point_data=point_data)
     return mesh
+
+
+def safesplit(stripped):
+    return list(filter(lambda x: x.strip() != "", re.split(r"(?=\s|(?<=[0-9])-(?=[0-9]))", stripped)))

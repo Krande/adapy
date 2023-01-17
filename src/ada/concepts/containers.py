@@ -617,7 +617,11 @@ class Sections(NumericMapped):
         self.recreate_name_and_id_maps(self._sections)
 
         if len(self._name_map.keys()) != len(self._id_map.keys()):
-            logging.warning(f"Non-unique ids or name for section container belonging to part '{parent}'")
+            import collections
+            names = [sec.name for sec in self._sections]
+            counts = collections.Counter(names)
+            filtered_elements = {element: count for element, count in counts.items() if count > 1}
+            logging.warning(f"The following sections are non-unique '{filtered_elements}'")
 
     def renumber_id(self, start_id=1):
         cnt = Counter(start=start_id)

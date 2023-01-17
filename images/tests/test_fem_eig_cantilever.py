@@ -17,6 +17,7 @@ EL_TYPES = ada.fem.Elem.EL_TYPES
 
 
 def is_conditions_unsupported(fem_format, geom_repr, elem_order):
+    fem_format = FEA.from_str(fem_format)
     if fem_format == FEA.CALCULIX and geom_repr == GeomRepr.LINE:
         return True
     elif fem_format == FEA.CODE_ASTER and geom_repr == GeomRepr.LINE and elem_order == 2:
@@ -75,10 +76,6 @@ def test_fem_eig(
             logging.error(e)
             return None
         raise e
-
-    if res.output is not None:
-        with open(test_dir / name / "run.log", "w") as f:
-            f.write(res.output.stdout)
 
     if pathlib.Path(res.results_file_path).exists() is False:
         raise FileNotFoundError(f'FEM analysis was not successful. Result file "{res.results_file_path}" not found.')

@@ -351,10 +351,11 @@ echo ON\ncall {run_cmd}"""
         shutil.copy(exe.execute_dir / start_bat, Settings.execute_dir / start_bat)
         shutil.copy(exe.execute_dir / stop_bat, Settings.execute_dir / stop_bat)
 
+    # If using batch files
     if run_in_shell:
-        run_cmd = "start " + start_bat if exe.run_ext is True else "start /wait " + start_bat
+        bat_run_cmd = "start " + start_bat if exe.run_ext is True else "start /wait " + start_bat
     else:
-        run_cmd = "start " + start_bat if exe.run_ext is True else "call " + start_bat
+        bat_run_cmd = "start " + start_bat if exe.run_ext is True else "call " + start_bat
 
     return run_tool(exe, run_cmd, "Windows")
 
@@ -365,7 +366,7 @@ def run_linux(exe, run_cmd):
 
 def run_tool(exe: LocalExecute, run_cmd, platform):
     fem_tool_name = type(exe).__name__.replace("Execute", "")
-    props = dict(cwd=exe.execute_dir, env=os.environ, universal_newlines=True, encoding="utf8")
+    props = dict(cwd=exe.execute_dir, env=os.environ, universal_newlines=True, encoding="utf-8")
     if exe.auto_execute is False:
         return None
 
@@ -375,19 +376,31 @@ def run_tool(exe: LocalExecute, run_cmd, platform):
         out = subprocess.Popen(run_cmd, **props)
         print(f"Note! This starts {fem_tool_name} in an external window on a separate thread.")
     else:
-        rstr = ""
-        for out in execute(cmd=run_cmd, **props):
-            print(out)
-            rstr += out
+        # run_directly_on_windows(run_cmd, props, exe)
+        props["capture_output"] = True
+        out = subprocess.run(run_cmd, **props)
         print(f'Finished {fem_tool_name} simulation "{exe.analysis_name}"')
     print(80 * "-")
     return out
 
 
-def execute(cmd, cwd, encoding, run_ext=False):
-    popen = subprocess.Popen(cmd, stdout=subprocess.PIPE, cwd=cwd, encoding=encoding, universal_newlines=True)
+def run_directly_on_windows(run_cmd, props, exe):
+    rstr = ""
+    for out in execute(cmd=run_cmd, **props):
+        print(out)
+        rstr += out
+    with open(exe.execute_dir / 'run.log', 'w') as f:
+        f.write(rstr)
+
+def execute(cmd, cwd, encoding, **kwargs):
+    popen = subprocess.Popen(cmd, stdout=subprocess.PIPE, cwd=cwd, encoding=encoding)
     for stdout_line in popen.stdout:
-        yield stdout_line.strip()
+        try:
+            yield stdout_line.strip()
+        except UnicodeDecodeError as e:
+            logging.error(e)
+            continue
+
     popen.stdout.close()
     return_code = popen.wait()
     if return_code:

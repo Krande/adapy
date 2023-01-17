@@ -38,7 +38,7 @@ def _add_cell_sets(cells_group, part: "Part", families):
 
     for group, elements in part.fem.elements.group_by_type():
         if isinstance(group, (shape_def.MassTypes, shape_def.SpringTypes)):
-            logging.error("NotImplemented: Skipping Mass or Spring Elements")
+            logging.warning("NotImplemented: Skipping Mass or Spring Elements")
             continue
         elements = list(elements)
         cell_ids = {el.id: i for i, el in enumerate(elements)}
