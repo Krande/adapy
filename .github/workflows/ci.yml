@@ -44,7 +44,7 @@ jobs:
       - name: Lint with black
         run: black --config pyproject.toml --check .
   test:
-    needs: lint
+    needs: activate
     name: ${{ matrix.platform.name }}-${{ matrix.pyver.name }}
     runs-on: ${{ matrix.platform.distver }}
     defaults:
