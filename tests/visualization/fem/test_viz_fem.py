@@ -46,7 +46,7 @@ def test_bm_fem():
 
 def test_mix_fem():
     bm = ada.Beam("bm1", n1=[0, 0, 0], n2=[2, 0, 0], sec="IPE220", colour="red")
-    poly = [(0, 0, 0), (1, 0, 0), (1, 1, 0)]  # , (0, 1, 0)]
+    poly = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
 
     objects = beams_along_polyline(poly, bm)
     objects += [ada.Plate("pl1", poly, 0.01)]
@@ -54,8 +54,8 @@ def test_mix_fem():
     a = ada.Assembly() / (ada.Part("BeamFEM") / objects)
     part = a.get_part("BeamFEM")
     p = ada.Part("FEMOnly")
-    p.fem = part.to_fem_obj(0.5)
+    p.fem = part.to_fem_obj(0.5, interactive=True)
     mix_fem = ada.Assembly() / p
 
-    # mix_fem.to_fem("mixed-fem", "usfos", "temp", overwrite=True)
-    mix_fem.to_gltf("temp/mix_fem.glb")
+    mix_fem.to_fem("mixed-fem", "usfos", "temp", overwrite=True)
+    # mix_fem.to_gltf("temp/mix_fem.glb")

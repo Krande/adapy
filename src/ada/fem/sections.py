@@ -223,6 +223,8 @@ class FemSection(FemBase):
             equal_sec = self.thickness == other.thickness
         elif self.type == self.SEC_TYPES.LINE:
             equal_sec = self.section.equal_props(other.section)
+            if tuple(self.local_y) != tuple(other.local_y) or tuple(self.local_z) != tuple(other.local_z):
+                equal_sec = False
         else:
             equal_sec = True
         if equal_mat is True and equal_sec is True:

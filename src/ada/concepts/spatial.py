@@ -674,8 +674,8 @@ class Part(BackendGeom):
                 else:
                     logger.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
 
-            # if interactive is True:
-            #     gs.open_gui()
+            if interactive is True:
+                gs.open_gui()
 
             gs.split_plates_by_beams()
 

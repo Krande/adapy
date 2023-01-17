@@ -443,10 +443,7 @@ class FemSections:
 
         merge_map: Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]] = dict()
         for fs in self.lines:
-            try:
-                props = (fs.material, fs.section.unique_props(), tuple(), tuple(fs.local_z), 0.0)
-            except TypeError:
-                print("d")
+            props = (fs.material, fs.section.unique_props(), tuple(), tuple(fs.local_z), tuple(fs.local_y))
             if props not in merge_map.keys():
                 merge_map[props] = []
 
