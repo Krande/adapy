@@ -140,7 +140,7 @@ class SimpleStru(Part):
 
         fem_set_btn.add_members(nodes)
         if len(fem_set_btn.members) == 0:
-            raise ValueError('Number of Boundary Conditions cannot be zero')
+            raise ValueError("Number of Boundary Conditions cannot be zero")
 
         self.fem.add_bc(Bc("bc_fix", fem_set_btn, [1, 2, 3]))
 

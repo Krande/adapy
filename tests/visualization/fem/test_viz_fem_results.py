@@ -3,7 +3,7 @@ import pytest
 from ada.core.utils import traverse_hdf_datasets
 from ada.fem.formats.code_aster.results import get_eigen_data
 from ada.fem.results import EigenDataSummary
-import ada
+
 
 @pytest.fixture
 def code_aster_files(example_files):

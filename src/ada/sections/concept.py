@@ -18,28 +18,28 @@ class Section(Root):
     TYPES = BaseTypes
 
     def __init__(
-            self,
-            name,
-            sec_type: BaseTypes | str = None,
-            h=None,
-            w_top=None,
-            w_btn=None,
-            t_w=None,
-            t_ftop=None,
-            t_fbtn=None,
-            r=None,
-            wt=None,
-            sec_id=None,
-            parent=None,
-            sec_str=None,
-            from_str=None,
-            outer_poly: CurvePoly = None,
-            inner_poly: CurvePoly = None,
-            genprops: GeneralProperties = None,
-            metadata=None,
-            units=Units.M,
-            guid=None,
-            refs=None,
+        self,
+        name,
+        sec_type: BaseTypes | str = None,
+        h=None,
+        w_top=None,
+        w_btn=None,
+        t_w=None,
+        t_ftop=None,
+        t_fbtn=None,
+        r=None,
+        wt=None,
+        sec_id=None,
+        parent=None,
+        sec_str=None,
+        from_str=None,
+        outer_poly: CurvePoly = None,
+        inner_poly: CurvePoly = None,
+        genprops: GeneralProperties = None,
+        metadata=None,
+        units=Units.M,
+        guid=None,
+        refs=None,
     ):
         super(Section, self).__init__(name=name, guid=guid, metadata=metadata, units=units, parent=parent)
         if isinstance(sec_type, str):
@@ -305,8 +305,28 @@ class GeneralProperties:
     Cz: float = None
 
     def __hash__(self):
-        return hash((self.Ax, self.Ix, self.Iy, self.Iz, self.Iyz, self.Wxmin, self.Wymin, self.Wzmin, self.Shary,
-                     self.Sharz, self.Shceny, self.Shcenz, self.Sy, self.Sz, self.Sfy, self.Sfz, self.Cy, self.Cz))
+        return hash(
+            (
+                self.Ax,
+                self.Ix,
+                self.Iy,
+                self.Iz,
+                self.Iyz,
+                self.Wxmin,
+                self.Wymin,
+                self.Wzmin,
+                self.Shary,
+                self.Sharz,
+                self.Shceny,
+                self.Shcenz,
+                self.Sy,
+                self.Sz,
+                self.Sfy,
+                self.Sfz,
+                self.Cy,
+                self.Cz,
+            )
+        )
 
     @property
     def modified(self) -> bool:

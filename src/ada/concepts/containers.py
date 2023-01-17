@@ -618,6 +618,7 @@ class Sections(NumericMapped):
 
         if len(self._name_map.keys()) != len(self._id_map.keys()):
             import collections
+
             names = [sec.name for sec in self._sections]
             counts = collections.Counter(names)
             filtered_elements = {element: count for element, count in counts.items() if count > 1}

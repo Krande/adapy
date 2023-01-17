@@ -351,11 +351,11 @@ echo ON\ncall {run_cmd}"""
         shutil.copy(exe.execute_dir / start_bat, Settings.execute_dir / start_bat)
         shutil.copy(exe.execute_dir / stop_bat, Settings.execute_dir / stop_bat)
 
-    # If using batch files
+    # If the script should be running from batch files, then this can be used
     if run_in_shell:
-        bat_run_cmd = "start " + start_bat if exe.run_ext is True else "start /wait " + start_bat
+        _ = "start " + start_bat if exe.run_ext is True else "start /wait " + start_bat
     else:
-        bat_run_cmd = "start " + start_bat if exe.run_ext is True else "call " + start_bat
+        _ = "start " + start_bat if exe.run_ext is True else "call " + start_bat
 
     return run_tool(exe, run_cmd, "Windows")
 
@@ -389,8 +389,9 @@ def run_directly_on_windows(run_cmd, props, exe):
     for out in execute(cmd=run_cmd, **props):
         print(out)
         rstr += out
-    with open(exe.execute_dir / 'run.log', 'w') as f:
+    with open(exe.execute_dir / "run.log", "w") as f:
         f.write(rstr)
+
 
 def execute(cmd, cwd, encoding, **kwargs):
     popen = subprocess.Popen(cmd, stdout=subprocess.PIPE, cwd=cwd, encoding=encoding)

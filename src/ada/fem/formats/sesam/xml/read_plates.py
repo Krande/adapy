@@ -10,6 +10,10 @@ from ada.concepts.containers import Plates
 from ada.sat.reader import get_plates_from_satd
 
 
+def extract_sat_objects_from_xml_root(xml_root: ET.Element) -> dict():
+    ...
+
+
 def get_plates(xml_root: ET.Element, parent: Part) -> Plates:
     sat_ref_d = dict()
     for sat_geometry_el in xml_root.findall(".//sat_embedded"):
@@ -68,6 +72,7 @@ def extract_sat_data(sat_el: ET.Element) -> dict:
             data += res
     else:
         raise NotImplementedError(f'SAT el Tag type "{sat_el.tag}" is not yet added')
+
     satd = sat_data_text_to_dict(data)
     return get_plates_from_satd(satd)
 
@@ -91,3 +96,8 @@ def sat_data_text_to_dict(data: bytes) -> dict:
         sat_dict[d["id"]] = (d["name"], *d["bulk"].split())
 
     return sat_dict
+
+
+def get_sat_data_from_xml(xml_file):
+    root = ET.parse(str(xml_file)).getroot()
+    get_plates(root, None)
