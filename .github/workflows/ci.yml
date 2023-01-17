@@ -28,6 +28,7 @@ jobs:
       - run: echo ok go
   lint:
     needs: activate
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/setup-python@v4
