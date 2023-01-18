@@ -19,6 +19,11 @@ def beam_fixture() -> ada.Beam:
     return beam()
 
 
+@pytest.fixture
+def short_name_map() -> dict:
+    return dict(calculix="ccx", code_aster="ca", abaqus="aba", sesam="ses")
+
+
 if __name__ == "__main__":
     bm = beam()
     print("")

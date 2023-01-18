@@ -38,6 +38,7 @@ def test_fem_eig(
     geom_repr,
     elem_order,
     use_hex_quad,
+    short_name_map,
     overwrite=True,
     execute=True,
     eigen_modes=11,
@@ -45,7 +46,8 @@ def test_fem_eig(
 ):
     geom_repr = GeomRepr.from_str(geom_repr)
     if name is None:
-        name = f"cantilever_EIG_{fem_format}_{geom_repr.value}_o{elem_order}_hq{use_hex_quad}"
+        short_name = short_name_map.get(fem_format)
+        name = f"cantilever_EIG_{short_name}_{geom_repr.value}_o{elem_order}_hq{use_hex_quad}"
 
     p = ada.Part("MyPart")
     a = ada.Assembly("MyAssembly") / [p / beam_fixture]

@@ -17,10 +17,10 @@ def extract_sat_objects_from_xml_root(xml_root: ET.Element) -> dict():
 def get_plates(xml_root: ET.Element, parent: Part) -> Plates:
     sat_ref_d = dict()
     for sat_geometry_el in xml_root.findall(".//sat_embedded"):
-        sat_ref_d.update(extract_sat_data(sat_geometry_el))
+        sat_ref_d.update(get_structured_plates_data_from_sat(sat_geometry_el))
 
     for sat_geometry_seq in xml_root.findall(".//sat_embedded_sequence"):
-        sat_ref_d.update(extract_sat_data(sat_geometry_seq))
+        sat_ref_d.update(get_structured_plates_data_from_sat(sat_geometry_seq))
 
     thick_map = dict()
     for thickn in xml_root.findall(".//thickness"):
@@ -61,7 +61,26 @@ def get_plates(xml_root: ET.Element, parent: Part) -> Plates:
     return Plates(plates, parent)
 
 
+def get_structured_plates_data_from_sat(sat_el: ET.Element) -> dict:
+    return get_plates_from_satd(extract_sat_data(sat_el))
+
+
 def extract_sat_data(sat_el: ET.Element) -> dict:
+    sat_text = xml_elem_to_sat_text(sat_el)
+    return organize_sat_text_to_dict(sat_text)
+
+
+def organize_sat_text_to_dict(sat_text) -> dict:
+
+    sat_dict = dict()
+    for res in re.finditer(r"^-(?P<id>[0-9]{1,7}) (?P<name>.*?) (?P<bulk>.*?) #", sat_text, re.MULTILINE | re.DOTALL):
+        d = res.groupdict()
+        sat_dict[d["id"]] = (d["name"], *d["bulk"].split())
+
+    return sat_dict
+
+
+def xml_elem_to_sat_text(sat_el: ET.Element) -> str:
     if sat_el.tag == "sat_embedded":
         text = sat_el.text
         data = base64.b64decode(text)
@@ -73,31 +92,22 @@ def extract_sat_data(sat_el: ET.Element) -> dict:
     else:
         raise NotImplementedError(f'SAT el Tag type "{sat_el.tag}" is not yet added')
 
-    satd = sat_data_text_to_dict(data)
-    return get_plates_from_satd(satd)
-
-
-def sat_data_text_to_dict(data: bytes) -> dict:
     byio = BytesIO(data)
     zipdata = zipfile.ZipFile(byio)
     res = {name: zipdata.read(name) for name in zipdata.namelist()}
     if len(res.keys()) != 1:
         raise NotImplementedError("No support for binary zip data containing multipart SAT file yet")
 
-    sat_data = str(res["b64temp.sat"], encoding="utf-8")
-
-    sat_dict = dict()
-    for res in re.finditer(
-        r"^-(?P<id>[0-9]{1,7}) (?P<name>.*?) (?P<bulk>.*?) #",
-        sat_data,
-        re.MULTILINE | re.DOTALL,
-    ):
-        d = res.groupdict()
-        sat_dict[d["id"]] = (d["name"], *d["bulk"].split())
-
-    return sat_dict
+    return str(res["b64temp.sat"], encoding="utf-8")
 
 
-def get_sat_data_from_xml(xml_file):
-    root = ET.parse(str(xml_file)).getroot()
-    get_plates(root, None)
+def get_sat_text_from_xml(xml_file):
+    xml_root = ET.parse(str(xml_file)).getroot()
+    sat_text = ""
+    for sat_geometry_el in xml_root.findall(".//sat_embedded"):
+        sat_text += xml_elem_to_sat_text(sat_geometry_el)
+
+    for sat_geometry_seq in xml_root.findall(".//sat_embedded_sequence"):
+        sat_text += xml_elem_to_sat_text(sat_geometry_seq)
+
+    return sat_text

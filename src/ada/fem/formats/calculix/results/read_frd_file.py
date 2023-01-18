@@ -31,8 +31,11 @@ class CcxFieldData(BaseEnum):
 
 class ElemShape(Enum):
     WEDGE = "wedge"
+    WEDGE15 = "wedge15"
     HEX = "hexahedron"
-    TET = "tetra"
+    HEX20 = "hexahedron20"
+    TETRA = "tetra"
+    TETRA10 = "tetra10"
 
     @staticmethod
     def get_type_from_elem_array_shape(elements: np.ndarray) -> ElemShape:
@@ -42,7 +45,13 @@ class ElemShape(Enum):
         elif shape[1] == 12:
             return ElemShape.HEX
         elif shape[1] == 8:
-            return ElemShape.TET
+            return ElemShape.TETRA
+        elif shape[1] == 24:
+            return ElemShape.HEX20
+        elif shape[1] == 19:
+            return ElemShape.WEDGE15
+        elif shape[1] == 14:
+            return ElemShape.TETRA10
         else:
             raise NotImplementedError(f"{shape=}")
 
@@ -52,10 +61,16 @@ class ElemShape(Enum):
 
         if shape == ElemShape.HEX:
             return SolidShapes.HEX8
+        elif shape == ElemShape.HEX20:
+            return SolidShapes.HEX20
         elif shape == ElemShape.WEDGE:
             return SolidShapes.WEDGE
-        elif shape == ElemShape.TET:
+        elif shape == ElemShape.TETRA:
             return SolidShapes.TETRA
+        elif shape == ElemShape.WEDGE15:
+            return SolidShapes.WEDGE15
+        elif shape == ElemShape.TETRA10:
+            return SolidShapes.TETRA10
         else:
             raise NotImplementedError(f"{shape=}")
 
@@ -88,6 +103,7 @@ class CcxResultModel:
     def collect_elements(self):
         elements = []
         curr_element = []
+
         while True:
             data = next(self.file)
 
@@ -99,13 +115,13 @@ class CcxResultModel:
             split = stripped.split()
 
             if stripped.startswith("-1"):
+                if len(curr_element) != 0:
+                    elements.append(tuple(curr_element))
                 data = [int(x) for x in split[1:]]
                 curr_element = data
             elif stripped.startswith("-2"):
                 data = [int(x) for x in split[1:]]
                 curr_element += data
-                elements.append(tuple(curr_element))
-                curr_element = []
             else:
                 break
 
