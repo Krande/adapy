@@ -5,6 +5,9 @@ import pathlib
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
+from .write_beams import add_beams
+from .write_materials import add_materials
+from .write_sat_embedded import embed_sat_geometry
 from .write_sections import add_sections
 
 if TYPE_CHECKING:
@@ -24,10 +27,18 @@ def write_xml(part: Part, xml_file):
     part.consolidate_materials()
 
     # Find the <properties> element
-    properties = root.find("./model/structure_domain/properties")
+    structure_domain = root.find("./model/structure_domain")
+    properties = structure_domain.find("./properties")
 
-    # Create a new element to add
+    # Add Properties
     add_sections(properties, part)
+    add_materials(properties, part)
+
+    # Add SAT geometry
+    sat_map = embed_sat_geometry(structure_domain, part)
+
+    # Add structural elements
+    add_beams(structure_domain, part, sat_map)
 
     # Write the modified XML back to the file
     os.makedirs(xml_file.parent, exist_ok=True)
