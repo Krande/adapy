@@ -93,7 +93,7 @@ def from_fem_res(
 
 
 def from_genie_xml(xml_path, **kwargs) -> Assembly:
-    from ada.fem.formats.sesam.xml.read_xml import from_xml_file
+    from ada.fem.formats.sesam.xml.read.read_xml import from_xml_file
 
     return from_xml_file(xml_path, **kwargs)
 

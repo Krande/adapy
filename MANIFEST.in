@@ -1,2 +1,3 @@
 include src/ada/sections/resources/ProfileDB.json
 include src/ada/materials/metals/resources/NLMatParams.json
+include src/ada/fem/formats/sesam/xml/write/resources/xml_blank.xml

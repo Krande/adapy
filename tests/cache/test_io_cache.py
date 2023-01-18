@@ -27,7 +27,6 @@ def cache_validation(a, b):
 
 
 def test_simplestru_fem_cache(bm_ipe300):
-
     model_name = "ParamAssembly"
 
     start = time.time()
@@ -43,4 +42,10 @@ def test_simplestru_fem_cache(bm_ipe300):
     time2 = time.time() - start
     cache_validation(a, b)
 
-    print(f"Model generation time reduced from {time1:.2f}s to {time2:.2f}s -> {time1 / time2:.2f} x Improvement")
+    res = 0
+    try:
+        res = time1 / time2
+    except ZeroDivisionError:
+        pass
+
+    print(f"Model generation time reduced from {time1:.2f}s to {time2:.2f}s -> {res:.2f} x Improvement")
