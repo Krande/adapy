@@ -5,6 +5,7 @@ import pathlib
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
+from .write_bcs import add_boundary_conditions
 from .write_beams import add_beams
 from .write_materials import add_materials
 from .write_sat_embedded import embed_sat_geometry
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
 _XML_TEMPLATE = pathlib.Path(__file__).parent / "resources/xml_blank.xml"
 
 
-def write_xml(part: Part, xml_file):
+def write_xml(part: Part, xml_file, embed_sat=False):
     if not isinstance(xml_file, pathlib.Path):
         xml_file = pathlib.Path(xml_file)
 
@@ -28,17 +29,21 @@ def write_xml(part: Part, xml_file):
 
     # Find the <properties> element
     structure_domain = root.find("./model/structure_domain")
+    structures_elem = ET.SubElement(structure_domain, "structures")
     properties = structure_domain.find("./properties")
 
     # Add Properties
     add_sections(properties, part)
     add_materials(properties, part)
 
-    # Add SAT geometry
-    sat_map = embed_sat_geometry(structure_domain, part)
+    # Add SAT geometry (maybe only applicable for plate geometry)
+    sat_map = dict()
+    if embed_sat:
+        sat_map = embed_sat_geometry(structure_domain, part)
 
     # Add structural elements
-    add_beams(structure_domain, part, sat_map)
+    add_beams(structures_elem, part, sat_map)
+    add_boundary_conditions(structures_elem, part)
 
     # Write the modified XML back to the file
     os.makedirs(xml_file.parent, exist_ok=True)

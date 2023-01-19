@@ -3,6 +3,8 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
+from .write_utils import add_local_system
+
 if TYPE_CHECKING:
     from ada import Beam, Part
 
@@ -10,34 +12,17 @@ if TYPE_CHECKING:
 def add_beams(root: ET.Element, part: Part, sat_map: dict):
     from ada import Beam
 
-    structures_elem = ET.Element("structures")
-
-    # Add the new element underneath <properties>
-    root.append(structures_elem)
-
     for beam in part.get_all_physical_objects(by_type=Beam):
-        add_straight_beam(beam, structures_elem)
+        add_straight_beam(beam, root)
 
 
 def add_straight_beam(beam: Beam, xml_root: ET.Element):
     structure_elem = ET.Element("structure")
     beam_elem = ET.Element("straight_beam", {"name": beam.name})
     structure_elem.append(beam_elem)
-    beam_elem.append(add_local_system(beam))
+    beam_elem.append(add_local_system(beam.xvec, beam.yvec, beam.up))
     beam_elem.append(add_segments(beam))
     xml_root.append(structure_elem)
-
-
-def add_local_system(beam: Beam) -> ET.Element:
-    local_system_elem = ET.Element("local_system")
-    d = ["x", "y", "z"]
-    for j, vec in enumerate([beam.xvec, beam.yvec, beam.up]):
-        props = {d[i]: str(k) for i, k in enumerate(vec)}
-        props.update(dict(dir=d[j]))
-        vec_elem = ET.Element("vector", props)
-        local_system_elem.append(vec_elem)
-
-    return local_system_elem
 
 
 def add_segments(beam: Beam):
@@ -55,8 +40,9 @@ def add_segments(beam: Beam):
         props.update(dict(end=str(i)))
         ET.SubElement(guide, "position", props)
 
+    ET.SubElement(wire, "sat_reference")
+
     # TODO: add SAT embedded geometry and include the reference to the EDGE geometry here
-    sat_ref = ET.SubElement(wire, "sat_reference")
-    ET.SubElement(sat_ref, "edge_ref", dict(edge_ref=""))
+    # ET.SubElement(sat_ref, "edge_ref", dict(edge_ref=""))
 
     return segments

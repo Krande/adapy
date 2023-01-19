@@ -52,6 +52,7 @@ class Bc(FemBase):
         metadata=None,
         parent=None,
     ):
+        """dofs should be a list with integers from 1-6"""
         super().__init__(name, metadata, parent)
         self._fem_set = fem_set
         fem_set.refs.append(self)
