@@ -15,10 +15,11 @@ def get_beams(xml_root: ET.Element, parent: Part) -> Beams:
 
 def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
     name = bm_el.attrib["name"]
+    zv = get_orientation(bm_el)
     segs = []
     prev_bm = None
     for seg in bm_el.findall(".//straight_segment"):
-        cur_bm = seg_to_beam(name, seg, parent, prev_bm)
+        cur_bm = seg_to_beam(name, seg, parent, prev_bm, zv)
         if cur_bm is None:
             continue
         prev_bm = cur_bm
@@ -38,7 +39,7 @@ def get_offsets(bm_el: ET.Element) -> Tuple[tuple, tuple]:
     return end1_o, end2_o
 
 
-def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam):
+def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv):
     index = seg.attrib["index"]
     sec = parent.sections.get_by_name(seg.attrib["section_ref"])
     mat = parent.materials.get_by_name(seg.attrib["material_ref"])
@@ -53,8 +54,9 @@ def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam):
             sec = prev_bm.section
     n1 = parent.nodes.add(Node(pos_to_floats(pos["1"])))
     n2 = parent.nodes.add(Node(pos_to_floats(pos["2"])))
+
     try:
-        bm = Beam(name, n1, n2, sec=sec, mat=mat, parent=parent, metadata=metadata)
+        bm = Beam(name, n1, n2, sec=sec, mat=mat, parent=parent, metadata=metadata, up=zv)
     except VectorNormalizeError:
         logging.warning(f"Beam '{name}' has coincident nodes. Will skip for now")
         return None
@@ -67,3 +69,16 @@ def xyz_to_floats(p: ET.Element) -> Tuple[float]:
 
 def pos_to_floats(pos):
     return [float(x) for x in pos]
+
+
+def get_orientation(root: ET.Element) -> tuple:
+    zv = None
+    for vec in root.find("./local_system").findall("./vector"):
+        direction = vec.attrib.get("dir")
+        if direction == "z":
+            zv = float(vec.attrib["x"]), float(vec.attrib["y"]), float(vec.attrib["z"])
+
+    if zv is None:
+        raise ValueError("Z or Y vector must be set")
+
+    return zv

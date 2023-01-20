@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from itertools import chain
-from typing import TYPE_CHECKING, Dict, List, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple, Union
 
 from ada.concepts.containers import Nodes
 
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
         FemSection,
         Interaction,
         InteractionProperty,
+        Load,
         Mass,
         PredefinedField,
         Spring,
@@ -325,17 +326,27 @@ class FEM:
             steps += p.fem.steps
         return steps
 
-    def get_all_bcs(self):
+    def get_all_bcs(self) -> Iterable[Bc]:
         """Get all the boundary conditions in the entire assembly"""
         assembly = self.parent.get_assembly()
         return chain.from_iterable(
             (
-                [bc for bc in assembly.fem.bcs],
+                assembly.fem.bcs,
                 [bc for p in assembly.get_all_parts_in_assembly() for bc in p.fem.bcs],
             )
         )
 
-    def get_all_loads(self):
+    def get_all_masses(self) -> Iterable[Mass]:
+        """Get all the Masses in the entire assembly"""
+        assembly = self.parent.get_assembly()
+        return chain.from_iterable(
+            (
+                assembly.fem.masses.values(),
+                [mass for p in assembly.get_all_parts_in_assembly() for mass in p.fem.masses.values()],
+            )
+        )
+
+    def get_all_loads(self) -> list[Load]:
         loads = []
         for step in self.steps:
             for load in step.loads:

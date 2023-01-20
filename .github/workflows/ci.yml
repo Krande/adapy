@@ -36,11 +36,11 @@ jobs:
           python-version: "3.x"
       - uses: actions/checkout@v3
       - name: Install lint packages
-        run: pip install isort flake8 black
+        run: pip install isort ruff black
       - name: Lint with isort
         run: isort --check .
-      - name: Lint with flake8
-        run: flake8 .
+      - name: Lint with ruff
+        run: ruff .
       - name: Lint with black
         run: black --config pyproject.toml --check .
   test:

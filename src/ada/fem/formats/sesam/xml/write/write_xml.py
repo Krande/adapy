@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from .write_bcs import add_boundary_conditions
 from .write_beams import add_beams
+from .write_masses import add_masses
 from .write_materials import add_materials
 from .write_sat_embedded import embed_sat_geometry
 from .write_sections import add_sections
@@ -44,6 +45,7 @@ def write_xml(part: Part, xml_file, embed_sat=False):
     # Add structural elements
     add_beams(structures_elem, part, sat_map)
     add_boundary_conditions(structures_elem, part)
+    add_masses(structures_elem, part)
 
     # Write the modified XML back to the file
     os.makedirs(xml_file.parent, exist_ok=True)

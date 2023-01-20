@@ -64,7 +64,7 @@ class Surface(FemBase):
 
         self._fem_set = fem_set
         if type(fem_set) is list:
-            if not type(el_face_index) is list:
+            if type(el_face_index) is not list:
                 raise ValueError("You cannot define a list of FemSets and not also include a List of el_face_indices")
 
         self._weight_factor = weight_factor

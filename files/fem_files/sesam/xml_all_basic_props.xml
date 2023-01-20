@@ -2,9 +2,9 @@
 <DNV_structure_concept_protocol version="1.6">
 	<administrative>
 		<program program="GeniE" version="V8.4-06" version_date="23-Sep-2022" platform="64bit" />
-		<session_info date="18-Jan-2023" time="14:14:28" user="userX" />
+		<session_info date="20-Jan-2023" time="07:27:50" user="userX" />
 	</administrative>
-	<model name="sadasdsa">
+	<model name="adasdasd">
 		<units>
 			<model_units length="m" time="s" temp_diff="delC" force="N" angle="rad" mass="" />
 			<acis_units length="m" />
@@ -79,6 +79,36 @@
 				</hydro_properties>
 			</properties>
 			<structures>
+				<structure>
+					<point_mass name="Mass2">
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="1" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<position x="0" y="0" z="10" />
+						</geometry>
+						<mass>
+							<mass_scalar mass="20" />
+						</mass>
+					</point_mass>
+				</structure>
+				<structure>
+					<point_mass name="Mass1">
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="1" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<position x="0" y="10" z="10" />
+						</geometry>
+						<mass>
+							<mass_scalar mass="10" />
+						</mass>
+					</point_mass>
+				</structure>
 				<structure>
 					<support_point name="Sp1">
 						<local_system>
@@ -387,7 +417,7 @@
 			<manual_overlap_managers />
 			<feature_concepts />
 			<geometry>
-				<sat_embedded encoding="base64" compression="zip" tag_name="dnvscp"><![CDATA[UEsDBC0AAAAIAM5xMlYbrhx/3QIAAEINAAALABQAYjY0dGVtcC5zYXQBABAAAAAAAAAAAAAAAAAAAAAAAKVXTW/bMAy9D9h/ILBcHUii5I+dUmxB0QHbYS263QY3dtNgjV24Trr++1GS5cSpnKS2ZdWCIVqP5HtkKhhjwIDT3F0fP/AYrufXF98hgOX6Mi/XeV29Apdw8eXqGpBN2ZTDjxsQEn7lGXxLCyATLj/TLWIQTKD+iv54Mk26l8oDFgHPA85oT8DgrsxeYRJwsLdeTZoHzRtgZiig/XR/IhsOj5v106GNngImzGsi4Pkhf3z02biJ+lifLcLLqsp9ptKcSKtyU3tNJSzKPFu+MVYwCe0qgvuyekmrzACgN9pM9ZjRebFdJT6zsMeMwDg7zn2GEVgzLjpmSN5MKOvxNAyZUJJhFEuJsVIGClftt2YRbIq/RflSmDAoM3ZhiPuAhW0cuDcQiQMWd8ySI8DoFqwPGGvBGR6x/jjzBpfwBozCaO1EJ2LCRgy139ox0kcvEN78cZwmhtbVqlj+SWt63gVFus7depkXgV06pC0FIxAk377BmucshKzYPi+eYEYHzb9ezpm9GncQtnlV5/8Isuo4pGdo98jdnmh/T0IvYrtFaR/S1fKhDhabansYV+cvm6ooQsVEmPA4CYWKEIKzX17RMKcdo7tq8Ht1wh3fkXmyl0CjF+THaNSkz3wvHpa7ZFzuhD08afOCXTJSYhBt9WOnEmOGJ9jnvnNJEU4YKPexoNoThp4Y9sWWt6F1pXugMkijo8Ir7ek7aWCH9ly7ZXlPMj8ZXu76bBspNdAtfLdbEm7nP2/mvzuaJ1k/laui7tGo2RINhCjHQrTUprLig7gr4ML1B0ze9gdUlm1Uh+XRhtAkx7R6NtDjkWXYypQKznk8MmXLEQmH6uP95ecgSw1q7CFSG1Q5DKAYKWDLEaKBE7Dkh/VRWqJRNTrduBqq7OI+UB1itIBtZUK/Ovb6EqliGMKRjcn+YJDnNZ1OUZR8GGJK8siYWrIQH3qLoonpvMiC8j7Q/wcFWVqn8B9QSwECAAAUAAAACADOcTJWG64cf90CAABCDQAACwAAAAAAAAABAAAAAAAAAAAAYjY0dGVtcC5zYXRQSwUGAAAAAAEAAQA5AAAAGgMAAAAA]]></sat_embedded>
+				<sat_embedded encoding="base64" compression="zip" tag_name="dnvscp"><![CDATA[UEsDBC0AAAAIAHk7NFbMsCAh3gIAAEINAAALABQAYjY0dGVtcC5zYXQBABAAAAAAAAAAAAAAAAAAAAAAAKVXUU/bMBB+n7T/cNL6msr22XHCU9HWISZtDwNNe5sCDaUaTVBIYfz7ne04bYrTliSOiWX57O/uvu9cBGMMGHDq2+fjB57A1fzq/DtEsFxf5OU6r6tX4BLOP19eAbIpm3L4cQ1CwtdqBd+yAgTto8+EPlOMxgLNLmbzdJp2H5VHTAPPI85oTcTgply8wiTi4F4zmjQf6tfAbFNA6+n9RDYcHjbrx30b0wVMWNBEwNN9/vAQsvEdzbEhW4SXVZWHTKU9kUblpg6aSrgt88XyjbGCSexGGu7K6iWrFhYAzRgz1WNG5yVulIbM4h4zAuPtOA8ZanBmXHTMkLyZUNaTaRwzoSRDnUiJiVIWClftXjMNm+JvUb4UNgzKtm0Ykj5gcRsHHgxE6oElHbP0ADB6iYs9wFgLzvKI9ceZN7hEMGAURmcnOhETLmJo/DaOkT56gfDmj+c0MbSuVsXyT1bT9yYqsnXux8u8iNzQI20pqEGQfPsaa76zGBbF89PtI8zooPmXizlzT+MOwnNe1fk/gqw6DpkeuzVyu0bvrklpInFLlPEhWy3v6+h2Uz3vx9X7y6ZKa1RMxClP0lgojRCdPHlJzZ52iO6qwR/UCfd8RxbIXgqNXpAfolGTPrtfMix36bjcCXd42uYFu2SkxCC66seOJca2QLBPnfNJEV4YKHexoNoRhukY98WWt6H1pXugMkijo8Ir3elbaWCH9ty45XhPMj8aXu7v2TZSaqBb+G63JPya/7ye/+5onmT9WK6KukejdokeCFGOheioTWUlBHFbwIW/HzB9ez+gcmyjOiwPXghNcuxVzwZ6PLIMO5lSwTmNR7ZseSLhUH28v/zsZalBjT1EaoMqhwEUIwXsOEI08AKWfL8+Skc0qkbHL66GKtu4D1SHGC1gV5kwrI6de4lUMQzhyIvJ/WCQp106naIo+TDElOSRMXVkIT70FkUb03mxiMq7yPwfFC2yOoP/UEsBAgAAFAAAAAgAeTs0VsywICHeAgAAQg0AAAsAAAAAAAAAAQAAAAAAAAAAAGI2NHRlbXAuc2F0UEsFBgAAAAABAAEAOQAAABsDAAAAAA==]]></sat_embedded>
 			</geometry>
 			<fatigue />
 		</structure_domain>

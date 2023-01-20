@@ -4,6 +4,7 @@ from ada import Assembly, Part
 
 from . import get_beams, get_joints, get_materials, get_plates, get_sections
 from .read_bcs import get_boundary_conditions
+from .read_masses import get_masses
 from .read_sets import get_sets
 
 
@@ -27,6 +28,7 @@ def from_xml_file(xml_path, extract_joints=False, skip_beams=False, skip_plates=
         p._connections = get_joints(root, p)
 
     p.fem.bcs += get_boundary_conditions(root, p)
+    p.fem.masses.update(get_masses(root, p))
 
     all_plates = len(p.plates)
     all_beams = len(p.beams)

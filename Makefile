@@ -14,11 +14,8 @@ update:
 dev:
 	mamba env update --file environment.dev.yml --prune
 
-iformat:
-	conda install -c conda-forge pre-commit
-
 format:
-	black . && isort . && flake8 .
+	black . && isort . && ruff . --fix
 
 bump:
 	bumpversion patch setup.py

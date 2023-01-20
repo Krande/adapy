@@ -8,5 +8,9 @@ build-backend = "setuptools.build_meta"
 [tool.black]
 line-length = 120
 
+[tool.ruff]
+line-length = 120
+ignore = ["E741"]
+
 [tool.isort]
 profile = "black"

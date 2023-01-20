@@ -1108,6 +1108,11 @@ class Assembly(Part):
         print("IFC file creation complete")
         return self.ifc_store.f
 
+    def to_genie_xml(self, destination_xml):
+        from ada.fem.formats.sesam.xml.write.write_xml import write_xml
+
+        write_xml(self, destination_xml)
+
     def push(self, comment, bimserver_url, username, password, project, merge=False, sync=False):
         """Push current assembly to BimServer with a comment tag that defines the revision name"""
         from ada.core.bimserver import BimServerConnect
