@@ -1,4 +1,4 @@
-FROM ubuntu:20.04 as base
+FROM ubuntu:22.04 as base
 
 ENV TOOLS /tools
 RUN apt-get update && \
@@ -7,7 +7,7 @@ RUN apt-get update && \
 #region install Calculix
 FROM base AS calculix
 RUN apt-get install ffmpeg libsm6 libxext6 libxft2 -y
-ENV CCXVER "2.17"
+ENV CCXVER "2.20"
 # Installing necessary dependecies for Calculix
 RUN apt-get install -y \
     build-essential \
@@ -23,12 +23,16 @@ RUN apt-get install -y \
 WORKDIR ${TOOLS}
 
 # Downloading CalculiX
-RUN curl -s http://www.dhondt.de/ccx_${CCXVER}.src.tar.bz2 | tar -xj
+# RUN curl -s http://www.dhondt.de/ccx_${CCXVER}.src.tar.bz2 | tar -xj
 
+WORKDIR ${TOOLS}/CalculiX/ccx_${CCXVER}/src
+
+RUN curl -LJO -s http://www.dhondt.de/cgx_2.20.1.bz2 && bunzip2 cgx_2.20.1.bz2
+RUN ls
 # Installing spooles
 WORKDIR ${TOOLS}
 RUN mkdir spooles.2.2 && cd spooles.2.2 && \
-    curl -s http://www.netlib.org/linalg/spooles/spooles.2.2.tgz | tar -xz && \
+    curl -L -s https://www.netlib.org/linalg/spooles/spooles.2.2.tgz | tar -xz && \
     cd ${TOOLS}/spooles.2.2/Tree/src/ && \
     sed -i 's/drawTree/draw/g' makeGlobalLib && \
     cd ${TOOLS}/spooles.2.2/ && \
@@ -37,7 +41,7 @@ RUN mkdir spooles.2.2 && cd spooles.2.2 && \
 
 # Downloading and installing ARPACK
 WORKDIR ${TOOLS}
-RUN curl -s https://www.caam.rice.edu//software/ARPACK/SRC/arpack96.tar.gz | tar -xz && \
+RUN curl -L -s https://github.com/v1j4y/ARPACK/raw/master/arpack96.tar.gz | tar -xz && \
     mv ARPACK /usr/local/ARPACK \
     && cd /usr/local/ARPACK \
     && sed -i 's/$(HOME)/\/usr\/local/g' ARmake.inc \
@@ -48,7 +52,7 @@ RUN curl -s https://www.caam.rice.edu//software/ARPACK/SRC/arpack96.tar.gz | tar
     && sed -i 's/      EXTERNAL           ETIME/*     EXTERNAL           ETIME/g' UTIL/second.f \
     && make all
 
-WORKDIR ${TOOLS}/CalculiX/ccx_${CCXVER}/src
+
 
 # replace hardcoded paths in CalculiX
 RUN  sed -i -e 's|\.\./\.\./\.\./SPOOLES.2.2|${TOOLS}/spooles.2.2|g' \

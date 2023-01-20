@@ -16,3 +16,9 @@ def test_read_genie_beams_xml(example_files):
 def test_read_genie_flat_plate_xml(example_files):
     xml_file = (example_files / "fem_files/sesam/plate_flat.xml").resolve().absolute()
     _ = get_sat_text_from_xml(xml_file)
+
+
+def test_read_genie_curved_plate_xml(example_files):
+    xml_file = (example_files / "fem_files/sesam/curved_plates.xml").resolve().absolute()
+    res = get_sat_text_from_xml(xml_file)
+    print(res)

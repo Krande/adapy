@@ -10,7 +10,7 @@ from ada.concepts.containers import Plates
 from ada.sat.reader import get_plates_from_satd
 
 
-def extract_sat_objects_from_xml_root(xml_root: ET.Element) -> dict():
+def extract_sat_objects_from_xml_root(xml_root: ET.Element) -> dict:
     ...
 
 
@@ -104,6 +104,7 @@ def xml_elem_to_sat_text(sat_el: ET.Element) -> str:
 def get_sat_text_from_xml(xml_file):
     xml_root = ET.parse(str(xml_file)).getroot()
     sat_text = ""
+
     for sat_geometry_el in xml_root.findall(".//sat_embedded"):
         sat_text += xml_elem_to_sat_text(sat_geometry_el)
 
