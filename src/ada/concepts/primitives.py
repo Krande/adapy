@@ -448,6 +448,11 @@ class PrimSweep(Shape):
         return f"PrimSweep({self.name})"
 
 
+class PrimBSplineSurface(Shape):
+    def __init__(self, name, udeg, vdeg, ctrlpts: list[list]):
+        super().__init__(name, geom=None)
+
+
 class Penetration(BackendGeom):
     _name_gen = Counter(1, "Pen")
     """A penetration object. Wraps around a primitive"""

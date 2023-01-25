@@ -1,9 +1,9 @@
 name: root
 channels:
-  - krande
+  - krande/label/dev
   - conda-forge
 dependencies:
-  - python==3.10
+  - python==3.11
   - ada-py
   - paradoc
   - jupyter
