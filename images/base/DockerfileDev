@@ -1,7 +1,7 @@
 FROM condaforge/mambaforge:22.9.0-3 as base
 
 ENV TOOLS /tools
-
+ENV DEBIAN_FRONTEND=noninteractive
 #region install Calculix
 FROM base AS calculix
 # https://github.com/conda-forge/calculix-feedstock
@@ -78,7 +78,7 @@ ENV ADA_code_aster_exe=${TOOLS}/aster/bin/as_run
 FROM code_aster AS miniconda
 COPY images/environment.yml .
 
-RUN conda update conda && conda env update -f environment.yml
+RUN mamba env update -f environment.yml
 #endregion
 
 #region Install and Setup ADA and Jupyter Client
