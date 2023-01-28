@@ -33,7 +33,7 @@ build:
 	docker build -t ada/base:latest .
 
 run:
-	docker run --rm -p 8888:8888 ada/base:latest
+	docker run -it --rm -p 8888:8888 krande/adabase:latest
 
 test:
 	cd tests && pytest --cov=ada --cov-report=xml --cov-report=html .

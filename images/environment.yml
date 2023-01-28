@@ -1,4 +1,4 @@
-name: root
+name: adadocker
 channels:
   - krande/label/dev
   - conda-forge
@@ -8,3 +8,6 @@ dependencies:
   - ada-py
 #  - paradoc
   - jupyter
+  - calculix
+  - blas=*=openblas
+

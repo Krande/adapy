@@ -2,18 +2,8 @@ FROM condaforge/mambaforge:22.9.0-3 as base
 
 ENV TOOLS /tools
 ENV DEBIAN_FRONTEND=noninteractive
-#region install Calculix
-FROM base AS calculix
-# https://github.com/conda-forge/calculix-feedstock
-# https://anaconda.org/conda-forge/calculix
-RUN mamba install -c conda-forge -y calculix conda-forge::blas=*=openblas
-RUN export ADA_ccx_exe=$(which ccx)
-LABEL calculix=${CCXVER}
-ENV ADA_ccx_exe=${ADA_ccx_exe}
-##endregion
 
 #region Code Aster
-FROM calculix AS code_aster
 ARG catemp=/tmp/code_aster
 
 # Set locale environment
@@ -67,18 +57,34 @@ ENV ASTER_FULL_SRC="https://code-aster.org/FICHIERS/aster-full-src-${ASTER_VER}.
 RUN wget --no-check-certificate --quiet ${ASTER_FULL_SRC} -O aster_full.tar.gz && \
     mkdir aster_full && tar xf aster_full.tar.gz -C aster_full --strip-components 1
 
+RUN ls
+
 RUN cd aster_full && \
     python3 setup.py install --prefix=${TOOLS}/aster --noprompt
 
-LABEL code_aster="${ASTER_VER}"
-ENV ADA_code_aster_exe=${TOOLS}/aster/bin/as_run
 #endregion
 
-#region Setup Conda environment
-FROM code_aster AS miniconda
-COPY images/environment.yml .
+RUN cd ${TOOLS} && ls
 
+#region Setup Conda environment
+FROM condaforge/mambaforge:22.9.0-3
+
+COPY --from=base /tools/aster /tools/aster
+
+ENV TOOLS /tools
+ENV DEBIAN_FRONTEND=noninteractive
+
+LABEL code_aster="${ASTER_VER}"
+ENV ADA_code_aster_exe=${TOOLS}/aster/bin/as_run
+
+COPY images/environment.yml .
 RUN mamba env update -f environment.yml
+
+# https://github.com/conda-forge/calculix-feedstock
+# https://anaconda.org/conda-forge/calculix
+LABEL calculix=${CCXVER}
+RUN export ADA_ccx_exe=$(which ccx)
+ENV ADA_ccx_exe=${ADA_ccx_exe}
 #endregion
 
 #region Install and Setup ADA and Jupyter Client
@@ -91,13 +97,13 @@ ENTRYPOINT ["/usr/bin/tini", "--"]
 
 RUN conda clean -a
 
-LABEL python="3.9"
-
-CMD ["jupyter", "notebook", "--port=8888", "--no-browser", "--ip=0.0.0.0", "--allow-root"]
-
+LABEL python="3.11"
+## MAKE ALL BELOW RUN COMMANDS USE THE NEW CONDA ENVIRONMENT
+SHELL ["conda", "run", "-n", "adadocker", "/bin/bash", "-c"]
 #endregion
 
 #region Binder Run Settings
+
 ARG NB_UID=1000
 ENV NB_UID ${NB_UID}
 ARG NB_USER=adauser
@@ -111,12 +117,29 @@ ENV ADA_scratch_dir ${HOME}/scratch
 
 RUN mkdir -p ${HOME} && mkdir ${ADA_temp_dir} && mkdir ${ADA_scratch_dir} && mkdir ${ADA_test_dir} && mkdir ${ADA_log_dir}
 
-RUN adduser --disabled-password --gecos "Default user" --uid ${NB_UID} ${NB_USER}
+RUN useradd -b ${HOME} -m -s /bin/bash ${NB_USER} --uid ${NB_UID}
+#RUN adduser --disabled-password --gecos "Default user" --uid ${NB_UID} ${NB_USER}
+
 USER root
+RUN apt-get update && apt-get install -y libgl1-mesa-glx
+COPY setup.cfg .
+COPY pyproject.toml .
+COPY MANIFEST.in .
+COPY LICENSE .
+COPY README.md .
+COPY src src
+RUN pip install . --no-cache-dir
+
 RUN rm -rfv /tmp/*
 RUN chown -R ${NB_UID} ${HOME}
 USER ${NB_USER}
+SHELL ["conda", "run", "-n", "adadocker", "/bin/bash", "-c"]
 
 WORKDIR ${HOME}
-#COPY examples examples
+RUN conda list
+ENV PYTHONBUFFERED=1
+CMD ["conda", "run", "-n", "adadocker", "/bin/bash", "-c", "jupyter notebook --port=8888 --no-browser --ip=0.0.0.0 --allow-root --NotebookApp.token=''"]
+
+
+COPY examples examples
 #endregion
