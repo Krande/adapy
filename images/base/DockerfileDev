@@ -2,6 +2,7 @@ FROM condaforge/mambaforge:22.9.0-3 as base
 
 ENV TOOLS /tools
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONBUFFERED=1
 
 #region Code Aster
 ARG catemp=/tmp/code_aster
