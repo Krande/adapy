@@ -249,7 +249,6 @@ class Results:
         return self._user_data
 
     def _repr_html_(self):
-
         if self.result_mesh.renderer is None:
             res = self.result_mesh.build_renderer()
         else:
@@ -312,7 +311,6 @@ class ResultsHistoryOutput:
 
 @dataclass
 class ResultsMesh:
-
     palette: list[tuple]
     parent: Results
     fem_format: str

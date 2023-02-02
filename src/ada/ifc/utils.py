@@ -599,7 +599,6 @@ def scale_ifc_file_object(ifc_file, scale_factor):
     for ifc_class, attributes in classes_to_modify.items():
         for element in ifc_file.by_type(ifc_class):
             for attribute in attributes:
-
                 old_val = getattr(element, attribute)
                 if old_val is None:
                     continue

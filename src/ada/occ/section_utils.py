@@ -12,7 +12,6 @@ from .utils import make_circle, make_face_w_cutout
 
 
 def cross_sec_face(sec_profile: SectionProfile, placement: Placement, solid_repre) -> Union[TopoDS_Face, TopoDS_Wire]:
-
     inner_shape = None
 
     if sec_profile.sec.type == BaseTypes.TUBULAR:

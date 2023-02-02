@@ -26,7 +26,6 @@ class XdmfWriter:
     """
 
     def __init__(self, filename, data_format="HDF", compression="gzip", compression_opts=4):
-
         if data_format not in ["XML", "Binary", "HDF"]:
             raise ValueError("Unknown XDMF data format " f"'{data_format}' (use 'XML', 'Binary', or 'HDF'.)")
 

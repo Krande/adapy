@@ -57,7 +57,6 @@ class Beams(BaseCollections):
     """A collections of Beam objects"""
 
     def __init__(self, beams: Iterable[Beam] = None, parent=None):
-
         super().__init__(parent)
         beams = [] if beams is None else beams
         self._beams = sorted(beams, key=attrgetter("name"))

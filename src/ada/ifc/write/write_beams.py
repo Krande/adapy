@@ -205,7 +205,6 @@ def create_ifcrevolveareasolid(f, profile, ifcaxis2placement, origin, revolve_ax
 
 
 def create_polyline_beam(beam, f, profile):
-
     ifc_polyline = write_curve_poly(beam.curve)
 
     extrude_dir = ifc_dir(f, (0.0, 0.0, 1.0))

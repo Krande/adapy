@@ -33,7 +33,6 @@ class BaseTypes(Enum):
 
 
 class SectionCat:
-
     BASETYPES = BaseTypes
 
     box = [BASETYPES.BOX.value, "BG", "CG"]

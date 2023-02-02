@@ -149,7 +149,6 @@ def general_section(name, sec_prop) -> Section:
 
 
 def cone_section(name, sec_prop) -> Section:
-
     return Section(name, sec_type=Section.TYPES.GENERAL, genprops=GeneralProperties(Ax=0.1))
 
 

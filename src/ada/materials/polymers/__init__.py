@@ -49,7 +49,6 @@ class MatDataSheet:
 
     @property
     def visualize_eng(self):
-
         in_data = {}
         for d in self.test_data:
             in_data[f"{d.name} ({d.load_type})"] = (d.e, d.S)

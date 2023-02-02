@@ -87,7 +87,6 @@ class CcxResultModel:
     _curr_step: int = None
 
     def collect_nodes(self):
-
         while True:
             data = next(self.file)
             stripped = data.strip()

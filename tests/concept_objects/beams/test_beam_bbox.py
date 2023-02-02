@@ -5,7 +5,6 @@ test_dir = Settings.test_dir / "beams"
 
 
 def test_bbox_viz():
-
     blist = []
     ypos = 0
 

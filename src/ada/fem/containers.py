@@ -286,7 +286,6 @@ class FemElements:
 
     @property
     def shell(self) -> Iterable[Elem]:
-
         return filter(lambda x: isinstance(x.type, Elem.EL_TYPES.SHELL_SHAPES), self.stru_elements)
 
     @property

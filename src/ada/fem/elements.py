@@ -19,7 +19,6 @@ if TYPE_CHECKING:
 
 
 class Elem(FemBase):
-
     EL_TYPES = ElemType
 
     def __init__(

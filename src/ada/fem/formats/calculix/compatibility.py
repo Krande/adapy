@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 
 
 def check_compatibility(assembly: Assembly):
-
     p = get_fem_model_from_assembly(assembly)
     step = assembly.fem.steps[0] if len(assembly.fem.steps) > 0 else None
 

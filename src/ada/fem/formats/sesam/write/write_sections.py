@@ -30,7 +30,6 @@ class ConceptStructure:
 
 
 def sections_str(fem: FEM, thick_map) -> str:
-
     sec_ids = []
     sec_str = ""
     names_str = ""

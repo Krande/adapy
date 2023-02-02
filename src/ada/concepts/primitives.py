@@ -42,7 +42,6 @@ class Shape(BackendGeom):
         ifc_store: IfcStore = None,
         ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
     ):
-
         super().__init__(
             name,
             guid=guid,
@@ -456,6 +455,7 @@ class PrimBSplineSurface(Shape):
 class Penetration(BackendGeom):
     _name_gen = Counter(1, "Pen")
     """A penetration object. Wraps around a primitive"""
+
     # TODO: Maybe this class should be evaluated for removal?
     def __init__(self, primitive, metadata=None, parent=None, units=Units.M, guid=None):
         if issubclass(type(primitive), Shape) is False:

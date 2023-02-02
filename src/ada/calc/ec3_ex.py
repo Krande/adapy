@@ -62,7 +62,6 @@ def critical_moment(elem, length):
     g = elem.fem_sec.material.model.G
     e = elem.fem_sec.material.model.E
     if elem.fem_sec.section.type == BaseTypes.IPROFILE:
-
         m0_cr = (math.pi / length) * math.sqrt(g * p.Ix * p.Iz)
         i_w = 0
     else:

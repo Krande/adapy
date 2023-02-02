@@ -852,7 +852,6 @@ class Part(BackendGeom):
         if isinstance(value, str):
             value = Units.from_str(value)
         if value != self._units:
-
             for bm in self.beams:
                 bm.units = value
 

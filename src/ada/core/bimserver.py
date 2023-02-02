@@ -77,7 +77,6 @@ class BimServerApi:
 
     def __getattr__(self, interface):
         if self.interfaces is not None and interface not in self.interfaces:
-
             # Some form of compatibility:
             if self.version == "1.4" and not interface.startswith("Bimsie1"):
                 return self.__getattr__("Bimsie1" + interface)
@@ -120,14 +119,12 @@ class BimServerConnect:
     """
 
     def __init__(self, bimserver_url, username, password, assembly, allow_create_project=True):
-
         self._bimserver_url = bimserver_url
         self.client = BimServerApi(bimserver_url, username, password)
         self.assembly = assembly
         self._allow_create_project = allow_create_project
 
     def _get_project(self, project_name, allow_create_project):
-
         projects = self.client.ServiceInterface.getProjectsByName(name=project_name)
 
         if len(projects) > 1:

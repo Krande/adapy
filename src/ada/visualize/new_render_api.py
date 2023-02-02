@@ -36,7 +36,6 @@ class Visualize:
             self.objects = []
 
     def add_obj(self, obj: Union[Assembly, Part, Beam, Plate, Wall, Shape, Pipe, FEM], geom_repr: str = ElemType.SOLID):
-
         if issubclass(type(obj), Part):
             for sub_obj in obj.get_all_physical_objects():
                 geom_repr_ = sub_obj.metadata.get("geom_repr", geom_repr)

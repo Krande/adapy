@@ -31,7 +31,6 @@ def test_write_single_90_deg_elbow_revolved_solid(pipe_w_single_90_deg_bend):
 
 
 def test_pipe_multiple_bends(pipe_w_multiple_bends):
-
     assert pipe_w_multiple_bends.segments[1].bend_radius == pytest.approx(0.195958125)
 
     a = Assembly("MyTest") / (Part("MyPart") / pipe_w_multiple_bends)

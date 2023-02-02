@@ -26,7 +26,6 @@ def acceleration_field_str(load: Load) -> str:
 
 
 def force_load_str(load: Load) -> str:
-
     lstr = ""
     bc_text_f = ""
     bc_text_m = ""

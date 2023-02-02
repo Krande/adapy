@@ -176,7 +176,7 @@ def traverse_hdf_datasets(hdf_file):
                 yield from h5py_dataset_iterator(item, path)
 
     with h5py.File(hdf_file, "r") as f:
-        for (path, dset) in h5py_dataset_iterator(f):
+        for path, dset in h5py_dataset_iterator(f):
             print(path, dset)
 
     return None

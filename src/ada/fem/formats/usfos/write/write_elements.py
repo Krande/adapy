@@ -7,7 +7,6 @@ from ada.fem import Elem
 
 
 def shell_str(part: Part):
-
     pl_str = "'            Elem ID      np1      np2      np3      np4    mater   geom      ec1    ec2    ec3    ec4\n"
     sec_str = """'            Geom ID     Thick"""
     thick = []

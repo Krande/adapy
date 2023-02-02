@@ -17,7 +17,6 @@ test_dir = Settings.test_dir / "penetrations"
 
 
 def test_mix_extrude():
-
     bm = Beam("MyBeam", (0, 0, 0), (1.5, 0, 0), Section("myIPE", from_str="IPE400"))
     a = Assembly("Test", user=User("krande")) / [Part("MyPart") / bm]
 

@@ -10,7 +10,6 @@ from ada.fem.formats.utils import default_fem_inp_path
 def execute_fem(
     name, fem_format, scratch_dir, cpus, gpus, run_ext, metadata, execute, exit_on_complete, run_in_shell
 ) -> CompletedProcess | None:
-
     fem_inp_files = default_fem_inp_path(name, scratch_dir)
     exe_func = fem_executables.get(fem_format, None)
     inp_path = fem_inp_files.get(fem_format, None)

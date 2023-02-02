@@ -306,7 +306,6 @@ def _lock_check(analysis_dir):
 
 
 def folder_prep(scratch_dir, analysis_name, overwrite):
-
     if scratch_dir is None:
         scratch_dir = pathlib.Path(Settings.scratch_dir)
     else:

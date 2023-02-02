@@ -106,7 +106,6 @@ def nodes_str(fem: FEM) -> str:
     if len(nodes) == 0:
         return "** No Nodes"
     else:
-
         out_str = "".join([write_ff("GNODE", [(no.id, no.id, 6, 123456)]) for no in nodes])
         out_str += "".join([write_ff("GCOORD", [(no.id, no[0], no[1], no[2])]) for no in nodes])
         return out_str

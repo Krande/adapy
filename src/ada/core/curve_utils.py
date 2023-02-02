@@ -356,7 +356,6 @@ class SegCreator:
 
     @property
     def p1p2_cross(self):
-
         return np.cross(unit_vector(self.p1 - self.p2), np.array([0, 0, 1]))
 
     @property
@@ -807,7 +806,6 @@ def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius, tol=1e-1):
 def build_polycurve(
     local_points2d: List[tuple], tol=1e-3, debug=False, debug_name=None, is_closed=True
 ) -> List[Union["LineSegment", "ArcSegment"]]:
-
     if len(local_points2d) == 2:
         from ada.concepts.curves import LineSegment
 

@@ -78,7 +78,6 @@ def extract_shapes(step_path, scale, transform, rotate, include_shells=False):
 def transform_shape(
     shape: TopoDS_Shape, scale=None, transform: Placement | tuple | list = None, rotate: Rotation = None
 ) -> TopoDS_Shape:
-
     trsf = gp_Trsf()
     if scale is not None:
         trsf.SetScaleFactor(scale)

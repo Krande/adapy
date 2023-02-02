@@ -71,7 +71,6 @@ def extract_sat_data(sat_el: ET.Element) -> dict:
 
 
 def organize_sat_text_to_dict(sat_text) -> dict:
-
     sat_dict = dict()
     for res in re.finditer(r"^-(?P<id>[0-9]{1,7}) (?P<name>.*?) (?P<bulk>.*?) #", sat_text, re.MULTILINE | re.DOTALL):
         d = res.groupdict()
