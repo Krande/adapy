@@ -23,7 +23,14 @@ jobs:
       !contains(github.event.head_commit.message, '[skip ci]')
     runs-on: ubuntu-latest
     steps:
-      - run: echo ok go
+      - run: |
+          echo ok go!
+          echo head commit message: "{{ github.event.head_commit.message }}"
+          echo event name: "{{ github.event_name }}" 
+          echo ref: "{{ github.ref }}" 
+          echo sha "{{ github.sha }}"
+          echo PR head sha: "{{ github.event.pull_request.head.sha }}"
+          echo PR head ref "{{ github.event.pull_request.head.ref }}"
   lint:
     needs: activate
     if: github.event_name == 'pull_request'

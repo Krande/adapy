@@ -5,4 +5,4 @@ dependencies:
   - conda-build
   - conda-verify
   - anaconda-client
-  - boa
+  - wheel
