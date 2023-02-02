@@ -10,8 +10,6 @@ on:
       - .github/workflows/ci.yml
     branches:
       - main
-      - dev
-      - fem-static
   pull_request:
     paths-ignore:
       - setup.py
