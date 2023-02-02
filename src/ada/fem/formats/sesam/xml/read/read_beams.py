@@ -15,7 +15,7 @@ def get_beams(xml_root: ET.Element, parent: Part) -> Beams:
 
 def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
     name = bm_el.attrib["name"]
-    if name == 'LE1AZ6':
+    if name == "LE1AZ6":
         logging.info("LE1AZ6")
     zv = get_orientation(bm_el)
     segs = []
