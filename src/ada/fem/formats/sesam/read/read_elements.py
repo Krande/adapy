@@ -8,6 +8,7 @@ from ada.fem import FEM, Elem, FemSet, Mass, Spring
 from ada.fem.containers import FemElements
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.utils import str_to_int
+from ada.fem.shapes.lines import SpringTypes
 
 from . import cards
 
@@ -34,7 +35,7 @@ def get_elements(bulk_str: str, fem: FEM) -> tuple[FemElements, dict, dict, dict
         eltyp = d["eltyp"]
         el_type = sesam_eltype_2_general(str_to_int(eltyp))
 
-        if el_type in ("SPRING1", "SPRING2"):
+        if isinstance(el_type, SpringTypes):
             spring_elem[el_no] = dict(gelmnt=d)
             return None
 

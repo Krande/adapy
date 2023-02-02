@@ -15,6 +15,8 @@ def get_beams(xml_root: ET.Element, parent: Part) -> Beams:
 
 def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
     name = bm_el.attrib["name"]
+    if name == 'LE1AZ6':
+        logging.info("LE1AZ6")
     zv = get_orientation(bm_el)
     segs = []
     prev_bm = None
@@ -73,10 +75,16 @@ def pos_to_floats(pos):
 
 def get_orientation(root: ET.Element) -> tuple:
     zv = None
-    for vec in root.find("./local_system").findall("./vector"):
-        direction = vec.attrib.get("dir")
-        if direction == "z":
-            zv = float(vec.attrib["x"]), float(vec.attrib["y"]), float(vec.attrib["z"])
+    lsys = root.find("./curve_orientation/customizable_curve_orientation/orientation/local_system")
+    if lsys is not None:
+        vec = lsys.find("./zvector")
+        zv = float(vec.attrib["x"]), float(vec.attrib["y"]), float(vec.attrib["z"])
+    else:
+        lsys = root.find("./local_system")
+        for vec in lsys.findall("./vector"):
+            direction = vec.attrib.get("dir")
+            if direction == "z":
+                zv = float(vec.attrib["x"]), float(vec.attrib["y"]), float(vec.attrib["z"])
 
     if zv is None:
         raise ValueError("Z or Y vector must be set")

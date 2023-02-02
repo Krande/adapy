@@ -72,13 +72,14 @@ jobs:
         ]
     steps:
       - uses: actions/checkout@v3
-      - uses: conda-incubator/setup-miniconda@v2  # https://github.com/conda-incubator/setup-miniconda
+      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
         with:
-          activate-environment: ${{ env.CONDAENV }}
-          python-version: ${{ matrix.pyver.distver }}
+          environment-name: ada
+          channels: conda-forge
           channel-priority: strict
           environment-file: conda/environment.yml
-          auto-update-conda: true
+          extra-specs: |
+            python=${{ matrix.pyver.distver }}
       - name: edit conda channel label if not on main
         if: github.event_name == 'push' && github.ref != 'refs/heads/main'
         run: |
@@ -86,9 +87,8 @@ jobs:
           echo "CONDALABEL2= --label dev" >> $GITHUB_ENV
       - name: build
         run: |
-          conda activate ${{ env.CONDAENV }}
-          cd conda
           conda-build -c conda-forge -c ${{env.CONDALABEL}} . --python=${{ matrix.pyver.distver }} --user krande${{env.CONDALABEL2}} --token=${{ secrets.ANACONDA_TOKEN }}
+        working-directory: conda
   pypi:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
