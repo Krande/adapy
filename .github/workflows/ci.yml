@@ -86,7 +86,7 @@ jobs:
           extra-specs: |
             python=${{ matrix.pyver.distver }}
       - name: edit conda channel label if not on main
-        if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+        if: github.ref != 'refs/heads/main'
         run: |
           echo "CONDALABEL=krande/label/dev" >> $GITHUB_ENV
           echo "CONDALABEL2= --label dev" >> $GITHUB_ENV
