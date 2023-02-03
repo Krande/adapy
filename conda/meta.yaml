@@ -15,8 +15,6 @@ build:
   include_recipe: False
 
 requirements:
-  build:
-    - python >=3.9
   run:
     - python >=3.9
     - numpy
@@ -33,6 +31,7 @@ requirements:
     - meshio
     - pythreejs
     - pytexit
+    - calculix
 
 test:
   source_files:
