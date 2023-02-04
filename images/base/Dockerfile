@@ -3,8 +3,9 @@ FROM aethereng/codeaster-mpi
 
 ENV PYTHONDONTWRITEBYTECODE=true
 
-RUN curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-$(uname)-$(uname -m).sh" && \
+RUN wget -O "Mambaforge-$(uname)-$(uname -m).sh" "https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-$(uname)-$(uname -m).sh" && \
   bash Mambaforge-$(uname)-$(uname -m).sh
+
 COPY images/environment.yml .
 RUN mamba env update -f environment.yml
 
