@@ -1,4 +1,4 @@
-FROM krande/ada@sha256:3ba22bbbee0e8686cdf02b59e445014ae9a87e29aee1e1dd7031e7ba49bc2cf7
+FROM krande/ada@sha256:3bfe6db423064cd73f951f8e1d3257155d612cb3f18040f5a76fef0573435d9e
 
 ARG TMPDIR=/tmp/adapy
 ARG TESTDIR_FEM=/home/tests/fem
@@ -11,7 +11,7 @@ RUN mkdir ${TMPDIR}
 
 WORKDIR ${TMPDIR}
 
-RUN sudo apt-get -y update && sudo apt -y install git-all
+RUN apt-get -y update && apt -y install git-all
 
 COPY setup.cfg .
 COPY pyproject.toml .

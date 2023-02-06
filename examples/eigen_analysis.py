@@ -17,7 +17,16 @@ def make_fem(geom_repr) -> ada.Assembly:
 
 def run_ccx():
     a = make_fem("shell")
-    res = a.to_fem("Cantilever_CA_EIG_sh", "calculix", overwrite=True, execute=True)
+    res = a.to_fem("Cantilever_CCX_EIG_sh", "calculix", overwrite=True, execute=True)
+    for x in res.iter_results_by_field_value():
+        print(x)
+
+
+def run_code_aster():
+    a = make_fem("shell")
+    res = a.to_fem("Cantilever_CA_EIG_sh", "code_aster", overwrite=True, execute=True)
+    for x in res.iter_results_by_field_value():
+        print(x)
 
 
 if __name__ == "__main__":

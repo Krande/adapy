@@ -1,6 +1,7 @@
 name: ada
 channels:
 #  - ifcopenshell
+  - krande/label/dev
   - conda-forge
   - krande
 dependencies:

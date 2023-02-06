@@ -51,10 +51,11 @@ RUN chown -R ${NB_UID} ${HOME}
 #RUN chmod 777 ${ADA_ccx_exe}
 #RUN chmod 777 ${ADA_code_aster_exe}
 
+RUN apt-get autoremove -y && apt-get clean -y && rm -rf /var/lib/apt/lists/*
+
 USER ${NB_USER}
 
 WORKDIR ${HOME}
 COPY examples examples
-
 
 CMD ["/work/aster/mambaforge/bin/conda", "run", "-n", "adadocker", "/bin/bash", "-c", "jupyter notebook --port=8888 --no-browser --ip=0.0.0.0 --allow-root --NotebookApp.token=''"]
