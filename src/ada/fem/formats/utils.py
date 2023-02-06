@@ -212,6 +212,8 @@ def get_exe_path(fea_type: FEATypes):
         exe_path = Settings.fem_exe_paths[exe_name]
     elif os.getenv(env_name):
         exe_path = os.getenv(env_name)
+    elif shutil.which(f"{exe_name}"):
+        exe_path = shutil.which(f"{exe_name}")
     elif shutil.which(f"{exe_name}.exe"):
         exe_path = shutil.which(f"{exe_name}.exe")
     elif shutil.which(f"{exe_name}.bat"):
@@ -360,7 +362,7 @@ echo ON\ncall {run_cmd}"""
 
 
 def run_linux(exe, run_cmd):
-    return run_tool(exe, run_cmd, "Linux")
+    return run_tool(exe, run_cmd.split(), "Linux")
 
 
 def run_tool(exe: LocalExecute, run_cmd, platform):
