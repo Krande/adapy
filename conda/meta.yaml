@@ -15,6 +15,8 @@ build:
   include_recipe: False
 
 requirements:
+  build:
+    - python
   run:
     - python >=3.9
     - numpy
