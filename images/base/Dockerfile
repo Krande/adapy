@@ -2,7 +2,7 @@ FROM krande/codeaster:mpi-15.5.2
 # Built locally from the source code -> https://github.com/aethereng/docker-codeaster
 
 ENV PYTHONDONTWRITEBYTECODE=true
-ENV PYTHONBUFFERED=1
+ENV PYTHONUNBUFFERED 1
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN wget "https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-$(uname)-$(uname -m).sh" && \
@@ -58,4 +58,5 @@ USER ${NB_USER}
 WORKDIR ${HOME}
 COPY examples examples
 
+EXPOSE 8888
 CMD ["/work/aster/mambaforge/bin/conda", "run", "-n", "adadocker", "/bin/bash", "-c", "jupyter notebook --port=8888 --no-browser --ip=0.0.0.0 --allow-root --NotebookApp.token=''"]
