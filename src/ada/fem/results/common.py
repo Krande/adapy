@@ -192,7 +192,10 @@ class FEAResult:
         else:
             all_field_data = [x for x in steps if x.step == step]
             if len(all_field_data) != 1:
-                raise ValueError("Non-unique results of field data")
+                raise ValueError(
+                    f"Found {len(all_field_data)} results of field data based on step {step}.\n"
+                    f"Available steps are {[x.step for x in steps]}"
+                )
 
             field_data = all_field_data[0]
 
@@ -277,14 +280,10 @@ class FEAResult:
         mesh = self.to_meshio_mesh()
         mesh.write(fem_file)
 
-    def to_gltf(self, dest_file, step: int, field: str, warp_field=None, warp_step=None, warp_scale=None, cfunc=None):
+    def to_trimesh(self, step: int, field: str, warp_field=None, warp_step=None, warp_scale=None, cfunc=None):
         import trimesh
         from trimesh.path.entities import Line
         from trimesh.visual.material import PBRMaterial
-
-        from ada.core.vector_utils import rot_matrix
-
-        dest_file = pathlib.Path(dest_file).resolve().absolute()
 
         vertices = self.mesh.nodes.coords
         edges, faces = self.mesh.get_edges_and_faces_from_mesh()
@@ -306,6 +305,13 @@ class FEAResult:
         scene = trimesh.Scene()
         scene.add_geometry(new_mesh, node_name=self.name, geom_name="faces")
         scene.add_geometry(edge_mesh, node_name=f"{self.name}_edges", geom_name="edges", parent_node_name=self.name)
+        return scene
+
+    def to_gltf(self, dest_file, step: int, field: str, warp_field=None, warp_step=None, warp_scale=None, cfunc=None):
+        from ada.core.vector_utils import rot_matrix
+
+        dest_file = pathlib.Path(dest_file).resolve().absolute()
+        scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)
 
         # Trimesh automatically transforms by setting up = Y. This will counteract that transform
         m3x3 = rot_matrix((0, -1, 0))

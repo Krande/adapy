@@ -1,7 +1,6 @@
 import ada
 from ada.fem.meshing import GmshOptions
 from ada.materials.metals import CarbonSteel
-from ada.visualize.femviz import visualize_it
 
 
 def make_fem(geom_repr) -> ada.Assembly:
@@ -18,6 +17,7 @@ def make_fem(geom_repr) -> ada.Assembly:
 def run_ccx():
     a = make_fem("shell")
     res = a.to_fem("Cantilever_CCX_EIG_sh", "calculix", overwrite=True, execute=True)
+    res.to_trimesh(1, "DISP")
     for x in res.iter_results_by_field_value():
         print(x)
 

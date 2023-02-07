@@ -85,6 +85,7 @@ class CcxResultModel:
     results: list[NodalFieldData | ElementFieldData] = field(default_factory=list)
 
     _curr_step: int = None
+    _curr_mode: int = None
 
     def collect_nodes(self):
         while True:
@@ -149,7 +150,8 @@ class CcxResultModel:
             else:
                 break
 
-        self.results.append(NodalFieldData(name, self._curr_step, component_names, np.asarray(component_data)))
+        curr_step = self._curr_step if self._curr_mode is None else self._curr_mode
+        self.results.append(NodalFieldData(name, curr_step, component_names, np.asarray(component_data)))
         self.eval_flags(data)
 
     def eval_flags(self, data: str):
@@ -170,6 +172,10 @@ class CcxResultModel:
         if stripped.startswith("1PSTEP"):
             split_data = stripped.split()
             self._curr_step = int(float(split_data[2]))
+
+        if stripped.startswith("1PMODE"):
+            split_data = stripped.split()
+            self._curr_mode = int(float(split_data[-1]))
 
         if stripped.startswith("-4"):
             self.collect_results(stripped)

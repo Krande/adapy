@@ -41,10 +41,12 @@ def main():
 
             rerun = True
             res_files = []
-            software_to_analyze = ["code_aster"]
-            # software_to_analyze += ["calculix"]
-            # software_to_analyze += ["sesam"]
-            # software_to_analyze += ["abaqus"]
+            software_to_analyze = [
+                # "code_aster",
+                "calculix",
+                # "sesam",
+                # "abaqus",
+            ]
 
             for fea_software in software_to_analyze:
                 try:

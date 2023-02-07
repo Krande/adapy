@@ -1,9 +1,0 @@
-version: '3.9'
-
-services:
-  dev:
-    build:
-      context: ../..
-      dockerfile: images/base/Dockerfile
-    ports:
-      - "22:22"

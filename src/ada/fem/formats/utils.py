@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from ada import Assembly, Beam, Part, Plate
     from ada.fem.formats.general import FEATypes
 
+logger = logging.getLogger("ada")
+
 
 class DatFormatReader:
     re_flags = re.MULTILINE | re.DOTALL
@@ -98,10 +100,13 @@ class LocalExecute:
                 json.dump(self._metadata, fp, indent=4)
 
         if sys.platform == "linux" or sys.platform == "linux2":
+            logger.info("Running on Linux platform.")
             out = run_linux(self, run_command)
         elif sys.platform == "darwin":
+            logger.info("Running on macOS platform.")
             out = run_macOS(self, run_command)
         else:  # sys.platform == "win32":
+            logger.info("Running on Windows platform.")
             out = run_windows(
                 self,
                 run_command,
@@ -400,7 +405,7 @@ def execute(cmd, cwd, encoding, **kwargs):
         try:
             yield stdout_line.strip()
         except UnicodeDecodeError as e:
-            logging.error(e)
+            logger.error(e)
             continue
 
     popen.stdout.close()
@@ -423,7 +428,7 @@ def interpret_fem(fem_ref: str):
     elif suffix == ".inp":
         fem_type = FEATypes.ABAQUS
     else:
-        logging.error(f'unrecognized suffix "{suffix}"')
+        logger.error(f'unrecognized suffix "{suffix}"')
 
     return fem_type
 
@@ -523,7 +528,7 @@ def line_elem_to_beam(elem: Elem, parent: Part) -> Beam:
                 e2 = ecc.end2.ecc_vector
 
     if elem.fem_sec.section.type == "GENBEAM":
-        logging.error(f"Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section")
+        logger.error(f"Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section")
 
     return Beam(
         f"bm{elem.id}",
