@@ -18,6 +18,9 @@ def postprocess(res_path: str | pathlib.Path, fem_format: FEATypes = None) -> FE
     if fem_format is None:
         raise NotImplementedError("Interpreting fem format from results file path is not yet added")
 
+    if isinstance(fem_format, str):
+        fem_format = FEATypes.from_str(fem_format)
+
     if fem_format == FEATypes.SESAM:
         return read_sif_file(res_path)
     elif fem_format == FEATypes.ABAQUS:

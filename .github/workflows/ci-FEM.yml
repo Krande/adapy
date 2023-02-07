@@ -41,7 +41,7 @@ jobs:
         run: |
           mkdir -p temp/scratch temp/report
       - name: Test & Create Verification Report
-        run: make dtest-exec
+        run: make dtest
       - uses: actions/upload-artifact@v2
         if: failure()
         with:

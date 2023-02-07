@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import pathlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Iterable
 
 import meshio
@@ -123,6 +123,8 @@ class FEAResult:
     mesh: Mesh
     results_file_path: pathlib.Path = None
     step_name_map: dict[int | float, str] = None
+
+    metadata: dict = field(default_factory=dict, init=False)
 
     def __post_init__(self):
         if self.results is None:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import pathlib
 
@@ -10,7 +12,7 @@ from ada.fem.exceptions.element_support import IncompatibleElements
 from ada.fem.formats.general import FEATypes as FEA
 from ada.fem.formats.utils import default_fem_res_path
 from ada.fem.meshing.concepts import GmshOptions
-from ada.fem.results import Results
+from ada.fem.results.common import FEAResult
 
 test_dir = Settings.scratch_dir / "ada_fem_test_eigen"
 EL_TYPES = ada.fem.Elem.EL_TYPES
@@ -43,12 +45,14 @@ def test_fem_eig(
     execute=True,
     eigen_modes=11,
     name=None,
-):
+) -> FEAResult | None:
     geom_repr = GeomRepr.from_str(geom_repr)
+
     if name is None:
         short_name = short_name_map.get(fem_format)
         name = f"cantilever_EIG_{short_name}_{geom_repr.value}_o{elem_order}_hq{use_hex_quad}"
 
+    fem_format = FEA.from_str(fem_format)
     p = ada.Part("MyPart")
     a = ada.Assembly("MyAssembly") / [p / beam_fixture]
 
@@ -63,7 +67,7 @@ def test_fem_eig(
         if is_conditions_unsupported(fem_format, geom_repr, elem_order):
             return None
         res_path = default_fem_res_path(name, scratch_dir=test_dir, fem_format=fem_format)
-        return Results(res_path, name, fem_format, a, import_mesh=False)
+        return ada.from_fem_res(res_path, fem_format=fem_format)
     else:
         p.fem = beam_fixture.to_fem_obj(0.05, geom_repr, options=GmshOptions(Mesh_ElementOrder=elem_order), **props)
         fix_set = p.fem.add_set(

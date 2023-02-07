@@ -10,7 +10,9 @@ from paradoc import OneDoc
 from paradoc.common import TableFormat
 from test_fem_eig_cantilever import test_fem_eig
 
-from ada.fem.results import EigenDataSummary, Results, results_from_cache
+from ada.fem.results import EigenDataSummary
+from ada.fem.results.common import FEAResult
+from ada.fem.results.concepts import results_from_cache
 
 
 def append_df(old_df, new_df):
@@ -34,7 +36,7 @@ def shorten_name(name, fem_format, geom_repr) -> str:
     return short_name
 
 
-def create_df_of_data(results: List[Results], geom_repr, el_order, hexquad):
+def create_df_of_data(results: List[FEAResult], geom_repr, el_order, hexquad):
     df_main = None
 
     for res in results:
@@ -84,17 +86,27 @@ def retrieve_cached_results(results, cache_dir):
         results.insert(index_insert, cached_results)
 
 
-def simulate(bm, el_order, geom_repr, analysis_software, use_hex_quad, eig_modes, overwrite, execute) -> List[Results]:
+def simulate(
+    bm, el_order, geom_repr, analysis_software, use_hex_quad, eig_modes, overwrite, execute
+) -> List[FEAResult]:
     results = []
-
+    short_name_map = dict(calculix="ccx", code_aster="ca", abaqus="aba", sesam="ses")
     for elo in el_order:
         for geo in geom_repr:
             for soft in analysis_software:
                 for hexquad in use_hex_quad:
                     result = test_fem_eig(
-                        bm, soft, geo, elo, hexquad, overwrite=overwrite, execute=execute, eigen_modes=eig_modes
+                        bm,
+                        soft,
+                        geo,
+                        elo,
+                        hexquad,
+                        short_name_map=short_name_map,
+                        overwrite=overwrite,
+                        execute=execute,
+                        eigen_modes=eig_modes,
                     )
-                    if result is None or result.eigen_mode_data is None:
+                    if result is None:
                         logging.error("No result file is located")
                         continue
                     result.metadata["geo"] = geo

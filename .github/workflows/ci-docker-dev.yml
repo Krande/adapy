@@ -21,7 +21,7 @@ jobs:
         id: docker_build
         uses: docker/build-push-action@v3
         with:
-          file: DockerfileDev
+          file: images/dev.Dockerfile
           context: .
           push: true
           tags: krande/ada:dev
