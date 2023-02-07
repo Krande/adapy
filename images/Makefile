@@ -1,11 +1,13 @@
-pull:
-	docker pull krande/ada:base
-
 build:
-	docker krande/ada:base cp tests/test_code_aster_fem.py krande/ada:/
+	docker build ../ -t krande/ada:base -f base.Dockerfile
 
-test:
-	docker container cp tests/test_code_aster_fem.py krande/ada:/ && docker exec -it krande/ada:base bash -c "pytest"
+push:
+	docker push krande/ada:base
 
-verification:
-	pip install pytest && cd /home/tests/fem && pytest && python build_verification_report.py
+
+bdev:
+	docker build ../ -t krande/ada:dev -f dev.Dockerfile
+
+
+bfem:
+	docker build ../ -t krande/ada:femtests -f femtests.Dockerfile

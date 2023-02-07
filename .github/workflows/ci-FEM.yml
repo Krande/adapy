@@ -10,7 +10,6 @@ on:
       - Dockerfile
     branches:
     - main
-    - dev
   pull_request:
     paths-ignore:
       - setup.py
@@ -37,9 +36,12 @@ jobs:
         id: date
         run: echo "::set-output name=date::$(date +'%y%m%d')"
       - name: Build docker for FEM
-        run: make dtest-b
+        run: make bfem
+      - name: Make temp directories
+        run: |
+          mkdir -p temp/scratch temp/report
       - name: Test & Create Verification Report
-        run: make dtest-r
+        run: make dtest-exec
       - uses: actions/upload-artifact@v2
         if: failure()
         with:

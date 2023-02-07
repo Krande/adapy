@@ -7,8 +7,6 @@ dependencies:
   - python==3.11
   - nomkl
   - ada-py
-#  - paradoc
+  - paradoc
   - jupyter
   - calculix
-  - blas=*=openblas
-
