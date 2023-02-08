@@ -14,4 +14,6 @@ ENV PATH="/work/aster/mambaforge/bin:${PATH}"
 
 COPY tests/dockertests .
 
+USER root
 RUN chmod +x run_tests.sh
+USER aster

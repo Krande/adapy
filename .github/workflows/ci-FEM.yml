@@ -4,10 +4,9 @@ on:
   push:
     paths:
       - src/**
-      - images/tests/**
-      - conda/**
+      - tests/dockertests/**
       - .github/workflows/ci-FEM.yml
-      - Dockerfile
+      - images/femtests.Dockerfile
     branches:
     - main
   pull_request:
@@ -29,8 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-#      - uses: satackey/action-docker-layer-caching@v0.0.11
-#        continue-on-error: true
+      - uses: satackey/action-docker-layer-caching@v0.0.11
+        continue-on-error: true
       - run: echo ${{ env.DATE }}
       - name: Get current date
         id: date
