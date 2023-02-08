@@ -13,3 +13,5 @@ RUN echo "source activate adadocker" > ~/.bashrc
 ENV PATH="/work/aster/mambaforge/bin:${PATH}"
 
 COPY tests/dockertests .
+
+RUN chmod +x run_tests.sh
