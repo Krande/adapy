@@ -1,6 +1,11 @@
 {
     "name": "cantilever_EIG_sesam_SHELL_o1_hqFalse",
     "fem_format": "sesam",
+    "metadata": {
+        "geo": "shell",
+        "elo": 1,
+        "hexquad": false
+    },
     "eigen_mode_data": {
         "1": {
             "no": 1,
@@ -223,10 +228,5 @@
             "source_dict": null
         }
     },
-    "metadata": {
-        "geo": "shell",
-        "elo": 1,
-        "hexquad": false
-    },
-    "last_modified": 1637068151.7245364
+    "last_modified": 1637068151.724536
 }

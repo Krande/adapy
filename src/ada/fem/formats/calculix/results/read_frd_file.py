@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pathlib
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -257,14 +258,16 @@ def read_from_frd_file_proto(frd_file) -> FEAResult:
     if ccx_res_model.elements is None:
         raise ReadFrdFailedException("No element information from Calculix")
 
-    mesh = to_fea_result_obj(ccx_res_model, frd_file)
-    return mesh
+    return to_fea_result_obj(ccx_res_model, frd_file)
 
 
 def to_fea_result_obj(ccx_results: CcxResultModel, frd_file) -> FEAResult:
     from ada.fem.formats.general import FEATypes
 
-    name = f"Adapy - Calculix ({ccx_results.ccx_version}) Results"
+    if isinstance(frd_file, str):
+        frd_file = pathlib.Path(frd_file)
+
+    description = f"Adapy - Calculix ({ccx_results.ccx_version}) Results"
     shape = ElemShape.get_type_from_elem_array_shape(ccx_results.elements)
     node_refs = ccx_results.elements[:, 4:]
     elem_info = ElementInfo(
@@ -278,7 +281,14 @@ def to_fea_result_obj(ccx_results: CcxResultModel, frd_file) -> FEAResult:
     nodes = FemNodes(coords=coords, identifiers=identifiers)
     mesh = Mesh(elements=[elem_block], nodes=nodes)
 
-    return FEAResult(name, FEATypes.CALCULIX, ccx_results.results, mesh=mesh, results_file_path=frd_file)
+    return FEAResult(
+        frd_file.name,
+        FEATypes.CALCULIX,
+        ccx_results.results,
+        mesh=mesh,
+        results_file_path=frd_file,
+        description=description,
+    )
 
 
 def to_meshio_mesh(ccx_results: CcxResultModel) -> meshio.Mesh:

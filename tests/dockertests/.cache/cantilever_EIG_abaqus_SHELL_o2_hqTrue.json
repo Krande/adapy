@@ -1,6 +1,11 @@
 {
     "name": "cantilever_EIG_abaqus_SHELL_o2_hqTrue",
     "fem_format": "abaqus",
+    "metadata": {
+        "geo": "shell",
+        "elo": 2,
+        "hexquad": true
+    },
     "eigen_mode_data": {
         "1": {
             "no": 1,
@@ -223,10 +228,5 @@
             "source_dict": null
         }
     },
-    "metadata": {
-        "geo": "shell",
-        "elo": 2,
-        "hexquad": true
-    },
-    "last_modified": 1637068389.2304733
+    "last_modified": 1637068389.230473
 }

@@ -1,6 +1,11 @@
 {
     "name": "cantilever_EIG_abaqus_LINE_o1_hqFalse",
     "fem_format": "abaqus",
+    "metadata": {
+        "geo": "line",
+        "elo": 1,
+        "hexquad": false
+    },
     "eigen_mode_data": {
         "1": {
             "no": 1,
@@ -223,10 +228,5 @@
             "source_dict": null
         }
     },
-    "metadata": {
-        "geo": "line",
-        "elo": 1,
-        "hexquad": false
-    },
-    "last_modified": 1637068066.4100094
+    "last_modified": 1637068066.410009
 }

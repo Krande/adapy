@@ -24,6 +24,20 @@ class FeaVerificationResult:
     metadata: dict = field(default_factory=dict)
     last_modified: datetime = field(default_factory=datetime.now)
 
+    def save_results_to_json(self, cache_filepath):
+        if isinstance(cache_filepath, str):
+            cache_filepath = pathlib.Path(cache_filepath)
+
+        res_dict = dict()
+        res_dict["name"] = self.name
+        res_dict["fem_format"] = self.fem_format
+        res_dict["metadata"] = self.metadata
+        res_dict["eigen_mode_data"] = self.eig_data.to_dict()
+        res_dict["last_modified"] = self.last_modified.timestamp()
+
+        with open(cache_filepath.with_suffix(".json"), "w") as f:
+            json.dump(res_dict, f, indent=4)
+
 
 def append_df(old_df, new_df):
     return new_df if old_df is None else pd.concat([old_df, new_df], axis=1)
@@ -103,7 +117,7 @@ def results_from_cache(results_dict: dict) -> FeaVerificationResult:
     eig_data = EigenDataSummary([])
     eig_data.from_dict(results_dict["eigen_mode_data"])
     res.eig_data = eig_data
-    res.last_modified = results_dict["last_modified"]
+    res.last_modified = datetime.fromtimestamp(results_dict["last_modified"])
     return res
 
 
@@ -136,7 +150,11 @@ def simulate(
                     metadata["elo"] = elo
                     metadata["hexquad"] = hexquad
                     fvr = FeaVerificationResult(
-                        name=result.name, fem_format=analysis_software, results=result, metadata=metadata
+                        name=result.name,
+                        fem_format=soft,
+                        results=result,
+                        metadata=metadata,
+                        eig_data=result.get_eig_summary(),
                     )
                     results.append(fvr)
 
@@ -231,7 +249,7 @@ def main(overwrite, execute):
         res.save_results_to_json(cache_dir / res.name)
         one.add_table(
             res.name,
-            eig_data_to_df(res.eigen_mode_data, ["Mode", "Eigenvalue (real)"]),
+            eig_data_to_df(res.eig_data, ["Mode", "Eigenvalue (real)"]),
             res.name,
         )
 
