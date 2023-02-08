@@ -42,6 +42,7 @@ class MedReader:
     results: list[ElementFieldData | NodalFieldData] = None
 
     _dim: int = None
+    is_eigen_analysis: bool = False
 
     def __post_init__(self):
         if isinstance(self.rmed_file, str):
@@ -128,21 +129,26 @@ class MedReader:
                     time_steps.append(float(t))
                     names[i] = name + f"[{i:d}] - {t:g}"
 
+            if name == "modes___DEPL":
+                self.is_eigen_analysis = True
+
             # MED field can contain multiple types of data
             for i, key in enumerate(time_step):
                 med_data = data[key]  # at a particular time step
                 step_name = names[i]
+                ts = time_steps[i]
+                step_index = i + 1
                 for supp in med_data:
                     if supp == "NOE":  # continuous nodal (NOEU) data
-                        result = self._load_nodal_field_data(step_name, med_data, time_steps[i], components)
+                        result = self._load_nodal_field_data(step_index, step_name, med_data, ts, components)
                         results.append(result)
                     else:  # Gauss points (ELGA) or DG (ELNO) data
-                        result = self._load_element_field_data(step_name, med_data[supp], time_steps[i], components)
+                        result = self._load_element_field_data(step_index, step_name, med_data[supp], ts, components)
                         results.append(result)
 
         return results
 
-    def _load_element_field_data(self, name, med_data, step, components) -> ElementFieldData:
+    def _load_element_field_data(self, i, name, med_data, step, components) -> ElementFieldData:
         from ada.fem.results.common import ElementFieldData
 
         profile = med_data.attrs["PFL"]
@@ -160,10 +166,15 @@ class MedReader:
             if values.shape[-1] == 1:  # cut off for scalars
                 values = values[:, 0]
 
-        return ElementFieldData(name, step, components, values)
+        eig_freq = None
+        if self.is_eigen_analysis:
+            eig_freq = step
+            step = i
 
-    def _load_nodal_field_data(self, name, med_data, step, components) -> NodalFieldData:
-        from ada.fem.results.common import NodalFieldData
+        return ElementFieldData(name, step, components, values, eigen_freq=eig_freq)
+
+    def _load_nodal_field_data(self, i, name, med_data, step, components) -> NodalFieldData:
+        from ada.fem.results.common import NodalFieldData, NodalFieldType
 
         profile = med_data["NOE"].attrs["PFL"]
         data_profile = med_data["NOE"][profile]
@@ -175,9 +186,20 @@ class MedReader:
 
         if values.shape[-1] == 1:  # cut off for scalars
             values = values[:, 0]
+
         node_ids = self.mesh.nodes.identifiers
         values = np.insert(values, 0, node_ids, axis=1)
-        return NodalFieldData(name, step, components, values)
+
+        eig_freq = None
+        if self.is_eigen_analysis:
+            eig_freq = step
+            step = i
+
+        field_type = None
+        if "DX" in components:
+            field_type = NodalFieldType.DISP
+
+        return NodalFieldData(name, step, components, values, eigen_freq=eig_freq, field_type=field_type)
 
     def _load_mesh(self):
         mesh_ensemble = self.f["ENS_MAA"]

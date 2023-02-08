@@ -14,9 +14,10 @@ def postprocess(res_path: str | pathlib.Path, fem_format: FEATypes = None) -> FE
     from ada.fem.formats.code_aster.results.read_rmed_results import read_rmed_file
     from ada.fem.formats.general import FEATypes
     from ada.fem.formats.sesam.results.read_sif import read_sif_file
+    from ada.fem.formats.utils import interpret_fem_format_from_path
 
     if fem_format is None:
-        raise NotImplementedError("Interpreting fem format from results file path is not yet added")
+        fem_format = interpret_fem_format_from_path(res_path)
 
     if isinstance(fem_format, str):
         fem_format = FEATypes.from_str(fem_format)

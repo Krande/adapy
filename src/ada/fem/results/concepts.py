@@ -534,14 +534,3 @@ def get_fem_stats(fem_file, dest_md_file, data_file="data.json"):
     else:
         data = dict()
     print(data)
-
-
-def results_from_cache(results_dict: dict) -> Results:
-    res = Results(
-        None, name=results_dict["name"], fem_format=results_dict["fem_format"], metadata=results_dict["metadata"]
-    )
-    eig_data = EigenDataSummary([])
-    eig_data.from_dict(results_dict["eigen_mode_data"])
-    res.eigen_mode_data = eig_data
-    res.last_modified = results_dict["last_modified"]
-    return res

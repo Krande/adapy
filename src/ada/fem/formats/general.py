@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Callable
 from ada.base.types import BaseEnum
 
 from . import abaqus, calculix, code_aster, sesam, usfos
-from .utils import interpret_fem
+from .utils import interpret_fem_format_from_path
 
 if TYPE_CHECKING:
     from ada import Assembly
@@ -70,7 +70,7 @@ def get_fem_converters(fem_file, fem_format: str | FEATypes, fem_converter: str 
         fem_converter = FemConverters.from_str(fem_converter)
 
     if fem_format is None:
-        fem_format = interpret_fem(fem_file)
+        fem_format = interpret_fem_format_from_path(fem_file)
 
     if fem_converter == FemConverters.DEFAULT:
         fem_importer = fem_imports.get(fem_format, None)

@@ -418,15 +418,20 @@ def run_macOS(exe, run_cmd):
     raise NotImplementedError()
 
 
-def interpret_fem(fem_ref: str):
+def interpret_fem_format_from_path(fem_path: str | pathlib.Path):
     from ada.fem.formats.general import FEATypes
 
-    suffix = pathlib.Path(fem_ref).suffix.lower()
+    suffix = pathlib.Path(fem_path).suffix.lower()
+
     fem_type = None
     if suffix in (".fem", ".sif"):
         fem_type = FEATypes.SESAM
     elif suffix == ".inp":
         fem_type = FEATypes.ABAQUS
+    elif suffix in (".frd",):
+        fem_type = FEATypes.CALCULIX
+    elif suffix in (".rmed", ".med"):
+        fem_type = FEATypes.CODE_ASTER
     else:
         logger.error(f'unrecognized suffix "{suffix}"')
 

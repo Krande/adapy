@@ -12,11 +12,12 @@ import numpy as np
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
 
-from .field_data import ElementFieldData, NodalFieldData
+from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 
 if TYPE_CHECKING:
     from ada import Material, Node, Section
     from ada.fem import Elem, FemSet
+    from ada.fem.results.concepts import EigenDataSummary
 
 
 @dataclass
@@ -325,3 +326,15 @@ class FEAResult:
         print(f'Writing Visual Mesh to "{dest_file}"')
         with open(dest_file, "wb") as f:
             scene.export(file_obj=f, file_type=dest_file.suffix[1:])
+
+    def get_eig_summary(self) -> EigenDataSummary:
+        """If the results are eigenvalue results, this method will return a summary of the eigenvalues and modes"""
+        from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
+
+        modes = []
+        for x in self.results:
+            if isinstance(x, NodalFieldData) and x.field_type != NodalFieldType.DISP:
+                continue
+            m = EigenMode(x.step, f_hz=x.eigen_freq, eigenvalue=x.eigen_value)
+            modes.append(m)
+        return EigenDataSummary(modes)

@@ -2,7 +2,8 @@ import json
 import logging
 import os
 import pathlib
-from typing import List
+from dataclasses import dataclass, field
+from datetime import datetime
 
 import pandas as pd
 from conftest import beam
@@ -12,7 +13,16 @@ from test_fem_eig_cantilever import test_fem_eig
 
 from ada.fem.results import EigenDataSummary
 from ada.fem.results.common import FEAResult
-from ada.fem.results.concepts import results_from_cache
+
+
+@dataclass
+class FeaVerificationResult:
+    name: str
+    fem_format: str
+    eig_data: EigenDataSummary = None
+    results: FEAResult = None
+    metadata: dict = field(default_factory=dict)
+    last_modified: datetime = field(default_factory=datetime.now)
 
 
 def append_df(old_df, new_df):
@@ -36,7 +46,7 @@ def shorten_name(name, fem_format, geom_repr) -> str:
     return short_name
 
 
-def create_df_of_data(results: List[FEAResult], geom_repr, el_order, hexquad):
+def create_df_of_data(results: list[FeaVerificationResult], geom_repr, el_order, hexquad):
     df_main = None
 
     for res in results:
@@ -59,14 +69,14 @@ def create_df_of_data(results: List[FEAResult], geom_repr, el_order, hexquad):
 
         short_name = soft.replace(soft, short_name_map[soft])
         value_col = f"{short_name}{s_str}"
-        df_current = eig_data_to_df(res.eigen_mode_data, ["Mode", value_col])
+        df_current = eig_data_to_df(res.eig_data, ["Mode", value_col])
         new_col = df_current[value_col] if df_main is not None else df_current
         df_main = append_df(df_main, new_col)
 
     return df_main
 
 
-def retrieve_cached_results(results, cache_dir):
+def retrieve_cached_results(results: list[FeaVerificationResult], cache_dir):
     from ada.core.file_system import get_list_of_files
 
     res_names = [r.name for r in results]
@@ -86,9 +96,20 @@ def retrieve_cached_results(results, cache_dir):
         results.insert(index_insert, cached_results)
 
 
+def results_from_cache(results_dict: dict) -> FeaVerificationResult:
+    res = FeaVerificationResult(
+        name=results_dict["name"], fem_format=results_dict["fem_format"], metadata=results_dict["metadata"]
+    )
+    eig_data = EigenDataSummary([])
+    eig_data.from_dict(results_dict["eigen_mode_data"])
+    res.eig_data = eig_data
+    res.last_modified = results_dict["last_modified"]
+    return res
+
+
 def simulate(
     bm, el_order, geom_repr, analysis_software, use_hex_quad, eig_modes, overwrite, execute
-) -> List[FEAResult]:
+) -> list[FeaVerificationResult]:
     results = []
     short_name_map = dict(calculix="ccx", code_aster="ca", abaqus="aba", sesam="ses")
     for elo in el_order:
@@ -109,10 +130,15 @@ def simulate(
                     if result is None:
                         logging.error("No result file is located")
                         continue
-                    result.metadata["geo"] = geo
-                    result.metadata["elo"] = elo
-                    result.metadata["hexquad"] = hexquad
-                    results.append(result)
+
+                    metadata = dict()
+                    metadata["geo"] = geo
+                    metadata["elo"] = elo
+                    metadata["hexquad"] = hexquad
+                    fvr = FeaVerificationResult(
+                        name=result.name, fem_format=analysis_software, results=result, metadata=metadata
+                    )
+                    results.append(fvr)
 
     return results
 

@@ -1,13 +1,12 @@
 import numpy as np
 import pytest
 
+import ada
 from ada.calc.ec3_ex import ec3_654
-from ada.fem.formats.sesam.results.read_cc import read_cc_file
-from ada.fem.formats.sesam.results.read_sif import read_sif_file
 
 
 def test_read_static_line_results(cantilever_dir):
-    results = read_sif_file(cantilever_dir / "sesam/static/line/STATIC_LINE_CANTILEVER_SESAMR1.SIF")
+    results = ada.from_fem_res(cantilever_dir / "sesam/static/line/STATIC_LINE_CANTILEVER_SESAMR1.SIF")
     assert len(results.results) == 2
 
     elem_id = 1
@@ -21,7 +20,7 @@ def test_read_static_line_results(cantilever_dir):
 
 
 def test_read_static_shell_results(cantilever_dir):
-    results = read_sif_file(cantilever_dir / "sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIF")
+    results = ada.from_fem_res(cantilever_dir / "sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIF")
     assert len(results.results) == 2
 
     # results.to_fem_file("temp/sesam_shell.vtu")
@@ -29,7 +28,7 @@ def test_read_static_shell_results(cantilever_dir):
 
 
 def test_ec3_code_check_results(cantilever_dir):
-    results = read_cc_file(cantilever_dir / "sesam/static/line/Eurocode31.h5")
+    results = ada.from_sesam_cc(cantilever_dir / "sesam/static/line/Eurocode31.h5")
 
     cc_my_beam = results["MyBeam"]
     max_uf, cc_type, layer = cc_my_beam.get_max_utilization()

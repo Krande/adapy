@@ -10,7 +10,12 @@ import numpy as np
 
 from ada.base.types import BaseEnum
 from ada.fem.results.common import ElementBlock, ElementInfo, FEAResult, FemNodes, Mesh
-from ada.fem.results.field_data import ElementFieldData, FieldData, NodalFieldData
+from ada.fem.results.field_data import (
+    ElementFieldData,
+    FieldData,
+    NodalFieldData,
+    NodalFieldType,
+)
 
 
 class ReadFrdFailedException(Exception):
@@ -86,6 +91,8 @@ class CcxResultModel:
 
     _curr_step: int = None
     _curr_mode: int = None
+    _curr_eig_freq: float = None
+    _curr_eig_value: float = None
 
     def collect_nodes(self):
         while True:
@@ -150,8 +157,30 @@ class CcxResultModel:
             else:
                 break
 
-        curr_step = self._curr_step if self._curr_mode is None else self._curr_mode
-        self.results.append(NodalFieldData(name, curr_step, component_names, np.asarray(component_data)))
+        curr_step = self._curr_step
+        curr_eig_freq = None
+        curr_eig_value = None
+
+        if self._curr_mode is not None:
+            curr_step = self._curr_mode
+            curr_eig_value = self._curr_eig_value
+            curr_eig_freq = self._curr_eig_freq
+
+        field_type = None
+        if name.startswith("DISP"):
+            field_type = NodalFieldType.DISP
+
+        self.results.append(
+            NodalFieldData(
+                name,
+                curr_step,
+                component_names,
+                np.asarray(component_data),
+                eigen_freq=curr_eig_freq,
+                eigen_value=curr_eig_value,
+                field_type=field_type,
+            )
+        )
         self.eval_flags(data)
 
     def eval_flags(self, data: str):
@@ -176,6 +205,14 @@ class CcxResultModel:
         if stripped.startswith("1PMODE"):
             split_data = stripped.split()
             self._curr_mode = int(float(split_data[-1]))
+
+        if stripped.startswith("1PGK"):
+            split_data = stripped.split()
+            self._curr_eig_value = float(split_data[1])
+
+        if stripped.startswith("100CL"):
+            split_data = stripped.split()
+            self._curr_eig_freq = float(split_data[2])
 
         if stripped.startswith("-4"):
             self.collect_results(stripped)

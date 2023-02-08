@@ -33,6 +33,7 @@ from ada.sections import Section
 if TYPE_CHECKING:
     import ifcopenshell
 
+    from ada.fem.formats.sesam.results.read_cc import CCData
     from ada.fem.results.common import FEAResult
 
 
@@ -83,6 +84,12 @@ def from_fem_res(fem_file: str | pathlib.Path, fem_format: str = None) -> FEARes
     from ada.fem.formats.postprocess import postprocess
 
     return postprocess(fem_file, fem_format)
+
+
+def from_sesam_cc(fem_file: str | pathlib.Path) -> dict[str, CCData]:
+    from ada.fem.formats.sesam.results.read_cc import read_cc_file
+
+    return read_cc_file(fem_file)
 
 
 def from_genie_xml(xml_path, **kwargs) -> Assembly:

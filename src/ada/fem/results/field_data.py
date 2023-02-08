@@ -13,11 +13,20 @@ class FieldData:
     step: int
     components: list[str]
     values: np.ndarray
+    eigen_freq: float = None
+    eigen_value: float = None
+
+
+class NodalFieldType(Enum):
+    DISP = "displacement"
+    VEL = "velocity"
+    FORCE = "force"
 
 
 @dataclass
 class NodalFieldData(FieldData):
     COLS: ClassVar[list[str]] = ["node_label"]
+    field_type: NodalFieldType = None
 
     def get_all_values(self):
         num_cols = len(self.COLS)

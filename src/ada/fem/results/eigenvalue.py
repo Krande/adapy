@@ -37,8 +37,8 @@ class EigenDataSummary:
 @dataclass
 class EigenMode:
     no: int
-    f_hz: np.float64 = field(default=None, repr=True)
-    eigenvalue: np.float64 = field(default=None, repr=False)
+    f_hz: np.float64 | float = field(default=None, repr=True)
+    eigenvalue: np.float64 | float = field(default=None, repr=False)
     f_rad: np.float64 = field(default=None, repr=False)
     f_imag_rad: np.float64 = field(default=None, repr=False)
 
