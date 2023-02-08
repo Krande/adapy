@@ -8,3 +8,4 @@ dependencies:
   - ada-py
   - pytest
   - calculix
+  - nomkl
