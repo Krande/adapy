@@ -14,6 +14,7 @@ ENV TESTDIR="${HOME}/tests/fem"
 
 RUN mkdir -p "${TESTDIR}"
 
+ENV ADA_FEM_DO_NOT_SAVE_CACHE=1
 WORKDIR "${TESTDIR}"
 COPY tests/dockertests/ .
 

@@ -249,7 +249,8 @@ def main(overwrite, execute):
         )
 
     for res in results:
-        res.save_results_to_json(cache_dir / res.name)
+        if os.environ.get("ADA_FEM_DO_NOT_SAVE_CACHE", None) is None:
+            res.save_results_to_json(cache_dir / res.name)
         one.add_table(
             res.name,
             eig_data_to_df(res.eig_data, ["Mode", "Eigenvalue (real)"]),
