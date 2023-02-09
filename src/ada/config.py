@@ -1,3 +1,4 @@
+import logging
 import os
 import pathlib
 from dataclasses import dataclass
@@ -67,3 +68,7 @@ class Settings:
         from ada.ifc.utils import default_settings
 
         return default_settings()
+
+
+def create_logger():
+    return logging.getLogger("ada")

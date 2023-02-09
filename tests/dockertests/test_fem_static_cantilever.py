@@ -1,4 +1,5 @@
 import logging
+import os
 import pathlib
 
 import pytest
@@ -68,6 +69,10 @@ def test_fem_static(
     if overwrite is False:
         if is_conditions_unsupported(fem_format, geom_repr, elem_order, nl_geom):
             return None
+
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            return None
+
         res_path = default_fem_res_path(name, scratch_dir=test_dir, fem_format=fem_format)
         return Results(res_path, name, fem_format, a, import_mesh=False)
     else:
@@ -89,5 +94,8 @@ def test_fem_static(
 
     if pathlib.Path(res.results_file_path).exists() is False:
         raise FileNotFoundError(f'FEM analysis was not successful. Result file "{res.results_file_path}" not found.')
+
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return None
 
     return res

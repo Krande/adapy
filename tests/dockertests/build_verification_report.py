@@ -158,6 +158,9 @@ def simulate(
                     )
                     results.append(fvr)
 
+    if len(results) == 0:
+        raise ValueError("No results are located")
+
     return results
 
 
@@ -258,4 +261,4 @@ def main(overwrite, execute):
 
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)
-    main(overwrite=True, execute=True)
+    main(overwrite=False, execute=False)

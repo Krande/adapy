@@ -1,6 +1,6 @@
-mount=--mount type=bind,source="$(CURDIR)/temp/report",target=/home/tests/fem/temp \
-      --mount type=bind,source="$(CURDIR)/temp/scratch",target=/home/adauser/scratch
-drun=docker run --rm $(mount) krande/ada:femtests conda run --live-stream -n adadocker
+mount=--mount type=bind,source="$(CURDIR)/temp/report",target=/aster/work/tests/fem/temp \
+      --mount type=bind,source="$(CURDIR)/temp/scratch",target=/aster/work/scratch
+drun=docker run --user aster --rm $(mount) krande/ada:femtests conda run --live-stream -n adadocker
 
 
 dev:

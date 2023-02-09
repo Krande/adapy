@@ -14,11 +14,9 @@ ENV TESTDIR="${HOME}/tests/fem"
 
 RUN mkdir -p "${TESTDIR}"
 
-RUN chown -R ${NB_UID} ${TESTDIR}
-
 WORKDIR "${TESTDIR}"
-
 COPY tests/dockertests/ .
 
+RUN chown -R 775 ${TESTDIR}
 RUN chmod +x run_tests.sh
 USER aster

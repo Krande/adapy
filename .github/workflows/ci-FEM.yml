@@ -28,12 +28,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Set Date to env var
+        env:
+          DATE: $(date +'%d-%m-%Y')
+      - name: Echo date
+        run: echo ${{ env.DATE }}
       - uses: satackey/action-docker-layer-caching@v0.0.11
         continue-on-error: true
-      - run: echo ${{ env.DATE }}
-      - name: Get current date
-        id: date
-        run: echo "::set-output name=date::$(date +'%y%m%d')"
       - name: Build docker for FEM
         run: make bfem
       - name: Make temp directories
