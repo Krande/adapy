@@ -27,7 +27,7 @@ jobs:
     name: Test-FEM-analysis
     runs-on: ubuntu-latest
     env:
-      DATE: $(date +'%d-%m-%Y')
+      DATE: $(date +'%y%m%d')
     steps:
       - uses: actions/checkout@v3
       - name: Echo date
@@ -52,7 +52,7 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: temp/report/_dist/ADA-FEA-verification.docx
-          asset_name: ADA-FEA-verification-${{steps.date.outputs.date}}.docx
-          tag: "ADA-FEA-Verification-Report-${{steps.date.outputs.date}}"
+          asset_name: ADA-FEA-verification-${{ env.DATE }}.docx
+          tag: "ADA-FEA-Verification-Report-${{ env.DATE }}"
           overwrite: true
-          body: "Verification Report for ADAPY - ${{steps.date.outputs.date}}"
+          body: "Verification Report for ADAPY - ${{ env.DATE }}"
