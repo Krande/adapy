@@ -24,6 +24,8 @@ class SpatialTypes(Enum):
     IfcBuilding = "IfcBuilding"
     IfcSpatialZone = "IfcSpatialZone"
     IfcBuildingStorey = "IfcBuildingStorey"
+    IfcElementAssembly = "IfcElementAssembly"
+    IfcGrid = "IfcGrid"
 
     @staticmethod
     def from_str(class_name: str):

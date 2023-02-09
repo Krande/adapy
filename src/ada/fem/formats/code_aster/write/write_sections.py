@@ -9,7 +9,6 @@ def create_sections_str(fem_sections: FemSections) -> str:
 
     beam_sections_str = "\n        POUTRE=(),"
     shell_sections_str = "\n        COQUE=(),"
-    solid_sections_str = ""
 
     if len(fem_sections.shells) > 0:
         mat_assign_str_, shell_sections_str = [
@@ -29,6 +28,12 @@ def create_sections_str(fem_sections: FemSections) -> str:
     if len(fem_sections.solids) > 0:
         mat_assign_str += write_solid_section(fem_sections.solids)
 
+    sec_str = ""
+    if len(fem_sections.lines) > 0 or len(fem_sections.shells) > 0:
+        sec_str = f"""element = AFFE_CARA_ELEM(\n
+    MODELE=model,{shell_sections_str}{beam_sections_str}
+)"""
+
     return f"""
 material = AFFE_MATERIAU(
     MODELE=model,
@@ -37,14 +42,11 @@ material = AFFE_MATERIAU(
     )
 )
 
-
 # Shell elements:
 #   EPAIS: thickness
 #   VECTEUR: a direction of reference in the tangent plan
 
-element = AFFE_CARA_ELEM(
-        MODELE=model,{shell_sections_str}{beam_sections_str}{solid_sections_str}
-    )
+{sec_str}
 """
 
 

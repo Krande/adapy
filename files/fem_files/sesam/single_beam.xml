@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="ASCII"?>
+<DNV_structure_concept_protocol version="1.6">
+	<administrative>
+		<program program="GeniE" version="V8.4-06" version_date="23-Sep-2022" platform="64bit" />
+		<session_info date="18-Jan-2023" time="17:56:55" user="userX" />
+	</administrative>
+	<model name="2sadasd">
+		<units>
+			<model_units length="m" time="s" temp_diff="delC" force="N" angle="rad" mass="" />
+			<acis_units length="m" />
+			<input_units>
+				<input_unit phenomenon="Angle" unit="deg" />
+			</input_units>
+		</units>
+		<structure_domain>
+			<properties>
+				<sections>
+					<section name="Sct1" default="true">
+						<pipe_section od="0.2" th="0.01" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
+					</section>
+				</sections>
+				<materials>
+					<material name="Mat1" default="true">
+						<isotropic_linear_material yield_stress="420000000" density="7850" youngs_modulus="2.1e+11" poissons_ratio="0.3" thermal_expansion="1.2e-05" damping="0.03" />
+					</material>
+				</materials>
+				<thicknesses />
+				<effective_flange />
+				<wet_surfaces />
+				<beam_types />
+				<beam_classifications />
+				<slot_lug />
+				<corrosion_additions />
+				<sn_curves />
+				<mass_density_factors />
+				<mesh_options />
+				<permeable_properties />
+				<thickness_corrections />
+				<pile_characteristics />
+				<plate_types />
+				<reinforcements />
+				<load_interfaces />
+				<structure_types />
+				<mesh_properties>
+					<mesh_densities />
+					<number_of_elements_properties />
+					<sniping_properties />
+					<mesh_options_holes />
+				</mesh_properties>
+				<hydro_properties>
+					<air_drag_coefficients />
+					<morison_diameters />
+					<buoyancy_areas />
+					<hydro_element_refinements />
+					<flooding_coefficients />
+					<morison_coefficients />
+					<marine_growths />
+					<hydro_permeabilities />
+					<conductor_shieldings />
+				</hydro_properties>
+			</properties>
+			<structures>
+				<structure>
+					<straight_beam name="Bm1">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="true">
+								<orientation>
+									<local_system>
+										<xvector x="0" y="1" z="0" />
+										<zvector x="0" y="0" z="1" />
+										<yvector x="-1" y="0" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="0" y="1" z="0" dir="x" />
+							<vector x="-1" y="0" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="Sct1" material_ref="Mat1">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="0" y="0" z="0" end="1" />
+											<position x="0" y="1" z="0" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000001" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<curve_offset>
+							<reparameterized_beam_curve_offset />
+						</curve_offset>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+			</structures>
+			<manual_overlap_managers />
+			<feature_concepts />
+			<geometry>
+				<sat_embedded encoding="base64" compression="zip" tag_name="dnvscp"><![CDATA[UEsDBC0AAAAIABuPMlaeIN34dQEAAOsDAAALABQAYjY0dGVtcC5zYXQBABAAAAAAAAAAAAAAAAAAAAAAAKWTXU/CMBSG7038D2/ibkva7otxBdFJMNELIeqdGayMRdaSsYH8e9ttfAoXYtuTnjTPOT3v6cYppaBg2vbj9oa1MQyHvWcQJFlfqEwU+QbMQe9+MIRNW7TF8DICd/AuYjxFEjqE+R3X67guOOW2yWKSB63geLiCUB9MEEY1QyjGKt7AIgz1Mp7VbNoecacphnmZLU4pYxwWbSCO5UzM5+eordkmdU3bWKe5OAc7VVbtqbJoYAcTJeLkF+5Uy3gupipfR3lcXaJPTJiLOsg7jPF1sy3drSo02IV1fZTyS6q1xAi0meZhTCIPyyJPZfIZFXofExllYusnQpLa3Va3U6KfQqe4NGmzdz3EcrWcLNBlHOFDP6T1qEX4WIm8EN+6dfRQh6sPaqK9J/gpYVdEYOqP0mRWkEmZr077eCh3oGf15PQ6zf6fNTt4C19H4ceRai1toVJZnK20Avh19bX/Wx+vr7cv1Nd8MqGMiZoS88OSOCoi/ABQSwECAAAUAAAACAAbjzJWniDd+HUBAADrAwAACwAAAAAAAAABAAAAAAAAAAAAYjY0dGVtcC5zYXRQSwUGAAAAAAEAAQA5AAAAsgEAAAAA]]></sat_embedded>
+			</geometry>
+			<fatigue />
+		</structure_domain>
+		<utilities>
+			<guide_geometry />
+		</utilities>
+		<equipment_domain>
+			<equipment_concepts />
+		</equipment_domain>
+		<evaluators>
+			<slicer_concepts />
+		</evaluators>
+		<environment>
+			<environment_properties>
+				<wind_spectra />
+				<wind_profiles />
+				<wave_spectra />
+				<current_profiles />
+				<directions />
+				<frequency_sets />
+				<phase_sets />
+				<regular_wave_sets />
+				<scours />
+				<seabed_properties />
+				<soil_properties />
+				<soil_data_properties />
+				<spreading_functions />
+				<wave_height_evaluators />
+			</environment_properties>
+			<environment_concepts />
+		</environment>
+		<compartments>
+			<compartment_properties>
+				<compartment_contents />
+			</compartment_properties>
+			<compartment_outlines />
+		</compartments>
+		<analysis_domain>
+			<analyses>
+				<global active="true" />
+			</analyses>
+		</analysis_domain>
+	</model>
+</DNV_structure_concept_protocol>

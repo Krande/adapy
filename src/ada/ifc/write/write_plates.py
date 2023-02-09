@@ -19,7 +19,6 @@ def write_ifc_plate(plate: Plate):
     ifc_store = a.ifc_store
     f = ifc_store.f
 
-    context = f.by_type("IfcGeometricRepresentationContext")[0]
     owner_history = ifc_store.owner_history
     parent = f.by_guid(plate.parent.guid)
 
@@ -35,7 +34,7 @@ def write_ifc_plate(plate: Plate):
     origin = np.array(plate.poly.placement.origin)
     res = origin + np.dot(tra_mat, t_vec)
     polyline = create_ifcpolyline(f, [origin.astype(float).tolist(), res.tolist()])
-    axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve2D", [polyline])
+    axis_representation = f.createIfcShapeRepresentation(ifc_store.get_context("Axis"), "Axis", "Curve2D", [polyline])
     extrusion_placement = create_ifc_placement(f, O, Z, X)
     points = [(float(n[0]), float(n[1]), float(n[2])) for n in plate.poly.seg_global_points]
     seg_index = plate.poly.seg_index
@@ -46,7 +45,7 @@ def write_ifc_plate(plate: Plate):
     ifcdir = f.createIfcDirection(zvec.astype(float).tolist())
     ifcextrudedareasolid = f.createIfcExtrudedAreaSolid(ifcclosedprofile, extrusion_placement, ifcdir, plate.t)
 
-    body = f.createIfcShapeRepresentation(context, "Body", "SolidModel", [ifcextrudedareasolid])
+    body = f.createIfcShapeRepresentation(ifc_store.get_context("Body"), "Body", "SolidModel", [ifcextrudedareasolid])
 
     product_shape = f.createIfcProductDefinitionShape(None, None, [axis_representation, body])
 

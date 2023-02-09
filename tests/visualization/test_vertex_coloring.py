@@ -2,23 +2,12 @@ import os
 import pathlib
 
 import numpy as np
-import pytest
 import trimesh
 from trimesh.path.entities import Line
 from trimesh.visual.material import PBRMaterial
 
 from ada import Beam
 from ada.core.vector_utils import rot_matrix, unit_vector
-
-
-@pytest.fixture
-def polygon_mesh():
-    vertices = np.asarray([(0, 0, 0), (0, 1, 0), (1, 1, 0)], dtype="float32")
-    faces = np.asarray([(0, 1, 2)], dtype="uint8")
-    vertex_color = np.asarray([(245, 40, 145), (128, 50, 0), (200, 50, 0)], dtype="uint8")
-    new_mesh = trimesh.Trimesh(vertices=vertices, faces=faces, vertex_colors=vertex_color)
-    new_mesh.visual.material = PBRMaterial(doubleSided=True)
-    return new_mesh
 
 
 def test_vertex_coloring_simple(polygon_mesh):
@@ -32,42 +21,7 @@ def test_vertex_coloring_simple(polygon_mesh):
     scene.export(file_obj="temp/polygon2.glb", file_type=".glb")
 
 
-def test_polygon_animation_simple(polygon_mesh):
-    scene = trimesh.Scene()
-
-    scene.add_geometry(polygon_mesh, node_name="test", geom_name="test")
-
-    # https://github.com/KhronosGroup/glTF-Tutorials/blob/master/gltfTutorial/gltfTutorial_006_SimpleAnimation.md
-    # https://github.com/KhronosGroup/glTF-Tutorials/blob/master/gltfTutorial/gltfTutorial_007_Animations.md
-    def add_animation_to_tree(tree):
-        tree["animations"] = [
-            {
-                "samplers": [{"input": 2, "interpolation": "LINEAR", "output": 3}],
-                "channels": [{"sampler": 0, "target": {"node": 1, "path": "rotation"}}],
-            }
-        ]
-
-    def add_animation_to_buffer(buffer_items, tree):
-        from trimesh.exchange.gltf import _data_append, uint32
-
-        _ = _data_append(
-            acc=tree["accessors"],
-            buff=buffer_items,
-            blob={"componentType": 5125, "type": "SCALAR"},
-            data=polygon_mesh.faces.astype(uint32),
-        )
-
-    os.makedirs("temp", exist_ok=True)
-    scene.export(
-        file_obj="temp/polygon_animation.glb",
-        file_type=".glb",
-        tree_postprocessor=add_animation_to_tree,
-        buffer_postprocessor=add_animation_to_buffer,
-    )
-
-
 def test_instanced_mapped_geometry():
-
     bm = Beam("bm1", (0, 0, 0), (1, 0, 0), sec="IPE300")
     obj_mesh = bm.to_obj_mesh()
     scale_vector = bm.xvec * 0.1
@@ -101,7 +55,7 @@ def test_instanced_mapped_geometry():
 
 
 def test_vertex_coloring_advanced():
-    neutral_dir = pathlib.Path(__file__).parent.resolve() / "../../files/fem_files/meshes/neutral"
+    neutral_dir = pathlib.Path(__file__).parent.resolve() / "../../files/fem_files/numpy_files/simple_stru_eig1"
     vertices = np.load(neutral_dir / "vertices.npy")
     faces = np.load(neutral_dir / "faces.npy")
     vertex_color = np.load(neutral_dir / "colors.npy")

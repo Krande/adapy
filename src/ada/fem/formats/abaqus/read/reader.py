@@ -5,7 +5,7 @@ import mmap
 import os
 import pathlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import chain
 from typing import TYPE_CHECKING, Dict, List, Union
 
@@ -50,7 +50,7 @@ class InstanceData:
     part_ref: str
     instance_name: str
     instance_bulk: str
-    transform: Transform = Transform()
+    transform: Transform = field(default_factory=Transform)
 
 
 def read_fem(fem_file, fem_name=None) -> Assembly:
@@ -107,9 +107,12 @@ def read_fem(fem_file, fem_name=None) -> Assembly:
         assembly.fem.sets.link_data()
 
         update_connector_data(ass_sets, assembly.fem)
-
         assembly.fem.surfaces.update(get_surfaces_from_bulk(ass_sets, assembly.fem))
-        assembly.fem.constraints.update(get_constraints_from_inp(ass_sets, assembly.fem))
+
+        try:
+            assembly.fem.constraints.update(get_constraints_from_inp(ass_sets, assembly.fem))
+        except KeyError as e:
+            logging.error(e)
 
         assembly.fem.bcs += get_bcs_from_bulk(props_str, assembly.fem)
         assembly.fem.elements += get_mass_from_bulk(ass_sets, assembly.fem)
@@ -194,6 +197,8 @@ def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: Ins
     from ada import FEM, Part
 
     instance_name = name if instance_data.instance_name is None else instance_data.instance_name
+    if name in assembly.parts.keys():
+        name = instance_name
     part = assembly.add_part(Part(name, fem=FEM(name=instance_name)))
     fem = part.fem
     fem.nodes = get_nodes_from_inp(bulk_str, fem)
@@ -568,7 +573,6 @@ def get_surfaces_from_bulk(bulk_str, parent):
                     weight_factor = float(set_id_ref)
                 el_face_index = None
             else:
-
                 weight_factor = None
                 fem_set = parent.sets.get_elset_from_name(set_ref)
                 el_type = find_element_type_from_list(fem_set.members)
@@ -577,7 +581,7 @@ def get_surfaces_from_bulk(bulk_str, parent):
                 elif el_type == ElemType.SHELL:
                     el_face_index = -1 if set_id_ref == "SNEG" else 1
                 else:
-                    raise NotImplementedError("Importing surfaces for line elements is not yet supported")
+                    el_face_index = set_id_ref
         else:
             fem_set = None
             weight_factor = None

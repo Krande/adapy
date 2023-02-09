@@ -4,7 +4,7 @@ import logging
 import re
 from dataclasses import dataclass
 from itertools import chain
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -12,8 +12,9 @@ from ada.concepts.points import Node
 from ada.core.utils import Counter
 from ada.fem import Connector, Elem
 from ada.fem.containers import FemElements
+from ada.fem.formats.abaqus.elem_shapes import abaqus_el_type_to_ada
 from ada.fem.formats.utils import str_to_int
-from ada.fem.shapes import ElemShape
+from ada.fem.shapes.definitions import ShapeResolver, SolidShapes
 
 from . import cards
 
@@ -21,38 +22,6 @@ _re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 
 if TYPE_CHECKING:
     from ada.fem import FEM
-
-sh = ElemShape.TYPES.shell
-so = ElemShape.TYPES.solids
-li = ElemShape.TYPES.lines
-
-ada_to_abaqus_format = {
-    sh.TRI: ("S3", "S3R", "R3D3", "S3RS"),
-    sh.TRI6: ("STRI65",),
-    sh.TRI7: ("S7",),
-    sh.QUAD: ("S4", "S4R", "R3D4"),
-    sh.QUAD8: ("S8", "S8R"),
-    so.HEX8: ("C3D8", "C3D8R", "C3D8H"),
-    so.HEX20: ("C3D20", "C3D20R", "C3D20RH"),
-    so.HEX27: ("C3D27",),
-    so.TETRA: ("C3D4",),
-    so.TETRA10: ("C3D10",),
-    so.PYRAMID5: ("C3D5", "C3D5H"),
-    so.WEDGE: ("C3D6",),
-    so.WEDGE15: ("C3D15",),
-    li.LINE: ("B31", "B31H"),
-    li.LINE3: ("B32",),
-    "MASS": ("MASS",),
-    "ROTARYI": ("ROTARYI",),
-    "CONNECTOR": ("CONN3D2",),
-}
-
-
-def abaqus_el_type_to_ada(el_type):
-    for key, val in ada_to_abaqus_format.items():
-        if el_type in val:
-            return key
-    raise ValueError(f'Element type "{el_type}" has not been added to conversion to ada map yet')
 
 
 def get_elem_from_bulk_str(bulk_str, fem: "FEM") -> FemElements:
@@ -81,7 +50,7 @@ def grab_elements(match, fem: "FEM"):
     elset = d["elset"]
     el_type_members_str = d["members"]
     res = re.search("[a-zA-Z]", el_type_members_str)
-    is_cubic = ada_el_type in [so.HEX20, so.HEX27]
+    is_cubic = ada_el_type in [SolidShapes.HEX20, SolidShapes.HEX27]
     if is_cubic or res is None:
         if is_cubic is True:
             elem_nodes_str = el_type_members_str.splitlines()
@@ -91,7 +60,7 @@ def grab_elements(match, fem: "FEM"):
         else:
             ntext = d["members"]
         res = np.fromstring(ntext.replace("\n", ","), sep=",", dtype=int)
-        n = ElemShape.num_nodes(ada_el_type) + 1
+        n = ShapeResolver.get_el_nodes_from_type(ada_el_type) + 1
         return numpy_array_to_list_of_elements(res.reshape(int(res.size / n), n), eltype, elset, ada_el_type, fem)
     else:
         elems = []
@@ -135,7 +104,7 @@ def get_elem_nodes(elem_nodes_str, fem: "FEM"):
 con_names = Counter(1, "connector")
 
 
-def numpy_array_to_list_of_elements(res_, eltype, elset, ada_el_type, fem: "FEM") -> List["Elem"]:
+def numpy_array_to_list_of_elements(res_, eltype, elset, ada_el_type, fem: FEM) -> list[Elem]:
     if ada_el_type == Elem.EL_TYPES.CONNECTOR_SHAPES.CONNECTOR:
         connectors = []
         for e in res_:

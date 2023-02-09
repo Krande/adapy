@@ -32,7 +32,7 @@ def surface_str(surface: Surface, write_on_assembly_level: bool) -> str:
         elem_face_index_label = surface.el_face_index
 
     fs_str = ""
-    if not type(surface.fem_set) is list:
+    if type(surface.fem_set) is not list:
         f_sets = [surface.fem_set]
         el_face_indices = [elem_face_index_label]
     else:

@@ -1,0 +1,11 @@
+name: ada
+channels:
+#  - ifcopenshell
+  - krande/label/dev
+  - conda-forge
+  - krande
+dependencies:
+  - ada-py
+  - pytest
+  - calculix
+  - nomkl

@@ -1,17 +1,20 @@
-from typing import TYPE_CHECKING, List, Union
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from ada.fem import Elem
 
 from .shapes import ElemShape
+from .shapes import definitions as shape_def
 
 if TYPE_CHECKING:
     from ada import FEM, Assembly, Beam, Node, Part, Plate
     from ada.fem import FemSet
 
 
-def get_eldata(fem_source: Union["Assembly", "Part", "FEM"]):
+def get_eldata(fem_source: Assembly | Part | FEM):
     """Return a dictionary of basic mesh statistics"""
     el_types = dict()
 
@@ -22,19 +25,19 @@ def get_eldata(fem_source: Union["Assembly", "Part", "FEM"]):
             else:
                 el_types[el.type] += 1
 
-    if type(fem_source) is Assembly:
+    if isinstance(fem_source, Assembly):
         for p in fem_source.parts.values():
             scan_elem(p.fem)
     elif issubclass(type(fem_source), Part):
         scan_elem(fem_source.fem)
-    elif type(fem_source) is FEM:
+    elif isinstance(fem_source, FEM):
         scan_elem(fem_source)
     else:
         raise ValueError(f'Unknown fem_source "{fem_source}"')
     return el_types
 
 
-def get_beam_end_nodes(bm: "Beam", end=1, tol=1e-3) -> List["Node"]:
+def get_beam_end_nodes(bm: Beam, end=1, tol=1e-3) -> list[Node]:
     """Get list of nodes from end of beam"""
     p = bm.parent
     nodes = p.fem.nodes
@@ -53,7 +56,7 @@ def get_beam_end_nodes(bm: "Beam", end=1, tol=1e-3) -> List["Node"]:
     return members
 
 
-def get_nodes_along_plate_edges(pl: "Plate", fem: "FEM", edge_indices=None, tol=1e-3) -> List["Node"]:
+def get_nodes_along_plate_edges(pl: Plate, fem: FEM, edge_indices=None, tol=1e-3) -> list[Node]:
     """Return FEM nodes from edges of a plate"""
 
     res = []
@@ -66,7 +69,7 @@ def get_nodes_along_plate_edges(pl: "Plate", fem: "FEM", edge_indices=None, tol=
 
 
 def is_line_elem(elem: Elem):
-    return True if elem.type in ElemShape.TYPES.lines.all else False
+    return True if isinstance(elem.type, shape_def.LineShapes) else False
 
 
 def is_tri6_shell_elem(sh_fs):
@@ -79,15 +82,15 @@ def is_quad8_shell_elem(sh_fs):
     return all(elem_check)
 
 
-def is_parent_of_node_solid(no: "Node") -> bool:
+def is_parent_of_node_solid(no: Node) -> bool:
     refs = no.refs
     for elem in refs:
-        if elem.type in ElemShape.TYPES.solids.all:
+        if isinstance(elem.type, shape_def.SolidShapes):
             return True
     return False
 
 
-def elset_to_part(name: str, elset: "FemSet") -> "Part":
+def elset_to_part(name: str, elset: FemSet) -> Part:
     """Create a new part based on a specific element set."""
     from ada import Part
 

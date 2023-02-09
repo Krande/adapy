@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from enum import Enum
-from typing import TYPE_CHECKING, Iterable, List, Optional, Union
+from typing import TYPE_CHECKING, Callable, Iterable, List, Optional, Union
 
 import numpy as np
 
@@ -139,6 +139,16 @@ class Beam(BackendGeom):
         # Define orientations
         self._init_orientation(angle, up)
         self.add_beam_to_node_refs()
+
+    @staticmethod
+    def from_list_of_coords(
+        list_of_coords: list[tuple], sec: Section | str, mat: Material | str = None, name_gen: Callable = None
+    ) -> list[Beam]:
+        beams = []
+        ngen = name_gen if name_gen is not None else Counter(prefix="bm")
+        for p1, p2 in zip(list_of_coords[:-1], list_of_coords[1:]):
+            beams.append(Beam(next(ngen), p1, p2, sec, mat))
+        return beams
 
     def _init_orientation(self, angle=None, up=None) -> None:
         xvec = unit_vector(self.n2.p - self.n1.p)
@@ -337,6 +347,9 @@ class Beam(BackendGeom):
             prev_p = p
 
         return midpoints
+
+    def copy_to(self, p1, p2, name: str) -> Beam:
+        return Beam(name, p1, p2, sec=self.section, tap=self.taper, mat=self.material)
 
     @property
     def units(self):

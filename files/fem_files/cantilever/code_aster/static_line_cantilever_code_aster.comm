@@ -1,0 +1,117 @@
+#
+#   COMM file created by ADA (Assembly for Design and Analysis)
+#
+
+# Units: N, m
+
+DEBUT(LANG="EN", INFO=1)
+
+mesh = LIRE_MAILLAGE(FORMAT="MED", UNITE=20)
+
+bm_sets = ('elMyBeam_set_bm')
+
+
+model = AFFE_MODELE(
+    AFFE=(
+        _F(GROUP_MA=bm_sets, PHENOMENE='MECANIQUE', MODELISATION='POU_D_E',),
+    ),
+    MAILLAGE=mesh
+)
+
+# Materials
+
+
+S420 = DEFI_MATERIAU(
+    ELAS=_F(E=210000000000.0, NU=0.3, RHO=7850),
+)
+
+
+# Sections
+
+material = AFFE_MATERIAU(
+    MODELE=model,
+    AFFE=(
+		_F(MATER=(S420,), GROUP_MA="elMyBeam_set_bm"),
+
+    )
+)
+
+# Shell elements:
+#   EPAIS: thickness
+#   VECTEUR: a direction of reference in the tangent plan
+
+element = AFFE_CARA_ELEM(
+
+    MODELE=model,
+        COQUE=(),
+        POUTRE=(
+            _F(
+                GROUP_MA=("elMyBeam_set_bm"),
+                SECTION = 'GENERALE',
+                CARA = ('A', 'IY', 'IZ', 'JX'),
+                VALE = (0.0080678,0.00021876474551666672,1.3141770740666666e-05,4.866263514666667e-07)
+            ),
+
+        ),
+        ORIENTATION=(
+            _F(
+                GROUP_MA = 'elMyBeam_set_bm',
+                CARA = 'VECT_Y',
+                VALE = (0.0, 1.0, 0.0)
+            ),
+
+        ),
+)
+
+
+# Boundary Conditions
+dofs = dict(
+    GROUP_NO="bc_nodes",
+    DX=0, DY=0, DZ=0, DRX=0, DRY=0, DRZ=0, 
+)
+Fixed = AFFE_CHAR_MECA(
+    MODELE=model, DDL_IMPO=_F(**dofs)
+)
+
+# Step Information
+
+grav = AFFE_CHAR_MECA(
+    MODELE=model, PESANTEUR=_F(DIRECTION=(0.0, 0.0, 1.0), GRAVITE=-784.8000000000001)
+)
+
+result = MECA_STATIQUE(
+    MODELE=model,
+    CHAM_MATER=material,
+    CARA_ELEM=element,
+    EXCIT=(_F(CHARGE=Fixed),_F(CHARGE=grav))
+)
+
+
+result = CALC_CHAMP(
+        reuse=result, RESULTAT=result,
+        CONTRAINTE=("EFGE_ELNO","EFGE_NOEU","SIGM_ELNO","SIEF_ELNO","SIPO_ELNO","SIPM_ELNO"),
+        FORCE= ("REAC_NODA"),
+)
+
+
+IMPR_RESU(
+    RESU=(
+		_F(
+            NOM_CHAM=("DEPL", "EFGE_ELNO", "EFGE_NOEU"),
+            NOM_CHAM_MED=("DISP", "GEN_FORCES_ELEM", "GEN_FORCES_NODES"),
+            RESULTAT=result,
+        ),
+        _F(
+            NOM_CHAM=("SIGM_ELNO", "SIGM_NOEU"),
+            NOM_CHAM_MED=("STRESSES_ELEM", "STRESSES_NODES"),
+            RESULTAT=stress,
+        ),
+	),
+    UNITE=80
+)
+
+
+
+# Results Information
+
+FIN()

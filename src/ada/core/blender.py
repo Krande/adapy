@@ -21,7 +21,6 @@ class Blender:
     __exe_path = shutil.which("blender")
 
     def __init__(self, work_dir, project_name, exe_path=None):
-
         if self.__exe_path is None and exe_path is None:
             raise Exception(
                 'Blender installation is not found. Either add it to system path env or pass the "exe_path"'

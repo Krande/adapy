@@ -6,6 +6,7 @@ from ada.core.utils import NewLine
 from ada.fem import Elem, FemSection
 from ada.fem.containers import FemElements
 from ada.fem.shapes import ElemShape
+from ada.fem.shapes import definitions as shape_def
 
 
 def elements_str(fem_elements: FemElements) -> str:
@@ -14,16 +15,14 @@ def elements_str(fem_elements: FemElements) -> str:
 
     el_str = ""
     for (el_type, fem_sec), elements in groupby(fem_elements, key=attrgetter("type", "fem_sec")):
+        if isinstance(el_type, shape_def.ConnectorTypes):
+            continue
         el_str += elwriter(el_type, fem_sec, elements)
 
     return el_str
 
 
 def elwriter(eltype, fem_sec: FemSection, elements: Iterable[Elem]):
-
-    if "connector" in eltype:
-        return None
-
     sub_eltype = el_type_sub(eltype, fem_sec)
     el_set_str = f", ELSET={fem_sec.elset.name}" if fem_sec.elset is not None else ""
     el_str = "\n".join((write_elem(el) for el in elements))
@@ -34,7 +33,7 @@ def elwriter(eltype, fem_sec: FemSection, elements: Iterable[Elem]):
 def el_type_sub(el_type, fem_sec: FemSection) -> str:
     """Substitute Element types specifically Calculix"""
 
-    if el_type in ElemShape.TYPES.lines.all:
+    if isinstance(el_type, shape_def.LineShapes):
         if must_be_converted_to_general_section(fem_sec.section.type):
             return "U1"
     if el_type == ElemShape.TYPES.shell.TRI6:
@@ -52,7 +51,7 @@ def must_be_converted_to_general_section(sec_type):
         return False
 
 
-def write_elem(el: "Elem") -> str:
+def write_elem(el: Elem) -> str:
     nl = NewLine(10, suffix=7 * " ")
     if len(el.nodes) > 6:
         di = " {}"

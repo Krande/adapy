@@ -55,10 +55,10 @@ def ifc_dir(f: ifcopenshell.file, vec: Tuple[float, float, float]):
 
 def ensure_guid_consistency(a: Assembly, project_prefix):
     """Function to edit the global IDs of your elements when they are arbitrarily created from upstream data dump"""
+    a.ifc_store.sync()
     ensure_uniqueness = dict()
     for p in a.get_all_parts_in_assembly():
         p.guid = create_guid(project_prefix + p.name)
-
         if p.guid in ensure_uniqueness.keys():
             # p_other = ensure_uniqueness.get(p.guid)
             # ancestors1 = p.get_ancestors()
@@ -231,6 +231,11 @@ def create_ifcpolyline(ifcfile, point_list):
     return polyline
 
 
+def create_axis(f, points, context):
+    polyline = create_ifcpolyline(f, points)
+    return f.createIfcShapeRepresentation(context, "Axis", "Curve3D", [polyline])
+
+
 def create_ifcindexpolyline(ifcfile, points, seg_index):
     """
     Assumes a point list whereas all points that are to be used for creating arc-segments will have 4 values
@@ -345,35 +350,37 @@ def create_ifcrightcylinder(ifc_file, ifcaxis2placement, height, radius):
     return ifcextrudedareasolid
 
 
-def create_property_set(name, ifc_file, metadata_props, owner_history):
+def ifc_value_map(f, value):
     value_map = {str: "IfcText", float: "IfcReal", int: "IfcInteger", bool: "IfcBoolean"}
+    if type(value) in (np.float64,):
+        value = float(value)
+    ifc_type = value_map.get(type(value), None)
+    if ifc_type is None:
+        logging.warning(f'Unable to find suitable IFC type for "{type(value)}". Will convert it to string')
+        return f.create_entity("IfcText", str(value))
+
+    return f.create_entity(ifc_type, value)
+
+
+def ifc_list_value(f, name: str, list_value: list, owner_history):
+    list_values = []
+    for x in list_value:
+        if isinstance(x, (list, tuple, np.ndarray)):
+            list_values.append(ifc_list_value(f, f"{name}_sub", x, owner_history))
+        elif isinstance(x, dict):
+            list_values.append(create_property_set(f"{name}_sub", f, x, owner_history))
+        else:
+            list_values.append(ifc_value_map(f, x))
+
+    return f.create_entity("IfcPropertyListValue", Name=name, ListValues=list_values)
+
+
+def create_property_set(name, ifc_file, metadata_props, owner_history):
     properties = []
-
-    def ifc_value_type(v_):
-        if type(v_) in (np.float64,):
-            v_ = float(v_)
-        ifc_type = value_map.get(type(v_), None)
-        if ifc_type is None:
-            logging.warning(f'Unable to find suitable IFC type for "{type(v_)}". Will convert it to string')
-            return ifc_file.create_entity("IfcText", str(v_))
-
-        return ifc_file.create_entity(ifc_type, v_)
-
-    def ifc_list_value(n: str, list_value):
-        list_values = []
-        for x in list_value:
-            if isinstance(x, (list, tuple, np.ndarray)):
-                list_values.append(ifc_list_value(f"{n}_sub", x))
-            elif isinstance(x, dict):
-                list_values.append(create_property_set(f"{n}_sub", ifc_file, value, owner_history))
-            else:
-                list_values.append(ifc_value_type(x))
-
-        return ifc_file.create_entity("IfcPropertyListValue", Name=n, ListValues=list_values)
 
     for key, value in metadata_props.items():
         if isinstance(value, (list, tuple, np.ndarray)):
-            properties.append(ifc_list_value(key, value))
+            properties.append(ifc_list_value(ifc_file, key, value, owner_history))
         elif isinstance(value, dict):
             if len(value.keys()) == 0:
                 continue
@@ -383,7 +390,7 @@ def create_property_set(name, ifc_file, metadata_props, owner_history):
                 ifc_file.create_entity(
                     "IfcPropertySingleValue",
                     Name=key,
-                    NominalValue=ifc_value_type(value),
+                    NominalValue=ifc_value_map(ifc_file, value),
                 )
             )
 
@@ -422,7 +429,7 @@ def write_elem_property_sets(metadata_props, elem, f, owner_history) -> None:
         add_properties_to_elem("Properties", f, elem, metadata_props, owner_history=owner_history)
 
 
-def to_real(v) -> Union[float, List[float]]:
+def to_real(v) -> float | list[float]:
     from ada import Node
 
     if type(v) is float:
@@ -592,7 +599,6 @@ def scale_ifc_file_object(ifc_file, scale_factor):
     for ifc_class, attributes in classes_to_modify.items():
         for element in ifc_file.by_type(ifc_class):
             for attribute in attributes:
-
                 old_val = getattr(element, attribute)
                 if old_val is None:
                     continue
@@ -776,3 +782,58 @@ def get_representation_items(f: ifcopenshell.file, ifc_elem: ifcopenshell.entity
             f.traverse(ifc_elem),
         )
     )
+
+
+def ifc_file_to_stp(ifc_file, stp_file, step_schema="AP242", step_assembly_mode=1):
+    """Convert an IFC file to STEP file"""
+
+    import os
+    import pathlib
+
+    from OCC.Core.IFSelect import IFSelect_RetError
+    from OCC.Core.Interface import Interface_Static_SetCVal
+    from OCC.Core.STEPConstruct import stepconstruct_FindEntity
+    from OCC.Core.STEPControl import STEPControl_AsIs, STEPControl_Writer
+    from OCC.Core.TCollection import TCollection_HAsciiString
+
+    settings = ifcopenshell.geom.settings()
+    settings.set(settings.USE_PYTHON_OPENCASCADE, True)
+    # settings.set(settings.SEW_SHELLS, False)
+    # settings.set(settings.WELD_VERTICES, True)
+    # settings.set(settings.INCLUDE_CURVES, False)
+    settings.set(settings.USE_WORLD_COORDS, True)
+    # settings.set(settings.VALIDATE_QUANTITIES, False)
+
+    f = ifcopenshell.open(ifc_file)
+    writer = STEPControl_Writer()
+    fp = writer.WS().TransferWriter().FinderProcess()
+
+    Interface_Static_SetCVal("write.step.schema", step_schema)
+    Interface_Static_SetCVal("write.precision.mode", "1")
+    Interface_Static_SetCVal("write.step.assembly", str(step_assembly_mode))
+    iterator = ifcopenshell.geom.iterator(settings, f)
+    iterator.initialize()
+
+    while True:
+        shape = iterator.get()
+        if shape:
+            geom = shape.geometry
+            name = f.by_id(shape[0].id).Name
+            Interface_Static_SetCVal("write.step.product.name", name)
+            writer.Transfer(geom, STEPControl_AsIs)
+            item = stepconstruct_FindEntity(fp, geom)
+            if not item:
+                logging.debug("STEP item not found for FindEntity")
+            else:
+                item.SetName(TCollection_HAsciiString(name))
+        if not iterator.next():
+            break
+
+    destination_file = pathlib.Path(stp_file).with_suffix(".stp")
+    os.makedirs(destination_file.parent, exist_ok=True)
+
+    status = writer.Write(str(destination_file))
+    if int(status) > int(IFSelect_RetError):
+        raise Exception("Error during write operation")
+
+    print(f'step file created at "{destination_file}"')

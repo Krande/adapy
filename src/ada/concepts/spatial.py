@@ -4,7 +4,6 @@ import logging
 import os
 import pathlib
 from dataclasses import dataclass
-from io import StringIO
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Union
 
@@ -53,9 +52,10 @@ from ada.fem.concept import FEM
 if TYPE_CHECKING:
     import ifcopenshell
 
-    from ada import Beam, Material, Plate, Section, Wall
+    from ada import Beam, Material, Plate, Section, Wall, Weld
+    from ada.fem.formats.general import FEATypes, FemConverters
     from ada.fem.meshing import GmshOptions
-    from ada.fem.results import Results
+    from ada.fem.results.common import FEAResult
     from ada.ifc.store import IfcStore
     from ada.visualize.concept import VisMesh
     from ada.visualize.config import ExportConfig
@@ -64,6 +64,10 @@ if TYPE_CHECKING:
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 
 logger = logging.getLogger(__name__)
+
+
+class FormatNotSupportedException(Exception):
+    pass
 
 
 @dataclass
@@ -107,6 +111,7 @@ class Part(BackendGeom):
         self._placement = placement
         self._instances: dict[Any, Instance] = dict()
         self._shapes = []
+        self._welds = []
         self._parts = dict()
         self._groups: dict[str, Group] = dict()
         self._ifc_class = ifc_class
@@ -269,6 +274,12 @@ class Part(BackendGeom):
         self._connections.add(joint)
         return joint
 
+    def add_weld(self, weld: Weld) -> Weld:
+        weld.parent = self
+        self._welds.append(weld)
+
+        return weld
+
     def add_material(self, material: Material) -> Material:
         if material.units != self.units:
             material.units = self.units
@@ -280,8 +291,8 @@ class Part(BackendGeom):
             section.units = self.units
         return self._sections.add(section)
 
-    def add_object(self, obj: Part | Beam | Plate | Wall | Pipe | Shape):
-        from ada import Beam, Part, Pipe, Plate, Shape, Wall
+    def add_object(self, obj: Part | Beam | Plate | Wall | Pipe | Shape | Weld):
+        from ada import Beam, Part, Pipe, Plate, Shape, Wall, Weld
 
         if isinstance(obj, Beam):
             self.add_beam(obj)
@@ -295,6 +306,8 @@ class Part(BackendGeom):
             self.add_shape(obj)
         elif isinstance(obj, Wall):
             self.add_wall(obj)
+        elif isinstance(obj, Weld):
+            self.add_weld(obj)
         else:
             raise NotImplementedError(f'"{type(obj)}" is not yet supported for smart append')
 
@@ -477,6 +490,7 @@ class Part(BackendGeom):
         return sections
 
     def consolidate_sections(self, include_self=True):
+        """Moves all sections from all sub-parts to this part"""
         from ada import Beam
         from ada.fem import FemSection
 
@@ -545,12 +559,16 @@ class Part(BackendGeom):
 
         return self.materials.materials
 
-    def get_all_parts_in_assembly(self, include_self=False) -> list[Part]:
+    def get_all_parts_in_assembly(self, include_self=False, by_type=None) -> list[Part]:
         parent = self.get_assembly()
         list_of_ps = []
         self._flatten_list_of_subparts(parent, list_of_ps)
         if include_self:
             list_of_ps += [self]
+
+        if by_type is not None:
+            return list(filter(lambda x: issubclass(type(x), by_type), list_of_ps))
+
         return list_of_ps
 
     def get_all_subparts(self, include_self=False) -> list[Part]:
@@ -630,6 +648,7 @@ class Part(BackendGeom):
         interactive=False,
         use_quads=False,
         use_hex=False,
+        experimental_bm_splitting=True,
     ) -> FEM:
         from ada import Beam, Plate, Shape
         from ada.fem.meshing import GmshOptions, GmshSession
@@ -656,10 +675,14 @@ class Part(BackendGeom):
                 else:
                     logger.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
 
-            # if interactive is True:
-            #     gs.open_gui()
+            if interactive is True:
+                gs.open_gui()
 
             gs.split_plates_by_beams()
+
+            if experimental_bm_splitting is True and len(list(self.get_all_physical_objects(by_type=Plate))) == 0:
+                gs.split_crossing_beams()
+
             gs.mesh(mesh_size, use_quads=use_quads, use_hex=use_hex)
 
             if interactive is True:
@@ -671,6 +694,11 @@ class Part(BackendGeom):
             cog_absolute = mass_shape.placement.absolute_placement() + mass_shape.cog
             n = fem.nodes.add(Node(cog_absolute))
             fem.add_mass(Mass(f"{mass_shape.name}_mass", [n], mass_shape.mass))
+
+        # Move FEM mesh to match part placement origin
+        x, y, z = self.placement.origin
+        if x != 0.0 or y != 0.0 or z == 0.0:
+            fem.nodes.move(self.placement.origin)
 
         return fem
 
@@ -684,12 +712,26 @@ class Part(BackendGeom):
         use_experimental=True,
         cpus: int = None,
     ) -> VisMesh:
-        from ada.visualize.interface import part_to_vis_mesh, part_to_vis_mesh2
+        from ada.visualize.interface import part_to_vis_mesh2
 
-        if use_experimental:
-            return part_to_vis_mesh2(self, auto_sync_ifc_store, cpus=cpus)
-        else:
-            return part_to_vis_mesh(self, auto_sync_ifc_store, export_config, opt_func, merge_by_color, overwrite_cache)
+        return part_to_vis_mesh2(self, auto_sync_ifc_store, cpus=cpus)
+
+    def to_gltf(
+        self,
+        gltf_file: str | pathlib.Path,
+        auto_sync_ifc_store=True,
+        cpus=None,
+        limit_to_guids=None,
+        embed_meta=False,
+        merge_by_color=False,
+    ):
+        from ada.visualize.interface import part_to_vis_mesh2
+
+        vm = part_to_vis_mesh2(self, auto_sync_ifc_store, cpus=cpus)
+        if merge_by_color:
+            vm = vm.merge_objects_in_parts_by_color()
+
+        vm.to_gltf(gltf_file, only_these_guids=limit_to_guids, embed_meta=embed_meta)
 
     @property
     def parts(self) -> dict[str, Part]:
@@ -726,6 +768,10 @@ class Part(BackendGeom):
     @pipes.setter
     def pipes(self, value: list[Pipe]):
         self._pipes = value
+
+    @property
+    def welds(self) -> list[Weld]:
+        return self._welds
 
     @property
     def walls(self) -> list[Wall]:
@@ -806,7 +852,6 @@ class Part(BackendGeom):
         if isinstance(value, str):
             value = Units.from_str(value)
         if value != self._units:
-
             for bm in self.beams:
                 bm.units = value
 
@@ -927,9 +972,9 @@ class Assembly(Part):
     def read_fem(
         self,
         fem_file: str | os.PathLike,
-        fem_format: str = None,
+        fem_format: FEATypes | str = None,
         name: str = None,
-        fem_converter="default",
+        fem_converter: FemConverters | str = "default",
         cache_model_now=False,
     ):
         """Import a Finite Element model. Currently supported FEM formats: Abaqus, Sesam and Calculix"""
@@ -944,6 +989,9 @@ class Assembly(Part):
                 return None
 
         fem_importer, _ = get_fem_converters(fem_file, fem_format, fem_converter)
+        if fem_importer is None:
+            suffix = fem_file.suffix
+            raise FormatNotSupportedException(f'File "{fem_file.name}" [{suffix}] is not a supported FEM format.')
 
         temp_assembly: Assembly = fem_importer(fem_file, name)
         self.__add__(temp_assembly)
@@ -954,7 +1002,7 @@ class Assembly(Part):
     def to_fem(
         self,
         name: str,
-        fem_format: str,
+        fem_format: FEATypes | str,
         scratch_dir=None,
         metadata=None,
         execute=False,
@@ -966,9 +1014,8 @@ class Assembly(Part):
         exit_on_complete=True,
         run_in_shell=False,
         make_zip_file=False,
-        import_result_mesh=False,
-        writable_obj: StringIO = None,
-    ) -> Results:
+        return_fea_results=True,
+    ) -> FEAResult | None:
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
         Currently there is limited write support for the following FEM formats:
@@ -1000,7 +1047,7 @@ class Assembly(Part):
         :param exit_on_complete:
         :param run_in_shell:
         :param make_zip_file:
-        :param import_result_mesh: Automatically import the result mesh into
+        :param return_fea_results: Automatically import the result mesh into
 
             Note! Meshio implementation currently only supports reading & writing elements and nodes.
 
@@ -1013,71 +1060,30 @@ class Assembly(Part):
             If this proves to create issues regarding performance this should be evaluated further.
 
         """
-        from ada.fem.formats.general import fem_executables, get_fem_converters
-        from ada.fem.formats.utils import (
-            default_fem_inp_path,
-            default_fem_res_path,
-            folder_prep,
-            should_convert,
-        )
-        from ada.fem.results import Results
+        from ada.fem.formats.execute import execute_fem
+        from ada.fem.formats.general import FEATypes, write_to_fem
+        from ada.fem.formats.postprocess import postprocess
+        from ada.fem.formats.utils import default_fem_res_path
+
+        if isinstance(fem_format, str):
+            fem_format = FEATypes.from_str(fem_format)
 
         scratch_dir = Settings.scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
+
+        write_to_fem(self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file)
+
+        if execute:
+            execute_fem(
+                name, fem_format, scratch_dir, cpus, gpus, run_ext, metadata, execute, exit_on_complete, run_in_shell
+            )
+
         fem_res_files = default_fem_res_path(name, scratch_dir=scratch_dir)
-
         res_path = fem_res_files.get(fem_format, None)
-        metadata = dict() if metadata is None else metadata
-        metadata["fem_format"] = fem_format
 
-        out = None
-        if should_convert(res_path, overwrite):
-            analysis_dir = folder_prep(scratch_dir, name, overwrite)
-            _, fem_exporter = get_fem_converters("", fem_format, fem_converter)
-
-            if fem_exporter is None:
-                raise ValueError(f'FEM export for "{fem_format}" using "{fem_converter}" is currently not supported')
-
-            fem_inp_files = default_fem_inp_path(name, scratch_dir)
-            fem_exporter(self, name, analysis_dir, metadata)
-
-            if make_zip_file is True:
-                import shutil
-
-                shutil.make_archive(name, "zip", str(analysis_dir))
-
-            if execute is True:
-                exe_func = fem_executables.get(fem_format, None)
-                inp_path = fem_inp_files.get(fem_format, None)
-                if exe_func is None:
-                    raise NotImplementedError(f'The FEM format "{fem_format}" has no execute function')
-                if inp_path is None:
-                    raise ValueError("")
-                out = exe_func(
-                    inp_path=inp_path,
-                    cpus=cpus,
-                    gpus=gpus,
-                    run_ext=run_ext,
-                    metadata=metadata,
-                    execute=execute,
-                    exit_on_complete=exit_on_complete,
-                    run_in_shell=run_in_shell,
-                )
-        else:
-            print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
-
-        if out is None and res_path is None:
-            logger.info("No Result file is created")
+        if res_path.exists() is False or return_fea_results is False:
             return None
 
-        return Results(
-            res_path,
-            name,
-            fem_format=fem_format,
-            assembly=self,
-            output=out,
-            overwrite=overwrite,
-            import_mesh=import_result_mesh,
-        )
+        return postprocess(res_path, fem_format=fem_format)
 
     def to_ifc(self, destination=None, include_fem=False, file_obj_only=False, validate=False) -> ifcopenshell.file:
         import ifcopenshell.validate
@@ -1100,6 +1106,11 @@ class Assembly(Part):
 
         print("IFC file creation complete")
         return self.ifc_store.f
+
+    def to_genie_xml(self, destination_xml):
+        from ada.fem.formats.sesam.xml.write.write_xml import write_xml
+
+        write_xml(self, destination_xml)
 
     def push(self, comment, bimserver_url, username, password, project, merge=False, sync=False):
         """Push current assembly to BimServer with a comment tag that defines the revision name"""

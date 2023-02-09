@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="ASCII"?>
+<DNV_structure_concept_protocol version="1.6">
+	<administrative>
+		<program program="GeniE" version="V8.4-06" version_date="23-Sep-2022" platform="64bit" />
+		<session_info date="17-Jan-2023" time="20:39:08" user="XXXX" />
+	</administrative>
+	<model name="adsadas">
+		<units>
+			<model_units length="m" time="s" temp_diff="delC" force="N" angle="rad" mass="" />
+			<acis_units length="m" />
+			<input_units>
+				<input_unit phenomenon="Angle" unit="deg" />
+			</input_units>
+		</units>
+		<structure_domain>
+			<properties>
+				<sections />
+				<materials>
+					<material name="Mat1" default="true">
+						<isotropic_linear_material yield_stress="420000000" density="7850" youngs_modulus="2.1e+11" poissons_ratio="0.3" thermal_expansion="1.2e-05" damping="0.03" />
+					</material>
+				</materials>
+				<thicknesses>
+					<thickness name="Tck1" default="true">
+						<constant_thickness th="0.01" />
+					</thickness>
+				</thicknesses>
+				<effective_flange />
+				<wet_surfaces />
+				<beam_types />
+				<beam_classifications />
+				<slot_lug />
+				<corrosion_additions />
+				<sn_curves />
+				<mass_density_factors />
+				<mesh_options />
+				<permeable_properties />
+				<thickness_corrections />
+				<pile_characteristics />
+				<plate_types />
+				<reinforcements />
+				<load_interfaces />
+				<structure_types />
+				<mesh_properties>
+					<mesh_densities />
+					<number_of_elements_properties />
+					<sniping_properties />
+					<mesh_options_holes />
+				</mesh_properties>
+				<hydro_properties>
+					<air_drag_coefficients />
+					<morison_diameters />
+					<buoyancy_areas />
+					<hydro_element_refinements />
+					<flooding_coefficients />
+					<morison_coefficients />
+					<marine_growths />
+					<hydro_permeabilities />
+					<conductor_shieldings />
+				</hydro_properties>
+			</properties>
+			<structures>
+				<structure>
+					<flat_plate name="Pl1" thickness_ref="Tck1" material_ref="Mat1">
+						<segmentation />
+						<front />
+						<back />
+						<local_system>
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<sheet>
+								<sat_reference>
+									<face face_ref="FACE00000001" />
+								</sat_reference>
+							</sheet>
+						</geometry>
+					</flat_plate>
+				</structure>
+			</structures>
+			<manual_overlap_managers />
+			<feature_concepts />
+			<geometry>
+				<sat_embedded encoding="base64" compression="zip" tag_name="dnvscp"><![CDATA[UEsDBC0AAAAIAOSkMVZ4/09gNgIAAPQGAAALABQAYjY0dGVtcC5zYXQBABAAAAAAAAAAAAAAAAAAAAAAAIVVyW7bMBC9F+g/DFBdaQypPScbjlOkQIMCNnINZIteEJk0ZMlp/r7c5EWlHFIE5zDvzZsZkmKICAhUrcv4/o1mMJ/NJ7+BwGb/k8s9b+pPoBFMps9zCHGEIwovC2ARLFoOvwoBNAWGD2H+gJkyWKhZNHk+ym9HzAmmQDmhqHwIwlKWnxAQCvbTVuA2tRaAZlLzIfxQGApVuz/0MXoxCNALYXDc8qryYfQKu7A+bAjrYsUhiPrI2ATUVgJrWX8UdQmlbJcVB9k28KSmxkdwbOqd2LwVjdqXRBR73tkbLog1O2lB2kliqi9DE90+TqAUp+PqAGPK4GkynaEd1ISOoZLSW6lMR+hn24p3IT+EgSZwqArBybGtbfo3HLGaDmvUYFeAtxM8u6lZUpgWqy0v/2iuiUm0bTh5fHntp61XpEXdS7lL+za8DpTBSvJy09cZ5Kqr6LpLz13SrSMWmA8AVTl1kYwZ+oCK1o/MLNggIy+Sgjeizimgie6FIUnP4HF67s3Ctqp3I9hQFmhKYMzMqyX0a0mMlhwcAUO/FqfhRkvkZWTUMMaGUS/Ghiixo3WEMZx43fC//4nUtKH1Se75RNYn1Rex2G22DVm19akv0YW056w7wKpq3vrkOhtGbTaq2yy+l811efIhpeoRYol9rfBLpYaP2KvXaVVyBqjVaWKp9WH3qS8VuOIN4SB3ovHXy3hEQx6XFzj+KrDjI9flVwXxEV/zpgMezmEmSiLXRP+5SFk0BfwDUEsBAgAAFAAAAAgA5KQxVnj/T2A2AgAA9AYAAAsAAAAAAAAAAQAAAAAAAAAAAGI2NHRlbXAuc2F0UEsFBgAAAAABAAEAOQAAAHMCAAAAAA==]]></sat_embedded>
+			</geometry>
+			<fatigue />
+		</structure_domain>
+		<utilities>
+			<guide_geometry />
+		</utilities>
+		<equipment_domain>
+			<equipment_concepts />
+		</equipment_domain>
+		<evaluators>
+			<slicer_concepts />
+		</evaluators>
+		<environment>
+			<environment_properties>
+				<wind_spectra />
+				<wind_profiles />
+				<wave_spectra />
+				<current_profiles />
+				<directions />
+				<frequency_sets />
+				<phase_sets />
+				<regular_wave_sets />
+				<scours />
+				<seabed_properties />
+				<soil_properties />
+				<soil_data_properties />
+				<spreading_functions />
+				<wave_height_evaluators />
+			</environment_properties>
+			<environment_concepts />
+		</environment>
+		<compartments>
+			<compartment_properties>
+				<compartment_contents />
+			</compartment_properties>
+			<compartment_outlines />
+		</compartments>
+		<analysis_domain>
+			<analyses>
+				<global active="true" />
+			</analyses>
+		</analysis_domain>
+	</model>
+</DNV_structure_concept_protocol>

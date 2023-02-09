@@ -1,0 +1,406 @@
+1
+
+   Abaqus 2021.HF4                                  Date 17-okt-2022   Time 17:26:32
+   For use by Company X under license from Dassault Systemes or its subsidiary.
+
+
+
+                         The Abaqus Software is a product of:
+
+                           Dassault Systemes SIMULIA Corp.
+                           1301 Atwood Avenue, Suite 101W
+                              Johnston, RI 02919, USA
+ 
+
+
+                   The Abaqus Software is available only under license
+                   from Dassault Systemes or its subsidiary and may be
+                   used or reproduced only in accordance with the terms
+                   of such license.
+ 
+                          On machine Machine X 
+                          you are authorized to run
+                          Abaqus/Foundation until 31-Dec-2022
+
+                          Your site id is: ID XXXXXXXXXXXXXXX 
+
+
+ 
+                    For assistance or any other information you may
+                    obtain contact information for your local office
+                    from the world wide web at:
+
+                      http://www.3ds.com/products/simulia/locations/
+
+ 
+                * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+                *                                                         * 
+                *                   *****************                     * 
+                *                   *  N O T I C E  *                     * 
+                *                   *****************                     * 
+                *                                                         * 
+                *                                                         * 
+                *                     Abaqus 2021.HF4                     * 
+                *                                                         * 
+                *          BUILD ID: 2020_11_25-20.39.27 167889           * 
+                *                                                         * 
+                *                                                         * 
+                *  Please make sure you are using                         * 
+                *  release Abaqus 2021.HF4 manuals                        * 
+                *  plus the notes accompanying this release.              * 
+                *                                                         * 
+                *                                                         * 
+                *                                                         * 
+                *                                                         * 
+                * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+
+
+ 
+
+
+
+     PROCESSING PART, INSTANCE, AND ASSEMBLY INFORMATION
+   *******************************************************
+
+
+     END PROCESSING PART, INSTANCE, AND ASSEMBLY INFORMATION
+   ***********************************************************
+
+
+
+
+     OPTIONS BEING PROCESSED
+   ***************************
+
+
+  *Heading
+  *Node
+  *Element, type=C3D8
+  *Nset, nset=ASSEMBLY_ADAFEM_BC_NODES
+  *Elset, elset=ASSEMBLY_ADAFEM_ELMYBEAM_SO
+  *material, name=S420
+  *elastic
+  *density
+  *expansion
+  *plastic
+  *solidsection, elset=ASSEMBLY_ADAFEM_ELMYBEAM_SO, material=S420
+  *solidsection, elset=ASSEMBLY_ADAFEM_ELMYBEAM_SO, material=S420
+  *constraintcontrols, print=YES
+  *boundary
+  *boundary
+  *output, history, frequency=1
+  *output, field, frequency=1
+  *elementoutput, directions=YES
+  *output, history, frequency=1
+  *output, field, frequency=1
+  *elementoutput, directions=YES
+  *output, history, frequency=1
+  *output, field, frequency=1
+  *elementoutput, directions=YES
+  *Step, name=eig, nlgeom=NO, perturbation
+  *frequency, eigensolver=LANCZOS, normalization=DISPLACEMENT, sim=NO, acousticcoupling=ON
+  *output, history, frequency=1
+  *output, field, frequency=1
+  *Step, name=eig, nlgeom=NO, perturbation
+  *Step, name=eig, nlgeom=NO, perturbation
+  *frequency, eigensolver=LANCZOS, normalization=DISPLACEMENT, sim=NO, acousticcoupling=ON
+  *frequency, eigensolver=LANCZOS, normalization=DISPLACEMENT, sim=NO, acousticcoupling=ON
+
+ ***WARNING: TOO MANY DATA LINES HAVE BEEN SPECIFIED FOR *FREQUENCY
+  *output, history, frequency=1
+
+ ***WARNING: THE FREQUENCY PARAMETER IS IGNORED IN A *FREQUENCY, *COMPLEX 
+             FREQUENCY, OR *BUCKLE STEP. USE THE MODE LIST PARAMETER TO MODIFY 
+             OUTPUT REQUESTS.
+  *energyoutput
+  *output, field, frequency=1
+
+ ***WARNING: THE FREQUENCY PARAMETER IS IGNORED IN A *FREQUENCY, *COMPLEX 
+             FREQUENCY, OR *BUCKLE STEP. USE THE MODE LIST PARAMETER TO MODIFY 
+             OUTPUT REQUESTS.
+  *nodeoutput
+  *elementoutput, directions=YES
+  *contactoutput
+  *endstep
+
+ ***WARNING: OUTPUT REQUEST ALLAE IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST ALLCD IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST ALLDMD IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST ALLEE IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST ALLFD IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST ALLIE IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST ALLJD IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST ALLKL IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST ALLPD IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST ALLQB IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST ALLSD IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST ALLVD IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST ALLWK IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST ETOTAL IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST A IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST CF IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST V IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: STRAIN OUTPUT REQUEST LE IS NOT VALID FOR SOME ELEMENTS IN THIS 
+             ANALYSIS. THIS REQUEST IS SWITCHED TO THE STRAIN MEASURE, E.
+
+ ***WARNING: OUTPUT REQUEST PE IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST PEEQ IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST PEMAG IS NOT AVAILABLE FOR THIS TYPE OF ANALYSIS
+
+ ***WARNING: OUTPUT REQUEST SE IS NOT AVAILABLE FOR ELEMENT TYPE C3D8
+  *constraintcontrols, print=YES
+  *boundary
+  *Step, name=eig, nlgeom=NO, perturbation
+  *frequency, eigensolver=LANCZOS, normalization=DISPLACEMENT, sim=NO, acousticcoupling=ON
+  *frequency, eigensolver=LANCZOS, normalization=DISPLACEMENT, sim=NO, acousticcoupling=ON
+  *endstep
+
+ ***WARNING: OUTPUT REQUEST CF HAS BEEN REMOVED AS THERE ARE NO APPLICABLE 
+             LOADS IN THIS STEP
+
+ ***NOTE: Boundary conditions are specified on inactive dof of 30 nodes. The 
+          nodes have been identified in node set WarnNodeBCInactiveDof.
+
+
+
+                            P R O B L E M   S I Z E
+
+
+          NUMBER OF ELEMENTS IS                                   420
+          NUMBER OF NODES IS                                      930
+          NUMBER OF NODES DEFINED BY THE USER                     930
+          TOTAL NUMBER OF VARIABLES IN THE MODEL                 2790
+          (DEGREES OF FREEDOM PLUS MAX NO. OF ANY LAGRANGE MULTIPLIER
+           VARIABLES. INCLUDE *PRINT,SOLVE=YES TO GET THE ACTUAL NUMBER.)
+
+
+
+                              END OF USER INPUT PROCESSING
+
+
+
+     JOB TIME SUMMARY
+       USER TIME (SEC)      =  0.30000    
+       SYSTEM TIME (SEC)    =  0.10000    
+       TOTAL CPU TIME (SEC) =  0.40000    
+       WALLCLOCK TIME (SEC) =          1
+1
+
+   Abaqus 2021.HF4                                  Date 17-okt-2022   Time 17:26:42
+   For use by Company X under license from Dassault Systemes or its subsidiary.
+
+                                                                                               STEP    1  INCREMENT    1
+                                                                                          TIME COMPLETED IN THIS STEP   0.00    
+
+
+                        S T E P       1     C A L C U L A T I O N   O F   E I G E N V A L U E S
+
+                                            F O R   N A T U R A L   F R E Q U E N C I E S
+
+
+
+                                                                                          
+
+     THE LANCZOS EIGENSOLVER IS USED FOR THIS ANALYSIS
+     Abaqus WILL COMPUTE UNCOUPLED
+      STRUCTURAL AND ACOUSTIC MODES
+     NUMBER OF EIGENVALUES                     20
+     HIGHEST FREQUENCY OF INTEREST                  1.00000E+18
+     MAXIMUM NUMBER OF STEPS WITHIN RUN               35
+     BLOCK SIZE FOR LANCZOS PROCEDURE                  7
+     THE EIGENVECTORS ARE SCALED SO THAT 
+      THE LARGEST DISPLACEMENT ENTRY IN EACH VECTOR
+      IS UNITY
+
+     THIS IS A LINEAR PERTURBATION STEP.
+     ALL LOADS ARE DEFINED AS CHANGE IN LOAD TO THE REFERENCE STATE
+
+
+
+                    TOTAL MASS OF MODEL
+
+                       189.9967    
+
+
+                    LOCATION OF THE CENTER OF MASS OF THE MODEL
+
+                       1.500000          0.5000000          0.5000000    
+
+
+                    MOMENTS OF INERTIA ABOUT THE ORIGIN
+                           I(XX)               I(YY)               I(ZZ)
+
+                       100.6071           623.0708           618.1497    
+
+
+                    PRODUCTS OF INERTIA ABOUT THE ORIGIN
+                           I(XY)               I(XZ)               I(YZ)
+
+                      -142.4975          -142.4975          -47.49917    
+
+
+                    MOMENTS OF INERTIA ABOUT THE CENTER OF MASS
+                           I(XX)               I(YY)               I(ZZ)
+
+                       5.608708           148.0790           143.1580    
+
+
+                    PRODUCTS OF INERTIA ABOUT THE CENTER OF MASS
+                           I(XY)               I(XZ)               I(YZ)
+
+                      5.0306426E-12     -4.2632564E-12      3.9079850E-13
+  
+                   M E M O R Y   E S T I M A T E
+  
+ PROCESS      FLOATING PT       MINIMUM MEMORY        MEMORY TO
+              OPERATIONS           REQUIRED          MINIMIZE I/O
+             PER ITERATION           (MB)               (MB)
+  
+     1          2.55E+07               18                 40
+  
+ NOTE:
+      (1) SINCE ABAQUS DOES NOT PRE-ALLOCATE MEMORY AND ONLY ALLOCATES MEMORY AS NEEDED DURING THE ANALYSIS,
+          THE MEMORY REQUIREMENT PRINTED HERE CAN ONLY BE VIEWED AS A GENERAL GUIDELINE BASED ON THE BEST
+          KNOWLEDGE AVAILABLE AT THE BEGINNING OF A STEP BEFORE THE SOLUTION PROCESS HAS BEGUN.
+      (2) THE ESTIMATE IS NORMALLY UPDATED AT THE BEGINNING OF EVERY STEP. IT IS THE MAXIMUM VALUE OF THE
+          ESTIMATE FROM THE CURRENT STEP TO THE LAST STEP OF THE ANALYSIS, WITH UNSYMMETRIC SOLUTION TAKEN
+          INTO ACCOUNT IF APPLICABLE. 
+      (3) SINCE THE ESTIMATE IS BASED ON THE ACTIVE DEGREES OF FREEDOM IN THE FIRST ITERATION OF THE 
+          CURRENT STEP, THE MEMORY ESTIMATE MIGHT BE SIGNIFICANTLY DIFFERENT THAN ACTUAL USAGE FOR 
+          PROBLEMS WITH SUBSTANTIAL CHANGES IN ACTIVE DEGREES OF FREEDOM BETWEEN STEPS (OR EVEN WITHIN
+          THE SAME STEP). EXAMPLES ARE: PROBLEMS WITH SIGNIFICANT CONTACT CHANGES, PROBLEMS WITH MODEL
+          CHANGE, PROBLEMS WITH BOTH STATIC STEP AND STEADY STATE DYNAMIC PROCEDURES WHERE ACOUSTIC 
+          ELEMENTS WILL ONLY BE ACTIVATED IN THE STEADY STATE DYNAMIC STEPS.
+      (4) FOR MULTI-PROCESS EXECUTION, THE ESTIMATED VALUE OF FLOATING POINT OPERATIONS FOR EACH PROCESS
+          IS BASED ON AN INITIAL SCHEDULING OF OPERATIONS AND MIGHT NOT REFLECT THE ACTUAL FLOATING 
+          POINT OPERATIONS COMPLETED ON EACH PROCESS. OPERATIONS ARE DYNAMICALLY BALANCED DURING EXECUTION, 
+          SO THE ACTUAL BALANCE OF OPERATIONS BETWEEN PROCESSES IS EXPECTED TO BE BETTER THAN THE ESTIMATE
+          PRINTED HERE.
+      (5) THE UPPER LIMIT OF MEMORY THAT CAN BE ALLOCATED BY ABAQUS WILL IN GENERAL DEPEND ON THE VALUE OF
+          THE "MEMORY" PARAMETER AND THE AMOUNT OF PHYSICAL MEMORY AVAILABLE ON THE MACHINE. PLEASE SEE
+          THE "ABAQUS ANALYSIS USER'S MANUAL" FOR MORE DETAILS. THE ACTUAL USAGE OF MEMORY AND OF DISK
+          SPACE FOR SCRATCH DATA WILL DEPEND ON THIS UPPER LIMIT AS WELL AS THE MEMORY REQUIRED TO MINIMIZE
+          I/O. IF THE MEMORY UPPER LIMIT IS GREATER THAN THE MEMORY REQUIRED TO MINIMIZE I/O, THEN THE ACTUAL
+          MEMORY USAGE WILL BE CLOSE TO THE ESTIMATED "MEMORY TO MINIMIZE I/O" VALUE, AND THE SCRATCH DISK
+          USAGE WILL BE CLOSE-TO-ZERO; OTHERWISE, THE ACTUAL MEMORY USED WILL BE CLOSE TO THE PREVIOUSLY
+          MENTIONED MEMORY LIMIT, AND THE SCRATCH DISK USAGE WILL BE ROUGHLY PROPORTIONAL TO THE DIFFERENCE
+          BETWEEN THE ESTIMATED "MEMORY TO MINIMIZE I/O" AND THE MEMORY UPPER LIMIT. HOWEVER ACCURATE
+          ESTIMATE OF THE SCRATCH DISK SPACE IS NOT POSSIBLE.
+      (6) USING "*RESTART, WRITE" CAN GENERATE A LARGE AMOUNT OF DATA WRITTEN IN THE WORK DIRECTORY.
+
+
+                              E I G E N V A L U E    O U T P U T     
+
+ MODE NO      EIGENVALUE              FREQUENCY         GENERALIZED MASS   COMPOSITE MODAL DAMPING            
+                             (RAD/TIME)   (CYCLES/TIME)
+
+
+       1       7827.2         88.471         14.081         47.597         0.0000    
+       2       17571.         132.56         21.097         37.837         0.0000    
+       3      1.01965E+05     319.32         50.821         49.916         0.0000    
+       4      2.98033E+05     545.92         86.886         48.016         0.0000    
+       5      4.18502E+05     646.92         102.96         35.157         0.0000    
+       6      2.21069E+06     1486.8         236.64         45.495         0.0000    
+       7      2.58861E+06     1608.9         256.07         61.017         0.0000    
+       8      2.83485E+06     1683.7         267.97         36.988         0.0000    
+       9      7.36515E+06     2713.9         431.93         94.584         0.0000    
+      10      7.66935E+06     2769.4         440.76         36.738         0.0000    
+      11      9.95791E+06     3155.6         502.23         39.344         0.0000    
+      12      1.33117E+07     3648.5         580.68         63.264         0.0000    
+      13      1.70737E+07     4132.0         657.63         26.300         0.0000    
+      14      2.13026E+07     4615.5         734.58         27.718         0.0000    
+      15      2.16685E+07     4654.9         740.86         20.769         0.0000    
+      16      2.27608E+07     4770.8         759.30         17.865         0.0000    
+      17      2.48221E+07     4982.2         792.94         42.336         0.0000    
+      18      2.55467E+07     5054.4         804.43         22.756         0.0000    
+      19      2.68475E+07     5181.5         824.65         14.381         0.0000    
+      20      3.31206E+07     5755.1         915.94         22.798         0.0000    
+
+
+          P A R T I C I P A T I O N   F A C T O R S
+
+ MODE NO    X-COMPONENT    Y-COMPONENT    Z-COMPONENT    X-ROTATION     Y-ROTATION     Z-ROTATION 
+
+       1     -3.41764E-14     1.5635        5.73533E-12   -0.78173       -1.25170E-11     3.4112    
+       2      1.23921E-14    2.24212E-10    9.29468E-13    0.30647       -2.32391E-12    4.93569E-10
+       3      6.98947E-14   -5.64615E-12     1.5379        0.76895        -3.3538       -1.22190E-11
+       4     -4.38403E-14   -0.86601       -3.83866E-13    0.43300        5.30895E-13   -0.54344    
+       5      2.17231E-14   -3.21531E-11   -3.39339E-12   -0.16512        7.59030E-12   -2.37955E-11
+       6     -3.94557E-14    0.52288        2.14714E-13   -0.26144       -2.39606E-14    0.19910    
+       7      7.27774E-15    2.79396E-13   -0.80793       -0.40397        0.45099        1.43951E-13
+       8      7.59335E-14    4.85563E-13    2.42756E-13    9.83556E-02    3.60858E-13    1.13072E-12
+       9       1.2737        1.84397E-14   -2.74515E-14   -2.70944E-14    0.63685       -0.63685    
+      10      1.48855E-14   -0.41338       -4.61740E-15    0.20669       -1.48840E-14   -0.11133    
+      11     -1.18474E-13    3.82049E-13    8.81739E-14   -6.90367E-02   -7.50559E-14    9.80308E-13
+      12     -9.67216E-14   -1.87808E-14    0.44574        0.22287       -0.13332        1.37548E-14
+      13     -2.66546E-15    0.34228       -8.24861E-14   -0.17114        8.44884E-14    7.08018E-02
+      14      1.27988E-12   -1.82182E-03   -6.48108E-14    9.10911E-04    2.71127E-13   -1.46468E-03
+      15     -5.28213E-12    2.03807E-02    7.64522E-12   -1.01903E-02   -1.40172E-12    7.56238E-03
+      16      6.14719E-13   -1.73707E-02    7.64060E-12    8.68533E-03    1.40400E-12   -9.55201E-03
+      17      2.58122E-11    1.26591E-11   -2.86478E-11   -5.20043E-02    9.81094E-12   -1.19027E-11
+      18     -5.49279E-11    0.12830        8.01217E-11   -6.41508E-02   -2.41118E-11    2.95454E-02
+      19      4.55479E-11   -0.24159       -3.13293E-11    0.12080        2.59798E-11   -3.84764E-02
+      20     -1.53868E-10   -0.20484       -4.52022E-10    0.10242       -1.12943E-10   -4.10271E-02
+
+
+                    E F F E C T I V E   M A S S
+
+ MODE NO    X-COMPONENT    Y-COMPONENT    Z-COMPONENT    X-ROTATION     Y-ROTATION     Z-ROTATION 
+
+       1      5.55949E-26     116.35        1.56567E-21     29.086        7.45735E-21     553.86    
+       2      5.81038E-27    1.90210E-18    3.26877E-23     3.5538        2.04341E-22    9.21745E-18
+       3      2.43852E-25    1.59127E-21     118.06         29.514         561.44        7.45267E-21
+       4      9.22857E-26     36.011        7.07536E-24     9.0026        1.35333E-23     14.181    
+       5      1.65902E-26    3.63459E-20    4.04834E-22    0.95859        2.02548E-21    1.99067E-20
+       6      7.08244E-26     12.439        2.09741E-24     3.1097        2.61192E-26     1.8035    
+       7      3.23182E-27    4.76316E-24     39.829         9.9573         12.410        1.26440E-24
+       8      2.13268E-25    8.72069E-24    2.17972E-24    0.35781        4.81649E-24    4.72903E-23
+       9       153.45        3.21608E-26    7.12772E-26    6.94346E-26     38.362         38.362    
+      10      8.14037E-27     6.2779        7.83265E-28     1.5695        8.13871E-27    0.45535    
+      11      5.52235E-25    5.74270E-24    3.05885E-25    0.18752        2.21640E-25    3.78097E-23
+      12      5.91835E-25    2.23142E-26     12.570         3.1424         1.1245        1.19691E-26
+      13      1.86853E-28     3.0812        1.78944E-25    0.77029        1.87737E-25    0.13184    
+      14      4.54052E-23    9.19977E-05    1.16429E-25    2.29994E-05    2.03755E-24    5.94631E-05
+      15      5.79476E-22    8.62689E-03    1.21394E-21    2.15672E-03    4.08074E-23    1.18777E-03
+      16      6.75090E-24    5.39063E-03    1.04295E-21    1.34766E-03    3.52164E-23    1.63003E-03
+      17      2.82076E-20    6.78450E-21    3.47455E-20    0.11450        4.07508E-21    5.99803E-21
+      18      6.86566E-20    0.37459        1.46082E-19    9.36485E-02    1.32298E-20    1.98644E-02
+      19      2.98356E-20    0.83941        1.41156E-20    0.20985        9.70667E-21    2.12906E-02
+      20      5.39755E-19    0.95660        4.65824E-18    0.23915        2.90819E-19    3.83747E-02
+
+ TOTAL         153.45         176.34         170.46         91.871         613.33         608.88    
+
+
+          THE ANALYSIS HAS BEEN COMPLETED
+
+
+
+                              ANALYSIS COMPLETE
+                              WITH     26 WARNING MESSAGES ON THE DAT FILE
+
+
+
+     JOB TIME SUMMARY
+       USER TIME (SEC)      =  0.80000    
+       SYSTEM TIME (SEC)    =  0.20000    
+       TOTAL CPU TIME (SEC) =   1.0000    
+       WALLCLOCK TIME (SEC) =          1

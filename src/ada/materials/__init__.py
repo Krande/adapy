@@ -1,3 +1,3 @@
 from .concept import Material
 
-__all__ = [Material]
+__all__ = ["Material"]

@@ -160,7 +160,7 @@ class FieldOutput(FemBase):
     TYPES_INTERVAL = IntervalTypes
 
     default_no = ["A", "CF", "RF", "U", "V"]
-    default_el = ["LE", "PE", "PEEQ", "PEMAG", "S"]
+    default_el = ["LE", "PE", "PEEQ", "PEMAG", "S", "SE"]
     default_co = ["CSTRESS", "CDISP", "CFORCE", "CSTATUS"]
 
     def __init__(

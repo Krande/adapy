@@ -1,5 +1,6 @@
+from __future__ import annotations
+
 import datetime
-from typing import Union
 
 from ada.core.utils import get_current_user
 from ada.fem.steps import Step, StepEigen, StepImplicit
@@ -7,7 +8,7 @@ from ada.fem.steps import Step, StepEigen, StepImplicit
 from .templates import sestra_eig_inp_str, sestra_header_inp_str, sestra_static_inp_str
 
 
-def write_sestra_inp(name, step: Union[StepEigen]):
+def write_sestra_inp(name, step: StepEigen | StepImplicit):
     step_map = {Step.TYPES.EIGEN: write_sestra_eig_str, Step.TYPES.STATIC: write_sestra_static_str}
     step_str_writer = step_map.get(step.type, None)
     if step_str_writer is None:

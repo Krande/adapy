@@ -13,7 +13,7 @@ def test_plate_mesh_from_2_fem(pl1, pl2):
     p.fem = pl1.to_fem_obj(1, "shell")
     p.fem += pl2.to_fem_obj(1, "shell")
 
-    el_types = {el_type: list(group) for el_type, group in p.fem.elements.group_by_type()}
+    el_types = {el_type.value: list(group) for el_type, group in p.fem.elements.group_by_type()}
 
     assert len(el_types.keys()) == 1
     assert len(el_types["TRIANGLE"]) == pytest.approx(236, abs=15)

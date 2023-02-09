@@ -181,7 +181,6 @@ def complex_eig_str(step: StepEigenComplex):
 
 
 def steady_state_response_str(step: StepSteadyState) -> str:
-
     load = step.unit_load
     directions = [dof for dof in load.dof if dof is not None]
     if len(directions) != 1:

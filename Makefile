@@ -1,21 +1,13 @@
-cmd_pre=pip install pytest && conda list
-cmd_test=cd /home/tests/fem && pytest && python build_verification_report.py
-mount=--mount type=bind,source="$(CURDIR)/temp/report",target=/home/tests/fem/temp \
-      --mount type=bind,source="$(CURDIR)/temp/scratch",target=/home/adauser/scratch
-build_dirs=mkdir -p "temp/report" && mkdir -p "temp/scratch"
-build_dirs_win=mkdir -p "temp/report" && mkdir -p "temp/scratch"
+mount=--mount type=bind,source="$(CURDIR)/temp/report",target=/aster/work/tests/fem/temp \
+      --mount type=bind,source="$(CURDIR)/temp/scratch",target=/aster/work/scratch
+drun=docker run --user aster --rm $(mount) krande/ada:femtests conda run --live-stream -n adadocker
 
-install:
-	conda env create -f environment.yml
 
-update:
-	conda env update --file environment.yml --prune
-
-iformat:
-	conda install -c conda-forge pre-commit
+dev:
+	mamba env update --file environment.dev.yml --prune
 
 format:
-	black . && isort . && flake8 .
+	black --config pyproject.toml . && isort . && ruff . --fix
 
 bump:
 	bumpversion patch setup.py
@@ -29,27 +21,29 @@ docs-update:
 docs-build:
 	activate adadocs && cd docs && make html
 
-build:
-	docker build -t ada/base:latest .
+bbase:
+	docker build . -t krande/ada:base -f images/base.Dockerfile
+
+bdev:
+	docker build . -t krande/ada:dev -f images/dev.Dockerfile
+
+bfem:
+	docker build . -t krande/ada:femtests -f images/femtests.Dockerfile
+
+mdir:
+	mkdir -p temp/report && mkdir temp/scratch
+
+dtest:
+	$(drun) ./run_tests.sh
+
+dprint:
+	docker run --rm $(mount) krande/ada:femtests ls
+
+pbase:
+	docker push krande/ada:base
 
 run:
-	docker run --rm -p 8888:8888 ada/base:latest
+	docker run -it --rm -p 8888:8888 krande/adabase:latest
 
 test:
 	cd tests && pytest --cov=ada --cov-report=xml --cov-report=html .
-
-dtest:
-	$(build_dirs) && \
-	docker build -t ada/testing . && \
-	docker run --name ada-report --rm $(mount) ada/testing bash -c "$(cmd_pre) && $(cmd_test)"
-
-dtest-local:
-	$(build_dirs_win) && \
-	docker build -t ada/testing . && \
-	docker run --name ada-report --rm $(mount) ada/testing bash -c "$(cmd_pre) && $(cmd_test)"
-
-dtest-b:
-	$(build_dirs) && docker build -t ada/testing .
-
-dtest-r:
-	docker run --name ada-report --rm $(mount) ada/testing bash -c "$(cmd_pre) && $(cmd_test)"

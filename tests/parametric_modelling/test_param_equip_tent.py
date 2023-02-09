@@ -1,5 +1,6 @@
 import pytest
 
+import ada
 from ada.concepts.transforms import Placement
 from ada.param_models.basic_module import EquipmentTent, SimpleStru
 
@@ -41,15 +42,21 @@ def test_eq_model_to_ifc_and_fem(eq_model_4legged, param_models_test_dir):
 
 
 def test_simple_stru_with_equipment(simple_stru, eq_model_4legged, param_models_test_dir):
+    a = ada.Assembly() / simple_stru
+
     simple_stru.add_part(eq_model_4legged)
-    simple_stru.move_all_mats_and_sec_here_from_subparts()
+    simple_stru.consolidate_sections()
+    simple_stru.consolidate_materials()
 
     # Build FEM model
     simple_stru.fem = simple_stru.to_fem_obj(0.3)
     simple_stru.add_bcs()
+
+    a.to_fem("MySimpleStruWEquip_aba_pre_merge", "abaqus", overwrite=True)
+
     assert len(simple_stru.fem.sections) == 76
     simple_stru.fem.sections.merge_by_properties()
-    assert len(simple_stru.fem.sections) == 6
+    assert len(simple_stru.fem.sections) == 16
 
     # Add loads
     # step = simple_stru.fem.add_step(StepImplicit("Static", nl_geom=True))
@@ -58,10 +65,11 @@ def test_simple_stru_with_equipment(simple_stru, eq_model_4legged, param_models_
     # Export to STEP,IFC and FEM
     # import ada
     # from ada.fem import Load, StepImplicit
-    # a = ada.Assembly() / simple_stru
+
     # a.to_stp(test_dir / "simple_stru_with_equipments_before_fem")
-    # a.to_ifc(test_dir / "simple_stru_with_equipments_before_fem", include_fem=False)
+    a.to_ifc("temp/simple_stru_with_equipments_before_fem.ifc", include_fem=False)
     # a.to_fem("MySimpleStruWEquip_ca", "code_aster", overwrite=True, execute=True)
     # a.to_fem("MySimpleStruWEquip_ufo", "usfos", overwrite=True)
     # a.to_fem("MySimpleStruWEquip_ses", "sesam", overwrite=True)
+    a.to_fem("MySimpleStruWEquip_aba", "abaqus", overwrite=True)
     # a.to_ifc(param_models_test_dir / "simple_stru_with_equipments_after_fem", include_fem=True)

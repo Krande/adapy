@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from io import StringIO
 from typing import TYPE_CHECKING
@@ -25,7 +27,7 @@ if TYPE_CHECKING:
 __all__ = ["to_fem"]
 
 
-def to_fem(assembly: "Assembly", name, analysis_dir=None, metadata=None, writable_obj: StringIO = None):
+def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None, writable_obj: StringIO = None):
     """Build the Abaqus Analysis input deck"""
 
     # Write part bulk files

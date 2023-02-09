@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.fem.shapes import ElemShapeTypes
+from ada.fem.shapes import definitions as shape_def
 
 from ..common import ada_to_med_type
 from .write_sets import _add_cell_sets
@@ -32,8 +32,8 @@ def elements_str(part: "Part", time_step, profile, families):
     elements_group = time_step.create_group("MAI")
     elements_group.attrs.create("CGT", 1)
     for group, elements in part.fem.elements.group_by_type():
-        if group in ElemShapeTypes.masses + ElemShapeTypes.springs:
-            logging.error("NotImplemented: Skipping Mass or Spring Elements")
+        if isinstance(group, (shape_def.MassTypes, shape_def.SpringTypes)):
+            logging.warning("NotImplemented: Skipping Mass or Spring Elements")
             continue
         med_type = ada_to_med_type(group)
         elements = list(elements)

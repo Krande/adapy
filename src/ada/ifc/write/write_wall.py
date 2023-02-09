@@ -21,7 +21,6 @@ def write_ifc_wall(wall: Wall):
     ifc_store = a.ifc_store
     f = ifc_store.f
 
-    context = f.by_type("IfcGeometricRepresentationContext")[0]
     owner_history = ifc_store.owner_history
     parent = f.by_guid(wall.parent.guid)
     elevation = wall.placement.origin[2]
@@ -30,7 +29,7 @@ def write_ifc_wall(wall: Wall):
     wall_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
 
     polyline2d = create_ifcpolyline(f, wall.points)
-    axis_representation = f.createIfcShapeRepresentation(context, "Axis", "Curve2D", [polyline2d])
+    axis_representation = f.createIfcShapeRepresentation(ifc_store.get_context("Axis"), "Axis", "Curve2D", [polyline2d])
 
     extrusion_placement = create_ifc_placement(f, (0.0, 0.0, float(elevation)), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
 
@@ -38,7 +37,7 @@ def write_ifc_wall(wall: Wall):
     profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
 
     solid = create_ifcextrudedareasolid(f, profile, extrusion_placement, (0.0, 0.0, 1.0), wall.height)
-    body = f.createIfcShapeRepresentation(context, "Body", "SweptSolid", [solid])
+    body = f.createIfcShapeRepresentation(ifc_store.get_context("Body"), "Body", "SweptSolid", [solid])
 
     product_shape = f.createIfcProductDefinitionShape(None, None, [axis_representation, body])
 
@@ -57,12 +56,10 @@ def write_ifc_wall(wall: Wall):
 
 
 def add_ifc_insert_elem(wall: Wall, shape_, opening_element, wall_el, ifc_type):
-
     a = wall.parent.get_assembly()
     ifc_store = a.ifc_store
     f = ifc_store.f
 
-    context = f.by_type("IfcGeometricRepresentationContext")[0]
     owner_history = ifc_store.owner_history
     schema = f.wrapped_data.schema
 
@@ -75,8 +72,9 @@ def add_ifc_insert_elem(wall: Wall, shape_, opening_element, wall_el, ifc_type):
     insert_shape = f.add(insert_shape_)
 
     # Link to representation context
+    body_context = ifc_store.get_context("Body")
     for rep in insert_shape.Representations:
-        rep.ContextOfItems = context
+        rep.ContextOfItems = body_context
 
     insert_map = dict(IfcWindow=write_window, IfcDoor=write_door)
 

@@ -12,10 +12,9 @@ def code_aster_test_dir(test_dir):
 
 
 def test_read_write_cylinder(example_files, code_aster_test_dir):
-
     name = "cylinder"
 
-    a = ada.from_fem(example_files / "fem_files/meshes/med/cylinder.med", "code_aster", name="cylinder_rewritten")
+    a = ada.from_fem(example_files / "fem_files/code_aster/cylinder.med", "code_aster", name="cylinder_rewritten")
     a.to_fem(name, "code_aster", overwrite=True, scratch_dir=code_aster_test_dir)
 
     b = ada.from_fem((code_aster_test_dir / name / name).with_suffix(".med"), fem_format="code_aster")
@@ -27,10 +26,9 @@ def test_read_write_cylinder(example_files, code_aster_test_dir):
 
 
 def test_read_write_box(example_files, code_aster_test_dir):
-
     name = "box"
 
-    a = ada.from_fem(example_files / "fem_files/meshes/med/box.med", "code_aster", name="box")
+    a = ada.from_fem(example_files / "fem_files/code_aster/box.med", "code_aster", name="box")
     a.to_fem(name, "code_aster", overwrite=True, scratch_dir=code_aster_test_dir)
 
     b = ada.from_fem((code_aster_test_dir / name / name).with_suffix(".med"), fem_format="code_aster")
@@ -42,7 +40,6 @@ def test_read_write_box(example_files, code_aster_test_dir):
 
 
 def test_read_write_portal_frame(example_files, code_aster_test_dir):
-
     name = "portal"
 
     a = ada.from_fem(example_files / "fem_files/code_aster/portal_01.med", "code_aster", name=name)
@@ -57,7 +54,6 @@ def test_read_write_portal_frame(example_files, code_aster_test_dir):
 
 
 def test_write_cantilever(code_aster_test_dir):
-
     name = "cantilever_code_aster"
 
     a = beam_ex1()

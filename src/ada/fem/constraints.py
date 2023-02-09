@@ -52,8 +52,11 @@ class Bc(FemBase):
         metadata=None,
         parent=None,
     ):
+        """dofs should be a list with integers from 1-6"""
         super().__init__(name, metadata, parent)
         self._fem_set = fem_set
+        fem_set.refs.append(self)
+
         self._dofs = dofs if type(dofs) is list else [dofs]
         if magnitudes is None:
             self._magnitudes = [None] * len(self._dofs)
@@ -104,7 +107,7 @@ class Constraint(FemBase):
         name,
         con_type,
         m_set: FemSet,
-        s_set: Union[FemSet, "Surface"],
+        s_set: Union[FemSet, Surface],
         dofs=None,
         pos_tol=None,
         mpc_type=None,
@@ -114,6 +117,8 @@ class Constraint(FemBase):
         influence_distance: float = None,
     ):
         super().__init__(name, metadata, parent)
+        m_set.refs.append(self)
+        s_set.refs.append(self)
         self._con_type = con_type
         self._m_set = m_set
         self._s_set = s_set
@@ -184,7 +189,7 @@ class PredefinedField(FemBase):
         self,
         name,
         field_type,
-        fem_set=None,
+        fem_set: FemSet = None,
         dofs=None,
         magnitude=None,
         initial_state_file=None,
@@ -194,6 +199,8 @@ class PredefinedField(FemBase):
     ):
         super().__init__(name, metadata, parent)
         self.type = field_type
+        if fem_set is not None:
+            fem_set.refs.append(self)
         self._fem_set = fem_set
         self._dofs = dofs
         self._magnitude = magnitude
@@ -214,11 +221,6 @@ class PredefinedField(FemBase):
 
     @property
     def fem_set(self) -> FemSet:
-        """
-
-        :return:
-        :rtype: FemSet
-        """
         return self._fem_set
 
     @property

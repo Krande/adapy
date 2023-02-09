@@ -21,8 +21,8 @@ def valid_spatial_classes(product: ifcopenshell.entity_instance):
         return True
 
     if is_ok_class is True:
-        logging.warning(f"{product}-> {has_no_geom}")
-        return False
+        logging.info(f"{product=}-> {has_no_geom=}")
+        return True
 
     return False
 
@@ -82,5 +82,5 @@ class PartImporter:
             name = resolve_name(props, product)
 
         self.ifc_store.assembly.name = name
-        self.ifc_store.assembly.guid = product.GlobalId
+        self.ifc_store.assembly._guid = product.GlobalId
         self.ifc_store.assembly.metadata.update(props)

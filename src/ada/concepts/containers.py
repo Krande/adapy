@@ -29,6 +29,7 @@ from ada.materials import Material
 if TYPE_CHECKING:
     from ada import FEM, Assembly, Part
     from ada.concepts.connections import JointBase
+    from ada.fem.results.common import FemNodes
     from ada.sections import Section
 
 __all__ = [
@@ -56,7 +57,6 @@ class Beams(BaseCollections):
     """A collections of Beam objects"""
 
     def __init__(self, beams: Iterable[Beam] = None, parent=None):
-
         super().__init__(parent)
         beams = [] if beams is None else beams
         self._beams = sorted(beams, key=attrgetter("name"))
@@ -616,7 +616,12 @@ class Sections(NumericMapped):
         self.recreate_name_and_id_maps(self._sections)
 
         if len(self._name_map.keys()) != len(self._id_map.keys()):
-            logging.warning(f"Non-unique ids or name for section container belonging to part '{parent}'")
+            import collections
+
+            names = [sec.name for sec in self._sections]
+            counts = collections.Counter(names)
+            filtered_elements = {element: count for element, count in counts.items() if count > 1}
+            logging.warning(f"The following sections are non-unique '{filtered_elements}'")
 
     def renumber_id(self, start_id=1):
         cnt = Counter(start=start_id)
@@ -813,6 +818,15 @@ class Nodes:
             return np.array([(n.id, *n.p) for n in self._nodes])
         else:
             return np.array([n.p for n in self._nodes])
+
+    def to_fem_nodes(self) -> FemNodes:
+        from ada.fem.results.common import FemNodes
+
+        node_refs = self.to_np_array(include_id=True)
+        identifiers = node_refs[:, 0]
+        coords = node_refs[:, 1:]
+
+        return FemNodes(coords, identifiers)
 
     def __contains__(self, item):
         return item in self._nodes

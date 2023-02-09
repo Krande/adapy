@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -110,11 +110,11 @@ class Plate(BackendGeom):
         return self._t
 
     @property
-    def material(self) -> "Material":
+    def material(self) -> Material:
         return self._material
 
     @material.setter
-    def material(self, value: "Material"):
+    def material(self, value: Material):
         self._material = value
 
     @property
@@ -123,11 +123,11 @@ class Plate(BackendGeom):
         return self.poly.normal
 
     @property
-    def nodes(self) -> List[Node]:
+    def nodes(self) -> list[Node]:
         return self.poly.nodes
 
     @property
-    def poly(self) -> "CurvePoly":
+    def poly(self) -> CurvePoly:
         return self._poly
 
     @property
@@ -178,3 +178,9 @@ class Plate(BackendGeom):
 
     def __repr__(self):
         return f"Plate({self.name}, t:{self.t}, {self.material})"
+
+
+# https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/lexical/IfcBSplineSurfaceWithKnots.htm
+class PlateCurved(BackendGeom):
+    def __init__(self, name, guid=None):
+        super(PlateCurved, self).__init__(name=name, guid=guid)

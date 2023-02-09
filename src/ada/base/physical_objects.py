@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import pathlib
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 from ada.base.root import Root
 from ada.base.types import GeomRepr
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
 
 
+# TODO: Consider storing primitive geometry definitions as an attribute in the BackendGeom class to simplify subclasses.
 class BackendGeom(Root):
     """The backend of all physical components (Beam, Plate, etc.) or aggregate of components (Part, Assembly)"""
 
@@ -237,11 +238,11 @@ class BackendGeom(Root):
         return False if self.opacity == 1.0 else True
 
     @property
-    def penetrations(self) -> List[Penetration]:
+    def penetrations(self) -> list[Penetration]:
         return self._penetrations
 
     @property
-    def elem_refs(self) -> List[Elem]:
+    def elem_refs(self) -> list[Elem]:
         return self._elem_refs
 
     @elem_refs.setter

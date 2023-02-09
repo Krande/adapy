@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 from ada import fem
 from ada.base.units import Units
-from ada.concepts.connections import Bolts, Weld
 from ada.concepts.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
+from ada.concepts.fasteners import Bolts, Weld
 from ada.concepts.piping import Pipe, PipeSegElbow, PipeSegStraight
 from ada.concepts.points import Node
 from ada.concepts.primitives import (
@@ -33,7 +33,8 @@ from ada.sections import Section
 if TYPE_CHECKING:
     import ifcopenshell
 
-    from ada.fem.results import Results
+    from ada.fem.formats.sesam.results.read_cc import CCData
+    from ada.fem.results.common import FEAResult
 
 
 __author__ = "Kristoffer H. Andersen"
@@ -79,14 +80,20 @@ def from_fem(
     return a
 
 
-def from_fem_res(fem_file: str | pathlib.Path, fem_format: str = None, **kwargs) -> Results:
-    from ada.fem.results import Results
+def from_fem_res(fem_file: str | pathlib.Path, fem_format: str = None) -> FEAResult:
+    from ada.fem.formats.postprocess import postprocess
 
-    return Results(fem_file, fem_format=fem_format, **kwargs)
+    return postprocess(fem_file, fem_format)
+
+
+def from_sesam_cc(fem_file: str | pathlib.Path) -> dict[str, CCData]:
+    from ada.fem.formats.sesam.results.read_cc import read_cc_file
+
+    return read_cc_file(fem_file)
 
 
 def from_genie_xml(xml_path, **kwargs) -> Assembly:
-    from ada.fem.formats.sesam.xml.read_xml import from_xml_file
+    from ada.fem.formats.sesam.xml.read.read_xml import from_xml_file
 
     return from_xml_file(xml_path, **kwargs)
 

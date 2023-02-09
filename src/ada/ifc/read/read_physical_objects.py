@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from .exceptions import NoIfcAxesAttachedError
+from .exceptions import NoIfcAxesAttachedError, UnableToConvertBoolResToBeamException
 from .read_beams import import_ifc_beam
 from .read_pipe import import_pipe_segment
 from .read_plates import import_ifc_plate
@@ -19,7 +19,7 @@ def import_physical_ifc_elem(product, name, ifc_store: IfcStore):
     if pr_type in ["IfcBeamStandardCase", "IfcBeam"]:
         try:
             return import_ifc_beam(product, name, ifc_store)
-        except NoIfcAxesAttachedError as e:
+        except (NoIfcAxesAttachedError, UnableToConvertBoolResToBeamException) as e:
             logging.debug(e)
             pass
     if pr_type in ["IfcPlateStandardCase", "IfcPlate"]:

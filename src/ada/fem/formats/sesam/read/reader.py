@@ -1,7 +1,6 @@
 import os
 
 from ada.concepts.spatial import Assembly, Part
-from ada.core.utils import Counter
 
 from .read_constraints import get_bcs, get_constraints
 from .read_elements import get_elements, get_mass, get_springs
@@ -10,14 +9,12 @@ from .read_nodes import get_nodes, renumber_nodes
 from .read_sections import get_sections
 from .read_sets import get_sets
 
-_counter_part_name = Counter(prefix="T")
-
 
 def read_fem(fem_file: os.PathLike, fem_name: str = None):
     """Import contents from a Sesam fem file into an assembly object"""
 
     print("Starting import of Sesam input file")
-    part_name = next(_counter_part_name) if fem_name is None else fem_name
+    part_name = "T1" if fem_name is None else fem_name
     with open(fem_file, "r") as d:
         part = read_sesam_fem(d.read(), part_name)
 

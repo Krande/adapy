@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pathlib
-from typing import TYPE_CHECKING, Tuple, Union
+from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
 
@@ -9,6 +9,7 @@ from ada.base.ifc_types import ShapeTypes
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.core.utils import Counter, roundoff
+from ada.core.vector_utils import unit_vector, vector_length
 from ada.materials import Material
 from ada.materials.utils import get_material
 
@@ -32,16 +33,15 @@ class Shape(BackendGeom):
         colour=None,
         opacity=1.0,
         mass: float = None,
-        cog: Tuple[float, float, float] = None,
+        cog: tuple[float, float, float] = None,
         metadata=None,
         units=Units.M,
         guid=None,
-        material: Union[Material, str] = None,
+        material: Material | str = None,
         placement=Placement(),
         ifc_store: IfcStore = None,
         ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
     ):
-
         super().__init__(
             name,
             guid=guid,
@@ -264,20 +264,30 @@ class PrimCyl(Shape):
 
 
 class PrimExtrude(Shape):
-    def __init__(self, name, points2d, h, normal, origin, xdir, tol=1e-3, **kwargs):
+    def __init__(self, name, curve: list[tuple], h, normal=None, origin=None, xdir=None, tol=1e-3, **kwargs):
         self._name = name
+
         poly = CurvePoly(
-            points2d=points2d,
+            points2d=curve,
             normal=normal,
             origin=origin,
             xdir=xdir,
             tol=tol,
             parent=self,
         )
+
         self._poly = poly
         self._extrude_depth = h
 
         super(PrimExtrude, self).__init__(name, self._poly.make_extruded_solid(self._extrude_depth), **kwargs)
+
+    @staticmethod
+    def from_2points_and_curve(name: str, p1: Iterable, p2: Iterable, profile: list[tuple], xdir: tuple) -> PrimExtrude:
+        p1 = np.array(p1)
+        p2 = np.array(p2)
+        normal = unit_vector(p2 - p1)
+        length = vector_length(p2 - p1)
+        return PrimExtrude(name=name, curve=profile, h=length, normal=normal, origin=p1, xdir=xdir)
 
     @property
     def units(self):
@@ -297,7 +307,7 @@ class PrimExtrude(Shape):
             self._units = value
 
     @property
-    def poly(self) -> "CurvePoly":
+    def poly(self) -> CurvePoly:
         return self._poly
 
     @property
@@ -437,9 +447,15 @@ class PrimSweep(Shape):
         return f"PrimSweep({self.name})"
 
 
+class PrimBSplineSurface(Shape):
+    def __init__(self, name, udeg, vdeg, ctrlpts: list[list]):
+        super().__init__(name, geom=None)
+
+
 class Penetration(BackendGeom):
     _name_gen = Counter(1, "Pen")
     """A penetration object. Wraps around a primitive"""
+
     # TODO: Maybe this class should be evaluated for removal?
     def __init__(self, primitive, metadata=None, parent=None, units=Units.M, guid=None):
         if issubclass(type(primitive), Shape) is False:

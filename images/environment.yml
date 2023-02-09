@@ -1,9 +1,12 @@
-name: root
+name: adadocker
 channels:
-  - krande
+  - krande/label/dev
   - conda-forge
+  - krande
 dependencies:
-  - python==3.10
+  - python==3.11
+  - nomkl
   - ada-py
   - paradoc
   - jupyter
+  - calculix

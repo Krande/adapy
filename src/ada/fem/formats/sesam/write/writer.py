@@ -1,13 +1,18 @@
+from __future__ import annotations
+
 import datetime
 import logging
 from operator import attrgetter
+from typing import TYPE_CHECKING
 
-from ada.concepts.spatial import Part
 from ada.core.utils import Counter, get_current_user
 from ada.fem import FEM
 
 from .templates import top_level_fem_str
 from .write_utils import write_ff
+
+if TYPE_CHECKING:
+    from ada import Material
 
 
 def to_fem(assembly, name, analysis_dir=None, metadata=None):
@@ -24,9 +29,9 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None):
     if "control_file" not in metadata.keys():
         metadata["control_file"] = None
 
-    parts = list(filter(lambda x: len(x.fem.nodes) > 0, assembly.get_all_subparts()))
+    parts = list(filter(lambda x: len(x.fem.nodes) > 0, assembly.get_all_subparts(include_self=True)))
     if len(parts) != 1:
-        raise ValueError("Sesam writer currently only works for a single part")
+        raise ValueError(f"Sesam writer currently only works for a single part. Currently found {len(parts)}")
 
     if len(assembly.fem.steps) > 1:
         logging.error("Sesam writer currently only supports 1 step. Will only use 1st step")
@@ -42,7 +47,12 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None):
 
     units = "UNITS     5.00000000E+00  1.00000000E+00  1.00000000E+00  1.00000000E+00\n          1.00000000E+00\n"
 
+    assembly.consolidate_sections()
+    assembly.consolidate_materials()
+    materials = assembly.get_all_materials(True)
+
     inp_file_path = (analysis_dir / f"{name}T1").with_suffix(".FEM")
+
     if len(assembly.fem.steps) > 0:
         step = assembly.fem.steps[0]
         with open(analysis_dir / "sestra.inp", "w") as f:
@@ -51,7 +61,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None):
     with open(inp_file_path, "w") as d:
         d.write(top_level_fem_str.format(date_str=date_str, clock_str=clock_str, user=user))
         d.write(units)
-        d.write(materials_str(part))
+        d.write(materials_str(materials))
         d.write(sections_str(part.fem, thick_map))
         d.write(univec_str(part.fem))
         d.write(nodes_str(part.fem))
@@ -66,10 +76,8 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None):
     print(f'Created an Sesam input deck at "{analysis_dir}"')
 
 
-def materials_str(part: Part):
-    out_str = "".join(
-        [write_ff("TDMATER", [(4, mat.id, 100 + len(mat.name), 0), (mat.name,)]) for mat in part.materials]
-    )
+def materials_str(materials: list[Material]):
+    out_str = "".join([write_ff("TDMATER", [(4, mat.id, 100 + len(mat.name), 0), (mat.name,)]) for mat in materials])
 
     out_str += "".join(
         [
@@ -80,7 +88,7 @@ def materials_str(part: Part):
                     (mat.model.zeta, mat.model.alpha, 1, mat.model.sig_y),
                 ],
             )
-            for mat in part.materials
+            for mat in materials
         ]
     )
     return out_str
@@ -98,7 +106,6 @@ def nodes_str(fem: FEM) -> str:
     if len(nodes) == 0:
         return "** No Nodes"
     else:
-
         out_str = "".join([write_ff("GNODE", [(no.id, no.id, 6, 123456)]) for no in nodes])
         out_str += "".join([write_ff("GCOORD", [(no.id, no[0], no[1], no[2])]) for no in nodes])
         return out_str

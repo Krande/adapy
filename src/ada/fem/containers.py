@@ -23,6 +23,7 @@ from ada.sections import Section
 
 if TYPE_CHECKING:
     from ada import FEM
+    from ada.fem.results.common import ElementBlock
 
 
 @dataclass
@@ -147,6 +148,19 @@ class FemElements:
             self.remove(self._idmap[elem_id])
         self._sort()
 
+    def to_elem_blocks(self) -> list[ElementBlock]:
+        from ada.fem.results.common import ElementBlock, ElementInfo, FEATypes
+
+        elements = []
+        for el_type, el_group in self.group_by_type():
+            info = ElementInfo(el_type, FEATypes.GMSH, None)
+            elem_data = np.array([tuple([e.id, *[n.id for n in e.nodes]]) for e in el_group], dtype=int)
+            el_identifiers = elem_data[:, 0]
+            node_refs = elem_data[:, 1:]
+            block = ElementBlock(info, node_refs, el_identifiers)
+            elements.append(block)
+        return elements
+
     def __contains__(self, item: Elem):
         return item in self._elements
 
@@ -268,16 +282,15 @@ class FemElements:
 
     @property
     def solids(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type in Elem.EL_TYPES.SOLID_SHAPES.all, self.stru_elements)
+        return filter(lambda x: isinstance(x.type, Elem.EL_TYPES.SOLID_SHAPES), self.stru_elements)
 
     @property
     def shell(self) -> Iterable[Elem]:
-
-        return filter(lambda x: x.type in Elem.EL_TYPES.SHELL_SHAPES.all, self.stru_elements)
+        return filter(lambda x: isinstance(x.type, Elem.EL_TYPES.SHELL_SHAPES), self.stru_elements)
 
     @property
     def lines(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type in Elem.EL_TYPES.LINE_SHAPES.all, self.stru_elements)
+        return filter(lambda x: isinstance(x.type, Elem.EL_TYPES.LINE_SHAPES), self.stru_elements)
 
     @property
     def lines_hinged(self) -> Iterable[Elem]:
@@ -289,7 +302,7 @@ class FemElements:
 
     @property
     def connectors(self) -> Iterable[Connector]:
-        return filter(lambda x: x.type == ElemType.CONNECTOR_SHAPES.CONNECTOR, self.elements)
+        return filter(lambda x: isinstance(x.type, Connector), self.elements)
 
     @property
     def masses(self) -> Iterable[Mass]:
@@ -297,7 +310,8 @@ class FemElements:
 
     @property
     def stru_elements(self) -> Iterable[Elem]:
-        return filter(lambda x: x.type not in ["MASS", "SPRING1", "CONNECTOR"], self._elements)
+        not_strus = (Mass, Connector)
+        return filter(lambda x: isinstance(x, not_strus) is False, self._elements)
 
     def connector_by_name(self, name: str):
         """Get Connector by name"""
@@ -323,14 +337,18 @@ class FemElements:
         :param keep_elem:
         :param delete_elem:
         """
-        keep_elem = [el_.lower() for el_ in keep_elem] if keep_elem is not None else None
-        delete_elem = [el_.lower() for el_ in delete_elem] if delete_elem is not None else None
+        from ada.fem.shapes.definitions import ShapeResolver
+
+        keep_elem = [ShapeResolver.get_el_type_from_str(el_) for el_ in keep_elem] if keep_elem is not None else None
+        delete_elem = (
+            [ShapeResolver.get_el_type_from_str(el_) for el_ in delete_elem] if delete_elem is not None else None
+        )
 
         def eval_elem(el):
             if keep_elem is not None:
-                return True if el.type.lower() in keep_elem else False
+                return True if el.type in keep_elem else False
             else:
-                return False if el.type.lower() in delete_elem else True
+                return False if el.type in delete_elem else True
 
         self._elements = list(filter(eval_elem, self._elements))
         self._by_types = dict(self.group_by_type())
@@ -340,7 +358,7 @@ class FemElements:
     def idmap(self):
         return self._idmap
 
-    def add(self, elem: Elem) -> Elem:
+    def add(self, elem: Elem, skip_grouping=False) -> Elem:
         if elem.id is None:
             if len(self._elements) > 0:
                 elem._el_id = self._elements[-1].id + 1
@@ -354,6 +372,9 @@ class FemElements:
 
         self._elements.append(elem)
         self._idmap[elem.id] = elem
+
+        if skip_grouping:
+            return elem
 
         self._group_by_types()
         return elem
@@ -374,7 +395,9 @@ class FemElements:
 
     def _group_by_types(self):
         if len(self._elements) > 0:
-            self._by_types = groupby(self._elements, key=attrgetter("type", SetTypes.ELSET))
+            self._by_types = groupby(
+                sorted(self._elements, key=attrgetter("type")), key=attrgetter("type", SetTypes.ELSET)
+            )
         else:
             self._by_types = dict()
 
@@ -419,10 +442,7 @@ class FemSections:
 
         merge_map: Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]] = dict()
         for fs in self.lines:
-            try:
-                props = (fs.material, fs.section.unique_props(), tuple(), tuple(fs.local_z), 0.0)
-            except TypeError:
-                print("d")
+            props = (fs.material, fs.section.unique_props(), tuple(), tuple(fs.local_z), tuple(fs.local_y))
             if props not in merge_map.keys():
                 merge_map[props] = []
 
@@ -572,7 +592,9 @@ class FemSections:
 
         for fs in fs_in:
             index = self._sections.index(fs)
-            self._sections.pop(index)
+            rem_fs = self._sections.pop(index)
+            if len(rem_fs.elset.refs) == 1 and rem_fs.elset.refs[0] == rem_fs:
+                rem_fs.parent.sets.remove(rem_fs.elset)
 
         self._name_map = {e.name: e for e in self._sections} if len(self._sections) > 0 else dict()
         self._id_map = {e.id: e for e in self._sections} if len(self._sections) > 0 else dict()

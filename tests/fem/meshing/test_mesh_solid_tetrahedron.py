@@ -7,7 +7,7 @@ def test_beam_mesh_with_hole(test_meshing_dir):
     bm.add_penetration(ada.PrimCyl("Cylinder", (0.5, -0.5, 0), (0.5, 0.5, 0), 0.05))
     p.fem = bm.to_fem_obj(0.5, "line", interactive=False)
 
-    el_types = {el_type: list(group) for el_type, group in p.fem.elements.group_by_type()}
+    el_types = {el_type.value: list(group) for el_type, group in p.fem.elements.group_by_type()}
 
     assert len(el_types.keys()) == 1
     assert len(el_types["LINE"]) == 2

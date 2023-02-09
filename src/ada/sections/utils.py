@@ -4,7 +4,6 @@ import json
 import pathlib
 import re
 from collections import OrderedDict
-from typing import Tuple
 
 import ada.core.utils
 from ada.base.units import Units
@@ -81,7 +80,7 @@ _re_in = re.IGNORECASE | re.DOTALL
 _rdoff = ada.core.utils.roundoff
 
 
-def interpret_section_str(in_str: str, s=0.001, units=Units.M) -> Tuple[Section, Section]:
+def interpret_section_str(in_str: str, s=0.001, units=Units.M) -> tuple[Section, Section]:
     """
 
     :param in_str:
@@ -108,10 +107,10 @@ def interpret_section_str(in_str: str, s=0.001, units=Units.M) -> Tuple[Section,
     raise UnableToConvertSectionError(f'Unable to interpret section str "{in_str}"')
 
 
-def get_section(sec: Section | str) -> Tuple[Section, Section]:
-    if type(sec) is Section:
+def get_section(sec: Section | str) -> tuple[Section, Section]:
+    if isinstance(sec, Section):
         return sec, sec
-    elif type(sec) is str:
+    elif isinstance(sec, str):
         return interpret_section_str(sec)
     else:
         raise ValueError("Unable to find beam section based on input: {}".format(sec))
@@ -299,7 +298,7 @@ def tg_section(in_str: str, s: float, units: Units):
         sec = Section(
             in_str,
             h=h[0],
-            sec_type=tg,
+            sec_type=SectionCat.BASETYPES.TPROFILE,
             w_btn=wt[0],
             w_top=tw[0],
             t_fbtn=tf[0],
@@ -311,7 +310,7 @@ def tg_section(in_str: str, s: float, units: Units):
         tap = Section(
             in_str + "_e",
             h=h[-1],
-            sec_type=tg,
+            sec_type=SectionCat.BASETYPES.TPROFILE,
             w_btn=wt[-1],
             w_top=tw[-1],
             t_fbtn=tf[-1],
@@ -349,7 +348,7 @@ def tub_section(in_str: str, s: float, units: Units):
         wt = [_rdoff(float(x) * s) for x in res.group(3).split("/")]
         sec = Section(
             in_str,
-            sec_type=tub,
+            sec_type=SectionCat.BASETYPES.TUBULAR,
             r=r[0],
             wt=wt[0],
             metadata=dict(cad_str=in_str),
@@ -360,7 +359,7 @@ def tub_section(in_str: str, s: float, units: Units):
 
         tap = Section(
             in_str + "_e",
-            sec_type=tub,
+            sec_type=SectionCat.BASETYPES.TUBULAR,
             r=r[-1],
             wt=wt[-1],
             metadata=dict(cad_str=in_str),
@@ -385,7 +384,7 @@ def circ_section(in_str: str, s: float, units: Units):
             continue
         sec = Section(
             in_str,
-            sec_type=circ,
+            sec_type=SectionCat.BASETYPES.CIRCULAR,
             r=_rdoff(float(res.group(1)) * s),
             metadata=dict(cad_str=in_str),
             units=units,
@@ -412,7 +411,7 @@ def flat_section(in_str: str, s: float, units: Units):
 
         sec = Section(
             in_str,
-            sec_type=flat,
+            sec_type=SectionCat.BASETYPES.FLATBAR,
             h=h[0],
             w_top=width[0],
             w_btn=width[0],
@@ -422,7 +421,7 @@ def flat_section(in_str: str, s: float, units: Units):
         if "/" in in_str:
             tap = Section(
                 in_str + "_e",
-                sec_type=flat,
+                sec_type=SectionCat.BASETYPES.FLATBAR,
                 h=h[-1],
                 w_top=width[-1],
                 w_btn=width[-1],

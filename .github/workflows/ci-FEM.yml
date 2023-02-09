@@ -4,13 +4,11 @@ on:
   push:
     paths:
       - src/**
-      - images/tests/**
-      - conda/**
+      - tests/dockertests/**
       - .github/workflows/ci-FEM.yml
-      - Dockerfile
+      - images/femtests.Dockerfile
     branches:
     - main
-    - dev
   pull_request:
     paths-ignore:
       - setup.py
@@ -29,17 +27,19 @@ jobs:
     name: Test-FEM-analysis
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
+      - name: Set DATE env var
+        run: echo "DATE=$(echo $(date +'%y%m%d'))" >> $GITHUB_ENV
       - uses: satackey/action-docker-layer-caching@v0.0.11
         continue-on-error: true
-      - run: echo ${{ env.DATE }}
-      - name: Get current date
-        id: date
-        run: echo "::set-output name=date::$(date +'%y%m%d')"
       - name: Build docker for FEM
-        run: make dtest-b
+        run: make bfem
+      - name: Make temp directories
+        run: |
+          mkdir -p temp/scratch temp/report
+          chmod -R 777 temp
       - name: Test & Create Verification Report
-        run: make dtest-r
+        run: make dtest
       - uses: actions/upload-artifact@v2
         if: failure()
         with:
@@ -50,7 +50,7 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: temp/report/_dist/ADA-FEA-verification.docx
-          asset_name: ADA-FEA-verification-${{steps.date.outputs.date}}.docx
-          tag: "ADA-FEA-Verification-Report-${{steps.date.outputs.date}}"
+          asset_name: ADA-FEA-verification-${{ env.DATE }}.docx
+          tag: "ADA-FEA-Verification-Report-${{ env.DATE }}"
           overwrite: true
-          body: "Verification Report for ADAPY - ${{steps.date.outputs.date}}"
+          body: "Verification Report for ADAPY - ${{ env.DATE }}"

@@ -158,7 +158,6 @@ def obj_to_mesh(
     export_config: ExportConfig = ExportConfig(),
     opt_func: Callable = None,
 ) -> None | list[ObjectMesh]:
-
     if obj.parent.get_assembly().ifc_store is not None and export_config.ifc_skip_occ is True:
         try:
             obj_meshes = ifc_poly_elem_to_json(obj, export_config, opt_func)

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="ASCII"?>
+<DNV_structure_concept_protocol version="1.6">
+	<administrative>
+		<program program="GeniE" version="V8.4-06" version_date="23-Sep-2022" platform="64bit" />
+		<session_info date="18-Jan-2023" time="13:26:33" user="userX" />
+	</administrative>
+	<model name="change_me">
+		<units>
+			<model_units length="m" time="s" temp_diff="delC" force="N" angle="rad" mass="" />
+			<acis_units length="m" />
+			<input_units>
+				<input_unit phenomenon="Angle" unit="deg" />
+			</input_units>
+		</units>
+		<structure_domain>
+			<properties>
+				<mesh_properties />
+				<hydro_properties />
+			</properties>
+			<feature_concepts />
+		</structure_domain>
+		<utilities>
+			<guide_geometry />
+		</utilities>
+		<equipment_domain>
+			<equipment_concepts />
+		</equipment_domain>
+		<evaluators>
+			<slicer_concepts />
+		</evaluators>
+		<environment>
+			<environment_properties />
+			<environment_concepts />
+		</environment>
+		<compartments>
+			<compartment_properties />
+		</compartments>
+		<analysis_domain>
+			<analyses>
+				<global active="true" />
+			</analyses>
+		</analysis_domain>
+	</model>
+</DNV_structure_concept_protocol>

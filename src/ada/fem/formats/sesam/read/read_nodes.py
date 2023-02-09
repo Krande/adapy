@@ -11,12 +11,12 @@ if TYPE_CHECKING:
 
 
 def get_nodes(bulk_str: str, parent: "FEM") -> Nodes:
-    nodes = [get_node(m, parent) for m in cards.re_gcoord_in.finditer(bulk_str)]
+    nodes = [get_node(m, parent) for m in cards.GCOORD.to_ff_re().finditer(bulk_str)]
     return Nodes(nodes, parent=parent)
 
 
 def renumber_nodes(bulk_str: str, fem: "FEM") -> None:
-    node_map = {nodeno: nodex for nodex, nodeno in map(get_nodeno, cards.re_gnode_in.finditer(bulk_str))}
+    node_map = {nodeno: nodex for nodex, nodeno in map(get_nodeno, cards.GNODE.to_ff_re().finditer(bulk_str))}
     fem.nodes.renumber(renumber_map=node_map)
 
 

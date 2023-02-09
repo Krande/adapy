@@ -17,7 +17,7 @@ gmsh_to_meshio_ordering = {
 
 aba_to_meshio_types = aba_meshio_original
 
-default = dict(
+meshio_convert_default = dict(
     hexahedron=solids.HEX8,
     hexahedron20=solids.HEX20,
     triangle=shells.TRI,
@@ -25,6 +25,9 @@ default = dict(
     line=lines.LINE,
 )
 
-meshio_to_abaqus_type = {v: k if v not in default.keys() else default[v] for k, v in aba_to_meshio_types.items()}
+meshio_to_abaqus_type = {
+    v: k if v not in meshio_convert_default.keys() else meshio_convert_default[v]
+    for k, v in aba_to_meshio_types.items()
+}
 
 meshio_to_ada_type = {}

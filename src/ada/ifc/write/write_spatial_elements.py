@@ -64,6 +64,7 @@ class SpatialWriter:
     def create_ifc_part(self, part: Part):
         if part.parent is None:
             raise ValueError("Cannot build ifc element without parent")
+        from ada.base.ifc_types import SpatialTypes as ITyp
 
         f = self.ifc_store.f
 
@@ -86,14 +87,37 @@ class SpatialWriter:
             ObjectType=None,
             ObjectPlacement=placement,
             Representation=None,
-            LongName=part.metadata.get("LongName", None),
         )
 
-        if part.ifc_class not in (part.ifc_class.IfcSpatialZone,):
+        if part.ifc_class not in (ITyp.IfcElementAssembly, ITyp.IfcGrid):
+            props["LongName"] = part.metadata.get("LongName", None)
+
+        if part.ifc_class not in (ITyp.IfcSpatialZone, ITyp.IfcElementAssembly, ITyp.IfcGrid):
             props["CompositionType"] = part.metadata.get("CompositionType", "ELEMENT")
 
-        if part.ifc_class == part.ifc_class.IfcBuildingStorey:
+        if part.ifc_class == ITyp.IfcBuildingStorey:
             props["Elevation"] = float(part.placement.origin[2])
+
+        if part.ifc_class == ITyp.IfcGrid:
+            from ada.ifc.utils import create_ifcpolyline
+
+            # Todo: Create an IfcGrid object
+            props["UAxes"] = [
+                f.create_entity(
+                    "IfcGridAxis",
+                    AxisTag="XAxis",
+                    AxisCurve=create_ifcpolyline(f, [(0, 0, 0), (1, 0, 0)]),
+                    SameSense=True,
+                )
+            ]
+            props["VAxes"] = [
+                f.create_entity(
+                    "IfcGridAxis",
+                    AxisTag="YAxis",
+                    AxisCurve=create_ifcpolyline(f, [(0, 0, 0), (0, 1, 0)]),
+                    SameSense=True,
+                )
+            ]
 
         ifc_elem = f.create_entity(part.ifc_class.value, **props)
 

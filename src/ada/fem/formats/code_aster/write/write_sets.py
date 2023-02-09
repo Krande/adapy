@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.fem.shapes import ElemShapeTypes
+from ada.fem.shapes import definitions as shape_def
 
 from ..common import ada_to_med_type
 from .helper_utils import resolve_ids_in_multiple
@@ -37,8 +37,8 @@ def _add_cell_sets(cells_group, part: "Part", families):
         return [int(n.id - 1) for n in el_.nodes]
 
     for group, elements in part.fem.elements.group_by_type():
-        if group in ElemShapeTypes.masses + ElemShapeTypes.springs:
-            logging.error("NotImplemented: Skipping Mass or Spring Elements")
+        if isinstance(group, (shape_def.MassTypes, shape_def.SpringTypes)):
+            logging.warning("NotImplemented: Skipping Mass or Spring Elements")
             continue
         elements = list(elements)
         cell_ids = {el.id: i for i, el in enumerate(elements)}

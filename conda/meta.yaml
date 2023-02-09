@@ -9,8 +9,10 @@ source:
   path: ../
 
 build:
+#  noarch: python
   number: 0
-  script: python -m pip install --no-deps --ignore-installed .
+  script: {{ PYTHON }} -m pip install . --no-deps -vv
+  include_recipe: False
 
 requirements:
   build:
@@ -20,28 +22,19 @@ requirements:
     - numpy
     - ifcopenshell
     - pythonocc-core
-    - occt
     - python-gmsh
     - pyquaternion
     - trimesh
-    - pytexit
     - jupyterlab
-    - pythreejs
     - pyparsing
     - h5py
     - plotly
     - python-kaleido
     - meshio
+    - pythreejs
+    - pytexit
+    - calculix
 
-# Dependencies that are currently left out
-#    - numpy
-#    - vtk
-#    - toolz
-#    - lmfit
-#    - ccx2paraview
-#    - ipygany
-#    - pydantic
-#    - pyvista
 test:
   source_files:
     - tests
@@ -55,7 +48,7 @@ test:
 
 about:
   home: https://github.com/krande/adapy
-  license: "GNU General Public v3 (GPLv3)"
+  license: "GPL-3.0-or-later"
   license_family: GPL3
   summary: "A python library for structural analysis and design"
   doc_url: https://krande.github.io/adapy/

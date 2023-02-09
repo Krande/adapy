@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import pathlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable, List, Union
 
 import gmsh
@@ -53,7 +53,7 @@ class GmshTask:
     ada_obj: List[Union[Shape, Beam, Plate]]
     geom_repr: str
     mesh_size: float
-    options: GmshOptions = GmshOptions()
+    options: GmshOptions = field(default_factory=GmshOptions)
 
 
 @dataclass
@@ -72,7 +72,7 @@ class GmshData:
     entities: Iterable
     geom_repr: str
     order: int
-    obj: Union[Shape, Beam, Plate, Pipe]
+    obj: Shape | Beam | Plate | Pipe
     mesh_size: float = None
 
 
@@ -171,6 +171,30 @@ class GmshSession:
 
         self.model.occ.synchronize()
         self.model.geo.synchronize()
+
+    def split_crossing_beams(self):
+        # Todo: base this algo on beams that are actually clashing
+
+        beams = [obj for obj in self.model_map.keys() if type(obj) is Beam]
+        if len(beams) == 1:
+            return None
+
+        intersecting_beams = []
+        int_bm_map = dict()
+        for bm in beams:
+            bm_gmsh_obj = self.model_map[bm]
+            for li_dim, li_ent in bm_gmsh_obj.entities:
+                intersecting_beams.append((li_dim, li_ent))
+                int_bm_map[(li_dim, li_ent)] = bm_gmsh_obj
+
+        res, res_map = self.model.occ.fragment(intersecting_beams, intersecting_beams)
+
+        for i, int_bm in enumerate(intersecting_beams):
+            bm_gmsh_obj = int_bm_map[int_bm]
+            new_ents = res_map[i]
+            bm_gmsh_obj.entities = new_ents
+
+        self.model.occ.synchronize()
 
     def split_plates_by_beams(self):
         from ada.core.clash_check import (
@@ -274,7 +298,7 @@ class GmshSession:
         gmsh_nodes = get_nodes_from_gmsh(self.model, fem)
         fem.nodes = Nodes(gmsh_nodes, parent=fem)
 
-        def add_obj_to_elem_ref(el: Elem, obj: Union[Shape, Beam, Plate, Pipe]):
+        def add_obj_to_elem_ref(el: Elem, obj: Shape | Beam | Plate | Pipe):
             el.refs.append(obj)
 
         # Get Elements

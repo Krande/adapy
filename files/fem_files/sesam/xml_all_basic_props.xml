@@ -1,0 +1,464 @@
+<?xml version="1.0" encoding="ASCII"?>
+<DNV_structure_concept_protocol version="1.6">
+	<administrative>
+		<program program="GeniE" version="V8.4-06" version_date="23-Sep-2022" platform="64bit" />
+		<session_info date="20-Jan-2023" time="07:27:50" user="userX" />
+	</administrative>
+	<model name="adasdasd">
+		<units>
+			<model_units length="m" time="s" temp_diff="delC" force="N" angle="rad" mass="" />
+			<acis_units length="m" />
+			<input_units>
+				<input_unit phenomenon="Angle" unit="deg" />
+			</input_units>
+		</units>
+		<structure_domain>
+			<properties>
+				<sections>
+					<section name="CHS_CF_813x20_6" description="EN 10219-2: 1997 lib: CHS 813x20_6">
+						<pipe_section od="0.813" th="0.0206" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
+					</section>
+					<section name="SHS_400x400x10" description="EN 10219-2: 1997 lib: SHS 400x400">
+						<box_section h="0.4" b="0.4" tw="0.01" tftop="0.01" tfbot="0.01" fabrication="unknown" sfy="1" sfz="1" general_properties_method="library">
+							<libraryGeneralSection area="0.0155" ix="0.0006009" iy="0.0003913" iz="0.0003913" iyz="0" wxmin="0.003042" wymin="0.001956" wzmin="0.001956" shary="0.006936371604" sharz="0.006936371604" shceny="0" shcenz="0" sy="0.001141" sz="0.001141" wpy="0.00226" wpz="0.00226" />
+						</box_section>
+					</section>
+					<section name="RHS_500x300x8" description="EN 10219-2: 1997 lib: RHS 500x300">
+						<box_section h="0.5" b="0.3" tw="0.008" tftop="0.008" tfbot="0.008" fabrication="unknown" sfy="1" sfz="1" general_properties_method="library">
+							<libraryGeneralSection area="0.0125" ix="0.0004256" iy="0.0004373" iz="0.0001995" iyz="0" wxmin="0.002298624" wymin="0.001749" wzmin="0.00133" shary="0.004317384512" sharz="0.006673651527" shceny="0" shcenz="0" sy="0.001058912" sz="0.000745312" wpy="0.0021" wpz="0.00148" />
+						</box_section>
+					</section>
+					<section name="IPE600">
+						<i_section h="0.5" b="0.22" tw="0.012" tf="0.019" fillet_radius="0.024" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
+					</section>
+					<section name="T1000x500x20">
+						<unsymmetrical_i_section h="1" tw="0.02" bftop="0.5" bftop1="0.25" tftop="0.03" bfbot="0.02" bfbot1="0.01" tfbot="0.001" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
+					</section>
+					<section name="HP140x8" default="true">
+						<l_section h="0.14" b="0.019" tw="0.008" tf="0.0123" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
+					</section>
+				</sections>
+				<materials>
+					<material name="S355">
+						<isotropic_linear_material yield_stress="355000000" density="7850" youngs_modulus="2.1e+11" poissons_ratio="0.3" thermal_expansion="1.2e-05" damping="0.03" />
+					</material>
+				</materials>
+				<thicknesses />
+				<effective_flange />
+				<wet_surfaces />
+				<beam_types />
+				<beam_classifications />
+				<slot_lug />
+				<corrosion_additions />
+				<sn_curves />
+				<mass_density_factors />
+				<mesh_options />
+				<permeable_properties />
+				<thickness_corrections />
+				<pile_characteristics />
+				<plate_types />
+				<reinforcements />
+				<load_interfaces />
+				<structure_types />
+				<mesh_properties>
+					<mesh_densities />
+					<number_of_elements_properties />
+					<sniping_properties />
+					<mesh_options_holes />
+				</mesh_properties>
+				<hydro_properties>
+					<air_drag_coefficients />
+					<morison_diameters />
+					<buoyancy_areas />
+					<hydro_element_refinements />
+					<flooding_coefficients />
+					<morison_coefficients />
+					<marine_growths />
+					<hydro_permeabilities />
+					<conductor_shieldings />
+				</hydro_properties>
+			</properties>
+			<structures>
+				<structure>
+					<point_mass name="Mass2">
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="1" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<position x="0" y="0" z="10" />
+						</geometry>
+						<mass>
+							<mass_scalar mass="20" />
+						</mass>
+					</point_mass>
+				</structure>
+				<structure>
+					<point_mass name="Mass1">
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="1" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<position x="0" y="10" z="10" />
+						</geometry>
+						<mass>
+							<mass_scalar mass="10" />
+						</mass>
+					</point_mass>
+				</structure>
+				<structure>
+					<support_point name="Sp1">
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="1" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<position x="0" y="0" z="0" />
+						</geometry>
+						<boundary_conditions>
+							<boundary_condition constraint="fixed" dof="dx" />
+							<boundary_condition constraint="fixed" dof="dy" />
+							<boundary_condition constraint="fixed" dof="dz" />
+							<boundary_condition constraint="free" dof="rx" />
+							<boundary_condition constraint="free" dof="ry" />
+							<boundary_condition constraint="free" dof="rz" />
+						</boundary_conditions>
+					</support_point>
+				</structure>
+				<structure>
+					<support_point name="Sp2">
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="1" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<position x="0" y="10" z="0" />
+						</geometry>
+						<boundary_conditions>
+							<boundary_condition constraint="fixed" dof="dx" />
+							<boundary_condition constraint="free" dof="dy" />
+							<boundary_condition constraint="fixed" dof="dz" />
+							<boundary_condition constraint="free" dof="rx" />
+							<boundary_condition constraint="free" dof="ry" />
+							<boundary_condition constraint="free" dof="rz" />
+						</boundary_conditions>
+					</support_point>
+				</structure>
+				<structure>
+					<support_point name="Sp3">
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="1" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<position x="5" y="5" z="5" />
+						</geometry>
+						<boundary_conditions>
+							<boundary_condition constraint="fixed" dof="dx" />
+							<boundary_condition constraint="fixed" dof="dy" />
+							<boundary_condition constraint="fixed" dof="dz" />
+							<boundary_condition constraint="fixed" dof="rx" />
+							<boundary_condition constraint="fixed" dof="ry" />
+							<boundary_condition constraint="fixed" dof="rz" />
+						</boundary_conditions>
+					</support_point>
+				</structure>
+				<structure>
+					<straight_beam name="Bm1">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="false">
+								<orientation>
+									<local_system>
+										<xvector x="0" y="1" z="0" />
+										<zvector x="0" y="0" z="1" />
+										<yvector x="-1" y="0" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="0" y="1" z="0" dir="x" />
+							<vector x="-1" y="0" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="CHS_CF_813x20_6" material_ref="S355">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="0" y="0" z="0" end="1" />
+											<position x="0" y="10" z="0" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000006" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<curve_offset>
+							<reparameterized_beam_curve_offset />
+						</curve_offset>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<straight_beam name="Bm2">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="false">
+								<orientation>
+									<local_system>
+										<xvector x="0" y="0" z="1" />
+										<zvector x="0" y="1" z="0" />
+										<yvector x="1" y="0" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="0" y="0" z="1" dir="x" />
+							<vector x="1" y="0" z="0" dir="y" />
+							<vector x="0" y="1" z="0" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="RHS_500x300x8" material_ref="S355">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="0" y="10" z="0" end="1" />
+											<position x="0" y="10" z="10" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000005" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<curve_offset>
+							<reparameterized_beam_curve_offset />
+						</curve_offset>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<straight_beam name="Bm3">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="false">
+								<orientation>
+									<local_system>
+										<xvector x="0" y="1" z="0" />
+										<zvector x="0" y="0" z="1" />
+										<yvector x="-1" y="0" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="0" y="1" z="0" dir="x" />
+							<vector x="-1" y="0" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="IPE600" material_ref="S355">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="0" y="0" z="10" end="1" />
+											<position x="0" y="10" z="10" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000004" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<curve_offset>
+							<reparameterized_beam_curve_offset />
+						</curve_offset>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<straight_beam name="Bm4">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="false">
+								<orientation>
+									<local_system>
+										<xvector x="0" y="0" z="-1" />
+										<zvector x="0" y="1" z="0" />
+										<yvector x="-1" y="0" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="0" y="0" z="-1" dir="x" />
+							<vector x="-1" y="0" z="0" dir="y" />
+							<vector x="0" y="1" z="0" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="SHS_400x400x10" material_ref="S355">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="0" y="0" z="10" end="1" />
+											<position x="0" y="0" z="0" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000003" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<curve_offset>
+							<reparameterized_beam_curve_offset />
+						</curve_offset>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<straight_beam name="Bm5">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="false">
+								<orientation>
+									<local_system>
+										<xvector x="0.5773502692" y="0.5773502692" z="0.5773502692" />
+										<zvector x="0.7071067812" y="-0.7071067812" z="0" />
+										<yvector x="-0.4082482905" y="-0.4082482905" z="0.8164965809" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="0.5773502692" y="0.5773502692" z="0.5773502692" dir="x" />
+							<vector x="-0.4082482905" y="-0.4082482905" z="0.8164965809" dir="y" />
+							<vector x="0.7071067812" y="-0.7071067812" z="0" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="T1000x500x20" material_ref="S355">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="0" y="0" z="0" end="1" />
+											<position x="5" y="5" z="5" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000002" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<curve_offset>
+							<reparameterized_beam_curve_offset>
+								<curve_offset>
+									<aligned_curve_offset alignment="flush_top" constant_value="0" />
+								</curve_offset>
+							</reparameterized_beam_curve_offset>
+						</curve_offset>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<straight_beam name="Bm6">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="true">
+								<orientation>
+									<local_system>
+										<xvector x="0.5773502692" y="-0.5773502692" z="-0.5773502692" />
+										<zvector x="0.4082482905" y="-0.4082482905" z="0.8164965809" />
+										<yvector x="0.7071067812" y="0.7071067812" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="0.5773502692" y="-0.5773502692" z="-0.5773502692" dir="x" />
+							<vector x="0.7071067812" y="0.7071067812" z="0" dir="y" />
+							<vector x="0.4082482905" y="-0.4082482905" z="0.8164965809" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="HP140x8" material_ref="S355">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="0" y="10" z="10" end="1" />
+											<position x="5" y="5" z="5" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000001" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<curve_offset>
+							<reparameterized_beam_curve_offset />
+						</curve_offset>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+			</structures>
+			<manual_overlap_managers />
+			<feature_concepts />
+			<geometry>
+				<sat_embedded encoding="base64" compression="zip" tag_name="dnvscp"><![CDATA[UEsDBC0AAAAIAHk7NFbMsCAh3gIAAEINAAALABQAYjY0dGVtcC5zYXQBABAAAAAAAAAAAAAAAAAAAAAAAKVXUU/bMBB+n7T/cNL6msr22XHCU9HWISZtDwNNe5sCDaUaTVBIYfz7ne04bYrTliSOiWX57O/uvu9cBGMMGHDq2+fjB57A1fzq/DtEsFxf5OU6r6tX4BLOP19eAbIpm3L4cQ1CwtdqBd+yAgTto8+EPlOMxgLNLmbzdJp2H5VHTAPPI85oTcTgply8wiTi4F4zmjQf6tfAbFNA6+n9RDYcHjbrx30b0wVMWNBEwNN9/vAQsvEdzbEhW4SXVZWHTKU9kUblpg6aSrgt88XyjbGCSexGGu7K6iWrFhYAzRgz1WNG5yVulIbM4h4zAuPtOA8ZanBmXHTMkLyZUNaTaRwzoSRDnUiJiVIWClftXjMNm+JvUb4UNgzKtm0Ykj5gcRsHHgxE6oElHbP0ADB6iYs9wFgLzvKI9ceZN7hEMGAURmcnOhETLmJo/DaOkT56gfDmj+c0MbSuVsXyT1bT9yYqsnXux8u8iNzQI20pqEGQfPsaa76zGBbF89PtI8zooPmXizlzT+MOwnNe1fk/gqw6DpkeuzVyu0bvrklpInFLlPEhWy3v6+h2Uz3vx9X7y6ZKa1RMxClP0lgojRCdPHlJzZ52iO6qwR/UCfd8RxbIXgqNXpAfolGTPrtfMix36bjcCXd42uYFu2SkxCC66seOJca2QLBPnfNJEV4YKHexoNoRhukY98WWt6H1pXugMkijo8Ir3elbaWCH9ty45XhPMj8aXu7v2TZSaqBb+G63JPya/7ye/+5onmT9WK6KukejdokeCFGOheioTWUlBHFbwIW/HzB9ez+gcmyjOiwPXghNcuxVzwZ6PLIMO5lSwTmNR7ZseSLhUH28v/zsZalBjT1EaoMqhwEUIwXsOEI08AKWfL8+Skc0qkbHL66GKtu4D1SHGC1gV5kwrI6de4lUMQzhyIvJ/WCQp106naIo+TDElOSRMXVkIT70FkUb03mxiMq7yPwfFC2yOoP/UEsBAgAAFAAAAAgAeTs0VsywICHeAgAAQg0AAAsAAAAAAAAAAQAAAAAAAAAAAGI2NHRlbXAuc2F0UEsFBgAAAAABAAEAOQAAABsDAAAAAA==]]></sat_embedded>
+			</geometry>
+			<fatigue />
+		</structure_domain>
+		<utilities>
+			<guide_geometry />
+		</utilities>
+		<equipment_domain>
+			<equipment_concepts />
+		</equipment_domain>
+		<evaluators>
+			<slicer_concepts />
+		</evaluators>
+		<environment>
+			<environment_properties>
+				<wind_spectra />
+				<wind_profiles />
+				<wave_spectra />
+				<current_profiles />
+				<directions />
+				<frequency_sets />
+				<phase_sets />
+				<regular_wave_sets />
+				<scours />
+				<seabed_properties />
+				<soil_properties />
+				<soil_data_properties />
+				<spreading_functions />
+				<wave_height_evaluators />
+			</environment_properties>
+			<environment_concepts />
+		</environment>
+		<compartments>
+			<compartment_properties>
+				<compartment_contents />
+			</compartment_properties>
+			<compartment_outlines />
+		</compartments>
+		<analysis_domain>
+			<analyses>
+				<global active="true" />
+			</analyses>
+		</analysis_domain>
+	</model>
+</DNV_structure_concept_protocol>

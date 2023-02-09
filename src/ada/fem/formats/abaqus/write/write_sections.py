@@ -138,23 +138,23 @@ def line_temperature_str(fem_sec: FemSection):
 
 def eval_general_properties(section: Section) -> GeneralProperties:
     gp = section.properties
-    name = gp.parent.parent.name
+    name = section.name
     if gp.Ix <= 0.0:
         gp.Ix = 1
-        logging.error(f"Section {name} Ix <= 0.0. Changing to 2. {log_fin}")
+        logging.warning(f"Section {name} Ix <= 0.0. Changing to 2. {log_fin}")
     if gp.Iy <= 0.0:
         gp.Iy = 2
-        logging.error(f"Section {name} Iy <= 0.0. Changing to 2. {log_fin}")
+        logging.warning(f"Section {name} Iy <= 0.0. Changing to 2. {log_fin}")
     if gp.Iz <= 0.0:
         gp.Iz = 2
-        logging.error(f"Section {name} Iz <= 0.0. Changing to 2. {log_fin}")
+        logging.warning(f"Section {name} Iz <= 0.0. Changing to 2. {log_fin}")
     if gp.Iyz <= 0.0:
         gp.Iyz = (gp.Iy + gp.Iz) / 2
-        logging.error(f"Section {name} Iyz <= 0.0. Changing to (Iy + Iz) / 2. {log_fin}")
+        logging.warning(f"Section {name} Iyz <= 0.0. Changing to (Iy + Iz) / 2. {log_fin}")
     if gp.Iy * gp.Iz - gp.Iyz**2 < 0:
         old_y = str(gp.Iy)
         gp.Iy = 1.1 * (gp.Iy + (gp.Iyz**2) / gp.Iz)
-        logging.error(
+        logging.warning(
             f"Warning! Section {name}: I(11)*I(22)-I(12)**2 MUST BE POSITIVE. " f"Mod Iy={old_y} to {gp.Iy}. {log_fin}"
         )
     if (-(gp.Iy + gp.Iz) / 2 < gp.Iyz <= (gp.Iy + gp.Iz) / 2) is False:

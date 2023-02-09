@@ -25,6 +25,7 @@ Here are some of the goals with `ada-py`:
 * Provide a path for creating FE meshes from IFC models.
 * Add tools for running and post-processing FE analysis to directly compare results from different open source and proprietary FE solvers.
 * Using IFC as the 3d model data structure, provide tools for advanced parametric 3d model design and automated design modification and verification.
+* The library should strive for user ergonomics.
 
 ## Quick Links
 
@@ -32,15 +33,13 @@ Try ada-py online (main branch / dev branch) with code-aster and calculix pre-in
 
 [![Binder-main](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Krande/adapy/main) / [![Binder-dev](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Krande/adapy/dev)
 
-![img.png](docs/_static/figures/jupyter-example.png)
-
 
 * Feel free to start/join any informal topic related to adapy [here](https://github.com/Krande/adapy/discussions).
 * Issues related to adapy can be raised [here](https://github.com/Krande/adapy/issues)
 
 
 ## Usage
-Some examples of using the ada package 
+Some examples of using the ada-py package 
 
 
 ### Create an IFC file
@@ -72,12 +71,9 @@ Here is an example showing the code for converting a sesam FEM file to abaqus an
 _Note! Reading FEM load and step information is not supported, but might be added in the future._
 
 ```python
-from ada import Assembly
+import ada
 
-my_fem_file = 'path_to_your_sesam_file.FEM'
-
-a = Assembly()
-a.read_fem(my_fem_file)
+a = ada.from_fem('path_to_your_sesam_file.FEM')
 a.to_fem('name_of_my_analysis_file_deck_directory_abaqus', 'abaqus')
 a.to_fem('name_of_my_analysis_file_deck_directory_code_aster', 'code_aster')
 
@@ -109,10 +105,10 @@ a.to_fem("MyCantilever_code_aster", "code_aster", overwrite=True, execute=True)
 after the code is executed you can look at the results using supported post-processing software or directly
 in python using Jupyter notebook/lab (currently only supported for Code Aster) for the FEA results.
 
+<img src="docs/_static/figures/fem_beam_paraview.png" alt="Calculix Results" height="220"/>
+<img src="docs/_static/figures/fem_beam_abaqus.png" alt="Abaqus Results" height="220"/>
+<img src="docs/_static/figures/code_aster_jupyter_displ.png" alt="Code Aster (jupyter) results" height="220"/>
 
-![Calculix (Paraview) Results](docs/_static/figures/fem_beam_paraview.png)
-![Abaqus Results](docs/_static/figures/fem_beam_abaqus.png)
-![Code Aster (jupyter) results](docs/_static/figures/code_aster_jupyter_displ.png)
 
 To access the stress and displacement data directly using python here is a way you can use meshio to read the results 
 from Calculix and Code Aster (continuing on the previous example).
@@ -154,23 +150,6 @@ setx ADA_code_aster_exe <absolute path to as_run.bat>
 
 :: Mac?
 ```
-3. Set parameters in python by using environment variables or the ada.config.Settings class, like so:
-
-```python
-import os
-os.environ["ADA_calculix_exe"] = "<absolute path to ccx.exe>"
-os.environ["ADA_abaqus_exe"] = "<absolute path to abaqus.bat>"
-os.environ["ADA_code_aster_exe"] = "<absolute path to as_run.bat>"
-```
-
-or
-
-```python
-from ada.config import Settings
-Settings.fem_exe_paths["calculix"] = "<absolute path to ccx.exe>"
-Settings.fem_exe_paths["abaqus"] = "<absolute path to abaqus.bat>"
-Settings.fem_exe_paths["code_aster"] = "<absolute path to as_run.bat>"
-```
 
 Note! It is very important that any paths containing whitespaces be converted to "shortened paths". To shorten a path
 on windows you can use the utility [pathcopycopy](https://pathcopycopy.github.io/).
@@ -183,18 +162,6 @@ For installation files of open source FEM software such as Calculix and Code Ast
 * https://salome-platform.org/downloads/current-version (Salome v9.6.0 for windows/linux)
 * https://prepomax.fs.um.si/downloads/ (PreProMax -> Calculix preprocessor)
 
-## Alternative Installation methods
-If you have to use pip you can do:
-
-```
-pip install ada-py
-```
-
-**Note!** Pip will not install the required conda packages. So you would also have to do
-
-```
-conda install -c conda-forge ifcopenshell pythonocc-core python-gmsh
-```
 
 **Note!** pip is not a recommended installation method due to an unstable behaviour often 
 manifested as DLL import errors related to the vtk package.
@@ -205,16 +172,15 @@ This project would never have been possible without the existing open source pyt
 Although listed in the package dependencies (which is a long list), here are some of the packages that are at the very 
 core of adapy;
 
-* Ifcopenshell
-* Pythonocc-core
+* IfcOpenShell
+* PythonOCC-Core
 * Gmsh
 
 And the following packages are integral in the interoperability and visualization of FEM results.
 
-* Vtk
 * Pythreejs
 * Meshio
-* Ccx2paraview
+* Trimesh
 
 A huge thanks to all involved in the development of the packages mentioned here and in the list of packages adapy
 depends on.

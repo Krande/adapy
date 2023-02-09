@@ -19,8 +19,8 @@ from OCC.Core.TCollection import TCollection_HAsciiString
 
 from ada import Assembly, Beam, Part, Pipe, Plate, Shape, Wall
 from ada.base.physical_objects import BackendGeom
+from ada.base.types import GeomRepr
 from ada.core.utils import Counter
-from ada.fem.shapes import ElemType
 
 # Reference: https://www.opencascade.com/doc/occt-7.4.0/overview/html/occt_user_guides__step.html#occt_step_3
 
@@ -39,24 +39,24 @@ class OCCExporter:
         Interface_Static_SetCVal("write.precision.mode", "1")
         Interface_Static_SetCVal("write.step.assembly", str(assembly_mode))
 
-    def add_to_step_writer(self, obj: valid_types, geom_repr=ElemType.SOLID, fuse_piping=False):
+    def add_to_step_writer(self, obj: valid_types, geom_repr: GeomRepr | str = GeomRepr.SOLID, fuse_piping=False):
         """Write current assembly to STEP file"""
         from ada.concepts.connections import JointBase
 
-        if geom_repr not in ElemType.all:
-            raise ValueError(f'Invalid geom_repr: "{geom_repr}". Must be in "{ElemType.all}"')
+        if isinstance(geom_repr, str):
+            geom_repr = GeomRepr.from_str(geom_repr)
 
         if issubclass(type(obj), Shape):
             self.add_geom(obj.geom, obj, geom_repr=geom_repr)
-        elif type(obj) in (Beam, Plate, Wall):
+        elif isinstance(obj, (Beam, Plate, Wall)):
             self.export_structural(obj, geom_repr)
-        elif type(obj) is Pipe:
+        elif isinstance(obj, Pipe):
             self.export_piping(obj, geom_repr, fuse_piping)
-        elif type(obj) in (Part, Assembly) or issubclass(type(obj), JointBase):
+        elif isinstance(obj, (Part, Assembly)) or issubclass(type(obj), JointBase):
             for sub_obj in obj.get_all_physical_objects(sub_elements_only=False):
-                if type(sub_obj) in (Plate, Beam, Wall):
+                if isinstance(sub_obj, (Plate, Beam, Wall)):
                     self.export_structural(sub_obj, geom_repr)
-                elif type(sub_obj) in (Pipe,):
+                elif isinstance(sub_obj, Pipe):
                     self.export_piping(sub_obj, geom_repr, fuse_piping)
                 elif issubclass(type(sub_obj), Shape):
                     self.add_geom(sub_obj.geom, sub_obj, geom_repr=geom_repr)
@@ -65,11 +65,14 @@ class OCCExporter:
         else:
             raise ValueError("Unknown Geometry type")
 
-    def add_geom(self, geom, obj, geom_repr=None):
+    def add_geom(self, geom, obj, geom_repr: GeomRepr | str = None):
         from ada.concepts.transforms import Placement
         from ada.core.vector_utils import vector_length
 
         from .utils import transform_shape
+
+        if isinstance(geom_repr, str):
+            geom_repr = GeomRepr.from_str(geom_repr)
 
         name = obj.name if obj.name is not None else next(shp_names)
         Interface_Static_SetCVal("write.step.product.name", name)
@@ -79,7 +82,7 @@ class OCCExporter:
         if vector_length(res - Placement().origin) > 0:
             geom = transform_shape(geom, transform=tuple(res))
         try:
-            if geom_repr == ElemType.SHELL:
+            if geom_repr == GeomRepr.SHELL:
                 stat = self.writer.Transfer(geom, STEPControl_ShellBasedSurfaceModel)
             else:
                 stat = self.writer.Transfer(geom, STEPControl_AsIs)
@@ -97,19 +100,25 @@ class OCCExporter:
             item.SetName(TCollection_HAsciiString(name))
 
     def export_structural(self, stru_obj: Plate | Beam | Wall, geom_repr):
-        if geom_repr == ElemType.SHELL:
+        if isinstance(geom_repr, str):
+            geom_repr = GeomRepr.from_str(geom_repr)
+
+        if geom_repr == GeomRepr.SHELL:
             self.add_geom(stru_obj.shell, stru_obj)
-        elif geom_repr == ElemType.LINE:
+        elif geom_repr == GeomRepr.LINE:
             self.add_geom(stru_obj.line, stru_obj)
         else:
             self.add_geom(stru_obj.solid, stru_obj)
 
     def export_piping(self, pipe: Pipe, geom_repr, fuse_shapes=False):
+        if isinstance(geom_repr, str):
+            geom_repr = GeomRepr.from_str(geom_repr)
+
         result = None
         for pipe_seg in pipe.segments:
-            if geom_repr == ElemType.LINE:
+            if geom_repr == GeomRepr.LINE:
                 geom = pipe_seg.line
-            elif geom_repr == ElemType.SHELL:
+            elif geom_repr == GeomRepr.SHELL:
                 geom = pipe_seg.shell
             else:
                 geom = pipe_seg.solid

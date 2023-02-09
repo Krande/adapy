@@ -99,7 +99,6 @@ def beam_str(fem_sec: FemSection):
     elif sec_str == CcxSecTypes.PIPE:
         return f"{top_line}\n{fem_sec.section.r}, {fem_sec.section.wt}\n {n1}"
     elif sec_str == CcxSecTypes.GENERAL:
-
         gp = eval_general_properties(fem_sec.section)
         fem_sec.material.model.plasticity_model = None
         props = f" {gp.Ax}, {gp.Iy}, {0.0}, {gp.Iz}, {gp.Ix}\n {n1}"
@@ -187,7 +186,6 @@ def nsets_str(fem_nsets):
 
 
 def solid_sec_str(part):
-
     solids = part.fem.sections.solids
     return "\n".join([solid_section_str(so) for so in solids]) if len(solids) > 0 else "** No solid sections"
 
@@ -238,7 +236,6 @@ def material_str(material):
 
 
 def bc_str(bc: Bc) -> str:
-
     ampl_ref_str = "" if bc.amplitude is None else ", amplitude=" + bc.amplitude.name
 
     if bc.type in valid_aba_bcs:

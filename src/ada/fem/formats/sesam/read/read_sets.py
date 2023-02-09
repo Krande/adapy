@@ -33,7 +33,6 @@ def get_setmap(m, parent):
     if set_type == "nset":
         members = [parent.nodes.from_id(str_to_int(x)) for x in mem_list]
     else:
-
         members = [parent.elements.from_id(str_to_int(x)) for x in mem_list]
     return str_to_int(d["isref"]), set_type, members
 

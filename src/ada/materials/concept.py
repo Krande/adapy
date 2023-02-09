@@ -74,8 +74,8 @@ class Material(Root):
 
     @name.setter
     def name(self, value):
-        if value is None or any(x in value for x in [",", ".", "="]):
-            raise ValueError("Material name cannot be None or contain special characters")
+        # if value is None or any(x in value for x in [",", ".", "="]):
+        #     raise ValueError(f"Material name {value} cannot be None or contain special characters")
 
         self._name = value.strip()
 

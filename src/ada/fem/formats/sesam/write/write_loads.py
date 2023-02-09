@@ -1,7 +1,7 @@
 import logging
 
 from ada import FEM
-from ada.fem.loads import Load
+from ada.fem.loads import Load, LoadGravity
 
 from .write_utils import write_ff
 
@@ -41,7 +41,10 @@ def load_str(load: Load, lid):
 
 def load_gravity(load: Load, load_id: int) -> str:
     """Gravity Acceleration field"""
-    load_vector = tuple(load.acc_vector)
+    if isinstance(load, LoadGravity):
+        load_vector = tuple([0, 0, load.magnitude])
+    else:
+        load_vector = tuple(load.acc_vector)
     return write_ff(
         "BGRAV",
         [(load_id, 0, 0, 0), load_vector],

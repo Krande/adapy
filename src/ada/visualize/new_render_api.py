@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import List, Tuple, Union
 
@@ -27,7 +27,7 @@ class Camera:
 class Visualize:
     parent: Union[Assembly, Part, Beam, Plate, Wall, Shape, Pipe, FEM] = None
     renderer: Renderer = Renderer.PYVISTA
-    camera: Camera = Camera()
+    camera: Camera = field(default_factory=Camera)
     objects: List[VizObj] = None
     edge_color = (32, 32, 32)
 
@@ -36,7 +36,6 @@ class Visualize:
             self.objects = []
 
     def add_obj(self, obj: Union[Assembly, Part, Beam, Plate, Wall, Shape, Pipe, FEM], geom_repr: str = ElemType.SOLID):
-
         if issubclass(type(obj), Part):
             for sub_obj in obj.get_all_physical_objects():
                 geom_repr_ = sub_obj.metadata.get("geom_repr", geom_repr)

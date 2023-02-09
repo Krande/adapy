@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List, Tuple
+from typing import TYPE_CHECKING
 
 from ada.base.root import Root
 from ada.base.units import Units
-from ada.concepts.curves import CurvePoly
 from ada.config import Settings
 from ada.sections.categories import BaseTypes, SectionCat
 
 if TYPE_CHECKING:
-    from ada import Beam, Pipe, PipeSegElbow, PipeSegStraight
+    from ada import Beam, CurvePoly, Pipe, PipeSegElbow, PipeSegStraight
     from ada.fem import FemSection
 
 
@@ -34,8 +33,8 @@ class Section(Root):
         parent=None,
         sec_str=None,
         from_str=None,
-        outer_poly=None,
-        inner_poly=None,
+        outer_poly: CurvePoly = None,
+        inner_poly: CurvePoly = None,
         genprops: GeneralProperties = None,
         metadata=None,
         units=Units.M,
@@ -44,7 +43,10 @@ class Section(Root):
     ):
         super(Section, self).__init__(name=name, guid=guid, metadata=metadata, units=units, parent=parent)
         if isinstance(sec_type, str):
-            sec_type = BaseTypes.from_str(sec_type)
+            sec_type_in = sec_type
+            sec_type = BaseTypes.from_str(sec_type_in)
+            if sec_type is None:
+                raise ValueError(f"Unrecognized section type {sec_type_in}]")
 
         self._type = sec_type
         self._h = h
@@ -72,6 +74,7 @@ class Section(Root):
                 scalef = 1.0
             else:
                 raise ValueError(f'Unknown units "{units}"')
+
             sec, tap = interpret_section_str(from_str, scalef, units=units)
             self.__dict__.update(sec.__dict__)
 
@@ -82,10 +85,6 @@ class Section(Root):
             self._genprops = genprops
 
     def equal_props(self, other: Section):
-        props = ["type", "h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "wt", "poly_outer", "poly_inner"]
-        if self.type == self.TYPES.GENERAL:
-            props += ["properties"]
-
         for propa, propb in zip(self.unique_props(), other.unique_props()):
             if propa != propb:
                 return False
@@ -94,6 +93,8 @@ class Section(Root):
 
     def unique_props(self):
         props = ["type", "h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "wt", "poly_outer", "poly_inner"]
+        if self.type == self.TYPES.GENERAL:
+            props += ["properties"]
         return tuple([getattr(self, p) for p in props])
 
     @property
@@ -179,7 +180,7 @@ class Section(Root):
         elif self.type == BaseTypes.TUBULAR:
             sec_str = "{}{:g}x{:g}".format(self.type.value, s(self.r), s(self.wt))
         elif self.type == BaseTypes.CIRCULAR:
-            sec_str = "{}{:g}".format(self.type, s(self.r))
+            sec_str = "{}{:g}".format(self.type.value, s(self.r))
         elif self.type == BaseTypes.ANGULAR:
             sec_str = "{}{:g}x{:g}".format(self.type.value, s(self.h), s(self.t_w))
         elif self.type == BaseTypes.IPROFILE:
@@ -191,7 +192,7 @@ class Section(Root):
         elif self.type == BaseTypes.GENERAL:
             sec_str = "{}{}".format(self.type.value, self.id)
         elif self.type == BaseTypes.FLATBAR:
-            sec_str = f"{self.type}{s(self.h)}x{s(self.w_top)}"
+            sec_str = f"{self.type.value}{s(self.h)}x{s(self.w_top)}"
         elif self.type == BaseTypes.POLY:
             sec_str = "PolyCurve"
 
@@ -283,7 +284,7 @@ class SectionParts:
 
 @dataclass
 class GeneralProperties:
-    parent: Section = field(default=None, compare=False)
+    parent: Section = field(default=None, compare=False, repr=False)
     Ax: float = None
     Ix: float = None
     Iy: float = None
@@ -303,6 +304,30 @@ class GeneralProperties:
     Cy: float = None
     Cz: float = None
 
+    def __hash__(self):
+        return hash(
+            (
+                self.Ax,
+                self.Ix,
+                self.Iy,
+                self.Iz,
+                self.Iyz,
+                self.Wxmin,
+                self.Wymin,
+                self.Wzmin,
+                self.Shary,
+                self.Sharz,
+                self.Shceny,
+                self.Shcenz,
+                self.Sy,
+                self.Sz,
+                self.Sfy,
+                self.Sfz,
+                self.Cy,
+                self.Cz,
+            )
+        )
+
     @property
     def modified(self) -> bool:
         """Returns true if attributes are not equal to the calculated properties of the parent section"""
@@ -321,10 +346,10 @@ class SectionProfile:
     is_solid: bool
     outer_curve: CurvePoly = None
     inner_curve: CurvePoly = None
-    outer_curve_disconnected: List[CurvePoly] = None
-    inner_curve_disconnected: List[CurvePoly] = None
+    outer_curve_disconnected: list[CurvePoly] = None
+    inner_curve_disconnected: list[CurvePoly] = None
     disconnected: bool = None
-    shell_thickness_map: List[Tuple[str, float]] = None
+    shell_thickness_map: list[tuple[str, float]] = None
 
 
 def build_section_profile(sec: Section, is_solid) -> SectionProfile:

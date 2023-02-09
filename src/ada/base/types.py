@@ -3,6 +3,15 @@ from __future__ import annotations
 from enum import Enum
 
 
+class BaseEnum(Enum):
+    @classmethod
+    def from_str(cls, value: str):
+        if isinstance(value, cls):
+            return value
+        key_map = {x.value.lower(): x for x in cls}
+        return key_map.get(value.lower(), None)
+
+
 class GeomRepr(Enum):
     SOLID = "solid"
     SHELL = "shell"

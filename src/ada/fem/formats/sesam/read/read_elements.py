@@ -1,19 +1,19 @@
 import logging
 from itertools import chain
-from typing import Tuple
 
 import numpy as np
 
 from ada.core.utils import roundoff
 from ada.fem import FEM, Elem, FemSet, Mass, Spring
 from ada.fem.containers import FemElements
+from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.utils import str_to_int
+from ada.fem.shapes.lines import SpringTypes
 
 from . import cards
-from .helper_utils import sesam_eltype_2_general
 
 
-def get_elements(bulk_str: str, fem: FEM) -> Tuple[FemElements, dict, dict, dict]:
+def get_elements(bulk_str: str, fem: FEM) -> tuple[FemElements, dict, dict, dict]:
     """Import elements from Sesam Bulk str"""
 
     mass_elem = dict()
@@ -35,7 +35,7 @@ def get_elements(bulk_str: str, fem: FEM) -> Tuple[FemElements, dict, dict, dict
         eltyp = d["eltyp"]
         el_type = sesam_eltype_2_general(str_to_int(eltyp))
 
-        if el_type in ("SPRING1", "SPRING2"):
+        if isinstance(el_type, SpringTypes):
             spring_elem[el_no] = dict(gelmnt=d)
             return None
 
@@ -50,7 +50,7 @@ def get_elements(bulk_str: str, fem: FEM) -> Tuple[FemElements, dict, dict, dict
         return elem
 
     elements = FemElements(
-        filter(lambda x: x is not None, map(grab_elements, cards.re_gelmnt.finditer(bulk_str))), fem_obj=fem
+        filter(lambda x: x is not None, map(grab_elements, cards.GELMNT1.to_ff_re().finditer(bulk_str))), fem_obj=fem
     )
     return elements, mass_elem, spring_elem, internal_external_element_map
 
@@ -81,7 +81,7 @@ def get_mass(bulk_str: str, fem: FEM, mass_elem: dict) -> FemElements:
         no = fem.nodes.from_id(nodeno)
         fem_set = fem.sets.add(FemSet(f"m{nodeno}", [no], FemSet.TYPES.NSET, parent=fem))
         el_id = fem.elements.max_el_id + 1
-        elem = fem.elements.add(Elem(el_id, [no], Elem.EL_TYPES.MASS_SHAPES.MASS, None, parent=fem))
+        elem = fem.elements.add(Elem(el_id, [no], Elem.EL_TYPES.MASS_SHAPES.MASS, None, parent=fem), skip_grouping=True)
         mass = Mass(f"m{nodeno}", fem_set, masses, Mass.TYPES.MASS, ptype=mass_type, parent=fem, mass_id=el_id)
 
         elset = fem.sets.add(FemSet(f"m{nodeno}", [elem], FemSet.TYPES.ELSET, parent=fem))

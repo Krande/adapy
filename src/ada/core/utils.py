@@ -176,7 +176,7 @@ def traverse_hdf_datasets(hdf_file):
                 yield from h5py_dataset_iterator(item, path)
 
     with h5py.File(hdf_file, "r") as f:
-        for (path, dset) in h5py_dataset_iterator(f):
+        for path, dset in h5py_dataset_iterator(f):
             print(path, dset)
 
     return None
@@ -219,6 +219,24 @@ def zip_dir(directory, zip_path, incl_only=None):
                 )
 
 
+def is_within_directory(directory, target):
+    abs_directory = os.path.abspath(directory)
+    abs_target = os.path.abspath(target)
+
+    prefix = os.path.commonprefix([abs_directory, abs_target])
+
+    return prefix == abs_directory
+
+
+def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+    for member in tar.getmembers():
+        member_path = os.path.join(path, member.name)
+        if not is_within_directory(path, member_path):
+            raise Exception("Attempted Path Traversal in Tar File")
+
+    tar.extractall(path, members, numeric_owner)
+
+
 def unzip_it(zip_path, extract_path=None):
     fp = pathlib.Path(zip_path)
     if extract_path is None:
@@ -227,7 +245,7 @@ def unzip_it(zip_path, extract_path=None):
         import tarfile
 
         with tarfile.open(fp) as tar:
-            tar.extractall(extract_path)
+            safe_extract(tar, extract_path)
     else:
         with zipfile.ZipFile(fp, "r") as zip_archive:
             zip_archive.extractall(extract_path)

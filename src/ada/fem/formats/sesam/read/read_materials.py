@@ -26,10 +26,10 @@ def get_materials(bulk_str, part) -> Materials:
     :return:
     """
 
-    mat_names = {matid: mat_name for matid, mat_name in map(grab_name, cards.re_matnames.finditer(bulk_str))}
+    mat_names = {matid: mat_name for matid, mat_name in map(grab_name, cards.TDMATER.to_ff_re().finditer(bulk_str))}
 
-    misosel = (get_mat(m, mat_names, part) for m in cards.re_misosel.finditer(bulk_str))
-    morsmel = (get_morsmel(m, mat_names, part) for m in cards.re_morsmel.finditer(bulk_str))
+    misosel = (get_mat(m, mat_names, part) for m in cards.MISOSEL.to_ff_re().finditer(bulk_str))
+    morsmel = (get_morsmel(m, mat_names, part) for m in cards.MORSMEL.to_ff_re().finditer(bulk_str))
     return Materials(chain(misosel, morsmel), parent=part)
 
 

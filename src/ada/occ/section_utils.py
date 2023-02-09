@@ -5,22 +5,21 @@ from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Wire
 from OCC.Extend.ShapeFactory import make_face, make_wire
 
 from ada.concepts.transforms import Placement
-from ada.sections.categories import SectionCat
+from ada.sections.categories import BaseTypes
 from ada.sections.concept import SectionProfile
 
 from .utils import make_circle, make_face_w_cutout
 
 
 def cross_sec_face(sec_profile: SectionProfile, placement: Placement, solid_repre) -> Union[TopoDS_Face, TopoDS_Wire]:
-
     inner_shape = None
 
-    if sec_profile.sec.type in SectionCat.tubular:
+    if sec_profile.sec.type == BaseTypes.TUBULAR:
         outer_shape = make_wire([make_circle(placement.origin, placement.zdir, sec_profile.sec.r)])
         inner_shape = make_wire([make_circle(placement.origin, placement.zdir, sec_profile.sec.r - sec_profile.sec.wt)])
-    elif sec_profile.sec.type in SectionCat.circular:
+    elif sec_profile.sec.type == BaseTypes.CIRCULAR:
         outer_shape = make_wire([make_circle(placement.origin, placement.zdir, sec_profile.sec.r)])
-    elif sec_profile.sec.type in SectionCat.general:
+    elif sec_profile.sec.type == BaseTypes.GENERAL:
         radius = np.sqrt(sec_profile.sec.properties.Ax / np.pi)
         outer_shape = make_wire([make_circle(placement.origin, placement.zdir, radius)])
     else:
@@ -33,6 +32,9 @@ def cross_sec_face(sec_profile: SectionProfile, placement: Placement, solid_repr
                 inner_curve.placement = placement
                 inner_shape = inner_curve.wire
         else:
+            if sec_profile.outer_curve_disconnected is None:
+                raise ValueError(f"Section profile {sec_profile.sec.name} has no Curve associated with it")
+
             outer_shape = []
             for curve in sec_profile.outer_curve_disconnected:
                 curve.placement = placement

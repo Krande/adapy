@@ -10,18 +10,20 @@ import subprocess
 import sys
 from contextlib import contextmanager
 from itertools import chain
-from typing import TYPE_CHECKING, Dict, List, Union
+from typing import TYPE_CHECKING
 
 from send2trash import send2trash
 
-from ada import Beam, Plate
 from ada.concepts.containers import Beams, Plates
 from ada.config import Settings
 from ada.fem import Elem
 from ada.fem.exceptions import FEASolverNotInstalled
 
 if TYPE_CHECKING:
-    from ada import Assembly, Part
+    from ada import Assembly, Beam, Part, Plate
+    from ada.fem.formats.general import FEATypes
+
+logger = logging.getLogger("ada")
 
 
 class DatFormatReader:
@@ -98,10 +100,13 @@ class LocalExecute:
                 json.dump(self._metadata, fp, indent=4)
 
         if sys.platform == "linux" or sys.platform == "linux2":
+            logger.info("Running on Linux platform.")
             out = run_linux(self, run_command)
         elif sys.platform == "darwin":
+            logger.info("Running on macOS platform.")
             out = run_macOS(self, run_command)
         else:  # sys.platform == "win32":
+            logger.info("Running on Windows platform.")
             out = run_windows(
                 self,
                 run_command,
@@ -198,11 +203,22 @@ def get_fem_model_from_assembly(assembly: Assembly) -> Part:
     return parts[0]
 
 
-def get_exe_path(exe_name: str):
+def get_exe_path(fea_type: FEATypes):
+    from ada.fem.formats.general import FEATypes
+
+    if isinstance(fea_type, FEATypes):
+        exe_name = fea_type.value
+    else:
+        exe_name = fea_type
+
+    env_name = f"ADA_{exe_name}_exe"
+
     if Settings.fem_exe_paths.get(exe_name, None) is not None:
         exe_path = Settings.fem_exe_paths[exe_name]
-    elif os.getenv(f"ADA_{exe_name}_exe"):
-        exe_path = os.getenv(f"ADA_{exe_name}_exe")
+    elif os.getenv(env_name):
+        exe_path = os.getenv(env_name)
+    elif shutil.which(f"{exe_name}"):
+        exe_path = shutil.which(f"{exe_name}")
     elif shutil.which(f"{exe_name}.exe"):
         exe_path = shutil.which(f"{exe_name}.exe")
     elif shutil.which(f"{exe_name}.bat"):
@@ -297,7 +313,6 @@ def _lock_check(analysis_dir):
 
 
 def folder_prep(scratch_dir, analysis_name, overwrite):
-
     if scratch_dir is None:
         scratch_dir = pathlib.Path(Settings.scratch_dir)
     else:
@@ -342,45 +357,84 @@ echo ON\ncall {run_cmd}"""
         shutil.copy(exe.execute_dir / start_bat, Settings.execute_dir / start_bat)
         shutil.copy(exe.execute_dir / stop_bat, Settings.execute_dir / stop_bat)
 
+    # If the script should be running from batch files, then this can be used
     if run_in_shell:
-        run_cmd = "start " + start_bat if exe.run_ext is True else "start /wait " + start_bat
+        _ = "start " + start_bat if exe.run_ext is True else "start /wait " + start_bat
     else:
-        run_cmd = "start " + start_bat if exe.run_ext is True else "call " + start_bat
+        _ = "start " + start_bat if exe.run_ext is True else "call " + start_bat
+
     return run_tool(exe, run_cmd, "Windows")
 
 
 def run_linux(exe, run_cmd):
-    return run_tool(exe, run_cmd, "Linux")
+    return run_tool(exe, run_cmd.split(), "Linux")
 
 
 def run_tool(exe: LocalExecute, run_cmd, platform):
     fem_tool_name = type(exe).__name__.replace("Execute", "")
-    out = None
+    props = dict(cwd=exe.execute_dir, env=os.environ, universal_newlines=True, encoding="utf-8")
+    if exe.auto_execute is False:
+        return None
+
     print(80 * "-")
     print(f'Starting {fem_tool_name} simulation "{exe.analysis_name}" (on {platform}) using {exe.cpus} cpus')
-    props = dict(shell=True, cwd=exe.execute_dir, env=os.environ, universal_newlines=True)
-    if exe.auto_execute is True:
-        if exe.run_ext is True:
-            out = subprocess.Popen(run_cmd, **props)
-            print(f"Note! This starts {fem_tool_name} in an external window on a separate thread.")
-        else:
-            props["capture_output"] = True
-            out = subprocess.run(run_cmd, **props)
-            print(f'Finished {fem_tool_name} simulation "{exe.analysis_name}"')
+    if exe.run_ext is True:
+        out = subprocess.Popen(run_cmd, **props)
+        print(f"Note! This starts {fem_tool_name} in an external window on a separate thread.")
+    else:
+        # run_directly_on_windows(run_cmd, props, exe)
+        props["capture_output"] = True
+        out = subprocess.run(run_cmd, **props)
+        print(f'Finished {fem_tool_name} simulation "{exe.analysis_name}"')
     print(80 * "-")
     return out
+
+
+def run_directly_on_windows(run_cmd, props, exe):
+    rstr = ""
+    for out in execute(cmd=run_cmd, **props):
+        print(out)
+        rstr += out
+    with open(exe.execute_dir / "run.log", "w") as f:
+        f.write(rstr)
+
+
+def execute(cmd, cwd, encoding, **kwargs):
+    popen = subprocess.Popen(cmd, stdout=subprocess.PIPE, cwd=cwd, encoding=encoding)
+    for stdout_line in popen.stdout:
+        try:
+            yield stdout_line.strip()
+        except UnicodeDecodeError as e:
+            logger.error(e)
+            continue
+
+    popen.stdout.close()
+    return_code = popen.wait()
+    if return_code:
+        raise subprocess.CalledProcessError(return_code, cmd)
 
 
 def run_macOS(exe, run_cmd):
     raise NotImplementedError()
 
 
-def interpret_fem(fem_ref: str):
+def interpret_fem_format_from_path(fem_path: str | pathlib.Path):
+    from ada.fem.formats.general import FEATypes
+
+    suffix = pathlib.Path(fem_path).suffix.lower()
+
     fem_type = None
-    if ".fem" in str(fem_ref).lower():
-        fem_type = "sesam"
-    elif ".inp" in str(fem_ref).lower():
-        fem_type = "abaqus"
+    if suffix in (".fem", ".sif"):
+        fem_type = FEATypes.SESAM
+    elif suffix == ".inp":
+        fem_type = FEATypes.ABAQUS
+    elif suffix in (".frd",):
+        fem_type = FEATypes.CALCULIX
+    elif suffix in (".rmed", ".med"):
+        fem_type = FEATypes.CODE_ASTER
+    else:
+        logger.error(f'unrecognized suffix "{suffix}"')
+
     return fem_type
 
 
@@ -395,7 +449,8 @@ def should_convert(res_path, overwrite):
         return False
 
 
-def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> List[Plate]:
+def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> list[Plate]:
+    from ada import Plate
     from ada.core.vector_utils import is_coplanar
 
     plates = []
@@ -409,24 +464,41 @@ def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> List[Plate]:
             *elem.nodes[3].p,
         ):
             plates.append(
-                Plate(f"sh{elem.id}", [n.p for n in elem.nodes], fem_sec.thickness, use3dnodes=True, parent=parent)
+                Plate(
+                    f"sh{elem.id}",
+                    [n.p for n in elem.nodes],
+                    fem_sec.thickness,
+                    mat=fem_sec.material,
+                    use3dnodes=True,
+                    parent=parent,
+                )
             )
         else:
             el_n1 = [elem.nodes[0].p, elem.nodes[1].p, elem.nodes[2].p]
             el_n2 = [elem.nodes[0].p, elem.nodes[2].p, elem.nodes[3].p]
-            plates.append(Plate(f"sh{elem.id}", el_n1, fem_sec.thickness, use3dnodes=True, parent=parent))
+            plates.append(
+                Plate(f"sh{elem.id}", el_n1, fem_sec.thickness, mat=fem_sec.material, use3dnodes=True, parent=parent)
+            )
             plates.append(
                 Plate(
                     f"sh{elem.id}_1",
                     el_n2,
                     fem_sec.thickness,
                     use3dnodes=True,
+                    mat=fem_sec.material,
                     parent=parent,
                 )
             )
     else:
         plates.append(
-            Plate(f"sh{elem.id}", [n.p for n in elem.nodes], fem_sec.thickness, use3dnodes=True, parent=parent)
+            Plate(
+                f"sh{elem.id}",
+                [n.p for n in elem.nodes],
+                fem_sec.thickness,
+                mat=fem_sec.material,
+                use3dnodes=True,
+                parent=parent,
+            )
         )
     return plates
 
@@ -443,6 +515,7 @@ def convert_part_elem_bm_to_beams(p: Part) -> Beams:
 
 def line_elem_to_beam(elem: Elem, parent: Part) -> Beam:
     """Convert FEM line element to Beam"""
+    from ada import Beam
 
     a = parent.get_assembly()
 
@@ -460,14 +533,14 @@ def line_elem_to_beam(elem: Elem, parent: Part) -> Beam:
                 e2 = ecc.end2.ecc_vector
 
     if elem.fem_sec.section.type == "GENBEAM":
-        logging.error(f"Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section")
+        logger.error(f"Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section")
 
     return Beam(
         f"bm{elem.id}",
         n1,
         n2,
-        elem.fem_sec.section,
-        elem.fem_sec.material,
+        sec=elem.fem_sec.section,
+        mat=elem.fem_sec.material,
         up=elem.fem_sec.local_z,
         e1=e1,
         e2=e2,
@@ -484,18 +557,21 @@ def convert_part_objects(p: Part, skip_plates, skip_beams):
 
 def default_fem_res_path(
     name, scratch_dir=None, analysis_dir=None, fem_format=None
-) -> Union[Dict[str, pathlib.Path], str]:
+) -> dict[FEATypes, pathlib.Path] | str:
+    from ada.fem.formats.general import FEATypes
+
     if scratch_dir is None and analysis_dir is None:
         scratch_dir = Settings.scratch_dir
 
     base_path = scratch_dir / name / name if analysis_dir is None else analysis_dir / name
-    fem_format_map = dict(
-        code_aster=base_path.with_suffix(".rmed"),
-        abaqus=base_path.with_suffix(".odb"),
-        calculix=base_path.with_suffix(".frd"),
-        sesam=(base_path.parent / f"{name}R1").with_suffix(".SIN"),
-        usfos=base_path.with_suffix(".fem"),
-    )
+    fem_format_map = {
+        FEATypes.CODE_ASTER: base_path.with_suffix(".rmed"),
+        FEATypes.ABAQUS: base_path.with_suffix(".pckle"),
+        FEATypes.CALCULIX: base_path.with_suffix(".frd"),
+        FEATypes.SESAM: (base_path.parent / f"{name}R1").with_suffix(".SIF"),
+        FEATypes.USFOS: base_path.with_suffix(".fem"),
+        FEATypes.XDMF: base_path.with_suffix(".xdmf"),
+    }
 
     if fem_format is None:
         return fem_format_map
@@ -504,11 +580,13 @@ def default_fem_res_path(
 
 
 def default_fem_inp_path(name, scratch_dir=None, analysis_dir=None):
+    from ada.fem.formats.general import FEATypes
+
     base_path = scratch_dir / name / name if analysis_dir is None else analysis_dir / name
-    return dict(
-        code_aster=base_path.with_suffix(".export"),
-        abaqus=base_path.with_suffix(".inp"),
-        calculix=base_path.with_suffix(".inp"),
-        sesam=(base_path.parent / f"{name}T1").with_suffix(".FEM"),
-        usfos=base_path.with_suffix(".raf"),
-    )
+    return {
+        FEATypes.CODE_ASTER: base_path.with_suffix(".export"),
+        FEATypes.ABAQUS: base_path.with_suffix(".inp"),
+        FEATypes.CALCULIX: base_path.with_suffix(".inp"),
+        FEATypes.SESAM: (base_path.parent / f"{name}T1").with_suffix(".FEM"),
+        FEATypes.USFOS: base_path.with_suffix(".raf"),
+    }

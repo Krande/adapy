@@ -1,0 +1,46 @@
+*
+* Sestra listing file (SESTRA.LIS)
+* Thu Oct 20 13:18:14 2022
+*
+* Program version: 10.14.0.72
+*
+* Input Interface File: static_line_cantilever_sesamT1.FEM
+*
+
+Mass centre (total mass) with respect to (0, 0, 0):
+             x;             y;             z
+  1.500000e+00;  5.000000e-01;  5.000000e-01
+
+Mass matrix (total mass) diagonal with respect to (0, 0, 0):
+            tx;            ty;            tz;            rx;            ry;            rz
+  1.899967e+02;  1.899967e+02;  1.899967e+02;  1.004597e+02;  6.174892e+02;  6.174892e+02
+
+Mass matrix (total mass) with respect to (0, 0, 0):
+              ;            tx;            ty;            tz;            rx;            ry;            rz
+            tx;  1.899967e+02;  0.000000e+00;  0.000000e+00;  0.000000e+00;  9.499834e+01; -9.499834e+01
+            ty;  0.000000e+00;  1.899967e+02;  0.000000e+00; -9.499834e+01;  0.000000e+00;  2.849950e+02
+            tz;  0.000000e+00;  0.000000e+00;  1.899967e+02;  9.499834e+01; -2.849950e+02;  0.000000e+00
+            rx;  0.000000e+00; -9.499834e+01;  9.499834e+01;  1.004597e+02; -1.424975e+02; -1.424975e+02
+            ry;  9.499834e+01;  0.000000e+00; -2.849950e+02; -1.424975e+02;  6.174892e+02; -4.749917e+01
+            rz; -9.499834e+01;  2.849950e+02;  0.000000e+00; -1.424975e+02; -4.749917e+01;  6.174892e+02
+
+Load sum for all result cases (internal number):
+   result case;            tx;            ty;            tz;            rx;            ry;            rz
+             1;  0.000000e+00;  0.000000e+00; -1.491094e+05; -7.455470e+04;  2.236641e+05;  0.000000e+00
+
+Reaction force sum for all result cases (internal number):
+   result case;            tx;            ty;            tz;            rx;            ry;            rz
+             1;  0.000000e+00;  0.000000e+00;  1.491094e+05;  7.455470e+04; -2.236641e+05;  0.000000e+00
+
+Sum of load sum and reaction force sum for all result cases (internal number):
+   result case;            tx;            ty;            tz;            rx;            ry;            rz;     magnitude
+             1;  0.000000e+00;  0.000000e+00;  3.440073e-08;  1.720036e-08; -9.158975e-08;  0.000000e+00;  9.933753e-08
+
+Overview of result cases:
+ Name; FEM load case id; Int. result case id; Ext. result case id
+  LC1;                1;                   1;                   1
+
+
+*
+* Normal exit from Sestra.
+*

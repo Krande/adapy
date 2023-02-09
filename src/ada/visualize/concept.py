@@ -1,19 +1,13 @@
 from __future__ import annotations
 
 import datetime
-import json
 import logging
 import os
 import pathlib
-import shutil
 from dataclasses import dataclass, field
-from typing import List, Tuple
 
-import h5py
 import numpy as np
 import trimesh
-
-from ada.core.file_system import get_list_of_files
 
 from .colors import VisColor
 
@@ -32,20 +26,7 @@ class VisMesh:
     cache_file: pathlib.Path = field(default=pathlib.Path(".cache/meshes.h5"), repr=False)
     overwrite_cache: bool = False
     colors: dict[str, VisColor] = field(default_factory=dict)
-
-    def __enter__(self):
-        logging.debug("Starting Visual Mesh session")
-        os.makedirs(self.cache_file.parent, exist_ok=True)
-        if self.overwrite_cache is True and self.cache_file.exists():
-            os.remove(self.cache_file)
-        self._h5cache = h5py.File(self.cache_file, "w")
-        self._h5cache_group = self._h5cache.create_group("VISMESH")
-        return self
-
-    def __exit__(self, exc_type, exc_value, exc_traceback):
-        self._h5cache.close()
-        self._h5cache = None
-        self._h5cache_group = None
+    merged: bool = False
 
     def __post_init__(self):
         if self.created is None:
@@ -55,15 +36,6 @@ class VisMesh:
         self.translation = override_center if override_center is not None else -self.vol_center
         for pm in self.world:
             pm.move_objects_to_center(self.translation)
-
-    def add_color(self, color: VisColor, primitive_guid):
-        existing = self.colors.get(color.name, None)
-        if existing:
-            existing.used_by.append(primitive_guid)
-            return existing
-        self.colors[color.name] = color
-
-        return color
 
     def add_mesh(self, guid, parent_guid, position, indices, normals=None, matrix=None, color_ref=None):
         obj_group = self._h5cache_group.create_group(guid)
@@ -80,7 +52,7 @@ class VisMesh:
         return (self.bbox[0] + self.bbox[1]) / 2
 
     @property
-    def bbox(self) -> Tuple[np.ndarray, np.ndarray]:
+    def bbox(self) -> tuple[np.ndarray, np.ndarray]:
         res = np.concatenate([np.array(x.bbox) for x in self.world])
         return res.min(0), res.max(0)
 
@@ -88,68 +60,38 @@ class VisMesh:
     def num_polygons(self):
         return sum([x.num_polygons for x in self.world])
 
-    def _get_mesh_obj_from_cache(self, guid, h5) -> ObjectMesh:
-        obj_group = h5[guid]
-        index = obj_group["INDEX"][()]
-        position = obj_group["POSITION"][()]
-        # normals = obj_group["NORMAL"][()]
-        color_obj = self.colors[obj_group.attrs["COLOR"]]
-        base_color = color_obj.pbrMetallicRoughness.baseColorFactor
-        faces = index.reshape(int(len(index) / 3), 3)
-        return ObjectMesh(guid, faces, position, None, base_color)
-
-    def _convert_to_trimesh2(self, only_these_guids: List[str] = None) -> trimesh.Scene:
+    def _convert_to_trimesh(self, embed_meta=True) -> trimesh.Scene:
         scene = trimesh.Scene()
-        from trimesh.visual.material import PBRMaterial
+        meta_set = set(self.meta.keys())
 
-        h5_file = None
-        if self._h5cache is None and self.cache_file.exists():
-            h5_file = h5py.File(self.cache_file)
-            h5 = h5_file["VISMESH"]
-        else:
-            h5 = self._h5cache_group
-
-        totnum = len(self.meshes.keys())
-        for i, vn in enumerate(self.meshes.values()):
-            if only_these_guids is not None and vn.guid not in only_these_guids:
-                continue
-            obj_group = h5[vn.guid]
-            index = obj_group["INDEX"][()]
-            position = obj_group["POSITION"][()] * 1e-3
-            normals = obj_group["NORMAL"][()]
-            color = self.colors[obj_group.attrs["COLOR"]]
-
-            # matrix = obj_group.attrs.get("MATRIX")
-            if index.shape[1] != 3:
-                index = index.reshape(int(len(index) / 3), 3)
-
-            new_mesh = trimesh.Trimesh(
-                vertices=position,
-                faces=index,
-                vertex_normals=normals,
-                # face_colors=obj.color,
-                metadata=dict(guid=vn.guid),
-            )
-            print(f"Exporting ({i} of {totnum})")
-            base_color = [int(x * 255) for x in color.pbrMetallicRoughness.baseColorFactor]
-            new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color)
-            scene.add_geometry(new_mesh, node_name=vn.guid, geom_name=vn.guid)
-
-        if h5_file is not None:
-            h5_file.close()
-
-        return scene
-
-    def _convert_to_trimesh(self) -> trimesh.Scene:
-        scene = trimesh.Scene()
+        id_sequence = dict()
 
         for world in self.world:
+            world_map_set = set(world.id_map.keys())
+            res = meta_set - world_map_set
+            if self.merged is False:
+                for spatial_node in res:
+                    spatial_name, spatial_parent = self.meta.get(spatial_node)
+                    scene.graph.update(
+                        frame_to=spatial_name, frame_from=spatial_parent if spatial_parent != "*" else None
+                    )
+
             for key, obj in world.id_map.items():
-                parent = None
+                if self.merged is False:
+                    name, parent_guid = self.meta.get(key)
+                    parent_name, _ = self.meta.get(parent_guid)
+                else:
+                    name = key
+                    parent_name = "world"
+
                 for i, new_mesh in enumerate(obj.to_trimesh()):
-                    name = key if i == 0 else f"{key}_{i:02d}"
-                    scene.add_geometry(new_mesh, node_name=name, geom_name=name, parent_node_name=parent)
-                    parent = name
+                    name = name if i == 0 else f"{name}_{i:02d}"
+                    scene.add_geometry(new_mesh, node_name=name, geom_name=name, parent_node_name=parent_name)
+                    id_sequence[name] = obj.id_sequence
+
+        if embed_meta:
+            scene.metadata["meta"] = self.meta
+            scene.metadata["id_sequence"] = id_sequence
 
         return scene
 
@@ -164,44 +106,11 @@ class VisMesh:
         mesh: trimesh.Trimesh = self._convert_to_trimesh()
         self._export_using_trimesh(mesh, dest_file)
 
-    def merge_meshes_by_color(self) -> List[str]:
-        from ada.ifc.utils import create_guid
-
-        h5_file = None
-        if self._h5cache is None and self.cache_file.exists():
-            h5_file = h5py.File(self.cache_file)
-            h5 = h5_file["VISMESH"]
-        else:
-            h5 = self._h5cache_group
-
-        listofobj = []
-        for color in self.colors.values():
-            obj0 = self._get_mesh_obj_from_cache(color.used_by[0], h5)
-            tot_num = len(color.used_by[1:])
-            for i, obj_guid in enumerate(color.used_by[1:]):
-                print(f"Merging ({i} of {tot_num}) into color {color.name}")
-                # TODO: Optimize this by unwrapping everything before concatenating
-                obj1 = self._get_mesh_obj_from_cache(obj_guid, h5)
-                obj0 += obj1
-
-            new_guid = create_guid()
-
-            self.add_mesh(new_guid, create_guid(), obj0.position, obj0.faces, obj0.normal, color_ref=color.name)
-            listofobj.append(new_guid)
-
-        if self._h5cache is None and h5_file is not None:
-            h5_file.close()
-
-        return listofobj
-
-    def to_gltf(self, dest_file, only_these_guids: list[str] = None):
+    def to_gltf(self, dest_file, only_these_guids: list[str] = None, embed_meta=False):
         from ada.core.vector_utils import rot_matrix
 
         dest_file = pathlib.Path(dest_file).with_suffix(".glb")
-        if hasattr(self, "_h5cache"):
-            mesh: trimesh.Trimesh = self._convert_to_trimesh2(only_these_guids)
-        else:
-            mesh: trimesh.Trimesh = self._convert_to_trimesh()
+        mesh: trimesh.Trimesh = self._convert_to_trimesh(embed_meta=embed_meta)
 
         # Trimesh automatically transforms by setting up = Y. This will counteract that transform
         m3x3 = rot_matrix((0, -1, 0))
@@ -210,115 +119,6 @@ class VisMesh:
         mesh.apply_transform(m4x4)
 
         self._export_using_trimesh(mesh, dest_file)
-
-    def to_cache(self, overwrite=False):
-        import h5py
-
-        os.makedirs(".cache", exist_ok=True)
-        if self.cache_file.exists():
-            if overwrite is False:
-                print("Cache already exists and overwrite is not passed")
-                return None
-            os.remove(self.cache_file)
-
-        with h5py.File(self.cache_file, "w") as f:
-            vis_mesh_group = f.create_group("VISMESH")
-            for world in self.world:
-                for key, obj_mesh in world.id_map.items():
-                    # TODO: add last modified date check for original element if cache exists
-                    obj_group = vis_mesh_group.create_group(key)
-                    obj_group.attrs.create("COLOR", obj_mesh.color)
-                    transl = obj_mesh.translation if obj_mesh.translation is not None else np.array([0, 0, 0])
-                    obj_group.attrs.create("TRANSLATION", transl)
-
-                    obj_group.create_dataset("POSITION", data=obj_mesh.position)
-                    # obj_group.create_dataset("NORMAL", data=obj_mesh.normal)
-                    obj_group.create_dataset("INDEX", data=obj_mesh.faces)
-
-    def to_binary_and_json(self, dest_dir, auto_zip=True, export_dir=None, skip_normals=False):
-        dest_dir = pathlib.Path(dest_dir)
-
-        if dest_dir.exists():
-            shutil.rmtree(dest_dir)
-
-        wrld = []
-        data_dir = dest_dir / "data"
-        if data_dir.exists():
-            shutil.rmtree(data_dir)
-
-        for part in self.world:
-            wrld_obj = {
-                "name": part.name,
-                "rawdata": part.rawdata,
-                "guiParam": part.guiparam,
-                "id_map": {
-                    key: value.to_binary_json(dest_dir=data_dir, skip_normals=skip_normals)
-                    for key, value in part.id_map.items()
-                },
-            }
-            wrld.append(wrld_obj)
-
-        output = {
-            "name": self.name,
-            "created": self.created,
-            "project": self.project,
-            "world": wrld,
-            "meta": self.meta,
-        }
-
-        if dest_dir is None:
-            return output
-
-        os.makedirs(dest_dir, exist_ok=True)
-        json_file = (dest_dir / self.name).with_suffix(".json")
-        with open(json_file, "w") as f:
-            json.dump(output, f)
-
-        if auto_zip is True:
-            import zipfile
-
-            zip_dir = dest_dir / "export" if export_dir is None else pathlib.Path(export_dir)
-            zip_data = zip_dir / "data"
-            if zip_data.exists():
-                shutil.rmtree(zip_data, ignore_errors=True)
-
-            os.makedirs(zip_dir, exist_ok=True)
-            os.makedirs(zip_data, exist_ok=True)
-
-            for f in get_list_of_files(data_dir, ".npy"):
-                fp = pathlib.Path(f)
-                zfile = (zip_data / fp.stem).with_suffix(".zip")
-                with zipfile.ZipFile(zfile, "w") as zip_archive:
-                    zip_archive.write(fp, fp.name, compress_type=zipfile.ZIP_DEFLATED)
-
-            zfile = (zip_dir / json_file.stem).with_suffix(".zip")
-            with zipfile.ZipFile(zfile, "w") as zip_archive:
-                zip_archive.write(json_file, json_file.name, compress_type=zipfile.ZIP_DEFLATED)
-
-    def to_custom_json(self, dest_path=None, auto_zip=False):
-        output = {
-            "name": self.name,
-            "created": self.created,
-            "project": self.project,
-            "world": [x.to_custom_json() for x in self.world],
-            "meta": self.meta,
-            "translation": self.translation.tolist() if self.translation is not None else None,
-        }
-        if dest_path is None:
-            return output
-
-        dest_path = pathlib.Path(dest_path).resolve().absolute()
-        os.makedirs(dest_path.parent, exist_ok=True)
-
-        with open(dest_path, "w") as f:
-            json.dump(output, f)
-
-        if auto_zip:
-            import zipfile
-
-            zfile = dest_path.with_suffix(".zip")
-            with zipfile.ZipFile(zfile, "w") as zip_archive:
-                zip_archive.write(dest_path, dest_path.name, compress_type=zipfile.ZIP_DEFLATED)
 
     def merge_objects_in_parts_by_color(self) -> VisMesh:
         to_be_merged_part = None
@@ -340,6 +140,7 @@ class VisMesh:
             world=[merged_part],
             meta=self.meta,
             translation=self.translation,
+            merged=True,
         )
 
     def __add__(self, other: VisMesh):
@@ -360,8 +161,6 @@ class VisMesh:
 class PartMesh:
     name: str
     id_map: dict[str, ObjectMesh]
-    guiparam: None | dict = None
-    rawdata: bool = True
 
     def move_objects_to_center(self, override_center=None):
         for omesh in self.id_map.values():
@@ -416,7 +215,7 @@ class ObjectMesh:
     guid: str
     faces: np.ndarray
     position: np.ndarray
-    normal: np.ndarray | None
+    normal: np.ndarray | None = None
     color: list | None = None
     edges: np.ndarray = None
     vertex_color: np.ndarray = None
@@ -521,12 +320,12 @@ class ObjectMesh:
                     needs_to_be_scaled = False
 
             if needs_to_be_scaled:
-                base_color = [int(x * 255) for x in self.color[:3]] + [self.color[3]]
+                base_color = [int(x * 255) for x in self.color[:3]] + [int(self.color[3])]
             else:
                 base_color = self.color
 
             if vertex_color is None:
-                new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color[:3])
+                new_mesh.visual.material = PBRMaterial(baseColorFactor=base_color)
 
         meshes = [new_mesh]
         if self.edges is not None:
@@ -535,11 +334,13 @@ class ObjectMesh:
             shape_edges = get_shape(self.edges)
             if shape_edges == 1:
                 reshaped = self.edges.reshape(int(len(self.edges) / 2), 2)
-                entities = [Line(x) for x in reshaped]
-                edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
+            elif shape_edges == 2:
+                reshaped = self.edges
             else:
-                raise NotImplementedError()
+                raise NotImplementedError("Edges consisting of more than 2 vertices is not supported")
 
+            entities = [Line(x) for x in reshaped]
+            edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
             meshes.append(edge_mesh)
 
         return meshes

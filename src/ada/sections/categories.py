@@ -33,7 +33,6 @@ class BaseTypes(Enum):
 
 
 class SectionCat:
-
     BASETYPES = BaseTypes
 
     box = [BASETYPES.BOX.value, "BG", "CG"]
@@ -51,7 +50,11 @@ class SectionCat:
     poly = ["POLY"]
 
     @staticmethod
-    def _get_sec_type(section_ref: str) -> str:
+    def _get_sec_type(section_ref: str | Section) -> str | BaseTypes:
+        from ada import Section
+
+        if isinstance(section_ref, Section):
+            return section_ref.type
         return section_ref.upper()
 
     @classmethod

@@ -7,7 +7,7 @@ def mass_str(fem: FEM) -> str:
     out_str = ""
 
     for mass in fem.elements.masses:
-        for m in mass.fem_set.members:
+        for m in mass.members:
             if mass.type == mass.TYPES.MASS:
                 if mass.point_mass_type == mass.PTYPES.ISOTROPIC:
                     masses = [mass.mass for _ in range(0, 3)] + [0, 0, 0]

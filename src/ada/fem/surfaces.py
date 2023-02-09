@@ -64,12 +64,15 @@ class Surface(FemBase):
 
         self._fem_set = fem_set
         if type(fem_set) is list:
-            if not type(el_face_index) is list:
+            if type(el_face_index) is not list:
                 raise ValueError("You cannot define a list of FemSets and not also include a List of el_face_indices")
 
         self._weight_factor = weight_factor
         self._el_face_index = el_face_index
         self._id_refs = id_refs
+        self._refs = []
+        if isinstance(fem_set, FemSet):
+            fem_set.refs.append(self)
 
     @property
     def type(self):
@@ -94,6 +97,10 @@ class Surface(FemBase):
     @property
     def id_refs(self):
         return self._id_refs
+
+    @property
+    def refs(self):
+        return self._refs
 
 
 def create_surface_from_nodes(surface_name: str, nodes: List[Node], fem: "FEM", shell_positive=True) -> Surface:

@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING
 from ada.core.utils import Counter
 from ada.fem import Mass
 from ada.fem.containers import FemElements
-from ada.fem.elements import ElemType
 from ada.fem.formats.utils import str_to_int
+from ada.fem.shapes import definitions as shape_def
 
 from .helper_utils import _re_in, get_set_from_assembly
 
@@ -31,7 +31,7 @@ def get_mass_from_bulk(bulk_str, parent: "FEM") -> FemElements:
     return FemElements((get_mass(m, parent, mass_ids) for m in re_masses.finditer(bulk_str)), fem_obj=parent)
 
 
-aba_to_ada_mass_map = {"ROTARY INERTIA": ElemType.POINT_SHAPES.ROTARYI, "MASS": ElemType.POINT_SHAPES.MASS}
+aba_to_ada_mass_map = {"ROTARY INERTIA": shape_def.MassTypes.ROTARYI, "MASS": shape_def.MassTypes.MASS}
 ada_to_aba_mass_map = {val: key for key, val in aba_to_ada_mass_map.items()}
 
 

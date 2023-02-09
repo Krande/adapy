@@ -11,7 +11,8 @@ from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem import Csys, Elem, FemSection, FemSet
 from ada.fem.containers import FemSections
 from ada.fem.formats.utils import str_to_int
-from ada.fem.shapes import ElemShape, ElemType
+from ada.fem.shapes import ElemType
+from ada.fem.shapes import definitions as shape_def
 from ada.materials import Material
 from ada.sections import GeneralProperties
 
@@ -22,17 +23,17 @@ def get_sections(bulk_str, fem: FEM, mass_elem, spring_elem) -> FemSections:
     # Section Names
     sect_names = {sec_id: name for sec_id, name in map(get_section_names, cards.re_sectnames.finditer(bulk_str))}
     # Local Coordinate Systems
-    lcsysd = {transno: vec for transno, vec in map(get_lcsys, cards.re_lcsys.finditer(bulk_str))}
+    lcsysd = {transno: vec for transno, vec in map(get_lcsys, cards.GUNIVEC.to_ff_re().finditer(bulk_str))}
     # Hinges
     hinges = {fixno: values for fixno, values in map(get_hinges, cards.re_belfix.finditer(bulk_str))}
     # Thickness'
-    thick = {geono: t for geono, t in map(get_thicknesses, cards.re_thick.finditer(bulk_str))}
+    thick = {geono: t for geono, t in map(get_thicknesses, cards.GELTH.to_ff_re().finditer(bulk_str))}
     # Eccentricities
     ecc = {eccno: values for eccno, values in map(get_eccentricities, cards.re_geccen.finditer(bulk_str))}
 
     list_of_sections = chain(
-        (get_isection(m, sect_names, fem) for m in cards.re_giorh.finditer(bulk_str)),
-        (get_box_section(m, sect_names, fem) for m in cards.re_gbox.finditer(bulk_str)),
+        (get_isection(m, sect_names, fem) for m in cards.GIORH.to_ff_re().finditer(bulk_str)),
+        (get_box_section(m, sect_names, fem) for m in cards.GBOX.to_ff_re().finditer(bulk_str)),
         (get_tubular_section(m, sect_names, fem) for m in cards.re_gpipe.finditer(bulk_str)),
         (get_flatbar(m, sect_names, fem) for m in cards.re_gbarm.finditer(bulk_str)),
     )
@@ -44,7 +45,7 @@ def get_sections(bulk_str, fem: FEM, mass_elem, spring_elem) -> FemSections:
     total_geo = count(1)
     res = (
         get_femsecs(m, total_geo, geom, lcsysd, hinges, ecc, thick, fem, mass_elem, spring_elem)
-        for m in cards.re_gelref1.finditer(bulk_str)
+        for m in cards.GELREF1.to_ff_re().finditer(bulk_str)
     )
     sections = filter(lambda x: type(x) is FemSection, res)
 
@@ -229,10 +230,10 @@ def get_femsecs(match, total_geo, curr_geom_num, lcsysd, hinges_global, ecc, thi
 
     elem = fem.elements.from_id(elno)
     mat = fem.parent.materials.get_by_id(matno)
-    if elem.type in ElemShape.TYPES.lines.all:
+    if isinstance(elem.type, shape_def.LineShapes):
         next(curr_geom_num)
         return read_line_section(elem, fem, mat, geono, d, lcsysd, hinges_global, ecc)
-    elif elem.type in ElemShape.TYPES.shell.all:
+    elif isinstance(elem.type, shape_def.ShellShapes):
         next(curr_geom_num)
         return read_shell_section(elem, fem, mat, elno, thicknesses, geono)
     else:

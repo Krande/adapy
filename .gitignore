@@ -3,10 +3,12 @@
 # Packaging
 build/
 dist/
+*.pyc
 docs/_build/
 output/
 *.egg-info/
-.pytest_cache/
+*.pytest_cache/
+*.ruff_cache/
 # Other
 .ipynb_checkpoints
 __pycache__
@@ -18,3 +20,4 @@ htmlcov/
 junit/
 Dockerfile_*
 .state
+.env

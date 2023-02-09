@@ -1,1 +1,2 @@
-pytest tests
+cd tests
+pytest .

@@ -9,6 +9,7 @@ from pythreejs import Group
 
 from ada.fem import FEM
 from ada.fem.shapes import ElemShape
+from ada.fem.shapes import definitions as shape_def
 
 from .threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 from .utils import get_edges_from_fem, get_faces_from_fem, get_vertices_from_fem
@@ -95,21 +96,10 @@ def get_edges_and_faces_from_meshio(mesh: meshio.Mesh):
         for elem in cell_block.data:
             elem_shape = ElemShape(el_type, elem)
             edges += elem_shape.edges
-            if elem_shape.type in elem_shape.TYPES.lines.all:
+            if isinstance(elem_shape.type, shape_def.LineShapes):
                 continue
             faces += elem_shape.faces
     return edges, faces
-
-
-def get_faces_for_bm_elem(elem):
-    """
-
-    :param elem:
-    :type elem: ada.fem.Elem
-    :return:
-    """
-
-    # if ElemShapes.beam
 
 
 def get_bounding_box(vertices):

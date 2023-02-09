@@ -32,7 +32,6 @@ class Calibrate:
         interpolate=True,
         incompressible=True,
     ):
-
         self._mat_data = mat_data
         self._num_int = num_int
         self._load_types = ["uniaxial", "biaxial", "planar"] if load_types is None else load_types

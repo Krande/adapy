@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from itertools import chain
-from typing import TYPE_CHECKING, Dict, List, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple, Union
 
 from ada.concepts.containers import Nodes
 
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
         FemSection,
         Interaction,
         InteractionProperty,
+        Load,
         Mass,
         PredefinedField,
         Spring,
@@ -34,6 +35,8 @@ if TYPE_CHECKING:
         StepSteadyState,
         Surface,
     )
+    from ada.fem.results.common import Mesh
+    from ada.fem.steps import Step
 
 _step_types = Union["StepSteadyState", "StepEigen", "StepImplicit", "StepExplicit"]
 
@@ -314,22 +317,48 @@ class FEM:
 
         return True
 
-    def get_all_bcs(self):
+    def get_all_steps(self) -> list[Step]:
+        assembly = self.parent.get_assembly()
+        steps = []
+        for p in assembly.get_all_parts_in_assembly(include_self=True):
+            if len(p.fem.steps) == 0:
+                continue
+            steps += p.fem.steps
+        return steps
+
+    def get_all_bcs(self) -> Iterable[Bc]:
         """Get all the boundary conditions in the entire assembly"""
         assembly = self.parent.get_assembly()
         return chain.from_iterable(
             (
-                [bc for bc in assembly.fem.bcs],
+                assembly.fem.bcs,
                 [bc for p in assembly.get_all_parts_in_assembly() for bc in p.fem.bcs],
             )
         )
 
-    def get_all_loads(self):
+    def get_all_masses(self) -> Iterable[Mass]:
+        """Get all the Masses in the entire assembly"""
+        assembly = self.parent.get_assembly()
+        return chain.from_iterable(
+            (
+                assembly.fem.masses.values(),
+                [mass for p in assembly.get_all_parts_in_assembly() for mass in p.fem.masses.values()],
+            )
+        )
+
+    def get_all_loads(self) -> list[Load]:
         loads = []
         for step in self.steps:
             for load in step.loads:
                 loads.append(load)
         return loads
+
+    def to_mesh(self) -> Mesh:
+        from ada.fem.results.common import Mesh
+
+        fem_nodes = self.nodes.to_fem_nodes()
+        elem_blocks = self.elements.to_elem_blocks()
+        return Mesh(elem_blocks, fem_nodes)
 
     @property
     def instance_name(self):

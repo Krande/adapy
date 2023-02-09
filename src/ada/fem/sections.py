@@ -46,6 +46,8 @@ class FemSection(FemBase):
         sec_id=None,
         is_rigid=False,
     ):
+        from ada.fem import FemSet
+
         super().__init__(name, metadata, parent)
         if isinstance(sec_type, str):
             sec_type = GeomRepr.from_str(sec_type)
@@ -70,6 +72,9 @@ class FemSection(FemBase):
         self._int_points = int_points
         self._refs = refs
         self._is_rigid = is_rigid
+
+        if isinstance(elset, FemSet):
+            elset.refs.append(self)
 
     def __hash__(self):
         return hash(f"{self.name}{self.id}")
@@ -218,6 +223,8 @@ class FemSection(FemBase):
             equal_sec = self.thickness == other.thickness
         elif self.type == self.SEC_TYPES.LINE:
             equal_sec = self.section.equal_props(other.section)
+            if tuple(self.local_y) != tuple(other.local_y) or tuple(self.local_z) != tuple(other.local_z):
+                equal_sec = False
         else:
             equal_sec = True
         if equal_mat is True and equal_sec is True:

@@ -25,12 +25,10 @@ class IfcReader:
     ifc_store: IfcStore
 
     def load_spatial_hierarchy(self):
-
         pi = PartImporter(self.ifc_store)
         pi.load_hierarchies()
 
     def load_materials(self):
-
         mi = MaterialImporter(self.ifc_store)
         mi.load_ifc_materials()
 
