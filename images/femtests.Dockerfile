@@ -2,18 +2,21 @@ FROM krande/ada:base@sha256:c2adc79efb216cea84f1097e720f9789b2d13e36bdc4030c0ca5
 
 SHELL ["/work/aster/mambaforge/bin/conda", "run", "-n", "adadocker", "/bin/bash", "-c"]
 
-RUN pip install --no-cache-dir pytest
+ARG TMPDIR=/tmp/adapy
+RUN mkdir -p ${TMPDIR}
+WORKDIR ${TMPDIR}
+USER root
 
-ENV TESTDIR="${HOME}/tests/fem"
+COPY . .
+
+RUN pip install --no-cache-dir pytest && pip install --no-cache-dir . && rm -rfv ${TMPDIR}/*
+ENV TESTDIR="${HOME}/tests/fem"make
 
 RUN mkdir -p "${TESTDIR}"
+
 WORKDIR "${TESTDIR}"
 
-RUN echo "source activate adadocker" > ~/.bashrc
-ENV PATH="/work/aster/mambaforge/bin:${PATH}"
+COPY tests/dockertests/ .
 
-COPY tests/dockertests .
-
-USER root
 RUN chmod +x run_tests.sh
 USER aster

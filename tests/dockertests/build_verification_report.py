@@ -258,4 +258,4 @@ def main(overwrite, execute):
 
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)
-    main(overwrite=False, execute=False)
+    main(overwrite=True, execute=True)

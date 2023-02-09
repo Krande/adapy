@@ -2,8 +2,6 @@ mount=--mount type=bind,source="$(CURDIR)/temp/report",target=/home/tests/fem/te
       --mount type=bind,source="$(CURDIR)/temp/scratch",target=/home/adauser/scratch
 drun=docker run --rm $(mount) krande/ada:femtests conda run --live-stream -n adadocker
 
-mdir:
-	mkdir "temp\report" && mkdir "temp\scratch"
 
 dev:
 	mamba env update --file environment.dev.yml --prune
@@ -32,8 +30,14 @@ bdev:
 bfem:
 	docker build . -t krande/ada:femtests -f images/femtests.Dockerfile
 
+mdir:
+	mkdir -p temp/report && mkdir temp/scratch
+
 dtest:
 	$(drun) ./run_tests.sh
+
+dprint:
+	docker run --rm $(mount) krande/ada:femtests ls
 
 pbase:
 	docker push krande/ada:base
