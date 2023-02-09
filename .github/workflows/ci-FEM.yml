@@ -39,6 +39,7 @@ jobs:
       - name: Make temp directories
         run: |
           mkdir -p temp/scratch temp/report
+          chmod -R 777 temp
       - name: Test & Create Verification Report
         run: make dtest
       - uses: actions/upload-artifact@v2
