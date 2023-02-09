@@ -10,9 +10,11 @@ USER root
 COPY . .
 
 RUN pip install --no-cache-dir pytest && pip install --no-cache-dir . && rm -rfv ${TMPDIR}/*
-ENV TESTDIR="${HOME}/tests/fem"make
+ENV TESTDIR="${HOME}/tests/fem"
 
 RUN mkdir -p "${TESTDIR}"
+
+RUN chown -R ${NB_UID} ${TESTDIR}
 
 WORKDIR "${TESTDIR}"
 
