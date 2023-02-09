@@ -26,12 +26,10 @@ jobs:
   test-FEM:
     name: Test-FEM-analysis
     runs-on: ubuntu-latest
-    env:
-      DATE: $(date +'%y%m%d')
     steps:
       - uses: actions/checkout@v3
-      - name: Echo date
-        run: echo ${{ env.DATE }}
+      - name: Set DATE env var
+        run: echo "DATE=$(echo $(date +'%y%m%d'))" >> $GITHUB_ENV
       - uses: satackey/action-docker-layer-caching@v0.0.11
         continue-on-error: true
       - name: Build docker for FEM
