@@ -1,7 +1,14 @@
 mount=--mount type=bind,source="$(CURDIR)/temp/report",target=/aster/work/tests/fem/temp \
       --mount type=bind,source="$(CURDIR)/temp/scratch",target=/aster/work/scratch
-drun=docker run --user aster --rm $(mount) krande/ada:femtests conda run --live-stream -n adadocker
 
+define check_and_create_dir
+if [ ! -d temp/scratch ]; then \
+    mkdir -p temp/scratch; \
+fi
+if [ ! -d temp/report ]; then \
+    mkdir -p temp/report; \
+fi
+endef
 
 dev:
 	mamba env update --file environment.dev.yml --prune
@@ -12,13 +19,10 @@ format:
 bump:
 	bumpversion patch setup.py
 
-docs-install:
-	conda env create -f docs/environment.docs.yml
+docs-dev:
+	mamba env update --file docs/environment.docs.yml --prune
 
-docs-update:
-	conda env update --file docs/environment.docs.yml --prune
-
-docs-build:
+docs:
 	activate adadocs && cd docs && make html
 
 bbase:
@@ -34,10 +38,17 @@ mdir:
 	mkdir -p temp/report && mkdir temp/scratch
 
 dtest:
-	$(drun) ./run_tests.sh
+	$(check_and_create_dir); \
+ 	docker run --rm $(mount) krande/ada:femtests bash -c "\
+ 		conda run --live-stream -n adadocker \
+ 		pytest . && \
+ 		python build_verification_report.py"
 
 dprint:
-	docker run --rm $(mount) krande/ada:femtests ls
+	docker run --rm $(mount) krande/ada:femtests ls -l
+
+dcheck:
+	docker run --rm krande/ada:femtests ls -l /bin/bash
 
 pbase:
 	docker push krande/ada:base

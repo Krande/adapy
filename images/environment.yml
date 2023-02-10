@@ -10,3 +10,4 @@ dependencies:
   - paradoc
   - jupyter
   - calculix
+  - pandas

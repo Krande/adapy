@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'images/base.Dockerfile'
+      - 'images/environment.yml'
       - '.github/workflows/ci-docker-base.yml'
     branches:
       - main
