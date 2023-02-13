@@ -21,12 +21,6 @@ COPY . .
 
 RUN pip install . --no-cache-dir && rm -rfv ${TMPDIR}
 
-
-RUN adduser --disabled-password \
-    --gecos "Default user" \
-    --uid ${NB_UID} \
-    ${NB_USER}
-
 WORKDIR ${HOME}
 RUN mkdir "output"
 COPY examples examples
