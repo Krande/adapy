@@ -8,4 +8,4 @@ WORKDIR "tmp/install"
 COPY . .
 
 RUN /opt/conda/envs/adadev/bin/pip install . --no-cache-dir
-RUN rm "tmp/install"
+#RUN rm "/tmp/install"
