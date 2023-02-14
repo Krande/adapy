@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 
 def get_eldata(fem_source: Assembly | Part | FEM):
     """Return a dictionary of basic mesh statistics"""
+    from ada import FEM, Assembly, Part
+
     el_types = dict()
 
     def scan_elem(mesh):
