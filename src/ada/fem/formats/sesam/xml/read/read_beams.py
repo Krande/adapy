@@ -3,6 +3,8 @@ import xml.etree.ElementTree as ET
 from itertools import chain
 from typing import List, Tuple
 
+import numpy as np
+
 from ada import Beam, Node, Part
 from ada.concepts.containers import Beams
 from ada.core.exceptions import VectorNormalizeError
@@ -15,8 +17,6 @@ def get_beams(xml_root: ET.Element, parent: Part) -> Beams:
 
 def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
     name = bm_el.attrib["name"]
-    if name == "LE1AZ6":
-        logging.info("LE1AZ6")
     zv = get_orientation(bm_el)
     segs = []
     prev_bm = None
@@ -26,18 +26,27 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
             continue
         prev_bm = cur_bm
         segs += [cur_bm]
+
+    # Check for offsets
+    e1, e2 = get_offsets(bm_el)
+    if e1 is not None:
+        segs[0].n1.p += e1
+    if e2 is not None:
+        segs[-1].n2.p += e2
+
     return segs
 
 
-def get_offsets(bm_el: ET.Element) -> Tuple[tuple, tuple]:
+def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray, np.ndarray]:
     end1 = bm_el.find(".//offset_end1")
     end2 = bm_el.find(".//offset_end2")
     end1_o = None
     end2_o = None
     if end1 is not None:
-        end1_o = xyz_to_floats(end1)
+        end1_o = np.array(xyz_to_floats(end1))
     if end2 is not None:
-        end2_o = xyz_to_floats(end2)
+        end2_o = np.array(xyz_to_floats(end2))
+
     return end1_o, end2_o
 
 
@@ -54,8 +63,11 @@ def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv):
         name += f"_E{index}"
         if "cone" in seg.attrib["section_ref"].lower():
             sec = prev_bm.section
+
     n1 = parent.nodes.add(Node(pos_to_floats(pos["1"])))
     n2 = parent.nodes.add(Node(pos_to_floats(pos["2"])))
+
+    # Check for offsets
 
     try:
         bm = Beam(name, n1, n2, sec=sec, mat=mat, parent=parent, metadata=metadata, up=zv)
