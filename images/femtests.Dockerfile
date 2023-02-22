@@ -1,4 +1,4 @@
-FROM krande/ada:base@sha256:c2adc79efb216cea84f1097e720f9789b2d13e36bdc4030c0ca5ffa3cb84e2cf
+FROM krande/ada:base@sha256:b2516a94fad091570f0c535fcdb1de748404e4e9fd8541824f3c96864ee339d1
 
 SHELL ["/work/aster/mambaforge/bin/conda", "run", "-n", "adadocker", "/bin/bash", "-c"]
 
