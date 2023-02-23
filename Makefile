@@ -42,7 +42,7 @@ dtest:
  	docker run --rm $(mount) krande/ada:femtests bash -c "\
  		conda run --live-stream -n adadocker \
  		pytest . && \
- 		python build_verification_report.py"
+ 		conda run --live-stream -n adadocker python build_verification_report.py"
 
 dprint:
 	docker run --rm $(mount) krande/ada:femtests ls -l
