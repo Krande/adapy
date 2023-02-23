@@ -12,10 +12,6 @@ from ada.sat.reader import get_plates_from_satd
 logger = get_logger()
 
 
-def extract_sat_objects_from_xml_root(xml_root: ET.Element) -> dict:
-    ...
-
-
 def get_plates(xml_root: ET.Element, parent: Part) -> Plates:
     sat_ref_d = dict()
     for sat_geometry_el in xml_root.findall(".//sat_embedded"):
@@ -112,4 +108,4 @@ def get_sat_text_from_xml(xml_file):
     for sat_geometry_seq in xml_root.findall(".//sat_embedded_sequence"):
         sat_text += xml_elem_to_sat_text(sat_geometry_seq)
 
-    return sat_text
+    return sat_text.replace("\r", "")

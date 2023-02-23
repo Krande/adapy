@@ -38,8 +38,9 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
         logger.debug(f"Offset at end 1 for beam {name} is ignored as there are more than 1 segments")
 
     if e1 is not None:
+        e1_conv = convert_offset_to_global_csys(e1, segs[0])
         if use_local:
-            e1_global = convert_offset_to_global_csys(e1, segs[0])
+            e1_global = e1_conv
         else:
             e1_global = e1
         segs[0].e1 = e1_global
