@@ -1,13 +1,14 @@
-import logging
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.config import Settings
+from ada.config import Settings, get_logger
 from ada.fem import Bc, Connector, ConnectorSection, Constraint, Elem, FemSet
 
 if TYPE_CHECKING:
     from ada import FEM, Assembly
+
+logger = get_logger()
 
 
 def convert_ecc_to_mpc(fem: "FEM"):
@@ -115,7 +116,7 @@ def convert_hinges_2_couplings(fem: "FEM"):
         if n2.id not in constrain_ids:
             constrain_ids.append(n2.id)
         else:
-            logging.error(f"Hinged node {n2} cannot be added twice to different couplings")
+            logger.error(f"Hinged node {n2} cannot be added twice to different couplings")
             return None
 
         m_set = FemSet(f"el{elem.id}_hinge{i + 1}_m", [n], "nset")
@@ -133,7 +134,7 @@ def convert_hinges_2_couplings(fem: "FEM"):
         )
         elem.parent.add_constraint(c)
         hinge.constraint_ref = c
-        logging.info(f"added constraint {c}")
+        logger.info(f"added constraint {c}")
 
     for el in fem.elements.lines_hinged:
         if el.hinge_prop.end1 is not None:

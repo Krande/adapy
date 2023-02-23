@@ -1,8 +1,8 @@
-import logging
 from itertools import chain
 
 import numpy as np
 
+from ada.config import get_logger
 from ada.core.utils import roundoff
 from ada.fem import FEM, Elem, FemSet, Mass, Spring
 from ada.fem.containers import FemElements
@@ -11,6 +11,8 @@ from ada.fem.formats.utils import str_to_int
 from ada.fem.shapes.lines import SpringTypes
 
 from . import cards
+
+logger = get_logger()
 
 
 def get_elements(bulk_str: str, fem: FEM) -> tuple[FemElements, dict, dict, dict]:
@@ -43,7 +45,7 @@ def get_elements(bulk_str: str, fem: FEM) -> tuple[FemElements, dict, dict, dict
         elem = Elem(el_no, nodes, el_type, None, parent=fem, metadata=metadata)
 
         if el_type == Elem.EL_TYPES.MASS_SHAPES.MASS:
-            logging.warning("Mass element interpretation in sesam is undergoing changes. Results should be checked")
+            logger.warning("Mass element interpretation in sesam is undergoing changes. Results should be checked")
             mass_elem[el_no] = dict(gelmnt=d)
             fem.sets.add(FemSet(f"m{el_no}", [elem], FemSet.TYPES.ELSET, parent=fem))
 

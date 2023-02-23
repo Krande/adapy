@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import traceback
 from dataclasses import dataclass
 from itertools import chain
@@ -9,9 +8,12 @@ from typing import Iterable, List
 import numpy as np
 
 from ada import Assembly, Beam, Node, Part, Pipe, PipeSegStraight, Plate, PrimCyl
+from ada.config import get_logger
 
 from .utils import Counter
 from .vector_utils import EquationOfPlane, intersect_calc, is_parallel, vector_length
+
+logger = get_logger()
 
 
 def basic_intersect(bm: Beam, margins, all_parts: [Part]):
@@ -20,7 +22,7 @@ def basic_intersect(bm: Beam, margins, all_parts: [Part]):
     try:
         vol = bm.bbox.minmax
     except ValueError as e:
-        logging.error(f"Intersect bbox skipped: {e}\n{traceback.format_exc()}")
+        logger.error(f"Intersect bbox skipped: {e}\n{traceback.format_exc()}")
         return None
     vol_in = [x for x in zip(vol[0], vol[1])]
     beams = filter(
@@ -49,11 +51,11 @@ def beam_cross_check(bm1: Beam, bm2: Beam, outofplane_tol=0.1):
     cd_ = c + t * cd
 
     if p_check(ab, cd):
-        logging.debug(f"beams {bm1} {bm2} are parallel")
+        logger.debug(f"beams {bm1} {bm2} are parallel")
         return None
 
     if v_len(ab_ - cd_) > outofplane_tol:
-        logging.debug("The two lines do not intersect within given tolerances")
+        logger.debug("The two lines do not intersect within given tolerances")
         return None
 
     return ab_, s, t

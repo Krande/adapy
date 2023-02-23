@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 import ifcopenshell
 import numpy as np
 
 from ada.base.units import Units
+from ada.config import get_logger
 from ada.core.constants import O, X, Z
 from ada.core.curve_utils import get_center_from_3_points_and_radius
 from ada.core.vector_utils import (
@@ -30,6 +30,8 @@ from ada.ifc.utils import (
 if TYPE_CHECKING:
     from ada import Pipe, PipeSegElbow, PipeSegStraight
 
+logger = get_logger()
+
 
 def write_ifc_pipe(pipe: Pipe):
     ifc_pipe = write_pipe_ifc_elem(pipe)
@@ -42,7 +44,7 @@ def write_ifc_pipe(pipe: Pipe):
     for param_seg in pipe.segments:
         res = write_pipe_segment(param_seg)
         if res is None:
-            logging.error(f'Branch "{param_seg.name}" was not converted to ifc element')
+            logger.error(f'Branch "{param_seg.name}" was not converted to ifc element')
         f.add(res)
         segments += [res]
 
@@ -217,7 +219,7 @@ def elbow_tesselated(self: PipeSegElbow, f, schema, a):
     shape = self.solid
 
     if shape is None:
-        logging.error(f"Unable to create geometry for Branch {self.name}")
+        logger.error(f"Unable to create geometry for Branch {self.name}")
         return None
     point_tol = Units.get_general_point_tol(a.units)
     serialized_geom = tesselate_shape(shape, schema, point_tol)

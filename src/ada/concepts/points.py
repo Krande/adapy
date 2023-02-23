@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Iterable, List, Union
 
 import numpy as np
 
 from ada.base.units import Units
-from ada.config import Settings
+from ada.config import Settings, get_logger
 from ada.core.vector_utils import vector_length
 
 if TYPE_CHECKING:
@@ -15,6 +14,7 @@ if TYPE_CHECKING:
     from ada.fem import Bc, Csys, Elem
 
 numeric = Union[int, float, np.number]
+logger = get_logger()
 
 
 class Node:
@@ -75,13 +75,13 @@ class Node:
         if item not in self.refs:
             self.refs.append(item)
         else:
-            logging.debug(f"Item {item} is already in node refs {self}")
+            logger.debug(f"Item {item} is already in node refs {self}")
 
     def remove_obj_from_refs(self, item) -> None:
         if item in self.refs:
             self.refs.remove(item)
         else:
-            logging.debug(f"Item {item} is not in node refs {self}")
+            logger.debug(f"Item {item} is not in node refs {self}")
 
     @property
     def units(self):
@@ -167,7 +167,7 @@ def get_singular_node_by_volume(nodes: Nodes, p: np.ndarray, tol=Settings.point_
     if len(nds) > 0:
         node, *other_nodes = nds
         if len(other_nodes) > 0:
-            logging.warning(f"More than 1 node within point {p}, other nodes: {other_nodes}. Returns node {node}")
+            logger.warning(f"More than 1 node within point {p}, other nodes: {other_nodes}. Returns node {node}")
         return node
     else:
         return Node(p)
@@ -199,7 +199,7 @@ def replace_nodes_by_tol(nodes, decimals=0, tol=Settings.point_tol):
         elif not most_precise[0] and np.any(most_precise[1:]):
             return False
         elif decimals_ == 10:
-            logging.error(f"Recursion started at 0 decimals, but are now at {decimals_} decimals. Will proceed with n.")
+            logger.error(f"Recursion started at 0 decimals, but are now at {decimals_} decimals. Will proceed with n.")
             return True
         else:
             return n_is_most_precise(n, nearby_nodes_, decimals_ + 1)
@@ -225,4 +225,4 @@ def replace_node(old_node: Node, new_node: Node) -> None:
         old_node.remove_obj_from_refs(obj)
         new_node.add_obj_to_refs(obj)
 
-        logging.debug(f"{old_node} exchanged with {new_node} --> {obj}")
+        logger.debug(f"{old_node} exchanged with {new_node} --> {obj}")

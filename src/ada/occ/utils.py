@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import math
 import pathlib
 from typing import TYPE_CHECKING, List, Union
@@ -44,6 +43,7 @@ from OCC.Extend.TopologyUtils import TopologyExplorer
 from ada.concepts.primitives import Penetration
 from ada.concepts.stru_beams import Beam
 from ada.concepts.transforms import Placement, Rotation
+from ada.config import get_logger
 from ada.core.utils import roundoff, tuple_minus
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem.shapes import ElemType
@@ -56,6 +56,8 @@ from .exceptions.geom_creation import (
 if TYPE_CHECKING:
     from ada import Part
     from ada.core.vector_utils import EquationOfPlane, Plane
+
+logger = get_logger()
 
 
 def extract_shapes(step_path, scale, transform, rotate, include_shells=False):
@@ -480,7 +482,7 @@ def make_edge(p1, p2):
     res = BRepBuilderAPI_MakeEdge(p1, p2).Edge()
 
     if res.IsNull():
-        logging.debug("Edge creation returned None")
+        logger.debug("Edge creation returned None")
 
     return res
 
@@ -643,7 +645,7 @@ def compute_minimal_distance_between_shapes(shp1, shp2) -> BRepExtrema_DistShape
 
     assert dss.IsDone()
 
-    logging.info("Minimal distance between shapes: ", dss.Value())
+    logger.info("Minimal distance between shapes: ", dss.Value())
 
     return dss
 
@@ -685,12 +687,12 @@ def sweep_pipe(edge, xvec, r, wt, geom_repr=ElemType.SOLID):
             o = make_circular_sec_wire(point, direction, r)
             elbow_o = BRepOffsetAPI_MakePipe(wire, o).Shape()
     except RuntimeError as e:
-        logging.error(f'Pipe sweep failed: "{e}"')
+        logger.error(f'Pipe sweep failed: "{e}"')
         return wire
     if geom_repr == ElemType.SOLID:
         boolean_result = BRepAlgoAPI_Cut(elbow_o, elbow_i).Shape()
         if boolean_result.IsNull():
-            logging.debug("Boolean returns None")
+            logger.debug("Boolean returns None")
     else:
         boolean_result = elbow_o
 
@@ -812,7 +814,7 @@ def create_beam_geom(beam: Beam, solid=True):
         try:
             assert isinstance(sec, list)
         except AssertionError as e:
-            logging.error(e)
+            logger.error(e)
         sec_result = sec
         tap_result = tap
 

@@ -1,4 +1,3 @@
-import logging
 import os
 import traceback
 from dataclasses import dataclass
@@ -7,12 +6,15 @@ import meshio
 import numpy as np
 from pythreejs import Group
 
+from ada.config import get_logger
 from ada.fem import FEM
 from ada.fem.shapes import ElemShape
 from ada.fem.shapes import definitions as shape_def
 
 from .threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 from .utils import get_edges_from_fem, get_faces_from_fem, get_vertices_from_fem
+
+logger = get_logger()
 
 
 @dataclass
@@ -161,12 +163,12 @@ def visualize_it(res_file, temp_dir=".temp", default_index=0):
         colored_mesh = IsoColor(mesh, input=magn_data[default_index], min=0.0, max=1.0)
     except KeyError as e:
         trace_str = traceback.format_exc()
-        logging.error(f'KeyError "{e}"\nTrace: "{trace_str}"')
+        logger.error(f'KeyError "{e}"\nTrace: "{trace_str}"')
         colored_mesh = mesh
     except ImportError as e:
         trace_str = traceback.format_exc()
-        logging.error("This might be")
-        logging.error(f'ImportError "{e}"\nTrace: "{trace_str}"')
+        logger.error("This might be")
+        logger.error(f'ImportError "{e}"\nTrace: "{trace_str}"')
         return
 
     warped_mesh = Warp(colored_mesh, input=warp_vec, warp_factor=0.0)
@@ -193,7 +195,7 @@ def visualize_it(res_file, temp_dir=".temp", default_index=0):
 
     def change_input(change):
         vec_name = change["new"]
-        logging.info(vec_name)
+        logger.info(vec_name)
         colored_mesh.input = vec_name + "_magn"
         warped_mesh.input = vec_name
         # Highly inefficient but likely needed due to bug https://github.com/QuantStack/ipygany/issues/69

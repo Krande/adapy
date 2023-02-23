@@ -1,9 +1,10 @@
-import logging
-
 from ada import Section
+from ada.config import get_logger
 from ada.sections import SectionCat
 
 from .write_utils import write_ff
+
+logger = get_logger()
 
 
 def general_beam(sec: Section, sec_id) -> str:
@@ -95,7 +96,7 @@ def write_bm_section(sec: Section, sec_id: int) -> str:
         return sec_str
 
     if sec_str_writer is None:
-        logging.error(f'Unable to convert "{sec}". This will be exported as general section only')
+        logger.error(f'Unable to convert "{sec}". This will be exported as general section only')
 
     sec_str += sec_str_writer(sec, sec_id)
 

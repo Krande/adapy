@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import logging
 import pathlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import h5py
 import numpy as np
+
+from ada.config import get_logger
 
 if TYPE_CHECKING:
     from ada.fem.results.common import (
@@ -17,6 +18,8 @@ if TYPE_CHECKING:
         Mesh,
         NodalFieldData,
     )
+
+logger = get_logger()
 
 
 def read_rmed_file(rmed_file: str | pathlib.Path) -> FEAResult:
@@ -85,7 +88,7 @@ class MedReader:
         blocks = []
         for med_cell_type, med_cell_type_group in med_cells.items():
             if med_cell_type == "PO1":
-                logging.warning("Point elements are still not supported")
+                logger.warning("Point elements are still not supported")
                 continue
 
             cell_type = med_to_ada_type(med_cell_type)

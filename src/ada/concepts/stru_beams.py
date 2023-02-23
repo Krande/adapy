@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from enum import Enum
 from typing import TYPE_CHECKING, Callable, Iterable, List, Optional, Union
 
@@ -12,7 +11,7 @@ from ada.concepts.bounding_box import BoundingBox
 from ada.concepts.curves import CurvePoly, CurveRevolve
 from ada.concepts.points import Node, get_singular_node_by_volume
 from ada.concepts.transforms import Placement
-from ada.config import Settings
+from ada.config import Settings, get_logger
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import (
     angle_between,
@@ -38,6 +37,7 @@ if TYPE_CHECKING:
 
 section_counter = Counter(1)
 material_counter = Counter(1)
+logger = get_logger()
 
 
 class Justification(Enum):
@@ -212,7 +212,7 @@ class Beam(BackendGeom):
             length_fraction = length / self.length
             splitting_node = self.get_node_on_beam_by_fraction(length_fraction)
         else:
-            logging.warning(f"Beam {self} is not split as inconclusive info is provided.")
+            logger.warning(f"Beam {self} is not split as inconclusive info is provided.")
             return None
 
         node_on_beam = self.parent.fem.nodes.add(splitting_node)
@@ -314,7 +314,7 @@ class Beam(BackendGeom):
                     if m != self:
                         is_ecc, end = is_mem_eccentric(m, con.centre)
                         if is_ecc:
-                            logging.info(f'do something with end "{end}"')
+                            logger.info(f'do something with end "{end}"')
                             points.append(tuple(end))
 
         midpoints = []
@@ -626,7 +626,7 @@ class Beam(BackendGeom):
             try:
                 res = oval != val
             except ValueError as e:
-                logging.error(e)
+                logger.error(e)
                 return True
 
             if res is True:

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
+
+from ada.config import get_logger
 
 from .transforms import Placement
 
@@ -15,6 +16,8 @@ if TYPE_CHECKING:
     from .primitives import PrimBox
     from .stru_beams import Beam
     from .stru_plates import Plate
+
+logger = get_logger()
 
 
 @dataclass
@@ -81,7 +84,7 @@ class BoundingBox:
             try:
                 return get_boundingbox(self.parent.geom, use_mesh=True)
             except NoGeomPassedToShapeError as e:
-                logging.info(f'Shape "{self.parent.name}" has no attached geometry. Error "{e}"')
+                logger.info(f'Shape "{self.parent.name}" has no attached geometry. Error "{e}"')
                 return (0, 0, 0), (1, 1, 1)
 
     def _calc_bbox_of_plate(self) -> tuple[tuple, tuple]:

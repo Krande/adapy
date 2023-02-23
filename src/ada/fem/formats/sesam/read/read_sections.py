@@ -1,4 +1,3 @@
-import logging
 from itertools import chain, count
 from typing import Union
 
@@ -6,6 +5,7 @@ import numpy as np
 
 from ada import FEM, Section
 from ada.concepts.containers import Sections
+from ada.config import get_logger
 from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem import Csys, Elem, FemSection, FemSet
@@ -17,6 +17,8 @@ from ada.materials import Material
 from ada.sections import GeneralProperties
 
 from . import cards
+
+logger = get_logger()
 
 
 def get_sections(bulk_str, fem: FEM, mass_elem, spring_elem) -> FemSections:
@@ -50,7 +52,7 @@ def get_sections(bulk_str, fem: FEM, mass_elem, spring_elem) -> FemSections:
     sections = filter(lambda x: type(x) is FemSection, res)
 
     fem_sections = FemSections(sections, fem_obj=fem)
-    logging.info(f"Successfully imported {next(geom) - 1} FEM sections out of {next(total_geo) - 1}")
+    logger.info(f"Successfully imported {next(geom) - 1} FEM sections out of {next(total_geo) - 1}")
     return fem_sections
 
 
@@ -260,7 +262,7 @@ def get_hinges(match):
     try:
         a6 = str_to_int(d["a6"])
     except BaseException as e:
-        logging.debug(e)
+        logger.debug(e)
         a6 = 0
         pass
     return fixno, (opt, trano, a1, a2, a3, a4, a5, a6)

@@ -1,8 +1,7 @@
-import logging
-
 import ifcopenshell
 
 from ada import FEM
+from ada.config import get_logger
 from ada.fem import Elem
 from ada.ifc.utils import (
     create_guid,
@@ -14,6 +13,8 @@ from ada.ifc.utils import (
 )
 
 from .helper_utils import ifc_vertex
+
+logger = get_logger()
 
 
 def to_ifc_fem(fem: FEM, f: ifcopenshell.file) -> None:
@@ -30,13 +31,13 @@ def to_ifc_fem(fem: FEM, f: ifcopenshell.file) -> None:
     subref = create_reference_subrep(f, create_ifc_placement(f))
     el_ids = []
 
-    logging.warning("Note! IFC FEM export is Work in progress")
+    logger.warning("Note! IFC FEM export is Work in progress")
 
     for elem in fem.elements:
         if elem.id not in el_ids:
             el_ids.append(elem.id)
         else:
-            logging.error(f'Skipping doubly defined element "{elem.id}"')
+            logger.error(f'Skipping doubly defined element "{elem.id}"')
             continue
 
         if elem.shape.elem_type_group == elem.EL_TYPES.LINE:
@@ -44,7 +45,7 @@ def to_ifc_fem(fem: FEM, f: ifcopenshell.file) -> None:
         elif elem.shape.elem_type_group == elem.EL_TYPES.SHELL:
             _ = shell_elem_to_ifc(elem, f, subref, owner_history)
         else:
-            logging.error(f'Unsupported elem type "{elem.type}"')
+            logger.error(f'Unsupported elem type "{elem.type}"')
 
 
 def shell_elem_to_ifc(elem: Elem, f, subref, owner_history):

@@ -1,4 +1,3 @@
-import logging
 import xml.etree.ElementTree as ET
 from itertools import chain
 from typing import List, Tuple
@@ -7,7 +6,10 @@ import numpy as np
 
 from ada import Beam, Node, Part
 from ada.concepts.containers import Beams
+from ada.config import get_logger
 from ada.core.exceptions import VectorNormalizeError
+
+logger = get_logger()
 
 
 def get_beams(xml_root: ET.Element, parent: Part) -> Beams:
@@ -17,40 +19,76 @@ def get_beams(xml_root: ET.Element, parent: Part) -> Beams:
 
 def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
     name = bm_el.attrib["name"]
-    zv = get_orientation(bm_el)
+    xv, yv, zv = get_curve_orientation(bm_el)
     segs = []
     prev_bm = None
     for seg in bm_el.findall(".//straight_segment"):
-        cur_bm = seg_to_beam(name, seg, parent, prev_bm, zv)
+        cur_bm = seg_to_beam(name, seg, parent, prev_bm, xv, yv, zv)
         if cur_bm is None:
             continue
         prev_bm = cur_bm
         segs += [cur_bm]
 
     # Check for offsets
-    e1, e2 = get_offsets(bm_el)
+    e1, e2, use_local = get_offsets(bm_el)
+    if name == "HB1222":
+        print("sd")
+
+    if len(segs) > 1 and (e1 is not None or e2 is not None):
+        logger.debug(f"Offset at end 1 for beam {name} is ignored as there are more than 1 segments")
+
     if e1 is not None:
-        segs[0].n1.p += e1
+        if use_local:
+            e1_global = convert_offset_to_global_csys(e1, segs[0])
+        else:
+            e1_global = e1
+        segs[0].e1 = e1_global
     if e2 is not None:
-        segs[-1].n2.p += e2
+        if use_local:
+            e2_global = convert_offset_to_global_csys(e2, segs[-1])
+        else:
+            e2_global = e2
+        segs[-1].e2 = e2_global
 
     return segs
 
 
-def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray, np.ndarray]:
-    end1 = bm_el.find(".//offset_end1")
-    end2 = bm_el.find(".//offset_end2")
+def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray, np.ndarray, bool]:
+    linear_offset = bm_el.find("curve_offset/linear_varying_curve_offset")
     end1_o = None
     end2_o = None
+    if linear_offset is None:
+        end1 = bm_el.find(".//offset_end1")
+        if end1 is not None:
+            raise NotImplementedError("Non-linear offsets are not supported")
+
+        return end1_o, end2_o, None
+
+    end1 = linear_offset.find("offset_end1")
+    end2 = linear_offset.find("offset_end1")
+    use_local = False if linear_offset.attrib["use_local_system"] == "false" else True
+
     if end1 is not None:
         end1_o = np.array(xyz_to_floats(end1))
     if end2 is not None:
         end2_o = np.array(xyz_to_floats(end2))
 
-    return end1_o, end2_o
+    return end1_o, end2_o, use_local
 
 
-def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv):
+def convert_offset_to_global_csys(o: np.ndarray, bm: Beam):
+    xv = bm.xvec
+    yv = bm.yvec
+    zv = bm.up
+    return xv * o + yv * o + zv * o
+
+
+def apply_offset(o: np.ndarray, n: Node, bm: Beam):
+    res = convert_offset_to_global_csys(o, bm)
+    return n.p + res
+
+
+def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, xv, yv, zv):
     index = seg.attrib["index"]
     sec = parent.sections.get_by_name(seg.attrib["section_ref"])
     mat = parent.materials.get_by_name(seg.attrib["material_ref"])
@@ -72,8 +110,9 @@ def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv):
     try:
         bm = Beam(name, n1, n2, sec=sec, mat=mat, parent=parent, metadata=metadata, up=zv)
     except VectorNormalizeError:
-        logging.warning(f"Beam '{name}' has coincident nodes. Will skip for now")
+        logger.warning(f"Beam '{name}' has coincident nodes. Will skip for now")
         return None
+
     return bm
 
 
@@ -85,20 +124,33 @@ def pos_to_floats(pos):
     return [float(x) for x in pos]
 
 
-def get_orientation(root: ET.Element) -> tuple:
+def get_curve_orientation(root: ET.Element) -> tuple:
+    def to_floats(v):
+        return float(v.attrib["x"]), float(v.attrib["y"]), float(v.attrib["z"])
+
     zv = None
+    yv = None
+    xv = None
     lsys = root.find("./curve_orientation/customizable_curve_orientation/orientation/local_system")
     if lsys is not None:
-        vec = lsys.find("./zvector")
-        zv = float(vec.attrib["x"]), float(vec.attrib["y"]), float(vec.attrib["z"])
+        xvec = lsys.find("./xvector")
+        yvec = lsys.find("./yvector")
+        zvec = lsys.find("./zvector")
+        xv = to_floats(xvec)
+        yv = to_floats(yvec)
+        zv = to_floats(zvec)
     else:
         lsys = root.find("./local_system")
         for vec in lsys.findall("./vector"):
             direction = vec.attrib.get("dir")
             if direction == "z":
-                zv = float(vec.attrib["x"]), float(vec.attrib["y"]), float(vec.attrib["z"])
+                zv = to_floats(vec)
+            elif direction == "y":
+                yv = to_floats(vec)
+            elif direction == "x":
+                xv = to_floats(vec)
 
     if zv is None:
         raise ValueError("Z or Y vector must be set")
 
-    return zv
+    return xv, yv, zv

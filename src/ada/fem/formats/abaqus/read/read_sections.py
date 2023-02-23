@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import logging
 import re
 from itertools import chain
 from typing import TYPE_CHECKING, Iterable
 
+from ada.config import get_logger
 from ada.core.utils import Counter, roundoff
 from ada.fem import ConnectorSection, FemSection
 from ada.fem.containers import FemSections
@@ -20,6 +20,8 @@ _re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 if TYPE_CHECKING:
     from ada.concepts.spatial import Assembly
     from ada.fem import FEM
+
+logger = get_logger()
 
 
 def get_sections_from_inp(bulk_str, fem: FEM) -> FemSections:
@@ -123,7 +125,7 @@ def get_beam_sections_from_inp(bulk_str: str, fem: FEM) -> Iterable[FemSection]:
             )
             return Section(profile_name, "GENBEAM", genprops=genprops, parent=fem)
         else:
-            logging.error(f'Currently unsupported section type "{sec_type}". Will return None')
+            logger.error(f'Currently unsupported section type "{sec_type}". Will return None')
             return None
 
     def grab_beam(match):
@@ -207,7 +209,7 @@ def get_shell_section(m, sh_name, fem: "FEM", a: "Assembly"):
     offset = d["offset"]
     if offset is not None:
         # TODO: update this with the latest eccentricity class
-        logging.warning("Offset for Shell elements is not yet evaluated")
+        logger.warning("Offset for Shell elements is not yet evaluated")
         for el in elset.members:
             el.eccentricity = Eccentricity(sh_ecc_vector=offset)
     int_points = d["int_points"]

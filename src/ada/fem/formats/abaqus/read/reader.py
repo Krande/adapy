@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import mmap
 import os
 import pathlib
@@ -14,6 +13,7 @@ import numpy as np
 from ada.concepts.containers import Nodes
 from ada.concepts.points import Node
 from ada.concepts.transforms import Rotation, Transform
+from ada.config import get_logger
 from ada.core.utils import Counter
 from ada.fem import (
     Bc,
@@ -43,6 +43,8 @@ part_name_counter = Counter(1, "Part")
 if TYPE_CHECKING:
     from ada.concepts.spatial import Assembly, Part
     from ada.fem import FEM
+
+logger = get_logger()
 
 
 @dataclass
@@ -112,7 +114,7 @@ def read_fem(fem_file, fem_name=None) -> Assembly:
         try:
             assembly.fem.constraints.update(get_constraints_from_inp(ass_sets, assembly.fem))
         except KeyError as e:
-            logging.error(e)
+            logger.error(e)
 
         assembly.fem.bcs += get_bcs_from_bulk(props_str, assembly.fem)
         assembly.fem.elements += get_mass_from_bulk(ass_sets, assembly.fem)
@@ -241,7 +243,7 @@ def get_initial_conditions_from_lines(assembly: Assembly, bulk_str: str):
         try:
             dofs = int(ev[1])
         except BaseException as e:
-            logging.debug(e)
+            logger.debug(e)
             dofs = ev[1]
         if len(ev) > 2:
             magn = ev[2]
@@ -471,7 +473,7 @@ def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
                 try:
                     dofs.append(int(ev[1]))
                 except BaseException as e:
-                    logging.debug(e)
+                    logger.debug(e)
                     dofs.append(ev[1])
                 if len(ev) > 3:
                     magn.append(ev[2])
@@ -526,7 +528,7 @@ def get_surfaces_from_bulk(bulk_str, parent):
         try:
             ref = str_to_int(msplit[0])
         except BaseException as e:
-            logging.debug(e)
+            logger.debug(e)
             ref = msplit[0].strip()
 
         return tuple([ref, msplit[1].strip()])
@@ -687,13 +689,13 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
             try:
                 n1_ = str_to_int(m)
             except BaseException as e:
-                logging.debug(e)
+                logger.debug(e)
                 n1_ = get_set_from_assembly(m, fem, FemSet.TYPES.NSET)
 
             try:
                 n2_ = str_to_int(s)
             except BaseException as e:
-                logging.debug(e)
+                logger.debug(e)
                 n2_ = get_set_from_assembly(s, fem, FemSet.TYPES.NSET)
 
             mpc_dict[mpc_type].append((n1_, n2_))

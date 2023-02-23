@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Union
 
 import numpy as np
+
+from ada.config import get_logger
 
 from .categories import SectionCat
 from .concept import GeneralProperties
@@ -11,13 +12,16 @@ from .concept import GeneralProperties
 if TYPE_CHECKING:
     from ada.sections.concept import Section
 
+logger = get_logger()
+
+
 # List of documents the various formulas are based upon
 #
 #   * StructX.com (https://www.structx.com/geometric_properties.html)
 #   * DNVGL. (2011). Appendix B Section properties & consistent units Table of Contentsec. I.
-#   * W. Beitz, K.H. Küttner: "Dubbel, Taschenbuch für den Maschinenbau" 17. Auflage (17th ed.)
+#   * W. Beitz, K.H. KÃ¼ttner: "Dubbel, Taschenbuch fÃ¼r den Maschinenbau" 17. Auflage (17th ed.)
 #     Springer-Verlag 1990
-#   * Arne Selberg: "Stålkonstruksjoner" Tapir 1972
+#   * Arne Selberg: "StÃ¥lkonstruksjoner" Tapir 1972
 #   * sec. Timoshenko: "Strength of Materials, Part I, Elementary Theory and Problems" Third Edition 1995 D.
 #     Van Nostrand Company Inc.
 
@@ -37,7 +41,7 @@ def calculate_general_properties(section: Section) -> Union[None, GeneralPropert
     }
 
     if section.type == bt.GENERAL:
-        logging.info("Skipping re-calculating a general section as it makes no sense")
+        logger.info("Skipping re-calculating a general section as it makes no sense")
         return None
 
     calc_func = section_map.get(section.type, None)

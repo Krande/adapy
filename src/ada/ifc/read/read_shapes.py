@@ -1,18 +1,20 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 import ifcopenshell.geom
 
 from ada import Assembly, Shape
+from ada.config import get_logger
 
 if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
 
+logger = get_logger()
+
 
 def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: IfcStore):
-    logging.info(f'importing Shape "{name}"')
+    logger.info(f'importing Shape "{name}"')
     color, opacity = get_colour(product, ifc_store.assembly)
 
     return Shape(
@@ -53,18 +55,18 @@ def get_colour(product: ifcopenshell.entity_instance, assembly: Assembly) -> Non
                 styles.append(cstyle)
 
     if len(styles) == 0:
-        logging.info(f'No style associated with IFC element "{product}"')
+        logger.info(f'No style associated with IFC element "{product}"')
         return None, 1.0
 
     if len(styles) > 1:
-        logging.warning(f"Multiple styles associated to element {product}. Choosing arbitrarily style @ index=0")
+        logger.warning(f"Multiple styles associated to element {product}. Choosing arbitrarily style @ index=0")
 
     style = styles[0]
     colour_rgb = list(filter(lambda x: x.is_a("IfcColourRgb"), f.traverse(style)))
     transparency = list(filter(lambda x: x.is_a("IfcSurfaceStyleRendering"), f.traverse(style)))
 
     if len(colour_rgb) == 0:
-        logging.warning(f'ColourRGB not found for IFC product "{product}"')
+        logger.warning(f'ColourRGB not found for IFC product "{product}"')
         return None, 1.0
 
     opacity = 1.0 if len(transparency) == 0 else transparency[0].Transparency

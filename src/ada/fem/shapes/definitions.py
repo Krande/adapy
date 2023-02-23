@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-import logging
 from enum import Enum
 
 import numpy as np
 
 from ada.base.types import GeomRepr
+from ada.config import get_logger
 
 # The element names are based on the naming scheme by meshio
+
+logger = get_logger()
 
 
 class UnsupportedFeaShapeException(Exception):
@@ -247,7 +249,7 @@ class ElemShape:
         generalized_type = self.type
         edges_repo = edge_map[self.elem_type_group]
         if generalized_type not in edges_repo.keys():
-            logging.error(f"Element type {self.type} is currently not supported")
+            logger.error(f"Element type {self.type} is currently not supported")
             return None
 
         return edges_repo[generalized_type]
@@ -278,7 +280,7 @@ class ElemShape:
 
         solid_face_res = solid_faces.get(self.type, None)
         if solid_face_res is None:
-            logging.error(f"Element type {self.type} is currently not supported")
+            logger.error(f"Element type {self.type} is currently not supported")
             return None
 
         return solid_face_res

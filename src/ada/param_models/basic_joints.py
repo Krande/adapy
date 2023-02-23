@@ -1,9 +1,11 @@
-import logging
 from typing import Union
 
 from ada import Beam
 from ada.concepts.connections import JointBase, JointReqChecker
+from ada.config import get_logger
 from ada.core.clash_check import beam_cross_check
+
+logger = get_logger()
 
 
 def eval_joint_req(joint: JointBase, intersecting_members):
@@ -19,7 +21,7 @@ def joint_map(joint_name, intersecting_members, centre, parent=None) -> Union[Jo
             return joint(joint_name, intersecting_members, centre, parent=parent)
 
     member_types = [m.section.type for m in intersecting_members]
-    logging.debug(f'Unable to find matching Joint using joint map for members "{member_types}"')
+    logger.debug(f'Unable to find matching Joint using joint map for members "{member_types}"')
     return None
 
 

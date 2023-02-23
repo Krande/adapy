@@ -1,10 +1,11 @@
-import logging
-
 from ada import FEM
+from ada.config import get_logger
 from ada.fem import Constraint
 from ada.fem.common import LinDep
 
 from .write_utils import write_ff
+
+logger = get_logger()
 
 
 def constraint_str(fem: FEM) -> str:
@@ -13,7 +14,7 @@ def constraint_str(fem: FEM) -> str:
         if constraint.type == constraint.TYPES.COUPLING:
             out_str += write_coupling(constraint)
         else:
-            raise logging.error(f'Constraint type "{constraint.type}" is not yet supported')
+            raise logger.error(f'Constraint type "{constraint.type}" is not yet supported')
 
     return out_str
 

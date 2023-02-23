@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any, List, Tuple, Union
 
 import numpy as np
 
 from ada.base.types import GeomRepr
+from ada.config import get_logger
 from ada.core.utils import Counter
 from ada.core.vector_utils import (
     calc_yvec,
@@ -23,6 +23,8 @@ from .shapes import ElemType
 if TYPE_CHECKING:
     from ada import Beam, Plate
     from ada.fem import FemSet
+
+logger = get_logger()
 
 
 class FemSection(FemBase):
@@ -113,7 +115,7 @@ class FemSection(FemBase):
             n1, n2 = self.elset.members[0].nodes[0], self.elset.members[0].nodes[-1]
             v = n2.p - n1.p
             if vector_length(v) == 0.0:
-                logging.error(f"Element {self.elset.members[0].id} has zero length")
+                logger.error(f"Element {self.elset.members[0].id} has zero length")
                 xvec = [1, 0, 0]
             else:
                 xvec = unit_vector(v)

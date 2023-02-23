@@ -9,7 +9,7 @@ USER root
 
 COPY . .
 
-RUN pip install --no-cache-dir pytest && pip install --no-cache-dir . && rm -rfv ${TMPDIR}/*
+RUN pip install --no-cache-dir pytest pandas && pip install --no-cache-dir . && rm -rfv ${TMPDIR}/*
 ENV TESTDIR="${HOME}/tests/fem"
 
 RUN mkdir -p "${TESTDIR}"

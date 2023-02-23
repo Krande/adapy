@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-import logging
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
+from ada.config import get_logger
+
 if TYPE_CHECKING:
     from ada import Part, Section
+
+logger = get_logger()
 
 
 def add_sections(root: ET.Element, part: Part):
@@ -26,7 +29,7 @@ def add_sections(root: ET.Element, part: Part):
         elif section.type == section.TYPES.BOX:
             add_box_section(section, sections_elem)
         else:
-            logging.error(f"The profile type {section.type} is not yet supported for Genie XML export")
+            logger.error(f"The profile type {section.type} is not yet supported for Genie XML export")
 
 
 def add_angular_section(section: Section, xml_root: ET.Element):

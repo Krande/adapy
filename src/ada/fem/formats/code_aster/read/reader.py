@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 from typing import TYPE_CHECKING
 
@@ -8,6 +7,7 @@ import h5py
 import numpy as np
 
 from ada.concepts.containers import Nodes
+from ada.config import get_logger
 from ada.fem import Elem
 from ada.fem.containers import FemElements, FemSets
 
@@ -22,6 +22,8 @@ from .read_sets import (
 if TYPE_CHECKING:
     from ada.concepts.spatial import Assembly
     from ada.fem import FEM
+
+logger = get_logger()
 
 
 def read_fem(fem_file: os.PathLike, fem_name: str = None) -> Assembly:
@@ -71,7 +73,7 @@ def med_to_fem(fem_file, fem_name) -> FEM:
         if "NUM" in mesh["NOE"]:
             point_num = list(mesh["NOE"]["NUM"])
         else:
-            logging.warning("No node information is found on MED file")
+            logger.warning("No node information is found on MED file")
             point_num = np.arange(1, len(points) + 1)
 
         fem.nodes = Nodes([Node(p, point_num[i], parent=fem) for i, p in enumerate(points)], parent=fem)
@@ -102,7 +104,7 @@ def med_to_fem(fem_file, fem_name) -> FEM:
         element_sets = dict()
         for med_cell_type, med_cell_type_group in med_cells.items():
             if med_cell_type == "PO1":
-                logging.warning("Point elements are still not supported")
+                logger.warning("Point elements are still not supported")
                 continue
 
             cell_type = med_to_ada_type(med_cell_type)

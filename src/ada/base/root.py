@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, List, Union
 
 from ada.config import Settings as _Settings
+from ada.config import get_logger
 from ada.ifc.utils import create_guid
 
 from .changes import ChangeAction
@@ -12,6 +12,8 @@ from .units import Units
 if TYPE_CHECKING:
     from ada import Assembly, Part
     from ada.ifc.store import IfcStore
+
+logger = get_logger()
 
 
 class Root:
@@ -45,13 +47,13 @@ class Root:
     @name.setter
     def name(self, value):
         if _Settings.convert_bad_names:
-            logging.debug("Converting bad name")
+            logger.debug("Converting bad name")
             value = value.replace("/", "_").replace("=", "")
             if str.isnumeric(value[0]):
                 value = "ADA_" + value
 
         if "/" in value:
-            logging.debug(f'Character "/" found in {value}')
+            logger.debug(f'Character "/" found in {value}')
 
         self._name = value.strip()
 
@@ -100,7 +102,7 @@ class Root:
         for ancestor in self.get_ancestors():
             if isinstance(ancestor, Assembly):
                 return ancestor
-        logging.info("No Assembly found in ancestry. Returning self")
+        logger.info("No Assembly found in ancestry. Returning self")
         return self
 
     def get_ancestors(self) -> List[Union[Part, Assembly]]:
@@ -116,7 +118,7 @@ class Root:
         from ada import Beam, Part, Plate, Section, Shape
 
         if self.parent is None:
-            logging.error(f"Unable to delete {self.name} as it does not have a parent")
+            logger.error(f"Unable to delete {self.name} as it does not have a parent")
             return
 
         if issubclass(type(self), Part):
@@ -128,6 +130,6 @@ class Root:
         elif isinstance(self, Plate):
             self.parent.plates.remove(self)
         elif isinstance(self, Section):
-            logging.warning("Section removal is not yet supported")
+            logger.warning("Section removal is not yet supported")
         else:
             raise NotImplementedError()

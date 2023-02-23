@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import logging
 import os
 import pathlib
 from typing import TYPE_CHECKING, List
 
+from ada.config import get_logger
 from ada.fem import StepEigen
 from ada.fem.exceptions.fea_execution import (
     FEAnalysisUnableToStart,
@@ -17,6 +17,8 @@ from .read_odb import get_odb_data
 if TYPE_CHECKING:
     from ada.fem.results.concepts import ElementDataOutput, FEMDataOutput, Results
     from ada.fem.results.eigenvalue import EigenDataSummary
+
+logger = get_logger()
 
 
 def get_eigen_data(dat_file: str | os.PathLike) -> EigenDataSummary:
@@ -64,7 +66,7 @@ def read_abaqus_results(results: "Results", file_ref: pathlib.Path, overwrite):
 
     check_execution(file_ref)
 
-    logging.error("Result mesh data extraction is not supported for abaqus")
+    logger.error("Result mesh data extraction is not supported for abaqus")
 
     return odb_data_to_results(file_ref, results)
 

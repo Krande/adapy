@@ -1,9 +1,12 @@
-import logging
 import os
 import pathlib
 import shutil
 import time
 from typing import List, Union
+
+from ada.config import get_logger
+
+logger = get_logger()
 
 
 class SIZE_UNIT:
@@ -98,7 +101,7 @@ def get_unc_path(path_) -> str:
             out_path = win32wnet.WNetGetUniversalName(path_)
             return out_path
         except BaseException as e:
-            logging.error(e)
+            logger.error(e)
             return path_
 
 
@@ -151,7 +154,7 @@ def get_list_of_files(
         if strict:
             raise FileNotFoundError(msg)
         else:
-            logging.info(msg)
+            logger.info(msg)
 
     return all_files
 
@@ -203,7 +206,7 @@ def getfileprop(filepath: str) -> dict:
 
         props["StringFileInfo"] = strInfo
     except Exception as e:
-        logging.error(f'Unable to Read file properties due to "{e}"')
+        logger.error(f'Unable to Read file properties due to "{e}"')
         pass
 
     return props

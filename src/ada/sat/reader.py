@@ -1,4 +1,6 @@
-import logging
+from ada.config import get_logger
+
+logger = get_logger()
 
 
 def get_plates_from_satd(satd: dict) -> dict:
@@ -8,10 +10,10 @@ def get_plates_from_satd(satd: dict) -> dict:
         try:
             res = get_face_from_satd(face, satd)
         except KeyError as e:
-            logging.warning(f"Unable to import face due to {e}")
+            logger.warning(f"Unable to import face due to {e}")
             continue
         except InsufficientPointsError as e:
-            logging.warning(f"Unable to import face due to {e}")
+            logger.warning(f"Unable to import face due to {e}")
             continue
         plate_geom.update(res)
 

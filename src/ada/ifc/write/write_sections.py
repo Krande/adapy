@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 
 import ifcopenshell
 import numpy as np
 
 from ada import Section
-from ada.config import Settings
+from ada.config import Settings, get_logger
 from ada.sections.categories import SectionCat
 
 from ..utils import create_ifcindexpolyline, create_ifcpolyline
+
+logger = get_logger()
 
 
 class UnrecognizedSectionType(Exception):
@@ -96,7 +97,7 @@ class IProfile(ProfileBase):
             sec_props = dict(OuterCurve=polyline)
         else:
             if SectionCat.is_strong_axis_symmetric(section) is False:
-                logging.warning("Note! IfcAsymmetricIShapeProfileDef as it is not supported by ifcopenshell v IFC4")
+                logger.warning("Note! IfcAsymmetricIShapeProfileDef as it is not supported by ifcopenshell v IFC4")
             sec_props = dict(
                 OverallWidth=section.w_top,
                 OverallDepth=section.h,
@@ -123,7 +124,7 @@ class TProfile(ProfileBase):
             sec_props = dict(OuterCurve=polyline)
         else:
             if SectionCat.is_strong_axis_symmetric(section) is False:
-                logging.warning(
+                logger.warning(
                     "Note! Not using IfcAsymmetricIShapeProfileDef as it is not supported by ifcopenshell v IFC4"
                 )
             sec_props = dict(
@@ -143,7 +144,7 @@ class AngularProfile(ProfileBase):
     def get_ifc_props(self, f: ifcopenshell.file) -> dict:
         section = self.section
         if Settings.force_param_profiles is True:
-            logging.debug(f'Export of "{section.type}" profile to parametric IFC profile is not yet added')
+            logger.debug(f'Export of "{section.type}" profile to parametric IFC profile is not yet added')
         section_profile = section.get_section_profile(True)
         points = [f.createIfcCartesianPoint(p) for p in section_profile.outer_curve.points2d]
         ifc_polyline = f.createIfcPolyLine(points)
@@ -158,7 +159,7 @@ class BoxProfile(ProfileBase):
     def get_ifc_props(self, f: ifcopenshell.file) -> dict:
         section = self.section
         if Settings.force_param_profiles is True:
-            logging.debug(f'Export of "{section.type}" profile to parametric IFC profile is not yet added')
+            logger.debug(f'Export of "{section.type}" profile to parametric IFC profile is not yet added')
         section_profile = section.get_section_profile(True)
         ot_disc = section_profile.outer_curve.points2d
         in_disc = section_profile.inner_curve.points2d
@@ -194,7 +195,7 @@ class GeneralProfile(ProfileBase):
         return "IfcCircleProfileDef"
 
     def get_ifc_props(self, f: ifcopenshell.file) -> dict:
-        logging.warning("Note! Creating a Circle profile from general section (just for visual inspection as of now)")
+        logger.warning("Note! Creating a Circle profile from general section (just for visual inspection as of now)")
         r = np.sqrt(self.section.properties.Ax / np.pi)
         return dict(Radius=r)
 
@@ -207,7 +208,7 @@ class FlatBarProfile(ProfileBase):
     def get_ifc_props(self, f: ifcopenshell.file) -> dict:
         section = self.section
         if Settings.force_param_profiles is True:
-            logging.debug(f'Export of "{section.type}" profile to parametric IFC profile is not yet added')
+            logger.debug(f'Export of "{section.type}" profile to parametric IFC profile is not yet added')
         section_profile = section.get_section_profile(True)
         polyline = create_ifcpolyline(f, section_profile.outer_curve.points2d)
         return dict(OuterCurve=polyline)

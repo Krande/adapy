@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Dict, List, Union
+
+from ada.config import get_logger
 
 from .common import FemBase
 from .constraints import Bc
@@ -11,6 +12,8 @@ from .outputs import FieldOutput, HistOutput
 
 if TYPE_CHECKING:
     from ada import FEM
+
+logger = get_logger()
 
 
 class _StepTypes:
@@ -214,7 +217,7 @@ class StepImplicit(Step):
         """
         if total_time is not None:
             if init_incr > total_time and nl_geom is True:
-                logging.warning(
+                logger.warning(
                     f"Initial increment > Total time ({init_incr} > {total_time}). "
                     "Adjusted initial increment equal to total time"
                 )

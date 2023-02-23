@@ -1,6 +1,7 @@
-import logging
-
+from ada.config import get_logger
 from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
+
+logger = get_logger()
 
 
 def ada_to_med_type(value):
@@ -22,7 +23,7 @@ def med_to_ada_type(value):
 
     res = _tmp[value]
     if type(res) is tuple:
-        logging.info(f'Choosing index=0 -> "{res[0]}" when converting from MED type "{value}" to abaqus')
+        logger.info(f'Choosing index=0 -> "{res[0]}" when converting from MED type "{value}" to abaqus')
         return res[0]
     else:
         return res

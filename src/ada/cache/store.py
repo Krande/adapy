@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 import pathlib
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from ada.config import get_logger
+
 if TYPE_CHECKING:
     from ada import Assembly
+
+logger = get_logger()
 
 
 @dataclass
@@ -103,7 +106,7 @@ class CacheStore:
                 break
 
         if self.cache_file.exists() is False:
-            logging.debug("Cache file not found")
+            logger.debug("Cache file not found")
             is_cache_outdated = True
 
         if input_file is not None:

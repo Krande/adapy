@@ -1,5 +1,4 @@
 import base64
-import logging
 import re
 import xml.etree.ElementTree as ET
 import zipfile
@@ -7,7 +6,10 @@ from io import BytesIO
 
 from ada import Part, Plate
 from ada.concepts.containers import Plates
+from ada.config import get_logger
 from ada.sat.reader import get_plates_from_satd
+
+logger = get_logger()
 
 
 def extract_sat_objects_from_xml_root(xml_root: ET.Element) -> dict:
@@ -34,7 +36,7 @@ def get_plates(xml_root: ET.Element, parent: Part) -> Plates:
             face_ref = res.attrib["face_ref"]
             points = sat_ref_d.get(face_ref, None)
             if points is None:
-                logging.warning(f'Unable to find face_ref="{face_ref}"')
+                logger.warning(f'Unable to find face_ref="{face_ref}"')
                 continue
 
             name = plate_elem.attrib["name"]
@@ -53,7 +55,7 @@ def get_plates(xml_root: ET.Element, parent: Part) -> Plates:
                     parent=parent,
                 )
             except BaseException as e:
-                logging.error(f"Failed converting plate {name} due to {e}")
+                logger.error(f"Failed converting plate {name} due to {e}")
                 continue
 
             plates.append(pl)

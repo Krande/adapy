@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
+
+from ada.config import get_logger
 
 from .common import Amplitude, Csys, FemBase
 from .constants import GRAVITY
@@ -13,6 +14,8 @@ from .surfaces import Surface
 
 if TYPE_CHECKING:
     from ada.fem.steps import Step
+
+logger = get_logger()
 
 
 class LoadTypes:
@@ -120,7 +123,7 @@ class Load(FemBase):
         else:
             csys = self.csys
             if csys.coords is None:
-                logging.error("Calculating global forces without COORDS is not yet supported")
+                logger.error("Calculating global forces without COORDS is not yet supported")
                 return None
 
             from ada.core.vector_utils import rotation_matrix_csys_rotate

@@ -1,7 +1,8 @@
-import logging
-
 from ada.base.units import Units
+from ada.config import get_logger
 from ada.sections import Section
+
+logger = get_logger()
 
 
 def import_section_from_ifc(profile_def, units=Units.M) -> Section:
@@ -44,10 +45,10 @@ def import_section_from_ifc(profile_def, units=Units.M) -> Section:
         # sec = Section(ifc_elem.ProfileName)
     else:
         try:
-            logging.info(f'No Native support for Ifc beam "{profile_def=}"')
+            logger.info(f'No Native support for Ifc beam "{profile_def=}"')
             sec, tap = interpret_section_str(profile_def.ProfileName)
         except ValueError as e:
-            logging.warning(f'Unable to process section "{profile_def.ProfileName}" -> error: "{e}" ')
+            logger.warning(f'Unable to process section "{profile_def.ProfileName}" -> error: "{e}" ')
             sec = None
         if sec is None:
             raise NotImplementedError(f'IFC section type "{profile_def}" is not yet implemented')

@@ -1,5 +1,4 @@
 import inspect
-import logging
 
 import ipywidgets as widgets
 import numpy as np
@@ -7,7 +6,10 @@ import plotly.graph_objs as go
 import scipy.optimize
 from IPython.display import display
 
+from ada.config import get_logger
 from ada.visualize.plots import easy_plotly
+
+logger = get_logger()
 
 
 class Calibrate:
@@ -59,7 +61,7 @@ class Calibrate:
         try:
             import lmfit
         except ModuleNotFoundError as e:
-            logging.error(e)
+            logger.error(e)
             raise ModuleNotFoundError("Please install the 'lmfit' package using conda install -c conda-forge lmfit")
 
         model_name = model.__name__

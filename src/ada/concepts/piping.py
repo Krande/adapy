@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from itertools import chain
 from typing import TYPE_CHECKING
 
@@ -9,6 +8,7 @@ import numpy as np
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.config import Settings as _Settings
+from ada.config import get_logger
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_length
 from ada.materials.utils import get_material
@@ -19,6 +19,8 @@ from .points import Node
 
 if TYPE_CHECKING:
     from ada import Section
+
+logger = get_logger()
 
 
 class Pipe(BackendGeom):
@@ -290,7 +292,7 @@ def build_pipe_segments(pipe: Pipe) -> list[PipeSegStraight, PipeSegElbow]:
     segs = []
     for p1, p2 in zip(pipe.points[:-1], pipe.points[1:]):
         if vector_length(p2.p - p1.p) == 0.0:
-            logging.info("skipping zero length segment")
+            logger.info("skipping zero length segment")
             continue
         segs.append([p1, p2])
     segments = segs
@@ -315,7 +317,7 @@ def build_pipe_segments(pipe: Pipe) -> list[PipeSegStraight, PipeSegElbow]:
         vlen2 = vector_length(seg2[1].p - seg2[0].p)
 
         if vlen1 < len_tol or vlen2 == len_tol:
-            logging.error(f'Segment Length is below point tolerance for unit "{pipe.units}". Skipping')
+            logger.error(f'Segment Length is below point tolerance for unit "{pipe.units}". Skipping')
             continue
 
         xvec1 = unit_vector(p12.p - p11.p)
@@ -327,7 +329,7 @@ def build_pipe_segments(pipe: Pipe) -> list[PipeSegStraight, PipeSegElbow]:
             pipe_segments.append(PipeSegStraight(next(seg_names), p11, p12, **props))
         else:
             if p12 != p21:
-                logging.error("No shared point found")
+                logger.error("No shared point found")
 
             if i != 0 and len(pipe_segments) > 0:
                 pseg = pipe_segments[-1]
@@ -337,10 +339,10 @@ def build_pipe_segments(pipe: Pipe) -> list[PipeSegStraight, PipeSegElbow]:
             try:
                 seg1, arc, seg2 = make_arc_segment(prev_p[0], prev_p[1], p22.p, pipe.pipe_bend_radius * 0.99)
             except ValueError as e:
-                logging.error(f"Error: {e}")  # , traceback: "{traceback.format_exc()}"')
+                logger.error(f"Error: {e}")  # , traceback: "{traceback.format_exc()}"')
                 continue
             except RuntimeError as e:
-                logging.error(f"Error: {e}")  # , traceback: "{traceback.format_exc()}"')
+                logger.error(f"Error: {e}")  # , traceback: "{traceback.format_exc()}"')
                 continue
 
             if i == 0 or len(pipe_segments) == 0:

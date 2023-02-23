@@ -1,7 +1,7 @@
-import logging
 from dataclasses import dataclass
 
 from ada import FEM, Beam, Section
+from ada.config import get_logger
 from ada.core.utils import Counter, make_name_fem_ready
 from ada.fem import FemSection
 from ada.fem.exceptions.element_support import IncompatibleElements
@@ -9,6 +9,7 @@ from ada.fem.shapes import ElemType
 
 from .write_utils import write_ff
 
+logger = get_logger()
 shid = Counter(1)
 
 sec_n = Counter(1, "_V")
@@ -71,7 +72,7 @@ def create_line_section(fem_sec: FemSection, sec_names: list[str], sec_ids: list
 
     sec = fem_sec.section
     if sec in sec_ids:
-        logging.info(f'Skipping already included section "{sec}"')
+        logger.info(f'Skipping already included section "{sec}"')
         return ConceptSection()
 
     sec_ids.append(sec)

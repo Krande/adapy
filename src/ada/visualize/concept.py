@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime
-import logging
 import os
 import pathlib
 from dataclasses import dataclass, field
@@ -9,7 +8,11 @@ from dataclasses import dataclass, field
 import numpy as np
 import trimesh
 
+from ada.config import get_logger
+
 from .colors import VisColor
+
+logger = get_logger()
 
 
 @dataclass
@@ -128,7 +131,7 @@ class VisMesh:
                 continue
             to_be_merged_part += pmesh
         if to_be_merged_part is None:
-            logging.error(f"{self.name} has no parts!?. returning empty model")
+            logger.error(f"{self.name} has no parts!?. returning empty model")
             merged_part = []
         else:
             merged_part = to_be_merged_part.merge_by_color()
@@ -393,7 +396,7 @@ class ObjectMesh:
             self.color = other.color
         else:
             if other.color[-1] == 1.0 and self.color[-1] != 1.0:
-                logging.warning("Will merge colors with different opacity.")
+                logger.warning("Will merge colors with different opacity.")
                 self.color[-1] = 1.0
 
         if self.translation is None and other.translation is not None:

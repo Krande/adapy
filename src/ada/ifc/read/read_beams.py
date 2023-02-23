@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from ada import Beam
 from ada.concepts.curves import CurveRevolve
+from ada.config import get_logger
 from ada.core.vector_utils import calc_yvec, vector_length
 
 from .read_beam_section import import_section_from_ifc
@@ -20,6 +20,8 @@ from .reader_utils import (
 
 if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
+
+logger = get_logger()
 
 
 def import_ifc_beam(ifc_elem, name, ifc_store: IfcStore) -> Beam:
@@ -102,7 +104,7 @@ def import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
     from ada import Placement
     from ada.core.vector_utils import transform3d
 
-    logging.warning("Reading IFC Beams swept along IfcTrimmedCurve is WIP")
+    logger.warning("Reading IFC Beams swept along IfcTrimmedCurve is WIP")
 
     r = axis.BasisCurve.Radius
     curve_place = get_placement(axis.BasisCurve.Position)

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 from ada import Placement, Plate
+from ada.config import get_logger
 
 from .read_curves import import_indexedpolycurve, import_polycurve
 from .read_materials import read_material
@@ -12,11 +12,13 @@ from .reader_utils import get_associated_material
 if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
 
+logger = get_logger()
+
 
 def import_ifc_plate(ifc_elem, name, ifc_store: IfcStore) -> Plate:
     from .exceptions import NoIfcAxesAttachedError
 
-    logging.info(f"importing {name}")
+    logger.info(f"importing {name}")
     ifc_mat = get_associated_material(ifc_elem)
     mat = None
     if ifc_store.assembly is not None:

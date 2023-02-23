@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ada.base.changes import ChangeAction
+from ada.config import get_logger
 from ada.ifc.read.read_physical_objects import import_physical_ifc_elem
 from ada.ifc.read.reader_utils import (
     add_to_assembly,
@@ -18,6 +18,8 @@ from .read_parts import PartImporter
 
 if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
+
+logger = get_logger()
 
 
 @dataclass
@@ -65,7 +67,7 @@ class IfcReader:
     def load_objects(self, data_only=False, elements2part=None):
         for product in self.ifc_store.f.by_type("IfcProduct"):
             if product.Representation is None or data_only is True:
-                logging.info(f'Passing product "{product}"')
+                logger.info(f'Passing product "{product}"')
                 continue
 
             parent = get_parent(product)
@@ -76,7 +78,7 @@ class IfcReader:
             if name is None:
                 name = resolve_name(props, product)
 
-            logging.info(f"importing {name}")
+            logger.info(f"importing {name}")
 
             obj = import_physical_ifc_elem(product, name, self.ifc_store)
             if obj is None:
