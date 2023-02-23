@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada import Beam, CurvePoly, CurveRevolve
-from ada.config import get_logger
+from ada.config import get_logger, Settings
 from ada.core.constants import O
 from ada.ifc.utils import (
     add_colour,
@@ -125,14 +125,17 @@ def extrude_straight_beam(beam: Beam, f: ifile, profile):
 
     global_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
 
+    e1 = (0.0, 0.0, 0.0)
+
+    if Settings.ifc_export.include_ecc and beam.e1 is not None:
+        e1 = beam.e1
+
     profile_e = None
     if beam.taper is not None and beam.section != beam.taper:
         profile_e = f.by_guid(beam.taper.guid)
 
     # Transform coordinates to local coords
-    if beam.name == "C213":
-        print("sd")
-    p1 = beam.n1.p
+    p1 = tuple([float(x) + float(e1[i]) for i, x in enumerate(beam.n1.p)])
     p2 = p1 + np.array([0, 0, 1]) * beam.length
 
     p1_ifc = f.create_entity("IfcCartesianPoint", to_real(p1))

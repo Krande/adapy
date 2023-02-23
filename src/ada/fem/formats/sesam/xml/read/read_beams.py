@@ -31,8 +31,6 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
 
     # Check for offsets
     e1, e2, use_local = get_offsets(bm_el)
-    if name == "HB1222":
-        print("sd")
 
     if len(segs) > 1 and (e1 is not None or e2 is not None):
         logger.debug(f"Offset at end 1 for beam {name} is ignored as there are more than 1 segments")
@@ -43,13 +41,13 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
             e1_global = e1_conv
         else:
             e1_global = e1
-        segs[0].e1 = e1_global
+        segs[0].n1.p += e1_global
     if e2 is not None:
         if use_local:
             e2_global = convert_offset_to_global_csys(e2, segs[-1])
         else:
             e2_global = e2
-        segs[-1].e2 = e2_global
+        segs[-1].n2.p += e2_global
 
     return segs
 
@@ -60,13 +58,14 @@ def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray, np.ndarray, bool]:
     end2_o = None
     if linear_offset is None:
         end1 = bm_el.find(".//offset_end1")
-        if end1 is not None:
+        end2 = bm_el.find(".//offset_end2")
+        if end1 is not None or end2 is not None:
             raise NotImplementedError("Non-linear offsets are not supported")
 
         return end1_o, end2_o, None
 
     end1 = linear_offset.find("offset_end1")
-    end2 = linear_offset.find("offset_end1")
+    end2 = linear_offset.find("offset_end2")
     use_local = False if linear_offset.attrib["use_local_system"] == "false" else True
 
     if end1 is not None:
