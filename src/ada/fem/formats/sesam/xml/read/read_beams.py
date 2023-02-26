@@ -41,13 +41,13 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
             e1_global = e1_conv
         else:
             e1_global = e1
-        segs[0].n1.p += e1_global
+        segs[0].n1 = Node(segs[0].n1.p + e1_global, parent=parent)
     if e2 is not None:
         if use_local:
             e2_global = convert_offset_to_global_csys(e2, segs[-1])
         else:
             e2_global = e2
-        segs[-1].n2.p += e2_global
+        segs[-1].n2 = Node(segs[-1].n2.p + e2_global, parent=parent)
 
     return segs
 

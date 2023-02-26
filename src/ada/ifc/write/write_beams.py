@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada import Beam, CurvePoly, CurveRevolve
-from ada.config import get_logger, Settings
+from ada.config import Settings, get_logger
 from ada.core.constants import O
 from ada.ifc.utils import (
     add_colour,
