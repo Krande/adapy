@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from ada.base.changes import ChangeAction
+from ada.config import get_logger
 from ada.ifc.utils import create_guid
 
 if TYPE_CHECKING:
     from ada.base.physical_objects import BackendGeom
+
+logger = get_logger()
 
 
 @dataclass
@@ -50,7 +52,7 @@ class PresentationLayers:
 
         layer_obj = self.get_by_name(layer)
         if layer_obj is None:
-            logging.info(f'Layer "{layer}" does not exist. So creating a new layer')
+            logger.info(f'Layer "{layer}" does not exist. So creating a new layer')
             layer_obj = self.add_layer(layer)
         else:
             layer_obj.change_type = ChangeAction.MODIFIED

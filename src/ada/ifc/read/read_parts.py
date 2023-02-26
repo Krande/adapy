@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 
 import ifcopenshell
@@ -8,9 +7,12 @@ from ifcopenshell.util.element import get_psets
 
 from ada import Assembly, Part
 from ada.base.ifc_types import SpatialTypes
+from ada.config import get_logger
 from ada.ifc.store import IfcStore
 
 from .reader_utils import get_ifc_property_sets, get_parent, resolve_name
+
+logger = get_logger()
 
 
 def valid_spatial_classes(product: ifcopenshell.entity_instance):
@@ -21,7 +23,7 @@ def valid_spatial_classes(product: ifcopenshell.entity_instance):
         return True
 
     if is_ok_class is True:
-        logging.info(f"{product=}-> {has_no_geom=}")
+        logger.info(f"{product=}-> {has_no_geom=}")
         return True
 
     return False
@@ -60,7 +62,7 @@ class PartImporter:
         props = get_ifc_property_sets(product)
         name = product.Name
         if name is None:
-            logging.debug(f'Name was not found for the IFC element "{product}". Will look for ref to name in props')
+            logger.debug(f'Name was not found for the IFC element "{product}". Will look for ref to name in props')
             name = resolve_name(props, product)
 
         ifc_class = SpatialTypes.from_str(product.is_a())
@@ -78,7 +80,7 @@ class PartImporter:
         props = get_ifc_property_sets(product)
         name = product.Name
         if name is None:
-            logging.debug(f'Name was not found for the IFC element "{product}". Will look for ref to name in props')
+            logger.debug(f'Name was not found for the IFC element "{product}". Will look for ref to name in props')
             name = resolve_name(props, product)
 
         self.ifc_store.assembly.name = name

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import datetime
-import logging
 from operator import attrgetter
 from typing import TYPE_CHECKING
 
+from ada.config import get_logger
 from ada.core.utils import Counter, get_current_user
 from ada.fem import FEM
 
@@ -13,6 +13,8 @@ from .write_utils import write_ff
 
 if TYPE_CHECKING:
     from ada import Material
+
+logger = get_logger()
 
 
 def to_fem(assembly, name, analysis_dir=None, metadata=None):
@@ -34,7 +36,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None):
         raise ValueError(f"Sesam writer currently only works for a single part. Currently found {len(parts)}")
 
     if len(assembly.fem.steps) > 1:
-        logging.error("Sesam writer currently only supports 1 step. Will only use 1st step")
+        logger.error("Sesam writer currently only supports 1 step. Will only use 1st step")
 
     part = parts[0]
 

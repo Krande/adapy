@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 import pathlib
 import subprocess
@@ -14,6 +13,7 @@ import pythreejs
 from IPython.display import display
 from ipywidgets import Dropdown, HBox, VBox
 
+from ada.config import get_logger
 from ada.fem.formats.general import FEATypes
 from ada.visualize.femviz import get_edges_and_faces_from_meshio, magnitude
 from ada.visualize.renderer_pythreejs import MyRenderer
@@ -28,6 +28,8 @@ from .eigenvalue import EigenDataSummary
 if TYPE_CHECKING:
     from ada import Assembly
     from ada.visualize.concept import PartMesh, VisMesh
+
+logger = get_logger()
 
 
 class Results:
@@ -98,7 +100,7 @@ class Results:
         res_reader, fem_format = Results.res_map.get(suffix, (None, None))
 
         if res_reader is None:
-            logging.error(f'Results class currently does not support filetype "{suffix}"')
+            logger.error(f'Results class currently does not support filetype "{suffix}"')
             return None
 
         self.fem_format = fem_format
@@ -175,7 +177,7 @@ class Results:
         name = self.assembly.name if self.assembly is not None else name
         pm = self.result_mesh.to_part_mesh(name=name, data_type=data_type)
         if len(pm.id_map) == 0:
-            logging.warning("Created Part mesh contains no object meshes")
+            logger.warning("Created Part mesh contains no object meshes")
             return None
         project = self.assembly.metadata.get("project", "DummyProject") if self.assembly is not None else "DummyProject"
         return VisMesh(name=name, project=project, world=[pm], meta=None)
@@ -464,12 +466,12 @@ class ResultsMesh:
                 try:
                     vertices = np.asarray([x + u[:3] for x, u in zip(self.vertices, data)], dtype="float32")
                 except IndexError:
-                    logging.warning(f"Data step {step} contains invalid data. Skipping")
+                    logger.warning(f"Data step {step} contains invalid data. Skipping")
                     continue
             try:
                 colors = self.colorize_data(data)
             except IndexError:
-                logging.warning(f"Data step {step} was unable to colorize data. Skipping")
+                logger.warning(f"Data step {step} was unable to colorize data. Skipping")
                 continue
 
             faces = self.faces

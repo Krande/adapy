@@ -24,6 +24,7 @@ from odbAccess import (
 from symbolicConstants import SymbolicConstant
 
 _constants = [x[1] for x in inspect.getmembers(symbolicConstants, inspect.isclass)]
+logger = logging.getLogger("abaqus")
 
 
 def filter1(obj, attr):
@@ -121,7 +122,7 @@ def get_nodal_value(n):
 def get_field_data(field):
     num_locs = len(field.locations)
     if num_locs > 1:
-        logging.info("FieldOutput {} contains multiple section locations".format(field.name))
+        logger.info("FieldOutput {} contains multiple section locations".format(field.name))
     curr_pos = field.locations[0].position
     if curr_pos == INTEGRATION_POINT:  # values obtained by extrapolating results calculated at the integration points.
         nodal_data = field.getSubset(position=ELEMENT_NODAL)
@@ -132,7 +133,7 @@ def get_field_data(field):
         components = nodal_data.componentLabels
         return "NODAL", components, [(int(n.nodeLabel), serialize(n.data)) for n in nodal_data.values]
 
-    logging.info("Skipping unsupported field position {}".format(curr_pos))
+    logger.info("Skipping unsupported field position {}".format(curr_pos))
     return None
 
 
@@ -160,22 +161,22 @@ def get_section_data(section_obj):
 
 analysis_path = sys.argv[1]
 parent_dir = os.path.dirname(analysis_path)
-logging.basicConfig(
+logger.basicConfig(
     filename=os.path.join(parent_dir, "aba_io.log"),
     filemode="w",
-    level=logging.INFO,
+    level=logger.INFO,
     format="%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-logging.info('Logging to "{}"'.format(parent_dir))
-logging.info('Opening ODB "{}"'.format(analysis_path))
+logger.info('Logging to "{}"'.format(parent_dir))
+logger.info('Opening ODB "{}"'.format(analysis_path))
 
 odb = openOdb(analysis_path, readOnly=True)
 
 try:
     fname = os.path.basename(analysis_path)
-    logging.info('serializing "{}" ODB data'.format(fname))
+    logger.info('serializing "{}" ODB data'.format(fname))
     res = serialize(
         dict(
             rootAssembly=odb.rootAssembly,
@@ -186,17 +187,17 @@ try:
             last_updated=os.path.getmtime(analysis_path),
         )
     )
-    logging.info("serialization complete")
+    logger.info("serialization complete")
 
-    logging.info("Starting export to pickle")
+    logger.info("Starting export to pickle")
     pckle_name = fname.replace(".odb", ".pckle")
     with open(os.path.join(parent_dir, pckle_name), "wb") as f:
         pickle.dump(res, f, 2)
 
 except (BaseException, RuntimeError) as e:
     trace_str = traceback.format_exc()
-    logging.error("{}, {}".format(e, trace_str))
+    logger.error("{}, {}".format(e, trace_str))
 finally:
     odb.close()
 
-logging.info("Export to pickle complete")
+logger.info("Export to pickle complete")

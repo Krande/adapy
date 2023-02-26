@@ -1,8 +1,8 @@
-import logging
 from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ada.config import get_logger
 from ada.fem.shapes import definitions as shape_def
 
 from ..common import ada_to_med_type
@@ -10,6 +10,8 @@ from .helper_utils import resolve_ids_in_multiple
 
 if TYPE_CHECKING:
     from ada.concepts.spatial import Part
+
+logger = get_logger()
 
 
 def _add_cell_sets(cells_group, part: "Part", families):
@@ -38,7 +40,7 @@ def _add_cell_sets(cells_group, part: "Part", families):
 
     for group, elements in part.fem.elements.group_by_type():
         if isinstance(group, (shape_def.MassTypes, shape_def.SpringTypes)):
-            logging.warning("NotImplemented: Skipping Mass or Spring Elements")
+            logger.warning("NotImplemented: Skipping Mass or Spring Elements")
             continue
         elements = list(elements)
         cell_ids = {el.id: i for i, el in enumerate(elements)}
@@ -88,7 +90,7 @@ def _resolve_element_in_use_by_other_set(tagged_data, ind, tags, name, is_elem):
     all_tags = current_tags + [name]
 
     if name in current_tags:
-        logging.error("Unexpected error. Name already exists in set during resolving set members.")
+        logger.error("Unexpected error. Name already exists in set during resolving set members.")
 
     new_int = None
     for i_, t_ in tags.items():

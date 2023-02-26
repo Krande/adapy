@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import logging
 import os
 import pathlib
 from typing import TYPE_CHECKING
 
+from ada.config import get_logger
 from ada.fem import StepEigen
 from ada.fem.formats.utils import DatFormatReader
 
@@ -13,6 +13,8 @@ from .sin2sif import convert_sin_to_sif
 if TYPE_CHECKING:
     from ada.fem.results import Results
     from ada.fem.results.eigenvalue import EigenDataSummary
+
+logger = get_logger()
 
 
 def get_eigen_data(dat_file: str | os.PathLike) -> EigenDataSummary:
@@ -44,5 +46,5 @@ def read_sesam_results(results: "Results", file_ref: pathlib.Path, overwrite):
 
     convert_sin_to_sif(results.results_file_path)
 
-    logging.error("Result mesh data extraction is not supported for sesam")
+    logger.error("Result mesh data extraction is not supported for sesam")
     return None

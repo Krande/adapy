@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 from ada import ArcSegment, Node, PipeSegElbow, PipeSegStraight
+from ada.config import get_logger
 
 from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
@@ -16,6 +16,8 @@ from .reader_utils import (
 
 if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
+
+logger = get_logger()
 
 
 def import_pipe_segment(segment, name, ifc_store: IfcStore) -> PipeSegStraight | PipeSegElbow:
@@ -51,7 +53,7 @@ def read_pipe_elbow(segment, name, ifc_store: IfcStore) -> PipeSegElbow:
     arc_midpoint = pset.get("Properties", dict()).get("midpoint", None)
 
     if bend_radius is None or arc_midpoint is None:
-        logging.error("The current Elbow interpretation requires a specific property with bend radius to be imported")
+        logger.error("The current Elbow interpretation requires a specific property with bend radius to be imported")
         return None
 
     bend_radius = float(bend_radius)

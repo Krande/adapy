@@ -1,7 +1,6 @@
 # coding=utf-8
 from __future__ import annotations
 
-import logging
 import os
 import pathlib
 import shutil
@@ -11,10 +10,12 @@ from typing import TYPE_CHECKING, Any, Dict, Union
 
 import numpy as np
 
-from ada.config import Settings
+from ada.config import Settings, get_logger
 
 if TYPE_CHECKING:
     from ada import Node
+
+logger = get_logger()
 
 
 class NewLine:
@@ -260,7 +261,7 @@ def make_name_fem_ready(value, no_dot=False):
     :param no_dot:
     :return: Fixed name
     """
-    logging.debug("Converting bad name")
+    logger.debug("Converting bad name")
 
     if value[0] == "/":
         value = value[1:]
@@ -270,7 +271,7 @@ def make_name_fem_ready(value, no_dot=False):
         value = "_" + value
 
     if "/" in value:
-        logging.error(f'Character "/" found in {value}')
+        logger.error(f'Character "/" found in {value}')
 
     # if "-" in value:
     #     value = value.replace("-", "_")
@@ -279,7 +280,7 @@ def make_name_fem_ready(value, no_dot=False):
         value = value.replace(".", "_")
     final_name = value.strip()
     if len(final_name) > 25:
-        logging.info(f'Note FEM name "{final_name}" is >25 characters. This might cause issues in some FEM software')
+        logger.info(f'Note FEM name "{final_name}" is >25 characters. This might cause issues in some FEM software')
     return final_name
 
 
@@ -310,7 +311,7 @@ def replace_node(old_node: Node, new_node: Node) -> None:
 
     for elem in old_node.refs.copy():
         if isinstance(elem, FemSet):
-            logging.warning("replace_node does not support updating FemSet")
+            logger.warning("replace_node does not support updating FemSet")
             continue
 
         node_index = elem.nodes.index(old_node)
@@ -321,7 +322,7 @@ def replace_node(old_node: Node, new_node: Node) -> None:
         # new_node.refs.extend(old_node.refs)
         old_node.refs.pop(old_node.refs.index(elem))
         new_node.refs.append(elem)
-        logging.debug(f"{old_node} exchanged with {new_node} --> {elem}")
+        logger.debug(f"{old_node} exchanged with {new_node} --> {elem}")
 
 
 def replace_nodes_by_tol(nodes, decimals=0, tol=Settings.point_tol):
@@ -344,7 +345,7 @@ def replace_nodes_by_tol(nodes, decimals=0, tol=Settings.point_tol):
         elif not most_precise[0] and np.any(most_precise[1:]):
             return False
         elif decimals_ == 10:
-            logging.error(f"Recursion started at 0 decimals, but are now at {decimals_} decimals. Will proceed with n.")
+            logger.error(f"Recursion started at 0 decimals, but are now at {decimals_} decimals. Will proceed with n.")
             return True
         else:
             return n_is_most_precise(n, nearby_nodes_, decimals_ + 1)

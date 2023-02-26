@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from bisect import bisect_left
 from dataclasses import dataclass
 from functools import partial
@@ -12,6 +11,7 @@ import numpy as np
 
 from ada.concepts.containers import Materials
 from ada.concepts.points import Node
+from ada.config import get_logger
 from ada.core.utils import Counter
 from ada.fem.elements import Connector, Elem, Mass, MassTypes
 from ada.fem.exceptions.model_definition import FemSetNameExists
@@ -24,6 +24,8 @@ from ada.sections import Section
 if TYPE_CHECKING:
     from ada import FEM
     from ada.fem.results.common import ElementBlock
+
+logger = get_logger()
 
 
 @dataclass
@@ -384,10 +386,10 @@ class FemElements:
         elems = list(elems) if isinstance(elems, Iterable) else [elems]
         for elem in elems:
             if elem in self._elements:
-                logging.warning(f"Element removal is WIP. Removing element: {elem}")
+                logger.warning(f"Element removal is WIP. Removing element: {elem}")
                 self._elements.pop(self._elements.index(elem))
             else:
-                logging.error(f"'{elem}' not found in {self.__class__.__name__}-container.")
+                logger.error(f"'{elem}' not found in {self.__class__.__name__}-container.")
         # self._sort()
 
     def group_by_type(self):
@@ -480,7 +482,7 @@ class FemSections:
 
     def _map_materials(self, fem_sec: FemSection, mat_repo: Materials):
         if type(fem_sec.material) is str:
-            logging.error(f'Material "{fem_sec.material}" was passed as string')
+            logger.error(f'Material "{fem_sec.material}" was passed as string')
             fem_sec._material = mat_repo.get_by_name(fem_sec.material.name)
 
     def _map_elsets(self, fem_sec: FemSection, elset_repo):
@@ -722,12 +724,12 @@ class FemSets:
         for name, _set in other.nodes.items():
             _set.parent = self.parent
             if name in self._nomap.keys():
-                logging.warning(f'Duplicate Node sets. Node set "{name}" exists')
+                logger.warning(f'Duplicate Node sets. Node set "{name}" exists')
             self.add(_set, merge_sets_if_duplicate=True)
         for name, _set in other.elements.items():
             _set.parent = self.parent
             if name in self._elmap.keys():
-                logging.warning(f'Duplicate element sets. Element set "{name}" exists')
+                logger.warning(f'Duplicate element sets. Element set "{name}" exists')
             self.add(_set, merge_sets_if_duplicate=True)
         return self
 

@@ -1,6 +1,8 @@
-import logging
-
 import numpy as np
+
+from ada.config import get_logger
+
+logger = get_logger()
 
 
 def bernstein(n, k):
@@ -37,7 +39,7 @@ def curve_fitting(in_data):
     # curve fit the test data
     fittedParameters, pcov = curve_fit(curve_f1, xData, yData, geneticParameters)
 
-    logging.debug("Parameters", fittedParameters)
+    logger.debug("Parameters", fittedParameters)
 
     modelPredictions = curve_f1(xData, *fittedParameters)
 
@@ -80,7 +82,7 @@ def sum_of_squared_error(parameter_tuple, *args):
     xData = args[0]
     yData = args[1]
     if xData is None:
-        logging.error("Xdata is none. Returning None")
+        logger.error("Xdata is none. Returning None")
         return None
     warnings.filterwarnings("ignore")
     val = curve_f1(xData, *parameter_tuple)

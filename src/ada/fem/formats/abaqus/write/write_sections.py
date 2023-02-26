@@ -1,6 +1,6 @@
-import logging
 from typing import TYPE_CHECKING
 
+from ada.config import get_logger
 from ada.fem import FemSection
 from ada.fem.steps import StepExplicit
 from ada.sections import GeneralProperties, Section
@@ -8,6 +8,7 @@ from ada.sections import GeneralProperties, Section
 if TYPE_CHECKING:
     from ada import FEM
 
+logger = get_logger()
 log_fin = "Please check your result and input. This is not a validated method of solving this issue"
 
 
@@ -83,7 +84,7 @@ def line_section_props(fem_sec: FemSection):
             #     sec.w_btn = new_width
             # else:
             #     sec.w_top = new_width
-            logging.info(f"For {fem_sec.name}: t_fbtn + t_w > min(w_top, w_btn). {log_fin}")
+            logger.info(f"For {fem_sec.name}: t_fbtn + t_w > min(w_top, w_btn). {log_fin}")
         return f"{sec.h / 2}, {sec.h}, {sec.w_btn}, {sec.w_top}, {sec.t_fbtn}, {sec.t_ftop}, {sec.t_w}\n {n1}"
     elif sec_data == "BOX":
         if sec.t_w * 2 > min(sec.w_top, sec.w_btn):
@@ -126,7 +127,7 @@ def line_cross_sec_type_str(fem_sec: FemSection):
         raise Exception(f'Section type "{sec_type}" is not added to Abaqus beam export yet')
 
     if fem_sec.section.type in [bt.CHANNEL]:
-        logging.error(f'Profile type "{sec_type}" is not supported by Abaqus. Using a General Section instead')
+        logger.error(f'Profile type "{sec_type}" is not supported by Abaqus. Using a General Section instead')
 
     return sec_str
 
@@ -141,20 +142,20 @@ def eval_general_properties(section: Section) -> GeneralProperties:
     name = section.name
     if gp.Ix <= 0.0:
         gp.Ix = 1
-        logging.warning(f"Section {name} Ix <= 0.0. Changing to 2. {log_fin}")
+        logger.warning(f"Section {name} Ix <= 0.0. Changing to 2. {log_fin}")
     if gp.Iy <= 0.0:
         gp.Iy = 2
-        logging.warning(f"Section {name} Iy <= 0.0. Changing to 2. {log_fin}")
+        logger.warning(f"Section {name} Iy <= 0.0. Changing to 2. {log_fin}")
     if gp.Iz <= 0.0:
         gp.Iz = 2
-        logging.warning(f"Section {name} Iz <= 0.0. Changing to 2. {log_fin}")
+        logger.warning(f"Section {name} Iz <= 0.0. Changing to 2. {log_fin}")
     if gp.Iyz <= 0.0:
         gp.Iyz = (gp.Iy + gp.Iz) / 2
-        logging.warning(f"Section {name} Iyz <= 0.0. Changing to (Iy + Iz) / 2. {log_fin}")
+        logger.warning(f"Section {name} Iyz <= 0.0. Changing to (Iy + Iz) / 2. {log_fin}")
     if gp.Iy * gp.Iz - gp.Iyz**2 < 0:
         old_y = str(gp.Iy)
         gp.Iy = 1.1 * (gp.Iy + (gp.Iyz**2) / gp.Iz)
-        logging.warning(
+        logger.warning(
             f"Warning! Section {name}: I(11)*I(22)-I(12)**2 MUST BE POSITIVE. " f"Mod Iy={old_y} to {gp.Iy}. {log_fin}"
         )
     if (-(gp.Iy + gp.Iz) / 2 < gp.Iyz <= (gp.Iy + gp.Iz) / 2) is False:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import pathlib
 from dataclasses import dataclass
@@ -9,6 +8,7 @@ from typing import TYPE_CHECKING, Callable, Iterable
 import meshio
 import numpy as np
 
+from ada.config import get_logger
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
 
@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     from ada import Material, Node, Section
     from ada.fem import Elem, FemSet
     from ada.fem.results.concepts import EigenDataSummary
+
+logger = get_logger()
 
 
 @dataclass
@@ -105,7 +107,7 @@ class Mesh:
                 try:
                     edges += elem_shape.edges
                 except IndexError as e:
-                    logging.error(e)
+                    logger.error(e)
                     continue
                 if isinstance(elem_shape.type, shape_def.LineShapes):
                     continue

@@ -70,5 +70,5 @@ class Settings:
         return default_settings()
 
 
-def create_logger():
+def get_logger():
     return logging.getLogger("ada")

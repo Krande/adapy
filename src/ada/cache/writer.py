@@ -1,5 +1,4 @@
 import json
-import logging
 import os
 import pathlib
 from itertools import groupby
@@ -10,11 +9,14 @@ import numpy as np
 
 from ada import Beam, Material, Part, Section
 from ada.concepts.containers import Nodes
+from ada.config import get_logger
 
 from .utils import to_safe_name
 
 if TYPE_CHECKING:
     from ada import FEM, Assembly
+
+logger = get_logger()
 
 
 def write_assembly_to_cache(assembly: "Assembly", cache_file_path):
@@ -109,19 +111,19 @@ def add_materials_to_cache(part, parts_group):
 
 
 def add_plates_to_cache():
-    logging.error("Plate caching is not yet implemented")
+    logger.error("Plate caching is not yet implemented")
 
 
 def add_shapes_to_cache():
-    logging.error("Shape caching is not yet implemented")
+    logger.error("Shape caching is not yet implemented")
 
 
 def add_pipes_to_cache():
-    logging.error("Pipes caching is not yet implemented")
+    logger.error("Pipes caching is not yet implemented")
 
 
 def add_walls_to_cache():
-    logging.error("Walls caching is not yet implemented")
+    logger.error("Walls caching is not yet implemented")
 
 
 def add_beams_to_cache(part: Part, parts_group):

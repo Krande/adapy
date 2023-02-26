@@ -1,4 +1,3 @@
-import logging
 import os
 from typing import Union
 
@@ -7,9 +6,12 @@ import numpy as np
 
 from ada.concepts.spatial import Assembly
 from ada.config import Settings as _Settings
+from ada.config import get_logger
 from ada.fem import FEM
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import MassTypes, SpringTypes
+
+logger = get_logger()
 
 
 def meshio_to_fem(assembly: Assembly, name: str, scratch_dir=None, metadata=None) -> None:
@@ -51,7 +53,7 @@ def fem_to_meshio(fem: FEM) -> Union[meshio.Mesh, None]:
     from .common import ada_to_meshio
 
     if len(fem.nodes) == 0:
-        logging.debug(f"Attempt to convert empty FEM mesh for ({fem.name}) aborted")
+        logger.debug(f"Attempt to convert empty FEM mesh for ({fem.name}) aborted")
         return None
 
     # Points
@@ -70,7 +72,7 @@ def fem_to_meshio(fem: FEM) -> Union[meshio.Mesh, None]:
     cells = []
     for element_type, elements in fem.elements.group_by_type():
         if isinstance(element_type, (MassTypes, SpringTypes)):
-            logging.warning("NotImplemented: Skipping Mass or Spring Elements")
+            logger.warning("NotImplemented: Skipping Mass or Spring Elements")
             continue
         med_el = ada_to_meshio[element_type]
         elements = list(elements)

@@ -1,5 +1,4 @@
 import json
-import logging
 
 import h5py
 
@@ -7,11 +6,14 @@ from ada import Beam, Material, Section
 from ada.concepts.containers import Beams, Materials, Nodes, Sections
 from ada.concepts.points import Node
 from ada.concepts.spatial import Assembly, Part
+from ada.config import get_logger
 from ada.fem import FEM, Elem
 from ada.fem.containers import FemElements
 from ada.materials.metals import CarbonSteel
 
 from .utils import from_safe_name, str_fix
+
+logger = get_logger()
 
 
 def read_assembly_from_cache(h5_filename, assembly=None):
@@ -32,7 +34,7 @@ def walk_parts(cache_p, parent):
         unsafe_name = from_safe_name(name)
         parent_name = from_safe_name(p.attrs.get("PARENT", ""))
         if parent.name != parent_name:
-            logging.error("Unable to retrieve proper Hierarchy from HDF5 cache")
+            logger.error("Unable to retrieve proper Hierarchy from HDF5 cache")
         curr_p = parent.add_part(get_part_from_cache(unsafe_name, p))
         walk_parts(p, curr_p)
 

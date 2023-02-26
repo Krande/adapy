@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import pathlib
 from io import StringIO
@@ -20,10 +19,12 @@ from OCC.Core.TCollection import TCollection_HAsciiString
 from ada import Assembly, Beam, Part, Pipe, Plate, Shape, Wall
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
+from ada.config import get_logger
 from ada.core.utils import Counter
 
 # Reference: https://www.opencascade.com/doc/occt-7.4.0/overview/html/occt_user_guides__step.html#occt_step_3
 
+logger = get_logger()
 shp_names = Counter(1, "shp")
 valid_types = Union[BackendGeom, Beam, Plate, Wall, Part, Assembly, Shape, Pipe]
 
@@ -87,7 +88,7 @@ class OCCExporter:
             else:
                 stat = self.writer.Transfer(geom, STEPControl_AsIs)
         except BaseException as e:
-            logging.info(f"Passing {obj} due to {e}")
+            logger.info(f"Passing {obj} due to {e}")
             return None
 
         if int(stat) > int(IFSelect_RetError):
@@ -95,7 +96,7 @@ class OCCExporter:
 
         item = stepconstruct_FindEntity(self.fp, geom)
         if not item:
-            logging.debug("STEP item not found for FindEntity")
+            logger.debug("STEP item not found for FindEntity")
         else:
             item.SetName(TCollection_HAsciiString(name))
 
@@ -136,7 +137,7 @@ class OCCExporter:
 
     def write_to_file(self, destination_file, silent, return_file_obj=False) -> None | StringIO:
         if return_file_obj:
-            logging.warning("returning file objects for STEP is not yet supported. But will be from OCCT v7.7.0.")
+            logger.warning("returning file objects for STEP is not yet supported. But will be from OCCT v7.7.0.")
 
         destination_file = pathlib.Path(destination_file).with_suffix(".stp")
         os.makedirs(destination_file.parent, exist_ok=True)

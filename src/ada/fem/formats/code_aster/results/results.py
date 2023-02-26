@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import pathlib
 from typing import TYPE_CHECKING
 
@@ -8,6 +7,7 @@ import h5py
 import meshio
 import numpy as np
 
+from ada.config import get_logger
 from ada.fem import StepEigen
 from ada.fem.elements import ElemShape
 from ada.fem.formats.code_aster.read.reader import med_to_fem
@@ -15,6 +15,8 @@ from ada.fem.formats.code_aster.read.reader import med_to_fem
 if TYPE_CHECKING:
     from ada.fem.results import Results
     from ada.fem.results.eigenvalue import EigenDataSummary
+
+logger = get_logger()
 
 
 def get_eigen_data(rmed_file) -> EigenDataSummary:
@@ -58,11 +60,11 @@ def read_code_aster_results(results: "Results", file_ref: pathlib.Path, overwrit
 
     fem = med_to_fem(file_ref, "temp")
     if any([x.type == ElemShape.TYPES.shell.TRI7 for x in fem.elements.shell]):
-        logging.error("Meshio does not support 7 node Triangle elements yet")
+        logger.error("Meshio does not support 7 node Triangle elements yet")
         return None
 
     if any([x.type == ElemShape.TYPES.shell.QUAD9 for x in fem.elements.shell]):
-        logging.error("Meshio does not support 9 node QUAD elements yet")
+        logger.error("Meshio does not support 9 node QUAD elements yet")
         return None
 
     return meshio.read(file_ref, "med")

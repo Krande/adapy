@@ -1,9 +1,11 @@
-import logging
 import pathlib
 import re
 
+from ada.config import get_logger
 from ada.fem.formats.sesam.results.sin2sif import convert_sin_to_sif
 from ada.fem.formats.utils import LocalExecute
+
+logger = get_logger()
 
 
 def run_sesam(
@@ -16,7 +18,7 @@ def run_sesam(
     exit_on_complete=True,
     run_in_shell=False,
 ):
-    logging.info("sestra runs on single core only. changing cpus=1")
+    logger.info("sestra runs on single core only. changing cpus=1")
     cpus = 1
     ses_exe = SesamExecute(
         inp_path, cpus=cpus, run_ext=run_ext, metadata=metadata, auto_execute=execute, run_in_shell=run_in_shell

@@ -20,6 +20,7 @@ requirements:
   run:
     - python
     - numpy
+    - h5py
     - ifcopenshell
     - pythonocc-core
     - python-gmsh
@@ -27,7 +28,6 @@ requirements:
     - trimesh
     - jupyterlab
     - pyparsing
-    - h5py
     - plotly
     - python-kaleido
     - meshio

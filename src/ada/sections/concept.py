@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from ada.base.root import Root
 from ada.base.units import Units
-from ada.config import Settings
+from ada.config import Settings, get_logger
 from ada.sections.categories import BaseTypes, SectionCat
 
 if TYPE_CHECKING:
     from ada import Beam, CurvePoly, Pipe, PipeSegElbow, PipeSegStraight
     from ada.fem import FemSection
+
+logger = get_logger()
 
 
 class Section(Root):
@@ -356,7 +357,7 @@ def build_section_profile(sec: Section, is_solid) -> SectionProfile:
     import ada.sections.profiles as profile_builder
 
     if sec.type in [BaseTypes.TUBULAR, BaseTypes.CIRCULAR, BaseTypes.GENERAL]:
-        logging.info("Tubular profiles do not need curve representations")
+        logger.info("Tubular profiles do not need curve representations")
         return SectionProfile(sec, is_solid)
 
     build_map = {

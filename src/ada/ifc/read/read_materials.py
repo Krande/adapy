@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import ifcopenshell
 
 from ada import Material
+from ada.config import get_logger
 
 if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
+
+logger = get_logger()
 
 
 def read_material(ifc_mat: ifcopenshell.entity_instance, ifc_store: IfcStore) -> Material:
@@ -24,7 +26,7 @@ class MaterialImporter:
     def load_ifc_materials(self):
         for ifc_mat in self.ifc_store.f.by_type("IfcMaterial"):
             mat = self.ifc_store.assembly.add_material(self.read_material(ifc_mat))
-            logging.info(f'Importing material "{mat}"')
+            logger.info(f'Importing material "{mat}"')
 
     def read_material(self, ifc_mat: ifcopenshell.entity_instance) -> Material:
         from ada.materials.metals import CarbonSteel, Metal
@@ -32,7 +34,7 @@ class MaterialImporter:
         mat_psets = ifc_mat.HasProperties if hasattr(ifc_mat, "HasProperties") else None
 
         if mat_psets is None or len(mat_psets) == 0:
-            logging.info(f'No material properties found for "{ifc_mat}"')
+            logger.info(f'No material properties found for "{ifc_mat}"')
             return Material(ifc_mat.Name)
 
         props = {}

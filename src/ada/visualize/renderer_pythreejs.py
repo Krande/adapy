@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import uuid
 from dataclasses import dataclass
 from itertools import chain
@@ -31,6 +30,7 @@ from pythreejs import (
     PointsMaterial,
 )
 
+from ada.config import get_logger
 from ada.fem import Elem
 
 if TYPE_CHECKING:
@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from ada.concepts.connections import JointBase
 
 __all__ = ["MyRenderer", "SectionRenderer"]
+logger = get_logger()
 
 
 class MyRenderer(JupyterRenderer):
@@ -214,7 +215,7 @@ class MyRenderer(JupyterRenderer):
                 geom = beam.solid
             res = self.DisplayShape(geom, shape_color=beam.colour, render_edges=True)
         except BaseException as e:
-            logging.debug(f'Unable to create solid for "{beam.name}" due to {e}')
+            logger.debug(f'Unable to create solid for "{beam.name}" due to {e}')
             return None
 
         for r in res:
@@ -226,7 +227,7 @@ class MyRenderer(JupyterRenderer):
         try:
             res = self.DisplayShape(geom, shape_color=plate.colour_webgl, opacity=0.5)
         except BaseException as e:
-            logging.error(e)
+            logger.error(e)
             return None
 
         for r in res:
@@ -246,7 +247,7 @@ class MyRenderer(JupyterRenderer):
             try:
                 res += self.DisplayShape(geom, shape_color=pipe.colour_webgl, opacity=0.5)
             except BaseException as e:
-                logging.error(e)
+                logger.error(e)
                 continue
 
         for r in res:
@@ -256,7 +257,7 @@ class MyRenderer(JupyterRenderer):
         try:
             res = self.DisplayShape(wall.solid, shape_color=wall.colour, opacity=0.5)
         except BaseException as e:
-            logging.error(e)
+            logger.error(e)
             return None
 
         for r in res:
@@ -756,7 +757,7 @@ class MyRenderer(JupyterRenderer):
         elif setref in fem.nsets.keys():
             print(f'Set "{setref}" is a node set (which is not yet supported)')
         else:
-            logging.error(f'Unrecognized set "{setref}". Not belonging to node or elements')
+            logger.error(f'Unrecognized set "{setref}". Not belonging to node or elements')
         edge_geom.attributes["color"].array = color_array
 
     def highlight_elem(self, elem_id, fem_name):

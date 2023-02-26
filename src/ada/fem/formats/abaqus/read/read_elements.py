@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import re
 from dataclasses import dataclass
 from itertools import chain
@@ -9,6 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada.concepts.points import Node
+from ada.config import get_logger
 from ada.core.utils import Counter
 from ada.fem import Connector, Elem
 from ada.fem.containers import FemElements
@@ -18,10 +18,11 @@ from ada.fem.shapes.definitions import ShapeResolver, SolidShapes
 
 from . import cards
 
-_re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
-
 if TYPE_CHECKING:
     from ada.fem import FEM
+
+_re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
+logger = get_logger()
 
 
 def get_elem_from_bulk_str(bulk_str, fem: "FEM") -> FemElements:
@@ -41,10 +42,10 @@ def grab_elements(match, fem: "FEM"):
     eltype = d["eltype"]
 
     if eltype in ("CONN3D2",):
-        logging.info(f'Importing Connector type "{eltype}"')
+        logger.info(f'Importing Connector type "{eltype}"')
 
     if eltype in ("MASS", "ROTARYI"):
-        logging.info(f'Importing Mass type "{eltype}"')
+        logger.info(f'Importing Mass type "{eltype}"')
 
     ada_el_type = abaqus_el_type_to_ada(eltype)
     elset = d["elset"]

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
 from ada.concepts.points import Node
+from ada.config import get_logger
 
 from .common import Csys, FemBase
 from .shapes import ElemShape, ElemType
@@ -16,6 +16,8 @@ from .shapes.definitions import LineShapes, ShapeResolver, ShellShapes, SolidSha
 if TYPE_CHECKING:
     from ada import FEM, Beam, Pipe, Plate, Shape, Wall
     from ada.fem import ConnectorSection, FemSection, FemSet
+
+logger = get_logger()
 
 
 class Elem(FemBase):
@@ -368,7 +370,7 @@ class Mass(Elem):
             raise ValueError("Mass cannot be None")
 
         if type(mass) not in (list, tuple):
-            logging.info(f"Mass {type(mass)} converted to list of len=1. Assume equal mass in get_all 3 transl. DOFs.")
+            logger.info(f"Mass {type(mass)} converted to list of len=1. Assume equal mass in get_all 3 transl. DOFs.")
             ptype = self.PTYPES.ISOTROPIC
             mass = [mass]
 

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import logging
 import subprocess
 from typing import TYPE_CHECKING, Callable
 
 from ada.base.types import BaseEnum
+from ada.config import get_logger
 
 from . import abaqus, calculix, code_aster, sesam, usfos
 from .utils import interpret_fem_format_from_path
@@ -12,7 +12,7 @@ from .utils import interpret_fem_format_from_path
 if TYPE_CHECKING:
     from ada import Assembly
 
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 
 class FEATypes(BaseEnum):
@@ -92,7 +92,7 @@ def export_fem(assembly, name, analysis_dir, fem_format, fem_converter, metadata
         fem_exporter(assembly, name, analysis_dir, metadata)
         return True
     except IOError as e:
-        logging.error(e)
+        logger.error(e)
         return False
 
 

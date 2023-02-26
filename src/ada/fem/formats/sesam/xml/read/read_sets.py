@@ -1,8 +1,10 @@
-import logging
 import xml.etree.ElementTree as ET
 from typing import Dict, Union
 
 from ada import Beam, Group, Part
+from ada.config import get_logger
+
+logger = get_logger()
 
 
 def get_sets(xml_root: ET.Element, parent: Part) -> Dict[str, Group]:
@@ -20,4 +22,4 @@ def get_concept(xml_el: ET.Element, part: Part) -> Union[Beam]:
     if ref in part.beams.dmap.keys():
         return part.beams.from_name(ref)
     else:
-        logging.debug(f'Currently only Beams are supported. Unable to find group member "{ref}"')
+        logger.debug(f'Currently only Beams are supported. Unable to find group member "{ref}"')

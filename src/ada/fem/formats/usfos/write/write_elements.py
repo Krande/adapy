@@ -1,9 +1,11 @@
-import logging
 from operator import attrgetter
 
 from ada import FEM, Part
+from ada.config import get_logger
 from ada.core.utils import Counter
 from ada.fem import Elem
+
+logger = get_logger()
 
 
 def shell_str(part: Part):
@@ -52,7 +54,7 @@ def beam_str(fem: FEM, eccen):
     loc_str = "'\n'            Loc-Coo           dx             dy             dz\n"
     bm_str = "'\n'            Elem ID     np1      np2   material   geom    lcoor    ecc1    ecc2\n"
 
-    logging.info(
+    logger.info(
         "Note! Second order formulations of beam elements is not supported by Usfos beam. "
         "Will use regular beam formulation"
     )

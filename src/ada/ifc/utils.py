@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, List, Tuple, Union
 
 import ifcopenshell
@@ -11,10 +10,13 @@ from ifcopenshell.util.unit import get_prefix_multiplier
 
 import ada.core.constants as ifco
 from ada.concepts.transforms import Transform
+from ada.config import get_logger
 from ada.core.file_system import get_list_of_files
 
 if TYPE_CHECKING:
     from ada import Assembly, Beam
+
+logger = get_logger()
 
 
 def create_reference_subrep(f, global_axes):
@@ -356,7 +358,7 @@ def ifc_value_map(f, value):
         value = float(value)
     ifc_type = value_map.get(type(value), None)
     if ifc_type is None:
-        logging.warning(f'Unable to find suitable IFC type for "{type(value)}". Will convert it to string')
+        logger.warning(f'Unable to find suitable IFC type for "{type(value)}". Will convert it to string')
         return f.create_entity("IfcText", str(value))
 
     return f.create_entity(ifc_type, value)
@@ -405,7 +407,7 @@ def create_property_set(name, ifc_file, metadata_props, owner_history):
 
 
 def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props, owner_history):
-    logging.info(f'Adding "{name}" properties to IFC Element "{ifc_elem}"')
+    logger.info(f'Adding "{name}" properties to IFC Element "{ifc_elem}"')
 
     props = create_property_set(name, ifc_file, elem_props, owner_history=owner_history)
     ifc_file.createIfcRelDefinesByProperties(
@@ -655,7 +657,7 @@ def merge_ifc_files(parent_dir, output_file_name, clean_files=False, include_ele
     f = ifcopenshell.open(files[0])
     for i, fp in enumerate(files[1:]):
         checkpoint = time.time()
-        print(f'merging products ({i+1} of {len(files)-1}) from "{fp}"')
+        print(f'merging products ({i + 1} of {len(files) - 1}) from "{fp}"')
         fn = ifcopenshell.open(fp)
         print(f"file opened in {time.time() - checkpoint:.2f} seconds")
         checkpoint = time.time()
@@ -706,7 +708,7 @@ def convert_bm_jusl_to_ifc(bm: "Beam") -> int:
 
     if jusl_val is None:
         if jusl != jt.NA:
-            logging.error(f'Unknown JUSL value "{jusl}". Using NA')
+            logger.error(f'Unknown JUSL value "{jusl}". Using NA')
         return 5
 
     return jusl_val
@@ -716,7 +718,7 @@ def scale_ifc_file(current_ifc, new_ifc):
     oval = calculate_unit_scale(current_ifc)
     nval = calculate_unit_scale(new_ifc)
     if oval != nval:
-        logging.error("Running Unit Conversion on IFC import. This is still highly unstable")
+        logger.error("Running Unit Conversion on IFC import. This is still highly unstable")
         # length_unit = f.createIfcSIUnit(None, "LENGTHUNIT", None, "METRE")
         # unit_assignment = f.createIfcUnitAssignment((length_unit,))
         new_file = scale_ifc_file_object(new_ifc, nval)
@@ -728,7 +730,7 @@ def tesselate_shape(shape, schema, tol):
     serialized_geom = ifcopenshell.geom.serialise(schema, occ_string)
 
     if serialized_geom is None:
-        logging.debug("Starting serialization of geometry")
+        logger.debug("Starting serialization of geometry")
         serialized_geom = ifcopenshell.geom.tesselate(schema, occ_string, tol)
 
     return serialized_geom
@@ -823,7 +825,7 @@ def ifc_file_to_stp(ifc_file, stp_file, step_schema="AP242", step_assembly_mode=
             writer.Transfer(geom, STEPControl_AsIs)
             item = stepconstruct_FindEntity(fp, geom)
             if not item:
-                logging.debug("STEP item not found for FindEntity")
+                logger.debug("STEP item not found for FindEntity")
             else:
                 item.SetName(TCollection_HAsciiString(name))
         if not iterator.next():

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from itertools import chain
 from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple, Union
 
 from ada.concepts.containers import Nodes
+from ada.config import get_logger
 
 from .containers import FemElements, FemSections, FemSets
 from .sets import FemSet
@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from ada.fem.steps import Step
 
 _step_types = Union["StepSteadyState", "StepEigen", "StepImplicit", "StepExplicit"]
+logger = get_logger()
 
 
 @dataclass
@@ -102,7 +103,7 @@ class FEM:
             else:
                 fs = self.sets.add(section.elset)
             if fs != section.elset:
-                logging.info(f'Element set "{section.elset}" is replaced by {fs}')
+                logger.info(f'Element set "{section.elset}" is replaced by {fs}')
                 section.elset = fs
         if section.material.parent is None and self.parent is not None:
             self.parent.add_material(section.material)
@@ -115,7 +116,7 @@ class FEM:
 
         bc.parent = self
         if bc.fem_set.parent is None:
-            logging.debug("Bc FemSet has no parent. Adding to self")
+            logger.debug("Bc FemSet has no parent. Adding to self")
             self.sets.add(bc.fem_set)
 
         self.bcs.append(bc)

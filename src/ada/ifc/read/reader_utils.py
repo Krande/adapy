@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import pathlib
 from io import StringIO
 from typing import TYPE_CHECKING, Tuple, Union
@@ -10,12 +9,13 @@ import ifcopenshell.geom
 from ifcopenshell.util.element import get_psets
 
 from ada.concepts.transforms import Placement
-from ada.config import Settings
+from ada.config import Settings, get_logger
 
 if TYPE_CHECKING:
     from ada import Assembly, Part, Pipe
 
 tol_map = dict(m=Settings.mtol, mm=Settings.mmtol)
+logger = get_logger()
 
 
 def open_ifc(ifc_file_path: Union[str, pathlib.Path, StringIO]):
@@ -123,7 +123,7 @@ def resolve_name(props, product):
     if name is not None:
         return name
 
-    logging.debug(f'Name/tag not found for ifc element "{product}". Using GlobalID as name')
+    logger.debug(f'Name/tag not found for ifc element "{product}". Using GlobalID as name')
     return product.GlobalId
 
 
@@ -169,7 +169,7 @@ def add_to_assembly(assembly: Assembly, obj, ifc_parent, elements2part):
                     break
 
     if imported is False:
-        logging.info(f'Unable to find parent "{pp_name}" for {type(obj)} "{obj.name}". Adding to Assembly')
+        logger.info(f'Unable to find parent "{pp_name}" for {type(obj)} "{obj.name}". Adding to Assembly')
         assembly.add_shape(obj)
 
 

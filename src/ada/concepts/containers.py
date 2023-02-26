@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import reprlib
 from bisect import bisect_left, bisect_right
 from itertools import chain
@@ -15,7 +14,7 @@ from ada.concepts.points import Node, replace_node
 from ada.concepts.stru_beams import Beam
 from ada.concepts.stru_plates import Plate
 from ada.concepts.transforms import Rotation
-from ada.config import Settings
+from ada.config import Settings, get_logger
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import (
     is_null_vector,
@@ -31,6 +30,8 @@ if TYPE_CHECKING:
     from ada.concepts.connections import JointBase
     from ada.fem.results.common import FemNodes
     from ada.sections import Section
+
+logger = get_logger()
 
 __all__ = [
     "Nodes",
@@ -181,7 +182,7 @@ class Beams(BaseCollections):
             raise NameIsNoneError("Name is not allowed to be None.")
 
         if beam.name in self._dmap.keys():
-            logging.warning(f'Beam with name "{beam.name}" already exists. Will not add')
+            logger.warning(f'Beam with name "{beam.name}" already exists. Will not add')
             return self._dmap[beam.name]
 
         self._dmap[beam.guid] = beam
@@ -393,7 +394,7 @@ class Connections(BaseCollections):
     def get_from_name(self, name: str):
         result = self._dmap.get(name, None)
         if result is None:
-            logging.error(f'No Joint with the name "{name}" found within this connection object')
+            logger.error(f'No Joint with the name "{name}" found within this connection object')
         return result
 
     def add(self, joint: JointBase, point_tol=Settings.point_tol):
@@ -621,7 +622,7 @@ class Sections(NumericMapped):
             names = [sec.name for sec in self._sections]
             counts = collections.Counter(names)
             filtered_elements = {element: count for element, count in counts.items() if count > 1}
-            logging.warning(f"The following sections are non-unique '{filtered_elements}'")
+            logger.warning(f"The following sections are non-unique '{filtered_elements}'")
 
     def renumber_id(self, start_id=1):
         cnt = Counter(start=start_id)
@@ -645,7 +646,7 @@ class Sections(NumericMapped):
 
     def __add__(self, other: Sections):
         if self.parent is None:
-            logging.error(f'Parent is None for Sections container "{self}"')
+            logger.error(f'Parent is None for Sections container "{self}"')
         for sec in other:
             sec.parent = self.parent
         other.renumber_id(self.max_id + 1)
@@ -720,7 +721,7 @@ class Sections(NumericMapped):
             return existing_section
 
         if section.name in self._name_map.keys():
-            logging.info(f'Section with same name "{section.name}" already exists. Will use that section instead')
+            logger.info(f'Section with same name "{section.name}" already exists. Will use that section instead')
             existing_section = self._name_map[section.name]
             for elem in section.refs:
                 elem.section = existing_section
@@ -1012,7 +1013,7 @@ class Nodes:
                 nearest_node = res[0]
                 vlen = vector_length(nearest_node.p - node.p)
                 if vlen < point_tol:
-                    logging.debug(f'Replaced new node with node id "{nearest_node.id}" found within point tolerances')
+                    logger.debug(f'Replaced new node with node id "{nearest_node.id}" found within point tolerances')
                     return nearest_node
 
         insert_node(node, index)
@@ -1027,11 +1028,11 @@ class Nodes:
         nodes = list(nodes) if isinstance(nodes, Iterable) else [nodes]
         for node in nodes:
             if node in self._nodes:
-                logging.debug(f"Removing {node}")
+                logger.debug(f"Removing {node}")
                 self._nodes.pop(self._nodes.index(node))
                 self.renumber()
             else:
-                logging.error(f"'{node}' not found in node-container.")
+                logger.error(f"'{node}' not found in node-container.")
 
     def remove_standalones(self) -> None:
         """Remove nodes that are without any usage references"""

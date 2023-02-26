@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import pathlib
 from dataclasses import dataclass, field
@@ -13,11 +12,13 @@ from ada import FEM, Beam, Pipe, Plate, Shape
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.concepts.containers import Nodes
-from ada.config import Settings
+from ada.config import Settings, get_logger
 from ada.fem import Elem
 from ada.fem.containers import FemElements
 from ada.fem.shapes import ElemType
 from ada.ifc.utils import create_guid
+
+logger = get_logger()
 
 
 @dataclass
@@ -78,7 +79,7 @@ class GmshData:
 
 class GmshSession:
     def __init__(self, silent=False, persist=True, options: GmshOptions = GmshOptions()):
-        logging.debug("init method called")
+        logger.debug("init method called")
         self._gmsh = None
         self.options = options
         self.cutting_planes: List[CutPlane] = []
@@ -329,7 +330,7 @@ class GmshSession:
         self.gmsh.fltk.run()
 
     def __enter__(self):
-        logging.debug("Starting GMSH session")
+        logger.debug("Starting GMSH session")
         self._gmsh = gmsh
         self.gmsh.initialize()
         # self.model.add("ada")
@@ -337,7 +338,7 @@ class GmshSession:
         return self
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
-        logging.debug("Closing GMSH")
+        logger.debug("Closing GMSH")
         self.gmsh.finalize()
 
     @property

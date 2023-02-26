@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Callable, Iterable
 
 import numpy as np
 
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
+from ada.config import get_logger
 from ada.core.utils import thread_this
 from ada.occ.exceptions.geom_creation import (
     UnableToBuildNSidedWires,
@@ -19,6 +19,8 @@ from ada.visualize.renderer_occ import occ_shape_to_faces
 
 if TYPE_CHECKING:
     from ada import Beam, PipeSegElbow, PipeSegStraight, Plate, Shape, Wall
+
+logger = get_logger()
 
 
 def filter_mesh_objects(objects: Iterable[BackendGeom], export_config: ExportConfig) -> None | list[BackendGeom]:
@@ -162,13 +164,13 @@ def obj_to_mesh(
         try:
             obj_meshes = ifc_poly_elem_to_json(obj, export_config, opt_func)
         except RuntimeError as e:
-            logging.error(e)
+            logger.error(e)
             return None
     else:
         try:
             obj_meshes = occ_geom_to_poly_mesh(obj, export_config, opt_func)
         except (UnableToBuildNSidedWires, UnableToCreateTesselationFromSolidOCCGeom, UnableToCreateSolidOCCGeom) as e:
-            logging.error(e)
+            logger.error(e)
             return None
 
     return obj_meshes

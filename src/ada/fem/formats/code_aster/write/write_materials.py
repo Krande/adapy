@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-import logging
 from itertools import chain
 from typing import TYPE_CHECKING
 
 from ada import Material
+from ada.config import get_logger
 
 if TYPE_CHECKING:
     from ada.concepts.spatial import Assembly
+
+logger = get_logger()
 
 
 def materials_str(assembly: Assembly) -> str:
@@ -40,7 +42,7 @@ Traction=DEFI_FONCTION(
 )"""
         mat_nl_in = ", TRACTION=_F(SIGM=Traction,)"
     else:
-        logging.debug(f"No plasticity is defined for material {material.name}")
+        logger.debug(f"No plasticity is defined for material {material.name}")
         nl_mat = ""
         mat_nl_in = ""
 

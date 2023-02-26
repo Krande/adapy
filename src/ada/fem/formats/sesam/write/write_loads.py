@@ -1,9 +1,10 @@
-import logging
-
 from ada import FEM
+from ada.config import get_logger
 from ada.fem.loads import Load, LoadGravity
 
 from .write_utils import write_ff
+
+logger = get_logger()
 
 
 def loads_str(fem: FEM) -> str:
@@ -36,7 +37,7 @@ def load_str(load: Load, lid):
     elif load.type == Load.TYPES.FORCE:
         return load_force(load, lid)
     else:
-        logging.error(f'Unsupported Load type "{load.type}"')
+        logger.error(f'Unsupported Load type "{load.type}"')
 
 
 def load_gravity(load: Load, load_id: int) -> str:
