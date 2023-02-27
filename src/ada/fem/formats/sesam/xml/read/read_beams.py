@@ -23,7 +23,7 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
     segs = []
     prev_bm = None
     for seg in bm_el.findall(".//straight_segment"):
-        cur_bm = seg_to_beam(name, seg, parent, prev_bm, xv, yv, zv)
+        cur_bm = seg_to_beam(name, seg, parent, prev_bm, zv)
         if cur_bm is None:
             continue
         prev_bm = cur_bm
@@ -88,14 +88,17 @@ def apply_offset(o: np.ndarray, n: Node, bm: Beam):
     return n.p + res
 
 
-def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, xv, yv, zv):
+def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv):
     index = seg.attrib["index"]
+
     sec = parent.sections.get_by_name(seg.attrib["section_ref"])
     mat = parent.materials.get_by_name(seg.attrib["material_ref"])
+    mdf = seg.attrib.get("mass_density_factor_ref", None)
+
     pos = {p.attrib["end"]: xyz_to_floats(p) for p in seg.findall(".//position")}
     metadata = dict()
     if "reinforcement_ref" in seg.attrib.keys():
-        metadata = dict(reinforced=True)
+        metadata = dict(reinforced=True, mass_density_factor_ref=mdf)
 
     if index != "1":
         name += f"_E{index}"
