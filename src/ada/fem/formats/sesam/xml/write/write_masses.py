@@ -25,4 +25,4 @@ def add_masses(root: ET.Element, part: Part):
         geom = ET.SubElement(sup_point, "geometry")
         ET.SubElement(geom, "position", {"x": str(n.x), "y": str(n.y), "z": str(n.z)})
         bc_con = ET.SubElement(sup_point, "mass")
-        ET.SubElement(bc_con, "mass_scalar", dict(mass=mass.mass))
+        ET.SubElement(bc_con, "mass_scalar", dict(mass=str(mass.mass)))

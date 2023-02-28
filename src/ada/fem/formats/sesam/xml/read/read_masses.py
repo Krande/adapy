@@ -18,6 +18,6 @@ def get_masses(xml_root: ET.Element, parent: Part) -> dict[str, Mass]:
         mass_res = sp.findall(".//mass_scalar")[0]
         mass_value = float(mass_res.attrib.get("mass"))
         fs = FemSet(f"{name}_fs", [n])
-        masses[name] = Mass(name, ref=fs, mass=str(mass_value))
+        masses[name] = Mass(name, ref=fs, mass=float(mass_value))
 
     return masses

@@ -42,10 +42,12 @@ def from_xml_file(xml_path, extract_joints=False, skip_beams=False, skip_plates=
 
         mdf_value = mass_density_factors[mdf]
         mat_name = f"{bm.material.name}_{mdf}"
-        existing_mat = p.materials.name_map.get(mdf, None)
+        existing_mat = p.materials.name_map.get(mat_name, None)
+
         if existing_mat is None:
             bm.material = bm.material.copy_to(new_name=mat_name)
             bm.material.model.rho *= mdf_value
+            p.add_material(bm.material)
         else:
             bm.material = existing_mat
 

@@ -89,16 +89,18 @@ def apply_offset(o: np.ndarray, n: Node, bm: Beam):
 
 
 def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv):
-    index = seg.attrib["index"]
+    metadata = dict()
 
+    index = seg.attrib["index"]
     sec = parent.sections.get_by_name(seg.attrib["section_ref"])
     mat = parent.materials.get_by_name(seg.attrib["material_ref"])
     mdf = seg.attrib.get("mass_density_factor_ref", None)
+    if mdf is not None:
+        metadata["mass_density_factor_ref"] = mdf
 
     pos = {p.attrib["end"]: xyz_to_floats(p) for p in seg.findall(".//position")}
-    metadata = dict()
     if "reinforcement_ref" in seg.attrib.keys():
-        metadata = dict(reinforced=True, mass_density_factor_ref=mdf)
+        metadata["reinforced"] = True
 
     if index != "1":
         name += f"_E{index}"
