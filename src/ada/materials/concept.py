@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING
 
 from ada.base.root import Root
@@ -59,6 +60,10 @@ class Material(Root):
 
     def __hash__(self):
         return hash(self.guid)
+
+    def copy_to(self, new_name: str) -> Material:
+        new_mat = Material(new_name, mat_model=copy.deepcopy(self.model))
+        return new_mat
 
     @property
     def id(self):

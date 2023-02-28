@@ -543,6 +543,32 @@ def poly_area(x, y):
     return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
 
 
+def poly_area_from_list(coords):
+    return poly_area(*zip(*coords))
+
+
+def poly2d_center_of_gravity(polygon):
+    """Calculates the center of gravity of a polygon described by a numpy array containing x,y,z coordinates."""
+    sum_area = 0
+    sum_cx = 0
+    sum_cy = 0
+
+    for i in range(len(polygon)):
+        j = (i + 1) % len(polygon)
+        area = polygon[i][0] * polygon[j][1] - polygon[j][0] * polygon[i][1]
+        sum_area += area
+        sum_cx += (polygon[i][0] + polygon[j][0]) * area
+        sum_cy += (polygon[i][1] + polygon[j][1]) * area
+
+    if sum_area == 0:
+        return None
+
+    cx = sum_cx / (3 * sum_area)
+    cy = sum_cy / (3 * sum_area)
+
+    return np.array([cx, cy])
+
+
 def global_2_local_nodes(csys, origin, nodes, use_quaternion=True):
     """
 

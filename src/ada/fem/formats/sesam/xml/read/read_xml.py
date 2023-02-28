@@ -33,5 +33,23 @@ def from_xml_file(xml_path, extract_joints=False, skip_beams=False, skip_plates=
     all_plates = len(p.plates)
     all_beams = len(p.beams)
     all_joints = len(p.connections)
+
+    mass_density_factors = {e.attrib["name"]: float(e.attrib["factor"]) for e in root.findall(".//mass_density_factor")}
+    for bm in p.beams:
+        mdf = bm.metadata.get("mass_density_factor_ref", None)
+        if mdf is None:
+            continue
+
+        mdf_value = mass_density_factors[mdf]
+        mat_name = f"{bm.material.name}_{mdf}"
+        existing_mat = p.materials.name_map.get(mat_name, None)
+
+        if existing_mat is None:
+            bm.material = bm.material.copy_to(new_name=mat_name)
+            bm.material.model.rho *= mdf_value
+            p.add_material(bm.material)
+        else:
+            bm.material = existing_mat
+
     print(f"Finished importing Genie XML (beams={all_beams}, plates={all_plates}, joints={all_joints})")
     return Assembly(name=model.attrib["name"] if name is None else name) / p

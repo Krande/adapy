@@ -53,13 +53,13 @@ if TYPE_CHECKING:
     import ifcopenshell
 
     from ada import Beam, Material, Plate, Section, Wall, Weld
+    from ada.fem.containers import COG
     from ada.fem.formats.general import FEATypes, FemConverters
     from ada.fem.meshing import GmshOptions
     from ada.fem.results.common import FEAResult
     from ada.ifc.store import IfcStore
     from ada.visualize.concept import VisMesh
     from ada.visualize.config import ExportConfig
-
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 
@@ -421,6 +421,50 @@ class Part(BackendGeom):
             for i, shp in enumerate(shapes):
                 ada_shape = Shape(ada_name + "_" + str(i), shp, colour, opacity, units=source_units)
                 self.add_shape(ada_shape)
+
+    def calculate_cog(self) -> COG:
+        import numpy as np
+
+        from ada import Beam, Plate, Shape
+        from ada.core.vector_utils import (
+            local_2_global_points,
+            poly2d_center_of_gravity,
+            poly_area_from_list,
+        )
+        from ada.fem.containers import COG
+
+        tot_mass = 0
+        cogs = []
+        for obj in self.get_all_physical_objects():
+            if issubclass(type(obj), Shape):  # Assuming Mass & COG is manually assigned to arbitrary shape
+                cogs.append(np.array(obj.cog) * obj.mass)
+                tot_mass += obj.mass
+            elif isinstance(obj, Beam):
+                rho = obj.material.model.rho
+                area = obj.section.properties.Ax
+                length = obj.length
+                mass = rho * area * length
+                cog = (obj.n1.p + obj.n2.p) / 2
+                cogs.append(cog * mass)
+                tot_mass += mass
+            elif isinstance(obj, Plate):
+                rho = obj.material.model.rho
+                positions = np.array(obj.poly.points2d)
+                place = obj.poly.placement
+
+                area = poly_area_from_list(obj.poly.points2d)
+                cog2d = poly2d_center_of_gravity(positions)
+                cog = local_2_global_points([cog2d], place.origin, place.xdir, place.zdir)[0]
+                mass = rho * obj.t * area
+                cogs.append(cog * mass)
+                tot_mass += mass
+
+        for mass in self.fem.masses.values():
+            cogs.append(np.array(mass.nodes[0].p) * mass.mass)
+            tot_mass += mass.mass
+
+        cog = sum(cogs) / tot_mass
+        return COG(cog, tot_mass)
 
     def create_objects_from_fem(self, skip_plates=False, skip_beams=False) -> None:
         """Build Beams and Plates from the contents of the local FEM object"""
