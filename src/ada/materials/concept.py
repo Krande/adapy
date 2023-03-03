@@ -62,7 +62,10 @@ class Material(Root):
         return hash(self.guid)
 
     def copy_to(self, new_name: str) -> Material:
+        og_parent = self.model.parent
+        self.model.parent = None
         new_mat = Material(new_name, mat_model=copy.deepcopy(self.model))
+        self.model.parent = og_parent
         return new_mat
 
     @property

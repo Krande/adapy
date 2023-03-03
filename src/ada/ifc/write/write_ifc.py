@@ -74,6 +74,7 @@ class IfcWriter:
 
             ifc_elem = self.add(to_be_added)
             self.create_ifc_openings(to_be_added, ifc_elem)
+
             write_elem_property_sets(to_be_added.metadata, ifc_elem, self.ifc_store.f, self.ifc_store.owner_history)
 
             contained_in_spatial[to_be_added.parent.guid].append(ifc_elem)

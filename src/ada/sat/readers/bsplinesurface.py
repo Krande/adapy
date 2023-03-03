@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from ada.concepts.primitives import (
     BSplineSurfaceWithKnots,
     IfcBSplineSurfaceForm,
@@ -30,7 +32,7 @@ def create_bsplinesurface_from_sat(spline_data_str: str) -> BSplineSurfaceWithKn
 
     weights = None
     if len(control_points[0]) == 4:
-        weights = [x[-1] for x in control_points]
+        weights = [[i[-1] for i in x] for x in control_points]
 
     if dline[0] == "exactsur":
         logger.info("Exact surface")
@@ -45,8 +47,10 @@ def create_bsplinesurface_from_sat(spline_data_str: str) -> BSplineSurfaceWithKn
         uMultiplicities=uMult,
         vMultiplicities=vMult,
     )
+
     if weights is not None:
         surface = RationalBSplineSurfaceWithKnots(**props, weightsData=weights)
     else:
         surface = BSplineSurfaceWithKnots(**props)
+
     return surface

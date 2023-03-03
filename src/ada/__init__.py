@@ -36,7 +36,6 @@ if TYPE_CHECKING:
     from ada.fem.formats.sesam.results.read_cc import CCData
     from ada.fem.results.common import FEAResult
 
-
 __author__ = "Kristoffer H. Andersen"
 
 
