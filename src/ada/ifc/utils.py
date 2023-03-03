@@ -421,7 +421,9 @@ def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props, owner_history):
 
 
 def write_elem_property_sets(metadata_props, elem, f, owner_history) -> None:
-    if len(metadata_props.keys()) == 0:
+    from ada.config import Settings
+
+    if len(metadata_props.keys()) == 0 or Settings.ifc_export.export_props is False:
         return None
 
     if type(list(metadata_props.values())[0]) is dict:
