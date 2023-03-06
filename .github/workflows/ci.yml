@@ -84,7 +84,7 @@ jobs:
           environment-name: ada
           channels: conda-forge
           channel-priority: strict
-          environment-file: conda/environment.yml
+          environment-file: conda/environment.build.yml
           extra-specs: |
             python=${{ matrix.pyver.distver }}
       - name: edit conda channel label if not on main

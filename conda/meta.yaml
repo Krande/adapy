@@ -2,14 +2,14 @@
 
 
 package:
-  name: ada-py
+  name: ada-py-core
   version: {{ data.get('version') }}
 
 source:
   path: ../
 
 build:
-#  noarch: python
+  #  noarch: python
   number: 0
   script: {{ PYTHON }} -m pip install . --no-deps -vv
   include_recipe: False
@@ -17,6 +17,7 @@ build:
 requirements:
   build:
     - python
+    - wheel
   run:
     - python
     - numpy
@@ -26,25 +27,50 @@ requirements:
     - python-gmsh
     - pyquaternion
     - trimesh
-    - jupyterlab
-    - pyparsing
-    - plotly
-    - python-kaleido
     - meshio
-    - pythreejs
-    - pytexit
     - calculix
 
-test:
-  source_files:
-    - tests
-    - files
-    - examples
-  requires:
-    - pytest
-    - pytest-cov
-  imports:
-    - ada
+
+outputs:
+  - name: ada-py
+    version: {{ data.get('version') }}
+    requirements:
+      host:
+        - python
+      run:
+        - ada-py-core
+        - plotly
+        - python-kaleido
+        - jupyterlab
+        - pythreejs
+        - pytexit
+        - pyparsing
+  - name: ada-py-test
+    version: {{ data.get('version') }}
+    requirements:
+      host:
+        - python
+      run:
+        - ada-py
+    test:
+      source_files:
+        - tests
+        - files
+        - examples
+      requires:
+        - pytest
+        - pytest-cov
+      imports:
+        - ada
+  - name: ada-py-whl
+    version: {{ data.get('version') }}
+    type: wheel
+    requirements:
+      host:
+        - python
+      run:
+        - ada-py
+
 
 about:
   home: https://github.com/krande/adapy
