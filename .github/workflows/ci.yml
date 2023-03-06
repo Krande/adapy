@@ -28,6 +28,7 @@ jobs:
           echo ok go!
           echo head commit message: "${{ github.event.head_commit.message }}"
           echo event name: "${{ github.event_name }}" 
+          echo base_ref: "${{ github.base_ref }}" 
           echo ref: "${{ github.ref }}" 
           echo sha "${{ github.sha }}"
           echo PR head sha: "${{ github.event.pull_request.head.sha }}"
@@ -87,7 +88,8 @@ jobs:
           extra-specs: |
             python=${{ matrix.pyver.distver }}
       - name: edit conda channel label if not on main
-        if: github.ref != 'refs/heads/main'
+
+        if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request' && github.base_ref != 'main') }}
         run: |
           echo "CONDALABEL=krande/label/dev" >> $GITHUB_ENV
           echo "CONDALABEL2= --label dev" >> $GITHUB_ENV
