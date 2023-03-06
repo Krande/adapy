@@ -62,8 +62,8 @@ jobs:
       CONDAENV: condabuild
       PKG_VERSION: nothing
       CONDAROOT: nothing
-      CONDALABEL: krande/label/dev
-      CONDALABEL2: ' --label dev'
+      CONDA_CHANNEL: krande/label/dev
+      CONDA_LABEL: ' --label dev'
     strategy:
       fail-fast: false
       matrix:
@@ -88,14 +88,13 @@ jobs:
           extra-specs: |
             python=${{ matrix.pyver.distver }}
       - name: edit conda channel label if not on main
-
-        if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' && endswith(github.ref, '/merge') }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
-          echo "CONDALABEL=" >> $GITHUB_ENV
-          echo "CONDALABEL2=" >> $GITHUB_ENV
+          echo "CONDA_CHANNEL=krande" >> $GITHUB_ENV
+          echo "CONDA_LABEL=" >> $GITHUB_ENV
       - name: build
         run: |
-          conda-build -c conda-forge -c ${{env.CONDALABEL}} . --python=${{ matrix.pyver.distver }} --user krande${{env.CONDALABEL2}} --token=${{ secrets.ANACONDA_TOKEN }}
+          conda-build -c conda-forge -c ${{env.CONDA_CHANNEL}} . --python=${{ matrix.pyver.distver }} --user krande${{env.CONDA_LABEL}} --token=${{ secrets.ANACONDA_TOKEN }}
         working-directory: conda
   pypi:
     if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' && endswith(github.ref, '/merge') }}
