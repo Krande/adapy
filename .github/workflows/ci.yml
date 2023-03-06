@@ -92,15 +92,23 @@ jobs:
         run: |
           echo "CONDA_CHANNEL=krande" >> $GITHUB_ENV
           echo "CONDA_LABEL=" >> $GITHUB_ENV
-      - name: Build, Test & Upload to CONDA
-        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
-        run: |
-          conda-build -c conda-forge -c ${{env.CONDA_CHANNEL}} . --python=${{ matrix.pyver.distver }} --user krande${{env.CONDA_LABEL}} --token=${{ secrets.ANACONDA_TOKEN }}
-        working-directory: conda
+
       - name: Just Build & Test
         if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main') }}
         run: |
           conda-build -c conda-forge -c ${{env.CONDA_CHANNEL}} . --python=${{ matrix.pyver.distver }}
+        working-directory: conda
+
+      - name: Build, Test & Upload to CONDA Main
+        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+        run: |
+          conda-build -c conda-forge -c ${{env.CONDA_CHANNEL}} . --python=${{ matrix.pyver.distver }} --user krande${{env.CONDA_LABEL}} --token=${{ secrets.ANACONDA_TOKEN }}
+        working-directory: conda
+
+      - name: Build, Test & Upload to CONDA Dev
+        if: ${{ github.event_name != 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main') }}
+        run: |
+          conda-build -c conda-forge -c ${{env.CONDA_CHANNEL}} . --python=${{ matrix.pyver.distver }} --user krande${{env.CONDA_LABEL}} --token=${{ secrets.ANACONDA_TOKEN }}
         working-directory: conda
   pypi:
     if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' && endswith(github.ref, '/merge') }}

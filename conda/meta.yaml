@@ -58,7 +58,7 @@ outputs:
     test:
       source_files:
         - conda/run_test.sh
-        - conda/run_bat.sh
+        - conda/run_test.bat
         - tests
         - files
         - examples
@@ -79,7 +79,7 @@ outputs:
     test:
       source_files:
         - conda/run_test.sh
-        - conda/run_bat.sh
+        - conda/run_test.bat
         - tests
         - files
         - examples
