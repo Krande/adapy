@@ -10,10 +10,10 @@ def get_plates_from_satd(satd: dict) -> dict:
         try:
             res = get_face_from_satd(face, satd)
         except KeyError as e:
-            logger.warning(f"Unable to import face due to {e}")
+            logger.warning(f"Unable to import face due to KeyError -> {e}")
             continue
         except InsufficientPointsError as e:
-            logger.warning(f"Unable to import face due to {e}")
+            logger.warning(f"Unable to import face due to Insufficient points -> {e}")
             continue
         plate_geom.update(res)
 
