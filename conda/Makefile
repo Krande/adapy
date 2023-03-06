@@ -25,7 +25,7 @@ show:
 	conda config --show channels
 
 pre:
-	mamba env update --file environment.yml --prune
+	mamba env update --file environment.build.yml --prune
 
 py310:
 	conda create -n py310 -c krande/label/dev -c conda-forge ifcopenshell h5py python==3.10.2
