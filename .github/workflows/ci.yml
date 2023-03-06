@@ -92,18 +92,13 @@ jobs:
         run: |
           echo "CONDA_CHANNEL=krande" >> $GITHUB_ENV
           echo "CONDA_LABEL=" >> $GITHUB_ENV
-      - name: add token if not pull request
-        if: ${{ github.event_name != 'pull_request' }}
-        run: |
-          echo "CONDA_CHANNEL=krande/label/dev" >> $GITHUB_ENV
-          echo "CONDA_LABEL= --label dev" >> $GITHUB_ENV
-      - name: build & Upload conda
-        if: ${{ github.event_name != 'pull_request' }}
+      - name: Build, Test & Upload to CONDA
+        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
         run: |
           conda-build -c conda-forge -c ${{env.CONDA_CHANNEL}} . --python=${{ matrix.pyver.distver }} --user krande${{env.CONDA_LABEL}} --token=${{ secrets.ANACONDA_TOKEN }}
         working-directory: conda
-      - name: build & Upload conda (pull request)
-        if: ${{ github.event_name == 'pull_request' }}
+      - name: Just Build & Test
+        if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main') }}
         run: |
           conda-build -c conda-forge -c ${{env.CONDA_CHANNEL}} . --python=${{ matrix.pyver.distver }}
         working-directory: conda

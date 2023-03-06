@@ -57,14 +57,14 @@ outputs:
         - {{ pin_subpackage("ada-py-core", max_pin="x.x.x") }}
     test:
       source_files:
+        - conda/run_test.sh
+        - conda/run_bat.sh
         - tests
         - files
         - examples
       requires:
         - pytest
         - pytest-cov
-      imports:
-        - ada
       commands:
         - run_test.bat # [win]
         - run_test.sh # [not win]
@@ -72,20 +72,20 @@ outputs:
   - name: ada-py-test
     build:
       noarch: python
-      skip: true  # [build_platform != target_platform]
+      skip: true
     requirements:
       run:
         - {{ pin_subpackage("ada-py", max_pin="x.x.x") }}
     test:
       source_files:
+        - conda/run_test.sh
+        - conda/run_bat.sh
         - tests
         - files
         - examples
       requires:
         - pytest
         - pytest-cov
-      imports:
-        - ada
       commands:
         - run_test.bat # [win]
         - run_test.sh # [not win]
