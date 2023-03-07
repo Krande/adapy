@@ -10,6 +10,7 @@ on:
       - .github/workflows/ci.yml
     branches:
       - main
+      - test-ci-conditional
   pull_request:
     paths-ignore:
       - setup.py
@@ -107,7 +108,7 @@ jobs:
         working-directory: conda
 
       - name: Build, Test & Upload to CONDA Dev
-        if: ${{ github.event_name != 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main') }}
+        if: ${{ contains(github.event.head_commit.message, '[dev]') }}
         run: |
           conda-build -c conda-forge -c ${{env.CONDA_CHANNEL}} . --python=${{ matrix.pyver.distver }} --user krande${{env.CONDA_LABEL}} --token=${{ secrets.ANACONDA_TOKEN }}
         working-directory: conda
