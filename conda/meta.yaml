@@ -1,9 +1,9 @@
-{% set data = load_setup_py_data() %}
-{% set version = data.get('version') %}
+{ % set data = load_setup_py_data() % }
+  { % set version = data.get('version') % }
 
 package:
   name: ada-py-packages
-  version: {{ version }}
+  version: { { version } }
 
 source:
   path: ../
@@ -37,31 +37,17 @@ outputs:
   - name: ada-py
     requirements:
       run:
-        - {{ pin_subpackage("ada-py-core", max_pin="x.x.x") }}
+        - { { pin_subpackage("ada-py-core", max_pin="x.x.x") } }
         - python-kaleido
         - jupyterlab
         - pythreejs
         - pyparsing
         - calculix
 
-  - name: ada-py-core-test
-    requirements:
-      run:
-        - {{ pin_subpackage("ada-py-core", max_pin="x.x.x") }}
-        - pytest
-        - pytest-cov
-    test:
-      source_files:
-        - tests
-        - files
-        - examples
-      commands:
-        - cd tests && pytest .
-
   - name: ada-py-test
     requirements:
       run:
-        - {{ pin_subpackage("ada-py", max_pin="x.x.x") }}
+        - { { pin_subpackage("ada-py", max_pin="x.x.x") } }
         - pytest
         - pytest-cov
     test:
@@ -72,12 +58,25 @@ outputs:
       commands:
         - cd tests && pytest .
 
+  - name: ada-py-core-test
+    requirements:
+      run:
+        - { { pin_subpackage("ada-py-core", max_pin="x.x.x") } }
+        - pytest
+        - pytest-cov
+    test:
+      source_files:
+        - tests
+        - files
+        - examples
+      commands:
+        - cd tests && pytest .
 
   - name: ada-py-whl
     type: wheel
     requirements:
       run:
-        - {{ pin_subpackage("ada-py", max_pin="x.x.x") }}
+        - { { pin_subpackage("ada-py", max_pin="x.x.x") } }
 
 
 about:
