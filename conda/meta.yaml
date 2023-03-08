@@ -31,16 +31,16 @@ outputs:
         - pyquaternion
         - trimesh
         - meshio
+        - pytexit
+        - plotly
 
   - name: ada-py
     requirements:
       run:
         - {{ pin_subpackage("ada-py-core", max_pin="x.x.x") }}
-        - plotly
         - python-kaleido
         - jupyterlab
         - pythreejs
-        - pytexit
         - pyparsing
         - calculix
 
