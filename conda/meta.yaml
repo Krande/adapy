@@ -30,6 +30,7 @@ outputs:
         - python-gmsh
         - pyquaternion
         - trimesh
+        - send2trash
         - meshio
         - pytexit
         - plotly
