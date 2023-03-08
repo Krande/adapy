@@ -2,9 +2,6 @@ import os
 import pathlib
 from typing import Dict, List, Tuple, Union
 
-import plotly.graph_objs as go
-from plotly import io as pio
-
 
 def easy_plotly(
     title: str,
@@ -67,6 +64,7 @@ def easy_plotly(
                 'firefox', 'chrome', 'chromium', 'iframe', 'iframe_connected', 'sphinx_gallery'
 
     """
+    import plotly.graph_objects as go
 
     plot_data = extract_plot_data(in_data, mode, marker)
 
@@ -111,6 +109,8 @@ def easy_plotly(
 
 
 def save_plot(fig, save_filename, width, height):
+    from plotly import io as pio
+
     filepath = pathlib.Path(save_filename)
     if filepath.suffix == "":
         filepath = filepath.with_suffix(".png")
@@ -122,7 +122,9 @@ def save_plot(fig, save_filename, width, height):
     pio.write_image(fig, filepath, width=width, height=height)
 
 
-def extract_plot_data(in_data, mode, marker) -> List[go.Scatter]:
+def extract_plot_data(in_data, mode, marker):
+    import plotly.graph_objs as go
+
     plot_data = []
     if type(in_data) is dict:
         for key in in_data.keys():

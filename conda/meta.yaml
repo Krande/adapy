@@ -17,7 +17,6 @@ outputs:
       noarch: python
       number: 0
       script: python -m pip install . --no-deps -vv
-    include_recipe: False
     requirements:
       host:
         - python
@@ -34,9 +33,6 @@ outputs:
         - meshio
 
   - name: ada-py
-    build:
-      noarch: python
-      skip: true  # [build_platform != target_platform]
     requirements:
       run:
         - {{ pin_subpackage("ada-py-core", max_pin="x.x.x") }}
@@ -49,9 +45,6 @@ outputs:
         - calculix
 
   - name: ada-py-core-test
-    build:
-      noarch: python
-      skip: true  # [build_platform != target_platform]
     requirements:
       run:
         - {{ pin_subpackage("ada-py-core", max_pin="x.x.x") }}
@@ -66,9 +59,6 @@ outputs:
         - cd tests && pytest .
 
   - name: ada-py-test
-    build:
-      noarch: python
-      skip: true
     requirements:
       run:
         - {{ pin_subpackage("ada-py", max_pin="x.x.x") }}
@@ -84,9 +74,6 @@ outputs:
 
 
   - name: ada-py-whl
-    build:
-      noarch: python
-      skip: true  # [build_platform != target_platform]
     type: wheel
     requirements:
       run:
