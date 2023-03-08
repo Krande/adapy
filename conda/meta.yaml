@@ -3,7 +3,7 @@
 
 package:
   name: ada-py-packages
-  version: { { version } }
+  version: {{ version }}
 
 source:
   path: ../
@@ -37,7 +37,7 @@ outputs:
   - name: ada-py
     requirements:
       run:
-        - { { pin_subpackage("ada-py-core", max_pin="x.x.x") } }
+        - {{ pin_subpackage("ada-py-core", max_pin="x.x.x") }}
         - python-kaleido
         - jupyterlab
         - pythreejs
@@ -47,7 +47,7 @@ outputs:
   - name: ada-py-test
     requirements:
       run:
-        - { { pin_subpackage("ada-py", max_pin="x.x.x") } }
+        - {{ pin_subpackage("ada-py", max_pin="x.x.x") }}
         - pytest
         - pytest-cov
     test:
@@ -61,7 +61,7 @@ outputs:
   - name: ada-py-core-test
     requirements:
       run:
-        - { { pin_subpackage("ada-py-core", max_pin="x.x.x") } }
+        - {{ pin_subpackage("ada-py-core", max_pin="x.x.x") }}
         - pytest
         - pytest-cov
     test:
@@ -76,7 +76,7 @@ outputs:
     type: wheel
     requirements:
       run:
-        - { { pin_subpackage("ada-py", max_pin="x.x.x") } }
+        - {{ pin_subpackage("ada-py", max_pin="x.x.x") }}
 
 
 about:
