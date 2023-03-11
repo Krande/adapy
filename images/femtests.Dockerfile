@@ -17,7 +17,7 @@ RUN mkdir -p "${TESTDIR}"
 ENV ADA_FEM_DO_NOT_SAVE_CACHE=1
 WORKDIR "${TESTDIR}"
 
-COPY tests/dockertests/ .
+COPY tests/docker/ .
 RUN chown -R 1000:1000 ${TESTDIR}
 RUN chmod -R 775 ${TESTDIR}
 

@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - src/**
-      - tests/dockertests/**
+      - tests/docker/**
       - .github/workflows/ci-FEM.yml
       - images/femtests.Dockerfile
     branches:

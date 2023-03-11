@@ -6,7 +6,7 @@
 # Set name based on variant if else condition
 {% if variant == "core" %}
   {% set name = "ada-py-core" %}
-  {% set extra_ignores = " --ignores=tests/full" %}
+  {% set extra_ignores = " --ignore=tests/full" %}
 {% else %}
   {% set name = "ada-py" %}
   {% set extra_ignores = "" %}
