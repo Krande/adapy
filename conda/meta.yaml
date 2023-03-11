@@ -70,7 +70,7 @@ test:
     - files
     - examples
   commands:
-    - pytest tests --ignore=tests/dockertests{{ extra_ignores }} --cov=ada --cov-report=xml
+    - pytest tests --ignore=tests/docker{{ extra_ignores }} --cov=ada --cov-report=xml
 
 
 about:
