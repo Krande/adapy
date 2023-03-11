@@ -1,15 +1,15 @@
 {% set data = load_setup_py_data() %}
 {% set version = data.get('version') %}
 {% set name = 'undefined' %}
-{% set extra_ignores = '' %}
+{% set test_ignores = '' %}
 
 # Set name based on variant if else condition
 {% if variant == "core" %}
   {% set name = "ada-py-core" %}
-  {% set extra_ignores = " --ignore=tests/full" %}
+  {% set test_ignores = " --ignore=tests/full" %}
 {% else %}
   {% set name = "ada-py" %}
-  {% set extra_ignores = "" %}
+  {% set test_ignores = "" %}
 {% endif %}
 
 package:
@@ -70,7 +70,7 @@ test:
     - files
     - examples
   commands:
-    - pytest tests --ignore=tests/docker{{ extra_ignores }} --cov=ada --cov-report=xml
+    - pytest tests --ignore=tests/docker{{ test_ignores }} --cov=ada --cov-report=xml
 
 
 about:

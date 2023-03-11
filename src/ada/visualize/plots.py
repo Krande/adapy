@@ -1,6 +1,9 @@
 import os
 import pathlib
 from typing import Dict, List, Tuple, Union
+from ada.config import get_logger
+
+logger = get_logger()
 
 
 def easy_plotly(
@@ -93,8 +96,12 @@ def easy_plotly(
     )
     if annotations is not None:
         layout["annotations"] = annotations
+    try:
+        fig = go.FigureWidget(data=plot_data, layout=layout)
+    except ImportError as e:
+        fig = go.Figure(data=plot_data, layout=layout)
+        logger.warning(f"Could not import go.FigureWidget due to ({e}).\nUsing go.Figure instead")
 
-    fig = go.FigureWidget(data=plot_data, layout=layout)
     if log_y is True:
         fig.update_yaxes(type="log", range=yrange, overwrite=True)  # log range: 10^0=1, 10^5=100000
     if log_x is True:
