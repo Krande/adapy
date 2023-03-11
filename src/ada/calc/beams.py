@@ -1,8 +1,6 @@
 from typing import Union
 
 import numpy as np
-from IPython.display import display
-from ipywidgets import VBox
 
 from ada import Beam
 from ada.core.utils import Counter
@@ -90,6 +88,9 @@ class BeamCalc:
         return equation_compiler(moment, True)
 
     def _repr_html_(self):
+        from IPython.display import display
+        from ipywidgets import VBox
+
         from ada.config import Settings
 
         # Create Plotly diagrams for displacement, shear and moment UDL's

@@ -4,6 +4,10 @@ import ada
 from ada.core.vector_utils import vector_length
 
 
+def test_2dinit(basic_2d_plate, dummy_display):
+    dummy_display(basic_2d_plate)
+
+
 def test_3d_input(dummy_display):
     pl1 = ada.Plate("MyPl", [(0, 0, 0), (5, 0, 0), (5, 5, 0), (0, 5, 0)], 20e-3, use3dnodes=True)
     origin = np.array([0, 0, 0])

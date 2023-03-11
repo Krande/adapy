@@ -9,15 +9,10 @@ from typing import TYPE_CHECKING, Dict, List
 
 import meshio
 import numpy as np
-import pythreejs
-from IPython.display import display
-from ipywidgets import Dropdown, HBox, VBox
 
 from ada.config import get_logger
 from ada.fem.formats.general import FEATypes
 from ada.visualize.femviz import get_edges_and_faces_from_meshio, magnitude
-from ada.visualize.renderer_pythreejs import MyRenderer
-from ada.visualize.threejs_utils import edges_to_mesh, faces_to_mesh, vertices_to_mesh
 
 from ..formats.abaqus.results import read_abaqus_results
 from ..formats.calculix.results import read_calculix_results
@@ -251,6 +246,9 @@ class Results:
         return self._user_data
 
     def _repr_html_(self):
+        from IPython.display import display
+        from ipywidgets import HBox, VBox
+
         if self.result_mesh.renderer is None:
             res = self.result_mesh.build_renderer()
         else:
@@ -316,11 +314,11 @@ class ResultsMesh:
     palette: list[tuple]
     parent: Results
     fem_format: str
-    renderer: MyRenderer = None
-    render_sets: Dropdown = None
+    renderer: object = None
+    render_sets: object = None
     mesh: meshio.Mesh = None
-    undeformed_mesh: None | pythreejs.Mesh = None
-    deformed_mesh: tuple[pythreejs.Mesh, pythreejs.Points, pythreejs.LineSegments] = None
+    undeformed_mesh: None | object = None
+    deformed_mesh: tuple[object, object, object] = None
     point_data: list = field(default_factory=list)
     cell_data: list = field(default_factory=list)
 
@@ -346,6 +344,10 @@ class ResultsMesh:
             self.cell_data.append(n)
 
     def build_renderer(self) -> bool:
+        from ipywidgets import Dropdown
+
+        from ada.visualize.renderer_pythreejs import MyRenderer
+
         self.renderer = MyRenderer()
         if len(self.point_data) == 0:
             return False
@@ -381,7 +383,14 @@ class ResultsMesh:
         colors = np.asarray([curr_p(x) for x in res], dtype="float32")
         return colors
 
-    def create_viz_geom(self, data_type, displ_data=False, renderer: MyRenderer = None) -> None:
+    def create_viz_geom(self, data_type, displ_data=False, renderer: object = None) -> None:
+        from ada.visualize.renderer_pythreejs import MyRenderer
+        from ada.visualize.threejs_utils import (
+            edges_to_mesh,
+            faces_to_mesh,
+            vertices_to_mesh,
+        )
+
         default_vertex_color = (8, 8, 8)
 
         data = np.asarray(self.mesh.point_data[data_type], dtype="float32")

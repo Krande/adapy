@@ -6,7 +6,7 @@ from ada import Assembly, Part, Wall
 from ada.param_models.basic_structural_components import Door, Window
 
 
-def test_wall_simple(dummy_display):
+def test_wall_simple():
     points = [(0, 0, 0), (5, 0, 0), (5, 5, 0)]
     w = Wall("MyWall", points, 3, 0.15, offset="LEFT")
     wi = Window("MyWindow1", 1.5, 1, 0.15)
@@ -22,4 +22,3 @@ def test_wall_simple(dummy_display):
     p.add_wall(w)
     f = a.to_ifc(file_obj_only=True)
     ifcopenshell.validate.validate(f, logging)
-    dummy_display(a)

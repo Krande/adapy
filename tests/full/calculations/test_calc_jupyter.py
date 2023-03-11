@@ -2,7 +2,7 @@ from ada import Beam
 from ada.calc.beams import BeamCalc
 
 
-def test_basic_udl():
+def test_basic_udl_in_jupyter():
     bm = Beam("MyBeam", (0, 0, 0), (1, 0, 0), "IPE300")
     udl = BeamCalc(bm)
     udl.add_distributed_load(-1e3)

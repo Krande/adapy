@@ -35,7 +35,7 @@ class IfcStore:
             if self.ifc_file_path is not None:
                 self.ifc_file_path = pathlib.Path(self.ifc_file_path)
                 if self.ifc_file_path.exists():
-                    self.f = ifcopenshell.open(self.ifc_file_path)
+                    self.f = ifcopenshell.open(str(self.ifc_file_path))
             elif self.assembly is not None:
                 self.f = assembly_to_ifc_file(self.assembly)
                 self.add_standard_contexts()

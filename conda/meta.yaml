@@ -1,50 +1,80 @@
 {% set data = load_setup_py_data() %}
+{% set version = data.get('version') %}
+{% set name = 'undefined' %}
+{% set test_ignores = '' %}
 
+# Set name based on variant if else condition
+{% if variant == "core" %}
+  {% set name = "ada-py-core" %}
+  {% set test_ignores = " --ignore=tests/full" %}
+{% else %}
+  {% set name = "ada-py" %}
+  {% set test_ignores = "" %}
+{% endif %}
 
 package:
-  name: ada-py
-  version: {{ data.get('version') }}
+  name: {{ name }}
+  version: {{ version }}
 
 source:
   path: ../
 
 build:
-#  noarch: python
+  noarch: python
   number: 0
-  script: {{ PYTHON }} -m pip install . --no-deps -vv
-  include_recipe: False
+  script: python -m pip install . --no-deps -vv
+
+# Set list of core dependencies (core -> conversion and analysis)
+{% set core_deps = [
+    "numpy",
+    "h5py",
+    "ifcopenshell",
+    "pythonocc-core",
+    "python-gmsh",
+    "pyquaternion",
+    "trimesh",
+    "send2trash",
+    "meshio",
+    "pytexit",
+    "plotly",
+    "python-kaleido",
+    "calculix",
+] %}
+
+# Maybe pytexit, plotly and python-kaleido should be moved to the "full" dependencies list
+# Also Calculix might move to the core deps once the fem wrapper is more stable
+
+# Set full list of dependencies
+{% set full_deps = core_deps + [
+    "jupyterlab",
+    "pythreejs",
+    "pyparsing",
+] %}
+
+{% set deps = core_deps if variant == "core" else full_deps %}
 
 requirements:
-  build:
+  host:
     - python
   run:
     - python
-    - numpy
-    - h5py
-    - ifcopenshell
-    - pythonocc-core
-    - python-gmsh
-    - pyquaternion
-    - trimesh
-    - jupyterlab
-    - pyparsing
-    - plotly
-    - python-kaleido
-    - meshio
-    - pythreejs
-    - pytexit
-    - calculix
+  {% for dep in deps %}
+    - {{ dep }}
+  {% endfor %}
 
 test:
-  source_files:
-    - tests
-    - files
-    - examples
   requires:
     - pytest
     - pytest-cov
   imports:
     - ada
+  source_files:
+    - tests
+    - files
+    - examples
+  commands:
+    - pytest tests --ignore=tests/docker{{ test_ignores }} --cov=ada --cov-report=xml
+
 
 about:
   home: https://github.com/krande/adapy

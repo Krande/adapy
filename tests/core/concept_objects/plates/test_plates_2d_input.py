@@ -7,10 +7,6 @@ import ada
 from ada.core.vector_utils import vector_length
 
 
-def test_2dinit(basic_2d_plate, dummy_display):
-    dummy_display(basic_2d_plate)
-
-
 def test_roundtrip_fillets(place1, place2):
     a = ada.Assembly("ExportedPlates")
     p = ada.Part("MyPart")
