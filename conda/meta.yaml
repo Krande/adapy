@@ -24,7 +24,7 @@ build:
   number: 0
   script: python -m pip install . --no-deps -vv
 
-# Set list of core dependencies
+# Set list of core dependencies (core -> conversion and analysis)
 {% set core_deps = [
     "numpy",
     "h5py",
@@ -36,16 +36,19 @@ build:
     "send2trash",
     "meshio",
     "pytexit",
-    "plotly"
+    "plotly",
+    "python-kaleido",
+    "calculix",
 ] %}
+
+# Maybe pytexit, plotly and python-kaleido should be moved to the "full" dependencies list
+# Also Calculix might move to the core deps once the fem wrapper is more stable
 
 # Set full list of dependencies
 {% set full_deps = core_deps + [
-    "python-kaleido",
     "jupyterlab",
     "pythreejs",
     "pyparsing",
-    "calculix",
 ] %}
 
 {% set deps = core_deps if variant == "core" else full_deps %}
