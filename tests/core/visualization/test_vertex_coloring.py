@@ -54,8 +54,8 @@ def test_instanced_mapped_geometry():
     scene.export(file_obj="temp/mapped_instances.glb", file_type=".glb")
 
 
-def test_vertex_coloring_advanced():
-    neutral_dir = pathlib.Path(__file__).parent.resolve() / "../../files/fem_files/numpy_files/simple_stru_eig1"
+def test_vertex_coloring_advanced(root_dir):
+    neutral_dir = root_dir / "files/fem_files/numpy_files/simple_stru_eig1"
     vertices = np.load(neutral_dir / "vertices.npy")
     faces = np.load(neutral_dir / "faces.npy")
     vertex_color = np.load(neutral_dir / "colors.npy")

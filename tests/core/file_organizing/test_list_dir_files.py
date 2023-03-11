@@ -3,7 +3,7 @@ import pathlib
 from ada.core.file_system import get_list_of_files
 
 
-def test_list_of_files(example_files):
+def test_list_of_files(example_files, root_dir):
     list_of_files = get_list_of_files(example_files / "fem_files")
 
     # Only check the first 10 elements of the list
@@ -19,5 +19,5 @@ def test_list_of_files(example_files):
     ]
     for p_actual, p_desired in zip(list_of_files, desired_list):
         pa = pathlib.Path(p_actual).resolve().absolute()
-        pd = (pathlib.Path(__file__).parent / "../../files/fem_files" / p_desired).resolve().absolute()
+        pd = (root_dir / "files/fem_files" / p_desired).resolve().absolute()
         assert pa == pd

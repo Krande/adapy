@@ -1,83 +1,76 @@
 {% set data = load_setup_py_data() %}
 {% set version = data.get('version') %}
+{% set name = 'undefined' %}
+{% set extra_ignores = '' %}
+
+# Set name based on variant if else condition
+{% if variant == "core" %}
+  {% set name = "ada-py-core" %}
+  {% set extra_ignores = " --ignores=tests/full" %}
+{% else %}
+  {% set name = "ada-py" %}
+  {% set extra_ignores = "" %}
+{% endif %}
 
 package:
-  name: ada-py-packages
+  name: {{ name }}
   version: {{ version }}
 
 source:
   path: ../
 
 build:
+  noarch: python
   number: 0
+  script: python -m pip install . --no-deps -vv
 
-outputs:
-  - name: ada-py-core
-    build:
-      noarch: python
-      number: 0
-      script: python -m pip install . --no-deps -vv
-    requirements:
-      host:
-        - python
-        - pip
-      run:
-        - python
-        - numpy
-        - h5py
-        - ifcopenshell
-        - pythonocc-core
-        - python-gmsh
-        - pyquaternion
-        - trimesh
-        - send2trash
-        - meshio
-        - pytexit
-        - plotly
+# Set list of core dependencies
+{% set core_deps = [
+    "numpy",
+    "h5py",
+    "ifcopenshell",
+    "pythonocc-core",
+    "python-gmsh",
+    "pyquaternion",
+    "trimesh",
+    "send2trash",
+    "meshio",
+    "pytexit",
+    "plotly"
+] %}
 
-  - name: ada-py
-    requirements:
-      run:
-        - {{ pin_subpackage("ada-py-core", max_pin="x.x.x") }}
-        - python-kaleido
-        - jupyterlab
-        - pythreejs
-        - pyparsing
-        - calculix
+# Set full list of dependencies
+{% set full_deps = core_deps + [
+    "python-kaleido",
+    "jupyterlab",
+    "pythreejs",
+    "pyparsing",
+    "calculix",
+] %}
 
-  - name: ada-py-test
-    requirements:
-      run:
-        - {{ pin_subpackage("ada-py", max_pin="x.x.x") }}
-        - pytest
-        - pytest-cov
-    test:
-      source_files:
-        - tests
-        - files
-        - examples
-      commands:
-        - cd tests && pytest .
+{% set deps = core_deps if variant == "core" else full_deps %}
 
-  - name: ada-py-core-test
-    requirements:
-      run:
-        - {{ pin_subpackage("ada-py-core", max_pin="x.x.x") }}
-        - pytest
-        - pytest-cov
-    test:
-      source_files:
-        - tests
-        - files
-        - examples
-      commands:
-        - cd tests && pytest .
+requirements:
+  host:
+    - {{ python }}
+  run:
+    - python
+  {% for dep in deps %}
+    - {{ dep }}
+  {% endfor %}
 
-  - name: ada-py-whl
-    type: wheel
-    requirements:
-      run:
-        - {{ pin_subpackage("ada-py", max_pin="x.x.x") }}
+test:
+  requires:
+    - pytest
+    - pytest-cov
+  imports:
+    - ada
+  source_files:
+    - tests
+    - files
+    - examples
+  commands:
+    - pytest tests --ignore=tests/dockertests{{ extra_ignores }} --cov=ada --cov-report=xml
 
 
 about:
