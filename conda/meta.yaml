@@ -52,7 +52,7 @@ build:
 
 requirements:
   host:
-    - {{ python }}
+    - python
   run:
     - python
   {% for dep in deps %}
