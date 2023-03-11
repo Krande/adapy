@@ -10,7 +10,6 @@ on:
       - .github/workflows/ci.yml
     branches:
       - main
-      - test-ci-conditional
   pull_request:
     paths-ignore:
       - setup.py
