@@ -113,7 +113,7 @@ jobs:
           conda-build -c conda-forge -c ${{env.CONDA_CHANNEL}} . --python=${{ matrix.pyver.distver }} --user krande${{env.CONDA_LABEL}} --token=${{ secrets.ANACONDA_TOKEN }}
         working-directory: conda
   pypi:
-    if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' && endswith(github.ref, '/merge') }}
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
     needs: test
     name: Publish to PYPI
     defaults:
