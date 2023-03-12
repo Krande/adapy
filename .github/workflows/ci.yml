@@ -10,6 +10,7 @@ on:
       - .github/workflows/ci.yml
     branches:
       - main
+      - ci-build-sequence
   pull_request:
     paths-ignore:
       - setup.py
@@ -63,14 +64,13 @@ jobs:
       PKG_VERSION: nothing
       CONDAROOT: nothing
       CONDA_CHANNEL: krande/label/dev
-      CONDA_LABEL: ' --label dev'
     strategy:
       fail-fast: false
       matrix:
         pyver: [
           { name: py39, distver: '3.9' },
-          { name: py310, distver: '3.10'},
-          { name: py311, distver: '3.11'}
+          { name: py310, distver: '3.10' },
+          { name: py311, distver: '3.11' }
         ]
         platform: [
           { name: Windows, distver: windows-latest, short: 'win-64' },
@@ -88,29 +88,12 @@ jobs:
           extra-specs: |
             python=${{ matrix.pyver.distver }}
 
-      - name: edit conda channel label if not on main
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        run: |
-          echo "CONDA_CHANNEL=krande" >> $GITHUB_ENV
-          echo "CONDA_LABEL=" >> $GITHUB_ENV
-
       - name: Just Build & Test
         if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main') }}
         run: |
           conda-build -c conda-forge -c ${{env.CONDA_CHANNEL}} . --python=${{ matrix.pyver.distver }}
         working-directory: conda
 
-      - name: Build, Test & Upload to CONDA Main
-        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
-        run: |
-          conda-build -c conda-forge -c ${{env.CONDA_CHANNEL}} . --python=${{ matrix.pyver.distver }} --user krande${{env.CONDA_LABEL}} --token=${{ secrets.ANACONDA_TOKEN }}
-        working-directory: conda
-
-      - name: Build, Test & Upload to CONDA Dev
-        if: ${{ contains(github.event.head_commit.message, '[dev]') }}
-        run: |
-          conda-build -c conda-forge -c ${{env.CONDA_CHANNEL}} . --python=${{ matrix.pyver.distver }} --user krande${{env.CONDA_LABEL}} --token=${{ secrets.ANACONDA_TOKEN }}
-        working-directory: conda
   pypi:
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
     needs: test
@@ -134,3 +117,31 @@ jobs:
         with:
           user: __token__
           password: ${{ secrets.PYPI_API_TOKEN }}
+
+  conda:
+    if: ${{ (github.event_name != 'pull_request' && github.ref == 'refs/heads/main') || contains(github.event.head_commit.message, '[dev]') }}
+    needs: test
+    name: Publish to CONDA
+    defaults:
+      run:
+        shell: bash -l {0}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+        with:
+          environment-name: ada
+          channels: conda-forge
+          channel-priority: strict
+          environment-file: conda/environment.build.yml
+      - name: Build & Upload to CONDA Main
+        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+        run: |
+          conda-build -c conda-forge -c krande . --user krande --token=${{ secrets.ANACONDA_TOKEN }} --no-test
+        working-directory: conda
+
+      - name: Build & Upload to CONDA Dev
+        if: ${{ contains(github.event.head_commit.message, '[dev]') }}
+        run: |
+          conda-build -c conda-forge -c ${{env.CONDA_CHANNEL}} . --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }}
+        working-directory: conda
