@@ -2,8 +2,8 @@ name: ada
 channels:
 #  - ifcopenshell
   - krande/label/dev
-  - conda-forge
   - krande
+  - conda-forge
 dependencies:
   - ada-py
   - pytest
