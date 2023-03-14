@@ -386,7 +386,11 @@ class ObjectMesh:
         ma = int((len(other.faces) + len(self.faces))) - 1
         mi = int(len(self.faces))
 
-        self.faces = np.concatenate([self.faces, new_index])
+        if len(self.faces) == 0:
+            self.faces = new_index
+        else:
+            self.faces = np.concatenate([self.faces, new_index])
+
         if len(self.position) == 0:
             self.position = other.position
         else:

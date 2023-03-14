@@ -10,7 +10,6 @@ on:
       - .github/workflows/ci.yml
     branches:
       - main
-      - ci-build-sequence
   pull_request:
     paths-ignore:
       - setup.py
@@ -59,10 +58,6 @@ jobs:
       run:
         shell: bash -l {0}
     env:
-      TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-      CONDAENV: condabuild
-      PKG_VERSION: nothing
-      CONDAROOT: nothing
       CONDA_CHANNEL: krande/label/dev
     strategy:
       fail-fast: false
@@ -125,6 +120,8 @@ jobs:
     defaults:
       run:
         shell: bash -l {0}
+    env:
+      CONDA_CHANNEL: krande/label/dev
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
