@@ -2,6 +2,7 @@ import os
 
 import requests
 
+# https://docs.conda.io/projects/conda/en/latest/user-guide/concepts/pkg-specs.html#supported-version-strings
 RELEASE_TAG = os.environ.get("RELEASE_TAG", "alpha")
 
 
