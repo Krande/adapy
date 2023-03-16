@@ -1,6 +1,6 @@
 {% set name = 'ada-py' %}
 {% set data = load_setup_py_data() %}
-{% set version = load_str_data(environ.get("VERSION", data.get('version'))) %}
+{% set version = load_str_data(environ.get("VERSION", data.get('version')), "json") %}
 {% set build = 0 %}
 
 {% if variant == "core" %}
