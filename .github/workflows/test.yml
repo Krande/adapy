@@ -44,6 +44,7 @@ jobs:
         run: | 
           python bump.py
           echo ${{ env.VERSION }}
+          echo "VERSION=$VERSION"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
         working-directory: .github/workflows
 
