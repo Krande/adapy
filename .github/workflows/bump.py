@@ -24,7 +24,10 @@ def main():
     else:
         raise ValueError(f"Invalid release version '{latest}'")
 
-    os.environ["NEXT_RELEASE"] = next_release
+    env_file = os.getenv('GITHUB_ENV')
+
+    with open(env_file, "a") as myfile:
+        myfile.write(f"VERSION={next_release}")
 
     print(f"The next release version of ada-py will be '{next_release}'.")
 
