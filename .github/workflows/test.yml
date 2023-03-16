@@ -45,11 +45,12 @@ jobs:
           python bump.py
           echo {{ env.VERSION }}
           echo "VERSION=$(VERSION)" >> $GITHUB_ENV
+        working-directory: .github/workflows
+
       - name: Echo version
         run: |
-          python bump.py
           echo {{ env.VERSION }}
-        working-directory: .github/workflows
+
       - name: Build & Upload to CONDA Dev
         if: ${{ contains(github.event.head_commit.message, '[dev]') }}
         run: |
