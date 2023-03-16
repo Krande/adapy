@@ -16,7 +16,7 @@ def main():
     print(f"The latest release version of ada-py is {latest}.")
     release = latest.split(".")
     if len(release) == 3:
-        release[2] = str(release[2]) + f"-{RELEASE_TAG}.1"
+        release[2] = str(int(release[2]) + 1) + f"-{RELEASE_TAG}.1"
         next_release = ".".join(release)
     elif len(release) == 4:
         release[3] = str(int(release[3]) + 1)
@@ -24,10 +24,10 @@ def main():
     else:
         raise ValueError(f"Invalid release version '{latest}'")
 
-    env_file = os.getenv('GITHUB_ENV')
-
-    with open(env_file, "a") as myfile:
-        myfile.write(f"VERSION={next_release}")
+    env_file = os.environ.get('GITHUB_ENV', None)
+    if env_file is not None:
+        with open(env_file, "a") as myfile:
+            myfile.write(f"VERSION={next_release}")
 
     print(f"The next release version of ada-py will be '{next_release}'.")
 
