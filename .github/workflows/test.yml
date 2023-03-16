@@ -23,6 +23,29 @@ jobs:
           environment-file: environment.dev.yml
           extra-specs: |
             python=3.11
+
       - name: Just Build & Test
         run: |
           pytest ./tests --ignore=./tests/docker/
+  upload:
+    needs: test
+    name: Publish to CONDA
+    defaults:
+      run:
+        shell: bash -l {0}
+    env:
+      CONDA_CHANNEL: krande/label/dev
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+        with:
+          environment-name: ada
+          channels: conda-forge
+          channel-priority: strict
+          environment-file: conda/environment.build.yml
+      - name: Build & Upload to CONDA Dev
+        if: ${{ contains(github.event.head_commit.message, '[dev]') }}
+        run: |
+          conda mambabuild -c conda-forge -c ${{env.CONDA_CHANNEL}} . --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }}
+        working-directory: conda
