@@ -2,7 +2,6 @@ name: Ada quick tests
 
 on: push
 
-
 jobs:
   test:
     name: Quick Test
@@ -10,8 +9,6 @@ jobs:
     defaults:
       run:
         shell: bash -l {0}
-    env:
-      CONDA_CHANNEL: krande/label/dev
     steps:
       - uses: actions/checkout@v3
       - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
@@ -25,17 +22,16 @@ jobs:
             python=3.11
 
       - name: Just Build & Test
-        run: |
-          pytest ./tests --ignore=./tests/docker/
+        run: pytest ./tests --ignore=./tests/docker/
   upload:
     needs: test
     name: Publish to CONDA
     defaults:
       run:
         shell: bash -l {0}
-    env:
-      CONDA_CHANNEL: krande/label/dev
     runs-on: ubuntu-latest
+    env:
+      VERSION: null
     steps:
       - uses: actions/checkout@v3
       - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
@@ -44,8 +40,14 @@ jobs:
           channels: conda-forge
           channel-priority: strict
           environment-file: conda/environment.build.yml
+      - name: Bump version
+        run: | 
+          python bump.py
+          echo {{ env.VERSION }}
+          echo "VERSION=$(echo {{ env.VERSION }})" >> $GITHUB_ENV
+        working-directory: .github/workflows
       - name: Build & Upload to CONDA Dev
         if: ${{ contains(github.event.head_commit.message, '[dev]') }}
         run: |
-          conda mambabuild -c conda-forge -c ${{env.CONDA_CHANNEL}} . --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }}
+          conda mambabuild -c conda-forge -c krande/label/dev . --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }}
         working-directory: conda
