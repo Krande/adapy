@@ -31,7 +31,7 @@ jobs:
         run: |
           echo ${{ steps.bump.outputs.version }}
   test-core:
-    name: Quick Test
+    name: Test ada-py-core
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -44,16 +44,15 @@ jobs:
           environment-name: ada
           channels: conda-forge
           channel-priority: strict
-          environment-file: environment.dev.yml
+          environment-file: conda/environment.core.yml
           extra-specs: |
             python=3.11
-            requests
 
       - name: Just Build & Test
         run: pytest ./tests --ignore=./tests/docker/ --ignore=./tests/full/
 
   test-full:
-    name: Quick Test
+    name: Test ada-py-full
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -68,10 +67,12 @@ jobs:
           environment-name: ada
           channels: conda-forge
           channel-priority: strict
-          environment-file: environment.dev.yml
+          environment-file: conda/environment.core.yml
           extra-specs: |
             python=3.11
-            ada-py=*=full*
+            jupyterlab
+            pythreejs
+            pyparsing
 
       - name: Just Build & Test
         run: pytest ./tests --ignore=./tests/docker/
