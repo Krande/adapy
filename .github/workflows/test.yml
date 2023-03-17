@@ -10,6 +10,8 @@ jobs:
     defaults:
       run:
         shell: bash -l {0}
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
     steps:
       - uses: actions/checkout@v3
       - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
@@ -23,13 +25,12 @@ jobs:
             python=3.11
 
       - name: Bump version
-        run: |
-          python bump.py
-          echo ${{ env.VERSION }}
+        id: bump
+        run: python bump.py
         working-directory: .github/workflows
-
-      - outputs:
-          version: ${{ env.VERSION }}
+      - name: echo bump
+        run: |
+          echo ${{ steps.bump.outputs.version }}
 
       - name: Just Build & Test
         run: pytest ./tests --ignore=./tests/docker/
@@ -67,3 +68,5 @@ jobs:
         run: |
           conda mambabuild -c conda-forge -c krande/label/dev . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }}
         working-directory: conda
+        env:
+          VERSION: ${{ needs.test.outputs.version }}

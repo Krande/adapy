@@ -25,7 +25,7 @@ def main():
     else:
         raise ValueError(f"Invalid release version '{latest}'")
 
-    env_file = os.environ.get('GITHUB_ENV', None)
+    env_file = os.environ.get('GITHUB_OUTPUT', None)
     if env_file is not None:
         with open(env_file, "a") as myfile:
             myfile.write(f"VERSION={next_release}")
