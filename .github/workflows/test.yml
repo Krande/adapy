@@ -20,7 +20,6 @@ jobs:
       - name: Install requests
         run: pip install requests
 
-      - run: pip test
       - name: Bump version
         id: bump
         run: python bump.py
