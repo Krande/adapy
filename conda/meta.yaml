@@ -1,6 +1,6 @@
 {% set name = 'ada-py' %}
 {% set data = load_setup_py_data() %}
-{% set version = data.get('version') %}
+{% set version = environ.get("VERSION", data.get('version')) %}
 {% set build = 0 %}
 
 {% if variant == "core" %}
