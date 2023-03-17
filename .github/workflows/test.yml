@@ -49,6 +49,10 @@ jobs:
             python=3.11
             pytest
 
+      - name: pip install
+        run: |
+          pip install -e .
+
       - name: Just Build & Test
         run: pytest ./tests --ignore=./tests/docker/ --ignore=./tests/full/
 
@@ -75,6 +79,10 @@ jobs:
             jupyterlab
             pythreejs
             pyparsing
+
+      - name: pip install
+        run: |
+          pip install -e .
 
       - name: Just Build & Test
         run: pytest ./tests --ignore=./tests/docker/
