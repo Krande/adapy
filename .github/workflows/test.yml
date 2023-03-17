@@ -47,6 +47,7 @@ jobs:
           environment-file: conda/environment.core.yml
           extra-specs: |
             python=3.11
+            pytest
 
       - name: Just Build & Test
         run: pytest ./tests --ignore=./tests/docker/ --ignore=./tests/full/
@@ -70,6 +71,7 @@ jobs:
           environment-file: conda/environment.core.yml
           extra-specs: |
             python=3.11
+            pytest
             jupyterlab
             pythreejs
             pyparsing
