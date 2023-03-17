@@ -14,15 +14,13 @@ jobs:
       version: ${{ steps.bump.outputs.version }}
     steps:
       - uses: actions/checkout@v3
-      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+      - uses: actions/setup-python@v4
         with:
-          cache-env: true
-          environment-name: ada
-          channels: conda-forge
-          channel-priority: strict
-          extra-specs: |
-            python=3.11
-            requests
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+
+      - run: pip test
       - name: Bump version
         id: bump
         run: python bump.py
