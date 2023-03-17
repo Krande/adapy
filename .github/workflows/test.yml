@@ -1,6 +1,6 @@
 name: Ada quick tests
 
-# Bump
+# Bump 1
 on: push
 
 jobs:
