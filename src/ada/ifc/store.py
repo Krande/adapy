@@ -3,20 +3,25 @@ from __future__ import annotations
 import os
 import pathlib
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable
 
 import ifcopenshell
 import ifcopenshell.geom
 
 from ada.base.changes import ChangeAction
+from ada.config import get_logger
 from ada.ifc.utils import assembly_to_ifc_file, default_settings, get_unit_type
 from ada.ifc.write.write_sections import get_profile_class
 from ada.ifc.write.write_user import create_owner_history_from_user
 
 if TYPE_CHECKING:
+    from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
+
     from ada import Assembly, Section, User
     from ada.ifc.read.read_ifc import IfcReader
     from ada.ifc.write.write_ifc import IfcWriter
+
+logger = get_logger()
 
 
 @dataclass
@@ -201,6 +206,26 @@ class IfcStore:
                 products.append(product)
         cpus = multiprocessing.cpu_count() if cpus is None else cpus
         return ifcopenshell.geom.iterator(settings, self.f, cpus, include=products)
+
+    def iter_occ_shapes_from_ifc(
+        self, settings: ifcopenshell.geom.settings = None
+    ) -> Iterable[tuple[str, TopoDS_Shape | TopoDS_Compound]]:
+        if settings is None:
+            settings = ifcopenshell.geom.settings()
+            settings.set(settings.USE_PYTHON_OPENCASCADE, True)
+        iterator = self.get_ifc_geom_iterator(settings)
+        iterator.initialize()
+        while True:
+            shape = iterator.get()
+            if shape:
+                if hasattr(shape, "geometry"):
+                    name = shape[0].name
+                    yield name, shape.geometry
+                else:
+                    logger.warning(f"Shape {shape} is not a TopoDS_Shape")
+
+            if not iterator.next():
+                break
 
     def get_by_guid(self, guid: str) -> ifcopenshell.entity_instance:
         return self.f.by_guid(guid)

@@ -22,10 +22,11 @@ class GxmlStore:
     def iter_beams_from_xml(self):
         p = self.p
 
-        all_beams = self.xml_root.findall(".//straight_beam") + self.xml_root.findall(".//curved_beam")
+        for bm in self.xml_root.iterfind(".//straight_beam"):
+            yield from el_to_beam(bm, p)
 
-        for bm_el in all_beams:
-            yield from el_to_beam(bm_el, p)
+        for curved_bm in self.xml_root.iterfind(".//curved_beam"):
+            yield from el_to_beam(curved_bm, p)
 
     def iter_plates_from_xml(self):
         from ada.fem.formats.sesam.xml.read.read_plates import iter_plates

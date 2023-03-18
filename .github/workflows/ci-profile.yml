@@ -1,0 +1,44 @@
+name: Ada quick tests
+
+# Bump 2
+on: push
+
+jobs:
+  test-profile:
+    name: Profile ada-py-full
+    if: ${{ contains(github.event.head_commit.message, '[profile]') }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+        with:
+          cache-env: true
+          environment-name: ada
+          channels: conda-forge
+          channel-priority: strict
+          environment-file: conda/environment.core.yml
+          extra-specs: |
+            python=3.11
+            jupyterlab
+            pythreejs
+            pyparsing
+            pytest
+            scalene
+
+      - name: pip install
+        run: |
+          pip install -e .
+
+      - name: Just Build & Test
+        run: scalene -o profile.html pytest ./tests --ignore=./tests/docker/
+
+      - name: Create Release Package
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            profile.html
+          tag_name: ${{ github.ref }}
+          body: "Profile produced on commit ${{ github.sha }} at $(date +'%Y-%m-%d %H:%M')"
