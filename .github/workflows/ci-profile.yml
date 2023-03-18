@@ -1,4 +1,4 @@
-name: Ada quick tests
+name: Ada profiling pytest
 
 # Bump 2
 on: push
@@ -33,12 +33,12 @@ jobs:
           pip install -e .
 
       - name: Just Build & Test
-        run: scalene -o profile.html pytest ./tests --ignore=./tests/docker/
+        run: scalene --json --cli -m pytest ./tests --ignore=./tests/docker/
 
       - name: Create Release Package
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            profile.html
-          tag_name: ${{ github.ref }}
+            profile.json
+          tag_name: "Ada-py profile ${{ github.sha }}"
           body: "Profile produced on commit ${{ github.sha }} at $(date +'%Y-%m-%d %H:%M')"
