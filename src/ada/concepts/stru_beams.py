@@ -531,7 +531,6 @@ class Beam(BackendGeom):
     def curve(self) -> CurvePoly:
         return self._curve
 
-    @property
     def line(self):
         from ada.occ.utils import make_wire_from_points
 
@@ -544,7 +543,6 @@ class Beam(BackendGeom):
 
         return make_wire_from_points(points)
 
-    @property
     def shell(self) -> TopoDS_Shape:
         from ada.occ.utils import apply_penetrations, create_beam_geom
 
@@ -552,7 +550,6 @@ class Beam(BackendGeom):
 
         return geom
 
-    @property
     def solid(self) -> TopoDS_Shape:
         from ada.occ.utils import apply_penetrations, create_beam_geom
 

@@ -48,7 +48,7 @@ class OCCExporter:
             geom_repr = GeomRepr.from_str(geom_repr)
 
         if issubclass(type(obj), Shape):
-            self.add_geom(obj.geom, obj, geom_repr=geom_repr)
+            self.add_geom(obj.geom(), obj, geom_repr=geom_repr)
         elif isinstance(obj, (Beam, Plate, Wall)):
             self.export_structural(obj, geom_repr)
         elif isinstance(obj, Pipe):
@@ -60,7 +60,7 @@ class OCCExporter:
                 elif isinstance(sub_obj, Pipe):
                     self.export_piping(sub_obj, geom_repr, fuse_piping)
                 elif issubclass(type(sub_obj), Shape):
-                    self.add_geom(sub_obj.geom, sub_obj, geom_repr=geom_repr)
+                    self.add_geom(sub_obj.geom(), sub_obj, geom_repr=geom_repr)
                 else:
                     raise ValueError("Unknown Geometry type")
         else:
@@ -105,11 +105,11 @@ class OCCExporter:
             geom_repr = GeomRepr.from_str(geom_repr)
 
         if geom_repr == GeomRepr.SHELL:
-            self.add_geom(stru_obj.shell, stru_obj)
+            self.add_geom(stru_obj.shell(), stru_obj)
         elif geom_repr == GeomRepr.LINE:
-            self.add_geom(stru_obj.line, stru_obj)
+            self.add_geom(stru_obj.line(), stru_obj)
         else:
-            self.add_geom(stru_obj.solid, stru_obj)
+            self.add_geom(stru_obj.solid(), stru_obj)
 
     def export_piping(self, pipe: Pipe, geom_repr, fuse_shapes=False):
         if isinstance(geom_repr, str):

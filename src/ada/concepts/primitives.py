@@ -72,7 +72,7 @@ class Shape(BackendGeom):
 
     @property
     def type(self):
-        return type(self.geom)
+        return type(self.geom())
 
     @property
     def mass(self) -> float:
@@ -92,7 +92,7 @@ class Shape(BackendGeom):
 
     @property
     def bbox(self) -> BoundingBox:
-        if self._bbox is None and self.geom is not None:
+        if self._bbox is None and self.geom() is not None:
             self._bbox = BoundingBox(self)
 
         return self._bbox
@@ -101,7 +101,6 @@ class Shape(BackendGeom):
     def point_on(self):
         return self.bbox[3:6]
 
-    @property
     def geom(self) -> TopoDS_Shape:
         from ada.occ.utils import apply_penetrations
 
@@ -125,9 +124,8 @@ class Shape(BackendGeom):
 
         return geom
 
-    @property
-    def solid(self):
-        return self.geom
+    def solid(self) -> TopoDS_Shape:
+        return self.geom()
 
     @property
     def units(self):
@@ -142,7 +140,7 @@ class Shape(BackendGeom):
             if self._geom is not None:
                 from ada.occ.utils import transform_shape
 
-                self._geom = transform_shape(self.geom, scale_factor)
+                self._geom = transform_shape(self.geom(), scale_factor)
 
             if self.metadata.get("ifc_source") is True:
                 raise NotImplementedError()
@@ -170,7 +168,6 @@ class PrimSphere(Shape):
         self.radius = radius
         super(PrimSphere, self).__init__(name=name, geom=None, cog=cog, **kwargs)
 
-    @property
     def geom(self):
         from ada.occ.utils import apply_penetrations
 
@@ -537,9 +534,8 @@ class Penetration(BackendGeom):
     def primitive(self):
         return self._primitive
 
-    @property
     def geom(self):
-        return self.primitive.geom
+        return self.primitive.geom()
 
     @property
     def units(self):
@@ -552,14 +548,6 @@ class Penetration(BackendGeom):
         if value != self._units:
             self.primitive.units = value
             self._units = value
-
-    @property
-    def ifc_opening(self):
-        if self._ifc_opening is None:
-            from ada.ifc.write.write_openings import generate_ifc_opening
-
-            self._ifc_opening = generate_ifc_opening(self)
-        return self._ifc_opening
 
     def __repr__(self):
         return f"Pen(type={self.primitive})"

@@ -12,7 +12,7 @@ from ada.sat.reader import get_plates_from_satd
 logger = get_logger()
 
 
-def get_plates(xml_root: ET.Element, parent: Part) -> Plates:
+def iter_plates(xml_root: ET.Element, parent: Part):
     sat_ref_d = dict()
     for sat_geometry_el in xml_root.findall(".//sat_embedded"):
         sat_ref_d.update(get_structured_plates_data_from_sat(sat_geometry_el))
@@ -25,7 +25,6 @@ def get_plates(xml_root: ET.Element, parent: Part) -> Plates:
         res = thickn.find(".//constant_thickness")
         thick_map[thickn.attrib["name"]] = float(res.attrib["th"])
 
-    plates = []
     for plate_elem in xml_root.findall(".//flat_plate") + xml_root.findall(".//curved_shell"):
         mat = parent.materials.get_by_name(plate_elem.attrib["material_ref"])
         for i, res in enumerate(plate_elem.findall(".//face"), start=1):
@@ -53,9 +52,11 @@ def get_plates(xml_root: ET.Element, parent: Part) -> Plates:
             except BaseException as e:
                 logger.error(f"Failed converting plate {name} due to {e}")
                 continue
+            yield pl
 
-            plates.append(pl)
 
+def get_plates(xml_root: ET.Element, parent: Part) -> Plates:
+    plates = [pl for pl in iter_plates(xml_root, parent)]
     return Plates(plates, parent)
 
 

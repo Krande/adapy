@@ -279,14 +279,11 @@ class BackendGeom(Root):
         display(HBox([VBox([HBox(renderer.controls), renderer.renderer]), renderer.html]))
         return ""
 
-    @property
     def solid(self):
         raise NotImplementedError()
 
-    @property
     def shell(self):
         raise NotImplementedError()
 
-    @property
     def line(self):
         raise NotImplementedError()

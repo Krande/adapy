@@ -166,14 +166,12 @@ class PipeSegStraight(BackendGeom):
 
         return make_edge(self.p1, self.p2)
 
-    @property
     def shell(self):
         from ada.fem.shapes import ElemType
         from ada.occ.utils import sweep_pipe
 
         return sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, ElemType.SHELL)
 
-    @property
     def solid(self):
         from ada.fem.shapes import ElemType
         from ada.occ.utils import apply_penetrations, sweep_pipe
@@ -237,7 +235,6 @@ class PipeSegElbow(BackendGeom):
     def zvec(self):
         return calc_zvec(self.xvec1)
 
-    @property
     def line(self):
         from ada.core.curve_utils import make_edges_and_fillet_from_3points
 
@@ -248,7 +245,6 @@ class PipeSegElbow(BackendGeom):
             edge = self.arc_seg.edge_geom
         return edge
 
-    @property
     def shell(self):
         from ada.fem.shapes import ElemType
         from ada.occ.utils import sweep_pipe
@@ -260,9 +256,8 @@ class PipeSegElbow(BackendGeom):
         else:
             xvec = self.xvec1
 
-        return sweep_pipe(self.line, xvec, self.section.r, self.section.wt, ElemType.SHELL)
+        return sweep_pipe(self.line(), xvec, self.section.r, self.section.wt, ElemType.SHELL)
 
-    @property
     def solid(self):
         from ada.fem.shapes import ElemType
         from ada.occ.utils import apply_penetrations, sweep_pipe
@@ -273,7 +268,7 @@ class PipeSegElbow(BackendGeom):
             xvec = pseg.xvec1
         else:
             xvec = self.xvec1
-        raw_geom = sweep_pipe(self.line, xvec, self.section.r, self.section.wt, ElemType.SOLID)
+        raw_geom = sweep_pipe(self.line(), xvec, self.section.r, self.section.wt, ElemType.SOLID)
 
         geom = apply_penetrations(raw_geom, self.penetrations)
         return geom

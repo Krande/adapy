@@ -89,7 +89,7 @@ def are_plates_touching(pl1: Plate, pl2: Plate, tol=1e-3):
     """Check if two plates are within tolerance of each other"""
     from ..occ.utils import compute_minimal_distance_between_shapes
 
-    dss = compute_minimal_distance_between_shapes(pl1.solid, pl2.solid)
+    dss = compute_minimal_distance_between_shapes(pl1.solid(), pl2.solid())
     if dss.Value() <= tol:
         return dss
 

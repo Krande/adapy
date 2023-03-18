@@ -190,13 +190,15 @@ class IfcStore:
     def get_ifc_geom_iterator(self, settings: ifcopenshell.geom.settings, cpus: int = None):
         import multiprocessing
 
-        products = []
-        for x in self.assembly.get_all_physical_objects(pipe_to_segments=True):
-            try:
-                product = self.f.by_guid(x.guid)
-            except RuntimeError as e:
-                raise RuntimeError(e)
-            products.append(product)
+        products = None
+        if self.assembly is not None:
+            products = []
+            for x in self.assembly.get_all_physical_objects(pipe_to_segments=True):
+                try:
+                    product = self.f.by_guid(x.guid)
+                except RuntimeError as e:
+                    raise RuntimeError(e)
+                products.append(product)
         cpus = multiprocessing.cpu_count() if cpus is None else cpus
         return ifcopenshell.geom.iterator(settings, self.f, cpus, include=products)
 

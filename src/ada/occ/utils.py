@@ -839,7 +839,7 @@ def create_beam_geom(beam: Beam, solid=True):
 
 def apply_penetrations(geom: TopoDS_Shape, penetrations: List[Penetration]) -> TopoDS_Shape:
     for pen in penetrations:
-        geom = BRepAlgoAPI_Cut(geom, pen.geom).Shape()
+        geom = BRepAlgoAPI_Cut(geom, pen.geom()).Shape()
 
     return geom
 
