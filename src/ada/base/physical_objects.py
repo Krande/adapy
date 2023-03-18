@@ -127,7 +127,6 @@ class BackendGeom(Root):
         fuse_piping=False,
         return_file_obj=False,
     ):
-
         step_writer = StepWriter("AdaStep")
 
         for obj, shape in StepStore.shape_iterator(self):

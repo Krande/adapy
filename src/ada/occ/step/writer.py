@@ -3,6 +3,7 @@ from __future__ import annotations
 import pathlib
 
 from OCC.Core.BRep import BRep_Builder
+from OCC.Core.Interface import Interface_Static_SetCVal
 from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
 from OCC.Core.STEPCAFControl import STEPCAFControl_Writer
 from OCC.Core.STEPControl import STEPControl_AsIs
@@ -16,7 +17,7 @@ from OCC.Core.XSControl import XSControl_WorkSession
 
 
 class StepWriter:
-    def __init__(self, top_level_name: str = "Assembly"):
+    def __init__(self, top_level_name: str = "Assembly", schema: str = "AP242", assembly_mode: bool = True):
         app = TDocStd_Application()
         doc = TDocStd_Document(TCollection_ExtendedString("XmlOcaf"))
         app.InitDocument(doc)
@@ -35,9 +36,12 @@ class StepWriter:
         writer.SetLayerMode(False)
         writer.SetNameMode(True)
 
-        # Interface_Static.SetIVal("write.surfacecurve.mode", False)
-        # Interface_Static.SetIVal("write.precision.mode", False)
         self.writer = writer
+
+        Interface_Static_SetCVal("write.step.schema", schema)
+        # Interface_Static_SetCVal('write.precision.val', '1e-5')
+        Interface_Static_SetCVal("write.precision.mode", "1")
+        Interface_Static_SetCVal("write.step.assembly", str(assembly_mode))
 
         # Set up the compound
         comp = TopoDS_Compound()
