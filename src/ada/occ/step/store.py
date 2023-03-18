@@ -29,7 +29,9 @@ class StepStore:
         return StepWriter()
 
     @staticmethod
-    def shape_iterator(part: ada.Part, geom_repr: GeomRepr = None) -> tuple[BackendGeom, TopoDS_Shape]:
+    def shape_iterator(
+        part: ada.Part | BackendGeom, geom_repr: GeomRepr = GeomRepr.SOLID
+    ) -> tuple[BackendGeom, TopoDS_Shape]:
         if isinstance(geom_repr, str):
             geom_repr = GeomRepr.from_str(geom_repr)
 
@@ -43,15 +45,18 @@ class StepStore:
                 print("Failed to add shape", obj.name, e)
                 return None
 
-        for obj in part.get_all_physical_objects(pipe_to_segments=True):
-            if isinstance(geom_repr, str):
-                geom_repr = GeomRepr.from_str(geom_repr)
+        if isinstance(part, (ada.Part, ada.Assembly)):
+            for obj in part.get_all_physical_objects(pipe_to_segments=True):
+                if isinstance(geom_repr, str):
+                    geom_repr = GeomRepr.from_str(geom_repr)
 
-            if issubclass(type(obj), ada.Shape):
-                yield obj, safe_geom(obj)
-            elif isinstance(obj, (ada.Beam, ada.Plate, ada.Wall)):
-                yield obj, safe_geom(obj)
-            elif isinstance(obj, (ada.PipeSegStraight, ada.PipeSegElbow)):
-                yield obj, safe_geom(obj)
-            else:
-                raise NotImplementedError(f"Geometry type {type(obj)} not yet implemented")
+                if issubclass(type(obj), ada.Shape):
+                    yield obj, safe_geom(obj)
+                elif isinstance(obj, (ada.Beam, ada.Plate, ada.Wall)):
+                    yield obj, safe_geom(obj)
+                elif isinstance(obj, (ada.PipeSegStraight, ada.PipeSegElbow)):
+                    yield obj, safe_geom(obj)
+                else:
+                    raise NotImplementedError(f"Geometry type {type(obj)} not yet implemented")
+        else:
+            yield part, safe_geom(part)

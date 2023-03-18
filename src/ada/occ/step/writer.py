@@ -65,9 +65,11 @@ class StepWriter:
         writer = self.writer
         writer.Transfer(self.doc, STEPControl_AsIs)
         status = writer.Write(str(step_file))
-        print(f"STEP export status: {status}")
+
         if not status:
             raise Exception("STEP export failed")
+        else:
+            print(f"STEP export status: {status}")
 
 
 def set_name(label: TDF_Label, name: str):
