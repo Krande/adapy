@@ -129,25 +129,12 @@ class BackendGeom(Root):
         step_writer = OCCStore.get_writer()
 
         for obj, shape in OCCStore.shape_iterator(self, geom_repr=geom_repr):
-            if shape is None:
-                continue
-
             step_writer.add_shape(shape, obj.name, rgb_color=obj.colour_norm)
 
         step_writer.export(destination_file)
 
-    def _get_occ_export(self, geom_repr: GeomRepr = None, schema="AP242", fuse_piping=False):
-        from ada.occ.writer import OCCExporter
-
-        geom_repr = GeomRepr.SOLID if geom_repr is None else geom_repr
-        occ_export = OCCExporter(schema)
-        occ_export.add_to_step_writer(self, geom_repr, fuse_piping=fuse_piping)
-        return occ_export
-
     def to_obj_mesh(self, geom_repr: str | GeomRepr = GeomRepr.SOLID, export_config: ExportConfig = ExportConfig()):
-        from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import (
-            occ_geom_to_poly_mesh,
-        )
+        from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import occ_geom_to_poly_mesh
 
         if isinstance(geom_repr, str):
             geom_repr = GeomRepr.from_str(geom_repr)

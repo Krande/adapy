@@ -33,7 +33,7 @@ class OCCStore:
 
     @staticmethod
     def shape_iterator(
-        part: ada.Part | BackendGeom, geom_repr: GeomRepr = GeomRepr.SOLID
+            part: ada.Part | BackendGeom, geom_repr: GeomRepr = GeomRepr.SOLID
     ) -> tuple[BackendGeom, TopoDS_Shape]:
         if isinstance(geom_repr, str):
             geom_repr = GeomRepr.from_str(geom_repr)
@@ -54,14 +54,19 @@ class OCCStore:
                     geom_repr = GeomRepr.from_str(geom_repr)
 
                 if issubclass(type(obj), ada.Shape):
-                    yield obj, safe_geom(obj)
+                    geom = safe_geom(obj)
                 elif isinstance(obj, (ada.Beam, ada.Plate, ada.Wall)):
-                    yield obj, safe_geom(obj)
+                    geom = safe_geom(obj)
                 elif isinstance(obj, (ada.PipeSegStraight, ada.PipeSegElbow)):
-                    yield obj, safe_geom(obj)
+                    geom = safe_geom(obj)
                 else:
                     logger.error(f"Geometry type {type(obj)} not yet implemented")
-                    yield obj, None
+                    geom = None
+
+                if geom is None:
+                    continue
+
+                yield obj, geom
 
         else:
             yield part, safe_geom(part)
