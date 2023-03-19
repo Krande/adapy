@@ -7,14 +7,17 @@ from OCC.Extend.DataExchange import read_step_file
 
 import ada
 from ada.base.types import GeomRepr
+from ada.config import get_logger
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada.base.physical_objects import BackendGeom
 
+logger = get_logger()
 
-class StepStore:
+
+class OCCStore:
     def __init__(self, step_file: str | pathlib.Path = None):
         self.step_file = step_file
 
@@ -24,9 +27,9 @@ class StepStore:
 
     @staticmethod
     def get_writer():
-        from .writer import StepWriter
+        from ada.occ.step.writer import StepWriter
 
-        return StepWriter()
+        return StepWriter("AdaStep")
 
     @staticmethod
     def shape_iterator(
@@ -42,7 +45,7 @@ class StepStore:
                 elif geom_repr == GeomRepr.SHELL:
                     return obj_.shell()
             except RuntimeError as e:
-                print("Failed to add shape", obj.name, e)
+                logger.warning("Failed to add shape", obj.name, e)
                 return None
 
         if isinstance(part, (ada.Part, ada.Assembly)):
@@ -57,6 +60,8 @@ class StepStore:
                 elif isinstance(obj, (ada.PipeSegStraight, ada.PipeSegElbow)):
                     yield obj, safe_geom(obj)
                 else:
-                    raise NotImplementedError(f"Geometry type {type(obj)} not yet implemented")
+                    logger.error(f"Geometry type {type(obj)} not yet implemented")
+                    yield obj, None
+
         else:
             yield part, safe_geom(part)

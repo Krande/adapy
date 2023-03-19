@@ -9,8 +9,7 @@ from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.concepts.transforms import Placement
 from ada.core.constants import color_map as _cmap
-from ada.occ.step.store import StepStore
-from ada.occ.step.writer import StepWriter
+from ada.occ.store import OCCStore
 from ada.visualize.config import ExportConfig
 
 if TYPE_CHECKING:
@@ -121,15 +120,15 @@ class BackendGeom(Root):
     def to_stp(
         self,
         destination_file,
-        geom_repr: GeomRepr = None,
+        geom_repr: GeomRepr = GeomRepr.SOLID,
         schema="AP242",
         silent=False,
         fuse_piping=False,
         return_file_obj=False,
     ):
-        step_writer = StepWriter("AdaStep")
+        step_writer = OCCStore.get_writer()
 
-        for obj, shape in StepStore.shape_iterator(self):
+        for obj, shape in OCCStore.shape_iterator(self, geom_repr=geom_repr):
             if shape is None:
                 continue
 

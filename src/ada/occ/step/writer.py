@@ -3,7 +3,6 @@ from __future__ import annotations
 import pathlib
 
 from OCC.Core.BRep import BRep_Builder
-from OCC.Core.Interface import Interface_Static_SetCVal
 from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
 from OCC.Core.STEPCAFControl import STEPCAFControl_Writer
 from OCC.Core.STEPControl import STEPControl_AsIs
@@ -29,20 +28,6 @@ class StepWriter:
         # The color tool
         self.color_tool = XCAFDoc_DocumentTool.ColorTool(doc.Main())
 
-        # Set up the writer
-        session = XSControl_WorkSession()
-        writer = STEPCAFControl_Writer(session, False)
-        writer.SetColorMode(True)
-        writer.SetLayerMode(False)
-        writer.SetNameMode(True)
-
-        self.writer = writer
-
-        Interface_Static_SetCVal("write.step.schema", schema)
-        # Interface_Static_SetCVal('write.precision.val', '1e-5')
-        Interface_Static_SetCVal("write.precision.mode", "1")
-        Interface_Static_SetCVal("write.step.assembly", str(assembly_mode))
-
         # Set up the compound
         comp = TopoDS_Compound()
         comp_builder = BRep_Builder()
@@ -66,7 +51,13 @@ class StepWriter:
         set_name(shape_label, name)
 
     def export(self, step_file: pathlib.Path):
-        writer = self.writer
+        # Set up the writer
+        session = XSControl_WorkSession()
+        writer = STEPCAFControl_Writer(session, False)
+        writer.SetColorMode(True)
+        writer.SetLayerMode(False)
+        writer.SetNameMode(True)
+
         writer.Transfer(self.doc, STEPControl_AsIs)
         status = writer.Write(str(step_file))
 
