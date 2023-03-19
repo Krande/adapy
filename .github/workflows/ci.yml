@@ -52,18 +52,16 @@ jobs:
         run: ruff .
   test:
     needs: activate
-    name: ${{ matrix.platform.name }}-${{ matrix.pyver.name }}
+    name: ${{ matrix.platform.name }}-${{ matrix.pyver.name }}-${{ matrix.build.name }}
     runs-on: ${{ matrix.platform.distver }}
     defaults:
       run:
         shell: bash -l {0}
-    env:
-      CONDA_CHANNEL: krande/label/dev
     strategy:
       fail-fast: false
       matrix:
+        build: [ { name: 'core' },{ name: 'full' } ]
         pyver: [
-          { name: py39, distver: '3.9' },
           { name: py310, distver: '3.10' },
           { name: py311, distver: '3.11' }
         ]
@@ -86,8 +84,10 @@ jobs:
 
       - name: Build & Test
         run: |
-          conda mambabuild -c conda-forge -c ${{env.CONDA_CHANNEL}} . --python=${{ matrix.pyver.distver }}
+          conda mambabuild -c conda-forge -c krande --variants "{'variant': '${{matrix.build.name}}'}" . --python=${{ matrix.pyver.distver }}
         working-directory: conda
+        env:
+          IGNORE_TEST_FILES: true
 
   pypi:
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
@@ -120,8 +120,10 @@ jobs:
     defaults:
       run:
         shell: bash -l {0}
-    env:
-      CONDA_CHANNEL: krande/label/dev
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [ { name: 'core' },{ name: 'full' } ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -136,5 +138,7 @@ jobs:
       - name: Build & Upload to CONDA Main
         if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
         run: |
-          conda mambabuild -c conda-forge -c krande . --user krande --token=${{ secrets.ANACONDA_TOKEN }} --no-test
+          conda mambabuild -c conda-forge -c krande . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --token=${{ secrets.ANACONDA_TOKEN }} --no-test
         working-directory: conda
+        env:
+          IGNORE_TEST_FILES: true
