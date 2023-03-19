@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import pathlib
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Callable, Iterable
 
 import ifcopenshell
 import ifcopenshell.geom
@@ -34,6 +34,7 @@ class IfcStore:
     owner_history: ifcopenshell.entity_instance = None
     writer: IfcWriter = None
     reader: IfcReader = None
+    callback: Callable[[int, int], None] | None = None
 
     def __post_init__(self):
         if self.f is None:
@@ -94,11 +95,11 @@ class IfcStore:
 
         return contexts[0]
 
-    def sync(self, include_fem=False):
+    def sync(self, include_fem=False, progress_callback: Callable[[int, int], None] = None):
         from ada.ifc.write.write_ifc import IfcWriter
 
         self.writer = IfcWriter(self)
-
+        self.writer.callback = progress_callback
         a = self.assembly
 
         a.consolidate_sections()
@@ -128,6 +129,7 @@ class IfcStore:
         del_str = f"Deleted {num_del} objects"
 
         print(f"Sync Complete. {add_str}. {mod_str}. {del_str}")
+        self.callback = None
 
     def save_to_file(self, filepath: str | os.PathLike):
         with open(filepath, "w") as f:

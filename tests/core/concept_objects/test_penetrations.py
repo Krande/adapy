@@ -95,5 +95,5 @@ def test_poly_revolve():
 
     bm.add_penetration(PrimRevolve("my_pen_revolved", points2d, origin, xdir, normal, rev_angle))
 
-    a.to_stp(test_dir / "penetrations_revolve.stp", return_file_obj=True)
+    a.to_stp(test_dir / "penetrations_revolve.stp")
     _ = a.to_ifc(test_dir / "penetrations_revolve.ifc", file_obj_only=True)

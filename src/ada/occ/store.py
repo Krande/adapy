@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada.base.physical_objects import BackendGeom
+    from ada.occ.step.writer import StepWriter
 
 logger = get_logger()
 
@@ -26,14 +27,14 @@ class OCCStore:
             yield shp
 
     @staticmethod
-    def get_writer():
+    def get_writer() -> StepWriter:
         from ada.occ.step.writer import StepWriter
 
         return StepWriter("AdaStep")
 
     @staticmethod
     def shape_iterator(
-            part: ada.Part | BackendGeom, geom_repr: GeomRepr = GeomRepr.SOLID
+        part: ada.Part | BackendGeom, geom_repr: GeomRepr = GeomRepr.SOLID
     ) -> tuple[BackendGeom, TopoDS_Shape]:
         if isinstance(geom_repr, str):
             geom_repr = GeomRepr.from_str(geom_repr)
@@ -45,7 +46,7 @@ class OCCStore:
                 elif geom_repr == GeomRepr.SHELL:
                     return obj_.shell()
             except RuntimeError as e:
-                logger.warning("Failed to add shape", obj.name, e)
+                logger.warning(f"Failed to add shape {obj.name} due to {e}")
                 return None
 
         if isinstance(part, (ada.Part, ada.Assembly)):

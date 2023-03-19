@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import pathlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from ada.base.root import Root
 from ada.base.types import GeomRepr
@@ -117,24 +117,15 @@ class BackendGeom(Root):
             return a
         a.to_fem(name, fem_format, **kwargs)
 
-    def to_stp(
-        self,
-        destination_file,
-        geom_repr: GeomRepr = GeomRepr.SOLID,
-        schema="AP242",
-        silent=False,
-        fuse_piping=False,
-        return_file_obj=False,
-    ):
+    def to_stp(self, destination_file, geom_repr: GeomRepr = GeomRepr.SOLID, progress_callback: Callable = None):
         step_writer = OCCStore.get_writer()
-
-        for obj, shape in OCCStore.shape_iterator(self, geom_repr=geom_repr):
-            step_writer.add_shape(shape, obj.name, rgb_color=obj.colour_norm)
-
+        step_writer.add_shape(self.solid(), self.name, rgb_color=self.colour_norm)
         step_writer.export(destination_file)
 
     def to_obj_mesh(self, geom_repr: str | GeomRepr = GeomRepr.SOLID, export_config: ExportConfig = ExportConfig()):
-        from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import occ_geom_to_poly_mesh
+        from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import (
+            occ_geom_to_poly_mesh,
+        )
 
         if isinstance(geom_repr, str):
             geom_repr = GeomRepr.from_str(geom_repr)
