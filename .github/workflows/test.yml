@@ -116,3 +116,4 @@ jobs:
         working-directory: conda
         env:
           VERSION: ${{ needs.bump.outputs.version }}
+          IGNORE_TEST_FILES: true
