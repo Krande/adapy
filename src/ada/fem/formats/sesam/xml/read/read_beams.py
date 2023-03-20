@@ -26,6 +26,14 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
         cur_bm = seg_to_beam(name, seg, parent, prev_bm, zv)
         if cur_bm is None:
             continue
+
+        # Check for Angular sections
+        # if cur_bm.section.type == cur_bm.section.TYPES.ANGULAR:
+        #     if zv == (0, 0, -1):
+        #         cur_bm.angle = 180
+        #         cur_bm.n1 = Node(cur_bm.n1.p - np.array([0, 0, cur_bm.section.h]), parent=parent)
+        #         cur_bm.n2 = Node(cur_bm.n2.p - np.array([0, 0, cur_bm.section.h]), parent=parent)
+
         prev_bm = cur_bm
         segs += [cur_bm]
 
@@ -36,9 +44,8 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
         logger.debug(f"Offset at end 1 for beam {name} is ignored as there are more than 1 segments")
 
     if e1 is not None:
-        e1_conv = convert_offset_to_global_csys(e1, segs[0])
         if use_local:
-            e1_global = e1_conv
+            e1_global = convert_offset_to_global_csys(e1, segs[0])
         else:
             e1_global = e1
         segs[0].n1 = Node(segs[0].n1.p + e1_global, parent=parent)
@@ -56,17 +63,14 @@ def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray, np.ndarray, bool]:
     linear_offset = bm_el.find("curve_offset/linear_varying_curve_offset")
     end1_o = None
     end2_o = None
-    if linear_offset is None:
+    use_local = False
+    if linear_offset is not None:
+        end1 = linear_offset.find("offset_end1")
+        end2 = linear_offset.find("offset_end2")
+        use_local = False if linear_offset.attrib["use_local_system"] == "false" else True
+    else:
         end1 = bm_el.find(".//offset_end1")
         end2 = bm_el.find(".//offset_end2")
-        if end1 is not None or end2 is not None:
-            raise NotImplementedError("Non-linear offsets are not supported")
-
-        return end1_o, end2_o, None
-
-    end1 = linear_offset.find("offset_end1")
-    end2 = linear_offset.find("offset_end2")
-    use_local = False if linear_offset.attrib["use_local_system"] == "false" else True
 
     if end1 is not None:
         end1_o = np.array(xyz_to_floats(end1))
@@ -80,7 +84,7 @@ def convert_offset_to_global_csys(o: np.ndarray, bm: Beam):
     xv = bm.xvec
     yv = bm.yvec
     zv = bm.up
-    return xv * o + yv * o + zv * o
+    return xv * o[0] + yv * o[1] + zv * o[2]
 
 
 def apply_offset(o: np.ndarray, n: Node, bm: Beam):
@@ -93,7 +97,11 @@ def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv):
 
     index = seg.attrib["index"]
     sec = parent.sections.get_by_name(seg.attrib["section_ref"])
-    mat = parent.materials.get_by_name(seg.attrib["material_ref"])
+    material_ref = seg.attrib.get("material_ref", None)
+    if material_ref is None:
+        raise ValueError(f"Material not found for beam '{name}'. Please check your xml file")
+
+    mat = parent.materials.get_by_name(material_ref)
     mdf = seg.attrib.get("mass_density_factor_ref", None)
     if mdf is not None:
         metadata["mass_density_factor_ref"] = mdf
@@ -109,8 +117,6 @@ def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv):
 
     n1 = parent.nodes.add(Node(pos_to_floats(pos["1"])))
     n2 = parent.nodes.add(Node(pos_to_floats(pos["2"])))
-
-    # Check for offsets
 
     try:
         bm = Beam(name, n1, n2, sec=sec, mat=mat, parent=parent, metadata=metadata, up=zv)
