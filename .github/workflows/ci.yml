@@ -19,9 +19,7 @@ jobs:
   activate:
     if: |
       github.repository == 'krande/adapy' &&
-      github.ref == 'refs/heads/main' &&
-      !contains(github.event.head_commit.message, '[skip ci]') &&
-      !contains(github.event.head_commit.message, '[skip ci-main]')
+      !contains(github.event.head_commit.message, '[skip ci]')
     runs-on: ubuntu-latest
     steps:
       - run: |
