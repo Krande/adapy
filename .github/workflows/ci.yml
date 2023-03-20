@@ -89,7 +89,7 @@ jobs:
           conda mambabuild -c conda-forge -c krande --variants "{'variant': '${{matrix.build.name}}'}" . --python=${{ matrix.pyver.distver }}
         working-directory: conda
         env:
-          IGNORE_TEST_FILES: true
+          IGNORE_TEST_FILES: false
 
   pypi:
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
