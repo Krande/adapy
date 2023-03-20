@@ -1,7 +1,11 @@
-name: Ada quick tests
+name: ada-quick-tests
 
 # Bump 2
 on: push
+
+concurrency:
+  group: ada-quick-tests-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   bump:

@@ -1,7 +1,11 @@
-name: Ada profiling pytest
+name: ci-profiling
 
 # Bump 2
 on: push
+
+concurrency:
+  group: ci-profiling-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test-profile:
