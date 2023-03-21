@@ -29,7 +29,7 @@ def main():
             fem = beam.to_fem_obj(0.1, geom_repr=geom_repr, use_hex=True, use_quads=True)
             a = ada.Assembly("static_cantilever") / (ada.Part("P1", fem=fem) / beam)
 
-            fix_set = fem.add_set(ada.fem.FemSet("bc_nodes", beam.bbox.sides.back(return_fem_nodes=True, fem=fem)))
+            fix_set = fem.add_set(ada.fem.FemSet("bc_nodes", beam.bbox().sides.back(return_fem_nodes=True, fem=fem)))
             a.fem.add_bc(ada.fem.Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
 
             if is_static:

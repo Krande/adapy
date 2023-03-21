@@ -16,7 +16,7 @@ def to_three_json(assembly: "Assembly", output_file_path):
     total_json = []
     for p in assembly.parts.values():
         for obj in p.get_all_physical_objects():
-            geom = obj.solid
+            geom = obj.solid()
             tess = ShapeTesselator(geom)
             tess.Compute(compute_edges=render_edges, mesh_quality=quality, parallel=parallel)
             res = tess.ExportShapeToThreejsJSONString(obj.name)

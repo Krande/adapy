@@ -193,7 +193,7 @@ class MyRenderer(JupyterRenderer):
 
     def DisplayAdaShape(self, shp: Shape):
         res = self.DisplayShape(
-            shp.geom,
+            shp.geom(),
             transparency=shp.transparent,
             opacity=shp.opacity,
             shape_color=shp.colour,
@@ -212,7 +212,7 @@ class MyRenderer(JupyterRenderer):
                 ifc_elem = ifc_f.by_guid(beam.guid)
                 geom, color, alpha = get_ifc_geometry(ifc_elem, a.ifc_settings)
             else:
-                geom = beam.solid
+                geom = beam.solid()
             res = self.DisplayShape(geom, shape_color=beam.colour, render_edges=True)
         except BaseException as e:
             logger.debug(f'Unable to create solid for "{beam.name}" due to {e}')
@@ -222,7 +222,7 @@ class MyRenderer(JupyterRenderer):
             self._refs[r.name] = beam
 
     def DisplayPlate(self, plate: "Plate"):
-        geom = self._ifc_geom_to_shape(plate._ifc_geom) if plate._ifc_geom is not None else plate.solid
+        geom = self._ifc_geom_to_shape(plate._ifc_geom) if plate._ifc_geom is not None else plate.solid()
         # self.AddShapeToScene(geom)
         try:
             res = self.DisplayShape(geom, shape_color=plate.colour_webgl, opacity=0.5)

@@ -99,7 +99,7 @@ class Wall(BackendGeom):
         insert.placement = Placement(origin=start, xdir=xvec, ydir=zvec, zdir=yvec)
 
         frame = insert.shapes[0]
-        center, dim, oobb_shp = get_oriented_boundingbox(frame.geom)
+        center, dim, oobb_shp = get_oriented_boundingbox(frame.geom())
         x, y, z = center.X(), center.Y(), center.Z()
         dx, dy, dz = dim[0], dim[1], dim[2]
 

@@ -138,11 +138,9 @@ class Plate(BackendGeom):
 
         return self._bbox
 
-    @property
     def line(self):
         return self._poly.wire
 
-    @property
     def shell(self):
         from ada.occ.utils import apply_penetrations
 
@@ -150,7 +148,6 @@ class Plate(BackendGeom):
 
         return geom
 
-    @property
     def solid(self):
         from ada.occ.utils import apply_penetrations
 

@@ -15,6 +15,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ci-ada-fem-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   activate:
     if: |

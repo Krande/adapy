@@ -173,7 +173,7 @@ class Beam(BackendGeom):
                 raise ValueError("The assigned up vector is too close to your beam direction")
             yvec = calc_yvec(xvec, up)
             # TODO: Fix improper calculation of angle (e.g. xvec = [1,0,0] and up = [0,1,0] should be 270?
-            rad = angle_between(up, yvec)
+            rad = angle_between(up, zvec)
             angle = np.rad2deg(rad)
             up = np.array(up)
 
@@ -423,8 +423,8 @@ class Beam(BackendGeom):
     @property
     def length(self) -> float:
         """Returns the length of the beam"""
-        p1 = self.n1.p
-        p2 = self.n2.p
+        p1 = self.n1.p.copy()
+        p2 = self.n2.p.copy()
 
         if self.e1 is not None:
             p1 += self.e1
@@ -461,13 +461,13 @@ class Beam(BackendGeom):
     def xvec_e(self) -> np.ndarray:
         """Local X-vector (including eccentricities)"""
         if self.e1 is not None:
-            p1 = np.array([float(x) + float(self.e1[i]) for i, x in enumerate(self.n1.p)])
+            p1 = np.array([float(x) + float(self.e1[i]) for i, x in enumerate(self.n1.p.copy())])
         else:
-            p1 = self.n1.p
+            p1 = self.n1.p.copy()
         if self.e2 is not None:
-            p2 = np.array([float(x) + float(self.e2[i]) for i, x in enumerate(self.n2.p)])
+            p2 = np.array([float(x) + float(self.e2[i]) for i, x in enumerate(self.n2.p.copy())])
         else:
-            p2 = self.n2.p
+            p2 = self.n2.p.copy()
         return unit_vector(p2 - p1)
 
     @property
@@ -477,7 +477,7 @@ class Beam(BackendGeom):
     @n1.setter
     def n1(self, new_node: Node):
         self._n1.remove_obj_from_refs(self)
-        self._n1 = new_node.get_main_node_at_point()
+        self._n1 = new_node  # .get_main_node_at_point()
         self._n1.add_obj_to_refs(self)
 
     @property
@@ -487,10 +487,9 @@ class Beam(BackendGeom):
     @n2.setter
     def n2(self, new_node: Node):
         self._n2.remove_obj_from_refs(self)
-        self._n2 = new_node.get_main_node_at_point()
+        self._n2 = new_node  # .get_main_node_at_point()
         self._n2.add_obj_to_refs(self)
 
-    @property
     def bbox(self) -> BoundingBox:
         """Bounding Box of beam"""
         if self._bbox is None:
@@ -531,7 +530,6 @@ class Beam(BackendGeom):
     def curve(self) -> CurvePoly:
         return self._curve
 
-    @property
     def line(self):
         from ada.occ.utils import make_wire_from_points
 
@@ -544,7 +542,6 @@ class Beam(BackendGeom):
 
         return make_wire_from_points(points)
 
-    @property
     def shell(self) -> TopoDS_Shape:
         from ada.occ.utils import apply_penetrations, create_beam_geom
 
@@ -552,7 +549,6 @@ class Beam(BackendGeom):
 
         return geom
 
-    @property
     def solid(self) -> TopoDS_Shape:
         from ada.occ.utils import apply_penetrations, create_beam_geom
 

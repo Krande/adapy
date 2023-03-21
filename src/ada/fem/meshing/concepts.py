@@ -359,22 +359,22 @@ def import_into_gmsh_using_step(
     return ents
 
 
-def import_into_gmsh_use_nativepointer(obj, geom_repr: GeomRepr, model: gmsh.model) -> List[tuple]:
+def import_into_gmsh_use_nativepointer(obj: BackendGeom | Shape, geom_repr: GeomRepr, model: gmsh.model) -> List[tuple]:
     from OCC.Extend.TopologyUtils import TopologyExplorer
 
     from ada import PrimBox
 
     ents = []
     if geom_repr == GeomRepr.SOLID:
-        geom = obj.solid
+        geom = obj.solid()
         t = TopologyExplorer(geom)
         geom_iter = t.solids()
     elif geom_repr == GeomRepr.SHELL:
-        geom = obj.shell if type(obj) not in (PrimBox,) else obj.geom
+        geom = obj.shell() if type(obj) not in (PrimBox,) else obj.geom()
         t = TopologyExplorer(geom)
         geom_iter = t.faces()
     else:
-        geom = obj.line
+        geom = obj.line()
         t = TopologyExplorer(geom)
         geom_iter = t.edges()
 

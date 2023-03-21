@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 import ifcopenshell
 import ifcopenshell.geom
@@ -44,6 +44,7 @@ def is_deleted(x):
 @dataclass
 class IfcWriter:
     ifc_store: IfcStore
+    callback: Callable[[int, int], None] = None
 
     def sync_spatial_hierarchy(self, include_fem=False) -> int:
         if len(list(self.ifc_store.f.by_type("IfcSite"))) == 0:
@@ -66,10 +67,10 @@ class IfcWriter:
             )
         }
 
-        num_new_objects = 0
+        num_new_objects = len(list(a.get_all_physical_objects()))
         contained_in_spatial = {x.guid: [] for x in a.get_all_parts_in_assembly(include_self=True)}
 
-        for to_be_added in filter(is_added, a.get_all_physical_objects()):
+        for i, to_be_added in enumerate(filter(is_added, a.get_all_physical_objects()), start=1):
             self.eval_validity(to_be_added, mat_map, rel_mats_map)
 
             ifc_elem = self.add(to_be_added)
@@ -79,7 +80,8 @@ class IfcWriter:
 
             contained_in_spatial[to_be_added.parent.guid].append(ifc_elem)
             to_be_added.change_type = ChangeAction.NOCHANGE
-            num_new_objects += 1
+            if self.callback is not None:
+                self.callback(i, num_new_objects)
 
         for spatial_elem_guid, relating_elements in contained_in_spatial.items():
             if len(relating_elements) == 0:

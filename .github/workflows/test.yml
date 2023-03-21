@@ -1,0 +1,120 @@
+name: ada-quick-tests
+
+# Bump 2
+on: push
+
+concurrency:
+  group: ada-quick-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bump:
+    name: Bump version
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install requests
+        run: pip install requests
+
+      - name: Bump version
+        id: bump
+        run: python bump.py
+        working-directory: .github/workflows
+      - name: echo bump
+        run: |
+          echo ${{ steps.bump.outputs.version }}
+
+  test-core:
+    name: Test ada-py-core
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+        with:
+          cache-env: true
+          channels: conda-forge
+          channel-priority: strict
+          environment-file: conda/environment.core.yml
+          extra-specs: |
+            python=3.11
+            pytest
+
+      - name: pip install
+        run: |
+          pip install -e .
+
+      - name: Just Build & Test
+        run: pytest ./tests --ignore=./tests/docker/ --ignore=./tests/full/
+
+  test-full:
+    name: Test ada-py-full
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+        with:
+          cache-env: true
+          channels: conda-forge
+          channel-priority: strict
+          environment-file: conda/environment.core.yml
+          extra-specs: |
+            python=3.11
+            pytest
+            jupyterlab
+            pythreejs
+            pyparsing
+
+      - name: pip install
+        run: |
+          pip install -e .
+
+      - name: Just Build & Test
+        run: pytest ./tests --ignore=./tests/docker/
+
+  upload:
+    needs: [test-core, test-full, bump]
+    if: ${{ contains(github.event.head_commit.message, '[dev]') }}
+    name: Publish to CONDA
+    defaults:
+      run:
+        shell: bash -l {0}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [ { name: 'core' },{ name: 'full' } ]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+        with:
+          cache-env: true
+          environment-name: ada
+          channels: conda-forge
+          channel-priority: strict
+          environment-file: conda/environment.build.yml
+
+      - name: Echo version
+        run: |
+          echo ${{ needs.bump.outputs.version }}
+
+      - name: Build & Upload to CONDA Dev
+        run: |
+          conda mambabuild -c conda-forge -c krande/label/dev . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }} --no-test
+        working-directory: conda
+        env:
+          VERSION: ${{ needs.bump.outputs.version }}
+          IGNORE_TEST_FILES: true

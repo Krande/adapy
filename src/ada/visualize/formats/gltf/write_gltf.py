@@ -19,7 +19,7 @@ def to_gltf(assembly: "Assembly", output_file_path):
         indices = None
         id_map = dict()
         for obj in p.get_all_physical_objects():
-            geom = obj.solid
+            geom = obj.solid()
             np_vertices, np_faces, np_normals, _ = occ_shape_to_faces(geom, quality, render_edges, parallel)
             if vertices is None:
                 vertices = np_vertices

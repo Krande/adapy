@@ -1,15 +1,15 @@
+{% set name = 'ada-py' %}
 {% set data = load_setup_py_data() %}
-{% set version = data.get('version') %}
-{% set name = 'undefined' %}
-{% set test_ignores = '' %}
+{% set version = environ.get("VERSION", data.get('version')) %}
+{% set ignore_test_files = environ.get('IGNORE_TEST_FILES', '0') %}
+{% set build = 0 %}
 
-# Set name based on variant if else condition
 {% if variant == "core" %}
-  {% set name = "ada-py-core" %}
+  {% set build = build + 100 %}
   {% set test_ignores = " --ignore=tests/full" %}
 {% else %}
-  {% set name = "ada-py" %}
   {% set test_ignores = "" %}
+  {% set build = build + 200 %}
 {% endif %}
 
 package:
@@ -21,35 +21,18 @@ source:
 
 build:
   noarch: python
-  number: 0
   script: python -m pip install . --no-deps -vv
+  number: {{ build }}
+  string: {{ variant }}_h{{ PKG_HASH }}_{{ build }}
 
 # Set list of core dependencies (core -> conversion and analysis)
-{% set core_deps = [
-    "numpy",
-    "h5py",
-    "ifcopenshell",
-    "pythonocc-core",
-    "python-gmsh",
-    "pyquaternion",
-    "trimesh",
-    "send2trash",
-    "meshio",
-    "pytexit",
-    "plotly",
-    "python-kaleido",
-    "calculix",
-] %}
+{% set core_deps = load_file_data('conda/environment.core.yml')['dependencies'] %}
 
 # Maybe pytexit, plotly and python-kaleido should be moved to the "full" dependencies list
 # Also Calculix might move to the core deps once the fem wrapper is more stable
 
 # Set full list of dependencies
-{% set full_deps = core_deps + [
-    "jupyterlab",
-    "pythreejs",
-    "pyparsing",
-] %}
+{% set full_deps = core_deps + load_file_data('conda/environment.full.yml')['dependencies'] %}
 
 {% set deps = core_deps if variant == "core" else full_deps %}
 
@@ -63,17 +46,8 @@ requirements:
   {% endfor %}
 
 test:
-  requires:
-    - pytest
-    - pytest-cov
   imports:
     - ada
-  source_files:
-    - tests
-    - files
-    - examples
-  commands:
-    - pytest tests --ignore=tests/docker{{ test_ignores }} --cov=ada --cov-report=xml
 
 
 about:

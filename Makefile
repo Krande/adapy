@@ -13,6 +13,9 @@ endef
 dev:
 	mamba env update --file environment.dev.yml --prune
 
+core:
+	mamba env update --file conda/environment.core.yml --prune
+
 format:
 	black --config pyproject.toml . && isort . && ruff . --fix
 

@@ -48,7 +48,7 @@ def write_ifc_shape(shape: Shape):
         ifc_shape = generate_parametric_solid(shape, f)
     else:
         tol = Units.get_general_point_tol(a.units)
-        serialized_geom = tesselate_shape(shape.geom, schema, tol)
+        serialized_geom = tesselate_shape(shape.geom(), schema, tol)
         ifc_shape = f.add(serialized_geom)
 
     # Add colour

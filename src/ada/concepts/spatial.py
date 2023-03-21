@@ -777,6 +777,27 @@ class Part(BackendGeom):
 
         vm.to_gltf(gltf_file, only_these_guids=limit_to_guids, embed_meta=embed_meta)
 
+    def to_stp(
+        self,
+        destination_file,
+        geom_repr: GeomRepr = GeomRepr.SOLID,
+        progress_callback: Callable[
+            [int, int],
+            None,
+        ] = None,
+    ):
+        from ada.occ.store import OCCStore
+
+        step_writer = OCCStore.get_writer()
+
+        num_shapes = len(list(self.get_all_physical_objects()))
+        for i, (obj, shape) in enumerate(OCCStore.shape_iterator(self, geom_repr=geom_repr), start=1):
+            step_writer.add_shape(shape, obj.name, rgb_color=obj.colour_norm)
+            if progress_callback is not None:
+                progress_callback(i, num_shapes)
+
+        step_writer.export(destination_file)
+
     @property
     def parts(self) -> dict[str, Part]:
         return self._parts
@@ -1129,7 +1150,14 @@ class Assembly(Part):
 
         return postprocess(res_path, fem_format=fem_format)
 
-    def to_ifc(self, destination=None, include_fem=False, file_obj_only=False, validate=False) -> ifcopenshell.file:
+    def to_ifc(
+        self,
+        destination=None,
+        include_fem=False,
+        file_obj_only=False,
+        validate=False,
+        progress_callback: Callable[[int, int], None] = None,
+    ) -> ifcopenshell.file:
         import ifcopenshell.validate
 
         if destination is None or file_obj_only is True:
@@ -1139,7 +1167,7 @@ class Assembly(Part):
 
         print(f'Beginning writing to IFC file "{destination}" using IfcOpenShell')
 
-        self.ifc_store.sync(include_fem=include_fem)
+        self.ifc_store.sync(include_fem=include_fem, progress_callback=progress_callback)
 
         if file_obj_only is False:
             os.makedirs(destination.parent, exist_ok=True)

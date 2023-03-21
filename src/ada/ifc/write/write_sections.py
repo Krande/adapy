@@ -97,7 +97,7 @@ class IProfile(ProfileBase):
             sec_props = dict(OuterCurve=polyline)
         else:
             if SectionCat.is_strong_axis_symmetric(section) is False:
-                logger.warning("Note! IfcAsymmetricIShapeProfileDef as it is not supported by ifcopenshell v IFC4")
+                logger.info("Note! IfcAsymmetricIShapeProfileDef as it is not supported by ifcopenshell v IFC4")
             sec_props = dict(
                 OverallWidth=section.w_top,
                 OverallDepth=section.h,
@@ -124,7 +124,7 @@ class TProfile(ProfileBase):
             sec_props = dict(OuterCurve=polyline)
         else:
             if SectionCat.is_strong_axis_symmetric(section) is False:
-                logger.warning(
+                logger.info(
                     "Note! Not using IfcAsymmetricIShapeProfileDef as it is not supported by ifcopenshell v IFC4"
                 )
             sec_props = dict(

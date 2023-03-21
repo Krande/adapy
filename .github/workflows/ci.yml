@@ -1,4 +1,5 @@
 name: ci-ada-main
+
 # bump 2
 on:
   push:
@@ -11,17 +12,18 @@ on:
     branches:
       - main
   pull_request:
-    paths-ignore:
-      - setup.py
     branches:
       - main
+
+concurrency:
+  group: ci-ada-main-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   activate:
     if: |
       github.repository == 'krande/adapy' &&
-      !contains(github.event.head_commit.message, '[skip ci]') &&
-      !contains(github.event.head_commit.message, '[skip ci-main]')
+      !contains(github.event.head_commit.message, '[skip ci]')
     runs-on: ubuntu-latest
     steps:
       - run: |
@@ -50,27 +52,21 @@ jobs:
         run: isort --check .
       - name: Lint with ruff
         run: ruff .
+
   test:
     needs: activate
-    name: ${{ matrix.platform.name }}-${{ matrix.pyver.name }}
+    name: ${{ matrix.platform.name }}-${{ matrix.pyver.name }}-${{ matrix.build.name }}
     runs-on: ${{ matrix.platform.distver }}
     defaults:
       run:
         shell: bash -l {0}
-    env:
-      TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-      CONDAENV: condabuild
-      PKG_VERSION: nothing
-      CONDAROOT: nothing
-      CONDA_CHANNEL: krande/label/dev
-      CONDA_LABEL: ' --label dev'
     strategy:
       fail-fast: false
       matrix:
+        build: [ { name: 'core' },{ name: 'full' } ]
         pyver: [
-          { name: py39, distver: '3.9' },
-          { name: py310, distver: '3.10'},
-          { name: py311, distver: '3.11'}
+          { name: py310, distver: '3.10' },
+          { name: py311, distver: '3.11' }
         ]
         platform: [
           { name: Windows, distver: windows-latest, short: 'win-64' },
@@ -80,37 +76,42 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+        if: ${{ matrix.build.name == 'core' }}
         with:
-          environment-name: ada
-          channels: conda-forge
+          cache-env: true
+          channels: conda-forge,krande
           channel-priority: strict
-          environment-file: conda/environment.build.yml
+          environment-file: conda/environment.core.yml
           extra-specs: |
             python=${{ matrix.pyver.distver }}
+            pytest
 
-      - name: edit conda channel label if not on main
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        run: |
-          echo "CONDA_CHANNEL=krande" >> $GITHUB_ENV
-          echo "CONDA_LABEL=" >> $GITHUB_ENV
+      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+        if: ${{ matrix.build.name == 'full' }}
+        with:
+          cache-env: true
+          channels: conda-forge,krande
+          channel-priority: strict
+          environment-file: conda/environment.core.yml
+          extra-specs: |
+            python=${{ matrix.pyver.distver }}
+            pytest
+            jupyterlab
+            pythreejs
+            pyparsing
 
-      - name: Just Build & Test
-        if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main') }}
+      - name: pip install
         run: |
-          conda-build -c conda-forge -c ${{env.CONDA_CHANNEL}} . --python=${{ matrix.pyver.distver }}
-        working-directory: conda
+          pip install -e .
 
-      - name: Build, Test & Upload to CONDA Main
-        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
-        run: |
-          conda-build -c conda-forge -c ${{env.CONDA_CHANNEL}} . --python=${{ matrix.pyver.distver }} --user krande${{env.CONDA_LABEL}} --token=${{ secrets.ANACONDA_TOKEN }}
-        working-directory: conda
+      - name: Test Core
+        if: ${{ matrix.build.name == 'core' }}
+        run: pytest ./tests --ignore=./tests/docker/ --ignore=./tests/full/
+      - name: Test Full
+        if: ${{ matrix.build.name == 'full' }}
+        run: pytest ./tests --ignore=./tests/docker/
 
-      - name: Build, Test & Upload to CONDA Dev
-        if: ${{ contains(github.event.head_commit.message, '[dev]') }}
-        run: |
-          conda-build -c conda-forge -c ${{env.CONDA_CHANNEL}} . --python=${{ matrix.pyver.distver }} --user krande${{env.CONDA_LABEL}} --token=${{ secrets.ANACONDA_TOKEN }}
-        working-directory: conda
+
   pypi:
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
     needs: test
@@ -134,3 +135,33 @@ jobs:
         with:
           user: __token__
           password: ${{ secrets.PYPI_API_TOKEN }}
+
+  conda:
+    if: ${{ (github.event_name != 'pull_request' && github.ref == 'refs/heads/main') }}
+    needs: test
+    name: Publish to CONDA
+    defaults:
+      run:
+        shell: bash -l {0}
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [ { name: 'core' },{ name: 'full' } ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+        with:
+          cache-env: true
+          environment-name: ada
+          channels: conda-forge
+          channel-priority: strict
+          environment-file: conda/environment.build.yml
+
+      - name: Build & Upload to CONDA Main
+        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+        run: |
+          conda mambabuild -c conda-forge -c krande . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --token=${{ secrets.ANACONDA_TOKEN }} --no-test
+        working-directory: conda
+        env:
+          IGNORE_TEST_FILES: true

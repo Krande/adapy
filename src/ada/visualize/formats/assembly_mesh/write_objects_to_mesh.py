@@ -132,12 +132,12 @@ def occ_geom_to_poly_mesh(
     geom_repr: GeomRepr = GeomRepr.SOLID,
 ) -> ObjectMesh:
     if geom_repr == GeomRepr.SOLID:
-        geom = obj.solid
+        geom = obj.solid()
     elif geom_repr == GeomRepr.SHELL:
-        geom = obj.shell
+        geom = obj.shell()
     else:
         export_config.render_edges = True
-        geom = obj.line
+        geom = obj.line()
 
     position, indices, normals, _ = occ_shape_to_faces(
         geom,

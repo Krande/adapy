@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import os
 import pathlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from ada.base.root import Root
 from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.concepts.transforms import Placement
 from ada.core.constants import color_map as _cmap
+from ada.occ.store import OCCStore
 from ada.visualize.config import ExportConfig
 
 if TYPE_CHECKING:
@@ -116,25 +117,10 @@ class BackendGeom(Root):
             return a
         a.to_fem(name, fem_format, **kwargs)
 
-    def to_stp(
-        self,
-        destination_file,
-        geom_repr: GeomRepr = None,
-        schema="AP242",
-        silent=False,
-        fuse_piping=False,
-        return_file_obj=False,
-    ):
-        occ_export = self._get_occ_export(geom_repr, schema, fuse_piping)
-        return occ_export.write_to_file(destination_file, silent, return_file_obj=return_file_obj)
-
-    def _get_occ_export(self, geom_repr: GeomRepr = None, schema="AP242", fuse_piping=False):
-        from ada.occ.writer import OCCExporter
-
-        geom_repr = GeomRepr.SOLID if geom_repr is None else geom_repr
-        occ_export = OCCExporter(schema)
-        occ_export.add_to_step_writer(self, geom_repr, fuse_piping=fuse_piping)
-        return occ_export
+    def to_stp(self, destination_file, geom_repr: GeomRepr = GeomRepr.SOLID, progress_callback: Callable = None):
+        step_writer = OCCStore.get_writer()
+        step_writer.add_shape(self.solid(), self.name, rgb_color=self.colour_norm)
+        step_writer.export(destination_file)
 
     def to_obj_mesh(self, geom_repr: str | GeomRepr = GeomRepr.SOLID, export_config: ExportConfig = ExportConfig()):
         from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import (
@@ -279,14 +265,11 @@ class BackendGeom(Root):
         display(HBox([VBox([HBox(renderer.controls), renderer.renderer]), renderer.html]))
         return ""
 
-    @property
     def solid(self):
         raise NotImplementedError()
 
-    @property
     def shell(self):
         raise NotImplementedError()
 
-    @property
     def line(self):
         raise NotImplementedError()

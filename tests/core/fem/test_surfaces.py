@@ -94,11 +94,11 @@ def test_surface_beam(surfaces_test_dir):
     step = a.fem.add_step(ada.fem.StepImplicit("MyStep"))
 
     # Add Boundary Condition
-    start_of_beam = bm.bbox.sides.back(return_fem_nodes=True)
+    start_of_beam = bm.bbox().sides.back(return_fem_nodes=True)
     p.fem.add_bc(ada.fem.Bc("fix", ada.fem.FemSet("bc_fix", start_of_beam), [1, 2, 3]))
 
     # Add Surface Load
-    surface_top = p.fem.add_surface(bm.bbox.sides.top(return_surface=True, surf_name="TopSurface"))
+    surface_top = p.fem.add_surface(bm.bbox().sides.top(return_surface=True, surf_name="TopSurface"))
     step.add_load(ada.fem.LoadPressure("PressureTop", 1e6, surface_top))
 
     a.to_fem("MyFemBeam_100mm_2nd_order", "abaqus", overwrite=True, execute=False, scratch_dir=surfaces_test_dir)
