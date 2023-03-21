@@ -50,11 +50,11 @@ jobs:
             python=3.11
             pytest
 
-      - name: pip install
+      - name: Install latest adapy
         run: |
           pip install -e .
 
-      - name: Just Build & Test
+      - name: Runs Tests
         run: pytest ./tests --ignore=./tests/docker/ --ignore=./tests/full/
 
   test-full:
@@ -78,11 +78,11 @@ jobs:
             pythreejs
             pyparsing
 
-      - name: pip install
+      - name: Install latest adapy
         run: |
           pip install -e .
 
-      - name: Just Build & Test
+      - name: Run Tests
         run: pytest ./tests --ignore=./tests/docker/
 
   upload:
@@ -102,7 +102,6 @@ jobs:
       - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
         with:
           cache-env: true
-          environment-name: ada
           channels: conda-forge
           channel-priority: strict
           environment-file: conda/environment.build.yml
@@ -113,8 +112,7 @@ jobs:
 
       - name: Build & Upload to CONDA Dev
         run: |
-          conda mambabuild -c conda-forge -c krande/label/dev . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }} --no-test
+          conda mambabuild -c krande/label/dev . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }} --no-test
         working-directory: conda
         env:
           VERSION: ${{ needs.bump.outputs.version }}
-          IGNORE_TEST_FILES: true

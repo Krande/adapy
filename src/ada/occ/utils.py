@@ -44,7 +44,7 @@ from ada.concepts.primitives import Penetration
 from ada.concepts.stru_beams import Beam
 from ada.concepts.transforms import Placement, Rotation
 from ada.config import get_logger
-from ada.core.utils import roundoff, tuple_minus
+from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem.shapes import ElemType
 
@@ -778,18 +778,26 @@ def build_polycurve_occ(local_points, input_2d_coords=False, tol=1e-3):
 
 def create_beam_geom(beam: Beam, solid=True):
     from ada.concepts.transforms import Placement
+    from ada.config import Settings
     from ada.sections.categories import SectionCat
 
     from .section_utils import cross_sec_face
 
     xdir, ydir, zdir = beam.ori
-    ydir_neg = tuple_minus(ydir) if beam.section.type not in SectionCat.angular else tuple(ydir)
+    p1 = beam.n1.p
+    p2 = beam.n2.p
+    if Settings.model_export.include_ecc:
+        xdir = beam.xvec_e
+        if beam.e1 is not None:
+            p1 = beam.n1.p + beam.e1
+        if beam.e2 is not None:
+            p2 = beam.n2.p + beam.e2
 
     section_profile = beam.section.get_section_profile(solid)
     taper_profile = beam.taper.get_section_profile(solid)
 
-    placement_1 = Placement(origin=beam.n1.p, xdir=ydir_neg, zdir=xdir)
-    placement_2 = Placement(origin=beam.n2.p, xdir=ydir_neg, zdir=xdir)
+    placement_1 = Placement(origin=p1, xdir=ydir, zdir=xdir)
+    placement_2 = Placement(origin=p2, xdir=ydir, zdir=xdir)
 
     sec = cross_sec_face(section_profile, placement_1, solid)
     tap = cross_sec_face(taper_profile, placement_2, solid)

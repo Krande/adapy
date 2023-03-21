@@ -33,7 +33,7 @@ jobs:
           pip install -e .
 
       - name: Profile using scalene
-        run: scalene --json --cli -m pytest ./tests --ignore=./tests/docker/
+        run: scalene --json -m pytest ./tests --ignore=./tests/docker/ --outfile=profile.json
 
       - name: Profile using cProfile
         run: python -m cProfile -o profile -m pytest tests --ignore=./tests/docker

@@ -1,7 +1,7 @@
 from ada import Assembly, Beam, Part
 
 
-def test_beam_rotation_by_angle():
+def test_beam_rotation_by_angle(test_dir):
     # Define beam rotations using vectors
     angles = [0, 90, 180, 270]
     vectorX = [(0, 0, 1), (0, -1, 0), (0, 0, -1), (0, 1, 0)]
@@ -32,5 +32,5 @@ def test_beam_rotation_by_angle():
         p.add_beam(Beam(f"bmZ_n{i}_v", **d3, up=vectorZ[i]))
 
     # # Visual Check
-    # p.to_stp(test_folder / "my_angle_rotated_profiles.stp")
-    # a.to_ifc(test_folder / "my_angle_rotated_profiles.ifc")
+    # p.to_stp(test_dir / "my_angle_rotated_profiles.stp")
+    # a.to_ifc(test_dir / "my_angle_rotated_profiles.ifc")
