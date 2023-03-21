@@ -110,9 +110,13 @@ jobs:
         run: |
           echo ${{ needs.bump.outputs.version }}
 
+      - name: Make new workspace directory
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/conda/build
+
       - name: Build & Upload to CONDA Dev
         run: |
-          conda mambabuild -c krande/label/dev . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }} --no-test
+          conda mambabuild -c krande/label/dev . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }} --no-test --output-folder $GITHUB_WORKSPACE/conda/build
         working-directory: conda
         env:
           VERSION: ${{ needs.bump.outputs.version }}
