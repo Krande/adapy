@@ -1,4 +1,4 @@
-name: ada-quick-tests
+name: ci-branch-tests
 
 # Bump 2
 on: push

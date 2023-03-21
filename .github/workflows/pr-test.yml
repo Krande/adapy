@@ -1,4 +1,4 @@
-name: pr-tests
+name: ci-pr-tests
 
 # bump 2
 on:
