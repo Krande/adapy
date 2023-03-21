@@ -30,8 +30,14 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
         prev_bm = cur_bm
         segs += [cur_bm]
 
-    # Check for offsets
+    apply_offsets_and_alignments(name, bm_el, segs)
+
+    return segs
+
+
+def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list[Beam]):
     e1, e2, use_local = get_offsets(bm_el)
+    alignment = get_alignment(bm_el, segs)
 
     if len(segs) > 1 and (e1 is not None or e2 is not None):
         logger.debug(f"Offset at end 1 for beam {name} is ignored as there are more than 1 segments")
@@ -41,20 +47,18 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
             e1_global = convert_offset_to_global_csys(e1, segs[0])
         else:
             e1_global = e1
-        segs[0].n1 = Node(segs[0].n1.p + e1_global, parent=parent)
+        segs[0].e1 = e1_global
     if e2 is not None:
         if use_local:
             e2_global = convert_offset_to_global_csys(e2, segs[-1])
         else:
             e2_global = e2
-        segs[-1].n2 = Node(segs[-1].n2.p + e2_global, parent=parent)
+        segs[-1].e2 = e2_global
 
-    alignment = get_alignment(bm_el, segs)
     if alignment is not None:
-        # segs = apply_alignment(segs, alignment)
-        logger.info(f"Would have applied alignment {alignment} to beam {name}")
-
-    return segs
+        for seg in segs:
+            seg.e1 = alignment if seg.e1 is None else seg.e1 + alignment
+            seg.e2 = alignment if seg.e2 is None else seg.e2 + alignment
 
 
 def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray, np.ndarray, bool]:
@@ -102,13 +106,6 @@ def get_alignment(bm_el: ET.Element, segments: list[Beam]):
         else:
             offset = -zv * sec0.h / 2
             return offset
-
-
-def apply_alignment(segments: list[Beam], offset: np.ndarray):
-    for seg in segments:
-        seg.e1 = offset
-        seg.e2 = offset
-    return segments
 
 
 def convert_offset_to_global_csys(o: np.ndarray, bm: Beam):

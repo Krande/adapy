@@ -127,15 +127,18 @@ def extrude_straight_beam(beam: Beam, f: ifile, profile):
 
     e1 = (0.0, 0.0, 0.0)
 
+    vec = beam.xvec
+    yvec = beam.yvec
     if Settings.ifc_export.include_ecc and beam.e1 is not None:
         e1 = beam.e1
+        vec = beam.xvec_e
 
     profile_e = None
     if beam.taper is not None and beam.section != beam.taper:
         profile_e = f.by_guid(beam.taper.guid)
 
     # Transform coordinates to local coords
-    p1 = tuple([float(x) + float(e1[i]) for i, x in enumerate(beam.n1.p)])
+    p1 = tuple([float(x) + float(e1[i]) for i, x in enumerate(beam.n1.p.copy())])
     p2 = p1 + np.array([0, 0, 1]) * beam.length
 
     p1_ifc = f.create_entity("IfcCartesianPoint", to_real(p1))
@@ -159,7 +162,7 @@ def extrude_straight_beam(beam: Beam, f: ifile, profile):
 
     body_context = a.ifc_store.get_context("Body")
     axis_context = a.ifc_store.get_context("Axis")
-    ax23d = f.create_entity("IfcAxis2Placement3D", p1_ifc, ifc_dir(f, beam.xvec_e), ifc_dir(f, beam.yvec))
+    ax23d = f.create_entity("IfcAxis2Placement3D", p1_ifc, ifc_dir(f, vec), ifc_dir(f, yvec))
     loc_plac = f.create_entity("IfcLocalPlacement", global_placement, ax23d)
     body = f.create_entity("IfcShapeRepresentation", body_context, "Body", "SweptSolid", [extrude_area_solid])
     axis = f.create_entity("IfcShapeRepresentation", axis_context, "Axis", "Curve3D", [ifc_polyline])
