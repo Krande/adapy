@@ -27,13 +27,6 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
         if cur_bm is None:
             continue
 
-        # Check for Angular sections
-        # if cur_bm.section.type == cur_bm.section.TYPES.ANGULAR:
-        #     if zv == (0, 0, -1):
-        #         cur_bm.angle = 180
-        #         cur_bm.n1 = Node(cur_bm.n1.p - np.array([0, 0, cur_bm.section.h]), parent=parent)
-        #         cur_bm.n2 = Node(cur_bm.n2.p - np.array([0, 0, cur_bm.section.h]), parent=parent)
-
         prev_bm = cur_bm
         segs += [cur_bm]
 
@@ -56,11 +49,17 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
             e2_global = e2
         segs[-1].n2 = Node(segs[-1].n2.p + e2_global, parent=parent)
 
+    alignment = get_alignment(bm_el, segs)
+    if alignment is not None:
+        # segs = apply_alignment(segs, alignment)
+        logger.info(f"Would have applied alignment {alignment} to beam {name}")
+
     return segs
 
 
 def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray, np.ndarray, bool]:
     linear_offset = bm_el.find("curve_offset/linear_varying_curve_offset")
+
     end1_o = None
     end2_o = None
     use_local = False
@@ -78,6 +77,38 @@ def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray, np.ndarray, bool]:
         end2_o = np.array(xyz_to_floats(end2))
 
     return end1_o, end2_o, use_local
+
+
+def get_alignment(bm_el: ET.Element, segments: list[Beam]):
+    seg0 = segments[0]
+    sec0 = seg0.section
+    zv = seg0.up
+    aligned_offset = bm_el.find("curve_offset/aligned_curve_offset")
+
+    if aligned_offset is None:
+        # if sec0.type == sec0.TYPES.ANGULAR:
+        #     offset = zv * sec0.h / 2
+        #     return offset
+        return None
+
+    alignment = aligned_offset.attrib.get("alignment")
+    aligned_offset.attrib.get("constant_value")
+    if alignment == "flush_top":
+        if sec0.type == sec0.TYPES.ANGULAR:
+            pass  # Angular profiles are already flush
+        elif sec0.type == sec0.TYPES.TUBULAR:
+            offset = -zv * sec0.r
+            return offset
+        else:
+            offset = -zv * sec0.h / 2
+            return offset
+
+
+def apply_alignment(segments: list[Beam], offset: np.ndarray):
+    for seg in segments:
+        seg.e1 = offset
+        seg.e2 = offset
+    return segments
 
 
 def convert_offset_to_global_csys(o: np.ndarray, bm: Beam):

@@ -45,7 +45,7 @@ def make_ig_cutplanes(bm: "Beam"):
     bm1_sec_curve = get_bm_section_curve(bm)
     minz = min([x[2] for x in bm1_sec_curve.points3d])
     maxz = max([x[2] for x in bm1_sec_curve.points3d])
-    pmin, pmax = bm.bbox.p1, bm.bbox.p2
+    pmin, pmax = bm.bbox().p1, bm.bbox().p2
     dx, dy, dz = (ar(pmax) - ar(pmin)) * 1.0
     x, y, _ = pmin
 

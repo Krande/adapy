@@ -31,6 +31,7 @@ jobs:
       - name: echo bump
         run: |
           echo ${{ steps.bump.outputs.version }}
+
   test-core:
     name: Test ada-py-core
     runs-on: ubuntu-latest
@@ -42,7 +43,6 @@ jobs:
       - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
         with:
           cache-env: true
-          environment-name: ada
           channels: conda-forge
           channel-priority: strict
           environment-file: conda/environment.core.yml
@@ -63,14 +63,11 @@ jobs:
     defaults:
       run:
         shell: bash -l {0}
-    outputs:
-      version: ${{ steps.bump.outputs.version }}
     steps:
       - uses: actions/checkout@v3
       - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
         with:
           cache-env: true
-          environment-name: ada
           channels: conda-forge
           channel-priority: strict
           environment-file: conda/environment.core.yml

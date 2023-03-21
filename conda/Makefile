@@ -1,6 +1,13 @@
 compile:
 	conda run -n conda-build --live-stream conda mambabuild -c conda-forge -c krande . --python 3.11
 
+compile-core:
+	conda run -n conda-build --live-stream conda mambabuild -c krande/label/dev -c conda-forge . --variants "{'variant': 'core'}" --python 3.11
+
+
+devcompile:
+	conda run -n conda-build --live-stream conda mambabuild -c krande/label/dev -c conda-forge . --python 3.11
+
 compile-docker-build:
 	docker build -t ada/condabuild -f Dockerfile ../ && \
 	docker run --name ada-condabuild --rm ada/condabuild

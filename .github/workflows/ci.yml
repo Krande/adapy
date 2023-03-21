@@ -52,6 +52,7 @@ jobs:
         run: isort --check .
       - name: Lint with ruff
         run: ruff .
+
   test:
     needs: activate
     name: ${{ matrix.platform.name }}-${{ matrix.pyver.name }}-${{ matrix.build.name }}
@@ -75,18 +76,40 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+        if: ${{ matrix.build.name == 'core' }}
         with:
           cache-env: true
           channels: conda-forge
           channel-priority: strict
-          environment-file: conda/environment.build.yml
+          environment-file: conda/environment.core.yml
           extra-specs: |
             python=${{ matrix.pyver.distver }}
+            pytest
+            jupyterlab
+            pythreejs
+            pyparsing
 
-      - name: Build & Test
+      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+        if: ${{ matrix.build.name == 'full' }}
+        with:
+          cache-env: true
+          channels: conda-forge
+          channel-priority: strict
+          environment-file: conda/environment.core.yml
+          extra-specs: |
+            python=${{ matrix.pyver.distver }}
+            pytest
+
+      - name: pip install
         run: |
-          conda mambabuild -c conda-forge -c krande --variants "{'variant': '${{matrix.build.name}}'}" . --python=${{ matrix.pyver.distver }}
-        working-directory: conda
+          pip install -e .
+
+      - name: Test Core
+        if: ${{ matrix.build.name == 'core' }}
+        run: pytest ./tests --ignore=./tests/docker/ --ignore=./tests/full/
+      - name: Test Full
+        if: ${{ matrix.build.name == 'full' }}
+        run: pytest ./tests --ignore=./tests/docker/
 
 
   pypi:

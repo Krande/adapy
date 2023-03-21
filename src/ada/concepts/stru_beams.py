@@ -490,7 +490,6 @@ class Beam(BackendGeom):
         self._n2 = new_node.get_main_node_at_point()
         self._n2.add_obj_to_refs(self)
 
-    @property
     def bbox(self) -> BoundingBox:
         """Bounding Box of beam"""
         if self._bbox is None:

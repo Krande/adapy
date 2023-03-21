@@ -78,7 +78,7 @@ def test_fem_static(
     else:
         p.fem = beam_fixture.to_fem_obj(0.05, geom_repr, options=GmshOptions(Mesh_ElementOrder=elem_order), **props)
         fix_set = p.fem.add_set(
-            ada.fem.FemSet("bc_nodes", beam_fixture.bbox.sides.back(return_fem_nodes=True, fem=p.fem))
+            ada.fem.FemSet("bc_nodes", beam_fixture.bbox().sides.back(return_fem_nodes=True, fem=p.fem))
         )
         a.fem.add_bc(ada.fem.Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
 

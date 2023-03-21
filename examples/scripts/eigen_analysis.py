@@ -8,7 +8,7 @@ def make_fem(geom_repr) -> ada.Assembly:
     assembly = ada.Assembly("MyAssembly") / [ada.Part("MyPart") / bm]
     part = bm.parent
     part.fem = bm.to_fem_obj(0.1, geom_repr, options=GmshOptions(Mesh_ElementOrder=1))
-    nodes = bm.bbox.sides.back(return_fem_nodes=True)
+    nodes = bm.bbox().sides.back(return_fem_nodes=True)
     assembly.fem.add_bc(ada.fem.Bc("Fixed", ada.fem.FemSet("bc_nodes", nodes), [1, 2, 3, 4, 5, 6]))
     assembly.fem.add_step(ada.fem.StepEigen("Eigen", num_eigen_modes=10))
     return assembly
