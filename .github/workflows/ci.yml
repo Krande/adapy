@@ -85,9 +85,6 @@ jobs:
           extra-specs: |
             python=${{ matrix.pyver.distver }}
             pytest
-            jupyterlab
-            pythreejs
-            pyparsing
 
       - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
         if: ${{ matrix.build.name == 'full' }}
@@ -99,6 +96,9 @@ jobs:
           extra-specs: |
             python=${{ matrix.pyver.distver }}
             pytest
+            jupyterlab
+            pythreejs
+            pyparsing
 
       - name: pip install
         run: |
