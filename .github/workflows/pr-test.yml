@@ -2,13 +2,6 @@ name: pr-tests
 
 # bump 2
 on:
-  push:
-    paths:
-      - src/**
-      - tests/**
-      - images/tests/**
-      - conda/**
-      - .github/workflows/ci.yml
   pull_request:
     branches:
       - main
