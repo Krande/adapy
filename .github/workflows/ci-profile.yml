@@ -3,10 +3,6 @@ name: ci-profiling
 # Bump 3
 on: push
 
-concurrency:
-  group: ci-profiling-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   test-profile:
     name: Profile ada-py-full
