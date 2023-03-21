@@ -1,8 +1,7 @@
 name: core
 channels:
-  - krande/label/dev
-  - krande
   - conda-forge
+  - krande
 dependencies:
   - numpy
   - h5py

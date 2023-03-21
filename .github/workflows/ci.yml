@@ -79,7 +79,7 @@ jobs:
         if: ${{ matrix.build.name == 'core' }}
         with:
           cache-env: true
-          channels: conda-forge
+          channels: conda-forge, krande
           channel-priority: strict
           environment-file: conda/environment.core.yml
           extra-specs: |
