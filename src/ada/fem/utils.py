@@ -62,7 +62,7 @@ def get_nodes_along_plate_edges(pl: Plate, fem: FEM, edge_indices=None, tol=1e-3
     """Return FEM nodes from edges of a plate"""
 
     res = []
-    bmin, bmax = list(zip(*pl.bbox))
+    bmin, bmax = list(zip(*pl.bbox()))
     bmin_smaller = np.array(bmin) + pl.poly.xdir * tol + pl.poly.ydir * tol
     bmax_smaller = np.array(bmax) - pl.poly.xdir * tol - pl.poly.ydir * tol
     all_res = fem.nodes.get_by_volume(bmin, bmax)

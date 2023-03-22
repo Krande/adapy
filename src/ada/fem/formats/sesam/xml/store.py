@@ -4,12 +4,22 @@ import xml.etree.ElementTree as ET
 from ada import Part
 from ada.fem.formats.sesam.xml.read.read_beams import el_to_beam
 from ada.fem.formats.sesam.xml.read.read_materials import get_materials
+from ada.fem.formats.sesam.xml.read.read_plates import write_xml_sat_text_to_file
 from ada.fem.formats.sesam.xml.read.read_sections import get_sections
+from ada.sat.factory import SatReaderFactory
 
 
 class GxmlStore:
     def __init__(self, xml_path: pathlib.Path):
+        if isinstance(xml_path, str):
+            xml_path = pathlib.Path(xml_path)
+
+        self.sat_file = xml_path.with_suffix(".sat")
+        write_xml_sat_text_to_file(xml_file=xml_path, out_file=self.sat_file)
+
         self.xml_root = ET.parse(str(xml_path)).getroot()
+        self.sat_factory = SatReaderFactory(self.sat_file)
+
         self.p = Part("tmp")
         p = self.p
         p._sections = get_sections(self.xml_root, p)

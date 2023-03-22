@@ -143,7 +143,7 @@ def find_beams_connected_to_plate(pl: Plate, beams: List[Beam]) -> List[Beam]:
 
     nid = Counter(1)
     nodes = Nodes([Node((bm.n2.p + bm.n1.p) / 2, next(nid), refs=[bm]) for bm in beams])
-    res = nodes.get_by_volume(pl.bbox.p1, pl.bbox.p2)
+    res = nodes.get_by_volume(pl.bbox().p1, pl.bbox().p2)
 
     all_beams_within = list(chain.from_iterable([r.refs for r in res]))
     return all_beams_within

@@ -14,11 +14,8 @@ logger = get_logger()
 
 def iter_plates(xml_root: ET.Element, parent: Part):
     sat_ref_d = dict()
-    for sat_geometry_el in xml_root.findall(".//sat_embedded"):
+    for sat_geometry_el in xml_root.findall(".//sat_embedded") + xml_root.findall(".//sat_embedded_sequence"):
         sat_ref_d.update(get_structured_plates_data_from_sat(sat_geometry_el))
-
-    for sat_geometry_seq in xml_root.findall(".//sat_embedded_sequence"):
-        sat_ref_d.update(get_structured_plates_data_from_sat(sat_geometry_seq))
 
     thick_map = dict()
     for thickn in xml_root.findall(".//thickness"):
@@ -71,7 +68,7 @@ def extract_sat_data(sat_el: ET.Element) -> dict:
 
 def organize_sat_text_to_dict(sat_text) -> dict:
     sat_dict = dict()
-    for res in re.finditer(r"^-(?P<id>[0-9]{1,7}) (?P<name>.*?) (?P<bulk>.*?) #", sat_text, re.MULTILINE | re.DOTALL):
+    for res in re.finditer(r"^-(?P<id>[0-9]{1,99}) (?P<name>.*?) (?P<bulk>.*?) #", sat_text, re.MULTILINE | re.DOTALL):
         d = res.groupdict()
         sat_dict[d["id"]] = (d["name"], *d["bulk"].split())
 
@@ -99,7 +96,16 @@ def xml_elem_to_sat_text(sat_el: ET.Element) -> str:
     if len(res.keys()) != 1:
         raise NotImplementedError("No support for binary zip data containing multipart SAT file yet")
 
-    return str(res["b64temp.sat"], encoding="utf-8")
+    return str(res["b64temp.sat"], encoding="utf-8").replace("\r", "")
+
+
+def write_xml_sat_text_to_file(xml_file, out_file):
+    xml_root = ET.parse(str(xml_file)).getroot()
+    with open(out_file, "w") as f:
+        for sat_geometry_el in xml_root.iterfind(".//sat_embedded"):
+            f.write(xml_elem_to_sat_text(sat_geometry_el))
+        for sat_geometry_seq in xml_root.iterfind(".//sat_embedded_sequence"):
+            f.write(xml_elem_to_sat_text(sat_geometry_seq))
 
 
 def get_sat_text_from_xml(xml_file):

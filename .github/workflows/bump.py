@@ -15,9 +15,9 @@ def main():
     i = -1
     while True:
         latest = data["releases"][i]["version"]
-        if 'None' in latest:
+        if "None" in latest:
             i -= 1
-            print(f'skipping {latest}')
+            print(f"skipping {latest}")
             continue
         break
     print(f"The latest release version of ada-py is {latest}.")
