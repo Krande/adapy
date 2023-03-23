@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
 
 __author__ = "Kristoffer H. Andersen"
+__version__ = "0.0.38"
 
 
 def from_ifc(ifc_file: os.PathLike | ifcopenshell.file, units=Units.M, name="Ada") -> Assembly:
@@ -58,12 +59,12 @@ def from_step(step_file: str | pathlib.Path, source_units=Units.M, **kwargs) -> 
 
 
 def from_fem(
-    fem_file: str | list | pathlib.Path,
-    fem_format: str | list = None,
-    name: str | list = None,
-    enable_cache=False,
-    source_units=Units.M,
-    fem_converter="default",
+        fem_file: str | list | pathlib.Path,
+        fem_format: str | list = None,
+        name: str | list = None,
+        enable_cache=False,
+        source_units=Units.M,
+        fem_converter="default",
 ) -> Assembly:
     a = Assembly(enable_cache=enable_cache, units=source_units)
     if type(fem_file) is str or issubclass(type(fem_file), pathlib.Path):
