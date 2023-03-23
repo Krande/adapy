@@ -1,4 +1,4 @@
-from ada.fem.formats.sesam.xml.read.read_plates import get_sat_text_from_xml
+from ada.fem.formats.sesam.xml.sat_helpers import get_sat_text_from_xml
 
 
 def test_read_genie_single_beam_xml(example_files):

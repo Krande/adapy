@@ -9,7 +9,6 @@ on:
 jobs:
   pypi:
     if: ${{ github.event.pull_request.merged }}
-    needs: test
     name: Publish to PYPI
     defaults:
       run:
@@ -33,7 +32,6 @@ jobs:
 
   conda:
     if: ${{ github.event.pull_request.merged }}
-    needs: test
     name: Publish to CONDA
     defaults:
       run:
