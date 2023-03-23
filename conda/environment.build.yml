@@ -1,4 +1,4 @@
-name: conda-build
+name: condabuild
 channels:
   - conda-forge
 dependencies:
