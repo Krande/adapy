@@ -112,7 +112,7 @@ jobs:
 
       - name: Build & Upload to CONDA Dev
         run: |
-          conda build . --variants "{'variant': '${{matrix.build.name}}'}" -c krande/label/dev --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }} --no-test
+          conda build . --variants "{'variant': '${{matrix.build.name}}'}" -c krande/label/dev --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }}
         working-directory: conda
         env:
           VERSION: ${{ needs.bump.outputs.version }}
