@@ -12,8 +12,14 @@ def main():
     # Make a GET request to the URL
     response = requests.get(url)
     data = response.json()
-    latest = data["releases"][-1]["version"]
-
+    i = -1
+    while True:
+        latest = data["releases"][i]["version"]
+        if "None" in latest:
+            i -= 1
+            print(f"skipping {latest}")
+            continue
+        break
     print(f"The latest release version of ada-py is {latest}.")
     release = latest.split(".")
     if len(release) == 3:

@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Iterable
+
 from ada.sat.readers.bsplinesurface import create_bsplinesurface_from_sat
+from ada.sat.readers.face import PlateFactory
+
+if TYPE_CHECKING:
+    pass
 
 
 class SatReader:
@@ -49,10 +55,22 @@ class SatStore:
             sat_id = float(int(sat_id))
         self.sat_data[sat_id] = sat_object_data
 
-    def get(self, sat_id: int | str) -> str:
+    def get(self, sat_id: int | str) -> list[str]:
         if isinstance(sat_id, str):
+            if sat_id.startswith("$"):
+                sat_id = sat_id.replace("$", "")
             sat_id = float(int(sat_id))
-        return self.sat_data[sat_id]
+        return self.sat_data[sat_id].split()
+
+    def get_name(self, sat_id: int | str) -> str:
+        res = self.get(sat_id)
+        ref_type = res[1]
+        if ref_type.startswith("string"):
+            return res[-2]
+        elif ref_type.startswith("position"):
+            return self.get_name(res[4])
+        else:
+            raise NotImplementedError(f"Unknown reference type: {ref_type}")
 
     def iter(self):
         for sat_id in sorted(self.sat_data.keys()):
@@ -64,6 +82,7 @@ class SatReaderFactory:
         self.sat_file = sat_file
         self.entities = dict()
         self.sat_store = SatStore()
+        self.plate_factory = PlateFactory(self.sat_store)
         self.header = ""
 
     def interpret_sat_object_data(self, sat_object_data: str):
@@ -72,6 +91,8 @@ class SatReaderFactory:
 
         if sat_type == "spline-surface":
             self.entities[geom_id] = create_bsplinesurface_from_sat(sat_object_data)
+        elif sat_type == "face":
+            self.entities[geom_id] = self.plate_factory.get_face_name_and_points(sat_object_data)
         else:
             self.entities[geom_id] = sat_object_data
 
@@ -82,6 +103,22 @@ class SatReaderFactory:
             geom_id, sat_type = sat_object_str.split()[0:2]
             geom_id = geom_id.replace("-", "")
             self.sat_store.add(geom_id, sat_object_str)
+
+    def iter_faces(self):
+        if len(self.sat_store.sat_data) == 0:
+            self.store_sat_object_data()
+
+        for sat_object_data in self.sat_store.iter():
+            geom_id, sat_type = sat_object_data.split()[0:2]
+            if "face" == sat_type:
+                yield sat_object_data
+
+    def iter_flat_plates(self) -> Iterable[tuple[str, list[tuple[float, float, float]]]]:
+        for face_data in self.iter_faces():
+            pl = self.plate_factory.get_face_name_and_points(face_data)
+            if pl is None:
+                continue
+            yield pl
 
     def read_data(self):
         self.store_sat_object_data()

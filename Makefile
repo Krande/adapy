@@ -20,7 +20,7 @@ format:
 	black --config pyproject.toml . && isort . && ruff . --fix
 
 bump:
-	bumpversion patch setup.py
+	bumpversion patch setup.cfg
 
 docs-dev:
 	mamba env update --file docs/environment.docs.yml --prune

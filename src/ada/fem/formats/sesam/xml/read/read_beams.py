@@ -30,7 +30,10 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
         prev_bm = cur_bm
         segs += [cur_bm]
 
-    apply_offsets_and_alignments(name, bm_el, segs)
+    if len(segs) > 0:
+        apply_offsets_and_alignments(name, bm_el, segs)
+    else:
+        logger.warning(f"No segments found for beam {name}")
 
     return segs
 

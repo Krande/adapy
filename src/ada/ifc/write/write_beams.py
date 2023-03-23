@@ -129,7 +129,7 @@ def extrude_straight_beam(beam: Beam, f: ifile, profile):
 
     vec = beam.xvec
     yvec = beam.yvec
-    if Settings.ifc_export.include_ecc and beam.e1 is not None:
+    if Settings.model_export.include_ecc and beam.e1 is not None:
         e1 = beam.e1
         vec = beam.xvec_e
 

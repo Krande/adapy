@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class IfcExportOptions:
+class ModelExportOptions:
     export_props: bool = True
     import_props: bool = True
     include_ecc = True
@@ -39,7 +39,7 @@ class Settings:
     use_experimental_cache = False
 
     # IFC export settings
-    ifc_export: IfcExportOptions = IfcExportOptions()
+    model_export: ModelExportOptions = ModelExportOptions()
 
     # FEM analysis settings
     if os.getenv("ADA_execute_dir", None) is not None:

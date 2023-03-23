@@ -130,7 +130,6 @@ class Plate(BackendGeom):
     def poly(self) -> CurvePoly:
         return self._poly
 
-    @property
     def bbox(self) -> BoundingBox:
         """Bounding Box of plate"""
         if self._bbox is None:
@@ -178,6 +177,3 @@ class Plate(BackendGeom):
 
 
 # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/lexical/IfcBSplineSurfaceWithKnots.htm
-class PlateCurved(BackendGeom):
-    def __init__(self, name, guid=None):
-        super(PlateCurved, self).__init__(name=name, guid=guid)

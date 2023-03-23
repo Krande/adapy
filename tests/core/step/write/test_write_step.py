@@ -10,7 +10,7 @@ def test_step_dir(test_dir):
 
 
 def test_simple_beam(test_step_dir):
-    bm = Beam("MyBeam", (0, 0, 0), (1, 0, 0), Section("mysec", from_str="IPE300"))
+    bm = Beam("MyBeam", (0, 0, 0), (1, 0, 0), Section("mysec", from_str="HP200x10"))
     bm.to_stp(test_step_dir / "MySimpleBeam.stp")
 
 

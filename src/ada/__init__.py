@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
 
 __author__ = "Kristoffer H. Andersen"
+__version__ = "0.0.38"
 
 
 def from_ifc(ifc_file: os.PathLike | ifcopenshell.file, units=Units.M, name="Ada") -> Assembly:
@@ -92,9 +93,11 @@ def from_sesam_cc(fem_file: str | pathlib.Path) -> dict[str, CCData]:
 
 
 def from_genie_xml(xml_path, **kwargs) -> Assembly:
-    from ada.fem.formats.sesam.xml.read.read_xml import from_xml_file
+    from ada.fem.formats.sesam.xml.store import GxmlStore
 
-    return from_xml_file(xml_path, **kwargs)
+    gxml = GxmlStore(xml_path)
+    p = gxml.to_part(**kwargs)
+    return Assembly(name=kwargs.get("name", p.name)) / p
 
 
 __all__ = [

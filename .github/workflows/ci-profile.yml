@@ -1,11 +1,7 @@
 name: ci-profiling
 
-# Bump 2
+# Bump 3
 on: push
-
-concurrency:
-  group: ci-profiling-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   test-profile:
@@ -36,13 +32,17 @@ jobs:
         run: |
           pip install -e .
 
-      - name: Just Build & Test
-        run: scalene --json --cli -m pytest ./tests --ignore=./tests/docker/
+      - name: Profile using scalene
+        run: scalene --json -m pytest ./tests --ignore=./tests/docker/ --outfile=profile.json
+
+      - name: Profile using cProfile
+        run: python -m cProfile -o profile -m pytest tests --ignore=./tests/docker
 
       - name: Create Release Package
         uses: softprops/action-gh-release@v1
         with:
           files: |
             profile.json
-          tag_name: "Ada-py profile ${{ github.sha }}"
-          body: "Profile produced on commit ${{ github.sha }} at $(date +'%Y-%m-%d %H:%M')"
+            profile
+          tag_name: "Ada-py profile $(date +'%Y-%m-%d %H:%M')"
+          body: "Profile produced on commit ${{ github.sha }}"
