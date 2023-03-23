@@ -102,6 +102,7 @@ jobs:
       - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
         with:
           cache-env: true
+          environment-name: ada
           channels: conda-forge
           channel-priority: strict
           environment-file: conda/environment.build.yml
