@@ -1,13 +1,14 @@
 name: ci-release
 
 on:
-  push:
+  pull_request:
     branches:
       - main
+    types: [closed]
 
 jobs:
   pypi:
-    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.event.pull_request.merged }}
     needs: test
     name: Publish to PYPI
     defaults:
@@ -31,7 +32,7 @@ jobs:
           password: ${{ secrets.PYPI_API_TOKEN }}
 
   conda:
-    if: ${{ (github.event_name != 'pull_request' && github.ref == 'refs/heads/main') }}
+    if: ${{ github.event.pull_request.merged }}
     needs: test
     name: Publish to CONDA
     defaults:
