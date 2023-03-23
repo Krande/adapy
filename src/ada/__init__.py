@@ -59,12 +59,12 @@ def from_step(step_file: str | pathlib.Path, source_units=Units.M, **kwargs) -> 
 
 
 def from_fem(
-        fem_file: str | list | pathlib.Path,
-        fem_format: str | list = None,
-        name: str | list = None,
-        enable_cache=False,
-        source_units=Units.M,
-        fem_converter="default",
+    fem_file: str | list | pathlib.Path,
+    fem_format: str | list = None,
+    name: str | list = None,
+    enable_cache=False,
+    source_units=Units.M,
+    fem_converter="default",
 ) -> Assembly:
     a = Assembly(enable_cache=enable_cache, units=source_units)
     if type(fem_file) is str or issubclass(type(fem_file), pathlib.Path):
