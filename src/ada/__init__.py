@@ -37,7 +37,6 @@ if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
 
 __author__ = "Kristoffer H. Andersen"
-__version__ = "0.0.38"
 
 
 def from_ifc(ifc_file: os.PathLike | ifcopenshell.file, units=Units.M, name="Ada") -> Assembly:

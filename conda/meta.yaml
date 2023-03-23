@@ -1,6 +1,7 @@
 {% set name = 'ada-py' %}
 {% set data = load_setup_py_data() %}
-{% set version = environ.get("VERSION", data.get('version')) %}
+{% set version_ = load_file_data('pyproject.toml')["project"]["version"] %}
+{% set version = environ.get("VERSION", version_) %}
 {% set build = 0 %}
 
 {% if variant == "core" %}
@@ -8,6 +9,7 @@
 {% else %}
   {% set build = build + 200 %}
 {% endif %}
+
 
 package:
   name: {{ name }}
