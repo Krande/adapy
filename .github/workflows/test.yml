@@ -117,7 +117,7 @@ jobs:
 
       - name: Build & Upload to CONDA Dev
         run: |
-          conda mambabuild . --variants "{'variant': '${{matrix.build.name}}'}" -c krande/label/dev --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }} --output-folder $GITHUB_WORKSPACE/build --no-test
+          conda build . --variants "{'variant': '${{matrix.build.name}}'}" -c krande/label/dev --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }} --output-folder $GITHUB_WORKSPACE/build --no-test
         working-directory: conda
         env:
           VERSION: ${{ needs.bump.outputs.version }}
