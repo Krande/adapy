@@ -12,7 +12,7 @@ from ada.fem.formats.sesam.xml.read.read_beams import el_to_beam
 from ada.fem.formats.sesam.xml.read.read_joints import get_joints
 from ada.fem.formats.sesam.xml.read.read_masses import get_masses
 from ada.fem.formats.sesam.xml.read.read_materials import get_materials
-from ada.fem.formats.sesam.xml.read.read_plates import write_xml_sat_text_to_file
+from ada.fem.formats.sesam.xml.sat_helpers import write_xml_sat_text_to_file
 from ada.fem.formats.sesam.xml.read.read_sections import get_sections
 from ada.fem.formats.sesam.xml.read.read_sets import get_sets
 from ada.sat.factory import SatReaderFactory
