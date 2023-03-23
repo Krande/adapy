@@ -92,9 +92,11 @@ def from_sesam_cc(fem_file: str | pathlib.Path) -> dict[str, CCData]:
 
 
 def from_genie_xml(xml_path, **kwargs) -> Assembly:
-    from ada.fem.formats.sesam.xml.read.read_xml import from_xml_file
+    from ada.fem.formats.sesam.xml.store import GxmlStore
 
-    return from_xml_file(xml_path, **kwargs)
+    gxml = GxmlStore(xml_path)
+    p = gxml.to_part(**kwargs)
+    return Assembly(name=kwargs.get("name", p.name)) / p
 
 
 __all__ = [

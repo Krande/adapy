@@ -1,5 +1,7 @@
 from ada.config import get_logger
 
+from .exceptions import InsufficientPointsError
+
 logger = get_logger()
 
 
@@ -18,10 +20,6 @@ def get_plates_from_satd(satd: dict) -> dict:
         plate_geom.update(res)
 
     return plate_geom
-
-
-class InsufficientPointsError(Exception):
-    pass
 
 
 def get_face_from_satd(face: tuple, satd: dict):
