@@ -1,13 +1,9 @@
 import base64
-import re
 import xml.etree.ElementTree as ET
 import zipfile
 from io import BytesIO
 
-from ada import Part, Plate
-from ada.concepts.containers import Plates
 from ada.config import get_logger
-from ada.sat.reader import get_plates_from_satd
 
 logger = get_logger()
 
