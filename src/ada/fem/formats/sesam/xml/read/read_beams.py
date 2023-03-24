@@ -22,7 +22,15 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
     xv, yv, zv = get_curve_orientation(bm_el)
     segs = []
     prev_bm = None
-    for seg in bm_el.findall(".//straight_segment"):
+    for seg in bm_el.iterfind(".//straight_segment"):
+        cur_bm = seg_to_beam(name, seg, parent, prev_bm, zv)
+        if cur_bm is None:
+            continue
+
+        prev_bm = cur_bm
+        segs += [cur_bm]
+
+    for seg in bm_el.iterfind(".//curved_segment"):
         cur_bm = seg_to_beam(name, seg, parent, prev_bm, zv)
         if cur_bm is None:
             continue

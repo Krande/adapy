@@ -70,5 +70,40 @@ class Settings:
         return default_settings()
 
 
+class DuplicateFilter(logging.Filter):
+
+    def __init__(self, name=""):
+        super().__init__(name)
+        self.last_log = None
+        self.count = 0
+
+    def filter(self, record):
+        # add other fields if you need more granular comparison, depends on your app
+        MAX_NUM = 3
+        current_log = (record.module, record.levelno, record.msg)
+
+        if current_log != self.last_log and self.count >= MAX_NUM:
+            logging.warning(f"... The previous message was repeated {self.count} times.")
+            self.last_log = current_log
+            self.count = 0
+            return True
+        elif current_log == self.last_log and self.count < MAX_NUM:
+            self.count += 1
+            return True
+        elif current_log == self.last_log and self.count == MAX_NUM:
+            self.count += 1
+            logging.warning(f"The previous message was repeated {MAX_NUM} times and will from now on be suppressed.")
+            return False
+        elif current_log == self.last_log and self.count >= MAX_NUM:
+            self.count += 1
+            return False
+        else:
+            self.last_log = current_log
+            self.count += 1
+            return True
+
+
 def get_logger():
-    return logging.getLogger("ada")
+    _logger = logging.getLogger("ada")
+    _logger.addFilter(DuplicateFilter())
+    return _logger
