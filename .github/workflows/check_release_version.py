@@ -2,18 +2,19 @@ import os
 import pathlib
 
 import requests
-from setuptools.config import read_configuration
+import tomli
 
 # https://docs.conda.io/projects/conda/en/latest/user-guide/concepts/pkg-specs.html#supported-version-strings
 RELEASE_TAG = os.environ.get("RELEASE_TAG", "alpha")
 ROOT_DIR = pathlib.Path(__file__).parent.parent.parent
-SETUP_FILE = ROOT_DIR / "setup.cfg"
+SETUP_FILE = ROOT_DIR / "pyproject.toml"
 
 
 def main():
     url = "https://api.anaconda.org/package/krande/ada-py"
-    cfg = read_configuration(SETUP_FILE)
-    version = cfg["metadata"]["version"]
+    with open(SETUP_FILE, mode="rb") as fp:
+        cfg = tomli.load(fp)
+    version = cfg["project"]["version"]
 
     # Make a GET request to the URL
     response = requests.get(url)
@@ -24,6 +25,7 @@ def main():
             f"Latest release version '{latest}' is the same as the current version '{version}' on {url}. "
             "Please use bumpversion to update the version."
         )
+    print(f"Latest release version '{latest}' is different from the current version '{version}' on {url}.")
 
 
 if __name__ == "__main__":
