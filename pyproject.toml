@@ -26,6 +26,10 @@ classifiers = [
 	"Topic :: Utilities",
 ]
 
+[project.urls]
+"Homepage" = "https://github.com/Krande/adapy"
+"Bug Tracker" = "https://github.com/Krande/adapy/issues"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
