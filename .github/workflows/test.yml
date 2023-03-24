@@ -122,4 +122,4 @@ jobs:
         working-directory: conda
         env:
           VERSION: ${{ needs.bump.outputs.version }}
-          CONDA_BLD_PATH: $GITHUB_WORKSPACE/conda_build
+          CONDA_BLD_PATH: ${{ github.workspace }}/conda_build
