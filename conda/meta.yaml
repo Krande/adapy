@@ -44,6 +44,17 @@ requirements:
     - {{ dep }}
   {% endfor %}
 
+test:
+  source_files:
+    - tests
+    - files
+    - examples
+  requires:
+    - pytest
+    - pytest-cov
+  imports:
+    - ada
+
 
 about:
   home: https://github.com/krande/adapy
