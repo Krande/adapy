@@ -7,3 +7,4 @@ dependencies:
   - anaconda-client
   - wheel
   - boa
+  - numpy
