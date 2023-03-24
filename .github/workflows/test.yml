@@ -113,7 +113,6 @@ jobs:
 
       - name: Build & Upload to CONDA Dev
         run: |
-          conda mambabuild -c conda-forge -c krande/label/dev . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }}
-        working-directory: conda
+          cd conda && conda mambabuild -c conda-forge -c krande/label/dev . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }}
         env:
           VERSION: ${{ needs.bump.outputs.version }}
