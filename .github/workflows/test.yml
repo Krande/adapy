@@ -111,8 +111,15 @@ jobs:
         run: |
           echo ${{ needs.bump.outputs.version }}
 
+      - name: make dir
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/conda_build
+          chmod -R 777 $GITHUB_WORKSPACE/conda_build
+
       - name: Build & Upload to CONDA Dev
         run: |
-          cd conda && conda mambabuild -c conda-forge -c krande/label/dev . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }}
+          conda mambabuild -c conda-forge -c krande/label/dev . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }}
+        working-directory: conda
         env:
           VERSION: ${{ needs.bump.outputs.version }}
+          CONDA_BLD_PATH: $GITHUB_WORKSPACE/conda_build
