@@ -93,8 +93,8 @@ jobs:
       run:
         shell: bash -l {0}
     env:
-      BUILD_PATH: /tmp/conda_build
-      OUTPUT_PATH: /tmp/conda_output
+      BUILD_PATH: /home/conda_build
+      OUTPUT_PATH: /home/conda_output
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
