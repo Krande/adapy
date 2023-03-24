@@ -44,10 +44,6 @@ requirements:
     - {{ dep }}
   {% endfor %}
 
-test:
-  imports:
-    - ada
-
 
 about:
   home: https://github.com/krande/adapy
