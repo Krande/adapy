@@ -94,6 +94,7 @@ jobs:
         shell: bash -l {0}
     env:
       BUILD_PATH: /tmp/conda_build
+      OUTPUT_PATH: /tmp/conda_output
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -116,11 +117,13 @@ jobs:
       - name: make dir
         run: |
           mkdir -p ${{ env.BUILD_PATH }}
+          mkdir -p ${{ env.OUTPUT_PATH }}
           chmod -R 777 ${{ env.BUILD_PATH }}
+          chmod -R 777 ${{ env.OUTPUT_PATH }}
 
       - name: Build & Upload to CONDA Dev
         run: |
-          conda mambabuild -c conda-forge -c krande/label/dev . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --label dev --token=${{ secrets.ANACONDA_TOKEN }}
+          conda mambabuild -c conda-forge -c krande/label/dev . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --token=${{ secrets.ANACONDA_TOKEN }} --label dev --output-folder ${{ env.OUTPUT_PATH }}
         working-directory: conda
         env:
           VERSION: ${{ needs.bump.outputs.version }}
