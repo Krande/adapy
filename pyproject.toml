@@ -7,13 +7,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ada-py"
-version = "0.0.38"
+version = "0.0.38alpha.2"
 authors = [
     {name = "Kristoffer H. Andersen", email = "kristoffer_andersen@outlook.com"},
 ]
 description = "Assembly for Design & Analysis - A python library for structural analysis and design"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 3 - Alpha",
 	"Intended Audience :: Science/Research",
