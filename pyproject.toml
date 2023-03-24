@@ -11,7 +11,6 @@ version = "0.0.38"
 authors = [
     {name = "Kristoffer H. Andersen", email = "kristoffer_andersen@outlook.com"},
 ]
-license = "GPL-3.0-or-later"
 description = "Assembly for Design & Analysis - A python library for structural analysis and design"
 readme = "README.md"
 requires-python = ">=3.10"
