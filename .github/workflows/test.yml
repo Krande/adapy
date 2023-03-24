@@ -92,6 +92,8 @@ jobs:
     defaults:
       run:
         shell: bash -l {0}
+    env:
+      BUILD_PATH: /tmp/conda_build
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -113,8 +115,8 @@ jobs:
 
       - name: make dir
         run: |
-          mkdir -p ${{ github.workspace }}/conda_build
-          chmod -R 777 ${{ github.workspace }}/conda_build
+          mkdir -p ${{ env.BUILD_PATH }}
+          chmod -R 777 ${{ env.BUILD_PATH }}
 
       - name: Build & Upload to CONDA Dev
         run: |
@@ -122,4 +124,4 @@ jobs:
         working-directory: conda
         env:
           VERSION: ${{ needs.bump.outputs.version }}
-          CONDA_BLD_PATH: ${{ github.workspace }}/conda_build
+          CONDA_BLD_PATH: ${{ env.BUILD_PATH }}
