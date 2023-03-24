@@ -2,12 +2,16 @@
 {% set data = load_setup_py_data() %}
 {% set version_ = load_file_data('pyproject.toml')["project"]["version"] %}
 {% set version = environ.get("VERSION", version_) %}
+
 {% set build = 0 %}
+{% set test_ignores = '' %}
 
 {% if variant == "core" %}
   {% set build = build + 100 %}
+  {% set test_ignores = " --ignore=tests/full" %}
 {% else %}
   {% set build = build + 200 %}
+  {% set test_ignores = "" %}
 {% endif %}
 
 
@@ -54,7 +58,8 @@ test:
     - pytest-cov
   imports:
     - ada
-
+  commands:
+    - pytest tests --ignore=tests/docker{{ test_ignores }} --cov=ada --cov-report=xml
 
 about:
   home: https://github.com/krande/adapy
