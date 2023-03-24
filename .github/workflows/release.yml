@@ -40,18 +40,29 @@ jobs:
       fail-fast: false
       matrix:
         build: [ { name: 'core' },{ name: 'full' } ]
+    env:
+      BUILD_PATH: /tmp/conda_build
+      OUTPUT_PATH: /tmp/conda_output
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
         with:
           cache-env: true
-          environment-name: ada
           channels: conda-forge
           channel-priority: strict
           environment-file: conda/environment.build.yml
 
+      - name: Make temp directories
+        run: |
+          mkdir -p ${{ env.BUILD_PATH }}
+          mkdir -p ${{ env.OUTPUT_PATH }}
+          chmod -R 777 ${{ env.BUILD_PATH }}
+          chmod -R 777 ${{ env.OUTPUT_PATH }}
+
       - name: Build & Upload to CONDA Main
         run: |
-          conda build -c conda-forge -c krande . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --token=${{ secrets.ANACONDA_TOKEN }} --no-test
+          conda build -c conda-forge -c krande . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --token=${{ secrets.ANACONDA_TOKEN }} --output-folder ${{ env.OUTPUT_PATH }} --no-copy-test-source-files --no-test
         working-directory: conda
+        env:
+          CONDA_BLD_PATH: ${{ env.BUILD_PATH }}

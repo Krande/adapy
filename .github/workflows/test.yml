@@ -105,7 +105,6 @@ jobs:
       - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
         with:
           cache-env: true
-          environment-name: ada
           channels: conda-forge
           channel-priority: strict
           environment-file: conda/environment.build.yml
@@ -114,7 +113,7 @@ jobs:
         run: |
           echo ${{ needs.bump.outputs.version }}
 
-      - name: make dir
+      - name: Make temp directories
         run: |
           mkdir -p ${{ env.BUILD_PATH }}
           mkdir -p ${{ env.OUTPUT_PATH }}
@@ -123,7 +122,7 @@ jobs:
 
       - name: Build & Upload to CONDA Dev
         run: |
-          conda mambabuild -c conda-forge -c krande/label/dev . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --token=${{ secrets.ANACONDA_TOKEN }} --label dev --output-folder ${{ env.OUTPUT_PATH }} --no-build-id --no-copy-test-source-files --no-test
+          conda mambabuild -c conda-forge -c krande/label/dev . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --token=${{ secrets.ANACONDA_TOKEN }} --label dev --output-folder ${{ env.OUTPUT_PATH }} --no-copy-test-source-files --no-test
         working-directory: conda
         env:
           VERSION: ${{ needs.bump.outputs.version }}
