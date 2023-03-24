@@ -92,9 +92,6 @@ jobs:
     defaults:
       run:
         shell: bash -l {0}
-    env:
-      BUILD_PATH: /tmp/conda_build
-      OUTPUT_PATH: /tmp/conda_output
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -113,17 +110,9 @@ jobs:
         run: |
           echo ${{ needs.bump.outputs.version }}
 
-      - name: Make temp directories
-        run: |
-          mkdir -p ${{ env.BUILD_PATH }}
-          mkdir -p ${{ env.OUTPUT_PATH }}
-          chmod -R 777 ${{ env.BUILD_PATH }}
-          chmod -R 777 ${{ env.OUTPUT_PATH }}
-
       - name: Build & Upload to CONDA Dev
         run: |
-          conda mambabuild -c conda-forge -c krande/label/dev . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --token=${{ secrets.ANACONDA_TOKEN }} --label dev --output-folder ${{ env.OUTPUT_PATH }} --no-copy-test-source-files --no-test
+          conda mambabuild -c conda-forge -c krande/label/dev . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --token=${{ secrets.ANACONDA_TOKEN }} --label dev --no-copy-test-source-files --no-test --no-build-id
         working-directory: conda
         env:
-          VERSION: 0.0.38a8
-          CONDA_BLD_PATH: ${{ env.BUILD_PATH }}
+          VERSION: ${{ needs.bump.outputs.version }}
