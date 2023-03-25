@@ -102,7 +102,8 @@ def local_version_can_be_bumped():
     # Make conda package numbering compatible with semver pre-release
     if "alpha" in latest_conda_version:
         latest_conda_version = latest_conda_version.replace("alpha", "-alpha")
-
+    if "a" in latest_pypi_version:
+        latest_pypi_version = latest_pypi_version.replace("a", "-alpha.")
     conda_compare = compare_versions(latest_conda_version, local_version)
     compare_versions(latest_pypi_version, local_version)
     # if conda_compare != pypi_compare:
@@ -128,7 +129,7 @@ def check_formatting():
     subprocess.check_output(args.split())
 
 
-def bump_project_version(bump_level: str, skip_checks: bool = False):
+def bump_project_version(bump_level: str, skip_checks: bool = False, commit: bool = False):
     if skip_checks is False:
         check_formatting()
         check_git_state()
@@ -148,7 +149,8 @@ def bump_project_version(bump_level: str, skip_checks: bool = False):
     with open(SETUP_FILE, "w") as f:
         f.write(tomlkit.dumps(toml_data))
 
-    commit_and_tag(version, new_version)
+    if commit:
+        commit_and_tag(version, new_version)
 
 
 def bump_ci_pre_release_conda_formatted_only():
@@ -173,6 +175,7 @@ if __name__ == "__main__":
     parser.add_argument("--version-check-only", default=False, help="Only check versions.")
     parser.add_argument("--bump-ci-only", default=False, help="Only bump version.")
     parser.add_argument("--skip-checks", default=False, help="Skip checks.")
+    parser.add_argument("--commit", default=False, help="Commit changes.")
 
     args = parser.parse_args()
     Project.load()
