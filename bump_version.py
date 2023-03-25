@@ -2,6 +2,8 @@ import os
 import pathlib
 
 import tomlkit
+import requests
+import subprocess
 import argparse
 import semver
 
@@ -9,6 +11,8 @@ import semver
 RELEASE_TAG = os.environ.get("RELEASE_TAG", "alpha")
 ROOT_DIR = pathlib.Path(__file__).parent
 SETUP_FILE = ROOT_DIR / "pyproject.toml"
+CONDA_URL = "https://api.anaconda.org/package/krande/ada-py"
+PYPI_URL = "https://pypi.org/pypi/ada-py/json"
 
 
 class BumpLevel:
@@ -31,7 +35,22 @@ class BumpLevel:
             raise ValueError(f"Invalid bump level '{s}'")
 
 
-def bump_version(current_version, bump_level) -> str:
+def get_latest_conda_version():
+    # Make a GET request to the URL
+    response = requests.get(CONDA_URL)
+    data = response.json()
+    return data["files"][-1]["version"]
+
+
+def get_latest_pypi_version():
+    # Make a GET request to the URL
+    response = requests.get(PYPI_URL)
+    data = response.json()
+    return data["info"]["version"]
+
+
+def bump_version(current_version: str, bump_level: str) -> str:
+    bump_level = BumpLevel.from_string(bump_level)
     ver = semver.VersionInfo.parse(current_version)
     if bump_level == BumpLevel.MAJOR:
         ver = ver.bump_major()
@@ -47,22 +66,53 @@ def bump_version(current_version, bump_level) -> str:
     return str(ver)
 
 
+def check_git_state():
+    # Check for unstaged commits
+    status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+    if status.stdout.strip():
+        raise Exception("There are unstaged commits!")
+
+
+def commit_and_tag(old_version, new_version):
+    commit_message = f"bump {old_version} --> {new_version}"
+    subprocess.run(["git", "commit", "-am", commit_message])
+    subprocess.run(["git", "tag", "-a", new_version, "-m", commit_message])
+
+
+def check_versions_across_distro(local_version: str):
+    latest_conda = get_latest_conda_version()
+    latest_pypi = get_latest_pypi_version()
+    if local_version != latest_conda:
+        raise ValueError(
+            f"{latest_conda=} is NOT the same as {local_version=} from {CONDA_URL}. "
+            "Please use bump_version.py to update the version."
+        )
+    if local_version != latest_pypi:
+        raise ValueError(
+            f"{latest_pypi=} is NOT the same as {local_version=} from {PYPI_URL}. "
+            "Please use bump_version.py to update the version."
+        )
+
+
 def main(bump_level: str):
+    check_git_state()
     if args.bump_level:
         print(f"Bumping version at {bump_level} level.")
     else:
         print("No bump level provided.")
 
-    bump_level = BumpLevel.from_string(bump_level)
-
     with open(SETUP_FILE, mode="r") as fp:
         toml_data = tomlkit.load(fp)
     version = toml_data["project"]["version"]
+
+    check_versions_across_distro(version)
 
     new_version = bump_version(version, bump_level)
     toml_data["project"]["version"] = new_version
     with open(SETUP_FILE, "w") as f:
         f.write(tomlkit.dumps(toml_data))
+
+    commit_and_tag(version, new_version)
 
 
 if __name__ == "__main__":

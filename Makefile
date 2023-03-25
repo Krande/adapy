@@ -26,10 +26,8 @@ else
 	BUMP_LEVEL := $(firstword $(BUMP_LEVEL))
 endif
 
-
 bump:
 	python bump_version.py --bump-level $(BUMP_LEVEL)
-
 
 docs-dev:
 	mamba env update --file docs/environment.docs.yml --prune
