@@ -26,7 +26,7 @@ jobs:
 
       - name: Bump version
         id: bump
-        run: python bump_version.py --bump-ci-only
+        run: python bump_version.py --bump-ci-only=true
 
       - name: echo bump
         run: |
