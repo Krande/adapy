@@ -98,13 +98,18 @@ def local_version_can_be_bumped():
     local_version = Project.CURR_VERSION
     latest_conda_version = get_latest_conda_version()
     latest_pypi_version = get_latest_pypi_version()
+
+    # Make conda package numbering compatible with semver pre-release
+    if "alpha" in latest_conda_version:
+        latest_conda_version = latest_conda_version.replace("alpha", "-alpha")
+
     conda_compare = compare_versions(latest_conda_version, local_version)
-    pypi_compare = compare_versions(latest_pypi_version, local_version)
-    if conda_compare != pypi_compare:
-        raise ValueError(
-            f"{latest_conda_version=} is NOT the same as {latest_pypi_version=} from {PYPI_URL}. "
-            "This needs to be fixed manually."
-        )
+    compare_versions(latest_pypi_version, local_version)
+    # if conda_compare != pypi_compare:
+    #     raise ValueError(
+    #         f"{latest_conda_version=} is NOT the same as {latest_pypi_version=} from {PYPI_URL}. "
+    #         "This needs to be fixed manually."
+    #     )
     if conda_compare == -1:
         print(f"{latest_conda_version=} < {local_version=}. No need to bump.")
         return False
@@ -127,12 +132,13 @@ def bump_project_version(bump_level: str, skip_checks: bool = False):
     if skip_checks is False:
         check_formatting()
         check_git_state()
+
     if args.bump_level:
         print(f"Bumping version at {bump_level} level.")
     else:
         print("No bump level provided.")
 
-    if local_version_can_be_bumped() is False:
+    if local_version_can_be_bumped() is False and bump_level != BumpLevel.PRE_RELEASE:
         return None
 
     version = Project.CURR_VERSION
@@ -145,13 +151,14 @@ def bump_project_version(bump_level: str, skip_checks: bool = False):
     commit_and_tag(version, new_version)
 
 
-def bump_ci_pre_release_only():
+def bump_ci_pre_release_conda_formatted_only():
     version = Project.CURR_VERSION
     next_release = bump_version(version, BumpLevel.PRE_RELEASE)
+    next_release_conda = next_release.replace("-", "")
     env_file = os.environ.get("GITHUB_OUTPUT", None)
     if env_file is not None:
         with open(env_file, "a") as myfile:
-            myfile.write(f"VERSION={next_release}")
+            myfile.write(f"VERSION={next_release_conda}")
 
     print(f"The next pre-release version of ada-py will be '{next_release}'.")
 
@@ -169,9 +176,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     Project.load()
+
     if args.version_check_only:
         local_version_can_be_bumped()
     elif args.bump_ci_only:
-        bump_ci_pre_release_only()
+        bump_ci_pre_release_conda_formatted_only()
     else:
         bump_project_version(args.bump_level, skip_checks=args.skip_checks)

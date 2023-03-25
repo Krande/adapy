@@ -9,3 +9,5 @@ dependencies:
   - pytest
   - calculix
   - nomkl
+  - semver
+  - tomlkit
