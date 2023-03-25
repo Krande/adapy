@@ -19,8 +19,17 @@ core:
 format:
 	black --config pyproject.toml . && isort . && ruff . --fix
 
+BUMP_LEVEL := $(filter major minor patch pre-release,$(MAKECMDGOALS))
+ifeq ($(BUMP_LEVEL),)
+	BUMP_LEVEL := patch
+else
+	BUMP_LEVEL := $(firstword $(BUMP_LEVEL))
+endif
+
+
 bump:
-	bumpversion patch setup.cfg
+	python bump_version.py --bump-level $(BUMP_LEVEL)
+
 
 docs-dev:
 	mamba env update --file docs/environment.docs.yml --prune

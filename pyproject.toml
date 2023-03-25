@@ -9,21 +9,21 @@ build-backend = "setuptools.build_meta"
 name = "ada-py"
 version = "0.0.38"
 authors = [
-    {name = "Kristoffer H. Andersen", email = "kristoffer_andersen@outlook.com"},
+    { name = "Kristoffer H. Andersen", email = "kristoffer_andersen@outlook.com" },
 ]
 description = "Assembly for Design & Analysis - A python library for structural analysis and design"
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 3 - Alpha",
-	"Intended Audience :: Science/Research",
-	"License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
-	"Operating System :: OS Independent",
-	"Programming Language :: Python",
-	"Programming Language :: Python :: 3.10",
-	"Programming Language :: Python :: 3.11",
-	"Topic :: Scientific/Engineering",
-	"Topic :: Utilities",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Utilities",
 ]
 
 [project.urls]

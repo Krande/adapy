@@ -21,3 +21,4 @@ junit/
 Dockerfile_*
 .state
 .env
+pyproject_test.toml
