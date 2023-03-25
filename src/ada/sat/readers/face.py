@@ -48,7 +48,7 @@ class PlateFactory:
         if len(points) < 3:
             raise InsufficientPointsError("Plates cannot have < 3 points")
 
-        coedge_first_direction = str(edges[0][-3])
+        coedge_first_direction = str(edges[0][-4])
         if coedge_first_direction == "reversed":
             points.reverse()
 

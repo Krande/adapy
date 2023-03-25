@@ -16,4 +16,4 @@ def test_write_ff():
         (0.4870624787676558, 0.4870624787676558, 0.4870624787676558, 0.4870624787676558),
     ]
     test_str += write_ff(fflag, ddata)
-    print(test_str)
+    # print(test_str)

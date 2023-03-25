@@ -21,13 +21,13 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - name: Install requests
-        run: pip install requests
+      - name: Install deps
+        run: pip install requests tomlkit semver
 
       - name: Bump version
         id: bump
-        run: python bump.py
-        working-directory: .github/workflows
+        run: python bump_version.py --bump-ci-only=true
+
       - name: echo bump
         run: |
           echo ${{ steps.bump.outputs.version }}
@@ -85,8 +85,36 @@ jobs:
       - name: Run Tests
         run: pytest ./tests --ignore=./tests/docker/
 
-  upload:
-    needs: [test-core, test-full, bump]
+  pypi:
+    needs: [ test-core, test-full, bump ]
+    if: ${{ contains(github.event.head_commit.message, '[dev]') }}
+    name: Publish to PYPI
+    defaults:
+      run:
+        shell: bash -l {0}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      - name: Install deps
+        run: pip install requests tomlkit semver build
+
+      - name: Bump version
+        run: python bump_version.py --bump-level=pre-release --skip-checks=true
+
+      - name: Build and upload package for pypi
+        run: |
+          python -m build
+      - name: Publish a Python distribution to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
+
+  conda_upload:
+    needs: [ test-core, test-full, bump, pypi ]
     if: ${{ contains(github.event.head_commit.message, '[dev]') }}
     name: Publish to CONDA
     defaults:
