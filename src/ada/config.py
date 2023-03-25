@@ -63,6 +63,8 @@ class Settings:
 
     fem_exe_paths = dict(abaqus=None, ccx=None, sestra=None, usfos=None, code_aster=None)
 
+    use_duplicate_log_filter = True
+
     @classmethod
     def default_ifc_settings(cls):
         from ada.ifc.utils import default_settings
@@ -71,39 +73,46 @@ class Settings:
 
 
 class DuplicateFilter(logging.Filter):
+    MAX_NUM = 3
 
-    def __init__(self, name=""):
+    def __init__(self, name="", logger=None):
         super().__init__(name)
         self.last_log = None
         self.count = 0
+        self.logger = logger
 
     def filter(self, record):
         # add other fields if you need more granular comparison, depends on your app
-        MAX_NUM = 3
+        if getattr(record, "suppress_filters", False):
+            return True
+
+        max_num = self.MAX_NUM
         current_log = (record.module, record.levelno, record.msg)
 
-        if current_log != self.last_log and self.count >= MAX_NUM:
-            logging.warning(f"... The previous message was repeated {self.count} times.")
-            self.last_log = current_log
-            self.count = 0
+        if current_log == self.last_log:
+            self.count += 1
+            if self.count == max_num:
+                record.msg = f"The previous message is repeated {self.count} times and will be ignored."
+                return True
+            elif self.count > max_num:
+                return False
+
             return True
-        elif current_log == self.last_log and self.count < MAX_NUM:
-            self.count += 1
-            return True
-        elif current_log == self.last_log and self.count == MAX_NUM:
-            self.count += 1
-            logging.warning(f"The previous message was repeated {MAX_NUM} times and will from now on be suppressed.")
-            return False
-        elif current_log == self.last_log and self.count >= MAX_NUM:
-            self.count += 1
-            return False
-        else:
-            self.last_log = current_log
-            self.count += 1
-            return True
+
+        if self.count > max_num:
+            sup_str = f"It was suppressed {self.count - max_num} time(s)."
+            self.logger.info(
+                f"... The previous log message was suppressed after {max_num} repetitions. {sup_str}",
+                extra={"suppress_filters": True},
+            )
+
+        self.last_log = current_log
+        self.count = 1
+        return True
 
 
 def get_logger():
     _logger = logging.getLogger("ada")
-    _logger.addFilter(DuplicateFilter())
+    if Settings.use_duplicate_log_filter:
+        _logger.addFilter(DuplicateFilter(logger=_logger))
     return _logger

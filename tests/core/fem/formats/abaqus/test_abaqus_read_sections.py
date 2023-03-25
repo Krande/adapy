@@ -38,5 +38,3 @@ def test_read_beam_section(shell_beam_section, re_in, part):
     assert fs1.name == "BSEC8"
     assert fs2.name == "BSEC9"
     assert fs3.name == "BG500X"
-
-    print(res)
