@@ -56,12 +56,11 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install requests
-        run: pip install requests tomli
+        run: pip install requests tomlkit semver
 
       - name: Check release version
         id: check
-        run: python check_release_version.py
-        working-directory: .github/workflows
+        run: python bump_version.py --version-check-only=true
 
   test:
     needs: activate

@@ -1,11 +1,11 @@
+import argparse
 import os
 import pathlib
-
-import tomlkit
-import requests
 import subprocess
-import argparse
+
+import requests
 import semver
+import tomlkit
 
 # https://docs.conda.io/projects/conda/en/latest/user-guide/concepts/pkg-specs.html#supported-version-strings
 RELEASE_TAG = os.environ.get("RELEASE_TAG", "alpha")
@@ -13,6 +13,17 @@ ROOT_DIR = pathlib.Path(__file__).parent
 SETUP_FILE = ROOT_DIR / "pyproject.toml"
 CONDA_URL = "https://api.anaconda.org/package/krande/ada-py"
 PYPI_URL = "https://pypi.org/pypi/ada-py/json"
+
+
+class Project:
+    TOML_DATA = None
+    CURR_VERSION = None
+
+    @staticmethod
+    def load():
+        with open(SETUP_FILE, mode="r") as fp:
+            Project.TOML_DATA = tomlkit.load(fp)
+        Project.CURR_VERSION = Project.TOML_DATA["project"]["version"]
 
 
 class BumpLevel:
@@ -66,6 +77,10 @@ def bump_version(current_version: str, bump_level: str) -> str:
     return str(ver)
 
 
+def compare_versions(ver_a: str, ver_b: str):
+    return semver.compare(ver_a, ver_b)
+
+
 def check_git_state():
     # Check for unstaged commits
     status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
@@ -79,40 +94,65 @@ def commit_and_tag(old_version, new_version):
     subprocess.run(["git", "tag", "-a", new_version, "-m", commit_message])
 
 
-def check_versions_across_distro(local_version: str):
-    latest_conda = get_latest_conda_version()
-    latest_pypi = get_latest_pypi_version()
-    if local_version != latest_conda:
+def local_version_can_be_bumped():
+    local_version = Project.CURR_VERSION
+    latest_conda_version = get_latest_conda_version()
+    latest_pypi_version = get_latest_pypi_version()
+    conda_compare = compare_versions(latest_conda_version, local_version)
+    pypi_compare = compare_versions(latest_pypi_version, local_version)
+    if conda_compare != pypi_compare:
         raise ValueError(
-            f"{latest_conda=} is NOT the same as {local_version=} from {CONDA_URL}. "
-            "Please use bump_version.py to update the version."
+            f"{latest_conda_version=} is NOT the same as {latest_pypi_version=} from {PYPI_URL}. "
+            "This needs to be fixed manually."
         )
-    if local_version != latest_pypi:
+    if conda_compare == -1:
+        print(f"{latest_conda_version=} < {local_version=}. No need to bump.")
+        return False
+    elif conda_compare == 0:
+        print(f"{latest_conda_version=} == {local_version=}. OK to bump.")
+        return True
+    else:
         raise ValueError(
-            f"{latest_pypi=} is NOT the same as {local_version=} from {PYPI_URL}. "
-            "Please use bump_version.py to update the version."
+            f"{latest_conda_version=} > {local_version=} from {CONDA_URL}. "
+            "You might be working on an outdated branch. Please investigate"
         )
 
 
-def main(bump_level: str):
+def check_formatting():
+    args = "black --config pyproject.toml . && isort . && ruff . --fix"
+    subprocess.check_output(args.split())
+
+
+def bump_project_version(bump_level: str):
+    check_formatting()
     check_git_state()
     if args.bump_level:
         print(f"Bumping version at {bump_level} level.")
     else:
         print("No bump level provided.")
 
-    with open(SETUP_FILE, mode="r") as fp:
-        toml_data = tomlkit.load(fp)
-    version = toml_data["project"]["version"]
+    if local_version_can_be_bumped() is False:
+        return None
 
-    check_versions_across_distro(version)
-
+    version = Project.CURR_VERSION
+    toml_data = Project.TOML_DATA.copy()
     new_version = bump_version(version, bump_level)
     toml_data["project"]["version"] = new_version
     with open(SETUP_FILE, "w") as f:
         f.write(tomlkit.dumps(toml_data))
 
     commit_and_tag(version, new_version)
+
+
+def bump_ci_pre_release_only():
+    version = Project.CURR_VERSION
+    next_release = bump_version(version, BumpLevel.PRE_RELEASE)
+    env_file = os.environ.get("GITHUB_OUTPUT", None)
+    if env_file is not None:
+        with open(env_file, "a") as myfile:
+            myfile.write(f"VERSION={next_release}")
+
+    print(f"The next pre-release version of ada-py will be '{next_release}'.")
 
 
 if __name__ == "__main__":
@@ -122,7 +162,14 @@ if __name__ == "__main__":
         choices=["major", "minor", "patch", "pre-release"],
         help="Bump level (major, minor, patch or pre-release)",
     )
+    parser.add_argument("--version-check-only", default=False, help="Only check versions.")
+    parser.add_argument("--bump-ci-only", default=False, help="Only bump version.")
 
     args = parser.parse_args()
-
-    main(args.bump_level)
+    Project.load()
+    if args.version_check_only:
+        local_version_can_be_bumped()
+    elif args.bump_ci_only:
+        bump_ci_pre_release_only()
+    else:
+        bump_project_version(args.bump_level)

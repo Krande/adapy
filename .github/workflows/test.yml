@@ -22,12 +22,12 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install requests
-        run: pip install requests
+        run: pip install requests tomlkit semver
 
       - name: Bump version
         id: bump
-        run: python bump.py
-        working-directory: .github/workflows
+        run: python bump_version.py --bump-ci-only
+
       - name: echo bump
         run: |
           echo ${{ steps.bump.outputs.version }}
