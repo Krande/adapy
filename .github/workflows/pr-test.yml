@@ -56,7 +56,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install requests
-        run: pip install requests tomli
+        run: pip install requests
 
       - name: Check release version
         id: check

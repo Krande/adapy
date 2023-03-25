@@ -2,7 +2,7 @@ import os
 import pathlib
 
 import requests
-import tomli
+import tomllib
 
 # https://docs.conda.io/projects/conda/en/latest/user-guide/concepts/pkg-specs.html#supported-version-strings
 RELEASE_TAG = os.environ.get("RELEASE_TAG", "alpha")
@@ -13,7 +13,7 @@ SETUP_FILE = ROOT_DIR / "pyproject.toml"
 def main():
     url = "https://api.anaconda.org/package/krande/ada-py"
     with open(SETUP_FILE, mode="rb") as fp:
-        cfg = tomli.load(fp)
+        cfg = tomllib.load(fp)
     version = cfg["project"]["version"]
 
     # Make a GET request to the URL
