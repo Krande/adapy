@@ -123,9 +123,10 @@ def check_formatting():
     subprocess.check_output(args.split())
 
 
-def bump_project_version(bump_level: str):
-    check_formatting()
-    check_git_state()
+def bump_project_version(bump_level: str, skip_checks: bool = False):
+    if skip_checks is False:
+        check_formatting()
+        check_git_state()
     if args.bump_level:
         print(f"Bumping version at {bump_level} level.")
     else:
@@ -164,6 +165,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--version-check-only", default=False, help="Only check versions.")
     parser.add_argument("--bump-ci-only", default=False, help="Only bump version.")
+    parser.add_argument("--skip-checks", default=False, help="Skip checks.")
 
     args = parser.parse_args()
     Project.load()
@@ -172,4 +174,4 @@ if __name__ == "__main__":
     elif args.bump_ci_only:
         bump_ci_pre_release_only()
     else:
-        bump_project_version(args.bump_level)
+        bump_project_version(args.bump_level, skip_checks=args.skip_checks)

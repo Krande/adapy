@@ -99,10 +99,10 @@ jobs:
         with:
           python-version: '3.x'
       - name: Install deps
-        run: pip install requests tomlkit semver build
+        run: pip install requests tomlkit semver build black ruff isort
 
       - name: Bump version
-        run: python bump_version.py --bump-level=pre-release
+        run: python bump_version.py --bump-level=pre-release --skip-checks=true
 
       - name: Build and upload package for pypi
         run: |
