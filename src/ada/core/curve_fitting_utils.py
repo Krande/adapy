@@ -1,8 +1,6 @@
 import numpy as np
 
-from ada.config import get_logger
-
-logger = get_logger()
+from ada.config import logger
 
 
 def bernstein(n, k):

@@ -6,12 +6,10 @@ import ifcopenshell
 import numpy as np
 
 from ada import Section
-from ada.config import Settings, get_logger
+from ada.config import Settings, logger
 from ada.sections.categories import SectionCat
 
 from ..utils import create_ifcindexpolyline, create_ifcpolyline
-
-logger = get_logger()
 
 
 class UnrecognizedSectionType(Exception):

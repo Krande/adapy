@@ -1,11 +1,9 @@
 from operator import attrgetter
 
 from ada import FEM, Part
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.utils import Counter
 from ada.fem import Elem
-
-logger = get_logger()
 
 
 def shell_str(part: Part):

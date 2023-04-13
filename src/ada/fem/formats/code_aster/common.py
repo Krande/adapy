@@ -1,7 +1,5 @@
-from ada.config import get_logger
+from ada.config import logger
 from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
-
-logger = get_logger()
 
 
 def ada_to_med_type(value):

@@ -6,12 +6,10 @@ import pathlib
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from ada.config import get_logger
+from ada.config import logger
 
 if TYPE_CHECKING:
     from ada import Assembly
-
-logger = get_logger()
 
 
 @dataclass

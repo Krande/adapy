@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, List, Tuple, Union
 import numpy as np
 
 from ada.base.types import GeomRepr
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.utils import Counter
 from ada.core.vector_utils import (
     calc_yvec,
@@ -23,8 +23,6 @@ from .shapes import ElemType
 if TYPE_CHECKING:
     from ada import Beam, Plate
     from ada.fem import FemSet
-
-logger = get_logger()
 
 
 class FemSection(FemBase):

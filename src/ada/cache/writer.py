@@ -9,14 +9,12 @@ import numpy as np
 
 from ada import Beam, Material, Part, Section
 from ada.concepts.containers import Nodes
-from ada.config import get_logger
+from ada.config import logger
 
 from .utils import to_safe_name
 
 if TYPE_CHECKING:
     from ada import FEM, Assembly
-
-logger = get_logger()
 
 
 def write_assembly_to_cache(assembly: "Assembly", cache_file_path):

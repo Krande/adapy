@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada.concepts.points import Node
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.utils import Counter
 from ada.fem import Connector, Elem
 from ada.fem.containers import FemElements
@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from ada.fem import FEM
 
 _re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
-logger = get_logger()
 
 
 def get_elem_from_bulk_str(bulk_str, fem: "FEM") -> FemElements:

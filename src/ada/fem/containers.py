@@ -11,7 +11,7 @@ import numpy as np
 
 from ada.concepts.containers import Materials
 from ada.concepts.points import Node
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.utils import Counter
 from ada.fem.elements import Connector, Elem, Mass, MassTypes
 from ada.fem.exceptions.model_definition import FemSetNameExists
@@ -24,8 +24,6 @@ from ada.sections import Section
 if TYPE_CHECKING:
     from ada import FEM
     from ada.fem.results.common import ElementBlock
-
-logger = get_logger()
 
 
 @dataclass

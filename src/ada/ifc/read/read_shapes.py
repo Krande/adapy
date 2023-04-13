@@ -5,12 +5,10 @@ from typing import TYPE_CHECKING
 import ifcopenshell.geom
 
 from ada import Assembly, Shape
-from ada.config import get_logger
+from ada.config import logger
 
 if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
-
-logger = get_logger()
 
 
 def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: IfcStore):

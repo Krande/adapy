@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.config import get_logger
+from ada.config import logger
 from ada.fem.shapes import definitions as shape_def
 
 from ..common import ada_to_med_type
@@ -10,8 +10,6 @@ from .write_sets import _add_cell_sets
 
 if TYPE_CHECKING:
     from ada.concepts.spatial import Part
-
-logger = get_logger()
 
 
 def elements_str(part: "Part", time_step, profile, families):

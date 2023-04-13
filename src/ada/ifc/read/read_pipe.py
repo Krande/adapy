@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ada import ArcSegment, Node, PipeSegElbow, PipeSegStraight
-from ada.config import get_logger
+from ada.config import logger
 
 from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
@@ -16,8 +16,6 @@ from .reader_utils import (
 
 if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
-
-logger = get_logger()
 
 
 def import_pipe_segment(segment, name, ifc_store: IfcStore) -> PipeSegStraight | PipeSegElbow:

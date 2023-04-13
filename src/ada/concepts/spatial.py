@@ -36,7 +36,7 @@ from ada.concepts.primitives import (
 )
 from ada.concepts.transforms import Instance, Placement
 from ada.concepts.user import User
-from ada.config import Settings, get_logger
+from ada.config import Settings, logger
 from ada.fem import (
     Connector,
     Csys,
@@ -62,8 +62,6 @@ if TYPE_CHECKING:
     from ada.visualize.config import ExportConfig
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
-
-logger = get_logger()
 
 
 class FormatNotSupportedException(Exception):

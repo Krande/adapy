@@ -13,7 +13,7 @@ import numpy as np
 from ada.concepts.containers import Nodes
 from ada.concepts.points import Node
 from ada.concepts.transforms import Rotation, Transform
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.utils import Counter
 from ada.fem import (
     Bc,
@@ -43,8 +43,6 @@ part_name_counter = Counter(1, "Part")
 if TYPE_CHECKING:
     from ada.concepts.spatial import Assembly, Part
     from ada.fem import FEM
-
-logger = get_logger()
 
 
 @dataclass

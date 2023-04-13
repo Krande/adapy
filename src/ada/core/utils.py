@@ -10,12 +10,10 @@ from typing import TYPE_CHECKING, Any, Dict, Union
 
 import numpy as np
 
-from ada.config import Settings, get_logger
+from ada.config import Settings, logger
 
 if TYPE_CHECKING:
     from ada import Node
-
-logger = get_logger()
 
 
 class NewLine:

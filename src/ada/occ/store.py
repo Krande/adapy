@@ -1,36 +1,31 @@
 from __future__ import annotations
 
-import pathlib
 from typing import TYPE_CHECKING
-
-from OCC.Extend.DataExchange import read_step_file
 
 import ada
 from ada.base.types import GeomRepr
-from ada.config import get_logger
+from ada.config import logger
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada.base.physical_objects import BackendGeom
+    from ada.occ.step.reader import StepReader
     from ada.occ.step.writer import StepWriter
-
-logger = get_logger()
 
 
 class OCCStore:
-    def __init__(self, step_file: str | pathlib.Path = None):
-        self.step_file = step_file
-
-    def iter_shapes(self):
-        for shp in read_step_file(self.step_file, as_compound=False):
-            yield shp
-
     @staticmethod
     def get_writer() -> StepWriter:
         from ada.occ.step.writer import StepWriter
 
         return StepWriter("AdaStep")
+
+    @staticmethod
+    def get_reader(step_filepath) -> StepReader:
+        from ada.occ.step.reader import StepReader
+
+        return StepReader(step_filepath)
 
     @staticmethod
     def shape_iterator(

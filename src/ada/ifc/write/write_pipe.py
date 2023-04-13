@@ -6,7 +6,7 @@ import ifcopenshell
 import numpy as np
 
 from ada.base.units import Units
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.constants import O, X, Z
 from ada.core.curve_utils import get_center_from_3_points_and_radius
 from ada.core.vector_utils import (
@@ -29,8 +29,6 @@ from ada.ifc.utils import (
 
 if TYPE_CHECKING:
     from ada import Pipe, PipeSegElbow, PipeSegStraight
-
-logger = get_logger()
 
 
 def write_ifc_pipe(pipe: Pipe):

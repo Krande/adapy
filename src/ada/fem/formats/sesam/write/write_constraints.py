@@ -1,11 +1,9 @@
 from ada import FEM
-from ada.config import get_logger
+from ada.config import logger
 from ada.fem import Constraint
 from ada.fem.common import LinDep
 
 from .write_utils import write_ff
-
-logger = get_logger()
 
 
 def constraint_str(fem: FEM) -> str:

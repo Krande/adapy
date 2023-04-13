@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ada import Placement, Plate
-from ada.config import get_logger
+from ada.config import logger
 
 from .read_curves import import_indexedpolycurve, import_polycurve
 from .read_materials import read_material
@@ -11,8 +11,6 @@ from .reader_utils import get_associated_material
 
 if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
-
-logger = get_logger()
 
 
 def import_ifc_plate(ifc_elem, name, ifc_store: IfcStore) -> Plate:

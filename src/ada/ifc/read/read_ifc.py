@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ada.base.changes import ChangeAction
-from ada.config import get_logger
+from ada.config import logger
 from ada.ifc.read.read_physical_objects import import_physical_ifc_elem
 from ada.ifc.read.reader_utils import (
     add_to_assembly,
@@ -18,8 +18,6 @@ from .read_parts import PartImporter
 
 if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
-
-logger = get_logger()
 
 
 @dataclass

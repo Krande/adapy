@@ -4,12 +4,10 @@ from itertools import chain
 from typing import TYPE_CHECKING
 
 from ada import Material
-from ada.config import get_logger
+from ada.config import logger
 
 if TYPE_CHECKING:
     from ada.concepts.spatial import Assembly
-
-logger = get_logger()
 
 
 def materials_str(assembly: Assembly) -> str:

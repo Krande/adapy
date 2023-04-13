@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import pathlib
+from enum import Enum
 
 from OCC.Core.BRep import BRep_Builder
+from OCC.Core.Interface import Interface_Static_SetCVal
 from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
 from OCC.Core.STEPCAFControl import STEPCAFControl_Writer
 from OCC.Core.STEPControl import STEPControl_AsIs
@@ -14,9 +16,18 @@ from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
 from OCC.Core.XCAFDoc import XCAFDoc_ColorType, XCAFDoc_DocumentTool
 from OCC.Core.XSControl import XSControl_WorkSession
 
+from ada.base.units import Units
+
+
+class StepSchema(Enum):
+    AP203 = "AP203"
+    AP214 = "AP214"
+    AP242 = "AP242"
+
 
 class StepWriter:
-    def __init__(self, top_level_name: str = "Assembly", schema: str = "AP242", assembly_mode: bool = True):
+    def __init__(self, top_level_name: str = "Assembly", units: Units = Units.M, schema: StepSchema = StepSchema.AP242):
+        self.schema = schema
         app = TDocStd_Application()
         doc = TDocStd_Document(TCollection_ExtendedString("XmlOcaf"))
         app.InitDocument(doc)
@@ -41,6 +52,7 @@ class StepWriter:
         set_name(top_level_label, top_level_name)
         self.tll = top_level_label
         self.shape_tool = shape_tool
+        self.units = units
 
     def add_shape(self, shape: TopoDS_Shape | TopoDS_Compound, name: str, rgb_color=None, parent=None):
         self.comp_builder.Add(self.comp, shape)
@@ -53,10 +65,14 @@ class StepWriter:
     def export(self, step_file: pathlib.Path):
         # Set up the writer
         session = XSControl_WorkSession()
+
         writer = STEPCAFControl_Writer(session, False)
         writer.SetColorMode(True)
         writer.SetLayerMode(False)
         writer.SetNameMode(True)
+
+        Interface_Static_SetCVal("write.step.unit", self.units.value.upper())
+        Interface_Static_SetCVal("write.step.schema", self.schema.value.upper())
 
         writer.Transfer(self.doc, STEPControl_AsIs)
         status = writer.Write(str(step_file))

@@ -112,7 +112,12 @@ class DuplicateFilter(logging.Filter):
 
 
 def get_logger():
+    # Note to self! Without declaring basicConfig, the logger will not respond to any change in the logging level
+    logging.basicConfig(format="[%(asctime)s: %(levelname)s/%(name)s] | %(message)s")
     _logger = logging.getLogger("ada")
     if Settings.use_duplicate_log_filter:
         _logger.addFilter(DuplicateFilter(logger=_logger))
     return _logger
+
+
+logger = get_logger()

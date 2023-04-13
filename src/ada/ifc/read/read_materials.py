@@ -6,12 +6,10 @@ from typing import TYPE_CHECKING
 import ifcopenshell
 
 from ada import Material
-from ada.config import get_logger
+from ada.config import logger
 
 if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
-
-logger = get_logger()
 
 
 def read_material(ifc_mat: ifcopenshell.entity_instance, ifc_store: IfcStore) -> Material:

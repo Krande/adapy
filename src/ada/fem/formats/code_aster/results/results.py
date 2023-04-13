@@ -7,7 +7,7 @@ import h5py
 import meshio
 import numpy as np
 
-from ada.config import get_logger
+from ada.config import logger
 from ada.fem import StepEigen
 from ada.fem.elements import ElemShape
 from ada.fem.formats.code_aster.read.reader import med_to_fem
@@ -15,8 +15,6 @@ from ada.fem.formats.code_aster.read.reader import med_to_fem
 if TYPE_CHECKING:
     from ada.fem.results import Results
     from ada.fem.results.eigenvalue import EigenDataSummary
-
-logger = get_logger()
 
 
 def get_eigen_data(rmed_file) -> EigenDataSummary:

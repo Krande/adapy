@@ -9,13 +9,12 @@ import ifcopenshell.geom
 from ifcopenshell.util.element import get_psets
 
 from ada.concepts.transforms import Placement
-from ada.config import Settings, get_logger
+from ada.config import Settings, logger
 
 if TYPE_CHECKING:
     from ada import Assembly, Part, Pipe
 
 tol_map = dict(m=Settings.mtol, mm=Settings.mmtol)
-logger = get_logger()
 
 
 def open_ifc(ifc_file_path: Union[str, pathlib.Path, StringIO]):

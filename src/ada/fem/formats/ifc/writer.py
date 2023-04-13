@@ -1,7 +1,7 @@
 import ifcopenshell
 
 from ada import FEM
-from ada.config import get_logger
+from ada.config import logger
 from ada.fem import Elem
 from ada.ifc.utils import (
     create_guid,
@@ -13,8 +13,6 @@ from ada.ifc.utils import (
 )
 
 from .helper_utils import ifc_vertex
-
-logger = get_logger()
 
 
 def to_ifc_fem(fem: FEM, f: ifcopenshell.file) -> None:

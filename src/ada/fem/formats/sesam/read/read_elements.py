@@ -2,7 +2,7 @@ from itertools import chain
 
 import numpy as np
 
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.utils import roundoff
 from ada.fem import FEM, Elem, FemSet, Mass, Spring
 from ada.fem.containers import FemElements
@@ -11,8 +11,6 @@ from ada.fem.formats.utils import str_to_int
 from ada.fem.shapes.lines import SpringTypes
 
 from . import cards
-
-logger = get_logger()
 
 
 def get_elements(bulk_str: str, fem: FEM) -> tuple[FemElements, dict, dict, dict]:

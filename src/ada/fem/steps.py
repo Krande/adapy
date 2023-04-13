@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Dict, List, Union
 
-from ada.config import get_logger
+from ada.config import logger
 
 from .common import FemBase
 from .constraints import Bc
@@ -12,8 +12,6 @@ from .outputs import FieldOutput, HistOutput
 
 if TYPE_CHECKING:
     from ada import FEM
-
-logger = get_logger()
 
 
 class _StepTypes:

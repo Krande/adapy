@@ -5,7 +5,7 @@ import numpy as np
 
 from ada import FEM, Section
 from ada.concepts.containers import Sections
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem import Csys, Elem, FemSection, FemSet
@@ -17,8 +17,6 @@ from ada.materials import Material
 from ada.sections import GeneralProperties
 
 from . import cards
-
-logger = get_logger()
 
 
 def get_sections(bulk_str, fem: FEM, mass_elem, spring_elem) -> FemSections:

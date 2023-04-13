@@ -9,7 +9,7 @@ import ifcopenshell
 import ifcopenshell.geom
 
 from ada.base.changes import ChangeAction
-from ada.config import get_logger
+from ada.config import logger
 from ada.ifc.utils import assembly_to_ifc_file, default_settings, get_unit_type
 from ada.ifc.write.write_sections import get_profile_class
 from ada.ifc.write.write_user import create_owner_history_from_user
@@ -20,8 +20,6 @@ if TYPE_CHECKING:
     from ada import Assembly, Section, User
     from ada.ifc.read.read_ifc import IfcReader
     from ada.ifc.write.write_ifc import IfcWriter
-
-logger = get_logger()
 
 
 @dataclass
@@ -43,6 +41,12 @@ class IfcStore:
                 if self.ifc_file_path.exists():
                     self.f = ifcopenshell.open(str(self.ifc_file_path))
             elif self.assembly is not None:
+                self.f = assembly_to_ifc_file(self.assembly)
+                self.add_standard_contexts()
+            else:
+                from ada import Assembly
+
+                self.assembly = Assembly()
                 self.f = assembly_to_ifc_file(self.assembly)
                 self.add_standard_contexts()
 

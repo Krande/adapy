@@ -8,11 +8,9 @@ from dataclasses import dataclass, field
 import numpy as np
 import trimesh
 
-from ada.config import get_logger
+from ada.config import logger
 
 from .colors import VisColor
-
-logger = get_logger()
 
 
 @dataclass

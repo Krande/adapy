@@ -4,15 +4,13 @@ import subprocess
 from typing import TYPE_CHECKING, Callable
 
 from ada.base.types import BaseEnum
-from ada.config import get_logger
+from ada.config import logger
 
 from . import abaqus, calculix, code_aster, sesam, usfos
 from .utils import interpret_fem_format_from_path
 
 if TYPE_CHECKING:
     from ada import Assembly
-
-logger = get_logger()
 
 
 class FEATypes(BaseEnum):

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Dict, List
 import meshio
 import numpy as np
 
-from ada.config import get_logger
+from ada.config import logger
 from ada.fem.formats.general import FEATypes
 from ada.visualize.femviz import get_edges_and_faces_from_meshio, magnitude
 
@@ -23,8 +23,6 @@ from .eigenvalue import EigenDataSummary
 if TYPE_CHECKING:
     from ada import Assembly
     from ada.visualize.concept import PartMesh, VisMesh
-
-logger = get_logger()
 
 
 class Results:

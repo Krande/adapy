@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ada.config import get_logger
+from ada.config import logger
 
 from .exceptions import NoIfcAxesAttachedError, UnableToConvertBoolResToBeamException
 from .read_beams import import_ifc_beam
@@ -12,8 +12,6 @@ from .read_shapes import import_ifc_shape
 
 if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
-
-logger = get_logger()
 
 
 def import_physical_ifc_elem(product, name, ifc_store: IfcStore):

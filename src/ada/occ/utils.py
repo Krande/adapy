@@ -43,7 +43,7 @@ from OCC.Extend.TopologyUtils import TopologyExplorer
 from ada.concepts.primitives import Penetration
 from ada.concepts.stru_beams import Beam
 from ada.concepts.transforms import Placement, Rotation
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem.shapes import ElemType
@@ -56,8 +56,6 @@ from .exceptions.geom_creation import (
 if TYPE_CHECKING:
     from ada import Part
     from ada.core.vector_utils import EquationOfPlane, Plane
-
-logger = get_logger()
 
 
 def extract_shapes(step_path, scale, transform, rotate, include_shells=False):
