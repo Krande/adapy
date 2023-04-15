@@ -73,7 +73,7 @@ class Settings:
 
 
 class DuplicateFilter(logging.Filter):
-    MAX_NUM = 3
+    MAX_NUM = 5
 
     def __init__(self, name="", logger=None):
         super().__init__(name)

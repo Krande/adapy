@@ -10,7 +10,7 @@ from ada.base.units import Units
 from ada.config import logger
 from ada.ifc.utils import create_guid, create_local_placement, add_colour
 from ada.ifc.write.write_ifc import IfcWriter
-from ada.occ.step.reader import StepReader, serialize_shape
+from ada.occ.step.reader import StepStore, serialize_shape
 
 
 def default_callable(i, n):
@@ -38,7 +38,7 @@ def step_file_to_ifc_file(
     shape_placement = create_local_placement(f)
     relating_elements = []
 
-    step = StepReader(step_file)
+    step = StepStore(step_file)
     num_serialized = 0
     num_tesselated = 0
 

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada.base.physical_objects import BackendGeom
-    from ada.occ.step.reader import StepReader
+    from ada.occ.step.reader import StepStore
     from ada.occ.step.writer import StepWriter
 
 
@@ -22,10 +22,10 @@ class OCCStore:
         return StepWriter("AdaStep")
 
     @staticmethod
-    def get_reader(step_filepath) -> StepReader:
-        from ada.occ.step.reader import StepReader
+    def get_reader(step_filepath) -> StepStore:
+        from ada.occ.step.reader import StepStore
 
-        return StepReader(step_filepath)
+        return StepStore(step_filepath)
 
     @staticmethod
     def shape_iterator(

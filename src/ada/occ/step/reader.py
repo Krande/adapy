@@ -1,7 +1,6 @@
-import os
-from dataclasses import dataclass
-from typing import Iterable
+from __future__ import annotations
 
+import os
 from OCC.Core import BRepTools
 from OCC.Core.IFSelect import IFSelect_ItemsByEntity, IFSelect_RetDone
 from OCC.Core.Interface import Interface_Static_SetCVal
@@ -12,9 +11,10 @@ from OCC.Core.TCollection import TCollection_ExtendedString
 from OCC.Core.TDF import TDF_LabelSequence, TDF_Label
 from OCC.Core.TDocStd import TDocStd_Document
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
-from OCC.Core.TopExp import topexp_MapShapes
 from OCC.Core.XCAFDoc import XCAFDoc_DocumentTool_ShapeTool, XCAFDoc_DocumentTool_ColorTool
 from OCC.Extend.TopologyUtils import TopologyExplorer, list_of_shapes_to_compound
+from dataclasses import dataclass
+from typing import Iterable
 
 from ada.base.units import Units
 from ada.config import logger
@@ -29,12 +29,13 @@ class StepShape:
     name: str | None = None
 
 
-class StepReader:
+class StepStore:
     def __init__(self, filepath, verbosity=True, destination_units: Units = Units.M, include_wires=False):
         self.filepath = filepath
         self.destination_units = destination_units
         self.verbosity = verbosity
         self.include_wires = include_wires
+        self.step_reader: STEPControl_Reader = None
 
     def create_step_reader(self) -> STEPControl_Reader:
         filename = str(self.filepath)
@@ -42,11 +43,11 @@ class StepReader:
             raise FileNotFoundError(f"{filename} not found.")
 
         step_reader = STEPControl_Reader()
+
         Interface_Static_SetCVal("xstep.cascade.unit", self.destination_units.value.upper())
 
         logger.info(f"Reading STEP file: {filename} into unit: {self.destination_units.value}")
         status = step_reader.ReadFile(filename)
-        logger.info(f"STEP file read status: {status}")
 
         if status != IFSelect_RetDone:  # check status
             raise AssertionError("Error: can't read file.")
@@ -66,13 +67,59 @@ class StepReader:
         elif self.destination_units == Units.MM:
             if step_reader.SystemLengthUnit() != 1.0:
                 raise AssertionError("System unit is not MM.")
-
+        self.step_reader = step_reader
         return step_reader
+
+    def create_caf_step_reader(self, doc: TDocStd_Document = None) -> STEPCAFControl_Reader:
+        filename = self.filepath
+
+        step_reader = STEPCAFControl_Reader()
+        step_reader.SetColorMode(True)
+        step_reader.SetNameMode(True)
+
+        logger.info(f"Reading STEP file: {filename} to generate properties map")
+        status = step_reader.ReadFile(str(filename))
+        if status == IFSelect_RetDone:
+            if doc is None:
+                doc = TDocStd_Document(TCollection_ExtendedString("pythonocc-doc"))
+            step_reader.Transfer(doc)
+
+        self.step_reader = step_reader
+        return step_reader
+
+    def get_step_props_map(self) -> dict[int, EntityProps]:
+        """Slightly modified version of the example from the pythonocc documentation."""
+        doc = TDocStd_Document(TCollection_ExtendedString("pythonocc-doc"))
+
+        # Get root assembly
+        shape_tool = XCAFDoc_DocumentTool_ShapeTool(doc.Main())
+        color_tool = XCAFDoc_DocumentTool_ColorTool(doc.Main())
+
+        self.create_caf_step_reader(doc)
+
+        locs = []
+
+        def _iter_shapes():
+            labels = TDF_LabelSequence()
+            shape_tool.GetFreeShapes(labels)
+            num_labels = labels.Length()
+            for i in range(num_labels):
+                root_item = labels.Value(i + 1)
+                for entity_prop in _get_sub_shape_entity_props(root_item, shape_tool, color_tool, locs):
+                    yield entity_prop
+
+        return {i: x for i, x in enumerate(_iter_shapes())}
 
     def get_root_shape(self) -> TopoDS_Shape | TopoDS_Compound | None:
         """Get root shape in STEP file."""
-        step_reader = self.create_step_reader()
-        _nbs = step_reader.NbShapes()
+        step_reader = self.step_reader
+        if step_reader is None:
+            step_reader = self.create_step_reader()
+            _nbs = step_reader.NbShapes()
+        else:
+            _nbs = step_reader.NbRootsForTransfer()
+            step_reader = step_reader.ChangeReader()
+
         if _nbs == 0:
             raise AssertionError("No shape to transfer.")
         if _nbs == 1:  # most cases
@@ -136,7 +183,7 @@ class StepReader:
         else:
             pass
 
-    def _iter_subshapes(self, root_shape: TopoDS_Shape) -> Iterable[TopoDS_Shape]:
+    def _iter_subshapes(self, root_shape: TopoDS_Shape) -> Iterable[tuple[TopoDS_Shape, int]]:
         t = TopologyExplorer(root_shape)
         # Find the total number of shapes to be yielded
         num_solids = t.number_of_solids()
@@ -160,7 +207,7 @@ class StepReader:
     def iter_all_shapes(self, include_colors=False) -> Iterable[StepShape]:
         props_map = {}
         if include_colors:
-            props_map = get_step_props_map(self.filepath)
+            props_map = self.get_step_props_map()
 
         for i, (shape, num_shapes) in enumerate(self._iter_subshapes(self.get_root_shape())):
             props = props_map.get(i, None)
@@ -174,7 +221,7 @@ class StepReader:
         return get_boundingbox(shape)
 
 
-def serialize_shape(shape) -> str:
+def serialize_shape(shape: TopoDS_Shape) -> str:
     shapes = BRepTools.BRepTools_ShapeSet()
     shapes.Add(shape)
     return shapes.WriteToString()
@@ -187,37 +234,7 @@ class EntityProps:
     color: tuple[float, float, float]
 
 
-def get_step_props_map(filename) -> dict[int, EntityProps]:
-    """Slightly modified version of the example from the pythonocc documentation."""
-    doc = TDocStd_Document(TCollection_ExtendedString("pythonocc-doc"))
-
-    # Get root assembly
-    shape_tool = XCAFDoc_DocumentTool_ShapeTool(doc.Main())
-    color_tool = XCAFDoc_DocumentTool_ColorTool(doc.Main())
-
-    step_reader = STEPCAFControl_Reader()
-    step_reader.SetColorMode(True)
-    step_reader.SetNameMode(True)
-
-    logger.info(f"Reading STEP file: {filename} to generate properties map")
-    status = step_reader.ReadFile(str(filename))
-    if status == IFSelect_RetDone:
-        step_reader.Transfer(doc)
-
-    locs = []
-
-    def _iter_shapes():
-        labels = TDF_LabelSequence()
-        shape_tool.GetFreeShapes(labels)
-        num_labels = labels.Length()
-        for i in range(num_labels):
-            root_item = labels.Value(i + 1)
-            for entity_prop in _get_sub_shape_entity_props(root_item, shape_tool, color_tool, locs):
-                yield entity_prop
-
-    return {i: x for i, x in enumerate(_iter_shapes())}
-
-def _get_sub_shape_entity_props(lab, shape_tool, color_tool, locs):
+def _get_sub_shape_entity_props(lab: TDF_Label | TopoDS_Shape, shape_tool, color_tool, locs):
     l_subss = TDF_LabelSequence()
     shape_tool.GetSubShapes(lab, l_subss)
     l_comps = TDF_LabelSequence()
@@ -254,20 +271,16 @@ def get_color(color_tool, shape, lab) -> tuple[float, float, float]:
     c = Quantity_Color(0.5, 0.5, 0.5, Quantity_TOC_RGB)  # default color
     color_set = False
     if (
-            color_tool.GetInstanceColor(shape, 0, c)
-            or color_tool.GetInstanceColor(shape, 1, c)
-            or color_tool.GetInstanceColor(shape, 2, c)
+        color_tool.GetInstanceColor(shape, 0, c)
+        or color_tool.GetInstanceColor(shape, 1, c)
+        or color_tool.GetInstanceColor(shape, 2, c)
     ):
         color_tool.SetInstanceColor(shape, 0, c)
         color_tool.SetInstanceColor(shape, 1, c)
         color_tool.SetInstanceColor(shape, 2, c)
         color_set = True
     if not color_set:
-        if (
-                color_tool.GetColor(lab, 0, c)
-                or color_tool.GetColor(lab, 1, c)
-                or color_tool.GetColor(lab, 2, c)
-        ):
+        if color_tool.GetColor(lab, 0, c) or color_tool.GetColor(lab, 1, c) or color_tool.GetColor(lab, 2, c):
             color_tool.SetInstanceColor(shape, 0, c)
             color_tool.SetInstanceColor(shape, 1, c)
             color_tool.SetInstanceColor(shape, 2, c)
