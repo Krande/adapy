@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
+from typing import Iterable
+
 from OCC.Core import BRepTools
 from OCC.Core.IFSelect import IFSelect_ItemsByEntity, IFSelect_RetDone
 from OCC.Core.Interface import Interface_Static_SetCVal
@@ -12,9 +15,8 @@ from OCC.Core.TDF import TDF_LabelSequence, TDF_Label
 from OCC.Core.TDocStd import TDocStd_Document
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
 from OCC.Core.XCAFDoc import XCAFDoc_DocumentTool_ShapeTool, XCAFDoc_DocumentTool_ColorTool
+from OCC.Core.XCAFPrs import XCAFPrs_DocumentExplorer, XCAFPrs_DocumentExplorerFlags_OnlyLeafNodes
 from OCC.Extend.TopologyUtils import TopologyExplorer, list_of_shapes_to_compound
-from dataclasses import dataclass
-from typing import Iterable
 
 from ada.base.units import Units
 from ada.config import logger
@@ -35,31 +37,56 @@ class StepStore:
         self.destination_units = destination_units
         self.verbosity = verbosity
         self.include_wires = include_wires
-        self.step_reader: STEPControl_Reader = None
+        self.step_reader: STEPControl_Reader | None = None
+        # For OCAF
+        self.shape_tool: XCAFDoc_DocumentTool_ShapeTool = None
+        self.color_tool: XCAFDoc_DocumentTool_ColorTool = None
+        self.doc: TDocStd_Document | None = None
 
-    def create_step_reader(self) -> STEPControl_Reader:
+    def create_step_reader(self, use_ocaf=False) -> STEPControl_Reader | STEPCAFControl_Reader:
         filename = str(self.filepath)
         if not os.path.isfile(filename):
             raise FileNotFoundError(f"{filename} not found.")
 
-        step_reader = STEPControl_Reader()
+        if not use_ocaf:
+            step_reader = STEPControl_Reader()
+        else:
+            self.doc = TDocStd_Document(TCollection_ExtendedString("XmlOcaf"))
+            self.shape_tool = XCAFDoc_DocumentTool_ShapeTool(self.doc.Main())
+            self.color_tool = XCAFDoc_DocumentTool_ColorTool(self.doc.Main())
+            step_reader = STEPCAFControl_Reader()
 
         Interface_Static_SetCVal("xstep.cascade.unit", self.destination_units.value.upper())
 
-        logger.info(f"Reading STEP file: {filename} into unit: {self.destination_units.value}")
+        logger.info(f"Reading STEP file: '{filename}' [{self.destination_units.value=}] [{use_ocaf=}]")
         status = step_reader.ReadFile(filename)
 
         if status != IFSelect_RetDone:  # check status
             raise AssertionError("Error: can't read file.")
 
-        if self.verbosity:
+        if self.verbosity and not use_ocaf:
             failsonly = False
             step_reader.PrintCheckLoad(failsonly, IFSelect_ItemsByEntity)
             step_reader.PrintCheckTransfer(failsonly, IFSelect_ItemsByEntity)
 
-        transfer_result = step_reader.TransferRoots()
+        if not use_ocaf:
+            transfer_result = step_reader.TransferRoots()
+        else:
+            transfer_result = step_reader.Transfer(self.doc)
+
         if not transfer_result:
             raise AssertionError("Transfer failed.")
+
+        self.step_reader = step_reader
+        self.check_units()
+        return step_reader
+
+    def check_units(self):
+        step_reader = self.step_reader
+        if step_reader is None:
+            raise AssertionError("step_reader is None")
+        if isinstance(step_reader, STEPCAFControl_Reader):
+            step_reader = step_reader.Reader()
 
         if self.destination_units == Units.M:
             if step_reader.SystemLengthUnit() != 1000.0:
@@ -67,45 +94,21 @@ class StepStore:
         elif self.destination_units == Units.MM:
             if step_reader.SystemLengthUnit() != 1.0:
                 raise AssertionError("System unit is not MM.")
-        self.step_reader = step_reader
-        return step_reader
-
-    def create_caf_step_reader(self, doc: TDocStd_Document = None) -> STEPCAFControl_Reader:
-        filename = self.filepath
-
-        step_reader = STEPCAFControl_Reader()
-        step_reader.SetColorMode(True)
-        step_reader.SetNameMode(True)
-
-        logger.info(f"Reading STEP file: {filename} to generate properties map")
-        status = step_reader.ReadFile(str(filename))
-        if status == IFSelect_RetDone:
-            if doc is None:
-                doc = TDocStd_Document(TCollection_ExtendedString("pythonocc-doc"))
-            step_reader.Transfer(doc)
-
-        self.step_reader = step_reader
-        return step_reader
 
     def get_step_props_map(self) -> dict[int, EntityProps]:
         """Slightly modified version of the example from the pythonocc documentation."""
-        doc = TDocStd_Document(TCollection_ExtendedString("pythonocc-doc"))
-
+        self.create_step_reader(True)
         # Get root assembly
-        shape_tool = XCAFDoc_DocumentTool_ShapeTool(doc.Main())
-        color_tool = XCAFDoc_DocumentTool_ColorTool(doc.Main())
-
-        self.create_caf_step_reader(doc)
 
         locs = []
 
         def _iter_shapes():
             labels = TDF_LabelSequence()
-            shape_tool.GetFreeShapes(labels)
+            self.shape_tool.GetFreeShapes(labels)
             num_labels = labels.Length()
             for i in range(num_labels):
                 root_item = labels.Value(i + 1)
-                for entity_prop in _get_sub_shape_entity_props(root_item, shape_tool, color_tool, locs):
+                for entity_prop in _get_sub_shape_entity_props(root_item, self.shape_tool, self.color_tool, locs):
                     yield entity_prop
 
         return {i: x for i, x in enumerate(_iter_shapes())}
@@ -117,8 +120,11 @@ class StepStore:
             step_reader = self.create_step_reader()
             _nbs = step_reader.NbShapes()
         else:
-            _nbs = step_reader.NbRootsForTransfer()
-            step_reader = step_reader.ChangeReader()
+            if isinstance(step_reader, STEPCAFControl_Reader):
+                step_reader = step_reader.ChangeReader()
+                _nbs = step_reader.NbRootsForTransfer()
+            else:
+                _nbs = step_reader.NbShapes()
 
         if _nbs == 0:
             raise AssertionError("No shape to transfer.")
@@ -139,39 +145,6 @@ class StepStore:
 
         return None
 
-    def _iter_all_shapes_including_colors(self) -> Iterable[StepShape]:
-        filename = str(self.filepath)
-        if not os.path.isfile(filename):
-            raise FileNotFoundError(f"{filename} not found.")
-
-        doc = TDocStd_Document(TCollection_ExtendedString("pythonocc-doc"))
-
-        # Get root assembly
-        shape_tool = XCAFDoc_DocumentTool_ShapeTool(doc.Main())
-        color_tool = XCAFDoc_DocumentTool_ColorTool(doc.Main())
-
-        step_reader = STEPCAFControl_Reader()
-        step_reader.SetColorMode(True)
-        step_reader.SetNameMode(True)
-
-        logger.info(f"Reading STEP file: {filename} into unit: {self.destination_units.value}")
-        status = step_reader.ReadFile(str(filename))
-        if status == IFSelect_RetDone:
-            step_reader.Transfer(doc)
-
-        labels = TDF_LabelSequence()
-        shape_tool.GetFreeShapes(labels)
-        num_labels = labels.Length()
-
-        for i in range(num_labels):
-            label = labels.Value(i + 1)
-            root_name = label.GetLabelName()
-            logger.info(f"Root label name: {root_name}")
-            root_shape = shape_tool.GetShape(label)
-            for shape, tot_num in self._iter_subshapes(root_shape):
-                color = get_color(color_tool, shape, label)
-                yield StepShape(shape, color, tot_num)
-
     def _iter_sub_labels(self, root_label: TDF_Label, shape_tool) -> Iterable[TDF_Label]:
         root_label.NbChildren()
         if shape_tool.IsAssembly(root_label):
@@ -183,7 +156,9 @@ class StepStore:
         else:
             pass
 
-    def _iter_subshapes(self, root_shape: TopoDS_Shape) -> Iterable[tuple[TopoDS_Shape, int]]:
+    def get_num_shapes(self, root_shape=None):
+        if root_shape is None:
+            root_shape = self.get_root_shape()
         t = TopologyExplorer(root_shape)
         # Find the total number of shapes to be yielded
         num_solids = t.number_of_solids()
@@ -193,28 +168,41 @@ class StepStore:
         if self.include_wires:
             num_wires = t.number_of_wires()
             num_shapes += num_wires
+        return num_shapes
 
+    def _iter_subshapes(self, root_shape: TopoDS_Shape) -> Iterable[TopoDS_Shape]:
+        t = TopologyExplorer(root_shape)
         # Yield the shapes
         for solid in t.solids():
-            yield solid, num_shapes
+            yield solid
         for shell in t.shells():
-            yield shell, num_shapes
+            yield shell
 
         if self.include_wires:
             for wire in t.wires():
-                yield wire, num_shapes
+                yield wire
 
     def iter_all_shapes(self, include_colors=False) -> Iterable[StepShape]:
         props_map = {}
         if include_colors:
-            props_map = self.get_step_props_map()
-
-        for i, (shape, num_shapes) in enumerate(self._iter_subshapes(self.get_root_shape())):
-            props = props_map.get(i, None)
-            if props is None:
-                yield StepShape(shape, None, num_shapes)
-            else:
-                yield StepShape(shape, props.color, num_shapes, props.name)
+            self.create_step_reader(use_ocaf=True)
+            num_shapes = self.get_num_shapes()
+            doc_exp = XCAFPrs_DocumentExplorer(self.doc, XCAFPrs_DocumentExplorerFlags_OnlyLeafNodes)
+            while doc_exp.More():
+                doc_node = doc_exp.Current()
+                node = node_to_step_shape(doc_node, self, num_shapes)
+                yield node
+                for child_shape in iter_children(doc_node, self, num_shapes):
+                    yield child_shape
+                doc_exp.Next()
+        else:
+            num_shapes = self.get_num_shapes()
+            for i, shape in enumerate(self._iter_subshapes(self.get_root_shape())):
+                props = props_map.get(i, None)
+                if props is None:
+                    yield StepShape(shape, None, num_shapes)
+                else:
+                    yield StepShape(shape, props.color, num_shapes, props.name)
 
     def get_bbox(self):
         shape = self.get_root_shape()
@@ -258,22 +246,21 @@ def _get_sub_shape_entity_props(lab: TDF_Label | TopoDS_Shape, shape_tool, color
         shape = shape_tool.GetShape(lab)
         color = get_color(color_tool, shape, lab)
 
-        yield EntityProps("unique", lab.GetLabelName(), color)
+        yield EntityProps(hash(shape), lab.GetLabelName(), color)
         for i in range(l_subss.Length()):
             lab_subs = l_subss.Value(i + 1)
             shape_sub = shape_tool.GetShape(lab_subs)
             color = get_color(color_tool, shape_sub, lab)
-            sub_shape_hash = hash(shape_sub)
-            yield EntityProps(sub_shape_hash, lab_subs.GetLabelName(), color)
+            yield EntityProps(hash(shape_sub), lab_subs.GetLabelName(), color)
 
 
-def get_color(color_tool, shape, lab) -> tuple[float, float, float]:
+def get_color(color_tool: XCAFDoc_DocumentTool_ColorTool, shape, lab) -> tuple[float, float, float]:
     c = Quantity_Color(0.5, 0.5, 0.5, Quantity_TOC_RGB)  # default color
     color_set = False
     if (
-        color_tool.GetInstanceColor(shape, 0, c)
-        or color_tool.GetInstanceColor(shape, 1, c)
-        or color_tool.GetInstanceColor(shape, 2, c)
+            color_tool.GetInstanceColor(shape, 0, c)
+            or color_tool.GetInstanceColor(shape, 1, c)
+            or color_tool.GetInstanceColor(shape, 2, c)
     ):
         color_tool.SetInstanceColor(shape, 0, c)
         color_tool.SetInstanceColor(shape, 1, c)
@@ -286,3 +273,22 @@ def get_color(color_tool, shape, lab) -> tuple[float, float, float]:
             color_tool.SetInstanceColor(shape, 2, c)
 
     return c.Red(), c.Green(), c.Blue()
+
+
+def node_to_step_shape(doc_node, store: StepStore, num_shapes: int):
+    """Convert a node from a STEP file to a STEP shape"""
+    shape = store.shape_tool.GetShape(doc_node.RefLabel)
+    label = doc_node.RefLabel
+    name = label.GetLabelName()
+    rgb = get_color(store.color_tool, shape, label)
+    return StepShape(shape, rgb, num_shapes, name)
+
+
+def iter_children(doc_node, store, num_shapes):
+    """Iterate over all child nodes of a given node"""
+    child_iter = doc_node.ChildIter
+    child_iter.Initialize(doc_node.RefLabel)
+    while child_iter.More():
+        child = child_iter.Value()
+        yield node_to_step_shape(child, store, num_shapes)
+        child.Next()

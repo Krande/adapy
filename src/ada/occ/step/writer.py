@@ -9,14 +9,15 @@ from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
 from OCC.Core.STEPCAFControl import STEPCAFControl_Writer
 from OCC.Core.STEPControl import STEPControl_AsIs
 from OCC.Core.TCollection import TCollection_ExtendedString
-from OCC.Core.TDataStd import TDataStd_Name
 from OCC.Core.TDF import TDF_Label
+from OCC.Core.TDataStd import TDataStd_Name
 from OCC.Core.TDocStd import TDocStd_Application, TDocStd_Document
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
 from OCC.Core.XCAFDoc import XCAFDoc_ColorType, XCAFDoc_DocumentTool
 from OCC.Core.XSControl import XSControl_WorkSession
 
 from ada.base.units import Units
+from ada.config import logger
 
 
 class StepSchema(Enum):
@@ -26,7 +27,7 @@ class StepSchema(Enum):
 
 
 class StepWriter:
-    def __init__(self, top_level_name: str = "Assembly", units: Units = Units.M, schema: StepSchema = StepSchema.AP242):
+    def __init__(self, top_level_name: str = "Assembly", units: Units = Units.M, schema: StepSchema = StepSchema.AP214):
         self.schema = schema
         app = TDocStd_Application()
         doc = TDocStd_Document(TCollection_ExtendedString("XmlOcaf"))
@@ -48,7 +49,7 @@ class StepWriter:
         self.doc = doc
         self.comp = comp
 
-        top_level_label = shape_tool.AddShape(comp, False)
+        top_level_label = shape_tool.AddShape(comp, True)
         set_name(top_level_label, top_level_name)
         self.tll = top_level_label
         self.shape_tool = shape_tool
@@ -59,16 +60,23 @@ class StepWriter:
         parent = self.tll if parent is None else parent
         shape_label = self.shape_tool.AddSubShape(parent, shape)
         rgb_color = (1, 0, 0) if rgb_color is None else rgb_color
+        if shape_label.IsNull():
+            shape_label = self.shape_tool.AddShape(shape, False, False)
+            logger.info(f"Adding as SubShape label generated an IsNull label. Adding as shape instead ")
         set_color(shape_label, rgb_color, self.color_tool)
         set_name(shape_label, name)
 
-    def export(self, step_file: pathlib.Path):
+    def export(self, step_file: pathlib.Path | str):
+        if isinstance(step_file, str):
+            step_file = pathlib.Path(step_file)
+        step_file.parent.mkdir(parents=True, exist_ok=True)
+
         # Set up the writer
         session = XSControl_WorkSession()
 
         writer = STEPCAFControl_Writer(session, False)
         writer.SetColorMode(True)
-        writer.SetLayerMode(False)
+
         writer.SetNameMode(True)
 
         Interface_Static_SetCVal("write.step.unit", self.units.value.upper())
@@ -77,7 +85,7 @@ class StepWriter:
         writer.Transfer(self.doc, STEPControl_AsIs)
         status = writer.Write(str(step_file))
 
-        if not status:
+        if status != 1:
             raise Exception("STEP export failed")
         else:
             print(f"STEP export status: {status}")
