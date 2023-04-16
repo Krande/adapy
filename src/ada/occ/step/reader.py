@@ -15,11 +15,11 @@ from OCC.Core.TDF import TDF_LabelSequence, TDF_Label
 from OCC.Core.TDocStd import TDocStd_Document
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
 from OCC.Core.XCAFDoc import XCAFDoc_DocumentTool_ShapeTool, XCAFDoc_DocumentTool_ColorTool
-from OCC.Core.XCAFPrs import XCAFPrs_DocumentExplorer, XCAFPrs_DocumentExplorerFlags_OnlyLeafNodes
 from OCC.Extend.TopologyUtils import TopologyExplorer, list_of_shapes_to_compound
 
 from ada.base.units import Units
 from ada.config import logger
+from ada.occ.step.reader_utils import read_step_file_with_names_colors
 from ada.occ.utils import get_boundingbox
 
 
@@ -55,6 +55,11 @@ class StepStore:
             self.shape_tool = XCAFDoc_DocumentTool_ShapeTool(self.doc.Main())
             self.color_tool = XCAFDoc_DocumentTool_ColorTool(self.doc.Main())
             step_reader = STEPCAFControl_Reader()
+            step_reader.SetColorMode(True)
+            step_reader.SetLayerMode(True)
+            step_reader.SetNameMode(True)
+            step_reader.SetMatMode(True)
+            step_reader.SetGDTMode(True)
 
         Interface_Static_SetCVal("xstep.cascade.unit", self.destination_units.value.upper())
 
@@ -94,24 +99,6 @@ class StepStore:
         elif self.destination_units == Units.MM:
             if step_reader.SystemLengthUnit() != 1.0:
                 raise AssertionError("System unit is not MM.")
-
-    def get_step_props_map(self) -> dict[int, EntityProps]:
-        """Slightly modified version of the example from the pythonocc documentation."""
-        self.create_step_reader(True)
-        # Get root assembly
-
-        locs = []
-
-        def _iter_shapes():
-            labels = TDF_LabelSequence()
-            self.shape_tool.GetFreeShapes(labels)
-            num_labels = labels.Length()
-            for i in range(num_labels):
-                root_item = labels.Value(i + 1)
-                for entity_prop in _get_sub_shape_entity_props(root_item, self.shape_tool, self.color_tool, locs):
-                    yield entity_prop
-
-        return {i: x for i, x in enumerate(_iter_shapes())}
 
     def get_root_shape(self) -> TopoDS_Shape | TopoDS_Compound | None:
         """Get root shape in STEP file."""
@@ -159,7 +146,9 @@ class StepStore:
     def get_num_shapes(self, root_shape=None):
         if root_shape is None:
             root_shape = self.get_root_shape()
+
         t = TopologyExplorer(root_shape)
+
         # Find the total number of shapes to be yielded
         num_solids = t.number_of_solids()
         num_shells = t.number_of_shells()
@@ -168,6 +157,7 @@ class StepStore:
         if self.include_wires:
             num_wires = t.number_of_wires()
             num_shapes += num_wires
+
         return num_shapes
 
     def _iter_subshapes(self, root_shape: TopoDS_Shape) -> Iterable[TopoDS_Shape]:
@@ -185,16 +175,12 @@ class StepStore:
     def iter_all_shapes(self, include_colors=False) -> Iterable[StepShape]:
         props_map = {}
         if include_colors:
-            self.create_step_reader(use_ocaf=True)
+            self.create_step_reader(True)
             num_shapes = self.get_num_shapes()
-            doc_exp = XCAFPrs_DocumentExplorer(self.doc, XCAFPrs_DocumentExplorerFlags_OnlyLeafNodes)
-            while doc_exp.More():
-                doc_node = doc_exp.Current()
-                node = node_to_step_shape(doc_node, self, num_shapes)
-                yield node
-                for child_shape in iter_children(doc_node, self, num_shapes):
-                    yield child_shape
-                doc_exp.Next()
+            for topods_shape, (label, c_quant) in read_step_file_with_names_colors(self).items():
+                color = c_quant.Red(), c_quant.Green(), c_quant.Blue()
+                yield StepShape(topods_shape, color, num_shapes, label)
+                del topods_shape
         else:
             num_shapes = self.get_num_shapes()
             for i, shape in enumerate(self._iter_subshapes(self.get_root_shape())):
@@ -258,9 +244,9 @@ def get_color(color_tool: XCAFDoc_DocumentTool_ColorTool, shape, lab) -> tuple[f
     c = Quantity_Color(0.5, 0.5, 0.5, Quantity_TOC_RGB)  # default color
     color_set = False
     if (
-            color_tool.GetInstanceColor(shape, 0, c)
-            or color_tool.GetInstanceColor(shape, 1, c)
-            or color_tool.GetInstanceColor(shape, 2, c)
+        color_tool.GetInstanceColor(shape, 0, c)
+        or color_tool.GetInstanceColor(shape, 1, c)
+        or color_tool.GetInstanceColor(shape, 2, c)
     ):
         color_tool.SetInstanceColor(shape, 0, c)
         color_tool.SetInstanceColor(shape, 1, c)

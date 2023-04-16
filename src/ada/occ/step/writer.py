@@ -76,7 +76,6 @@ class StepWriter:
 
         writer = STEPCAFControl_Writer(session, False)
         writer.SetColorMode(True)
-
         writer.SetNameMode(True)
 
         Interface_Static_SetCVal("write.step.unit", self.units.value.upper())
