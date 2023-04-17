@@ -4,7 +4,7 @@ import math
 import os
 import pathlib
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Callable
 
 from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
 from OCC.Core.BRepTools import breptools_Clean, breptools_WriteToString
@@ -16,8 +16,8 @@ from OCC.Core.RWGltf import RWGltf_CafWriter, RWGltf_WriterTrsfFormat
 from OCC.Core.RWMesh import RWMesh_CoordinateSystem_Zup
 from OCC.Core.STEPCAFControl import STEPCAFControl_Reader
 from OCC.Core.STEPControl import STEPControl_Reader
-from OCC.Core.TCollection import TCollection_AsciiString, TCollection_ExtendedString
 from OCC.Core.TColStd import TColStd_IndexedDataMapOfStringString
+from OCC.Core.TCollection import TCollection_AsciiString, TCollection_ExtendedString
 from OCC.Core.TDF import TDF_Label, TDF_LabelSequence
 from OCC.Core.TDocStd import TDocStd_Document
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
@@ -43,14 +43,16 @@ class StepShape:
 
 
 class StepStore:
-    def __init__(self, filepath, verbosity=True, destination_units: Units = Units.M, include_wires=False):
+    def __init__(self, filepath, verbosity=True, destination_units: Units | str = Units.M, include_wires=False):
         self.filepath = filepath
         if isinstance(destination_units, str):
             destination_units = Units.from_str(destination_units)
+
         self.destination_units = destination_units
         self.verbosity = verbosity
         self.include_wires = include_wires
-        self.step_reader: STEPControl_Reader | None = None
+        self.step_reader: STEPControl_Reader | STEPCAFControl_Reader | None = None
+
         # For OCAF
         self.shape_tool: XCAFDoc_DocumentTool_ShapeTool = None
         self.color_tool: XCAFDoc_DocumentTool_ColorTool = None
@@ -113,11 +115,13 @@ class StepStore:
             if step_reader.SystemLengthUnit() != 1.0:
                 raise AssertionError("System unit is not MM.")
 
-    def get_root_shape(self) -> TopoDS_Shape | TopoDS_Compound | None:
+    def get_root_shape(self, use_ocaf=False) -> TopoDS_Shape | TopoDS_Compound | None:
         """Get root shape in STEP file."""
         step_reader = self.step_reader
         if step_reader is None:
-            step_reader = self.create_step_reader()
+            step_reader = self.create_step_reader(use_ocaf)
+            if isinstance(step_reader, STEPCAFControl_Reader):
+                step_reader = step_reader.ChangeReader()
             _nbs = step_reader.NbShapes()
         else:
             if isinstance(step_reader, STEPCAFControl_Reader):
@@ -145,20 +149,9 @@ class StepStore:
 
         return None
 
-    def _iter_sub_labels(self, root_label: TDF_Label, shape_tool) -> Iterable[TDF_Label]:
-        root_label.NbChildren()
-        if shape_tool.IsAssembly(root_label):
-            l_c = TDF_LabelSequence()
-            shape_tool.GetComponents(root_label, l_c)
-            res2 = l_c.Length()
-            for i in range(res2):
-                yield from self._iter_sub_labels(l_c.Value(i + 1), shape_tool)
-        else:
-            pass
-
-    def get_num_shapes(self, root_shape=None):
+    def get_num_shapes(self, root_shape=None, use_ocaf=False) -> int:
         if root_shape is None:
-            root_shape = self.get_root_shape()
+            root_shape = self.get_root_shape(use_ocaf)
 
         t = TopologyExplorer(root_shape)
 
@@ -188,7 +181,8 @@ class StepStore:
     def iter_all_shapes(self, include_colors=False) -> Iterable[StepShape]:
         props_map = {}
         if include_colors:
-            self.create_step_reader(True)
+            if not isinstance(self.step_reader, STEPCAFControl_Reader):
+                self.create_step_reader(True)
             num_shapes = self.get_num_shapes()
             for topods_shape, (label, c_quant) in read_step_file_with_names_colors(self).items():
                 color = c_quant.Red(), c_quant.Green(), c_quant.Blue()
@@ -207,7 +201,13 @@ class StepStore:
         shape = self.get_root_shape()
         return get_boundingbox(shape)
 
-    def to_gltf(self, gltf_file, line_defl: float = None, angle_def: float = None) -> None:
+    def to_gltf(
+        self,
+        gltf_file,
+        line_defl: float = None,
+        angle_def: float = None,
+        progress_callback: Callable[[int, int], None] = None,
+    ) -> None:
         if isinstance(gltf_file, str):
             gltf_file = pathlib.Path(gltf_file)
 
@@ -215,13 +215,22 @@ class StepStore:
         shape_tool = XCAFDoc_DocumentTool_ShapeTool(doc.Main())
         color_tool = XCAFDoc_DocumentTool_ColorTool(doc.Main())
 
-        for i, step_shape in enumerate(self.iter_all_shapes(True)):
+        for i, step_shape in enumerate(self.iter_all_shapes(True), start=1):
             shp = step_shape.shape
+            if isinstance(shp, TopoDS_Compound):
+                continue
+
             tesselate_shape(shp, line_defl, angle_def)
+            if progress_callback is not None:
+                progress_callback(i, step_shape.num_tot_entities)
 
             sub_shape_label = shape_tool.AddShape(shp)
             set_color(sub_shape_label, step_shape.color, color_tool)
             set_name(sub_shape_label, step_shape.name)
+
+        # shp = self.get_root_shape(True)
+        # tesselate_shape(shp, line_defl, angle_def)
+        # sub_shape_label = shape_tool.AddShape(shp)
 
         # GLTF options
         a_format = RWGltf_WriterTrsfFormat.RWGltf_WriterTrsfFormat_Compact
@@ -230,23 +239,16 @@ class StepStore:
         a_file_info = TColStd_IndexedDataMapOfStringString()
         a_file_info.Add(TCollection_AsciiString("Authors"), TCollection_AsciiString("ada-py"))
 
-        #
         # Binary export
-        #
-        if gltf_file.suffix == ".glb":
-            binary = True
-            glb_writer = RWGltf_CafWriter(TCollection_AsciiString(str(gltf_file)), binary)
-            glb_writer.ChangeCoordinateSystemConverter().SetInputCoordinateSystem(RWMesh_CoordinateSystem_Zup)
-            glb_writer.SetTransformationFormat(a_format)
-            pr = Message_ProgressRange()  # this is required
-            glb_writer.Perform(doc, a_file_info, pr)
-        elif gltf_file.suffix == ".gltf":
-            binary = False
-            gltf_writer = RWGltf_CafWriter(TCollection_AsciiString(str(gltf_file)), binary)
-            gltf_writer.ChangeCoordinateSystemConverter().SetInputCoordinateSystem(RWMesh_CoordinateSystem_Zup)
-            gltf_writer.SetTransformationFormat(a_format)
-            pr = Message_ProgressRange()  # this is required
-            gltf_writer.Perform(doc, a_file_info, pr)
+        binary = True if gltf_file.suffix == ".glb" else False
+
+        glb_writer = RWGltf_CafWriter(TCollection_AsciiString(str(gltf_file)), binary)
+
+        glb_writer.ChangeCoordinateSystemConverter().SetInputLengthUnit(0.001)
+        glb_writer.ChangeCoordinateSystemConverter().SetInputCoordinateSystem(RWMesh_CoordinateSystem_Zup)
+        glb_writer.SetTransformationFormat(a_format)
+        pr = Message_ProgressRange()  # this is required
+        glb_writer.Perform(doc, a_file_info, pr)
 
 
 def serialize_shape(shape: TopoDS_Shape) -> str:
@@ -277,6 +279,16 @@ class EntityProps:
     hash: str
     name: str
     color: tuple[float, float, float]
+
+
+def _iter_sub_labels(root_label: TDF_Label, shape_tool) -> Iterable[TDF_Label]:
+    root_label.NbChildren()
+    if shape_tool.IsAssembly(root_label):
+        l_c = TDF_LabelSequence()
+        shape_tool.GetComponents(root_label, l_c)
+        res2 = l_c.Length()
+        for i in range(res2):
+            yield from _iter_sub_labels(l_c.Value(i + 1), shape_tool)
 
 
 def _get_sub_shape_entity_props(lab: TDF_Label | TopoDS_Shape, shape_tool, color_tool, locs):
