@@ -9,8 +9,8 @@ from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
 from OCC.Core.STEPCAFControl import STEPCAFControl_Writer
 from OCC.Core.STEPControl import STEPControl_AsIs
 from OCC.Core.TCollection import TCollection_ExtendedString
-from OCC.Core.TDF import TDF_Label
 from OCC.Core.TDataStd import TDataStd_Name
+from OCC.Core.TDF import TDF_Label
 from OCC.Core.TDocStd import TDocStd_Application, TDocStd_Document
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
 from OCC.Core.XCAFDoc import XCAFDoc_ColorType, XCAFDoc_DocumentTool
@@ -62,7 +62,7 @@ class StepWriter:
         rgb_color = (1, 0, 0) if rgb_color is None else rgb_color
         if shape_label.IsNull():
             shape_label = self.shape_tool.AddShape(shape, False, False)
-            logger.info(f"Adding as SubShape label generated an IsNull label. Adding as shape instead ")
+            logger.info("Adding as SubShape label generated an IsNull label. Adding as shape instead ")
         set_color(shape_label, rgb_color, self.color_tool)
         set_name(shape_label, name)
 

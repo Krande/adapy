@@ -1,8 +1,7 @@
 import pytest
 
 import ada
-from ada.occ.step.reader import StepStore
-from ada.occ.stp_to_ifc import step_file_to_ifc_file
+from ada.occ.step.store import StepStore
 
 
 def test_read_units(example_files):

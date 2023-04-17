@@ -8,7 +8,7 @@ from ifcopenshell import ifcopenshell_wrapper
 import ada
 from ada.base.units import Units
 from ada.config import logger
-from ada.ifc.utils import create_guid, create_local_placement, add_colour
+from ada.ifc.utils import add_colour, create_guid, create_local_placement
 from ada.ifc.write.write_ifc import IfcWriter
 from ada.occ.step.reader import StepStore, serialize_shape
 
@@ -22,7 +22,7 @@ def step_file_to_ifc_file(
     step_file: pathlib.Path,
     ifc_file_path: str | pathlib.Path | None = None,
     progress_callback: Callable[[int, int], None] = default_callable,
-    include_colors=False
+    include_colors=False,
 ) -> None:
     if ifc_file_path is None:
         ifc_file_path = step_file.with_suffix(".ifc")
@@ -94,4 +94,3 @@ def step_file_to_ifc_file(
 
     logger.info(f"Writing to file {ifc_file_path}")
     a.ifc_store.f.write(str(ifc_file_path))
-

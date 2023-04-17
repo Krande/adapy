@@ -4,7 +4,6 @@ import zipfile
 from io import BytesIO
 
 
-
 def xml_elem_to_sat_text(sat_el: ET.Element) -> str:
     if sat_el.tag == "sat_embedded":
         text = sat_el.text

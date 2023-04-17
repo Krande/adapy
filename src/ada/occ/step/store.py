@@ -1,29 +1,36 @@
 from __future__ import annotations
 
+import math
 import os
 import pathlib
 from dataclasses import dataclass
 from typing import Iterable
 
-from OCC.Core import BRepTools
+from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+from OCC.Core.BRepTools import breptools_Clean, breptools_WriteToString
 from OCC.Core.IFSelect import IFSelect_ItemsByEntity, IFSelect_RetDone
 from OCC.Core.Interface import Interface_Static_SetCVal
 from OCC.Core.Message import Message_ProgressRange
 from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
-from OCC.Core.RWGltf import RWGltf_WriterTrsfFormat, RWGltf_CafWriter
+from OCC.Core.RWGltf import RWGltf_CafWriter, RWGltf_WriterTrsfFormat
+from OCC.Core.RWMesh import RWMesh_CoordinateSystem_Zup
 from OCC.Core.STEPCAFControl import STEPCAFControl_Reader
 from OCC.Core.STEPControl import STEPControl_Reader
+from OCC.Core.TCollection import TCollection_AsciiString, TCollection_ExtendedString
 from OCC.Core.TColStd import TColStd_IndexedDataMapOfStringString
-from OCC.Core.TCollection import TCollection_ExtendedString, TCollection_AsciiString
-from OCC.Core.TDF import TDF_LabelSequence, TDF_Label
+from OCC.Core.TDF import TDF_Label, TDF_LabelSequence
 from OCC.Core.TDocStd import TDocStd_Document
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
-from OCC.Core.XCAFDoc import XCAFDoc_DocumentTool_ShapeTool, XCAFDoc_DocumentTool_ColorTool
+from OCC.Core.XCAFDoc import (
+    XCAFDoc_DocumentTool_ColorTool,
+    XCAFDoc_DocumentTool_ShapeTool,
+)
 from OCC.Extend.TopologyUtils import TopologyExplorer, list_of_shapes_to_compound
 
 from ada.base.units import Units
 from ada.config import logger
 from ada.occ.step.reader_utils import read_step_file_with_names_colors
+from ada.occ.step.writer import set_color, set_name
 from ada.occ.utils import get_boundingbox
 
 
@@ -38,6 +45,8 @@ class StepShape:
 class StepStore:
     def __init__(self, filepath, verbosity=True, destination_units: Units = Units.M, include_wires=False):
         self.filepath = filepath
+        if isinstance(destination_units, str):
+            destination_units = Units.from_str(destination_units)
         self.destination_units = destination_units
         self.verbosity = verbosity
         self.include_wires = include_wires
@@ -198,43 +207,69 @@ class StepStore:
         shape = self.get_root_shape()
         return get_boundingbox(shape)
 
-    def to_gltf(self, gltf_file) -> None:
+    def to_gltf(self, gltf_file, line_defl: float = None, angle_def: float = None) -> None:
         if isinstance(gltf_file, str):
             gltf_file = pathlib.Path(gltf_file)
 
+        doc = TDocStd_Document(TCollection_ExtendedString("ada-py"))
+        shape_tool = XCAFDoc_DocumentTool_ShapeTool(doc.Main())
+        color_tool = XCAFDoc_DocumentTool_ColorTool(doc.Main())
+
+        for i, step_shape in enumerate(self.iter_all_shapes(True)):
+            shp = step_shape.shape
+            tesselate_shape(shp, line_defl, angle_def)
+
+            sub_shape_label = shape_tool.AddShape(shp)
+            set_color(sub_shape_label, step_shape.color, color_tool)
+            set_name(sub_shape_label, step_shape.name)
+
         # GLTF options
         a_format = RWGltf_WriterTrsfFormat.RWGltf_WriterTrsfFormat_Compact
-        force_uv_export = True
 
         # metadata
         a_file_info = TColStd_IndexedDataMapOfStringString()
-        a_file_info.Add(
-            TCollection_AsciiString("Authors"), TCollection_AsciiString("ada-py")
-        )
-        if self.doc is None:
-            self.create_step_reader(True)
+        a_file_info.Add(TCollection_AsciiString("Authors"), TCollection_AsciiString("ada-py"))
+
         #
         # Binary export
         #
         if gltf_file.suffix == ".glb":
             binary = True
-            binary_rwgltf_writer = RWGltf_CafWriter(TCollection_AsciiString(str(gltf_file)), binary)
-            binary_rwgltf_writer.SetTransformationFormat(a_format)
-            binary_rwgltf_writer.SetForcedUVExport(force_uv_export)
+            glb_writer = RWGltf_CafWriter(TCollection_AsciiString(str(gltf_file)), binary)
+            glb_writer.ChangeCoordinateSystemConverter().SetInputCoordinateSystem(RWMesh_CoordinateSystem_Zup)
+            glb_writer.SetTransformationFormat(a_format)
             pr = Message_ProgressRange()  # this is required
-            binary_rwgltf_writer.Perform(self.doc, a_file_info, pr)
+            glb_writer.Perform(doc, a_file_info, pr)
         elif gltf_file.suffix == ".gltf":
             binary = False
-            ascii_rwgltf_writer = RWGltf_CafWriter(TCollection_AsciiString(str(gltf_file)), binary)
-            ascii_rwgltf_writer.SetTransformationFormat(a_format)
-            ascii_rwgltf_writer.SetForcedUVExport(force_uv_export)
+            gltf_writer = RWGltf_CafWriter(TCollection_AsciiString(str(gltf_file)), binary)
+            gltf_writer.ChangeCoordinateSystemConverter().SetInputCoordinateSystem(RWMesh_CoordinateSystem_Zup)
+            gltf_writer.SetTransformationFormat(a_format)
             pr = Message_ProgressRange()  # this is required
-            ascii_rwgltf_writer.Perform(self.doc, a_file_info, pr)
+            gltf_writer.Perform(doc, a_file_info, pr)
+
 
 def serialize_shape(shape: TopoDS_Shape) -> str:
-    shapes = BRepTools.BRepTools_ShapeSet()
-    shapes.Add(shape)
-    return shapes.WriteToString()
+    breptools_Clean(shape)
+    return breptools_WriteToString(shape)
+
+
+def tesselate_shape(shp, line_defl: float = None, angle_def: float = 20):
+    breptools_Clean(shp)
+
+    msh_algo = BRepMesh_IncrementalMesh(shp, True)
+    msh_algo.Parameters().InParallel = True
+
+    if line_defl is not None:
+        msh_algo.Parameters().Deflection = line_defl
+
+    if angle_def is not None:
+        msh_algo.Parameters().Angle = angle_def * math.pi / 180
+
+    # Triangulate
+    msh_algo.Perform()
+
+    return shp
 
 
 @dataclass
@@ -249,7 +284,7 @@ def _get_sub_shape_entity_props(lab: TDF_Label | TopoDS_Shape, shape_tool, color
     shape_tool.GetSubShapes(lab, l_subss)
     l_comps = TDF_LabelSequence()
     shape_tool.GetComponents(lab, l_comps)
-    name = lab.GetLabelName()
+    lab.GetLabelName()
 
     if shape_tool.IsAssembly(lab):
         l_c = TDF_LabelSequence()

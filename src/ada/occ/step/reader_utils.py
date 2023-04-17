@@ -1,14 +1,14 @@
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
 from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
-from OCC.Core.TDF import TDF_LabelSequence, TDF_Label
+from OCC.Core.TDF import TDF_Label, TDF_LabelSequence
 from OCC.Core.TopLoc import TopLoc_Location
 from OCC.Core.TopoDS import TopoDS_Shape
 
 try:
-    import svgwrite
 
     HAVE_SVGWRITE = True
 except ImportError:
@@ -70,7 +70,7 @@ def read_step_file_with_names_colors(store: StepStore) -> dict[TopoDS_Shape, tup
                     color_tool.SetInstanceColor(shape, 2, c)
 
             shape_disp = BRepBuilderAPI_Transform(shape, loc.Transformation()).Shape()
-            if not shape_disp in output_shapes:
+            if shape_disp not in output_shapes:
                 output_shapes[shape_disp] = [lab.GetLabelName(), c]
             for i in range(l_subss.Length()):
                 lab_subs = l_subss.Value(i + 1)
@@ -99,7 +99,7 @@ def read_step_file_with_names_colors(store: StepStore) -> dict[TopoDS_Shape, tup
                         color_tool.SetInstanceColor(shape, 2, c)
 
                 shape_to_disp = BRepBuilderAPI_Transform(shape_sub, loc.Transformation()).Shape()
-                if not shape_to_disp in output_shapes:
+                if shape_to_disp not in output_shapes:
                     output_shapes[shape_to_disp] = [lab_subs.GetLabelName(), c]
 
     def _get_shapes():
