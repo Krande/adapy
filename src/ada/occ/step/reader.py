@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import os
+import pathlib
 from dataclasses import dataclass
 from typing import Iterable
 
 from OCC.Core import BRepTools
 from OCC.Core.IFSelect import IFSelect_ItemsByEntity, IFSelect_RetDone
 from OCC.Core.Interface import Interface_Static_SetCVal
+from OCC.Core.Message import Message_ProgressRange
 from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
+from OCC.Core.RWGltf import RWGltf_WriterTrsfFormat, RWGltf_CafWriter
 from OCC.Core.STEPCAFControl import STEPCAFControl_Reader
 from OCC.Core.STEPControl import STEPControl_Reader
-from OCC.Core.TCollection import TCollection_ExtendedString
+from OCC.Core.TColStd import TColStd_IndexedDataMapOfStringString
+from OCC.Core.TCollection import TCollection_ExtendedString, TCollection_AsciiString
 from OCC.Core.TDF import TDF_LabelSequence, TDF_Label
 from OCC.Core.TDocStd import TDocStd_Document
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
@@ -194,6 +198,38 @@ class StepStore:
         shape = self.get_root_shape()
         return get_boundingbox(shape)
 
+    def to_gltf(self, gltf_file) -> None:
+        if isinstance(gltf_file, str):
+            gltf_file = pathlib.Path(gltf_file)
+
+        # GLTF options
+        a_format = RWGltf_WriterTrsfFormat.RWGltf_WriterTrsfFormat_Compact
+        force_uv_export = True
+
+        # metadata
+        a_file_info = TColStd_IndexedDataMapOfStringString()
+        a_file_info.Add(
+            TCollection_AsciiString("Authors"), TCollection_AsciiString("ada-py")
+        )
+        if self.doc is None:
+            self.create_step_reader(True)
+        #
+        # Binary export
+        #
+        if gltf_file.suffix == ".glb":
+            binary = True
+            binary_rwgltf_writer = RWGltf_CafWriter(TCollection_AsciiString(str(gltf_file)), binary)
+            binary_rwgltf_writer.SetTransformationFormat(a_format)
+            binary_rwgltf_writer.SetForcedUVExport(force_uv_export)
+            pr = Message_ProgressRange()  # this is required
+            binary_rwgltf_writer.Perform(self.doc, a_file_info, pr)
+        elif gltf_file.suffix == ".gltf":
+            binary = False
+            ascii_rwgltf_writer = RWGltf_CafWriter(TCollection_AsciiString(str(gltf_file)), binary)
+            ascii_rwgltf_writer.SetTransformationFormat(a_format)
+            ascii_rwgltf_writer.SetForcedUVExport(force_uv_export)
+            pr = Message_ProgressRange()  # this is required
+            ascii_rwgltf_writer.Perform(self.doc, a_file_info, pr)
 
 def serialize_shape(shape: TopoDS_Shape) -> str:
     shapes = BRepTools.BRepTools_ShapeSet()
