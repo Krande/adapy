@@ -102,7 +102,7 @@ jobs:
         run: pip install requests tomlkit semver build
 
       - name: Bump version
-        run: python bump_version.py --bump-level=pre-release --skip-checks=true
+        run: python bump_version.py --bump-level=pre-release --skip-checks
 
       - name: Build and upload package for pypi
         run: |
