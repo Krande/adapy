@@ -125,7 +125,7 @@ def local_version_can_be_bumped():
 
 
 def check_formatting():
-    args = "black --config pyproject.toml . && isort . && ruff . --fix"
+    args = "black --config pyproject.toml . && isort . && ruff ."
     subprocess.check_output(args.split())
 
 

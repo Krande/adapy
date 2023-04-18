@@ -6,9 +6,11 @@ import pathlib
 from dataclasses import dataclass
 from typing import Iterable, Callable
 
+from OCC.Core import Precision
 from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
 from OCC.Core.BRepTools import breptools_Clean, breptools_WriteToString
 from OCC.Core.IFSelect import IFSelect_ItemsByEntity, IFSelect_RetDone
+from OCC.Core.IMeshTools import IMeshTools_Parameters
 from OCC.Core.Interface import Interface_Static_SetCVal
 from OCC.Core.Message import Message_ProgressRange
 from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
@@ -264,22 +266,28 @@ def serialize_shape(shape: TopoDS_Shape) -> str:
     return breptools_WriteToString(shape)
 
 
-def tesselate_shape(shp, line_defl: float = None, angle_def: float = 20):
+def tesselate_shape(shp, line_defl: float = None, angle_def: float = 20) -> int:
+    """See https://dev.opencascade.org/doc/overview/html/occt_user_guides__mesh.html#occt_modalg_11_2"""
     breptools_Clean(shp)
 
-    msh_algo = BRepMesh_IncrementalMesh(shp, True)
-    msh_algo.Parameters().InParallel = True
-
+    mesh_params = IMeshTools_Parameters()
+    min_size=Precision.precision.Confusion()
+    mesh_params.MinSize = min_size
     if line_defl is not None:
-        msh_algo.Parameters().Deflection = line_defl
+        mesh_params.Deflection = line_defl
 
     if angle_def is not None:
-        msh_algo.Parameters().Angle = angle_def * math.pi / 180
+        mesh_params.Angle = angle_def * math.pi / 180
+
+    mesh_params.InParallel = True
+
+    msh_algo = BRepMesh_IncrementalMesh(shp, mesh_params)
 
     # Triangulate
     msh_algo.Perform()
 
-    return shp
+    status = msh_algo.GetStatusFlags()
+    return status
 
 
 @dataclass
