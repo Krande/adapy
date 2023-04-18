@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada.base.physical_objects import BackendGeom
-    from ada.occ.step.reader import StepStore
+    from ada.occ.step.store import StepStore
     from ada.occ.step.writer import StepWriter
 
 

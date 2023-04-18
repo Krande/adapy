@@ -43,12 +43,12 @@ class StepShape:
 
 
 class StepStore:
-    def __init__(self, filepath, verbosity=True, destination_units: Units | str = Units.M, include_wires=False):
+    def __init__(self, filepath, verbosity=True, store_units: Units | str = Units.M, include_wires=False):
         self.filepath = filepath
-        if isinstance(destination_units, str):
-            destination_units = Units.from_str(destination_units)
+        if isinstance(store_units, str):
+            store_units = Units.from_str(store_units)
 
-        self.destination_units = destination_units
+        self.store_units = store_units
         self.verbosity = verbosity
         self.include_wires = include_wires
         self.step_reader: STEPControl_Reader | STEPCAFControl_Reader | None = None
@@ -76,9 +76,9 @@ class StepStore:
             step_reader.SetMatMode(True)
             step_reader.SetGDTMode(True)
 
-        Interface_Static_SetCVal("xstep.cascade.unit", self.destination_units.value.upper())
+        Interface_Static_SetCVal("xstep.cascade.unit", self.store_units.value.upper())
 
-        logger.info(f"Reading STEP file: '{filename}' [{self.destination_units.value=}] [{use_ocaf=}]")
+        logger.info(f"Reading STEP file: '{filename}' [{self.store_units.value=}] [{use_ocaf=}]")
         status = step_reader.ReadFile(filename)
 
         if status != IFSelect_RetDone:  # check status
@@ -108,10 +108,10 @@ class StepStore:
         if isinstance(step_reader, STEPCAFControl_Reader):
             step_reader = step_reader.Reader()
 
-        if self.destination_units == Units.M:
+        if self.store_units == Units.M:
             if step_reader.SystemLengthUnit() != 1000.0:
                 raise AssertionError("System unit is not M.")
-        elif self.destination_units == Units.MM:
+        elif self.store_units == Units.MM:
             if step_reader.SystemLengthUnit() != 1.0:
                 raise AssertionError("System unit is not MM.")
 
@@ -206,8 +206,12 @@ class StepStore:
         gltf_file,
         line_defl: float = None,
         angle_def: float = None,
+        export_units: Units | str = Units.M,
         progress_callback: Callable[[int, int], None] = None,
     ) -> None:
+        if isinstance(export_units, str):
+            export_units = Units.from_str(export_units)
+
         if isinstance(gltf_file, str):
             gltf_file = pathlib.Path(gltf_file)
 
@@ -243,8 +247,12 @@ class StepStore:
         binary = True if gltf_file.suffix == ".glb" else False
 
         glb_writer = RWGltf_CafWriter(TCollection_AsciiString(str(gltf_file)), binary)
-
-        glb_writer.ChangeCoordinateSystemConverter().SetInputLengthUnit(0.001)
+        if export_units == Units.M and self.store_units == Units.MM:
+            glb_writer.ChangeCoordinateSystemConverter().SetInputLengthUnit(0.001)
+        elif export_units == Units.MM and self.store_units == Units.M:
+            glb_writer.ChangeCoordinateSystemConverter().SetInputLengthUnit(1000)
+        else:  # either store and export units are the same or we don't know the store units
+            pass
         glb_writer.ChangeCoordinateSystemConverter().SetInputCoordinateSystem(RWMesh_CoordinateSystem_Zup)
         glb_writer.SetTransformationFormat(a_format)
         pr = Message_ProgressRange()  # this is required
