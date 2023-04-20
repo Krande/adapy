@@ -4,7 +4,7 @@ import math
 import os
 import pathlib
 from dataclasses import dataclass
-from typing import Iterable, Callable
+from typing import Callable, Iterable
 
 from OCC.Core import Precision
 from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
@@ -18,8 +18,8 @@ from OCC.Core.RWGltf import RWGltf_CafWriter, RWGltf_WriterTrsfFormat
 from OCC.Core.RWMesh import RWMesh_CoordinateSystem_Zup
 from OCC.Core.STEPCAFControl import STEPCAFControl_Reader
 from OCC.Core.STEPControl import STEPControl_Reader
-from OCC.Core.TColStd import TColStd_IndexedDataMapOfStringString
 from OCC.Core.TCollection import TCollection_AsciiString, TCollection_ExtendedString
+from OCC.Core.TColStd import TColStd_IndexedDataMapOfStringString
 from OCC.Core.TDF import TDF_Label, TDF_LabelSequence
 from OCC.Core.TDocStd import TDocStd_Document
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
@@ -271,7 +271,7 @@ def tesselate_shape(shp, line_defl: float = None, angle_def: float = 20) -> int:
     breptools_Clean(shp)
 
     mesh_params = IMeshTools_Parameters()
-    min_size=Precision.precision.Confusion()
+    min_size = Precision.precision.Confusion()
     mesh_params.MinSize = min_size
     if line_defl is not None:
         mesh_params.Deflection = line_defl
