@@ -9,7 +9,6 @@ from OCC.Core.TopLoc import TopLoc_Location
 from OCC.Core.TopoDS import TopoDS_Shape
 
 try:
-
     HAVE_SVGWRITE = True
 except ImportError:
     HAVE_SVGWRITE = False

@@ -60,7 +60,7 @@ jobs:
 
       - name: Check release version
         id: check
-        run: python bump_version.py --version-check-only=true
+        run: python bump_version.py --version-check-only
 
   test:
     needs: activate
