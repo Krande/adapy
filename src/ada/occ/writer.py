@@ -19,12 +19,12 @@ from OCC.Core.TCollection import TCollection_HAsciiString
 from ada import Assembly, Beam, Part, Pipe, Plate, Shape, Wall
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.utils import Counter
 
 # Reference: https://www.opencascade.com/doc/occt-7.4.0/overview/html/occt_user_guides__step.html#occt_step_3
 
-logger = get_logger()
+
 shp_names = Counter(1, "shp")
 valid_types = Union[BackendGeom, Beam, Plate, Wall, Part, Assembly, Shape, Pipe]
 

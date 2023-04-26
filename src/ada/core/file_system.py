@@ -4,9 +4,7 @@ import shutil
 import time
 from typing import List, Union
 
-from ada.config import get_logger
-
-logger = get_logger()
+from ada.config import logger
 
 
 class SIZE_UNIT:

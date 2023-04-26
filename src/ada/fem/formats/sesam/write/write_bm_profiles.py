@@ -1,10 +1,8 @@
 from ada import Section
-from ada.config import get_logger
+from ada.config import logger
 from ada.sections import SectionCat
 
 from .write_utils import write_ff
-
-logger = get_logger()
 
 
 def general_beam(sec: Section, sec_id) -> str:

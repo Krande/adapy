@@ -14,15 +14,13 @@ from typing import TYPE_CHECKING
 from send2trash import send2trash
 
 from ada.concepts.containers import Beams, Plates
-from ada.config import Settings, get_logger
+from ada.config import Settings, logger
 from ada.fem import Elem
 from ada.fem.exceptions import FEASolverNotInstalled
 
 if TYPE_CHECKING:
     from ada import Assembly, Beam, Part, Plate
     from ada.fem.formats.general import FEATypes
-
-logger = get_logger()
 
 
 class DatFormatReader:

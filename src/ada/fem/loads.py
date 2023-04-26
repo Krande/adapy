@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
-from ada.config import get_logger
+from ada.config import logger
 
 from .common import Amplitude, Csys, FemBase
 from .constants import GRAVITY
@@ -14,8 +14,6 @@ from .surfaces import Surface
 
 if TYPE_CHECKING:
     from ada.fem.steps import Step
-
-logger = get_logger()
 
 
 class LoadTypes:

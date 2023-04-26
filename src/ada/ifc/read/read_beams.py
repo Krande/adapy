@@ -6,7 +6,7 @@ import numpy as np
 
 from ada import Beam
 from ada.concepts.curves import CurveRevolve
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.vector_utils import calc_yvec, vector_length
 
 from .read_beam_section import import_section_from_ifc
@@ -20,8 +20,6 @@ from .reader_utils import (
 
 if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
-
-logger = get_logger()
 
 
 def import_ifc_beam(ifc_elem, name, ifc_store: IfcStore) -> Beam:

@@ -7,7 +7,7 @@ import h5py
 import numpy as np
 
 from ada.concepts.containers import Nodes
-from ada.config import get_logger
+from ada.config import logger
 from ada.fem import Elem
 from ada.fem.containers import FemElements, FemSets
 
@@ -22,8 +22,6 @@ from .read_sets import (
 if TYPE_CHECKING:
     from ada.concepts.spatial import Assembly
     from ada.fem import FEM
-
-logger = get_logger()
 
 
 def read_fem(fem_file: os.PathLike, fem_name: str = None) -> Assembly:

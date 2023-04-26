@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, List, Union
 import numpy as np
 
 from ada.concepts.points import Node
-from ada.config import get_logger
+from ada.config import logger
 
 from .common import Csys, FemBase
 from .shapes import ElemShape, ElemType
@@ -16,8 +16,6 @@ from .shapes.definitions import LineShapes, ShapeResolver, ShellShapes, SolidSha
 if TYPE_CHECKING:
     from ada import FEM, Beam, Pipe, Plate, Shape, Wall
     from ada.fem import ConnectorSection, FemSection, FemSet
-
-logger = get_logger()
 
 
 class Elem(FemBase):

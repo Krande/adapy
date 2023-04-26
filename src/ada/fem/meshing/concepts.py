@@ -12,13 +12,11 @@ from ada import FEM, Beam, Pipe, Plate, Shape
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.concepts.containers import Nodes
-from ada.config import Settings, get_logger
+from ada.config import Settings, logger
 from ada.fem import Elem
 from ada.fem.containers import FemElements
 from ada.fem.shapes import ElemType
 from ada.ifc.utils import create_guid
-
-logger = get_logger()
 
 
 @dataclass

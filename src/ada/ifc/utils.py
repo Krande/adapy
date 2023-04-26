@@ -10,13 +10,11 @@ from ifcopenshell.util.unit import get_prefix_multiplier
 
 import ada.core.constants as ifco
 from ada.concepts.transforms import Transform
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.file_system import get_list_of_files
 
 if TYPE_CHECKING:
     from ada import Assembly, Beam
-
-logger = get_logger()
 
 
 def create_reference_subrep(f, global_axes):

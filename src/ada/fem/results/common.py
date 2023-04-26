@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Callable, Iterable
 import meshio
 import numpy as np
 
-from ada.config import get_logger
+from ada.config import logger
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
 
@@ -18,8 +18,6 @@ if TYPE_CHECKING:
     from ada import Material, Node, Section
     from ada.fem import Elem, FemSet
     from ada.fem.results.concepts import EigenDataSummary
-
-logger = get_logger()
 
 
 @dataclass

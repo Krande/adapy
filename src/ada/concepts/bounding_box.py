@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.config import get_logger
+from ada.config import logger
 
 from .transforms import Placement
 
@@ -16,8 +16,6 @@ if TYPE_CHECKING:
     from .primitives import PrimBox
     from .stru_beams import Beam
     from .stru_plates import Plate
-
-logger = get_logger()
 
 
 @dataclass

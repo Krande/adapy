@@ -8,7 +8,7 @@ import numpy as np
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.config import Settings as _Settings
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_length
 from ada.materials.utils import get_material
@@ -19,8 +19,6 @@ from .points import Node
 
 if TYPE_CHECKING:
     from ada import Section
-
-logger = get_logger()
 
 
 class Pipe(BackendGeom):

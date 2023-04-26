@@ -3,10 +3,6 @@ import xml.etree.ElementTree as ET
 import zipfile
 from io import BytesIO
 
-from ada.config import get_logger
-
-logger = get_logger()
-
 
 def xml_elem_to_sat_text(sat_el: ET.Element) -> str:
     if sat_el.tag == "sat_embedded":

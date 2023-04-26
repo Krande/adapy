@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.config import get_logger
+from ada.config import logger
 
 if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult, FieldData, Mesh
@@ -18,7 +18,6 @@ _script_dir = pathlib.Path(__file__).parent.resolve().absolute()
 
 
 ABA_IO = _script_dir / "aba_io.py"
-logger = get_logger()
 
 
 def convert_to_pckle(odb_path, pickle_path, use_aba_version=None):

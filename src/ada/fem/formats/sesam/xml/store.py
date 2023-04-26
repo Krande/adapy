@@ -2,7 +2,7 @@ import pathlib
 import xml.etree.ElementTree as ET
 
 from ada import Part
-from ada.config import get_logger
+from ada.config import logger
 from ada.fem.formats.sesam.xml.read.helpers import (
     apply_mass_density_factors,
     yield_plate_elems_to_plate,
@@ -16,8 +16,6 @@ from ada.fem.formats.sesam.xml.read.read_sections import get_sections
 from ada.fem.formats.sesam.xml.read.read_sets import get_sets
 from ada.fem.formats.sesam.xml.sat_helpers import write_xml_sat_text_to_file
 from ada.sat.factory import SatReaderFactory
-
-logger = get_logger()
 
 
 class GxmlStore:

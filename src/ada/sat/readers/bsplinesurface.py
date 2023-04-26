@@ -5,9 +5,7 @@ from ada.concepts.primitives import (
     IfcBSplineSurfaceForm,
     RationalBSplineSurfaceWithKnots,
 )
-from ada.config import get_logger
-
-logger = get_logger()
+from ada.config import logger
 
 
 def create_bsplinesurface_from_sat(spline_data_str: str) -> BSplineSurfaceWithKnots | RationalBSplineSurfaceWithKnots:

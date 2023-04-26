@@ -17,7 +17,7 @@ core:
 	mamba env update --file conda/environment.core.yml --prune
 
 format:
-	black --config pyproject.toml . && isort . && ruff . --fix
+	black --config pyproject.toml . && isort . && ruff .
 
 BUMP_LEVEL := $(filter major minor patch pre-release,$(MAKECMDGOALS))
 ifeq ($(BUMP_LEVEL),)

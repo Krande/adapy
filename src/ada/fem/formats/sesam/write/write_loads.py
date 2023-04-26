@@ -1,10 +1,8 @@
 from ada import FEM
-from ada.config import get_logger
+from ada.config import logger
 from ada.fem.loads import Load, LoadGravity
 
 from .write_utils import write_ff
-
-logger = get_logger()
 
 
 def loads_str(fem: FEM) -> str:

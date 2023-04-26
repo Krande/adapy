@@ -4,10 +4,8 @@ import os
 import pathlib
 import subprocess
 
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.file_system import get_short_path_name
-
-logger = get_logger()
 
 
 def convert_sin_to_sif(sin_file: str | pathlib.Path, use_siu=False) -> None:

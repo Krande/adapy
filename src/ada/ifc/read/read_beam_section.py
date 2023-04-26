@@ -1,8 +1,6 @@
 from ada.base.units import Units
-from ada.config import get_logger
+from ada.config import logger
 from ada.sections import Section
-
-logger = get_logger()
 
 
 def import_section_from_ifc(profile_def, units=Units.M) -> Section:

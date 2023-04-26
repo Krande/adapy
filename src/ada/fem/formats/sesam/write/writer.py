@@ -4,7 +4,7 @@ import datetime
 from operator import attrgetter
 from typing import TYPE_CHECKING
 
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.utils import Counter, get_current_user
 from ada.fem import FEM
 
@@ -13,8 +13,6 @@ from .write_utils import write_ff
 
 if TYPE_CHECKING:
     from ada import Material
-
-logger = get_logger()
 
 
 def to_fem(assembly, name, analysis_dir=None, metadata=None):

@@ -2,13 +2,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.config import Settings, get_logger
+from ada.config import Settings, logger
 from ada.fem import Bc, Connector, ConnectorSection, Constraint, Elem, FemSet
 
 if TYPE_CHECKING:
     from ada import FEM, Assembly
-
-logger = get_logger()
 
 
 def convert_ecc_to_mpc(fem: "FEM"):

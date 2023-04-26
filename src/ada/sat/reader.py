@@ -1,8 +1,6 @@
-from ada.config import get_logger
+from ada.config import logger
 
 from .exceptions import InsufficientPointsError
-
-logger = get_logger()
 
 
 def get_plates_from_satd(satd: dict) -> dict:

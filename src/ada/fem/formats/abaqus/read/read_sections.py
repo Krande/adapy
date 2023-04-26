@@ -4,7 +4,7 @@ import re
 from itertools import chain
 from typing import TYPE_CHECKING, Iterable
 
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.utils import Counter, roundoff
 from ada.fem import ConnectorSection, FemSection
 from ada.fem.containers import FemSections
@@ -20,8 +20,6 @@ _re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 if TYPE_CHECKING:
     from ada.concepts.spatial import Assembly
     from ada.fem import FEM
-
-logger = get_logger()
 
 
 def get_sections_from_inp(bulk_str, fem: FEM) -> FemSections:

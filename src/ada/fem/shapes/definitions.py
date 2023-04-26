@@ -5,11 +5,9 @@ from enum import Enum
 import numpy as np
 
 from ada.base.types import GeomRepr
-from ada.config import get_logger
+from ada.config import logger
 
 # The element names are based on the naming scheme by meshio
-
-logger = get_logger()
 
 
 class UnsupportedFeaShapeException(Exception):

@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.config import get_logger
+from ada.config import logger
 from ada.fem.shapes import definitions as shape_def
 
 from ..common import ada_to_med_type
@@ -10,8 +10,6 @@ from .helper_utils import resolve_ids_in_multiple
 
 if TYPE_CHECKING:
     from ada.concepts.spatial import Part
-
-logger = get_logger()
 
 
 def _add_cell_sets(cells_group, part: "Part", families):

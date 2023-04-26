@@ -1,11 +1,9 @@
 import pathlib
 import re
 
-from ada.config import get_logger
+from ada.config import logger
 from ada.fem.formats.sesam.results.sin2sif import convert_sin_to_sif
 from ada.fem.formats.utils import LocalExecute
-
-logger = get_logger()
 
 
 def run_sesam(

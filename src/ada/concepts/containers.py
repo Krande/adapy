@@ -14,7 +14,7 @@ from ada.concepts.points import Node, replace_node
 from ada.concepts.stru_beams import Beam
 from ada.concepts.stru_plates import Plate
 from ada.concepts.transforms import Rotation
-from ada.config import Settings, get_logger
+from ada.config import Settings, logger
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import (
     is_null_vector,
@@ -31,7 +31,6 @@ if TYPE_CHECKING:
     from ada.fem.results.common import FemNodes
     from ada.sections import Section
 
-logger = get_logger()
 
 __all__ = [
     "Nodes",

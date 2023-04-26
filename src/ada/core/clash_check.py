@@ -8,12 +8,10 @@ from typing import Iterable, List
 import numpy as np
 
 from ada import Assembly, Beam, Node, Part, Pipe, PipeSegStraight, Plate, PrimCyl
-from ada.config import get_logger
+from ada.config import logger
 
 from .utils import Counter
 from .vector_utils import EquationOfPlane, intersect_calc, is_parallel, vector_length
-
-logger = get_logger()
 
 
 def basic_intersect(bm: Beam, margins, all_parts: [Part]):

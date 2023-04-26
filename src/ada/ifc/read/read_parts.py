@@ -7,12 +7,10 @@ from ifcopenshell.util.element import get_psets
 
 from ada import Assembly, Part
 from ada.base.ifc_types import SpatialTypes
-from ada.config import get_logger
+from ada.config import logger
 from ada.ifc.store import IfcStore
 
 from .reader_utils import get_ifc_property_sets, get_parent, resolve_name
-
-logger = get_logger()
 
 
 def valid_spatial_classes(product: ifcopenshell.entity_instance):

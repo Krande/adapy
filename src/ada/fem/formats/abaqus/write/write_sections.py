@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from ada.config import get_logger
+from ada.config import logger
 from ada.fem import FemSection
 from ada.fem.steps import StepExplicit
 from ada.sections import GeneralProperties, Section
@@ -8,7 +8,7 @@ from ada.sections import GeneralProperties, Section
 if TYPE_CHECKING:
     from ada import FEM
 
-logger = get_logger()
+
 log_fin = "Please check your result and input. This is not a validated method of solving this issue"
 
 

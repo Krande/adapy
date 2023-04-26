@@ -4,7 +4,7 @@ import os
 import pathlib
 from typing import TYPE_CHECKING, List
 
-from ada.config import get_logger
+from ada.config import logger
 from ada.fem import StepEigen
 from ada.fem.exceptions.fea_execution import (
     FEAnalysisUnableToStart,
@@ -17,8 +17,6 @@ from .read_odb import get_odb_data
 if TYPE_CHECKING:
     from ada.fem.results.concepts import ElementDataOutput, FEMDataOutput, Results
     from ada.fem.results.eigenvalue import EigenDataSummary
-
-logger = get_logger()
 
 
 def get_eigen_data(dat_file: str | os.PathLike) -> EigenDataSummary:

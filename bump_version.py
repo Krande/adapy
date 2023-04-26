@@ -125,7 +125,7 @@ def local_version_can_be_bumped():
 
 
 def check_formatting():
-    args = "black --config pyproject.toml . && isort . && ruff . --fix"
+    args = "black --config pyproject.toml . && isort . && ruff ."
     subprocess.check_output(args.split())
 
 
@@ -172,10 +172,10 @@ if __name__ == "__main__":
         choices=["major", "minor", "patch", "pre-release"],
         help="Bump level (major, minor, patch or pre-release)",
     )
-    parser.add_argument("--version-check-only", default=False, help="Only check versions.")
-    parser.add_argument("--bump-ci-only", default=False, help="Only bump version.")
-    parser.add_argument("--skip-checks", default=False, help="Skip checks.")
-    parser.add_argument("--commit", default=False, help="Commit changes.")
+    parser.add_argument("--version-check-only", default=False, help="Only check versions.", action="store_true")
+    parser.add_argument("--bump-ci-only", default=False, help="Only bump version.", action="store_true")
+    parser.add_argument("--skip-checks", default=False, help="Skip checks.", action="store_true")
+    parser.add_argument("--commit", default=False, help="Commit changes.", action="store_true")
 
     args = parser.parse_args()
     Project.load()

@@ -6,12 +6,10 @@ import numpy as np
 
 from ada.concepts.spatial import Assembly
 from ada.config import Settings as _Settings
-from ada.config import get_logger
+from ada.config import logger
 from ada.fem import FEM
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import MassTypes, SpringTypes
-
-logger = get_logger()
 
 
 def meshio_to_fem(assembly: Assembly, name: str, scratch_dir=None, metadata=None) -> None:

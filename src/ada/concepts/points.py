@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Iterable, List, Union
 import numpy as np
 
 from ada.base.units import Units
-from ada.config import Settings, get_logger
+from ada.config import Settings, logger
 from ada.core.vector_utils import vector_length
 
 if TYPE_CHECKING:
@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from ada.fem import Bc, Csys, Elem
 
 numeric = Union[int, float, np.number]
-logger = get_logger()
 
 
 class Node:

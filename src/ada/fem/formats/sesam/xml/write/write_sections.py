@@ -3,12 +3,10 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
-from ada.config import get_logger
+from ada.config import logger
 
 if TYPE_CHECKING:
     from ada import Part, Section
-
-logger = get_logger()
 
 
 def add_sections(root: ET.Element, part: Part):

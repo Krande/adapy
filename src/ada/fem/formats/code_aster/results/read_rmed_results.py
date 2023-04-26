@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import h5py
 import numpy as np
 
-from ada.config import get_logger
+from ada.config import logger
 
 if TYPE_CHECKING:
     from ada.fem.results.common import (
@@ -18,8 +18,6 @@ if TYPE_CHECKING:
         Mesh,
         NodalFieldData,
     )
-
-logger = get_logger()
 
 
 def read_rmed_file(rmed_file: str | pathlib.Path) -> FEAResult:

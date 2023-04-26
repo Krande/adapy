@@ -2,9 +2,7 @@ import xml.etree.ElementTree as ET
 from typing import Dict, Union
 
 from ada import Beam, Group, Part
-from ada.config import get_logger
-
-logger = get_logger()
+from ada.config import logger
 
 
 def get_sets(xml_root: ET.Element, parent: Part) -> Dict[str, Group]:

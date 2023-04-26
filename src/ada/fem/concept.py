@@ -5,7 +5,7 @@ from itertools import chain
 from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple, Union
 
 from ada.concepts.containers import Nodes
-from ada.config import get_logger
+from ada.config import logger
 
 from .containers import FemElements, FemSections, FemSets
 from .sets import FemSet
@@ -39,7 +39,6 @@ if TYPE_CHECKING:
     from ada.fem.steps import Step
 
 _step_types = Union["StepSteadyState", "StepEigen", "StepImplicit", "StepExplicit"]
-logger = get_logger()
 
 
 @dataclass

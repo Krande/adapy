@@ -1,11 +1,9 @@
 import xml.etree.ElementTree as ET
 
-from ada.config import get_logger
+from ada.config import logger
 from ada.fem.formats.sesam.xml.read.read_beams import el_to_beam
 from ada.fem.formats.sesam.xml.read.read_materials import get_materials
 from ada.fem.formats.sesam.xml.read.read_sections import get_sections
-
-logger = get_logger()
 
 
 def iter_beams_from_xml(xml_path):

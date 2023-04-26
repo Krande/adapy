@@ -6,10 +6,8 @@ import numpy as np
 
 from ada import Beam, Node, Part
 from ada.concepts.containers import Beams
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.exceptions import VectorNormalizeError
-
-logger = get_logger()
 
 
 def get_beams(xml_root: ET.Element, parent: Part) -> Beams:
