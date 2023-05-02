@@ -69,8 +69,6 @@ def test_polygon_animation_simple(polygon_mesh):
         primitive["targets"] = [{"POSITION": pos}]
 
     os.makedirs("temp", exist_ok=True)
-
-    # Todo: Add support for this in the next release of AdaPy
     scene.export(
         file_obj="temp/polygon_animation.glb",
         file_type=".glb",

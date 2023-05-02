@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable
 
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
 from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
@@ -8,13 +8,16 @@ from OCC.Core.TDF import TDF_Label, TDF_LabelSequence
 from OCC.Core.TopLoc import TopLoc_Location
 from OCC.Core.TopoDS import TopoDS_Shape
 
+from ada.occ.xcaf_utils import get_color
+
 try:
     HAVE_SVGWRITE = True
 except ImportError:
     HAVE_SVGWRITE = False
 
 if TYPE_CHECKING:
-    from ada.occ.step.store import StepStore
+    from ada.occ.store import OccShape
+    from ada.step.store import EntityProps, StepStore
 
 
 def read_step_file_with_names_colors(store: StepStore) -> dict[TopoDS_Shape, tuple[str, Quantity_Color]]:
@@ -110,3 +113,64 @@ def read_step_file_with_names_colors(store: StepStore) -> dict[TopoDS_Shape, tup
 
     _get_shapes()
     return output_shapes
+
+
+def node_to_step_shape(doc_node, store: StepStore, num_shapes: int):
+    """Convert a node from a STEP file to a STEP shape"""
+    shape = store.shape_tool.GetShape(doc_node.RefLabel)
+    label = doc_node.RefLabel
+    name = label.GetLabelName()
+    rgb = get_color(store.color_tool, shape, label)
+    return OccShape(shape, rgb, num_shapes, name)
+
+
+def _iter_sub_labels(root_label: TDF_Label, shape_tool) -> Iterable[TDF_Label]:
+    root_label.NbChildren()
+    if shape_tool.IsAssembly(root_label):
+        l_c = TDF_LabelSequence()
+        shape_tool.GetComponents(root_label, l_c)
+        res2 = l_c.Length()
+        for i in range(res2):
+            yield from _iter_sub_labels(l_c.Value(i + 1), shape_tool)
+
+
+def _get_sub_shape_entity_props(lab: TDF_Label | TopoDS_Shape, shape_tool, color_tool, locs):
+    l_subss = TDF_LabelSequence()
+    shape_tool.GetSubShapes(lab, l_subss)
+    l_comps = TDF_LabelSequence()
+    shape_tool.GetComponents(lab, l_comps)
+    lab.GetLabelName()
+
+    if shape_tool.IsAssembly(lab):
+        l_c = TDF_LabelSequence()
+        shape_tool.GetComponents(lab, l_c)
+        for i in range(l_c.Length()):
+            label = l_c.Value(i + 1)
+            if shape_tool.IsReference(label):
+                label_reference = TDF_Label()
+                shape_tool.GetReferredShape(label, label_reference)
+                loc = shape_tool.GetLocation(label)
+                locs.append(loc)
+                yield from _get_sub_shape_entity_props(label_reference, shape_tool, color_tool, locs)
+                locs.pop()
+
+    elif shape_tool.IsSimpleShape(lab):
+        shape = shape_tool.GetShape(lab)
+        color = get_color(color_tool, shape, lab)
+
+        yield EntityProps(hash(shape), lab.GetLabelName(), color)
+        for i in range(l_subss.Length()):
+            lab_subs = l_subss.Value(i + 1)
+            shape_sub = shape_tool.GetShape(lab_subs)
+            color = get_color(color_tool, shape_sub, lab)
+            yield EntityProps(hash(shape_sub), lab_subs.GetLabelName(), color)
+
+
+def iter_children(doc_node, store, num_shapes):
+    """Iterate over all child nodes of a given node"""
+    child_iter = doc_node.ChildIter
+    child_iter.Initialize(doc_node.RefLabel)
+    while child_iter.More():
+        child = child_iter.Value()
+        yield node_to_step_shape(child, store, num_shapes)
+        child.Next()

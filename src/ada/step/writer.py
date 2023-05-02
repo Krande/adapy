@@ -2,22 +2,29 @@ from __future__ import annotations
 
 import pathlib
 from enum import Enum
+from typing import Any
 
 from OCC.Core.BRep import BRep_Builder
+from OCC.Core.BRepBuilderAPI import (
+    BRepBuilderAPI_MakeEdge,
+    BRepBuilderAPI_MakeEdge2d,
+    BRepBuilderAPI_MakeVertex,
+)
+from OCC.Core.Geom import Geom_Curve
+from OCC.Core.Geom2d import Geom2d_BSplineCurve
+from OCC.Core.gp import gp_Pnt, gp_Pnt2d
 from OCC.Core.Interface import Interface_Static_SetCVal
-from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
 from OCC.Core.STEPCAFControl import STEPCAFControl_Writer
 from OCC.Core.STEPControl import STEPControl_AsIs
 from OCC.Core.TCollection import TCollection_ExtendedString
-from OCC.Core.TDataStd import TDataStd_Name
-from OCC.Core.TDF import TDF_Label
 from OCC.Core.TDocStd import TDocStd_Application, TDocStd_Document
-from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
-from OCC.Core.XCAFDoc import XCAFDoc_ColorType, XCAFDoc_DocumentTool
+from OCC.Core.TopoDS import TopoDS_Compound
+from OCC.Core.XCAFDoc import XCAFDoc_DocumentTool
 from OCC.Core.XSControl import XSControl_WorkSession
 
 from ada.base.units import Units
 from ada.config import logger
+from ada.occ.xcaf_utils import set_color, set_name
 
 
 class StepSchema(Enum):
@@ -55,7 +62,21 @@ class StepWriter:
         self.shape_tool = shape_tool
         self.units = units
 
-    def add_shape(self, shape: TopoDS_Shape | TopoDS_Compound, name: str, rgb_color=None, parent=None):
+    def add_shape(self, shape: Any, name: str, rgb_color=None, parent=None):
+        if issubclass(shape.__class__, gp_Pnt):
+            # if a gp_Pnt is passed, first convert to vertex
+            vertex = BRepBuilderAPI_MakeVertex(shape)
+            shape = vertex.Shape()
+        elif isinstance(shape, gp_Pnt2d):
+            vertex = BRepBuilderAPI_MakeVertex(gp_Pnt(shape.X(), shape.Y(), 0))
+            shape = vertex.Shape()
+        elif isinstance(shape, Geom_Curve):
+            edge = BRepBuilderAPI_MakeEdge(shape)
+            shape = edge.Shape()
+        elif isinstance(shape, Geom2d_BSplineCurve):
+            edge2d = BRepBuilderAPI_MakeEdge2d(shape)
+            shape = edge2d.Shape()
+
         self.comp_builder.Add(self.comp, shape)
         parent = self.tll if parent is None else parent
         shape_label = self.shape_tool.AddSubShape(parent, shape)
@@ -88,12 +109,3 @@ class StepWriter:
             raise Exception("STEP export failed")
         else:
             print(f"STEP export status: {status}")
-
-
-def set_name(label: TDF_Label, name: str):
-    TDataStd_Name.Set(label, TCollection_ExtendedString(name))
-
-
-def set_color(label: TDF_Label, color: tuple, tool):
-    r, g, b = color
-    tool.SetColor(label, Quantity_Color(r, g, b, Quantity_TOC_RGB), XCAFDoc_ColorType.XCAFDoc_ColorSurf)

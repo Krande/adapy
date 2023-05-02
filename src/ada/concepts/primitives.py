@@ -462,7 +462,7 @@ class IfcBSplineSurfaceForm(Enum):
 
 @dataclass
 class BSplineSurfaceWithKnots:
-    """https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/lexical/IfcBSplineSurfaceWithKnots.htm"""
+    """https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBSplineSurfaceWithKnots.htm"""
 
     uDegree: int
     vDegree: int

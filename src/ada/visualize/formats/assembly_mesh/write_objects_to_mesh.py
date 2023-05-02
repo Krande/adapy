@@ -8,7 +8,7 @@ from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.config import get_logger
 from ada.core.utils import thread_this
-from ada.occ.exceptions.geom_creation import (
+from ada.occ.exceptions.exceptions import (
     UnableToBuildNSidedWires,
     UnableToCreateSolidOCCGeom,
     UnableToCreateTesselationFromSolidOCCGeom,

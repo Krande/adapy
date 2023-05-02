@@ -786,7 +786,7 @@ class Part(BackendGeom):
     ):
         from ada.occ.store import OCCStore
 
-        step_writer = OCCStore.get_writer()
+        step_writer = OCCStore.get_step_writer()
 
         num_shapes = len(list(self.get_all_physical_objects()))
         for i, (obj, shape) in enumerate(OCCStore.shape_iterator(self, geom_repr=geom_repr), start=1):

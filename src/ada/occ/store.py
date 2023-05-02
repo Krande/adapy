@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Callable, Iterable
 
 import ada
+from ada import Units
 from ada.base.types import GeomRepr
 from ada.config import logger
 
@@ -10,27 +12,29 @@ if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada.base.physical_objects import BackendGeom
-    from ada.occ.step.store import StepStore
-    from ada.occ.step.writer import StepWriter
+    from ada.step.store import StepStore
+    from ada.step.writer import StepWriter
 
 
 class OCCStore:
     @staticmethod
-    def get_writer() -> StepWriter:
-        from ada.occ.step.writer import StepWriter
+    def get_step_writer() -> StepWriter:
+        from ada.step.writer import StepWriter
 
         return StepWriter("AdaStep")
 
     @staticmethod
     def get_reader(step_filepath) -> StepStore:
-        from ada.occ.step.reader import StepStore
+        from ada.step.store import StepStore
 
         return StepStore(step_filepath)
 
     @staticmethod
     def shape_iterator(
-        part: ada.Part | BackendGeom, geom_repr: GeomRepr = GeomRepr.SOLID
+        part: ada.Part | BackendGeom | StepStore, geom_repr: GeomRepr = GeomRepr.SOLID
     ) -> tuple[BackendGeom, TopoDS_Shape]:
+        from ada.step.store import StepStore
+
         if isinstance(geom_repr, str):
             geom_repr = GeomRepr.from_str(geom_repr)
 
@@ -43,6 +47,10 @@ class OCCStore:
             except RuntimeError as e:
                 logger.warning(f"Failed to add shape {obj.name} due to {e}")
                 return None
+
+        if isinstance(part, StepStore):
+            for shape in part.iter_all_shapes(include_colors=True):
+                yield shape
 
         if isinstance(part, (ada.Part, ada.Assembly)):
             for obj in part.get_all_physical_objects(pipe_to_segments=True):
@@ -66,3 +74,33 @@ class OCCStore:
 
         else:
             yield part, safe_geom(part)
+
+    @staticmethod
+    def to_gltf(
+        gltf_file_path,
+        occ_shape_iterable: Iterable[OccShape],
+        line_defl: float = None,
+        angle_def: float = None,
+        export_units: Units | str = Units.M,
+        progress_callback: Callable[[int, int], None] = None,
+        source_units: Units | str = Units.M,
+    ):
+        from .gltf_writer import to_gltf
+
+        to_gltf(
+            gltf_file_path,
+            occ_shape_iterable,
+            line_defl,
+            angle_def,
+            export_units,
+            progress_callback,
+            source_units=source_units,
+        )
+
+
+@dataclass
+class OccShape:
+    shape: TopoDS_Shape
+    color: tuple[float, float, float] | None = None
+    num_tot_entities: int = 0
+    name: str | None = None

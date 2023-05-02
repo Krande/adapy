@@ -4,7 +4,6 @@ from typing import Any
 from ada.geom.placement import Axis2Placement3D, Direction
 from ada.geom.points import Point
 
-
 # Swept Solids: ExtrudedAreaSolid, RevolvedAreaSolid
 
 

@@ -1,5 +1,5 @@
-from ada.occ.step.store import StepStore
-from ada.occ.step.writer import StepWriter
+from ada.step.store import StepStore
+from ada.step.writer import StepWriter
 
 
 def test_read_step_with_colors(colored_flat_plate_step):

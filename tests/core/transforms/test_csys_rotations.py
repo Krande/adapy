@@ -5,6 +5,7 @@ from ada.core.vector_utils import (
     global_2_local_nodes,
     local_2_global_points,
     rotation_matrix_csys_rotate,
+    transform,
 )
 
 
@@ -72,3 +73,39 @@ def test_rotate_about_Z():
 
     rp4 = np.array(origin) + np.dot(rotation_matrix_csys_rotate(csys3, csys_a), rp3)
     assert tuple([roundoff(x) for x in rp4]) == tuple([float(x) for x in p_a])
+
+
+def test_transform():
+    matrix = np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
+
+    pos = np.array([[1, 2, 3]])
+    expected_output = np.array([[1, 2, 3]])
+
+    result = transform(matrix, pos)
+    assert np.allclose(result, expected_output)
+
+    pos_multiple = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+    expected_output_multiple = pos_multiple
+
+    result_multiple = transform(matrix, pos_multiple)
+    assert np.allclose(result_multiple, expected_output_multiple)
+
+
+def test_transform_rotation_and_translation():
+    rotation_angle = np.radians(90)
+    cos_angle = np.cos(rotation_angle)
+    sin_angle = np.sin(rotation_angle)
+
+    matrix = np.array([[cos_angle, -sin_angle, 0, 1], [sin_angle, cos_angle, 0, 1], [0, 0, 1, 1], [0, 0, 0, 1]])
+
+    pos = np.array([[1, 0, 0]])
+    expected_output = np.array([[1, 2, 1]])
+
+    result = transform(matrix, pos)
+    assert np.allclose(result, expected_output, atol=1e-6)
+
+    pos_multiple = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+    expected_output_multiple = np.array([[1, 2, 1], [0, 1, 1], [1, 1, 2]])
+
+    result_multiple = transform(matrix, pos_multiple)
+    assert np.allclose(result_multiple, expected_output_multiple, atol=1e-6)

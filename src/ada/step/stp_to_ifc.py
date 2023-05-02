@@ -10,7 +10,8 @@ from ada.base.units import Units
 from ada.config import logger
 from ada.ifc.utils import add_colour, create_guid, create_local_placement
 from ada.ifc.write.write_ifc import IfcWriter
-from ada.occ.step.store import StepStore, serialize_shape
+from ada.occ.serializers import serialize_shape
+from ada.step.store import StepStore
 
 
 def default_callable(i, n):

@@ -1,7 +1,7 @@
 import pytest
 
 import ada
-from ada.occ.step.store import StepStore
+from ada.step.store import StepStore
 
 
 def test_read_units(example_files):

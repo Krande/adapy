@@ -48,10 +48,7 @@ from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem.shapes import ElemType
 
-from .exceptions.geom_creation import (
-    UnableToBuildNSidedWires,
-    UnableToCreateSolidOCCGeom,
-)
+from .exceptions import UnableToBuildNSidedWires, UnableToCreateSolidOCCGeom
 
 if TYPE_CHECKING:
     from ada import Part

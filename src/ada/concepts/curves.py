@@ -47,23 +47,6 @@ class CurveRevolve:
             self._radius = radius
             self._rot_origin = center
 
-    def _generate_ifc_elem(self):
-        from ada.ifc.utils import create_ifcrevolveareasolid, create_local_placement
-
-        parent_beam = self.parent
-
-        a = parent_beam.get_assembly()
-        f = a.ifc_file
-        profile = parent_beam.section.ifc_profile
-
-        global_placement = create_local_placement(f)
-        return create_ifcrevolveareasolid(f, profile, global_placement, self.rot_origin, self.rot_axis, self.angle)
-
-    def get_ifc_elem(self):
-        if self._ifc_elem is None:
-            self._ifc_elem = self._generate_ifc_elem()
-        return self._ifc_elem
-
     @property
     def p1(self):
         return self._p1

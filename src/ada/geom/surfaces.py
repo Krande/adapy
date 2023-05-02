@@ -1,5 +1,6 @@
 # Surface Types
 from dataclasses import dataclass
+from typing import Any
 
 from ada.geom.placement import Axis2Placement3D
 
@@ -15,6 +16,9 @@ class Plane:
 class Cylinder:
     position: Axis2Placement3D
     radius: float
+
+
+# IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcArbitraryProfileDefWithVoids.htm
 
 
 @dataclass

@@ -9,7 +9,6 @@ from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.concepts.transforms import Placement
 from ada.core.constants import color_map as _cmap
-from ada.occ.store import OCCStore
 from ada.visualize.config import ExportConfig
 
 if TYPE_CHECKING:
@@ -118,7 +117,9 @@ class BackendGeom(Root):
         a.to_fem(name, fem_format, **kwargs)
 
     def to_stp(self, destination_file, geom_repr: GeomRepr = GeomRepr.SOLID, progress_callback: Callable = None):
-        step_writer = OCCStore.get_writer()
+        from ada.occ.store import OCCStore
+
+        step_writer = OCCStore.get_step_writer()
         step_writer.add_shape(self.solid(), self.name, rgb_color=self.colour_norm)
         step_writer.export(destination_file)
 

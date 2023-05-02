@@ -87,6 +87,15 @@ class EquationOfPlane:
         return p - dist * self.normal
 
 
+def transform(matrix: np.ndarray, pos: np.ndarray) -> np.ndarray:
+    """Transforms an array of points by a transformation matrix."""
+    pos = np.hstack((pos, np.ones((pos.shape[0], 1))))
+    transformed = pos @ matrix.T
+    transformed /= transformed[:, 3].reshape(-1, 1)
+
+    return transformed[:, :3]
+
+
 def linear_2dtransform_rotate(origin, point, degrees) -> np.ndarray:
     """
     Rotate a 2d point given an origin and a degree.

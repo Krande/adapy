@@ -9,6 +9,9 @@ class Direction:
     y: float
     z: float
 
+    def __iter__(self):
+        return iter((self.x, self.y, self.z))
+
 
 @dataclass
 class Axis2Placement3D:
