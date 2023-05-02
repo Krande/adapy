@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.occ.exceptions.exceptions import UnableToCreateTesselationFromSolidOCCGeom
+from ada.occ.exceptions import UnableToCreateTesselationFromSolidOCCGeom
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
