@@ -1,10 +1,6 @@
 import numpy as np
 
-from ada.geom.curves import (
-    BSplineCurveFormEnum,
-    BSplineCurveWithKnots,
-    BsplineKnotSpecEnum,
-)
+from ada.geom.curves import BSplineCurveFormEnum, BSplineCurveWithKnots, BsplineKnotSpecEnum
 from ada.geom.points import Point
 
 

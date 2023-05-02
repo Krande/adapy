@@ -6,21 +6,25 @@ from ada.geom.points import Point
 
 
 # Curve Types
-# STEP AP242 and IFC 4x3
+
+# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcLine.htm)
+# STEP AP242
 @dataclass
 class Line:
     start: Point
     end: Point
 
 
-# STEP AP242 and IFC 4x3
+# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcCircle.htm)
+# STEP AP242
 @dataclass
 class Circle:
     position: Axis2Placement3D
     radius: float
 
 
-# STEP AP242 and IFC 4x3
+# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcEllipse.htm)
+# STEP AP242
 @dataclass
 class Ellipse:
     position: Axis2Placement3D
