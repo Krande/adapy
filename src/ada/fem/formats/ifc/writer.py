@@ -1,8 +1,6 @@
 import ifcopenshell
 
 from ada import FEM
-from ada.config import logger
-from ada.fem import Elem
 from ada.cadit.ifc.utils import (
     create_guid,
     create_ifc_placement,
@@ -11,6 +9,8 @@ from ada.cadit.ifc.utils import (
     ifc_p,
     to_real,
 )
+from ada.config import logger
+from ada.fem import Elem
 
 from .helper_utils import ifc_vertex
 

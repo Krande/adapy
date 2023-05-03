@@ -16,8 +16,8 @@ except ImportError:
     HAVE_SVGWRITE = False
 
 if TYPE_CHECKING:
-    from ada.occ.store import OccShape
     from ada.cadit.step.store import EntityProps, StepStore
+    from ada.occ.store import OccShape
 
 
 def read_step_file_with_names_colors(store: StepStore) -> dict[TopoDS_Shape, tuple[str, Quantity_Color]]:

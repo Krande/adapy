@@ -235,47 +235,6 @@ class ObjectMesh:
     def bbox(self):
         return self.position.min(0), self.position.max(0)
 
-    def to_binary_json(self, dest_dir, skip_normals=False):
-        from ada.cadit.ifc.utils import create_guid
-
-        dest_dir = pathlib.Path(dest_dir).resolve().absolute()
-        pos_guid = create_guid()
-        norm_guid = create_guid()
-        index_guid = create_guid()
-        vertex_guid = create_guid() if self.vertex_color is not None else None
-        os.makedirs(dest_dir, exist_ok=True)
-
-        np.save(str(dest_dir / pos_guid), self.position_flat)
-        if skip_normals is False:
-            np.save(str(dest_dir / norm_guid), self.normal_flat)
-        np.save(str(dest_dir / index_guid), self.index_flat)
-
-        if vertex_guid is not None:
-            np.save(str(dest_dir / vertex_guid), self.vertex_color.astype(dtype="float32").flatten())
-
-        return dict(
-            index=index_guid,
-            position=pos_guid,
-            normal=norm_guid if skip_normals is False else None,
-            color=self.color,
-            vertexColor=vertex_guid if vertex_guid is not None else None,
-            instances=self.instances,
-            id_sequence=self.id_sequence,
-            translation=self.translation_norm,
-        )
-
-    def to_custom_json(self):
-        return dict(
-            index=self.index_norm_flat,
-            position=self.position_norm_flat,
-            normal=self.normal_norm_flat,
-            color=self.color,
-            vertexColor=self.vertex_color_norm,
-            instances=self.instances,
-            id_sequence=self.id_sequence,
-            translation=self.translation_norm,
-        )
-
     def to_trimesh(self) -> list[trimesh.Trimesh]:
         from trimesh.visual.material import PBRMaterial
 
@@ -347,36 +306,8 @@ class ObjectMesh:
         return meshes
 
     @property
-    def index_flat(self):
-        return self.faces.astype(dtype="int32").flatten()
-
-    @property
-    def index_norm_flat(self):
-        return self.index_flat.astype(dtype="int32").tolist()
-
-    @property
-    def position_flat(self):
-        return self.position.astype(dtype="float32").flatten()
-
-    @property
-    def position_norm_flat(self):
-        return self.position_flat.tolist()
-
-    @property
     def normal_flat(self):
         return self.normal.astype(dtype="float32").flatten() if self.normal is not None else self.normal
-
-    @property
-    def normal_norm_flat(self):
-        return self.normal_flat.tolist() if self.normal is not None else self.normal
-
-    @property
-    def vertex_color_norm(self):
-        return self.vertex_color.astype(dtype="float32").tolist() if self.vertex_color is not None else None
-
-    @property
-    def translation_norm(self):
-        return self.translation.astype(dtype="float32").tolist() if self.translation is not None else None
 
     def __add__(self, other: ObjectMesh):
         pos_len = int(len(self.position))

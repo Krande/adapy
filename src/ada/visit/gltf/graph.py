@@ -1,8 +1,9 @@
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 
-from ada.visit.gltf.meshes import MeshRef
 from ada.cadit.ifc.utils import create_guid
+from ada.visit.gltf.meshes import MeshRef
 
 
 @dataclass

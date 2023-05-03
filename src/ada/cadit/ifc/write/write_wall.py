@@ -1,6 +1,5 @@
 from ada import Wall
 from ada.base.units import Units
-from ada.core.constants import O, X, Z
 from ada.cadit.ifc.utils import (
     create_guid,
     create_ifc_placement,
@@ -9,6 +8,7 @@ from ada.cadit.ifc.utils import (
     create_local_placement,
     tesselate_shape,
 )
+from ada.core.constants import O, X, Z
 
 from .write_stru_components import write_door, write_window
 

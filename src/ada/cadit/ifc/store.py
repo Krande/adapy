@@ -9,10 +9,10 @@ import ifcopenshell
 import ifcopenshell.geom
 
 from ada.base.changes import ChangeAction
-from ada.config import logger
 from ada.cadit.ifc.utils import assembly_to_ifc_file, default_settings, get_unit_type
 from ada.cadit.ifc.write.write_sections import get_profile_class
 from ada.cadit.ifc.write.write_user import create_owner_history_from_user
+from ada.config import logger
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape

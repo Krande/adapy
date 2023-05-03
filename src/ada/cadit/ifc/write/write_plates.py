@@ -1,7 +1,6 @@
 import numpy as np
 
 from ada import Plate
-from ada.core.constants import O, X, Z
 from ada.cadit.ifc.utils import (
     add_colour,
     create_ifc_placement,
@@ -9,6 +8,7 @@ from ada.cadit.ifc.utils import (
     create_ifcpolyline,
     create_local_placement,
 )
+from ada.core.constants import O, X, Z
 
 
 def write_ifc_plate(plate: Plate):

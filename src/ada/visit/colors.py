@@ -4,6 +4,21 @@ from dataclasses import dataclass
 
 import numpy as np
 
+color_dict = {
+    "red": (255, 0, 0),
+    "green": (0, 255, 0),
+    "blue": (0, 0, 255),
+    "white": (255, 255, 255),
+    "black": (0, 0, 0),
+    "yellow": (255, 255, 0),
+    "cyan": (0, 255, 255),
+    "magenta": (255, 0, 255),
+    "orange": (255, 165, 0),
+    "purple": (128, 0, 128),
+    "gray": (128, 128, 128),
+    "brown": (165, 42, 42),
+}
+
 
 @dataclass
 class VisColor:
@@ -62,21 +77,6 @@ def magnitude1d(u):
 
 
 def color_name_to_rgb(color_name, normalize=True) -> list[float, float, float] | None:
-    color_dict = {
-        "red": (255, 0, 0),
-        "green": (0, 255, 0),
-        "blue": (0, 0, 255),
-        "white": (255, 255, 255),
-        "black": (0, 0, 0),
-        "yellow": (255, 255, 0),
-        "cyan": (0, 255, 255),
-        "magenta": (255, 0, 255),
-        "orange": (255, 165, 0),
-        "purple": (128, 0, 128),
-        "gray": (128, 128, 128),
-        "brown": (165, 42, 42),
-    }
-
     color_name_lower = color_name.lower()
     if color_name_lower in color_dict:
         if normalize:

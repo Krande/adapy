@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada import Beam, CurvePoly, CurveRevolve
-from ada.config import Settings
-from ada.core.constants import O
 from ada.cadit.ifc.utils import (
     add_colour,
     convert_bm_jusl_to_ifc,
@@ -19,6 +17,8 @@ from ada.cadit.ifc.utils import (
     to_real,
 )
 from ada.cadit.ifc.write.write_curves import write_curve_poly
+from ada.config import Settings
+from ada.core.constants import O
 
 if TYPE_CHECKING:
     from ifcopenshell import file as ifile

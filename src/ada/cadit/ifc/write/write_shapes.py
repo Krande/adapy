@@ -13,8 +13,6 @@ from ada import (
     Shape,
 )
 from ada.base.units import Units
-from ada.core.constants import O, X, Z
-from ada.core.vector_utils import unit_vector, vector_length
 from ada.cadit.ifc.utils import (
     add_colour,
     create_ifc_placement,
@@ -27,6 +25,8 @@ from ada.cadit.ifc.utils import (
     tesselate_shape,
     to_real,
 )
+from ada.core.constants import O, X, Z
+from ada.core.vector_utils import unit_vector, vector_length
 
 from .write_curves import write_curve_poly
 

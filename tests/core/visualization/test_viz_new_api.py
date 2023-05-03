@@ -1,8 +1,8 @@
 import pytest
 
 from ada import Beam
+from ada.occ.tesselating import tessellate_shape
 from ada.visit.rendering.new_render_api import Visualize
-from ada.visit.rendering.renderer_occ import occ_shape_to_faces
 
 
 @pytest.fixture
@@ -21,4 +21,4 @@ def test_viz_beam_manual(test_dir, beam):
     quality = 1.0
     render_edges = False
     parallel = True
-    np_vertices, np_faces, np_normals, _ = occ_shape_to_faces(geom, quality, render_edges, parallel)
+    _ = tessellate_shape(geom, quality, render_edges, parallel)

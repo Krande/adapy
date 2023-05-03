@@ -13,9 +13,9 @@ from ada.visit.config import ExportConfig
 
 if TYPE_CHECKING:
     from ada import FEM, Penetration
+    from ada.cadit.ifc.store import IfcStore
     from ada.fem import Elem
     from ada.fem.meshing import GmshOptions
-    from ada.cadit.ifc.store import IfcStore
 
 
 # TODO: Consider storing primitive geometry definitions as an attribute in the BackendGeom class to simplify subclasses.

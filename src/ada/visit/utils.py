@@ -7,49 +7,8 @@ import numpy as np
 from ada import FEM
 from ada.fem.utils import is_line_elem
 
-from ada.visit.rendering.renderer_occ import occ_shape_to_faces
-
 if TYPE_CHECKING:
-    from ada.visualize.concept import ObjectMesh
-
-
-def from_cache(hdf_file, guid):
-    import h5py
-
-    from .concept import ObjectMesh
-
-    with h5py.File(hdf_file, "r") as f:
-        res = f["VISMESH"].get(guid, None)
-        if res is None:
-            return None
-        colour = list(res.attrs["COLOR"])
-        translation = res.attrs["TRANSLATION"]
-        return ObjectMesh(
-            guid,
-            res["INDEX"][()],
-            res["POSITION"][()],
-            res["NORMAL"][()],
-            colour,
-            translation=translation,
-        )
-
-
-def convert_obj_to_poly(obj, quality=1.0, render_edges=False, parallel=False):
-    geom = obj.solid
-    np_vertices, poly_indices, np_normals, _ = occ_shape_to_faces(geom, quality, render_edges, parallel)
-    obj_buffer_arrays = np.concatenate([np_vertices, np_normals], 1)
-    buffer, indices = np.unique(obj_buffer_arrays, axis=0, return_index=False, return_inverse=True)
-    return dict(
-        guid=obj.guid,
-        index=indices.astype(int).tolist(),
-        position=buffer.flatten().astype(float).tolist(),
-        color=[*obj.colour_norm, obj.opacity],
-        instances=[],
-    )
-
-
-def get_vertices_from_fem(fem: FEM) -> np.ndarray:
-    return np.asarray([n.p for n in fem.nodes.nodes], dtype="float32")
+    from ada.visit.concept import ObjectMesh
 
 
 def get_faces_from_fem(fem: FEM):

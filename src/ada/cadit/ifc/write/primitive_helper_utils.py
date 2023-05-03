@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ada.core.vector_utils import unit_vector, vector_length
 from ada.cadit.ifc.utils import (
     create_axis,
     create_guid,
@@ -11,14 +10,15 @@ from ada.cadit.ifc.utils import (
     ifc_p,
     to_real,
 )
+from ada.core.vector_utils import unit_vector, vector_length
 
 if TYPE_CHECKING:
     from ada import Assembly
+    from ada.cadit.ifc.store import IfcStore
     from ada.concepts.primitives import (
         BSplineSurfaceWithKnots,
         RationalBSplineSurfaceWithKnots,
     )
-    from ada.cadit.ifc.store import IfcStore
 
 
 def generate_extruded_area_solid_prod_def(ifc_store: IfcStore, p_start, p_end, section):

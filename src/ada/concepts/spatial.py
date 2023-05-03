@@ -53,11 +53,11 @@ if TYPE_CHECKING:
     import ifcopenshell
 
     from ada import Beam, Material, Plate, Section, Wall, Weld
+    from ada.cadit.ifc.store import IfcStore
     from ada.fem.containers import COG
     from ada.fem.formats.general import FEATypes, FemConverters
     from ada.fem.meshing import GmshOptions
     from ada.fem.results.common import FEAResult
-    from ada.cadit.ifc.store import IfcStore
     from ada.visualize.concept import VisMesh
     from ada.visualize.config import ExportConfig
 

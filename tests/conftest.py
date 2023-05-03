@@ -25,7 +25,7 @@ def root_dir() -> pathlib.Path:
 
 @pytest.fixture
 def test_dir() -> pathlib.Path:
-    testing_dir = Settings.test_dir
+    testing_dir = TESTS_DIR / "temp"
     os.makedirs(testing_dir, exist_ok=True)
     return testing_dir
 

@@ -30,10 +30,10 @@ from ada.sections.utils import get_section
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
+    from ada.cadit.ifc.store import IfcStore
     from ada.concepts.connections import JointBase
     from ada.concepts.spatial import Part
     from ada.fem.elements import HingeProp
-    from ada.cadit.ifc.store import IfcStore
 
 section_counter = Counter(1)
 material_counter = Counter(1)

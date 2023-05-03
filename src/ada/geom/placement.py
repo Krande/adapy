@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 
-from ada.geom.points import Point
 import numpy as np
+
+from ada.geom.points import Point
 
 
 class Direction(Point):

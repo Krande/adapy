@@ -960,12 +960,11 @@ class OccToThreejs:
 
     def occ_shape_to_threejs(self, shp: TopoDS_Shape, shape_color, edge_color, transparency, opacity):
         # first, compute the tesselation
-        from .renderer_occ import occ_shape_to_faces
+        from ada.occ.tesselating import tessellate_shape
+
         from .threejs_utils import create_material
 
-        np_vertices, np_faces, np_normals, edges = occ_shape_to_faces(
-            shp, self.quality, self.render_edges, self.parallel
-        )
+        np_vertices, np_faces, np_normals, edges = tessellate_shape(shp, self.quality, self.render_edges, self.parallel)
 
         # set geometry properties
         buffer_geometry_properties = {

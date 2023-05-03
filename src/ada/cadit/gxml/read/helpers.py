@@ -1,9 +1,9 @@
 import xml.etree.ElementTree as ET
 
-from ada.config import logger
 from ada.cadit.gxml.read.read_beams import el_to_beam
 from ada.cadit.gxml.read.read_materials import get_materials
 from ada.cadit.gxml.read.read_sections import get_sections
+from ada.config import logger
 
 
 def iter_beams_from_xml(xml_path):

@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ada.base.changes import ChangeAction
-from ada.config import logger
 from ada.cadit.ifc.read.read_physical_objects import import_physical_ifc_elem
 from ada.cadit.ifc.read.reader_utils import (
     add_to_assembly,
@@ -12,6 +11,7 @@ from ada.cadit.ifc.read.reader_utils import (
     get_parent,
     resolve_name,
 )
+from ada.config import logger
 
 from .read_materials import MaterialImporter
 from .read_parts import PartImporter

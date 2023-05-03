@@ -13,35 +13,14 @@ from ada.occ.exceptions import (
     UnableToCreateSolidOCCGeom,
     UnableToCreateTesselationFromSolidOCCGeom,
 )
+from ada.occ.tesselating import tessellate_shape
 from ada.visit.concept import ObjectMesh
 from ada.visit.config import ExportConfig
-from ada.visit.rendering.renderer_occ import occ_shape_to_faces
 
 if TYPE_CHECKING:
     from ada import Beam, PipeSegElbow, PipeSegStraight, Plate, Shape, Wall
 
 logger = get_logger()
-
-
-def filter_mesh_objects(objects: Iterable[BackendGeom], export_config: ExportConfig) -> None | list[BackendGeom]:
-    from ada import Pipe
-
-    guid_filter = export_config.data_filter.filter_elements_by_guid
-    obj_list: list[BackendGeom] = []
-
-    for obj in objects:
-        if guid_filter is not None and obj.guid not in guid_filter:
-            continue
-        if isinstance(obj, Pipe):
-            for seg in obj.segments:
-                obj_list.append(seg)
-        else:
-            obj_list.append(obj)
-
-    if len(obj_list) == 0:
-        return None
-
-    return obj_list
 
 
 def ifc_poly_elem_to_json(
@@ -139,20 +118,14 @@ def occ_geom_to_poly_mesh(
         export_config.render_edges = True
         geom = obj.line()
 
-    position, indices, normals, _ = occ_shape_to_faces(
+    tm = tessellate_shape(
         geom,
         export_config.quality,
         export_config.render_edges,
         export_config.parallel,
     )
-
-    if opt_func is not None:
-        indices, position, normals = opt_func(indices, position, normals)
-    else:
-        opt_func_example(indices, position, normals)
-
     colour = [*obj.colour_norm, obj.opacity]
-    return ObjectMesh(obj.guid, indices, position, normals, colour, translation=export_config.volume_center)
+    return ObjectMesh(obj.guid, tm.faces, tm.positions, tm.normals, colour, translation=export_config.volume_center)
 
 
 def obj_to_mesh(

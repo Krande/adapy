@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import numpy as np
 
 
@@ -38,6 +39,3 @@ class Point(np.ndarray):
 
     def __repr__(self):
         return f"Point({np.array2string(self, separator=', ')}, id={self.id})"
-
-
-

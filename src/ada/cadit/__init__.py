@@ -1,1 +1,1 @@
- # CAD Interoperability Toolkit (CADIT) for Python
+# CAD Interoperability Toolkit (CADIT) for Python

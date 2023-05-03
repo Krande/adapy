@@ -81,10 +81,10 @@ class VizObj:
             raise ValueError(f'Unrecognized "{geom_repr}".')
 
     def obj_to_verts_and_faces(self, parallel=True, render_edges=True, quality=1.0):
-        from .renderer_occ import occ_shape_to_faces
+        from ada.occ.tesselating import tessellate_shape
 
         geom = self.get_geom(self.geom_repr)
-        np_vertices, np_faces, np_normals, edges = occ_shape_to_faces(geom, quality, render_edges, parallel)
+        np_vertices, np_faces, np_normals, edges = tessellate_shape(geom, quality, render_edges, parallel)
         return np_vertices, np_faces, np_normals, edges
 
     def convert_to_pythreejs_mesh(self):

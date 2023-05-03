@@ -2,7 +2,7 @@ from typing import Iterable
 
 import numpy as np
 
-from ada.visit.gltf.meshes import MeshStore, MergedMesh, GroupReference
+from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshStore
 
 
 def concatenate_stores(stores: Iterable[MeshStore]) -> MergedMesh | None:

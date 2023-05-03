@@ -32,6 +32,7 @@ class RevolvedAreaSolid:
 
 # CSG solids
 
+
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBlock.htm)
 # STEP AP242 and IFC 4x3
 @dataclass

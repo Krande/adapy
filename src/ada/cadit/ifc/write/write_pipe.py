@@ -6,6 +6,15 @@ import ifcopenshell
 import numpy as np
 
 from ada.base.units import Units
+from ada.cadit.ifc.utils import (
+    create_guid,
+    create_ifc_placement,
+    create_ifcpolyline,
+    create_local_placement,
+    tesselate_shape,
+    to_real,
+    write_elem_property_sets,
+)
 from ada.config import logger
 from ada.core.constants import O, X, Z
 from ada.core.curve_utils import get_center_from_3_points_and_radius
@@ -16,15 +25,6 @@ from ada.core.vector_utils import (
     global_2_local_nodes,
     unit_vector,
     vector_length,
-)
-from ada.cadit.ifc.utils import (
-    create_guid,
-    create_ifc_placement,
-    create_ifcpolyline,
-    create_local_placement,
-    tesselate_shape,
-    to_real,
-    write_elem_property_sets,
 )
 
 if TYPE_CHECKING:

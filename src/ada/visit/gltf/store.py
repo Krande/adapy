@@ -11,8 +11,8 @@ import trimesh.visual
 
 from ada.config import logger
 from ada.core.vector_utils import rot_matrix, transform
-from ada.visit.gltf.graph import GraphStore, GraphNode
-from ada.visit.gltf.meshes import MergedMesh, MeshStore, MeshType, MeshRef
+from ada.visit.gltf.graph import GraphNode, GraphStore
+from ada.visit.gltf.meshes import MergedMesh, MeshRef, MeshStore, MeshType
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visualize.optimizing import optimize_positions
 

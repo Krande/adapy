@@ -2,7 +2,6 @@ import pathlib
 import xml.etree.ElementTree as ET
 
 from ada import Part
-from ada.config import logger
 from ada.cadit.gxml.read.helpers import (
     apply_mass_density_factors,
     yield_plate_elems_to_plate,
@@ -16,6 +15,7 @@ from ada.cadit.gxml.read.read_sections import get_sections
 from ada.cadit.gxml.read.read_sets import get_sets
 from ada.cadit.gxml.sat_helpers import write_xml_sat_text_to_file
 from ada.cadit.sat.store import SatReaderFactory
+from ada.config import logger
 
 
 class GxmlStore:

@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ada.cadit.ifc.utils import (
+    create_guid,
+    create_local_placement,
+    write_elem_property_sets,
+)
 from ada.core.constants import O, X, Z
 from ada.core.utils import Counter
-from ada.cadit.ifc.utils import create_guid, create_local_placement, write_elem_property_sets
 
 from .write_shapes import generate_parametric_solid
 

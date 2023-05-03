@@ -7,8 +7,8 @@ from ifcopenshell.util.element import get_psets
 
 from ada import Assembly, Part
 from ada.base.ifc_types import SpatialTypes
-from ada.config import logger
 from ada.cadit.ifc.store import IfcStore
+from ada.config import logger
 
 from .reader_utils import get_ifc_property_sets, get_parent, resolve_name
 
