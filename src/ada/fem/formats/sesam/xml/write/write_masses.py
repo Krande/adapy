@@ -12,17 +12,28 @@ if TYPE_CHECKING:
 
 
 def add_masses(root: ET.Element, part: Part):
-    all_mass = list(part.fem.get_all_masses())
-    for mass in all_mass:
-        if len(mass.fem_set.members) != 1:
-            raise NotImplementedError()
+    all_mass_on_fem = list(part.fem.get_all_masses())
+    if len(all_mass_on_fem) > 0:
+        for mass in all_mass_on_fem:
+            if len(mass.fem_set.members) != 1:
+                raise NotImplementedError()
 
-        n = mass.fem_set.members[0]
+            n = mass.fem_set.members[0]
 
-        bc_stru = ET.SubElement(root, "structure")
-        sup_point = ET.SubElement(bc_stru, "point_mass", {"name": mass.name})
-        sup_point.append(add_local_system(X, Y, Z))
-        geom = ET.SubElement(sup_point, "geometry")
-        ET.SubElement(geom, "position", {"x": str(n.x), "y": str(n.y), "z": str(n.z)})
-        bc_con = ET.SubElement(sup_point, "mass")
-        ET.SubElement(bc_con, "mass_scalar", dict(mass=str(mass.mass)))
+            bc_stru = ET.SubElement(root, "structure")
+            sup_point = ET.SubElement(bc_stru, "point_mass", {"name": mass.name})
+            sup_point.append(add_local_system(X, Y, Z))
+            geom = ET.SubElement(sup_point, "geometry")
+            ET.SubElement(geom, "position", {"x": str(n.x), "y": str(n.y), "z": str(n.z)})
+            bc_con = ET.SubElement(sup_point, "mass")
+            ET.SubElement(bc_con, "mass_scalar", dict(mass=str(mass.mass)))
+    else:
+        for mass in part.masses:
+            print(mass)
+            bc_stru = ET.SubElement(root, "structure")
+            sup_point = ET.SubElement(bc_stru, "point_mass", {"name": mass.name})
+            sup_point.append(add_local_system(X, Y, Z))
+            geom = ET.SubElement(sup_point, "geometry")
+            ET.SubElement(geom, "position", {"x": str(mass.p[0]), "y": str(mass.p[1]), "z": str(mass.p[2])})
+            bc_con = ET.SubElement(sup_point, "mass")
+            ET.SubElement(bc_con, "mass_scalar", dict(mass=str(mass.mass)))

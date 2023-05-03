@@ -60,6 +60,7 @@ if TYPE_CHECKING:
     from ada.ifc.store import IfcStore
     from ada.visualize.concept import VisMesh
     from ada.visualize.config import ExportConfig
+    from ada.concepts.points import MassPoint
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 
@@ -105,6 +106,7 @@ class Part(BackendGeom):
         self._connections = Connections(parent=self)
         self._materials = Materials(parent=self)
         self._sections = Sections(parent=self)
+        self._masses = []
         self._colour = colour
         self._placement = placement
         self._instances: dict[Any, Instance] = dict()
@@ -288,6 +290,10 @@ class Part(BackendGeom):
         if section.units != self.units:
             section.units = self.units
         return self._sections.add(section)
+
+    def add_mass (self, mass: MassPoint) -> MassPoint:
+        self._masses.append(mass)
+        return mass
 
     def add_object(self, obj: Part | Beam | Plate | Wall | Pipe | Shape | Weld):
         from ada import Beam, Part, Pipe, Plate, Shape, Wall, Weld
@@ -670,6 +676,16 @@ class Part(BackendGeom):
         self.sections.merge_sections_by_properties()
         self.materials.merge_materials_by_properties()
 
+    def move_all_nodes_here_from_subparts(self):
+        for p in self.get_all_subparts():
+            self._nodes += p.nodes
+
+
+    def move_all_masses_here_from_subparts(self):
+        for p in self.get_all_subparts():
+            self._masses += p.masses
+
+
     def _flatten_list_of_subparts(self, p, list_of_parts=None):
         for value in p.parts.values():
             list_of_parts.append(value)
@@ -864,6 +880,10 @@ class Part(BackendGeom):
     @property
     def sections(self) -> Sections:
         return self._sections
+
+    @property
+    def masses(self) -> [MassPoint]:
+        return self._masses
 
     @sections.setter
     def sections(self, value: Sections):
