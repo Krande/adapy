@@ -22,7 +22,7 @@ from .transforms import Placement
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
-    from ada.ifc.store import IfcStore
+    from ada.cadit.ifc.store import IfcStore
 
 
 class Shape(BackendGeom):
@@ -107,7 +107,7 @@ class Shape(BackendGeom):
         from .exceptions import NoGeomPassedToShapeError
 
         if self._geom is None:
-            from ada.ifc.read.read_shapes import get_ifc_geometry
+            from ada.cadit.ifc.read.read_shapes import get_ifc_geometry
 
             a = self.get_assembly()
             if a.ifc_store is not None:
@@ -490,7 +490,7 @@ class BSplineSurfaceWithKnots:
         }
 
     def to_ifcopenshell(self, f):
-        from ada.ifc.utils import ifc_p
+        from ada.cadit.ifc.utils import ifc_p
 
         entities = self.get_entities()
         entities["ControlPointsList"] = [[ifc_p(f, i) for i in x] for x in self.controlPointsList]
@@ -509,7 +509,7 @@ class RationalBSplineSurfaceWithKnots(BSplineSurfaceWithKnots):
         return entities
 
     def to_ifcopenshell(self, f):
-        from ada.ifc.utils import ifc_p
+        from ada.cadit.ifc.utils import ifc_p
 
         entities = self.get_entities()
         entities["ControlPointsList"] = [[ifc_p(f, i[:3]) for i in x] for x in self.controlPointsList]

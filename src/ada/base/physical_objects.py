@@ -9,13 +9,13 @@ from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.concepts.transforms import Placement
 from ada.core.constants import color_map as _cmap
-from ada.visualize.config import ExportConfig
+from ada.visit.config import ExportConfig
 
 if TYPE_CHECKING:
     from ada import FEM, Penetration
     from ada.fem import Elem
     from ada.fem.meshing import GmshOptions
-    from ada.ifc.store import IfcStore
+    from ada.cadit.ifc.store import IfcStore
 
 
 # TODO: Consider storing primitive geometry definitions as an attribute in the BackendGeom class to simplify subclasses.
@@ -37,7 +37,7 @@ class BackendGeom(Root):
         opacity=1.0,
     ):
         super().__init__(name, guid, metadata, units, parent, ifc_store=ifc_store)
-        from ada.visualize.new_render_api import Visualize
+        from ada.visit.rendering.new_render_api import Visualize
 
         self._penetrations = []
         self._placement = placement
@@ -124,9 +124,7 @@ class BackendGeom(Root):
         step_writer.export(destination_file)
 
     def to_obj_mesh(self, geom_repr: str | GeomRepr = GeomRepr.SOLID, export_config: ExportConfig = ExportConfig()):
-        from ada.visualize.formats.assembly_mesh.write_objects_to_mesh import (
-            occ_geom_to_poly_mesh,
-        )
+        from ada.occ.visit_utils import occ_geom_to_poly_mesh
 
         if isinstance(geom_repr, str):
             geom_repr = GeomRepr.from_str(geom_repr)
@@ -137,7 +135,7 @@ class BackendGeom(Root):
     ):
         from OCC.Display.WebGl.simple_server import start_server
 
-        from ada.visualize.renderer_pythreejs import MyRenderer
+        from ada.visit.rendering.renderer_pythreejs import MyRenderer
 
         if render_engine == "xdom":
             from OCC.Display.WebGl import x3dom_renderer
@@ -165,7 +163,7 @@ class BackendGeom(Root):
         """Return the html snippet containing threejs renderer"""
         from ipywidgets.embed import embed_snippet
 
-        from ada.visualize.renderer_pythreejs import MyRenderer
+        from ada.visit.rendering.renderer_pythreejs import MyRenderer
 
         renderer = MyRenderer()
         renderer.DisplayObj(self)
@@ -256,7 +254,7 @@ class BackendGeom(Root):
         from IPython.display import display
         from ipywidgets import HBox, VBox
 
-        from ada.visualize.renderer_pythreejs import MyRenderer
+        from ada.visit.rendering.renderer_pythreejs import MyRenderer
 
         renderer = MyRenderer()
 

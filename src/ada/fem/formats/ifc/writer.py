@@ -3,7 +3,7 @@ import ifcopenshell
 from ada import FEM
 from ada.config import logger
 from ada.fem import Elem
-from ada.ifc.utils import (
+from ada.cadit.ifc.utils import (
     create_guid,
     create_ifc_placement,
     create_local_placement,

@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from ada.concepts.connections import JointBase
     from ada.concepts.spatial import Part
     from ada.fem.elements import HingeProp
-    from ada.ifc.store import IfcStore
+    from ada.cadit.ifc.store import IfcStore
 
 section_counter = Counter(1)
 material_counter = Counter(1)

@@ -15,7 +15,7 @@ from ada.materials import Material
 from ada.materials.metals import CarbonSteel
 
 if TYPE_CHECKING:
-    from ada.ifc.store import IfcStore
+    from ada.cadit.ifc.store import IfcStore
 
 
 class Plate(BackendGeom):

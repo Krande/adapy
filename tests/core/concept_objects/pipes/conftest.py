@@ -2,7 +2,7 @@ import ifcopenshell
 import pytest
 
 from ada import Pipe
-from ada.ifc.utils import create_ifc_placement, create_reference_subrep
+from ada.cadit.ifc.utils import create_ifc_placement, create_reference_subrep
 
 
 @pytest.fixture

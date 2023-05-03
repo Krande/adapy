@@ -43,6 +43,7 @@ class BoundingBox:
             self.p1, self.p2 = self._calc_bbox_of_plate()
         else:
             raise NotImplementedError(f'Bounding Box Support for object type "{type(self.parent)}" is not yet added')
+
         self.sides = BoxSides(self)
 
     def _calc_bbox_of_beam(self) -> tuple[tuple, tuple]:

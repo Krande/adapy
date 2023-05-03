@@ -1,8 +1,8 @@
 import pytest
 
 from ada import Beam
-from ada.visualize.new_render_api import Visualize
-from ada.visualize.renderer_occ import occ_shape_to_faces
+from ada.visit.rendering.new_render_api import Visualize
+from ada.visit.rendering.renderer_occ import occ_shape_to_faces
 
 
 @pytest.fixture

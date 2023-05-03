@@ -2,7 +2,7 @@ import pytest
 
 from ada import Assembly, Part, Pipe, PipeSegElbow, Section
 from ada.config import Settings
-from ada.ifc.write.write_pipe import elbow_revolved_solid
+from ada.cadit.ifc.write.write_pipe import elbow_revolved_solid
 
 test_dir = Settings.test_dir / "pipes"
 

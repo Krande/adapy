@@ -17,7 +17,7 @@ class Transform:
     rotation: Rotation = None
 
     def to_ifc(self, f):
-        from ada.ifc.utils import export_transform
+        from ada.cadit.ifc.utils import export_transform
 
         return export_transform(f, self)
 
@@ -109,7 +109,7 @@ class Instance:
     def to_list_of_custom_json_matrices(self):
         from pyquaternion import Quaternion
 
-        from ada.ifc.utils import create_guid
+        from ada.cadit.ifc.utils import create_guid
 
         matrices = [[self.instance_ref.guid, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]]
         for place in self.placements:

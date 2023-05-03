@@ -237,7 +237,7 @@ class FEAResult:
         return cell_data, point_data
 
     def _colorize_data(self, field: str, step: int, colorize_function: Callable = None):
-        from ada.visualize.colors import DataColorizer
+        from ada.visit.colors import DataColorizer
 
         data = self.get_data(field, step)
         vertex_colors = DataColorizer.colorize_data(data, func=colorize_function)

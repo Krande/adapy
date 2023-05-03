@@ -14,7 +14,7 @@ def dummy_display_func(ada_obj):
         logging.error("pythreejs is not installed. Install with 'conda install pythreejs'")
         return None
 
-    from ada.visualize.renderer_pythreejs import MyRenderer, SectionRenderer
+    from ada.visit.rendering.renderer_pythreejs import MyRenderer, SectionRenderer
 
     if type(ada_obj) is ada.Section:
         sec_render = SectionRenderer()

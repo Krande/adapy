@@ -139,7 +139,7 @@ class Wall(BackendGeom):
         return xvec, yvec, zvec
 
     def _generate_ifc_elem(self):
-        from ada.ifc.write.write_wall import write_ifc_wall
+        from ada.cadit.ifc.write.write_wall import write_ifc_wall
 
         return write_ifc_wall(self)
 

@@ -4,14 +4,14 @@ from typing import TYPE_CHECKING, List, Union
 
 from ada.config import Settings as _Settings
 from ada.config import logger
-from ada.ifc.utils import create_guid
+from ada.cadit.ifc.utils import create_guid
 
 from .changes import ChangeAction
 from .units import Units
 
 if TYPE_CHECKING:
     from ada import Assembly, Part
-    from ada.ifc.store import IfcStore
+    from ada.cadit.ifc.store import IfcStore
 
 
 class Root:

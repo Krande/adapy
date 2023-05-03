@@ -24,16 +24,3 @@ def model_with_components() -> Assembly:
 def test_viz_structural_glb(model_with_components):
     model_with_components.to_gltf("temp/model_merged.glb", embed_meta=True, merge_by_color=True)
     model_with_components.to_gltf("temp/model.glb", embed_meta=True)
-
-
-def test_viz_structural(model_with_components):
-    a = model_with_components
-
-    res = a.to_vis_mesh(merge_by_color=False, use_experimental=True)
-
-    merged = res.merge_objects_in_parts_by_color()
-
-    assert res.num_polygons == 640
-    assert len(res.world[0].id_map.values()) == 6
-    assert merged.num_polygons == 640
-    assert len(merged.world[0].id_map.values()) == 4

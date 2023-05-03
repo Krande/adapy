@@ -1,4 +1,4 @@
-from ada.visualize.plots import easy_plotly
+from ada.visit.plots import easy_plotly
 
 
 def test_easy_plotly_simple_graph_to_file(test_dir):

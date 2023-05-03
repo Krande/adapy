@@ -16,7 +16,7 @@ from ada.config import Settings, logger
 from ada.fem import Elem
 from ada.fem.containers import FemElements
 from ada.fem.shapes import ElemType
-from ada.ifc.utils import create_guid
+from ada.cadit.ifc.utils import create_guid
 
 
 @dataclass

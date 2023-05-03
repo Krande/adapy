@@ -14,7 +14,7 @@ from OCC.Core.XCAFDoc import (
 )
 
 from ada.base.units import Units
-from ada.ifc.utils import tesselate_shape
+from ada.cadit.ifc.utils import tesselate_shape
 from ada.occ.store import OccShape
 from ada.occ.xcaf_utils import set_color, set_name
 

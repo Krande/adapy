@@ -57,7 +57,7 @@ if TYPE_CHECKING:
     from ada.fem.formats.general import FEATypes, FemConverters
     from ada.fem.meshing import GmshOptions
     from ada.fem.results.common import FEAResult
-    from ada.ifc.store import IfcStore
+    from ada.cadit.ifc.store import IfcStore
     from ada.visualize.concept import VisMesh
     from ada.visualize.config import ExportConfig
 
@@ -744,20 +744,6 @@ class Part(BackendGeom):
 
         return fem
 
-    def to_vis_mesh(
-        self,
-        export_config: ExportConfig = None,
-        merge_by_color=True,
-        opt_func: Callable = None,
-        overwrite_cache=False,
-        auto_sync_ifc_store=True,
-        use_experimental=True,
-        cpus: int = None,
-    ) -> VisMesh:
-        from ada.visualize.interface import part_to_vis_mesh2
-
-        return part_to_vis_mesh2(self, auto_sync_ifc_store, cpus=cpus)
-
     def to_gltf(
         self,
         gltf_file: str | pathlib.Path,
@@ -767,7 +753,7 @@ class Part(BackendGeom):
         embed_meta=False,
         merge_by_color=False,
     ):
-        from ada.visualize.interface import part_to_vis_mesh2
+        from ada.visit.interface import part_to_vis_mesh2
 
         vm = part_to_vis_mesh2(self, auto_sync_ifc_store, cpus=cpus)
         if merge_by_color:
@@ -941,7 +927,7 @@ class Part(BackendGeom):
             self._units = value
 
             if isinstance(self, Assembly):
-                from ada.ifc.utils import assembly_to_ifc_file
+                from ada.cadit.ifc.utils import assembly_to_ifc_file
 
                 self._ifc_file = assembly_to_ifc_file(self)
 
@@ -992,8 +978,8 @@ class Assembly(Part):
         clear_cache: bool = False,
         ifc_class: SpatialTypes = SpatialTypes.IfcSite,
     ):
-        from ada.ifc.store import IfcStore
-        from ada.ifc.utils import assembly_to_ifc_file
+        from ada.cadit.ifc.store import IfcStore
+        from ada.cadit.ifc.utils import assembly_to_ifc_file
 
         metadata = dict() if metadata is None else metadata
         metadata["project"] = project
@@ -1178,7 +1164,7 @@ class Assembly(Part):
         return self.ifc_store.f
 
     def to_genie_xml(self, destination_xml):
-        from ada.fem.formats.sesam.xml.write.write_xml import write_xml
+        from ada.cadit.gxml.write.write_xml import write_xml
 
         write_xml(self, destination_xml)
 
@@ -1196,7 +1182,7 @@ class Assembly(Part):
         bimcon.pull(project, checkout)
 
     def get_ifc_source_by_name(self, ifc_file):
-        from ada.ifc.read.reader_utils import open_ifc
+        from ada.cadit.ifc.read.reader_utils import open_ifc
 
         if ifc_file not in self._source_ifc_files.keys():
             ifc_f = open_ifc(ifc_file)

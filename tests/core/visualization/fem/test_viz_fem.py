@@ -3,7 +3,7 @@ import pytest
 import ada
 from ada.fem.meshing import GmshSession
 from ada.param_models.utils import beams_along_polyline
-from ada.visualize.utils import get_edges_from_fem, get_faces_from_fem
+from ada.visit.utils import get_edges_from_fem, get_faces_from_fem
 
 
 @pytest.fixture
