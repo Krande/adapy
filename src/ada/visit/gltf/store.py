@@ -14,7 +14,7 @@ from ada.core.vector_utils import rot_matrix, transform
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import MergedMesh, MeshRef, MeshStore, MeshType
 from ada.visit.gltf.optimize import concatenate_stores
-from ada.visualize.optimizing import optimize_positions
+from ada.visit.optimizing import optimize_positions
 
 
 @dataclass
