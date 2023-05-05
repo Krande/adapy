@@ -108,7 +108,8 @@ def optimize_boxes_glb(glb_path):
 
 
 def main():
-    num = 25
+    num = 10  # On my machine anything above 10 will push the execution time > 2 seconds
+    # Would probably have to write a C++ extension to speed this up
     glb_path = pathlib.Path("temp/boxes.glb")
     print(f"Tessellating {num ** 3} boxes")
 
