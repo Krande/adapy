@@ -6,7 +6,6 @@ import numpy as np
 from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshStore
 
 
-
 def concatenate_stores(stores: Iterable[MeshStore]) -> MergedMesh | None:
     """Concatenate multiple MeshStore objects into a single MergedMesh object."""
     stores = list(stores)

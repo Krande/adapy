@@ -1,6 +1,7 @@
 # coding=utf-8
 from __future__ import annotations
 
+import importlib.util
 import os
 import pathlib
 import shutil
@@ -14,6 +15,14 @@ from ada.config import Settings, logger
 
 if TYPE_CHECKING:
     from ada import Node
+
+
+def is_package_installed(package_name):
+    try:
+        importlib.util.find_spec(package_name)
+        return True
+    except ImportError:
+        return False
 
 
 class NewLine:
@@ -119,9 +128,9 @@ def thread_this(list_in, function, cpus=4):
     var = int(len(list_in) / cpus)
     blocks = [list_in[:var]]
     for i in range(1, cpus - 1):
-        blocks.append(list_in[var * i : (i + 1) * var])
+        blocks.append(list_in[var * i: (i + 1) * var])
 
-    blocks.append(list_in[(cpus - 1) * var :])
+    blocks.append(list_in[(cpus - 1) * var:])
     pool = multiprocessing.Pool()
     func = partial(function)
     res = pool.map(func, blocks)
