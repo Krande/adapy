@@ -4,7 +4,9 @@ from enum import Enum
 from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
 
-# Curve Types
+from typing import Union
+
+CurveType = Union['Line', 'Circle', 'Ellipse', 'BSplineCurveWithKnots', 'IndexedPolyCurve']
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcLine.htm)

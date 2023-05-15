@@ -1,40 +1,44 @@
 from dataclasses import dataclass
-from typing import Any
 
-from ada.geom.placement import Axis2Placement3D, Direction
+from ada.geom.placement import Axis2Placement3D, Direction, Axis1Placement
 from ada.geom.points import Point
-
-
-# Swept Solids: ExtrudedAreaSolid, RevolvedAreaSolid
-@dataclass
-class SweptArea:
-    area: Any
-    position: Axis2Placement3D
+from ada.geom.surfaces import ProfileDef
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcExtrudedAreaSolid.htm)
-# STEP AP242
+# STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_extruded_area_solid.html)
 @dataclass
 class ExtrudedAreaSolid:
-    swept_area: SweptArea
-    extrusion_direction: Direction
+    swept_area: ProfileDef
+    position: Axis2Placement3D
+    extruded_direction: Direction
     depth: float
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRevolvedAreaSolid.htm)
-# STEP AP242
+# STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_revolved_area_solid.html)
 @dataclass
 class RevolvedAreaSolid:
-    swept_area: SweptArea
-    axis: Direction
+    swept_area: ProfileDef
+    position: Axis2Placement3D
+    axis: Axis1Placement
     angle: float
 
 
-# CSG solids
+@dataclass
+class FixedReferenceSweptAreaSolid:
+    swept_area: ProfileDef
+    position: Axis2Placement3D
+    directrix: list[Point]
+
+
+@dataclass
+class DirectrixDerivedReferenceSweptAreaSolid(FixedReferenceSweptAreaSolid):
+    pass
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBlock.htm)
-# STEP AP242 and IFC 4x3
+# STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_box_domain.html)
 @dataclass
 class Box:
     position: Axis2Placement3D
@@ -44,6 +48,7 @@ class Box:
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRectangularPyramid.htm)
+# STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_pyramid_volume.html)
 @dataclass
 class RectangularPyramid:
     position: Axis2Placement3D
@@ -53,6 +58,7 @@ class RectangularPyramid:
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRightCircularCone.htm)
+# STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_right_circular_cone.html)
 @dataclass
 class Cone:
     position: Axis2Placement3D
@@ -61,6 +67,7 @@ class Cone:
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRightCircularCylinder.htm)
+# STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_right_circular_cylinder.html)
 @dataclass
 class Cylinder:
     position: Axis2Placement3D
@@ -69,7 +76,7 @@ class Cylinder:
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcSphere.htm)
-# STEP AP242
+# STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_sphere.html)
 @dataclass
 class Sphere:
     center: Point

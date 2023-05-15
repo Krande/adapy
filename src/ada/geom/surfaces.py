@@ -1,8 +1,9 @@
-# Surface Types
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
 from ada.geom.placement import Axis2Placement3D
+from ada.geom.curves import CurveType
 
 
 # STEP AP242 and IFC 4x3
@@ -11,17 +12,34 @@ class Plane:
     position: Axis2Placement3D
 
 
+class ProfileType(Enum):
+    AREA = "area"
+    CURVE = "curve"
+
+
+@dataclass
+class ProfileDef:
+    name: str
+    profile_type: ProfileType
+
+
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcArbitraryProfileDefWithVoids.htm)
 @dataclass
-class ArbitraryProfileDefWithVoids:
-    outer_curve: Any
-    inner_curves: list[Any]
+class ArbitraryProfileDefWithVoids(ProfileDef):
+    outer_curve: CurveType
+    inner_curves: list[Any] = field(default_factory=list)
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcSurfaceOfLinearExtrusion.htm)
 @dataclass
 class SurfaceOfLinearExtrusion:
-    swept_curve: Any
+    swept_curve: CurveType
     position: Axis2Placement3D
-    extrusion_direction: Any
+    extrusion_direction: CurveType
     depth: float
+
+
+@dataclass
+class SweptArea:
+    area: ProfileType
+    position: Axis2Placement3D

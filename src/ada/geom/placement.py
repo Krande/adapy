@@ -25,3 +25,9 @@ class Axis2Placement3D:
     location: Point
     axis: Direction
     ref_direction: Direction
+
+
+@dataclass
+class Axis1Placement:
+    location: Point
+    axis: Direction
