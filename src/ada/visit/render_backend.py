@@ -8,6 +8,11 @@ import trimesh
 
 class RenderBackend:
     def on_pick(self, *args, **kwargs):
+        """Called when a mesh is picked and performs a certain action."""
+        raise NotImplementedError()
+
+    def get_mesh_id_from_face_index(self, face_index):
+        """Returns the mesh id from a face index."""
         raise NotImplementedError()
 
 
@@ -20,11 +25,14 @@ def is_gzip_file(file_path):
 class SqLiteBackend(RenderBackend):
     """A backend that uses a SQLite database to store mesh reference data."""
 
-    def __init__(self, db_path: str | pathlib.Path, overwrite=True):
-        if isinstance(db_path, str):
-            db_path = pathlib.Path(db_path)
-        if db_path.exists() and overwrite:
-            db_path.unlink()
+    def __init__(self, db_path: str | pathlib.Path = ":memory:", overwrite=True):
+        if db_path == ":memory:":  # In memory database
+            pass
+        else:
+            if isinstance(db_path, str):
+                db_path = pathlib.Path(db_path)
+            if db_path.exists() and overwrite:
+                db_path.unlink()
 
         self.path = db_path
         self.conn = sqlite3.connect(db_path)
@@ -34,11 +42,11 @@ class SqLiteBackend(RenderBackend):
     def _init_db(self):
         self.c.execute(
             """CREATE TABLE mesh 
-            (glb_file text, mesh_id text, parent_id test, full_name text, start int, end int, buffer_id int)"""
+            (mesh_id text, parent_id test, full_name text, start int, end int, buffer_id int, glb_file_name text)"""
         )
         self.conn.commit()
 
-    def _load_from_glb(self, glb_file):
+    def add_glb(self, glb_file, commit=True):
         if is_gzip_file(glb_file):
             with gzip.open(glb_file, "rb") as f:
                 scene = trimesh.load(f, file_type="glb")
@@ -46,6 +54,19 @@ class SqLiteBackend(RenderBackend):
             with open(glb_file, "rb") as f:
                 scene = trimesh.load(f, file_type="glb")
 
+        self._load_meta_id_sequence_from_glb(scene, glb_file)
+
+        if commit:
+            self.conn.commit()
+
+        return scene
+
+    def add_from_glb_iterable(self, glb_files: Iterable[pathlib.Path | str]) -> Iterable[trimesh.Scene]:
+        for glb_file in glb_files:
+            yield self.add_glb(glb_file, commit=False)
+        self.conn.commit()
+
+    def _load_meta_id_sequence_from_glb(self, scene: trimesh.Scene, glb_file: pathlib.Path) -> None:
         id_sequence_data = {}
         for key, value in scene.metadata.items():
             if "id_sequence" not in key:
@@ -57,19 +78,18 @@ class SqLiteBackend(RenderBackend):
         for mesh_id, values in scene.metadata.get("meta").items():
             full_name, parent_id = values
             start, end, buffer_id = id_sequence_data.get(mesh_id, [None, None, None])  # Get start, end values
-            row = (glb_file.stem, mesh_id, parent_id, full_name, start, end, buffer_id)
+            row = (mesh_id, parent_id, full_name, start, end, buffer_id, glb_file.stem)
             self.c.execute("INSERT INTO mesh VALUES (?,?,?,?,?,?,?)", row)
-
-        return scene
-
-    def load_from_glb_iterable(self, glb_files: Iterable[pathlib.Path | str]) -> Iterable[trimesh.Scene]:
-        for glb_file in glb_files:
-            yield self._load_from_glb(glb_file)
-        self.conn.commit()
 
     def on_pick(self, event):
         """Called when a mesh is picked and returns the mesh id."""
         print(event)
+
+    def get_mesh_id_from_face_index(self, face_index, buffer_id, glb_file_name):
+        """Returns the mesh id from a face index."""
+        self.c.execute('SELECT * FROM mesh WHERE buffer_id=? AND glb_file_name=? AND start<=? AND end >=?',
+                       (buffer_id, glb_file_name, face_index, face_index))
+        return self.c.fetchone()[0]
 
     def close(self):
         self.conn.commit()
