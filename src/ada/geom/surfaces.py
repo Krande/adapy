@@ -2,8 +2,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from ada.geom.placement import Axis2Placement3D
 from ada.geom.curves import CurveType
+from ada.geom.placement import Axis2Placement3D
 
 
 # STEP AP242 and IFC 4x3

@@ -130,47 +130,6 @@ class BackendGeom(Root):
             geom_repr = GeomRepr.from_str(geom_repr)
         return occ_geom_to_poly_mesh(self, geom_repr=geom_repr, export_config=export_config)
 
-    def render_locally(
-        self, addr="localhost", server_port=8080, open_webbrowser=False, render_engine="threejs", resolution=(1800, 900)
-    ):
-        from OCC.Display.WebGl.simple_server import start_server
-
-        from ada.visit.rendering.renderer_pythreejs import MyRenderer
-
-        if render_engine == "xdom":
-            from OCC.Display.WebGl import x3dom_renderer
-
-            my_renderer = x3dom_renderer.X3DomRenderer()
-            # TODO: Find similarities in build processing as done for THREE.js (tesselate geom etc..).
-            # my_renderer.DisplayShape(shape.profile_curve_outer.wire)
-            # my_renderer.DisplayShape(shape.sweep_curve.wire)
-            # my_renderer.DisplayShape(shape.geom)
-            my_renderer.render()
-        else:  # Assume THREEJS
-            from ipywidgets.embed import embed_minimal_html
-
-            _path = pathlib.Path("temp/index.html").resolve().absolute()
-
-            renderer = MyRenderer(resolution)
-            renderer.DisplayObj(self)
-            renderer.build_display()
-
-            os.makedirs(_path.parent, exist_ok=True)
-            embed_minimal_html(_path, views=renderer.renderer, title="Pythreejs Viewer")
-            start_server(addr, server_port, str(_path.parent), open_webbrowser)
-
-    def get_render_snippet(self, view_size=None):
-        """Return the html snippet containing threejs renderer"""
-        from ipywidgets.embed import embed_snippet
-
-        from ada.visit.rendering.renderer_pythreejs import MyRenderer
-
-        renderer = MyRenderer()
-        renderer.DisplayObj(self)
-        renderer.build_display()
-
-        return embed_snippet(renderer.renderer)
-
     @property
     def colour(self):
         return self._colour

@@ -533,11 +533,6 @@ class Beam(BackendGeom):
     def line(self):
         from ada.occ.utils import make_wire_from_points
 
-        # midpoints = self.calc_con_points()
-        # points = [self.n1.p]
-        # points += midpoints
-        # points += [self.n2.p]
-
         points = [self.n1.p, self.n2.p]
 
         return make_wire_from_points(points)
@@ -567,11 +562,6 @@ class Beam(BackendGeom):
     @angle.setter
     def angle(self, value: float):
         self._init_orientation(value)
-
-    @property
-    def vector(self) -> np.ndarray:
-        """Returns the full length beam vector"""
-        return self.length * self.xvec
 
     def is_on_beam(self, point: Node) -> bool:
         """Returns if a node is on the beam axis including endpoints"""

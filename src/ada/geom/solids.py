@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from ada.geom.placement import Axis2Placement3D, Direction, Axis1Placement
+from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
 from ada.geom.points import Point
 from ada.geom.surfaces import ProfileDef
 

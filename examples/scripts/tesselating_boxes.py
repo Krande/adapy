@@ -5,8 +5,8 @@ import tracemalloc
 
 import trimesh
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
-from OCC.Core.TopoDS import TopoDS_Shape
 from OCC.Core.gp import gp_Ax2, gp_Dir, gp_Pnt
+from OCC.Core.TopoDS import TopoDS_Shape
 
 from ada.occ.tesselating import shape_to_tri_mesh
 from ada.visit.colors import color_dict

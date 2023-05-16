@@ -128,9 +128,9 @@ def thread_this(list_in, function, cpus=4):
     var = int(len(list_in) / cpus)
     blocks = [list_in[:var]]
     for i in range(1, cpus - 1):
-        blocks.append(list_in[var * i: (i + 1) * var])
+        blocks.append(list_in[var * i : (i + 1) * var])
 
-    blocks.append(list_in[(cpus - 1) * var:])
+    blocks.append(list_in[(cpus - 1) * var :])
     pool = multiprocessing.Pool()
     func = partial(function)
     res = pool.map(func, blocks)

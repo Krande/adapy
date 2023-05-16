@@ -17,7 +17,7 @@ class Direction(Point):
         self.id = getattr(obj, "id", None)
 
     def __repr__(self):
-        return f"Vector({np.array2string(self, separator=', ')})"
+        return f"Direction({np.array2string(self, separator=', ')})"
 
 
 @dataclass
