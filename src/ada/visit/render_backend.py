@@ -7,6 +7,22 @@ import trimesh
 
 
 class RenderBackend:
+    """A backend that stores mesh reference data."""
+
+    def _init_db(self):
+        raise NotImplementedError()
+
+    def commit(self):
+        raise NotImplementedError()
+
+    def add_glb(self, file_path: str | pathlib.Path, commit: bool):
+        """Adds a glb file to the backend."""
+        raise NotImplementedError()
+
+    def add_from_glb_iterable(self, glb_files: Iterable[pathlib.Path | str]) -> Iterable[trimesh.Scene]:
+        """Adds multiple glb files to the backend."""
+        raise NotImplementedError()
+
     def on_pick(self, *args, **kwargs):
         """Called when a mesh is picked and performs a certain action."""
         raise NotImplementedError()
@@ -26,6 +42,7 @@ class SqLiteBackend(RenderBackend):
     """A backend that uses a SQLite database to store mesh reference data."""
 
     def __init__(self, db_path: str | pathlib.Path = ":memory:", overwrite=True):
+
         if db_path == ":memory:":  # In memory database
             pass
         else:
@@ -44,6 +61,9 @@ class SqLiteBackend(RenderBackend):
             """CREATE TABLE mesh 
             (mesh_id text, parent_id test, full_name text, start int, end int, buffer_id int, glb_file_name text)"""
         )
+        self.commit()
+
+    def commit(self):
         self.conn.commit()
 
     def add_glb(self, glb_file, commit=True):
@@ -54,19 +74,19 @@ class SqLiteBackend(RenderBackend):
             with open(glb_file, "rb") as f:
                 scene = trimesh.load(f, file_type="glb")
 
-        self._load_meta_id_sequence_from_glb(scene, glb_file)
+        self._insert_meta_id_sequence_from_glb(scene, glb_file)
 
         if commit:
-            self.conn.commit()
+            self.commit()
 
         return scene
 
     def add_from_glb_iterable(self, glb_files: Iterable[pathlib.Path | str]) -> Iterable[trimesh.Scene]:
         for glb_file in glb_files:
             yield self.add_glb(glb_file, commit=False)
-        self.conn.commit()
+        self.commit()
 
-    def _load_meta_id_sequence_from_glb(self, scene: trimesh.Scene, glb_file: pathlib.Path) -> None:
+    def _insert_meta_id_sequence_from_glb(self, scene: trimesh.Scene, glb_file: pathlib.Path) -> None:
         id_sequence_data = {}
         for key, value in scene.metadata.items():
             if "id_sequence" not in key:
@@ -92,5 +112,5 @@ class SqLiteBackend(RenderBackend):
         return self.c.fetchone()[0]
 
     def close(self):
-        self.conn.commit()
+        self.commit()
         self.conn.close()
