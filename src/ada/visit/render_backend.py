@@ -27,7 +27,7 @@ class RenderBackend:
         """Called when a mesh is picked and performs a certain action."""
         raise NotImplementedError()
 
-    def get_mesh_id_from_face_index(self, face_index):
+    def get_mesh_data_from_face_index(self, face_index, buffer_id, glb_file_name):
         """Returns the mesh id from a face index."""
         raise NotImplementedError()
 
@@ -105,11 +105,11 @@ class SqLiteBackend(RenderBackend):
         """Called when a mesh is picked and returns the mesh id."""
         print(event)
 
-    def get_mesh_id_from_face_index(self, face_index, buffer_id, glb_file_name):
+    def get_mesh_data_from_face_index(self, face_index, buffer_id, glb_file_name):
         """Returns the mesh id from a face index."""
         self.c.execute('SELECT * FROM mesh WHERE buffer_id=? AND glb_file_name=? AND start<=? AND end >=?',
                        (buffer_id, glb_file_name, face_index, face_index))
-        return self.c.fetchone()[0]
+        return self.c.fetchone()
 
     def close(self):
         self.commit()
