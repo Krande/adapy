@@ -1,9 +1,21 @@
 import gzip
 import pathlib
 import sqlite3
+from dataclasses import dataclass
 from typing import Iterable
 
 import trimesh
+
+
+@dataclass
+class MeshInfo:
+    mesh_id: str
+    parent_id: str
+    full_name: str
+    start: int
+    end: int
+    buffer_id: int
+    glb_file_name: str
 
 
 class RenderBackend:
@@ -27,7 +39,7 @@ class RenderBackend:
         """Called when a mesh is picked and performs a certain action."""
         raise NotImplementedError()
 
-    def get_mesh_data_from_face_index(self, face_index, buffer_id, glb_file_name):
+    def get_mesh_data_from_face_index(self, face_index, buffer_id, glb_file_name) -> MeshInfo:
         """Returns the mesh id from a face index."""
         raise NotImplementedError()
 
@@ -105,11 +117,13 @@ class SqLiteBackend(RenderBackend):
         """Called when a mesh is picked and returns the mesh id."""
         print(event)
 
-    def get_mesh_data_from_face_index(self, face_index, buffer_id, glb_file_name):
+    def get_mesh_data_from_face_index(self, face_index, buffer_id, glb_file_name) -> MeshInfo:
         """Returns the mesh id from a face index."""
-        self.c.execute('SELECT * FROM mesh WHERE buffer_id=? AND glb_file_name=? AND start<=? AND end >=?',
-                       (buffer_id, glb_file_name, face_index, face_index))
-        return self.c.fetchone()
+        self.c.execute(
+            "SELECT * FROM mesh WHERE buffer_id=? AND glb_file_name=? AND start<=? AND end >=?",
+            (buffer_id, glb_file_name, face_index, face_index),
+        )
+        return MeshInfo(*self.c.fetchone())
 
     def close(self):
         self.commit()
