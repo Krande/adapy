@@ -1,38 +1,26 @@
-import random
+import os
 from itertools import groupby
-from typing import Iterable
 
-from ada.geom import Geometry
-from ada.geom.solids import Box
+import trimesh
+
 from ada.occ.tessellating import BatchTessellator
-from ada.visit.colors import random_color
+from ada.param_models.primitives_generators import BoxGenerator
 from ada.visit.gltf.optimize import concatenate_stores
-
-
-def random_box_geom(grid_size) -> Iterable[Geometry]:
-    min_size = 0.5
-    max_size = 1.0
-    box_id = 0
-    for x in range(grid_size):
-        for y in range(grid_size):
-            for z in range(grid_size):
-                width = random.uniform(min_size, max_size)
-                height = random.uniform(min_size, max_size)
-                depth = random.uniform(min_size, max_size)
-
-                box = Box.from_xyz_and_dims(x, y, z, width, height, depth)
-                yield Geometry(box_id, box, random_color())
-                box_id += 1
+from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
 
 def test_shape_grid():
-    grid_size = 5
-    shape_grid = random_box_geom(grid_size)
+    bg = BoxGenerator(grid_size=2)
+    shape_grid = bg.generate_box_grid()
 
     bt = BatchTessellator()
-    shape_grid_tessellated = bt.batch_tessellate(shape_grid)
-    all_shapes = list(shape_grid_tessellated)
+    all_shapes = sorted(bt.batch_tessellate(shape_grid), key=lambda x: x.material)
+
+    scene = trimesh.Scene(base_frame=bg.graph.top_level.name)
+    scene.metadata["meta"] = bg.graph.create_meta(suffix='')
     for mat_id, mat in groupby(all_shapes, lambda x: x.material):
         merged_store = concatenate_stores(mat)
-        print('ds')
+        merged_mesh_to_trimesh_scene(scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, bg.graph)
 
+    os.makedirs("temp", exist_ok=True)
+    scene.export("temp/test.glb")

@@ -1,27 +1,31 @@
+import pytest
+
 import ada
 from ada import Assembly, Part, Pipe, Section, Wall
-from ada.config import Settings
 from ada.param_models.basic_module import SimpleStru
 from ada.param_models.basic_structural_components import Door, Window
 
-test_dir = Settings.test_dir / "ifc_basics"
+
+@pytest.fixture
+def ifc_basics_test_dir(test_dir):
+    return test_dir / "ifc_basics"
 
 
-def test_ifc_roundtrip():
+def test_ifc_roundtrip(ifc_basics_test_dir):
     a = ada.Assembly("my_test_assembly") / SimpleStru("my_simple_stru")
-    fp = a.to_ifc(test_dir / "my_test.ifc", file_obj_only=True)
+    fp = a.to_ifc(ifc_basics_test_dir / "my_test.ifc", file_obj_only=True)
 
     b = ada.from_ifc(fp)
-    _ = b.to_ifc(test_dir / "my_test_re_exported.ifc", file_obj_only=True)
+    _ = b.to_ifc(ifc_basics_test_dir / "my_test_re_exported.ifc", file_obj_only=True)
 
     all_parts = b.get_all_parts_in_assembly()
     assert len(all_parts) == 3
 
 
-def test_ifc_external_elements_import():
+def test_ifc_external_elements_import(ifc_basics_test_dir):
     # Model to be re-imported
     a0 = Assembly("my_test_assembly") / SimpleStru("my_simple_stru")
-    fp = a0.to_ifc(test_dir / "my_exported_param_model.ifc", file_obj_only=True)
+    fp = a0.to_ifc(ifc_basics_test_dir / "my_exported_param_model.ifc", file_obj_only=True)
 
     points = [(0, 0, 0), (5, 0, 0), (5, 5, 0)]
     w = Wall("MyWall", points, 3, 0.15, offset="LEFT")
@@ -54,4 +58,4 @@ def test_ifc_external_elements_import():
     )
     p.add_pipe(pipe1)
 
-    _ = a.to_ifc(test_dir / "my_reimport_of_elements.ifc", file_obj_only=True)
+    _ = a.to_ifc(ifc_basics_test_dir / "my_reimport_of_elements.ifc", file_obj_only=True)

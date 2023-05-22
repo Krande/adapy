@@ -93,5 +93,9 @@ class BatchTessellator:
                          MeshType.TRIANGLES, geom.id)
 
     def batch_tessellate(self, geoms: Iterable[Geometry]) -> Iterable[MeshStore]:
-        for geom in sorted(geoms, key=lambda x: x.color):
+        for geom in geoms:
             yield self.tessellate_geom(geom)
+
+    def get_mat_by_id(self, mat_id: int):
+        _data = {value: key for key, value in self.material_store.items()}
+        return _data.get(mat_id)

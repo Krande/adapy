@@ -11,6 +11,7 @@ import trimesh.visual
 
 from ada.config import logger
 from ada.core.vector_utils import rot_matrix, transform
+from ada.visit.colors import Color
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import MergedMesh, MeshRef, MeshStore, MeshType
 from ada.visit.gltf.optimize import concatenate_stores
@@ -48,33 +49,11 @@ class GltfMergeStore:
         scene.metadata["meta"] = self.graph.create_meta(suffix=suffix)
 
         for material_id, merged_mesh in self.iter_merged_meshes_by_material():
-            vertices = merged_mesh.position.reshape(int(len(merged_mesh.position) / 3), 3)
-            faces = merged_mesh.indices.reshape(int(len(merged_mesh.indices) / 3), 3)
-
-            # Setting process=True will automatically merge duplicated vertices
-            mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
             pbr_mat = trimesh.visual.material.PBRMaterial(
                 **self.json_data["materials"][material_id]["pbrMetallicRoughness"]
             )
-            mesh.visual = trimesh.visual.TextureVisuals(material=pbr_mat)
 
-            m3x3 = rot_matrix((0, -1, 0))
-            m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
-            m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
-            mesh.apply_transform(m4x4)
-
-            scene.add_geometry(
-                mesh,
-                node_name=f"node{material_id}",
-                geom_name=f"node{material_id}",
-                parent_node_name=self.graph.top_level.name,
-            )
-            id_sequence = dict()
-            for group in merged_mesh.groups:
-                n = self.graph.nodes.get(group.node_id)
-                id_sequence[n.hash] = (group.start, group.start + group.length - 1)
-
-            scene.metadata[f"id_sequence{material_id}"] = id_sequence
+            merged_mesh_to_trimesh_scene(scene, merged_mesh, pbr_mat, material_id, self.graph)
 
             # TODO: Embed vertex groups into gltf
             # see https://github.com/KhronosGroup/glTF-Blender-IO/issues/1232
@@ -206,12 +185,17 @@ class GltfMergeStore:
         return np.frombuffer(self.bin_obj.read(buff["byteLength"]), dtype=np.dtype(DTYPES.get(acc["componentType"])))
 
 
-def merged_mesh_to_trimesh_scene(scene, merged_mesh, pbr_mat, buffer_id, node_id, node_name):
+def merged_mesh_to_trimesh_scene(
+    scene: trimesh.Scene, merged_mesh: MergedMesh, pbr_mat: dict | Color, buffer_id: int, graph_store: GraphStore
+):
     vertices = merged_mesh.position.reshape(int(len(merged_mesh.position) / 3), 3)
     faces = merged_mesh.indices.reshape(int(len(merged_mesh.indices) / 3), 3)
 
     # Setting process=True will automatically merge duplicated vertices
     mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+    if isinstance(pbr_mat, Color):
+        pbr_mat = trimesh.visual.material.PBRMaterial(f"mat{buffer_id}", baseColorFactor=list(pbr_mat))
+
     mesh.visual = trimesh.visual.TextureVisuals(material=pbr_mat)
 
     m3x3 = rot_matrix((0, -1, 0))
@@ -223,5 +207,12 @@ def merged_mesh_to_trimesh_scene(scene, merged_mesh, pbr_mat, buffer_id, node_id
         mesh,
         node_name=f"node{buffer_id}",
         geom_name=f"node{buffer_id}",
-        parent_node_name=node_name,
+        parent_node_name=graph_store.top_level.name,
     )
+
+    id_sequence = dict()
+    for group in merged_mesh.groups:
+        n = graph_store.nodes.get(group.node_id)
+        id_sequence[n.hash] = (group.start, group.start + group.length - 1)
+
+    scene.metadata[f"id_sequence{buffer_id}"] = id_sequence
