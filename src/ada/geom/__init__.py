@@ -1,21 +1,13 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
-from ada import Placement
 from ada.geom.booleans import BooleanResult
-
-
-@dataclass
-class Color:
-    red: float
-    green: float
-    blue: float
+from ada.visit.colors import Color
 
 
 @dataclass
 class Geometry:
+    id: int
     geometry: Any
-    placement: Placement
-    boolean_result: BooleanResult
     color: Color
-    opacity: float
+    bool_operations: list[BooleanResult] = field(default_factory=list)

@@ -1,7 +1,7 @@
 import pytest
 
 from ada import Beam
-from ada.occ.tesselating import tessellate_shape
+from ada.occ.tessellating import tessellate_shape
 from ada.visit.rendering.new_render_api import Visualize
 
 

@@ -13,7 +13,7 @@ from ada.occ.exceptions import (
     UnableToCreateSolidOCCGeom,
     UnableToCreateTesselationFromSolidOCCGeom,
 )
-from ada.occ.tesselating import tessellate_shape
+from ada.occ.tessellating import tessellate_shape
 from ada.visit.concept import ObjectMesh
 from ada.visit.config import ExportConfig
 

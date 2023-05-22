@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 
 import numpy as np
@@ -18,6 +19,33 @@ color_dict = {
     "gray": (128, 128, 128),
     "brown": (165, 42, 42),
 }
+
+_col_vals = [(*x, 1) for x in color_dict.values()]
+
+
+def random_color() -> Color:
+    res = _col_vals[random.randint(0, len(color_dict) - 1)]
+    return Color(*res)
+
+
+@dataclass
+class Color:
+    red: float
+    green: float
+    blue: float
+    opacity: float = 1.0
+
+    def __iter__(self):
+        return iter((self.red, self.green, self.blue, self.opacity))
+
+    def __hash__(self):
+        return hash((self.red, self.green, self.blue, self.opacity))
+
+    def __gt__(self, other):
+        return self.red > other.red and self.green > other.green and self.blue > other.blue and self.opacity > other.opacity
+
+    def __lt__(self, other):
+        return self.red < other.red and self.green < other.green and self.blue < other.blue and self.opacity < other.opacity
 
 
 @dataclass

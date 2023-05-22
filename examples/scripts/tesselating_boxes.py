@@ -4,15 +4,12 @@ import time
 import tracemalloc
 
 import trimesh
-from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
-from OCC.Core.gp import gp_Ax2, gp_Dir, gp_Pnt
 from OCC.Core.TopoDS import TopoDS_Shape
 
-from ada.occ.tesselating import shape_to_tri_mesh
-from ada.visit.colors import color_dict
+from ada.occ.geom import make_box
+from ada.occ.tessellating import shape_to_tri_mesh
+from ada.visit.colors import random_color
 from ada.visit.gltf.optimize import optimize_glb
-
-_col_vals = [(*x, 1) for x in color_dict.values()]
 
 
 def bytes_to_human_readable(size_in_bytes):
@@ -50,7 +47,7 @@ def calculate_time(func):
         # storing time after function execution
         end = time.time()
 
-        print(f"[{func.__name__}] | Run Time: {end-begin:.1f}s | Memory: peak={peak_hr}, current={current_hr}")
+        print(f"[{func.__name__}] | Run Time: {end - begin:.1f}s | Memory: peak={peak_hr}, current={current_hr}")
         return res
 
     return inner1
@@ -66,29 +63,15 @@ def create_box_grid(x_count: int, y_count: int, z_count: int, min_size: float, m
                 width = random.uniform(min_size, max_size)
                 height = random.uniform(min_size, max_size)
                 depth = random.uniform(min_size, max_size)
-
-                box_maker = BRepPrimAPI_MakeBox(
-                    gp_Ax2(
-                        gp_Pnt(x * max_size, y * max_size, z * max_size),
-                        gp_Dir(0, 0, 1),
-                    ),
-                    width,
-                    height,
-                    depth,
-                )
-                box = box_maker.Shape()
+                box = make_box(x * max_size, y * max_size, z * max_size, width, height, depth)
                 boxes.append(box)
 
     return boxes
 
 
-def rand_color() -> tuple[float, float, float, float]:
-    return _col_vals[random.randint(0, len(color_dict) - 1)]
-
-
 @calculate_time
 def tessellate_boxes(boxes):
-    return [shape_to_tri_mesh(box, rand_color()) for box in boxes]
+    return [shape_to_tri_mesh(box, random_color()) for box in boxes]
 
 
 @calculate_time

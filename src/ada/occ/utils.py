@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import pathlib
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, List, Union, Callable, Iterable
 
 import numpy as np
 from OCC.Core.Bnd import Bnd_Box
@@ -300,45 +300,6 @@ def make_circle(p, vec, r):
     circle = gp_Circ(circle_origin, r)
 
     return BRepBuilderAPI_MakeEdge(circle).Edge()
-
-
-def make_box(origin_pnt, dx, dy, dz, sf=1.0):
-    """
-    The variable origin_pnt can be a dict with the format of {'X': XXX, 'Y': YYY , 'Z': ZZZ}, ADA Node object or
-    a simple list, dx, dy and dz are floats.
-
-    The origin_pnt represents the bottom corner of the box whereas dx, dy and dz are distances from that bottom
-    corner point describing the entire volume.
-
-    :param origin_pnt:
-    :param dx:
-    :param dy:
-    :param dz:
-    :param sf: Scale Factor
-    :type dx: float
-    :type dy: float
-    :type dz: float
-
-    """
-    from ada import Node
-
-    if type(origin_pnt) is Node:
-        assert isinstance(origin_pnt, Node)
-        aPnt1 = gp_Pnt(float(origin_pnt.x) * sf, float(origin_pnt.y) * sf, float(origin_pnt.z) * sf)
-    elif type(origin_pnt) == dict:
-        aPnt1 = gp_Pnt(
-            float(origin_pnt["X"]) * sf,
-            float(origin_pnt["Y"]) * sf,
-            float(origin_pnt["Z"]) * sf,
-        )
-    elif type(origin_pnt) == list or type(origin_pnt) == tuple or type(origin_pnt) is np.ndarray:
-        origin_pnt = [roundoff(x * sf) for x in list(origin_pnt)]
-        aPnt1 = gp_Pnt(float(origin_pnt[0]), float(origin_pnt[1]), float(origin_pnt[2]))
-    else:
-        raise ValueError(f"Unknown input format {origin_pnt}")
-
-    my_box = BRepPrimAPI_MakeBox(aPnt1, dx * sf, dy * sf, dz * sf).Shape()
-    return my_box
 
 
 def make_box_by_points(p1, p2, scale=1.0):

@@ -960,7 +960,7 @@ class OccToThreejs:
 
     def occ_shape_to_threejs(self, shp: TopoDS_Shape, shape_color, edge_color, transparency, opacity):
         # first, compute the tesselation
-        from ada.occ.tesselating import tessellate_shape
+        from ada.occ.tessellating import tessellate_shape
 
         from .threejs_utils import create_material
 

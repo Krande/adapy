@@ -4,7 +4,7 @@ import numpy as np
 
 
 class Point(np.ndarray):
-    def __new__(cls, iterable, pid=None):
+    def __new__(cls, *iterable, pid=None):
         obj = cls.create_ndarray(iterable)
 
         if pid is not None and not isinstance(pid, int):

@@ -204,3 +204,24 @@ class GltfMergeStore:
         self.bin_obj.seek(self.buffer_locations[buff["buffer"]].start)
         self.bin_obj.seek(buff.get("byteOffset", 0), 1)
         return np.frombuffer(self.bin_obj.read(buff["byteLength"]), dtype=np.dtype(DTYPES.get(acc["componentType"])))
+
+
+def merged_mesh_to_trimesh_scene(scene, merged_mesh, pbr_mat, buffer_id, node_id, node_name):
+    vertices = merged_mesh.position.reshape(int(len(merged_mesh.position) / 3), 3)
+    faces = merged_mesh.indices.reshape(int(len(merged_mesh.indices) / 3), 3)
+
+    # Setting process=True will automatically merge duplicated vertices
+    mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+    mesh.visual = trimesh.visual.TextureVisuals(material=pbr_mat)
+
+    m3x3 = rot_matrix((0, -1, 0))
+    m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
+    m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
+    mesh.apply_transform(m4x4)
+
+    scene.add_geometry(
+        mesh,
+        node_name=f"node{buffer_id}",
+        geom_name=f"node{buffer_id}",
+        parent_node_name=node_name,
+    )

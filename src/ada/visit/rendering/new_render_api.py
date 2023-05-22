@@ -81,7 +81,7 @@ class VizObj:
             raise ValueError(f'Unrecognized "{geom_repr}".')
 
     def obj_to_verts_and_faces(self, parallel=True, render_edges=True, quality=1.0):
-        from ada.occ.tesselating import tessellate_shape
+        from ada.occ.tessellating import tessellate_shape
 
         geom = self.get_geom(self.geom_repr)
         np_vertices, np_faces, np_normals, edges = tessellate_shape(geom, quality, render_edges, parallel)

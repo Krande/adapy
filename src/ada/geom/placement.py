@@ -6,7 +6,7 @@ from ada.geom.points import Point
 
 
 class Direction(Point):
-    def __new__(cls, iterable):
+    def __new__(cls, *iterable):
         obj = cls.create_ndarray(iterable)
         return obj
 

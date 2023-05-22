@@ -1,3 +1,4 @@
+from __future__ import annotations
 from dataclasses import dataclass
 
 from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
@@ -45,6 +46,13 @@ class Box:
     x_length: float
     y_length: float
     z_length: float
+
+    @staticmethod
+    def from_xyz_and_dims(x, y, z, x_length: float, y_length: float, z_length: float, d1=None, d2=None) -> Box:
+        d1 = d1 if d1 is not None else Direction(1, 0, 0)
+        d2 = d2 if d2 is not None else Direction(0, 1, 0)
+        axis3d = Axis2Placement3D(Point(x, y, z), d1, d2)
+        return Box(axis3d, x_length, y_length, z_length)
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRectangularPyramid.htm)

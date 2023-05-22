@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Iterable
 
 import numpy as np
 import trimesh
@@ -8,7 +9,12 @@ import trimesh.visual
 from OCC.Core.Tesselator import ShapeTesselator
 from OCC.Core.TopoDS import TopoDS_Shape
 
+from ada.geom import Geometry
+from ada.geom.solids import Box
 from ada.occ.exceptions import UnableToCreateTesselationFromSolidOCCGeom
+from ada.occ.geom import make_box_from_geom
+from ada.visit.colors import Color
+from ada.visit.gltf.meshes import MeshStore, MeshType
 
 
 @dataclass
@@ -49,10 +55,11 @@ def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, paral
             range(tess.ObjGetEdgeCount()),
         )
     )
+
     return TriangleMesh(np_vertices, np_faces, edges, np_normals)
 
 
-def shape_to_tri_mesh(shape: TopoDS_Shape, rgba_color: tuple[float, float, float, float] = None) -> trimesh.Trimesh:
+def shape_to_tri_mesh(shape: TopoDS_Shape, rgba_color: Iterable[float, float, float, float] = None) -> trimesh.Trimesh:
     tm = tessellate_shape(shape)
     positions = tm.positions.reshape(len(tm.positions) // 3, 3)
     faces = tm.faces.reshape(len(tm.faces) // 3, 3)
@@ -61,3 +68,30 @@ def shape_to_tri_mesh(shape: TopoDS_Shape, rgba_color: tuple[float, float, float
         material=trimesh.visual.material.PBRMaterial(baseColorFactor=rgba_color)
     )
     return mesh
+
+
+@dataclass
+class BatchTessellator:
+    quality: float = 1.0
+    render_edges: bool = False
+    parallel: bool = True
+    material_store: dict[Color, int] = field(default_factory=dict)
+
+    def tessellate_geom(self, geom: Geometry) -> MeshStore:
+        if isinstance(geom.geometry, Box):
+            occ_geom = make_box_from_geom(geom.geometry)
+        else:
+            raise NotImplementedError()
+
+        tess_shape = tessellate_shape(occ_geom, self.quality, self.render_edges, self.parallel)
+        mat_id = self.material_store.get(geom.color, None)
+        if mat_id is None:
+            mat_id = len(self.material_store)
+            self.material_store[geom.color] = mat_id
+
+        return MeshStore(geom.id, None, tess_shape.positions, tess_shape.faces, tess_shape.normals, mat_id,
+                         MeshType.TRIANGLES, geom.id)
+
+    def batch_tessellate(self, geoms: Iterable[Geometry]) -> Iterable[MeshStore]:
+        for geom in sorted(geoms, key=lambda x: x.color):
+            yield self.tessellate_geom(geom)
