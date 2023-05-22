@@ -1,7 +1,8 @@
+from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from ada.geom.booleans import BooleanResult
+from ada.geom.booleans import BooleanResult, BooleanOperatorEnum
 from ada.visit.colors import Color
 
 
@@ -10,4 +11,10 @@ class Geometry:
     id: int
     geometry: Any
     color: Color
-    bool_operations: list[BooleanResult] = field(default_factory=list)
+    bool_operations: list[BooleanOperation] = field(default_factory=list)
+
+
+@dataclass
+class BooleanOperation:
+    second_operand: Geometry
+    operator: BooleanOperatorEnum
