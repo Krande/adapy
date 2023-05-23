@@ -1,19 +1,54 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Union
+from typing import Union, Iterable
 
 from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
 
-CurveType = Union["Line", "Circle", "Ellipse", "BSplineCurveWithKnots", "IndexedPolyCurve"]
+CurveType = Union["Line", "ArcLine", "Circle", "Ellipse", "BSplineCurveWithKnots", "IndexedPolyCurve"]
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcLine.htm)
 # STEP AP242
 @dataclass
 class Line:
-    start: Point
-    end: Point
+    start: Point | Iterable
+    end: Point | Iterable
+
+    def __post_init__(self):
+        if isinstance(self.start, Iterable):
+            self.start = Point(*self.start)
+        if isinstance(self.end, Iterable):
+            self.end = Point(*self.end)
+
+    @staticmethod
+    def from_points(start: Iterable, end: Iterable):
+        return Line(Point(*start), Point(*end))
+
+    def __iter__(self):
+        return iter((self.start, self.end))
+
+
+@dataclass
+class ArcLine:
+    start: Point | Iterable
+    center: Point | Iterable
+    end: Point | Iterable
+
+    def __post_init__(self):
+        if isinstance(self.start, Iterable):
+            self.start = Point(*self.start)
+        if isinstance(self.center, Iterable):
+            self.center = Point(*self.center)
+        if isinstance(self.end, Iterable):
+            self.end = Point(*self.end)
+
+    @staticmethod
+    def from_points(start: Iterable, center: Iterable, end: Iterable):
+        return ArcLine(Point(*start), Point(*center), Point(*end))
+
+    def __iter__(self):
+        return iter((self.start, self.center, self.end))
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcCircle.htm)
@@ -72,6 +107,5 @@ class BSplineCurveWithKnots:
 # STEP (not found direct equivalent, but can be represented by using 'B_SPLINE_CURVE' and 'POLYLINE' entities)
 @dataclass
 class IndexedPolyCurve:
-    points: list[Point]
-    segments: list[int]
+    segments: list[Line | ArcLine]
     self_intersect: bool = False

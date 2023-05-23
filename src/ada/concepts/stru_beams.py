@@ -22,6 +22,7 @@ from ada.core.vector_utils import (
     unit_vector,
     vector_length,
 )
+from ada.geom import Geometry
 from ada.materials import Material
 from ada.materials.utils import get_material
 from ada.sections import Section
@@ -551,6 +552,9 @@ class Beam(BackendGeom):
 
         return geom
 
+    def solid_geom(self) -> Geometry:
+        return beam_to_geom(self)
+
     @property
     def nodes(self) -> list[Node]:
         return [self.n1, self.n2]
@@ -636,3 +640,29 @@ class Beam(BackendGeom):
 
 class NodeNotOnEndpointError(Exception):
     pass
+
+
+def beam_to_geom(beam: Beam) -> Geometry:
+    if beam.section.type == beam.section.TYPES.IPROFILE:
+        return ipe_to_geom(beam)
+    else:
+        raise NotImplementedError(f"Beam section type {beam.section.type} not implemented")
+
+
+def ipe_to_geom(beam: Beam) -> Geometry:
+    from ada.geom.placement import Axis2Placement3D
+    from ada.geom.solids import ExtrudedAreaSolid
+    from ada.geom.surfaces import ArbitraryProfileDefWithVoids, ProfileType
+    from ada.visit.colors import Color
+
+    sec_profile = beam.section.get_section_profile()
+    outer_curve = sec_profile.outer_curve.get_edges_geom()
+    inner_curves = []
+    if sec_profile.inner_curve is not None:
+        inner_curves += [sec_profile.inner_curve.get_edges_geom()]
+
+    profile = ArbitraryProfileDefWithVoids(ProfileType.AREA, outer_curve, inner_curves)
+    place = Axis2Placement3D(beam.n1.p, beam.xvec, beam.yvec)
+    solid = ExtrudedAreaSolid(profile, place, beam.length)
+    color = Color(*beam.colour_norm, 1.0)
+    return Geometry(beam.guid, solid, color)

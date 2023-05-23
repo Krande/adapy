@@ -5,6 +5,7 @@ from OCC.Core.BRepPrimAPI import (
     BRepPrimAPI_MakeSphere,
     BRepPrimAPI_MakeCylinder,
     BRepPrimAPI_MakeCone,
+    BRepPrimAPI_MakePrism
 )
 from OCC.Core.TopoDS import TopoDS_Shape
 from OCC.Core.gp import gp_Ax2, gp_Pnt, gp_Dir

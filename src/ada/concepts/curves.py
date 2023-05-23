@@ -9,6 +9,7 @@ from .transforms import Placement
 
 if TYPE_CHECKING:
     from ada import Beam
+    from ada.geom.curves import IndexedPolyCurve
 
 
 class CurveRevolve:
@@ -293,6 +294,18 @@ class CurvePoly:
         from ada.occ.utils import segments_to_edges
 
         return segments_to_edges(self.seg_list)
+
+    def get_edges_geom(self) -> IndexedPolyCurve:
+        from ada.geom.curves import IndexedPolyCurve, ArcLine, Line
+
+        segments = []
+        for seg in self.seg_list:
+            if isinstance(seg, ArcSegment):
+                segments.append(ArcLine(seg.p1, seg.midpoint, seg.p2))
+            else:
+                segments.append(Line(seg.p1, seg.p2))
+
+        return IndexedPolyCurve(segments)
 
     @property
     def wire(self):

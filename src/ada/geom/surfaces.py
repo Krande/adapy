@@ -19,7 +19,6 @@ class ProfileType(Enum):
 
 @dataclass
 class ProfileDef:
-    name: str
     profile_type: ProfileType
 
 

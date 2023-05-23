@@ -1,10 +1,12 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
 from ada.geom.points import Point
 from ada.geom.surfaces import ProfileDef
 
+def _z_dir():
+    return Direction(0, 0, 1)
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcExtrudedAreaSolid.htm)
 # STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_extruded_area_solid.html)
@@ -12,8 +14,8 @@ from ada.geom.surfaces import ProfileDef
 class ExtrudedAreaSolid:
     swept_area: ProfileDef
     position: Axis2Placement3D
-    extruded_direction: Direction
     depth: float
+    extruded_direction: Direction = field(default_factory=_z_dir)
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRevolvedAreaSolid.htm)

@@ -4,21 +4,14 @@ import numpy as np
 
 
 class Point(np.ndarray):
-    def __new__(cls, *iterable, pid=None):
+    def __new__(cls, *iterable):
         obj = cls.create_ndarray(iterable)
-
-        if pid is not None and not isinstance(pid, int):
-            raise TypeError("id must be an integer or None.")
-
-        obj.id = pid
 
         return obj
 
     def __array_finalize__(self, obj, *args, **kwargs):
         if obj is None:
             return
-
-        self.id = getattr(obj, "id", None)
 
     @classmethod
     def create_ndarray(cls, iterable):
@@ -38,4 +31,4 @@ class Point(np.ndarray):
         return obj
 
     def __repr__(self):
-        return f"Point({np.array2string(self, separator=', ')}, id={self.id})"
+        return f"Point({np.array2string(self, separator=', ')})"

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Iterable
 
 import numpy as np
 
@@ -22,9 +23,17 @@ class Direction(Point):
 
 @dataclass
 class Axis2Placement3D:
-    location: Point
-    axis: Direction
-    ref_direction: Direction
+    location: Point | Iterable
+    axis: Direction | Iterable
+    ref_direction: Direction | Iterable
+
+    def __post_init__(self):
+        if isinstance(self.location, Iterable):
+            self.location = Point(*self.location)
+        if isinstance(self.axis, Iterable):
+            self.axis = Direction(*self.axis)
+        if isinstance(self.ref_direction, Iterable):
+            self.ref_direction = Direction(*self.ref_direction)
 
 
 @dataclass

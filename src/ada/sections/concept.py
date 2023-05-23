@@ -251,7 +251,7 @@ class Section(Root):
         from IPython.display import display
         from ipywidgets import HBox
 
-        from ada.visualize.renderer_pythreejs import SectionRenderer
+        from ada.visit.rendering.renderer_pythreejs import SectionRenderer
 
         sec_render = SectionRenderer()
         fig, html = sec_render.build_display(self)

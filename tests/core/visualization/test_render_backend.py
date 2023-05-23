@@ -12,3 +12,4 @@ def test_sqlite_backend(example_files):
 
     mesh_data = backend.get_mesh_data_from_face_index(120, 8, "boxes_merged")
     assert mesh_data.mesh_id == "3cYJcny$CHxQS0w2f4ZOUQ"
+

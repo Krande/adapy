@@ -8,7 +8,7 @@ from ada.visit.colors import Color
 
 @dataclass
 class Geometry:
-    id: int
+    id: int | str
     geometry: Any
     color: Color
     bool_operations: list[BooleanOperation] = field(default_factory=list)
