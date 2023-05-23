@@ -30,7 +30,9 @@ class BoxGenerator:
                     depth = random.uniform(self.min_size, self.max_size)
 
                     box = Box.from_xyz_and_dims(x, y, z, width, height, depth)
-                    graph[box_id] = GraphNode(f"n{box_id}", box_id, parent=root)
+                    node = GraphNode(f"n{box_id}", box_id, parent=root)
+                    graph[box_id] = node
+                    root.children.append(node)
                     yield Geometry(box_id, box, random_color())
                     box_id += 1
 

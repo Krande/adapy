@@ -119,3 +119,7 @@ class SqLiteBackend(RenderBackend):
     def close(self):
         self.commit()
         self.conn.close()
+
+    def __del__(self):
+        if self.conn:
+            self.conn.close()

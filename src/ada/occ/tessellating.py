@@ -74,7 +74,7 @@ def shape_to_tri_mesh(shape: TopoDS_Shape, rgba_color: Iterable[float, float, fl
 class BatchTessellator:
     quality: float = 1.0
     render_edges: bool = False
-    parallel: bool = True
+    parallel: bool = False
     material_store: dict[Color, int] = field(default_factory=dict)
 
     def tessellate_geom(self, geom: Geometry) -> MeshStore:
