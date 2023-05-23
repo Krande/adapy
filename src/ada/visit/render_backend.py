@@ -31,6 +31,10 @@ class RenderBackend:
         """Adds a trimesh scene to the backend."""
         raise NotImplementedError()
 
+    def add_metadata(self, metadata: dict, tag: str) -> None:
+        """Adds metadata to the database."""
+        raise NotImplementedError()
+
     def on_pick(self, *args, **kwargs):
         """Called when a mesh is picked and performs a certain action."""
         raise NotImplementedError()
@@ -59,7 +63,6 @@ class SqLiteBackend(RenderBackend):
     """A backend that uses a SQLite database to store mesh reference data."""
 
     def __init__(self, db_path: str | pathlib.Path = ":memory:", overwrite=True):
-
         if db_path == ":memory:":  # In memory database
             pass
         else:
@@ -84,15 +87,8 @@ class SqLiteBackend(RenderBackend):
     def commit(self):
         self.conn.commit()
 
-    def add_trimesh_scene(self, scene: trimesh.Scene, tag: str, commit=True) -> trimesh.Scene:
-        self.add_metadata(scene.metadata, tag)
-
-        if commit:
-            self.commit()
-
-        return scene
-
     def add_metadata(self, metadata: dict, tag: str) -> None:
+        """Adds metadata to the database."""
         id_sequence_data = {}
         for key, value in metadata.items():
             if "id_sequence" not in key:

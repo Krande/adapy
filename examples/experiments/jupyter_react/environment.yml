@@ -1,12 +1,17 @@
-name: ada-wgpu
+name: ada-react
 channels:
   - conda-forge
   - krande
 dependencies:
   - ada-py
   - pytest
+  - nodejs
+  - yarn
   - pip
   - pip:
       - pygfx
+      - ipyreact
       - glfw
       - jupyter_rfb
+      - watchfiles
+      - simplejpeg

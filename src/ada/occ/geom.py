@@ -9,8 +9,6 @@ from OCC.Core.BRepPrimAPI import (
 from OCC.Core.TopoDS import TopoDS_Shape
 from OCC.Core.gp import gp_Ax2, gp_Pnt, gp_Dir
 
-from ada.geom.solids import Box
-
 
 def make_box(
         x: float,
@@ -35,12 +33,6 @@ def make_box(
         depth,
     )
     return box_maker.Shape()
-
-
-def make_box_from_geom(box: Box) -> TopoDS_Shape:
-    v1 = box.position.axis
-    v2 = box.position.ref_direction
-    return make_box(*box.position.location, box.x_length, box.y_length, box.z_length, v1, v2)
 
 
 def make_sphere(x: float, y: float, z: float, radius: float) -> TopoDS_Shape:

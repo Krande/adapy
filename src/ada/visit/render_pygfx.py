@@ -54,19 +54,16 @@ def geometry_from_trimesh(mesh):
 class RendererPyGFX:
     def __init__(self, render_backend: RenderBackend, canvas_title: str = "PyGFX Renderer"):
         self.backend = render_backend
-        self.scene = gfx.Scene()
-        self._scene_objects: gfx.Group = gfx.Group()
-        self.scene.add(self._scene_objects)
+
         self._mesh_map = {}
         self._selected_mat = gfx.MeshPhongMaterial(color="#0000ff", flat_shading=True)
         self.selected_mesh = None
-        self._axes = gfx.AxesHelper()
-        self.scene.add(self._axes)
-        self.controller = None
+        self.scene = gfx.Scene()
+        self._scene_objects = gfx.Group()
+        self.scene.add(self._scene_objects)
 
         canvas = WgpuCanvas(title=canvas_title, max_fps=60)
-        renderer = gfx.renderers.WgpuRenderer(canvas, show_fps=False)
-
+        renderer = gfx.renderers.WgpuRenderer(canvas, show_fps=True)
         self.display = gfx.Display(canvas=canvas, renderer=renderer)
 
         self._init_scene()
@@ -76,6 +73,7 @@ class RendererPyGFX:
         scene.add(gfx.DirectionalLight())
         scene.add(gfx.AmbientLight())
         scene.add(gfx.GridHelper())
+        scene.add(gfx.AxesHelper())
 
     def _get_scene_meshes(self, scene: trimesh.Scene, tag: str):
         for key, m in scene.geometry.items():
@@ -92,7 +90,9 @@ class RendererPyGFX:
 
         meshes = self._get_scene_meshes(trimesh_scene, tag)
         self._scene_objects.add(*meshes)
-        self.backend.add_trimesh_scene(trimesh_scene, tag, commit)
+        self.backend.add_metadata(trimesh_scene.metadata, tag)
+        if commit:
+            self.backend.commit()
 
     def load_glb_files_into_scene(self, glb_files: Iterable[pathlib.Path]):
         num_scenes = 0
@@ -108,7 +108,7 @@ class RendererPyGFX:
         print(f"Loaded {num_meshes} meshes from {num_scenes} glb files")
         self.backend.commit()
 
-    def _offset_point(self, event: gfx.PointerEvent):
+    def on_click(self, event: gfx.PointerEvent):
         info = event.pick_info
 
         if event.button != 1:
@@ -143,7 +143,7 @@ class RendererPyGFX:
 
     def _add_event_handlers(self):
         ob = self._scene_objects
-        ob.add_event_handler(self._offset_point, "pointer_down")
+        ob.add_event_handler(self.on_click, "pointer_down")
 
     def show(self):
         self._add_event_handlers()

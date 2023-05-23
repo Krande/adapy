@@ -12,7 +12,7 @@ from OCC.Core.TopoDS import TopoDS_Shape
 from ada.geom import Geometry
 from ada.geom.solids import Box
 from ada.occ.exceptions import UnableToCreateTesselationFromSolidOCCGeom
-from ada.occ.geom import make_box_from_geom
+from ada.occ.geo.solids import make_box_from_geom
 from ada.visit.colors import Color
 from ada.visit.gltf.meshes import MeshStore, MeshType
 
