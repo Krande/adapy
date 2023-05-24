@@ -1,9 +1,26 @@
-from dataclasses import dataclass
+from __future__ import annotations
+from dataclasses import dataclass, field
 from typing import Iterable
 
 import numpy as np
 
 from ada.geom.points import Point
+
+
+def o() -> Point:
+    return Point(0, 0, 0)
+
+
+def xv() -> Direction:
+    return Direction(1, 0, 0)
+
+
+def yv() -> Direction:
+    return Direction(0, 1, 0)
+
+
+def zv() -> Direction:
+    return Direction(0, 0, 1)
 
 
 class Direction(Point):
@@ -23,9 +40,9 @@ class Direction(Point):
 
 @dataclass
 class Axis2Placement3D:
-    location: Point | Iterable
-    axis: Direction | Iterable
-    ref_direction: Direction | Iterable
+    location: Point | Iterable = field(default_factory=o)
+    axis: Direction | Iterable = field(default_factory=zv)
+    ref_direction: Direction | Iterable = field(default_factory=xv)
 
     def __post_init__(self):
         if isinstance(self.location, Iterable):
@@ -34,6 +51,9 @@ class Axis2Placement3D:
             self.axis = Direction(*self.axis)
         if isinstance(self.ref_direction, Iterable):
             self.ref_direction = Direction(*self.ref_direction)
+
+    def get_pdir(self):
+        return Direction(*np.cross(self.axis, self.ref_direction))
 
 
 @dataclass

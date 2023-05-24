@@ -63,7 +63,7 @@ class RendererPyGFX:
         self.scene.add(self._scene_objects)
 
         canvas = WgpuCanvas(title=canvas_title, max_fps=60)
-        renderer = gfx.renderers.WgpuRenderer(canvas, show_fps=True)
+        renderer = gfx.renderers.WgpuRenderer(canvas, show_fps=False)
         self.display = gfx.Display(canvas=canvas, renderer=renderer)
 
         self._init_scene()

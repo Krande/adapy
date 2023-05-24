@@ -1,17 +1,18 @@
-name: ada-react
+name: ada-react2
 channels:
   - conda-forge
   - krande
 dependencies:
-  - ada-py
-  - pytest
+#  - ada-py
+#  - pytest
   - nodejs
+  - jupyterlab
   - yarn
   - pip
   - pip:
-      - pygfx
+#      - pygfx
       - ipyreact
-      - glfw
-      - jupyter_rfb
+#      - glfw
+#      - jupyter_rfb
       - watchfiles
-      - simplejpeg
+#      - simplejpeg

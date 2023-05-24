@@ -1,46 +1,36 @@
-import React, { useRef } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
-import { Mesh } from "three";
+import React, {useRef, useState} from "react"
+import {Canvas, useFrame, useThree} from 'https://esm.sh/@react-three/fiber@8.13.0'
+import {OrbitControls} from "https://esm.sh/@react-three/drei@9.68.6";
 
-export default function() {
-    return (
-        <div className={"relative flex"}>
-            <div className={"absolute w-full h-full"}>
-                <Canvas>
-                    <OrbitControls />
-                    <ambientLight />
-                    {/* eslint-disable-next-line react/no-unknown-property */}
-                    <pointLight position={[10, 10, 10]} />
-                    <Cube />
-                </Canvas>
-            </div>
-        </div>
-    );
-}
-
-function Cube(props: any) {
-    const mesh = useRef<Mesh>(null);
-
-    // const [hovered, setHover] = useState(false);
-    // const [active, setActive] = useState(false);
-    // const { viewport } = useThree();
+function Box({position, color}) {
+    const ref = useRef()
     useFrame(() => {
-        if (mesh.current) {
-            mesh.current.rotation.x = mesh.current.rotation.y += 0.01;
-        }
-    });
+        if (ref.current) (
+            (ref.current.rotation.x = ref.current.rotation.y += 0.01)
+        )
+
+    })
+
     return (
-        <mesh
-            {...props}
-            ref={mesh}
-            // scale={(viewport.width / 5) * (active ? 1.5 : 1)}
-            // onClick={() => setActive(!active)}
-            // onPointerOver={() => setHover(true)}
-            // onPointerOut={() => setHover(false)}
-        >
-            <boxGeometry />
-            <meshStandardMaterial color={"orange"} />
+        <mesh position={position} ref={ref}>
+            <boxBufferGeometry args={[1, 1, 1]} attach="geometry"/>
+            <meshPhongMaterial color={color} attach="material"/>
         </mesh>
-    );
+    )
 }
+
+function App() {
+    return (
+        <>
+            <OrbitControls/>
+            <Canvas>
+                <Box color="#18a36e" position={[-1, 0, 3]}/>
+                <Box color="#f56f42" position={[1, 0, 3]}/>
+
+                <directionalLight color="#ffffff" intensity={1} position={[-1, 2, 4]}/>
+            </Canvas>
+        </>
+    )
+}
+
+export default App

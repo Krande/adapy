@@ -23,6 +23,7 @@ from ada.core.vector_utils import (
     vector_length,
 )
 from ada.geom import Geometry
+from ada.geom.placement import Direction
 from ada.materials import Material
 from ada.materials.utils import get_material
 from ada.sections import Section
@@ -662,7 +663,7 @@ def ipe_to_geom(beam: Beam) -> Geometry:
         inner_curves += [sec_profile.inner_curve.get_edges_geom()]
 
     profile = ArbitraryProfileDefWithVoids(ProfileType.AREA, outer_curve, inner_curves)
-    place = Axis2Placement3D(beam.n1.p, beam.xvec, beam.yvec)
-    solid = ExtrudedAreaSolid(profile, place, beam.length)
+    place = Axis2Placement3D(location=beam.n1.p, axis=beam.xvec, ref_direction=beam.yvec)
+    solid = ExtrudedAreaSolid(profile, place, beam.length, Direction(0, 0, 1))
     color = Color(*beam.colour_norm, 1.0)
     return Geometry(beam.guid, solid, color)

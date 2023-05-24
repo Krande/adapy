@@ -4,14 +4,14 @@ from itertools import groupby
 import trimesh
 
 from ada.occ.tessellating import BatchTessellator
-from ada.param_models.primitives_generators import BoxGenerator
+from ada.param_models.primitives_generators import ShapeGenerator
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
 
 def test_shape_grid():
-    bg = BoxGenerator(grid_size=2)
-    shape_grid = list(bg.generate_box_grid())
+    bg = ShapeGenerator(grid_size=1)
+    shape_grid = list(bg.generate_shape_grid())
 
     bt = BatchTessellator()
     all_shapes = sorted(bt.batch_tessellate(shape_grid), key=lambda x: x.material)

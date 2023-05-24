@@ -5,7 +5,7 @@ from itertools import groupby
 import trimesh
 
 from ada.occ.tessellating import BatchTessellator
-from ada.param_models.primitives_generators import BoxGenerator
+from ada.param_models.primitives_generators import ShapeGenerator, random_i_beam_at_position
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 from ada.visit.render_backend import SqLiteBackend
@@ -14,8 +14,8 @@ from ada.visit.render_pygfx import RendererPyGFX
 
 def main():
     grid_size = 5
-    bg = BoxGenerator(grid_size=grid_size)
-    shape_grid = bg.generate_box_grid()
+    bg = ShapeGenerator(grid_size=grid_size, shape_function=random_i_beam_at_position)
+    shape_grid = list(bg.generate_shape_grid())
 
     bt = BatchTessellator()
     all_shapes = sorted(bt.batch_tessellate(shape_grid), key=lambda x: x.material)

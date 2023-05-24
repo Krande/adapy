@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Iterable, List, Union
 import numpy as np
 from pyquaternion import Quaternion
 
+from ada.geom.placement import Axis2Placement3D
+
 if TYPE_CHECKING:
     from ada import Part
     from ada.base.physical_objects import BackendGeom
@@ -15,11 +17,6 @@ if TYPE_CHECKING:
 class Transform:
     translation: np.ndarray = None
     rotation: Rotation = None
-
-    def to_ifc(self, f):
-        from ada.cadit.ifc.utils import export_transform
-
-        return export_transform(f, self)
 
 
 @dataclass

@@ -1,39 +1,58 @@
+from __future__ import annotations
 import random
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Callable
 
+from ada import Beam
 from ada.geom import Geometry
 from ada.geom.solids import Box
 from ada.visit.colors import random_color
 from ada.visit.gltf.graph import GraphStore, GraphNode
 
 
+def random_box_geom_at_position(shape_id, x, y, z, min_size, max_size) -> Geometry:
+    width = random.uniform(min_size, max_size)
+    height = random.uniform(min_size, max_size)
+    depth = random.uniform(min_size, max_size)
+
+    box = Box.from_xyz_and_dims(x, y, z, width, height, depth)
+    return Geometry(shape_id, box, random_color())
+
+
+def random_i_beam_at_position(shape_id, x, y, z, min_size, max_size) -> Geometry:
+    length = random.uniform(min_size, max_size)
+    p1 = [x, y, z]
+    p2 = [x, y, z]
+    direction = random.randint(0, 2)
+    p2[direction] += length
+    bm = Beam(f"beam_{shape_id}", p1, p2, "IPE300")
+    return bm.solid_geom()
+
+
 @dataclass
-class BoxGenerator:
+class ShapeGenerator:
     grid_size: int = 2
     min_size: float = 0.5
-    max_size: float = 1.0
+    max_size: float = 0.85
     graph: GraphStore = None
+    shape_function: Callable[[int, float, float, float, float, float], Geometry] = random_box_geom_at_position
 
-    def generate_box_grid(self) -> Iterable[Geometry]:
+    def generate_shape_grid(self) -> Iterable[Geometry]:
 
-        box_id = 0
+        shape_id = 0
 
-        root = GraphNode('root', 0)
+        root = GraphNode("root", 0)
         graph = {0: root}
 
         for x in range(self.grid_size):
             for y in range(self.grid_size):
                 for z in range(self.grid_size):
-                    width = random.uniform(self.min_size, self.max_size)
-                    height = random.uniform(self.min_size, self.max_size)
-                    depth = random.uniform(self.min_size, self.max_size)
-
-                    box = Box.from_xyz_and_dims(x, y, z, width, height, depth)
-                    node = GraphNode(f"n{box_id}", box_id, parent=root)
-                    graph[box_id] = node
+                    node = GraphNode(f"n{shape_id}", shape_id, parent=root)
+                    geom = self.shape_function(shape_id, x, y, z, self.min_size, self.max_size)
+                    geom.id = shape_id
+                    graph[shape_id] = node
                     root.children.append(node)
-                    yield Geometry(box_id, box, random_color())
-                    box_id += 1
+                    yield geom
+                    shape_id += 1
 
         self.graph = GraphStore(root, graph)
