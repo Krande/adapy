@@ -1,7 +1,7 @@
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakePrism
 from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Solid
-from OCC.Core.gp import gp_Vec, gp_Trsf, gp_Ax1, gp_Pnt, gp_Dir
+from OCC.Core.gp import gp_Vec, gp_Trsf, gp_Ax1, gp_Pnt, gp_Dir, gp_Ax3
 
 from ada.core.vector_utils import angle_between
 from ada.geom.curves import IndexedPolyCurve
@@ -51,19 +51,16 @@ def make_extruded_area_solid_from_geom(eas: ExtrudedAreaSolid) -> TopoDS_Shape |
 
     # Build direction is always Z
     vec = Direction(0, 0, 1) * eas.depth
-
     eas_shape = BRepPrimAPI_MakePrism(profile, gp_Vec(*vec)).Shape()
 
     # Create a transformation to move the extruded area solid to the correct position
-    trsf = gp_Trsf()
+    trsf_rot = gp_Trsf()
 
     # Rotate the extruded area solid around 0,0,0
-    ref_dir = gp_Dir(*eas.position.ref_direction)
-    pdir = eas.position.get_pdir()
-    revolve_axis = gp_Ax1(gp_Pnt(*Point(0, 0, 0)), ref_dir)
-    angle = angle_between(pdir, eas.position.axis)
-    trsf.SetRotation(revolve_axis, angle)
-    shape1 = BRepBuilderAPI_Transform(eas_shape, trsf, True).Shape()
+    ax_global = gp_Ax3(gp_Pnt(*Point(0, 0, 0)), gp_Dir(*Direction(0, 0, 1)), gp_Dir(*Direction(1, 0, 0)))
+    ax_local = gp_Ax3(gp_Pnt(*Point(0, 0, 0)), gp_Dir(*eas.position.axis), gp_Dir(*eas.position.ref_direction))
+    trsf_rot.SetTransformation(ax_local, ax_global)
+    shape1 = BRepBuilderAPI_Transform(eas_shape, trsf_rot, True).Shape()
 
     # Translate the extruded area solid
     trsf = gp_Trsf()
