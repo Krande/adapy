@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import math
 import pathlib
-from typing import TYPE_CHECKING, List, Union, Callable, Iterable
+from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
-from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRep import BRep_Tool_Pnt
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCC.Core.BRepBndLib import brepbndlib_Add
@@ -20,11 +19,11 @@ from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
 from OCC.Core.BRepFill import BRepFill_Filling
 from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
 from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe, BRepOffsetAPI_ThruSections
-from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder
+from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeCylinder
+from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.ChFi2d import ChFi2d_AnaFilletAlgo
 from OCC.Core.GC import GC_MakeArcOfCircle
 from OCC.Core.GeomAbs import GeomAbs_C0
-from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Circ, gp_Dir, gp_Pln, gp_Pnt, gp_Trsf, gp_Vec
 from OCC.Core.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
 from OCC.Core.TopoDS import (
     TopoDS_Compound,
@@ -36,6 +35,7 @@ from OCC.Core.TopoDS import (
     TopoDS_Vertex,
     TopoDS_Wire,
 )
+from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Circ, gp_Dir, gp_Pln, gp_Pnt, gp_Trsf, gp_Vec
 from OCC.Extend.DataExchange import read_step_file
 from OCC.Extend.ShapeFactory import make_extrusion, make_face, make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
@@ -47,7 +47,6 @@ from ada.config import logger
 from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem.shapes import ElemType
-
 from .exceptions import UnableToBuildNSidedWires, UnableToCreateSolidOCCGeom
 
 if TYPE_CHECKING:
@@ -509,7 +508,7 @@ def make_eq_plane_object(name, eq_plane: EquationOfPlane, p_dist=1, plane: Plane
     points = eq_plane.get_points_in_lcsys_plane(p_dist=p_dist, plane=plane)
     ori_vec_model = make_ori_vector(name=name, origin=eq_plane.point_in_plane, csys=csys)
 
-    ori_vec_model.add_plate(Plate("Surface", points, 0.001, use3dnodes=True, colour=colour, opacity=0.3))
+    ori_vec_model.add_plate(Plate("Surface", points, 0.001, use3dnodes=True, color=colour, opacity=0.3))
     return ori_vec_model
 
 

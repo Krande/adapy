@@ -9,7 +9,7 @@ from ada.base.units import Units
 from ada.concepts.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
 from ada.concepts.fasteners import Bolts, Weld
 from ada.concepts.piping import Pipe, PipeSegElbow, PipeSegStraight
-from ada.concepts.points import Node
+from ada.concepts.points import Point
 from ada.concepts.primitives import (
     Penetration,
     PrimBox,
@@ -116,7 +116,7 @@ __all__ = [
     "Section",
     "Material",
     "Shape",
-    "Node",
+    "Point",
     "Placement",
     "PrimBox",
     "PrimCyl",

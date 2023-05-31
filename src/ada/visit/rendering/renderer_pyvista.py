@@ -19,7 +19,7 @@ def render_ipyvista_scene(visualize: Visualize, backend="pythreejs", off_screen_
     for viz_obj in visualize.objects:
         pl.add_mesh(
             viz_obj.convert_to_pyvista_mesh(),
-            color=viz_obj.obj.colour,
+            color=viz_obj.obj.color,
             # style="surface",
             pbr=False,
             metallic=0.2,

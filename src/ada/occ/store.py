@@ -7,6 +7,7 @@ import ada
 from ada import Units
 from ada.base.types import GeomRepr
 from ada.config import logger
+from ada.visit.colors import Color
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
@@ -101,6 +102,6 @@ class OCCStore:
 @dataclass
 class OccShape:
     shape: TopoDS_Shape
-    color: tuple[float, float, float] | None = None
+    color: Color | None = None
     num_tot_entities: int = 0
     name: str | None = None

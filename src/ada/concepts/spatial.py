@@ -24,7 +24,7 @@ from ada.concepts.containers import (
 )
 from ada.concepts.groups import Group
 from ada.concepts.piping import Pipe
-from ada.concepts.points import Node
+from ada.concepts.points import Point
 from ada.concepts.presentation_layers import PresentationLayers
 from ada.concepts.primitives import (
     Penetration,
@@ -48,6 +48,7 @@ from ada.fem import (
     StepSteadyState,
 )
 from ada.fem.concept import FEM
+from ada.visit.gltf.graph import GraphNode, GraphStore
 
 if TYPE_CHECKING:
     import ifcopenshell
@@ -58,8 +59,6 @@ if TYPE_CHECKING:
     from ada.fem.formats.general import FEATypes, FemConverters
     from ada.fem.meshing import GmshOptions
     from ada.fem.results.common import FEAResult
-    from ada.visualize.concept import VisMesh
-    from ada.visualize.config import ExportConfig
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 
@@ -85,7 +84,7 @@ class Part(BackendGeom):
     def __init__(
         self,
         name,
-        colour=None,
+        color=None,
         placement=Placement(),
         fem: FEM = None,
         settings: Settings = Settings(),
@@ -105,7 +104,7 @@ class Part(BackendGeom):
         self._connections = Connections(parent=self)
         self._materials = Materials(parent=self)
         self._sections = Sections(parent=self)
-        self._colour = colour
+        self._colour = color
         self._placement = placement
         self._instances: dict[Any, Instance] = dict()
         self._shapes = []
@@ -645,6 +644,20 @@ class Part(BackendGeom):
 
         return res
 
+    def get_graph_store(self) -> GraphStore:
+        root = GraphNode(self.name, self.guid)
+        graph: dict[str, GraphNode] = {self.guid: root}
+        for p in chain.from_iterable([self.get_all_parts_in_assembly(), self.get_all_physical_objects()]):
+            if p.guid in graph.keys():
+                continue
+            parent_node = graph.get(p.parent.guid)
+            n = GraphNode(p.name, hash=p.guid)
+            if parent_node is not None:
+                n.parent = parent_node
+                parent_node.children.append(n)
+            graph[p.guid] = n
+        return GraphStore(root, graph)
+
     def beam_clash_check(self, margins=5e-5):
         """
         For all beams in a Assembly get all beams touching or within the beam. Essentially a clash check is performed
@@ -734,7 +747,7 @@ class Part(BackendGeom):
 
         for mass_shape in masses:
             cog_absolute = mass_shape.placement.absolute_placement() + mass_shape.cog
-            n = fem.nodes.add(Node(cog_absolute))
+            n = fem.nodes.add(Point(cog_absolute))
             fem.add_mass(Mass(f"{mass_shape.name}_mass", [n], mass_shape.mass))
 
         # Move FEM mesh to match part placement origin
@@ -776,7 +789,7 @@ class Part(BackendGeom):
 
         num_shapes = len(list(self.get_all_physical_objects()))
         for i, (obj, shape) in enumerate(OCCStore.shape_iterator(self, geom_repr=geom_repr), start=1):
-            step_writer.add_shape(shape, obj.name, rgb_color=obj.colour_norm)
+            step_writer.add_shape(shape, obj.name, rgb_color=obj.color.rgb)
             if progress_callback is not None:
                 progress_callback(i, num_shapes)
 
@@ -969,7 +982,7 @@ class Assembly(Part):
         name="Ada",
         project="AdaProject",
         user: User = User(),
-        schema="IFC4X1",
+        schema="IFC4X3",
         settings=Settings(),
         metadata=None,
         units: Units | str = Units.M,

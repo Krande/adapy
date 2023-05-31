@@ -15,7 +15,7 @@ from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, Solid
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 
 if TYPE_CHECKING:
-    from ada import Material, Node, Section
+    from ada import Material, Point, Section
     from ada.fem import Elem, FemSet
     from ada.fem.results.concepts import EigenDataSummary
 
@@ -39,16 +39,16 @@ class FemNodes:
     coords: np.ndarray
     identifiers: np.ndarray
 
-    def get_node_by_id(self, node_id: int | list[int]) -> list[Node]:
+    def get_node_by_id(self, node_id: int | list[int]) -> list[Point]:
         from typing import Iterable
 
-        from ada import Node
+        from ada import Point
 
         if isinstance(node_id, Iterable) is False:
             node_id = [node_id]
 
         node_indices = [np.where(self.identifiers == x)[0][0] for x in node_id]
-        return [Node(x, int(node_id[i])) for i, x in enumerate(self.coords[node_indices])]
+        return [Point(x, int(node_id[i])) for i, x in enumerate(self.coords[node_indices])]
 
 
 @dataclass

@@ -97,8 +97,12 @@ def easy_plotly(
     )
     if annotations is not None:
         layout["annotations"] = annotations
+
     try:
-        fig = go.FigureWidget(data=plot_data, layout=layout)
+        if save_filename is not None:
+            fig = go.Figure(data=plot_data, layout=layout)
+        else:
+            fig = go.FigureWidget(data=plot_data, layout=layout)
     except ImportError as e:
         fig = go.Figure(data=plot_data, layout=layout)
         logger.warning(f"Could not import go.FigureWidget due to ({e}).\nUsing go.Figure instead")
@@ -109,7 +113,11 @@ def easy_plotly(
         fig.update_xaxes(type="log", range=xrange, overwrite=True)  # log range: 10^0=1, 10^5=100000
 
     if save_filename is not None:
-        save_plot(fig, save_filename, width, height)
+        if isinstance(save_filename, str):
+            save_filename = pathlib.Path(save_filename)
+        save_filename.parent.mkdir(parents=True, exist_ok=True)
+        # Timeout issues with kaleido on win10 -> https://github.com/plotly/Kaleido/issues/110
+        fig.write_image(save_filename, width=width, height=height)
     else:
         if return_widget is True:
             return fig

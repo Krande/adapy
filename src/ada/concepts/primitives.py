@@ -15,6 +15,7 @@ from ada.core.vector_utils import unit_vector, vector_length
 from ada.materials import Material
 from ada.materials.utils import get_material
 
+from ..geom import Geometry
 from .bounding_box import BoundingBox
 from .curves import CurvePoly
 from .transforms import Placement
@@ -32,7 +33,7 @@ class Shape(BackendGeom):
         self,
         name,
         geom,
-        colour=None,
+        color=None,
         opacity=1.0,
         mass: float = None,
         cog: tuple[float, float, float] = None,
@@ -51,7 +52,7 @@ class Shape(BackendGeom):
             units=units,
             placement=placement,
             ifc_store=ifc_store,
-            colour=colour,
+            color=color,
             opacity=opacity,
         )
         if type(geom) in (str, pathlib.WindowsPath, pathlib.PurePath, pathlib.Path):
@@ -97,10 +98,6 @@ class Shape(BackendGeom):
 
         return self._bbox
 
-    @property
-    def point_on(self):
-        return self.bbox[3:6]
-
     def geom(self) -> TopoDS_Shape:
         from ada.occ.utils import apply_penetrations
 
@@ -115,10 +112,9 @@ class Shape(BackendGeom):
             else:
                 raise NoGeomPassedToShapeError(f'No geometry information attached to shape "{self}"')
 
-            geom, color, alpha = get_ifc_geometry(ifc_elem, a.ifc_store.settings)
+            geom, color = get_ifc_geometry(ifc_elem, a.ifc_store.settings)
             self._geom = geom
-            self.colour = color
-            self.opacity = alpha
+            self.color = color
 
         geom = apply_penetrations(self._geom, self.penetrations)
 
@@ -227,6 +223,14 @@ class PrimBox(Shape):
             self.p2 = tuple([x * scale_factor for x in self.p2])
             self._geom = make_box_by_points(self.p1, self.p2)
             self._units = value
+
+    def solid_geom(self) -> Geometry:
+        from ada.geom.points import Point
+        from ada.geom.solids import Box
+
+        box = Box.from_2points(Point(*self.p1), Point(*self.p2))
+
+        return Geometry(self.guid, box, self.color)
 
     def __repr__(self):
         return f"PrimBox({self.name})"

@@ -8,7 +8,7 @@ from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.concepts.bounding_box import BoundingBox
 from ada.concepts.curves import CurvePoly
-from ada.concepts.points import Node
+from ada.concepts.points import Point
 from ada.concepts.transforms import Placement
 from ada.config import Settings
 from ada.materials import Material
@@ -40,7 +40,7 @@ class Plate(BackendGeom):
         placement=Placement(),
         pl_id=None,
         offset=None,
-        colour=None,
+        color=None,
         parent=None,
         ifc_geom=None,
         opacity=1.0,
@@ -57,7 +57,7 @@ class Plate(BackendGeom):
             units=units,
             placement=placement,
             ifc_store=ifc_store,
-            colour=colour,
+            color=color,
             opacity=opacity,
         )
 
@@ -123,7 +123,7 @@ class Plate(BackendGeom):
         return self.poly.normal
 
     @property
-    def nodes(self) -> list[Node]:
+    def nodes(self) -> list[Point]:
         return self.poly.nodes
 
     @property

@@ -61,8 +61,8 @@ def write_ifc_plate(plate: Plate):
     )
 
     # Add colour
-    if plate.colour is not None:
-        add_colour(f, ifcextrudedareasolid, str(plate.colour), plate.colour)
+    if plate.color is not None:
+        add_colour(f, ifcextrudedareasolid, str(plate.color), plate.color)
 
     # Material
     ifc_store.writer.associate_elem_with_material(plate.material, ifc_plate)

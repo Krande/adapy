@@ -124,7 +124,7 @@ def occ_geom_to_poly_mesh(
         export_config.render_edges,
         export_config.parallel,
     )
-    colour = [*obj.colour_norm, obj.opacity]
+    colour = list(obj.color)
     return ObjectMesh(obj.guid, tm.faces, tm.positions, tm.normals, colour, translation=export_config.volume_center)
 
 

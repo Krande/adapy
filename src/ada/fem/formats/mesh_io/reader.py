@@ -3,7 +3,7 @@ from itertools import chain
 import meshio
 
 from ada.concepts.containers import Nodes
-from ada.concepts.points import Node
+from ada.concepts.points import Point
 from ada.concepts.spatial import Assembly, Part
 from ada.core.utils import Counter
 from ada.fem import FEM, Elem
@@ -18,7 +18,7 @@ def meshio_read_fem(fem_file, fem_name=None):
     fem = FEM(name)
 
     def to_node(data):
-        return Node(data[1], data[0])
+        return Point(data[1], data[0])
 
     point_ids = mesh.points_id if "points_id" in mesh.__dict__.keys() else [i + 1 for i, x in enumerate(mesh.points)]
     elem_counter = Counter(1)

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
-from ada.concepts.points import Node
+from ada.concepts.points import Point
 from ada.config import logger
 
 from .common import Csys, FemBase
@@ -24,7 +24,7 @@ class Elem(FemBase):
     def __init__(
         self,
         el_id,
-        nodes: list[Node],
+        nodes: list[Point],
         el_type: str | ShellShapes | LineShapes | SolidShapes,
         elset=None,
         fem_sec: FemSection = None,
@@ -38,7 +38,7 @@ class Elem(FemBase):
         self._el_id = el_id
         self._shape = None
 
-        if nodes is not None and isinstance(nodes[0], Node):
+        if nodes is not None and isinstance(nodes[0], Point):
             for node in nodes:
                 node.add_obj_to_refs(self)
 
@@ -73,7 +73,7 @@ class Elem(FemBase):
 
         return nodes
 
-    def replace_node_with_other_node(self, old_node: Node, new_node: Node):
+    def replace_node_with_other_node(self, old_node: Point, new_node: Point):
         index = None
         for i, node in enumerate(self.nodes):
             if node == old_node:
@@ -117,7 +117,7 @@ class Elem(FemBase):
         self._el_id = value
 
     @property
-    def nodes(self) -> List[Node]:
+    def nodes(self) -> List[Point]:
         return self._nodes
 
     @property
@@ -181,7 +181,7 @@ class Elem(FemBase):
         else:
             self._shape = None
 
-    def updating_nodes(self, old_node: Node, new_node: Node) -> None:
+    def updating_nodes(self, old_node: Point, new_node: Point) -> None:
         """Exchanging old node with new node, and updating the element shape"""
         node_index = self.nodes.index(old_node)
         self.nodes.pop(node_index)
@@ -198,8 +198,8 @@ class Elem(FemBase):
 class Hinge:
     retained_dofs: List[int]
     csys: Csys
-    concept_node: Node = None
-    fem_node: Node = None
+    concept_node: Point = None
+    fem_node: Point = None
     elem_n_index: int = None
     beam_n_index: int = None
     constraint_ref = None
@@ -215,7 +215,7 @@ class HingeProp:
 
 @dataclass
 class EccPoint:
-    node: Node
+    node: Point
     ecc_vector: np.ndarray
 
 
@@ -240,8 +240,8 @@ class Connector(Elem):
         self,
         name,
         el_id,
-        n1: Node,
-        n2: Node,
+        n1: Point,
+        n2: Point,
         con_type,
         con_sec: "ConnectorSection",
         preload=None,
@@ -249,7 +249,7 @@ class Connector(Elem):
         metadata=None,
         parent: "FEM" = None,
     ):
-        if type(n1) is not Node or type(n2) is not Node:
+        if type(n1) is not Point or type(n2) is not Point:
             raise ValueError("Connector Start\\end must be nodes")
         super(Connector, self).__init__(el_id, [n1, n2], ElemType.CONNECTOR_SHAPES.CONNECTOR)
         super(Elem, self).__init__(name, metadata, parent)
@@ -277,19 +277,19 @@ class Connector(Elem):
         self._con_sec = value
 
     @property
-    def n1(self) -> Node:
+    def n1(self) -> Point:
         return self._n1
 
     @n1.setter
-    def n1(self, value: Node):
+    def n1(self, value: Point):
         self._n1 = value
 
     @property
-    def n2(self) -> Node:
+    def n2(self) -> Point:
         return self._n2
 
     @n2.setter
-    def n2(self, value: Node):
+    def n2(self, value: Point):
         self._n2 = value
 
     @property
@@ -349,7 +349,7 @@ class Mass(Elem):
     def __init__(
         self,
         name,
-        ref: FemSet | list[Node] | None,
+        ref: FemSet | list[Point] | None,
         mass,
         mass_type=None,
         ptype=None,

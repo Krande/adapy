@@ -43,16 +43,15 @@ class Wall(BackendGeom):
         placement=Placement(),
         offset=TYPES_JUSL.CENTER,
         metadata=None,
-        colour=None,
+        color=None,
         units=Units.M,
         guid=None,
         opacity=1.0,
     ):
-        super().__init__(name, guid=guid, metadata=metadata, units=units, colour=colour, opacity=opacity)
+        super().__init__(name, guid=guid, metadata=metadata, units=units, color=color, opacity=opacity)
 
         self._name = name
         self.placement = placement
-        self.colour = colour
         new_points = []
         for p in points:
             np_ = [float(c) for c in p]

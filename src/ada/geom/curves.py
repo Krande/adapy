@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Union, Iterable
+from typing import Iterable, Union
 
 from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point

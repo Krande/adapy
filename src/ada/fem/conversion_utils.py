@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 def convert_ecc_to_mpc(fem: "FEM"):
     """Converts beam offsets to MPC constraints"""
-    from ada import Node
+    from ada import Point
     from ada.core.vector_utils import vector_length
 
     edited_nodes = dict()
@@ -21,7 +21,7 @@ def convert_ecc_to_mpc(fem: "FEM"):
         n_new = edited_nodes[n_old.id]
         mat = np.eye(3)
         new_p = np.dot(mat, ecc) + n_old.p
-        n_new_ = Node(new_p, parent=elem.parent)
+        n_new_ = Point(new_p, parent=elem.parent)
         if vector_length(n_new_.p - n_new.p) > tol:
             elem.parent.nodes.add(n_new_, allow_coincident=True)
             m_set = FemSet(f"el{elem.id}_mpc{i + 1}_m", [n_new_], "nset")
@@ -48,7 +48,7 @@ def convert_ecc_to_mpc(fem: "FEM"):
         else:
             mat = np.eye(3)
             new_p = np.dot(mat, ecc) + n_old.p
-            n_new = Node(new_p, parent=elem.parent)
+            n_new = Point(new_p, parent=elem.parent)
             elem.parent.nodes.add(n_new, allow_coincident=True)
             m_set = FemSet(f"el{elem.id}_mpc{i + 1}_m", [n_new], "nset")
             s_set = FemSet(f"el{elem.id}_mpc{i + 1}_s", [n_old], "nset")
@@ -81,7 +81,7 @@ def convert_ecc_to_mpc(fem: "FEM"):
 
 def convert_hinges_2_couplings(fem: "FEM"):
     """Convert beam hinges to coupling constraints"""
-    from ada import Node
+    from ada import Point
     from ada.core.utils import Counter
     from ada.fem.elements import Hinge
 
@@ -97,7 +97,7 @@ def convert_hinges_2_couplings(fem: "FEM"):
         csys = hinge.csys
         d = hinge.retained_dofs
 
-        n2 = Node(n.p, next(new_node_id), parent=elem.parent)
+        n2 = Point(n.p, next(new_node_id), parent=elem.parent)
         elem.parent.nodes.add(n2, allow_coincident=True)
         i = elem.nodes.index(n)
         elem.nodes[i] = n2
@@ -143,12 +143,12 @@ def convert_hinges_2_couplings(fem: "FEM"):
 
 def convert_springs_to_connectors(assembly: "Assembly"):
     """Converts all single noded springs to connector elements"""
-    from ada import Node
+    from ada import Point
 
     for p in assembly.get_all_subparts():
         for spring in p.fem.springs.values():
             n1 = spring.nodes[0]
-            n2 = Node(n1.p - np.array([0, 0, 10e-3]))
+            n2 = Point(n1.p - np.array([0, 0, 10e-3]))
             assembly.fem.add_rp(spring.name + "_rp", n2)
             fs = FemSet(spring.name + "_bc", [n2], "nset")
             assembly.fem.add_set(fs)

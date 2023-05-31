@@ -4,7 +4,7 @@ import h5py
 
 from ada import Beam, Material, Section
 from ada.concepts.containers import Beams, Materials, Nodes, Sections
-from ada.concepts.points import Node
+from ada.concepts.points import Point
 from ada.concepts.spatial import Assembly, Part
 from ada.config import logger
 from ada.fem import FEM, Elem
@@ -157,5 +157,5 @@ def get_fem_from_cache(cache_fem):
 
 def get_nodes_from_cache(node_group, parent):
     points_in = node_group[()]
-    points = [Node(n[1:], n[0]) for n in points_in]
+    points = [Point(n[1:], n[0]) for n in points_in]
     return Nodes(points, parent=parent)

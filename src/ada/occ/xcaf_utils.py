@@ -4,17 +4,19 @@ from OCC.Core.TDataStd import TDataStd_Name
 from OCC.Core.TDF import TDF_Label
 from OCC.Core.XCAFDoc import XCAFDoc_ColorType, XCAFDoc_DocumentTool_ColorTool
 
+from ada.visit.colors import Color
+
 
 def set_name(label: TDF_Label, name: str):
     TDataStd_Name.Set(label, TCollection_ExtendedString(name))
 
 
-def set_color(label: TDF_Label, color: tuple, tool):
-    r, g, b = color
+def set_color(label: TDF_Label, color: Color, tool):
+    r, g, b = color.rgb
     tool.SetColor(label, Quantity_Color(r, g, b, Quantity_TOC_RGB), XCAFDoc_ColorType.XCAFDoc_ColorSurf)
 
 
-def get_color(color_tool: XCAFDoc_DocumentTool_ColorTool, shape, lab) -> tuple[float, float, float]:
+def get_color(color_tool: XCAFDoc_DocumentTool_ColorTool, shape, lab) -> Color:
     c = Quantity_Color(0.5, 0.5, 0.5, Quantity_TOC_RGB)  # default color
     color_set = False
     if (
@@ -32,4 +34,4 @@ def get_color(color_tool: XCAFDoc_DocumentTool_ColorTool, shape, lab) -> tuple[f
             color_tool.SetInstanceColor(shape, 1, c)
             color_tool.SetInstanceColor(shape, 2, c)
 
-    return c.Red(), c.Green(), c.Blue()
+    return Color(c.Red(), c.Green(), c.Blue())

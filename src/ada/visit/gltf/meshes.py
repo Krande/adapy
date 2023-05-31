@@ -5,6 +5,8 @@ from enum import Enum
 
 import numpy as np
 
+from ada.visit.colors import Color
+
 
 class MeshType(Enum):
     # https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#_mesh_primitive_mode
@@ -28,9 +30,15 @@ class MeshStore:
     position: np.ndarray = field(repr=False)
     indices: np.ndarray = field(repr=False)
     normal: np.ndarray | None = field(repr=False)
-    material: int
+    material: int | Color
     type: MeshType
     node_id: int
+
+    def get_position3(self):
+        return self.position.reshape(-1, 3)
+
+    def get_indices3(self):
+        return self.indices.reshape(-1, 3)
 
 
 @dataclass

@@ -10,7 +10,7 @@ from ada.config import logger
 from .transforms import Placement
 
 if TYPE_CHECKING:
-    from ada import FEM, Node
+    from ada import FEM, Point
     from ada.fem import Surface
 
     from .primitives import PrimBox
@@ -142,7 +142,7 @@ class BoxSides:
 
     def _return_data(
         self, pmin, pmax, fem, return_fem_nodes, return_surface, surface_name, shell_positive
-    ) -> tuple[tuple, tuple] | list[Node] | Surface:
+    ) -> tuple[tuple, tuple] | list[Point] | Surface:
         if return_fem_nodes is True or return_surface is True:
             part = self.parent.parent.parent
             if fem is None and self.parent is not None and part.fem.is_empty() is False:
@@ -165,7 +165,7 @@ class BoxSides:
             return self._return_surface(surface_name, nodes, fem, shell_positive)
         return pmin, pmax
 
-    def _return_surface(self, surface_name: str, nodes: list[Node], fem: FEM, shell_positive):
+    def _return_surface(self, surface_name: str, nodes: list[Point], fem: FEM, shell_positive):
         from ada.fem.surfaces import create_surface_from_nodes
 
         return create_surface_from_nodes(surface_name, nodes, fem, shell_positive)

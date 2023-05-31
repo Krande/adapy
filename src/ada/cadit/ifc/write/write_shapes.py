@@ -52,8 +52,8 @@ def write_ifc_shape(shape: Shape):
         ifc_shape = f.add(serialized_geom)
 
     # Add colour
-    if shape.colour is not None:
-        add_colour(f, ifc_shape.Representations[0].Items[0], str(shape.colour), shape.colour)
+    if shape.color is not None:
+        add_colour(f, ifc_shape.Representations[0].Items[0], str(shape.color), shape.color)
 
     ifc_elem = f.create_entity(
         str(shape.ifc_class.value),

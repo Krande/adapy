@@ -9,7 +9,7 @@ from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.concepts.bounding_box import BoundingBox
 from ada.concepts.curves import CurvePoly, CurveRevolve
-from ada.concepts.points import Node, get_singular_node_by_volume
+from ada.concepts.points import Point, get_singular_node_by_volume
 from ada.concepts.transforms import Placement
 from ada.config import Settings, get_logger
 from ada.core.utils import Counter, roundoff
@@ -24,6 +24,7 @@ from ada.core.vector_utils import (
 )
 from ada.geom import Geometry
 from ada.geom.placement import Direction
+from ada.geom.surfaces import ProfileType
 from ada.materials import Material
 from ada.materials.utils import get_material
 from ada.sections import Section
@@ -66,8 +67,8 @@ class Beam(BackendGeom):
     def __init__(
         self,
         name,
-        n1: Node | Iterable = None,
-        n2: Node | Iterable = None,
+        n1: Point | Iterable = None,
+        n2: Point | Iterable = None,
         sec: str | Section = None,
         mat: str | Material = None,
         tap: str | Section = None,
@@ -77,7 +78,7 @@ class Beam(BackendGeom):
         curve: CurvePoly | CurveRevolve = None,
         e1=None,
         e2=None,
-        colour=None,
+        color=None,
         parent: Part = None,
         metadata=None,
         opacity=1.0,
@@ -93,7 +94,7 @@ class Beam(BackendGeom):
             guid=guid,
             placement=placement,
             ifc_store=ifc_store,
-            colour=colour,
+            color=color,
             opacity=opacity,
         )
         if curve is not None:
@@ -108,8 +109,8 @@ class Beam(BackendGeom):
                 raise ValueError(f'Unsupported curve type "{type(curve)}"')
 
         self._curve = curve
-        self._n1 = n1 if type(n1) is Node else Node(n1[:3], units=units)
-        self._n2 = n2 if type(n2) is Node else Node(n2[:3], units=units)
+        self._n1 = n1 if type(n1) is Point else Point(n1[:3], units=units)
+        self._n2 = n2 if type(n2) is Point else Point(n2[:3], units=units)
         self._jusl = jusl
 
         self._connected_to = []
@@ -185,14 +186,14 @@ class Beam(BackendGeom):
         self._up = up
         self._angle = angle
 
-    def is_point_on_beam(self, point: Union[np.ndarray, Node]) -> bool:
-        if isinstance(point, Node):
+    def is_point_on_beam(self, point: Union[np.ndarray, Point]) -> bool:
+        if isinstance(point, Point):
             point = point.p
 
         return is_between_endpoints(point, self.n1.p, self.n2.p, incl_endpoints=True)
 
     def split_beam(
-        self, point: Union[Node, np.ndarray] = None, fraction: float = None, length: float = None
+        self, point: Union[Point, np.ndarray] = None, fraction: float = None, length: float = None
     ) -> Optional[Beam]:
         """
         Split beam into two parts, and returns the new beam. Prioritizes input arguments in given order if  given
@@ -203,7 +204,7 @@ class Beam(BackendGeom):
         :param length: Length of the beam from Node n1.
         """
 
-        if isinstance(point, Node):
+        if isinstance(point, Point):
             point = point.p
 
         if point is not None:
@@ -221,14 +222,14 @@ class Beam(BackendGeom):
         splitted_beam = self.get_split_beam(node_on_beam)
         return splitted_beam
 
-    def get_node_on_beam_by_point(self, point: np.ndarray) -> Node:
+    def get_node_on_beam_by_point(self, point: np.ndarray) -> Point:
         """Returns node on beam from point"""
         if not is_between_endpoints(point, self.n1.p, self.n2.p):
             raise ValueError(f"The node is not on line and between the beam end points, p: {point}, bm: {self}")
 
         return get_singular_node_by_volume(self.parent.fem.nodes, point)
 
-    def get_node_on_beam_by_fraction(self, fraction: float) -> Node:
+    def get_node_on_beam_by_fraction(self, fraction: float) -> Point:
         """Returns node as a fraction of the beam length from n1-node."""
 
         if not 0.0 < fraction < 1.0:
@@ -236,7 +237,7 @@ class Beam(BackendGeom):
 
         return get_singular_node_by_volume(self.parent.fem.nodes, self.n1.p + fraction * self.length * self.xvec)
 
-    def get_split_beam(self, node: Node, section: Section = None, material: Material = None) -> Beam:
+    def get_split_beam(self, node: Point, section: Section = None, material: Material = None) -> Beam:
         """Returns new beam. Setting splitting node to n2-node on self and to n1-node on the new beam."""
 
         new_beam = Beam(
@@ -250,7 +251,7 @@ class Beam(BackendGeom):
             up=self.up,
             e1=self.e1,
             e2=self.e2,
-            colour=self.colour,
+            color=self.color,
             parent=self.parent,
             metadata=self.metadata,
             opacity=self.opacity,
@@ -261,7 +262,7 @@ class Beam(BackendGeom):
         self.n2 = node
         return new_beam
 
-    def updating_nodes(self, old_node: Node, new_node: Node) -> None:
+    def updating_nodes(self, old_node: Point, new_node: Point) -> None:
         """Exchanging node on beam"""
         if old_node is self.n1:
             self.n1 = new_node
@@ -473,21 +474,21 @@ class Beam(BackendGeom):
         return unit_vector(p2 - p1)
 
     @property
-    def n1(self) -> Node:
+    def n1(self) -> Point:
         return self._n1
 
     @n1.setter
-    def n1(self, new_node: Node):
+    def n1(self, new_node: Point):
         self._n1.remove_obj_from_refs(self)
         self._n1 = new_node  # .get_main_node_at_point()
         self._n1.add_obj_to_refs(self)
 
     @property
-    def n2(self) -> Node:
+    def n2(self) -> Point:
         return self._n2
 
     @n2.setter
-    def n2(self, new_node: Node):
+    def n2(self, new_node: Point):
         self._n2.remove_obj_from_refs(self)
         self._n2 = new_node  # .get_main_node_at_point()
         self._n2.add_obj_to_refs(self)
@@ -556,8 +557,13 @@ class Beam(BackendGeom):
     def solid_geom(self) -> Geometry:
         return beam_to_geom(self)
 
+    def shell_geom(self) -> Geometry:
+        geom = beam_to_geom(self)
+        geom.geometry.swept_area.profile_type = ProfileType.CURVE
+        return geom
+
     @property
-    def nodes(self) -> list[Node]:
+    def nodes(self) -> list[Point]:
         return [self.n1, self.n2]
 
     @property
@@ -568,7 +574,7 @@ class Beam(BackendGeom):
     def angle(self, value: float):
         self._init_orientation(value)
 
-    def is_on_beam(self, point: Node) -> bool:
+    def is_on_beam(self, point: Point) -> bool:
         """Returns if a node is on the beam axis including endpoints"""
         return point in self.nodes or is_between_endpoints(point.p, self.n1.p, self.n2.p)
 
@@ -654,7 +660,6 @@ def ipe_to_geom(beam: Beam) -> Geometry:
     from ada.geom.placement import Axis2Placement3D
     from ada.geom.solids import ExtrudedAreaSolid
     from ada.geom.surfaces import ArbitraryProfileDefWithVoids, ProfileType
-    from ada.visit.colors import Color
 
     sec_profile = beam.section.get_section_profile()
     outer_curve = sec_profile.outer_curve.get_edges_geom()
@@ -665,5 +670,4 @@ def ipe_to_geom(beam: Beam) -> Geometry:
     profile = ArbitraryProfileDefWithVoids(ProfileType.AREA, outer_curve, inner_curves)
     place = Axis2Placement3D(location=beam.n1.p, axis=beam.xvec, ref_direction=beam.yvec)
     solid = ExtrudedAreaSolid(profile, place, beam.length, Direction(0, 0, 1))
-    color = Color(*beam.colour_norm, 1.0)
-    return Geometry(beam.guid, solid, color)
+    return Geometry(beam.guid, solid, beam.color)

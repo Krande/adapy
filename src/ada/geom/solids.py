@@ -1,6 +1,7 @@
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import Iterable, Union
 
 from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
 from ada.geom.points import Point
@@ -63,6 +64,16 @@ class Box:
         axis3d = Axis2Placement3D(Point(x, y, z), d1, d2)
         return Box(axis3d, x_length, y_length, z_length)
 
+    @staticmethod
+    def from_2points(p1: Point, p2: Point) -> Box:
+        x = min(p1.x, p2.x)
+        y = min(p1.y, p2.y)
+        z = min(p1.z, p2.z)
+        x_length = abs(p1.x - p2.x)
+        y_length = abs(p1.y - p2.y)
+        z_length = abs(p1.z - p2.z)
+        return Box.from_xyz_and_dims(x, y, z, x_length, y_length, z_length)
+
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRectangularPyramid.htm)
 # STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_pyramid_volume.html)
@@ -98,3 +109,6 @@ class Cylinder:
 class Sphere:
     center: Point
     radius: float
+
+
+SOLID_GEOM_TYPES = Union[ExtrudedAreaSolid, RevolvedAreaSolid, Box, RectangularPyramid, Cone, Cylinder, Sphere]

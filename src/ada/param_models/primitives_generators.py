@@ -1,13 +1,14 @@
 from __future__ import annotations
+
 import random
 from dataclasses import dataclass
-from typing import Iterable, Callable
+from typing import Callable, Iterable
 
 from ada import Beam
 from ada.geom import Geometry
 from ada.geom.solids import Box
-from ada.visit.colors import random_color
-from ada.visit.gltf.graph import GraphStore, GraphNode
+from ada.visit.colors import Color
+from ada.visit.gltf.graph import GraphNode, GraphStore
 
 
 def random_box_geom_at_position(shape_id, x, y, z, min_size, max_size) -> Geometry:
@@ -16,7 +17,7 @@ def random_box_geom_at_position(shape_id, x, y, z, min_size, max_size) -> Geomet
     depth = random.uniform(min_size, max_size)
 
     box = Box.from_xyz_and_dims(x, y, z, width, height, depth)
-    return Geometry(shape_id, box, random_color())
+    return Geometry(shape_id, box, Color.randomize())
 
 
 def random_i_beam_at_position(shape_id, x, y, z, min_size, max_size) -> Geometry:
@@ -25,7 +26,7 @@ def random_i_beam_at_position(shape_id, x, y, z, min_size, max_size) -> Geometry
     p2 = [x, y, z]
     direction = random.randint(0, 2)
     p2[direction] += length
-    bm = Beam(f"beam_{shape_id}", p1, p2, "IPE300")
+    bm = Beam(f"beam_{shape_id}", p1, p2, "IPE300", color=Color.randomize())
     return bm.solid_geom()
 
 
@@ -38,7 +39,6 @@ class ShapeGenerator:
     shape_function: Callable[[int, float, float, float, float, float], Geometry] = random_box_geom_at_position
 
     def generate_shape_grid(self) -> Iterable[Geometry]:
-
         shape_id = 0
 
         root = GraphNode("root", 0)

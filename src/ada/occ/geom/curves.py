@@ -1,9 +1,9 @@
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
 from OCC.Core.GC import GC_MakeArcOfCircle
-from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire
 from OCC.Core.gp import gp_Pnt
+from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire
 
-from ada.geom.curves import IndexedPolyCurve, Line, ArcLine
+from ada.geom.curves import ArcLine, IndexedPolyCurve, Line
 
 
 def segments_to_edges(segments: list[Line | ArcLine]) -> list[TopoDS_Edge]:

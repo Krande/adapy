@@ -3,9 +3,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import ifcopenshell.geom
+from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
 
 from ada import Assembly, Shape
 from ada.config import logger
+from ada.visit.colors import Color
 
 if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
@@ -21,24 +23,24 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: Ifc
         guid=product.GlobalId,
         ifc_store=ifc_store,
         units=ifc_store.assembly.units,
-        colour=color,
+        color=color,
         opacity=opacity,
     )
 
 
-def get_ifc_geometry(ifc_elem, settings):
+def get_ifc_geometry(ifc_elem, settings) -> tuple[TopoDS_Shape | TopoDS_Compound | None, Color | None]:
     pdct_shape = ifcopenshell.geom.create_shape(settings, inst=ifc_elem)
 
     if pdct_shape is None:
         print(f'Unable to import geometry for ifc element "{ifc_elem}"')
-        return pdct_shape, None, None
+        return pdct_shape, None
 
-    geom = get_geom(ifc_elem, settings)
+    occ_geom = get_geom(ifc_elem, settings)
     r, g, b, alpha = pdct_shape.styles[0]  # the shape color
 
     colour = None if (r, g, b) == (-1, -1, -1) else (r, g, b)
 
-    return geom, colour, alpha
+    return occ_geom, Color(*colour)
 
 
 def get_colour(product: ifcopenshell.entity_instance, assembly: Assembly) -> None | tuple:

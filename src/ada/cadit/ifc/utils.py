@@ -12,6 +12,7 @@ import ada.core.constants as ifco
 from ada.concepts.transforms import Transform
 from ada.config import logger
 from ada.core.file_system import get_list_of_files
+from ada.visit.colors import Color
 
 if TYPE_CHECKING:
     from ada import Assembly, Beam
@@ -140,29 +141,6 @@ def create_local_placement(f: ifcopenshell.file, origin=ifco.O, loc_z=ifco.Z, lo
         "IfcLocalPlacement", PlacementRelTo=relative_to, RelativePlacement=axis2placement
     )
     return ifclocalplacement2
-
-
-def create_new_ifc_file(file_name, schema):
-    import datetime
-
-    from ..core.utils import get_version
-
-    f = ifcopenshell.file(schema=schema)
-    ada_ver = get_version()
-    f.wrapped_data.header.file_name.name = file_name
-    f.wrapped_data.header.file_name.time_stamp = (
-        datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).astimezone().replace(microsecond=0).isoformat()
-    )
-
-    ver_str = f'IfcOpenShell: "{ifcopenshell.version}", ADA: "{ada_ver}"'
-
-    f.wrapped_data.header.file_name.preprocessor_version = ver_str
-    f.wrapped_data.header.file_name.originating_system = ver_str
-    f.wrapped_data.header.file_name.authorization = "Nobody"
-    length_unit = f.createIfcSIUnit(None, "LENGTHUNIT", None, "METRE")
-    f.createIfcUnitAssignment((length_unit,))
-    # f.wrapped_data.header.file_description.description = ("ViewDefinition[DesignTransferView]",)
-    return f
 
 
 def assembly_to_ifc_file(a: "Assembly"):
@@ -432,7 +410,7 @@ def write_elem_property_sets(metadata_props, elem, f, owner_history) -> None:
 
 
 def to_real(v) -> float | list[float]:
-    from ada import Node
+    from ada import Point
 
     if type(v) is float:
         return v
@@ -443,7 +421,7 @@ def to_real(v) -> float | list[float]:
             return v
         else:
             return [float(x) for x in v]
-    elif type(v) is Node:
+    elif type(v) is Point:
         return v.p.astype(float).tolist()
     else:
         return v.astype(float).tolist()
@@ -481,28 +459,26 @@ def add_colour(
     f,
     ifc_body: Union[List[ifcopenshell.entity_instance], ifcopenshell.entity_instance],
     name,
-    colour,
-    transparency=0.0,
+    color: Color,
     use_surface_style_rendering=False,
 ) -> None:
     """Add IFcSurfaceStyle using either IfcSurfaceStyleRendering or IfcSurfaceStyleShading"""
-    if colour is None:
+    if color is None:
         return None
-    colour = f.createIfcColourRgb(name, colour[0], colour[1], colour[2])
+    ifc_color = f.createIfcColourRgb(name, color.red, color.green, color.blue)
 
     if use_surface_style_rendering:
-        surfaceStyleShading = f.createIFCSURFACESTYLERENDERING(colour, transparency)
+        surfaceStyleShading = f.createIFCSURFACESTYLERENDERING(ifc_color, color.transparency)
     else:
         surfaceStyleShading = f.createIfcSurfaceStyleShading()
-        surfaceStyleShading.SurfaceColour = colour
+        surfaceStyleShading.SurfaceColour = ifc_color
 
-    surfaceStyle = f.createIfcSurfaceStyle(colour.Name, "BOTH", (surfaceStyleShading,))
-    presStyleAssign = f.createIfcPresentationStyleAssignment((surfaceStyle,))
+    surfaceStyle = f.createIfcSurfaceStyle(ifc_color.Name, "BOTH", (surfaceStyleShading,))
     if type(ifc_body) in [list, tuple]:
         for ifc_b in ifc_body:
-            f.createIfcStyledItem(ifc_b, (presStyleAssign,), colour.Name)
+            f.createIfcStyledItem(ifc_b, (surfaceStyle,), ifc_color.Name)
     else:
-        f.createIfcStyledItem(ifc_body, (presStyleAssign,), colour.Name)
+        f.createIfcStyledItem(ifc_body, (surfaceStyle,), ifc_color.Name)
 
 
 def calculate_unit_scale(file):

@@ -8,7 +8,7 @@ from ada.base.physical_objects import BackendGeom
 from ada.concepts.containers import Beams, Connections
 
 if TYPE_CHECKING:
-    from ada import Beam, Node
+    from ada import Beam, Point
 
 
 @dataclass
@@ -103,7 +103,7 @@ class JointBase(BackendGeom, ABC):
         return self._beams
 
     @property
-    def centre(self) -> Node:
+    def centre(self) -> Point:
         return self._centre
 
     def __repr__(self):

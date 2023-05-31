@@ -9,10 +9,11 @@ import trimesh.visual
 from OCC.Core.Tesselator import ShapeTesselator
 from OCC.Core.TopoDS import TopoDS_Shape
 
+from ada.base.physical_objects import BackendGeom
+from ada.base.types import GeomRepr
 from ada.geom import Geometry
-from ada.geom.solids import Box, ExtrudedAreaSolid
 from ada.occ.exceptions import UnableToCreateTesselationFromSolidOCCGeom
-from ada.occ.geom.solids import make_box_from_geom, make_extruded_area_solid_from_geom
+from ada.occ.geom import geom_to_occ_geom
 from ada.visit.colors import Color
 from ada.visit.gltf.meshes import MeshStore, MeshType
 
@@ -78,24 +79,36 @@ class BatchTessellator:
     material_store: dict[Color, int] = field(default_factory=dict)
 
     def tessellate_geom(self, geom: Geometry) -> MeshStore:
-        if isinstance(geom.geometry, Box):
-            occ_geom = make_box_from_geom(geom.geometry)
-        elif isinstance(geom.geometry, ExtrudedAreaSolid):
-            occ_geom = make_extruded_area_solid_from_geom(geom.geometry)
-        else:
-            raise NotImplementedError()
-
+        occ_geom = geom_to_occ_geom(geom)
         tess_shape = tessellate_shape(occ_geom, self.quality, self.render_edges, self.parallel)
         mat_id = self.material_store.get(geom.color, None)
         if mat_id is None:
             mat_id = len(self.material_store)
             self.material_store[geom.color] = mat_id
 
-        return MeshStore(geom.id, None, tess_shape.positions, tess_shape.faces, tess_shape.normals, mat_id,
-                         MeshType.TRIANGLES, geom.id)
+        return MeshStore(
+            geom.id,
+            None,
+            tess_shape.positions,
+            tess_shape.faces,
+            tess_shape.normals,
+            mat_id,
+            MeshType.TRIANGLES,
+            geom.id,
+        )
 
-    def batch_tessellate(self, geoms: Iterable[Geometry]) -> Iterable[MeshStore]:
+    def batch_tessellate(
+        self, geoms: Iterable[Geometry | BackendGeom], geom_repr: GeomRepr = GeomRepr.SOLID
+    ) -> Iterable[MeshStore]:
         for geom in geoms:
+            if isinstance(geom, BackendGeom):
+                if geom_repr == GeomRepr.SOLID:
+                    geom = geom.solid_geom()
+                elif geom_repr == GeomRepr.SHELL:
+                    geom = geom.shell_geom()
+                else:
+                    geom = geom.line_geom()
+
             yield self.tessellate_geom(geom)
 
     def get_mat_by_id(self, mat_id: int):

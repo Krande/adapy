@@ -14,6 +14,3 @@ class BooleanResult:
     first_operand: Any
     second_operand: Any
     operator: BooleanOperatorEnum
-
-
-

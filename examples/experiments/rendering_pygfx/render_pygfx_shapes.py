@@ -1,11 +1,16 @@
 # pip install -U pygfx glfw jupyter_rfb pylinalg
-
+# or
+# mamba env update -f environment.yml --prune
+#
 from itertools import groupby
 
 import trimesh
 
 from ada.occ.tessellating import BatchTessellator
-from ada.param_models.primitives_generators import ShapeGenerator, random_i_beam_at_position
+from ada.param_models.primitives_generators import (
+    ShapeGenerator,
+    random_i_beam_at_position,
+)
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 from ada.visit.render_backend import SqLiteBackend
@@ -29,7 +34,7 @@ def main():
     render = RendererPyGFX(render_backend=SqLiteBackend("temp/meshes.db"))
     render.add_trimesh_scene(scene, "boxes", True)
 
-    scene.export("temp/boxes.glb")
+    scene.export("temp/shapes.glb")
 
     render.show()
 

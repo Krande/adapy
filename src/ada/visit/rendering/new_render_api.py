@@ -92,7 +92,7 @@ class VizObj:
 
         o = OccToThreejs()
         mesh, edges = o.occ_shape_to_threejs(
-            self.obj.solid(), self.obj.colour, self.edge_color, self.obj.transparent, self.obj.opacity
+            self.obj.solid(), self.obj.color, self.edge_color, self.obj.transparent, self.obj.opacity
         )
         return mesh
 

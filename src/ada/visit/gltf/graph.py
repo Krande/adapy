@@ -9,7 +9,7 @@ from ada.visit.gltf.meshes import MeshRef
 @dataclass
 class GraphStore:
     top_level: GraphNode = field(repr=False)
-    nodes: dict[int, GraphNode] = field(repr=False)
+    nodes: dict[int | str, GraphNode] = field(repr=False)
     name_map: dict[str, GraphNode] = field(repr=False, init=False)
 
     def __post_init__(self):
@@ -81,7 +81,7 @@ class GraphStore:
 @dataclass
 class GraphNode:
     name: str
-    node_id: int
+    node_id: int = None
     children: list[GraphNode] = field(default_factory=list, repr=False)
     parent: GraphNode | None = field(default=None, repr=False)
     mesh_indices: list[MeshRef] = field(default_factory=list, repr=False)

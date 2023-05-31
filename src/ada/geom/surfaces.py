@@ -42,3 +42,6 @@ class SurfaceOfLinearExtrusion:
 class SweptArea:
     area: ProfileType
     position: Axis2Placement3D
+
+
+SURFACE_GEOM_TYPES = (ArbitraryProfileDefWithVoids,)

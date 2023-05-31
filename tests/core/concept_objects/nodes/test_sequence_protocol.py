@@ -1,6 +1,6 @@
 import pytest
 
-from ada import Node
+from ada import Point
 from ada.concepts.containers import Nodes
 
 
@@ -89,9 +89,9 @@ def test_add_to_list(nodes):
     n1, n2, n3, n4, n5, n6, n7, n8, n9, n10 = nodes
     s = Nodes([n1, n2, n3])
 
-    n20 = Node((1, 1, 8), 20)
-    n21 = Node((1, 2, 4), 21)
-    n22 = Node((2, 1, 6), 22)
+    n20 = Point((1, 1, 8), 20)
+    n21 = Point((1, 2, 4), 21)
+    n22 = Point((2, 1, 6), 22)
     s.add(n20)
     s.add(n21)
     s.add(n22)

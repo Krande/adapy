@@ -30,5 +30,17 @@ class Point(np.ndarray):
 
         return obj
 
+    @property
+    def x(self):
+        return self[0]
+
+    @property
+    def y(self):
+        return self[1]
+
+    @property
+    def z(self):
+        return self[2]
+
     def __repr__(self):
         return f"Point({np.array2string(self, separator=', ')})"

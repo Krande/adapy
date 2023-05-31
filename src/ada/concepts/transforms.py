@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Iterable, List, Union
 import numpy as np
 from pyquaternion import Quaternion
 
-from ada.geom.placement import Axis2Placement3D
-
 if TYPE_CHECKING:
     from ada import Part
     from ada.base.physical_objects import BackendGeom

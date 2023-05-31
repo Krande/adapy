@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Union
 
-from ada.concepts.points import Node
+from ada.concepts.points import Point
 
 from .common import FemBase
 
@@ -29,7 +29,7 @@ class FemSet(FemBase):
 
     TYPES = SetTypes
 
-    def __init__(self, name, members: None | list[Elem | Node], set_type=None, metadata=None, parent=None):
+    def __init__(self, name, members: None | list[Elem | Point], set_type=None, metadata=None, parent=None):
         super().__init__(name, metadata, parent)
         from ada.fem import Elem
 
@@ -40,7 +40,7 @@ class FemSet(FemBase):
             members = []
 
         for m in members:
-            if isinstance(m, (Elem, Node)):
+            if isinstance(m, (Elem, Point)):
                 m.refs.append(self)
 
         self._set_type = set_type
@@ -62,7 +62,7 @@ class FemSet(FemBase):
         self.add_members(other.members)
         return self
 
-    def add_members(self, members: List[Union[Elem, Node]]):
+    def add_members(self, members: List[Union[Elem, Point]]):
         self._members += members
 
     @property
@@ -70,7 +70,7 @@ class FemSet(FemBase):
         return self._set_type.lower()
 
     @property
-    def members(self) -> list[Elem | Node]:
+    def members(self) -> list[Elem | Point]:
         return self._members
 
     @property
@@ -81,11 +81,11 @@ class FemSet(FemBase):
         return f'FemSet({self.name}, type: "{self.type}", members: "{len(self.members)}")'
 
 
-def eval_set_type_from_members(members: list[Elem | Node]) -> str:
+def eval_set_type_from_members(members: list[Elem | Point]) -> str:
     from ada.fem import Elem
 
     res = set([type(mem) for mem in members])
-    if len(res) == 1 and type(members[0]) is Node:
+    if len(res) == 1 and type(members[0]) is Point:
         return FemSet.TYPES.NSET
     elif len(res) == 1 and issubclass(type(members[0]), Elem):
         return FemSet.TYPES.ELSET
@@ -96,7 +96,7 @@ def eval_set_type_from_members(members: list[Elem | Node]) -> str:
         # return "mixed"
 
 
-def is_lazy(members: list[Elem | Node]) -> bool:
+def is_lazy(members: list[Elem | Point]) -> bool:
     res = set([type(mem) for mem in members])
     if len(res) == 1 and type(members[0]) is tuple:
         return True

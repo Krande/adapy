@@ -586,17 +586,17 @@ def global_2_local_nodes(csys, origin, nodes, use_quaternion=True):
     :param nodes: list of nodes
     :return: List of local node coordinates
     """
-    from ada import Node
+    from ada import Point
 
     global_csys = [(1, 0, 0), (0, 1, 0)]
     rmat = rotation_matrix_csys_rotate(global_csys, csys, use_quaternion=use_quaternion)
 
-    if type(origin) is Node:
+    if type(origin) is Point:
         origin = origin.p
     elif type(origin) in (list, tuple):
         origin = np.array(origin)
 
-    if type(nodes[0]) is Node:
+    if type(nodes[0]) is Point:
         nodes = [no.p for no in nodes]
 
     res = [np.dot(rmat, p - origin) for p in nodes]
@@ -613,13 +613,13 @@ def local_2_global_points(points, origin, xdir, normal):
     :param xdir: Local X-direction
     :return:
     """
-    from ada.concepts.points import Node
+    from ada.concepts.points import Point
     from ada.core.constants import X, Y
 
-    if type(origin) is Node:
+    if type(origin) is Point:
         origin = origin.p
 
-    if type(points[0]) is Node:
+    if type(points[0]) is Point:
         points = [no.p for no in points]
 
     points = [

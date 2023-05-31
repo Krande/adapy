@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import os
-import pathlib
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Iterable
 
 from ada.base.root import Root
 from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.concepts.transforms import Placement
-from ada.core.constants import color_map as _cmap
+from ada.visit.colors import Color, color_dict
 from ada.visit.config import ExportConfig
 
 if TYPE_CHECKING:
@@ -16,13 +14,12 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
     from ada.fem import Elem
     from ada.fem.meshing import GmshOptions
+    from ada.geom import Geometry
 
 
 # TODO: Consider storing primitive geometry definitions as an attribute in the BackendGeom class to simplify subclasses.
 class BackendGeom(Root):
     """The backend of all physical components (Beam, Plate, etc.) or aggregate of components (Part, Assembly)"""
-
-    _renderer = None
 
     def __init__(
         self,
@@ -31,21 +28,28 @@ class BackendGeom(Root):
         metadata=None,
         units=Units.M,
         parent=None,
-        colour=None,
+        color: Color | Iterable[float, float, float] | str | None = None,
         placement=Placement(),
         ifc_store: IfcStore = None,
         opacity=1.0,
     ):
         super().__init__(name, guid, metadata, units, parent, ifc_store=ifc_store)
-        from ada.visit.rendering.new_render_api import Visualize
-
         self._penetrations = []
+
         self._placement = placement
         placement.parent = self
-        self.colour = colour
-        self.opacity = opacity
+        if isinstance(color, str):
+            color = Color.from_str(color, opacity=opacity)
+        elif isinstance(color, Iterable):
+            color = list(color)
+            if len(color) == 3:
+                color = Color(*color, opacity=opacity)
+            else:
+                color = Color(*color)
+        elif color is None:
+            color = Color(*color_dict["gray"], opacity=opacity)
+        self.color = color
         self._elem_refs = []
-        self._viz = Visualize(self)
 
     def add_penetration(self, pen, add_to_layer: str = None):
         from ada import Penetration, Shape
@@ -120,7 +124,7 @@ class BackendGeom(Root):
         from ada.occ.store import OCCStore
 
         step_writer = OCCStore.get_step_writer()
-        step_writer.add_shape(self.solid(), self.name, rgb_color=self.colour_norm)
+        step_writer.add_shape(self.solid(), self.name, rgb_color=self.color.rgb)
         step_writer.export(destination_file)
 
     def to_obj_mesh(self, geom_repr: str | GeomRepr = GeomRepr.SOLID, export_config: ExportConfig = ExportConfig()):
@@ -128,58 +132,8 @@ class BackendGeom(Root):
 
         if isinstance(geom_repr, str):
             geom_repr = GeomRepr.from_str(geom_repr)
+
         return occ_geom_to_poly_mesh(self, geom_repr=geom_repr, export_config=export_config)
-
-    @property
-    def colour(self):
-        return self._colour
-
-    @colour.setter
-    def colour(self, value):
-        if type(value) is str:
-            if value.lower() not in _cmap.keys():
-                raise ValueError("Currently unsupported")
-            self._colour = _cmap[value.lower()]
-        else:
-            self._colour = value
-
-    @property
-    def colour_norm(self):
-        if self._colour is None:
-            self.colour = "white"
-        return [x / 255 for x in self.colour] if any(i > 1 for i in self.colour) else self.colour
-
-    @property
-    def colour_webgl(self):
-        from OCC.Display.WebGl.jupyter_renderer import format_color
-
-        if self.colour is None:
-            return None
-        if self.colour[0] == -1 and self.colour[1] == -1 and self.colour[2] == -1:
-            return None
-
-        if self.colour[0] <= 1.0:
-            colour = [int(x * 255) for x in self.colour]
-        else:
-            colour = [int(x) for x in self.colour]
-
-        colour_formatted = format_color(*colour)
-        return colour_formatted
-
-    @property
-    def opacity(self):
-        return self._opacity
-
-    @opacity.setter
-    def opacity(self, value):
-        if (0.0 <= value <= 1.0) is False:
-            raise ValueError(f'Opacity is only valid between 1 and 0. "{value}" was passed in')
-
-        self._opacity = value
-
-    @property
-    def transparent(self):
-        return False if self.opacity == 1.0 else True
 
     @property
     def penetrations(self) -> list[Penetration]:
@@ -202,24 +156,25 @@ class BackendGeom(Root):
         self._placement = value
 
     def _repr_html_(self):
-        from ada.config import Settings
-
-        if Settings.use_new_visualize_api is True:
-            self._viz.objects = []
-            self._viz.add_obj(self)
-            self._viz.display(return_viewer=False)
-            return ""
-
         from IPython.display import display
         from ipywidgets import HBox, VBox
 
+        from ada.config import Settings
         from ada.visit.rendering.renderer_pythreejs import MyRenderer
+
+        if Settings.use_new_visualize_api is True:
+            from ada.visit.rendering.new_render_api import Visualize
+
+            viz = Visualize(self)
+            viz.objects = []
+            viz.add_obj(self)
+            viz.display(return_viewer=False)
+            return ""
 
         renderer = MyRenderer()
 
         renderer.DisplayObj(self)
         renderer.build_display()
-        self._renderer = renderer
         display(HBox([VBox([HBox(renderer.controls), renderer.renderer]), renderer.html]))
         return ""
 
@@ -231,3 +186,12 @@ class BackendGeom(Root):
 
     def line(self):
         raise NotImplementedError()
+
+    def solid_geom(self) -> Geometry:
+        raise NotImplementedError(f"solid_geom not implemented for {self.__class__.__name__}")
+
+    def shell_geom(self) -> Geometry:
+        raise NotImplementedError(f"shell_geom not implemented for {self.__class__.__name__}")
+
+    def line_geom(self) -> Geometry:
+        raise NotImplementedError(f"line_geom not implemented for {self.__class__.__name__}")

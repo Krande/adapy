@@ -7,7 +7,7 @@ from typing import Iterable, List
 
 import numpy as np
 
-from ada import Assembly, Beam, Node, Part, Pipe, PipeSegStraight, Plate, PrimCyl
+from ada import Assembly, Beam, Part, Pipe, PipeSegStraight, Plate, Point, PrimCyl
 from ada.config import logger
 
 from .utils import Counter
@@ -73,7 +73,7 @@ def are_beams_connected(bm1: Beam, beams: List[Beam], out_of_plane_tol, point_to
         if t_len > bm2.length / 2 or s_len > bm1.length / 2:
             continue
         if point is not None:
-            new_node = Node(point)
+            new_node = Point(point)
             n = nodes.add(new_node, point_tol=point_tol)
             if n not in nmap.keys():
                 nmap[n] = [bm1]
@@ -140,7 +140,7 @@ def find_beams_connected_to_plate(pl: Plate, beams: List[Beam]) -> List[Beam]:
     from ada.concepts.containers import Nodes
 
     nid = Counter(1)
-    nodes = Nodes([Node((bm.n2.p + bm.n1.p) / 2, next(nid), refs=[bm]) for bm in beams])
+    nodes = Nodes([Point((bm.n2.p + bm.n1.p) / 2, next(nid), refs=[bm]) for bm in beams])
     res = nodes.get_by_volume(pl.bbox().p1, pl.bbox().p2)
 
     all_beams_within = list(chain.from_iterable([r.refs for r in res]))

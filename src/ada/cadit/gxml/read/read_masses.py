@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
 
-from ada import Node, Part
+from ada import Part, Point
 from ada.fem import FemSet, Mass
 
 
@@ -11,7 +11,7 @@ def get_masses(xml_root: ET.Element, parent: Part) -> dict[str, Mass]:
 
         # Get position
         pos = sp.findall(".//position")[0]
-        n = Node([float(y) for x, y in pos.items()])
+        n = Point([float(y) for x, y in pos.items()])
         parent.fem.nodes.add(n)
 
         # Get mass

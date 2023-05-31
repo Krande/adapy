@@ -6,9 +6,9 @@ import tracemalloc
 import trimesh
 from OCC.Core.TopoDS import TopoDS_Shape
 
-from ada.occ.geom import make_box
+from ada.occ.geom.solids import make_box
 from ada.occ.tessellating import shape_to_tri_mesh
-from ada.visit.colors import random_color
+from ada.visit.colors import Color
 from ada.visit.gltf.optimize import optimize_glb
 
 
@@ -71,7 +71,7 @@ def create_box_grid(x_count: int, y_count: int, z_count: int, min_size: float, m
 
 @calculate_time
 def tessellate_boxes(boxes):
-    return [shape_to_tri_mesh(box, random_color()) for box in boxes]
+    return [shape_to_tri_mesh(box, Color.randomize()) for box in boxes]
 
 
 @calculate_time

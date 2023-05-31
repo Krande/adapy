@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 from ada.concepts.containers import Nodes
-from ada.concepts.points import Node
+from ada.concepts.points import Point
 from ada.fem.formats.utils import str_to_int
 
 from . import cards
@@ -27,4 +27,4 @@ def get_nodeno(m_gnod):
 
 def get_node(m, parent):
     d = m.groupdict()
-    return Node([float(d["x"]), float(d["y"]), float(d["z"])], str_to_int(d["id"]), parent=parent)
+    return Point([float(d["x"]), float(d["y"]), float(d["z"])], str_to_int(d["id"]), parent=parent)

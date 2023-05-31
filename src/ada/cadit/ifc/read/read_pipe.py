@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ada import ArcSegment, Node, PipeSegElbow, PipeSegStraight
+from ada import ArcSegment, PipeSegElbow, PipeSegStraight, Point
 from ada.config import logger
 
 from .read_beam_section import import_section_from_ifc
@@ -37,13 +37,13 @@ def read_pipe_straight_segment(segment, name, ifc_store: IfcStore) -> PipeSegStr
     section = import_section_from_ifc(swept_area)
     mat = read_material(mat_ref, ifc_store)
 
-    pipe_segment = PipeSegStraight(name, Node(p1), Node(p2), section, mat, guid=segment.GlobalId)
+    pipe_segment = PipeSegStraight(name, Point(p1), Point(p2), section, mat, guid=segment.GlobalId)
 
     return pipe_segment
 
 
 def read_pipe_elbow(segment, name, ifc_store: IfcStore) -> PipeSegElbow:
-    p1, p2, p3 = [Node(x) for x in get_axis_polyline_points_from_product(segment)]
+    p1, p2, p3 = [Point(x) for x in get_axis_polyline_points_from_product(segment)]
     pset = get_ifc_property_sets(segment)
     bend_radius = pset.get("Properties", dict()).get("bend_radius", None)
     arc_p1 = pset.get("Properties", dict()).get("p1", None)

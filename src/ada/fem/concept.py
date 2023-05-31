@@ -12,7 +12,7 @@ from .sets import FemSet
 
 if TYPE_CHECKING:
     from ada import Part
-    from ada.concepts.points import Node
+    from ada.concepts.points import Point
     from ada.concepts.stru_beams import Beam
     from ada.fem import (
         Amplitude,
@@ -43,7 +43,7 @@ _step_types = Union["StepSteadyState", "StepEigen", "StepImplicit", "StepExplici
 
 @dataclass
 class InterfaceNode:
-    node: Node
+    node: Point
     constraint: Constraint = field(default=None)
     connector: Connector = field(default=None)
 
@@ -78,7 +78,7 @@ class FEM:
     initial_state: PredefinedField = field(default=None, init=True)
     subroutine: str = field(default=None, init=True)
 
-    interface_nodes: List[Union[Node, InterfaceNode]] = field(init=False, default_factory=list)
+    interface_nodes: List[Union[Point, InterfaceNode]] = field(init=False, default_factory=list)
 
     def __post_init__(self):
         self.nodes.parent = self
@@ -238,7 +238,7 @@ class FEM:
         self.add_set(FemSet(name=connector.name, members=[connector], set_type="elset"))
         return connector
 
-    def add_rp(self, name: str, node: Node):
+    def add_rp(self, name: str, node: Point):
         """Adds a reference point in assembly with a specific name"""
         node.parent = self
         node_ = self.ref_points.add(node)
@@ -267,12 +267,12 @@ class FEM:
         self.springs[spring.name] = spring
         return spring
 
-    def add_interface_nodes(self, interface_nodes: List[Union[Node, InterfaceNode]]):
+    def add_interface_nodes(self, interface_nodes: List[Union[Point, InterfaceNode]]):
         """Nodes used for interfacing between other parts. Pass a custom Constraint if specific coupling is needed"""
-        from ada import Node
+        from ada import Point
 
         for n in interface_nodes:
-            n_in = InterfaceNode(n) if isinstance(n, Node) else n
+            n_in = InterfaceNode(n) if isinstance(n, Point) else n
             self.interface_nodes.append(n_in)
 
     def create_fem_elem_from_obj(self, obj, el_type=None) -> Elem:

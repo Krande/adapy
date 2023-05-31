@@ -135,7 +135,6 @@ class MyRenderer(JupyterRenderer):
         from OCC.Core.gp import gp_Pnt
         from OCC.Core.TopoDS import TopoDS_Compound
 
-        # edge_color = format_color(*part.colour) if edge_color is None else edge_color
         rgb = randint(0, 255), randint(0, 255), randint(0, 255)
         edge_color = format_color(*rgb) if edge_color is None else edge_color
         vertex_color = self._default_vertex_color if vertex_color is None else vertex_color
@@ -196,7 +195,7 @@ class MyRenderer(JupyterRenderer):
             shp.geom(),
             transparency=shp.transparent,
             opacity=shp.opacity,
-            shape_color=shp.colour,
+            shape_color=shp.color,
             render_edges=False,
         )
         for r in res:
@@ -210,10 +209,10 @@ class MyRenderer(JupyterRenderer):
                 a = beam.parent.get_assembly()
                 ifc_f = a.get_ifc_source_by_name(beam.metadata["ifc_file"])
                 ifc_elem = ifc_f.by_guid(beam.guid)
-                geom, color, alpha = get_ifc_geometry(ifc_elem, a.ifc_settings)
+                geom, _ = get_ifc_geometry(ifc_elem, a.ifc_settings)
             else:
                 geom = beam.solid()
-            res = self.DisplayShape(geom, shape_color=beam.colour, render_edges=True)
+            res = self.DisplayShape(geom, shape_color=beam.color, render_edges=True)
         except BaseException as e:
             logger.debug(f'Unable to create solid for "{beam.name}" due to {e}')
             return None
@@ -225,7 +224,7 @@ class MyRenderer(JupyterRenderer):
         geom = self._ifc_geom_to_shape(plate._ifc_geom) if plate._ifc_geom is not None else plate.solid()
         # self.AddShapeToScene(geom)
         try:
-            res = self.DisplayShape(geom, shape_color=plate.colour_webgl, opacity=0.5)
+            res = self.DisplayShape(geom, shape_color=plate.color.hex, opacity=0.5)
         except BaseException as e:
             logger.error(e)
             return None
@@ -235,7 +234,7 @@ class MyRenderer(JupyterRenderer):
 
     def DisplayPipeSeg(self, pipe_seg: PipeSegElbow | PipeSegStraight):
         res = []
-        res += self.DisplayShape(pipe_seg.solid, shape_color=pipe_seg.parent.colour_webgl, opacity=0.5)
+        res += self.DisplayShape(pipe_seg.solid, shape_color=pipe_seg.parent.color.hex, opacity=0.5)
 
         for r in res:
             self._refs[r.name] = pipe_seg
@@ -245,7 +244,7 @@ class MyRenderer(JupyterRenderer):
 
         for i, geom in enumerate([x.solid for x in pipe.segments]):
             try:
-                res += self.DisplayShape(geom, shape_color=pipe.colour_webgl, opacity=0.5)
+                res += self.DisplayShape(geom, shape_color=pipe.color.hex, opacity=0.5)
             except BaseException as e:
                 logger.error(e)
                 continue
@@ -255,7 +254,7 @@ class MyRenderer(JupyterRenderer):
 
     def DisplayWall(self, wall: "Wall"):
         try:
-            res = self.DisplayShape(wall.solid, shape_color=wall.colour, opacity=0.5)
+            res = self.DisplayShape(wall.solid, shape_color=wall.color.hex, opacity=0.5)
         except BaseException as e:
             logger.error(e)
             return None

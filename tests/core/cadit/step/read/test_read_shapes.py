@@ -19,8 +19,8 @@ def test_read_step_with_colors(colored_flat_plate_step):
     step_color = StepStore(colored_flat_plate_step)
     shapes = list(step_color.iter_all_shapes(True))
     assert len(shapes) == 2
-    assert shapes[0].color == (1.0, 0.0, 0.0)
-    assert shapes[1].color == (0.0, 0.0, 1.0)
+    assert shapes[0].color.rgb == (1.0, 0.0, 0.0)
+    assert shapes[1].color.rgb == (0.0, 0.0, 1.0)
 
     assert shapes[0].name == "red_plate"
     assert shapes[1].name == "blue_plate"

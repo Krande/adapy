@@ -22,6 +22,7 @@ from ada.cadit.step.read.reader_utils import read_step_file_with_names_colors
 from ada.config import logger
 from ada.occ.store import OccShape
 from ada.occ.utils import get_boundingbox
+from ada.visit.colors import Color
 
 
 class StepStore:
@@ -167,7 +168,7 @@ class StepStore:
                 self.create_step_reader(True)
             num_shapes = self.get_num_shapes()
             for topods_shape, (label, c_quant) in read_step_file_with_names_colors(self).items():
-                color = c_quant.Red(), c_quant.Green(), c_quant.Blue()
+                color = Color(c_quant.Red(), c_quant.Green(), c_quant.Blue())
                 yield OccShape(topods_shape, color, num_shapes, label)
                 del topods_shape
         else:

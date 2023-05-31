@@ -12,7 +12,7 @@ def test_beam_to_from_ifc():
         n2=[2, 0, 0],
         sec="IPE220",
         mat=Material("SteelMat", CarbonSteel("S420")),
-        colour="red",
+        color="red",
     )
 
     a = Assembly("MyAssembly") / [Part("MyPart") / bm]

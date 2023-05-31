@@ -194,14 +194,14 @@ def merged_mesh_to_trimesh_scene(
     # Setting process=True will automatically merge duplicated vertices
     mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
     if isinstance(pbr_mat, Color):
-        pbr_mat = trimesh.visual.material.PBRMaterial(f"mat{buffer_id}", baseColorFactor=list(pbr_mat))
+        pbr_mat = trimesh.visual.material.PBRMaterial(f"mat{buffer_id}", baseColorFactor=pbr_mat.rgb255)
 
     mesh.visual = trimesh.visual.TextureVisuals(material=pbr_mat)
 
-    m3x3 = rot_matrix((0, -1, 0))
-    m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
-    m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
-    mesh.apply_transform(m4x4)
+    # m3x3 = rot_matrix((0, -1, 0))
+    # m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
+    # m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
+    # mesh.apply_transform(m4x4)
 
     scene.add_geometry(
         mesh,

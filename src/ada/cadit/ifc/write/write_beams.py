@@ -155,8 +155,8 @@ def extrude_straight_beam(beam: Beam, f: ifile, profile):
         extrude_area_solid = f.create_entity("IfcExtrudedAreaSolid", profile, ifc_axis2plac3d, extrude_dir, beam.length)
 
     # Add colour
-    if beam.colour is not None:
-        add_colour(f, extrude_area_solid, str(beam.colour), beam.colour)
+    if beam.color is not None:
+        add_colour(f, extrude_area_solid, str(beam.color), beam.color)
 
     body_context = a.ifc_store.get_context("Body")
     axis_context = a.ifc_store.get_context("Axis")
@@ -208,16 +208,25 @@ def create_ifcrevolveareasolid(f, profile, ifcaxis2placement, origin, revolve_ax
 
 
 def create_polyline_beam(beam, f, profile):
+    a = beam.parent.get_assembly()
+    body_context = a.ifc_store.get_context("Body")
+    axis_context = a.ifc_store.get_context("Axis")
+
     ifc_polyline = write_curve_poly(beam.curve)
 
     extrude_dir = ifc_dir(f, (0.0, 0.0, 1.0))
-    global_placement = create_ifc_placement(f)
 
+    curve: CurvePoly = beam.curve
+    placement = create_local_placement(f, (0, 0, 0), (0, 0, 1))
+    place = create_ifc_placement(f, curve.points3d[0], curve.normal)
     extrude_area_solid = f.create_entity(
-        "IfcFixedReferenceSweptAreaSolid", profile, global_placement, ifc_polyline, 0.0, 1.0, extrude_dir
+        "IfcFixedReferenceSweptAreaSolid", profile, place, ifc_polyline, FixedReference=extrude_dir
     )
-    loc_plac = create_ifc_placement(f)
-    return extrude_area_solid, loc_plac, ifc_polyline
+
+    axis = f.create_entity("IfcShapeRepresentation", axis_context, "Axis", "Curve3D", [ifc_polyline])
+    body = f.create_entity("IfcShapeRepresentation", body_context, "Body", "SweptSolid", [extrude_area_solid])
+
+    return axis, body, placement
 
 
 def sweep_beam(beam, f, profile, global_placement, extrude_dir):

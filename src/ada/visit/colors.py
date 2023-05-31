@@ -17,15 +17,11 @@ color_dict = {
     "orange": (255, 165, 0),
     "purple": (128, 0, 128),
     "gray": (128, 128, 128),
+    "lightgray": (211, 211, 211),
     "brown": (165, 42, 42),
 }
 
 _col_vals = [(*x, 1) for x in color_dict.values()]
-
-
-def random_color() -> Color:
-    res = _col_vals[random.randint(0, len(color_dict) - 1)]
-    return Color(*res)
 
 
 @dataclass
@@ -35,6 +31,16 @@ class Color:
     blue: float
     opacity: float = 1.0
 
+    def __post_init__(self):
+        # If any value is above 1, normalize
+        if self.red > 1 or self.green > 1 or self.blue > 1:
+            self.red /= 255
+            self.green /= 255
+            self.blue /= 255
+
+        if self.opacity is None:
+            self.opacity = 1.0
+
     def __iter__(self):
         return iter((self.red, self.green, self.blue, self.opacity))
 
@@ -42,10 +48,51 @@ class Color:
         return hash((self.red, self.green, self.blue, self.opacity))
 
     def __gt__(self, other):
-        return self.red > other.red and self.green > other.green and self.blue > other.blue and self.opacity > other.opacity
+        return (
+            self.red > other.red
+            and self.green > other.green
+            and self.blue > other.blue
+            and self.opacity > other.opacity
+        )
 
     def __lt__(self, other):
-        return self.red < other.red and self.green < other.green and self.blue < other.blue and self.opacity < other.opacity
+        return (
+            self.red < other.red
+            and self.green < other.green
+            and self.blue < other.blue
+            and self.opacity < other.opacity
+        )
+
+    @staticmethod
+    def randomize() -> Color:
+        res = _col_vals[random.randint(0, len(color_dict) - 1)]
+        return Color(*res)
+
+    @staticmethod
+    def from_str(color_str: str, opacity: float = None) -> Color:
+        if color_str.lower() not in color_dict.keys():
+            raise ValueError(f"Color {color_str} not supported. Please use one of {color_dict.keys()}")
+        return Color(*color_dict[color_str.lower()], opacity=opacity)
+
+    @property
+    def transparency(self):
+        return 1.0 - self.opacity
+
+    @property
+    def transparent(self):
+        return False if self.opacity == 1.0 else True
+
+    @property
+    def rgb(self) -> tuple[float, float, float]:
+        return self.red, self.green, self.blue
+
+    @property
+    def rgb255(self) -> tuple[int, int, int]:
+        return int(self.red * 255), int(self.green * 255), int(self.blue * 255)
+
+    @property
+    def hex(self) -> str:
+        return f"#{self.rgb255[0]:02x}{self.rgb255[1]:02x}{self.rgb255[2]:02x}"
 
 
 @dataclass
@@ -102,15 +149,3 @@ def magnitude2d(u):
 
 def magnitude1d(u):
     return u
-
-
-def color_name_to_rgb(color_name, normalize=True) -> list[float, float, float] | None:
-    color_name_lower = color_name.lower()
-    if color_name_lower in color_dict:
-        if normalize:
-            return [x / 255 for x in color_dict[color_name_lower]]
-        else:
-            return color_dict[color_name_lower]
-    else:
-        print(f"Color '{color_name}' not found. Please use a supported color name.")
-        return None

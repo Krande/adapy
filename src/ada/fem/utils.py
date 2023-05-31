@@ -10,7 +10,7 @@ from .shapes import ElemShape
 from .shapes import definitions as shape_def
 
 if TYPE_CHECKING:
-    from ada import FEM, Assembly, Beam, Node, Part, Plate
+    from ada import FEM, Assembly, Beam, Part, Plate, Point
     from ada.fem import FemSet
 
 
@@ -39,7 +39,7 @@ def get_eldata(fem_source: Assembly | Part | FEM):
     return el_types
 
 
-def get_beam_end_nodes(bm: Beam, end=1, tol=1e-3) -> list[Node]:
+def get_beam_end_nodes(bm: Beam, end=1, tol=1e-3) -> list[Point]:
     """Get list of nodes from end of beam"""
     p = bm.parent
     nodes = p.fem.nodes
@@ -58,7 +58,7 @@ def get_beam_end_nodes(bm: Beam, end=1, tol=1e-3) -> list[Node]:
     return members
 
 
-def get_nodes_along_plate_edges(pl: Plate, fem: FEM, edge_indices=None, tol=1e-3) -> list[Node]:
+def get_nodes_along_plate_edges(pl: Plate, fem: FEM, edge_indices=None, tol=1e-3) -> list[Point]:
     """Return FEM nodes from edges of a plate"""
 
     res = []
@@ -84,7 +84,7 @@ def is_quad8_shell_elem(sh_fs):
     return all(elem_check)
 
 
-def is_parent_of_node_solid(no: Node) -> bool:
+def is_parent_of_node_solid(no: Point) -> bool:
     refs = no.refs
     for elem in refs:
         if isinstance(elem.type, shape_def.SolidShapes):
@@ -124,12 +124,12 @@ def elset_to_part(name: str, elset: FemSet) -> Part:
 
 
 def split_line_element_in_two(el: Elem) -> Elem:
-    from ada import Node
+    from ada import Point
 
     n1 = el.nodes[0]
     n2 = el.nodes[-1]
     midp = (n1.p + n2.p) / 2
-    new_node = el.parent.nodes.add(Node(midp))
+    new_node = el.parent.nodes.add(Point(midp))
     el.nodes[-1] = new_node
     elset = el.elset
     elem = Elem(None, [new_node, n2], el.type, elset=elset, fem_sec=el.fem_sec, parent=el.parent)

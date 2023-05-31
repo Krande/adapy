@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
-from .points import Node
+from .points import Point
 from .transforms import Placement
 
 if TYPE_CHECKING:
@@ -184,7 +184,7 @@ class CurvePoly:
 
         csys = [self.placement.xdir, self.placement.ydir]
         points2d = global_2_local_nodes(csys, self.placement.origin, [np.array(x[:3]) for x in points3d])
-        points3d = [x.p if type(x) is Node else x for x in points3d]
+        points3d = [x.p if type(x) is Point else x for x in points3d]
         for i, p in enumerate(points3d):
             if len(p) == 4:
                 points2d[i] = (points2d[i][0], points2d[i][1], p[-1])
@@ -216,7 +216,7 @@ class CurvePoly:
 
         self._seg_list = seg_list
         self._seg_global_points, self._seg_index = segments_to_indexed_lists(seg_list)
-        self._nodes = [Node(p) if len(p) == 3 else Node(p[:3], r=p[3]) for p in self._points3d]
+        self._nodes = [Point(p) if len(p) == 3 else Point(p[:3], r=p[3]) for p in self._points3d]
 
     def _update_curves(self):
         from ada.core.vector_utils import local_2_global_points
@@ -270,11 +270,11 @@ class CurvePoly:
         return self._points2d
 
     @property
-    def points3d(self) -> List[Node]:
+    def points3d(self) -> List[Point]:
         return self._points3d
 
     @property
-    def nodes(self) -> List[Node]:
+    def nodes(self) -> List[Point]:
         return self._nodes
 
     @property
@@ -296,7 +296,7 @@ class CurvePoly:
         return segments_to_edges(self.seg_list)
 
     def get_edges_geom(self) -> IndexedPolyCurve:
-        from ada.geom.curves import IndexedPolyCurve, ArcLine, Line
+        from ada.geom.curves import ArcLine, IndexedPolyCurve, Line
 
         segments = []
         for seg in self.seg_list:

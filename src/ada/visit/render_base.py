@@ -2,11 +2,13 @@
 from abc import ABC, abstractmethod
 
 
-class Renderer(ABC):
-    @abstractmethod
-    def render(self, obj):
-        pass
+class JupyterRenderer:
+    def __init__(self, obj):
+        super().__init__()
+        self.obj = obj
 
-    @abstractmethod
+    def render(self):
+        return self.obj._repr_html_()
+
     def update(self):
         pass

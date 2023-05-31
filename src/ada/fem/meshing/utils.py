@@ -6,7 +6,7 @@ from typing import List, Union
 import gmsh
 import numpy as np
 
-from ada import FEM, Beam, Node, Pipe, Plate, Shape
+from ada import FEM, Beam, Pipe, Plate, Point, Shape
 from ada.base.types import GeomRepr
 from ada.concepts.transforms import Placement
 from ada.core.utils import make_name_fem_ready
@@ -196,11 +196,11 @@ def get_point(model: gmsh.model, p, tol):
     return model.getEntitiesInBoundingBox(*lower.tolist(), *upper.tolist(), 0)
 
 
-def get_nodes_from_gmsh(model: gmsh.model, fem: FEM) -> List[Node]:
+def get_nodes_from_gmsh(model: gmsh.model, fem: FEM) -> List[Point]:
     nodes = list(model.mesh.getNodes(-1, -1))
     node_ids = nodes[0]
     node_coords = nodes[1].reshape(len(node_ids), 3)
-    return [Node(coord, nid, parent=fem) for nid, coord in zip(node_ids, node_coords)]
+    return [Point(coord, nid, parent=fem) for nid, coord in zip(node_ids, node_coords)]
 
 
 def get_elements_from_entity(model: gmsh.model, ent, fem: FEM, dim) -> List[Elem]:

@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 numeric = Union[int, float, np.number]
 
 
-class Node:
+class Point:
     """Base node object"""
 
     def __init__(
@@ -116,12 +116,12 @@ class Node:
         """Returns if node is valid, i.e. has objects in refs"""
         return len(self.refs) > 0
 
-    def get_main_node_at_point(self) -> Node:
+    def get_main_node_at_point(self) -> Point:
         nodes = self.sort_by_refs_at_point()
         (nearest_node,) = sort_nodes_by_distance(self, nodes)
         return nearest_node
 
-    def sort_by_refs_at_point(self) -> list[Node]:
+    def sort_by_refs_at_point(self) -> list[Point]:
         nodes = list(filter(lambda n: n.has_refs, self.parent.nodes.get_by_volume(self)))
         if len(nodes) > 0:
             return sorted(nodes, key=lambda n: len(n.refs), reverse=True)
@@ -143,13 +143,13 @@ class Node:
     def __le__(self, other):
         return tuple(self.p) <= tuple(other.p)
 
-    def __eq__(self, other: Node):
-        if not isinstance(other, Node):
+    def __eq__(self, other: Point):
+        if not isinstance(other, Point):
             return NotImplemented
         return (*self.p, self.id) == (*other.p, other.id)
 
-    def __ne__(self, other: Node):
-        if not isinstance(other, Node):
+    def __ne__(self, other: Point):
+        if not isinstance(other, Point):
             return NotImplemented
         return (*self.p, self.id) != (*other.p, other.id)
 
@@ -160,7 +160,7 @@ class Node:
         return f"Node([{self.x}, {self.y}, {self.z}], {self.id})"
 
 
-def get_singular_node_by_volume(nodes: Nodes, p: np.ndarray, tol=Settings.point_tol) -> Node:
+def get_singular_node_by_volume(nodes: Nodes, p: np.ndarray, tol=Settings.point_tol) -> Point:
     """Returns existing node within the volume, or creates and returns a new Node at the point"""
     nds = nodes.get_by_volume(p, tol=tol)
     if len(nds) > 0:
@@ -169,11 +169,11 @@ def get_singular_node_by_volume(nodes: Nodes, p: np.ndarray, tol=Settings.point_
             logger.warning(f"More than 1 node within point {p}, other nodes: {other_nodes}. Returns node {node}")
         return node
     else:
-        return Node(p)
+        return Point(p)
 
 
-def sort_nodes_by_distance(point: Union[Node, np.ndarray], nodes: list[Node]) -> list[Node]:
-    if isinstance(point, Node):
+def sort_nodes_by_distance(point: Union[Point, np.ndarray], nodes: list[Point]) -> list[Point]:
+    if isinstance(point, Point):
         point = point.p
     return sorted(nodes, key=lambda x: vector_length(x.p - point))
 
@@ -210,7 +210,7 @@ def replace_nodes_by_tol(nodes, decimals=0, tol=Settings.point_tol):
                 replace_node(nearby_node, node)
 
 
-def replace_node(old_node: Node, new_node: Node) -> None:
+def replace_node(old_node: Point, new_node: Point) -> None:
     """
     Exchange the old nod with the new. The refs in old node is cleared, and added to new node ref
     :param old_node:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pathlib
 from enum import Enum
-from typing import Any
+from typing import Any, Iterable
 
 from OCC.Core.BRep import BRep_Builder
 from OCC.Core.BRepBuilderAPI import (
@@ -25,6 +25,7 @@ from OCC.Core.XSControl import XSControl_WorkSession
 from ada.base.units import Units
 from ada.config import logger
 from ada.occ.xcaf_utils import set_color, set_name
+from ada.visit.colors import Color
 
 
 class StepSchema(Enum):
@@ -80,7 +81,15 @@ class StepWriter:
         self.comp_builder.Add(self.comp, shape)
         parent = self.tll if parent is None else parent
         shape_label = self.shape_tool.AddSubShape(parent, shape)
-        rgb_color = (1, 0, 0) if rgb_color is None else rgb_color
+        if isinstance(rgb_color, Iterable):
+            rgb_color = Color(*rgb_color)
+        elif isinstance(rgb_color, str):
+            rgb_color = Color.from_str(rgb_color)
+        elif rgb_color is None:
+            rgb_color = Color(1, 0, 0)
+        else:
+            raise ValueError(f"rgb_color must be iterable, str, or None, not {type(rgb_color)}")
+
         if shape_label.IsNull():
             shape_label = self.shape_tool.AddShape(shape, False, False)
             logger.info("Adding as SubShape label generated an IsNull label. Adding as shape instead ")

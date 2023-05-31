@@ -18,19 +18,19 @@ def test_meter_to_millimeter(test_units_dir):
         "MyTopSpatialLevel",
         metadata=dict(ifctype="storey", description="MyTopLevelSpace"),
     )
-    bm1 = Beam("bm1", n1=[0, 0, 0], n2=[2, 0, 0], sec="IPE220", colour="red")
+    bm1 = Beam("bm1", n1=[0, 0, 0], n2=[2, 0, 0], sec="IPE220", color="red")
 
     p2 = Part(
         "MySecondLevel",
         metadata=dict(ifctype="storey", description="MySecondLevelSpace"),
     )
-    bm2 = Beam("bm2", n1=[0, 0, 0], n2=[0, 2, 0], sec="IPE220", colour="blue")
+    bm2 = Beam("bm2", n1=[0, 0, 0], n2=[0, 2, 0], sec="IPE220", color="blue")
 
     p3 = Part(
         "MyThirdLevel",
         metadata=dict(ifctype="storey", description="MyThirdLevelSpace"),
     )
-    bm3 = Beam("bm3", n1=[0, 0, 0], n2=[0, 0, 2], sec="IPE220", colour="green")
+    bm3 = Beam("bm3", n1=[0, 0, 0], n2=[0, 0, 2], sec="IPE220", color="green")
     pl1 = Plate(
         "pl1",
         [(0, 0, 0), (0, 0, 2), (0, 2, 2), (0, 2.0, 0.0)],

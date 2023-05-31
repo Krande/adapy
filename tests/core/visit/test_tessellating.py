@@ -17,7 +17,7 @@ def test_shape_grid():
     all_shapes = sorted(bt.batch_tessellate(shape_grid), key=lambda x: x.material)
 
     scene = trimesh.Scene(base_frame=bg.graph.top_level.name)
-    scene.metadata["meta"] = bg.graph.create_meta(suffix='')
+    scene.metadata["meta"] = bg.graph.create_meta(suffix="")
     mesh_map = []
     for mat_id, meshes in groupby(all_shapes, lambda x: x.material):
         meshes = list(meshes)
@@ -28,6 +28,6 @@ def test_shape_grid():
     # assert mat0
     assert len(mesh_map) == len(scene.geometry)
     mat_id0, meshes0, merged_store0 = mesh_map[0]
-    scene0 = scene.geometry.get(f'node{mat_id0}')
+    scene0 = scene.geometry.get(f"node{mat_id0}")
     os.makedirs("temp", exist_ok=True)
     scene.export("temp/test.glb")

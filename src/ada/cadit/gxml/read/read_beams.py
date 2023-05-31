@@ -4,7 +4,7 @@ from typing import List, Tuple
 
 import numpy as np
 
-from ada import Beam, Node, Part
+from ada import Beam, Part, Point
 from ada.concepts.containers import Beams
 from ada.config import logger
 from ada.core.exceptions import VectorNormalizeError
@@ -124,7 +124,7 @@ def convert_offset_to_global_csys(o: np.ndarray, bm: Beam):
     return xv * o[0] + yv * o[1] + zv * o[2]
 
 
-def apply_offset(o: np.ndarray, n: Node, bm: Beam):
+def apply_offset(o: np.ndarray, n: Point, bm: Beam):
     res = convert_offset_to_global_csys(o, bm)
     return n.p + res
 
@@ -152,8 +152,8 @@ def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv):
         if "cone" in seg.attrib["section_ref"].lower():
             sec = prev_bm.section
 
-    n1 = parent.nodes.add(Node(pos_to_floats(pos["1"])))
-    n2 = parent.nodes.add(Node(pos_to_floats(pos["2"])))
+    n1 = parent.nodes.add(Point(pos_to_floats(pos["1"])))
+    n2 = parent.nodes.add(Point(pos_to_floats(pos["2"])))
 
     try:
         bm = Beam(name, n1, n2, sec=sec, mat=mat, parent=parent, metadata=metadata, up=zv)

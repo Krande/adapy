@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Union
 
-from ada.concepts.points import Node
+from ada.concepts.points import Point
 
 from .common import FemBase
 from .elements import Elem
@@ -103,7 +103,7 @@ class Surface(FemBase):
         return self._refs
 
 
-def create_surface_from_nodes(surface_name: str, nodes: List[Node], fem: "FEM", shell_positive=True) -> Surface:
+def create_surface_from_nodes(surface_name: str, nodes: List[Point], fem: "FEM", shell_positive=True) -> Surface:
     from ada.fem.elements import find_element_type_from_list
     from ada.fem.shapes import ElemType
 
@@ -123,7 +123,7 @@ def create_surface_from_nodes(surface_name: str, nodes: List[Node], fem: "FEM", 
 
 
 def get_surface_from_nodes_on_solid_elements(
-    surface_name: str, all_el: List[Elem], nodes: List[Node], fem: "FEM", shell_positive: bool
+    surface_name: str, all_el: List[Elem], nodes: List[Point], fem: "FEM", shell_positive: bool
 ) -> Surface:
     elements = []
     face_seq_indices = {}
@@ -153,7 +153,7 @@ def get_surface_from_nodes_on_solid_elements(
 
 
 def get_surface_from_nodes_on_shell_elements(
-    surface_name: str, all_el: List[Elem], nodes: List[Node], fem: "FEM", shell_positive: bool
+    surface_name: str, all_el: List[Elem], nodes: List[Point], fem: "FEM", shell_positive: bool
 ) -> Surface:
     elements = []
     for el in all_el:
@@ -167,7 +167,7 @@ def get_surface_from_nodes_on_shell_elements(
     return Surface(surface_name, Surface.TYPES.ELEMENT, fs, el_face_index=side_name)
 
 
-def elem_has_parallel_face(el: Elem, nodes: List[Node]):
+def elem_has_parallel_face(el: Elem, nodes: List[Point]):
     for i, nid_refs in enumerate(el.shape.faces_seq):
         all_face_nodes_in_plane = True
         for nid in nid_refs:
