@@ -4,6 +4,7 @@
 #
 
 import ada
+from ada.base.types import GeomRepr
 from ada.visit.render_backend import SqLiteBackend
 from ada.visit.render_pygfx import RendererPyGFX
 
@@ -14,14 +15,13 @@ def main():
     bm3 = ada.Beam("my_beam_z", (0, 0, 2), (0, 0, 3), "IPE300", color="green")
 
     bm4 = ada.Beam("my_beam_shell", (1, 1, 0), (1, 1, 1), "IPE300", color="yellow")
-
+    render_override = {bm4.guid: GeomRepr.SHELL}
     box1 = ada.PrimBox("box1", (1, 0, 0), (1.5, 0.5, 0.5), color="red")
 
-    p = ada.Assembly() / (ada.Part("MyBeam") / (bm1, bm2, bm3, box1))
-
+    p = ada.Assembly() / (ada.Part("MyBeam") / (bm1, bm2, bm3, box1, bm4))
+    p.to_stp('temp/part.stp')
     render = RendererPyGFX(render_backend=SqLiteBackend("temp/meshes.db"))
-    render.add_part(p)
-    render.add_geom(bm4.shell_geom(), bm4.name, bm4.guid)
+    render.add_part(p, render_override=render_override)
     render.show()
 
 

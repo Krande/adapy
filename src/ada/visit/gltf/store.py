@@ -10,12 +10,13 @@ import trimesh
 import trimesh.visual
 
 from ada.config import logger
-from ada.core.vector_utils import rot_matrix, transform
+from ada.core.vector_utils import transform
 from ada.visit.colors import Color
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import MergedMesh, MeshRef, MeshStore, MeshType
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.optimizing import optimize_positions
+from ada.visit.render_pygfx_helpers import m4x4_z_up_rot
 
 
 @dataclass
@@ -198,10 +199,8 @@ def merged_mesh_to_trimesh_scene(
 
     mesh.visual = trimesh.visual.TextureVisuals(material=pbr_mat)
 
-    # m3x3 = rot_matrix((0, -1, 0))
-    # m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
-    # m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
-    # mesh.apply_transform(m4x4)
+    # Rotate the mesh to set Z up
+    mesh.apply_transform(m4x4_z_up_rot)
 
     scene.add_geometry(
         mesh,

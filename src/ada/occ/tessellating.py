@@ -98,10 +98,13 @@ class BatchTessellator:
         )
 
     def batch_tessellate(
-        self, geoms: Iterable[Geometry | BackendGeom], geom_repr: GeomRepr = GeomRepr.SOLID
+        self, geoms: Iterable[Geometry | BackendGeom], render_override: dict[str, GeomRepr] = None
     ) -> Iterable[MeshStore]:
         for geom in geoms:
             if isinstance(geom, BackendGeom):
+                if render_override is None:
+                    render_override = dict()
+                geom_repr = render_override.get(geom.guid, GeomRepr.SOLID)
                 if geom_repr == GeomRepr.SOLID:
                     geom = geom.solid_geom()
                 elif geom_repr == GeomRepr.SHELL:
