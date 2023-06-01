@@ -138,12 +138,12 @@ class Plate(BackendGeom):
         return self._bbox
 
     def line(self):
-        return self._poly.wire
+        return self._poly.wire()
 
     def shell(self):
         from ada.occ.utils import apply_penetrations
 
-        geom = apply_penetrations(self.poly.face, self.penetrations)
+        geom = apply_penetrations(self.poly.face(), self.penetrations)
 
         return geom
 

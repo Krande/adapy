@@ -22,7 +22,7 @@ from ada.concepts.primitives import (
     Shape,
 )
 from ada.concepts.spatial import Assembly, Group, Part
-from ada.concepts.beams import Beam
+from ada.concepts.beams import Beam, BeamRevolve, BeamSweep
 from ada.concepts.stru_plates import Plate
 from ada.concepts.stru_walls import Wall
 from ada.concepts.transforms import Instance, Placement, Transform
@@ -107,6 +107,8 @@ __all__ = [
     "from_ifc",
     "from_fem",
     "Beam",
+    "BeamSweep",
+    "BeamRevolve",
     "Group",
     "Plate",
     "Pipe",

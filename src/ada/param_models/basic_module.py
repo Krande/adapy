@@ -5,6 +5,7 @@ import numpy as np
 import ada
 from ada import Assembly, Beam, Material, Part, Pipe, Plate, Node, PrimSphere, Section
 from ada.concepts.transforms import Placement
+from ada.concepts.beams.helpers import get_offset_from_justification, Justification
 from ada.core.clash_check import penetration_check
 from ada.core.constants import X, Y, Z
 from ada.core.utils import Counter
@@ -104,7 +105,10 @@ class SimpleStru(Part):
 
         for elev in self._elevations:
             for p1, p2 in beams:
-                self.add_beam(Beam(next(bm_name), n1=p1(elev), n2=p2(elev), sec=sec, jusl=Beam.JUSL_TYPES.TOS))
+
+                bm = self.add_beam(Beam(next(bm_name), n1=p1(elev), n2=p2(elev), sec=sec))
+                ecc = get_offset_from_justification(bm, Justification.TOS)
+                bm.e1 = bm.e2 = ecc
             points = [c1(elev), c2(elev), c3(elev), c4(elev)]
             p = self.add_part(ReinforcedFloor(next(floor_name), points, pl_thick))
             self.add_set("floors", [p])

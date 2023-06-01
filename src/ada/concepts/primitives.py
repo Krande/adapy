@@ -487,7 +487,7 @@ class PrimSweep(Shape):
     def _sweep_geom(self):
         from ada.occ.utils import sweep_geom
 
-        return sweep_geom(self.sweep_curve.wire, self.profile_curve_outer.wire)
+        return sweep_geom(self.sweep_curve.wire(), self.profile_curve_outer.wire())
 
     @property
     def units(self):

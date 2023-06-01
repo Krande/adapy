@@ -21,16 +21,16 @@ def main():
 
     render_override = {bm4.guid: GeomRepr.SHELL, bm5.guid: GeomRepr.SHELL}
     box1 = ada.PrimBox("box1", (1, 0, 0), (1.5, 0.5, 0.5), color="red")
-
     cyl1 = ada.PrimCyl("cyl1", (3, 0, 0), (3, 0.5, 0.5), 0.3, color="green")
     cone1 = ada.PrimCone("cone1", (4, 0, 0), (4, 0.5, 0.5), 0.3, color="green")
     sphere1 = ada.PrimSphere("sphere1", (5, 0, 0), 0.3, color="green")
 
-    p = ada.Assembly() / (ada.Part("MyBeam") / (bm1, bm2, bm3, box1, bm4, bm5, bm6, bm5_so, cyl1, cone1, sphere1))
-    p.to_stp('temp/part.stp', geom_repr_override=render_override)
+    a = ada.Assembly() / (ada.Part("MyBeam") / (bm1, bm2, bm3, box1, bm4, bm5, bm6, bm5_so, cyl1, cone1, sphere1))
+    a.to_stp('temp/part.stp', geom_repr_override=render_override)
+    a.to_ifc('temp/part.ifc', geom_repr_override=render_override)
 
     render = RendererPyGFX(render_backend=SqLiteBackend("temp/meshes.db"))
-    render.add_part(p, render_override=render_override)
+    render.add_part(a, render_override=render_override)
     render.show()
 
 

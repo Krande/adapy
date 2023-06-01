@@ -255,12 +255,10 @@ class Wall(BackendGeom):
     def metadata(self):
         return self._metadata
 
-    @property
     def shell(self):
         poly = CurvePoly(points3d=self.extrusion_area, parent=self)
-        return poly.face
+        return poly.face()
 
-    @property
     def solid(self):
         from ada.occ.utils import apply_penetrations
 

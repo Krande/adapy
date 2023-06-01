@@ -17,5 +17,5 @@ def write_curve_poly(curve: CurvePoly):
     # TODO: Investigate using 2DLists instead is it could reduce complexity?
     points = [tuple(x.astype(float).tolist()) for x in curve.seg_global_points]
     ifc_point_list = f.createIfcCartesianPointList3D(points)
-    segindex = f.createIfcIndexedPolyCurve(ifc_point_list, ifc_segments)
+    segindex = f.createIfcIndexedPolyCurve(ifc_point_list, ifc_segments, False)
     return segindex

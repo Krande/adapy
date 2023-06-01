@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from enum import Enum
 from typing import TYPE_CHECKING, Callable, Iterable, List, Optional, Union
 
 import numpy as np
@@ -24,6 +23,7 @@ from ada.core.vector_utils import (
     vector_length,
 )
 from ada.geom import Geometry
+from .helpers import Justification
 from ada.geom.placement import Direction
 from ada.materials import Material
 from ada.materials.utils import get_material
@@ -43,11 +43,6 @@ material_counter = Counter(1)
 logger = get_logger()
 
 
-class Justification(Enum):
-    NA = "neutral axis"
-    TOS = "top of steel"
-
-
 class Beam(BackendGeom):
     """
     The base Beam object
@@ -58,34 +53,28 @@ class Beam(BackendGeom):
     :param mat: Material. Str or Material object. String: ['S355' & 'S420'] (default is 'S355' if None is parsed)
     :param name: Name of beam
     :param tap: Tapering of beam. Str or Section object
-    :param jusl: Justification of Beam centreline
-    :param curve: Curve
     """
 
-    JUSL_TYPES = Justification
-
     def __init__(
-            self,
-            name,
-            n1: Node | Iterable = None,
-            n2: Node | Iterable = None,
-            sec: str | Section = None,
-            mat: str | Material = None,
-            tap: str | Section = None,
-            jusl=JUSL_TYPES.NA,
-            up=None,
-            angle=0.0,
-            curve: CurvePoly | CurveRevolve = None,
-            e1=None,
-            e2=None,
-            color=None,
-            parent: Part = None,
-            metadata=None,
-            opacity=1.0,
-            units=Units.M,
-            guid=None,
-            placement=Placement(),
-            ifc_store: IfcStore = None,
+        self,
+        name,
+        n1: Node | Iterable = None,
+        n2: Node | Iterable = None,
+        sec: str | Section = None,
+        mat: str | Material = None,
+        tap: str | Section = None,
+        up=None,
+        angle=0.0,
+        e1=None,
+        e2=None,
+        color=None,
+        parent: Part = None,
+        metadata=None,
+        opacity=1.0,
+        units=Units.M,
+        guid=None,
+        placement=Placement(),
+        ifc_store: IfcStore = None,
     ):
         super().__init__(
             name,
@@ -96,32 +85,19 @@ class Beam(BackendGeom):
             ifc_store=ifc_store,
             color=color,
             opacity=opacity,
+            parent=parent,
         )
-        if curve is not None:
-            curve.parent = self
-            if type(curve) is CurvePoly:
-                n1 = curve.points3d[0]
-                n2 = curve.points3d[-1]
-            elif type(curve) is CurveRevolve:
-                n1 = curve.p1
-                n2 = curve.p2
-            else:
-                raise ValueError(f'Unsupported curve type "{type(curve)}"')
-
-        self._curve = curve
         self._n1 = n1 if type(n1) is Node else Node(n1[:3], units=units)
         self._n2 = n2 if type(n2) is Node else Node(n2[:3], units=units)
-        self._jusl = jusl
 
         self._connected_to = []
         self._connected_end1 = None
         self._connected_end2 = None
         self._tos = None
-        self._e1 = e1
-        self._e2 = e2
+        self._e1 = e1 if e1 is None else Direction(*e1)
+        self._e2 = e2 if e2 is None else Direction(*e2)
         self._hinge_prop = None
 
-        self._parent = parent
         self._bbox = None
 
         # Section and Material setup
@@ -145,7 +121,7 @@ class Beam(BackendGeom):
 
     @staticmethod
     def from_list_of_coords(
-            list_of_coords: list[tuple], sec: Section | str, mat: Material | str = None, name_gen: Callable = None
+        list_of_coords: list[tuple], sec: Section | str, mat: Material | str = None, name_gen: Callable = None
     ) -> list[Beam]:
         beams = []
         ngen = name_gen if name_gen is not None else Counter(prefix="bm")
@@ -193,7 +169,7 @@ class Beam(BackendGeom):
         return is_between_endpoints(point, self.n1.p, self.n2.p, incl_endpoints=True)
 
     def split_beam(
-            self, point: Union[Node, np.ndarray] = None, fraction: float = None, length: float = None
+        self, point: Union[Node, np.ndarray] = None, fraction: float = None, length: float = None
     ) -> Optional[Beam]:
         """
         Split beam into two parts, and returns the new beam. Prioritizes input arguments in given order if  given
@@ -247,14 +223,12 @@ class Beam(BackendGeom):
             sec=self.section if section is None else section,
             mat=self.material if material is None else material,
             tap=self.taper,
-            jusl=self.jusl,
             up=self.up,
             e1=self.e1,
             e2=self.e2,
             color=self.color,
             parent=self.parent,
             metadata=self.metadata,
-            opacity=self.opacity,
             units=self.units,
         )
 
@@ -435,10 +409,17 @@ class Beam(BackendGeom):
             p2 += self.e2
         return vector_length(p2 - p1)
 
-    @property
-    def jusl(self):
+    def just(self) -> Justification:
         """Justification line"""
-        return self._jusl
+        # Check if both self.e1 and self.e2 are None
+        if self.e1 is None and self.e2 is None:
+            return Justification.NA
+        elif self.e1 is None or self.e2 is None:
+            return Justification.CUSTOM
+        elif self.e1.is_equal(self.e2) and self.e1.is_equal(self.up*self.section.h / 2):
+            return Justification.TOS
+        else:
+            return Justification.CUSTOM
 
     @property
     def ori(self):
@@ -501,20 +482,20 @@ class Beam(BackendGeom):
         return self._bbox
 
     @property
-    def e1(self) -> np.ndarray:
+    def e1(self) -> Direction:
         return self._e1
 
     @e1.setter
-    def e1(self, value):
-        self._e1 = np.array(value)
+    def e1(self, value: Iterable):
+        self._e1 = Direction(*value)
 
     @property
-    def e2(self) -> np.ndarray:
+    def e2(self) -> Direction:
         return self._e2
 
     @e2.setter
-    def e2(self, value):
-        self._e2 = np.array(value)
+    def e2(self, value: Iterable):
+        self._e2 = Direction(*value)
 
     @property
     def hinge_prop(self) -> HingeProp:
@@ -528,10 +509,6 @@ class Beam(BackendGeom):
         if value.end2 is not None:
             value.end2.concept_node = self.n2
         self._hinge_prop = value
-
-    @property
-    def curve(self) -> CurvePoly:
-        return self._curve
 
     def line(self):
         from ada.occ.utils import make_wire_from_points
@@ -642,6 +619,92 @@ class Beam(BackendGeom):
 
     def __getstate__(self):
         return self.__dict__
+
+
+class BeamSweep(Beam):
+    def __init__(
+        self,
+        name: str,
+        curve: CurvePoly,
+        sec: str | Section,
+        mat: str | Material = None,
+        up=None,
+        color=None,
+        parent: Part = None,
+        metadata=None,
+        opacity=1.0,
+        units=Units.M,
+        guid=None,
+        placement=Placement(),
+        ifc_store: IfcStore = None,
+    ):
+        n1 = curve.points3d[0]
+        n2 = curve.points3d[-1]
+        super().__init__(
+            name=name,
+            n1=n1,
+            n2=n2,
+            sec=sec,
+            mat=mat,
+            metadata=metadata,
+            units=units,
+            guid=guid,
+            placement=placement,
+            ifc_store=ifc_store,
+            color=color,
+            opacity=opacity,
+            parent=parent,
+            up=up,
+        )
+        self._curve = curve
+        curve.parent = self
+
+    @property
+    def curve(self) -> CurvePoly:
+        return self._curve
+
+
+class BeamRevolve(Beam):
+    def __init__(
+        self,
+        name: str,
+        curve: CurveRevolve,
+        sec: str | Section,
+        mat: str | Material = None,
+        up=None,
+        color=None,
+        parent: Part = None,
+        metadata=None,
+        opacity=1.0,
+        units=Units.M,
+        guid=None,
+        placement=Placement(),
+        ifc_store: IfcStore = None,
+    ):
+        n1 = curve.p1
+        n2 = curve.p2
+        super().__init__(
+            name=name,
+            n1=n1,
+            n2=n2,
+            sec=sec,
+            mat=mat,
+            metadata=metadata,
+            units=units,
+            guid=guid,
+            placement=placement,
+            ifc_store=ifc_store,
+            color=color,
+            opacity=opacity,
+            parent=parent,
+            up=up,
+        )
+        self._curve = curve
+        curve.parent = self
+
+    @property
+    def curve(self) -> CurveRevolve:
+        return self._curve
 
 
 class NodeNotOnEndpointError(Exception):

@@ -1,3 +1,3 @@
-from .base import Beam
+from .base import Beam, BeamRevolve, BeamSweep
 
-__all__ = ["Beam"]
+__all__ = ["Beam", "BeamRevolve", "BeamSweep"]

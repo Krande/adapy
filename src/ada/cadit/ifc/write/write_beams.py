@@ -17,6 +17,7 @@ from ada.cadit.ifc.utils import (
     to_real,
 )
 from ada.cadit.ifc.write.write_curves import write_curve_poly
+from ada.concepts.beams.base import BeamRevolve, BeamSweep
 from ada.config import Settings
 from ada.core.constants import O
 
@@ -44,13 +45,11 @@ class IfcBeamWriter:
         owner_history = self.ifc_store.owner_history
         profile = self.ifc_store.get_profile_def(beam.section)
 
-        if isinstance(beam.curve, CurveRevolve):
+        if isinstance(beam, BeamRevolve):
             axis, body, loc_plac = create_revolved_beam(beam, f, profile)
-        elif isinstance(beam.curve, CurvePoly):
+        elif isinstance(beam, BeamSweep):
             axis, body, loc_plac = create_polyline_beam(beam, f, profile)
         else:
-            if beam.curve is not None:
-                raise ValueError(f'Unrecognized beam.curve "{type(beam.curve)}"')
             axis, body, loc_plac = extrude_straight_beam(beam, f, profile)
 
         prod_def_shp = f.create_entity("IfcProductDefinitionShape", None, None, (axis, body))
@@ -168,7 +167,7 @@ def extrude_straight_beam(beam: Beam, f: ifile, profile):
     return body, axis, loc_plac
 
 
-def create_revolved_beam(beam: Beam, f: "ifile", profile):
+def create_revolved_beam(beam: BeamRevolve, f: "ifile", profile):
     a = beam.parent.get_assembly()
     body_context = a.ifc_store.get_context("Body")
     axis_context = a.ifc_store.get_context("Axis")
@@ -207,7 +206,7 @@ def create_ifcrevolveareasolid(f, profile, ifcaxis2placement, origin, revolve_ax
     return f.create_entity("IfcRevolvedAreaSolid", profile, ifcaxis2placement, ifcaxis1dir, revolve_angle)
 
 
-def create_polyline_beam(beam, f, profile):
+def create_polyline_beam(beam: BeamSweep, f, profile):
     a = beam.parent.get_assembly()
     body_context = a.ifc_store.get_context("Body")
     axis_context = a.ifc_store.get_context("Axis")
@@ -216,9 +215,8 @@ def create_polyline_beam(beam, f, profile):
 
     extrude_dir = ifc_dir(f, (0.0, 0.0, 1.0))
 
-    curve: CurvePoly = beam.curve
     placement = create_local_placement(f, (0, 0, 0), (0, 0, 1))
-    place = create_ifc_placement(f, curve.points3d[0], curve.normal)
+    place = create_ifc_placement(f, beam.curve.points3d[0], beam.curve.normal)
     extrude_area_solid = f.create_entity(
         "IfcFixedReferenceSweptAreaSolid", profile, place, ifc_polyline, FixedReference=extrude_dir
     )

@@ -234,17 +234,17 @@ class CurvePoly:
     def make_extruded_solid(self, height: float):
         from ada.occ.utils import extrude_closed_wire
 
-        return extrude_closed_wire(self.wire, self.placement.origin, self.placement.zdir, height)
+        return extrude_closed_wire(self.wire(), self.placement.origin, self.placement.zdir, height)
 
     def make_revolve_solid(self, axis, angle, origin):
         from ada.occ.utils import make_revolve_solid
 
-        return make_revolve_solid(self.face, axis, angle, origin)
+        return make_revolve_solid(self.face(), axis, angle, origin)
 
     def make_shell(self):
         from ada.occ.utils import wire_to_face
 
-        return wire_to_face(self.edges)
+        return wire_to_face(self.edges())
 
     def scale(self, scale_factor, tol):
         self.placement.origin = np.array([x * scale_factor for x in self.placement.origin])
@@ -289,7 +289,7 @@ class CurvePoly:
     def ydir(self):
         return self.placement.ydir
 
-    @property
+
     def edges(self):
         from ada.occ.utils import segments_to_edges
 
@@ -313,13 +313,13 @@ class CurvePoly:
 
         return IndexedPolyCurve(segments)
 
-    @property
+
     def wire(self):
         from ada.occ.utils import make_wire
 
-        return make_wire(self.edges)
+        return make_wire(self.edges())
 
-    @property
+
     def face(self):
         return self.make_shell()
 

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada import Beam
+from ada.concepts.beams.base import BeamSweep, BeamRevolve
 from ada.concepts.curves import CurveRevolve
 from ada.config import logger
 from ada.core.vector_utils import calc_yvec, vector_length
@@ -118,7 +119,7 @@ def import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
 
     curve = CurveRevolve(p1g, p2g, radius=r, rot_axis=rot_axis, rot_origin=rot_origin, angle=np.rad2deg(angle))
 
-    return Beam(
+    return BeamRevolve(
         name, curve=curve, sec=sec, mat=mat, guid=ifc_elem.GlobalId, ifc_store=ifc_store, units=ifc_store.assembly.units
     )
 

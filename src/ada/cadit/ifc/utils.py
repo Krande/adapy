@@ -239,7 +239,7 @@ def create_ifcindexpolyline(ifcfile, points, seg_index):
     # ifc_point_list = ifcfile.createIfcCartesianPointList2D(points)
 
     ifc_point_list = ifcfile.createIfcCartesianPointList3D(points)
-    segindex = ifcfile.createIfcIndexedPolyCurve(ifc_point_list, ifc_segments)
+    segindex = ifcfile.createIfcIndexedPolyCurve(ifc_point_list, ifc_segments, False)
     return segindex
 
 
@@ -268,7 +268,7 @@ def create_ifcindexpolyline2d(ifcfile, points2d, seg_index):
     # ifc_point_list = ifcfile.createIfcCartesianPointList2D(points)
 
     ifc_point_list = ifcfile.createIfcCartesianPointList2D(points2d)
-    segindex = ifcfile.createIfcIndexedPolyCurve(ifc_point_list, ifc_segments)
+    segindex = ifcfile.createIfcIndexedPolyCurve(ifc_point_list, ifc_segments, False)
     return segindex
 
 
@@ -648,7 +648,7 @@ def merge_ifc_files(parent_dir, output_file_name, clean_files=False, include_ele
     print(f"File written in {time.time() - checkpoint:.2f} seconds")
 
 
-def convert_bm_jusl_to_ifc(bm: "Beam") -> int:
+def convert_bm_jusl_to_ifc(bm: Beam) -> int:
     """
     IfcCardinalPointReference
 
@@ -675,16 +675,17 @@ def convert_bm_jusl_to_ifc(bm: "Beam") -> int:
 
     https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/schema/ifcmaterialresource/lexical/ifccardinalpointreference.htm
     """
-    jusl = bm.jusl
-    jt = bm.JUSL_TYPES
+    from ada.concepts.beams.base import Justification as jt
+
+    just = bm.just()
 
     jusl_map = {jt.NA: 5, jt.TOS: 8}
 
-    jusl_val = jusl_map.get(jusl, None)
+    jusl_val = jusl_map.get(just, None)
 
     if jusl_val is None:
-        if jusl != jt.NA:
-            logger.error(f'Unknown JUSL value "{jusl}". Using NA')
+        if just != jt.NA:
+            logger.info(f'Unknown JUSL value "{just}". Using NA')
         return 5
 
     return jusl_val
