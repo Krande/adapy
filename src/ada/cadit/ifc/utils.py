@@ -410,7 +410,7 @@ def write_elem_property_sets(metadata_props, elem, f, owner_history) -> None:
 
 
 def to_real(v) -> float | list[float]:
-    from ada import Point
+    from ada import Node
 
     if type(v) is float:
         return v
@@ -421,7 +421,7 @@ def to_real(v) -> float | list[float]:
             return v
         else:
             return [float(x) for x in v]
-    elif type(v) is Point:
+    elif type(v) is Node:
         return v.p.astype(float).tolist()
     else:
         return v.astype(float).tolist()

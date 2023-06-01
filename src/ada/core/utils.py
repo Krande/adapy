@@ -14,7 +14,7 @@ import numpy as np
 from ada.config import Settings, logger
 
 if TYPE_CHECKING:
-    from ada import Point
+    from ada import Node
 
 
 def is_package_installed(package_name):
@@ -78,7 +78,7 @@ def random_color():
     return format_color(randint(0, 255), randint(0, 255), randint(0, 255))
 
 
-def d2npy(node: Point) -> np.ndarray:
+def d2npy(node: Node) -> np.ndarray:
     """This method takes in a node object and returns a np.array."""
     return np.array([node.x, node.y, node.z], dtype=np.float)
 
@@ -313,7 +313,7 @@ def flatten(t):
     return [item for sublist in t for item in sublist]
 
 
-def replace_node(old_node: Point, new_node: Point) -> None:
+def replace_node(old_node: Node, new_node: Node) -> None:
     from ada.fem import FemSet
 
     for elem in old_node.refs.copy():

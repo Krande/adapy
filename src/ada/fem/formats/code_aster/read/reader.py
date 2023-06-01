@@ -35,7 +35,7 @@ def read_fem(fem_file: os.PathLike, fem_name: str = None) -> Assembly:
 
 
 def med_to_fem(fem_file, fem_name) -> FEM:
-    from ada import FEM, Point
+    from ada import FEM, Node
 
     with h5py.File(fem_file, "r") as f:
         # Mesh ensemble
@@ -74,7 +74,7 @@ def med_to_fem(fem_file, fem_name) -> FEM:
             logger.warning("No node information is found on MED file")
             point_num = np.arange(1, len(points) + 1)
 
-        fem.nodes = Nodes([Point(p, point_num[i], parent=fem) for i, p in enumerate(points)], parent=fem)
+        fem.nodes = Nodes([Node(p, point_num[i], parent=fem) for i, p in enumerate(points)], parent=fem)
 
         # Point tags
         tags = None

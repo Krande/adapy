@@ -8,9 +8,10 @@ from ada.geom.placement import Direction
 from ada.geom.points import Point
 from ada.geom.solids import Box, Cone, Cylinder, ExtrudedAreaSolid, Sphere
 from ada.geom.surfaces import ArbitraryProfileDefWithVoids, ProfileType
-from ada.occ.geom.curves import make_indexed_poly_curve_from_geom
-from ada.occ.geom.surfaces import make_indexed_poly_curve_surface_from_geom
+from ada.occ.geom.curves import make_wire_from_indexed_poly_curve_geom
+from ada.occ.geom.surfaces import make_face_from_indexed_poly_curve_geom
 from ada.occ.primitives import make_box, make_cone, make_cylinder, make_sphere
+from ada.occ.utils import transform_shape_to_pos
 
 
 def make_box_from_geom(box: Box) -> TopoDS_Shape:
@@ -40,9 +41,9 @@ def make_extruded_area_shape_from_geom(eas: ExtrudedAreaSolid) -> TopoDS_Shape |
         outer_curve = area.outer_curve
         if isinstance(outer_curve, IndexedPolyCurve):
             if area.profile_type == ProfileType.AREA:
-                profile = make_indexed_poly_curve_surface_from_geom(outer_curve)
+                profile = make_face_from_indexed_poly_curve_geom(outer_curve)
             else:  # area.profile_type == ProfileType.CURVE:
-                profile = make_indexed_poly_curve_from_geom(outer_curve)
+                profile = make_wire_from_indexed_poly_curve_geom(outer_curve)
         else:
             raise NotImplemented("Only IndexedPolyCurve is implemented")
     else:
@@ -52,17 +53,5 @@ def make_extruded_area_shape_from_geom(eas: ExtrudedAreaSolid) -> TopoDS_Shape |
     vec = Direction(0, 0, 1) * eas.depth
     eas_shape = BRepPrimAPI_MakePrism(profile, gp_Vec(*vec)).Shape()
 
-    # Create a transformation to move the extruded area solid to the correct position
-    trsf_rot = gp_Trsf()
+    return transform_shape_to_pos(eas_shape, eas.position.location, eas.position.axis, eas.position.ref_direction)
 
-    # Rotate the extruded area solid around 0,0,0
-    ax_global = gp_Ax3(gp_Pnt(*Point(0, 0, 0)), gp_Dir(*Direction(0, 0, 1)), gp_Dir(*Direction(1, 0, 0)))
-    ax_local = gp_Ax3(gp_Pnt(*Point(0, 0, 0)), gp_Dir(*eas.position.axis), gp_Dir(*eas.position.ref_direction))
-    trsf_rot.SetTransformation(ax_local, ax_global)
-    shape1 = BRepBuilderAPI_Transform(eas_shape, trsf_rot, True).Shape()
-
-    # Translate the extruded area solid
-    trsf = gp_Trsf()
-    trsf.SetTranslation(gp_Vec(*eas.position.location))
-
-    return BRepBuilderAPI_Transform(shape1, trsf, True).Shape()

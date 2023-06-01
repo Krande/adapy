@@ -7,6 +7,7 @@ import numpy as np
 from ada.base.units import Units
 from ada.config import Settings, logger
 from ada.core.vector_utils import vector_length
+from ada.geom.points import Point
 
 if TYPE_CHECKING:
     from ada import Beam
@@ -16,14 +17,14 @@ if TYPE_CHECKING:
 numeric = Union[int, float, np.number]
 
 
-class Point:
+class Node:
     """Base node object"""
 
     def __init__(
         self, p: Iterable[numeric, numeric, numeric], nid=None, bc=None, r=None, parent=None, units=Units.M, refs=None
     ):
         self._id = nid
-        self.p: np.ndarray = np.array([*p], dtype=np.float64) if type(p) != np.ndarray else p
+        self.p: Point = Point(*p)
         if len(self.p) != 3:
             raise ValueError("Node object must have exactly 3 coordinates (x, y, z).")
 
@@ -116,12 +117,12 @@ class Point:
         """Returns if node is valid, i.e. has objects in refs"""
         return len(self.refs) > 0
 
-    def get_main_node_at_point(self) -> Point:
+    def get_main_node_at_point(self) -> Node:
         nodes = self.sort_by_refs_at_point()
         (nearest_node,) = sort_nodes_by_distance(self, nodes)
         return nearest_node
 
-    def sort_by_refs_at_point(self) -> list[Point]:
+    def sort_by_refs_at_point(self) -> list[Node]:
         nodes = list(filter(lambda n: n.has_refs, self.parent.nodes.get_by_volume(self)))
         if len(nodes) > 0:
             return sorted(nodes, key=lambda n: len(n.refs), reverse=True)
@@ -143,13 +144,13 @@ class Point:
     def __le__(self, other):
         return tuple(self.p) <= tuple(other.p)
 
-    def __eq__(self, other: Point):
-        if not isinstance(other, Point):
+    def __eq__(self, other: Node):
+        if not isinstance(other, Node):
             return NotImplemented
         return (*self.p, self.id) == (*other.p, other.id)
 
-    def __ne__(self, other: Point):
-        if not isinstance(other, Point):
+    def __ne__(self, other: Node):
+        if not isinstance(other, Node):
             return NotImplemented
         return (*self.p, self.id) != (*other.p, other.id)
 
@@ -160,7 +161,7 @@ class Point:
         return f"Node([{self.x}, {self.y}, {self.z}], {self.id})"
 
 
-def get_singular_node_by_volume(nodes: Nodes, p: np.ndarray, tol=Settings.point_tol) -> Point:
+def get_singular_node_by_volume(nodes: Nodes, p: np.ndarray, tol=Settings.point_tol) -> Node:
     """Returns existing node within the volume, or creates and returns a new Node at the point"""
     nds = nodes.get_by_volume(p, tol=tol)
     if len(nds) > 0:
@@ -169,11 +170,11 @@ def get_singular_node_by_volume(nodes: Nodes, p: np.ndarray, tol=Settings.point_
             logger.warning(f"More than 1 node within point {p}, other nodes: {other_nodes}. Returns node {node}")
         return node
     else:
-        return Point(p)
+        return Node(p)
 
 
-def sort_nodes_by_distance(point: Union[Point, np.ndarray], nodes: list[Point]) -> list[Point]:
-    if isinstance(point, Point):
+def sort_nodes_by_distance(point: Union[Node, np.ndarray], nodes: list[Node]) -> list[Node]:
+    if isinstance(point, Node):
         point = point.p
     return sorted(nodes, key=lambda x: vector_length(x.p - point))
 
@@ -210,7 +211,7 @@ def replace_nodes_by_tol(nodes, decimals=0, tol=Settings.point_tol):
                 replace_node(nearby_node, node)
 
 
-def replace_node(old_node: Point, new_node: Point) -> None:
+def replace_node(old_node: Node, new_node: Node) -> None:
     """
     Exchange the old nod with the new. The refs in old node is cleared, and added to new node ref
     :param old_node:

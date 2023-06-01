@@ -14,8 +14,8 @@ from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_
 from ada.materials.utils import get_material
 from ada.sections.utils import get_section
 
-from .curves import ArcSegment
-from .points import Point
+from ada.concepts.curves import ArcSegment
+from ada.concepts.nodes import Node
 
 if TYPE_CHECKING:
     from ada import Section
@@ -35,9 +35,9 @@ class Pipe(BackendGeom):
         self.section.refs.append(self)
         self.material.refs.append(self)
 
-        self._n1 = points[0] if type(points[0]) is Point else Point(points[0], units=units)
-        self._n2 = points[-1] if type(points[-1]) is Point else Point(points[-1], units=units)
-        self._points = [Point(n, units=units) if type(n) is not Point else n for n in points]
+        self._n1 = points[0] if type(points[0]) is Node else Node(points[0], units=units)
+        self._n2 = points[-1] if type(points[-1]) is Node else Node(points[-1], units=units)
+        self._points = [Node(n, units=units) if type(n) is not Node else n for n in points]
         self._segments = build_pipe_segments(self)
 
     @property
@@ -89,15 +89,15 @@ class Pipe(BackendGeom):
         self._section = value
 
     @property
-    def n1(self) -> Point:
+    def n1(self) -> Node:
         return self._n1
 
     @property
-    def n2(self) -> Point:
+    def n2(self) -> Node:
         return self._n2
 
     @property
-    def nodes(self) -> list[Point]:
+    def nodes(self) -> list[Node]:
         return [self.n1, self.n2]
 
     @property
@@ -123,7 +123,7 @@ class Pipe(BackendGeom):
 
     @staticmethod
     def from_segments(name: str, segments: list[PipeSegStraight | PipeSegElbow]) -> Pipe:
-        points = list(chain.from_iterable([(Point(x.p1), Point(x.p2)) for x in segments]))
+        points = list(chain.from_iterable([(Node(x.p1), Node(x.p2)) for x in segments]))
         seg0 = segments[0]
         seg0_section = seg0.section
         seg0_material = seg0.material
@@ -340,21 +340,21 @@ def build_pipe_segments(pipe: Pipe) -> list[PipeSegStraight, PipeSegElbow]:
             if i == 0 or len(pipe_segments) == 0:
                 pipe_segments.append(
                     PipeSegStraight(
-                        next(seg_names), Point(seg1.p1, units=pipe.units), Point(seg1.p2, units=pipe.units), **props
+                        next(seg_names), Node(seg1.p1, units=pipe.units), Node(seg1.p2, units=pipe.units), **props
                     )
                 )
             else:
                 if len(pipe_segments) == 0:
                     continue
                 pseg = pipe_segments[-1]
-                pseg.p2 = Point(seg1.p2, units=pipe.units)
+                pseg.p2 = Node(seg1.p2, units=pipe.units)
 
             pipe_segments.append(
                 PipeSegElbow(
                     next(seg_names) + "_Elbow",
-                    Point(seg1.p1, units=pipe.units),
-                    Point(p21.p, units=pipe.units),
-                    Point(seg2.p2, units=pipe.units),
+                    Node(seg1.p1, units=pipe.units),
+                    Node(p21.p, units=pipe.units),
+                    Node(seg2.p2, units=pipe.units),
                     arc.radius,
                     **props,
                     arc_seg=arc,
@@ -362,7 +362,7 @@ def build_pipe_segments(pipe: Pipe) -> list[PipeSegStraight, PipeSegElbow]:
             )
             pipe_segments.append(
                 PipeSegStraight(
-                    next(seg_names), Point(seg2.p1, units=pipe.units), Point(seg2.p2, units=pipe.units), **props
+                    next(seg_names), Node(seg2.p1, units=pipe.units), Node(seg2.p2, units=pipe.units), **props
                 )
             )
 

@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
 
-from ada import Part, Point
+from ada import Part, Node
 from ada.fem import Bc, FemSet
 
 
@@ -15,7 +15,7 @@ def get_boundary_conditions(xml_root: ET.Element, parent: Part) -> list[Bc]:
 
         # Get position
         pos = position[0]
-        n = Point([float(y) for x, y in pos.items()])
+        n = Node([float(y) for x, y in pos.items()])
         parent.fem.nodes.add(n)
 
         # get dofs

@@ -12,18 +12,9 @@ from pygfx.linalg import Vector3
 from pygfx.utils import Color
 import pygfx as gfx
 
-from ada.core.vector_utils import rot_matrix
 from ada.visit.gltf.meshes import MeshStore
 
 DTYPE = "f4"
-
-_m3x3 = rot_matrix((0, -1, 0))
-_m3x3_with_col = np.append(_m3x3, np.array([[0], [0], [0]]), axis=1)
-m4x4_z_up_rot = np.r_[_m3x3_with_col, [np.array([0, 0, 0, 1])]]
-
-m3x3_rev = rot_matrix((0, 1, 0))
-_m3x3_with_col = np.append(_m3x3, np.array([[0], [0], [0]]), axis=1)
-m4x4_z_up_rot_reverse = np.r_[_m3x3_with_col, [np.array([0, 0, 0, 1])]]
 
 
 class AxesHelper(Line):

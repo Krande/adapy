@@ -1,12 +1,12 @@
 from typing import List
 
 import ada
-from ada import Point
+from ada import Node
 
 test_dir = ada.config.Settings.test_dir / "fem_to_concepts"
 
 
-def create_shell_elem(el_id: int, nodes: List[Point], fem: ada.FEM):
+def create_shell_elem(el_id: int, nodes: List[Node], fem: ada.FEM):
     for n in nodes:
         fem.nodes.add(n)
 
@@ -22,16 +22,16 @@ def create_shell_elem(el_id: int, nodes: List[Point], fem: ada.FEM):
 def test_shell_elem_to_plate():
     p = ada.Part("MyPart")
     nodes1 = [
-        Point([-15.0001154, -6.0, 24.5], 799),
-        Point([-16.0, -6.0, 24.5], 571),
-        Point([-16.0, -7.0, 24.5], 570),
-        Point([-15.0015383, -7.0, 24.5], 802),
+        Node([-15.0001154, -6.0, 24.5], 799),
+        Node([-16.0, -6.0, 24.5], 571),
+        Node([-16.0, -7.0, 24.5], 570),
+        Node([-15.0015383, -7.0, 24.5], 802),
     ]
     nodes2 = [
-        Point([-15.0015383, -7.0, 24.5], 802),
-        Point([-16.0, -7.0, 24.5], 570),
-        Point([-16.0, -8.0, 24.5], 529),
-        Point([-15.0, -8.0, 24.5], 651),
+        Node([-15.0015383, -7.0, 24.5], 802),
+        Node([-16.0, -7.0, 24.5], 570),
+        Node([-16.0, -8.0, 24.5], 529),
+        Node([-15.0, -8.0, 24.5], 651),
     ]
 
     create_shell_elem(999, nodes1, p.fem)

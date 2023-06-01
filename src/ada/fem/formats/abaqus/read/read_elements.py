@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.concepts.points import Point
+from ada.concepts.nodes import Node
 from ada.config import logger
 from ada.core.utils import Counter
 from ada.fem import Connector, Elem
@@ -90,12 +90,12 @@ def get_elem_nodes(elem_nodes_str, fem: "FEM"):
             if par_ is None:
                 raise ValueError(f'Unable to find parent for "{par}"')
             r = par_.fem.nodes.from_id(str_to_int(setr))
-            if type(r) != Point:
+            if type(r) != Node:
                 raise ValueError("Node ID not found")
             elem_nodes.append(r)
         else:
             r = fem.nodes.from_id(str_to_int(d))
-            if type(r) != Point:
+            if type(r) != Node:
                 raise ValueError("Node ID not found")
             elem_nodes.append(r)
     return elem_nodes

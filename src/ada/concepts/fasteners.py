@@ -7,7 +7,7 @@ from ada.base.types import BaseEnum
 from ada.core.vector_utils import unit_vector
 
 if TYPE_CHECKING:
-    from ada import Beam, Plate, Point, PrimExtrude
+    from ada import Beam, Plate, Node, PrimExtrude
 
 
 class Bolts(BackendGeom):
@@ -45,10 +45,10 @@ class Weld(BackendGeom):
         parent=None,
     ):
         super(Weld, self).__init__(name, parent=parent)
-        from ada import Point, PrimExtrude
+        from ada import Node, PrimExtrude
 
-        p1 = Point(p1) if isinstance(p1, Point) is False else p1
-        p2 = Point(p2) if isinstance(p2, Point) is False else p2
+        p1 = Node(p1) if isinstance(p1, Node) is False else p1
+        p2 = Node(p2) if isinstance(p2, Node) is False else p2
         vec = unit_vector(p2.p - p1.p)
 
         if isinstance(weld_type, str):
@@ -79,11 +79,11 @@ class Weld(BackendGeom):
         return self._weld_type
 
     @property
-    def p1(self) -> Point:
+    def p1(self) -> Node:
         return self._p1
 
     @property
-    def p2(self) -> Point:
+    def p2(self) -> Node:
         return self._p2
 
     @property

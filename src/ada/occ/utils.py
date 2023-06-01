@@ -35,19 +35,21 @@ from OCC.Core.TopoDS import (
     TopoDS_Vertex,
     TopoDS_Wire,
 )
-from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Circ, gp_Dir, gp_Pln, gp_Pnt, gp_Trsf, gp_Vec
+from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Circ, gp_Dir, gp_Pln, gp_Pnt, gp_Trsf, gp_Vec, gp_Ax3
 from OCC.Extend.DataExchange import read_step_file
 from OCC.Extend.ShapeFactory import make_extrusion, make_face, make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
 from ada.concepts.primitives import Penetration
-from ada.concepts.stru_beams import Beam
+from ada.concepts.beams import Beam
 from ada.concepts.transforms import Placement, Rotation
 from ada.config import logger
 from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem.shapes import ElemType
 from .exceptions import UnableToBuildNSidedWires, UnableToCreateSolidOCCGeom
+from ..geom.placement import Direction
+from ..geom.points import Point
 
 if TYPE_CHECKING:
     from ada import Part
@@ -857,3 +859,20 @@ def wire_to_face(edges: List[TopoDS_Edge]) -> TopoDS_Face:
         raise UnableToBuildNSidedWires(e)
     face = n_sided.Face()
     return face
+
+
+def transform_shape_to_pos(shape: TopoDS_Shape, location: Point, axis: Direction, ref_dir: Direction) -> TopoDS_Shape:
+    # Create a transformation to move the extruded area solid to the correct position
+    trsf_rot = gp_Trsf()
+
+    # Rotate the extruded area solid around 0,0,0
+    ax_global = gp_Ax3(gp_Pnt(*Point(0, 0, 0)), gp_Dir(*Direction(0, 0, 1)), gp_Dir(*Direction(1, 0, 0)))
+    ax_local = gp_Ax3(gp_Pnt(*Point(0, 0, 0)), gp_Dir(*axis), gp_Dir(*ref_dir))
+    trsf_rot.SetTransformation(ax_local, ax_global)
+    shape1 = BRepBuilderAPI_Transform(shape, trsf_rot, True).Shape()
+
+    # Translate the extruded area solid
+    trsf = gp_Trsf()
+    trsf.SetTranslation(gp_Vec(*location))
+
+    return BRepBuilderAPI_Transform(shape1, trsf, True).Shape()

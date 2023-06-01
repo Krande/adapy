@@ -1,4 +1,4 @@
-from ada import Beam, Material, Point, Section
+from ada import Beam, Material, Node, Section
 from ada.fem import Elem, FemSection, FemSet
 from ada.materials.metals import CarbonSteel
 
@@ -45,7 +45,7 @@ def test_positive_contained_shell(part_with_shell):
 def test_negative_contained_shell(part_with_shell):
     # Testing equal operator for different shell thickness
     mat = Material("my_mat")
-    elem = Elem(1, [Point((0, 0, 0)), Point((1, 0, 0)), Point((1, 1, 0)), Point((0, 1, 0))], "quad")
+    elem = Elem(1, [Node((0, 0, 0)), Node((1, 0, 0)), Node((1, 1, 0)), Node((0, 1, 0))], "quad")
     fem_set = FemSet("my_set", [elem], "elset")
     fem_sec = FemSection("my_sec", "shell", fem_set, mat, thickness=0.02)
 
@@ -55,7 +55,7 @@ def test_negative_contained_shell(part_with_shell):
 def test_negative_contained_shell_(part_with_shell):
     # Testing equal operator for change in element type
     mat = Material("my_mat")
-    elem = Elem(1, [Point((0, 0, 0)), Point((1, 0, 0)), Point((1, 1, 0)), Point((0, 1, 0))], "quad")
+    elem = Elem(1, [Node((0, 0, 0)), Node((1, 0, 0)), Node((1, 1, 0)), Node((0, 1, 0))], "quad")
     fem_set = FemSet("my_set", [elem], "elset")
     fem_sec = FemSection("my_sec", "shell", fem_set, mat, thickness=0.01)
 

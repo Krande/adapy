@@ -3,7 +3,7 @@ from typing import Callable, List, Tuple
 import numpy as np
 
 import ada
-from ada import Assembly, Beam, Material, Part, Pipe, Plate, Point, PrimSphere, Section
+from ada import Assembly, Beam, Material, Part, Pipe, Plate, Node, PrimSphere, Section
 from ada.concepts.transforms import Placement
 from ada.core.clash_check import penetration_check
 from ada.core.constants import X, Y, Z
@@ -132,7 +132,7 @@ class SimpleStru(Part):
     def add_bcs(self):
         funcs: List[Callable] = [self.c1, self.c2, self.c3, self.c4]
         fem_set_btn = self.fem.add_set(FemSet("fix", [], FemSet.TYPES.NSET))
-        nodes: List[Point] = []
+        nodes: List[Node] = []
         col_btn_offset = np.array([0, 0, self._btn_col])
         for bc_loc in funcs:
             location = self.placement.origin + bc_loc(self._elevations[0]) + col_btn_offset

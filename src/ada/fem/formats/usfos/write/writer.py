@@ -1,7 +1,7 @@
 import os
 from operator import attrgetter
 
-from ada import FEM, Assembly, Material, Part, Point
+from ada import FEM, Assembly, Material, Part, Node
 from ada.core.utils import Counter, NewLine, roundoff
 from ada.fem import Bc, FemSet, Mass
 
@@ -148,7 +148,7 @@ def nodal_str(fem: FEM) -> str:
 
         return bcs_str
 
-    def write_node(no: Point):
+    def write_node(no: Node):
         bc_str = "" if no.bc is None else write_bc(no.bc)
         return f.format(nid=no.id, x=no[0], y=no[1], z=no[2], bc=bc_str)
 

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Dict, List, Union
 import numpy as np
 
 from ada.concepts.containers import Nodes
-from ada.concepts.points import Point
+from ada.concepts.nodes import Node
 from ada.concepts.transforms import Rotation, Transform
 from ada.config import logger
 from ada.core.utils import Counter
@@ -369,7 +369,7 @@ def get_nodes_from_inp(bulk_str, parent: FEM) -> Nodes:
         d = m.groupdict()
         res = np.fromstring(list_cleanup(d["members"]), sep=",", dtype=np.float64)
         res_ = res.reshape(int(res.size / 4), 4)
-        members = [Point(n[1:4], int(n[0]), parent=parent) for n in res_]
+        members = [Node(n[1:4], int(n[0]), parent=parent) for n in res_]
         if d["nset"] is not None:
             parent.sets.add(FemSet(d["nset"], members, "nset", parent=parent))
         return members

@@ -32,18 +32,23 @@ class OCCStore:
 
     @staticmethod
     def shape_iterator(
-        part: ada.Part | BackendGeom | StepStore, geom_repr: GeomRepr = GeomRepr.SOLID
+        part: ada.Part | BackendGeom | StepStore,
+        geom_repr: GeomRepr = GeomRepr.SOLID,
+        render_override: dict[str, GeomRepr] = None,
     ) -> tuple[BackendGeom, TopoDS_Shape]:
         from ada.cadit.step.store import StepStore
+        if render_override is None:
+            render_override = {}
 
         if isinstance(geom_repr, str):
             geom_repr = GeomRepr.from_str(geom_repr)
 
         def safe_geom(obj_):
+            geo_repr = render_override.get(obj_.guid, geom_repr)
             try:
-                if geom_repr == GeomRepr.SOLID:
+                if geo_repr == GeomRepr.SOLID:
                     return obj_.solid()
-                elif geom_repr == GeomRepr.SHELL:
+                elif geo_repr == GeomRepr.SHELL:
                     return obj_.shell()
             except RuntimeError as e:
                 logger.warning(f"Failed to add shape {obj.name} due to {e}")

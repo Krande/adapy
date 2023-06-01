@@ -1,6 +1,6 @@
 import pytest
 
-from ada import FEM, Point
+from ada import FEM, Node
 from ada.fem.formats.abaqus.read.read_orientations import get_lcsys_from_bulk
 
 
@@ -16,9 +16,9 @@ def ori_w_nodes_text():
 
 def test_read_orientation_str(ori_w_nodes_text):
     fem = FEM("DummyFEM")
-    fem.nodes.add(Point((0, 0, 0), 5))
-    fem.nodes.add(Point((1, 0, 0), 95))
-    fem.nodes.add(Point((1, 1, 0), 126))
+    fem.nodes.add(Node((0, 0, 0), 5))
+    fem.nodes.add(Node((1, 0, 0), 95))
+    fem.nodes.add(Node((1, 1, 0), 126))
     res = get_lcsys_from_bulk(ori_w_nodes_text, fem)
     assert len(res) == 1
     csys = res["dummy_csys"]

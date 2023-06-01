@@ -4,12 +4,12 @@ from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
-from .points import Point
-from .transforms import Placement
+from ada.concepts.nodes import Node
+from ada.concepts.transforms import Placement
 
 if TYPE_CHECKING:
     from ada import Beam
-    from ada.geom.curves import IndexedPolyCurve
+    from ada.geom.curves import IndexedPolyCurve, Line, ArcLine
 
 
 class CurveRevolve:
@@ -184,7 +184,7 @@ class CurvePoly:
 
         csys = [self.placement.xdir, self.placement.ydir]
         points2d = global_2_local_nodes(csys, self.placement.origin, [np.array(x[:3]) for x in points3d])
-        points3d = [x.p if type(x) is Point else x for x in points3d]
+        points3d = [x.p if type(x) is Node else x for x in points3d]
         for i, p in enumerate(points3d):
             if len(p) == 4:
                 points2d[i] = (points2d[i][0], points2d[i][1], p[-1])
@@ -216,7 +216,7 @@ class CurvePoly:
 
         self._seg_list = seg_list
         self._seg_global_points, self._seg_index = segments_to_indexed_lists(seg_list)
-        self._nodes = [Point(p) if len(p) == 3 else Point(p[:3], r=p[3]) for p in self._points3d]
+        self._nodes = [Node(p) if len(p) == 3 else Node(p[:3], r=p[3]) for p in self._points3d]
 
     def _update_curves(self):
         from ada.core.vector_utils import local_2_global_points
@@ -270,11 +270,11 @@ class CurvePoly:
         return self._points2d
 
     @property
-    def points3d(self) -> List[Point]:
+    def points3d(self) -> List[Node]:
         return self._points3d
 
     @property
-    def nodes(self) -> List[Point]:
+    def nodes(self) -> List[Node]:
         return self._nodes
 
     @property
@@ -295,9 +295,15 @@ class CurvePoly:
 
         return segments_to_edges(self.seg_list)
 
-    def get_edges_geom(self) -> IndexedPolyCurve:
+    def get_edges_geom(self) -> IndexedPolyCurve | Line | ArcLine:
         from ada.geom.curves import ArcLine, IndexedPolyCurve, Line
 
+        if len(self.seg_list) == 1:
+            seg = self.seg_list[0]
+            if isinstance(seg, ArcSegment):
+                return ArcLine(seg.p1, seg.midpoint, seg.p2)
+            else:
+                return Line(seg.p1, seg.p2)
         segments = []
         for seg in self.seg_list:
             if isinstance(seg, ArcSegment):

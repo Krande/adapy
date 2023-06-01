@@ -24,7 +24,7 @@ from ada.concepts.containers import (
 )
 from ada.concepts.groups import Group
 from ada.concepts.piping import Pipe
-from ada.concepts.points import Point
+from ada.concepts.nodes import Node
 from ada.concepts.presentation_layers import PresentationLayers
 from ada.concepts.primitives import (
     Penetration,
@@ -747,7 +747,7 @@ class Part(BackendGeom):
 
         for mass_shape in masses:
             cog_absolute = mass_shape.placement.absolute_placement() + mass_shape.cog
-            n = fem.nodes.add(Point(cog_absolute))
+            n = fem.nodes.add(Node(cog_absolute))
             fem.add_mass(Mass(f"{mass_shape.name}_mass", [n], mass_shape.mass))
 
         # Move FEM mesh to match part placement origin
@@ -782,13 +782,15 @@ class Part(BackendGeom):
             [int, int],
             None,
         ] = None,
+        render_override: dict[str, GeomRepr] = None
     ):
         from ada.occ.store import OCCStore
 
         step_writer = OCCStore.get_step_writer()
 
         num_shapes = len(list(self.get_all_physical_objects()))
-        for i, (obj, shape) in enumerate(OCCStore.shape_iterator(self, geom_repr=geom_repr), start=1):
+        shape_iter = OCCStore.shape_iterator(self, geom_repr=geom_repr, render_override=render_override)
+        for i, (obj, shape) in enumerate(shape_iter, start=1):
             step_writer.add_shape(shape, obj.name, rgb_color=obj.color.rgb)
             if progress_callback is not None:
                 progress_callback(i, num_shapes)

@@ -1,9 +1,10 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Union
 
 from ada.geom.curves import CurveType
 from ada.geom.placement import Axis2Placement3D
+from ada.geom.points import Point
 
 
 # STEP AP242 and IFC 4x3
@@ -29,6 +30,27 @@ class ArbitraryProfileDefWithVoids(ProfileDef):
     inner_curves: list[Any] = field(default_factory=list)
 
 
+@dataclass
+class PolyLoop:
+    polygon: list[Point]
+
+
+@dataclass
+class FaceBound:
+    bound: PolyLoop
+    orientation: bool
+
+
+@dataclass
+class ConnectedFaceSet:
+    cfs_faces: list[FaceBound]
+
+
+@dataclass
+class FaceBasedSurfaceModel:
+    fbsm_faces: list[ConnectedFaceSet]
+
+
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcSurfaceOfLinearExtrusion.htm)
 @dataclass
 class SurfaceOfLinearExtrusion:
@@ -44,4 +66,4 @@ class SweptArea:
     position: Axis2Placement3D
 
 
-SURFACE_GEOM_TYPES = (ArbitraryProfileDefWithVoids,)
+SURFACE_GEOM_TYPES = Union[ArbitraryProfileDefWithVoids, FaceBasedSurfaceModel]

@@ -10,8 +10,8 @@ import numpy as np
 
 from ada.base.units import Units
 from ada.concepts.exceptions import DuplicateNodes
-from ada.concepts.points import Point, replace_node
-from ada.concepts.stru_beams import Beam
+from ada.concepts.nodes import Node, replace_node
+from ada.concepts.beams import Beam
 from ada.concepts.stru_plates import Plate
 from ada.concepts.transforms import Rotation
 from ada.config import Settings, logger
@@ -118,10 +118,10 @@ class Beams(BaseCollections):
     def merge_beams(self, beam_segments: Iterable[Beam]) -> Beam:
         """Merge all beam segments into the first entry in beam_segments by changing the beam nodes."""
 
-        def get_end_nodes() -> list[Point]:
+        def get_end_nodes() -> list[Node]:
             end_beams = filter(lambda x: len(self.connected_beams_map.get(x, list())) == 1, beam_segments)
 
-            end_nds: list[Point] = list()
+            end_nds: list[Node] = list()
 
             for beam in end_beams:
                 (node_without_connected_beam,) = self.connected_beams_map[beam]
@@ -158,7 +158,7 @@ class Beams(BaseCollections):
     def connected_beams_map(self) -> dict[Beam, Iterable[Beam]]:
         return self._connected_beams_map
 
-    def get_beams_at_point(self, point: Union[Point, np.ndarray]) -> list[Beam]:
+    def get_beams_at_point(self, point: Union[Node, np.ndarray]) -> list[Beam]:
         return list(filter(lambda x: x.is_point_on_beam(point), self._beams))
 
     def index(self, item: Beam) -> int:
@@ -403,7 +403,7 @@ class Connections(BaseCollections):
         if joint.name in self._dmap.keys():
             raise ValueError("Joint Exists with same name")
 
-        new_node = Point(joint.centre)
+        new_node = Node(joint.centre)
         node = self._joint_centre_nodes.add(new_node, point_tol=point_tol)
         if node != new_node:
             return self._nmap[node]
@@ -809,9 +809,9 @@ class Nodes:
             n.id = renumber_map[n.id]
 
     def _np_array_to_nlist(self, np_array):
-        from ada import Point
+        from ada import Node
 
-        return [Point(row[1:], int(row[0]), parent=self._parent) for row in np_array]
+        return [Node(row[1:], int(row[0]), parent=self._parent) for row in np_array]
 
     def to_np_array(self, include_id=False):
         if include_id:
@@ -834,7 +834,7 @@ class Nodes:
     def __len__(self):
         return len(self._nodes)
 
-    def __iter__(self) -> Iterable[Point]:
+    def __iter__(self) -> Iterable[Node]:
         return iter(self._nodes)
 
     def __getitem__(self, index):
@@ -907,7 +907,7 @@ class Nodes:
         return (xmin, xmax), (ymin, ymax), (zmin, zmax)
 
     @property
-    def dmap(self) -> Dict[str, Point]:
+    def dmap(self) -> Dict[str, Node]:
         return self._idmap
 
     @property
@@ -929,10 +929,10 @@ class Nodes:
         return min(self.dmap.keys()) if len(self.dmap.keys()) > 0 else 0
 
     @property
-    def nodes(self) -> List[Point]:
+    def nodes(self) -> List[Node]:
         return self._nodes
 
-    def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=Settings.point_tol) -> List[Point]:
+    def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=Settings.point_tol) -> List[Node]:
         """
 
         :param p: Point
@@ -957,8 +957,8 @@ class Nodes:
             raise Exception("No valid search input provided. None is returned")
 
         vol_min, vol_max = zip(*vol)
-        xmin = bisect_left(self._nodes, Point(vol_min))
-        xmax = bisect_right(self._nodes, Point(vol_max))
+        xmin = bisect_left(self._nodes, Node(vol_min))
+        xmax = bisect_right(self._nodes, Node(vol_max))
 
         xlist = sorted(self._nodes[xmin:xmax], key=attrgetter("y"))
         ysorted = [n.y for n in xlist]
@@ -992,7 +992,7 @@ class Nodes:
         else:
             return list(simplesearch)
 
-    def add(self, node: Point, point_tol: float = Settings.point_tol, allow_coincident: bool = False) -> Point:
+    def add(self, node: Node, point_tol: float = Settings.point_tol, allow_coincident: bool = False) -> Node:
         """Insert node into sorted list"""
 
         def insert_node(n, i):
@@ -1022,7 +1022,7 @@ class Nodes:
 
         return node
 
-    def remove(self, nodes: Union[Point, Iterable[Point]]):
+    def remove(self, nodes: Union[Node, Iterable[Node]]):
         """Remove node(s) from the nodes container"""
         nodes = list(nodes) if isinstance(nodes, Iterable) else [nodes]
         for node in nodes:
@@ -1044,7 +1044,7 @@ class Nodes:
         :return:
         """
 
-        def replace_duplicate_nodes(duplicates: Iterable[Point], new_node: Point):
+        def replace_duplicate_nodes(duplicates: Iterable[Node], new_node: Node):
             if duplicates and len(new_node.refs) >= np.max(list(map(lambda x: len(x.refs), duplicates))):
                 for duplicate_node in duplicates:
                     replace_node(duplicate_node, new_node)

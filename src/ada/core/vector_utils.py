@@ -87,6 +87,31 @@ class EquationOfPlane:
         return p - dist * self.normal
 
 
+def transform_csys_to_csys(x_vector1, y_vector1, x_vector2, y_vector2) -> np.ndarray:
+    # Original coordinate system
+    z_vector1 = np.cross(x_vector1, y_vector1)
+
+    # Final coordinate system
+    z_vector2 = np.cross(x_vector2, y_vector2)
+
+    # Normalize vectors
+    x_vector1 = x_vector1 / np.linalg.norm(x_vector1)
+    y_vector1 = y_vector1 / np.linalg.norm(y_vector1)
+    z_vector1 = z_vector1 / np.linalg.norm(z_vector1)
+
+    x_vector2 = x_vector2 / np.linalg.norm(x_vector2)
+    y_vector2 = y_vector2 / np.linalg.norm(y_vector2)
+    z_vector2 = z_vector2 / np.linalg.norm(z_vector2)
+
+    # Create matrices
+    original_matrix = np.array([x_vector1, y_vector1, z_vector1]).T
+    new_matrix = np.array([x_vector2, y_vector2, z_vector2]).T
+
+    # Calculate rotation matrix
+    rotation_matrix = np.dot(new_matrix, np.linalg.inv(original_matrix))
+    return rotation_matrix
+
+
 def transform(matrix: np.ndarray, pos: np.ndarray) -> np.ndarray:
     """Transforms an array of points by a transformation matrix."""
     pos = np.hstack((pos, np.ones((pos.shape[0], 1))))
@@ -586,17 +611,17 @@ def global_2_local_nodes(csys, origin, nodes, use_quaternion=True):
     :param nodes: list of nodes
     :return: List of local node coordinates
     """
-    from ada import Point
+    from ada import Node
 
     global_csys = [(1, 0, 0), (0, 1, 0)]
     rmat = rotation_matrix_csys_rotate(global_csys, csys, use_quaternion=use_quaternion)
 
-    if type(origin) is Point:
+    if type(origin) is Node:
         origin = origin.p
     elif type(origin) in (list, tuple):
         origin = np.array(origin)
 
-    if type(nodes[0]) is Point:
+    if type(nodes[0]) is Node:
         nodes = [no.p for no in nodes]
 
     res = [np.dot(rmat, p - origin) for p in nodes]
@@ -613,13 +638,13 @@ def local_2_global_points(points, origin, xdir, normal):
     :param xdir: Local X-direction
     :return:
     """
-    from ada.concepts.points import Point
+    from ada.concepts.nodes import Node
     from ada.core.constants import X, Y
 
-    if type(origin) is Point:
+    if type(origin) is Node:
         origin = origin.p
 
-    if type(points[0]) is Point:
+    if type(points[0]) is Node:
         points = [no.p for no in points]
 
     points = [

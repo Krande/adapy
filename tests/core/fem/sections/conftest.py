@@ -1,6 +1,6 @@
 import pytest
 
-from ada import Beam, Material, Part, Point, Section
+from ada import Beam, Material, Part, Node, Section
 from ada.fem import Elem, FemSection, FemSet
 
 
@@ -23,7 +23,7 @@ def part_with_beam():
 def part_with_shell():
     p = Part("my_part")
     mat = Material("my_mat")
-    elem = Elem(1, [Point((0, 0, 0)), Point((1, 0, 0)), Point((1, 1, 0)), Point((0, 1, 0))], "quad")
+    elem = Elem(1, [Node((0, 0, 0)), Node((1, 0, 0)), Node((1, 1, 0)), Node((0, 1, 0))], "quad")
     fem_set = FemSet("my_set", [elem], "elset")
     fem_sec = FemSection("my_sec", "shell", fem_set, mat, thickness=0.01)
     for n in elem.nodes:

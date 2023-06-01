@@ -8,7 +8,7 @@ import numpy as np
 from ada.config import Settings
 
 if TYPE_CHECKING:
-    from ada import FEM, Point
+    from ada import FEM, Node
     from ada.fem.steps import Step
 
 
@@ -67,7 +67,7 @@ class Csys(FemBase):
         name,
         definition=TYPES_DEFINITIONS.COORDINATES,
         system=TYPES_SYSTEM.RECTANGULAR,
-        nodes: List[Point] = None,
+        nodes: List[Node] = None,
         coords=None,
         metadata=None,
         parent: FEM = None,
@@ -90,10 +90,10 @@ class Csys(FemBase):
         return self._system
 
     @property
-    def nodes(self) -> List[Point]:
+    def nodes(self) -> List[Node]:
         return self._nodes
 
-    def updating_nodes(self, old_node: Point, new_node: Point) -> None:
+    def updating_nodes(self, old_node: Node, new_node: Node) -> None:
         """Updating nodes on Csys"""
 
     @property

@@ -7,7 +7,6 @@ from typing import Iterable
 import numpy as np
 import trimesh
 import trimesh.visual.material
-import pyquaternion as pq
 
 from ada import Part
 from ada.base.types import GeomRepr
@@ -16,7 +15,6 @@ from ada.geom import Geometry
 from ada.occ.tessellating import BatchTessellator
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
-from ada.core.vector_utils import rot_matrix, transform
 
 try:
     import pygfx as gfx
@@ -149,10 +147,7 @@ class RendererPyGFX:
 
         self.scene.add(self.selected_mesh)
         coord = np.array(event.pick_info["face_coord"])
-
-        rotated_coord = transform(gfx_utils.m4x4_z_up_rot_reverse, np.array([coord]))
-
-        print(mesh_data, rotated_coord)
+        print(mesh_data, coord)
 
     def _add_event_handlers(self):
         ob = self._scene_objects

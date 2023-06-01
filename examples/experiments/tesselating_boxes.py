@@ -71,7 +71,7 @@ def create_box_grid(x_count: int, y_count: int, z_count: int, min_size: float, m
 
 @calculate_time
 def tessellate_boxes(boxes):
-    return [shape_to_tri_mesh(box, Color.randomize()) for box in boxes]
+    return [shape_to_tri_mesh(box, list(Color.randomize())) for box in boxes]
 
 
 @calculate_time
@@ -91,7 +91,7 @@ def optimize_boxes_glb(glb_path):
 
 
 def main():
-    num = 5  # On my machine anything above 10 will push the execution time > 2 seconds
+    num = 15  # On my machine anything above 10 will push the execution time > 2 seconds
     # Would probably have to write a C++ extension to speed this up
     glb_path = pathlib.Path("temp/boxes.glb")
     print(f"Tessellating {num ** 3} boxes")

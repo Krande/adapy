@@ -16,7 +16,7 @@ from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import MergedMesh, MeshRef, MeshStore, MeshType
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.optimizing import optimize_positions
-from ada.visit.render_pygfx_helpers import m4x4_z_up_rot
+from ada.visit.utils import m4x4_z_up_rot
 
 
 @dataclass

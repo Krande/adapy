@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple, Union
 import numpy as np
 
 from ada.concepts.containers import Materials
-from ada.concepts.points import Point
+from ada.concepts.nodes import Node
 from ada.config import logger
 from ada.core.utils import Counter
 from ada.fem.elements import Connector, Elem, Mass, MassTypes
@@ -645,7 +645,7 @@ class FemSets:
         from ada.fem import Connector, Mass, Spring
 
         def get_nset(nref):
-            if type(nref) is Point:
+            if type(nref) is Node:
                 return nref
             else:
                 return fem_set.parent.nodes.from_id(nref)
@@ -668,7 +668,7 @@ class FemSets:
                 el_type = Elem
                 get_func = get_elset
             else:
-                el_type = Point
+                el_type = Node
                 get_func = get_nset
 
             res = list(filter(lambda x: type(x) != el_type, fset.members))
@@ -682,7 +682,7 @@ class FemSets:
                 fem_set.metadata["generate"] = False
 
         if fem_set.type == SetTypes.NSET:
-            if len(fem_set.members) == 1 and type(fem_set.members[0]) is str and type(fem_set.members[0]) is not Point:
+            if len(fem_set.members) == 1 and type(fem_set.members[0]) is str and type(fem_set.members[0]) is not Node:
                 fem_set._members = self.nodes[fem_set.members[0]]
                 fem_set.parent = self._fem_obj
                 return fem_set

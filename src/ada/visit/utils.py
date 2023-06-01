@@ -5,10 +5,23 @@ from typing import TYPE_CHECKING, Dict, Iterable, List
 import numpy as np
 
 from ada import FEM
+from ada.core.vector_utils import rot_matrix
 from ada.fem.utils import is_line_elem
 
 if TYPE_CHECKING:
     from ada.visit.concept import ObjectMesh
+
+_m3x3 = rot_matrix((0, -1, 0))
+_m3x3_with_col = np.append(_m3x3, np.array([[0], [0], [0]]), axis=1)
+m4x4_z_up_rot = np.r_[_m3x3_with_col, [np.array([0, 0, 0, 1])]]
+
+
+def rotate_to_z_up(points: np.ndarray) -> np.ndarray:
+    return points @ _m3x3.T
+
+
+def rotate_back_from_z_up(points: np.ndarray) -> np.ndarray:
+    return points @ _m3x3
 
 
 def get_faces_from_fem(fem: FEM):

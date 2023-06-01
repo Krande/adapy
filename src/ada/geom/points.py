@@ -23,7 +23,7 @@ class Point(np.ndarray):
         if length not in (2, 3):
             raise ValueError("Input must have a length of 2 or 3.")
 
-        if not all(isinstance(x, (float, int)) for x in iterable):
+        if not all(isinstance(x, (float, int, np.int32)) for x in iterable):
             raise ValueError("All elements in the input must be of type float or int.")
 
         obj = np.asarray(iterable, dtype=float).view(cls)
@@ -41,6 +41,9 @@ class Point(np.ndarray):
     @property
     def z(self):
         return self[2]
+
+    def is_equal(self, other):
+        return np.allclose(self, other)
 
     def __repr__(self):
         return f"Point({np.array2string(self, separator=', ')})"

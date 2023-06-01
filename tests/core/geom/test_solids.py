@@ -1,9 +1,9 @@
 from OCC.Core.TopoDS import TopoDS_Solid
 
-from ada.concepts.stru_beams import Beam
+from ada import Beam
 from ada.geom.solids import ExtrudedAreaSolid
 from ada.geom.surfaces import ArbitraryProfileDefWithVoids
-from ada.occ.geom.solids import make_extruded_area_shape_from_geom
+from ada.occ.geom import geom_to_occ_geom
 
 
 def test_ipe_beam():
@@ -20,5 +20,5 @@ def test_ipe_beam():
     assert geo_z.geometry.depth == 1.0
     assert isinstance(geo_z.geometry.swept_area, ArbitraryProfileDefWithVoids)
 
-    occ_shape = make_extruded_area_shape_from_geom(geo_z.geometry)
+    occ_shape = geom_to_occ_geom(geo_z)
     assert isinstance(occ_shape, TopoDS_Solid)

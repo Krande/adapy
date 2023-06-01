@@ -5,7 +5,9 @@ from typing import Iterable, Union
 from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
 
-CurveType = Union["Line", "ArcLine", "Circle", "Ellipse", "BSplineCurveWithKnots", "IndexedPolyCurve"]
+CurveType = Union[
+    "Line", "ArcLine", "Circle", "Ellipse", "BSplineCurveWithKnots", "IndexedPolyCurve", "GeometricCurveSet"
+]
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcLine.htm)
@@ -109,3 +111,8 @@ class BSplineCurveWithKnots:
 class IndexedPolyCurve:
     segments: list[Line | ArcLine]
     self_intersect: bool = False
+
+
+@dataclass
+class GeometricCurveSet:
+    elements: list[CurveType]
