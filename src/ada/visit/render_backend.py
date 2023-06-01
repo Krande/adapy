@@ -1,8 +1,8 @@
 import gzip
 import pathlib
 import sqlite3
+import time
 from dataclasses import dataclass
-from typing import Iterable
 
 import trimesh
 
@@ -79,7 +79,7 @@ class SqLiteBackend(RenderBackend):
 
     def _init_db(self):
         self.c.execute(
-            """CREATE TABLE mesh 
+            """CREATE TABLE if not exists mesh 
             (mesh_id text, parent_id test, full_name text, start int, end int, buffer_id int, glb_file_name text)"""
         )
         self.commit()
@@ -89,6 +89,8 @@ class SqLiteBackend(RenderBackend):
 
     def add_metadata(self, metadata: dict, tag: str) -> None:
         """Adds metadata to the database."""
+        # For really large models this might provide a speedbump
+        self.c.execute("""BEGIN TRANSACTION;""")
         id_sequence_data = {}
         for key, value in metadata.items():
             if "id_sequence" not in key:
