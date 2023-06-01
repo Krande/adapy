@@ -25,14 +25,14 @@ def test_ipe_beam():
 
     p1 = face1.bound.polygon[0]
 
-    assert pytest.approx(p1.x, -x)
-    assert pytest.approx(p1.y, -w/2)
-    assert pytest.approx(p1.z, z)
+    assert pytest.approx(p1.x) == -x
+    assert pytest.approx(p1.y) == -w/2
+    assert pytest.approx(p1.z) == z
 
     p2 = face1.bound.polygon[1]
-    assert pytest.approx(p2.x, -x)
-    assert pytest.approx(p2.y, w / 2)
-    assert pytest.approx(p2.z, z)
+    assert pytest.approx(p2.x) == -x
+    assert pytest.approx(p2.y) == w / 2
+    assert pytest.approx(p2.z) == z
 
     topo_ds = geom_to_occ_geom(geo_xyz)
     assert isinstance(topo_ds, TopoDS_Compound)
