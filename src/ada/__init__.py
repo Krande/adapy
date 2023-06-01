@@ -13,6 +13,7 @@ from ada.concepts.nodes import Node
 from ada.concepts.primitives import (
     Penetration,
     PrimBox,
+    PrimCone,
     PrimCyl,
     PrimExtrude,
     PrimRevolve,
@@ -119,6 +120,7 @@ __all__ = [
     "Node",
     "Placement",
     "PrimBox",
+    "PrimCone",
     "PrimCyl",
     "PrimExtrude",
     "PrimRevolve",

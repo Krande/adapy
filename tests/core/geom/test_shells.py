@@ -14,15 +14,25 @@ def test_ipe_beam():
     w = bm_xyz.section.w_top
     alpha = math.atan(1 / 1)
     assert math.degrees(alpha) == 45.0
-    y_o = h / 2
-    x = y_o * math.sin(alpha)
-    y = y_o * math.cos(alpha)
+    z_0 = h / 2
+    x = z_0 * math.sin(alpha)
+    z = z_0 * math.cos(alpha)
 
-    # Check face1
+    # Check face1 (top flange) geometry
     face1 = geo_xyz.geometry.fbsm_faces[0].cfs_faces[0]
     assert len(face1.bound.polygon) == 4
 
     p1 = face1.bound.polygon[0]
+    assert p1.x == -x
+    assert p1.y == -w/2
+    assert p1.z == z
+
+    p2 = face1.bound.polygon[1]
+    assert p2.x == -x
+    assert p2.y == w / 2
+    assert p2.z == z
 
     topo_ds = geom_to_occ_geom(geo_xyz)
     assert isinstance(topo_ds, TopoDS_Compound)
+
+

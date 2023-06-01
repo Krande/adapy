@@ -1,22 +1,41 @@
 from OCC.Core.TopoDS import TopoDS_Solid
 
-from ada import Beam
-from ada.geom.solids import ExtrudedAreaSolid
+import ada
+import ada.geom.solids as so
 from ada.geom.surfaces import ArbitraryProfileDefWithVoids
 from ada.occ.geom import geom_to_occ_geom
 
 
-def test_ipe_beam():
-    bm_x = Beam("my_beam_x", (0, 0, 0), (1, 0, 0), "IPE300")
-    bm_y = Beam("my_beam_y", (0, 0, 0), (0, 1, 0), "IPE300")
-    bm_z = Beam("my_beam_z", (0, 0, 0), (0, 0, 1), "IPE300")
-    bm_xyz = Beam("my_beam_xyz", (0, 0, 0), (1, 1, 1), "IPE300")
+def test_cyl():
+    cyl = ada.PrimCyl("my_cyl", (0, 0, 0), (0, 0, 1), 1.0)
+    geo = cyl.solid_geom()
+    assert isinstance(geo.geometry, so.Cylinder)
 
-    geo_x = bm_x.solid_geom()
+
+def test_box():
+    box = ada.PrimBox("my_box", (0, 0, 0), (1, 1, 1))
+    geo = box.solid_geom()
+    assert isinstance(geo.geometry, so.Box)
+
+
+def test_cone():
+    cone = ada.PrimCone("my_cone", (0, 0, 0), (0, 0, 1), 1.0)
+    geo = cone.solid_geom()
+    assert isinstance(geo.geometry, so.Cone)
+
+
+def test_sphere():
+    sphere = ada.PrimSphere("my_sphere", (0, 0, 0), 1.0)
+    geo = sphere.solid_geom()
+    assert isinstance(geo.geometry, so.Sphere)
+
+
+def test_ipe_beam():
+    bm_z = ada.Beam("my_beam_z", (0, 0, 0), (0, 0, 1), "IPE300")
 
     # Z-Direction
     geo_z = bm_z.solid_geom()
-    assert isinstance(geo_z.geometry, ExtrudedAreaSolid)
+    assert isinstance(geo_z.geometry, so.ExtrudedAreaSolid)
     assert geo_z.geometry.depth == 1.0
     assert isinstance(geo_z.geometry.swept_area, ArbitraryProfileDefWithVoids)
 

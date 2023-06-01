@@ -345,7 +345,7 @@ def make_cylinder(p, vec, h, r, t=None):
 def make_cylinder_from_points(p1, p2, r, t=None):
     vec = unit_vector(np.array(p2) - np.array(p1))
     l = vector_length(np.array(p2) - np.array(p1))
-    return make_cylinder(p1, vec, l, r, t)
+    return make_cylinder(p1.astype(float), vec.astype(float), l, r, t)
 
 
 def make_sphere(pnt, radius):

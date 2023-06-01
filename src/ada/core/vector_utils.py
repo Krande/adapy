@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import ClassVar, Iterable, List
+from typing import ClassVar, Iterable, List, TYPE_CHECKING
 
 import numpy as np
 
 from ada.config import Settings
 
 from .exceptions import VectorNormalizeError
+
+if TYPE_CHECKING:
+    from ada.geom.placement import Direction
 
 
 class Plane(Enum):
@@ -85,6 +88,35 @@ class EquationOfPlane:
         p = np.array(point)
         dist = p.dot(self.normal) + self.d
         return p - dist * self.normal
+
+
+def create_right_hand_vectors_xv_yv_from_zv(z_vector: Iterable) -> tuple[Direction, Direction]:
+    from ada.geom.placement import Direction
+
+    # Ensure the z_vector is a numpy array
+    if isinstance(z_vector, Direction) is False:
+        z_vector = Direction(*z_vector)
+
+    # Check if z_vector is (0, 0, 0)
+    if np.all(z_vector == 0):
+        raise ValueError("Input vector cannot be the zero vector")
+
+    # Create an arbitrary x_vector not parallel to z_vector
+    x_vector = np.array([1, 0, 0])
+
+    # If the z_vector is aligned with the x-axis, adjust x_vector to avoid parallelism
+    if np.all(z_vector[1:] == 0):
+        x_vector = np.array([0, 1, 0])
+
+    # Calculate the y_vector using the cross product
+    y_vector = np.cross(z_vector, x_vector)
+    y_vector = y_vector / np.linalg.norm(y_vector)  # normalize y_vector
+
+    # Adjust x_vector by recalculating the cross product of y_vector and z_vector for right-handedness
+    x_vector = np.cross(y_vector, z_vector)
+    x_vector = x_vector / np.linalg.norm(x_vector)  # normalize x_vector
+
+    return Direction(*x_vector), Direction(*y_vector)
 
 
 def transform_csys_to_csys(x_vector1, y_vector1, x_vector2, y_vector2) -> np.ndarray:

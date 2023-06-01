@@ -91,7 +91,6 @@ class Shape(BackendGeom):
     def cog(self, value: tuple[float, float, float]):
         self._cog = value
 
-    @property
     def bbox(self) -> BoundingBox:
         if self._bbox is None and self.geom() is not None:
             self._bbox = BoundingBox(self)
@@ -175,6 +174,14 @@ class PrimSphere(Shape):
         geom = apply_penetrations(self._geom, self.penetrations)
         return geom
 
+    def solid_geom(self) -> Geometry:
+        from ada.geom.solids import Sphere
+        from ada.geom.points import Point
+
+        sphere = Sphere(Point(*self.cog), self.radius)
+
+        return Geometry(self.guid, sphere, self.color)
+
     @property
     def units(self):
         return self._units
@@ -200,12 +207,20 @@ class PrimBox(Shape):
     """Primitive Box. Length, width & height are local x, y and z respectively"""
 
     def __init__(self, name, p1, p2, **kwargs):
-        from ada.occ.utils import make_box_by_points
-
         self.p1 = p1
         self.p2 = p2
-        super(PrimBox, self).__init__(name=name, geom=make_box_by_points(p1, p2), **kwargs)
+        super(PrimBox, self).__init__(name=name, geom=None, **kwargs)
         self._bbox = BoundingBox(self)
+
+    def geom(self):
+        from ada.occ.utils import make_box_by_points
+        from ada.occ.utils import apply_penetrations
+
+        if self._geom is None:
+            self._geom = make_box_by_points(self.p1, self.p2)
+
+        geom = apply_penetrations(self._geom, self.penetrations)
+        return geom
 
     @property
     def units(self):
@@ -236,14 +251,57 @@ class PrimBox(Shape):
         return f"PrimBox({self.name})"
 
 
-class PrimCyl(Shape):
+class PrimCone(Shape):
     def __init__(self, name, p1, p2, r, **kwargs):
-        from ada.occ.utils import make_cylinder_from_points
 
         self.p1 = np.array(p1)
         self.p2 = np.array(p2)
         self.r = r
-        super(PrimCyl, self).__init__(name, make_cylinder_from_points(p1, p2, r), **kwargs)
+        super(PrimCone, self).__init__(name, geom=None, **kwargs)
+
+    @property
+    def units(self):
+        return self._units
+
+    @units.setter
+    def units(self, value):
+        if isinstance(value, str):
+            value = Units.from_str(value)
+
+        if value != self._units:
+            scale_factor = Units.get_scale_factor(self._units, value)
+            self.p1 = [x * scale_factor for x in self.p1]
+            self.p2 = [x * scale_factor for x in self.p2]
+            self.r = self.r * scale_factor
+            self._units = value
+
+    def solid_geom(self) -> Geometry:
+        from ada.geom.points import Point
+        from ada.geom.solids import Cone
+
+        cone = Cone.from_2points(Point(*self.p1), Point(*self.p2), self.r)
+
+        return Geometry(self.guid, cone, self.color)
+
+    def __repr__(self):
+        return f"PrimCone({self.name})"
+
+
+class PrimCyl(Shape):
+    def __init__(self, name, p1, p2, r, **kwargs):
+        self.p1 = np.array(p1)
+        self.p2 = np.array(p2)
+        self.r = r
+        super(PrimCyl, self).__init__(name, geom=None, **kwargs)
+
+    def geom(self):
+        from ada.occ.utils import apply_penetrations, make_cylinder_from_points
+
+        if self._geom is None:
+            self._geom = make_cylinder_from_points(self.p1, self.p2, self.r)
+
+        geom = apply_penetrations(self._geom, self.penetrations)
+        return geom
 
     @property
     def units(self):
@@ -261,6 +319,14 @@ class PrimCyl(Shape):
             self.p2 = [x * scale_factor for x in self.p2]
             self.r = self.r * scale_factor
             self._geom = make_cylinder_from_points(self.p1, self.p2, self.r)
+
+    def solid_geom(self) -> Geometry:
+        from ada.geom.points import Point
+        from ada.geom.solids import Cylinder
+
+        cyl = Cylinder.from_2points(Point(*self.p1), Point(*self.p2), self.r)
+
+        return Geometry(self.guid, cyl, self.color)
 
     def __repr__(self):
         return f"PrimCyl({self.name})"

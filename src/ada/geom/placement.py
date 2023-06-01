@@ -35,6 +35,12 @@ class Direction(Point):
 
         self.id = getattr(obj, "id", None)
 
+    def get_normalised(self):
+        return self / np.linalg.norm(self)
+
+    def get_length(self):
+        return np.linalg.norm(self)
+
     def __repr__(self):
         return f"Direction({np.array2string(self, separator=', ')})"
 

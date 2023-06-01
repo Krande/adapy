@@ -782,14 +782,14 @@ class Part(BackendGeom):
             [int, int],
             None,
         ] = None,
-        render_override: dict[str, GeomRepr] = None
+        geom_repr_override: dict[str, GeomRepr] = None
     ):
         from ada.occ.store import OCCStore
 
         step_writer = OCCStore.get_step_writer()
 
         num_shapes = len(list(self.get_all_physical_objects()))
-        shape_iter = OCCStore.shape_iterator(self, geom_repr=geom_repr, render_override=render_override)
+        shape_iter = OCCStore.shape_iterator(self, geom_repr=geom_repr, render_override=geom_repr_override)
         for i, (obj, shape) in enumerate(shape_iter, start=1):
             step_writer.add_shape(shape, obj.name, rgb_color=obj.color.rgb)
             if progress_callback is not None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable, Union
 
+from ada.core.vector_utils import create_right_hand_vectors_xv_yv_from_zv
 from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
 from ada.geom.points import Point
 from ada.geom.surfaces import ProfileDef
@@ -93,6 +94,15 @@ class Cone:
     bottom_radius: float
     height: float
 
+    @staticmethod
+    def from_2points(p1: Point, p2: Point, r: float) -> Cone:
+        vec = Direction(*(p2 - p1))
+        axis = vec.get_normalised()
+        xv, yv = create_right_hand_vectors_xv_yv_from_zv(axis)
+        height = vec.get_length()
+        axis3d = Axis2Placement3D(p1, axis, xv)
+        return Cone(axis3d, r, height)
+
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRightCircularCylinder.htm)
 # STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_right_circular_cylinder.html)
@@ -101,6 +111,15 @@ class Cylinder:
     position: Axis2Placement3D
     radius: float
     height: float
+
+    @staticmethod
+    def from_2points(p1: Point, p2: Point, r: float) -> Cylinder:
+        vec = Direction(*(p2 - p1))
+        axis = vec.get_normalised()
+        xv, yv = create_right_hand_vectors_xv_yv_from_zv(axis)
+        height = vec.get_length()
+        axis3d = Axis2Placement3D(p1, axis, xv)
+        return Cylinder(axis3d, r, height)
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcSphere.htm)
