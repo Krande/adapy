@@ -23,7 +23,7 @@ class Point(np.ndarray):
         if length not in (2, 3):
             raise ValueError("Input must have a length of 2 or 3.")
 
-        if not all(isinstance(x, (float, int, np.int32, np.float32)) for x in iterable):
+        if not all(isinstance(x, (float, int, np.int32, np.int64, np.float32)) for x in iterable):
             raise ValueError(f"All elements in the input must be of type float or int. Got {list(map(type, iterable))}")
 
         obj = np.asarray(iterable, dtype=float).view(cls)
