@@ -47,6 +47,7 @@ from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem.shapes import ElemType
 from .exceptions import UnableToBuildNSidedWires, UnableToCreateSolidOCCGeom
+from ..concepts.beams.base import BeamTaper
 from ..geom import BoolOpEnum
 from ..geom.placement import Direction
 from ..geom.points import Point
@@ -751,13 +752,15 @@ def create_beam_geom(beam: Beam, solid=True):
             p2 = beam.n2.p + beam.e2
 
     section_profile = beam.section.get_section_profile(solid)
-    taper_profile = beam.taper.get_section_profile(solid)
-
     placement_1 = Placement(origin=p1, xdir=ydir, zdir=xdir)
     placement_2 = Placement(origin=p2, xdir=ydir, zdir=xdir)
-
     sec = cross_sec_face(section_profile, placement_1, solid)
-    tap = cross_sec_face(taper_profile, placement_2, solid)
+
+    if isinstance(beam, BeamTaper):
+        taper_profile = beam.taper.get_section_profile(solid)
+        tap = cross_sec_face(taper_profile, placement_2, solid)
+    else:
+        tap = cross_sec_face(section_profile, placement_2, solid)
 
     if type(sec) != list and (sec.IsNull() or tap.IsNull()):
         raise UnableToCreateSolidOCCGeom(f"Unable to create solid OCC geometry from Beam '{beam.name}'")

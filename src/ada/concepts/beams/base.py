@@ -23,12 +23,12 @@ from ada.core.vector_utils import (
     vector_length,
 )
 from ada.geom import Geometry
-from .helpers import Justification
 from ada.geom.placement import Direction
 from ada.materials import Material
 from ada.materials.utils import get_material
 from ada.sections import Section
-from ada.sections.utils import get_section
+from ada.sections.utils import interpret_section_str
+from .helpers import Justification
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
@@ -42,7 +42,6 @@ section_counter = Counter(1)
 material_counter = Counter(1)
 
 
-
 class Beam(BackendGeom):
     """
     The base Beam object
@@ -52,7 +51,6 @@ class Beam(BackendGeom):
     :param sec: Section definition. Str or Section Object
     :param mat: Material. Str or Material object. String: ['S355' & 'S420'] (default is 'S355' if None is parsed)
     :param name: Name of beam
-    :param tap: Tapering of beam. Str or Section object
     """
 
     def __init__(
@@ -62,7 +60,6 @@ class Beam(BackendGeom):
         n2: Node | Iterable = None,
         sec: str | Section = None,
         mat: str | Material = None,
-        tap: str | Section = None,
         up=None,
         angle=0.0,
         e1=None,
@@ -101,19 +98,15 @@ class Beam(BackendGeom):
         self._bbox = None
 
         # Section and Material setup
-        self._section, self._taper = get_section(sec)
+        if isinstance(sec, str):
+            sec, _ = interpret_section_str(sec)
+
+        self._section = sec
         self._section.refs.append(self)
+        self._section.parent = self
 
         self._material = get_material(mat)
         self._material.refs.append(self)
-
-        if tap is not None:
-            self._taper, _ = get_section(tap)
-
-        self._taper.refs.append(self)
-
-        self._section.parent = self
-        self._taper.parent = self
 
         # Define orientations
         self._init_orientation(angle, up)
@@ -222,7 +215,6 @@ class Beam(BackendGeom):
             n2=self.n2,
             sec=self.section if section is None else section,
             mat=self.material if material is None else material,
-            tap=self.taper,
             up=self.up,
             e1=self.e1,
             e2=self.e2,
@@ -326,7 +318,7 @@ class Beam(BackendGeom):
         return midpoints
 
     def copy_to(self, p1, p2, name: str) -> Beam:
-        return Beam(name, p1, p2, sec=self.section, tap=self.taper, mat=self.material)
+        return Beam(name, p1, p2, sec=self.section, mat=self.material)
 
     @property
     def units(self):
@@ -354,14 +346,6 @@ class Beam(BackendGeom):
     @section.setter
     def section(self, value: Section):
         self._section = value
-
-    @property
-    def taper(self) -> Section:
-        return self._taper
-
-    @taper.setter
-    def taper(self, value: Section):
-        self._taper = value
 
     @property
     def material(self) -> Material:
@@ -619,6 +603,38 @@ class Beam(BackendGeom):
 
     def __getstate__(self):
         return self.__dict__
+
+
+class BeamTaper(Beam):
+    def __init__(
+        self,
+        name,
+        n1: Node | Iterable,
+        n2: Node | Iterable,
+        sec: str | Section,
+        tap: str | Section = None,
+        mat: str | Material = None,
+        **kwargs,
+    ):
+        super().__init__(name=name, n1=n1, n2=n2, sec=sec, mat=mat, **kwargs)
+
+        if isinstance(sec, str):
+            _, tap = interpret_section_str(sec)
+
+        if isinstance(tap, str):
+            _, tap = interpret_section_str(tap)
+
+        self._taper = tap
+        self._taper.refs.append(self)
+        self._taper.parent = self
+
+    @property
+    def taper(self) -> Section:
+        return self._taper
+
+    @taper.setter
+    def taper(self, value: Section):
+        self._taper = value
 
 
 class BeamSweep(Beam):

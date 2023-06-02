@@ -1,4 +1,5 @@
 from ada import Assembly, Beam, CurvePoly, Material, Part, Section
+from ada.concepts.beams.base import BeamTaper
 from ada.config import Settings
 
 test_dir = Settings.test_dir / "beams"
@@ -66,7 +67,7 @@ def test_circ_profile():
 
 
 def test_tapered_profile():
-    bm = Beam("MyTaperedBeam", (0, 0, 0), (1, 1, 1), "TUB300/200x20")
+    bm = BeamTaper("MyTaperedBeam", (0, 0, 0), (1, 1, 1), "TUB300/200x20")
     sec = bm.section
     tap = bm.taper
     assert sec.r == 0.3
@@ -89,6 +90,6 @@ def test_cone_beam():
     poly_e_i = CurvePoly(e_i, (0, 0, 0), (0, 0, 1), (1, 0, 0))
     section_e = Section("MyEndCrossSection", "poly", outer_poly=poly_e_o, inner_poly=poly_e_i, units="mm")
 
-    bm = Beam("MyCone", (2, 2, 2), (4, 4, 4), sec=section_s, tap=section_e)
+    bm = BeamTaper("MyCone", (2, 2, 2), (4, 4, 4), sec=section_s, tap=section_e)
     a = Assembly("Level1", project="Project0", units="mm") / (Part("Level2") / bm)
     _ = a.to_ifc(test_dir / "cone_ex.ifc", file_obj_only=True)

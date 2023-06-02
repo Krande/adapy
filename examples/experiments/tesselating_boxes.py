@@ -6,7 +6,10 @@ import tracemalloc
 import trimesh
 from OCC.Core.TopoDS import TopoDS_Shape
 
-from ada.occ.geom.solids import make_box
+from ada.cadit.ifc.utils import create_guid
+from ada.geom import Geometry
+from ada.geom.solids import Box
+from ada.occ.geom import geom_to_occ_geom
 from ada.occ.tessellating import shape_to_tri_mesh
 from ada.visit.colors import Color
 from ada.visit.gltf.optimize import optimize_glb
@@ -63,8 +66,10 @@ def create_box_grid(x_count: int, y_count: int, z_count: int, min_size: float, m
                 width = random.uniform(min_size, max_size)
                 height = random.uniform(min_size, max_size)
                 depth = random.uniform(min_size, max_size)
-                box = make_box(x * max_size, y * max_size, z * max_size, width, height, depth)
-                boxes.append(box)
+                box = Box.from_xyz_and_dims(x * max_size, y * max_size, z * max_size, width, height, depth)
+                geom = Geometry(create_guid(), box, Color.randomize())
+                occ_box = geom_to_occ_geom(geom)
+                boxes.append(occ_box)
 
     return boxes
 
@@ -91,7 +96,7 @@ def optimize_boxes_glb(glb_path):
 
 
 def main():
-    num = 15  # On my machine anything above 10 will push the execution time > 2 seconds
+    num = 10  # On my machine anything above 10 will push the execution time > 2 seconds
     # Would probably have to write a C++ extension to speed this up
     glb_path = pathlib.Path("temp/boxes.glb")
     print(f"Tessellating {num ** 3} boxes")

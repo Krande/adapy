@@ -13,6 +13,7 @@ from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.cache.store import CacheStore
+from ada.concepts.beams.base import BeamTaper
 from ada.concepts.connections import JointBase
 from ada.concepts.containers import (
     Beams,
@@ -130,9 +131,10 @@ class Part(BackendGeom):
         if sec != beam.section:
             beam.section = sec
 
-        tap = self.add_section(beam.taper)
-        if tap != beam.taper:
-            beam.taper = tap
+        if isinstance(beam, BeamTaper):
+            tap = self.add_section(beam.taper)
+            if tap != beam.taper:
+                beam.taper = tap
 
         old_node = self.nodes.add(beam.n1)
         if old_node != beam.n1:
@@ -547,7 +549,7 @@ class Part(BackendGeom):
                     if elem not in res.refs:
                         res.refs.append(elem)
                     if isinstance(elem, (Beam, FemSection)):
-                        if isinstance(elem, Beam) and sec.guid == elem.taper.guid:
+                        if isinstance(elem, BeamTaper) and sec.guid == elem.taper.guid:
                             elem.taper = res
                         elem.section = res
                     else:
@@ -560,7 +562,7 @@ class Part(BackendGeom):
 
         not_found = []
         for beam in self.get_all_physical_objects(by_type=Beam):
-            if beam.taper.guid not in sec_map.keys():
+            if isinstance(beam, BeamTaper) and beam.taper.guid not in sec_map.keys():
                 not_found.append((beam, "taper", beam.taper))
             if beam.section.guid not in sec_map.keys():
                 not_found.append((beam, "section", beam.section))
