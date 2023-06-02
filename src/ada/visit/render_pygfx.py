@@ -18,12 +18,12 @@ from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
 try:
     import pygfx as gfx
+
     import ada.visit.render_pygfx_helpers as gfx_utils
 except ImportError:
     raise ImportError("Please install pygfx to use this renderer -> 'pip install pygfx'.")
 try:
     from wgpu.gui.auto import WgpuCanvas
-    from wgpu.gui.jupyter import JupyterWgpuCanvas
 except ImportError:
     raise ImportError("Please install wgpu to use this renderer -> 'pip install wgpu'.")
 

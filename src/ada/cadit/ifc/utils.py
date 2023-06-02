@@ -684,9 +684,10 @@ def convert_bm_jusl_to_ifc(bm: Beam) -> int:
 
     https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/schema/ifcmaterialresource/lexical/ifccardinalpointreference.htm
     """
-    from ada.concepts.beams.base import Justification as jt
+    from ada.concepts.beams.helpers import get_justification
+    from ada.concepts.beams.helpers import Justification as jt
 
-    just = bm.just()
+    just = get_justification(bm)
 
     jusl_map = {jt.NA: 5, jt.TOS: 8}
 

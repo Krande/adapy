@@ -7,7 +7,7 @@ from typing import Iterable, List
 
 import numpy as np
 
-from ada import Assembly, Beam, Part, Pipe, PipeSegStraight, Plate, Node, PrimCyl
+from ada import Assembly, Beam, Node, Part, Pipe, PipeSegStraight, Plate, PrimCyl
 from ada.config import logger
 
 from .utils import Counter

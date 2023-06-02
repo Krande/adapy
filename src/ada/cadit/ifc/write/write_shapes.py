@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import numpy as np
 
 from ada import (
     Boolean,
     PrimBox,
-    PrimCyl,
     PrimCone,
+    PrimCyl,
     PrimExtrude,
     PrimRevolve,
     PrimSphere,
@@ -20,16 +19,14 @@ from ada.cadit.ifc.utils import (
     create_ifcextrudedareasolid,
     create_IfcFixedReferenceSweptAreaSolid,
     create_ifcindexpolyline,
-    create_ifcpolyline,
     create_ifcrevolveareasolid,
     create_local_placement,
+    ifc_placement_from_axis3d,
     tesselate_shape,
     to_real,
-    ifc_placement_from_axis3d,
 )
 from ada.core.constants import O, X, Z
-from ada.core.vector_utils import unit_vector, vector_length
-from ada.geom.solids import Cone, Box, Cylinder, Sphere
+from ada.geom.solids import Box, Cone, Cylinder
 
 from .write_curves import write_curve_poly
 

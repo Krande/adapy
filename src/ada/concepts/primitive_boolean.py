@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from ada import Units, Shape
 from ada.base.physical_objects import BackendGeom
+from ada.base.units import Units
+from ada.concepts.primitives import Shape
 from ada.core.utils import Counter
-from ada.geom import BoolOpEnum
+from ada.geom.booleans import BoolOpEnum
 
 
 class Boolean(BackendGeom):

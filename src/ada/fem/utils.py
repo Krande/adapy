@@ -10,7 +10,7 @@ from .shapes import ElemShape
 from .shapes import definitions as shape_def
 
 if TYPE_CHECKING:
-    from ada import FEM, Assembly, Beam, Part, Plate, Node
+    from ada import FEM, Assembly, Beam, Node, Part, Plate
     from ada.fem import FemSet
 
 

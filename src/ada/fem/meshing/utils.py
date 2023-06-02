@@ -6,7 +6,7 @@ from typing import List, Union
 import gmsh
 import numpy as np
 
-from ada import FEM, Beam, Pipe, Plate, Node, Shape
+from ada import FEM, Beam, Node, Pipe, Plate, Shape
 from ada.base.types import GeomRepr
 from ada.concepts.transforms import Placement
 from ada.core.utils import make_name_fem_ready
@@ -150,19 +150,20 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
     fem_sec = FemSection(fem_sec_name, ElemType.LINE, fem_set, beam.material, beam.section, beam.ori[2], refs=[beam])
 
     add_sec_to_fem(fem, fem_sec, fem_set)
-    if beam.hinge_prop is None:
+    hinge_prop = beam.connection_props.hinge_prop
+    if hinge_prop is None:
         return
-    end1_p = beam.hinge_prop.end1.concept_node.p if beam.hinge_prop.end1 is not None else None
-    end2_p = beam.hinge_prop.end2.concept_node.p if beam.hinge_prop.end2 is not None else None
-    if beam.hinge_prop is not None:
+    end1_p = hinge_prop.end1.concept_node.p if hinge_prop.end1 is not None else None
+    end2_p = hinge_prop.end2.concept_node.p if hinge_prop.end2 is not None else None
+    if hinge_prop is not None:
         for el in elements:
             n1 = el.nodes[0]
             n2 = el.nodes[-1]
-            el.hinge_prop = beam.hinge_prop
-            if beam.hinge_prop.end1 is not None and vector_length(end1_p - n1.p) == 0.0:
+            el.hinge_prop = hinge_prop
+            if hinge_prop.end1 is not None and vector_length(end1_p - n1.p) == 0.0:
                 el.hinge_prop.end1.fem_node = n1
 
-            if beam.hinge_prop.end2 is not None and vector_length(end2_p - n2.p) == 0.0:
+            if hinge_prop.end2 is not None and vector_length(end2_p - n2.p) == 0.0:
                 el.hinge_prop.end2.fem_node = n2
 
 
@@ -257,13 +258,13 @@ def node_reordering(elem_type, nodes):
 
 def build_bm_lines(model: gmsh.model, bm: Beam, point_tol):
     p1, p2 = bm.n1.p, bm.n2.p
+    con_props = bm.connection_props
+    midpoints = con_props.calc_con_points(point_tol=point_tol)
 
-    midpoints = bm.calc_con_points(point_tol=point_tol)
-
-    if bm.connected_end1 is not None:
-        p1 = bm.connected_end1.centre
-    if bm.connected_end2 is not None:
-        p2 = bm.connected_end2.centre
+    if con_props.connected_end1 is not None:
+        p1 = con_props.connected_end1.centre
+    if con_props.connected_end2 is not None:
+        p2 = con_props.connected_end2.centre
 
     s = get_point(model, p1, point_tol)
     e = get_point(model, p2, point_tol)

@@ -7,7 +7,6 @@ import ifcopenshell
 import ifcopenshell.geom
 
 from ada.base.changes import ChangeAction
-from ada.config import logger
 from ada.cadit.ifc.read.reader_utils import get_ifc_body
 from ada.cadit.ifc.utils import (
     add_negative_extrusion,
@@ -28,9 +27,10 @@ from ada.cadit.ifc.write.write_spatial_elements import (
     write_ifc_spatial_hierarchy,
 )
 from ada.cadit.ifc.write.write_wall import write_ifc_wall
+from ada.config import logger
 
 if TYPE_CHECKING:
-    from ada import Beam, Material, Part, Pipe, Plate, Section, Shape, Wall, Boolean
+    from ada import Beam, Boolean, Material, Part, Pipe, Plate, Section, Shape, Wall
     from ada.cadit.ifc.store import IfcStore
 
 
@@ -63,7 +63,7 @@ class IfcWriter:
         return num_new_spatial_objects
 
     def sync_added_geom_repr(self):
-        logger.warning(f"Syncing added geom repr")
+        logger.warning("Syncing added geom repr")
         ...
 
     def sync_added_physical_objects(self) -> int:

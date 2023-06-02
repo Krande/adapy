@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Union
 
-from ada.geom.curves import CurveType
+from ada.geom.curves import CURVE_GEOM_TYPES
 from ada.geom.placement import Axis2Placement3D, Direction
 from ada.geom.points import Point
 
@@ -26,7 +26,7 @@ class ProfileDef:
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcArbitraryProfileDefWithVoids.htm)
 @dataclass
 class ArbitraryProfileDefWithVoids(ProfileDef):
-    outer_curve: CurveType
+    outer_curve: CURVE_GEOM_TYPES
     inner_curves: list[Any] = field(default_factory=list)
 
 
@@ -58,7 +58,7 @@ class FaceBasedSurfaceModel:
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcSurfaceOfLinearExtrusion.htm)
 @dataclass
 class SurfaceOfLinearExtrusion:
-    swept_curve: CurveType
+    swept_curve: CURVE_GEOM_TYPES
     position: Axis2Placement3D
     extrusion_direction: Direction
     depth: float

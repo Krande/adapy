@@ -12,8 +12,8 @@ from .sets import FemSet
 
 if TYPE_CHECKING:
     from ada import Part
-    from ada.concepts.nodes import Node
     from ada.concepts.beams import Beam
+    from ada.concepts.nodes import Node
     from ada.fem import (
         Amplitude,
         Bc,

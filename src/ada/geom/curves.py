@@ -5,7 +5,7 @@ from typing import Iterable, Union
 from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
 
-CurveType = Union[
+CURVE_GEOM_TYPES = Union[
     "Line", "ArcLine", "Circle", "Ellipse", "BSplineCurveWithKnots", "IndexedPolyCurve", "GeometricCurveSet"
 ]
 
@@ -115,4 +115,4 @@ class IndexedPolyCurve:
 
 @dataclass
 class GeometricCurveSet:
-    elements: list[CurveType]
+    elements: list[CURVE_GEOM_TYPES]

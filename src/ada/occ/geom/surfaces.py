@@ -1,11 +1,13 @@
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
-from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Face
+from OCC.Core.TopoDS import TopoDS_Shape
 
 from ada.geom.curves import IndexedPolyCurve
 from ada.geom.surfaces import FaceBasedSurfaceModel, PolyLoop
-from ada.occ.geom.curves import make_wire_from_indexed_poly_curve_geom, make_wire_from_poly_loop
-from ada.occ.utils import transform_shape_to_pos
+from ada.occ.geom.curves import (
+    make_wire_from_indexed_poly_curve_geom,
+    make_wire_from_poly_loop,
+)
 
 
 def make_face_from_poly_loop(poly_loop: PolyLoop) -> TopoDS_Shape:

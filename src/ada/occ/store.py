@@ -37,6 +37,7 @@ class OCCStore:
         render_override: dict[str, GeomRepr] = None,
     ) -> tuple[BackendGeom, TopoDS_Shape]:
         from ada.cadit.step.store import StepStore
+
         if render_override is None:
             render_override = {}
 

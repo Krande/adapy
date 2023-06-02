@@ -2,7 +2,7 @@ from typing import Union
 
 
 def get_instance_name(obj, written_on_assembly_level: bool) -> str:
-    from ada import FEM, Assembly, Part, Node
+    from ada import FEM, Assembly, Node, Part
 
     parent: Union[FEM, Part] = obj.parent
     p = parent.parent if type(parent) is FEM else parent

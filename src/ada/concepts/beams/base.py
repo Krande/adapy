@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, Iterable, List, Optional, Union
+from typing import TYPE_CHECKING, Callable, Iterable, Union
 
 import numpy as np
 
+import ada.concepts.beams.geom_conversion as geo_conv
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
-from ada.concepts.beams.geom_conversion import straight_beam_to_geom, swept_beam_to_geom, revolved_beam_to_geom
 from ada.concepts.bounding_box import BoundingBox
 from ada.concepts.curves import CurvePoly, CurveRevolve
 from ada.concepts.nodes import Node, get_singular_node_by_volume
-from ada.concepts.transforms import Placement
 from ada.config import Settings, logger
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import (
@@ -18,7 +17,6 @@ from ada.core.vector_utils import (
     calc_yvec,
     calc_zvec,
     is_between_endpoints,
-    is_parallel,
     unit_vector,
     vector_length,
 )
@@ -28,18 +26,110 @@ from ada.materials import Material
 from ada.materials.utils import get_material
 from ada.sections import Section
 from ada.sections.utils import interpret_section_str
+
 from .helpers import Justification
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
-    from ada.cadit.ifc.store import IfcStore
     from ada.concepts.connections import JointBase
-    from ada.concepts.spatial import Part
     from ada.fem.elements import HingeProp
 
 section_counter = Counter(1)
 material_counter = Counter(1)
+
+
+class BeamConnectionProps:
+    def __init__(self, beam: Beam):
+        self._beam = beam
+        self._connected_to = []
+        self._connected_end1 = None
+        self._connected_end2 = None
+        self._hinge_prop = None
+
+    def calc_con_points(self, point_tol=Settings.point_tol):
+        from ada.core.vector_utils import sort_points_by_dist
+
+        a = self._beam.n1.p
+        b = self._beam.n2.p
+        points = [tuple(con.centre) for con in self.connected_to]
+
+        def is_mem_eccentric(mem, centre):
+            is_ecc = False
+            end = None
+            if point_tol < vector_length(mem.n1.p - centre) < mem.length * 0.9:
+                is_ecc = True
+                end = mem.n1.p
+            if point_tol < vector_length(mem.n2.p - centre) < mem.length * 0.9:
+                is_ecc = True
+                end = mem.n2.p
+            return is_ecc, end
+
+        if len(self.connected_to) == 1:
+            con = self.connected_to[0]
+            if con.main_mem == self:
+                for m in con.beams:
+                    if m != self:
+                        is_ecc, end = is_mem_eccentric(m, con.centre)
+                        if is_ecc:
+                            logger.info(f'do something with end "{end}"')
+                            points.append(tuple(end))
+
+        midpoints = []
+        prev_p = None
+        for p in sort_points_by_dist(a, points):
+            p = np.array(p)
+            bmlen = self._beam.length
+            vlena = vector_length(p - a)
+            vlenb = vector_length(p - b)
+
+            if prev_p is not None:
+                if vector_length(p - prev_p) < point_tol:
+                    continue
+
+            if vlena < point_tol:
+                self._connected_end1 = self.connected_to[points.index(tuple(p))]
+                prev_p = p
+                continue
+
+            if vlenb < point_tol:
+                self._connected_end2 = self.connected_to[points.index(tuple(p))]
+                prev_p = p
+                continue
+
+            if vlena > bmlen or vlenb > bmlen:
+                prev_p = p
+                continue
+
+            midpoints += [p]
+            prev_p = p
+
+        return midpoints
+
+    @property
+    def connected_to(self) -> list[JointBase]:
+        return self._connected_to
+
+    @property
+    def connected_end1(self):
+        return self._connected_end1
+
+    @property
+    def connected_end2(self):
+        return self._connected_end2
+
+    @property
+    def hinge_prop(self) -> HingeProp:
+        return self._hinge_prop
+
+    @hinge_prop.setter
+    def hinge_prop(self, value: HingeProp):
+        value.beam_ref = self
+        if value.end1 is not None:
+            value.end1.concept_node = self._beam.n1
+        if value.end2 is not None:
+            value.end2.concept_node = self._beam.n2
+        self._hinge_prop = value
 
 
 class Beam(BackendGeom):
@@ -54,46 +144,27 @@ class Beam(BackendGeom):
     """
 
     def __init__(
-        self,
-        name,
-        n1: Node | Iterable = None,
-        n2: Node | Iterable = None,
-        sec: str | Section = None,
-        mat: str | Material = None,
-        up=None,
-        angle=0.0,
-        e1=None,
-        e2=None,
-        color=None,
-        parent: Part = None,
-        metadata=None,
-        opacity=1.0,
-        units=Units.M,
-        guid=None,
-        placement=Placement(),
-        ifc_store: IfcStore = None,
-    ):
-        super().__init__(
+            self,
             name,
-            metadata=metadata,
-            units=units,
-            guid=guid,
-            placement=placement,
-            ifc_store=ifc_store,
-            color=color,
-            opacity=opacity,
-            parent=parent,
-        )
+            n1: Node | Iterable,
+            n2: Node | Iterable,
+            sec: str | Section,
+            mat: str | Material = None,
+            up=None,
+            angle=0.0,
+            e1=None,
+            e2=None,
+            units=Units.M,
+            **kwargs,
+    ):
+        super().__init__(name, units=units, **kwargs)
         self._n1 = n1 if type(n1) is Node else Node(n1[:3], units=units)
         self._n2 = n2 if type(n2) is Node else Node(n2[:3], units=units)
 
-        self._connected_to = []
-        self._connected_end1 = None
-        self._connected_end2 = None
-        self._tos = None
+        self._con_props = BeamConnectionProps(self)
+
         self._e1 = e1 if e1 is None else Direction(*e1)
         self._e2 = e2 if e2 is None else Direction(*e2)
-        self._hinge_prop = None
 
         self._bbox = None
 
@@ -114,7 +185,7 @@ class Beam(BackendGeom):
 
     @staticmethod
     def from_list_of_coords(
-        list_of_coords: list[tuple], sec: Section | str, mat: Material | str = None, name_gen: Callable = None
+            list_of_coords: list[tuple], sec: Section | str, mat: Material | str = None, name_gen: Callable = None
     ) -> list[Beam]:
         beams = []
         ngen = name_gen if name_gen is not None else Counter(prefix="bm")
@@ -161,36 +232,6 @@ class Beam(BackendGeom):
 
         return is_between_endpoints(point, self.n1.p, self.n2.p, incl_endpoints=True)
 
-    def split_beam(
-        self, point: Union[Node, np.ndarray] = None, fraction: float = None, length: float = None
-    ) -> Optional[Beam]:
-        """
-        Split beam into two parts, and returns the new beam. Prioritizes input arguments in given order if  given
-        multiple input.
-
-        :param point:
-        :param fraction: Fraction of the beam length from Node n1.
-        :param length: Length of the beam from Node n1.
-        """
-
-        if isinstance(point, Node):
-            point = point.p
-
-        if point is not None:
-            splitting_node = self.get_node_on_beam_by_point(point)
-        elif fraction is not None:
-            splitting_node = self.get_node_on_beam_by_fraction(fraction)
-        elif length is not None:
-            length_fraction = length / self.length
-            splitting_node = self.get_node_on_beam_by_fraction(length_fraction)
-        else:
-            logger.warning(f"Beam {self} is not split as inconclusive info is provided.")
-            return None
-
-        node_on_beam = self.parent.fem.nodes.add(splitting_node)
-        splitted_beam = self.get_split_beam(node_on_beam)
-        return splitted_beam
-
     def get_node_on_beam_by_point(self, point: np.ndarray) -> Node:
         """Returns node on beam from point"""
         if not is_between_endpoints(point, self.n1.p, self.n2.p):
@@ -205,28 +246,6 @@ class Beam(BackendGeom):
             raise ValueError(f"Fraction {fraction} is not between 0 and 1")
 
         return get_singular_node_by_volume(self.parent.fem.nodes, self.n1.p + fraction * self.length * self.xvec)
-
-    def get_split_beam(self, node: Node, section: Section = None, material: Material = None) -> Beam:
-        """Returns new beam. Setting splitting node to n2-node on self and to n1-node on the new beam."""
-
-        new_beam = Beam(
-            name=f"{self.name}_2",
-            n1=node,
-            n2=self.n2,
-            sec=self.section if section is None else section,
-            mat=self.material if material is None else material,
-            up=self.up,
-            e1=self.e1,
-            e2=self.e2,
-            color=self.color,
-            parent=self.parent,
-            metadata=self.metadata,
-            units=self.units,
-        )
-
-        self.name = f"{self.name}_1"
-        self.n2 = node
-        return new_beam
 
     def updating_nodes(self, old_node: Node, new_node: Node) -> None:
         """Exchanging node on beam"""
@@ -257,65 +276,6 @@ class Beam(BackendGeom):
         nodes_p2 = local_2_global_points(ot, p2, yv, xv)
 
         return nodes_p1, nodes_p2
-
-    def calc_con_points(self, point_tol=Settings.point_tol):
-        from ada.core.vector_utils import sort_points_by_dist
-
-        a = self.n1.p
-        b = self.n2.p
-        points = [tuple(con.centre) for con in self.connected_to]
-
-        def is_mem_eccentric(mem, centre):
-            is_ecc = False
-            end = None
-            if point_tol < vector_length(mem.n1.p - centre) < mem.length * 0.9:
-                is_ecc = True
-                end = mem.n1.p
-            if point_tol < vector_length(mem.n2.p - centre) < mem.length * 0.9:
-                is_ecc = True
-                end = mem.n2.p
-            return is_ecc, end
-
-        if len(self.connected_to) == 1:
-            con = self.connected_to[0]
-            if con.main_mem == self:
-                for m in con.beams:
-                    if m != self:
-                        is_ecc, end = is_mem_eccentric(m, con.centre)
-                        if is_ecc:
-                            logger.info(f'do something with end "{end}"')
-                            points.append(tuple(end))
-
-        midpoints = []
-        prev_p = None
-        for p in sort_points_by_dist(a, points):
-            p = np.array(p)
-            bmlen = self.length
-            vlena = vector_length(p - a)
-            vlenb = vector_length(p - b)
-
-            if prev_p is not None:
-                if vector_length(p - prev_p) < point_tol:
-                    continue
-
-            if vlena < point_tol:
-                self._connected_end1 = self.connected_to[points.index(tuple(p))]
-                prev_p = p
-                continue
-
-            if vlenb < point_tol:
-                self._connected_end2 = self.connected_to[points.index(tuple(p))]
-                prev_p = p
-                continue
-
-            if vlena > bmlen or vlenb > bmlen:
-                prev_p = p
-                continue
-
-            midpoints += [p]
-            prev_p = p
-
-        return midpoints
 
     def copy_to(self, p1, p2, name: str) -> Beam:
         return Beam(name, p1, p2, sec=self.section, mat=self.material)
@@ -370,16 +330,8 @@ class Beam(BackendGeom):
         return mtype
 
     @property
-    def connected_to(self) -> List[JointBase]:
-        return self._connected_to
-
-    @property
-    def connected_end1(self):
-        return self._connected_end1
-
-    @property
-    def connected_end2(self):
-        return self._connected_end2
+    def connection_props(self) -> BeamConnectionProps:
+        return self._con_props
 
     @property
     def length(self) -> float:
@@ -392,18 +344,6 @@ class Beam(BackendGeom):
         if self.e2 is not None:
             p2 += self.e2
         return vector_length(p2 - p1)
-
-    def just(self) -> Justification:
-        """Justification line"""
-        # Check if both self.e1 and self.e2 are None
-        if self.e1 is None and self.e2 is None:
-            return Justification.NA
-        elif self.e1 is None or self.e2 is None:
-            return Justification.CUSTOM
-        elif self.e1.is_equal(self.e2) and self.e1.is_equal(self.up * self.section.h / 2):
-            return Justification.TOS
-        else:
-            return Justification.CUSTOM
 
     @property
     def ori(self):
@@ -481,19 +421,6 @@ class Beam(BackendGeom):
     def e2(self, value: Iterable):
         self._e2 = Direction(*value)
 
-    @property
-    def hinge_prop(self) -> HingeProp:
-        return self._hinge_prop
-
-    @hinge_prop.setter
-    def hinge_prop(self, value: HingeProp):
-        value.beam_ref = self
-        if value.end1 is not None:
-            value.end1.concept_node = self.n1
-        if value.end2 is not None:
-            value.end2.concept_node = self.n2
-        self._hinge_prop = value
-
     def line(self):
         from ada.occ.utils import make_wire_from_points
 
@@ -516,10 +443,10 @@ class Beam(BackendGeom):
         return geom
 
     def solid_geom(self) -> Geometry:
-        return straight_beam_to_geom(self)
+        return geo_conv.straight_beam_to_geom(self)
 
     def shell_geom(self) -> Geometry:
-        geom = straight_beam_to_geom(self, is_solid=False)
+        geom = geo_conv.straight_beam_to_geom(self, is_solid=False)
         return geom
 
     @property
@@ -534,10 +461,6 @@ class Beam(BackendGeom):
     def angle(self, value: float):
         self._init_orientation(value)
 
-    def is_on_beam(self, point: Node) -> bool:
-        """Returns if a node is on the beam axis including endpoints"""
-        return point in self.nodes or is_between_endpoints(point.p, self.n1.p, self.n2.p)
-
     def add_beam_to_node_refs(self) -> None:
         """Add beam to refs on nodes"""
         for beam_node in self.nodes:
@@ -547,26 +470,6 @@ class Beam(BackendGeom):
         """Remove beam from refs on nodes"""
         for beam_node in self.nodes:
             beam_node.remove_obj_from_refs(self)
-
-    def is_equivalent(self, item: Beam) -> bool:
-        """Returns equivalent beam-type, meaning beam characteristics are the same but NOT the same beam"""
-        return (self.section, self.material) == (item.section, item.material) and self != item
-
-    def get_beam_extensions(self) -> Iterable[Beam]:
-        """Returns connected beams with same material and section at beam end-nodes, that are parallel"""
-
-        def is_equal_beamtype(item) -> bool:
-            return isinstance(item, Beam) and self.is_equivalent(item) and is_parallel(self.xvec, item.xvec)
-
-        return list(filter(is_equal_beamtype, self.n1.refs + self.n2.refs))
-
-    def is_weak_axis_stiffened(self, other_beam: Beam) -> bool:
-        """Assumes rotation local z-vector (up) is weak axis"""
-        return np.abs(np.dot(self.up, other_beam.xvec)) < Settings.point_tol and self is not other_beam
-
-    def is_strong_axis_stiffened(self, other_beam: Beam) -> bool:
-        """Assumes rotation local y-vector is strong axis"""
-        return np.abs(np.dot(self.yvec, other_beam.xvec)) < Settings.point_tol and self is not other_beam
 
     def __hash__(self):
         return hash(self.guid)
@@ -605,20 +508,11 @@ class Beam(BackendGeom):
         return self.__dict__
 
 
-class BeamTaper(Beam):
-    def __init__(
-        self,
-        name,
-        n1: Node | Iterable,
-        n2: Node | Iterable,
-        sec: str | Section,
-        tap: str | Section = None,
-        mat: str | Material = None,
-        **kwargs,
-    ):
-        super().__init__(name=name, n1=n1, n2=n2, sec=sec, mat=mat, **kwargs)
+class BeamTapered(Beam):
+    def __init__(self, name, n1: Iterable, n2: Iterable, sec: str | Section, tap: str | Section = None, **kwargs):
+        super().__init__(name=name, n1=n1, n2=n2, sec=sec, **kwargs)
 
-        if isinstance(sec, str):
+        if isinstance(sec, str) and tap is None:
             _, tap = interpret_section_str(sec)
 
         if isinstance(tap, str):
@@ -636,42 +530,15 @@ class BeamTaper(Beam):
     def taper(self, value: Section):
         self._taper = value
 
+    def solid_geom(self) -> Geometry:
+        return geo_conv.straight_tapered_beam_to_geom(self)
+
 
 class BeamSweep(Beam):
-    def __init__(
-        self,
-        name: str,
-        curve: CurvePoly,
-        sec: str | Section,
-        mat: str | Material = None,
-        up=None,
-        color=None,
-        parent: Part = None,
-        metadata=None,
-        opacity=1.0,
-        units=Units.M,
-        guid=None,
-        placement=Placement(),
-        ifc_store: IfcStore = None,
-    ):
+    def __init__(self, name: str, curve: CurvePoly, sec: str | Section, **kwargs):
         n1 = curve.points3d[0]
         n2 = curve.points3d[-1]
-        super().__init__(
-            name=name,
-            n1=n1,
-            n2=n2,
-            sec=sec,
-            mat=mat,
-            metadata=metadata,
-            units=units,
-            guid=guid,
-            placement=placement,
-            ifc_store=ifc_store,
-            color=color,
-            opacity=opacity,
-            parent=parent,
-            up=up,
-        )
+        super().__init__(name=name, n1=n1, n2=n2, sec=sec, **kwargs)
         self._curve = curve
         curve.parent = self
 
@@ -680,44 +547,14 @@ class BeamSweep(Beam):
         return self._curve
 
     def solid_geom(self) -> Geometry:
-        return swept_beam_to_geom(self)
+        return geo_conv.swept_beam_to_geom(self)
 
 
 class BeamRevolve(Beam):
-    def __init__(
-        self,
-        name: str,
-        curve: CurveRevolve,
-        sec: str | Section,
-        mat: str | Material = None,
-        up=None,
-        color=None,
-        parent: Part = None,
-        metadata=None,
-        opacity=1.0,
-        units=Units.M,
-        guid=None,
-        placement=Placement(),
-        ifc_store: IfcStore = None,
-    ):
+    def __init__(self, name: str, curve: CurveRevolve, sec: str | Section, **kwargs):
         n1 = curve.p1
         n2 = curve.p2
-        super().__init__(
-            name=name,
-            n1=n1,
-            n2=n2,
-            sec=sec,
-            mat=mat,
-            metadata=metadata,
-            units=units,
-            guid=guid,
-            placement=placement,
-            ifc_store=ifc_store,
-            color=color,
-            opacity=opacity,
-            parent=parent,
-            up=up,
-        )
+        super().__init__(name=name, n1=n1, n2=n2, sec=sec, **kwargs)
         self._curve = curve
         curve.parent = self
 
@@ -726,7 +563,7 @@ class BeamRevolve(Beam):
         return self._curve
 
     def solid_geom(self) -> Geometry:
-        return revolved_beam_to_geom(self)
+        return geo_conv.revolved_beam_to_geom(self)
 
 
 class NodeNotOnEndpointError(Exception):

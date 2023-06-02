@@ -7,7 +7,7 @@ from ada.base.types import BaseEnum
 from ada.core.vector_utils import unit_vector
 
 if TYPE_CHECKING:
-    from ada import Beam, Plate, Node, PrimExtrude
+    from ada import Beam, Node, Plate, PrimExtrude
 
 
 class Bolts(BackendGeom):

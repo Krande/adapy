@@ -60,7 +60,7 @@ class JointBase(BackendGeom, ABC):
         self._main_mem = self._get_landing_member(members)
 
         for m in members:
-            m.connected_to.append(self)
+            m.connection_props.connected_to.append(self)
             m._ifc_elem = None
 
         if parent is not None:

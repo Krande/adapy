@@ -9,7 +9,7 @@ from ada.concepts.transforms import Placement
 
 if TYPE_CHECKING:
     from ada import Beam
-    from ada.geom.curves import IndexedPolyCurve, Line, ArcLine
+    from ada.geom.curves import ArcLine, IndexedPolyCurve, Line
 
 
 class CurveRevolve:
@@ -289,7 +289,6 @@ class CurvePoly:
     def ydir(self):
         return self.placement.ydir
 
-
     def edges(self):
         from ada.occ.utils import segments_to_edges
 
@@ -313,12 +312,10 @@ class CurvePoly:
 
         return IndexedPolyCurve(segments)
 
-
     def wire(self):
         from ada.occ.utils import make_wire
 
         return make_wire(self.edges())
-
 
     def face(self):
         return self.make_shell()

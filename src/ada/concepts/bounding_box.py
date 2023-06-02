@@ -11,10 +11,10 @@ from .transforms import Placement
 
 if TYPE_CHECKING:
     from ada import FEM, Node
+    from ada.concepts.beams import Beam
     from ada.fem import Surface
 
     from .primitives import PrimBox
-    from ada.concepts.beams import Beam
     from .stru_plates import Plate
 
 
@@ -27,8 +27,9 @@ class BoundingBox:
     p2: np.array = field(default=None, init=False)
 
     def __post_init__(self):
-        from .primitives import Shape
         from ada.concepts.beams import Beam
+
+        from .primitives import Shape
         from .stru_plates import Plate
 
         if issubclass(type(self.parent), Shape):

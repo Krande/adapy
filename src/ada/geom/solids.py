@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Iterable, Union
+from dataclasses import dataclass
+from typing import Union
 
 from ada.core.vector_utils import create_right_hand_vectors_xv_yv_from_zv
 from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
@@ -20,11 +20,13 @@ class ExtrudedAreaSolid:
     swept_area: ProfileDef
     position: Axis2Placement3D
     depth: float
-    extruded_direction: Direction | Iterable[float] = field(default_factory=_z_dir)
+    extruded_direction: Direction
 
-    def __post_init__(self):
-        if isinstance(self.extruded_direction, Iterable):
-            self.extruded_direction = Direction(*self.extruded_direction)
+
+# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcExtrudedAreaSolidTapered.htm)
+@dataclass
+class ExtrudedAreaSolidTapered(ExtrudedAreaSolid):
+    end_swept_area: ProfileDef
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRevolvedAreaSolid.htm)

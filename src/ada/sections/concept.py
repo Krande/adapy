@@ -280,6 +280,18 @@ class Section(Root):
             )
 
 
+class SectionI(Section):
+    def __init__(self, name: str, h, w_top, t_w, t_ftop, w_btn=None, t_fbtn=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self._h = h
+        self._w_top = w_top
+        self._w_btn = w_btn
+        self._t_w = t_w
+        self._t_ftop = t_ftop
+        self._t_fbtn = t_fbtn
+        self._sec_str = None
+
+
 class SectionParts:
     WEB = "web"
     TOP_FLANGE = "top_fl"

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, Iterable
+from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 
@@ -19,7 +19,6 @@ from ada.visit.config import ExportConfig
 
 if TYPE_CHECKING:
     from ada import Beam, PipeSegElbow, PipeSegStraight, Plate, Shape, Wall
-
 
 
 def ifc_poly_elem_to_json(

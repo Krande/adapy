@@ -1,7 +1,6 @@
 import gzip
 import pathlib
 import sqlite3
-import time
 from dataclasses import dataclass
 
 import trimesh

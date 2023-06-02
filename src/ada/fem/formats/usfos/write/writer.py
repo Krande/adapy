@@ -1,7 +1,7 @@
 import os
 from operator import attrgetter
 
-from ada import FEM, Assembly, Material, Part, Node
+from ada import FEM, Assembly, Material, Node, Part
 from ada.core.utils import Counter, NewLine, roundoff
 from ada.fem import Bc, FemSet, Mass
 

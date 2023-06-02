@@ -1,4 +1,5 @@
 import numpy as np
+import pygfx as gfx
 import trimesh
 from pygfx import (
     Geometry,
@@ -10,7 +11,6 @@ from pygfx import (
 )
 from pygfx.linalg import Vector3
 from pygfx.utils import Color
-import pygfx as gfx
 
 from ada.visit.gltf.meshes import MeshStore
 

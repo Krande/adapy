@@ -1,11 +1,10 @@
-from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse, BRepAlgoAPI_Common
+from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Common, BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCC.Core.TopoDS import TopoDS_Shape
 
-from ada.geom import BooleanOperation
+from ada.geom.booleans import BooleanOperation, BoolOpEnum
 
 
 def apply_geom_booleans(geom: TopoDS_Shape, booleans: list[BooleanOperation]) -> TopoDS_Shape:
-    from ada.geom import BoolOpEnum
     from ada.occ.geom import geom_to_occ_geom
 
     for boolean in booleans:

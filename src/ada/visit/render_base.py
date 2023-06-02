@@ -1,5 +1,4 @@
 # Using optional renderer pygfx
-from abc import ABC, abstractmethod
 
 
 class JupyterRenderer:

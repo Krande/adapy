@@ -4,7 +4,6 @@ import pathlib
 import pytest
 
 import ada
-from ada.config import Settings
 
 is_printed = False
 TESTS_DIR = pathlib.Path(__file__).resolve().absolute().parent

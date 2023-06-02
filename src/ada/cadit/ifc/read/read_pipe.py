@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ada import ArcSegment, PipeSegElbow, PipeSegStraight, Node
+from ada import ArcSegment, Node, PipeSegElbow, PipeSegStraight
 from ada.config import logger
 
 from .read_beam_section import import_section_from_ifc

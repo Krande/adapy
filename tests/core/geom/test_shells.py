@@ -1,9 +1,10 @@
+import math
+
+import pytest
 from OCC.Core.TopoDS import TopoDS_Compound
 
 from ada import Beam
 from ada.occ.geom import geom_to_occ_geom
-import pytest
-import math
 
 
 def test_ipe_beam():
@@ -26,7 +27,7 @@ def test_ipe_beam():
     p1 = face1.bound.polygon[0]
 
     assert pytest.approx(p1.x) == -x
-    assert pytest.approx(p1.y) == -w/2
+    assert pytest.approx(p1.y) == -w / 2
     assert pytest.approx(p1.z) == z
 
     p2 = face1.bound.polygon[1]
@@ -36,5 +37,3 @@ def test_ipe_beam():
 
     topo_ds = geom_to_occ_geom(geo_xyz)
     assert isinstance(topo_ds, TopoDS_Compound)
-
-

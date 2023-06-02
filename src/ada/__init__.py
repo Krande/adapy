@@ -6,10 +6,12 @@ from typing import TYPE_CHECKING
 
 from ada import fem
 from ada.base.units import Units
+from ada.concepts.beams import Beam, BeamRevolve, BeamSweep, BeamTapered
 from ada.concepts.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
 from ada.concepts.fasteners import Bolts, Weld
-from ada.concepts.piping import Pipe, PipeSegElbow, PipeSegStraight
 from ada.concepts.nodes import Node
+from ada.concepts.piping import Pipe, PipeSegElbow, PipeSegStraight
+from ada.concepts.primitive_boolean import Boolean
 from ada.concepts.primitives import (
     PrimBox,
     PrimCone,
@@ -20,9 +22,7 @@ from ada.concepts.primitives import (
     PrimSweep,
     Shape,
 )
-from ada.concepts.primitive_boolean import Boolean
 from ada.concepts.spatial import Assembly, Group, Part
-from ada.concepts.beams import Beam, BeamRevolve, BeamSweep
 from ada.concepts.stru_plates import Plate
 from ada.concepts.stru_walls import Wall
 from ada.concepts.transforms import Instance, Placement, Transform
@@ -107,8 +107,10 @@ __all__ = [
     "from_ifc",
     "from_fem",
     "Beam",
+    "BeamTapered",
     "BeamSweep",
     "BeamRevolve",
+    "Boolean",
     "Group",
     "Plate",
     "Pipe",

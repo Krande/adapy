@@ -9,9 +9,10 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 import numpy as np
 
 from ada.base.units import Units
+from ada.concepts.beams import Beam
+from ada.concepts.beams.helpers import get_beam_extensions
 from ada.concepts.exceptions import DuplicateNodes
 from ada.concepts.nodes import Node, replace_node
-from ada.concepts.beams import Beam
 from ada.concepts.stru_plates import Plate
 from ada.concepts.transforms import Rotation
 from ada.config import Settings, logger
@@ -152,7 +153,7 @@ class Beams(BaseCollections):
             return modified_beam
 
     def set_connected_beams_map(self) -> None:
-        self._connected_beams_map = {beam: beam.get_beam_extensions() for beam in self._beams}
+        self._connected_beams_map = {beam: get_beam_extensions(beam) for beam in self._beams}
 
     @property
     def connected_beams_map(self) -> dict[Beam, Iterable[Beam]]:

@@ -2,10 +2,11 @@ from dataclasses import dataclass
 from typing import List, Tuple
 
 from ada.concepts.curves import CurvePoly
+from ada.config import get_logger
 from ada.core.utils import roundoff as rd
 from ada.sections.categories import BaseTypes
+
 from .concept import Section, SectionParts
-from ada.config import get_logger
 
 logger = get_logger()
 

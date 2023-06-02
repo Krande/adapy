@@ -1,6 +1,6 @@
 import pytest
 
-from ada import Beam, Material, Part, Node, Section
+from ada import Beam, Material, Node, Part, Section
 from ada.fem import Elem, FemSection, FemSet
 
 

@@ -13,7 +13,7 @@ from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.cache.store import CacheStore
-from ada.concepts.beams.base import BeamTaper
+from ada.concepts.beams.base import BeamTapered
 from ada.concepts.connections import JointBase
 from ada.concepts.containers import (
     Beams,
@@ -24,16 +24,10 @@ from ada.concepts.containers import (
     Sections,
 )
 from ada.concepts.groups import Group
-from ada.concepts.piping import Pipe
 from ada.concepts.nodes import Node
+from ada.concepts.piping import Pipe
 from ada.concepts.presentation_layers import PresentationLayers
-from ada.concepts.primitives import (
-    PrimBox,
-    PrimCyl,
-    PrimExtrude,
-    PrimRevolve,
-    Shape,
-)
+from ada.concepts.primitives import PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.concepts.transforms import Instance, Placement
 from ada.concepts.user import User
 from ada.config import Settings, logger
@@ -53,7 +47,7 @@ from ada.visit.gltf.graph import GraphNode, GraphStore
 if TYPE_CHECKING:
     import ifcopenshell
 
-    from ada import Beam, Material, Plate, Section, Wall, Weld, Boolean
+    from ada import Beam, Boolean, Material, Plate, Section, Wall, Weld
     from ada.cadit.ifc.store import IfcStore
     from ada.fem.containers import COG
     from ada.fem.formats.general import FEATypes, FemConverters
@@ -131,7 +125,7 @@ class Part(BackendGeom):
         if sec != beam.section:
             beam.section = sec
 
-        if isinstance(beam, BeamTaper):
+        if isinstance(beam, BeamTapered):
             tap = self.add_section(beam.taper)
             if tap != beam.taper:
                 beam.taper = tap
@@ -549,7 +543,7 @@ class Part(BackendGeom):
                     if elem not in res.refs:
                         res.refs.append(elem)
                     if isinstance(elem, (Beam, FemSection)):
-                        if isinstance(elem, BeamTaper) and sec.guid == elem.taper.guid:
+                        if isinstance(elem, BeamTapered) and sec.guid == elem.taper.guid:
                             elem.taper = res
                         elem.section = res
                     else:
@@ -562,7 +556,7 @@ class Part(BackendGeom):
 
         not_found = []
         for beam in self.get_all_physical_objects(by_type=Beam):
-            if isinstance(beam, BeamTaper) and beam.taper.guid not in sec_map.keys():
+            if isinstance(beam, BeamTapered) and beam.taper.guid not in sec_map.keys():
                 not_found.append((beam, "taper", beam.taper))
             if beam.section.guid not in sec_map.keys():
                 not_found.append((beam, "section", beam.section))

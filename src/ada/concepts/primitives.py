@@ -15,11 +15,11 @@ from ada.core.vector_utils import unit_vector, vector_length
 from ada.materials import Material
 from ada.materials.utils import get_material
 
-from ..geom import Geometry, BooleanOperation
+from ..geom import BooleanOperation, Geometry
+from ..geom.points import Point
 from .bounding_box import BoundingBox
 from .curves import CurvePoly
 from .transforms import Placement
-from ..geom.points import Point
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
@@ -181,8 +181,8 @@ class PrimSphere(Shape):
         return geom
 
     def solid_geom(self) -> Geometry:
-        from ada.geom.solids import Sphere
         from ada.geom.points import Point
+        from ada.geom.solids import Sphere
 
         sphere = Sphere(Point(*self.cog), self.radius)
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
@@ -198,7 +198,6 @@ class PrimSphere(Shape):
             value = Units.from_str(value)
         if value != self._units:
             from ada.occ.utils import make_sphere
-            from ada.geom.points import Point
 
             scale_factor = Units.get_scale_factor(self._units, value)
 
@@ -221,7 +220,7 @@ class PrimBox(Shape):
         self._bbox = BoundingBox(self)
 
     def geom(self):
-        from ada.occ.utils import make_box_by_points, apply_booleans
+        from ada.occ.utils import apply_booleans, make_box_by_points
 
         if self._geom is None:
             self._geom = make_box_by_points(self.p1, self.p2)
@@ -282,8 +281,8 @@ class PrimCone(Shape):
             self._units = value
 
     def geom(self):
-        from ada.occ.utils import apply_booleans
         from ada.occ.geom.solids import make_cone_from_geom
+        from ada.occ.utils import apply_booleans
 
         if self._geom is None:
             self._geom = make_cone_from_geom(self.solid_geom().geometry)

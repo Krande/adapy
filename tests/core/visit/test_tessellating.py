@@ -28,6 +28,6 @@ def test_shape_grid():
     # assert mat0
     assert len(mesh_map) == len(scene.geometry)
     mat_id0, meshes0, merged_store0 = mesh_map[0]
-    scene0 = scene.geometry.get(f"node{mat_id0}")
+    scene.geometry.get(f"node{mat_id0}")
     os.makedirs("temp", exist_ok=True)
     scene.export("temp/test.glb")

@@ -5,8 +5,9 @@ import pathlib
 from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
+from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRep import BRep_Tool_Pnt
-from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse, BRepAlgoAPI_Common
+from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Common, BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCC.Core.BRepBndLib import brepbndlib_Add
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
@@ -20,10 +21,20 @@ from OCC.Core.BRepFill import BRepFill_Filling
 from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
 from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe, BRepOffsetAPI_ThruSections
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeCylinder
-from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.ChFi2d import ChFi2d_AnaFilletAlgo
 from OCC.Core.GC import GC_MakeArcOfCircle
 from OCC.Core.GeomAbs import GeomAbs_C0
+from OCC.Core.gp import (
+    gp_Ax1,
+    gp_Ax2,
+    gp_Ax3,
+    gp_Circ,
+    gp_Dir,
+    gp_Pln,
+    gp_Pnt,
+    gp_Trsf,
+    gp_Vec,
+)
 from OCC.Core.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
 from OCC.Core.TopoDS import (
     TopoDS_Compound,
@@ -35,7 +46,6 @@ from OCC.Core.TopoDS import (
     TopoDS_Vertex,
     TopoDS_Wire,
 )
-from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Circ, gp_Dir, gp_Pln, gp_Pnt, gp_Trsf, gp_Vec, gp_Ax3
 from OCC.Extend.DataExchange import read_step_file
 from OCC.Extend.ShapeFactory import make_extrusion, make_face, make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
@@ -46,14 +56,15 @@ from ada.config import logger
 from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem.shapes import ElemType
-from .exceptions import UnableToBuildNSidedWires, UnableToCreateSolidOCCGeom
-from ..concepts.beams.base import BeamTaper
-from ..geom import BoolOpEnum
+
+from ..concepts.beams.base import BeamTapered
+from ..geom.booleans import BoolOpEnum
 from ..geom.placement import Direction
 from ..geom.points import Point
+from .exceptions import UnableToBuildNSidedWires, UnableToCreateSolidOCCGeom
 
 if TYPE_CHECKING:
-    from ada import Part, Boolean
+    from ada import Boolean, Part
     from ada.core.vector_utils import EquationOfPlane, Plane
 
 
@@ -515,56 +526,6 @@ def make_eq_plane_object(name, eq_plane: EquationOfPlane, p_dist=1, plane: Plane
     return ori_vec_model
 
 
-def visualize_elem_ori(elem):
-    """
-
-    :param elem:
-    :type elem: ada.fem.Elem
-    :return: ada.Shape
-    """
-    origin = (elem.nodes[-1].p + elem.nodes[0].p) / 2
-    return make_ori_vector(
-        f"elem{elem.id}_ori",
-        origin,
-        elem.fem_sec.csys,
-        pnt_r=0.2,
-        cyl_r=0.05,
-        cyl_l=1.0,
-        units=elem.fem_sec.section.units,
-    )
-
-
-def visualize_load(load, units="m", pnt_r=0.2, cyl_r=0.05, cyl_l_norm=1.5):
-    """
-
-    :param load:
-    :param units:
-    :param pnt_r:
-    :param cyl_r:
-    :param cyl_l_norm:
-    :type load: ada.fem.Load
-    :return:
-    :rtype: ada.Part
-    """
-    from ada.core.constants import X, Y, Z
-
-    csys = load.csys if load.csys is not None else [X, Y, Z]
-    forces = np.array(load.forces[:3])
-    forces_normalized = tuple(cyl_l_norm * (forces / max(abs(forces))))
-
-    origin = load.fem_set.members[0].p
-
-    return make_ori_vector(
-        f"F_{load.name}_ori",
-        origin,
-        csys,
-        pnt_r=pnt_r,
-        cyl_r=cyl_r,
-        cyl_l=forces_normalized,
-        units=units,
-    )
-
-
 def get_edge_points(edge):
     from OCC.Core.BRep import BRep_Tool_Pnt
     from OCC.Extend.TopologyUtils import TopologyExplorer
@@ -661,79 +622,6 @@ def sweep_geom(sweep_wire: TopoDS_Wire, wire_face: TopoDS_Wire):
     return BRepOffsetAPI_MakePipe(sweep_wire, wire_face).Shape()
 
 
-def build_polycurve_occ(local_points, input_2d_coords=False, tol=1e-3):
-    """
-
-    :param local_points:
-    :param input_2d_coords:
-    :return: List of segments
-    """
-    from ada import ArcSegment, LineSegment
-
-    if input_2d_coords:
-        local_points = [(x[0], x[1], 0.0) if len(x) == 2 else (x[0], x[1], 0.0, x[2]) for x in local_points]
-
-    edges = []
-    pzip = list(zip(local_points[:-1], local_points[1:]))
-    segs = [[p1, p2] for p1, p2 in pzip]
-    segs += [segs[0]]
-    segzip = list(zip(segs[:-1], segs[1:]))
-    seg_list = []
-    for i, (seg1, seg2) in enumerate(segzip):
-        p11, p12 = seg1
-        p21, p22 = seg2
-
-        if i == 0:
-            edge1 = make_edge(p11[:3], p12[:3])
-        else:
-            edge1 = edges[-1]
-        if i == len(segzip) - 1:
-            endp = seg_list[0].midpoint if type(seg_list[0]) is ArcSegment else seg_list[0].p2
-            edge2 = make_edge(seg_list[0].p1, endp)
-        else:
-            edge2 = make_edge(p21[:3], p22[:3])
-
-        if len(p21) > 3:
-            r = p21[-1]
-
-            tseg1 = get_edge_points(edge1)
-            tseg2 = get_edge_points(edge2)
-
-            l1_start = tseg1[0]
-            l2_end = tseg2[1]
-
-            ed1, ed2, fillet = make_fillet(edge1, edge2, r)
-
-            seg1 = get_edge_points(ed1)
-            seg2 = get_edge_points(ed2)
-            arc_start = seg1[1]
-            arc_end = seg2[0]
-            midpoint = get_midpoint_of_arc(fillet)
-
-            if i == 0:
-                edges.append(ed1)
-                seg_list.append(LineSegment(p1=l1_start, p2=arc_start))
-
-            seg_list[-1].p2 = arc_start
-            edges.append(fillet)
-
-            seg_list.append(ArcSegment(p1=arc_start, p2=arc_end, midpoint=midpoint))
-            if i == len(segzip) - 1:
-                seg_list[0].p1 = arc_end
-                edges[0] = ed2
-            else:
-                edges.append(ed2)
-                seg_list.append(LineSegment(p1=arc_end, p2=l2_end))
-        else:
-            if i == 0:
-                edges.append(edge1)
-                seg_list.append(LineSegment(p1=p11, p2=p12))
-            if i < len(segzip) - 1:
-                edges.append(edge2)
-                seg_list.append(LineSegment(p1=p21, p2=p22))
-    return seg_list
-
-
 def create_beam_geom(beam: Beam, solid=True):
     from ada.concepts.transforms import Placement
     from ada.config import Settings
@@ -756,7 +644,7 @@ def create_beam_geom(beam: Beam, solid=True):
     placement_2 = Placement(origin=p2, xdir=ydir, zdir=xdir)
     sec = cross_sec_face(section_profile, placement_1, solid)
 
-    if isinstance(beam, BeamTaper):
+    if isinstance(beam, BeamTapered):
         taper_profile = beam.taper.get_section_profile(solid)
         tap = cross_sec_face(taper_profile, placement_2, solid)
     else:

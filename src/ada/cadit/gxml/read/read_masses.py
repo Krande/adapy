@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
 
-from ada import Part, Node
+from ada import Node, Part
 from ada.fem import FemSet, Mass
 
 

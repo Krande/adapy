@@ -1,7 +1,11 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ada.geom import Geometry
 
 
 class BoolOpEnum(Enum):
@@ -19,4 +23,10 @@ class BoolOpEnum(Enum):
 class BooleanResult:
     first_operand: Any
     second_operand: Any
+    operator: BoolOpEnum
+
+
+@dataclass
+class BooleanOperation:
+    second_operand: Geometry
     operator: BoolOpEnum

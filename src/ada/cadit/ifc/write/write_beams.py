@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada import Beam, CurvePoly, CurveRevolve
+from ada import Beam, CurveRevolve
 from ada.cadit.ifc.utils import (
     add_colour,
     convert_bm_jusl_to_ifc,
@@ -17,7 +17,7 @@ from ada.cadit.ifc.utils import (
     to_real,
 )
 from ada.cadit.ifc.write.write_curves import write_curve_poly
-from ada.concepts.beams.base import BeamRevolve, BeamSweep, BeamTaper
+from ada.concepts.beams.base import BeamRevolve, BeamSweep, BeamTapered
 from ada.config import Settings
 from ada.core.constants import O
 
@@ -48,8 +48,8 @@ class IfcBeamWriter:
         if isinstance(beam, BeamRevolve):
             axis, body, loc_plac = create_revolved_beam(beam, f, profile)
         elif isinstance(beam, BeamSweep):
-            axis, body, loc_plac = create_polyline_beam(beam, f, profile)
-        elif isinstance(beam, BeamTaper):
+            axis, body, loc_plac = create_swept_beam(beam, f, profile)
+        elif isinstance(beam, BeamTapered):
             axis, body, loc_plac = extrude_straight_tapered_beam(beam, f, profile)
         else:
             axis, body, loc_plac = extrude_straight_beam(beam, f, profile)
@@ -117,7 +117,7 @@ class IfcBeamWriter:
         return mat_profile_set
 
 
-def extrude_straight_tapered_beam(beam: BeamTaper, f: ifile, profile):
+def extrude_straight_tapered_beam(beam: BeamTapered, f: ifile, profile):
     extrude_dir = ifc_dir(f, (0.0, 0.0, 1.0))
     parent = f.by_guid(beam.parent.guid)
     a = beam.parent.get_assembly()
@@ -246,7 +246,7 @@ def create_ifcrevolveareasolid(f, profile, ifcaxis2placement, origin, revolve_ax
     return f.create_entity("IfcRevolvedAreaSolid", profile, ifcaxis2placement, ifcaxis1dir, revolve_angle)
 
 
-def create_polyline_beam(beam: BeamSweep, f, profile):
+def create_swept_beam(beam: BeamSweep, f, profile):
     a = beam.parent.get_assembly()
     body_context = a.ifc_store.get_context("Body")
     axis_context = a.ifc_store.get_context("Axis")
