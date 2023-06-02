@@ -118,6 +118,7 @@ class IfcBeamWriter:
 
 
 def extrude_straight_tapered_beam(beam: BeamTapered, f: ifile, profile):
+    """Extrude a straight beam with a tapered profile"""
     extrude_dir = ifc_dir(f, (0.0, 0.0, 1.0))
     parent = f.by_guid(beam.parent.guid)
     a = beam.parent.get_assembly()
@@ -132,7 +133,7 @@ def extrude_straight_tapered_beam(beam: BeamTapered, f: ifile, profile):
         e1 = beam.e1
         vec = beam.xvec_e
 
-    profile_e = f.by_guid(beam.taper.guid)
+    profile2 = a.ifc_store.get_profile_def(beam.taper)
 
     # Transform coordinates to local coords
     p1 = tuple([float(x) + float(e1[i]) for i, x in enumerate(beam.n1.p.copy())])
@@ -147,7 +148,7 @@ def extrude_straight_tapered_beam(beam: BeamTapered, f: ifile, profile):
     ifc_axis2plac3d = f.create_entity("IfcAxis2Placement3D", global_origin, None, None)
 
     extrude_area_solid = f.create_entity(
-        "IfcExtrudedAreaSolidTapered", profile, ifc_axis2plac3d, extrude_dir, beam.length, profile_e
+        "IfcExtrudedAreaSolidTapered", profile, ifc_axis2plac3d, extrude_dir, beam.length, profile2
     )
 
     # Add colour

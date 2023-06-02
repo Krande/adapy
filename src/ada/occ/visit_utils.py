@@ -109,12 +109,12 @@ def occ_geom_to_poly_mesh(
     geom_repr: GeomRepr = GeomRepr.SOLID,
 ) -> ObjectMesh:
     if geom_repr == GeomRepr.SOLID:
-        geom = obj.solid()
+        geom = obj.solid_occ()
     elif geom_repr == GeomRepr.SHELL:
-        geom = obj.shell()
+        geom = obj.shell_occ()
     else:
         export_config.render_edges = True
-        geom = obj.line()
+        geom = obj.line_occ()
 
     tm = tessellate_shape(
         geom,

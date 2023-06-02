@@ -137,17 +137,17 @@ class Plate(BackendGeom):
 
         return self._bbox
 
-    def line(self):
+    def line_occ(self):
         return self._poly.wire()
 
-    def shell(self):
+    def shell_occ(self):
         from ada.occ.utils import apply_booleans
 
         geom = apply_booleans(self.poly.face(), self.booleans)
 
         return geom
 
-    def solid(self):
+    def solid_occ(self):
         from ada.occ.utils import apply_booleans
 
         geom = apply_booleans(self._poly.make_extruded_solid(self.t), self.booleans)

@@ -211,7 +211,7 @@ class MyRenderer(JupyterRenderer):
                 ifc_elem = ifc_f.by_guid(beam.guid)
                 geom, _ = get_ifc_geometry(ifc_elem, a.ifc_settings)
             else:
-                geom = beam.solid()
+                geom = beam.solid_occ()
             res = self.DisplayShape(geom, shape_color=beam.color, render_edges=True)
         except BaseException as e:
             logger.debug(f'Unable to create solid for "{beam.name}" due to {e}')
@@ -221,7 +221,7 @@ class MyRenderer(JupyterRenderer):
             self._refs[r.name] = beam
 
     def DisplayPlate(self, plate: "Plate"):
-        geom = self._ifc_geom_to_shape(plate._ifc_geom) if plate._ifc_geom is not None else plate.solid()
+        geom = self._ifc_geom_to_shape(plate._ifc_geom) if plate._ifc_geom is not None else plate.solid_occ()
         # self.AddShapeToScene(geom)
         try:
             res = self.DisplayShape(geom, shape_color=plate.color.hex, opacity=0.5)
@@ -234,7 +234,7 @@ class MyRenderer(JupyterRenderer):
 
     def DisplayPipeSeg(self, pipe_seg: PipeSegElbow | PipeSegStraight):
         res = []
-        res += self.DisplayShape(pipe_seg.solid, shape_color=pipe_seg.parent.color.hex, opacity=0.5)
+        res += self.DisplayShape(pipe_seg.solid_occ, shape_color=pipe_seg.parent.color.hex, opacity=0.5)
 
         for r in res:
             self._refs[r.name] = pipe_seg
@@ -242,7 +242,7 @@ class MyRenderer(JupyterRenderer):
     def DisplayPipe(self, pipe: Pipe):
         res = []
 
-        for i, geom in enumerate([x.solid for x in pipe.segments]):
+        for i, geom in enumerate([x.solid_occ for x in pipe.segments]):
             try:
                 res += self.DisplayShape(geom, shape_color=pipe.color.hex, opacity=0.5)
             except BaseException as e:
@@ -254,7 +254,7 @@ class MyRenderer(JupyterRenderer):
 
     def DisplayWall(self, wall: "Wall"):
         try:
-            res = self.DisplayShape(wall.solid, shape_color=wall.color.hex, opacity=0.5)
+            res = self.DisplayShape(wall.solid_occ, shape_color=wall.color.hex, opacity=0.5)
         except BaseException as e:
             logger.error(e)
             return None

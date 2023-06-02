@@ -27,7 +27,7 @@ class ProfileDef:
 @dataclass
 class ArbitraryProfileDefWithVoids(ProfileDef):
     outer_curve: CURVE_GEOM_TYPES
-    inner_curves: list[Any] = field(default_factory=list)
+    inner_curves: list[CURVE_GEOM_TYPES] = field(default_factory=list)
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcPolyLoop.htm)

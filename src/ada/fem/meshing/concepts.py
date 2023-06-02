@@ -364,15 +364,15 @@ def import_into_gmsh_use_nativepointer(obj: BackendGeom | Shape, geom_repr: Geom
 
     ents = []
     if geom_repr == GeomRepr.SOLID:
-        geom = obj.solid()
+        geom = obj.solid_occ()
         t = TopologyExplorer(geom)
         geom_iter = t.solids()
     elif geom_repr == GeomRepr.SHELL:
-        geom = obj.shell() if type(obj) not in (PrimBox,) else obj.geom()
+        geom = obj.shell_occ() if type(obj) not in (PrimBox,) else obj.geom()
         t = TopologyExplorer(geom)
         geom_iter = t.faces()
     else:
-        geom = obj.line()
+        geom = obj.line_occ()
         t = TopologyExplorer(geom)
         geom_iter = t.edges()
 

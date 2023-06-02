@@ -2,11 +2,11 @@ from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
 from OCC.Core.TopoDS import TopoDS_Shape
 
-from ada.geom.curves import IndexedPolyCurve
+import ada.geom.curves as geo_cu
 from ada.geom.surfaces import FaceBasedSurfaceModel, PolyLoop
 from ada.occ.geom.curves import (
     make_wire_from_indexed_poly_curve_geom,
-    make_wire_from_poly_loop,
+    make_wire_from_poly_loop, make_wire_from_circle,
 )
 
 
@@ -15,9 +15,14 @@ def make_face_from_poly_loop(poly_loop: PolyLoop) -> TopoDS_Shape:
     return BRepBuilderAPI_MakeFace(wire).Shape()
 
 
-def make_face_from_indexed_poly_curve_geom(curve: IndexedPolyCurve) -> TopoDS_Shape:
+def make_face_from_indexed_poly_curve_geom(curve: geo_cu.IndexedPolyCurve) -> TopoDS_Shape:
     wire = make_wire_from_indexed_poly_curve_geom(curve)
     return BRepBuilderAPI_MakeFace(wire).Shape()
+
+
+def make_face_from_circle(circle: geo_cu.Circle):
+    circle_wire = make_wire_from_circle(circle)
+    return BRepBuilderAPI_MakeFace(circle_wire).Shape()
 
 
 def make_shell_from_face_based_surface_geom(surface: FaceBasedSurfaceModel) -> TopoDS_Shape:

@@ -12,6 +12,7 @@ from ada.visit.colors import Color, color_dict
 from ada.visit.config import ExportConfig
 
 if TYPE_CHECKING:
+    from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Solid, TopoDS_Shell, TopoDS_Wire, TopoDS_Face
     from ada import FEM, Boolean
     from ada.cadit.ifc.store import IfcStore
     from ada.fem import Elem
@@ -23,16 +24,16 @@ class BackendGeom(Root):
     """The backend of all physical components (Beam, Plate, etc.) or aggregate of components (Part, Assembly)"""
 
     def __init__(
-        self,
-        name,
-        guid=None,
-        metadata=None,
-        units=Units.M,
-        parent=None,
-        color: Color | Iterable[float, float, float] | str | None = None,
-        placement=Placement(),
-        ifc_store: IfcStore = None,
-        opacity=1.0,
+            self,
+            name,
+            guid=None,
+            metadata=None,
+            units=Units.M,
+            parent=None,
+            color: Color | Iterable[float, float, float] | str | None = None,
+            placement=Placement(),
+            ifc_store: IfcStore = None,
+            opacity=1.0,
     ):
         super().__init__(name, guid, metadata, units, parent, ifc_store=ifc_store)
         self._booleans = []
@@ -53,10 +54,10 @@ class BackendGeom(Root):
         self._elem_refs = []
 
     def add_boolean(
-        self,
-        boolean: BackendGeom,
-        bool_op: str | BoolOpEnum = BoolOpEnum.DIFFERENCE,
-        add_to_layer: str = None,
+            self,
+            boolean: BackendGeom,
+            bool_op: str | BoolOpEnum = BoolOpEnum.DIFFERENCE,
+            add_to_layer: str = None,
     ):
         from ada import Boolean, Shape
         from ada.base.changes import ChangeAction
@@ -83,15 +84,15 @@ class BackendGeom(Root):
         return boolean
 
     def to_fem_obj(
-        self,
-        mesh_size,
-        geom_repr: str | GeomRepr,
-        options: GmshOptions = None,
-        silent=True,
-        use_quads=False,
-        use_hex=False,
-        name="AdaFEM",
-        interactive=False,
+            self,
+            mesh_size,
+            geom_repr: str | GeomRepr,
+            options: GmshOptions = None,
+            silent=True,
+            use_quads=False,
+            use_hex=False,
+            name="AdaFEM",
+            interactive=False,
     ) -> FEM:
         from ada.fem.meshing import GmshOptions, GmshSession
 
@@ -107,17 +108,17 @@ class BackendGeom(Root):
             return gs.get_fem(name)
 
     def to_fem(
-        self,
-        mesh_size,
-        geom_repr,
-        name: str,
-        fem_format: str,
-        options: GmshOptions = None,
-        silent=True,
-        use_quads=False,
-        use_hex=False,
-        return_assembly=False,
-        **kwargs,
+            self,
+            mesh_size,
+            geom_repr,
+            name: str,
+            fem_format: str,
+            options: GmshOptions = None,
+            silent=True,
+            use_quads=False,
+            use_hex=False,
+            return_assembly=False,
+            **kwargs,
     ):
         from ada import Assembly, Part
 
@@ -132,7 +133,7 @@ class BackendGeom(Root):
         from ada.occ.store import OCCStore
 
         step_writer = OCCStore.get_step_writer()
-        step_writer.add_shape(self.solid(), self.name, rgb_color=self.color.rgb)
+        step_writer.add_shape(self.solid_occ(), self.name, rgb_color=self.color.rgb)
         step_writer.export(destination_file)
 
     def to_obj_mesh(self, geom_repr: str | GeomRepr = GeomRepr.SOLID, export_config: ExportConfig = ExportConfig()):
@@ -186,13 +187,13 @@ class BackendGeom(Root):
         display(HBox([VBox([HBox(renderer.controls), renderer.renderer]), renderer.html]))
         return ""
 
-    def solid(self):
+    def solid_occ(self) -> TopoDS_Solid | TopoDS_Compound:
         raise NotImplementedError()
 
-    def shell(self):
+    def shell_occ(self) -> TopoDS_Shell | TopoDS_Face:
         raise NotImplementedError()
 
-    def line(self):
+    def line_occ(self) -> TopoDS_Wire:
         raise NotImplementedError()
 
     def solid_geom(self) -> Geometry:

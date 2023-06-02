@@ -724,7 +724,10 @@ class Sections(NumericMapped):
             logger.info(f'Section with same name "{section.name}" already exists. Will use that section instead')
             existing_section = self._name_map[section.name]
             for elem in section.refs:
-                elem.section = existing_section
+                if section == elem.section:
+                    elem.section = existing_section
+                else:
+                    elem.taper = existing_section
                 if elem not in existing_section.refs:
                     existing_section.refs.append(elem)
             return existing_section

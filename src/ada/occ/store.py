@@ -48,9 +48,9 @@ class OCCStore:
             geo_repr = render_override.get(obj_.guid, geom_repr)
             try:
                 if geo_repr == GeomRepr.SOLID:
-                    return obj_.solid()
+                    return obj_.solid_occ()
                 elif geo_repr == GeomRepr.SHELL:
-                    return obj_.shell()
+                    return obj_.shell_occ()
             except RuntimeError as e:
                 logger.warning(f"Failed to add shape {obj.name} due to {e}")
                 return None

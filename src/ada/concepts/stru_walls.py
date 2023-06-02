@@ -255,11 +255,11 @@ class Wall(BackendGeom):
     def metadata(self):
         return self._metadata
 
-    def shell(self):
+    def shell_occ(self):
         poly = CurvePoly(points3d=self.extrusion_area, parent=self)
         return poly.face()
 
-    def solid(self):
+    def solid_occ(self):
         from ada.occ.utils import apply_booleans
 
         poly = CurvePoly(points3d=self.extrusion_area, parent=self)

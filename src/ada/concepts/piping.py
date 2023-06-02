@@ -157,22 +157,22 @@ class PipeSegStraight(BackendGeom):
         return calc_zvec(self.xvec1)
 
     @property
-    def line(self):
+    def line_occ(self):
         from ada.occ.utils import make_edge
 
         return make_edge(self.p1, self.p2)
 
-    def shell(self):
+    def shell_occ(self):
         from ada.fem.shapes import ElemType
         from ada.occ.utils import sweep_pipe
 
-        return sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, ElemType.SHELL)
+        return sweep_pipe(self.line_occ, self.xvec1, self.section.r, self.section.wt, ElemType.SHELL)
 
-    def solid(self):
+    def solid_occ(self):
         from ada.fem.shapes import ElemType
         from ada.occ.utils import apply_booleans, sweep_pipe
 
-        raw_geom = sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, ElemType.SOLID)
+        raw_geom = sweep_pipe(self.line_occ, self.xvec1, self.section.r, self.section.wt, ElemType.SOLID)
 
         geom = apply_booleans(raw_geom, self.booleans)
         return geom
@@ -231,7 +231,7 @@ class PipeSegElbow(BackendGeom):
     def zvec(self):
         return calc_zvec(self.xvec1)
 
-    def line(self):
+    def line_occ(self):
         from ada.core.curve_utils import make_edges_and_fillet_from_3points
 
         if self.arc_seg.edge_geom is None:
@@ -241,7 +241,7 @@ class PipeSegElbow(BackendGeom):
             edge = self.arc_seg.edge_geom
         return edge
 
-    def shell(self):
+    def shell_occ(self):
         from ada.fem.shapes import ElemType
         from ada.occ.utils import sweep_pipe
 
@@ -252,9 +252,9 @@ class PipeSegElbow(BackendGeom):
         else:
             xvec = self.xvec1
 
-        return sweep_pipe(self.line(), xvec, self.section.r, self.section.wt, ElemType.SHELL)
+        return sweep_pipe(self.line_occ(), xvec, self.section.r, self.section.wt, ElemType.SHELL)
 
-    def solid(self):
+    def solid_occ(self):
         from ada.fem.shapes import ElemType
         from ada.occ.utils import apply_booleans, sweep_pipe
 
@@ -264,7 +264,7 @@ class PipeSegElbow(BackendGeom):
             xvec = pseg.xvec1
         else:
             xvec = self.xvec1
-        raw_geom = sweep_pipe(self.line(), xvec, self.section.r, self.section.wt, ElemType.SOLID)
+        raw_geom = sweep_pipe(self.line_occ(), xvec, self.section.r, self.section.wt, ElemType.SOLID)
 
         geom = apply_booleans(raw_geom, self.booleans)
         return geom

@@ -213,17 +213,7 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
     return pfitting
 
 
-def elbow_tesselated(self: PipeSegElbow, f, schema, a):
-    shape = self.solid
 
-    if shape is None:
-        logger.error(f"Unable to create geometry for Branch {self.name}")
-        return None
-    point_tol = Units.get_general_point_tol(a.units)
-    serialized_geom = tesselate_shape(shape, schema, point_tol)
-    ifc_shape = f.add(serialized_geom)
-
-    return ifc_shape
 
 
 def elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):

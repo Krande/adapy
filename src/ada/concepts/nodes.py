@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Iterable, List, Union
 import numpy as np
 
 from ada.base.units import Units
+from ada.concepts.beams.helpers import updating_nodes
 from ada.config import Settings, logger
 from ada.core.vector_utils import vector_length
 from ada.geom.points import Point
@@ -220,7 +221,12 @@ def replace_node(old_node: Node, new_node: Node) -> None:
 
     for obj in old_node.refs.copy():
         obj: Union[Beam, Csys, Elem]
-        obj.updating_nodes(old_node, new_node)
+        if isinstance(obj, Beam):
+            updating_nodes(obj, old_node, new_node)
+        elif isinstance(obj, Elem):
+            obj.updating_nodes(old_node, new_node)
+        else:
+            pass
 
         old_node.remove_obj_from_refs(obj)
         new_node.add_obj_to_refs(obj)

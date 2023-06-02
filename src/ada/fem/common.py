@@ -63,14 +63,14 @@ class Csys(FemBase):
     TYPES_DEFINITIONS = CsysDefs
 
     def __init__(
-        self,
-        name,
-        definition=TYPES_DEFINITIONS.COORDINATES,
-        system=TYPES_SYSTEM.RECTANGULAR,
-        nodes: List[Node] = None,
-        coords=None,
-        metadata=None,
-        parent: FEM = None,
+            self,
+            name,
+            definition=TYPES_DEFINITIONS.COORDINATES,
+            system=TYPES_SYSTEM.RECTANGULAR,
+            nodes: List[Node] = None,
+            coords=None,
+            metadata=None,
+            parent: FEM = None,
     ):
         super().__init__(name, metadata, parent)
         self._definition = definition
@@ -92,9 +92,6 @@ class Csys(FemBase):
     @property
     def nodes(self) -> List[Node]:
         return self._nodes
-
-    def updating_nodes(self, old_node: Node, new_node: Node) -> None:
-        """Updating nodes on Csys"""
 
     @property
     def coords(self):

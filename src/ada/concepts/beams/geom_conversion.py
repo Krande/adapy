@@ -5,19 +5,12 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada.core.vector_utils import transform_csys_to_csys
-from ada.geom import Geometry
-from ada.geom.curves import Line
+from ada.geom import Geometry, BooleanOperation
+from ada.geom.curves import Line, Circle
 from ada.geom.placement import Axis2Placement3D, Direction
 from ada.geom.points import Point
-from ada.geom.solids import ExtrudedAreaSolid, ExtrudedAreaSolidTapered
-from ada.geom.surfaces import (
-    ArbitraryProfileDefWithVoids,
-    ConnectedFaceSet,
-    FaceBasedSurfaceModel,
-    FaceBound,
-    PolyLoop,
-    ProfileType,
-)
+import ada.geom.solids as geo_so
+import ada.geom.surfaces as geo_su
 
 if TYPE_CHECKING:
     from ada import Section
@@ -25,13 +18,21 @@ if TYPE_CHECKING:
 
 
 def straight_beam_to_geom(beam: Beam, is_solid=True) -> Geometry:
-    if beam.section.type == beam.section.TYPES.IPROFILE:
-        if is_solid:
-            return ibeam_to_geom(beam)
-        else:
-            return ibeam_to_face_geom(beam)
+    if is_solid:
+        profile = section_to_arbitrary_profile_def_with_voids(beam.section)
+        place = Axis2Placement3D(location=beam.n1.p, axis=beam.xvec, ref_direction=beam.yvec)
+        solid = geo_so.ExtrudedAreaSolid(profile, place, beam.length, Direction(0, 0, 1))
+        geom = Geometry(beam.guid, solid, beam.color)
     else:
-        raise NotImplementedError(f"Beam section type {beam.section.type} not implemented")
+        if beam.section.type == beam.section.TYPES.IPROFILE:
+            geom = ibeam_to_face_geom(beam)
+        elif beam.section.type == beam.section.TYPES.BOX:
+            geom = box_to_face_geom(beam)
+        else:
+            raise NotImplementedError(f"Beam section type {beam.section.type} not implemented")
+
+    geom.bool_operations = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in beam.booleans]
+    return geom
 
 
 def straight_tapered_beam_to_geom(beam: BeamTapered, is_solid=True) -> Geometry:
@@ -66,15 +67,29 @@ def revolved_beam_to_solid_geom(beam: BeamRevolve) -> Geometry:
     return Geometry()
 
 
-def section_to_arbitrary_profile_def_with_voids(section: Section) -> ArbitraryProfileDefWithVoids:
-    sec_profile = section.get_section_profile()
-
-    outer_curve = sec_profile.outer_curve.get_edges_geom()
+def section_to_arbitrary_profile_def_with_voids(section: Section) -> geo_su.ArbitraryProfileDefWithVoids:
     inner_curves = []
-    if sec_profile.inner_curve is not None:
-        inner_curves += [sec_profile.inner_curve.get_edges_geom()]
+    if section.type == section.TYPES.TUBULAR:
+        outer_curve = Circle(Axis2Placement3D(), section.r)
+        inner_curves += [Circle(Axis2Placement3D(), section.r - section.wt)]
+    elif section.type == section.TYPES.CIRCULAR:
+        outer_curve = Circle(Axis2Placement3D(), section.r)
+    else:
+        sec_profile = section.get_section_profile()
+        outer_curve = sec_profile.outer_curve.get_edges_geom()
+        if sec_profile.inner_curve is not None:
+            inner_curves += [sec_profile.inner_curve.get_edges_geom()]
 
-    return ArbitraryProfileDefWithVoids(ProfileType.AREA, outer_curve, inner_curves)
+    return geo_su.ArbitraryProfileDefWithVoids(geo_su.ProfileType.AREA, outer_curve, inner_curves)
+
+
+def ibeam_taper_to_geom(beam: BeamTapered) -> Geometry:
+    profile1 = section_to_arbitrary_profile_def_with_voids(beam.section)
+    profile2 = section_to_arbitrary_profile_def_with_voids(beam.taper)
+
+    place = Axis2Placement3D(location=beam.n1.p, axis=beam.xvec, ref_direction=beam.yvec)
+    geom = geo_so.ExtrudedAreaSolidTapered(profile1, place, beam.length, Direction(0, 0, 1), profile2)
+    return Geometry(beam.guid, geom, beam.color)
 
 
 def ibeam_to_face_geom(beam: Beam) -> Geometry:
@@ -97,24 +112,15 @@ def ibeam_to_face_geom(beam: Beam) -> Geometry:
         p4 = p1 + xv_l
         points = np.concatenate([p1, p2, p3, p4]).reshape(-1, 3)
         new_points = np.matmul(rotation_matrix, points.T).T + beam.n1.p
-        poly_loop = PolyLoop(polygon=[Point(*p) for p in new_points])
-        connected_faces += [ConnectedFaceSet([FaceBound(bound=poly_loop, orientation=True)])]
+        poly_loop = geo_su.PolyLoop(polygon=[Point(*p) for p in new_points])
+        connected_faces += [geo_su.ConnectedFaceSet([geo_su.FaceBound(bound=poly_loop, orientation=True)])]
 
-    geom = FaceBasedSurfaceModel(connected_faces)
+    geom = geo_su.FaceBasedSurfaceModel(connected_faces)
     return Geometry(beam.guid, geom, beam.color)
 
 
-def ibeam_to_geom(beam: Beam) -> Geometry:
-    profile = section_to_arbitrary_profile_def_with_voids(beam.section)
-    place = Axis2Placement3D(location=beam.n1.p, axis=beam.xvec, ref_direction=beam.yvec)
-    geom = ExtrudedAreaSolid(profile, place, beam.length, Direction(0, 0, 1))
-    return Geometry(beam.guid, geom, beam.color)
-
-
-def ibeam_taper_to_geom(beam: BeamTapered) -> Geometry:
-    profile1 = section_to_arbitrary_profile_def_with_voids(beam.section)
-    profile2 = section_to_arbitrary_profile_def_with_voids(beam.taper)
-
-    place = Axis2Placement3D(location=beam.n1.p, axis=beam.xvec, ref_direction=beam.yvec)
-    geom = ExtrudedAreaSolidTapered(profile1, place, beam.length, Direction(0, 0, 1), profile2)
-    return Geometry(beam.guid, geom, beam.color)
+def box_to_face_geom(beam: Beam) -> Geometry:
+    sec_profile = beam.section.get_section_profile(is_solid=False)
+    profile = geo_su.ArbitraryProfileDefWithVoids(geo_su.ProfileType.AREA, outer_curve, inner_curves)
+    geo_so.ExtrudedAreaSolid(profile, place, beam.length, Direction(0, 0, 1))
+    return Geometry()

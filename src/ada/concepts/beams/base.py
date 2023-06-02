@@ -247,15 +247,6 @@ class Beam(BackendGeom):
 
         return get_singular_node_by_volume(self.parent.fem.nodes, self.n1.p + fraction * self.length * self.xvec)
 
-    def updating_nodes(self, old_node: Node, new_node: Node) -> None:
-        """Exchanging node on beam"""
-        if old_node is self.n1:
-            self.n1 = new_node
-        elif old_node is self.n2:
-            self.n2 = new_node
-        else:
-            raise NodeNotOnEndpointError(f"{old_node} is on either endpoint: {self.nodes}")
-
     def get_outer_points(self):
         from itertools import chain
 
@@ -421,26 +412,24 @@ class Beam(BackendGeom):
     def e2(self, value: Iterable):
         self._e2 = Direction(*value)
 
-    def line(self):
+    def line_occ(self):
         from ada.occ.utils import make_wire_from_points
 
         points = [self.n1.p, self.n2.p]
 
         return make_wire_from_points(points)
 
-    def shell(self) -> TopoDS_Shape:
+    def shell_occ(self) -> TopoDS_Shape:
         from ada.occ.utils import apply_booleans, create_beam_geom
 
         geom = apply_booleans(create_beam_geom(self, False), self.booleans)
 
         return geom
 
-    def solid(self) -> TopoDS_Shape:
-        from ada.occ.utils import apply_booleans, create_beam_geom
+    def solid_occ(self) -> TopoDS_Shape:
+        from ada.occ.geom import geom_to_occ_geom
 
-        geom = apply_booleans(create_beam_geom(self, True), self.booleans)
-
-        return geom
+        return geom_to_occ_geom(self.solid_geom())
 
     def solid_geom(self) -> Geometry:
         return geo_conv.straight_beam_to_geom(self)
@@ -494,18 +483,18 @@ class Beam(BackendGeom):
 
         return True
 
-    def __repr__(self):
-        p1s = self.n1.p.tolist()
-        p2s = self.n2.p.tolist()
-        secn = self.section.sec_str
-        matn = self.material.name
-        return f'Beam("{self.name}", {p1s}, {p2s}, "{secn}", "{matn}")'
-
     def __setstate__(self, state):
         self.__dict__ = state
 
     def __getstate__(self):
         return self.__dict__
+
+    def __repr__(self):
+        p1s = self.n1.p.tolist()
+        p2s = self.n2.p.tolist()
+        secn = self.section.sec_str
+        matn = self.material.name
+        return f'{self.__class__.__name__}("{self.name}", {p1s}, {p2s}, "{secn}", "{matn}")'
 
 
 class BeamTapered(Beam):
@@ -564,7 +553,3 @@ class BeamRevolve(Beam):
 
     def solid_geom(self) -> Geometry:
         return geo_conv.revolved_beam_to_geom(self)
-
-
-class NodeNotOnEndpointError(Exception):
-    pass

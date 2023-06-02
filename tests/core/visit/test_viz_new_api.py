@@ -17,7 +17,7 @@ def test_viz_beam(test_dir, beam):
 
 
 def test_viz_beam_manual(test_dir, beam):
-    geom = beam.solid()
+    geom = beam.solid_occ()
     quality = 1.0
     render_edges = False
     parallel = True

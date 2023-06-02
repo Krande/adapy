@@ -1,4 +1,5 @@
 import OCC.Core.BRepPrimAPI as occBrep
+from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
 from OCC.Core.BRepOffsetAPI import (
     BRepOffsetAPI_ThruSections,
 )
@@ -8,11 +9,11 @@ from OCC.Extend.TopologyUtils import TopologyExplorer
 
 import ada.geom.solids as geo_so
 import ada.geom.surfaces as geo_su
-from ada.geom.curves import IndexedPolyCurve
+import ada.geom.curves as geo_cu
 from ada.geom.placement import Direction
 from ada.geom.points import Point
-from ada.occ.geom.curves import make_wire_from_indexed_poly_curve_geom
-from ada.occ.geom.surfaces import make_face_from_indexed_poly_curve_geom
+from ada.occ.geom.curves import make_wire_from_indexed_poly_curve_geom, make_wire_from_circle
+from ada.occ.geom.surfaces import make_face_from_indexed_poly_curve_geom, make_face_from_circle
 from ada.occ.utils import transform_shape_to_pos
 
 
@@ -74,16 +75,34 @@ def make_extruded_area_shape_tapered_from_geom(eas: geo_so.ExtrudedAreaSolidTape
     return transform_shape_to_pos(shape, eas.position.location, eas.position.axis, eas.position.ref_direction)
 
 
+def make_face_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
+    if isinstance(outer_curve, geo_cu.IndexedPolyCurve):
+        return make_face_from_indexed_poly_curve_geom(outer_curve)
+    elif isinstance(outer_curve, geo_cu.Circle):
+        return make_face_from_circle(outer_curve)
+    else:
+        raise NotImplementedError("Only IndexedPolyCurve is implemented")
+
+
+def make_wire_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
+    if isinstance(outer_curve, geo_cu.IndexedPolyCurve):
+        return make_wire_from_indexed_poly_curve_geom(outer_curve)
+    elif isinstance(outer_curve, geo_cu.Circle):
+        return make_wire_from_circle(outer_curve)
+    else:
+        raise NotImplementedError("Only IndexedPolyCurve is implemented")
+
+
 def make_profile_from_geom(area: geo_su.ProfileDef) -> TopoDS_Shape:
     if isinstance(area, geo_su.ArbitraryProfileDefWithVoids):
-        outer_curve = area.outer_curve
-        if isinstance(outer_curve, IndexedPolyCurve):
-            if area.profile_type == geo_su.ProfileType.AREA:
-                profile = make_face_from_indexed_poly_curve_geom(outer_curve)
-            else:  # area.profile_type == ProfileType.CURVE:
-                profile = make_wire_from_indexed_poly_curve_geom(outer_curve)
+        if area.profile_type == geo_su.ProfileType.AREA:
+            profile = make_face_from_curve(area.outer_curve)
+            for inner_curve in map(make_face_from_curve, area.inner_curves):
+                profile = BRepAlgoAPI_Cut(profile, inner_curve).Shape()
         else:
-            raise NotImplementedError("Only IndexedPolyCurve is implemented")
+            profile = make_wire_from_curve(area.outer_curve)
+            for inner_curve in map(make_wire_from_curve, area.inner_curves):
+                profile = BRepAlgoAPI_Cut(profile, inner_curve).Shape()
     else:
         raise NotImplementedError("Only ArbitraryProfileDefWithVoids is implemented")
     return profile

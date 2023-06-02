@@ -31,20 +31,20 @@ class Shape(BackendGeom):
     IFC_CLASSES = ShapeTypes
 
     def __init__(
-        self,
-        name,
-        geom,
-        color=None,
-        opacity=1.0,
-        mass: float = None,
-        cog: Iterable = None,
-        metadata=None,
-        units=Units.M,
-        guid=None,
-        material: Material | str = None,
-        placement=Placement(),
-        ifc_store: IfcStore = None,
-        ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
+            self,
+            name,
+            geom,
+            color=None,
+            opacity=1.0,
+            mass: float = None,
+            cog: Iterable = None,
+            metadata=None,
+            units=Units.M,
+            guid=None,
+            material: Material | str = None,
+            placement=Placement(),
+            ifc_store: IfcStore = None,
+            ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
     ):
         super().__init__(
             name,
@@ -125,7 +125,7 @@ class Shape(BackendGeom):
 
         return geom
 
-    def solid(self) -> TopoDS_Shape:
+    def solid_occ(self) -> TopoDS_Shape:
         return self.geom()
 
     @property
@@ -310,13 +310,8 @@ class PrimCyl(Shape):
         super(PrimCyl, self).__init__(name, geom=None, **kwargs)
 
     def geom(self):
-        from ada.occ.utils import apply_booleans, make_cylinder_from_points
-
-        if self._geom is None:
-            self._geom = make_cylinder_from_points(self.p1, self.p2, self.r)
-
-        geom = apply_booleans(self._geom, self.booleans)
-        return geom
+        from ada.occ.geom import geom_to_occ_geom
+        return geom_to_occ_geom(self.solid_geom())
 
     @property
     def units(self):
@@ -472,16 +467,16 @@ class PrimRevolve(Shape):
 
 class PrimSweep(Shape):
     def __init__(
-        self,
-        name,
-        sweep_curve,
-        normal,
-        xdir,
-        profile_curve_outer,
-        profile_curve_inner=None,
-        origin=None,
-        tol=1e-3,
-        **kwargs,
+            self,
+            name,
+            sweep_curve,
+            normal,
+            xdir,
+            profile_curve_outer,
+            profile_curve_inner=None,
+            origin=None,
+            tol=1e-3,
+            **kwargs,
     ):
         if type(sweep_curve) is list:
             sweep_curve = CurvePoly(points3d=sweep_curve, is_closed=False)

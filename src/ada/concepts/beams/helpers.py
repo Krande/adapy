@@ -115,3 +115,17 @@ def get_justification(beam: Beam) -> Justification:
         return Justification.TOS
     else:
         return Justification.CUSTOM
+
+
+class NodeNotOnEndpointError(Exception):
+    pass
+
+
+def updating_nodes(beam: Beam, old_node: Node, new_node: Node) -> None:
+    """Exchanging node on beam"""
+    if old_node is beam.n1:
+        beam.n1 = new_node
+    elif old_node is beam.n2:
+        beam.n2 = new_node
+    else:
+        raise NodeNotOnEndpointError(f"{old_node} is on either endpoint: {beam.nodes}")

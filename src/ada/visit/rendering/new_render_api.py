@@ -72,11 +72,11 @@ class VizObj:
 
     def get_geom(self, geom_repr):
         if geom_repr == ElemType.SOLID:
-            return self.obj.solid()
+            return self.obj.solid_occ()
         elif geom_repr == ElemType.SHELL:
-            return self.obj.shell()
+            return self.obj.shell_occ()
         elif geom_repr == ElemType.LINE:
-            return self.obj.line()
+            return self.obj.line_occ()
         else:
             raise ValueError(f'Unrecognized "{geom_repr}".')
 
@@ -92,7 +92,7 @@ class VizObj:
 
         o = OccToThreejs()
         mesh, edges = o.occ_shape_to_threejs(
-            self.obj.solid(), self.obj.color, self.edge_color, self.obj.transparent, self.obj.opacity
+            self.obj.solid_occ(), self.obj.color, self.edge_color, self.obj.transparent, self.obj.opacity
         )
         return mesh
 
