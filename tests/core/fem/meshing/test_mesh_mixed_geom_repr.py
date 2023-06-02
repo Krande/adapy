@@ -22,7 +22,7 @@ def assembly() -> Assembly:
 
     p1, p2 = (1, -2, 0), (2, -1, 1)
     shp1 = PrimBox("MyBox", p1, p2)
-    shp1.add_penetration(PrimSphere("MyCutout", p1, 0.5))
+    shp1.add_boolean(PrimSphere("MyCutout", p1, 0.5))
 
     return Assembly() / (Part("MyFemObjects") / [bm1, bm2, bm3, pl1, shp1, pipe])
 

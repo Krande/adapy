@@ -141,16 +141,16 @@ class Plate(BackendGeom):
         return self._poly.wire()
 
     def shell(self):
-        from ada.occ.utils import apply_penetrations
+        from ada.occ.utils import apply_booleans
 
-        geom = apply_penetrations(self.poly.face(), self.penetrations)
+        geom = apply_booleans(self.poly.face(), self.booleans)
 
         return geom
 
     def solid(self):
-        from ada.occ.utils import apply_penetrations
+        from ada.occ.utils import apply_booleans
 
-        geom = apply_penetrations(self._poly.make_extruded_solid(self.t), self.penetrations)
+        geom = apply_booleans(self._poly.make_extruded_solid(self.t), self.booleans)
 
         return geom
 
@@ -167,7 +167,7 @@ class Plate(BackendGeom):
             tol = Settings.mmtol if value == "mm" else Settings.mtol
             self._t *= scale_factor
             self.poly.scale(scale_factor, tol)
-            for pen in self.penetrations:
+            for pen in self.booleans:
                 pen.units = value
             self.material.units = value
             self._units = value

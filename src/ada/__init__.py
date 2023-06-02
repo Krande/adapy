@@ -11,7 +11,7 @@ from ada.concepts.fasteners import Bolts, Weld
 from ada.concepts.piping import Pipe, PipeSegElbow, PipeSegStraight
 from ada.concepts.nodes import Node
 from ada.concepts.primitives import (
-    Penetration,
+    Boolean,
     PrimBox,
     PrimCone,
     PrimCyl,
@@ -115,7 +115,7 @@ __all__ = [
     "PipeSegStraight",
     "PipeSegElbow",
     "Wall",
-    "Penetration",
+    "Boolean",
     "Section",
     "Material",
     "Shape",

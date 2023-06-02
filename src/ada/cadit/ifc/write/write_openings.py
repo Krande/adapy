@@ -13,13 +13,13 @@ from ada.core.utils import Counter
 from .write_shapes import generate_parametric_solid
 
 if TYPE_CHECKING:
-    from ada import Penetration, Shape
+    from ada import Boolean, Shape
 
 pen_counter = Counter(prefix="P")
 
 
-def generate_ifc_opening(primitive: Penetration | Shape):
-    from ada import Penetration, Shape
+def generate_ifc_opening(primitive: Boolean | Shape):
+    from ada import Boolean, Shape
 
     if primitive.parent is None:
         raise ValueError("This penetration has no parent")
@@ -33,7 +33,7 @@ def generate_ifc_opening(primitive: Penetration | Shape):
 
     # Create and associate an opening for the window in the wall
     opening_placement = create_local_placement(f, O, Z, X, relative_to=geom_parent.ObjectPlacement)
-    if isinstance(primitive, Penetration):
+    if isinstance(primitive, Boolean):
         prim = primitive.primitive
     elif issubclass(type(primitive), Shape):
         prim = primitive

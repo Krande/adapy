@@ -259,7 +259,7 @@ class GmshSession:
         ents = []
         for obj, model in self.model_map.items():
             if model.geom_repr == ElemType.SHELL:
-                if len(obj.penetrations) > 0:
+                if len(obj.booleans) > 0:
                     partition_objects_with_holes(model, self)
                 else:
                     for dim, tag in model.entities:

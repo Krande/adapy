@@ -10,7 +10,7 @@ from ada.visit.colors import Color, color_dict
 from ada.visit.config import ExportConfig
 
 if TYPE_CHECKING:
-    from ada import FEM, Penetration
+    from ada import FEM, Boolean
     from ada.cadit.ifc.store import IfcStore
     from ada.fem import Elem
     from ada.fem.meshing import GmshOptions
@@ -34,7 +34,7 @@ class BackendGeom(Root):
         opacity=1.0,
     ):
         super().__init__(name, guid, metadata, units, parent, ifc_store=ifc_store)
-        self._penetrations = []
+        self._booleans = []
 
         self._placement = placement
         placement.parent = self
@@ -51,17 +51,18 @@ class BackendGeom(Root):
         self.color = color
         self._elem_refs = []
 
-    def add_penetration(self, pen, add_to_layer: str = None):
-        from ada import Penetration, Shape
+    def add_boolean(self, boolean, add_to_layer: str = None):
+        from ada import Boolean, Shape
         from ada.base.changes import ChangeAction
 
-        pen.parent = self
+        boolean.parent = self
 
-        if issubclass(type(pen), Shape) is True:
-            pen = Penetration(pen, parent=self)
-            self._penetrations.append(pen)
-        elif type(pen) is Penetration:
-            self._penetrations.append(pen)
+        if issubclass(type(boolean), Shape) is True:
+            # Will automatically wrap the shape in a Boolean using the Difference operation
+            boolean = Boolean(boolean, parent=self)
+            self._booleans.append(boolean)
+        elif type(boolean) is Boolean:
+            self._booleans.append(boolean)
         else:
             raise ValueError("")
 
@@ -70,9 +71,9 @@ class BackendGeom(Root):
 
         if add_to_layer is not None:
             a = self.get_assembly()
-            a.presentation_layers.add_object(pen, add_to_layer)
+            a.presentation_layers.add_object(boolean, add_to_layer)
 
-        return pen
+        return boolean
 
     def to_fem_obj(
         self,
@@ -136,8 +137,8 @@ class BackendGeom(Root):
         return occ_geom_to_poly_mesh(self, geom_repr=geom_repr, export_config=export_config)
 
     @property
-    def penetrations(self) -> list[Penetration]:
-        return self._penetrations
+    def booleans(self) -> list[Boolean]:
+        return self._booleans
 
     @property
     def elem_refs(self) -> list[Elem]:

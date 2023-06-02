@@ -6,7 +6,7 @@ import numpy as np
 
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
-from ada.config import get_logger
+from ada.config import logger
 from ada.core.utils import thread_this
 from ada.occ.exceptions import (
     UnableToBuildNSidedWires,
@@ -20,7 +20,6 @@ from ada.visit.config import ExportConfig
 if TYPE_CHECKING:
     from ada import Beam, PipeSegElbow, PipeSegStraight, Plate, Shape, Wall
 
-logger = get_logger()
 
 
 def ifc_poly_elem_to_json(

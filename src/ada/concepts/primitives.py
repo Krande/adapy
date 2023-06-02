@@ -15,10 +15,11 @@ from ada.core.vector_utils import unit_vector, vector_length
 from ada.materials import Material
 from ada.materials.utils import get_material
 
-from ..geom import Geometry
+from ..geom import Geometry, BooleanOperatorEnum
 from .bounding_box import BoundingBox
 from .curves import CurvePoly
 from .transforms import Placement
+from ..geom.points import Point
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
@@ -36,7 +37,7 @@ class Shape(BackendGeom):
         color=None,
         opacity=1.0,
         mass: float = None,
-        cog: tuple[float, float, float] = None,
+        cog: Iterable = None,
         metadata=None,
         units=Units.M,
         guid=None,
@@ -62,6 +63,9 @@ class Shape(BackendGeom):
 
         self._geom = geom
         self._mass = mass
+        if cog is not None and not isinstance(cog, Point):
+            cog = Point(*cog)
+
         self._cog = cog
         if isinstance(material, Material):
             self._material = material
@@ -84,11 +88,13 @@ class Shape(BackendGeom):
         self._mass = value
 
     @property
-    def cog(self) -> tuple[float, float, float]:
+    def cog(self) -> Point:
         return self._cog
 
     @cog.setter
-    def cog(self, value: tuple[float, float, float]):
+    def cog(self, value: Iterable):
+        if not isinstance(value, Point):
+            value = Point(*value)
         self._cog = value
 
     def bbox(self) -> BoundingBox:
@@ -98,7 +104,7 @@ class Shape(BackendGeom):
         return self._bbox
 
     def geom(self) -> TopoDS_Shape:
-        from ada.occ.utils import apply_penetrations
+        from ada.occ.utils import apply_booleans
 
         from .exceptions import NoGeomPassedToShapeError
 
@@ -115,7 +121,7 @@ class Shape(BackendGeom):
             self._geom = geom
             self.color = color
 
-        geom = apply_penetrations(self._geom, self.penetrations)
+        geom = apply_booleans(self._geom, self.booleans)
 
         return geom
 
@@ -164,14 +170,14 @@ class PrimSphere(Shape):
         super(PrimSphere, self).__init__(name=name, geom=None, cog=cog, **kwargs)
 
     def geom(self):
-        from ada.occ.utils import apply_penetrations
+        from ada.occ.utils import apply_booleans
 
         if self._geom is None:
             from ada.occ.utils import make_sphere
 
             self._geom = make_sphere(self.cog, self.radius)
 
-        geom = apply_penetrations(self._geom, self.penetrations)
+        geom = apply_booleans(self._geom, self.booleans)
         return geom
 
     def solid_geom(self) -> Geometry:
@@ -192,9 +198,11 @@ class PrimSphere(Shape):
             value = Units.from_str(value)
         if value != self._units:
             from ada.occ.utils import make_sphere
+            from ada.geom.points import Point
 
             scale_factor = Units.get_scale_factor(self._units, value)
-            self.cog = tuple([x * scale_factor for x in self.cog])
+
+            self.cog = [x * scale_factor for x in self.cog]
             self.radius = self.radius * scale_factor
             self._geom = make_sphere(self.cog, self.radius)
             self._units = value
@@ -213,13 +221,12 @@ class PrimBox(Shape):
         self._bbox = BoundingBox(self)
 
     def geom(self):
-        from ada.occ.utils import make_box_by_points
-        from ada.occ.utils import apply_penetrations
+        from ada.occ.utils import make_box_by_points, apply_booleans
 
         if self._geom is None:
             self._geom = make_box_by_points(self.p1, self.p2)
 
-        geom = apply_penetrations(self._geom, self.penetrations)
+        geom = apply_booleans(self._geom, self.booleans)
         return geom
 
     @property
@@ -275,6 +282,16 @@ class PrimCone(Shape):
             self.r = self.r * scale_factor
             self._units = value
 
+    def geom(self):
+        from ada.occ.utils import apply_booleans
+        from ada.occ.geom.solids import make_cone_from_geom
+
+        if self._geom is None:
+            self._geom = make_cone_from_geom(self.solid_geom().geometry)
+
+        geom = apply_booleans(self._geom, self.booleans)
+        return geom
+
     def solid_geom(self) -> Geometry:
         from ada.geom.points import Point
         from ada.geom.solids import Cone
@@ -295,12 +312,12 @@ class PrimCyl(Shape):
         super(PrimCyl, self).__init__(name, geom=None, **kwargs)
 
     def geom(self):
-        from ada.occ.utils import apply_penetrations, make_cylinder_from_points
+        from ada.occ.utils import apply_booleans, make_cylinder_from_points
 
         if self._geom is None:
             self._geom = make_cylinder_from_points(self.p1, self.p2, self.r)
 
-        geom = apply_penetrations(self._geom, self.penetrations)
+        geom = apply_booleans(self._geom, self.booleans)
         return geom
 
     @property
@@ -586,19 +603,33 @@ class RationalBSplineSurfaceWithKnots(BSplineSurfaceWithKnots):
         return f.create_entity("IfcRationalBSplineSurfaceWithKnots", **entities)
 
 
-class Penetration(BackendGeom):
-    _name_gen = Counter(1, "Pen")
-    """A penetration object. Wraps around a primitive"""
+class Boolean(BackendGeom):
+    _name_gen = Counter(1, "Bool")
+    """A boolean object applied to the parent object (and all preceding booleans in its boolean stack) 
+    using one of the boolean operators; DIFFERENCE (default), UNION or INTERSECT.
+    """
 
-    # TODO: Maybe this class should be evaluated for removal?
-    def __init__(self, primitive, metadata=None, parent=None, units=Units.M, guid=None):
+    def __init__(
+        self,
+        primitive,
+        bool_op: BooleanOperatorEnum = BooleanOperatorEnum.DIFFERENCE,
+        metadata=None,
+        parent=None,
+        units=Units.M,
+        guid=None,
+    ):
         if issubclass(type(primitive), Shape) is False:
             raise ValueError(f'Unsupported primitive type "{type(primitive)}"')
 
-        super(Penetration, self).__init__(primitive.name, guid=guid, metadata=metadata, units=units)
+        super(Boolean, self).__init__(primitive.name, guid=guid, metadata=metadata, units=units)
         self._primitive = primitive
+        self._bool_op = bool_op
         self._parent = parent
         self._ifc_opening = None
+
+    @property
+    def bool_op(self) -> BooleanOperatorEnum:
+        return self._bool_op
 
     @property
     def primitive(self):
@@ -620,4 +651,4 @@ class Penetration(BackendGeom):
             self._units = value
 
     def __repr__(self):
-        return f"Pen(type={self.primitive})"
+        return f"Bool(type={self.primitive})"

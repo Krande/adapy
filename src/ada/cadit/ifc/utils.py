@@ -12,6 +12,7 @@ import ada.core.constants as ifco
 from ada.concepts.transforms import Transform
 from ada.config import logger
 from ada.core.file_system import get_list_of_files
+from ada.geom.placement import Axis2Placement3D
 from ada.visit.colors import Color
 
 if TYPE_CHECKING:
@@ -105,6 +106,14 @@ def create_guid(name=None):
 
 def ifc_p(f: ifcopenshell.file, p):
     return f.create_entity("IfcCartesianPoint", to_real(p))
+
+
+def ifc_placement_from_axis3d(axis3d: Axis2Placement3D, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Creates an IfcAxis2Placement3D from an Axis2Placement3D object"""
+    location = ifc_p(f, axis3d.location)
+    axis = f.create_entity("IfcDirection", to_real(axis3d.axis))
+    ref_direction = f.create_entity("IfcDirection", to_real(axis3d.ref_direction))
+    return f.create_entity("IfcAxis2Placement3D", location, axis, ref_direction)
 
 
 def create_ifc_placement(f: ifcopenshell.file, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X):

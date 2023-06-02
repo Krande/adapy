@@ -27,7 +27,7 @@ from ada.concepts.piping import Pipe
 from ada.concepts.nodes import Node
 from ada.concepts.presentation_layers import PresentationLayers
 from ada.concepts.primitives import (
-    Penetration,
+    Boolean,
     PrimBox,
     PrimCyl,
     PrimExtrude,
@@ -308,38 +308,38 @@ class Part(BackendGeom):
         else:
             raise NotImplementedError(f'"{type(obj)}" is not yet supported for smart append')
 
-    def add_penetration(
+    def add_boolean(
         self,
-        pen: Penetration | PrimExtrude | PrimRevolve | PrimCyl | PrimBox,
+        boolean: Boolean | PrimExtrude | PrimRevolve | PrimCyl | PrimBox,
         add_pen_to_subparts=True,
         add_to_layer: str = None,
-    ) -> Penetration:
+    ) -> Boolean:
         def create_pen(pen_):
             if isinstance(pen_, (PrimExtrude, PrimRevolve, PrimCyl, PrimBox)):
-                return Penetration(pen_, parent=self)
+                return Boolean(pen_, parent=self)
             return pen_
 
         for bm in self.beams:
-            bm.add_penetration(create_pen(pen), add_to_layer=add_to_layer)
+            bm.add_boolean(create_pen(boolean), add_to_layer=add_to_layer)
 
         for pl in self.plates:
-            pl.add_penetration(create_pen(pen), add_to_layer=add_to_layer)
+            pl.add_boolean(create_pen(boolean), add_to_layer=add_to_layer)
 
         for shp in self.shapes:
-            shp.add_penetration(create_pen(pen), add_to_layer=add_to_layer)
+            shp.add_boolean(create_pen(boolean), add_to_layer=add_to_layer)
 
         for pipe in self.pipes:
             for seg in pipe.segments:
-                seg.add_penetration(create_pen(pen), add_to_layer=add_to_layer)
+                seg.add_boolean(create_pen(boolean), add_to_layer=add_to_layer)
 
         for wall in self.walls:
-            wall.add_penetration(create_pen(pen), add_to_layer=add_to_layer)
+            wall.add_boolean(create_pen(boolean), add_to_layer=add_to_layer)
 
         if add_pen_to_subparts:
             for p in self.get_all_subparts():
-                p.add_penetration(pen, False, add_to_layer=add_to_layer)
+                p.add_boolean(boolean, False, add_to_layer=add_to_layer)
 
-        return pen
+        return boolean
 
     def add_instance(self, element, placement: Placement):
         if element not in self._instances.keys():
@@ -782,7 +782,7 @@ class Part(BackendGeom):
             [int, int],
             None,
         ] = None,
-        geom_repr_override: dict[str, GeomRepr] = None
+        geom_repr_override: dict[str, GeomRepr] = None,
     ):
         from ada.occ.store import OCCStore
 
@@ -931,7 +931,7 @@ class Part(BackendGeom):
             for wall in self.walls:
                 wall.units = value
 
-            for pen in self.penetrations:
+            for pen in self.booleans:
                 pen.units = value
 
             for p in self.get_all_subparts():
@@ -1156,6 +1156,7 @@ class Assembly(Part):
         file_obj_only=False,
         validate=False,
         progress_callback: Callable[[int, int], None] = None,
+        geom_repr_override: dict[str, GeomRepr] = None,
     ) -> ifcopenshell.file:
         import ifcopenshell.validate
 
@@ -1166,7 +1167,9 @@ class Assembly(Part):
 
         print(f'Beginning writing to IFC file "{destination}" using IfcOpenShell')
 
-        self.ifc_store.sync(include_fem=include_fem, progress_callback=progress_callback)
+        self.ifc_store.sync(
+            include_fem=include_fem, progress_callback=progress_callback, geom_repr_override=geom_repr_override
+        )
 
         if file_obj_only is False:
             os.makedirs(destination.parent, exist_ok=True)

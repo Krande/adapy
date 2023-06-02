@@ -4,15 +4,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.core.vector_utils import (
-    transform,
-    local_2_global_points,
-    unit_vector,
-    calc_zvec,
-    rot_matrix,
-    rotation_matrix_csys_rotate,
-    transform_csys_to_csys,
-)
+
+from ada.core.vector_utils import transform_csys_to_csys
 from ada.geom import Geometry
 from ada.geom.curves import Line
 from ada.geom.placement import Direction, Axis2Placement3D
@@ -28,10 +21,10 @@ from ada.geom.surfaces import (
 )
 
 if TYPE_CHECKING:
-    from ada.concepts.beams import Beam
+    from ada.concepts.beams import Beam, BeamSweep, BeamRevolve
 
 
-def beam_to_geom(beam: Beam, is_solid=True) -> Geometry:
+def straight_beam_to_geom(beam: Beam, is_solid=True) -> Geometry:
     if beam.section.type == beam.section.TYPES.IPROFILE:
         if is_solid:
             return ipe_to_geom(beam)
@@ -39,6 +32,20 @@ def beam_to_geom(beam: Beam, is_solid=True) -> Geometry:
             return ipe_to_face_geom(beam)
     else:
         raise NotImplementedError(f"Beam section type {beam.section.type} not implemented")
+
+
+def swept_beam_to_geom(beam: BeamSweep, is_solid=True) -> Geometry:
+    if is_solid:
+        return swept_beam_to_solid_geom(beam)
+    else:
+        return swept_beam_to_face_geom(beam)
+
+
+def revolved_beam_to_geom(beam: BeamRevolve, is_solid=True) -> Geometry:
+    if is_solid:
+        return revolved_beam_to_solid_geom(beam)
+    else:
+        return revolved_beam_to_face_geom(beam)
 
 
 def ipe_to_face_geom(beam: Beam) -> Geometry:

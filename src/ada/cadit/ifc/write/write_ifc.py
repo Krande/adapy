@@ -7,6 +7,7 @@ import ifcopenshell
 import ifcopenshell.geom
 
 from ada.base.changes import ChangeAction
+from ada.config import logger
 from ada.cadit.ifc.read.reader_utils import get_ifc_body
 from ada.cadit.ifc.utils import (
     add_negative_extrusion,
@@ -60,6 +61,10 @@ class IfcWriter:
             part.change_type = ChangeAction.NOCHANGE
             num_new_spatial_objects += 1
         return num_new_spatial_objects
+
+    def sync_added_geom_repr(self):
+        logger.warning(f"Syncing added geom repr")
+        ...
 
     def sync_added_physical_objects(self) -> int:
         a = self.ifc_store.assembly
@@ -131,7 +136,7 @@ class IfcWriter:
         return num_mod
 
     def sync_presentation_layers(self) -> int:
-        from ada import Part, Penetration, Pipe
+        from ada import Part, Boolean, Pipe
 
         num_added = 0
         f = self.ifc_store.f
@@ -158,7 +163,7 @@ class IfcWriter:
 
                 elif isinstance(member, Part):
                     continue
-                elif isinstance(member, Penetration):
+                elif isinstance(member, Boolean):
                     for ifc_opening in f.by_type("IfcOpeningElement"):
                         if ifc_opening.Name != member.name:
                             continue
@@ -251,8 +256,8 @@ class IfcWriter:
                         raise ValueError(f'Unrecognized type "{type(insert)}"')
 
         else:
-            if len(obj.penetrations) > 0:
-                for pen in obj.penetrations:
+            if len(obj.booleans) > 0:
+                for pen in obj.booleans:
                     ifc_opening = generate_ifc_opening(pen)
                     f.create_entity(
                         "IfcRelVoidsElement",

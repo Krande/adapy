@@ -21,5 +21,5 @@ def test_advanced_beam(test_step_dir):
 
 
 def test_plate1_w_hole(test_step_dir, plate1):
-    plate1.add_penetration(ada.PrimCyl("MyPen", (0.5, 0.5, -0.2), (0.5, 0.5, 0.2), 0.2))
+    plate1.add_boolean(ada.PrimCyl("MyPen", (0.5, 0.5, -0.2), (0.5, 0.5, 0.2), 0.2))
     plate1.to_stp(test_step_dir / "MyPlateWithHole.stp")

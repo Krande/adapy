@@ -11,6 +11,7 @@ from ada.sections.categories import BaseTypes, SectionCat
 if TYPE_CHECKING:
     from ada import Beam, CurvePoly, Pipe, PipeSegElbow, PipeSegStraight
     from ada.fem import FemSection
+    from ada.sections.profiles import SectionProfile
 
 logger = get_logger()
 
@@ -245,6 +246,8 @@ class Section(Root):
         return self._inner_poly
 
     def get_section_profile(self, is_solid=True) -> SectionProfile:
+        from .profiles import build_section_profile
+
         return build_section_profile(self, is_solid)
 
     def _repr_html_(self):
@@ -339,44 +342,3 @@ class GeneralProperties:
         from ada.sections.properties import calculate_general_properties
 
         return calculate_general_properties(self.parent)
-
-
-@dataclass
-class SectionProfile:
-    sec: Section
-    is_solid: bool
-    outer_curve: CurvePoly = None
-    inner_curve: CurvePoly = None
-    outer_curve_disconnected: list[CurvePoly] = None
-    inner_curve_disconnected: list[CurvePoly] = None
-    disconnected: bool = None
-    shell_thickness_map: list[tuple[str, float]] = None
-
-
-def build_section_profile(sec: Section, is_solid) -> SectionProfile:
-    import ada.sections.profiles as profile_builder
-
-    if sec.type in [BaseTypes.TUBULAR, BaseTypes.CIRCULAR, BaseTypes.GENERAL]:
-        logger.info("Tubular profiles do not need curve representations")
-        return SectionProfile(sec, is_solid)
-
-    build_map = {
-        BaseTypes.ANGULAR: profile_builder.angular,
-        BaseTypes.IPROFILE: profile_builder.iprofiles,
-        BaseTypes.TPROFILE: profile_builder.tprofiles,
-        BaseTypes.BOX: profile_builder.box,
-        BaseTypes.FLATBAR: profile_builder.flatbar,
-        BaseTypes.CHANNEL: profile_builder.channel,
-    }
-
-    section_builder = build_map.get(sec.type, None)
-
-    if section_builder is None and sec.poly_outer is None:
-        raise ValueError("Currently geometry build is unsupported for profile type {ptype}".format(ptype=sec.type))
-
-    if section_builder is not None:
-        section_profile = section_builder(sec, is_solid)
-    else:
-        section_profile = SectionProfile(sec, outer_curve=sec.poly_outer, is_solid=is_solid, disconnected=False)
-
-    return section_profile

@@ -9,6 +9,7 @@ import ifcopenshell
 import ifcopenshell.geom
 
 from ada.base.changes import ChangeAction
+from ada.base.types import GeomRepr
 from ada.cadit.ifc.utils import assembly_to_ifc_file, default_settings, get_unit_type
 from ada.cadit.ifc.write.write_sections import get_profile_class
 from ada.cadit.ifc.write.write_user import create_owner_history_from_user
@@ -99,7 +100,12 @@ class IfcStore:
 
         return contexts[0]
 
-    def sync(self, include_fem=False, progress_callback: Callable[[int, int], None] = None):
+    def sync(
+        self,
+        include_fem=False,
+        progress_callback: Callable[[int, int], None] = None,
+        geom_repr_override: dict[str, GeomRepr] = None,
+    ):
         from ada.cadit.ifc.write.write_ifc import IfcWriter
 
         self.writer = IfcWriter(self)
@@ -117,6 +123,8 @@ class IfcStore:
         self.writer.sync_materials()
 
         num_new_objects = self.writer.sync_added_physical_objects()
+        if geom_repr_override is not None:
+            self.writer.sync_added_geom_repr()
 
         self.writer.sync_added_welds()
 

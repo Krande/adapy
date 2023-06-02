@@ -119,7 +119,7 @@ class Wall(BackendGeom):
         p1 = wi.placement.origin - yvec * (wi.depth / 2 + tol)
         p2 = wi.placement.origin + yvec * (wi.depth / 2 + tol) + xvec * wi.width + zvec * wi.height
 
-        self._penetrations.append(PrimBox("my_pen", p1, p2))
+        self._booleans.append(PrimBox("my_pen", p1, p2))
 
     def get_segment_props(self, wall_segment):
         """
@@ -260,11 +260,11 @@ class Wall(BackendGeom):
         return poly.face()
 
     def solid(self):
-        from ada.occ.utils import apply_penetrations
+        from ada.occ.utils import apply_booleans
 
         poly = CurvePoly(points3d=self.extrusion_area, parent=self)
 
-        geom = apply_penetrations(poly.make_extruded_solid(self.height), self.penetrations)
+        geom = apply_booleans(poly.make_extruded_solid(self.height), self.booleans)
 
         return geom
 
@@ -284,7 +284,7 @@ class Wall(BackendGeom):
             self.placement.origin = np.array([x * scale_factor for x in self.placement.origin])
             self._points = [tuple([x * scale_factor for x in p]) for p in self.points]
             self._segments = list(zip(self._points[:-1], self.points[1:]))
-            for pen in self._penetrations:
+            for pen in self._booleans:
                 pen.units = value
             for opening in self._openings:
                 opening[2] = tuple([x * scale_factor for x in opening[2]])

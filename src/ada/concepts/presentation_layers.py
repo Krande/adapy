@@ -5,12 +5,10 @@ from typing import TYPE_CHECKING
 
 from ada.base.changes import ChangeAction
 from ada.cadit.ifc.utils import create_guid
-from ada.config import get_logger
+from ada.config import logger
 
 if TYPE_CHECKING:
     from ada.base.physical_objects import BackendGeom
-
-logger = get_logger()
 
 
 @dataclass

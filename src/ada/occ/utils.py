@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 from OCC.Core.BRep import BRep_Tool_Pnt
-from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
+from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse, BRepAlgoAPI_Common
 from OCC.Core.BRepBndLib import brepbndlib_Add
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
@@ -40,7 +40,7 @@ from OCC.Extend.DataExchange import read_step_file
 from OCC.Extend.ShapeFactory import make_extrusion, make_face, make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
-from ada.concepts.primitives import Penetration
+from ada.concepts.primitives import Boolean
 from ada.concepts.beams import Beam
 from ada.concepts.transforms import Placement, Rotation
 from ada.config import logger
@@ -48,6 +48,7 @@ from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem.shapes import ElemType
 from .exceptions import UnableToBuildNSidedWires, UnableToCreateSolidOCCGeom
+from ..geom import BooleanOperatorEnum
 from ..geom.placement import Direction
 from ..geom.points import Point
 
@@ -802,9 +803,16 @@ def create_beam_geom(beam: Beam, solid=True):
         return result
 
 
-def apply_penetrations(geom: TopoDS_Shape, penetrations: List[Penetration]) -> TopoDS_Shape:
-    for pen in penetrations:
-        geom = BRepAlgoAPI_Cut(geom, pen.geom()).Shape()
+def apply_booleans(geom: TopoDS_Shape, booleans: list[Boolean]) -> TopoDS_Shape:
+    for boolean in booleans:
+        if boolean.bool_op == BooleanOperatorEnum.DIFFERENCE:
+            geom = BRepAlgoAPI_Cut(geom, boolean.geom()).Shape()
+        elif boolean.bool_op == BooleanOperatorEnum.UNION:
+            geom = BRepAlgoAPI_Fuse(geom, boolean.geom()).Shape()
+        elif boolean.bool_op == BooleanOperatorEnum.INTERSECTION:
+            geom = BRepAlgoAPI_Common(geom, boolean.geom()).Shape()
+        else:
+            raise NotImplementedError(f"Boolean operation {boolean.bool_op} not implemented")
 
     return geom
 

@@ -6,12 +6,12 @@ import numpy as np
 
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
-from ada.concepts.beams.geom_conversion import beam_to_geom
+from ada.concepts.beams.geom_conversion import straight_beam_to_geom, swept_beam_to_geom, revolved_beam_to_geom
 from ada.concepts.bounding_box import BoundingBox
 from ada.concepts.curves import CurvePoly, CurveRevolve
 from ada.concepts.nodes import Node, get_singular_node_by_volume
 from ada.concepts.transforms import Placement
-from ada.config import Settings, get_logger
+from ada.config import Settings, logger
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import (
     angle_between,
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 section_counter = Counter(1)
 material_counter = Counter(1)
-logger = get_logger()
+
 
 
 class Beam(BackendGeom):
@@ -343,7 +343,7 @@ class Beam(BackendGeom):
         self.n2.units = value
         self.section.units = value
         self.material.units = value
-        for pen in self.penetrations:
+        for pen in self.booleans:
             pen.units = value
         self._units = value
 
@@ -416,7 +416,7 @@ class Beam(BackendGeom):
             return Justification.NA
         elif self.e1 is None or self.e2 is None:
             return Justification.CUSTOM
-        elif self.e1.is_equal(self.e2) and self.e1.is_equal(self.up*self.section.h / 2):
+        elif self.e1.is_equal(self.e2) and self.e1.is_equal(self.up * self.section.h / 2):
             return Justification.TOS
         else:
             return Justification.CUSTOM
@@ -518,24 +518,24 @@ class Beam(BackendGeom):
         return make_wire_from_points(points)
 
     def shell(self) -> TopoDS_Shape:
-        from ada.occ.utils import apply_penetrations, create_beam_geom
+        from ada.occ.utils import apply_booleans, create_beam_geom
 
-        geom = apply_penetrations(create_beam_geom(self, False), self.penetrations)
+        geom = apply_booleans(create_beam_geom(self, False), self.booleans)
 
         return geom
 
     def solid(self) -> TopoDS_Shape:
-        from ada.occ.utils import apply_penetrations, create_beam_geom
+        from ada.occ.utils import apply_booleans, create_beam_geom
 
-        geom = apply_penetrations(create_beam_geom(self, True), self.penetrations)
+        geom = apply_booleans(create_beam_geom(self, True), self.booleans)
 
         return geom
 
     def solid_geom(self) -> Geometry:
-        return beam_to_geom(self)
+        return straight_beam_to_geom(self)
 
     def shell_geom(self) -> Geometry:
-        geom = beam_to_geom(self, is_solid=False)
+        geom = straight_beam_to_geom(self, is_solid=False)
         return geom
 
     @property
@@ -663,6 +663,9 @@ class BeamSweep(Beam):
     def curve(self) -> CurvePoly:
         return self._curve
 
+    def solid_geom(self) -> Geometry:
+        return swept_beam_to_geom(self)
+
 
 class BeamRevolve(Beam):
     def __init__(
@@ -705,6 +708,9 @@ class BeamRevolve(Beam):
     @property
     def curve(self) -> CurveRevolve:
         return self._curve
+
+    def solid_geom(self) -> Geometry:
+        return revolved_beam_to_geom(self)
 
 
 class NodeNotOnEndpointError(Exception):

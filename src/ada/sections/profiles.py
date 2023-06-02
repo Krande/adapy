@@ -1,9 +1,53 @@
+from dataclasses import dataclass
 from typing import List, Tuple
 
 from ada.concepts.curves import CurvePoly
 from ada.core.utils import roundoff as rd
+from ada.sections.categories import BaseTypes
+from .concept import Section, SectionParts
+from ada.config import get_logger
 
-from .concept import Section, SectionParts, SectionProfile
+logger = get_logger()
+
+
+@dataclass
+class SectionProfile:
+    sec: Section
+    is_solid: bool
+    outer_curve: CurvePoly = None
+    inner_curve: CurvePoly = None
+    outer_curve_disconnected: list[CurvePoly] = None
+    inner_curve_disconnected: list[CurvePoly] = None
+    disconnected: bool = None
+    shell_thickness_map: list[tuple[str, float]] = None
+
+
+def build_section_profile(sec: Section, is_solid) -> SectionProfile:
+    if sec.type in [BaseTypes.TUBULAR, BaseTypes.CIRCULAR, BaseTypes.GENERAL]:
+        logger.info("Tubular profiles do not need curve representations")
+        return SectionProfile(sec, is_solid)
+
+    build_map = {
+        BaseTypes.ANGULAR: angular,
+        BaseTypes.IPROFILE: iprofiles,
+        BaseTypes.TPROFILE: tprofiles,
+        BaseTypes.BOX: box,
+        BaseTypes.FLATBAR: flatbar,
+        BaseTypes.CHANNEL: channel,
+    }
+
+    section_builder = build_map.get(sec.type, None)
+
+    if section_builder is None and sec.poly_outer is None:
+        raise ValueError("Currently geometry build is unsupported for profile type {ptype}".format(ptype=sec.type))
+
+    if section_builder is not None:
+        section_profile = section_builder(sec, is_solid)
+    else:
+        section_profile = SectionProfile(sec, outer_curve=sec.poly_outer, is_solid=is_solid, disconnected=False)
+
+    return section_profile
+
 
 build_props = dict(origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1))
 

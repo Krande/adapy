@@ -171,11 +171,11 @@ class PipeSegStraight(BackendGeom):
 
     def solid(self):
         from ada.fem.shapes import ElemType
-        from ada.occ.utils import apply_penetrations, sweep_pipe
+        from ada.occ.utils import apply_booleans, sweep_pipe
 
         raw_geom = sweep_pipe(self.line, self.xvec1, self.section.r, self.section.wt, ElemType.SOLID)
 
-        geom = apply_penetrations(raw_geom, self.penetrations)
+        geom = apply_booleans(raw_geom, self.booleans)
         return geom
 
     def __repr__(self):
@@ -257,7 +257,7 @@ class PipeSegElbow(BackendGeom):
 
     def solid(self):
         from ada.fem.shapes import ElemType
-        from ada.occ.utils import apply_penetrations, sweep_pipe
+        from ada.occ.utils import apply_booleans, sweep_pipe
 
         i = self.parent.segments.index(self)
         if i != 0:
@@ -267,7 +267,7 @@ class PipeSegElbow(BackendGeom):
             xvec = self.xvec1
         raw_geom = sweep_pipe(self.line(), xvec, self.section.r, self.section.wt, ElemType.SOLID)
 
-        geom = apply_penetrations(raw_geom, self.penetrations)
+        geom = apply_booleans(raw_geom, self.booleans)
         return geom
 
     @property

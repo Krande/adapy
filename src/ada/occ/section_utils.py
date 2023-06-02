@@ -6,7 +6,7 @@ from OCC.Extend.ShapeFactory import make_face, make_wire
 
 from ada.concepts.transforms import Placement
 from ada.sections.categories import BaseTypes
-from ada.sections.concept import SectionProfile
+from ada.sections.profiles import SectionProfile
 
 from .utils import make_circle, make_face_w_cutout
 

@@ -6,8 +6,8 @@ from ada.core.alignment_utils import align_to_plate
 
 def test_plate_mesh_from_2_fem(pl1, pl2):
     points = [(1, 1, 0.2), (2, 1, 0.2), (2, 2, 0.2), (1, 2, 0.2)]
-    pl1.add_penetration(ada.PrimExtrude("poly_extrude", points, **align_to_plate(pl1)))
-    pl1.add_penetration(ada.PrimExtrude("poly_extrude2", points, **align_to_plate(pl2)))
+    pl1.add_boolean(ada.PrimExtrude("poly_extrude", points, **align_to_plate(pl1)))
+    pl1.add_boolean(ada.PrimExtrude("poly_extrude2", points, **align_to_plate(pl2)))
 
     p = ada.Part("MyFem") / [pl1, pl2]
     p.fem = pl1.to_fem_obj(1, "shell")

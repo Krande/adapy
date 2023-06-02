@@ -3,9 +3,10 @@ from __future__ import annotations
 import numpy as np
 
 from ada import (
-    Penetration,
+    Boolean,
     PrimBox,
     PrimCyl,
+    PrimCone,
     PrimExtrude,
     PrimRevolve,
     PrimSphere,
@@ -24,9 +25,11 @@ from ada.cadit.ifc.utils import (
     create_local_placement,
     tesselate_shape,
     to_real,
+    ifc_placement_from_axis3d,
 )
 from ada.core.constants import O, X, Z
 from ada.core.vector_utils import unit_vector, vector_length
+from ada.geom.solids import Cone, Box, Cylinder, Sphere
 
 from .write_curves import write_curve_poly
 
@@ -44,7 +47,7 @@ def write_ifc_shape(shape: Shape):
 
     shape_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
 
-    if isinstance(shape, (PrimBox, PrimCyl, PrimExtrude, PrimRevolve, PrimSphere, PrimSweep)):
+    if isinstance(shape, (PrimBox, PrimCyl, PrimExtrude, PrimRevolve, PrimSphere, PrimSweep, PrimCone)):
         ifc_shape = generate_parametric_solid(shape, f)
     else:
         tol = Units.get_general_point_tol(a.units)
@@ -73,9 +76,10 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
     body_context = a.ifc_store.get_context("Body")
 
     param_solid_map = {
-        PrimSphere: generate_ifc_PrimSphere_geom,
+        PrimSphere: generate_ifc_prim_sphere_geom,
         PrimBox: generate_ifc_box_geom,
         PrimCyl: generate_ifc_cylinder_geom,
+        PrimCone: generate_ifc_cone_geom,
         PrimExtrude: generate_ifc_prim_extrude_geom,
         PrimRevolve: generate_ifc_prim_revolve_geom,
         PrimSweep: generate_ifc_prim_sweep_geom,
@@ -87,7 +91,7 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
 
     solid_geom = ifc_geom_converter(shape, f)
 
-    if type(shape) is Penetration:
+    if type(shape) is Boolean:
         raise ValueError(f'Penetration type "{shape}" is not yet supported')
 
     shape_representation = f.create_entity("IfcShapeRepresentation", body_context, "Body", "SweptSolid", [solid_geom])
@@ -96,56 +100,30 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
     return ifc_shape
 
 
-def generate_ifc_PrimSphere_geom(shape: PrimSphere, f):
+def generate_ifc_cone_geom(shape: PrimCone, f):
+    c_geom: Cone = shape.solid_geom().geometry
+    axis3d = ifc_placement_from_axis3d(c_geom.position, f)
+    return f.createIfcRightCircularCone(Position=axis3d, Height=c_geom.height, BottomRadius=c_geom.bottom_radius)
+
+
+def generate_ifc_prim_sphere_geom(shape: PrimSphere, f):
     """Create IfcSphere from primitive PrimSphere"""
     opening_axis_placement = create_ifc_placement(f, to_real(shape.cog), Z, X)
     return f.createIfcSphere(opening_axis_placement, float(shape.radius))
 
 
 def generate_ifc_box_geom(shape: PrimBox, f):
-    """Create IfcExtrudedAreaSolid from primitive PrimBox"""
-    p1 = shape.p1
-    p2 = shape.p2
-    points = [
-        p1,
-        (p1[0], p2[1], p1[2]),
-        (p2[0], p2[1], p1[2]),
-        (p2[0], p1[1], p1[2]),
-    ]
-    depth = p2[2] - p1[2]
-    polyline = create_ifcpolyline(f, points)
-    profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
-    opening_axis_placement = create_ifc_placement(f, O, Z, X)
-    return create_ifcextrudedareasolid(f, profile, opening_axis_placement, (0.0, 0.0, 1.0), depth)
+    """Create IfcBlock from primitive PrimBox"""
+    geom: Box = shape.solid_geom().geometry
+    axis3d = ifc_placement_from_axis3d(geom.position, f)
+    return f.createIfcBlock(Position=axis3d, XLength=geom.x_length, YLength=geom.y_length, ZLength=geom.z_length)
 
 
 def generate_ifc_cylinder_geom(shape: PrimCyl, f):
     """Create IfcExtrudedAreaSolid from primitive PrimCyl"""
-    p1 = shape.p1
-    p2 = shape.p2
-    r = shape.r
-
-    vec = np.array(p2) - np.array(p1)
-    uvec = unit_vector(vec)
-    vecdir = to_real(uvec)
-
-    cr_dir = np.array([0, 0, 1])
-
-    if vector_length(abs(uvec) - abs(cr_dir)) == 0.0:
-        cr_dir = np.array([1, 0, 0])
-
-    perp_dir = np.cross(uvec, cr_dir)
-
-    if vector_length(perp_dir) == 0.0:
-        raise ValueError("Perpendicular dir cannot be zero")
-
-    create_ifc_placement(f, to_real(p1), vecdir, to_real(perp_dir))
-
-    opening_axis_placement = create_ifc_placement(f, to_real(p1), vecdir, to_real(perp_dir))
-
-    depth = vector_length(vec)
-    profile = f.createIfcCircleProfileDef("AREA", shape.name, None, r)
-    return create_ifcextrudedareasolid(f, profile, opening_axis_placement, Z, depth)
+    cyl_geom: Cylinder = shape.solid_geom().geometry
+    axis3d = ifc_placement_from_axis3d(cyl_geom.position, f)
+    return f.createIfcRightCircularCylinder(Position=axis3d, Height=cyl_geom.height, Radius=cyl_geom.radius)
 
 
 def generate_ifc_prim_extrude_geom(shape: PrimExtrude, f):

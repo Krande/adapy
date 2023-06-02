@@ -80,7 +80,7 @@ class JointBase(BackendGeom, ABC):
         from ada import PrimBox
 
         p1, p2 = mem_base.bbox().minmax
-        mem_incoming.add_penetration(PrimBox(f"{self.name}_neg", p1, p2))
+        mem_incoming.add_boolean(PrimBox(f"{self.name}_neg", p1, p2))
 
     def _get_landing_member(self, members) -> Beam:
         member_types = [m.member_type for m in members]

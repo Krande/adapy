@@ -160,7 +160,7 @@ def penetration_check(part: Part):
                     v1 = (p1.p - cog) * normal
                     v2 = (p2.p - cog) * normal
                     if np.dot(v1, v2) < 0:
-                        part.add_penetration(
+                        part.add_boolean(
                             PrimCyl(f"{p.name}_{pipe.name}_{segment.name}_pen", p1.p, p2.p, pipe.section.r + 0.1)
                         )
 
@@ -207,7 +207,7 @@ class PipeClash:
 
         # Cut away in plate and stringers here
         name = f"{plate.name}_{pipe.name}_{seg.name}_pen"
-        part.add_penetration(PrimCyl(name, p1, p2, seg.section.r + 0.1), add_to_layer=add_to_layer)
+        part.add_boolean(PrimCyl(name, p1, p2, seg.section.r + 0.1), add_to_layer=add_to_layer)
 
         # specify reinforcement here
         reinforce_name = Counter(prefix=f"{plate.name}_{pipe.name}_{seg.name}_reinf_")
