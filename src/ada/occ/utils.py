@@ -40,7 +40,6 @@ from OCC.Extend.DataExchange import read_step_file
 from OCC.Extend.ShapeFactory import make_extrusion, make_face, make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
-from ada.concepts.primitives import Boolean
 from ada.concepts.beams import Beam
 from ada.concepts.transforms import Placement, Rotation
 from ada.config import logger
@@ -48,12 +47,12 @@ from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem.shapes import ElemType
 from .exceptions import UnableToBuildNSidedWires, UnableToCreateSolidOCCGeom
-from ..geom import BooleanOperatorEnum
+from ..geom import BoolOpEnum
 from ..geom.placement import Direction
 from ..geom.points import Point
 
 if TYPE_CHECKING:
-    from ada import Part
+    from ada import Part, Boolean
     from ada.core.vector_utils import EquationOfPlane, Plane
 
 
@@ -805,11 +804,11 @@ def create_beam_geom(beam: Beam, solid=True):
 
 def apply_booleans(geom: TopoDS_Shape, booleans: list[Boolean]) -> TopoDS_Shape:
     for boolean in booleans:
-        if boolean.bool_op == BooleanOperatorEnum.DIFFERENCE:
+        if boolean.bool_op == BoolOpEnum.DIFFERENCE:
             geom = BRepAlgoAPI_Cut(geom, boolean.geom()).Shape()
-        elif boolean.bool_op == BooleanOperatorEnum.UNION:
+        elif boolean.bool_op == BoolOpEnum.UNION:
             geom = BRepAlgoAPI_Fuse(geom, boolean.geom()).Shape()
-        elif boolean.bool_op == BooleanOperatorEnum.INTERSECTION:
+        elif boolean.bool_op == BoolOpEnum.INTERSECTION:
             geom = BRepAlgoAPI_Common(geom, boolean.geom()).Shape()
         else:
             raise NotImplementedError(f"Boolean operation {boolean.bool_op} not implemented")

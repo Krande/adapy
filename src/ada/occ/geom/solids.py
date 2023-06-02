@@ -1,23 +1,34 @@
-from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
-from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakePrism
+from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakePrism, BRepPrimAPI_MakeBox
+from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakePrism, BRepPrimAPI_MakeBox
 from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Solid
-from OCC.Core.gp import gp_Ax3, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
+from OCC.Core.gp import gp_Dir, gp_Pnt, gp_Vec, gp_Ax2
 
 from ada.geom.curves import IndexedPolyCurve
 from ada.geom.placement import Direction
-from ada.geom.points import Point
 from ada.geom.solids import Box, Cone, Cylinder, ExtrudedAreaSolid, Sphere
 from ada.geom.surfaces import ArbitraryProfileDefWithVoids, ProfileType
 from ada.occ.geom.curves import make_wire_from_indexed_poly_curve_geom
 from ada.occ.geom.surfaces import make_face_from_indexed_poly_curve_geom
-from ada.occ.primitives import make_box, make_cone, make_cylinder, make_sphere
+from ada.occ.primitives import make_cone, make_cylinder, make_sphere
 from ada.occ.utils import transform_shape_to_pos
 
 
 def make_box_from_geom(box: Box) -> TopoDS_Shape:
-    v1 = box.position.axis
-    v2 = box.position.ref_direction
-    return make_box(*box.position.location, box.x_length, box.y_length, box.z_length, v1, v2)
+    axis1 = box.position.axis
+    axis2 = box.position.ref_direction
+    vec1 = gp_Dir(0, 0, 1) if axis1 is None else gp_Dir(*axis1)
+    vec2 = gp_Dir(0, 1, 0) if axis2 is None else gp_Dir(*axis2)
+    box_maker = BRepPrimAPI_MakeBox(
+        gp_Ax2(
+            gp_Pnt(*box.position.location),
+            vec1,
+            vec2,
+        ),
+        box.x_length,
+        box.y_length,
+        box.z_length,
+    )
+    return box_maker.Shape()
 
 
 def make_sphere_from_geom(sphere: Sphere) -> TopoDS_Shape:
@@ -54,4 +65,3 @@ def make_extruded_area_shape_from_geom(eas: ExtrudedAreaSolid) -> TopoDS_Shape |
     eas_shape = BRepPrimAPI_MakePrism(profile, gp_Vec(*vec)).Shape()
 
     return transform_shape_to_pos(eas_shape, eas.position.location, eas.position.axis, eas.position.ref_direction)
-

@@ -27,7 +27,6 @@ from ada.concepts.piping import Pipe
 from ada.concepts.nodes import Node
 from ada.concepts.presentation_layers import PresentationLayers
 from ada.concepts.primitives import (
-    Boolean,
     PrimBox,
     PrimCyl,
     PrimExtrude,
@@ -53,7 +52,7 @@ from ada.visit.gltf.graph import GraphNode, GraphStore
 if TYPE_CHECKING:
     import ifcopenshell
 
-    from ada import Beam, Material, Plate, Section, Wall, Weld
+    from ada import Beam, Material, Plate, Section, Wall, Weld, Boolean
     from ada.cadit.ifc.store import IfcStore
     from ada.fem.containers import COG
     from ada.fem.formats.general import FEATypes, FemConverters

@@ -10,12 +10,12 @@ import numpy as np
 from ada.base.ifc_types import ShapeTypes
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
-from ada.core.utils import Counter, roundoff
+from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.materials import Material
 from ada.materials.utils import get_material
 
-from ..geom import Geometry, BooleanOperatorEnum
+from ..geom import Geometry, BooleanOperation
 from .bounding_box import BoundingBox
 from .curves import CurvePoly
 from .transforms import Placement
@@ -185,8 +185,8 @@ class PrimSphere(Shape):
         from ada.geom.points import Point
 
         sphere = Sphere(Point(*self.cog), self.radius)
-
-        return Geometry(self.guid, sphere, self.color)
+        booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+        return Geometry(self.guid, sphere, self.color, bool_operations=booleans)
 
     @property
     def units(self):
@@ -251,8 +251,8 @@ class PrimBox(Shape):
         from ada.geom.solids import Box
 
         box = Box.from_2points(Point(*self.p1), Point(*self.p2))
-
-        return Geometry(self.guid, box, self.color)
+        booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+        return Geometry(self.guid, box, self.color, bool_operations=booleans)
 
     def __repr__(self):
         return f"PrimBox({self.name})"
@@ -260,7 +260,6 @@ class PrimBox(Shape):
 
 class PrimCone(Shape):
     def __init__(self, name, p1, p2, r, **kwargs):
-
         self.p1 = np.array(p1)
         self.p2 = np.array(p2)
         self.r = r
@@ -297,8 +296,8 @@ class PrimCone(Shape):
         from ada.geom.solids import Cone
 
         cone = Cone.from_2points(Point(*self.p1), Point(*self.p2), self.r)
-
-        return Geometry(self.guid, cone, self.color)
+        booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+        return Geometry(self.guid, cone, self.color, bool_operations=booleans)
 
     def __repr__(self):
         return f"PrimCone({self.name})"
@@ -342,8 +341,8 @@ class PrimCyl(Shape):
         from ada.geom.solids import Cylinder
 
         cyl = Cylinder.from_2points(Point(*self.p1), Point(*self.p2), self.r)
-
-        return Geometry(self.guid, cyl, self.color)
+        booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+        return Geometry(self.guid, cyl, self.color, bool_operations=booleans)
 
     def __repr__(self):
         return f"PrimCyl({self.name})"
@@ -601,54 +600,3 @@ class RationalBSplineSurfaceWithKnots(BSplineSurfaceWithKnots):
         entities = self.get_entities()
         entities["ControlPointsList"] = [[ifc_p(f, i[:3]) for i in x] for x in self.controlPointsList]
         return f.create_entity("IfcRationalBSplineSurfaceWithKnots", **entities)
-
-
-class Boolean(BackendGeom):
-    _name_gen = Counter(1, "Bool")
-    """A boolean object applied to the parent object (and all preceding booleans in its boolean stack) 
-    using one of the boolean operators; DIFFERENCE (default), UNION or INTERSECT.
-    """
-
-    def __init__(
-        self,
-        primitive,
-        bool_op: BooleanOperatorEnum = BooleanOperatorEnum.DIFFERENCE,
-        metadata=None,
-        parent=None,
-        units=Units.M,
-        guid=None,
-    ):
-        if issubclass(type(primitive), Shape) is False:
-            raise ValueError(f'Unsupported primitive type "{type(primitive)}"')
-
-        super(Boolean, self).__init__(primitive.name, guid=guid, metadata=metadata, units=units)
-        self._primitive = primitive
-        self._bool_op = bool_op
-        self._parent = parent
-        self._ifc_opening = None
-
-    @property
-    def bool_op(self) -> BooleanOperatorEnum:
-        return self._bool_op
-
-    @property
-    def primitive(self):
-        return self._primitive
-
-    def geom(self):
-        return self.primitive.geom()
-
-    @property
-    def units(self):
-        return self._units
-
-    @units.setter
-    def units(self, value):
-        if isinstance(value, str):
-            value = Units.from_str(value)
-        if value != self._units:
-            self.primitive.units = value
-            self._units = value
-
-    def __repr__(self):
-        return f"Bool(type={self.primitive})"

@@ -5,6 +5,7 @@ import ada.geom.solids as so
 import ada.geom.surfaces as su
 import ada.occ.geom.solids as geo_so
 import ada.occ.geom.surfaces as geo_su
+from ada.occ.geom.boolean import apply_geom_booleans
 
 
 def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape:
@@ -25,5 +26,8 @@ def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape:
         occ_geom = geo_su.make_shell_from_face_based_surface_geom(geometry)
     else:
         raise NotImplementedError(f"Geometry type {type(geometry)} not implemented")
+
+    # Apply boolean operations
+    occ_geom = apply_geom_booleans(occ_geom, geom.bool_operations)
 
     return occ_geom

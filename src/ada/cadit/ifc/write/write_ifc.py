@@ -30,7 +30,7 @@ from ada.cadit.ifc.write.write_spatial_elements import (
 from ada.cadit.ifc.write.write_wall import write_ifc_wall
 
 if TYPE_CHECKING:
-    from ada import Beam, Material, Part, Pipe, Plate, Section, Shape, Wall
+    from ada import Beam, Material, Part, Pipe, Plate, Section, Shape, Wall, Boolean
     from ada.cadit.ifc.store import IfcStore
 
 
@@ -136,7 +136,7 @@ class IfcWriter:
         return num_mod
 
     def sync_presentation_layers(self) -> int:
-        from ada import Part, Boolean, Pipe
+        from ada import Part, Pipe
 
         num_added = 0
         f = self.ifc_store.f

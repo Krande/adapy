@@ -6,6 +6,7 @@ from ada.base.root import Root
 from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.concepts.transforms import Placement
+from ada.geom import Geometry, BoolOpEnum
 from ada.visit.colors import Color, color_dict
 from ada.visit.config import ExportConfig
 
@@ -14,7 +15,6 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
     from ada.fem import Elem
     from ada.fem.meshing import GmshOptions
-    from ada.geom import Geometry
 
 
 # TODO: Consider storing primitive geometry definitions as an attribute in the BackendGeom class to simplify subclasses.
@@ -51,20 +51,26 @@ class BackendGeom(Root):
         self.color = color
         self._elem_refs = []
 
-    def add_boolean(self, boolean, add_to_layer: str = None):
+    def add_boolean(
+        self,
+        boolean: BackendGeom,
+        bool_op: str | BoolOpEnum = BoolOpEnum.DIFFERENCE,
+        add_to_layer: str = None,
+    ):
         from ada import Boolean, Shape
         from ada.base.changes import ChangeAction
 
         boolean.parent = self
-
+        if isinstance(bool_op, str):
+            bool_op = BoolOpEnum.from_str(bool_op)
         if issubclass(type(boolean), Shape) is True:
             # Will automatically wrap the shape in a Boolean using the Difference operation
-            boolean = Boolean(boolean, parent=self)
+            boolean = Boolean(boolean, bool_op, parent=self)
             self._booleans.append(boolean)
-        elif type(boolean) is Boolean:
+        elif isinstance(boolean, Boolean):
             self._booleans.append(boolean)
         else:
-            raise ValueError("")
+            raise ValueError(f"Cannot add {type(boolean)} to {type(self)}")
 
         if self.change_type in (ChangeAction.NOCHANGE, ChangeAction.NOTDEFINED):
             self.change_type = ChangeAction.MODIFIED

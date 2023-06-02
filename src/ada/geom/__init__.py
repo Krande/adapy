@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ada.geom.booleans import BooleanOperatorEnum, BooleanResult
+from ada.geom.booleans import BoolOpEnum, BooleanResult
 from ada.geom.solids import SOLID_GEOM_TYPES
 from ada.geom.surfaces import SURFACE_GEOM_TYPES
 from ada.visit.colors import Color
@@ -19,4 +19,4 @@ class Geometry:
 @dataclass
 class BooleanOperation:
     second_operand: Geometry
-    operator: BooleanOperatorEnum
+    operator: BoolOpEnum

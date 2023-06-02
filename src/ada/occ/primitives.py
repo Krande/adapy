@@ -11,31 +11,6 @@ from OCC.Core.gp import gp_Ax2, gp_Dir, gp_Pnt
 from OCC.Core.TopoDS import TopoDS_Shape
 
 
-def make_box(
-    x: float,
-    y: float,
-    z: float,
-    width: float,
-    height: float,
-    depth: float,
-    axis1: Iterable[float] = None,
-    axis2: Iterable[float] = None,
-) -> TopoDS_Shape:
-    vec1 = gp_Dir(0, 0, 1) if axis1 is None else gp_Dir(*axis1)
-    vec2 = gp_Dir(0, 1, 0) if axis2 is None else gp_Dir(*axis2)
-    box_maker = BRepPrimAPI_MakeBox(
-        gp_Ax2(
-            gp_Pnt(x, y, z),
-            vec1,
-            vec2,
-        ),
-        width,
-        height,
-        depth,
-    )
-    return box_maker.Shape()
-
-
 def make_sphere(x: float, y: float, z: float, radius: float) -> TopoDS_Shape:
     sphere_maker = BRepPrimAPI_MakeSphere(gp_Pnt(x, y, z), radius)
     return sphere_maker.Shape()

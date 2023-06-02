@@ -11,7 +11,6 @@ from ada.concepts.fasteners import Bolts, Weld
 from ada.concepts.piping import Pipe, PipeSegElbow, PipeSegStraight
 from ada.concepts.nodes import Node
 from ada.concepts.primitives import (
-    Boolean,
     PrimBox,
     PrimCone,
     PrimCyl,
@@ -21,6 +20,7 @@ from ada.concepts.primitives import (
     PrimSweep,
     Shape,
 )
+from ada.concepts.primitive_boolean import Boolean
 from ada.concepts.spatial import Assembly, Group, Part
 from ada.concepts.beams import Beam, BeamRevolve, BeamSweep
 from ada.concepts.stru_plates import Plate
@@ -115,7 +115,6 @@ __all__ = [
     "PipeSegStraight",
     "PipeSegElbow",
     "Wall",
-    "Boolean",
     "Section",
     "Material",
     "Shape",
@@ -137,5 +136,6 @@ __all__ = [
     "User",
     "Bolts",
     "Weld",
+    "Units",
     "fem",
 ]
