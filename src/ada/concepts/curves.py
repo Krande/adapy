@@ -140,16 +140,15 @@ class CurveSweep:
         return points
 
     @classmethod
-    def from_3d_points(cls, points, flip_normal=False, **kwargs):
-
+    def from_3d_points(cls, points, flip_normal=False, origin_index=0, xdir=None, **kwargs):
         normal = normal_to_points_in_plane([np.array(x[:3]) for x in points])
         if flip_normal:
             normal *= -1
 
-        p1 = np.array(points[0][:3]).astype(float)
-        p2 = np.array(points[1][:3]).astype(float)
+        p1 = np.array(points[origin_index][:3]).astype(float)
+        p2 = np.array(points[origin_index+1][:3]).astype(float)
         origin = p1
-        xdir = unit_vector(p2 - p1)
+        xdir = unit_vector(p2 - p1) if xdir is None else Direction(*xdir)
         placement = Placement(origin, xdir=xdir, zdir=normal)
         csys = [placement.xdir, placement.ydir]
         points2d = global_2_local_nodes(csys, placement.origin, [np.array(x[:3]) for x in points])

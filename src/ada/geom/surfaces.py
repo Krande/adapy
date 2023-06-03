@@ -55,7 +55,15 @@ class FaceBasedSurfaceModel:
     fbsm_faces: list[ConnectedFaceSet]
 
 
+@dataclass
+class CurveBoundedPlane:
+    basis_surface: Plane
+    outer_boundary: CURVE_GEOM_TYPES
+    inner_boundaries: list[CURVE_GEOM_TYPES] = field(default_factory=list)
+
+
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcSurfaceOfLinearExtrusion.htm)
+
 @dataclass
 class SurfaceOfLinearExtrusion:
     swept_curve: CURVE_GEOM_TYPES
@@ -64,4 +72,4 @@ class SurfaceOfLinearExtrusion:
     depth: float
 
 
-SURFACE_GEOM_TYPES = Union[ArbitraryProfileDefWithVoids, FaceBasedSurfaceModel]
+SURFACE_GEOM_TYPES = Union[ArbitraryProfileDefWithVoids, FaceBasedSurfaceModel, CurveBoundedPlane]

@@ -28,6 +28,8 @@ def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape:
     # Surface models
     elif isinstance(geometry, su.FaceBasedSurfaceModel):
         occ_geom = geo_su.make_shell_from_face_based_surface_geom(geometry)
+    elif isinstance(geometry, su.CurveBoundedPlane):
+        occ_geom = geo_su.make_shell_from_curve_bounded_plane_geom(geometry)
     else:
         raise NotImplementedError(f"Geometry type {type(geometry)} not implemented")
 

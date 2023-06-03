@@ -42,6 +42,18 @@ def make_shell_from_face_based_surface_geom(surface: FaceBasedSurfaceModel) -> T
     return occ_face
 
 
+def make_shell_from_curve_bounded_plane_geom(surface: geo_su.CurveBoundedPlane) -> TopoDS_Shape:
+    if isinstance(surface.outer_boundary, geo_cu.IndexedPolyCurve):
+        outer_curve = surface.outer_boundary
+        face = make_face_from_indexed_poly_curve_geom(outer_curve)
+        for inner_curve in map(make_face_from_curve, surface.inner_boundaries):
+            face = BRepAlgoAPI_Cut(face, inner_curve).Shape()
+    else:
+        raise NotImplementedError(f"Curve type {type(surface.outer_boundary)} not implemented")
+
+    return face
+
+
 def make_face_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
     if isinstance(outer_curve, geo_cu.IndexedPolyCurve):
         return make_face_from_indexed_poly_curve_geom(outer_curve)

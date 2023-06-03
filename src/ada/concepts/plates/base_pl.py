@@ -33,24 +33,24 @@ class Plate(BackendGeom):
     """
 
     def __init__(
-            self,
-            name: str,
-            points: CurvePoly | list[tuple[float, float, Optional[float]]],
-            t: float,
-            mat: str | Material = "S420",
-            placement=None,
-            origin=None,
-            xdir=None,
-            normal=None,
-            pl_id=None,
-            color=None,
-            parent=None,
-            opacity=1.0,
-            metadata=None,
-            tol=None,
-            units=Units.M,
-            guid=None,
-            ifc_store: IfcStore = None,
+        self,
+        name: str,
+        points: CurvePoly | list[tuple[float, float, Optional[float]]],
+        t: float,
+        mat: str | Material = "S420",
+        placement=None,
+        origin=None,
+        xdir=None,
+        normal=None,
+        pl_id=None,
+        color=None,
+        parent=None,
+        opacity=1.0,
+        metadata=None,
+        tol=None,
+        units=Units.M,
+        guid=None,
+        ifc_store: IfcStore = None,
     ):
         placement = Placement(origin, xdir=xdir, zdir=normal) if placement is None else placement
 
@@ -59,7 +59,6 @@ class Plate(BackendGeom):
             guid=guid,
             metadata=metadata,
             units=units,
-            placement=placement,
             ifc_store=ifc_store,
             color=color,
             opacity=opacity,
@@ -77,9 +76,9 @@ class Plate(BackendGeom):
         else:
             self._poly = CurvePoly(
                 points=points,
-                normal=self.placement.zdir,
-                origin=self.placement.origin,
-                xdir=self.placement.xdir,
+                normal=placement.zdir,
+                origin=placement.origin,
+                xdir=placement.xdir,
                 tol=tol,
                 parent=self,
             )
@@ -88,8 +87,8 @@ class Plate(BackendGeom):
         self._bbox = None
 
     @staticmethod
-    def from_3d_points(name, points, t, mat="S420", **kwargs):
-        poly = CurvePoly.from_3d_points(points, **kwargs)
+    def from_3d_points(name, points, t, mat="S420", origin_index=0, xdir=None, **kwargs):
+        poly = CurvePoly.from_3d_points(points, origin_index=origin_index, xdir=xdir, **kwargs)
         return Plate(name, poly, t, mat=mat, **kwargs)
 
     @property
@@ -137,16 +136,28 @@ class Plate(BackendGeom):
         return self._poly.wire()
 
     def shell_occ(self):
-        from ada.occ.utils import apply_booleans
+        from ada.occ.geom import geom_to_occ_geom
 
-        geom = apply_booleans(self.poly.face(), self.booleans)
-
-        return geom
+        return geom_to_occ_geom(self.shell_geom())
 
     def solid_occ(self):
         from ada.occ.geom import geom_to_occ_geom
 
         return geom_to_occ_geom(self.solid_geom())
+
+    def shell_geom(self) -> Geometry:
+        import ada.geom.surfaces as geo_su
+        from ada.geom.placement import Axis2Placement3D
+        from ada.geom.booleans import BooleanOperation
+
+        outer_curve = self.poly.get_edges_geom()
+        place = Axis2Placement3D(
+            location=self.poly.placement.origin, axis=self.poly.normal, ref_direction=self.poly.xdir
+        )
+        face = geo_su.CurveBoundedPlane(geo_su.Plane(place), outer_curve, inner_boundaries=[])
+
+        booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+        return Geometry(self.guid, face, self.color, bool_operations=booleans)
 
     def solid_geom(self) -> Geometry:
         return geo_pl.plate_to_geom(self)
@@ -171,11 +182,12 @@ class Plate(BackendGeom):
 
     def __repr__(self):
         pts = [list(x) for x in self.poly.points2d]
-        return f"Plate(\"{self.name}\", {pts}, t={self.t}, \"{self.material.name}\", {self.placement})"
+        return f'Plate("{self.name}", {pts}, t={self.t}, "{self.material.name}", {self.placement})'
 
 
 class PlateCurved(Plate):
     def __init__(self):
         super().__init__()
+
 
 # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/lexical/IfcBSplineSurfaceWithKnots.htm

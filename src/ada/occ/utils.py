@@ -175,43 +175,6 @@ def get_boundingbox(shape: TopoDS_Shape, tol=1e-6, use_mesh=True) -> tuple[tuple
     return (xmin, ymin, zmin), (xmax, ymax, zmax)
 
 
-def get_bounding_box_alt(geom):
-    from OCC.Core.Bnd import Bnd_OBB
-    from OCC.Core.BRepBndLib import brepbndlib_AddOBB
-
-    obb = Bnd_OBB()
-    brepbndlib_AddOBB(geom, obb)
-
-    # converts the bounding box to a shape
-    # aBaryCenter = obb.Center()
-    # aXDir = obb.XDirection()
-    # aYDir = obb.YDirection()
-    # aZDir = obb.ZDirection()
-    # aHalfX = obb.XHSize()
-    # aHalfY = obb.YHSize()
-    # aHalfZ = obb.ZHSize()
-    return obb
-
-
-def is_occ_shape(shp):
-    """
-
-    :param shp:
-    :return:
-    """
-    if type(shp) in [
-        TopoDS_Shell,
-        TopoDS_Vertex,
-        TopoDS_Solid,
-        TopoDS_Wire,
-        TopoDS_Shape,
-        TopoDS_Compound,
-    ]:
-        return True
-    else:
-        return False
-
-
 def face_to_wires(face):
     topo_exp = TopologyExplorer(face)
     wires = list()
@@ -225,8 +188,8 @@ def make_fillet(edge1, edge2, bend_radius):
 
     f = ChFi2d_AnaFilletAlgo()
 
-    points1 = get_points_from_edge(edge1)
-    points2 = get_points_from_edge(edge2)
+    points1 = get_points_from_occ_shape(edge1)
+    points2 = get_points_from_occ_shape(edge2)
     normal = normal_to_points_in_plane([np.array(x) for x in points1] + [np.array(x) for x in points2])
     plane_normal = gp_Dir(gp_Vec(normal[0], normal[1], normal[2]))
 
@@ -273,13 +236,22 @@ def divide_edge_by_nr_of_points(edg, n_pts):
         return tmp
 
 
-def get_points_from_edge(edge):
-    texp1 = TopologyExplorer(edge)
+def get_points_from_occ_shape(occ_shape: TopoDS_Shape | TopoDS_Vertex | TopoDS_Edge | TopoDS_Face):
+    t = TopologyExplorer(occ_shape)
     points = []
-    for v in texp1.vertices():
+    for v in t.vertices():
         apt = BRep_Tool_Pnt(v)
         points.append((apt.X(), apt.Y(), apt.Z()))
     return points
+
+
+def get_faces_with_normal(shape, normal):
+    t = TopologyExplorer(shape)
+    for face in t.faces():
+        if face.Orientation() == TopAbs_FORWARD:
+            normal_face = get_normal_of_face(face)
+            if normal_face == normal:
+                yield face
 
 
 def make_closed_polygon(*args):
@@ -618,78 +590,6 @@ def sweep_pipe(edge, xvec, r, wt, geom_repr=ElemType.SOLID):
 
 def sweep_geom(sweep_wire: TopoDS_Wire, wire_face: TopoDS_Wire):
     return BRepOffsetAPI_MakePipe(sweep_wire, wire_face).Shape()
-
-
-def create_beam_geom(beam: Beam, solid=True):
-    from ada import BeamTapered
-    from ada.concepts.transforms import Placement
-    from ada.config import Settings
-    from ada.sections.categories import SectionCat
-
-    from .section_utils import cross_sec_face
-
-    xdir, ydir, zdir = beam.ori
-    p1 = beam.n1.p
-    p2 = beam.n2.p
-    if Settings.model_export.include_ecc:
-        xdir = beam.xvec_e
-        if beam.e1 is not None:
-            p1 = beam.n1.p + beam.e1
-        if beam.e2 is not None:
-            p2 = beam.n2.p + beam.e2
-
-    section_profile = beam.section.get_section_profile(solid)
-    placement_1 = Placement(origin=p1, xdir=ydir, zdir=xdir)
-    placement_2 = Placement(origin=p2, xdir=ydir, zdir=xdir)
-    sec = cross_sec_face(section_profile, placement_1, solid)
-
-    if isinstance(beam, BeamTapered):
-        taper_profile = beam.taper.get_section_profile(solid)
-        tap = cross_sec_face(taper_profile, placement_2, solid)
-    else:
-        tap = cross_sec_face(section_profile, placement_2, solid)
-
-    if type(sec) != list and (sec.IsNull() or tap.IsNull()):
-        raise UnableToCreateSolidOCCGeom(f"Unable to create solid OCC geometry from Beam '{beam.name}'")
-
-    def through_section(sec_a, sec_b, solid_):
-        generator_sec = BRepOffsetAPI_ThruSections(solid_, False)
-        generator_sec.AddWire(sec_a)
-        generator_sec.AddWire(sec_b)
-        generator_sec.Build()
-        return generator_sec.Shape()
-
-    if type(sec) is TopoDS_Face:
-        sec_result = face_to_wires(sec)
-        tap_result = face_to_wires(tap)
-    elif type(sec) is TopoDS_Wire:
-        sec_result = [sec]
-        tap_result = [tap]
-    else:
-        try:
-            assert isinstance(sec, list)
-        except AssertionError as e:
-            logger.error(e)
-        sec_result = sec
-        tap_result = tap
-
-    shapes = list()
-    for s_, t_ in zip(sec_result, tap_result):
-        shapes.append(through_section(s_, t_, solid))
-
-    if beam.section.type in SectionCat.box + SectionCat.tubular + SectionCat.rhs + SectionCat.shs and solid is True:
-        cut_shape = BRepAlgoAPI_Cut(shapes[0], shapes[1]).Shape()
-        shape_upgrade = ShapeUpgrade_UnifySameDomain(cut_shape, False, True, False)
-        shape_upgrade.Build()
-        return shape_upgrade.Shape()
-
-    if len(shapes) == 1:
-        return shapes[0]
-    else:
-        result = shapes[0]
-        for s in shapes[1:]:
-            result = BRepAlgoAPI_Fuse(result, s).Shape()
-        return result
 
 
 def apply_booleans(geom: TopoDS_Shape, booleans: list[Boolean]) -> TopoDS_Shape:

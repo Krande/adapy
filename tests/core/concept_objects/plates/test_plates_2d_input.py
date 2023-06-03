@@ -1,22 +1,109 @@
 import logging
 
 import numpy as np
+import pytest
 from ifcopenshell.validate import validate
 
 import ada
 from ada.core.vector_utils import vector_length
+from ada.geom.points import Point
+from ada.occ.utils import get_points_from_occ_shape
+
+
+@pytest.fixture
+def place1():
+    return ada.Placement(origin=(0, 0, 0), xdir=(1, 0, 0), zdir=(0, 0, 1))
+
+
+@pytest.fixture
+def place2():
+    return ada.Placement(origin=(0, 0, 0), xdir=(1, 0, 0), zdir=(0, -1, 0))
+
+
+def test_flat_xy_plate_shell(place1):
+    pl2 = ada.Plate("MyPl2", [(0, 0), (0, 5), (5, 5), (5, 0)], 20e-3, placement=place1)
+
+    occ_verts_sh2 = get_points_from_occ_shape(pl2.shell_occ())
+    origin_index = occ_verts_sh2.index((0, 0, 0))
+
+    # shift the list so that the origin is the first point
+    occ_verts_sh2 = occ_verts_sh2[origin_index:] + occ_verts_sh2[:origin_index]
+
+    # Feed the points back to the Plate constructor and assert that the plate is the same
+    p2_r = ada.Plate.from_3d_points("MyPl2", occ_verts_sh2, 20e-3, xdir=(1, 0, 0))
+
+    # Check that the plate is placed correctly
+    place_r = p2_r.poly.placement
+    assert place_r.xdir.is_equal(place1.xdir)
+    assert place_r.ydir.is_equal(place1.ydir)
+    assert place_r.zdir.is_equal(place1.zdir)
+    assert place_r.origin.is_equal(place1.origin)
+
+    # Check the individual points
+    for p1, p2 in zip(pl2.poly.points2d, p2_r.poly.points2d):
+        assert p1.is_equal(p2)
+
+
+def test_flat_xz_plate_shell(place2):
+    place = place2
+    pl2 = ada.Plate("MyPl2", [(0, 0), (0, 5), (5, 5), (5, 0)], 20e-3, placement=place)
+
+    occ_verts_sh2 = get_points_from_occ_shape(pl2.shell_occ())
+    origin_index = occ_verts_sh2.index((0, 0, 0))
+
+    # shift the list so that the origin is the first point
+    occ_verts_sh2 = occ_verts_sh2[origin_index:] + occ_verts_sh2[:origin_index]
+
+    # Feed the points back to the Plate constructor and assert that the plate is the same
+    p2_r = ada.Plate.from_3d_points("MyPl2", occ_verts_sh2, 20e-3, xdir=(1, 0, 0))
+
+    # Check that the plate is placed correctly
+    place_r = p2_r.poly.placement
+    assert place_r.xdir.is_equal(place.xdir)
+    assert place_r.ydir.is_equal(place.ydir)
+    assert place_r.zdir.is_equal(place.zdir)
+    assert place_r.origin.is_equal(place.origin)
+
+    # Check the individual points
+    for p1, p2 in zip(pl2.poly.points2d, p2_r.poly.points2d):
+        assert p1.is_equal(p2)
+
+
+def test_oriented_plate(place2):
+    a = ada.Assembly("ExportedPlates")
+    p = a.add_part(ada.Part("MyPart"))
+    pl2 = p.add_plate(ada.Plate("MyPl2", [(0, 0), (0, 5), (5, 5), (5, 0)], 20e-3, placement=place2))
+    # geo2 = pl2.solid_geom()
+    # geo2_sh = pl2.shell_geom()
+    occ_geo2_sh = pl2.shell_occ()
+    occ_verts_sh2 = get_points_from_occ_shape(occ_geo2_sh)
+
+    p2_r = ada.Plate.from_3d_points("MyPl2", occ_verts_sh2, 20e-3)
+    place_r = p2_r.poly.placement
+    print("sd")
 
 
 def test_roundtrip_fillets(place1, place2):
     a = ada.Assembly("ExportedPlates")
-    p = ada.Part("MyPart")
-    a.add_part(p)
-    pl1 = ada.Plate("MyPl", [(0, 0, 0.2), (5, 0), (5, 5), (0, 5)], 20e-3, **place1)
-    p.add_plate(pl1)
+    p = a.add_part(ada.Part("MyPart"))
+    pl1 = p.add_plate(ada.Plate("MyPl", [(0, 0, 0.2), (5, 0), (5, 5), (0, 5)], 20e-3, placement=place1))
+    pl2 = p.add_plate(ada.Plate("MyPl2", [(0, 0, 0.2), (5, 0, 0.2), (5, 5), (0, 5)], 20e-3, placement=place2))
 
-    pl2 = ada.Plate("MyPl2", [(0, 0, 0.2), (5, 0, 0.2), (5, 5), (0, 5)], 20e-3, **place2)
-    p.add_plate(pl2)
+    geo1 = pl1.solid_geom()
+    geo1_sh = pl1.shell_geom()
+    geo2 = pl2.solid_geom()
+    geo2_sh = pl2.shell_geom()
 
+    occ_geo1 = pl1.solid_occ()
+    occ_geo2 = pl2.solid_occ()
+
+    occ_geo1_sh = pl1.shell_occ()
+    occ_geo2_sh = pl2.shell_occ()
+
+    occ_verts_sh1 = get_points_from_occ_shape(occ_geo1_sh)
+    occ_verts_sh2 = get_points_from_occ_shape(occ_geo2_sh)
+    p1_r = ada.Plate.from_3d_points("MyPl", occ_verts_sh1, 20e-3)
+    p2_r = ada.Plate.from_3d_points("MyPl2", occ_verts_sh2, 20e-3)
     fp = a.to_ifc(file_obj_only=True)
 
     validate(fp, logging)
@@ -26,7 +113,7 @@ def test_roundtrip_fillets(place1, place2):
 
 
 def test_2ifc_simple(place2):
-    pl2 = ada.Plate("MyPl2", [(0, 0, 0.2), (5, 0, 0.2), (5, 5), (0, 5)], 20e-3, **place2)
+    pl2 = ada.Plate("MyPl2", [(0, 0, 0.2), (5, 0, 0.2), (5, 5), (0, 5)], 20e-3, placement=place2)
     seg_list = pl2.poly.segments
     seg1 = seg_list[0]
     assert len(pl2.poly.segments) == 6
@@ -63,11 +150,9 @@ def test_floaty_input_ex1():
         [-15.14, 261.52],
     ]
     thick = 30
-    pl = ada.Plate(
-        "test", local_points2d, thick, placement=ada.Placement(origin=origin, zdir=csys[2], xdir=csys[0]), units="mm"
-    )
-    assert tuple(pl.placement.origin) == tuple(origin)
-    assert tuple(pl.placement.zdir) == tuple(csys[2])
+    pl = ada.Plate("test", local_points2d, thick, origin=origin, normal=csys[2], xdir=csys[0], units="mm")
+    assert tuple(pl.poly.placement.origin) == tuple(origin)
+    assert tuple(pl.poly.placement.zdir) == tuple(csys[2])
     assert vector_length(pl.nodes[0].p - np.array([362130.68206185, 100000.0, 561189.63923958])) < 1e-8
 
     # (ada.Assembly() / [ada.Part("te") / pl]).to_ifc(test_dir / "error_plate.ifc")
@@ -97,5 +182,5 @@ def test_ex2():
     pl = ada.Plate(
         "test2", local_points2d, thick, placement=ada.Placement(origin=origin, zdir=csys[2], xdir=csys[0]), units="mm"
     )
-    assert tuple(pl.placement.origin) == tuple(origin)
+    assert tuple(pl.poly.placement.origin) == tuple(origin)
     # a = (ada.Assembly(units="mm") / [ada.Part("te", units="mm") / pl]).to_ifc(test_dir / "error_plate2.ifc")
