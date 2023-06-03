@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada import Beam
-from ada.concepts.beams.base import BeamRevolve
+from ada.concepts.beams import BeamRevolve
 from ada.concepts.curves import CurveRevolve
 from ada.config import logger
 from ada.core.vector_utils import calc_yvec, vector_length

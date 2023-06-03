@@ -49,7 +49,7 @@ def test_mix_fem():
     poly = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
 
     objects = beams_along_polyline(poly, bm)
-    objects += [ada.Plate("pl1", poly, 0.01)]
+    objects += [ada.Plate.from_3d_points("pl1", poly, 0.01)]
 
     a = ada.Assembly() / (ada.Part("BeamFEM") / objects)
     part = a.get_part("BeamFEM")

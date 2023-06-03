@@ -54,14 +54,14 @@ def import_ifc_plate(ifc_elem, name, ifc_store: IfcStore) -> Plate:
     if nodes2d is None or t is None:
         raise ValueError("Unable to get plate nodes or thickness")
 
-    placement = Placement(origin, xdir=xdir, zdir=normal)
-
     return Plate(
         name,
         nodes2d,
         t,
+        origin=origin,
+        xdir=xdir,
+        normal=normal,
         mat=mat,
-        placement=placement,
         guid=ifc_elem.GlobalId,
         ifc_store=ifc_store,
         units=ifc_store.assembly.units,

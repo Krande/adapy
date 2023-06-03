@@ -67,4 +67,4 @@ def get_bm_section_curve(bm: "Beam", origin=None) -> CurvePoly:
     origin = origin if origin is not None else bm.n1.p
     section_profile = bm.section.get_section_profile(True)
     points2d = section_profile.outer_curve.points2d
-    return CurvePoly(points2d=points2d, origin=origin, xdir=bm.yvec, normal=bm.xvec, parent=bm.parent)
+    return CurvePoly(points=points2d, origin=origin, xdir=bm.yvec, normal=bm.xvec, parent=bm.parent)

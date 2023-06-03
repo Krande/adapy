@@ -20,20 +20,27 @@ if TYPE_CHECKING:
 
 
 def create_reference_subrep(f, global_axes):
-    model_rep = f.create_entity("IfcGeometricRepresentationContext", None, "Model", 3, 1.0e-05, global_axes, None)
-    body_sub_rep = f.create_entity(
-        "IfcGeometricRepresentationSubContext",
-        "Body",
-        "Model",
-        None,
-        None,
-        None,
-        None,
-        model_rep,
-        None,
-        "MODEL_VIEW",
-        None,
-    )
+    contexts = list(f.by_type("IfcGeometricRepresentationContext"))
+    subcontexts = list(f.by_type("IfcGeometricRepresentationSubContext"))
+    context_map = {c.ContextIdentifier: c for c in contexts}
+    model_rep = context_map.get("Model")
+    body_sub_rep = context_map.get("Body")
+    if model_rep is None:
+        model_rep = f.create_entity("IfcGeometricRepresentationContext", None, "Model", 3, 1.0e-05, global_axes, None)
+    if body_sub_rep is None:
+        body_sub_rep = f.create_entity(
+            "IfcGeometricRepresentationSubContext",
+            "Body",
+            "Model",
+            None,
+            None,
+            None,
+            None,
+            model_rep,
+            None,
+            "MODEL_VIEW",
+            None,
+        )
     ref_sub_rep = f.create_entity(
         "IfcGeometricRepresentationSubContext",
         "Reference",

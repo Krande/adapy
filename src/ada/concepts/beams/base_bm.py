@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+from enum import Enum
 from typing import TYPE_CHECKING, Callable, Iterable, Union
 
 import numpy as np
 
-import ada.concepts.beams.geom_conversion as geo_conv
+import ada.concepts.beams.geom_beams as geo_conv
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.concepts.bounding_box import BoundingBox
 from ada.concepts.beams.helpers import BeamConnectionProps
-from ada.concepts.curves import CurvePoly, CurveRevolve
+from ada.concepts.curves import CurvePoly, CurveRevolve, CurveSweep
 from ada.concepts.nodes import Node, get_singular_node_by_volume
 from ada.config import logger
 from ada.core.utils import Counter, roundoff
@@ -87,9 +88,10 @@ class Beam(BackendGeom):
         self.add_beam_to_node_refs()
 
     @staticmethod
-    def from_list_of_coords(
+    def array_from_list_of_coords(
             list_of_coords: list[tuple], sec: Section | str, mat: Material | str = None, name_gen: Callable = None
     ) -> list[Beam]:
+        """Create an array of beams from a list of coordinates"""
         beams = []
         ngen = name_gen if name_gen is not None else Counter(prefix="bm")
         for p1, p2 in zip(list_of_coords[:-1], list_of_coords[1:]):
@@ -173,6 +175,47 @@ class Beam(BackendGeom):
 
     def copy_to(self, p1, p2, name: str) -> Beam:
         return Beam(name, p1, p2, sec=self.section, mat=self.material)
+
+    def bbox(self) -> BoundingBox:
+        """Bounding Box of beam"""
+        if self._bbox is None:
+            self._bbox = BoundingBox(self)
+
+        return self._bbox
+
+    def line_occ(self):
+        from ada.occ.utils import make_wire_from_points
+
+        points = [self.n1.p, self.n2.p]
+
+        return make_wire_from_points(points)
+
+    def shell_occ(self) -> TopoDS_Shape:
+        from ada.occ.geom import geom_to_occ_geom
+
+        return geom_to_occ_geom(self.shell_geom())
+
+    def solid_occ(self) -> TopoDS_Shape:
+        from ada.occ.geom import geom_to_occ_geom
+
+        return geom_to_occ_geom(self.solid_geom())
+
+    def solid_geom(self) -> Geometry:
+        return geo_conv.straight_beam_to_geom(self)
+
+    def shell_geom(self) -> Geometry:
+        geom = geo_conv.straight_beam_to_geom(self, is_solid=False)
+        return geom
+
+    def add_beam_to_node_refs(self) -> None:
+        """Add beam to refs on nodes"""
+        for beam_node in self.nodes:
+            beam_node.add_obj_to_refs(self)
+
+    def remove_beam_from_node_refs(self) -> None:
+        """Remove beam from refs on nodes"""
+        for beam_node in self.nodes:
+            beam_node.remove_obj_from_refs(self)
 
     @property
     def units(self):
@@ -292,13 +335,6 @@ class Beam(BackendGeom):
         self._n2 = new_node  # .get_main_node_at_point()
         self._n2.add_obj_to_refs(self)
 
-    def bbox(self) -> BoundingBox:
-        """Bounding Box of beam"""
-        if self._bbox is None:
-            self._bbox = BoundingBox(self)
-
-        return self._bbox
-
     @property
     def e1(self) -> Direction:
         return self._e1
@@ -315,32 +351,6 @@ class Beam(BackendGeom):
     def e2(self, value: Iterable):
         self._e2 = Direction(*value)
 
-    def line_occ(self):
-        from ada.occ.utils import make_wire_from_points
-
-        points = [self.n1.p, self.n2.p]
-
-        return make_wire_from_points(points)
-
-    def shell_occ(self) -> TopoDS_Shape:
-        from ada.occ.utils import apply_booleans, create_beam_geom
-
-        geom = apply_booleans(create_beam_geom(self, False), self.booleans)
-
-        return geom
-
-    def solid_occ(self) -> TopoDS_Shape:
-        from ada.occ.geom import geom_to_occ_geom
-
-        return geom_to_occ_geom(self.solid_geom())
-
-    def solid_geom(self) -> Geometry:
-        return geo_conv.straight_beam_to_geom(self)
-
-    def shell_geom(self) -> Geometry:
-        geom = geo_conv.straight_beam_to_geom(self, is_solid=False)
-        return geom
-
     @property
     def nodes(self) -> list[Node]:
         return [self.n1, self.n2]
@@ -352,16 +362,6 @@ class Beam(BackendGeom):
     @angle.setter
     def angle(self, value: float):
         self._init_orientation(value)
-
-    def add_beam_to_node_refs(self) -> None:
-        """Add beam to refs on nodes"""
-        for beam_node in self.nodes:
-            beam_node.add_obj_to_refs(self)
-
-    def remove_beam_from_node_refs(self) -> None:
-        """Remove beam from refs on nodes"""
-        for beam_node in self.nodes:
-            beam_node.remove_obj_from_refs(self)
 
     def __hash__(self):
         return hash(self.guid)
@@ -400,8 +400,30 @@ class Beam(BackendGeom):
         return f'{self.__class__.__name__}("{self.name}", {p1s}, {p2s}, "{secn}", "{matn}")'
 
 
+class TaperTypes(Enum):
+    FLUSH_TOP = "flush"
+    CENTERED = "centered"
+    FLUSH_BOTTOM = "flush_bottom"
+
+    @classmethod
+    def from_str(cls, value: str):
+        for item in cls:
+            if item.value.lower() == value.lower():
+                return item
+        raise ValueError(f"{value} is not a valid taper type")
+
+
 class BeamTapered(Beam):
-    def __init__(self, name, n1: Iterable, n2: Iterable, sec: str | Section, tap: str | Section = None, **kwargs):
+    def __init__(
+            self,
+            name,
+            n1: Iterable,
+            n2: Iterable,
+            sec: str | Section,
+            tap: str | Section = None,
+            taper_type: TaperTypes | str = TaperTypes.CENTERED,
+            **kwargs,
+    ):
         super().__init__(name=name, n1=n1, n2=n2, sec=sec, **kwargs)
 
         if isinstance(sec, str) and tap is None:
@@ -413,6 +435,9 @@ class BeamTapered(Beam):
         self._taper = tap
         self._taper.refs.append(self)
         self._taper.parent = self
+        if isinstance(taper_type, str):
+            taper_type = TaperTypes.from_str(taper_type)
+        self._taper_type = taper_type
 
     @property
     def taper(self) -> Section:
@@ -421,6 +446,14 @@ class BeamTapered(Beam):
     @taper.setter
     def taper(self, value: Section):
         self._taper = value
+
+    @property
+    def taper_type(self) -> TaperTypes:
+        return self._taper_type
+
+    @taper_type.setter
+    def taper_type(self, value: TaperTypes):
+        self._taper_type = value
 
     def solid_geom(self) -> Geometry:
         return geo_conv.straight_tapered_beam_to_geom(self)
@@ -435,7 +468,7 @@ class BeamTapered(Beam):
 
 
 class BeamSweep(Beam):
-    def __init__(self, name: str, curve: CurvePoly, sec: str | Section, **kwargs):
+    def __init__(self, name: str, curve: CurveSweep, sec: str | Section, **kwargs):
         n1 = curve.points3d[0]
         n2 = curve.points3d[-1]
         super().__init__(name=name, n1=n1, n2=n2, sec=sec, **kwargs)
@@ -443,7 +476,7 @@ class BeamSweep(Beam):
         curve.parent = self
 
     @property
-    def curve(self) -> CurvePoly:
+    def curve(self) -> CurveSweep:
         return self._curve
 
     def solid_geom(self) -> Geometry:

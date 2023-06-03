@@ -1,8 +1,9 @@
-from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse
+from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse, BRepAlgoAPI_Cut
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
 from OCC.Core.TopoDS import TopoDS_Shape
 
 import ada.geom.curves as geo_cu
+from ada.geom import curves as geo_cu, surfaces as geo_su
 from ada.geom.surfaces import FaceBasedSurfaceModel, PolyLoop
 from ada.occ.geom.curves import (
     make_wire_from_indexed_poly_curve_geom,
@@ -39,3 +40,36 @@ def make_shell_from_face_based_surface_geom(surface: FaceBasedSurfaceModel) -> T
                 occ_face = BRepAlgoAPI_Fuse(new_face, occ_face).Shape()
 
     return occ_face
+
+
+def make_face_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
+    if isinstance(outer_curve, geo_cu.IndexedPolyCurve):
+        return make_face_from_indexed_poly_curve_geom(outer_curve)
+    elif isinstance(outer_curve, geo_cu.Circle):
+        return make_face_from_circle(outer_curve)
+    else:
+        raise NotImplementedError("Only IndexedPolyCurve is implemented")
+
+
+def make_wire_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
+    if isinstance(outer_curve, geo_cu.IndexedPolyCurve):
+        return make_wire_from_indexed_poly_curve_geom(outer_curve)
+    elif isinstance(outer_curve, geo_cu.Circle):
+        return make_wire_from_circle(outer_curve)
+    else:
+        raise NotImplementedError("Only IndexedPolyCurve is implemented")
+
+
+def make_profile_from_geom(area: geo_su.ProfileDef) -> TopoDS_Shape:
+    if isinstance(area, geo_su.ArbitraryProfileDefWithVoids):
+        if area.profile_type == geo_su.ProfileType.AREA:
+            profile = make_face_from_curve(area.outer_curve)
+            for inner_curve in map(make_face_from_curve, area.inner_curves):
+                profile = BRepAlgoAPI_Cut(profile, inner_curve).Shape()
+        else:
+            profile = make_wire_from_curve(area.outer_curve)
+            for inner_curve in map(make_wire_from_curve, area.inner_curves):
+                profile = BRepAlgoAPI_Cut(profile, inner_curve).Shape()
+    else:
+        raise NotImplementedError("Only ArbitraryProfileDefWithVoids is implemented")
+    return profile

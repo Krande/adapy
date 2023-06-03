@@ -16,12 +16,7 @@ def test_export_basic(ifc_test_dir):
     bm5 = Beam("bm5", n1=[0, 0, 2], n2=[2, 0, 2], sec="IPE220", color="white")
 
     user = User(user_id="krande", org_id="ADA", org_name="Assembly Test")
-    pl1 = Plate(
-        "pl1",
-        [(0, 0, 0), (0, 0, 2), (0, 2, 2), (0, 2.0, 0.0)],
-        0.01,
-        use3dnodes=True,
-    )
+    pl1 = Plate.from_3d_points("pl1", [(0, 0, 0), (0, 0, 2), (0, 2, 2), (0, 2.0, 0.0)], 0.01)
 
     a = Assembly("MyFirstIfcFile", user=user) / (
         Part("MyBldg", metadata=dict(ifctype="building")) / [bm, bm1, bm2, bm3, bm4, bm5, pl1]
@@ -51,14 +46,7 @@ def test_ifc_groups(ifc_test_dir):
         metadata=dict(ifctype="spatial", description="MyThirdLevelSpace"),
     )
     newp2.add_beam(Beam("bm3", n1=[0, 0, 0], n2=[0, 0, 2], sec="IPE220", color="green"))
-    newp2.add_plate(
-        Plate(
-            "pl1",
-            [(0, 0, 0), (0, 0, 2), (0, 2, 2), (0, 2.0, 0.0)],
-            0.01,
-            use3dnodes=True,
-        )
-    )
+    newp2.add_plate(Plate.from_3d_points("pl1", [(0, 0, 0), (0, 0, 2), (0, 2, 2), (0, 2.0, 0.0)], 0.01))
     newp.add_part(newp2)
 
     _ = a.to_ifc(ifc_test_dir / "my_test_groups.ifc", file_obj_only=True)

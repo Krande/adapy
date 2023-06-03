@@ -6,6 +6,10 @@ from typing import TYPE_CHECKING, Iterable, List, Union
 import numpy as np
 from pyquaternion import Quaternion
 
+from ada.config import logger
+from ada.geom.placement import Direction, O, Axis2Placement3D
+from ada.geom.points import Point
+
 if TYPE_CHECKING:
     from ada import Part
     from ada.base.physical_objects import BackendGeom
@@ -37,36 +41,40 @@ class Rotation:
 
 @dataclass
 class Placement:
-    origin: Union[list, tuple, np.ndarray] = (0, 0, 0)
-    xdir: Union[list, tuple, np.ndarray] = None
-    ydir: Union[list, tuple, np.ndarray] = None
-    zdir: Union[list, tuple, np.ndarray] = None
+    origin: Iterable | Point = field(default_factory=O)
+    xdir: Iterable | Direction = None
+    ydir: Iterable | Direction = None
+    zdir: Iterable | Direction = None
     scale: float = 1.0
     parent = None
 
     def __post_init__(self):
-        from ada.core.vector_utils import calc_yvec
+        from ada.core.vector_utils import calc_yvec, create_right_hand_vectors_xv_yv_from_zv
 
         all_dir = [self.xdir, self.ydir, self.zdir]
         if all(x is None for x in all_dir):
-            self.xdir = np.array([1, 0, 0], dtype=float)
-            self.ydir = np.array([0, 1, 0], dtype=float)
-            self.zdir = np.array([0, 0, 1], dtype=float)
+            self.xdir = Direction(1, 0, 0)
+            self.ydir = Direction(0, 1, 0)
+            self.zdir = Direction(0, 0, 1)
 
         if self.ydir is None and all(x is not None for x in [self.xdir, self.zdir]):
             self.ydir = calc_yvec(self.xdir, self.zdir)
 
         all_dir = [self.xdir, self.ydir, self.zdir]
+        all_vec = ['xdir', "ydir", "zdir"]
+        vectors = [n for n, x in zip(all_vec, all_dir) if x is not None]
+        if len(vectors) == 1:
+            raise ValueError(f"Placement only given '{vectors[0]}' vector. "
+                             "Please supply at least two vectors to define a placement.")
 
-        if all(x is None for x in all_dir):
-            raise ValueError("Placement orientation needs all 3 vectors")
+        self.xdir = Point(*self.xdir)
+        self.ydir = Point(*self.ydir)
+        self.zdir = Point(*self.zdir)
+        if self.origin is None:
+            self.origin = Point(0, 0, 0)
 
-        self.xdir = np.array(self.xdir, dtype=float)
-        self.ydir = np.array(self.ydir, dtype=float)
-        self.zdir = np.array(self.zdir, dtype=float)
-
-        if not isinstance(self.origin, np.ndarray):
-            self.origin = np.array(self.origin, dtype=float)
+        if not isinstance(self.origin, Point):
+            self.origin = Point(*self.origin)
 
     def absolute_placement(self):
         current_location = np.array([0, 0, 0], dtype=float)
@@ -85,6 +93,9 @@ class Placement:
     @property
     def csys(self):
         return [self.xdir, self.ydir, self.zdir]
+
+    def to_axis3d_geom(self) -> Axis2Placement3D:
+        return Axis2Placement3D(Point(*self.origin), Direction(*self.zdir), Direction(*self.xdir))
 
     def __eq__(self, other: Placement):
         from ada.core.vector_utils import vector_length

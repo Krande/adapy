@@ -50,21 +50,19 @@ from OCC.Extend.DataExchange import read_step_file
 from OCC.Extend.ShapeFactory import make_extrusion, make_face, make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
-from ada.concepts.beams import Beam
 from ada.concepts.transforms import Placement, Rotation
 from ada.config import logger
 from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem.shapes import ElemType
 
-from ..concepts.beams.base import BeamTapered
 from ..geom.booleans import BoolOpEnum
 from ..geom.placement import Direction
 from ..geom.points import Point
 from .exceptions import UnableToBuildNSidedWires, UnableToCreateSolidOCCGeom
 
 if TYPE_CHECKING:
-    from ada import Boolean, Part
+    from ada import Boolean, Part, Beam, BeamTapered
     from ada.core.vector_utils import EquationOfPlane, Plane
 
 
@@ -86,7 +84,7 @@ def extract_shapes(step_path, scale, transform, rotate, include_shells=False):
 
 
 def transform_shape(
-    shape: TopoDS_Shape, scale=None, transform: Placement | tuple | list = None, rotate: Rotation = None
+        shape: TopoDS_Shape, scale=None, transform: Placement | tuple | list = None, rotate: Rotation = None
 ) -> TopoDS_Shape:
     trsf = gp_Trsf()
     if scale is not None:
@@ -457,7 +455,7 @@ def make_edge(p1, p2):
 
 
 def make_ori_vector(
-    name, origin, csys, pnt_r=0.02, cyl_l: Union[float, list, tuple] = 0.3, cyl_r=0.02, units="m"
+        name, origin, csys, pnt_r=0.02, cyl_l: Union[float, list, tuple] = 0.3, cyl_r=0.02, units="m"
 ) -> "Part":
     """
     Visualize a local coordinate system with a sphere and 3 cylinders representing origin and.
@@ -623,6 +621,7 @@ def sweep_geom(sweep_wire: TopoDS_Wire, wire_face: TopoDS_Wire):
 
 
 def create_beam_geom(beam: Beam, solid=True):
+    from ada import BeamTapered
     from ada.concepts.transforms import Placement
     from ada.config import Settings
     from ada.sections.categories import SectionCat
@@ -745,18 +744,6 @@ def make_revolve_solid(face: TopoDS_Face, axis, angle, origin) -> TopoDS_Shape:
     revolve_axis = gp_Ax1(gp_Pnt(origin[0], origin[1], origin[2]), gp_Dir(axis[0], axis[1], axis[2]))
     revolved_shape = BRepPrimAPI_MakeRevol(face, revolve_axis, np.deg2rad(angle)).Shape()
     return revolved_shape
-
-
-def wire_to_face(edges: List[TopoDS_Edge]) -> TopoDS_Face:
-    n_sided = BRepFill_Filling()
-    for edg in edges:
-        n_sided.Add(edg, GeomAbs_C0)
-    try:
-        n_sided.Build()
-    except RuntimeError as e:
-        raise UnableToBuildNSidedWires(e)
-    face = n_sided.Face()
-    return face
 
 
 def transform_shape_to_pos(shape: TopoDS_Shape, location: Point, axis: Direction, ref_dir: Direction) -> TopoDS_Shape:

@@ -17,7 +17,7 @@ from ada.cadit.ifc.utils import (
     to_real,
 )
 from ada.cadit.ifc.write.write_curves import write_curve_poly
-from ada.concepts.beams.base import BeamRevolve, BeamSweep, BeamTapered
+from ada.concepts.beams import BeamRevolve, BeamSweep, BeamTapered
 from ada.config import Settings
 from ada.core.constants import O
 
@@ -257,7 +257,7 @@ def create_swept_beam(beam: BeamSweep, f, profile):
     extrude_dir = ifc_dir(f, (0.0, 0.0, 1.0))
 
     placement = create_local_placement(f, (0, 0, 0), (0, 0, 1))
-    place = create_ifc_placement(f, beam.curve.points3d[0], beam.curve.normal)
+    place = create_ifc_placement(f, beam.n1.p, beam.curve.normal)
     extrude_area_solid = f.create_entity(
         "IfcFixedReferenceSweptAreaSolid", profile, place, ifc_polyline, FixedReference=extrude_dir
     )

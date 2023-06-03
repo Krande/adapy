@@ -11,6 +11,7 @@ from ada.concepts.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
 from ada.concepts.fasteners import Bolts, Weld
 from ada.concepts.nodes import Node
 from ada.concepts.piping import Pipe, PipeSegElbow, PipeSegStraight
+from ada.concepts.plates import Plate
 from ada.concepts.primitive_boolean import Boolean
 from ada.concepts.primitives import (
     PrimBox,
@@ -23,7 +24,6 @@ from ada.concepts.primitives import (
     Shape,
 )
 from ada.concepts.spatial import Assembly, Group, Part
-from ada.concepts.stru_plates import Plate
 from ada.concepts.stru_walls import Wall
 from ada.concepts.transforms import Instance, Placement, Transform
 from ada.concepts.user import User

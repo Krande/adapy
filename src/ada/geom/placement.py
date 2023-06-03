@@ -8,19 +8,19 @@ import numpy as np
 from ada.geom.points import Point
 
 
-def o() -> Point:
+def O() -> Point: # noqa
     return Point(0, 0, 0)
 
 
-def xv() -> Direction:
+def XV() -> Direction: # noqa
     return Direction(1, 0, 0)
 
 
-def yv() -> Direction:
+def YV() -> Direction: # noqa
     return Direction(0, 1, 0)
 
 
-def zv() -> Direction:
+def ZV() -> Direction: # noqa
     return Direction(0, 0, 1)
 
 
@@ -47,9 +47,9 @@ class Direction(Point):
 
 @dataclass
 class Axis2Placement3D:
-    location: Point | Iterable = field(default_factory=o)
-    axis: Direction | Iterable = field(default_factory=zv)
-    ref_direction: Direction | Iterable = field(default_factory=xv)
+    location: Point | Iterable = field(default_factory=O)
+    axis: Direction | Iterable = field(default_factory=ZV)
+    ref_direction: Direction | Iterable = field(default_factory=XV)
 
     def __post_init__(self):
         if isinstance(self.location, Iterable):

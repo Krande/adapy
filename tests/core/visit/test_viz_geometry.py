@@ -11,11 +11,10 @@ def model_with_components() -> Assembly:
         Beam("bm3", n1=[0, 0, 2], n2=[2, 0, 2], sec="BG800x400x20x40", color="green"),
         Beam("bm4", n1=[0, 0, 3], n2=[2, 0, 3], sec="CIRC200", color="green"),
         Beam("bm5", n1=[0, 0, 4], n2=[2, 0, 4], sec="TUB200x10", color="green"),
-        Plate(
+        Plate.from_3d_points(
             "pl1",
             [(0, 0, 0), (0, 0, 1), (0, 1, 1), (0, 1, 0)],
             0.01,
-            use3dnodes=True,
         ),
     ]
     return Assembly("my_test_assembly") / components

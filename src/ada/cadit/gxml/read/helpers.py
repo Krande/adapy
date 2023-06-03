@@ -54,13 +54,12 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map):
 
         t = thick_map.get(plate_elem.attrib["thickness_ref"])
         try:
-            pl = Plate(
+            pl = Plate.from_3d_points(
                 name,
                 points,
                 t,
                 mat=mat,
                 metadata=dict(props=dict(gxml_face_ref=face_ref)),
-                use3dnodes=True,
                 parent=parent,
             )
         except BaseException as e:

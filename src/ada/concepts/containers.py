@@ -13,7 +13,7 @@ from ada.concepts.beams import Beam
 from ada.concepts.beams.helpers import get_beam_extensions
 from ada.concepts.exceptions import DuplicateNodes
 from ada.concepts.nodes import Node, replace_node
-from ada.concepts.stru_plates import Plate
+from ada.concepts.plates.base_pl import Plate
 from ada.concepts.transforms import Rotation
 from ada.config import Settings, logger
 from ada.core.utils import Counter, roundoff

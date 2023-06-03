@@ -9,6 +9,7 @@ import numpy as np
 from ada.config import Settings
 
 from .exceptions import VectorNormalizeError
+from ..geom.points import Point
 
 if TYPE_CHECKING:
     from ada.geom.placement import Direction
@@ -660,7 +661,7 @@ def global_2_local_nodes(csys, origin, nodes, use_quaternion=True):
     return res
 
 
-def local_2_global_points(points, origin, xdir, normal):
+def local_2_global_points(points, origin, xdir, normal) -> list[Point]:
     """
     A method for converting a list of points in a 2d coordinate system to global 3d coordinates
 
@@ -687,11 +688,11 @@ def local_2_global_points(points, origin, xdir, normal):
     return transform3d([xdir, yvec], [X, Y], origin, points)
 
 
-def transform3d(csys_1, csys_2, origin, points) -> List[np.ndarray]:
+def transform3d(csys_1, csys_2, origin, points) -> list[Point]:
     """Transform points between coordinate systems"""
     rmat = rotation_matrix_csys_rotate(csys_1, csys_2, inverse=True)
 
-    return [np.array(origin, dtype=np.float64) + np.dot(rmat, n) for n in points]
+    return [Point(*origin) + np.dot(rmat, n) for n in points]
 
 
 def normal_to_points_in_plane(points_) -> np.ndarray:
@@ -748,7 +749,7 @@ def is_clockwise(points) -> bool:
     return not float(psum) < 0
 
 
-def calc_xvec(y_vec, z_vec):
+def calc_xvec(y_vec, z_vec) -> np.ndarray:
     return np.cross(y_vec, z_vec)
 
 

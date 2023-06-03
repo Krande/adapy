@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from ada.fem import Surface
 
     from .primitives import PrimBox
-    from .stru_plates import Plate
+    from ada.concepts.plates import Plate
 
 
 @dataclass
@@ -30,7 +30,7 @@ class BoundingBox:
         from ada.concepts.beams import Beam
 
         from .primitives import Shape
-        from .stru_plates import Plate
+        from ada.concepts.plates import Plate
 
         if issubclass(type(self.parent), Shape):
             self.p1, self.p2 = self._calc_bbox_of_shape()

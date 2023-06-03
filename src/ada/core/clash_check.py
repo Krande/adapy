@@ -95,7 +95,7 @@ def are_plates_touching(pl1: Plate, pl2: Plate, tol=1e-3):
 
 
 def filter_away_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]) -> List[Beam]:
-    corners = [n for n in pl.poly.points3d]
+    corners = [tuple(n) for n in pl.poly.points3d]
 
     # filter away all beams with both ends on any of corner points of the plate
     beams_not_along_plate_edge = []

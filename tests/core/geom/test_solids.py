@@ -54,3 +54,16 @@ def test_ipe_beam_taper():
 
     occ_shape = geom_to_occ_geom(geo)
     assert isinstance(occ_shape, TopoDS_Solid)
+
+
+def test_plate():
+    pl2 = ada.Plate.from_3d_points("my_plate", [(0, 0, 0), (1, 0, 0, 0.2), (1, 1, 0), (0, 1, 0)], 0.1)
+    pl = ada.Plate("pl1", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.1, color="red")
+    segs = pl.poly.segments
+    segs2 = pl2.poly.segments
+    geo = pl.solid_geom()
+    assert isinstance(geo.geometry, geo_so.ExtrudedAreaSolid)
+
+    occ_shape = geom_to_occ_geom(geo)
+
+    assert isinstance(occ_shape, TopoDS_Solid)

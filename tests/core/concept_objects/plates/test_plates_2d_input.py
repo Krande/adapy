@@ -27,9 +27,9 @@ def test_roundtrip_fillets(place1, place2):
 
 def test_2ifc_simple(place2):
     pl2 = ada.Plate("MyPl2", [(0, 0, 0.2), (5, 0, 0.2), (5, 5), (0, 5)], 20e-3, **place2)
-    seg_list = pl2.poly.seg_list
+    seg_list = pl2.poly.segments
     seg1 = seg_list[0]
-    assert len(pl2.poly.seg_list) == 6
+    assert len(pl2.poly.segments) == 6
     assert type(seg1) is ada.ArcSegment
 
     # (ada.Assembly("ExportedPlates") / (ada.Part("MyPart") / pl2)).to_ifc(test_dir / "my_plate_poly.ifc")
@@ -37,7 +37,7 @@ def test_2ifc_simple(place2):
 
 def test_triangle():
     pl = ada.Plate("test", [(0, 0), (1, 0, 0.1), (0.5, 0.5)], 20e-3)
-    assert len(pl.poly.seg_list) == 4
+    assert len(pl.poly.segments) == 4
 
     # (ada.Assembly() / [ada.Part("te") / pl]).to_ifc(test_dir / "triangle_plate.ifc")
 

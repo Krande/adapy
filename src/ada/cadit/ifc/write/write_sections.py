@@ -9,7 +9,7 @@ from ada import Section
 from ada.config import Settings, logger
 from ada.sections.categories import SectionCat
 
-from ..utils import create_ifcindexpolyline, create_ifcpolyline
+from ..utils import create_ifcindexpolyline, create_ifcpolyline, to_real
 
 
 class UnrecognizedSectionType(Exception):
@@ -144,7 +144,7 @@ class AngularProfile(ProfileBase):
         if Settings.force_param_profiles is True:
             logger.debug(f'Export of "{section.type}" profile to parametric IFC profile is not yet added')
         section_profile = section.get_section_profile(True)
-        points = [f.createIfcCartesianPoint(p) for p in section_profile.outer_curve.points2d]
+        points = [f.createIfcCartesianPoint(to_real(p)) for p in section_profile.outer_curve.points2d]
         ifc_polyline = f.createIfcPolyLine(points)
         return dict(OuterCurve=ifc_polyline)
 
@@ -161,8 +161,8 @@ class BoxProfile(ProfileBase):
         section_profile = section.get_section_profile(True)
         ot_disc = section_profile.outer_curve.points2d
         in_disc = section_profile.inner_curve.points2d
-        outer_points = [f.createIfcCartesianPoint(p) for p in ot_disc + [ot_disc[0]]]
-        inner_points = [f.createIfcCartesianPoint(p) for p in in_disc + [in_disc[0]]]
+        outer_points = [f.createIfcCartesianPoint(to_real(p)) for p in ot_disc + [ot_disc[0]]]
+        inner_points = [f.createIfcCartesianPoint(to_real(p)) for p in in_disc + [in_disc[0]]]
         inner_curve = f.createIfcPolyLine(inner_points)
         outer_curve = f.createIfcPolyLine(outer_points)
         return dict(OuterCurve=outer_curve, InnerCurves=[inner_curve])

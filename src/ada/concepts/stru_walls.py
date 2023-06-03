@@ -256,13 +256,13 @@ class Wall(BackendGeom):
         return self._metadata
 
     def shell_occ(self):
-        poly = CurvePoly(points3d=self.extrusion_area, parent=self)
+        poly = CurvePoly.from_3d_points(self.extrusion_area, parent=self)
         return poly.face()
 
     def solid_occ(self):
         from ada.occ.utils import apply_booleans
 
-        poly = CurvePoly(points3d=self.extrusion_area, parent=self)
+        poly = CurvePoly.from_3d_points(self.extrusion_area, parent=self)
 
         geom = apply_booleans(poly.make_extruded_solid(self.height), self.booleans)
 

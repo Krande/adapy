@@ -30,13 +30,11 @@ class ReinforcedFloor(Part):
         **kwargs,
     ):
         super(ReinforcedFloor, self).__init__(name, **kwargs)
-        plate = Plate(
-            name + "_pl",
-            points,
-            pl_thick,
-            placement=self.placement,
-            use3dnodes=use3dnodes,
-        )
+        if use3dnodes:
+            plate = Plate.from_3d_points(name + "_pl", points, pl_thick, )
+        else:
+            plate = Plate(name + "_pl", points, pl_thick, placement=self.placement)
+
         self.add_plate(plate)
 
         # Calculate number of stringers
@@ -105,7 +103,6 @@ class SimpleStru(Part):
 
         for elev in self._elevations:
             for p1, p2 in beams:
-
                 bm = self.add_beam(Beam(next(bm_name), n1=p1(elev), n2=p2(elev), sec=sec))
                 ecc = get_offset_from_justification(bm, Justification.TOS)
                 bm.e1 = bm.e2 = ecc

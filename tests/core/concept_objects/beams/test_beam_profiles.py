@@ -1,5 +1,5 @@
 from ada import Assembly, Beam, CurvePoly, Material, Part, Section
-from ada.concepts.beams.base import BeamTapered
+from ada.concepts.beams import BeamTapered
 from ada.config import Settings
 
 test_dir = Settings.test_dir / "beams"

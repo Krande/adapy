@@ -31,11 +31,10 @@ def test_meter_to_millimeter(test_units_dir):
         metadata=dict(ifctype="storey", description="MyThirdLevelSpace"),
     )
     bm3 = Beam("bm3", n1=[0, 0, 0], n2=[0, 0, 2], sec="IPE220", color="green")
-    pl1 = Plate(
+    pl1 = Plate.from_3d_points(
         "pl1",
         [(0, 0, 0), (0, 0, 2), (0, 2, 2), (0, 2.0, 0.0)],
         0.01,
-        use3dnodes=True,
     )
 
     a = Assembly("MySiteName", project="MyTestProject") / [p / [bm1, p2 / [bm2, p3 / [bm3, pl1]]]]

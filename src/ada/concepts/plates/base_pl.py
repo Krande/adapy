@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
+import ada.concepts.plates.geom_plates as geo_pl
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.concepts.bounding_box import BoundingBox
@@ -11,6 +12,7 @@ from ada.concepts.curves import CurvePoly
 from ada.concepts.nodes import Node
 from ada.concepts.transforms import Placement
 from ada.config import Settings
+from ada.geom import Geometry
 from ada.materials import Material
 from ada.materials.metals import CarbonSteel
 
@@ -24,32 +26,34 @@ class Plate(BackendGeom):
     described by an id (index) and a Node object.
 
     :param name: Name of plate
-    :param nodes: List of coordinates that make up the plate. Points can be Node, tuple or list
+    :param points: List of coordinates that make up the plate. Points can be Node, tuple or list
     :param t: Thickness of plate
     :param mat: Material. Can be either Material object or built-in materials ('S420' or 'S355')
     :param placement: Explicitly define origin of plate. If not set
     """
 
     def __init__(
-        self,
-        name,
-        nodes,
-        t,
-        mat="S420",
-        use3dnodes=False,
-        placement=Placement(),
-        pl_id=None,
-        offset=None,
-        color=None,
-        parent=None,
-        ifc_geom=None,
-        opacity=1.0,
-        metadata=None,
-        tol=None,
-        units=Units.M,
-        guid=None,
-        ifc_store: IfcStore = None,
+            self,
+            name: str,
+            points: CurvePoly | list[tuple[float, float, Optional[float]]],
+            t: float,
+            mat: str | Material = "S420",
+            placement=None,
+            origin=None,
+            xdir=None,
+            normal=None,
+            pl_id=None,
+            color=None,
+            parent=None,
+            opacity=1.0,
+            metadata=None,
+            tol=None,
+            units=Units.M,
+            guid=None,
+            ifc_store: IfcStore = None,
     ):
+        placement = Placement(origin, xdir=xdir, zdir=normal) if placement is None else placement
+
         super().__init__(
             name,
             guid=guid,
@@ -60,15 +64,6 @@ class Plate(BackendGeom):
             color=color,
             opacity=opacity,
         )
-
-        points2d = None
-        points3d = None
-
-        if use3dnodes is True:
-            points3d = nodes
-        else:
-            points2d = nodes
-
         self._pl_id = pl_id
         self._material = mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat), parent=parent)
         self._material.refs.append(self)
@@ -77,20 +72,25 @@ class Plate(BackendGeom):
         if tol is None:
             tol = Units.get_general_point_tol(units)
 
-        self._poly = CurvePoly(
-            points3d=points3d,
-            points2d=points2d,
-            normal=self.placement.zdir,
-            origin=self.placement.origin,
-            xdir=self.placement.xdir,
-            tol=tol,
-            parent=self,
-        )
+        if isinstance(points, CurvePoly):
+            self._poly = points
+        else:
+            self._poly = CurvePoly(
+                points=points,
+                normal=self.placement.zdir,
+                origin=self.placement.origin,
+                xdir=self.placement.xdir,
+                tol=tol,
+                parent=self,
+            )
 
-        self._offset = offset
         self._parent = parent
-        self._ifc_geom = ifc_geom
         self._bbox = None
+
+    @staticmethod
+    def from_3d_points(name, points, t, mat="S420", **kwargs):
+        poly = CurvePoly.from_3d_points(points, **kwargs)
+        return Plate(name, poly, t, mat=mat, **kwargs)
 
     @property
     def id(self):
@@ -99,10 +99,6 @@ class Plate(BackendGeom):
     @id.setter
     def id(self, value):
         self._pl_id = value
-
-    @property
-    def offset(self):
-        return self._offset
 
     @property
     def t(self) -> float:
@@ -148,11 +144,12 @@ class Plate(BackendGeom):
         return geom
 
     def solid_occ(self):
-        from ada.occ.utils import apply_booleans
+        from ada.occ.geom import geom_to_occ_geom
 
-        geom = apply_booleans(self._poly.make_extruded_solid(self.t), self.booleans)
+        return geom_to_occ_geom(self.solid_geom())
 
-        return geom
+    def solid_geom(self) -> Geometry:
+        return geo_pl.plate_to_geom(self)
 
     @property
     def units(self):
@@ -173,7 +170,12 @@ class Plate(BackendGeom):
             self._units = value
 
     def __repr__(self):
-        return f"Plate({self.name}, t:{self.t}, {self.material})"
+        pts = [list(x) for x in self.poly.points2d]
+        return f"Plate(\"{self.name}\", {pts}, t={self.t}, \"{self.material.name}\", {self.placement})"
 
+
+class PlateCurved(Plate):
+    def __init__(self):
+        super().__init__()
 
 # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/lexical/IfcBSplineSurfaceWithKnots.htm

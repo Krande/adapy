@@ -221,7 +221,7 @@ class MyRenderer(JupyterRenderer):
             self._refs[r.name] = beam
 
     def DisplayPlate(self, plate: "Plate"):
-        geom = self._ifc_geom_to_shape(plate._ifc_geom) if plate._ifc_geom is not None else plate.solid_occ()
+        geom = plate.solid_occ()
         # self.AddShapeToScene(geom)
         try:
             res = self.DisplayShape(geom, shape_color=plate.color.hex, opacity=0.5)

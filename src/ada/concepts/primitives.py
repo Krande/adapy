@@ -15,10 +15,11 @@ from ada.core.vector_utils import unit_vector, vector_length
 from ada.materials import Material
 from ada.materials.utils import get_material
 
-from ..geom import BooleanOperation, Geometry
+from ..geom import Geometry
+from ada.geom.booleans import BooleanOperation
 from ..geom.points import Point
 from .bounding_box import BoundingBox
-from .curves import CurvePoly
+from .curves import CurvePoly, CurveSweep
 from .transforms import Placement
 
 if TYPE_CHECKING:
@@ -170,15 +171,9 @@ class PrimSphere(Shape):
         super(PrimSphere, self).__init__(name=name, geom=None, cog=cog, **kwargs)
 
     def geom(self):
-        from ada.occ.utils import apply_booleans
+        from ada.occ.geom import geom_to_occ_geom
 
-        if self._geom is None:
-            from ada.occ.utils import make_sphere
-
-            self._geom = make_sphere(self.cog, self.radius)
-
-        geom = apply_booleans(self._geom, self.booleans)
-        return geom
+        return geom_to_occ_geom(self.solid_geom())
 
     def solid_geom(self) -> Geometry:
         from ada.geom.points import Point
@@ -220,13 +215,9 @@ class PrimBox(Shape):
         self._bbox = BoundingBox(self)
 
     def geom(self):
-        from ada.occ.utils import apply_booleans, make_box_by_points
+        from ada.occ.geom import geom_to_occ_geom
 
-        if self._geom is None:
-            self._geom = make_box_by_points(self.p1, self.p2)
-
-        geom = apply_booleans(self._geom, self.booleans)
-        return geom
+        return geom_to_occ_geom(self.solid_geom())
 
     @property
     def units(self):
@@ -254,7 +245,9 @@ class PrimBox(Shape):
         return Geometry(self.guid, box, self.color, bool_operations=booleans)
 
     def __repr__(self):
-        return f"PrimBox({self.name})"
+        p1s = self.p1.tolist()
+        p2s = self.p2.tolist()
+        return f"PrimBox({self.name}, {p1s}, {p2s})"
 
 
 class PrimCone(Shape):
@@ -299,7 +292,9 @@ class PrimCone(Shape):
         return Geometry(self.guid, cone, self.color, bool_operations=booleans)
 
     def __repr__(self):
-        return f"PrimCone({self.name})"
+        p1s = self.p1.tolist()
+        p2s = self.p2.tolist()
+        return f"PrimCone({self.name}, {p1s}, {p2s}, {self.r})"
 
 
 class PrimCyl(Shape):
@@ -311,6 +306,7 @@ class PrimCyl(Shape):
 
     def geom(self):
         from ada.occ.geom import geom_to_occ_geom
+
         return geom_to_occ_geom(self.solid_geom())
 
     @property
@@ -339,7 +335,9 @@ class PrimCyl(Shape):
         return Geometry(self.guid, cyl, self.color, bool_operations=booleans)
 
     def __repr__(self):
-        return f"PrimCyl({self.name})"
+        p1s = self.p1.tolist()
+        p2s = self.p2.tolist()
+        return f"PrimCyl({self.name}, {p1s}, {p2s}, {self.r})"
 
 
 class PrimExtrude(Shape):
@@ -347,7 +345,7 @@ class PrimExtrude(Shape):
         self._name = name
 
         poly = CurvePoly(
-            points2d=curve,
+            points=curve,
             normal=normal,
             origin=origin,
             xdir=xdir,
@@ -393,6 +391,19 @@ class PrimExtrude(Shape):
     def extrude_depth(self):
         return self._extrude_depth
 
+    def solid_geom(self) -> Geometry:
+        from ada.geom.solids import ExtrudedAreaSolid
+        from ada.geom.surfaces import ArbitraryProfileDefWithVoids, ProfileType
+        from ada.geom.placement import Axis2Placement3D
+
+        outer_curve = self.poly.get_edges_geom()
+        profile = ArbitraryProfileDefWithVoids(ProfileType.AREA, outer_curve, [])
+
+        place = Axis2Placement3D(self.placement.origin)
+        solid = ExtrudedAreaSolid(profile, place, self.extrude_depth, self.placement.zdir)
+        booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+        return Geometry(self.guid, solid, self.color, bool_operations=booleans)
+
     def __repr__(self):
         return f"PrimExtrude({self.name})"
 
@@ -403,7 +414,7 @@ class PrimRevolve(Shape):
     def __init__(self, name, points2d, origin, xdir, normal, rev_angle, tol=1e-3, **kwargs):
         self._name = name
         poly = CurvePoly(
-            points2d=points2d,
+            points=points2d,
             normal=[roundoff(x) for x in normal],
             origin=origin,
             xdir=[roundoff(x) for x in xdir],
@@ -479,7 +490,7 @@ class PrimSweep(Shape):
             **kwargs,
     ):
         if type(sweep_curve) is list:
-            sweep_curve = CurvePoly(points3d=sweep_curve, is_closed=False)
+            sweep_curve = CurveSweep.from_3d_points(sweep_curve)
 
         if type(profile_curve_outer) is list:
             origin = sweep_curve.placement.origin if origin is None else origin

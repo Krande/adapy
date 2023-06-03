@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Tuple
 
-from ada.concepts.curves import CurvePoly
+from ada.concepts.curves import CurvePoly, CurveSweep
 from ada.config import get_logger
 from ada.core.utils import roundoff as rd
 from ada.sections.categories import BaseTypes
@@ -53,11 +53,11 @@ def build_section_profile(sec: Section, is_solid) -> SectionProfile:
 build_props = dict(origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1))
 
 
-def build_disconnected(input_curve: List[Tuple[tuple, tuple]]) -> List[CurvePoly]:
-    return [CurvePoly(x, is_closed=False, **build_props) for x in input_curve]
+def build_disconnected(input_curve: list[tuple[tuple, tuple]]) -> list[CurveSweep]:
+    return [CurveSweep(x, **build_props) for x in input_curve]
 
 
-def build_joined(input_curve: List[tuple]) -> CurvePoly:
+def build_joined(input_curve: list[tuple]) -> CurvePoly:
     return CurvePoly(input_curve, **build_props)
 
 
@@ -224,7 +224,16 @@ def box(sec: Section, return_solid) -> SectionProfile:
     )
 
 
-def flatbar(sec: Section, return_solid=None) -> SectionProfile:
+def flatbar(sec: Section, return_solid=False) -> SectionProfile:
+    if return_solid is False:
+        outer_curve = build_disconnected([((0, sec.h / 2),(sec.w_top / 2, -sec.h / 2))])
+        return SectionProfile(
+            sec,
+            return_solid,
+            outer_curve_disconnected=outer_curve,
+            disconnected=True,
+        )
+
     input_curve = [
         (-sec.w_top / 2, sec.h / 2),
         (sec.w_top / 2, sec.h / 2),
@@ -240,16 +249,34 @@ def flatbar(sec: Section, return_solid=None) -> SectionProfile:
     )
 
 
-def channel(sec: Section, return_solid=None) -> SectionProfile:
+def channel(sec: Section, return_solid=False) -> SectionProfile:
+    # top flange outer
+    p1 = (sec.w_top, sec.h / 2)  # right corner
+    # web
+    p2 = (0, sec.h / 2)  # top of web
+    p3 = (0, -sec.h / 2)  # bottom of web
+    # bottom flange outer
+    p4 = (sec.w_top, -sec.h / 2)  # right corner
+
+    if return_solid is False:
+        input_curve = [(p1, p2), (p2, p3), (p3, p4)]
+        outer_curve = build_disconnected(input_curve)
+        return SectionProfile(
+            sec,
+            return_solid,
+            outer_curve_disconnected=outer_curve,
+            disconnected=True,
+        )
+
     input_curve = [
-        (sec.w_top, sec.h / 2 - sec.t_ftop),
-        (sec.w_top, sec.h / 2),
-        (0, sec.h / 2),
-        (0, -sec.h / 2),
-        (sec.w_top, -sec.h / 2),
+        p1,
+        p2,
+        p3,
+        p4,
         (sec.w_top, -sec.h / 2 + sec.t_fbtn),
         (sec.t_w, -sec.h / 2 + sec.t_fbtn),
         (sec.t_w, sec.h / 2 - sec.t_fbtn),
+        (sec.w_top, sec.h / 2 - sec.t_ftop),
     ]
     outer_curve = build_joined(input_curve)
     return SectionProfile(

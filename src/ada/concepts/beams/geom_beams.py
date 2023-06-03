@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada.core.vector_utils import transform_csys_to_csys
-from ada.geom import Geometry, BooleanOperation
+from ada.geom import Geometry
+from ada.geom.booleans import BooleanOperation
 from ada.geom.curves import Line, Circle
 from ada.geom.placement import Axis2Placement3D, Direction
 from ada.geom.points import Point
@@ -24,14 +25,14 @@ def straight_beam_to_geom(beam: Beam, is_solid=True) -> Geometry:
         solid = geo_so.ExtrudedAreaSolid(profile, place, beam.length, Direction(0, 0, 1))
         geom = Geometry(beam.guid, solid, beam.color)
     else:
-        if beam.section.type in (beam.section.TYPES.IPROFILE,beam.section.TYPES.TPROFILE, beam.section.TYPES.ANGULAR):
+        if beam.section.type in (
+                beam.section.TYPES.IPROFILE,
+                beam.section.TYPES.TPROFILE,
+                beam.section.TYPES.ANGULAR,
+                beam.section.TYPES.CHANNEL,
+                beam.section.TYPES.FLATBAR
+        ):
             geom = profile_disconnected_to_face_geom(beam)
-        elif beam.section.type in (beam.section.TYPES.CHANNEL, beam.section.TYPES.FLATBAR):
-            profile = section_to_arbitrary_profile_def_with_voids(beam.section, solid=False)
-            profile.profile_type = geo_su.ProfileType.CURVE
-            place = Axis2Placement3D(location=beam.n1.p, axis=beam.xvec, ref_direction=beam.yvec)
-            solid = geo_so.ExtrudedAreaSolid(profile, place, beam.length, Direction(0, 0, 1))
-            geom = Geometry(beam.guid, solid, beam.color)
         elif beam.section.type == beam.section.TYPES.BOX:
             geom = box_to_face_geom(beam)
         elif beam.section.type in (beam.section.TYPES.TUBULAR, beam.section.TYPES.CIRCULAR):
@@ -101,6 +102,10 @@ def ibeam_taper_to_geom(beam: BeamTapered) -> Geometry:
     return Geometry(beam.guid, geom, beam.color)
 
 
+def ibeam_taper_to_face_geom(beam: BeamTapered) -> Geometry:
+    return Geometry()
+
+
 def profile_disconnected_to_face_geom(beam: Beam) -> Geometry:
     sec_profile = beam.section.get_section_profile(is_solid=False)
     connected_faces = []
@@ -126,6 +131,7 @@ def profile_disconnected_to_face_geom(beam: Beam) -> Geometry:
 
     geom = geo_su.FaceBasedSurfaceModel(connected_faces)
     return Geometry(beam.guid, geom, beam.color)
+
 
 def box_to_face_geom(beam: Beam) -> Geometry:
     sec_profile = beam.section.get_section_profile(is_solid=False)

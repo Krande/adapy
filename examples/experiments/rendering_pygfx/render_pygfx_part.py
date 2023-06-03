@@ -32,16 +32,19 @@ def main():
     for i, in_str in enumerate(BaseTypes.get_valid_example_map().values()):
         p1 = origin + i * spacing
         p2 = p1 + Direction(0, 1, 0)
-        _bm = ada.Beam(f"bm_{8+i}_{in_str}", p1, p2, in_str, color=Color.randomize())
+        _bm = ada.Beam(f"bm_{8 + i}_{in_str}", p1, p2, in_str, color=Color.randomize())
         objects.append(_bm)
 
     origin = Point(0.5, 0, 3)
     for i, in_str in enumerate(BaseTypes.get_valid_example_map().values()):
         p1 = origin + i * spacing
         p2 = p1 + Direction(0, 1, 0)
-        _bm = ada.Beam(f"bm_{44+i}_{in_str}", p1, p2, in_str, color=Color.randomize())
+        _bm = ada.Beam(f"bm_{44 + i}_{in_str}", p1, p2, in_str, color=Color.randomize())
         objects.append(_bm)
         render_override[_bm.guid] = GeomRepr.SHELL
+
+    pl1 = ada.Plate("pl1", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01, origin=(0, 0, 4), color="red")
+    pl2 = ada.Plate("pl2", [(0, 0, 0.2), (1, 0, 0.2), (1, 1, 0.2), (0, 1, 0.2)], 0.01, origin=(2, 0, 4), color="blue")
 
     box1 = ada.PrimBox("box1", (1, 0, 0), (1.5, 0.5, 0.5), color="red")
     box1.add_boolean(ada.PrimBox("box2", (1.25, -0.25, 0.25), (1.75, 0.25, 0.75)))
@@ -53,16 +56,18 @@ def main():
     sphere1.add_boolean(ada.PrimSphere("sphere2", (5.5, 0, 0), 0.3), "union")
     sphere1.add_boolean(ada.PrimSphere("sphere3", (5.25, 0, 0), 0.2))
 
-    objects += [bm1, bm2, bm3, box1, bm4, bm5, bm6, cyl1, cone1, sphere1, bm7_taper]
+    objects += [bm1, bm2, bm3, box1, bm4, bm5, bm6, cyl1, cone1, sphere1, bm7_taper, pl1, pl2]
 
     a = ada.Assembly() / (ada.Part("MyBeam") / objects)
-    a.to_stp("temp/part.stp", geom_repr_override=render_override)
-    a.to_ifc("temp/part.ifc", geom_repr_override=render_override)
+    # a.to_stp("temp/part.stp", geom_repr_override=render_override)
+    # a.to_ifc("temp/part.ifc", geom_repr_override=render_override)
 
     render = RendererPyGFX(render_backend=SqLiteBackend("temp/meshes.db"))
+
     def _on_click(event, mesh_data: MeshInfo):
         obj = a.get_by_guid(mesh_data.mesh_id)
         print(obj)
+
     render.on_click_post = _on_click
     render.add_part(a, render_override=render_override)
     render.show()
