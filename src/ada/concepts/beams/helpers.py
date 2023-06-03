@@ -6,11 +6,106 @@ from typing import TYPE_CHECKING, Iterable
 import numpy as np
 
 from ada.config import Settings, logger
-from ada.core.vector_utils import is_between_endpoints, is_parallel
+from ada.core.vector_utils import is_between_endpoints, is_parallel, vector_length
+from ada.fem.elements import HingeProp
 from ada.geom.placement import Direction
 
 if TYPE_CHECKING:
     from ada import Beam, Node
+    from ada.concepts.connections import JointBase
+
+
+class BeamConnectionProps:
+    def __init__(self, beam: Beam):
+        self._beam = beam
+        self._connected_to = []
+        self._connected_end1 = None
+        self._connected_end2 = None
+        self._hinge_prop = None
+
+    def calc_con_points(self, point_tol=Settings.point_tol):
+        from ada.core.vector_utils import sort_points_by_dist
+
+        a = self._beam.n1.p
+        b = self._beam.n2.p
+        points = [tuple(con.centre) for con in self.connected_to]
+
+        def is_mem_eccentric(mem, centre):
+            is_ecc = False
+            end = None
+            if point_tol < vector_length(mem.n1.p - centre) < mem.length * 0.9:
+                is_ecc = True
+                end = mem.n1.p
+            if point_tol < vector_length(mem.n2.p - centre) < mem.length * 0.9:
+                is_ecc = True
+                end = mem.n2.p
+            return is_ecc, end
+
+        if len(self.connected_to) == 1:
+            con = self.connected_to[0]
+            if con.main_mem == self:
+                for m in con.beams:
+                    if m != self:
+                        is_ecc, end = is_mem_eccentric(m, con.centre)
+                        if is_ecc:
+                            logger.info(f'do something with end "{end}"')
+                            points.append(tuple(end))
+
+        midpoints = []
+        prev_p = None
+        for p in sort_points_by_dist(a, points):
+            p = np.array(p)
+            bmlen = self._beam.length
+            vlena = vector_length(p - a)
+            vlenb = vector_length(p - b)
+
+            if prev_p is not None:
+                if vector_length(p - prev_p) < point_tol:
+                    continue
+
+            if vlena < point_tol:
+                self._connected_end1 = self.connected_to[points.index(tuple(p))]
+                prev_p = p
+                continue
+
+            if vlenb < point_tol:
+                self._connected_end2 = self.connected_to[points.index(tuple(p))]
+                prev_p = p
+                continue
+
+            if vlena > bmlen or vlenb > bmlen:
+                prev_p = p
+                continue
+
+            midpoints += [p]
+            prev_p = p
+
+        return midpoints
+
+    @property
+    def connected_to(self) -> list[JointBase]:
+        return self._connected_to
+
+    @property
+    def connected_end1(self):
+        return self._connected_end1
+
+    @property
+    def connected_end2(self):
+        return self._connected_end2
+
+    @property
+    def hinge_prop(self) -> HingeProp:
+        return self._hinge_prop
+
+    @hinge_prop.setter
+    def hinge_prop(self, value: HingeProp):
+        value.beam_ref = self
+        if value.end1 is not None:
+            value.end1.concept_node = self._beam.n1
+        if value.end2 is not None:
+            value.end2.concept_node = self._beam.n2
+        self._hinge_prop = value
 
 
 class Justification(Enum):

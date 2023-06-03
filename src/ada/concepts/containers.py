@@ -32,7 +32,6 @@ if TYPE_CHECKING:
     from ada.fem.results.common import FemNodes
     from ada.sections import Section
 
-
 __all__ = [
     "Nodes",
     "Beams",
@@ -62,11 +61,11 @@ class Beams(BaseCollections):
         beams = [] if beams is None else beams
         self._beams = sorted(beams, key=attrgetter("name"))
         self._nmap = {n.name: n for n in self._beams}
-        self._dmap = {n.guid: n for n in self._beams}
+        self._idmap = {n.guid: n for n in self._beams}
         self._connected_beams_map = None
 
     def __contains__(self, item: Beam):
-        return item.guid in self._dmap.keys()
+        return item.guid in self._idmap.keys()
 
     def __len__(self):
         return len(self._beams)
@@ -175,17 +174,21 @@ class Beams(BaseCollections):
         """Get beam from its name"""
         return self._nmap.get(name)
 
+    def from_guid(self, guid: str) -> Beam:
+        """Get beam from its guid"""
+        return self._idmap.get(guid)
+
     def add(self, beam: Beam) -> Beam:
         from .exceptions import NameIsNoneError
 
         if beam.name is None:
             raise NameIsNoneError("Name is not allowed to be None.")
 
-        if beam.name in self._dmap.keys():
+        if beam.name in self._idmap.keys():
             logger.warning(f'Beam with name "{beam.name}" already exists. Will not add')
-            return self._dmap[beam.name]
+            return self._idmap[beam.name]
 
-        self._dmap[beam.guid] = beam
+        self._idmap[beam.guid] = beam
         self._nmap[beam.name] = beam
         self._beams.append(beam)
         beam.add_beam_to_node_refs()
@@ -195,7 +198,7 @@ class Beams(BaseCollections):
         beam.remove_beam_from_node_refs()
         i = self._beams.index(beam)
         self._beams.pop(i)
-        self._dmap = {n.guid: n for n in self._beams}
+        self._idmap = {n.guid: n for n in self._beams}
         self._nmap = {n.name: n for n in self._beams}
 
     def get_beams_within_volume(self, vol_, margins=Settings.point_tol) -> Iterable[Beam]:
@@ -240,8 +243,8 @@ class Beams(BaseCollections):
         return set([self.from_name(bm_id) for bms_ in (bm_list1, bm_list2) for bm_id in sort_beams(bms_)])
 
     @property
-    def dmap(self) -> dict[str, Beam]:
-        return self._dmap
+    def idmap(self) -> dict[str, Beam]:
+        return self._idmap
 
     @property
     def nmap(self) -> dict[str, Beam]:
@@ -308,8 +311,11 @@ class Plates(BaseCollections):
     def from_name(self, name: str) -> Plate:
         return self._nmap.get(name, None)
 
+    def from_guid(self, guid: str) -> Plate:
+        return self._idmap.get(guid, None)
+
     @property
-    def dmap(self) -> dict[str, Plate]:
+    def idmap(self) -> dict[str, Plate]:
         return self._idmap
 
     @property

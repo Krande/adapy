@@ -17,7 +17,7 @@ def get_sets(xml_root: ET.Element, parent: Part) -> Dict[str, Group]:
 
 def get_concept(xml_el: ET.Element, part: Part) -> Union[Beam]:
     ref = xml_el.attrib["concept_ref"]
-    if ref in part.beams.dmap.keys():
+    if ref in part.beams.idmap.keys():
         return part.beams.from_name(ref)
     else:
         logger.debug(f'Currently only Beams are supported. Unable to find group member "{ref}"')

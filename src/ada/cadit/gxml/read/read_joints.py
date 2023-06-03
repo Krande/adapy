@@ -76,13 +76,13 @@ class GenieJoint(JointBase):
 
 def get_bm(el: ET.Element, part):
     ref = el.attrib["beam_ref"]
-    if ref not in part.beams.dmap.keys():
+    if ref not in part.beams.idmap.keys():
         return None
     i = 2
     potential_beams = [part.beams.from_name(ref)]
     suffix = "_E{}"
     eval_name = ref + suffix.format(i)
-    while eval_name in part.beams.dmap.keys():
+    while eval_name in part.beams.idmap.keys():
         potential_beams.append(part.beams.from_name(eval_name))
         i += 1
         eval_name = ref + suffix.format(i)

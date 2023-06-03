@@ -24,10 +24,19 @@ def straight_beam_to_geom(beam: Beam, is_solid=True) -> Geometry:
         solid = geo_so.ExtrudedAreaSolid(profile, place, beam.length, Direction(0, 0, 1))
         geom = Geometry(beam.guid, solid, beam.color)
     else:
-        if beam.section.type == beam.section.TYPES.IPROFILE:
-            geom = ibeam_to_face_geom(beam)
+        if beam.section.type in (beam.section.TYPES.IPROFILE,beam.section.TYPES.TPROFILE, beam.section.TYPES.ANGULAR):
+            geom = profile_disconnected_to_face_geom(beam)
+        elif beam.section.type in (beam.section.TYPES.CHANNEL, beam.section.TYPES.FLATBAR):
+            profile = section_to_arbitrary_profile_def_with_voids(beam.section, solid=False)
+            profile.profile_type = geo_su.ProfileType.CURVE
+            place = Axis2Placement3D(location=beam.n1.p, axis=beam.xvec, ref_direction=beam.yvec)
+            solid = geo_so.ExtrudedAreaSolid(profile, place, beam.length, Direction(0, 0, 1))
+            geom = Geometry(beam.guid, solid, beam.color)
         elif beam.section.type == beam.section.TYPES.BOX:
             geom = box_to_face_geom(beam)
+        elif beam.section.type in (beam.section.TYPES.TUBULAR, beam.section.TYPES.CIRCULAR):
+            # Tubular shell is represented by the outer surface of the shell.
+            geom = circ_to_face_geom(beam)
         else:
             raise NotImplementedError(f"Beam section type {beam.section.type} not implemented")
 
@@ -67,7 +76,7 @@ def revolved_beam_to_solid_geom(beam: BeamRevolve) -> Geometry:
     return Geometry()
 
 
-def section_to_arbitrary_profile_def_with_voids(section: Section) -> geo_su.ArbitraryProfileDefWithVoids:
+def section_to_arbitrary_profile_def_with_voids(section: Section, solid=True) -> geo_su.ArbitraryProfileDefWithVoids:
     inner_curves = []
     if section.type == section.TYPES.TUBULAR:
         outer_curve = Circle(Axis2Placement3D(), section.r)
@@ -75,7 +84,7 @@ def section_to_arbitrary_profile_def_with_voids(section: Section) -> geo_su.Arbi
     elif section.type == section.TYPES.CIRCULAR:
         outer_curve = Circle(Axis2Placement3D(), section.r)
     else:
-        sec_profile = section.get_section_profile()
+        sec_profile = section.get_section_profile(is_solid=solid)
         outer_curve = sec_profile.outer_curve.get_edges_geom()
         if sec_profile.inner_curve is not None:
             inner_curves += [sec_profile.inner_curve.get_edges_geom()]
@@ -92,7 +101,7 @@ def ibeam_taper_to_geom(beam: BeamTapered) -> Geometry:
     return Geometry(beam.guid, geom, beam.color)
 
 
-def ibeam_to_face_geom(beam: Beam) -> Geometry:
+def profile_disconnected_to_face_geom(beam: Beam) -> Geometry:
     sec_profile = beam.section.get_section_profile(is_solid=False)
     connected_faces = []
     extrude_dir = Direction(0, 0, 1)
@@ -118,9 +127,18 @@ def ibeam_to_face_geom(beam: Beam) -> Geometry:
     geom = geo_su.FaceBasedSurfaceModel(connected_faces)
     return Geometry(beam.guid, geom, beam.color)
 
-
 def box_to_face_geom(beam: Beam) -> Geometry:
     sec_profile = beam.section.get_section_profile(is_solid=False)
-    profile = geo_su.ArbitraryProfileDefWithVoids(geo_su.ProfileType.AREA, outer_curve, inner_curves)
-    geo_so.ExtrudedAreaSolid(profile, place, beam.length, Direction(0, 0, 1))
-    return Geometry()
+    outer_curve = sec_profile.outer_curve.get_edges_geom()
+    place = Axis2Placement3D(location=beam.n1.p, axis=beam.xvec, ref_direction=beam.yvec)
+    profile = geo_su.ArbitraryProfileDefWithVoids(geo_su.ProfileType.CURVE, outer_curve, [])
+    solid = geo_so.ExtrudedAreaSolid(profile, place, beam.length, Direction(0, 0, 1))
+    return Geometry(beam.guid, solid, beam.color)
+
+
+def circ_to_face_geom(beam: Beam) -> Geometry:
+    outer_curve = Circle(Axis2Placement3D(), beam.section.r)
+    place = Axis2Placement3D(location=beam.n1.p, axis=beam.xvec, ref_direction=beam.yvec)
+    profile = geo_su.ArbitraryProfileDefWithVoids(geo_su.ProfileType.CURVE, outer_curve, [])
+    solid = geo_so.ExtrudedAreaSolid(profile, place, beam.length, Direction(0, 0, 1))
+    return Geometry(beam.guid, solid, beam.color)

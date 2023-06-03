@@ -1,8 +1,6 @@
 import OCC.Core.BRepPrimAPI as occBrep
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
-from OCC.Core.BRepOffsetAPI import (
-    BRepOffsetAPI_ThruSections,
-)
+from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
 from OCC.Core.gp import gp_Ax2, gp_Dir, gp_Pnt, gp_Vec
 from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Solid
 from OCC.Extend.TopologyUtils import TopologyExplorer

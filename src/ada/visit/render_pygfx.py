@@ -2,7 +2,7 @@
 
 import pathlib
 from itertools import groupby
-from typing import Iterable
+from typing import Iterable, Callable
 
 import numpy as np
 import trimesh
@@ -13,6 +13,7 @@ from ada.base.types import GeomRepr
 from ada.cadit.ifc.utils import create_guid
 from ada.geom import Geometry
 from ada.occ.tessellating import BatchTessellator
+from ada.visit.colors import Color
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
@@ -27,10 +28,10 @@ try:
 except ImportError:
     raise ImportError("Please install wgpu to use this renderer -> 'pip install wgpu'.")
 
-from ada.visit.render_backend import RenderBackend
+from ada.visit.render_backend import RenderBackend, MeshInfo
 
-BACKGROUND_GRAY = (57, 57, 57)
-PICKED_COLOR = (0, 123, 255)
+BG_GRAY = Color(57, 57, 57)
+PICKED_COLOR = Color(0, 123, 255)
 
 
 class RendererPyGFX:
@@ -41,15 +42,15 @@ class RendererPyGFX:
         self._selected_mat = gfx.MeshPhongMaterial(color=PICKED_COLOR, flat_shading=True)
         self.selected_mesh = None
         self.scene = gfx.Scene()
-
-        self.scene.add(gfx.Background(None, gfx.BackgroundMaterial("#393939")))
+        self.scene.add(gfx.Background(None, gfx.BackgroundMaterial(BG_GRAY.hex)))
         self._scene_objects = gfx.Group()
         self.scene.add(self._scene_objects)
 
         canvas = WgpuCanvas(title=canvas_title, max_fps=60)
         renderer = gfx.renderers.WgpuRenderer(canvas, show_fps=False)
         self.display = gfx.Display(canvas=canvas, renderer=renderer)
-
+        self.on_click_pre: Callable[[gfx.PointerEvent], None] | None = None
+        self.on_click_post: Callable[[gfx.PointerEvent, MeshInfo], None] | None = None
         self._init_scene()
 
     def _init_scene(self):
@@ -116,10 +117,14 @@ class RendererPyGFX:
         self.backend.commit()
 
     def on_click(self, event: gfx.PointerEvent):
+        if self.on_click_pre is not None:
+            self.on_click_pre(event)
+
         info = event.pick_info
 
         if event.button != 1:
             return
+
         if "face_index" not in info:
             if self.selected_mesh is not None:
                 self.scene.remove(self.selected_mesh)
@@ -146,8 +151,12 @@ class RendererPyGFX:
         self.selected_mesh = clicked_mesh(mesh, indices, self._selected_mat)
 
         self.scene.add(self.selected_mesh)
-        coord = np.array(event.pick_info["face_coord"])
-        print(mesh_data, coord)
+
+        if self.on_click_post is not None:
+            self.on_click_post(event, mesh_data)
+        else:
+            coord = np.array(event.pick_info["face_coord"])
+            print(mesh_data, coord)
 
     def _add_event_handlers(self):
         ob = self._scene_objects

@@ -8,7 +8,7 @@ from ada.base.types import GeomRepr
 from ada.geom.placement import Direction
 from ada.geom.points import Point
 from ada.visit.colors import Color
-from ada.visit.render_backend import SqLiteBackend
+from ada.visit.render_backend import SqLiteBackend, MeshInfo
 from ada.visit.render_pygfx import RendererPyGFX
 from ada.sections.categories import BaseTypes
 
@@ -60,6 +60,10 @@ def main():
     a.to_ifc("temp/part.ifc", geom_repr_override=render_override)
 
     render = RendererPyGFX(render_backend=SqLiteBackend("temp/meshes.db"))
+    def _on_click(event, mesh_data: MeshInfo):
+        obj = a.get_by_guid(mesh_data.mesh_id)
+        print(obj)
+    render.on_click_post = _on_click
     render.add_part(a, render_override=render_override)
     render.show()
 

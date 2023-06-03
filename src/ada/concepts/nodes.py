@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Iterable, List, Union
 import numpy as np
 
 from ada.base.units import Units
-from ada.concepts.beams.helpers import updating_nodes
+
 from ada.config import Settings, logger
 from ada.core.vector_utils import vector_length
 from ada.geom.points import Point
@@ -22,7 +22,8 @@ class Node:
     """Base node object"""
 
     def __init__(
-        self, p: Iterable[numeric, numeric, numeric], nid=None, bc=None, r=None, parent=None, units=Units.M, refs=None
+            self, p: Iterable[numeric, numeric, numeric], nid=None, bc=None, r=None, parent=None, units=Units.M,
+            refs=None
     ):
         self._id = nid
         self.p: Point = Point(*p)
@@ -218,6 +219,7 @@ def replace_node(old_node: Node, new_node: Node) -> None:
     :param old_node:
     :param new_node:
     """
+    from ada.concepts.beams.helpers import updating_nodes
 
     for obj in old_node.refs.copy():
         obj: Union[Beam, Csys, Elem]
