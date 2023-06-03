@@ -32,20 +32,21 @@ class Shape(BackendGeom):
     IFC_CLASSES = ShapeTypes
 
     def __init__(
-            self,
-            name,
-            geom,
-            color=None,
-            opacity=1.0,
-            mass: float = None,
-            cog: Iterable = None,
-            metadata=None,
-            units=Units.M,
-            guid=None,
-            material: Material | str = None,
-            placement=Placement(),
-            ifc_store: IfcStore = None,
-            ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
+        self,
+        name,
+        geom: Geometry | None = None,
+        color=None,
+        opacity=1.0,
+        mass: float = None,
+        cog: Iterable = None,
+        material: Material | str = None,
+        units=Units.M,
+        metadata=None,
+        guid=None,
+        placement=Placement(),
+        ifc_store: IfcStore = None,
+        ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
+        parent=None
     ):
         super().__init__(
             name,
@@ -56,12 +57,8 @@ class Shape(BackendGeom):
             ifc_store=ifc_store,
             color=color,
             opacity=opacity,
+            parent=parent
         )
-        if type(geom) in (str, pathlib.WindowsPath, pathlib.PurePath, pathlib.Path):
-            from OCC.Extend.DataExchange import read_step_file
-
-            geom = read_step_file(str(geom))
-
         self._geom = geom
         self._mass = mass
         if cog is not None and not isinstance(cog, Point):
@@ -75,10 +72,6 @@ class Shape(BackendGeom):
 
         self._bbox = None
         self._ifc_class = ifc_class
-
-    @property
-    def type(self):
-        return type(self.geom())
 
     @property
     def mass(self) -> float:
@@ -99,35 +92,18 @@ class Shape(BackendGeom):
         self._cog = value
 
     def bbox(self) -> BoundingBox:
-        if self._bbox is None and self.geom() is not None:
+        if self._bbox is None and self.solid_occ() is not None:
             self._bbox = BoundingBox(self)
 
         return self._bbox
 
-    def geom(self) -> TopoDS_Shape:
-        from ada.occ.utils import apply_booleans
-
-        from .exceptions import NoGeomPassedToShapeError
-
-        if self._geom is None:
-            from ada.cadit.ifc.read.read_shapes import get_ifc_geometry
-
-            a = self.get_assembly()
-            if a.ifc_store is not None:
-                ifc_elem = a.ifc_store.get_by_guid(self.guid)
-            else:
-                raise NoGeomPassedToShapeError(f'No geometry information attached to shape "{self}"')
-
-            geom, color = get_ifc_geometry(ifc_elem, a.ifc_store.settings)
-            self._geom = geom
-            self.color = color
-
-        geom = apply_booleans(self._geom, self.booleans)
-
-        return geom
-
     def solid_occ(self) -> TopoDS_Shape:
-        return self.geom()
+        from ada.occ.geom import geom_to_occ_geom
+
+        return geom_to_occ_geom(self.solid_geom())
+
+    def solid_geom(self) -> Geometry:
+        raise NotImplementedError(f"solid_geom() not implemented for {self.__class__.__name__}")
 
     @property
     def units(self):
@@ -142,7 +118,7 @@ class Shape(BackendGeom):
             if self._geom is not None:
                 from ada.occ.utils import transform_shape
 
-                self._geom = transform_shape(self.geom(), scale_factor)
+                self._geom = transform_shape(self.solid_occ(), scale_factor)
 
             if self.metadata.get("ifc_source") is True:
                 raise NotImplementedError()
@@ -170,7 +146,7 @@ class PrimSphere(Shape):
         self.radius = radius
         super(PrimSphere, self).__init__(name=name, geom=None, cog=cog, **kwargs)
 
-    def geom(self):
+    def geom_occ(self):
         from ada.occ.geom import geom_to_occ_geom
 
         return geom_to_occ_geom(self.solid_geom())
@@ -198,7 +174,7 @@ class PrimSphere(Shape):
 
             self.cog = [x * scale_factor for x in self.cog]
             self.radius = self.radius * scale_factor
-            self._geom = make_sphere(self.cog, self.radius)
+            self._geom = self.geom_occ()
             self._units = value
 
     def __repr__(self):
@@ -214,7 +190,7 @@ class PrimBox(Shape):
         super(PrimBox, self).__init__(name=name, geom=None, **kwargs)
         self._bbox = BoundingBox(self)
 
-    def geom(self):
+    def geom_occ(self):
         from ada.occ.geom import geom_to_occ_geom
 
         return geom_to_occ_geom(self.solid_geom())
@@ -273,7 +249,7 @@ class PrimCone(Shape):
             self.r = self.r * scale_factor
             self._units = value
 
-    def geom(self):
+    def geom_occ(self):
         from ada.occ.geom.solids import make_cone_from_geom
         from ada.occ.utils import apply_booleans
 
@@ -304,7 +280,7 @@ class PrimCyl(Shape):
         self.r = r
         super(PrimCyl, self).__init__(name, geom=None, **kwargs)
 
-    def geom(self):
+    def geom_occ(self):
         from ada.occ.geom import geom_to_occ_geom
 
         return geom_to_occ_geom(self.solid_geom())
@@ -356,7 +332,7 @@ class PrimExtrude(Shape):
         self._poly = poly
         self._extrude_depth = h
 
-        super(PrimExtrude, self).__init__(name, self._poly.make_extruded_solid(self._extrude_depth), **kwargs)
+        super(PrimExtrude, self).__init__(name=name, **kwargs)
 
     @staticmethod
     def from_2points_and_curve(name: str, p1: Iterable, p2: Iterable, profile: list[tuple], xdir: tuple) -> PrimExtrude:
@@ -478,16 +454,16 @@ class PrimRevolve(Shape):
 
 class PrimSweep(Shape):
     def __init__(
-            self,
-            name,
-            sweep_curve,
-            normal,
-            xdir,
-            profile_curve_outer,
-            profile_curve_inner=None,
-            origin=None,
-            tol=1e-3,
-            **kwargs,
+        self,
+        name,
+        sweep_curve,
+        normal,
+        xdir,
+        profile_curve_outer,
+        profile_curve_inner=None,
+        origin=None,
+        tol=1e-3,
+        **kwargs,
     ):
         if type(sweep_curve) is list:
             sweep_curve = CurveSweep.from_3d_points(sweep_curve)

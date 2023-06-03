@@ -192,7 +192,7 @@ class MyRenderer(JupyterRenderer):
 
     def DisplayAdaShape(self, shp: Shape):
         res = self.DisplayShape(
-            shp.geom(),
+            shp.solid_occ(),
             transparency=shp.transparent,
             opacity=shp.opacity,
             shape_color=shp.color,

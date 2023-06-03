@@ -11,6 +11,11 @@ from ada.concepts.curves import CurvePoly
 from ada.concepts.primitives import PrimBox
 from ada.concepts.transforms import Placement
 from ada.core.vector_utils import unit_vector
+from ada.geom import Geometry
+from ada.geom.booleans import BooleanOperation
+from ada.geom.placement import Direction, Axis2Placement3D
+from ada.geom.points import Point
+from ada.geom.solids import ExtrudedAreaSolid
 
 
 class WallJustification:
@@ -80,14 +85,6 @@ class Wall(BackendGeom):
             self._offset = offset
 
     def add_insert(self, insert: "WallInsert", wall_segment: int, off_x, off_z):
-        """
-
-        :param insert:
-        :param wall_segment:
-        :param off_x:
-        :param off_z:
-        :return:
-        """
         from OCC.Extend.ShapeFactory import get_oriented_boundingbox
 
         xvec, yvec, zvec = self.get_segment_props(wall_segment)
@@ -98,7 +95,8 @@ class Wall(BackendGeom):
         insert.placement = Placement(origin=start, xdir=xvec, ydir=zvec, zdir=yvec)
 
         frame = insert.shapes[0]
-        center, dim, oobb_shp = get_oriented_boundingbox(frame.geom())
+        occ_shape = frame.solid_occ()
+        center, dim, oobb_shp = get_oriented_boundingbox(occ_shape)
         x, y, z = center.X(), center.Y(), center.Z()
         dx, dy, dz = dim[0], dim[1], dim[2]
 
@@ -122,11 +120,6 @@ class Wall(BackendGeom):
         self._booleans.append(PrimBox("my_pen", p1, p2))
 
     def get_segment_props(self, wall_segment):
-        """
-
-        :param wall_segment:
-        :return:
-        """
         if wall_segment > len(self._segments):
             raise ValueError(f"Wall segment id should be equal or less than {len(self._segments)}")
 
@@ -136,11 +129,6 @@ class Wall(BackendGeom):
         yvec = unit_vector(np.cross(zvec, xvec))
 
         return xvec, yvec, zvec
-
-    def _generate_ifc_elem(self):
-        from ada.cadit.ifc.write.write_wall import write_ifc_wall
-
-        return write_ifc_wall(self)
 
     @property
     def inserts(self):
@@ -170,8 +158,8 @@ class Wall(BackendGeom):
     def offset(self) -> Union[float, str]:
         return self._offset
 
-    @property
-    def extrusion_area(self):
+
+    def extrusion_area(self) -> list[Point]:
         from ada.core.vector_utils import calc_yvec, intersect_calc, is_parallel
 
         area_points = []
@@ -227,7 +215,7 @@ class Wall(BackendGeom):
 
         new_points = []
         for p in area_points:
-            new_points.append(tuple([float(c) for c in p]))
+            new_points.append(Point(*[float(c) for c in p]))
 
         return new_points
 
@@ -256,17 +244,25 @@ class Wall(BackendGeom):
         return self._metadata
 
     def shell_occ(self):
-        poly = CurvePoly.from_3d_points(self.extrusion_area, parent=self)
+        poly = CurvePoly.from_3d_points(self.extrusion_area(), parent=self)
         return poly.face()
 
     def solid_occ(self):
-        from ada.occ.utils import apply_booleans
+        from ada.occ.geom import geom_to_occ_geom
 
-        poly = CurvePoly.from_3d_points(self.extrusion_area, parent=self)
+        return geom_to_occ_geom(self.solid_geom())
 
-        geom = apply_booleans(poly.make_extruded_solid(self.height), self.booleans)
+    def solid_geom(self) -> Geometry:
+        poly = CurvePoly.from_3d_points(self.extrusion_area(), parent=self)
+        profile = poly.get_face_geom()
 
-        return geom
+        # Origin location is already included in the outer_curve definition
+        place = Axis2Placement3D(axis=poly.normal, ref_direction=poly.xdir)
+        solid = ExtrudedAreaSolid(profile, place, self.height, Direction(0, 0, 1))
+        booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+        return Geometry(self.guid, solid, self.color, bool_operations=booleans)
+
+
 
     @property
     def units(self):

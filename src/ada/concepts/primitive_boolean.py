@@ -39,9 +39,6 @@ class Boolean(BackendGeom):
     def primitive(self):
         return self._primitive
 
-    def geom(self):
-        return self.primitive.geom()
-
     @property
     def units(self):
         return self._units

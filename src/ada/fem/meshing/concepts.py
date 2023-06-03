@@ -69,7 +69,7 @@ class CutPlane:
 @dataclass
 class GmshData:
     entities: Iterable
-    geom_repr: str
+    geom_repr: str | GeomRepr
     order: int
     obj: Shape | Beam | Plate | Pipe
     mesh_size: float = None
@@ -368,7 +368,7 @@ def import_into_gmsh_use_nativepointer(obj: BackendGeom | Shape, geom_repr: Geom
         t = TopologyExplorer(geom)
         geom_iter = t.solids()
     elif geom_repr == GeomRepr.SHELL:
-        geom = obj.shell_occ() if type(obj) not in (PrimBox,) else obj.geom()
+        geom = obj.shell_occ() if type(obj) not in (PrimBox,) else obj.solid_occ()
         t = TopologyExplorer(geom)
         geom_iter = t.faces()
     else:

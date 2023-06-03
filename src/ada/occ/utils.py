@@ -695,11 +695,11 @@ def create_beam_geom(beam: Beam, solid=True):
 def apply_booleans(geom: TopoDS_Shape, booleans: list[Boolean]) -> TopoDS_Shape:
     for boolean in booleans:
         if boolean.bool_op == BoolOpEnum.DIFFERENCE:
-            geom = BRepAlgoAPI_Cut(geom, boolean.geom()).Shape()
+            geom = BRepAlgoAPI_Cut(geom, boolean.primitive.solid_occ()).Shape()
         elif boolean.bool_op == BoolOpEnum.UNION:
-            geom = BRepAlgoAPI_Fuse(geom, boolean.geom()).Shape()
+            geom = BRepAlgoAPI_Fuse(geom, boolean.primitive.solid_occ()).Shape()
         elif boolean.bool_op == BoolOpEnum.INTERSECTION:
-            geom = BRepAlgoAPI_Common(geom, boolean.geom()).Shape()
+            geom = BRepAlgoAPI_Common(geom, boolean.primitive.solid_occ()).Shape()
         else:
             raise NotImplementedError(f"Boolean operation {boolean.bool_op} not implemented")
 

@@ -33,7 +33,7 @@ def write_ifc_wall(wall: Wall):
 
     extrusion_placement = create_ifc_placement(f, (0.0, 0.0, float(elevation)), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
 
-    polyline = create_ifcpolyline(f, wall.extrusion_area)
+    polyline = create_ifcpolyline(f, wall.extrusion_area())
     profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
 
     solid = create_ifcextrudedareasolid(f, profile, extrusion_placement, (0.0, 0.0, 1.0), wall.height)
@@ -66,7 +66,7 @@ def add_ifc_insert_elem(wall: Wall, shape_, opening_element, wall_el, ifc_type):
     # Create a simplified representation for the Window
     insert_placement = create_local_placement(f, O, Z, X, wall_el.ObjectPlacement)
 
-    shape = shape_.geom
+    shape = shape_.solid_occ()
 
     insert_shape_ = tesselate_shape(shape, schema, Units.get_general_point_tol(a.units))
     insert_shape = f.add(insert_shape_)

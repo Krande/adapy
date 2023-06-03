@@ -216,7 +216,7 @@ class IfcStore:
                 try:
                     product = self.f.by_guid(x.guid)
                 except RuntimeError as e:
-                    raise RuntimeError(e)
+                    raise RuntimeError(f"{e} for {x}")
                 products.append(product)
         cpus = multiprocessing.cpu_count() if cpus is None else cpus
         return ifcopenshell.geom.iterator(settings, self.f, cpus, include=products)

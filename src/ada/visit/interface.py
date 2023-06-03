@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from ada import Part
 
 
-def part_to_vis_mesh2(part: Part, auto_sync_ifc_store=True, cpus: int = None) -> VisMesh:
+def part_to_vis_mesh2(part: Part, auto_sync_ifc_store=True, cpus: int = 1) -> VisMesh:
     ifc_store = part.get_assembly().ifc_store
     if auto_sync_ifc_store:
         ifc_store.sync()

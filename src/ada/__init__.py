@@ -24,7 +24,7 @@ from ada.concepts.primitives import (
     Shape,
 )
 from ada.concepts.spatial import Assembly, Group, Part
-from ada.concepts.stru_walls import Wall
+from ada.concepts.walls import Wall
 from ada.concepts.transforms import Instance, Placement, Transform
 from ada.concepts.user import User
 from ada.fem import FEM

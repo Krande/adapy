@@ -759,7 +759,7 @@ class Part(BackendGeom):
             self,
             gltf_file: str | pathlib.Path,
             auto_sync_ifc_store=True,
-            cpus=None,
+            cpus=1,
             limit_to_guids=None,
             embed_meta=False,
             merge_by_color=False,

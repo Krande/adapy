@@ -82,7 +82,7 @@ class BoundingBox:
             from ada.occ.utils import get_boundingbox
 
             try:
-                return get_boundingbox(self.parent.geom(), use_mesh=True)
+                return get_boundingbox(self.parent.geom_occ(), use_mesh=True)
             except NoGeomPassedToShapeError as e:
                 logger.info(f'Shape "{self.parent.name}" has no attached geometry. Error "{e}"')
                 return (0, 0, 0), (1, 1, 1)
