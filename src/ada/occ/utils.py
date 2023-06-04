@@ -248,6 +248,7 @@ def get_points_from_occ_shape(occ_shape: TopoDS_Shape | TopoDS_Vertex | TopoDS_E
 def get_faces_with_normal(shape, normal):
     t = TopologyExplorer(shape)
     for face in t.faces():
+        ori = face.Orientation()
         if face.Orientation() == TopAbs_FORWARD:
             normal_face = get_normal_of_face(face)
             if normal_face == normal:

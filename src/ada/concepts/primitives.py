@@ -142,7 +142,7 @@ class Shape(BackendGeom):
 class PrimSphere(Shape):
     def __init__(self, name, cog, radius, **kwargs):
         self.radius = radius
-        super(PrimSphere, self).__init__(name=name, geom=None, cog=cog, **kwargs)
+        super(PrimSphere, self).__init__(name=name, cog=cog, **kwargs)
 
     def geom_occ(self):
         from ada.occ.geom import geom_to_occ_geom
@@ -183,13 +183,21 @@ class PrimBox(Shape):
     def __init__(self, name, p1, p2, **kwargs):
         self.p1 = p1
         self.p2 = p2
-        super(PrimBox, self).__init__(name=name, geom=None, **kwargs)
+        super(PrimBox, self).__init__(name=name, **kwargs)
         self._bbox = BoundingBox(self)
 
-    def geom_occ(self):
+    def solid_occ(self):
         from ada.occ.geom import geom_to_occ_geom
 
         return geom_to_occ_geom(self.solid_geom())
+
+    def solid_geom(self) -> Geometry:
+        from ada.geom.points import Point
+        from ada.geom.solids import Box
+
+        box = Box.from_2points(Point(*self.p1), Point(*self.p2))
+        booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+        return Geometry(self.guid, box, self.color, bool_operations=booleans)
 
     @property
     def units(self):
@@ -207,14 +215,6 @@ class PrimBox(Shape):
             self.p2 = tuple([x * scale_factor for x in self.p2])
             self._geom = make_box_by_points(self.p1, self.p2)
             self._units = value
-
-    def solid_geom(self) -> Geometry:
-        from ada.geom.points import Point
-        from ada.geom.solids import Box
-
-        box = Box.from_2points(Point(*self.p1), Point(*self.p2))
-        booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
-        return Geometry(self.guid, box, self.color, bool_operations=booleans)
 
     def __repr__(self):
         p1s = self.p1.tolist()
@@ -276,11 +276,6 @@ class PrimCyl(Shape):
         self.r = r
         super(PrimCyl, self).__init__(name, geom=None, **kwargs)
 
-    def geom_occ(self):
-        from ada.occ.geom import geom_to_occ_geom
-
-        return geom_to_occ_geom(self.solid_geom())
-
     @property
     def units(self):
         return self._units
@@ -289,14 +284,18 @@ class PrimCyl(Shape):
     def units(self, value):
         if isinstance(value, str):
             value = Units.from_str(value)
-        from ada.occ.utils import make_cylinder_from_points
 
         if value != self._units:
             scale_factor = Units.get_scale_factor(self._units, value)
             self.p1 = [x * scale_factor for x in self.p1]
             self.p2 = [x * scale_factor for x in self.p2]
             self.r = self.r * scale_factor
-            self._geom = make_cylinder_from_points(self.p1, self.p2, self.r)
+            self._geom = self.solid_occ()
+
+    def solid_occ(self) -> TopoDS_Shape:
+        from ada.occ.geom import geom_to_occ_geom
+
+        return geom_to_occ_geom(self.solid_geom())
 
     def solid_geom(self) -> Geometry:
         from ada.geom.points import Point
