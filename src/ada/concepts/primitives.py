@@ -18,6 +18,7 @@ from .bounding_box import BoundingBox
 from .curves import CurvePoly, CurveSweep
 from .transforms import Placement
 from ..geom import Geometry
+from ..geom.placement import Direction
 from ..geom.points import Point
 
 if TYPE_CHECKING:
@@ -30,21 +31,21 @@ class Shape(BackendGeom):
     IFC_CLASSES = ShapeTypes
 
     def __init__(
-        self,
-        name,
-        geom: Geometry | None = None,
-        color=None,
-        opacity=1.0,
-        mass: float = None,
-        cog: Iterable = None,
-        material: Material | str = None,
-        units=Units.M,
-        metadata=None,
-        guid=None,
-        placement=Placement(),
-        ifc_store: IfcStore = None,
-        ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
-        parent=None,
+            self,
+            name,
+            geom: Geometry | None = None,
+            color=None,
+            opacity=1.0,
+            mass: float = None,
+            cog: Iterable = None,
+            material: Material | str = None,
+            units=Units.M,
+            metadata=None,
+            guid=None,
+            placement=Placement(),
+            ifc_store: IfcStore = None,
+            ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
+            parent=None,
     ):
         super().__init__(
             name,
@@ -174,7 +175,7 @@ class PrimSphere(Shape):
             self._units = value
 
     def __repr__(self):
-        return f"PrimSphere(\"{self.name}\", {self.cog.tolist()}, {self.radius})"
+        return f'PrimSphere("{self.name}", {self.cog.tolist()}, {self.radius})'
 
 
 class PrimBox(Shape):
@@ -216,7 +217,7 @@ class PrimBox(Shape):
     def __repr__(self):
         p1s = self.p1.tolist()
         p2s = self.p2.tolist()
-        return f"PrimBox(\"{self.name}\", {p1s}, {p2s})"
+        return f'PrimBox("{self.name}", {p1s}, {p2s})'
 
 
 class PrimCone(Shape):
@@ -263,7 +264,7 @@ class PrimCone(Shape):
     def __repr__(self):
         p1s = self.p1.tolist()
         p2s = self.p2.tolist()
-        return f"PrimCone(\"{self.name}\", {p1s}, {p2s}, {self.r})"
+        return f'PrimCone("{self.name}", {p1s}, {p2s}, {self.r})'
 
 
 class PrimCyl(Shape):
@@ -305,7 +306,7 @@ class PrimCyl(Shape):
     def __repr__(self):
         p1s = self.p1.tolist()
         p2s = self.p2.tolist()
-        return f"PrimCyl(\"{self.name}\", {p1s}, {p2s}, {self.r})"
+        return f'PrimCyl("{self.name}", {p1s}, {p2s}, {self.r})'
 
 
 class PrimExtrude(Shape):
@@ -380,7 +381,7 @@ class PrimExtrude(Shape):
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
 
     def __repr__(self):
-        return f"PrimExtrude(\"{self.name}\")"
+        return f'PrimExtrude("{self.name}")'
 
 
 class PrimRevolve(Shape):
@@ -388,27 +389,21 @@ class PrimRevolve(Shape):
 
     def __init__(self, name, points2d, origin, xdir, normal, rev_angle, tol=1e-3, **kwargs):
         self._name = name
-        poly = CurvePoly(
+        if not isinstance(normal, Direction):
+            normal = Direction(*normal)
+        if not isinstance(xdir, Direction):
+            xdir = Direction(*xdir)
+
+        self._poly = poly = CurvePoly(
             points=points2d,
-            normal=[roundoff(x) for x in normal],
+            normal=normal,
             origin=origin,
-            xdir=[roundoff(x) for x in xdir],
+            xdir=xdir,
             tol=tol,
             parent=self,
         )
-        self._poly = poly
         self._revolve_angle = rev_angle
-        self._revolve_axis = [roundoff(x) for x in poly.ydir]
-        self._revolve_origin = origin
-        super(PrimRevolve, self).__init__(
-            name,
-            self._poly.make_revolve_solid(
-                self._revolve_axis,
-                self._revolve_angle,
-                self._revolve_origin,
-            ),
-            **kwargs,
-        )
+        super(PrimRevolve, self).__init__(name, **kwargs)
 
     @property
     def units(self):
@@ -424,28 +419,41 @@ class PrimRevolve(Shape):
             scale_factor = Units.get_scale_factor(self._units, value)
             tol = Settings.mmtol if value == "mm" else Settings.mtol
             self.poly.scale(scale_factor, tol)
-            self._revolve_origin = [x * scale_factor for x in self.revolve_origin]
-            self._geom = self._poly.make_revolve_solid(
-                self._revolve_axis,
-                self._revolve_angle,
-                self._revolve_origin,
-            )
 
     @property
     def poly(self) -> CurvePoly:
         return self._poly
 
     @property
-    def revolve_origin(self):
-        return self._revolve_origin
+    def revolve_origin(self) -> Point:
+        return self.poly.origin
 
     @property
-    def revolve_axis(self):
-        return self._revolve_axis
+    def revolve_axis(self) -> Direction:
+        return self.poly.ydir
 
     @property
-    def revolve_angle(self):
+    def revolve_angle(self) -> float:
         return self._revolve_angle
+
+    def solid_occ(self) -> TopoDS_Shape:
+        from ada.occ.geom import geom_to_occ_geom
+
+        return geom_to_occ_geom(self.solid_geom())
+
+    def solid_geom(self) -> Geometry:
+        from ada.geom.solids import RevolvedAreaSolid
+        from ada.geom.surfaces import ArbitraryProfileDefWithVoids, ProfileType
+        from ada.geom.placement import Axis2Placement3D, Axis1Placement
+
+        outer_curve = self.poly.get_edges_geom()
+        profile = ArbitraryProfileDefWithVoids(ProfileType.AREA, outer_curve, [])
+
+        place = Axis2Placement3D(self.poly.origin, axis=self.poly.normal, ref_direction=self.poly.xdir)
+        rev_axis = Axis1Placement(self.revolve_origin, self.revolve_axis)
+        solid = RevolvedAreaSolid(profile, place, rev_axis, self.revolve_angle)
+        booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+        return Geometry(self.guid, solid, self.color, bool_operations=booleans)
 
     def __repr__(self):
         return f"PrimRevolve({self.name})"
@@ -453,16 +461,16 @@ class PrimRevolve(Shape):
 
 class PrimSweep(Shape):
     def __init__(
-        self,
-        name,
-        sweep_curve,
-        normal,
-        xdir,
-        profile_curve_outer,
-        profile_curve_inner=None,
-        origin=None,
-        tol=1e-3,
-        **kwargs,
+            self,
+            name,
+            sweep_curve,
+            normal,
+            xdir,
+            profile_curve_outer,
+            profile_curve_inner=None,
+            origin=None,
+            tol=1e-3,
+            **kwargs,
     ):
         if type(sweep_curve) is list:
             sweep_curve = CurveSweep.from_3d_points(sweep_curve)

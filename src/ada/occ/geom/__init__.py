@@ -24,6 +24,8 @@ def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape:
         occ_geom = geo_so.make_extruded_area_shape_tapered_from_geom(geometry)
     elif isinstance(geometry, so.ExtrudedAreaSolid):
         occ_geom = geo_so.make_extruded_area_shape_from_geom(geometry)
+    elif isinstance(geometry, so.RevolvedAreaSolid):
+        occ_geom = geo_so.make_revolved_area_shape_from_geom(geometry)
 
     # Surface models
     elif isinstance(geometry, su.FaceBasedSurfaceModel):

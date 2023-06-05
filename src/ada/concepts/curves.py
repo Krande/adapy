@@ -257,7 +257,6 @@ class CurveSweep:
     def get_edges_geom(self, use_3d_segments=False) -> IndexedPolyCurve | Line | ArcLine:
         from ada.geom.curves import ArcLine, IndexedPolyCurve, Line
 
-        # Todo: This might have to be rewritten so that it always returns 2d geometry
         poly_segments = self.segments3d if use_3d_segments else self.segments
 
         if len(poly_segments) == 1:

@@ -1,7 +1,9 @@
+import math
+
 import OCC.Core.BRepPrimAPI as occBrep
 from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
-from OCC.Core.gp import gp_Ax2, gp_Dir, gp_Pnt, gp_Vec
 from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Solid
+from OCC.Core.gp import gp_Ax2, gp_Dir, gp_Pnt, gp_Vec, gp_Ax1
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
 import ada.geom.solids as geo_so
@@ -78,3 +80,15 @@ def make_extruded_area_shape_from_geom(eas: geo_so.ExtrudedAreaSolid) -> TopoDS_
 
     # Transform to correct position before returning
     return transform_shape_to_pos(eas_shape, eas.position.location, eas.position.axis, eas.position.ref_direction)
+
+
+def make_revolved_area_shape_from_geom(ras: geo_so.RevolvedAreaSolid) -> TopoDS_Shape | TopoDS_Solid:
+    profile = make_profile_from_geom(ras.swept_area)
+
+    # Transform to correct position before returning
+    profile = transform_shape_to_pos(profile, ras.position.location, ras.position.axis, ras.position.ref_direction)
+
+    rev_axis = gp_Ax1(gp_Pnt(*ras.axis.location), gp_Dir(*ras.axis.axis))
+    ras_shape = occBrep.BRepPrimAPI_MakeRevol(profile, rev_axis, math.radians(ras.angle)).Shape()
+
+    return ras_shape

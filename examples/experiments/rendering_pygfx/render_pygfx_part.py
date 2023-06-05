@@ -44,9 +44,11 @@ def main():
         objects.append(_bm)
         render_override[_bm.guid] = GeomRepr.SHELL
 
+    pl2_points = [(0, 0, 0.2), (0, 1, 0.2), (1, 1, 0.2), (1, 0, 0.2)]
     pl1 = ada.Plate("pl1", [(0, 0), (0, 1), (1, 1), (1, 0)], 0.01, origin=(0, 0, 4), color="red")
-    pl2 = ada.Plate("pl2", [(0, 0, 0.2), (0, 1, 0.2), (1, 1, 0.2), (1, 0, 0.2)], 0.01, origin=(2, 0, 4), color="blue")
-    pl3 = ada.Plate("pl3", [(0, 0, 0.2), (0, 1, 0.2), (1, 1), (1, 0)], 0.01, origin=(4, 0, 4), n=(0, -1, 0), xdir=(1, 0, 0),
+    pl2 = ada.Plate("pl2", pl2_points, 0.01, origin=(2, 0, 4), color="blue")
+    pl3 = ada.Plate("pl3", [(0, 0, 0.2), (0, 1, 0.2), (1, 1), (1, 0)], 0.01, origin=(4, 0, 4), n=(0, -1, 0),
+                    xdir=(1, 0, 0),
                     color="red")
     pl4 = ada.Plate("pl4", [(0, 0), (0, 1), (1, 1), (1, 0)], 0.01, origin=(4, 1, 4), n=(0, -1, 0), xdir=(1, 0, 0),
                     color="blue")
@@ -55,6 +57,8 @@ def main():
     box1 = ada.PrimBox("box1", (1, 0, 0), (1.5, 0.5, 0.5), color="red")
     box1.add_boolean(ada.PrimBox("box2", (1.25, -0.25, 0.25), (1.75, 0.25, 0.75)))
 
+    rev = ada.PrimRevolve("rev1", pl2_points, (3, 2, 3), (1, 0, 0), (0, -1, 0), 90, color="green")
+
     cyl1 = ada.PrimCyl("cyl1", (3, 0, 0), (3, 0.5, 0.5), 0.3, color="green")
     cone1 = ada.PrimCone("cone1", (4, 0, 0), (4, 0.5, 0.5), 0.3, color="green")
 
@@ -62,7 +66,7 @@ def main():
     sphere1.add_boolean(ada.PrimSphere("sphere2", (5.5, 0, 0), 0.3), "union")
     sphere1.add_boolean(ada.PrimSphere("sphere3", (5.25, 0, 0), 0.2))
 
-    objects += [bm1, bm2, bm3, box1, bm4, bm5, bm6, cyl1, cone1, sphere1, bm7_taper, pl1, pl2, pl3, pl4]
+    objects += [bm1, bm2, bm3, box1, bm4, bm5, bm6, cyl1, cone1, sphere1, rev, bm7_taper, pl1, pl2, pl3, pl4]
 
     a = ada.Assembly() / (ada.Part("MyBeam") / objects)
     # a.to_stp("temp/part.stp", geom_repr_override=render_override)
