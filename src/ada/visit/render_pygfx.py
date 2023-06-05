@@ -9,6 +9,7 @@ import trimesh
 import trimesh.visual.material
 
 from ada import Part
+import glfw
 from ada.base.types import GeomRepr
 from ada.cadit.ifc.utils import create_guid
 from ada.geom import Geometry
@@ -48,6 +49,8 @@ class RendererPyGFX:
 
         canvas = WgpuCanvas(title=canvas_title, max_fps=60)
         renderer = gfx.renderers.WgpuRenderer(canvas, show_fps=False)
+        # window = glfw.create_window(int(600), int(400), "GlfW", None, None)
+        # glfw.make_context_current(window)
         self.display = gfx.Display(canvas=canvas, renderer=renderer)
         self.on_click_pre: Callable[[gfx.PointerEvent], None] | None = None
         self.on_click_post: Callable[[gfx.PointerEvent, MeshInfo], None] | None = None

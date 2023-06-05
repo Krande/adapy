@@ -7,10 +7,10 @@ import ada
 from ada.base.types import GeomRepr
 from ada.geom.placement import Direction
 from ada.geom.points import Point
+from ada.sections.categories import BaseTypes
 from ada.visit.colors import Color
 from ada.visit.render_backend import SqLiteBackend, MeshInfo
 from ada.visit.render_pygfx import RendererPyGFX
-from ada.sections.categories import BaseTypes
 
 
 def main():

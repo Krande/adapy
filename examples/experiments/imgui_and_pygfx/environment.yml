@@ -4,6 +4,7 @@ channels:
   - krande
 dependencies:
   - ada-py
+  - PyOpenGL
   - pytest
   - pip
   - pip:
@@ -11,3 +12,4 @@ dependencies:
       - glfw
       - jupyter_rfb
       - simplejpeg
+      - imgui # For testing only
