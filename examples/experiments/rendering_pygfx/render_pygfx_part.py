@@ -15,6 +15,7 @@ from ada.sections.categories import BaseTypes
 
 def main():
     objects = []
+    render_override = {}
     bm1 = ada.Beam("my_beam_x", (2, 0, 0), (2, 0, 1), "IPE300", color="red")
     bm1.add_boolean(ada.PrimCyl("cyl2", (1.8, 0, 0.5), (2.2, 0, 0.5), 0.1))
 
@@ -24,7 +25,7 @@ def main():
     bm5 = ada.Beam("my_beam_xyz_shell", (3, 2, 1), (3.5, 2.5, 1.5), "IPE300", color="red")
     bm6 = ada.Beam("my_beam_xyz", (1, 2, 1), (1.5, 2.5, 1.5), "IPE300", color="yellow")
     bm7_taper = ada.BeamTapered("my_beam_taper", (2, 2, 1), (2.5, 2.5, 1.5), "IPE600", "IPE300", color="blue")
-    render_override = {bm4.guid: GeomRepr.SHELL, bm5.guid: GeomRepr.SHELL}
+    render_override.update({bm4.guid: GeomRepr.SHELL, bm5.guid: GeomRepr.SHELL})
 
     # All beam profiles as solids
     origin = Point(0.5, 0, 2)
@@ -45,9 +46,9 @@ def main():
 
     pl1 = ada.Plate("pl1", [(0, 0), (0, 1), (1, 1), (1, 0)], 0.01, origin=(0, 0, 4), color="red")
     pl2 = ada.Plate("pl2", [(0, 0, 0.2), (0, 1, 0.2), (1, 1, 0.2), (1, 0, 0.2)], 0.01, origin=(2, 0, 4), color="blue")
-    pl3 = ada.Plate("pl3", [(0, 0), (0, 1), (1, 1), (1, 0)], 0.01, origin=(4, 0, 4), normal=(0, -1, 0), xdir=(1, 0, 0),
+    pl3 = ada.Plate("pl3", [(0, 0, 0.2), (0, 1, 0.2), (1, 1), (1, 0)], 0.01, origin=(4, 0, 4), n=(0, -1, 0), xdir=(1, 0, 0),
                     color="red")
-    pl4 = ada.Plate("pl4", [(0, 0), (0, 1), (1, 1), (1, 0)], 0.01, origin=(4, 1, 4), normal=(0, -1, 0), xdir=(1, 0, 0),
+    pl4 = ada.Plate("pl4", [(0, 0), (0, 1), (1, 1), (1, 0)], 0.01, origin=(4, 1, 4), n=(0, -1, 0), xdir=(1, 0, 0),
                     color="blue")
     render_override[pl3.guid] = GeomRepr.SHELL
 

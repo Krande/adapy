@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Union
@@ -20,9 +22,60 @@ from .vector_utils import (
     unit_vector,
     vector_length_2d,
 )
+from ..geom.points import Point
 
 if TYPE_CHECKING:
     from ada.concepts.curves import ArcSegment, LineSegment
+
+
+def calculate_center(v1, v2) -> Point | None:
+    # Calculate midpoints of v1 and v2
+    m1 = v1 / 2
+    m2 = v2 / 2
+
+    # Calculate slopes of perpendicular bisectors
+    slope1 = -v1[0] / v1[1] if v1[1] != 0 else np.inf
+    slope2 = -v2[0] / v2[1] if v2[1] != 0 else np.inf
+
+    if np.isinf(slope1) and np.isinf(slope2):
+        return None  # parallel or antiparallel vectors, no unique center
+    elif np.isinf(slope1):
+        return Point(*[m1[0], slope2 * m1[0] + (m2[1] - slope2 * m2[0])])
+    elif np.isinf(slope2):
+        return Point(*[m2[0], slope1 * m2[0] + (m1[1] - slope1 * m1[0])])
+    else:
+        # Calculate y-intercepts
+        b1 = m1[1] - slope1 * m1[0]
+        b2 = m2[1] - slope2 * m2[0]
+
+        # Solve for intersection point
+        px = (b2 - b1) / (slope1 - slope2)
+        py = slope1 * px + b1
+
+        return Point(*[px, py])
+
+
+def create_arc_segment(v1, v2, radius):
+    from ada import ArcSegment
+
+    # Normalize vectors
+    v1 = v1 / np.linalg.norm(v1)
+    v2 = v2 / np.linalg.norm(v2)
+
+    # Calculate center point
+    pc = calculate_center(v1, v2)
+    if pc is None:
+        return None  # cannot create arc segment
+
+    # Get angle between vectors
+    angle = np.arccos(np.clip(np.dot(v1, v2), -1.0, 1.0))
+
+    # Find arc points
+    start = pc + radius * v1
+    end = pc + radius * v2
+    midpoint = pc + radius * np.cos(angle / 2) * (v1 + v2) / np.linalg.norm(v1 + v2)
+
+    return ArcSegment(start, end, midpoint, radius, pc)
 
 
 def make_arc_segment(p1, p2, p3, radius):
@@ -44,14 +97,14 @@ def make_arc_segment(p1, p2, p3, radius):
 
 class SegCreator:
     def __init__(
-        self,
-        local_points,
-        tol=1e-3,
-        debug=False,
-        debug_name="ilog",
-        parent=None,
-        is_closed=True,
-        fig=None,
+            self,
+            local_points,
+            tol=1e-3,
+            debug=False,
+            debug_name="ilog",
+            parent=None,
+            is_closed=True,
+            fig=None,
     ):
         self._parent = parent
         self._seg_list = []
@@ -74,6 +127,32 @@ class SegCreator:
             if os.path.isdir(_Settings.debug_dir) is False:
                 os.makedirs(_Settings.debug_dir, exist_ok=True)
             self._start_plot()
+
+    def build(self) -> List[LineSegment | ArcSegment]:
+        in_loop = True
+        while in_loop:
+            if self.radius is not None:
+                self.calc_circle_line()
+                if abs(self.radius) < 1e-5:
+                    self._arc_center = None
+                    self._arc_start = None
+                    self._arc_end = None
+                    self._arc_midpoint = None
+                    self.calc_line()
+                else:
+                    self.calc_arc()
+            else:
+                self._arc_center = None
+                self._arc_start = None
+                self._arc_end = None
+                self._arc_midpoint = None
+                self.calc_line()
+
+            if self.i == len(self._local_points) - 1:
+                in_loop = False
+            else:
+                self.next()
+        return self._seg_list
 
     def next(self):
         self._i += 1
@@ -162,11 +241,7 @@ class SegCreator:
                     pass
 
     def calc_arc(self):
-        """
-        Calculate arc segments when a fillet radius is given as 3rd value in the local_points listed tuples.
-
-        :return:
-        """
+        """Calculate arc segments when a fillet radius is given as 3rd value in the local_points listed tuples."""
         i = self._i
         from ada import ArcSegment, LineSegment
 
@@ -294,6 +369,7 @@ class SegCreator:
         loc_c, loc_start, loc_end, loc_midp = calc_2darc_start_end_from_lines_radius(
             self.p1, self.p2, self.p3, self.radius
         )
+
         self._arc_center = loc_c
         self._arc_start = loc_start
         self._arc_end = loc_end
@@ -580,12 +656,7 @@ def segments_to_local_points(segments_in):
     return local_points
 
 
-def segments_to_indexed_lists(segments: List[Union["LineSegment", "ArcSegment"]]):
-    """
-
-    :param segments:
-    :return:
-    """
+def segments_to_indexed_lists(segments: list[LineSegment | ArcSegment]):
     from ada import ArcSegment
 
     final_point_list = []
@@ -673,7 +744,7 @@ def intersect_line_circle(line, center, radius, tol=1e-1):
 
     a = (x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2
     b = 2 * ((x2 - x1) * (x1 - x3) + (y2 - y1) * (y1 - y3) + (z2 - z1) * (z1 - z3))
-    c = x3**2 + y3**2 + z3**2 + x1**2 + y1**2 + z1**2 - 2 * (x3 * x1 + y3 * y1 + z3 * z1) - radius**2
+    c = x3 ** 2 + y3 ** 2 + z3 ** 2 + x1 ** 2 + y1 ** 2 + z1 ** 2 - 2 * (x3 * x1 + y3 * y1 + z3 * z1) - radius ** 2
 
     ev = b * b - 4 * a * c
 
@@ -804,8 +875,8 @@ def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius, tol=1e-1):
 
 
 def build_polycurve(
-    local_points2d: List[tuple], tol=1e-3, debug=False, debug_name=None, is_closed=True
-) -> List[Union["LineSegment", "ArcSegment"]]:
+        local_points2d: list[tuple], tol=1e-3, debug=False, debug_name=None, is_closed=True
+) -> list[LineSegment | ArcSegment]:
     if len(local_points2d) == 2:
         from ada.concepts.curves import LineSegment
 

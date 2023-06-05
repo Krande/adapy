@@ -31,7 +31,7 @@ def write_ifc_plate(plate: Plate):
 
     tra_mat = np.array([xvec, yvec, zvec])
     t_vec = [0, 0, plate.t]
-    origin = np.array(plate.poly.placement.origin)
+    origin = np.array(plate.poly.origin)
     res = origin + np.dot(tra_mat, t_vec)
     polyline = create_ifcpolyline(f, [origin.astype(float).tolist(), res.tolist()])
     axis_representation = f.createIfcShapeRepresentation(ifc_store.get_context("Axis"), "Axis", "Curve2D", [polyline])

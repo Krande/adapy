@@ -23,9 +23,17 @@ class Line:
         if isinstance(self.end, Iterable):
             self.end = Point(*self.end)
 
+        dim = self.start.dim
+        if dim != self.end.dim:
+            raise ValueError("Start and end points must have the same dimension")
+
     @staticmethod
     def from_points(start: Iterable, end: Iterable):
         return Line(Point(*start), Point(*end))
+
+    @property
+    def dim(self):
+        return self.start.dim
 
     def __iter__(self):
         return iter((self.start, self.end))
@@ -45,9 +53,17 @@ class ArcLine:
         if isinstance(self.end, Iterable):
             self.end = Point(*self.end)
 
+        dim = self.start.dim
+        if dim != self.end.dim or dim != self.center.dim:
+            raise ValueError("Start and end points must have the same dimension")
+
     @staticmethod
     def from_points(start: Iterable, center: Iterable, end: Iterable):
         return ArcLine(Point(*start), Point(*center), Point(*end))
+
+    @property
+    def dim(self):
+        return self.start.dim
 
     def __iter__(self):
         return iter((self.start, self.center, self.end))
@@ -105,10 +121,12 @@ class BSplineCurveWithKnots:
     knot_spec: BsplineKnotSpecEnum
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcIndexedPolyCurve.htm)
-# STEP (not found direct equivalent, but can be represented by using 'B_SPLINE_CURVE' and 'POLYLINE' entities)
 @dataclass
 class IndexedPolyCurve:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcIndexedPolyCurve.htm)
+    STEP (not found direct equivalent, but can be represented by using 'B_SPLINE_CURVE' and 'POLYLINE' entities)
+    """
     segments: list[Line | ArcLine]
     self_intersect: bool = False
 

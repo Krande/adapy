@@ -70,19 +70,6 @@ class Counter:
         return self.i if self._prefix is None else f"{self._prefix}{self.i}"
 
 
-def random_color():
-    from random import randint
-
-    from OCC.Display.WebGl.jupyter_renderer import format_color
-
-    return format_color(randint(0, 255), randint(0, 255), randint(0, 255))
-
-
-def d2npy(node: Node) -> np.ndarray:
-    """This method takes in a node object and returns a np.array."""
-    return np.array([node.x, node.y, node.z], dtype=np.float)
-
-
 def roundoff(x: float, precision=Settings.precision) -> float:
     """Round using a specific number precision using the Decimal package"""
     import warnings
@@ -128,9 +115,9 @@ def thread_this(list_in, function, cpus=4):
     var = int(len(list_in) / cpus)
     blocks = [list_in[:var]]
     for i in range(1, cpus - 1):
-        blocks.append(list_in[var * i : (i + 1) * var])
+        blocks.append(list_in[var * i: (i + 1) * var])
 
-    blocks.append(list_in[(cpus - 1) * var :])
+    blocks.append(list_in[(cpus - 1) * var:])
     pool = multiprocessing.Pool()
     func = partial(function)
     res = pool.map(func, blocks)
@@ -364,5 +351,10 @@ def replace_nodes_by_tol(nodes, decimals=0, tol=Settings.point_tol):
                 replace_node(nearby_node, node)
 
 
-class UnitTypes:
-    LENGTH = "length"
+def set_list_first_position_elem(array: list, element) -> list:
+    """Moves the element to the first position in the list and maintains order. Returns a new list."""
+    origin_index = array.index(element)
+
+    # shift the list so that the origin is the first point
+    new_array = array[origin_index:] + array[:origin_index]
+    return new_array

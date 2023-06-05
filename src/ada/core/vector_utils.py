@@ -45,6 +45,12 @@ class EquationOfPlane:
         c = normal[2]
         self.d = -(a * x1 + b * y1 + c * z1)
 
+    def calc_distance_to_point(self, point: Iterable | Point) -> float:
+        if not isinstance(point, Point):
+            point = Point(*point)
+
+        return abs(point.dot(self.normal) + self.d) / np.linalg.norm(self.normal)
+
     def return_points_in_plane(self, points: np.ndarray) -> np.ndarray:
         return points[points.dot(self.normal) + self.d == 0]
 
@@ -410,13 +416,6 @@ def get_vec_fraction(vec: np.ndarray, reference_vec: np.ndarray) -> float:
 
 
 def point_on_line(start: np.ndarray, end: np.ndarray, point: np.ndarray) -> np.ndarray:
-    """
-
-    :param start: Start of line
-    :param end: End of line
-    :param point: Point
-    :return:
-    """
     ap = point - start
     ab = end - start
     result = start + get_vec_fraction(ap, ab) * ab
@@ -810,3 +809,4 @@ def projection_onto_line(point: np.ndarray, start: np.ndarray, end: np.ndarray) 
     t0 = np.linalg.norm(p) * np.cos(angle) * unit_vector(v)
     q = t0 - p
     return point + q
+

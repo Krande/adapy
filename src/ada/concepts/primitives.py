@@ -30,21 +30,21 @@ class Shape(BackendGeom):
     IFC_CLASSES = ShapeTypes
 
     def __init__(
-            self,
-            name,
-            geom: Geometry | None = None,
-            color=None,
-            opacity=1.0,
-            mass: float = None,
-            cog: Iterable = None,
-            material: Material | str = None,
-            units=Units.M,
-            metadata=None,
-            guid=None,
-            placement=Placement(),
-            ifc_store: IfcStore = None,
-            ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
-            parent=None,
+        self,
+        name,
+        geom: Geometry | None = None,
+        color=None,
+        opacity=1.0,
+        mass: float = None,
+        cog: Iterable = None,
+        material: Material | str = None,
+        units=Units.M,
+        metadata=None,
+        guid=None,
+        placement=Placement(),
+        ifc_store: IfcStore = None,
+        ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
+        parent=None,
     ):
         super().__init__(
             name,
@@ -174,15 +174,15 @@ class PrimSphere(Shape):
             self._units = value
 
     def __repr__(self):
-        return f"PrimSphere({self.name})"
+        return f"PrimSphere(\"{self.name}\", {self.cog.tolist()}, {self.radius})"
 
 
 class PrimBox(Shape):
     """Primitive Box. Length, width & height are local x, y and z respectively"""
 
     def __init__(self, name, p1, p2, **kwargs):
-        self.p1 = p1
-        self.p2 = p2
+        self.p1 = p1 if isinstance(p1, Point) else Point(*p1)
+        self.p2 = p2 if isinstance(p2, Point) else Point(*p2)
         super(PrimBox, self).__init__(name=name, **kwargs)
         self._bbox = BoundingBox(self)
 
@@ -208,18 +208,15 @@ class PrimBox(Shape):
         if isinstance(value, str):
             value = Units.from_str(value)
         if value != self._units:
-            from ada.occ.utils import make_box_by_points
-
             scale_factor = Units.get_scale_factor(self._units, value)
-            self.p1 = tuple([x * scale_factor for x in self.p1])
-            self.p2 = tuple([x * scale_factor for x in self.p2])
-            self._geom = make_box_by_points(self.p1, self.p2)
+            self.p1 = Point(*[x * scale_factor for x in self.p1])
+            self.p2 = Point(*[x * scale_factor for x in self.p2])
             self._units = value
 
     def __repr__(self):
         p1s = self.p1.tolist()
         p2s = self.p2.tolist()
-        return f"PrimBox({self.name}, {p1s}, {p2s})"
+        return f"PrimBox(\"{self.name}\", {p1s}, {p2s})"
 
 
 class PrimCone(Shape):
@@ -266,7 +263,7 @@ class PrimCone(Shape):
     def __repr__(self):
         p1s = self.p1.tolist()
         p2s = self.p2.tolist()
-        return f"PrimCone({self.name}, {p1s}, {p2s}, {self.r})"
+        return f"PrimCone(\"{self.name}\", {p1s}, {p2s}, {self.r})"
 
 
 class PrimCyl(Shape):
@@ -308,7 +305,7 @@ class PrimCyl(Shape):
     def __repr__(self):
         p1s = self.p1.tolist()
         p2s = self.p2.tolist()
-        return f"PrimCyl({self.name}, {p1s}, {p2s}, {self.r})"
+        return f"PrimCyl(\"{self.name}\", {p1s}, {p2s}, {self.r})"
 
 
 class PrimExtrude(Shape):
@@ -376,16 +373,14 @@ class PrimExtrude(Shape):
         outer_curve = self.poly.get_edges_geom()
         profile = ArbitraryProfileDefWithVoids(ProfileType.AREA, outer_curve, [])
 
-        place = Axis2Placement3D(
-            self.poly.placement.origin, axis=self.poly.placement.zdir, ref_direction=self.poly.placement.xdir
-        )
+        place = Axis2Placement3D(self.poly.origin, axis=self.poly.normal, ref_direction=self.poly.xdir)
 
         solid = ExtrudedAreaSolid(profile, place, self.extrude_depth, Direction(0, 0, 1))
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
 
     def __repr__(self):
-        return f"PrimExtrude({self.name})"
+        return f"PrimExtrude(\"{self.name}\")"
 
 
 class PrimRevolve(Shape):
@@ -458,22 +453,22 @@ class PrimRevolve(Shape):
 
 class PrimSweep(Shape):
     def __init__(
-            self,
-            name,
-            sweep_curve,
-            normal,
-            xdir,
-            profile_curve_outer,
-            profile_curve_inner=None,
-            origin=None,
-            tol=1e-3,
-            **kwargs,
+        self,
+        name,
+        sweep_curve,
+        normal,
+        xdir,
+        profile_curve_outer,
+        profile_curve_inner=None,
+        origin=None,
+        tol=1e-3,
+        **kwargs,
     ):
         if type(sweep_curve) is list:
             sweep_curve = CurveSweep.from_3d_points(sweep_curve)
 
         if type(profile_curve_outer) is list:
-            origin = sweep_curve.placement.origin if origin is None else origin
+            origin = sweep_curve.origin if origin is None else origin
             profile_curve_outer = CurvePoly(profile_curve_outer, origin=origin, normal=normal, xdir=xdir)
 
         sweep_curve.parent = self
@@ -483,12 +478,7 @@ class PrimSweep(Shape):
         self._profile_curve_outer = profile_curve_outer
         self._profile_curve_inner = profile_curve_inner
 
-        super(PrimSweep, self).__init__(name, self._sweep_geom(), **kwargs)
-
-    def _sweep_geom(self):
-        from ada.occ.utils import sweep_geom
-
-        return sweep_geom(self.sweep_curve.wire(), self.profile_curve_outer.wire())
+        super(PrimSweep, self).__init__(name, **kwargs)
 
     @property
     def units(self):

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import math
 import pathlib
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, Union, Iterable
 
 import numpy as np
-from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRep import BRep_Tool_Pnt
+from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Common, BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCC.Core.BRepBndLib import brepbndlib_Add
 from OCC.Core.BRepBuilderAPI import (
@@ -17,13 +17,20 @@ from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_Transform,
 )
 from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
-from OCC.Core.BRepFill import BRepFill_Filling
 from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
-from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe, BRepOffsetAPI_ThruSections
+from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeCylinder
+from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.ChFi2d import ChFi2d_AnaFilletAlgo
 from OCC.Core.GC import GC_MakeArcOfCircle
-from OCC.Core.GeomAbs import GeomAbs_C0
+from OCC.Core.GeomAbs import GeomAbs_Plane
+from OCC.Core.TopoDS import (
+    TopoDS_Edge,
+    TopoDS_Face,
+    TopoDS_Shape,
+    TopoDS_Vertex,
+    TopoDS_Wire,
+)
 from OCC.Core.gp import (
     gp_Ax1,
     gp_Ax2,
@@ -35,17 +42,6 @@ from OCC.Core.gp import (
     gp_Trsf,
     gp_Vec,
 )
-from OCC.Core.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
-from OCC.Core.TopoDS import (
-    TopoDS_Compound,
-    TopoDS_Edge,
-    TopoDS_Face,
-    TopoDS_Shape,
-    TopoDS_Shell,
-    TopoDS_Solid,
-    TopoDS_Vertex,
-    TopoDS_Wire,
-)
 from OCC.Extend.DataExchange import read_step_file
 from OCC.Extend.ShapeFactory import make_extrusion, make_face, make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
@@ -55,14 +51,12 @@ from ada.config import logger
 from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.fem.shapes import ElemType
-
 from ..geom.booleans import BoolOpEnum
 from ..geom.placement import Direction
 from ..geom.points import Point
-from .exceptions import UnableToBuildNSidedWires, UnableToCreateSolidOCCGeom
 
 if TYPE_CHECKING:
-    from ada import Boolean, Part, Beam, BeamTapered
+    from ada import Boolean, Part
     from ada.core.vector_utils import EquationOfPlane, Plane
 
 
@@ -245,14 +239,42 @@ def get_points_from_occ_shape(occ_shape: TopoDS_Shape | TopoDS_Vertex | TopoDS_E
     return points
 
 
-def get_faces_with_normal(shape, normal):
+def get_face_normal(a_face: TopoDS_Face) -> tuple[Point, Direction] | tuple[None, None]:
+    """Based on core_geometry_face_recognition_from_stepfile.py in pythonocc-demos"""
+    surf = BRepAdaptor_Surface(a_face, True)
+    surf_type = surf.GetType()
+    if surf_type != GeomAbs_Plane:
+        return None, None
+
+    gp_pln = surf.Plane()
+    location = gp_pln.Location().XYZ().Coord()  # a point of the plane
+    normal = gp_pln.Axis().Direction()  # the plane normal
+    return Point(*location), Direction(normal.X(), normal.Y(), normal.Z())
+
+
+
+def iter_faces_with_normal(shape, normal, point_in_plane: Iterable | Point = None):
+    from ada.core.vector_utils import EquationOfPlane, is_parallel
+
+    normal = Direction(*normal)
+    eop = None
+    if point_in_plane is not None:
+        eop = EquationOfPlane(point_in_plane, normal)
+
     t = TopologyExplorer(shape)
     for face in t.faces():
-        ori = face.Orientation()
-        if face.Orientation() == TopAbs_FORWARD:
-            normal_face = get_normal_of_face(face)
-            if normal_face == normal:
-                yield face
+        point, n = get_face_normal(face)
+        if n is None:
+            continue
+        if not is_parallel(n, normal):
+            continue
+        if eop is None:
+            yield face
+            continue
+
+        dist = eop.calc_distance_to_point(point)
+        if dist == 0.0:
+            yield face
 
 
 def make_closed_polygon(*args):
@@ -403,23 +425,19 @@ def make_revolved_cylinder(pnt, height, revolve_angle, rotation, wall_thick):
     return revolved_shape_
 
 
-def make_edge(p1, p2):
-    """
+def point3d(point) -> gp_Pnt:
+    if len(point) == 3:
+        return gp_Pnt(point[0], point[1], point[2])
+    elif len(point) == 2:
+        return gp_Pnt(point[0], point[1], 0)
+    else:
+        raise ValueError(f"Point {point} has {len(point)} dimensions, expected 2 or 3")
 
-    :param p1:
-    :param p2:
-    :type p1: tuple
-    :type p2: tuple
 
-    :return:
-    :rtype: OCC.Core.TopoDS.TopoDS_Edge
-    """
+def make_edge(p1, p2) -> TopoDS_Edge:
     from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge
-    from OCC.Core.gp import gp_Pnt
 
-    p1 = gp_Pnt(*[float(x) for x in p1[:3]])
-    p2 = gp_Pnt(*[float(x) for x in p2[:3]])
-    res = BRepBuilderAPI_MakeEdge(p1, p2).Edge()
+    res = BRepBuilderAPI_MakeEdge(point3d(p1), point3d(p2)).Edge()
 
     if res.IsNull():
         logger.debug("Edge creation returned None")
@@ -607,19 +625,18 @@ def apply_booleans(geom: TopoDS_Shape, booleans: list[Boolean]) -> TopoDS_Shape:
     return geom
 
 
-def segments_to_edges(segments) -> List[TopoDS_Edge]:
+def segments_to_edges(segments) -> list[TopoDS_Edge]:
     from ada.concepts.curves import ArcSegment
 
     edges = []
     for seg in segments:
-        if type(seg) is ArcSegment:
+        if isinstance(seg, ArcSegment):
             a_arc_of_circle = GC_MakeArcOfCircle(
-                gp_Pnt(*list(seg.p1)),
-                gp_Pnt(*list(seg.midpoint)),
-                gp_Pnt(*list(seg.p2)),
+                point3d(seg.p1),
+                point3d(seg.midpoint),
+                point3d(seg.p2),
             )
-            a_edge2 = BRepBuilderAPI_MakeEdge(a_arc_of_circle.Value()).Edge()
-            edges.append(a_edge2)
+            edges.append(BRepBuilderAPI_MakeEdge(a_arc_of_circle.Value()).Edge())
         else:
             edge = make_edge(seg.p1, seg.p2)
             edges.append(edge)

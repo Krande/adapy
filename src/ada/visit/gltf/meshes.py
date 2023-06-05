@@ -38,7 +38,10 @@ class MeshStore:
         return self.position.reshape(-1, 3)
 
     def get_indices3(self):
-        return self.indices.reshape(-1, 3)
+        if self.type == MeshType.TRIANGLES:
+            return self.indices.reshape(-1, 3)
+        elif self.type == MeshType.LINES:
+            return self.indices.reshape(-1, 2)
 
 
 @dataclass

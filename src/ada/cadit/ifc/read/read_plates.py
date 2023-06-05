@@ -60,7 +60,7 @@ def import_ifc_plate(ifc_elem, name, ifc_store: IfcStore) -> Plate:
         t,
         origin=origin,
         xdir=xdir,
-        normal=normal,
+        n=normal,
         mat=mat,
         guid=ifc_elem.GlobalId,
         ifc_store=ifc_store,

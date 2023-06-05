@@ -7,7 +7,8 @@ import numpy as np
 import trimesh
 import trimesh.visual
 from OCC.Core.Tesselator import ShapeTesselator
-from OCC.Core.TopoDS import TopoDS_Shape
+from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Edge
+from OCC.Extend.TopologyUtils import discretize_edge
 
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
@@ -24,6 +25,21 @@ class TriangleMesh:
     faces: np.ndarray
     edges: np.ndarray = None
     normals: np.ndarray = None
+
+
+@dataclass
+class LineMesh:
+    positions: np.ndarray
+    indices: np.ndarray
+    normals: np.ndarray = None
+
+
+def tessellate_edges(shape: TopoDS_Edge, deflection=0.01) -> LineMesh:
+    points = discretize_edge(shape, deflection=deflection)
+
+    np_edge_vertices = np.array(points, dtype=np.float32)
+    np_edge_indices = np.arange(np_edge_vertices.shape[0], dtype=np.uint32)
+    return LineMesh(np_edge_vertices, np_edge_indices)
 
 
 def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, parallel=True) -> TriangleMesh:
@@ -78,27 +94,38 @@ class BatchTessellator:
     parallel: bool = False
     material_store: dict[Color, int] = field(default_factory=dict)
 
-    def tessellate_geom(self, geom: Geometry) -> MeshStore:
-        occ_geom = geom_to_occ_geom(geom)
-        tess_shape = tessellate_shape(occ_geom, self.quality, self.render_edges, self.parallel)
-        mat_id = self.material_store.get(geom.color, None)
+    def tessellate_occ_geom(self, occ_geom: TopoDS_Shape, geom_id, geom_color) -> MeshStore:
+        if isinstance(occ_geom, TopoDS_Edge):
+            tess_shape = tessellate_edges(occ_geom)
+            indices = tess_shape.indices
+            mesh_type = MeshType.LINES
+        else:
+            tess_shape = tessellate_shape(occ_geom, self.quality, self.render_edges, self.parallel)
+            indices = tess_shape.faces
+            mesh_type = MeshType.TRIANGLES
+
+        mat_id = self.material_store.get(geom_color, None)
         if mat_id is None:
             mat_id = len(self.material_store)
-            self.material_store[geom.color] = mat_id
+            self.material_store[geom_color] = mat_id
 
         return MeshStore(
-            geom.id,
+            geom_id,
             None,
             tess_shape.positions,
-            tess_shape.faces,
+            indices,
             tess_shape.normals,
             mat_id,
-            MeshType.TRIANGLES,
-            geom.id,
+            mesh_type,
+            geom_id,
         )
 
+    def tessellate_geom(self, geom: Geometry) -> MeshStore:
+        occ_geom = geom_to_occ_geom(geom)
+        return self.tessellate_occ_geom(occ_geom, geom.id, geom.color)
+
     def batch_tessellate(
-        self, objects: Iterable[Geometry | BackendGeom], render_override: dict[str, GeomRepr] = None
+            self, objects: Iterable[Geometry | BackendGeom], render_override: dict[str, GeomRepr] = None
     ) -> Iterable[MeshStore]:
         if render_override is None:
             render_override = dict()

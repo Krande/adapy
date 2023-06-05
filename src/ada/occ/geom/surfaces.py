@@ -9,6 +9,7 @@ from ada.occ.geom.curves import (
     make_wire_from_indexed_poly_curve_geom,
     make_wire_from_poly_loop, make_wire_from_circle,
 )
+from ada.occ.utils import transform_shape_to_pos
 
 
 def make_face_from_poly_loop(poly_loop: PolyLoop) -> TopoDS_Shape:
@@ -50,6 +51,9 @@ def make_shell_from_curve_bounded_plane_geom(surface: geo_su.CurveBoundedPlane) 
             face = BRepAlgoAPI_Cut(face, inner_curve).Shape()
     else:
         raise NotImplementedError(f"Curve type {type(surface.outer_boundary)} not implemented")
+
+    position = surface.basis_surface.position
+    face = transform_shape_to_pos(face, position.location, position.axis, position.ref_direction)
 
     return face
 

@@ -913,6 +913,7 @@ class Part(BackendGeom):
     def units(self, value):
         if isinstance(value, str):
             value = Units.from_str(value)
+
         if value != self._units:
             for bm in self.beams:
                 bm.units = value
@@ -938,11 +939,21 @@ class Part(BackendGeom):
             self.sections.units = value
             self.materials.units = value
             self._units = value
-
             if isinstance(self, Assembly):
-                from ada.cadit.ifc.utils import assembly_to_ifc_file
+                f = self.ifc_store.f
 
-                self._ifc_file = assembly_to_ifc_file(self)
+                res = {x.UnitType.upper(): x for x in f.by_type('IFCSIUNIT')}
+                length_unit = res.get('LENGTHUNIT', None)
+                area_unit = res.get('AREAUNIT', None)
+                volume_unit = res.get('VOLUMEUNIT', None)
+                prefix = None if value == Units.M else 'MILLI'
+
+                if length_unit:
+                    length_unit.Prefix = prefix
+                if area_unit:
+                    area_unit.Prefix = prefix
+                if volume_unit:
+                    volume_unit.Prefix = prefix
 
     @property
     def groups(self) -> dict[str, Group]:

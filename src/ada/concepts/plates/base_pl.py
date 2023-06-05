@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import Optional, Iterable
 
 import numpy as np
 
+from ada.base.changes import ChangeAction
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.concepts.bounding_box import BoundingBox
@@ -13,11 +14,9 @@ from ada.concepts.transforms import Placement
 from ada.config import Settings
 from ada.geom import Geometry
 from ada.geom.placement import Direction
+from ada.geom.points import Point
 from ada.materials import Material
 from ada.materials.metals import CarbonSteel
-
-if TYPE_CHECKING:
-    from ada.cadit.ifc.store import IfcStore
 
 
 class Plate(BackendGeom):
@@ -26,10 +25,12 @@ class Plate(BackendGeom):
     described by an id (index) and a Node object.
 
     :param name: Name of plate
-    :param points: List of coordinates that make up the plate. Points can be Node, tuple or list
+    :param points: List of coordinates (or a PolyCurve) that make up the plate. Each point is (x, y, optional [radius])
     :param t: Thickness of plate
     :param mat: Material. Can be either Material object or built-in materials ('S420' or 'S355')
-    :param placement: Explicitly define origin of plate. If not set
+    :param origin: Explicitly define origin of plate. If not set
+    :param xdir: Explicitly define x direction of plate. If not set
+    :param n: Explicitly define normal direction of plate. If not set
     """
 
     def __init__(
@@ -38,52 +39,40 @@ class Plate(BackendGeom):
         points: CurvePoly | list[tuple[float, float, Optional[float]]],
         t: float,
         mat: str | Material = "S420",
-        placement=None,
-        origin=None,
-        xdir=None,
-        normal=None,
+        origin: Iterable | Point = None,
+        xdir: Iterable | Direction = None,
+        n: Iterable | Direction = None,
         pl_id=None,
-        color=None,
-        parent=None,
-        opacity=1.0,
-        metadata=None,
         tol=None,
-        units=Units.M,
-        guid=None,
-        ifc_store: IfcStore = None,
+        **kwargs,
     ):
-        placement = Placement(origin, xdir=xdir, zdir=normal) if placement is None else placement
-
-        super().__init__(
-            name, guid=guid, metadata=metadata, units=units, ifc_store=ifc_store, color=color, opacity=opacity
-        )
+        super().__init__(name, **kwargs)
         self._pl_id = pl_id
-        self._material = mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat), parent=parent)
+        self._material = mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat), parent=self)
         self._material.refs.append(self)
         self._t = t
 
         if tol is None:
-            tol = Units.get_general_point_tol(units)
+            tol = Units.get_general_point_tol(self.units)
 
         if isinstance(points, CurvePoly):
             self._poly = points
         else:
             self._poly = CurvePoly(
                 points=points,
-                normal=placement.zdir,
-                origin=placement.origin,
-                xdir=placement.xdir,
+                normal=n,
+                origin=origin,
+                xdir=xdir,
                 tol=tol,
                 parent=self,
             )
 
-        self._parent = parent
         self._bbox = None
 
     @staticmethod
-    def from_3d_points(name, points, t, mat="S420", origin_index=0, xdir=None, **kwargs):
+    def from_3d_points(name, points, t, mat="S420", origin_index=0, xdir=None, color=None, **kwargs):
         poly = CurvePoly.from_3d_points(points, origin_index=origin_index, xdir=xdir, **kwargs)
-        return Plate(name, poly, t, mat=mat, **kwargs)
+        return Plate(name, poly, t, mat=mat, color=color, **kwargs)
 
     def bbox(self) -> BoundingBox:
         """Bounding Box of plate"""
@@ -111,7 +100,7 @@ class Plate(BackendGeom):
         from ada.geom.booleans import BooleanOperation
 
         outer_curve = self.poly.get_edges_geom()
-        place = Axis2Placement3D(axis=self.poly.normal, ref_direction=self.poly.xdir)
+        place = Axis2Placement3D(self.poly.origin, axis=self.poly.normal, ref_direction=self.poly.xdir)
         face = geo_su.CurveBoundedPlane(geo_su.Plane(place), outer_curve, inner_boundaries=[])
 
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
@@ -123,11 +112,11 @@ class Plate(BackendGeom):
         from ada.geom.placement import Axis2Placement3D
         from ada.geom.booleans import BooleanOperation
 
-        outer_curve = self.poly.get_edges_geom()
+        outer_curve = self.poly.get_edges_geom(use_3d_segments=False)
         profile = geo_su.ArbitraryProfileDefWithVoids(geo_su.ProfileType.AREA, outer_curve, [])
 
         # Origin location is already included in the outer_curve definition
-        place = Axis2Placement3D(axis=self.poly.normal, ref_direction=self.poly.xdir)
+        place = Axis2Placement3D(location=self.poly.origin, axis=self.poly.normal, ref_direction=self.poly.xdir)
         solid = geo_so.ExtrudedAreaSolid(profile, place, self.t, Direction(0, 0, 1))
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
@@ -183,15 +172,21 @@ class Plate(BackendGeom):
                 pen.units = value
             self.material.units = value
             self._units = value
+            # Todo: incorporate change_type
+            # self.change_type = ChangeAction.MODIFIED
 
     def __repr__(self):
         pts = [list(x) for x in self.poly.points2d]
-        return f'Plate("{self.name}", {pts}, t={self.t}, "{self.material.name}", {self.placement})'
+        origin = f"origin={self.poly.origin}"
+        xdir = f"xdir={self.poly.xdir}"
+        normal = f"normal={self.poly.normal}"
+        return f'Plate("{self.name}", {pts}, t={self.t}, "{self.material.name}", {origin}, {xdir}, {normal})'
 
 
 class PlateCurved(Plate):
     def __init__(self):
         super().__init__()
+        raise NotImplementedError("PlateCurved is not implemented yet")
 
 
 # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/lexical/IfcBSplineSurfaceWithKnots.htm

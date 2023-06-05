@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Union, Iterable, Optional
+from typing import TYPE_CHECKING, Iterable, Optional
 
 import numpy as np
+from OCC.Core.TopoDS import TopoDS_Edge
 
 from ada.concepts.nodes import Node
 from ada.concepts.transforms import Placement
+from ada.core.curve_utils import build_polycurve, segments_to_indexed_lists
 from ada.core.vector_utils import (
     normal_to_points_in_plane,
     unit_vector,
@@ -13,7 +15,6 @@ from ada.core.vector_utils import (
     local_2_global_points,
     global_2_local_nodes,
 )
-from ada.core.curve_utils import build_polycurve, segments_to_indexed_lists
 from ada.geom.placement import Direction
 from ada.geom.points import Point
 from ada.geom.surfaces import ArbitraryProfileDefWithVoids, ProfileType
@@ -119,7 +120,8 @@ class CurveSweep:
     ):
         self._tol = tol
         self._parent = parent
-        self._placement = Placement(origin, xdir=xdir, zdir=normal)
+        self._orientation = Placement(origin, xdir=xdir, zdir=normal)
+        self._placement = Placement()
         self._debug = debug
         self._segments = None
         self._seg_index = None
@@ -146,7 +148,7 @@ class CurveSweep:
             normal *= -1
 
         p1 = np.array(points[origin_index][:3]).astype(float)
-        p2 = np.array(points[origin_index+1][:3]).astype(float)
+        p2 = np.array(points[origin_index + 1][:3]).astype(float)
         origin = p1
         xdir = unit_vector(p2 - p1) if xdir is None else Direction(*xdir)
         placement = Placement(origin, xdir=xdir, zdir=normal)
@@ -162,38 +164,32 @@ class CurveSweep:
         return cls(points2d, origin=origin, xdir=xdir, normal=normal, **kwargs)
 
     def _from_2d_points(self, points2d: list[np.ndarray[float, float]]) -> list[Point]:
-        place = self.placement
+        place = self.orientation
         return local_2_global_points(points2d, place.origin, place.xdir, place.zdir)
 
     def _points_to_segments(self, local_points2d, tol=1e-3):
         debug_name = self._parent.name if self._parent is not None else "PolyCurveDebugging"
 
         seg_list = build_polycurve(local_points2d, tol, self._debug, debug_name)
-        origin, xdir, normal = self.placement.origin, self.placement.xdir, self.placement.zdir
+        seg_list3d = []
+        origin, xdir, normal = self.orientation.origin, self.orientation.xdir, self.orientation.zdir
         # Convert from local to global coordinates
         for i, seg in enumerate(seg_list):
             if type(seg) is ArcSegment:
                 lpoints = [seg.p1, seg.p2, seg.midpoint]
                 gp = local_2_global_points(lpoints, origin, xdir, normal)
-                seg.p1 = gp[0]
-                seg.p2 = gp[1]
-                seg.midpoint = gp[2]
+                seg_list3d.append(ArcSegment(gp[0], gp[1], gp[2]))
             else:
                 lpoints = [seg.p1, seg.p2]
                 gp = local_2_global_points(lpoints, origin, xdir, normal)
-                seg.p1 = gp[0]
-                seg.p2 = gp[1]
+                seg_list3d.append(LineSegment(gp[0], gp[1]))
 
         self._segments = seg_list
-        self._seg_global_points, self._seg_index = segments_to_indexed_lists(seg_list)
+        self._segments3d = seg_list3d
+        self._seg_global_points, self._seg_index = segments_to_indexed_lists(seg_list3d)
         self._nodes = [
             Node(p, r=self.radiis[i]) if i in self.radiis.keys() else Node(p) for i, p in enumerate(self._points3d)
         ]
-
-    def make_extruded_solid(self, height: float):
-        from ada.occ.utils import extrude_closed_wire
-
-        return extrude_closed_wire(self.wire(), self.placement.origin, self.placement.zdir, height)
 
     def make_revolve_solid(self, axis, angle, origin):
         from ada.occ.utils import make_revolve_solid
@@ -201,21 +197,21 @@ class CurveSweep:
         return make_revolve_solid(self.face(), axis, angle, origin)
 
     def scale(self, scale_factor, tol):
-        self.placement.origin = np.array([x * scale_factor for x in self.placement.origin])
+        self.orientation.origin = np.array([x * scale_factor for x in self.orientation.origin])
         self._points2d = [Point(*[x * scale_factor for x in p]) for p in self._points2d]
         self._points3d = [Point(*[x * scale_factor for x in p]) for p in self._points3d]
         self._points_to_segments(self.points2d, tol=tol)
 
     @property
-    def placement(self) -> Placement:
-        return self._placement
+    def orientation(self) -> Placement:
+        return self._orientation
 
-    @placement.setter
-    def placement(self, value: Placement):
-        self._placement = value
-        points3d = local_2_global_points(self.points2d, self.placement.origin, self.placement.xdir, self.placement.zdir)
-        self._points3d = points3d
-        self._points_to_segments(self.points2d, tol=self._tol)
+    @orientation.setter
+    def orientation(self, value: Placement):
+        self._orientation = value
+        self._points3d = self._from_2d_points(self._points2d)
+        points = [(*p, self.radiis[i]) if i in self.radiis.keys() else tuple(p) for i, p in enumerate(self.points2d)]
+        self._points_to_segments(points, tol=self._tol)
 
     @property
     def seg_global_points(self):
@@ -238,33 +234,41 @@ class CurveSweep:
         return self._nodes
 
     @property
+    def origin(self) -> Point:
+        return self.orientation.origin
+
+    @property
     def normal(self):
-        return self.placement.zdir
+        return self.orientation.zdir
 
     @property
     def xdir(self):
-        return self.placement.xdir
+        return self.orientation.xdir
 
     @property
     def ydir(self):
-        return self.placement.ydir
+        return self.orientation.ydir
 
     def edges(self):
         from ada.occ.utils import segments_to_edges
 
-        return segments_to_edges(self.segments)
+        return segments_to_edges(self.segments3d)
 
-    def get_edges_geom(self) -> IndexedPolyCurve | Line | ArcLine:
+    def get_edges_geom(self, use_3d_segments=False) -> IndexedPolyCurve | Line | ArcLine:
         from ada.geom.curves import ArcLine, IndexedPolyCurve, Line
+
         # Todo: This might have to be rewritten so that it always returns 2d geometry
-        if len(self.segments) == 1:
-            seg = self.segments[0]
+        poly_segments = self.segments3d if use_3d_segments else self.segments
+
+        if len(poly_segments) == 1:
+            seg = poly_segments[0]
             if isinstance(seg, ArcSegment):
                 return ArcLine(seg.p1, seg.midpoint, seg.p2)
             else:
                 return Line(seg.p1, seg.p2)
+
         segments = []
-        for seg in self.segments:
+        for seg in poly_segments:
             if isinstance(seg, ArcSegment):
                 segments.append(ArcLine(seg.p1, seg.midpoint, seg.p2))
             else:
@@ -286,6 +290,10 @@ class CurveSweep:
         return self._segments
 
     @property
+    def segments3d(self) -> list[LineSegment | ArcSegment]:
+        return self._segments3d
+
+    @property
     def parent(self):
         return self._parent
 
@@ -295,8 +303,14 @@ class CurveSweep:
 
 
 class CurvePoly(CurveSweep):
-    def __init__(self, points, origin: Iterable | Point = None, normal: Iterable | Direction = None,
-                 xdir: Iterable | Direction = None, **kwargs):
+    def __init__(
+            self,
+            points,
+            origin: Iterable | Point = None,
+            normal: Iterable | Direction = None,
+            xdir: Iterable | Direction = None,
+            **kwargs,
+    ):
         # Check to see if it is a closed curve
         super().__init__(points, origin, normal, xdir, **kwargs)
 
@@ -318,32 +332,32 @@ class CurvePoly(CurveSweep):
 
 class LineSegment:
     def __init__(self, p1, p2, edge_geom=None):
-        self._p1 = p1
-        self._p2 = p2
+        self._p1 = p1 if isinstance(p1, Point) else Point(*p1)
+        self._p2 = p2 if isinstance(p2, Point) else Point(*p2)
         self._edge_geom = edge_geom
 
     @property
-    def p1(self) -> np.ndarray:
-        if type(self._p1) is not np.ndarray:
-            self._p1 = np.array(self._p1)
+    def p1(self) -> Point:
         return self._p1
 
     @p1.setter
-    def p1(self, value):
+    def p1(self, value: Iterable | Point):
+        if not isinstance(value, Point):
+            value = Point(*value)
         self._p1 = value
 
     @property
-    def p2(self) -> np.ndarray:
-        if type(self._p2) is not np.ndarray:
-            self._p2 = np.array(self._p2)
+    def p2(self) -> Point:
         return self._p2
 
     @p2.setter
     def p2(self, value):
+        if not isinstance(value, Point):
+            value = Point(*value)
         self._p2 = value
 
     @property
-    def edge_geom(self):
+    def edge_geom(self) -> TopoDS_Edge:
         return self._edge_geom
 
     def __repr__(self):
@@ -382,10 +396,6 @@ class ArcSegment(LineSegment):
     @property
     def intersection(self):
         return self._intersection
-
-    @property
-    def edge_geom(self):
-        return self._edge_geom
 
     def __repr__(self):
         return f"ArcSegment({self.p1}, {self.midpoint}, {self.p2})"

@@ -141,8 +141,8 @@ class PipeSegStraight(BackendGeom):
         super(PipeSegStraight, self).__init__(
             name=name, guid=guid, metadata=metadata, units=units, parent=parent, color=color
         )
-        self.p1 = p1
-        self.p2 = p2
+        self.p1 = p1 if isinstance(p1, Node) else Node(p1, units=units)
+        self.p2 = p2 if isinstance(p2, Node) else Node(p2, units=units)
         self.section = section
         self.material = material
         section.refs.append(self)
@@ -160,7 +160,7 @@ class PipeSegStraight(BackendGeom):
     def line_occ(self):
         from ada.occ.utils import make_edge
 
-        return make_edge(self.p1, self.p2)
+        return make_edge(self.p1.p, self.p2.p)
 
     def shell_occ(self):
         from ada.fem.shapes import ElemType

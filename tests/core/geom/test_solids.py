@@ -1,9 +1,11 @@
-from OCC.Core.TopoDS import TopoDS_Solid
+from OCC.Core.TopoDS import TopoDS_Solid, TopoDS_Face
 
 import ada
 import ada.geom.solids as geo_so
 import ada.geom.surfaces as geo_su
+from ada.core.utils import set_list_first_position_elem
 from ada.occ.geom import geom_to_occ_geom
+from ada.occ.utils import iter_faces_with_normal, get_points_from_occ_shape
 
 
 def test_cyl():
@@ -56,14 +58,67 @@ def test_ipe_beam_taper():
     assert isinstance(occ_shape, TopoDS_Solid)
 
 
-def test_plate():
-    pl2 = ada.Plate.from_3d_points("my_plate", [(0, 0, 0), (1, 0, 0, 0.2), (1, 1, 0), (0, 1, 0)], 0.1)
-    pl = ada.Plate("pl1", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.1, color="red")
-    segs = pl.poly.segments
-    segs2 = pl2.poly.segments
+def test_plate_xy():
+    pl = ada.Plate("pl1", [(0, 0), (1, 0, 0.2), (1, 1), (0, 1)], 0.1, color="red")
+
     geo = pl.solid_geom()
     assert isinstance(geo.geometry, geo_so.ExtrudedAreaSolid)
 
     occ_shape = geom_to_occ_geom(geo)
-
     assert isinstance(occ_shape, TopoDS_Solid)
+
+    occ_face = list(iter_faces_with_normal(occ_shape, pl.poly.normal, pl.poly.origin))[0]
+    assert isinstance(occ_face, TopoDS_Face)
+
+    occ_face_verts = get_points_from_occ_shape(occ_face)
+    occ_face_verts.index(tuple(pl.poly.origin))
+    occ_face_verts_adjusted = set_list_first_position_elem(occ_face_verts, tuple(pl.poly.origin))
+    assert len(occ_face_verts) == 5
+
+    pl_2 = ada.Plate.from_3d_points("pl2", occ_face_verts_adjusted, 0.1, color="red", xdir=pl.poly.xdir)
+    assert pl_2.poly.origin.is_equal(pl.poly.origin)
+    assert pl_2.poly.xdir.is_equal(pl.poly.xdir)
+
+
+def test_plate_xy_offset():
+    pl = ada.Plate("pl1", [(0, 0), (0, 1), (1, 1), (1, 0)], 0.1, origin=(0, 0, 2), color="red")
+
+    geo = pl.solid_geom()
+    assert isinstance(geo.geometry, geo_so.ExtrudedAreaSolid)
+
+    occ_shape = geom_to_occ_geom(geo)
+    assert isinstance(occ_shape, TopoDS_Solid)
+
+    occ_face = list(iter_faces_with_normal(occ_shape, pl.poly.normal, pl.poly.origin))[0]
+    assert isinstance(occ_face, TopoDS_Face)
+
+    occ_face_verts = get_points_from_occ_shape(occ_face)
+    occ_face_verts.index(tuple(pl.poly.origin))
+    occ_face_verts_adjusted = set_list_first_position_elem(occ_face_verts, tuple(pl.poly.origin))
+    assert len(occ_face_verts) == 4
+
+    pl_2 = ada.Plate.from_3d_points("pl2", occ_face_verts_adjusted, 0.1, color="red", xdir=pl.poly.xdir)
+    assert pl_2.poly.origin.is_equal(pl.poly.origin)
+    assert pl_2.poly.xdir.is_equal(pl.poly.xdir)
+
+
+def test_plate_xz():
+    pl = ada.Plate("pl1", [(0, 0), (0, 1), (1, 1), (1, 0)], 0.1, origin=(0, 0, 0), n=(0, -1, 0), xdir=(1, 0, 0))
+
+    geo = pl.solid_geom()
+    assert isinstance(geo.geometry, geo_so.ExtrudedAreaSolid)
+
+    occ_shape = geom_to_occ_geom(geo)
+    assert isinstance(occ_shape, TopoDS_Solid)
+
+    occ_face = list(iter_faces_with_normal(occ_shape, pl.poly.normal, pl.poly.origin))[0]
+    assert isinstance(occ_face, TopoDS_Face)
+
+    occ_face_verts = get_points_from_occ_shape(occ_face)
+    occ_face_verts.index(tuple(pl.poly.origin))
+    occ_face_verts_adjusted = set_list_first_position_elem(occ_face_verts, tuple(pl.poly.origin))
+    assert len(occ_face_verts) == 4
+
+    pl_2 = ada.Plate.from_3d_points("pl2", occ_face_verts_adjusted, 0.1, color="red", xdir=pl.poly.xdir)
+    assert pl_2.poly.origin.is_equal(pl.poly.origin)
+    assert pl_2.poly.xdir.is_equal(pl.poly.xdir)

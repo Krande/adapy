@@ -120,8 +120,8 @@ def profile_disconnected_to_face_geom(beam: Beam) -> Geometry:
         if not isinstance(edge, Line):
             raise NotImplementedError("Only lines are supported for now")
 
-        p1 = edge.start
-        p2 = edge.end
+        p1 = edge.start.get_3d()
+        p2 = edge.end.get_3d()
         p3 = p2 + xv_l
         p4 = p1 + xv_l
         points = np.concatenate([p1, p2, p3, p4]).reshape(-1, 3)

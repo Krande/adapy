@@ -45,5 +45,13 @@ class Point(np.ndarray):
     def is_equal(self, other):
         return np.allclose(self, other)
 
+    @property
+    def dim(self):
+        return len(self)
+
+    def get_3d(self) -> Point:
+        """Returns a 3D point from a 2d point."""
+        return Point(*self, 0)
+
     def __repr__(self):
         return f"Point({np.array2string(self, separator=', ')})"

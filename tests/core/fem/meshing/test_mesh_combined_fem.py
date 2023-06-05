@@ -23,9 +23,9 @@ def test_plate_mesh_from_2_fem(pl1, pl2, test_dir):
 
     el_types = {el_type.value: list(group) for el_type, group in p.fem.elements.group_by_type()}
 
-    # a.to_ifc(test_dir / "ADA_pl_w_holes_mesh.ifc", include_fem=False)
-    # a.to_gltf(test_dir / "ADA_pl_w_holes_mesh.glb")
-    # a.to_stp(test_dir / "ADA_pl_w_holes_mesh.step")
+    a.to_ifc(test_dir / "ADA_pl_w_holes_mesh.ifc", include_fem=False)
+    a.to_gltf(test_dir / "ADA_pl_w_holes_mesh.glb")
+    a.to_stp(test_dir / "ADA_pl_w_holes_mesh.step")
     # a.to_fem("ADA_pl_mesh", "code_aster", scratch_dir=test_dir, overwrite=True)
 
     assert len(el_types.keys()) == 1

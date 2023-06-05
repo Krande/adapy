@@ -19,21 +19,20 @@ if TYPE_CHECKING:
     from ada.fem.meshing import GmshOptions
 
 
-# TODO: Consider storing primitive geometry definitions as an attribute in the BackendGeom class to simplify subclasses.
 class BackendGeom(Root):
     """The backend of all physical components (Beam, Plate, etc.) or aggregate of components (Part, Assembly)"""
 
     def __init__(
-            self,
-            name,
-            guid=None,
-            metadata=None,
-            units=Units.M,
-            parent=None,
-            color: Color | Iterable[float, float, float] | str | None = None,
-            placement=Placement(),
-            ifc_store: IfcStore = None,
-            opacity=1.0,
+        self,
+        name,
+        guid=None,
+        metadata=None,
+        units=Units.M,
+        parent=None,
+        color: Color | Iterable[float, float, float] | str | None = None,
+        placement=Placement(),
+        ifc_store: IfcStore = None,
+        opacity=1.0,
     ):
         super().__init__(name, guid, metadata, units, parent, ifc_store=ifc_store)
         self._booleans = []
@@ -54,10 +53,10 @@ class BackendGeom(Root):
         self._elem_refs = []
 
     def add_boolean(
-            self,
-            boolean: BackendGeom,
-            bool_op: str | BoolOpEnum = BoolOpEnum.DIFFERENCE,
-            add_to_layer: str = None,
+        self,
+        boolean: BackendGeom,
+        bool_op: str | BoolOpEnum = BoolOpEnum.DIFFERENCE,
+        add_to_layer: str = None,
     ):
         from ada import Boolean, Shape
         from ada.base.changes import ChangeAction
@@ -84,15 +83,15 @@ class BackendGeom(Root):
         return boolean
 
     def to_fem_obj(
-            self,
-            mesh_size,
-            geom_repr: str | GeomRepr,
-            options: GmshOptions = None,
-            silent=True,
-            use_quads=False,
-            use_hex=False,
-            name="AdaFEM",
-            interactive=False,
+        self,
+        mesh_size,
+        geom_repr: str | GeomRepr,
+        options: GmshOptions = None,
+        silent=True,
+        use_quads=False,
+        use_hex=False,
+        name="AdaFEM",
+        interactive=False,
     ) -> FEM:
         from ada.fem.meshing import GmshOptions, GmshSession
 
@@ -108,17 +107,17 @@ class BackendGeom(Root):
             return gs.get_fem(name)
 
     def to_fem(
-            self,
-            mesh_size,
-            geom_repr,
-            name: str,
-            fem_format: str,
-            options: GmshOptions = None,
-            silent=True,
-            use_quads=False,
-            use_hex=False,
-            return_assembly=False,
-            **kwargs,
+        self,
+        mesh_size,
+        geom_repr,
+        name: str,
+        fem_format: str,
+        options: GmshOptions = None,
+        silent=True,
+        use_quads=False,
+        use_hex=False,
+        return_assembly=False,
+        **kwargs,
     ):
         from ada import Assembly, Part
 

@@ -46,7 +46,7 @@ class ReinforcedFloor(Part):
         else:
             snum = int((ymax - ymin) / spacing) - 1
 
-        z = plate.poly.placement.origin[2]
+        z = plate.poly.origin[2]
 
         tot_spacing = snum * spacing
         diff = xmax - xmin - tot_spacing

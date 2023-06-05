@@ -8,19 +8,19 @@ import numpy as np
 from ada.geom.points import Point
 
 
-def O() -> Point: # noqa
+def O() -> Point:  # noqa
     return Point(0, 0, 0)
 
 
-def XV() -> Direction: # noqa
+def XV() -> Direction:  # noqa
     return Direction(1, 0, 0)
 
 
-def YV() -> Direction: # noqa
+def YV() -> Direction:  # noqa
     return Direction(0, 1, 0)
 
 
-def ZV() -> Direction: # noqa
+def ZV() -> Direction:  # noqa
     return Direction(0, 0, 1)
 
 
@@ -40,6 +40,10 @@ class Direction(Point):
 
     def get_length(self):
         return np.linalg.norm(self)
+
+    @staticmethod
+    def from_points(p1: Point, p2: Point):
+        return Direction(*(p2 - p1))
 
     def __repr__(self):
         return f"Direction({np.array2string(self, separator=', ')})"

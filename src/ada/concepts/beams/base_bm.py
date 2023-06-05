@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Callable, Iterable, Union
 import numpy as np
 
 import ada.concepts.beams.geom_beams as geo_conv
+from ada.base.changes import ChangeAction
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.concepts.bounding_box import BoundingBox
@@ -234,7 +235,10 @@ class Beam(BackendGeom):
         self.material.units = value
         for pen in self.booleans:
             pen.units = value
+
         self._units = value
+        # Todo: incorporate change_type
+        # self.change_type = ChangeAction.MODIFIED
 
     @property
     def section(self) -> Section:
