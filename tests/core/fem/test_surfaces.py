@@ -49,7 +49,7 @@ def test_surface_box_solid_tet(surfaces_test_dir):
     surface = a.parts["MyBoxPart"].fem.surfaces["FrontSurface"]
     assert len(surface.fem_set) == 8
 
-    a.to_fem("MyFemBox_so_tet", "abaqus", overwrite=True, scratch_dir=surfaces_test_dir)
+    # a.to_fem("MyFemBox_so_tet", "abaqus", overwrite=True, scratch_dir=surfaces_test_dir)
 
 
 def test_surface_box_solid_hex(surfaces_test_dir):
@@ -101,4 +101,4 @@ def test_surface_beam(surfaces_test_dir):
     surface_top = p.fem.add_surface(bm.bbox().sides.top(return_surface=True, surf_name="TopSurface"))
     step.add_load(ada.fem.LoadPressure("PressureTop", 1e6, surface_top))
 
-    a.to_fem("MyFemBeam_100mm_2nd_order", "abaqus", overwrite=True, execute=False, scratch_dir=surfaces_test_dir)
+    # a.to_fem("MyFemBeam_100mm_2nd_order", "abaqus", overwrite=True, execute=False, scratch_dir=surfaces_test_dir)

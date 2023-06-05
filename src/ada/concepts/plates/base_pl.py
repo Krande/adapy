@@ -1,22 +1,22 @@
 from __future__ import annotations
 
-from typing import Optional, Iterable
+from typing import Optional, Iterable, Union
 
 import numpy as np
 
-from ada.base.changes import ChangeAction
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.concepts.bounding_box import BoundingBox
 from ada.concepts.curves import CurvePoly
 from ada.concepts.nodes import Node
-from ada.concepts.transforms import Placement
 from ada.config import Settings
 from ada.geom import Geometry
 from ada.geom.placement import Direction
 from ada.geom.points import Point
 from ada.materials import Material
 from ada.materials.metals import CarbonSteel
+
+_NTYPE = Union[int, float]
 
 
 class Plate(BackendGeom):
@@ -36,7 +36,7 @@ class Plate(BackendGeom):
     def __init__(
         self,
         name: str,
-        points: CurvePoly | list[tuple[float, float, Optional[float]]],
+        points: CurvePoly | list[tuple[_NTYPE, _NTYPE] | tuple[_NTYPE, _NTYPE, _NTYPE]],
         t: float,
         mat: str | Material = "S420",
         origin: Iterable | Point = None,
