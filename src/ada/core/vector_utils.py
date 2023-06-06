@@ -2,17 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, ClassVar, Iterable, List
+from typing import TYPE_CHECKING, ClassVar, Iterable
 
 import numpy as np
 
-from ada.config import Settings
 
+from ada.config import Settings
 from .exceptions import VectorNormalizeError
 from ..geom.points import Point
 
 if TYPE_CHECKING:
     from ada.geom.placement import Direction
+    from ada.api.transforms import Placement
 
 
 class Plane(Enum):
@@ -104,16 +105,18 @@ def create_right_hand_vectors_xv_yv_from_zv(z_vector: Iterable) -> tuple[Directi
     if isinstance(z_vector, Direction) is False:
         z_vector = Direction(*z_vector)
 
+    # Normalize z_vector
+    z_vector = z_vector / np.linalg.norm(z_vector)
+
     # Check if z_vector is (0, 0, 0)
     if np.all(z_vector == 0):
         raise ValueError("Input vector cannot be the zero vector")
 
     # Create an arbitrary x_vector not parallel to z_vector
-    x_vector = np.array([1, 0, 0])
-
-    # If the z_vector is aligned with the x-axis, adjust x_vector to avoid parallelism
-    if np.all(z_vector[1:] == 0):
+    if is_parallel(z_vector, np.array([1, 0, 0])):
         x_vector = np.array([0, 1, 0])
+    else:
+        x_vector = np.array([1, 0, 0])
 
     # Calculate the y_vector using the cross product
     y_vector = np.cross(z_vector, x_vector)
@@ -151,10 +154,28 @@ def transform_csys_to_csys(x_vector1, y_vector1, x_vector2, y_vector2) -> np.nda
     return rotation_matrix
 
 
-def transform(matrix: np.ndarray, pos: np.ndarray) -> np.ndarray:
+def transform_points_in_plane_to_2d(points: list[Point], origin=None, xdir=None) -> tuple[Placement, list[Point]]:
+    from ada.api.transforms import Placement
+
+    origin = points[0] if origin is None else origin
+    n = normal_to_points_in_plane(points)
+    if xdir is None:
+        xdir, yv = create_right_hand_vectors_xv_yv_from_zv(n)
+    else:
+        yv = calc_yvec(xdir, n)
+    place = Placement(origin, xdir, yv, n)
+    rotation_matrix = transform_csys_to_csys(xdir, yv, np.array([1, 0, 0]), np.array([0, 1, 0]))
+    tp = np.array(points) - origin
+    new_points = np.matmul(rotation_matrix, tp.T).T
+    # remove the last column
+    local2d = [Point(*p) for p in new_points[:, :-1]]
+    return place, local2d
+
+
+def transform(matrix4x4: np.ndarray, pos: np.ndarray) -> np.ndarray:
     """Transforms an array of points by a transformation matrix."""
     pos = np.hstack((pos, np.ones((pos.shape[0], 1))))
-    transformed = pos @ matrix.T
+    transformed = pos @ matrix4x4.T
     transformed /= transformed[:, 3].reshape(-1, 1)
 
     return transformed[:, :3]
@@ -495,9 +516,9 @@ def is_point_inside_bbox(p, bbox, tol=1e-3) -> bool:
     :return:
     """
     if (
-        bbox[0][0][0] - tol < p[0] < bbox[0][1][0] + tol
-        and bbox[1][0][1] - tol < p[1] < bbox[1][1][1] + tol
-        and bbox[2][0][2] - tol < p[2] < bbox[2][1][2] + tol
+            bbox[0][0][0] - tol < p[0] < bbox[0][1][0] + tol
+            and bbox[1][0][1] - tol < p[1] < bbox[1][1][1] + tol
+            and bbox[2][0][2] - tol < p[2] < bbox[2][1][2] + tol
     ):
         return True
     else:
@@ -670,7 +691,7 @@ def local_2_global_points(points, origin, xdir, normal) -> list[Point]:
     :param xdir: Local X-direction
     :return:
     """
-    from ada.concepts.nodes import Node
+    from ada.api.nodes import Node
     from ada.core.constants import X, Y
 
     if type(origin) is Node:
@@ -809,4 +830,3 @@ def projection_onto_line(point: np.ndarray, start: np.ndarray, end: np.ndarray) 
     t0 = np.linalg.norm(p) * np.cos(angle) * unit_vector(v)
     q = t0 - p
     return point + q
-

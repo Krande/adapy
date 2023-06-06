@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Union
 
-from ada.concepts.nodes import Node
+from ada.api.nodes import Node
 
 from .common import FemBase
 from .elements import Elem

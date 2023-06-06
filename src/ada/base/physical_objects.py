@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Callable, Iterable
 from ada.base.root import Root
 from ada.base.types import GeomRepr
 from ada.base.units import Units
-from ada.concepts.transforms import Placement
+from ada.api.transforms import Placement
 from ada.geom import Geometry
 from ada.geom.booleans import BoolOpEnum
 from ada.visit.colors import Color, color_dict

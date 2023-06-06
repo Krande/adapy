@@ -8,7 +8,7 @@ import ifcopenshell
 import ifcopenshell.geom
 from ifcopenshell.util.element import get_psets
 
-from ada.concepts.transforms import Placement
+from ada.api.transforms import Placement
 from ada.config import Settings, logger
 
 if TYPE_CHECKING:

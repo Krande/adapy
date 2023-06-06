@@ -10,10 +10,14 @@ CURVE_GEOM_TYPES = Union[
 ]
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcLine.htm)
-# STEP AP242
 @dataclass
 class Line:
+    """
+    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcLine.htm
+    (also) https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcLineIndex.htm
+    STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_line.html
+    """
+
     start: Point | Iterable
     end: Point | Iterable
 
@@ -41,46 +45,54 @@ class Line:
 
 @dataclass
 class ArcLine:
+    """
+    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcArcIndex.htm
+
+    """
+
     start: Point | Iterable
-    center: Point | Iterable
+    midpoint: Point | Iterable
     end: Point | Iterable
 
     def __post_init__(self):
         if isinstance(self.start, Iterable):
             self.start = Point(*self.start)
-        if isinstance(self.center, Iterable):
-            self.center = Point(*self.center)
+        if isinstance(self.midpoint, Iterable):
+            self.midpoint = Point(*self.midpoint)
         if isinstance(self.end, Iterable):
             self.end = Point(*self.end)
 
         dim = self.start.dim
-        if dim != self.end.dim or dim != self.center.dim:
+        if dim != self.end.dim or dim != self.midpoint.dim:
             raise ValueError("Start and end points must have the same dimension")
-
-    @staticmethod
-    def from_points(start: Iterable, center: Iterable, end: Iterable):
-        return ArcLine(Point(*start), Point(*center), Point(*end))
 
     @property
     def dim(self):
         return self.start.dim
 
     def __iter__(self):
-        return iter((self.start, self.center, self.end))
+        return iter((self.start, self.midpoint, self.end))
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcCircle.htm)
-# STEP AP242
 @dataclass
 class Circle:
+    """
+    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcCircle.htm
+    STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_circle.html
+    """
+
     position: Axis2Placement3D
     radius: float
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcEllipse.htm)
 # STEP AP242
 @dataclass
 class Ellipse:
+    """
+    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcEllipse.htm
+    STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_ellipse.html
+    """
+
     position: Axis2Placement3D
     semi_axis1: float
     semi_axis2: float
@@ -127,6 +139,7 @@ class IndexedPolyCurve:
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcIndexedPolyCurve.htm)
     STEP (not found direct equivalent, but can be represented by using 'B_SPLINE_CURVE' and 'POLYLINE' entities)
     """
+
     segments: list[Line | ArcLine]
     self_intersect: bool = False
 

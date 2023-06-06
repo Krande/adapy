@@ -9,7 +9,7 @@ import numpy as np
 from ifcopenshell.util.unit import get_prefix_multiplier
 
 import ada.core.constants as ifco
-from ada.concepts.transforms import Transform
+from ada.api.transforms import Transform
 from ada.config import logger
 from ada.core.file_system import get_list_of_files
 from ada.geom.placement import Axis2Placement3D
@@ -691,8 +691,8 @@ def convert_bm_jusl_to_ifc(bm: Beam) -> int:
 
     https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/schema/ifcmaterialresource/lexical/ifccardinalpointreference.htm
     """
-    from ada.concepts.beams.helpers import get_justification
-    from ada.concepts.beams.helpers import Justification as jt
+    from ada.api.beams.helpers import get_justification
+    from ada.api.beams.helpers import Justification as jt
 
     just = get_justification(bm)
 

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from itertools import chain
 from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple, Union
 
-from ada.concepts.containers import Nodes
+from ada.api.containers import Nodes
 from ada.config import logger
 
 from .containers import FemElements, FemSections, FemSets
@@ -12,8 +12,8 @@ from .sets import FemSet
 
 if TYPE_CHECKING:
     from ada import Part
-    from ada.concepts.beams import Beam
-    from ada.concepts.nodes import Node
+    from ada.api.beams import Beam
+    from ada.api.nodes import Node
     from ada.fem import (
         Amplitude,
         Bc,

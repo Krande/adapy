@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from ada.fem import StepEigen, StepImplicit
 
 if TYPE_CHECKING:
-    from ada.concepts.spatial import Part
+    from ada.api.spatial import Part
 
 from .steps import eigen, static
 

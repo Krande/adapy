@@ -5,8 +5,8 @@ from typing import Dict, Iterable, List, Union
 import numpy as np
 
 from ada import Beam, Part, Section
-from ada.concepts.connections import JointBase
-from ada.concepts.containers import Connections
+from ada.api.connections import JointBase
+from ada.api.containers import Connections
 from ada.core.vector_utils import vector_length
 
 

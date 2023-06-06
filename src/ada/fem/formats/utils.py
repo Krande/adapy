@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from send2trash import send2trash
 
-from ada.concepts.containers import Beams, Plates
+from ada.api.containers import Beams, Plates
 from ada.config import Settings, logger
 from ada.fem import Elem
 from ada.fem.exceptions import FEASolverNotInstalled

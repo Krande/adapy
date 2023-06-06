@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada import Beam
-from ada.concepts.beams import BeamRevolve
-from ada.concepts.curves import CurveRevolve
+from ada.api.beams import BeamRevolve
+from ada.api.curves import CurveRevolve
 from ada.config import logger
 from ada.core.vector_utils import calc_yvec, vector_length
 
@@ -112,10 +112,10 @@ def import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
     p2 = get_point(axis.Trim2[1])
     global_place = Placement()
     angle = axis.Trim2[0].wrappedValue
-    rot_origin = transform3d(beam_place.csys, global_place.csys, global_place.origin, [curve_place.origin])[0]
-    rot_axis = transform3d(curve_place.csys, global_place.csys, global_place.origin, [curve_place.zdir])[0]
+    rot_origin = transform3d(beam_place.rot_matrix, global_place.rot_matrix, global_place.origin, [curve_place.origin])[0]
+    rot_axis = transform3d(curve_place.rot_matrix, global_place.rot_matrix, global_place.origin, [curve_place.zdir])[0]
 
-    p1g, p2g = transform3d(beam_place.csys, global_place.csys, beam_place.origin, [p1, p2])
+    p1g, p2g = transform3d(beam_place.rot_matrix, global_place.rot_matrix, beam_place.origin, [p1, p2])
 
     curve = CurveRevolve(p1g, p2g, radius=r, rot_axis=rot_axis, rot_origin=rot_origin, angle=np.rad2deg(angle))
 

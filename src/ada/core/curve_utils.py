@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
 
 from ada.config import Settings as _Settings
-from ada.occ.utils import get_midpoint_of_arc
-
 from .utils import roundoff
 from .vector_utils import (
     angle_between,
@@ -21,11 +19,12 @@ from .vector_utils import (
     normal_to_points_in_plane,
     unit_vector,
     vector_length_2d,
+    transform_points_in_plane_to_2d,
 )
 from ..geom.points import Point
 
 if TYPE_CHECKING:
-    from ada.concepts.curves import ArcSegment, LineSegment
+    from ada.api.curves import ArcSegment, LineSegment
 
 
 def calculate_center(v1, v2) -> Point | None:
@@ -78,33 +77,57 @@ def create_arc_segment(v1, v2, radius):
     return ArcSegment(start, end, midpoint, radius, pc)
 
 
-def make_arc_segment(p1, p2, p3, radius):
-    from ada import ArcSegment, LineSegment
+def make_arc_segment(
+    start: Iterable | Point, center: Iterable | Point, end: Iterable | Point, radius: float
+) -> list[LineSegment | ArcSegment]:
+    from ada import ArcSegment
 
-    from ..occ.utils import get_edge_points
+    if not isinstance(start, Point):
+        start = Point(*start)
+    if not isinstance(center, Point):
+        center = Point(*center)
+    if not isinstance(end, Point):
+        end = Point(*end)
 
-    ed1, ed2, fillet = make_edges_and_fillet_from_3points(p1, p2, p3, radius)
+    if start.dim == 3:
+        place, points2d = transform_points_in_plane_to_2d([start, center, end])
+        points = [points2d[0], [*points2d[1], radius], points2d[2]]
+        sc = SegCreator(points, is_closed=False)
+        segments = sc.build()
+        segments.pop(0)
+        for seg in segments:
+            if isinstance(seg, ArcSegment):
+                points = np.array([seg.p1, seg.midpoint, seg.p2])
+                start, midpoint, end = place.transform_points_to_global(points)
+                seg.p1 = start
+                seg.p2 = end
+                seg.midpoint = midpoint
+            else:
+                points = np.array([seg.p1, seg.p2])
+                start, end = place.transform_points_to_global(points)
+                seg.p1 = start
+                seg.p2 = end
+    else:
+        points = [start, [*center, radius], end]
+        sc = SegCreator(points, is_closed=False)
+        segments = sc.build()
+        segments.pop(0)
 
-    ed1_p = get_edge_points(ed1)
-    ed2_p = get_edge_points(ed2)
-    fil_p = get_edge_points(fillet)
-    midpoint = get_midpoint_of_arc(fillet)
-    l1 = LineSegment(*ed1_p, edge_geom=ed1)
-    arc = ArcSegment(fil_p[0], fil_p[1], midpoint, radius, edge_geom=fillet)
-    l2 = LineSegment(*ed2_p, edge_geom=ed2)
-    return [l1, arc, l2]
+    # The SegCreator always creates a closed loop, so we need to remove the first segment
+
+    return segments
 
 
 class SegCreator:
     def __init__(
-            self,
-            local_points,
-            tol=1e-3,
-            debug=False,
-            debug_name="ilog",
-            parent=None,
-            is_closed=True,
-            fig=None,
+        self,
+        local_points,
+        tol=1e-3,
+        debug=False,
+        debug_name="ilog",
+        parent=None,
+        is_closed=True,
+        fig=None,
     ):
         self._parent = parent
         self._seg_list = []
@@ -128,7 +151,7 @@ class SegCreator:
                 os.makedirs(_Settings.debug_dir, exist_ok=True)
             self._start_plot()
 
-    def build(self) -> List[LineSegment | ArcSegment]:
+    def build(self) -> list[LineSegment | ArcSegment]:
         in_loop = True
         while in_loop:
             if self.radius is not None:
@@ -152,6 +175,7 @@ class SegCreator:
                 in_loop = False
             else:
                 self.next()
+
         return self._seg_list
 
     def next(self):
@@ -166,11 +190,7 @@ class SegCreator:
             self._add_to_plot([self.p1, self.p2, self.p3], label=lbl_str)
 
     def calc_line(self):
-        """
-        Calculate line segment between p2 and p3 (p1 - p2 for i == 0)
-
-        :return:
-        """
+        """Calculate line segment between p2 and p3 (p1 - p2 for i == 0)"""
         from ada import ArcSegment, LineSegment
 
         i = self._i
@@ -744,7 +764,7 @@ def intersect_line_circle(line, center, radius, tol=1e-1):
 
     a = (x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2
     b = 2 * ((x2 - x1) * (x1 - x3) + (y2 - y1) * (y1 - y3) + (z2 - z1) * (z1 - z3))
-    c = x3 ** 2 + y3 ** 2 + z3 ** 2 + x1 ** 2 + y1 ** 2 + z1 ** 2 - 2 * (x3 * x1 + y3 * y1 + z3 * z1) - radius ** 2
+    c = x3**2 + y3**2 + z3**2 + x1**2 + y1**2 + z1**2 - 2 * (x3 * x1 + y3 * y1 + z3 * z1) - radius**2
 
     ev = b * b - 4 * a * c
 
@@ -875,10 +895,10 @@ def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius, tol=1e-1):
 
 
 def build_polycurve(
-        local_points2d: list[tuple], tol=1e-3, debug=False, debug_name=None, is_closed=True
+    local_points2d: list[tuple], tol=1e-3, debug=False, debug_name=None, is_closed=True
 ) -> list[LineSegment | ArcSegment]:
     if len(local_points2d) == 2:
-        from ada.concepts.curves import LineSegment
+        from ada.api.curves import LineSegment
 
         return [LineSegment(p1=local_points2d[0], p2=local_points2d[1])]
 
@@ -908,15 +928,6 @@ def build_polycurve(
             segc.next()
 
     return segc._seg_list
-
-
-def make_edges_and_fillet_from_3points(p1, p2, p3, radius):
-    from ..occ.utils import make_edge, make_fillet
-
-    edge1 = make_edge(p1[:3], p2[:3])
-    edge2 = make_edge(p2[:3], p3[:3])
-    ed1, ed2, fillet = make_fillet(edge1, edge2, radius)
-    return ed1, ed2, fillet
 
 
 def s_curve(ramp_up_t, ramp_down_t, magnitude, sustained_time=0.0):

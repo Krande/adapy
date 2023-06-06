@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Tuple
 
-from ada.concepts.curves import CurvePoly, CurveSweep
+from ada.api.curves import CurvePoly, CurveSweep
 from ada.config import get_logger
 from ada.core.utils import roundoff as rd
 from ada.sections.categories import BaseTypes

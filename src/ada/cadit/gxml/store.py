@@ -68,7 +68,7 @@ class GxmlStore:
             yield from yield_plate_elems_to_plate(fp, self.p, sat_d, thick_map)
 
     def to_part(self, extract_joints=False) -> Part:
-        from ada.concepts.containers import Beams, Plates
+        from ada.api.containers import Beams, Plates
 
         p = self.p
         p._plates = Plates(self.iter_plates_from_xml(), parent=p)

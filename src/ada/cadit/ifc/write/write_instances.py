@@ -5,7 +5,7 @@ from ..utils import create_guid, create_ifc_placement, ifc_dir, ifc_p, to_real
 if TYPE_CHECKING:
     from ifcopenshell import file
 
-    from ada.concepts.transforms import Instance
+    from ada.api.transforms import Instance
 
 
 def write_mapped_instance(instance: "Instance", f: "file"):

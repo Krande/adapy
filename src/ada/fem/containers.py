@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple, Union
 
 import numpy as np
 
-from ada.concepts.containers import Materials
-from ada.concepts.nodes import Node
+from ada.api.containers import Materials
+from ada.api.nodes import Node
 from ada.config import logger
 from ada.core.utils import Counter
 from ada.fem.elements import Connector, Elem, Mass, MassTypes

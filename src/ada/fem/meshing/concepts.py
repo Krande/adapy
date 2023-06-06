@@ -12,7 +12,7 @@ from ada import FEM, Beam, Pipe, Plate, Shape
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.cadit.ifc.utils import create_guid
-from ada.concepts.containers import Nodes
+from ada.api.containers import Nodes
 from ada.config import Settings, logger
 from ada.fem import Elem
 from ada.fem.containers import FemElements

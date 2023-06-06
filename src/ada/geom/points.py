@@ -50,7 +50,10 @@ class Point(np.ndarray):
         return len(self)
 
     def get_3d(self) -> Point:
-        """Returns a 3D point from a 2d point."""
+        """Returns self if it is a 3D point, or if self is 2d point a new 3d Point copy is returned."""
+        if self.dim == 3:
+            return self
+
         return Point(*self, 0)
 
     def __repr__(self):

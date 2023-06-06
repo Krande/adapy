@@ -5,7 +5,7 @@ from typing import List, Tuple
 import numpy as np
 
 from ada import Beam, Node, Part
-from ada.concepts.containers import Beams
+from ada.api.containers import Beams
 from ada.config import logger
 from ada.core.exceptions import VectorNormalizeError
 

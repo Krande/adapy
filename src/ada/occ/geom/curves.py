@@ -10,7 +10,7 @@ from ada.occ.utils import point3d
 
 def make_edge_from_geom(geom: geo_cu.Line | geo_cu.ArcLine) -> TopoDS_Edge:
     if isinstance(geom, geo_cu.ArcLine):
-        a_arc_of_circle = GC_MakeArcOfCircle(point3d(geom.start), point3d(geom.center), point3d(geom.end))
+        a_arc_of_circle = GC_MakeArcOfCircle(point3d(geom.start), point3d(geom.midpoint), point3d(geom.end))
         return BRepBuilderAPI_MakeEdge(a_arc_of_circle.Value()).Edge()
     else:
         return BRepBuilderAPI_MakeEdge(point3d(geom.start), point3d(geom.end)).Edge()

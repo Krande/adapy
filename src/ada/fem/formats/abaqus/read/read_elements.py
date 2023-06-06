@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.concepts.nodes import Node
+from ada.api.nodes import Node
 from ada.config import logger
 from ada.core.utils import Counter
 from ada.fem import Connector, Elem

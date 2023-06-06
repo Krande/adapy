@@ -9,7 +9,7 @@ from ..common import ada_to_med_type
 from .helper_utils import resolve_ids_in_multiple
 
 if TYPE_CHECKING:
-    from ada.concepts.spatial import Part
+    from ada.api.spatial import Part
 
 
 def _add_cell_sets(cells_group, part: "Part", families):

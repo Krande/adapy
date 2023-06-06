@@ -17,7 +17,7 @@ from ada.cadit.ifc.utils import (
     to_real,
 )
 from ada.cadit.ifc.write.write_curves import write_curve_poly
-from ada.concepts.beams import BeamRevolve, BeamSweep, BeamTapered
+from ada.api.beams import BeamRevolve, BeamSweep, BeamTapered
 from ada.config import Settings
 from ada.core.constants import O
 

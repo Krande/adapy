@@ -1,4 +1,4 @@
-from ada.concepts.curves import CurvePoly
+from ada.api.curves import CurvePoly
 
 
 def write_curve_poly(curve: CurvePoly):

@@ -8,7 +8,7 @@ from ada.cadit.ifc.write.write_shapes import generate_ifc_prim_extrude_geom
 if TYPE_CHECKING:
     import ifcopenshell
 
-    from ada.concepts.fasteners import Weld
+    from ada.api.fasteners import Weld
 
 
 # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/lexical/IfcFastener.htm

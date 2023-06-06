@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ada.concepts.primitives import (
+from ada.api.primitives import (
     BSplineSurfaceWithKnots,
     IfcBSplineSurfaceForm,
     RationalBSplineSurfaceWithKnots,

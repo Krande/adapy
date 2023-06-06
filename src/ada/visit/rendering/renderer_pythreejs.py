@@ -35,7 +35,7 @@ from ada.fem import Elem
 
 if TYPE_CHECKING:
     from ada import Beam, Part, Pipe, PipeSegElbow, PipeSegStraight, Plate, Shape, Wall
-    from ada.concepts.connections import JointBase
+    from ada.api.connections import JointBase
 
 __all__ = ["MyRenderer", "SectionRenderer"]
 logger = get_logger()
@@ -294,7 +294,7 @@ class MyRenderer(JupyterRenderer):
 
     def DisplayObj(self, obj):
         from ada import Beam, Part, Pipe, PipeSegElbow, PipeSegStraight, Plate, Shape
-        from ada.concepts.connections import JointBase
+        from ada.api.connections import JointBase
 
         if issubclass(type(obj), Part) is True:
             self.DisplayAdaPart(obj)
@@ -817,7 +817,7 @@ class SectionRenderer:
 
         from ipywidgets import HTML
 
-        from ada.concepts.curves import CurvePoly
+        from ada.api.curves import CurvePoly
         from ada.sections import SectionCat
         from ada.visit.plots import easy_plotly
 

@@ -8,7 +8,7 @@ import numpy as np
 
 from ada import FEM, Beam, Node, Pipe, Plate, Shape
 from ada.base.types import GeomRepr
-from ada.concepts.transforms import Placement
+from ada.api.transforms import Placement
 from ada.core.utils import make_name_fem_ready
 from ada.fem import Elem, FemSection, FemSet
 from ada.fem.shapes import ElemType
@@ -67,7 +67,7 @@ def get_sh_sections_for_beam_obj(model: gmsh.model, beam: Beam, gmsh_data: GmshD
 
 def get_sh_sections_for_pipe_obj(model: gmsh.model, model_obj: Pipe, gmsh_data: GmshData, fem: FEM):
     thickness = model_obj.section.wt
-    normal = model_obj.segments[0].zvec
+    normal = model_obj.segments[0].zvec1
 
     for i, (_, ent) in enumerate(gmsh_data.entities):
         _, tags, _ = model.mesh.getElements(2, ent)

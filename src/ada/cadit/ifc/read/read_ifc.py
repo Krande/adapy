@@ -33,7 +33,7 @@ class IfcReader:
         mi.load_ifc_materials()
 
     def load_presentation_layers(self):
-        from ada.concepts.presentation_layers import (
+        from ada.api.presentation_layers import (
             PresentationLayer,
             PresentationLayers,
         )

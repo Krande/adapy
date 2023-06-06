@@ -1,4 +1,4 @@
-from ada.concepts.groups import Group
+from ada.api.groups import Group
 
 
 def write_group(group: Group):

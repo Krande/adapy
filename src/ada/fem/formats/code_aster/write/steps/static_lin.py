@@ -8,7 +8,7 @@ from ..write_loads import write_load
 from .fields import create_field_output_str
 
 if TYPE_CHECKING:
-    from ada.concepts.spatial import Part
+    from ada.api.spatial import Part
 
 
 def step_static_lin_str(step: StepImplicit, part: Part) -> str:

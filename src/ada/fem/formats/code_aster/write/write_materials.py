@@ -7,7 +7,7 @@ from ada import Material
 from ada.config import logger
 
 if TYPE_CHECKING:
-    from ada.concepts.spatial import Assembly
+    from ada.api.spatial import Assembly
 
 
 def materials_str(assembly: Assembly) -> str:

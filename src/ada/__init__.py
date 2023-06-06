@@ -6,14 +6,14 @@ from typing import TYPE_CHECKING
 
 from ada import fem
 from ada.base.units import Units
-from ada.concepts.beams import Beam, BeamRevolve, BeamSweep, BeamTapered
-from ada.concepts.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
-from ada.concepts.fasteners import Bolts, Weld
-from ada.concepts.nodes import Node
-from ada.concepts.piping import Pipe, PipeSegElbow, PipeSegStraight
-from ada.concepts.plates import Plate
-from ada.concepts.primitive_boolean import Boolean
-from ada.concepts.primitives import (
+from ada.api.beams import Beam, BeamRevolve, BeamSweep, BeamTapered
+from ada.api.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
+from ada.api.fasteners import Bolts, Weld
+from ada.api.nodes import Node
+from ada.api.piping import Pipe, PipeSegElbow, PipeSegStraight
+from ada.api.plates import Plate
+from ada.api.primitive_boolean import Boolean
+from ada.api.primitives import (
     PrimBox,
     PrimCone,
     PrimCyl,
@@ -23,10 +23,10 @@ from ada.concepts.primitives import (
     PrimSweep,
     Shape,
 )
-from ada.concepts.spatial import Assembly, Group, Part
-from ada.concepts.walls import Wall
-from ada.concepts.transforms import Instance, Placement, Transform
-from ada.concepts.user import User
+from ada.api.spatial import Assembly, Group, Part
+from ada.api.walls import Wall
+from ada.api.transforms import Instance, Placement, Transform
+from ada.api.user import User
 from ada.fem import FEM
 from ada.materials import Material
 from ada.sections import Section

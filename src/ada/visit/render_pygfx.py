@@ -151,7 +151,7 @@ class RendererPyGFX:
         s = mesh_data.start // 3
         e = mesh_data.end // 3 + 1
         indices = mesh.geometry.indices.data[s:e]
-        self.selected_mesh = clicked_mesh(mesh, indices, self._selected_mat)
+        self.selected_mesh = scale_clicked_mesh(mesh, indices, self._selected_mat)
 
         self.scene.add(self.selected_mesh)
 
@@ -170,7 +170,7 @@ class RendererPyGFX:
         self.display.show(self.scene)
 
 
-def clicked_mesh(mesh: gfx.Mesh, indices, material, sfac=1.01) -> gfx.Mesh:
+def scale_clicked_mesh(mesh: gfx.Mesh, indices, material: gfx.MeshPhongMaterial, sfac=1.01) -> gfx.Mesh:
     trim = trimesh.Trimesh(vertices=mesh.geometry.positions.data, faces=indices)
     scale_tri_mesh(trim, sfac)
 

@@ -137,7 +137,7 @@ def filter_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]):
 
 def find_beams_connected_to_plate(pl: Plate, beams: List[Beam]) -> List[Beam]:
     """Return all beams with their midpoints inside a specified plate for a given list of beams"""
-    from ada.concepts.containers import Nodes
+    from ada.api.containers import Nodes
 
     nid = Counter(1)
     nodes = Nodes([Node((bm.n2.p + bm.n1.p) / 2, next(nid), refs=[bm]) for bm in beams])

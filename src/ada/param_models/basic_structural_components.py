@@ -2,7 +2,7 @@ import numpy as np
 
 from ada import PrimExtrude
 from ada.base.units import Units
-from ada.concepts.walls import WallInsert
+from ada.api.walls import WallInsert
 
 
 class Window(WallInsert):

@@ -46,7 +46,7 @@ from OCC.Extend.DataExchange import read_step_file
 from OCC.Extend.ShapeFactory import make_extrusion, make_face, make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
-from ada.concepts.transforms import Placement, Rotation
+from ada.api.transforms import Placement, Rotation
 from ada.config import logger
 from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
@@ -56,7 +56,7 @@ from ..geom.placement import Direction
 from ..geom.points import Point
 
 if TYPE_CHECKING:
-    from ada import Boolean, Part
+    from ada import Boolean, Part, LineSegment, ArcSegment
     from ada.core.vector_utils import EquationOfPlane, Plane
 
 
@@ -78,7 +78,7 @@ def extract_shapes(step_path, scale, transform, rotate, include_shells=False):
 
 
 def transform_shape(
-        shape: TopoDS_Shape, scale=None, transform: Placement | tuple | list = None, rotate: Rotation = None
+    shape: TopoDS_Shape, scale=None, transform: Placement | tuple | list = None, rotate: Rotation = None
 ) -> TopoDS_Shape:
     trsf = gp_Trsf()
     if scale is not None:
@@ -250,7 +250,6 @@ def get_face_normal(a_face: TopoDS_Face) -> tuple[Point, Direction] | tuple[None
     location = gp_pln.Location().XYZ().Coord()  # a point of the plane
     normal = gp_pln.Axis().Direction()  # the plane normal
     return Point(*location), Direction(normal.X(), normal.Y(), normal.Z())
-
 
 
 def iter_faces_with_normal(shape, normal, point_in_plane: Iterable | Point = None):
@@ -446,7 +445,7 @@ def make_edge(p1, p2) -> TopoDS_Edge:
 
 
 def make_ori_vector(
-        name, origin, csys, pnt_r=0.02, cyl_l: Union[float, list, tuple] = 0.3, cyl_r=0.02, units="m"
+    name, origin, csys, pnt_r=0.02, cyl_l: Union[float, list, tuple] = 0.3, cyl_r=0.02, units="m"
 ) -> "Part":
     """
     Visualize a local coordinate system with a sphere and 3 cylinders representing origin and.
@@ -626,7 +625,7 @@ def apply_booleans(geom: TopoDS_Shape, booleans: list[Boolean]) -> TopoDS_Shape:
 
 
 def segments_to_edges(segments) -> list[TopoDS_Edge]:
-    from ada.concepts.curves import ArcSegment
+    from ada.api.curves import ArcSegment
 
     edges = []
     for seg in segments:
@@ -679,3 +678,34 @@ def transform_shape_to_pos(shape: TopoDS_Shape, location: Point, axis: Direction
     trsf.SetTranslation(gp_Vec(*location))
 
     return BRepBuilderAPI_Transform(shape1, trsf, True).Shape()
+
+
+def make_edges_and_fillet_from_3points_using_occ(start, center, end, radius):
+    edge1 = make_edge(start[:3], center[:3])
+    edge2 = make_edge(center[:3], end[:3])
+    ed1, ed2, fillet = make_fillet(edge1, edge2, radius)
+    return ed1, ed2, fillet
+
+
+def make_arc_segment_using_occ(start, center, end, radius) -> list[LineSegment, ArcSegment, LineSegment]:
+    from ada import ArcSegment, LineSegment
+
+    if not isinstance(start, Point):
+        start = Point(*start)
+    if not isinstance(center, Point):
+        center = Point(*center)
+    if not isinstance(end, Point):
+        end = Point(*end)
+
+    dim = start.dim
+    ed1, ed2, fillet = make_edges_and_fillet_from_3points_using_occ(start, center, end, radius)
+
+    ed1_p = [x[:dim] for x in get_edge_points(ed1)]
+    ed2_p = [x[:dim] for x in get_edge_points(ed2)]
+    fil_p = [x[:dim] for x in get_edge_points(fillet)]
+    midpoint = get_midpoint_of_arc(fillet)[:dim]
+    l1 = LineSegment(*ed1_p, edge_geom=ed1)
+    arc = ArcSegment(fil_p[0], fil_p[1], midpoint, radius, edge_geom=fillet)
+    l2 = LineSegment(*ed2_p, edge_geom=ed2)
+
+    return [l1, arc, l2]

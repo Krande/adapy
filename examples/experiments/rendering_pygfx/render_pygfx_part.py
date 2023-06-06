@@ -57,7 +57,7 @@ def main():
     box1 = ada.PrimBox("box1", (1, 0, 0), (1.5, 0.5, 0.5), color="red")
     box1.add_boolean(ada.PrimBox("box2", (1.25, -0.25, 0.25), (1.75, 0.25, 0.75)))
 
-    rev = ada.PrimRevolve("rev1", pl2_points, (3, 2, 3), (1, 0, 0), (0, -1, 0), 90, color="green")
+    rev = ada.PrimRevolve("rev1", pl2_points, 78, (3, 2, 3), (1, 0, 0), (0, -1, 0), color="green")
 
     cyl1 = ada.PrimCyl("cyl1", (3, 0, 0), (3, 0.5, 0.5), 0.3, color="green")
     cone1 = ada.PrimCone("cone1", (4, 0, 0), (4, 0.5, 0.5), 0.3, color="green")
@@ -65,6 +65,9 @@ def main():
     sphere1 = ada.PrimSphere("sphere1", (5, 0, 0), 0.3, color="green")
     sphere1.add_boolean(ada.PrimSphere("sphere2", (5.5, 0, 0), 0.3), "union")
     sphere1.add_boolean(ada.PrimSphere("sphere3", (5.25, 0, 0), 0.2))
+
+    po = Point(1,1,3)
+    pipe1 = ada.Pipe("pipe1", [], 'PIPE200x5', color="green")
 
     objects += [bm1, bm2, bm3, box1, bm4, bm5, bm6, cyl1, cone1, sphere1, rev, bm7_taper, pl1, pl2, pl3, pl4]
 

@@ -15,7 +15,7 @@ from ada.core.vector_utils import unit_vector, vector_length
 if TYPE_CHECKING:
     from ada import Assembly
     from ada.cadit.ifc.store import IfcStore
-    from ada.concepts.primitives import (
+    from ada.api.primitives import (
         BSplineSurfaceWithKnots,
         RationalBSplineSurfaceWithKnots,
     )
