@@ -89,6 +89,7 @@ def make_arc_segment(
     if not isinstance(end, Point):
         end = Point(*end)
 
+    # The SegCreator always creates a closed loop, that's why we pop the first segment
     if start.dim == 3:
         place, points2d = transform_points_in_plane_to_2d([start, center, end])
         points = [points2d[0], [*points2d[1], radius], points2d[2]]
@@ -98,22 +99,22 @@ def make_arc_segment(
         for seg in segments:
             if isinstance(seg, ArcSegment):
                 points = np.array([seg.p1, seg.midpoint, seg.p2])
-                start, midpoint, end = place.transform_points_to_global(points)
-                seg.p1 = start
-                seg.p2 = end
-                seg.midpoint = midpoint
+                s, mid, e = place.transform_points_to_global(points)
+                seg.p1 = s
+                seg.p2 = e
+                seg.midpoint = mid
             else:
                 points = np.array([seg.p1, seg.p2])
-                start, end = place.transform_points_to_global(points)
-                seg.p1 = start
-                seg.p2 = end
+                s, e = place.transform_points_to_global(points)
+                seg.p1 = s
+                seg.p2 = e
     else:
         points = [start, [*center, radius], end]
         sc = SegCreator(points, is_closed=False)
         segments = sc.build()
         segments.pop(0)
 
-    # The SegCreator always creates a closed loop, so we need to remove the first segment
+
 
     return segments
 
@@ -794,10 +795,10 @@ def intersect_line_circle(line, center, radius, tol=1e-1):
 
 @dataclass
 class CurveData:
-    center: np.ndarray
-    start: np.ndarray
-    end: np.ndarray
-    midp: np.ndarray
+    center: Point
+    start: Point
+    end: Point
+    midp: Point
 
 
 def get_center_from_3_points_and_radius(p1, p2, p3, radius, tol=1e-1) -> CurveData:
@@ -829,7 +830,7 @@ def get_center_from_3_points_and_radius(p1, p2, p3, radius, tol=1e-1) -> CurveDa
 
     center, start, end, midp = res_glob
 
-    return CurveData(center, start, end, midp)
+    return CurveData(Point(*center), Point(*start), Point(*end), Point(*midp))
 
 
 def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius, tol=1e-1):

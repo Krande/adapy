@@ -11,7 +11,6 @@ from ada.cadit.ifc.utils import (
     create_ifc_placement,
     create_ifcpolyline,
     create_local_placement,
-    tesselate_shape,
     to_real,
     write_elem_property_sets,
 )
@@ -211,9 +210,6 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
     write_elem_property_sets(props, pfitting, f, owner_history)
 
     return pfitting
-
-
-
 
 
 def elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):

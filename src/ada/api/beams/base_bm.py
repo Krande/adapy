@@ -6,13 +6,12 @@ from typing import TYPE_CHECKING, Callable, Iterable, Union
 import numpy as np
 
 import ada.api.beams.geom_beams as geo_conv
-from ada.base.changes import ChangeAction
+from ada.api.beams.helpers import BeamConnectionProps
+from ada.api.bounding_box import BoundingBox
+from ada.api.curves import CurveRevolve, CurveSweep
+from ada.api.nodes import Node, get_singular_node_by_volume
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
-from ada.api.bounding_box import BoundingBox
-from ada.api.beams.helpers import BeamConnectionProps
-from ada.api.curves import CurvePoly, CurveRevolve, CurveSweep
-from ada.api.nodes import Node, get_singular_node_by_volume
 from ada.config import logger
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import (
@@ -49,18 +48,18 @@ class Beam(BackendGeom):
     """
 
     def __init__(
-            self,
-            name,
-            n1: Node | Iterable,
-            n2: Node | Iterable,
-            sec: str | Section,
-            mat: str | Material = None,
-            up=None,
-            angle=0.0,
-            e1=None,
-            e2=None,
-            units=Units.M,
-            **kwargs,
+        self,
+        name,
+        n1: Node | Iterable,
+        n2: Node | Iterable,
+        sec: str | Section,
+        mat: str | Material = None,
+        up=None,
+        angle=0.0,
+        e1=None,
+        e2=None,
+        units=Units.M,
+        **kwargs,
     ):
         super().__init__(name, units=units, **kwargs)
         self._n1 = n1 if type(n1) is Node else Node(n1[:3], units=units)
@@ -90,7 +89,7 @@ class Beam(BackendGeom):
 
     @staticmethod
     def array_from_list_of_coords(
-            list_of_coords: list[tuple], sec: Section | str, mat: Material | str = None, name_gen: Callable = None
+        list_of_coords: list[tuple], sec: Section | str, mat: Material | str = None, name_gen: Callable = None
     ) -> list[Beam]:
         """Create an array of beams from a list of coordinates"""
         beams = []
@@ -419,14 +418,14 @@ class TaperTypes(Enum):
 
 class BeamTapered(Beam):
     def __init__(
-            self,
-            name,
-            n1: Iterable,
-            n2: Iterable,
-            sec: str | Section,
-            tap: str | Section = None,
-            taper_type: TaperTypes | str = TaperTypes.CENTERED,
-            **kwargs,
+        self,
+        name,
+        n1: Iterable,
+        n2: Iterable,
+        sec: str | Section,
+        tap: str | Section = None,
+        taper_type: TaperTypes | str = TaperTypes.CENTERED,
+        **kwargs,
     ):
         super().__init__(name=name, n1=n1, n2=n2, sec=sec, **kwargs)
 

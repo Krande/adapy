@@ -7,7 +7,7 @@ from ada.core.curve_utils import (
     calc_arc_radius_center_from_3points,
     get_center_from_3_points_and_radius,
     intersect_line_circle,
-    make_arc_segment
+    make_arc_segment,
 )
 from ada.occ.utils import make_arc_segment_using_occ
 from ada.core.utils import roundoff
@@ -41,10 +41,17 @@ def test_make_arc_tool_2d():
 
 
 def test_make_arc_tool_3d_xy_offset():
-    start = (0, 5, 1)
-    center = (0, 0, 1)
-    end = (5, 0, 1)
+    start = (0, 5)
+    center = (0, 0)
+    end = (5, 0)
     radius = 0.2
+
+    points2d = [start, center, end]
+    place = Placement(origin=(0, 0, 1))
+    start, center, end = place.transform_points_to_global(points2d)
+    assert np.allclose(start, (0, 5, 1))
+    assert np.allclose(center, (0, 0, 1))
+    assert np.allclose(end, (5, 0, 1))
 
     # Using opencascade
     segments_a = make_arc_segment_using_occ(start, center, end, radius)
@@ -68,6 +75,9 @@ def test_make_arc_tool_3d_xz_offset():
     points2d = [start, center, end]
     place = Placement.from_axis_angle([1, 0, 0], 90, origin=(0, 0, 0))
     start, center, end = place.transform_points_to_global(points2d)
+    assert np.allclose(start, (0, 0, 5))
+    assert np.allclose(center, (0, 0, 0))
+    assert np.allclose(end, (5, 0, 0))
 
     # Using opencascade
     segments_a = make_arc_segment_using_occ(start, center, end, radius)

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ada.api.beams.geom_beams import section_to_arbitrary_profile_def_with_voids
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.api.curves import ArcSegment
@@ -13,7 +14,8 @@ from ada.config import Settings as _Settings
 from ada.config import logger
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_length
-from ada.geom.placement import Direction
+from ada.geom import Geometry
+from ada.geom.placement import Direction, Axis2Placement3D, Axis1Placement
 from ada.materials.utils import get_material
 from ada.sections.utils import get_section
 
@@ -145,7 +147,7 @@ class PipeSegStraight(BackendGeom):
         )
         self.p1 = p1 if isinstance(p1, Node) else Node(p1, units=units)
         self.p2 = p2 if isinstance(p2, Node) else Node(p2, units=units)
-        self._xvec1 = self.p2.p - self.p1.p
+        self._xvec1 = unit_vector(self.p2.p - self.p1.p)
         self._zvec1 = calc_zvec(self._xvec1)
         self.section = section
         self.material = material
@@ -159,6 +161,10 @@ class PipeSegStraight(BackendGeom):
     @property
     def zvec1(self):
         return self._zvec1
+
+    @property
+    def length(self):
+        return vector_length(self.p2.p - self.p1.p)
 
     @property
     def line_occ(self):
@@ -181,6 +187,21 @@ class PipeSegStraight(BackendGeom):
         geom = apply_booleans(raw_geom, self.booleans)
         return geom
 
+    def solid_geom(self) -> Geometry:
+        from ada.api.beams.geom_beams import section_to_arbitrary_profile_def_with_voids
+        from ada.geom.booleans import BooleanOperation
+        import ada.geom.solids as geo_so
+
+        profile = section_to_arbitrary_profile_def_with_voids(self.section)
+        place = Axis2Placement3D(location=self.p1.p, axis=self.xvec1, ref_direction=self.zvec1)
+        solid = geo_so.ExtrudedAreaSolid(profile, place, self.length, Direction(0, 0, 1))
+
+        booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+        return Geometry(self.guid, solid, self.color, bool_operations=booleans)
+
+    def shell_geom(self) -> Geometry:
+        raise NotImplementedError("shell_geom() not implemented")
+
     def __repr__(self):
         return f"PipeSegStraight({self.name}, p1={self.p1}, p2={self.p2})"
 
@@ -189,9 +210,9 @@ class PipeSegElbow(BackendGeom):
     def __init__(
             self,
             name,
-            p1,
-            p2,
-            p3,
+            start,
+            midpoint,
+            end,
             bend_radius,
             section,
             material,
@@ -205,9 +226,9 @@ class PipeSegElbow(BackendGeom):
         super(PipeSegElbow, self).__init__(
             name=name, guid=guid, metadata=metadata, units=units, parent=parent, color=color
         )
-        self.p1 = p1
-        self.p2 = p2
-        self.p3 = p3
+        self.p1 = start
+        self.p2 = midpoint
+        self.p3 = end
         self.bend_radius = bend_radius
         self.section = section
         self.material = material
@@ -276,6 +297,25 @@ class PipeSegElbow(BackendGeom):
         geom = apply_booleans(raw_geom, self.booleans)
         return geom
 
+    def solid_geom(self) -> Geometry:
+        from ada.geom.solids import RevolvedAreaSolid
+        from ada.core.curve_utils import get_center_from_3_points_and_radius
+        from ada.geom.booleans import BooleanOperation
+
+        profile = section_to_arbitrary_profile_def_with_voids(self.section)
+        position = Axis2Placement3D()
+
+        cd = get_center_from_3_points_and_radius(self.p1, self.p2, self.p3, self.bend_radius, tol=1e-1)
+        axis = Axis1Placement(location=cd.center, axis=self.xvec1)
+        revolve_angle = np.rad2deg(angle_between(self.xvec1, self.xvec2))
+        solid = RevolvedAreaSolid(profile, position, axis, revolve_angle)
+
+        booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+        return Geometry(self.guid, solid, self.color, bool_operations=booleans)
+
+    def shell_geom(self) -> Geometry:
+        raise NotImplementedError("shell_geom() not implemented")
+
     @property
     def arc_seg(self) -> ArcSegment:
         return self._arc_seg
@@ -285,7 +325,8 @@ class PipeSegElbow(BackendGeom):
 
 
 def build_pipe_segments(pipe: Pipe) -> list[PipeSegStraight | PipeSegElbow]:
-    from ada.occ.utils import make_arc_segment_using_occ
+    from ada.occ.utils import make_arc_segment_using_occ as make_arc_segment
+    # from ada.api.curves import make_arc_segment
 
     segs = []
     for p1, p2 in zip(pipe.points[:-1], pipe.points[1:]):
@@ -337,7 +378,7 @@ def build_pipe_segments(pipe: Pipe) -> list[PipeSegStraight | PipeSegElbow]:
             prev_p = (p11.p, p12.p)
 
         try:
-            seg1, arc, seg2 = make_arc_segment_using_occ(prev_p[0], prev_p[1], p22.p, pipe.pipe_bend_radius * 0.99)
+            seg1, arc, seg2 = make_arc_segment(prev_p[0], prev_p[1], p22.p, pipe.pipe_bend_radius * 0.99)
         except (ValueError, RuntimeError) as e:
             logger.error(f"Error: {e}")  # , traceback: "{traceback.format_exc()}"')
             continue

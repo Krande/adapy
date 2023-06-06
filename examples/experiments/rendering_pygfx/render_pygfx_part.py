@@ -66,10 +66,10 @@ def main():
     sphere1.add_boolean(ada.PrimSphere("sphere2", (5.5, 0, 0), 0.3), "union")
     sphere1.add_boolean(ada.PrimSphere("sphere3", (5.25, 0, 0), 0.2))
 
-    po = Point(1,1,3)
-    pipe1 = ada.Pipe("pipe1", [], 'PIPE200x5', color="green")
+    po = [Point(1, 1, 3) + x for x in [(0, 0.5, 0), (1, 0.5, 0), (1.2, 0.7, 0.2), (1.5, 0.7, 0.2)]]
+    pipe1 = ada.Pipe("pipe1", po, 'PIPE200x5', color="green")
 
-    objects += [bm1, bm2, bm3, box1, bm4, bm5, bm6, cyl1, cone1, sphere1, rev, bm7_taper, pl1, pl2, pl3, pl4]
+    objects += [bm1, bm2, bm3, box1, bm4, bm5, bm6, cyl1, cone1, sphere1, rev, bm7_taper, pl1, pl2, pl3, pl4, pipe1]
 
     a = ada.Assembly() / (ada.Part("MyBeam") / objects)
     # a.to_stp("temp/part.stp", geom_repr_override=render_override)

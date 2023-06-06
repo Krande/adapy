@@ -159,16 +159,30 @@ def transform_points_in_plane_to_2d(points: list[Point], origin=None, xdir=None)
 
     origin = points[0] if origin is None else origin
     n = normal_to_points_in_plane(points)
+
+    # # if n is parallel to z axis, but pointing in the opposite direction, then flip it
+    # if is_parallel(n, np.array([0, 0, 1])):
+    #     if n[2] < 0:
+    #         n = -n
+
     if xdir is None:
         xdir, yv = create_right_hand_vectors_xv_yv_from_zv(n)
     else:
         yv = calc_yvec(xdir, n)
+
     place = Placement(origin, xdir, yv, n)
-    rotation_matrix = transform_csys_to_csys(xdir, yv, np.array([1, 0, 0]), np.array([0, 1, 0]))
+    rotation_matrix = transform_csys_to_csys(np.array([1, 0, 0]), np.array([0, 1, 0]), xdir, yv)
     tp = np.array(points) - origin
     new_points = np.matmul(rotation_matrix, tp.T).T
     # remove the last column
     local2d = [Point(*p) for p in new_points[:, :-1]]
+
+    # # Check if the points are clockwise or counter-clockwise. If counter-clockwise, reverse the order of the points
+    # if not is_clockwise(local2d):
+    #     local2d.reverse()
+    #     xdir, yv = create_right_hand_vectors_xv_yv_from_zv(-n)
+    #     place = Placement(origin, xdir, yv, -n)
+
     return place, local2d
 
 
@@ -180,6 +194,19 @@ def transform(matrix4x4: np.ndarray, pos: np.ndarray) -> np.ndarray:
 
     return transformed[:, :3]
 
+
+def transform_2d_to_3d(points_2d, transformation_matrix):
+    # Convert 2D points (x', y') to 3D points (x', y', 0) and add a homogeneous coordinate of 1
+    points_2d_homogeneous = np.hstack(
+        (points_2d, np.zeros((points_2d.shape[0], 1)), np.ones((points_2d.shape[0], 1))))
+
+    # Apply the transformation matrix to each point
+    points_3d_homogeneous = np.dot(transformation_matrix, points_2d_homogeneous.T).T
+
+    # Remove the fourth coordinate (the homogeneous coordinate)
+    points_3d = points_3d_homogeneous[:, :3]
+
+    return points_3d
 
 def linear_2dtransform_rotate(origin, point, degrees) -> np.ndarray:
     """

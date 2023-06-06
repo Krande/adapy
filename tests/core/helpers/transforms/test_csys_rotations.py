@@ -96,7 +96,7 @@ def test_transform():
 
 def test_transform_placement():
     place = Placement()
-    identity_matrix = place.get_matrix4x4()
+    identity_matrix = place.calc_matrix4x4()
     # Assert that the identity matrix is the same as the identity matrix
     assert np.allclose(identity_matrix, np.identity(4))
 
@@ -104,7 +104,7 @@ def test_transform_placement():
 def test_transform_translation():
     pos = Point(1, 2, 3)
     place = Placement(origin=pos)
-    matrix = place.get_matrix4x4()
+    matrix = place.calc_matrix4x4()
 
     assert np.allclose(matrix, np.array([[1, 0, 0, 1], [0, 1, 0, 2], [0, 0, 1, 3], [0, 0, 0, 1]]))
 
@@ -121,7 +121,7 @@ def test_transform_rotation():
     assert np.allclose(place.xdir, xdir)
     assert np.allclose(place.ydir, ydir)
     assert np.allclose(place.zdir, zdir)
-    matrix = place.get_matrix4x4()
+    matrix = place.calc_matrix4x4()
 
     assert np.allclose(matrix, m)
 

@@ -14,11 +14,11 @@ import ada.geom.solids as geo_so
 import ada.geom.surfaces as geo_su
 
 if TYPE_CHECKING:
-    from ada import Section
+    from ada import Section, PipeSegStraight
     from ada.api.beams import Beam, BeamRevolve, BeamSweep, BeamTapered
 
 
-def straight_beam_to_geom(beam: Beam, is_solid=True) -> Geometry:
+def straight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geometry:
     if is_solid:
         profile = section_to_arbitrary_profile_def_with_voids(beam.section)
         place = Axis2Placement3D(location=beam.n1.p, axis=beam.xvec, ref_direction=beam.yvec)

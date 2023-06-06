@@ -90,7 +90,9 @@ class RendererPyGFX:
         scene = trimesh.Scene(base_frame=graph.top_level.name)
         scene.metadata["meta"] = graph.create_meta(suffix="")
         bt = BatchTessellator()
-        shapes_tess_iter = bt.batch_tessellate(part.get_all_physical_objects(), render_override=render_override)
+        shapes_tess_iter = bt.batch_tessellate(
+            part.get_all_physical_objects(pipe_to_segments=True), render_override=render_override
+        )
         all_shapes = sorted(shapes_tess_iter, key=lambda x: x.material)
         for mat_id, meshes in groupby(all_shapes, lambda x: x.material):
             merged_store = concatenate_stores(meshes)

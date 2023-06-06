@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Iterable, List, Union
 import numpy as np
 import pyquaternion as pq
 
-from ada.core.vector_utils import transform, transform_csys_to_csys
+from ada.core.vector_utils import transform, transform_csys_to_csys, transform_2d_to_3d
 from ada.geom.placement import Direction, O, Axis2Placement3D
 from ada.geom.points import Point
 
@@ -76,8 +76,9 @@ class Placement:
         if not isinstance(self.origin, Point):
             self.origin = Point(*self.origin)
 
+
     @staticmethod
-    def from_axis_angle(axis: list[float], angle: float, origin: list[float] = None) -> Placement:
+    def from_axis_angle(axis: list[float], angle: float, origin: Iterable[float | int] = None) -> Placement:
         """Axis is a list of 3 floats, angle is in degrees."""
         q = pq.Quaternion(axis=axis, angle=np.radians(angle))
         m = q.transformation_matrix
@@ -102,7 +103,7 @@ class Placement:
     def rot_matrix(self):
         return np.array([self.xdir, self.ydir, self.zdir])
 
-    def get_matrix4x4(self):
+    def calc_matrix4x4(self):
         # Based on the quaternion transformation matrix calculation
         t = np.array([[self.origin[0]], [self.origin[1]], [self.origin[2]]])
         Rt = np.hstack([self.rot_matrix, t])
@@ -111,21 +112,15 @@ class Placement:
     def to_axis3d_geom(self) -> Axis2Placement3D:
         return Axis2Placement3D(Point(*self.origin), Direction(*self.zdir), Direction(*self.xdir))
 
-    def transform_points_to_global(self, points: np.ndarray) -> np.ndarray:
+    def transform_points_to_global(self, points2d: Iterable[Iterable[float | int, float | int]]) -> np.ndarray:
         """Transform points from the coordinate system of this placement to the global coordinate system."""
-        if not isinstance(points, np.ndarray):
-            points = np.array(points)
+        if not isinstance(points2d, np.ndarray):
+            points2d = np.array(points2d)
 
-        if points.shape[-1] == 2:
-            points = np.hstack([points, np.zeros((points.shape[0], 1))])
+        m = self.calc_matrix4x4()
+        res2 = transform_2d_to_3d(points2d, m)
 
-        # Rotate first, then translate
-        rot_mat = self.rot_matrix @ np.eye(3)
-        points = points @ rot_mat.T
-
-        res = transform(self.get_matrix4x4(), points)
-
-        return res
+        return res2
 
     def __eq__(self, other: Placement):
         from ada.core.vector_utils import vector_length
