@@ -160,7 +160,8 @@ def transform_points_in_plane_to_2d(points: list[Point] | np.ndarray, origin=Non
         points = np.array(points)
 
     origin = points[0] if origin is None else origin
-    n = normal_to_points_in_plane(points)
+    tp = points - origin
+    n = normal_to_points_in_plane(tp)
 
     if xdir is None:
         xdir, yv = create_right_hand_vectors_xv_yv_from_zv(n)
@@ -169,7 +170,6 @@ def transform_points_in_plane_to_2d(points: list[Point] | np.ndarray, origin=Non
 
     place = Placement(origin, xdir, yv, n)
     rotation_matrix = transform_csys_to_csys(np.array([1, 0, 0]), np.array([0, 1, 0]), xdir, yv)
-    tp = points - origin
     new_points = np.matmul(rotation_matrix, tp.T).T
 
     # remove the last column
