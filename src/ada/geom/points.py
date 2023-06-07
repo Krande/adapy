@@ -51,8 +51,8 @@ class Point(np.ndarray):
     def z(self):
         return self[2]
 
-    def is_equal(self, other):
-        return np.allclose(self, other)
+    def is_equal(self, other, atol=1e-8):
+        return np.allclose(self, other, atol=atol)
 
     @property
     def dim(self):

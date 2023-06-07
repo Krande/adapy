@@ -6,7 +6,8 @@ from trimesh.path.entities import Line
 from trimesh.visual.material import PBRMaterial
 
 from ada import Beam
-from ada.core.vector_utils import rot_matrix, unit_vector
+from ada.core.vector_utils import unit_vector
+from ada.core.vector_transforms import rot_matrix
 
 
 def test_vertex_coloring_simple(polygon_mesh):
@@ -77,7 +78,7 @@ def test_single_line_segments():
 
 
 def test_multiple_line_segments():
-    from ada.core.vector_utils import rot_matrix
+
 
     scene = trimesh.Scene()
     points = np.asarray([(0, 0, 0.5), (1, 0, 0.5), (0, 1, 0.5), (1, 1, 0.5)], dtype=float)

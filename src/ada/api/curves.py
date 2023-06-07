@@ -9,12 +9,10 @@ from ada.api.nodes import Node
 from ada.api.transforms import Placement
 from ada.core.curve_utils import build_polycurve, segments_to_indexed_lists, make_arc_segment
 from ada.core.vector_utils import (
-    normal_to_points_in_plane,
     unit_vector,
     is_clockwise,
-    local_2_global_points,
-    global_2_local_nodes,
 )
+from ada.core.vector_transforms import global_2_local_nodes, local_2_global_points, normal_to_points_in_plane
 from ada.geom.placement import Direction
 from ada.geom.points import Point
 from ada.geom.surfaces import ArbitraryProfileDefWithVoids, ProfileType

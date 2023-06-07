@@ -11,17 +11,13 @@ from .exceptions import VectorNormalizeError
 from .utils import roundoff
 from .vector_utils import (
     angle_between,
-    calc_yvec,
-    global_2_local_nodes,
     intersect_calc,
     intersection_point,
-    linear_2dtransform_rotate,
-    local_2_global_points,
-    normal_to_points_in_plane,
     unit_vector,
     vector_length_2d,
-    transform_points_in_plane_to_2d,
 )
+from .vector_transforms import transform_points_in_plane_to_2d, linear_2dtransform_rotate, global_2_local_nodes, \
+    local_2_global_points, normal_to_points_in_plane, calc_yvec
 from ..geom.points import Point
 
 if TYPE_CHECKING:
@@ -843,7 +839,7 @@ def get_center_from_3_points_and_radius(p1, p2, p3, radius, tol=1e-1) -> CurveDa
     is_in_xy_plane = angle_between(xv, X) in (np.pi, 0) and angle_between(yv, Y) in (np.pi, 0)
 
     if is_in_xy_plane:
-        res_locn = calc_2darc_start_end_from_lines_radius(*point_to_origin, radius)
+        res_locn = calc_2darc_start_end_from_lines_radius(*point_to_origin, radius, tol=tol)
         res_glob = [np.array([p[0], p[1], 0]) + p1 for p in res_locn]
     else:
         xv_norm, yv_norm = unit_vector(xv), unit_vector(yv)

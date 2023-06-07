@@ -14,7 +14,8 @@ from ada.config import Settings as _Settings
 from ada.config import logger
 from ada.core.exceptions import VectorNormalizeError
 from ada.core.utils import Counter, roundoff
-from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_length
+from ada.core.vector_utils import angle_between, unit_vector, vector_length
+from ada.core.vector_transforms import calc_zvec
 from ada.geom import Geometry
 from ada.geom.placement import Direction, Axis2Placement3D, Axis1Placement
 from ada.materials.utils import get_material
@@ -327,9 +328,7 @@ class PipeSegElbow(BackendGeom):
 
 
 def build_pipe_segments(pipe: Pipe) -> list[PipeSegStraight | PipeSegElbow]:
-    # from ada.core.curve_utils import make_arc_segment_with_tolerance as make_arc_segment
-    # from ada.core.curve_utils import make_arc_segment
-    from ada.occ.utils import make_arc_segment_using_occ as make_arc_segment
+    from ada.occ.utils import make_arc_segment_using_occ
 
     segs = []
     for p1, p2 in zip(pipe.points[:-1], pipe.points[1:]):
@@ -385,7 +384,7 @@ def build_pipe_segments(pipe: Pipe) -> list[PipeSegStraight | PipeSegElbow]:
         arc_center = prev_p[1]
         arc_end = p22.p
         try:
-            seg1, arc, seg2 = make_arc_segment(arc_start, arc_center, arc_end, radius)
+            seg1, arc, seg2 = make_arc_segment_using_occ(arc_start, arc_center, arc_end, radius)
         except (ValueError, VectorNormalizeError) as e:
             points = [arc_start.tolist(), arc_center.tolist(), arc_end.tolist()]
             logger.error(f"Arc build failed for {pipe} points: {points}. Error: {e}")

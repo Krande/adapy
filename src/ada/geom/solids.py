@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Union
 
-from ada.core.vector_utils import create_right_hand_vectors_xv_yv_from_zv
+from ada.core.vector_transforms import create_right_hand_vectors_xv_yv_from_zv
 from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
 from ada.geom.points import Point
 from ada.geom.surfaces import ProfileDef

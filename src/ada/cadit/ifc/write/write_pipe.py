@@ -19,12 +19,10 @@ from ada.core.constants import O, X, Z
 from ada.core.curve_utils import get_center_from_3_points_and_radius
 from ada.core.vector_utils import (
     angle_between,
-    calc_yvec,
-    calc_zvec,
-    global_2_local_nodes,
     unit_vector,
     vector_length,
 )
+from ada.core.vector_transforms import global_2_local_nodes, calc_yvec, calc_zvec
 
 if TYPE_CHECKING:
     from ada import Pipe, PipeSegElbow, PipeSegStraight

@@ -46,10 +46,11 @@ from OCC.Extend.DataExchange import read_step_file
 from OCC.Extend.ShapeFactory import make_extrusion, make_face, make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
-from ada.api.transforms import Placement, Rotation
+from ada.api.transforms import Placement, Rotation, Plane, EquationOfPlane
 from ada.config import logger
 from ada.core.utils import roundoff
-from ada.core.vector_utils import unit_vector, vector_length
+from ada.core.vector_utils import unit_vector, vector_length, is_parallel
+from ada.core.vector_transforms import normal_to_points_in_plane
 from ada.fem.shapes import ElemType
 from ..geom.booleans import BoolOpEnum
 from ..geom.placement import Direction
@@ -57,7 +58,6 @@ from ..geom.points import Point
 
 if TYPE_CHECKING:
     from ada import Boolean, Part, LineSegment, ArcSegment
-    from ada.core.vector_utils import EquationOfPlane, Plane
 
 
 def extract_shapes(step_path, scale, transform, rotate, include_shells=False):
@@ -178,8 +178,6 @@ def face_to_wires(face):
 
 
 def make_fillet(edge1, edge2, bend_radius):
-    from ada.core.vector_utils import normal_to_points_in_plane
-
     f = ChFi2d_AnaFilletAlgo()
 
     points1 = get_points_from_occ_shape(edge1)
@@ -253,8 +251,6 @@ def get_face_normal(a_face: TopoDS_Face) -> tuple[Point, Direction] | tuple[None
 
 
 def iter_faces_with_normal(shape, normal, point_in_plane: Iterable | Point = None):
-    from ada.core.vector_utils import EquationOfPlane, is_parallel
-
     normal = Direction(*normal)
     eop = None
     if point_in_plane is not None:
@@ -501,7 +497,6 @@ def make_ori_vector(
 
 def make_eq_plane_object(name, eq_plane: EquationOfPlane, p_dist=1, plane: Plane = None, colour="white") -> Part:
     from ada import Plate
-    from ada.core.vector_utils import Plane
 
     if plane is None:
         plane = Plane.XY

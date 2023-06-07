@@ -16,12 +16,11 @@ from ada.config import logger
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import (
     angle_between,
-    calc_yvec,
-    calc_zvec,
     is_between_endpoints,
     unit_vector,
     vector_length,
 )
+from ada.core.vector_transforms import calc_yvec, calc_zvec
 from ada.geom import Geometry
 from ada.geom.placement import Direction
 from ada.materials import Material
@@ -155,7 +154,7 @@ class Beam(BackendGeom):
     def get_outer_points(self):
         from itertools import chain
 
-        from ada.core.vector_utils import local_2_global_points
+        from ada.core.vector_transforms import local_2_global_points
 
         section_profile = self.section.get_section_profile(False)
         if section_profile.disconnected:

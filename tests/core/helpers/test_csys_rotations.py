@@ -2,14 +2,17 @@ import numpy as np
 
 from ada import Placement, Direction
 from ada.core.utils import roundoff
-from ada.core.vector_utils import (
-    global_2_local_nodes,
-    local_2_global_points,
-    rotation_matrix_csys_rotate,
-    transform,
+from ada.core.vector_transforms import (
+    transform_csys_to_csys,
     transform_points_in_plane_to_2d,
     transform_3points_to_2d,
-    transform_csys_to_csys,
+    transform,
+    rotation_matrix_csys_rotate,
+    global_2_local_nodes,
+    local_2_global_points,
+    normal_to_points_in_plane,
+    calc_xvec,
+    calc_yvec,
 )
 import pyquaternion as pq
 from ada.geom.points import Point
@@ -149,11 +152,20 @@ def test_transform_rotation_and_translation():
     assert np.allclose(result_multiple, expected_output_multiple, atol=1e-6)
 
 
+def test_transform_2d_3d():
+    points2d = [(0, 5), (0, 0), (5, 0)]
+    place = Placement.from_axis_angle([1, 0, 0], 90, origin=(0, 0, 0))
+    points3d = place.transform_points_to_global(points2d)
+    place_back, points2d_b = transform_points_in_plane_to_2d(points3d)
+    for i, p in enumerate(points2d_b):
+        assert p.is_equal(points2d[i])
+
+
 def test_transform_3d_points_to_2d():
     points = [Point([1.0, 1.5, 3.0]), Point([2.0, 1.5, 3.0]), Point([2.2, 1.7, 3.2])]
-    xdir = Direction([1, 0, 0])
 
-    place, points2d_b = transform_points_in_plane_to_2d(points, xdir=xdir)
+    place, points2d_b = transform_points_in_plane_to_2d(points)
     points_back_in3d = place.transform_points_to_global(points2d_b)
-
+    for i, p in enumerate(points):
+        assert p.is_equal(points_back_in3d[i])
     print("sd")

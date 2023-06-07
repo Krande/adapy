@@ -419,10 +419,10 @@ class Part(BackendGeom):
 
         from ada import Beam, Plate, Shape
         from ada.core.vector_utils import (
-            local_2_global_points,
             poly2d_center_of_gravity,
             poly_area_from_list,
         )
+        from ada.core.vector_transforms import local_2_global_points
         from ada.fem.containers import COG
 
         tot_mass = 0

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Iterable, List, Union
+from enum import Enum
+from typing import TYPE_CHECKING, Iterable, List, Union, ClassVar
 
 import numpy as np
 import pyquaternion as pq
 
-from ada.core.vector_utils import transform, transform_csys_to_csys, transform_2d_to_3d, calc_xvec
+from ada.core.vector_transforms import transform_2d_to_3d, calc_xvec, calc_yvec, calc_zvec, normal_to_points_in_plane
+from ada.core.vector_utils import unit_vector
 from ada.geom.placement import Direction, O, Axis2Placement3D
 from ada.geom.points import Point
 
@@ -49,8 +51,6 @@ class Placement:
     parent = None
 
     def __post_init__(self):
-        from ada.core.vector_utils import calc_yvec, calc_xvec, calc_zvec
-
         all_dir = [self.xdir, self.ydir, self.zdir]
         if all(x is None for x in all_dir):
             self.xdir = Direction(1, 0, 0)
@@ -81,7 +81,6 @@ class Placement:
 
         if not isinstance(self.origin, Point):
             self.origin = Point(*self.origin)
-
 
     @staticmethod
     def from_axis_angle(axis: list[float], angle: float, origin: Iterable[float | int] = None) -> Placement:
@@ -157,3 +156,85 @@ class Instance:
             )
 
         return matrices
+
+
+class Plane(Enum):
+    XY = "xy"
+    XZ = "xz"
+    YZ = "yz"
+
+
+@dataclass
+class EquationOfPlane:
+    point_in_plane: tuple | list | np.ndarray
+    normal: tuple | list | np.ndarray
+    yvec: tuple | list | np.ndarray = None
+
+    PLANE: ClassVar[Plane]
+
+    @staticmethod
+    def from_arbitrary_points(points):
+        points = np.array(points)
+        normal = normal_to_points_in_plane(points)
+        pip = points[0]
+        return EquationOfPlane(pip, normal)
+
+    def __post_init__(self):
+        point_in_plane = self.point_in_plane
+        normal = self.normal
+        x1, y1, z1 = point_in_plane
+        a = normal[0]
+        b = normal[1]
+        c = normal[2]
+        self.d = -(a * x1 + b * y1 + c * z1)
+
+    def calc_distance_to_point(self, point: Iterable | Point) -> float:
+        if not isinstance(point, Point):
+            point = Point(*point)
+
+        return abs(point.dot(self.normal) + self.d) / np.linalg.norm(self.normal)
+
+    def return_points_in_plane(self, points: np.ndarray) -> np.ndarray:
+        return points[points.dot(self.normal) + self.d == 0]
+
+    def is_point_in_plane(self, point: Iterable) -> bool:
+        if isinstance(point, np.ndarray) is False:
+            point = np.array(point)
+
+        return bool(point.dot(self.normal) + self.d == 0)
+
+    def get_lcsys(self):
+        if self.yvec is None:
+            if sum(abs(self.normal) - np.array([0, 0, 1])) < 1e-5:
+                vec1 = np.array([1, 0, 0])
+            else:
+                vec1 = np.array([0, 0, 1])
+
+            self.yvec = unit_vector(calc_yvec(vec1, self.normal))
+
+        xvec = unit_vector(calc_xvec(self.yvec, self.normal))
+
+        return [xvec, self.yvec, self.normal]
+
+    def get_points_in_lcsys_plane(self, p_dist: float = 1, plane: Plane = Plane.XY):
+        csys = self.get_lcsys()
+        p0 = self.point_in_plane
+        vec_map = {
+            Plane.XY: (0, 1),
+            Plane.XZ: (0, 2),
+            Plane.YZ: (1, 2),
+        }
+        i, j = vec_map.get(plane)
+        vec2 = csys[i]
+        vec3 = csys[j]
+
+        p1 = p0 + vec2 * p_dist + vec3 * p_dist
+        p2 = p0 - vec2 * p_dist + vec3 * p_dist
+        p3 = p0 - vec2 * p_dist - vec3 * p_dist
+        p4 = p0 + vec2 * p_dist - vec3 * p_dist
+        return [p1, p2, p3, p4]
+
+    def project_point_onto_plane(self, point: Iterable) -> np.ndarray:
+        p = np.array(point)
+        dist = p.dot(self.normal) + self.d
+        return p - dist * self.normal

@@ -8,7 +8,8 @@ from ada import Beam
 from ada.api.beams import BeamRevolve
 from ada.api.curves import CurveRevolve
 from ada.config import logger
-from ada.core.vector_utils import calc_yvec, vector_length
+from ada.core.vector_utils import vector_length
+from ada.core.vector_transforms import calc_yvec
 
 from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
@@ -101,7 +102,7 @@ def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
 
 def import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) -> Beam:
     from ada import Placement
-    from ada.core.vector_utils import transform3d
+    from ada.core.vector_transforms import transform3d
 
     logger.warning("Reading IFC Beams swept along IfcTrimmedCurve is WIP")
 

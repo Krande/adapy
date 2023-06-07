@@ -11,7 +11,8 @@ from ada import Assembly, Beam, Node, Part, Pipe, PipeSegStraight, Plate, PrimCy
 from ada.config import logger
 
 from .utils import Counter
-from .vector_utils import EquationOfPlane, intersect_calc, is_parallel, vector_length
+from .vector_utils import intersect_calc, is_parallel, vector_length
+from ..api.transforms import EquationOfPlane
 
 
 def basic_intersect(bm: Beam, margins, all_parts: [Part]):

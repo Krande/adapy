@@ -10,7 +10,7 @@ import trimesh
 import trimesh.visual
 
 from ada.config import logger
-from ada.core.vector_utils import transform
+from ada.core.vector_transforms import transform
 from ada.visit.colors import Color
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import MergedMesh, MeshRef, MeshStore, MeshType

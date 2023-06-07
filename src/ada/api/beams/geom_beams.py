@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.core.vector_utils import transform_csys_to_csys
+from ada.core.vector_transforms import transform_csys_to_csys
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
 from ada.geom.curves import Line, Circle

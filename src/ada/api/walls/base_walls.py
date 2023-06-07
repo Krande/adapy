@@ -160,7 +160,8 @@ class Wall(BackendGeom):
 
 
     def extrusion_area(self) -> list[Point]:
-        from ada.core.vector_utils import calc_yvec, intersect_calc, is_parallel
+        from ada.core.vector_utils import intersect_calc, is_parallel
+        from ada.core.vector_transforms import calc_yvec
 
         area_points = []
         vpo = [np.array(p) for p in self.points]

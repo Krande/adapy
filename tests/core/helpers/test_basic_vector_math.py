@@ -1,7 +1,7 @@
 from numpy.testing import assert_array_almost_equal
 
 from ada.core.constants import O
-from ada.core.vector_utils import global_2_local_nodes, local_2_global_points
+from ada.core.vector_transforms import global_2_local_nodes, local_2_global_points
 
 
 def test_basic_transform_of_vector():

@@ -108,7 +108,7 @@ class VisMesh:
         self._export_using_trimesh(mesh, dest_file)
 
     def to_gltf(self, dest_file, only_these_guids: list[str] = None, embed_meta=False):
-        from ada.core.vector_utils import rot_matrix
+        from ..core.vector_transforms import rot_matrix
 
         dest_file = pathlib.Path(dest_file).with_suffix(".glb")
         mesh: trimesh.Trimesh = self._convert_to_trimesh(embed_meta=embed_meta)

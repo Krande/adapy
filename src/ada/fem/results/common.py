@@ -310,7 +310,7 @@ class FEAResult:
         return scene
 
     def to_gltf(self, dest_file, step: int, field: str, warp_field=None, warp_step=None, warp_scale=None, cfunc=None):
-        from ada.core.vector_utils import rot_matrix
+        from ...core.vector_transforms import rot_matrix
 
         dest_file = pathlib.Path(dest_file).resolve().absolute()
         scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)

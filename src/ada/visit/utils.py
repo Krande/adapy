@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Dict, Iterable, List
 import numpy as np
 
 from ada import FEM
-from ada.core.vector_utils import rot_matrix
+from ada.core.vector_transforms import rot_matrix
 from ada.fem.utils import is_line_elem
 
 if TYPE_CHECKING:
