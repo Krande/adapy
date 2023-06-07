@@ -1,5 +1,6 @@
 import ada
 import ada.geom.curves as geo_cu
+from ada.core.curve_utils import segments3d_from_points3d
 
 
 def test_line_segment2d():
@@ -25,3 +26,10 @@ def test_arc_line_2d_from_midpoint():
     assert arc.p1.is_equal(curve_geom.start)
     assert arc.p2.is_equal(curve_geom.end)
     assert arc.midpoint.is_equal(curve_geom.midpoint)
+
+
+def test_make_3d_segments():
+    points = [ada.Point(1, 1, 3) + x for x in [(0, 0.5, 0), (1, 0.5, 0), (1.2, 0.7, 0.2), (1.5, 0.7, 0.2)]]
+    segments = segments3d_from_points3d(points, radius=0.3979375)
+    assert len(segments) == 2
+    print('ds')

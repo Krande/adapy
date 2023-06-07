@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada import CurvePoly
+from ada import CurvePoly2d
 
 if TYPE_CHECKING:
     from ada import Beam
@@ -63,8 +63,8 @@ def make_ig_cutplanes(bm: "Beam"):
     return [cut1, cut2, cut3, cut4]
 
 
-def get_bm_section_curve(bm: "Beam", origin=None) -> CurvePoly:
+def get_bm_section_curve(bm: "Beam", origin=None) -> CurvePoly2d:
     origin = origin if origin is not None else bm.n1.p
     section_profile = bm.section.get_section_profile(True)
     points2d = section_profile.outer_curve.points2d
-    return CurvePoly(points=points2d, origin=origin, xdir=bm.yvec, normal=bm.xvec, parent=bm.parent)
+    return CurvePoly2d(points=points2d, origin=origin, xdir=bm.yvec, normal=bm.xvec, parent=bm.parent)

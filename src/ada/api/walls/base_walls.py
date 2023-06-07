@@ -7,7 +7,7 @@ import numpy as np
 from ada import Part
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
-from ada.api.curves import CurvePoly
+from ada.api.curves import CurvePoly2d
 from ada.api.primitives import PrimBox
 from ada.api.transforms import Placement
 from ada.core.vector_utils import unit_vector
@@ -244,7 +244,7 @@ class Wall(BackendGeom):
         return self._metadata
 
     def shell_occ(self):
-        poly = CurvePoly.from_3d_points(self.extrusion_area(), parent=self)
+        poly = CurvePoly2d.from_3d_points(self.extrusion_area(), parent=self)
         return poly.face()
 
     def solid_occ(self):
@@ -253,7 +253,7 @@ class Wall(BackendGeom):
         return geom_to_occ_geom(self.solid_geom())
 
     def solid_geom(self) -> Geometry:
-        poly = CurvePoly.from_3d_points(self.extrusion_area(), parent=self)
+        poly = CurvePoly2d.from_3d_points(self.extrusion_area(), parent=self)
         profile = poly.get_face_geom()
 
         # Origin location is already included in the outer_curve definition

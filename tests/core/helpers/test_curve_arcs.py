@@ -1,3 +1,4 @@
+import ada
 import numpy as np
 import pytest
 
@@ -7,17 +8,17 @@ from ada.core.curve_utils import (
     calc_arc_radius_center_from_3points,
     get_center_from_3_points_and_radius,
     intersect_line_circle,
-    make_arc_segment,
+    make_arc_segment, make_arc_segment_with_tolerance, segments3d_from_points3d,
 )
-from ada.occ.utils import make_arc_segment_using_occ
 from ada.core.utils import roundoff
 from ada.core.vector_utils import (
     angle_between,
     intersection_point,
     linear_2dtransform_rotate,
     local_2_global_points,
-    unit_vector,
+    unit_vector, transform_points_in_plane_to_2d,
 )
+from ada.occ.utils import make_arc_segment_using_occ
 
 
 def test_make_arc_tool_2d():
@@ -91,6 +92,30 @@ def test_make_arc_tool_3d_xz_offset():
         if isinstance(seg_a, ArcSegment):
             assert seg_a.p1.is_equal(seg_b.p1)
             assert seg_a.p2.is_equal(seg_b.p2)
+
+
+def test_make_arc_3d_xyz_offset1():
+    start, center, end = [[2.117737730645439, 1.6177377306454386, 3.117737730645439], [2.2, 1.7, 3.2], [2.5, 1.7, 3.2]]
+    radius = 0.3979375
+
+    segments_b = make_arc_segment(start, center, end, radius)
+
+    place, points2d = transform_points_in_plane_to_2d(np.array([start, center, end]))
+
+
+def test_make_arc_3d_xyz_offset2():
+    start, center, end = [[2.0, 1.5, 3.0], [2.2, 1.7, 3.2], [2.5, 1.7, 3.2]]
+    radius = 0.3979375
+
+    # Using opencascade
+    segments_a = make_arc_segment_using_occ(start, center, end, radius)
+
+    # NOT using opencascade
+    with pytest.raises(Exception):
+        segments_b = make_arc_segment(start, center, end, radius)
+
+    with pytest.raises(Exception):
+        segments_b = make_arc_segment_with_tolerance(start, center, end, radius)
 
 
 def test_basic_arc():

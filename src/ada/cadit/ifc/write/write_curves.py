@@ -1,7 +1,7 @@
-from ada.api.curves import CurvePoly
+from ada.api.curves import CurvePoly2d
 
 
-def write_curve_poly(curve: CurvePoly):
+def write_curve_poly(curve: CurvePoly2d):
     a = curve.parent.parent.get_assembly()
     f = a.ifc_store.f
 

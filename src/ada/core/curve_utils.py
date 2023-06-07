@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
 
-from ada.config import Settings as _Settings
+from ada.config import Settings as _Settings, logger
+from .exceptions import VectorNormalizeError
 from .utils import roundoff
 from .vector_utils import (
     angle_between,
@@ -77,10 +78,34 @@ def create_arc_segment(v1, v2, radius):
     return ArcSegment(start, end, midpoint, radius, pc)
 
 
+def make_arc_segment_with_tolerance(
+    start: Iterable | Point,
+    center: Iterable | Point,
+    end: Iterable | Point,
+    radius: float,
+    min_radius_abs: float = None,
+    min_radius_rel: float = 0.3,
+) -> list[LineSegment | ArcSegment]:
+    original_radius = radius
+    while True:
+        try:
+            segments = make_arc_segment(start, center, end, radius)
+            if radius != original_radius:
+                logger.warning(f"radius: {radius}")
+            break
+        except VectorNormalizeError:
+            radius *= 0.99
+            if min_radius_abs is not None and radius < min_radius_abs:
+                raise ValueError(f"Could not make arc with radius {original_radius}. stopped at {radius}")
+            if radius < min_radius_rel * original_radius:
+                raise ValueError(f"Could not make arc with radius {original_radius}. stopped at {radius}")
+    return segments
+
+
 def make_arc_segment(
     start: Iterable | Point, center: Iterable | Point, end: Iterable | Point, radius: float
 ) -> list[LineSegment | ArcSegment]:
-    from ada import ArcSegment
+    from ada import ArcSegment, Direction
 
     if not isinstance(start, Point):
         start = Point(*start)
@@ -92,6 +117,7 @@ def make_arc_segment(
     # The SegCreator always creates a closed loop, that's why we pop the first segment
     if start.dim == 3:
         place, points2d = transform_points_in_plane_to_2d([start, center, end])
+        a = Direction(points2d[1] - points2d[0]).get_angle(Direction(points2d[2] - points2d[1]))
         points = [points2d[0], [*points2d[1], radius], points2d[2]]
         sc = SegCreator(points, is_closed=False)
         segments = sc.build()
@@ -113,8 +139,6 @@ def make_arc_segment(
         sc = SegCreator(points, is_closed=False)
         segments = sc.build()
         segments.pop(0)
-
-
 
     return segments
 
@@ -904,31 +928,7 @@ def build_polycurve(
         return [LineSegment(p1=local_points2d[0], p2=local_points2d[1])]
 
     segc = SegCreator(local_points2d, tol=tol, debug=debug, debug_name=debug_name, is_closed=is_closed)
-    in_loop = True
-    while in_loop:
-        if segc.radius is not None:
-            segc.calc_circle_line()
-            if abs(segc.radius) < 1e-5:
-                segc._arc_center = None
-                segc._arc_start = None
-                segc._arc_end = None
-                segc._arc_midpoint = None
-                segc.calc_line()
-            else:
-                segc.calc_arc()
-        else:
-            segc._arc_center = None
-            segc._arc_start = None
-            segc._arc_end = None
-            segc._arc_midpoint = None
-            segc.calc_line()
-
-        if segc.i == len(local_points2d) - 1:
-            in_loop = False
-        else:
-            segc.next()
-
-    return segc._seg_list
+    return segc.build()
 
 
 def s_curve(ramp_up_t, ramp_down_t, magnitude, sustained_time=0.0):
@@ -973,3 +973,100 @@ def s_curve(ramp_up_t, ramp_down_t, magnitude, sustained_time=0.0):
         total_curve = np.append(x1, x2[1:] + x1[-1]), np.append(y1, y2[::-1][1:])
 
     return total_curve
+
+
+def line_segments3d_from_points3d(points: list[Point | Iterable]) -> list[LineSegment]:
+    from ada.api.curves import LineSegment
+
+    if not isinstance(points[0], Point):
+        points = [Point(*p) for p in points]
+
+    prelim_segments: list[LineSegment] = []
+    for p1, p2 in zip(points[:-1], points[1:]):
+        straight_seg = LineSegment(p1, p2)
+
+        if straight_seg.length == 0.0:
+            logger.info("skipping zero length segment")
+            continue
+
+        prelim_segments.append(straight_seg)
+    return prelim_segments
+
+
+def segments3d_from_points3d(
+    points: list[Point | Iterable], radius=None, angle_tol=1e-1, len_tol=1e-3
+) -> list[LineSegment | ArcSegment]:
+    from ada.api.curves import LineSegment, ArcSegment
+    from ada import Direction
+
+    # from ada.core.curve_utils import make_arc_segment_with_tolerance as make_arc_segment
+    # from ada.core.curve_utils import make_arc_segment
+    # from ada.occ.utils import make_arc_segment_using_occ as make_arc_segment
+
+    prelim_segments = line_segments3d_from_points3d(points)
+
+    if len(prelim_segments) == 1:
+        return prelim_segments
+
+    segments = []
+    for i, (seg1, seg2) in enumerate(zip(prelim_segments[:-1], prelim_segments[1:])):
+        seg1: LineSegment
+        seg2: LineSegment
+
+        if seg1.length < len_tol or seg2.length == len_tol:
+            logger.error(f'Segment Length is below point tolerance "{len_tol}". Skipping')
+            continue
+
+        if seg1.direction.is_parallel(seg2.direction, angle_tol):
+            segments.append(LineSegment(seg1.p1.copy(), seg1.p2.copy()))
+            continue
+
+        if not seg1.p2.is_equal(seg2.p1):
+            logger.error("No shared point found")
+
+        arc_end = seg2.p2
+        if i != 0 and len(segments) > 0:
+            arc_start = segments[-1].p1
+            arc_center = segments[-1].p2
+        else:
+            arc_start = seg1.p1
+            arc_center = seg1.p2
+
+        place, points2d = transform_points_in_plane_to_2d([arc_start, arc_center, arc_end])
+        arc_start2d = points2d[0]
+        arc_center2d = points2d[1]
+        arc_end2d = points2d[2]
+        v1 = Direction(arc_center2d - arc_start2d)
+        v2 = Direction(arc_end2d - arc_center2d)
+        a = v1.get_angle(v2)
+        if abs(a) < angle_tol:
+            segments.append(LineSegment(arc_start.copy(), arc_center.copy()))
+            continue
+
+        try:
+            new_seg1, arc, new_seg2 = make_arc_segment(arc_start, arc_center, arc_end, radius)
+        except (ValueError, VectorNormalizeError) as e:
+            points = [arc_start.tolist(), arc_center.tolist(), arc_end.tolist()]
+            logger.error(f"Arc build failed for points: {points}. Error: {e}")
+            continue
+
+        if i == 0 or len(segments) == 0:
+            segments.append(LineSegment(new_seg1.p1.copy(), new_seg1.p2.copy()))
+        else:
+            if len(segments) == 0:
+                continue
+            pseg = segments[-1]
+            pseg.p2 = seg1.p2
+
+        segments.append(
+            ArcSegment(
+                arc.p1.copy(),
+                arc.p2.copy(),
+                midpoint=arc.midpoint.copy(),
+                center=arc.center.copy() if arc.center is not None else None,
+                radius=arc.radius,
+            )
+        )
+        segments.append(LineSegment(new_seg2.p1.copy(), new_seg2.p2.copy()))
+
+    return segments

@@ -1,7 +1,7 @@
 import pytest
 
 import ada
-from ada import Beam, CurvePoly, Section
+from ada import Beam, CurvePoly2d, Section
 
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def test_simple_beam(test_step_dir):
 
 
 def test_advanced_beam(test_step_dir):
-    poly = CurvePoly([(0, 0), (0.1, 0, 0.01), (0.1, 0.1, 0.01), (0, 0.1)], (0, 0, 0), (1, 0, 0), (0, 1, 0))
+    poly = CurvePoly2d([(0, 0), (0.1, 0, 0.01), (0.1, 0.1, 0.01), (0, 0.1)], (0, 0, 0), (1, 0, 0), (0, 1, 0))
     bm = Beam("MyBeam", (0, 0, 0), (1, 0, 0), Section("MySec", outer_poly=poly))
     bm.to_stp(test_step_dir / "MySimpleBeamPoly.stp")
 

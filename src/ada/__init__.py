@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from ada import fem
 from ada.base.units import Units
 from ada.api.beams import Beam, BeamRevolve, BeamSweep, BeamTapered
-from ada.api.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
+from ada.api.curves import ArcSegment, CurvePoly2d, CurveRevolve, LineSegment
 from ada.api.fasteners import Bolts, Weld
 from ada.api.nodes import Node
 from ada.api.piping import Pipe, PipeSegElbow, PipeSegStraight
@@ -28,6 +28,8 @@ from ada.api.walls import Wall
 from ada.api.transforms import Instance, Placement, Transform
 from ada.api.user import User
 from ada.fem import FEM
+from ada.geom.points import Point
+from ada.geom.placement import Direction
 from ada.materials import Material
 from ada.sections import Section
 
@@ -121,6 +123,8 @@ __all__ = [
     "Material",
     "Shape",
     "Node",
+    "Point",
+    "Direction",
     "Placement",
     "PrimBox",
     "PrimCone",
@@ -129,7 +133,7 @@ __all__ = [
     "PrimRevolve",
     "PrimSphere",
     "PrimSweep",
-    "CurvePoly",
+    "CurvePoly2d",
     "CurveRevolve",
     "LineSegment",
     "ArcSegment",

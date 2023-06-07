@@ -1,4 +1,4 @@
-from ada import Assembly, Beam, CurvePoly, Material, Part, Section
+from ada import Assembly, Beam, CurvePoly2d, Material, Part, Section
 from ada.api.beams import BeamTapered
 from ada.config import Settings
 
@@ -82,12 +82,12 @@ def test_cone_beam():
 
     e_o = [(525.0, 525.0, 525.0), (525.0, -525.0, 525.0), (-525.0, -525.0, 525.0), (-525.0, 525.0, 525.0)]
     e_i = [(475.0, 475.0, 475.0), (-475.0, 475.0, 475.0), (-475.0, -475.0, 475.0), (475.0, -475.0, 475.0)]
-    poly_s_o = CurvePoly(s_o, (0, 0, 0), (0, 0, 1), (1, 0, 0))
-    poly_s_i = CurvePoly(s_i, (0, 0, 0), (0, 0, 1), (1, 0, 0))
+    poly_s_o = CurvePoly2d(s_o, (0, 0, 0), (0, 0, 1), (1, 0, 0))
+    poly_s_i = CurvePoly2d(s_i, (0, 0, 0), (0, 0, 1), (1, 0, 0))
     section_s = Section("MyStartCrossSection", "poly", outer_poly=poly_s_o, inner_poly=poly_s_i, units="mm")
 
-    poly_e_o = CurvePoly(e_o, (0, 0, 0), (0, 0, 1), (1, 0, 0))
-    poly_e_i = CurvePoly(e_i, (0, 0, 0), (0, 0, 1), (1, 0, 0))
+    poly_e_o = CurvePoly2d(e_o, (0, 0, 0), (0, 0, 1), (1, 0, 0))
+    poly_e_i = CurvePoly2d(e_i, (0, 0, 0), (0, 0, 1), (1, 0, 0))
     section_e = Section("MyEndCrossSection", "poly", outer_poly=poly_e_o, inner_poly=poly_e_i, units="mm")
 
     bm = BeamTapered("MyCone", (2, 2, 2), (4, 4, 4), sec=section_s, tap=section_e)

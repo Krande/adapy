@@ -19,9 +19,18 @@ class Point(np.ndarray):
             raise TypeError("Input must be an iterable.")
 
         length = len(iterable)
+        if length == 1:
+            if isinstance(iterable[0], np.ndarray):
+                iterable = iterable[0]
+                length = len(iterable)
+            elif isinstance(iterable[0], (list, tuple)):
+                iterable = iterable[0]
+                length = len(iterable)
+            else:
+                raise ValueError(f"Input must have a length of 2 or 3. Got {length}")
 
         if length not in (2, 3):
-            raise ValueError("Input must have a length of 2 or 3.")
+            raise ValueError(f"Input must have a length of 2 or 3. Got {length}")
 
         if not all(isinstance(x, (float, int, np.int32, np.int64, np.float32)) for x in iterable):
             raise ValueError(f"All elements in the input must be of type float or int. Got {list(map(type, iterable))}")

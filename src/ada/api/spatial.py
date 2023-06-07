@@ -645,7 +645,9 @@ class Part(BackendGeom):
     def get_graph_store(self) -> GraphStore:
         root = GraphNode(self.name, self.guid)
         graph: dict[str, GraphNode] = {self.guid: root}
-        for p in chain.from_iterable([self.get_all_parts_in_assembly(), self.get_all_physical_objects()]):
+        objects = self.get_all_physical_objects(pipe_to_segments=True)
+        containers = self.get_all_parts_in_assembly()
+        for p in chain.from_iterable([containers, objects]):
             if p.guid in graph.keys():
                 continue
             parent_node = graph.get(p.parent.guid)

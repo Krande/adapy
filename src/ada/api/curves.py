@@ -98,7 +98,7 @@ class CurveRevolve:
         self._parent = value
 
 
-class CurveSweep:
+class CurveSweep2d:
     """
     A closed curve defined by a list of points.
 
@@ -301,7 +301,7 @@ class CurveSweep:
         self._parent = value
 
 
-class CurvePoly(CurveSweep):
+class CurvePoly2d(CurveSweep2d):
     def __init__(
             self,
             points,
@@ -336,6 +336,16 @@ class LineSegment:
         self._p2 = p2 if isinstance(p2, Point) else Point(*p2)
         self._edge_geom = edge_geom
         self._placement = placement
+        self._direction = Direction(self.p2 - self.p1)
+        self._length = self.direction.get_length()
+
+    @property
+    def direction(self) -> Direction:
+        return self._direction
+
+    @property
+    def length(self) -> float:
+        return self._length
 
     @property
     def p1(self) -> Point:

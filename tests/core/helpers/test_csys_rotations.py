@@ -1,12 +1,15 @@
 import numpy as np
 
-from ada import Placement
+from ada import Placement, Direction
 from ada.core.utils import roundoff
 from ada.core.vector_utils import (
     global_2_local_nodes,
     local_2_global_points,
     rotation_matrix_csys_rotate,
     transform,
+    transform_points_in_plane_to_2d,
+    transform_3points_to_2d,
+    transform_csys_to_csys,
 )
 import pyquaternion as pq
 from ada.geom.points import Point
@@ -144,3 +147,13 @@ def test_transform_rotation_and_translation():
 
     result_multiple = transform(matrix, pos_multiple)
     assert np.allclose(result_multiple, expected_output_multiple, atol=1e-6)
+
+
+def test_transform_3d_points_to_2d():
+    points = [Point([1.0, 1.5, 3.0]), Point([2.0, 1.5, 3.0]), Point([2.2, 1.7, 3.2])]
+    xdir = Direction([1, 0, 0])
+
+    place, points2d_b = transform_points_in_plane_to_2d(points, xdir=xdir)
+    points_back_in3d = place.transform_points_to_global(points2d_b)
+
+    print("sd")

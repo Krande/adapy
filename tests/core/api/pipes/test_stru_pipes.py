@@ -18,7 +18,7 @@ def test_pipe_straight():
 def test_write_single_90_deg_elbow_revolved_solid(pipe_w_single_90_deg_bend):
     a = Assembly("MyTest") / (Part("MyPart") / pipe_w_single_90_deg_bend)
     elbow = pipe_w_single_90_deg_bend.segments[1]
-    assert elbow.arc_seg.radius == pytest.approx(0.195958125)
+    assert elbow.arc_seg.radius == pytest.approx(0.1979375)
 
     f = a.ifc_store.f
     a.ifc_store.sync()
@@ -30,7 +30,7 @@ def test_write_single_90_deg_elbow_revolved_solid(pipe_w_single_90_deg_bend):
 
 
 def test_pipe_multiple_bends(pipe_w_multiple_bends):
-    assert pipe_w_multiple_bends.segments[1].bend_radius == pytest.approx(0.195958125)
+    assert pipe_w_multiple_bends.segments[1].bend_radius == pytest.approx(0.1979375)
 
     a = Assembly("MyTest") / (Part("MyPart") / pipe_w_multiple_bends)
     # a.to_stp(test_dir / "pipe_bend_multiple.stp")
@@ -55,12 +55,12 @@ def test_write_elbow_revolved_solid_ifc_gen(pipe_w_multiple_bends):
 
     axis1 = ifc_revolved_solid1.Axis
     assert axis1.Axis.DirectionRatios == pytest.approx((1.0, 0.0, 0.0))
-    assert axis1.Location.Coordinates == pytest.approx((0.0, -0.195958125, 0.0), abs=1e-6)
+    assert axis1.Location.Coordinates == pytest.approx((0.0, -0.1979375, 0.0), abs=1e-6)
 
     position1 = ifc_revolved_solid1.Position
 
     assert position1.Axis.DirectionRatios == pytest.approx((1.0, 0.0, 0.0))
-    assert position1.Location.Coordinates == pytest.approx((5.004041875, -0.2, 3.2))
+    assert position1.Location.Coordinates == pytest.approx((5.0020625, -0.2, 3.2))
     assert position1.RefDirection.DirectionRatios == pytest.approx((0.0, 0.0, 1.0))
 
     elbow2 = elbows[1]

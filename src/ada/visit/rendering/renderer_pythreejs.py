@@ -817,7 +817,7 @@ class SectionRenderer:
 
         from ipywidgets import HTML
 
-        from ada.api.curves import CurvePoly
+        from ada.api.curves import CurvePoly2d
         from ada.sections import SectionCat
         from ada.visit.plots import easy_plotly
 
@@ -833,7 +833,7 @@ class SectionRenderer:
         html = HTML("<b>Section Properties</b></br></br>")
         section_profile = sec.get_section_profile(True)
 
-        def get_data(curve: CurvePoly):
+        def get_data(curve: CurvePoly2d):
             x = []
             y = []
             for edge in curve.points2d + [curve.points2d[0]]:

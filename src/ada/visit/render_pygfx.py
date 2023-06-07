@@ -45,6 +45,8 @@ class RendererPyGFX:
         self.scene = gfx.Scene()
         self.scene.add(gfx.Background(None, gfx.BackgroundMaterial(BG_GRAY.hex)))
         self._scene_objects = gfx.Group()
+        self._scene_objects.receive_shadow = True
+        self._scene_objects.cast_shadow = True
         self.scene.add(self._scene_objects)
 
         canvas = WgpuCanvas(title=canvas_title, max_fps=60)

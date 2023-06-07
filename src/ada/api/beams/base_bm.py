@@ -8,7 +8,7 @@ import numpy as np
 import ada.api.beams.geom_beams as geo_conv
 from ada.api.beams.helpers import BeamConnectionProps
 from ada.api.bounding_box import BoundingBox
-from ada.api.curves import CurveRevolve, CurveSweep
+from ada.api.curves import CurveRevolve, CurveSweep2d
 from ada.api.nodes import Node, get_singular_node_by_volume
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
@@ -471,7 +471,7 @@ class BeamTapered(Beam):
 
 
 class BeamSweep(Beam):
-    def __init__(self, name: str, curve: CurveSweep, sec: str | Section, **kwargs):
+    def __init__(self, name: str, curve: CurveSweep2d, sec: str | Section, **kwargs):
         n1 = curve.points3d[0]
         n2 = curve.points3d[-1]
         super().__init__(name=name, n1=n1, n2=n2, sec=sec, **kwargs)
@@ -479,7 +479,7 @@ class BeamSweep(Beam):
         curve.parent = self
 
     @property
-    def curve(self) -> CurveSweep:
+    def curve(self) -> CurveSweep2d:
         return self._curve
 
     def solid_geom(self) -> Geometry:

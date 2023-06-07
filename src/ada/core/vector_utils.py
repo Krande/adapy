@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, ClassVar, Iterable
 
 import numpy as np
 
-
 from ada.config import Settings
 from .exceptions import VectorNormalizeError
 from ..geom.points import Point
@@ -154,16 +153,14 @@ def transform_csys_to_csys(x_vector1, y_vector1, x_vector2, y_vector2) -> np.nda
     return rotation_matrix
 
 
-def transform_points_in_plane_to_2d(points: list[Point], origin=None, xdir=None) -> tuple[Placement, list[Point]]:
+def transform_points_in_plane_to_2d(points: list[Point] | np.ndarray, origin=None, xdir=None) -> tuple[Placement, list[Point]]:
     from ada.api.transforms import Placement
+
+    if not isinstance(points, np.ndarray):
+        points = np.array(points)
 
     origin = points[0] if origin is None else origin
     n = normal_to_points_in_plane(points)
-
-    # # if n is parallel to z axis, but pointing in the opposite direction, then flip it
-    # if is_parallel(n, np.array([0, 0, 1])):
-    #     if n[2] < 0:
-    #         n = -n
 
     if xdir is None:
         xdir, yv = create_right_hand_vectors_xv_yv_from_zv(n)
@@ -172,18 +169,44 @@ def transform_points_in_plane_to_2d(points: list[Point], origin=None, xdir=None)
 
     place = Placement(origin, xdir, yv, n)
     rotation_matrix = transform_csys_to_csys(np.array([1, 0, 0]), np.array([0, 1, 0]), xdir, yv)
-    tp = np.array(points) - origin
+    tp = points - origin
     new_points = np.matmul(rotation_matrix, tp.T).T
+
     # remove the last column
     local2d = [Point(*p) for p in new_points[:, :-1]]
 
-    # # Check if the points are clockwise or counter-clockwise. If counter-clockwise, reverse the order of the points
-    # if not is_clockwise(local2d):
-    #     local2d.reverse()
-    #     xdir, yv = create_right_hand_vectors_xv_yv_from_zv(-n)
-    #     place = Placement(origin, xdir, yv, -n)
-
     return place, local2d
+
+
+def transform_3points_to_2d(points) -> tuple[Placement, list[Point]]:
+    from numpy.linalg import norm, svd
+    from ada.api.transforms import Placement
+
+    # Ensure that we have exactly 3 points
+    assert len(points) == 3, "Exactly 3 points are required."
+
+    # Calculate the centroid of the points
+    origin = points[0]
+
+    # Move points to origin
+    centered_points = [Point(p.x - origin.x, p.y - origin.y, p.z - origin.z) for p in points]
+
+    # Create a matrix from moved points
+    mat = np.array([[p.x, p.y, p.z] for p in centered_points])
+
+    # Apply singular value decomposition
+    _, _, Vt = svd(mat)
+
+    # The normal of the plane is the last row of Vt
+    normal = Vt[-1, :]
+
+    # Create transformation matrix (we keep only the first 2 vectors which form the new plane)
+    tra_matrix = Vt[:-1, :]
+
+    # Apply transformation: dot product between each point and the transformation matrix
+    points2d = np.dot(tra_matrix, mat.T).T
+
+    return Placement(origin=origin, xdir=tra_matrix[0], ydir=tra_matrix[1]), [Point(p[0], p[1]) for p in points2d]
 
 
 def transform(matrix4x4: np.ndarray, pos: np.ndarray) -> np.ndarray:
@@ -196,6 +219,7 @@ def transform(matrix4x4: np.ndarray, pos: np.ndarray) -> np.ndarray:
 
 
 def transform_2d_to_3d(points_2d, transformation_matrix):
+    """Converts 2D points (x', y') to 3D points (x', y', 0) and applies a transformation matrix to them."""
     # Convert 2D points (x', y') to 3D points (x', y', 0) and add a homogeneous coordinate of 1
     points_2d_homogeneous = np.hstack(
         (points_2d, np.zeros((points_2d.shape[0], 1)), np.ones((points_2d.shape[0], 1))))
@@ -207,6 +231,7 @@ def transform_2d_to_3d(points_2d, transformation_matrix):
     points_3d = points_3d_homogeneous[:, :3]
 
     return points_3d
+
 
 def linear_2dtransform_rotate(origin, point, degrees) -> np.ndarray:
     """
@@ -225,16 +250,6 @@ def linear_2dtransform_rotate(origin, point, degrees) -> np.ndarray:
 
 
 def rot_matrix_alt(a, b, g, inverse=False, matr_tol=8):
-    """
-
-    :param a:
-    :param b:
-    :param g:
-    :param inverse:
-    :param matr_tol: Matrix decimal precision tolerance
-    :return:
-    """
-
     def R_x(al):
         return np.array([[1, 0, 0], [0, np.cos(al), -np.sin(al)], [0, np.sin(al), np.cos(al)]])
 
@@ -374,35 +389,21 @@ def rotate_plane(points, normal, global_normal=(0, 0, 1)):
     return newpoints
 
 
-def vector_length(vector):
-    """
-    This method takes in a np.array vector and returns the length
-    of the vector.
-
-    :param vector: A numpy array of a 3d vector
-    :type vector: np.array
-    :rtype: float
-    """
-    if len(vector) == 2:
-        raise ValueError("Vector is not a 3d vector, but a 2d vector. Please consider vector_length_2d() instead")
-    elif len(vector) != 3:
+def vector_length(vector: np.ndarray) -> float:
+    """This method takes in a np.array vector and returns the length of the vector."""
+    if vector.shape[0] != 3:
+        if vector.shape[0] == 2:
+            raise ValueError("Vector is not a 3d vector, but a 2d vector. Please consider vector_length_2d() instead")
         raise ValueError(f"Vector is not a 3d vector. Vector array length: {len(vector)}")
 
     return float(np.linalg.norm(vector))
 
 
-def vector_length_2d(vector):
-    """
-    This method takes in a np.array vector and returns the length
-    of the vector.
-
-    :param vector: A numpy array of a 2d vector
-    :type vector: np.array
-    :rtype: float
-    """
-    if len(vector) == 3:
-        raise ValueError("Vector is not a 2d vector, but a 3d vector. Please consider vector_length() instead")
-    elif len(vector) != 2:
+def vector_length_2d(vector: np.ndarray) -> float:
+    """This method takes in a np.array vector and returns the length of the vector."""
+    if vector.shape[0] != 2:
+        if vector.shape[0] == 3:
+            raise ValueError("Vector is not a 2d vector, but a 3d vector. Please consider vector_length() instead")
         raise ValueError(f"Vector is not a 2d vector. Vector array length: {len(vector)}")
 
     return float(np.linalg.norm(vector))

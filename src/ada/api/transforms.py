@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Iterable, List, Union
 import numpy as np
 import pyquaternion as pq
 
-from ada.core.vector_utils import transform, transform_csys_to_csys, transform_2d_to_3d
+from ada.core.vector_utils import transform, transform_csys_to_csys, transform_2d_to_3d, calc_xvec
 from ada.geom.placement import Direction, O, Axis2Placement3D
 from ada.geom.points import Point
 
@@ -49,7 +49,7 @@ class Placement:
     parent = None
 
     def __post_init__(self):
-        from ada.core.vector_utils import calc_yvec
+        from ada.core.vector_utils import calc_yvec, calc_xvec, calc_zvec
 
         all_dir = [self.xdir, self.ydir, self.zdir]
         if all(x is None for x in all_dir):
@@ -59,6 +59,12 @@ class Placement:
 
         if self.ydir is None and all(x is not None for x in [self.xdir, self.zdir]):
             self.ydir = calc_yvec(self.xdir, self.zdir)
+
+        if self.xdir is None and all(x is not None for x in [self.ydir, self.zdir]):
+            self.xdir = calc_xvec(self.ydir, self.zdir)
+
+        if self.zdir is None and all(x is not None for x in [self.xdir, self.ydir]):
+            self.zdir = calc_zvec(self.xdir, self.ydir)
 
         all_dir = [self.xdir, self.ydir, self.zdir]
         all_vec = ['xdir', "ydir", "zdir"]

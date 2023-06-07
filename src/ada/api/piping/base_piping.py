@@ -6,12 +6,13 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada.api.beams.geom_beams import section_to_arbitrary_profile_def_with_voids
+from ada.api.curves import ArcSegment, LineSegment
+from ada.api.nodes import Node
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
-from ada.api.curves import ArcSegment
-from ada.api.nodes import Node
 from ada.config import Settings as _Settings
 from ada.config import logger
+from ada.core.exceptions import VectorNormalizeError
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_length
 from ada.geom import Geometry
@@ -122,7 +123,8 @@ class Pipe(BackendGeom):
             self._units = value
 
     def __repr__(self):
-        return f"Pipe({self.name}, {self.section})"
+        points = [x.p.tolist() for x in self.points]
+        return f'Pipe("{self.name}", {points}, {self.section.name})'
 
     @staticmethod
     def from_segments(name: str, segments: list[PipeSegStraight | PipeSegElbow]) -> Pipe:
@@ -203,7 +205,7 @@ class PipeSegStraight(BackendGeom):
         raise NotImplementedError("shell_geom() not implemented")
 
     def __repr__(self):
-        return f"PipeSegStraight({self.name}, p1={self.p1}, p2={self.p2})"
+        return f"PipeSegStraight({self.name}, p1={self.p1}, p2={self.p2}, section={self.section.name})"
 
 
 class PipeSegElbow(BackendGeom):
@@ -305,7 +307,7 @@ class PipeSegElbow(BackendGeom):
         profile = section_to_arbitrary_profile_def_with_voids(self.section)
         position = Axis2Placement3D()
 
-        cd = get_center_from_3_points_and_radius(self.p1, self.p2, self.p3, self.bend_radius, tol=1e-1)
+        cd = get_center_from_3_points_and_radius(self.p1.p, self.p2.p, self.p3.p, self.bend_radius, tol=1e-1)
         axis = Axis1Placement(location=cd.center, axis=self.xvec1)
         revolve_angle = np.rad2deg(angle_between(self.xvec1, self.xvec2))
         solid = RevolvedAreaSolid(profile, position, axis, revolve_angle)
@@ -325,8 +327,9 @@ class PipeSegElbow(BackendGeom):
 
 
 def build_pipe_segments(pipe: Pipe) -> list[PipeSegStraight | PipeSegElbow]:
+    # from ada.core.curve_utils import make_arc_segment_with_tolerance as make_arc_segment
+    # from ada.core.curve_utils import make_arc_segment
     from ada.occ.utils import make_arc_segment_using_occ as make_arc_segment
-    # from ada.api.curves import make_arc_segment
 
     segs = []
     for p1, p2 in zip(pipe.points[:-1], pipe.points[1:]):
@@ -362,9 +365,9 @@ def build_pipe_segments(pipe: Pipe) -> list[PipeSegStraight | PipeSegElbow]:
         xvec1 = unit_vector(p12.p - p11.p)
         xvec2 = unit_vector(p22.p - p21.p)
         a = angle_between(xvec1, xvec2)
-        res = True if abs(abs(a) - abs(np.pi)) < angle_tol or abs(abs(a) - 0.0) < angle_tol else False
+        segments_are_parallel = True if abs(abs(a) - abs(np.pi)) < angle_tol or abs(abs(a) - 0.0) < angle_tol else False
 
-        if res is True:
+        if segments_are_parallel:
             pipe_segments.append(PipeSegStraight(next(seg_names), p11, p12, **props))
             continue
 
@@ -377,10 +380,15 @@ def build_pipe_segments(pipe: Pipe) -> list[PipeSegStraight | PipeSegElbow]:
         else:
             prev_p = (p11.p, p12.p)
 
+        radius = pipe.pipe_bend_radius
+        arc_start = prev_p[0]
+        arc_center = prev_p[1]
+        arc_end = p22.p
         try:
-            seg1, arc, seg2 = make_arc_segment(prev_p[0], prev_p[1], p22.p, pipe.pipe_bend_radius * 0.99)
-        except (ValueError, RuntimeError) as e:
-            logger.error(f"Error: {e}")  # , traceback: "{traceback.format_exc()}"')
+            seg1, arc, seg2 = make_arc_segment(arc_start, arc_center, arc_end, radius)
+        except (ValueError, VectorNormalizeError) as e:
+            points = [arc_start.tolist(), arc_center.tolist(), arc_end.tolist()]
+            logger.error(f"Arc build failed for {pipe} points: {points}. Error: {e}")
             continue
 
         if i == 0 or len(pipe_segments) == 0:
@@ -407,9 +415,11 @@ def build_pipe_segments(pipe: Pipe) -> list[PipeSegStraight | PipeSegElbow]:
             )
         )
         pipe_segments.append(
-            PipeSegStraight(
-                next(seg_names), Node(seg2.p1, units=pipe.units), Node(seg2.p2, units=pipe.units), **props
-            )
+            PipeSegStraight(next(seg_names), Node(seg2.p1, units=pipe.units), Node(seg2.p2, units=pipe.units), **props)
         )
 
     return pipe_segments
+
+
+def make_elbow() -> tuple[PipeSegStraight, PipeSegElbow, PipeSegStraight] | None:
+    ...

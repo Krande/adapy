@@ -7,7 +7,7 @@ import numpy as np
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.api.bounding_box import BoundingBox
-from ada.api.curves import CurvePoly
+from ada.api.curves import CurvePoly2d
 from ada.api.nodes import Node
 from ada.config import Settings
 from ada.geom import Geometry
@@ -36,7 +36,7 @@ class Plate(BackendGeom):
     def __init__(
         self,
         name: str,
-        points: CurvePoly | list[tuple[_NTYPE, _NTYPE] | tuple[_NTYPE, _NTYPE, _NTYPE]],
+        points: CurvePoly2d | list[tuple[_NTYPE, _NTYPE] | tuple[_NTYPE, _NTYPE, _NTYPE]],
         t: float,
         mat: str | Material = "S420",
         origin: Iterable | Point = None,
@@ -55,10 +55,10 @@ class Plate(BackendGeom):
         if tol is None:
             tol = Units.get_general_point_tol(self.units)
 
-        if isinstance(points, CurvePoly):
+        if isinstance(points, CurvePoly2d):
             self._poly = points
         else:
-            self._poly = CurvePoly(
+            self._poly = CurvePoly2d(
                 points=points,
                 normal=n,
                 origin=origin,
@@ -71,7 +71,7 @@ class Plate(BackendGeom):
 
     @staticmethod
     def from_3d_points(name, points, t, mat="S420", origin_index=0, xdir=None, color=None, **kwargs):
-        poly = CurvePoly.from_3d_points(points, origin_index=origin_index, xdir=xdir, **kwargs)
+        poly = CurvePoly2d.from_3d_points(points, origin_index=origin_index, xdir=xdir, **kwargs)
         return Plate(name, poly, t, mat=mat, color=color, **kwargs)
 
     def bbox(self) -> BoundingBox:
@@ -152,7 +152,7 @@ class Plate(BackendGeom):
         return self.poly.nodes
 
     @property
-    def poly(self) -> CurvePoly:
+    def poly(self) -> CurvePoly2d:
         return self._poly
 
     @property

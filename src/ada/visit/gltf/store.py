@@ -212,6 +212,8 @@ def merged_mesh_to_trimesh_scene(
     id_sequence = dict()
     for group in merged_mesh.groups:
         n = graph_store.nodes.get(group.node_id)
+        if n is None:
+            raise ValueError(f"Node {group.node_id} not found in graph store")
         id_sequence[n.hash] = (group.start, group.start + group.length - 1)
 
     scene.metadata[f"id_sequence{buffer_id}"] = id_sequence

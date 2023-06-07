@@ -338,7 +338,7 @@ class IfcWriter:
         elif isinstance(obj, Wall):
             return write_ifc_wall(obj)
         else:
-            raise NotImplementedError()
+            raise NotImplementedError(f"Object {obj} is not supported")
 
     def add_part(self, part: Part, include_fem):
         return write_ifc_part(self.ifc_store, part, include_fem=include_fem)

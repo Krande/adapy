@@ -9,7 +9,7 @@ from ada.config import Settings, get_logger
 from ada.sections.categories import BaseTypes, SectionCat
 
 if TYPE_CHECKING:
-    from ada import Beam, CurvePoly, Pipe, PipeSegElbow, PipeSegStraight
+    from ada import Beam, CurvePoly2d, Pipe, PipeSegElbow, PipeSegStraight
     from ada.fem import FemSection
     from ada.sections.profiles import SectionProfile
 
@@ -35,8 +35,8 @@ class Section(Root):
         parent=None,
         sec_str=None,
         from_str=None,
-        outer_poly: CurvePoly = None,
-        inner_poly: CurvePoly = None,
+        outer_poly: CurvePoly2d = None,
+        inner_poly: CurvePoly2d = None,
         genprops: GeneralProperties = None,
         metadata=None,
         units=Units.M,
@@ -238,11 +238,11 @@ class Section(Root):
             self._units = value
 
     @property
-    def poly_outer(self) -> CurvePoly:
+    def poly_outer(self) -> CurvePoly2d:
         return self._outer_poly
 
     @property
-    def poly_inner(self) -> CurvePoly:
+    def poly_inner(self) -> CurvePoly2d:
         return self._inner_poly
 
     def get_section_profile(self, is_solid=True) -> SectionProfile:

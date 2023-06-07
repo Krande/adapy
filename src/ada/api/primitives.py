@@ -15,7 +15,7 @@ from ada.geom.booleans import BooleanOperation
 from ada.materials import Material
 from ada.materials.utils import get_material
 from .bounding_box import BoundingBox
-from .curves import CurvePoly, CurveSweep
+from .curves import CurvePoly2d, CurveSweep2d
 from .transforms import Placement
 from ..geom import Geometry
 from ..geom.placement import Direction
@@ -313,7 +313,7 @@ class PrimExtrude(Shape):
     def __init__(self, name, curve: list[tuple], h, normal=None, origin=None, xdir=None, tol=1e-3, **kwargs):
         self._name = name
 
-        poly = CurvePoly(
+        poly = CurvePoly2d(
             points=curve,
             normal=normal,
             origin=origin,
@@ -353,7 +353,7 @@ class PrimExtrude(Shape):
             self._units = value
 
     @property
-    def poly(self) -> CurvePoly:
+    def poly(self) -> CurvePoly2d:
         return self._poly
 
     @property
@@ -394,10 +394,10 @@ class PrimRevolve(Shape):
         if not isinstance(xdir, Direction):
             xdir = Direction(*xdir)
 
-        if isinstance(points, CurvePoly):
+        if isinstance(points, CurvePoly2d):
             self._poly = points
         else:
-            self._poly = CurvePoly(
+            self._poly = CurvePoly2d(
             points=points,
             normal=normal,
             origin=origin,
@@ -424,7 +424,7 @@ class PrimRevolve(Shape):
             self.poly.scale(scale_factor, tol)
 
     @property
-    def poly(self) -> CurvePoly:
+    def poly(self) -> CurvePoly2d:
         return self._poly
 
     @property
@@ -477,11 +477,11 @@ class PrimSweep(Shape):
             **kwargs,
     ):
         if type(sweep_curve) is list:
-            sweep_curve = CurveSweep.from_3d_points(sweep_curve)
+            sweep_curve = CurveSweep2d.from_3d_points(sweep_curve)
 
         if type(profile_curve_outer) is list:
             origin = sweep_curve.origin if origin is None else origin
-            profile_curve_outer = CurvePoly(profile_curve_outer, origin=origin, normal=normal, xdir=xdir)
+            profile_curve_outer = CurvePoly2d(profile_curve_outer, origin=origin, normal=normal, xdir=xdir)
 
         sweep_curve.parent = self
         profile_curve_outer.parent = self

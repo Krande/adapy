@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Tuple
 
-from ada.api.curves import CurvePoly, CurveSweep
+from ada.api.curves import CurvePoly2d, CurveSweep2d
 from ada.config import get_logger
 from ada.core.utils import roundoff as rd
 from ada.sections.categories import BaseTypes
@@ -15,10 +15,10 @@ logger = get_logger()
 class SectionProfile:
     sec: Section
     is_solid: bool
-    outer_curve: CurvePoly = None
-    inner_curve: CurvePoly = None
-    outer_curve_disconnected: list[CurvePoly] = None
-    inner_curve_disconnected: list[CurvePoly] = None
+    outer_curve: CurvePoly2d = None
+    inner_curve: CurvePoly2d = None
+    outer_curve_disconnected: list[CurvePoly2d] = None
+    inner_curve_disconnected: list[CurvePoly2d] = None
     disconnected: bool = None
     shell_thickness_map: list[tuple[str, float]] = None
 
@@ -53,12 +53,12 @@ def build_section_profile(sec: Section, is_solid) -> SectionProfile:
 build_props = dict(origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1))
 
 
-def build_disconnected(input_curve: list[tuple[tuple, tuple]]) -> list[CurveSweep]:
-    return [CurveSweep(x, **build_props) for x in input_curve]
+def build_disconnected(input_curve: list[tuple[tuple, tuple]]) -> list[CurveSweep2d]:
+    return [CurveSweep2d(x, **build_props) for x in input_curve]
 
 
-def build_joined(input_curve: list[tuple]) -> CurvePoly:
-    return CurvePoly(input_curve, **build_props)
+def build_joined(input_curve: list[tuple]) -> CurvePoly2d:
+    return CurvePoly2d(input_curve, **build_props)
 
 
 def angular(sec: Section, return_solid) -> SectionProfile:
