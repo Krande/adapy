@@ -234,8 +234,8 @@ def test_floaty_input_ex1():
     ]
     thick = 30
     pl = ada.Plate("test", local_points2d, thick, origin=origin, n=csys[2], xdir=csys[0], units="mm")
-    assert tuple(pl.poly.origin) == tuple(origin)
-    assert tuple(pl.poly.normal) == tuple(csys[2])
+    assert pl.poly.origin == pytest.approx(origin)
+    assert pl.poly.normal == pytest.approx(csys[2])
     assert vector_length(pl.nodes[0].p - np.array([362130.68206185, 100000.0, 561189.63923958])) < 1e-8
 
     # (ada.Assembly() / [ada.Part("te") / pl]).to_ifc(test_dir / "error_plate.ifc")
@@ -263,5 +263,5 @@ def test_ex2():
     ]
     thick = 30
     pl = ada.Plate("test2", local_points2d, thick, origin=origin, n=csys[2], xdir=csys[0], units="mm")
-    assert tuple(pl.poly.origin) == tuple(origin)
+    assert pl.poly.origin == pytest.approx(origin)
     # a = (ada.Assembly(units="mm") / [ada.Part("te", units="mm") / pl]).to_ifc(test_dir / "error_plate2.ifc")

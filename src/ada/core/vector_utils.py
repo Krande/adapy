@@ -335,6 +335,8 @@ def unit_vector(vector: np.ndarray) -> np.ndarray:
 
 def is_clockwise(points) -> bool:
     """Return true if order of 2d points are sorted in a clockwise order"""
+    if isinstance(points, np.ndarray):
+        points = points.copy()
     psum = 0
     for p1, p2 in zip(points[:-1], points[1:]):
         psum += (p2[0] - p1[0]) * (p2[1] + p1[1])

@@ -156,7 +156,10 @@ def test_transform_2d_3d():
     points2d = [(0, 5), (0, 0), (5, 0)]
     place = Placement.from_axis_angle([1, 0, 0], 90, origin=(0, 0, 0))
     points3d = place.transform_points_to_global(points2d)
-    place_back, points2d_b = transform_points_in_plane_to_2d(points3d)
+
+    assert np.allclose(points3d, [[0., 0., 5.], [0., 0., 0.], [5., 0., 0.]])
+
+    place_back, points2d_b = transform_points_in_plane_to_2d(points3d, origin=place.origin, xdir=place.xdir)
     for i, p in enumerate(points2d_b):
         assert p.is_equal(points2d[i])
 
@@ -168,4 +171,3 @@ def test_transform_3d_points_to_2d():
     points_back_in3d = place.transform_points_to_global(points2d_b)
     for i, p in enumerate(points):
         assert p.is_equal(points_back_in3d[i])
-    print("sd")

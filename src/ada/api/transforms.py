@@ -123,9 +123,10 @@ class Placement:
             points2d = np.array(points2d)
 
         m = self.calc_matrix4x4()
-        res2 = transform_2d_to_3d(points2d, m)
 
-        return res2
+        points3d = transform_2d_to_3d(points2d, m)
+
+        return points3d
 
     def __eq__(self, other: Placement):
         from ada.core.vector_utils import vector_length

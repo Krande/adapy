@@ -4,6 +4,7 @@ import numpy as np
 
 
 class Point(np.ndarray):
+    precision = None
     def __new__(cls, *iterable):
         obj = cls.create_ndarray(iterable)
 
@@ -35,7 +36,10 @@ class Point(np.ndarray):
         if not all(isinstance(x, (float, int, np.int32, np.int64, np.float32)) for x in iterable):
             raise ValueError(f"All elements in the input must be of type float or int. Got {list(map(type, iterable))}")
 
-        obj = np.asarray(iterable, dtype=float).view(cls)
+        if cls.precision is not None:
+            obj = np.round(np.asarray(iterable, dtype=float), cls.precision).view(cls)
+        else:
+            obj = np.asarray(iterable, dtype=float).view(cls)
 
         return obj
 

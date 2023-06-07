@@ -69,19 +69,25 @@ def transform_csys_to_csys(x_vector1, y_vector1, x_vector2, y_vector2) -> np.nda
 
 
 def transform_3d_points_to_2d(
-    points3d: np.ndarray, origin: Point, xdir: Direction, normal: Direction
+        points3d: np.ndarray, origin: Point, xdir: Direction, normal: Direction
 ) -> tuple[Placement, np.ndarray]:
     from ada.api.transforms import Placement
 
     yv = calc_yvec(xdir, normal)
 
     rotation_matrix = transform_csys_to_csys(np.array([1, 0, 0]), np.array([0, 1, 0]), xdir, yv)
+
+    # use that rotation matrix to transform the points from 3d (x,y,z) to a 2d coordinate system (x', y')
     points2d = np.matmul(rotation_matrix, points3d.T).T
-    return Placement(origin, xdir, yv, normal), points2d
+
+    # trim the column related to the normal vector (z)
+    points2d_trimmed = points2d[:, :-1]
+
+    return Placement(origin, xdir, yv, normal), points2d_trimmed
 
 
 def transform_points_in_plane_to_2d(
-    points3d: list[Point] | np.ndarray, origin=None, xdir=None
+        points3d: list[Point] | np.ndarray, origin=None, xdir=None
 ) -> tuple[Placement, list[Point]]:
     """Transforms a list of points in a plane to a 2D coordinate system."""
 
@@ -97,15 +103,16 @@ def transform_points_in_plane_to_2d(
     points3d = points3d.copy() - origin
     n = normal_to_points_in_plane(points3d)
     if xdir is None:
-        xdir = Direction(points3d[0] - points3d[1]).get_normalised()
+        xdir = Direction(points3d[1] - points3d[0]).get_normalised()
 
     place, points2d = transform_3d_points_to_2d(points3d, origin, xdir, n)
-    if not is_clockwise(points2d):
-        xdir = Direction(points3d[1] - points3d[0]).get_normalised()
+    if is_clockwise(points2d):
+        xdir = Direction(points3d[0] - points3d[1]).get_normalised()
         place, points2d = transform_3d_points_to_2d(points3d, origin, xdir, n)
 
-    # remove the last column
-    local2d_points = [Point(*p) for p in points2d[:, :-1]]
+    # remove the column related to the normal vector (z)
+
+    local2d_points = [Point(*p) for p in points2d]
 
     return place, local2d_points
 
@@ -386,7 +393,6 @@ def normal_to_points_in_plane(points_) -> Direction:
 
     # the cross product is a vector normal to the plane
     return Direction(np.cross(v1, v2)).get_normalised()
-
 
 
 def calc_xvec(y_vec, z_vec) -> np.ndarray:
