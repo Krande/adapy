@@ -12,10 +12,10 @@ from .transforms import Placement
 if TYPE_CHECKING:
     from ada import FEM, Node
     from ada.api.beams import Beam
+    from ada.api.plates import Plate
     from ada.fem import Surface
 
     from .primitives import PrimBox
-    from ada.api.plates import Plate
 
 
 @dataclass
@@ -28,9 +28,9 @@ class BoundingBox:
 
     def __post_init__(self):
         from ada.api.beams import Beam
+        from ada.api.plates import Plate
 
         from .primitives import Shape
-        from ada.api.plates import Plate
 
         if issubclass(type(self.parent), Shape):
             self.p1, self.p2 = self._calc_bbox_of_shape()

@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import List, Tuple
 
 from ada.api.curves import CurvePoly2d, CurveSweep2d
 from ada.config import get_logger
@@ -226,7 +225,7 @@ def box(sec: Section, return_solid) -> SectionProfile:
 
 def flatbar(sec: Section, return_solid=False) -> SectionProfile:
     if return_solid is False:
-        outer_curve = build_disconnected([((0, sec.h / 2),(sec.w_top / 2, -sec.h / 2))])
+        outer_curve = build_disconnected([((0, sec.h / 2), (sec.w_top / 2, -sec.h / 2))])
         return SectionProfile(
             sec,
             return_solid,

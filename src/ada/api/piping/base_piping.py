@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada.api.beams.geom_beams import section_to_arbitrary_profile_def_with_voids
-from ada.api.curves import ArcSegment, LineSegment
+from ada.api.curves import ArcSegment
 from ada.api.nodes import Node
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
@@ -14,21 +14,19 @@ from ada.config import Settings as _Settings
 from ada.config import logger
 from ada.core.exceptions import VectorNormalizeError
 from ada.core.utils import Counter, roundoff
-from ada.core.vector_utils import angle_between, unit_vector, vector_length
-from ada.core.vector_transforms import calc_zvec
+from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_length
 from ada.geom import Geometry
-from ada.geom.placement import Direction, Axis2Placement3D, Axis1Placement
+from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
 from ada.materials.utils import get_material
 from ada.sections.utils import get_section
 
 if TYPE_CHECKING:
-    from ada import Section
+    from ada import Material, Section
 
 
 class Pipe(BackendGeom):
     def __init__(
-            self, name, points, sec, mat="S355", content=None, metadata=None, color=None, units: Units = Units.M,
-            guid=None
+        self, name, points, sec, mat="S355", content=None, metadata=None, color=None, units: Units = Units.M, guid=None
     ):
         super().__init__(name, color=color, guid=guid, metadata=metadata, units=units)
 
@@ -43,7 +41,8 @@ class Pipe(BackendGeom):
         self._n1 = points[0] if type(points[0]) is Node else Node(points[0], units=units)
         self._n2 = points[-1] if type(points[-1]) is Node else Node(points[-1], units=units)
         self._points = [Node(n, units=units) if type(n) is not Node else n for n in points]
-        self._segments = build_pipe_segments(self)
+        # self._segments = build_pipe_segments(self)
+        self._segments = build_pipe_segments_alt(self)
 
     @property
     def segments(self) -> list[PipeSegStraight | PipeSegElbow]:
@@ -120,7 +119,7 @@ class Pipe(BackendGeom):
             self.material.units = value
             for p in self.points:
                 p.units = value
-            self._segments = build_pipe_segments(self)
+            self._segments = build_pipe_segments_alt(self)
             self._units = value
 
     def __repr__(self):
@@ -143,7 +142,7 @@ class Pipe(BackendGeom):
 
 class PipeSegStraight(BackendGeom):
     def __init__(
-            self, name, p1, p2, section, material, parent=None, guid=None, metadata=None, units=Units.M, color=None
+        self, name, p1, p2, section, material, parent=None, guid=None, metadata=None, units=Units.M, color=None
     ):
         super(PipeSegStraight, self).__init__(
             name=name, guid=guid, metadata=metadata, units=units, parent=parent, color=color
@@ -191,9 +190,9 @@ class PipeSegStraight(BackendGeom):
         return geom
 
     def solid_geom(self) -> Geometry:
+        import ada.geom.solids as geo_so
         from ada.api.beams.geom_beams import section_to_arbitrary_profile_def_with_voids
         from ada.geom.booleans import BooleanOperation
-        import ada.geom.solids as geo_so
 
         profile = section_to_arbitrary_profile_def_with_voids(self.section)
         place = Axis2Placement3D(location=self.p1.p, axis=self.xvec1, ref_direction=self.zvec1)
@@ -211,24 +210,31 @@ class PipeSegStraight(BackendGeom):
 
 class PipeSegElbow(BackendGeom):
     def __init__(
-            self,
-            name,
-            start,
-            midpoint,
-            end,
-            bend_radius,
-            section,
-            material,
-            parent=None,
-            guid=None,
-            metadata=None,
-            units=Units.M,
-            color=None,
-            arc_seg=None,
+        self,
+        name,
+        start,
+        midpoint,
+        end,
+        bend_radius,
+        section,
+        material,
+        parent=None,
+        guid=None,
+        metadata=None,
+        units=Units.M,
+        color=None,
+        arc_seg=None,
     ):
         super(PipeSegElbow, self).__init__(
             name=name, guid=guid, metadata=metadata, units=units, parent=parent, color=color
         )
+        if not isinstance(start, Node):
+            start = Node(start, units=units)
+        if not isinstance(midpoint, Node):
+            midpoint = Node(midpoint, units=units)
+        if not isinstance(end, Node):
+            end = Node(end, units=units)
+
         self.p1 = start
         self.p2 = midpoint
         self.p3 = end
@@ -241,6 +247,12 @@ class PipeSegElbow(BackendGeom):
         self._zvec1 = Direction(*calc_zvec(self._xvec1))
         section.refs.append(self)
         material.refs.append(self)
+
+    @staticmethod
+    def from_arc_segment(name, arc: ArcSegment, section: Section, material: Material, **kwargs) -> PipeSegElbow:
+        return PipeSegElbow(
+            name, arc.p1, arc.midpoint, arc.p2, arc.radius, section=section, material=material, arc_seg=arc, **kwargs
+        )
 
     @property
     def parent(self) -> Pipe:
@@ -301,15 +313,13 @@ class PipeSegElbow(BackendGeom):
         return geom
 
     def solid_geom(self) -> Geometry:
-        from ada.geom.solids import RevolvedAreaSolid
-        from ada.core.curve_utils import get_center_from_3_points_and_radius
         from ada.geom.booleans import BooleanOperation
+        from ada.geom.solids import RevolvedAreaSolid
 
         profile = section_to_arbitrary_profile_def_with_voids(self.section)
-        position = Axis2Placement3D()
+        position = Axis2Placement3D(self.p1)
 
-        cd = get_center_from_3_points_and_radius(self.p1.p, self.p2.p, self.p3.p, self.bend_radius, tol=1e-1)
-        axis = Axis1Placement(location=cd.center, axis=self.xvec1)
+        axis = Axis1Placement(location=self.arc_seg.center, axis=self.xvec1)
         revolve_angle = np.rad2deg(angle_between(self.xvec1, self.xvec2))
         solid = RevolvedAreaSolid(profile, position, axis, revolve_angle)
 
@@ -416,6 +426,26 @@ def build_pipe_segments(pipe: Pipe) -> list[PipeSegStraight | PipeSegElbow]:
         pipe_segments.append(
             PipeSegStraight(next(seg_names), Node(seg2.p1, units=pipe.units), Node(seg2.p2, units=pipe.units), **props)
         )
+
+    return pipe_segments
+
+
+def build_pipe_segments_alt(pipe: Pipe) -> list[PipeSegStraight | PipeSegElbow]:
+    from ada.core.curve_utils import segments3d_from_points3d
+
+    seg_names = Counter(prefix=pipe.name + "_")
+    props = dict(section=pipe.section, material=pipe.material, parent=pipe, units=pipe.units)
+    angle_tol = 1e-1
+    len_tol = _Settings.point_tol if pipe.units == Units.M else _Settings.point_tol * 1000
+    segments = segments3d_from_points3d(pipe.points, radius=pipe.pipe_bend_radius, angle_tol=angle_tol, len_tol=len_tol)
+    pipe_segments = []
+    for segment in segments:
+        if isinstance(segment, ArcSegment):
+            seg = PipeSegElbow.from_arc_segment(next(seg_names), segment, **props)
+        else:
+            seg = PipeSegStraight(next(seg_names), segment.p1, segment.p2, **props)
+
+        pipe_segments.append(seg)
 
     return pipe_segments
 

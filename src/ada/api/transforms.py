@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Iterable, List, Union, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Iterable, List, Union
 
 import numpy as np
 import pyquaternion as pq
 
-from ada.core.vector_transforms import transform_2d_to_3d, calc_xvec, calc_yvec, calc_zvec, normal_to_points_in_plane
-from ada.core.vector_utils import unit_vector
-from ada.geom.placement import Direction, O, Axis2Placement3D
+from ada.core.vector_transforms import normal_to_points_in_plane, transform_3x3
+from ada.core.vector_utils import calc_xvec, calc_yvec, calc_zvec, unit_vector
+from ada.geom.placement import Direction, O
 from ada.geom.points import Point
 
 if TYPE_CHECKING:
@@ -67,11 +67,13 @@ class Placement:
             self.zdir = calc_zvec(self.xdir, self.ydir)
 
         all_dir = [self.xdir, self.ydir, self.zdir]
-        all_vec = ['xdir', "ydir", "zdir"]
+        all_vec = ["xdir", "ydir", "zdir"]
         vectors = [n for n, x in zip(all_vec, all_dir) if x is not None]
         if len(vectors) == 1:
-            raise ValueError(f"Placement only given '{vectors[0]}' vector. "
-                             "Please supply at least two vectors to define a placement.")
+            raise ValueError(
+                f"Placement only given '{vectors[0]}' vector. "
+                "Please supply at least two vectors to define a placement."
+            )
 
         self.xdir = Point(*self.xdir)
         self.ydir = Point(*self.ydir)
@@ -83,12 +85,38 @@ class Placement:
             self.origin = Point(*self.origin)
 
     @staticmethod
+    def from_quaternion(quat: pq.Quaternion, origin=None):
+        rot_mat = quat.rotation_matrix
+        return Placement(origin=origin, xdir=rot_mat[0], ydir=rot_mat[1], zdir=rot_mat[2])
+
+    @staticmethod
     def from_axis_angle(axis: list[float], angle: float, origin: Iterable[float | int] = None) -> Placement:
         """Axis is a list of 3 floats, angle is in degrees."""
         q = pq.Quaternion(axis=axis, angle=np.radians(angle))
         m = q.transformation_matrix
 
         return Placement(origin=origin, xdir=m[0, :3], ydir=m[1, :3], zdir=m[2, :3])
+
+    @staticmethod
+    def from_co_linear_points(points: list[Point] | np.ndarray, xdir=None) -> Placement:
+        """Create a placement from a list of points that are co-linear."""
+        if not isinstance(points, np.ndarray):
+            points = np.asarray(points)
+
+        if points.shape[0] < 3:
+            raise ValueError("At least three points are required to define a placement.")
+
+        origin = points[0]
+        n = normal_to_points_in_plane(points)
+        if xdir is None:
+            xdir = Direction(points[1] - points[0]).get_normalized()
+        else:
+            xdir = Direction(xdir).get_normalized()
+
+        ydir = calc_yvec(xdir, n)
+        return Placement(origin=origin, xdir=xdir, ydir=ydir, zdir=n)
+        # q1 = pq.Quaternion(matrix=np.asarray([xdir, ydir, n])).inverse
+        # return Placement.from_quaternion(q1, origin)
 
     def absolute_placement(self):
         current_location = np.array([0, 0, 0], dtype=float)
@@ -98,11 +126,6 @@ class Placement:
             current_location += ancestor.placement.origin
             # TODO: Add support for combining rotations as well
         return current_location
-
-    def to_vector_geom(self, **kwargs) -> "Part":
-        from ada.occ.utils import make_ori_vector
-
-        return make_ori_vector("VecGeom", self.origin, self.rot_matrix, **kwargs)
 
     @property
     def rot_matrix(self):
@@ -114,19 +137,39 @@ class Placement:
         Rt = np.hstack([self.rot_matrix, t])
         return np.vstack([Rt, np.array([0.0, 0.0, 0.0, 1.0])])
 
-    def to_axis3d_geom(self) -> Axis2Placement3D:
-        return Axis2Placement3D(Point(*self.origin), Direction(*self.zdir), Direction(*self.xdir))
-
-    def transform_points_to_global(self, points2d: Iterable[Iterable[float | int, float | int]]) -> np.ndarray:
+    def transform_local_points_to_global(
+        self, points2d: Iterable[Iterable[float | int, float | int]], inverse=False
+    ) -> np.ndarray:
         """Transform points from the coordinate system of this placement to the global coordinate system."""
         if not isinstance(points2d, np.ndarray):
             points2d = np.array(points2d)
 
-        m = self.calc_matrix4x4()
-
-        points3d = transform_2d_to_3d(points2d, m)
+        points3d = transform_3x3(self.rot_matrix, np.asarray(points2d))
+        points3d += self.origin
 
         return points3d
+
+    def transform_local_points_back_to_global(self, points2d):
+        if not isinstance(points2d, np.ndarray):
+            points2d = np.array(points2d)
+
+        points3d = transform_3x3(self.rot_matrix, points2d, inverse=True)
+        points3d += self.origin
+
+        return points3d
+
+    def transform_global_points_back_to_local(self, points3d):
+        """Transform points from the global coordinate system to the coordinate system of this placement."""
+        points3d_ = np.array(points3d) - self.origin
+        points2d = transform_3x3(self.rot_matrix, points3d_, inverse=True)
+        return points2d[:, :2]
+
+    def transform_global_points_to_local(self, points3d):
+        """Transform points from the global coordinate system to the coordinate system of this placement."""
+        points3d_ = np.array(points3d) - np.array(self.origin)
+        points2d = transform_3x3(self.rot_matrix, points3d_, inverse=False)
+
+        return points2d[:, :2]
 
     def __eq__(self, other: Placement):
         from ada.core.vector_utils import vector_length

@@ -1,20 +1,23 @@
 from __future__ import annotations
 
-from typing import Optional, Iterable, Union
+from typing import TYPE_CHECKING, Iterable, Union
 
 import numpy as np
 
-from ada.base.physical_objects import BackendGeom
-from ada.base.units import Units
 from ada.api.bounding_box import BoundingBox
 from ada.api.curves import CurvePoly2d
 from ada.api.nodes import Node
+from ada.base.physical_objects import BackendGeom
+from ada.base.units import Units
 from ada.config import Settings
 from ada.geom import Geometry
 from ada.geom.placement import Direction
 from ada.geom.points import Point
 from ada.materials import Material
 from ada.materials.metals import CarbonSteel
+
+if TYPE_CHECKING:
+    from ada import Placement
 
 _NTYPE = Union[int, float]
 
@@ -42,6 +45,7 @@ class Plate(BackendGeom):
         origin: Iterable | Point = None,
         xdir: Iterable | Direction = None,
         n: Iterable | Direction = None,
+        orientation: Placement = None,
         pl_id=None,
         tol=None,
         **kwargs,
@@ -65,13 +69,14 @@ class Plate(BackendGeom):
                 xdir=xdir,
                 tol=tol,
                 parent=self,
+                orientation=orientation,
             )
 
         self._bbox = None
 
     @staticmethod
-    def from_3d_points(name, points, t, mat="S420", origin_index=0, xdir=None, color=None, **kwargs):
-        poly = CurvePoly2d.from_3d_points(points, origin_index=origin_index, xdir=xdir, **kwargs)
+    def from_3d_points(name, points, t, mat="S420", xdir=None, color=None, **kwargs):
+        poly = CurvePoly2d.from_3d_points(points, xdir=xdir, **kwargs)
         return Plate(name, poly, t, mat=mat, color=color, **kwargs)
 
     def bbox(self) -> BoundingBox:
@@ -96,21 +101,21 @@ class Plate(BackendGeom):
 
     def shell_geom(self) -> Geometry:
         import ada.geom.surfaces as geo_su
-        from ada.geom.placement import Axis2Placement3D
         from ada.geom.booleans import BooleanOperation
+        from ada.geom.placement import Axis2Placement3D
 
         outer_curve = self.poly.curve_geom()
-        place = Axis2Placement3D(self.poly.origin, axis=self.poly.normal, ref_direction=self.poly.xdir)
+        place = Axis2Placement3D(self.poly.orientation.origin, axis=self.poly.normal, ref_direction=self.poly.xdir)
         face = geo_su.CurveBoundedPlane(geo_su.Plane(place), outer_curve, inner_boundaries=[])
 
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
         return Geometry(self.guid, face, self.color, bool_operations=booleans)
 
     def solid_geom(self) -> Geometry:
-        import ada.geom.surfaces as geo_su
         import ada.geom.solids as geo_so
-        from ada.geom.placement import Axis2Placement3D
+        import ada.geom.surfaces as geo_su
         from ada.geom.booleans import BooleanOperation
+        from ada.geom.placement import Axis2Placement3D
 
         outer_curve = self.poly.curve_geom(use_3d_segments=False)
         profile = geo_su.ArbitraryProfileDefWithVoids(geo_su.ProfileType.AREA, outer_curve, [])

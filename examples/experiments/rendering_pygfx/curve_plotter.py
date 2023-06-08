@@ -3,7 +3,7 @@ from pygfx.linalg import Vector3
 from wgpu.gui.glfw import WgpuCanvas
 
 import ada.visit.render_pygfx_helpers as gfx_utils
-from ada import LineSegment, ArcSegment
+from ada import ArcSegment, LineSegment
 from ada.core.curve_utils import SegCreator
 from ada.geom.points import Point
 from ada.occ.tessellating import BatchTessellator

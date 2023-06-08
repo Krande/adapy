@@ -10,7 +10,7 @@ import trimesh
 import trimesh.visual
 
 from ada.config import logger
-from ada.core.vector_transforms import transform
+from ada.core.vector_transforms import transform_4x4
 from ada.visit.colors import Color
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import MergedMesh, MeshRef, MeshStore, MeshType
@@ -156,7 +156,7 @@ class GltfMergeStore:
             indices = self.get_buffer_data(primitive["indices"])
             position = self.get_buffer_data(primitive["attributes"]["POSITION"])
             if matrix is not None:
-                new_position = transform(matrix, position).flatten()
+                new_position = transform_4x4(matrix, position).flatten()
                 position = new_position
             if translation is not None:
                 new_position = (position.reshape(len(position) // 3, 3) + np.array(translation)).flatten()

@@ -16,13 +16,14 @@ from ada.cadit.ifc.utils import (
 )
 from ada.config import logger
 from ada.core.constants import O, X, Z
-from ada.core.curve_utils import get_center_from_3_points_and_radius
+from ada.core.vector_transforms import global_2_local_nodes
 from ada.core.vector_utils import (
     angle_between,
+    calc_yvec,
+    calc_zvec,
     unit_vector,
     vector_length,
 )
-from ada.core.vector_transforms import global_2_local_nodes, calc_yvec, calc_zvec
 
 if TYPE_CHECKING:
     from ada import Pipe, PipeSegElbow, PipeSegStraight
@@ -211,9 +212,12 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
 
 
 def elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
-    xvec1 = unit_vector(elbow.xvec1)
-    xvec2 = unit_vector(elbow.xvec2)
-    normal = unit_vector(calc_zvec(xvec1, xvec2))
+    arc = elbow.arc_seg
+
+    xvec1 = unit_vector(arc.s_normal)
+    xvec2 = unit_vector(arc.e_normal)
+    normal = unit_vector(calc_zvec(xvec2, xvec1))
+
     p1, p2, p3 = elbow.p1.p, elbow.p2.p, elbow.p3.p
 
     a = elbow.get_assembly()
@@ -223,11 +227,10 @@ def elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
     profile = ifc_store.get_profile_def(elbow.section)
 
     # Revolve Angle
-    revolve_angle = np.rad2deg(angle_between(xvec1, xvec2))
+    revolve_angle = 180 - np.rad2deg(angle_between(xvec1, xvec2))
 
     # Revolve Point
-    cd = get_center_from_3_points_and_radius(p1, p2, p3, elbow.bend_radius, tol=tol)
-    diff = cd.center - elbow.arc_seg.p1
+    diff = arc.center - arc.p1
 
     # Transform Axis normal and position to the local coordinate system
     yvec = calc_yvec(normal, xvec1)
@@ -245,6 +248,11 @@ def elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
     revolve_axis1 = f.create_entity("IfcAxis1Placement", revolve_point, rev_axis_dir)
 
     position = create_ifc_placement(f, elbow.arc_seg.p1, xvec1, normal)
+
+    # Alternative position calc
+    # start_normal = elbow.arc_seg.s_normal
+    # perp_normal = np.cross(start_normal, elbow.xvec2)
+    # position = create_ifc_placement(f, elbow.arc_seg.p1, start_normal, perp_normal)
 
     # Body representation
 

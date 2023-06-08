@@ -2,9 +2,8 @@
 
 
 import numpy as np
-from wgpu.gui.auto import WgpuCanvas, run
 import pygfx as gfx
-
+from wgpu.gui.auto import WgpuCanvas, run
 
 canvas = WgpuCanvas(max_fps=999)
 renderer = gfx.WgpuRenderer(canvas, show_fps=True)
@@ -30,9 +29,7 @@ for row in range(rows):
         if use_thin_lines:
             material = gfx.LineThinMaterial(color=(col / cols, row / rows, 0.5, 1.0))
         else:
-            material = gfx.LineMaterial(
-                thickness=0.2 + 2 * row / rows, color=(col / cols, row / rows, 0.5, 1.0)
-            )
+            material = gfx.LineMaterial(thickness=0.2 + 2 * row / rows, color=(col / cols, row / rows, 0.5, 1.0))
         line = gfx.Line(geometry, material)
         line.x = col
         line.y = row

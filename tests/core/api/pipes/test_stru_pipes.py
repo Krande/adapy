@@ -34,13 +34,13 @@ def test_pipe_multiple_bends(pipe_w_multiple_bends):
 
     a = Assembly("MyTest") / (Part("MyPart") / pipe_w_multiple_bends)
     # a.to_stp(test_dir / "pipe_bend_multiple.stp")
-    a.to_ifc(test_dir / "pipe_bend_multiple.ifc", file_obj_only=False, validate=True)
+    a.to_ifc(test_dir / "pipe_bend_multiple.ifc", file_obj_only=True, validate=True)
 
 
 def test_write_elbow_revolved_solid_ifc_gen(pipe_w_multiple_bends):
-    a = Assembly("MyTest") / (Part("MyPart") / pipe_w_multiple_bends)
+    a = Assembly("MyTest", schema="IFC4x3") / (Part("MyPart") / pipe_w_multiple_bends)
     a.ifc_store.sync()
-
+    # a.to_ifc('temp/pipes.ifc', file_obj_only=True, validate=True)
     f = a.ifc_store.f
 
     elbows = list(filter(lambda x: isinstance(x, PipeSegElbow), pipe_w_multiple_bends.segments))
@@ -69,17 +69,13 @@ def test_write_elbow_revolved_solid_ifc_gen(pipe_w_multiple_bends):
 
     assert ifc_revolved_solid2.Angle == pytest.approx(90.0)
 
-    # axis2 = ifc_revolved_solid2.Axis
-
     position2 = ifc_revolved_solid2.Position
 
     assert position2.Axis.DirectionRatios == pytest.approx((0.0, 1.0, 0.0))
 
-    # assert position2.Location.Coordinates == pytest.approx((5.2, 4.604041875, 3.2))
+    elbow3 = elbows[2]
 
-    # print("sd")
+    shape3 = elbow_revolved_solid(elbow3, f)
+    ifc_revolved_solid3 = shape3.Representations[0].Items[0]
 
-    # elbow3 = elbows[2]
-
-    # shape3 = elbow_revolved_solid(elbow3, f, context)
-    # ifc_revolved_solid2 = shape2.Representations[0].Items[0]
+    assert ifc_revolved_solid3.Angle == pytest.approx(67.380135)

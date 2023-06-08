@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Iterable, List, Union
 import numpy as np
 
 from ada.base.units import Units
-
 from ada.config import Settings, logger
 from ada.core.vector_utils import vector_length
 from ada.geom.points import Point
@@ -22,8 +21,7 @@ class Node:
     """Base node object"""
 
     def __init__(
-            self, p: Iterable[numeric, numeric, numeric], nid=None, bc=None, r=None, parent=None, units=Units.M,
-            refs=None
+        self, p: Iterable[numeric, numeric, numeric], nid=None, bc=None, r=None, parent=None, units=Units.M, refs=None
     ):
         self._id = nid
         self.p: Point = Point(*p)

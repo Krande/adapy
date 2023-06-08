@@ -4,8 +4,8 @@ from abc import ABC
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, List
 
-from ada.base.physical_objects import BackendGeom
 from ada.api.containers import Beams, Connections
+from ada.base.physical_objects import BackendGeom
 
 if TYPE_CHECKING:
     from ada import Beam, Node

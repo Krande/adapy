@@ -14,11 +14,11 @@ from ada.core.vector_utils import unit_vector, vector_length
 
 if TYPE_CHECKING:
     from ada import Assembly
-    from ada.cadit.ifc.store import IfcStore
     from ada.api.primitives import (
         BSplineSurfaceWithKnots,
         RationalBSplineSurfaceWithKnots,
     )
+    from ada.cadit.ifc.store import IfcStore
 
 
 def generate_extruded_area_solid_prod_def(ifc_store: IfcStore, p_start, p_end, section):

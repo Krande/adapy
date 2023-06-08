@@ -2,14 +2,13 @@
 
 import pathlib
 from itertools import groupby
-from typing import Iterable, Callable
+from typing import Callable, Iterable
 
 import numpy as np
 import trimesh
 import trimesh.visual.material
 
 from ada import Part
-import glfw
 from ada.base.types import GeomRepr
 from ada.cadit.ifc.utils import create_guid
 from ada.geom import Geometry
@@ -29,7 +28,7 @@ try:
 except ImportError:
     raise ImportError("Please install wgpu to use this renderer -> 'pip install wgpu'.")
 
-from ada.visit.render_backend import RenderBackend, MeshInfo
+from ada.visit.render_backend import MeshInfo, RenderBackend
 
 BG_GRAY = Color(57, 57, 57)
 PICKED_COLOR = Color(0, 123, 255)

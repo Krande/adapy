@@ -2,17 +2,24 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable, Iterable
 
+from ada.api.transforms import Placement
 from ada.base.root import Root
 from ada.base.types import GeomRepr
 from ada.base.units import Units
-from ada.api.transforms import Placement
 from ada.geom import Geometry
 from ada.geom.booleans import BoolOpEnum
 from ada.visit.colors import Color, color_dict
 from ada.visit.config import ExportConfig
 
 if TYPE_CHECKING:
-    from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Solid, TopoDS_Shell, TopoDS_Wire, TopoDS_Face
+    from OCC.Core.TopoDS import (
+        TopoDS_Compound,
+        TopoDS_Face,
+        TopoDS_Shell,
+        TopoDS_Solid,
+        TopoDS_Wire,
+    )
+
     from ada import FEM, Boolean
     from ada.cadit.ifc.store import IfcStore
     from ada.fem import Elem

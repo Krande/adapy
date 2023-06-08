@@ -10,9 +10,9 @@ import numpy as np
 from ada import Assembly, Beam, Node, Part, Pipe, PipeSegStraight, Plate, PrimCyl
 from ada.config import logger
 
+from ..api.transforms import EquationOfPlane
 from .utils import Counter
 from .vector_utils import intersect_calc, is_parallel, vector_length
-from ..api.transforms import EquationOfPlane
 
 
 def basic_intersect(bm: Beam, margins, all_parts: [Part]):

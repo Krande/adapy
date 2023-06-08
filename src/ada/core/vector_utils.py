@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from typing import Iterable
+
 import numpy as np
 
 from ada.config import Settings
+from ada.geom.placement import Direction
+
 from .exceptions import VectorNormalizeError
 
 
@@ -184,9 +188,9 @@ def is_point_inside_bbox(p, bbox, tol=1e-3) -> bool:
     :return:
     """
     if (
-            bbox[0][0][0] - tol < p[0] < bbox[0][1][0] + tol
-            and bbox[1][0][1] - tol < p[1] < bbox[1][1][1] + tol
-            and bbox[2][0][2] - tol < p[2] < bbox[2][1][2] + tol
+        bbox[0][0][0] - tol < p[0] < bbox[0][1][0] + tol
+        and bbox[1][0][1] - tol < p[1] < bbox[1][1][1] + tol
+        and bbox[2][0][2] - tol < p[2] < bbox[2][1][2] + tol
     ):
         return True
     else:
@@ -324,13 +328,13 @@ def poly2d_center_of_gravity(polygon):
     return np.array([cx, cy])
 
 
-def unit_vector(vector: np.ndarray) -> np.ndarray:
+def unit_vector(vector: np.ndarray) -> Direction:
     """Returns the unit vector of a given vector"""
     norm = vector / np.linalg.norm(vector)
     if np.isnan(norm).any():
         raise VectorNormalizeError(f'Error trying to normalize vector "{vector}"')
 
-    return norm
+    return Direction(norm)
 
 
 def is_clockwise(points) -> bool:
@@ -363,3 +367,59 @@ def is_on_line(data):
         return list(AB_), bm
     else:
         return None
+
+
+def create_right_hand_vectors_xv_yv_from_zv(z_vector: Iterable) -> tuple[Direction, Direction]:
+    from ada.geom.placement import Direction
+
+    # Ensure the z_vector is a numpy array
+    if isinstance(z_vector, Direction) is False:
+        z_vector = Direction(*z_vector)
+
+    # Normalize z_vector
+    z_vector = z_vector / np.linalg.norm(z_vector)
+
+    # Check if z_vector is (0, 0, 0)
+    if np.all(z_vector == 0):
+        raise ValueError("Input vector cannot be the zero vector")
+
+    # Create an arbitrary x_vector not parallel to z_vector
+    if is_parallel(z_vector, np.array([1, 0, 0])):
+        x_vector = np.array([0, 1, 0])
+    else:
+        x_vector = np.array([1, 0, 0])
+
+    # Calculate the y_vector using the cross product
+    y_vector = np.cross(z_vector, x_vector)
+    y_vector = y_vector / np.linalg.norm(y_vector)  # normalize y_vector
+
+    # Adjust x_vector by recalculating the cross product of y_vector and z_vector for right-handedness
+    x_vector = np.cross(y_vector, z_vector)
+    x_vector = x_vector / np.linalg.norm(x_vector)  # normalize x_vector
+
+    return Direction(*x_vector), Direction(*y_vector)
+
+
+def calc_xvec(y_vec, z_vec) -> np.ndarray:
+    return np.cross(y_vec, z_vec)
+
+
+def calc_yvec(x_vec, z_vec=None) -> np.ndarray:
+    if z_vec is None:
+        calc_zvec(x_vec)
+
+    return np.cross(z_vec, x_vec)
+
+
+def calc_zvec(x_vec, y_vec=None) -> np.ndarray:
+    """Calculate Z-vector (up) from an x-vector (along beam) only."""
+    from ada.core.constants import Y, Z
+
+    if y_vec is None:
+        z_vec = np.array(Z)
+        a = angle_between(x_vec, z_vec)
+        if a == np.pi or a == 0:
+            z_vec = np.array(Y)
+        return z_vec
+    else:
+        return np.cross(x_vec, y_vec)

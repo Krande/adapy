@@ -8,8 +8,7 @@ from ada import Beam
 from ada.api.beams import BeamRevolve
 from ada.api.curves import CurveRevolve
 from ada.config import logger
-from ada.core.vector_utils import vector_length
-from ada.core.vector_transforms import calc_yvec
+from ada.core.vector_utils import calc_yvec, vector_length
 
 from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
@@ -113,7 +112,9 @@ def import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
     p2 = get_point(axis.Trim2[1])
     global_place = Placement()
     angle = axis.Trim2[0].wrappedValue
-    rot_origin = transform3d(beam_place.rot_matrix, global_place.rot_matrix, global_place.origin, [curve_place.origin])[0]
+    rot_origin = transform3d(beam_place.rot_matrix, global_place.rot_matrix, global_place.origin, [curve_place.origin])[
+        0
+    ]
     rot_axis = transform3d(curve_place.rot_matrix, global_place.rot_matrix, global_place.origin, [curve_place.zdir])[0]
 
     p1g, p2g = transform3d(beam_place.rot_matrix, global_place.rot_matrix, beam_place.origin, [p1, p2])

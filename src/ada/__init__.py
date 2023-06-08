@@ -5,7 +5,6 @@ import pathlib
 from typing import TYPE_CHECKING
 
 from ada import fem
-from ada.base.units import Units
 from ada.api.beams import Beam, BeamRevolve, BeamSweep, BeamTapered
 from ada.api.curves import ArcSegment, CurvePoly2d, CurveRevolve, LineSegment
 from ada.api.fasteners import Bolts, Weld
@@ -24,12 +23,13 @@ from ada.api.primitives import (
     Shape,
 )
 from ada.api.spatial import Assembly, Group, Part
-from ada.api.walls import Wall
 from ada.api.transforms import Instance, Placement, Transform
 from ada.api.user import User
+from ada.api.walls import Wall
+from ada.base.units import Units
 from ada.fem import FEM
-from ada.geom.points import Point
 from ada.geom.placement import Direction
+from ada.geom.points import Point
 from ada.materials import Material
 from ada.sections import Section
 

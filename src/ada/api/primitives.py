@@ -9,17 +9,17 @@ import numpy as np
 from ada.base.ifc_types import ShapeTypes
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
-from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.geom.booleans import BooleanOperation
 from ada.materials import Material
 from ada.materials.utils import get_material
-from .bounding_box import BoundingBox
-from .curves import CurvePoly2d, CurveSweep2d
-from .transforms import Placement
+
 from ..geom import Geometry
 from ..geom.placement import Direction
 from ..geom.points import Point
+from .bounding_box import BoundingBox
+from .curves import CurvePoly2d, CurveSweep2d
+from .transforms import Placement
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
@@ -31,21 +31,21 @@ class Shape(BackendGeom):
     IFC_CLASSES = ShapeTypes
 
     def __init__(
-            self,
-            name,
-            geom: Geometry | None = None,
-            color=None,
-            opacity=1.0,
-            mass: float = None,
-            cog: Iterable = None,
-            material: Material | str = None,
-            units=Units.M,
-            metadata=None,
-            guid=None,
-            placement=Placement(),
-            ifc_store: IfcStore = None,
-            ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
-            parent=None,
+        self,
+        name,
+        geom: Geometry | None = None,
+        color=None,
+        opacity=1.0,
+        mass: float = None,
+        cog: Iterable = None,
+        material: Material | str = None,
+        units=Units.M,
+        metadata=None,
+        guid=None,
+        placement=Placement(),
+        ifc_store: IfcStore = None,
+        ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
+        parent=None,
     ):
         super().__init__(
             name,
@@ -366,10 +366,9 @@ class PrimExtrude(Shape):
         return geom_to_occ_geom(self.solid_geom())
 
     def solid_geom(self) -> Geometry:
+        from ada.geom.placement import Axis2Placement3D, Direction
         from ada.geom.solids import ExtrudedAreaSolid
         from ada.geom.surfaces import ArbitraryProfileDefWithVoids, ProfileType
-        from ada.geom.placement import Axis2Placement3D
-        from ada.geom.placement import Direction
 
         outer_curve = self.poly.curve_geom()
         profile = ArbitraryProfileDefWithVoids(ProfileType.AREA, outer_curve, [])
@@ -398,13 +397,13 @@ class PrimRevolve(Shape):
             self._poly = points
         else:
             self._poly = CurvePoly2d(
-            points=points,
-            normal=normal,
-            origin=origin,
-            xdir=xdir,
-            tol=tol,
-            parent=self,
-        )
+                points=points,
+                normal=normal,
+                origin=origin,
+                xdir=xdir,
+                tol=tol,
+                parent=self,
+            )
         self._revolve_angle = rev_angle
         super(PrimRevolve, self).__init__(name, **kwargs)
 
@@ -445,9 +444,9 @@ class PrimRevolve(Shape):
         return geom_to_occ_geom(self.solid_geom())
 
     def solid_geom(self) -> Geometry:
+        from ada.geom.placement import Axis1Placement, Axis2Placement3D
         from ada.geom.solids import RevolvedAreaSolid
         from ada.geom.surfaces import ArbitraryProfileDefWithVoids, ProfileType
-        from ada.geom.placement import Axis2Placement3D, Axis1Placement
 
         outer_curve = self.poly.curve_geom()
         profile = ArbitraryProfileDefWithVoids(ProfileType.AREA, outer_curve, [])
@@ -465,16 +464,16 @@ class PrimRevolve(Shape):
 
 class PrimSweep(Shape):
     def __init__(
-            self,
-            name,
-            sweep_curve,
-            normal,
-            xdir,
-            profile_curve_outer,
-            profile_curve_inner=None,
-            origin=None,
-            tol=1e-3,
-            **kwargs,
+        self,
+        name,
+        sweep_curve,
+        normal,
+        xdir,
+        profile_curve_outer,
+        profile_curve_inner=None,
+        origin=None,
+        tol=1e-3,
+        **kwargs,
     ):
         if type(sweep_curve) is list:
             sweep_curve = CurveSweep2d.from_3d_points(sweep_curve)

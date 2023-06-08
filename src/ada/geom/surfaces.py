@@ -28,6 +28,7 @@ class ArbitraryProfileDefWithVoids(ProfileDef):
     """
     IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcArbitraryProfileDefWithVoids.htm
     """
+
     outer_curve: geo_cu.CURVE_GEOM_TYPES
     inner_curves: list[geo_cu.CURVE_GEOM_TYPES] = field(default_factory=list)
 
@@ -37,6 +38,7 @@ class ArbitraryProfileDefWithVoids(ProfileDef):
             for segment in self.outer_curve.segments:
                 if segment.dim != 2:
                     raise ValueError("Invalid segment in outer_curve")
+
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcPolyLoop.htm)
 @dataclass
@@ -71,6 +73,7 @@ class CurveBoundedPlane:
 
 
 # IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcSurfaceOfLinearExtrusion.htm)
+
 
 @dataclass
 class SurfaceOfLinearExtrusion:

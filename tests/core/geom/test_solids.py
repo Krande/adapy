@@ -1,11 +1,11 @@
-from OCC.Core.TopoDS import TopoDS_Solid, TopoDS_Face
+from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Solid
 
 import ada
 import ada.geom.solids as geo_so
 import ada.geom.surfaces as geo_su
 from ada.core.utils import set_list_first_position_elem
 from ada.occ.geom import geom_to_occ_geom
-from ada.occ.utils import iter_faces_with_normal, get_points_from_occ_shape
+from ada.occ.utils import get_points_from_occ_shape, iter_faces_with_normal
 
 
 def test_cyl():
@@ -126,7 +126,7 @@ def test_plate_xz():
 
 def test_pipe1():
     po = [ada.Point(1, 1, 3) + x for x in [(0, 0.5, 0), (1, 0.5, 0), (1.2, 0.7, 0.2), (1.5, 0.7, 0.2)]]
-    pipe1 = ada.Pipe("pipe1", po, 'PIPE200x5', color="green")
+    pipe1 = ada.Pipe("pipe1", po, "PIPE200x5", color="green")
 
     straight1 = pipe1.segments[0]
     assert isinstance(straight1, ada.PipeSegStraight)

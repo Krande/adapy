@@ -8,13 +8,13 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 
 import numpy as np
 
-from ada.base.units import Units
 from ada.api.beams import Beam
 from ada.api.beams.helpers import get_beam_extensions
 from ada.api.exceptions import DuplicateNodes
 from ada.api.nodes import Node, replace_node
 from ada.api.plates.base_pl import Plate
 from ada.api.transforms import Rotation
+from ada.base.units import Units
 from ada.config import Settings, logger
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import (

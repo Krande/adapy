@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ada import Placement, Plate
+from ada import Plate
 from ada.config import logger
 
 from .read_curves import import_indexedpolycurve, import_polycurve

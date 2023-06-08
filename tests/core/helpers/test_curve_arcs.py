@@ -1,20 +1,11 @@
 import numpy as np
-import numpy as np
 import pytest
 
 from ada import ArcSegment, Placement
-from ada.core.curve_utils import (
-    calc_2darc_start_end_from_lines_radius,
-    calc_arc_radius_center_from_3points,
-    get_center_from_3_points_and_radius,
-    intersect_line_circle,
-    make_arc_segment, )
+from ada.core.curve_utils import intersect_line_circle, make_arc_segment
 from ada.core.utils import roundoff
 from ada.core.vector_transforms import linear_2dtransform_rotate, local_2_global_points
-from ada.core.vector_utils import (
-    angle_between,
-    intersection_point,
-    unit_vector, )
+from ada.core.vector_utils import angle_between, intersection_point, unit_vector
 from ada.occ.utils import make_arc_segment_using_occ
 
 
@@ -46,7 +37,7 @@ def test_make_arc_tool_3d_xy_offset():
 
     points2d = [start, center, end]
     place = Placement(origin=(0, 0, 1))
-    start, center, end = place.transform_points_to_global(points2d)
+    start, center, end = place.transform_local_points_to_global(points2d)
     assert np.allclose(start, (0, 5, 1))
     assert np.allclose(center, (0, 0, 1))
     assert np.allclose(end, (5, 0, 1))
@@ -73,7 +64,7 @@ def test_make_arc_tool_3d_xz_offset():
     radius = 0.2
     points2d = [start, center, end]
     place = Placement.from_axis_angle([1, 0, 0], 90, origin=(0, 0, 0))
-    start, center, end = place.transform_points_to_global(points2d)
+    start, center, end = place.transform_local_points_to_global(points2d)
     assert np.allclose(start, (0, 0, 5))
     assert np.allclose(center, (0, 0, 0))
     assert np.allclose(end, (5, 0, 0))
@@ -116,15 +107,14 @@ def test_basic_arc():
     p3 = (5, 0)
     radius = 0.2
 
-    center, start, end, midp = calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius)
-    rcenter, rradius = calc_arc_radius_center_from_3points(start, midp, end)
+    arc = ArcSegment.from_start_center_end_radius(p1, p2, p3, radius)
 
-    v1 = (start, np.array(p1))
-    v2 = (np.array(p3), end)
+    v1 = (arc.p1, np.array(p1))
+    v2 = (np.array(p3), arc.p2)
     rp = [roundoff(x) for x in intersection_point(v1, v2)]
     assert rp[0] == p2[0]
     assert rp[1] == p2[1]
-    assert radius == rradius
+    assert radius == arc.radius
     # assert center[0] == rcenter[0]
     # assert center[1] == rcenter[1]
 
@@ -135,11 +125,10 @@ def test_basic_arc_opposite():
     p3 = (-5, 0)
     radius = 0.2
 
-    center, start, end, midp = calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius)
-    rcenter, _rradius = calc_arc_radius_center_from_3points(start, midp, end)
+    arc = ArcSegment.from_start_center_end_radius(p1, p2, p3, radius)
 
-    v1 = (start, np.array(p1))
-    v2 = (np.array(p3), end)
+    v1 = (arc.p1, np.array(p1))
+    v2 = (np.array(p3), arc.p2)
     rp = intersection_point(v1, v2)
 
     assert roundoff(rp[0]) == roundoff(p2[0])
@@ -152,11 +141,10 @@ def test_basic_arc_rot2():
     p3 = (5, 0)
     radius = 0.2
 
-    center, start, end, midp = calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius)
-    rcenter, _rradius = calc_arc_radius_center_from_3points(start, midp, end)
+    arc = ArcSegment.from_start_center_end_radius(p1, p2, p3, radius)
 
-    v1 = (start, np.array(p1))
-    v2 = (np.array(p3), end)
+    v1 = (arc.p1, np.array(p1))
+    v2 = (np.array(p3), arc.p2)
     rp = intersection_point(v1, v2)
 
     assert roundoff(rp[0]) == roundoff(p2[0])
@@ -227,17 +215,17 @@ def test_basic_arc2():
 
 def test_center_of_arc_3_points_xy_plane():
     r = 0.19595812499999998
-    curve_data = get_center_from_3_points_and_radius((0, 0, 0), (5, 0, 0), (5, 5, 0), r)
-    assert sum(curve_data.center - np.array([4.804042, 195.958e-03, 0])) == pytest.approx(0.0)
+    arc = ArcSegment.from_start_center_end_radius((0, 0, 0), (5, 0, 0), (5, 5, 0), r)
+    assert sum(arc.center - np.array([4.804042, 195.958e-03, 0])) == pytest.approx(0.0)
 
 
 def test_center_of_arc_3_points_out_of_plane():
     r = 0.19595812499999998
-    curve_data = get_center_from_3_points_and_radius((5.2, -0.00404, 3.2), (5.2, 4.8, 3.2), (10.0, 4.8, 5.2), r)
-    assert sum(curve_data.center - np.array([5.380884, 4.604042, 3.275369])) == pytest.approx(0.0, abs=1e-6)
+    arc = ArcSegment.from_start_center_end_radius((5.2, -0.00404, 3.2), (5.2, 4.8, 3.2), (10.0, 4.8, 5.2), r)
+    assert sum(arc.center - np.array([5.380884, 4.604042, 3.275369])) == pytest.approx(0.0, abs=1e-6)
 
 
 def test_center_of_arc_3_points_out_of_plane_2():
     r = 0.19595812499999998
-    curve_data = get_center_from_3_points_and_radius((5.38088, 4.8, 3.27537), (10.0, 4.8, 5.2), (10.0, 4.8, 13.2), r)
-    assert sum(curve_data.center - np.array([9.804042, 4.8, 5.330639])) == pytest.approx(0.0, abs=1e-6)
+    arc = ArcSegment.from_start_center_end_radius((5.38088, 4.8, 3.27537), (10.0, 4.8, 5.2), (10.0, 4.8, 13.2), r)
+    assert sum(arc.center - np.array([9.804042, 4.8, 5.330639])) == pytest.approx(0.0, abs=1e-6)

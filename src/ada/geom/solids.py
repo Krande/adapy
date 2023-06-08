@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Union
 
-from ada.core.vector_transforms import create_right_hand_vectors_xv_yv_from_zv
+from ada.core.vector_utils import create_right_hand_vectors_xv_yv_from_zv
 from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
 from ada.geom.points import Point
 from ada.geom.surfaces import ProfileDef
@@ -99,7 +99,7 @@ class Cone:
     @staticmethod
     def from_2points(p1: Point, p2: Point, r: float) -> Cone:
         vec = Direction(*(p2 - p1))
-        axis = vec.get_normalised()
+        axis = vec.get_normalized()
         xv, yv = create_right_hand_vectors_xv_yv_from_zv(axis)
         height = vec.get_length()
         axis3d = Axis2Placement3D(p1, axis, xv)
@@ -117,7 +117,7 @@ class Cylinder:
     @staticmethod
     def from_2points(p1: Point, p2: Point, r: float) -> Cylinder:
         vec = Direction(*(p2 - p1))
-        axis = vec.get_normalised()
+        axis = vec.get_normalized()
         xv, yv = create_right_hand_vectors_xv_yv_from_zv(axis)
         height = vec.get_length()
         axis3d = Axis2Placement3D(p1, axis, xv)

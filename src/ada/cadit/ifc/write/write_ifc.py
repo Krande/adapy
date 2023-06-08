@@ -63,7 +63,7 @@ class IfcWriter:
         return num_new_spatial_objects
 
     def sync_added_geom_repr(self):
-        logger.warning("Syncing added geom repr")
+        logger.warning("A Geom representation override dict is passed to ifc sync(). This is not yet implemented")
         ...
 
     def sync_added_physical_objects(self) -> int:

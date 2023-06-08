@@ -7,22 +7,9 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Union
 
-from ada.base.changes import ChangeAction
-from ada.base.ifc_types import SpatialTypes
-from ada.base.physical_objects import BackendGeom
-from ada.base.types import GeomRepr
-from ada.base.units import Units
-from ada.cache.store import CacheStore
 from ada.api.beams.base_bm import BeamTapered
 from ada.api.connections import JointBase
-from ada.api.containers import (
-    Beams,
-    Connections,
-    Materials,
-    Nodes,
-    Plates,
-    Sections,
-)
+from ada.api.containers import Beams, Connections, Materials, Nodes, Plates, Sections
 from ada.api.groups import Group
 from ada.api.nodes import Node
 from ada.api.piping import Pipe
@@ -30,6 +17,12 @@ from ada.api.presentation_layers import PresentationLayers
 from ada.api.primitives import PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.api.transforms import Instance, Placement
 from ada.api.user import User
+from ada.base.changes import ChangeAction
+from ada.base.ifc_types import SpatialTypes
+from ada.base.physical_objects import BackendGeom
+from ada.base.types import GeomRepr
+from ada.base.units import Units
+from ada.cache.store import CacheStore
 from ada.config import Settings, logger
 from ada.fem import (
     Connector,
@@ -76,18 +69,18 @@ class Part(BackendGeom):
     IFC_CLASSES = SpatialTypes
 
     def __init__(
-            self,
-            name,
-            color=None,
-            placement=Placement(),
-            fem: FEM = None,
-            settings: Settings = Settings(),
-            metadata=None,
-            parent=None,
-            units: Units = Units.M,
-            guid=None,
-            ifc_store: IfcStore = None,
-            ifc_class: SpatialTypes = SpatialTypes.IfcBuildingStorey,
+        self,
+        name,
+        color=None,
+        placement=Placement(),
+        fem: FEM = None,
+        settings: Settings = Settings(),
+        metadata=None,
+        parent=None,
+        units: Units = Units.M,
+        guid=None,
+        ifc_store: IfcStore = None,
+        ifc_class: SpatialTypes = SpatialTypes.IfcBuildingStorey,
     ):
         super().__init__(name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_store=ifc_store)
         self._nodes = Nodes(parent=self)
@@ -304,10 +297,10 @@ class Part(BackendGeom):
             raise NotImplementedError(f'"{type(obj)}" is not yet supported for smart append')
 
     def add_boolean(
-            self,
-            boolean: Boolean | PrimExtrude | PrimRevolve | PrimCyl | PrimBox,
-            add_pen_to_subparts=True,
-            add_to_layer: str = None,
+        self,
+        boolean: Boolean | PrimExtrude | PrimRevolve | PrimCyl | PrimBox,
+        add_pen_to_subparts=True,
+        add_to_layer: str = None,
     ) -> Boolean:
         def create_pen(pen_):
             if isinstance(pen_, (PrimExtrude, PrimRevolve, PrimCyl, PrimBox)):
@@ -382,16 +375,16 @@ class Part(BackendGeom):
                 raise ValueError(f"Unrecognized {type(obj)=}")
 
     def read_step_file(
-            self,
-            step_path,
-            name=None,
-            scale=None,
-            transform=None,
-            rotate=None,
-            colour=None,
-            opacity=1.0,
-            source_units=Units.M,
-            include_shells=False,
+        self,
+        step_path,
+        name=None,
+        scale=None,
+        transform=None,
+        rotate=None,
+        colour=None,
+        opacity=1.0,
+        source_units=Units.M,
+        include_shells=False,
     ):
         """
 
@@ -418,11 +411,8 @@ class Part(BackendGeom):
         import numpy as np
 
         from ada import Beam, Plate, Shape
-        from ada.core.vector_utils import (
-            poly2d_center_of_gravity,
-            poly_area_from_list,
-        )
         from ada.core.vector_transforms import local_2_global_points
+        from ada.core.vector_utils import poly2d_center_of_gravity, poly_area_from_list
         from ada.fem.containers import COG
 
         tot_mass = 0
@@ -616,7 +606,7 @@ class Part(BackendGeom):
         return list_of_parts
 
     def get_all_physical_objects(
-            self, sub_elements_only=False, by_type=None, filter_by_guids: list[str] = None, pipe_to_segments=False
+        self, sub_elements_only=False, by_type=None, filter_by_guids: list[str] = None, pipe_to_segments=False
     ) -> Iterable[Beam | Plate | Wall | Pipe | Shape]:
         physical_objects = []
         if sub_elements_only:
@@ -693,17 +683,17 @@ class Part(BackendGeom):
         raise NotImplementedError()
 
     def to_fem_obj(
-            self,
-            mesh_size: float,
-            bm_repr: GeomRepr = GeomRepr.LINE,
-            pl_repr: GeomRepr = GeomRepr.SHELL,
-            shp_repr: GeomRepr = GeomRepr.SOLID,
-            options: GmshOptions = None,
-            silent=True,
-            interactive=False,
-            use_quads=False,
-            use_hex=False,
-            experimental_bm_splitting=True,
+        self,
+        mesh_size: float,
+        bm_repr: GeomRepr = GeomRepr.LINE,
+        pl_repr: GeomRepr = GeomRepr.SHELL,
+        shp_repr: GeomRepr = GeomRepr.SOLID,
+        options: GmshOptions = None,
+        silent=True,
+        interactive=False,
+        use_quads=False,
+        use_hex=False,
+        experimental_bm_splitting=True,
     ) -> FEM:
         from ada import Beam, Plate, Shape
         from ada.fem.meshing import GmshOptions, GmshSession
@@ -758,13 +748,13 @@ class Part(BackendGeom):
         return fem
 
     def to_gltf(
-            self,
-            gltf_file: str | pathlib.Path,
-            auto_sync_ifc_store=True,
-            cpus=1,
-            limit_to_guids=None,
-            embed_meta=False,
-            merge_by_color=False,
+        self,
+        gltf_file: str | pathlib.Path,
+        auto_sync_ifc_store=True,
+        cpus=1,
+        limit_to_guids=None,
+        embed_meta=False,
+        merge_by_color=False,
     ):
         from ada.visit.interface import part_to_vis_mesh2
 
@@ -775,14 +765,14 @@ class Part(BackendGeom):
         vm.to_gltf(gltf_file, only_these_guids=limit_to_guids, embed_meta=embed_meta)
 
     def to_stp(
-            self,
-            destination_file,
-            geom_repr: GeomRepr = GeomRepr.SOLID,
-            progress_callback: Callable[
-                [int, int],
-                None,
-            ] = None,
-            geom_repr_override: dict[str, GeomRepr] = None,
+        self,
+        destination_file,
+        geom_repr: GeomRepr = GeomRepr.SOLID,
+        progress_callback: Callable[
+            [int, int],
+            None,
+        ] = None,
+        geom_repr_override: dict[str, GeomRepr] = None,
     ):
         from ada.occ.store import OCCStore
 
@@ -944,11 +934,11 @@ class Part(BackendGeom):
             if isinstance(self, Assembly):
                 f = self.ifc_store.f
 
-                res = {x.UnitType.upper(): x for x in f.by_type('IFCSIUNIT')}
-                length_unit = res.get('LENGTHUNIT', None)
-                area_unit = res.get('AREAUNIT', None)
-                volume_unit = res.get('VOLUMEUNIT', None)
-                prefix = None if value == Units.M else 'MILLI'
+                res = {x.UnitType.upper(): x for x in f.by_type("IFCSIUNIT")}
+                length_unit = res.get("LENGTHUNIT", None)
+                area_unit = res.get("AREAUNIT", None)
+                volume_unit = res.get("VOLUMEUNIT", None)
+                prefix = None if value == Units.M else "MILLI"
 
                 if length_unit:
                     length_unit.Prefix = prefix
@@ -991,18 +981,18 @@ class Assembly(Part):
     """The Assembly object. A top level container of parts, beams, plates, shapes and FEM."""
 
     def __init__(
-            self,
-            name="Ada",
-            project="AdaProject",
-            user: User = User(),
-            schema="IFC4X3",
-            settings=Settings(),
-            metadata=None,
-            units: Units | str = Units.M,
-            ifc_settings=None,
-            enable_cache: bool = False,
-            clear_cache: bool = False,
-            ifc_class: SpatialTypes = SpatialTypes.IfcSite,
+        self,
+        name="Ada",
+        project="AdaProject",
+        user: User = User(),
+        schema="IFC4X3",
+        settings=Settings(),
+        metadata=None,
+        units: Units | str = Units.M,
+        ifc_settings=None,
+        enable_cache: bool = False,
+        clear_cache: bool = False,
+        ifc_class: SpatialTypes = SpatialTypes.IfcSite,
     ):
         from ada.cadit.ifc.store import IfcStore
         from ada.cadit.ifc.utils import assembly_to_ifc_file
@@ -1031,8 +1021,7 @@ class Assembly(Part):
             self.cache_store.sync(self, clear_cache=clear_cache)
 
     def read_ifc(
-            self, ifc_file: str | os.PathLike | ifcopenshell.file, data_only=False, elements2part=None,
-            create_cache=False
+        self, ifc_file: str | os.PathLike | ifcopenshell.file, data_only=False, elements2part=None, create_cache=False
     ):
         """Import from IFC file."""
 
@@ -1046,12 +1035,12 @@ class Assembly(Part):
             self.cache_store.to_cache(self, ifc_file, create_cache)
 
     def read_fem(
-            self,
-            fem_file: str | os.PathLike,
-            fem_format: FEATypes | str = None,
-            name: str = None,
-            fem_converter: FemConverters | str = "default",
-            cache_model_now=False,
+        self,
+        fem_file: str | os.PathLike,
+        fem_format: FEATypes | str = None,
+        name: str = None,
+        fem_converter: FemConverters | str = "default",
+        cache_model_now=False,
     ):
         """Import a Finite Element model. Currently supported FEM formats: Abaqus, Sesam and Calculix"""
         from ada.fem.formats.general import get_fem_converters
@@ -1076,21 +1065,21 @@ class Assembly(Part):
             self.cache_store.to_cache(self, fem_file, cache_model_now)
 
     def to_fem(
-            self,
-            name: str,
-            fem_format: FEATypes | str,
-            scratch_dir=None,
-            metadata=None,
-            execute=False,
-            run_ext=False,
-            cpus=2,
-            gpus=None,
-            overwrite=False,
-            fem_converter="default",
-            exit_on_complete=True,
-            run_in_shell=False,
-            make_zip_file=False,
-            return_fea_results=True,
+        self,
+        name: str,
+        fem_format: FEATypes | str,
+        scratch_dir=None,
+        metadata=None,
+        execute=False,
+        run_ext=False,
+        cpus=2,
+        gpus=None,
+        overwrite=False,
+        fem_converter="default",
+        exit_on_complete=True,
+        run_in_shell=False,
+        make_zip_file=False,
+        return_fea_results=True,
     ) -> FEAResult | None:
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
@@ -1162,13 +1151,13 @@ class Assembly(Part):
         return postprocess(res_path, fem_format=fem_format)
 
     def to_ifc(
-            self,
-            destination=None,
-            include_fem=False,
-            file_obj_only=False,
-            validate=False,
-            progress_callback: Callable[[int, int], None] = None,
-            geom_repr_override: dict[str, GeomRepr] = None,
+        self,
+        destination=None,
+        include_fem=False,
+        file_obj_only=False,
+        validate=False,
+        progress_callback: Callable[[int, int], None] = None,
+        geom_repr_override: dict[str, GeomRepr] = None,
     ) -> ifcopenshell.file:
         import ifcopenshell.validate
 

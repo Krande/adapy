@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import math
 import pathlib
-from typing import TYPE_CHECKING, Union, Iterable
+from typing import TYPE_CHECKING, Iterable, Union
 
 import numpy as np
+from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRep import BRep_Tool_Pnt
 from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Common, BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
@@ -20,17 +21,9 @@ from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
 from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
 from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeCylinder
-from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.ChFi2d import ChFi2d_AnaFilletAlgo
 from OCC.Core.GC import GC_MakeArcOfCircle
 from OCC.Core.GeomAbs import GeomAbs_Plane
-from OCC.Core.TopoDS import (
-    TopoDS_Edge,
-    TopoDS_Face,
-    TopoDS_Shape,
-    TopoDS_Vertex,
-    TopoDS_Wire,
-)
 from OCC.Core.gp import (
     gp_Ax1,
     gp_Ax2,
@@ -42,22 +35,30 @@ from OCC.Core.gp import (
     gp_Trsf,
     gp_Vec,
 )
+from OCC.Core.TopoDS import (
+    TopoDS_Edge,
+    TopoDS_Face,
+    TopoDS_Shape,
+    TopoDS_Vertex,
+    TopoDS_Wire,
+)
 from OCC.Extend.DataExchange import read_step_file
 from OCC.Extend.ShapeFactory import make_extrusion, make_face, make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
-from ada.api.transforms import Placement, Rotation, Plane, EquationOfPlane
+from ada.api.transforms import EquationOfPlane, Placement, Plane, Rotation
 from ada.config import logger
 from ada.core.utils import roundoff
-from ada.core.vector_utils import unit_vector, vector_length, is_parallel
 from ada.core.vector_transforms import normal_to_points_in_plane
+from ada.core.vector_utils import is_parallel, unit_vector, vector_length
 from ada.fem.shapes import ElemType
+
 from ..geom.booleans import BoolOpEnum
 from ..geom.placement import Direction
 from ..geom.points import Point
 
 if TYPE_CHECKING:
-    from ada import Boolean, Part, LineSegment, ArcSegment
+    from ada import ArcSegment, Boolean, LineSegment, Part
 
 
 def extract_shapes(step_path, scale, transform, rotate, include_shells=False):

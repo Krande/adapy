@@ -5,7 +5,6 @@ from typing import Iterable
 
 import numpy as np
 
-from ada.core.vector_utils import angle_between
 from ada.geom.points import Point
 
 
@@ -36,14 +35,14 @@ class Direction(Point):
 
         self.id = getattr(obj, "id", None)
 
-    def get_normalised(self) -> Direction:
+    def get_normalized(self) -> Direction:
         return self / np.linalg.norm(self)
 
     def get_length(self) -> float:
         return np.linalg.norm(self)
 
     def get_angle(self, other: Direction) -> float:
-        return np.arccos(np.clip(np.dot(self.get_normalised(), other.get_normalised()), -1.0, 1.0))
+        return np.arccos(np.clip(np.dot(self.get_normalized(), other.get_normalized()), -1.0, 1.0))
 
     def is_parallel(self, other: Direction, angle_tol=1e-1) -> bool:
         a = self.get_angle(other)

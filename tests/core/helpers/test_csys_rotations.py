@@ -1,20 +1,14 @@
 import numpy as np
+import pyquaternion as pq
 
-from ada import Placement, Direction
+from ada import Placement
 from ada.core.utils import roundoff
 from ada.core.vector_transforms import (
-    transform_csys_to_csys,
-    transform_points_in_plane_to_2d,
-    transform_3points_to_2d,
-    transform,
-    rotation_matrix_csys_rotate,
     global_2_local_nodes,
     local_2_global_points,
-    normal_to_points_in_plane,
-    calc_xvec,
-    calc_yvec,
+    rotation_matrix_csys_rotate,
+    transform_4x4,
 )
-import pyquaternion as pq
 from ada.geom.points import Point
 
 
@@ -90,13 +84,13 @@ def test_transform():
     pos = np.array([[1, 2, 3]])
     expected_output = np.array([[1, 2, 3]])
 
-    result = transform(matrix, pos)
+    result = transform_4x4(matrix, pos)
     assert np.allclose(result, expected_output)
 
     pos_multiple = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
     expected_output_multiple = pos_multiple
 
-    result_multiple = transform(matrix, pos_multiple)
+    result_multiple = transform_4x4(matrix, pos_multiple)
     assert np.allclose(result_multiple, expected_output_multiple)
 
 
@@ -142,32 +136,34 @@ def test_transform_rotation_and_translation():
     pos = np.array([[1, 0, 0]])
     expected_output = np.array([[1, 2, 1]])
 
-    result = transform(matrix, pos)
+    result = transform_4x4(matrix, pos)
     assert np.allclose(result, expected_output, atol=1e-6)
 
     pos_multiple = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
     expected_output_multiple = np.array([[1, 2, 1], [0, 1, 1], [1, 1, 2]])
 
-    result_multiple = transform(matrix, pos_multiple)
+    result_multiple = transform_4x4(matrix, pos_multiple)
     assert np.allclose(result_multiple, expected_output_multiple, atol=1e-6)
 
 
 def test_transform_2d_3d():
-    points2d = [(0, 5), (0, 0), (5, 0)]
+    points2d = [Point(*x) for x in [(0, 5), (0, 0), (5, 0)]]
     place = Placement.from_axis_angle([1, 0, 0], 90, origin=(0, 0, 0))
-    points3d = place.transform_points_to_global(points2d)
 
-    assert np.allclose(points3d, [[0., 0., 5.], [0., 0., 0.], [5., 0., 0.]])
+    points3d_b = place.transform_local_points_to_global(points2d)
+    points2d_b = place.transform_global_points_back_to_local(points3d_b)
 
-    place_back, points2d_b = transform_points_in_plane_to_2d(points3d, origin=place.origin, xdir=place.xdir)
-    for i, p in enumerate(points2d_b):
-        assert p.is_equal(points2d[i])
+    for i, p in enumerate(points2d):
+        assert p.is_equal(points2d_b[i])
 
 
 def test_transform_3d_points_to_2d():
-    points = [Point([1.0, 1.5, 3.0]), Point([2.0, 1.5, 3.0]), Point([2.2, 1.7, 3.2])]
+    points3d = [Point([1.0, 1.5, 3.0]), Point([2.0, 1.5, 3.0]), Point([2.2, 1.7, 3.2])]
 
-    place, points2d_b = transform_points_in_plane_to_2d(points)
-    points_back_in3d = place.transform_points_to_global(points2d_b)
-    for i, p in enumerate(points):
-        assert p.is_equal(points_back_in3d[i])
+    place = Placement.from_co_linear_points(points3d)
+
+    points2d = place.transform_global_points_to_local(points3d)
+    points3d_b = place.transform_local_points_back_to_global(points2d)
+
+    for i, p in enumerate(points3d):
+        assert p.is_equal(points3d_b[i])

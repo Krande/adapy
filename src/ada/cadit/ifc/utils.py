@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 def create_reference_subrep(f, global_axes):
     contexts = list(f.by_type("IfcGeometricRepresentationContext"))
-    subcontexts = list(f.by_type("IfcGeometricRepresentationSubContext"))
+    list(f.by_type("IfcGeometricRepresentationSubContext"))
     context_map = {c.ContextIdentifier: c for c in contexts}
     model_rep = context_map.get("Model")
     body_sub_rep = context_map.get("Body")
@@ -691,8 +691,8 @@ def convert_bm_jusl_to_ifc(bm: Beam) -> int:
 
     https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/schema/ifcmaterialresource/lexical/ifccardinalpointreference.htm
     """
-    from ada.api.beams.helpers import get_justification
     from ada.api.beams.helpers import Justification as jt
+    from ada.api.beams.helpers import get_justification
 
     just = get_justification(bm)
 

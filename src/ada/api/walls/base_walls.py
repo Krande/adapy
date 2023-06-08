@@ -5,15 +5,15 @@ from typing import Union
 import numpy as np
 
 from ada import Part
-from ada.base.physical_objects import BackendGeom
-from ada.base.units import Units
 from ada.api.curves import CurvePoly2d
 from ada.api.primitives import PrimBox
 from ada.api.transforms import Placement
-from ada.core.vector_utils import unit_vector
+from ada.base.physical_objects import BackendGeom
+from ada.base.units import Units
+from ada.core.vector_utils import calc_yvec, unit_vector
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
-from ada.geom.placement import Direction, Axis2Placement3D
+from ada.geom.placement import Axis2Placement3D, Direction
 from ada.geom.points import Point
 from ada.geom.solids import ExtrudedAreaSolid
 
@@ -158,10 +158,8 @@ class Wall(BackendGeom):
     def offset(self) -> Union[float, str]:
         return self._offset
 
-
     def extrusion_area(self) -> list[Point]:
         from ada.core.vector_utils import intersect_calc, is_parallel
-        from ada.core.vector_transforms import calc_yvec
 
         area_points = []
         vpo = [np.array(p) for p in self.points]
@@ -262,8 +260,6 @@ class Wall(BackendGeom):
         solid = ExtrudedAreaSolid(profile, place, self.height, Direction(0, 0, 1))
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
-
-
 
     @property
     def units(self):

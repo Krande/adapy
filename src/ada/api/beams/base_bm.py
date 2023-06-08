@@ -16,11 +16,12 @@ from ada.config import logger
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import (
     angle_between,
+    calc_yvec,
+    calc_zvec,
     is_between_endpoints,
     unit_vector,
     vector_length,
 )
-from ada.core.vector_transforms import calc_yvec, calc_zvec
 from ada.geom import Geometry
 from ada.geom.placement import Direction
 from ada.materials import Material

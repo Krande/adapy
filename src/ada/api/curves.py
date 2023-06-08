@@ -7,12 +7,14 @@ from OCC.Core.TopoDS import TopoDS_Edge
 
 from ada.api.nodes import Node
 from ada.api.transforms import Placement
-from ada.core.curve_utils import build_polycurve, segments_to_indexed_lists, make_arc_segment
-from ada.core.vector_utils import (
-    unit_vector,
-    is_clockwise,
+from ada.core.curve_utils import (
+    build_polycurve,
+    calc_2darc_start_end_from_lines_radius,
+    segments_to_indexed_lists,
+    transform_2d_arc_segment_to_3d,
 )
-from ada.core.vector_transforms import global_2_local_nodes, local_2_global_points, normal_to_points_in_plane
+from ada.core.vector_transforms import local_2_global_points
+from ada.core.vector_utils import is_clockwise
 from ada.geom.placement import Direction
 from ada.geom.points import Point
 from ada.geom.surfaces import ArbitraryProfileDefWithVoids, ProfileType
@@ -24,8 +26,7 @@ if TYPE_CHECKING:
 
 class CurveRevolve:
     def __init__(
-            self, p1, p2, radius=None, rot_axis=None, point_on=None, rot_origin=None, angle=180, parent=None,
-            metadata=None
+        self, p1, p2, radius=None, rot_axis=None, point_on=None, rot_origin=None, angle=180, parent=None, metadata=None
     ):
         self._p1 = p1
         self._p2 = p2
@@ -107,17 +108,18 @@ class CurveSweep2d:
     """
 
     def __init__(
-            self,
-            points: list[tuple[float, float, Optional[float]]],
-            origin: Iterable | Point = None,
-            normal: Iterable | Direction = None,
-            xdir: Iterable | Direction = None,
-            tol=1e-3,
-            parent=None,
+        self,
+        points: list[tuple[float, float, Optional[float]]],
+        origin: Iterable | Point = None,
+        normal: Iterable | Direction = None,
+        xdir: Iterable | Direction = None,
+        tol=1e-3,
+        parent=None,
+        orientation: Placement = None,
     ):
         self._tol = tol
         self._parent = parent
-        self._orientation = Placement(origin, xdir=xdir, zdir=normal)
+        self._orientation = Placement(origin, xdir=xdir, zdir=normal) if orientation is None else orientation
         self._placement = Placement()
         self._segments = None
         self._seg_index = None
@@ -127,8 +129,8 @@ class CurveSweep2d:
         points = self._points_fix(points)
 
         self._radiis = {i: x[-1] for i, x in enumerate(points) if len(x) == 3}
-        self._points2d = [Point(*p[:2]) for p in points]
-        self._points3d = self._from_2d_points(self._points2d)
+        self._points2d = [Point(p[:2]) for p in points]
+        self._points3d = [Point(x) for x in self._orientation.transform_local_points_to_global(self._points2d)]
         self._points_to_segments(points, tol)
 
     def _points_fix(self, points):
@@ -138,26 +140,20 @@ class CurveSweep2d:
         return points
 
     @classmethod
-    def from_3d_points(cls, points, flip_normal=False, origin_index=0, xdir=None, tol=1e-3, parent=None):
-        normal = normal_to_points_in_plane([np.array(x[:3]) for x in points])
-        if flip_normal:
-            normal *= -1
-
-        p1 = np.array(points[origin_index][:3]).astype(float)
-        p2 = np.array(points[origin_index + 1][:3]).astype(float)
-        origin = p1
-        xdir = unit_vector(p2 - p1) if xdir is None else Direction(*xdir)
-        placement = Placement(origin, xdir=xdir, zdir=normal)
-        csys = [placement.xdir, placement.ydir]
-        points2d = global_2_local_nodes(csys, placement.origin, [np.array(x[:3]) for x in points])
-        points = [x.p if type(x) is Node else x for x in points]
-        for i, p in enumerate(points):
-            if len(p) == 4:
-                points2d[i] = (points2d[i][0], points2d[i][1], p[-1])
+    def from_3d_points(cls, points, tol=1e-3, xdir=None, parent=None):
+        points3d = np.array([p[:3] for p in points])
+        place = Placement.from_co_linear_points(points3d, xdir=xdir)
+        points2d = place.transform_global_points_to_local(points3d)
+        radiis = {i: x for i, x in enumerate(points) if len(x) > 3}
+        input_points = []
+        for i, p in enumerate(points2d):
+            r = radiis.get(i, None)
+            if r is not None:
+                input_points.append((points2d[i][0], points2d[i][1], r))
             else:
-                points2d[i] = (points2d[i][0], points2d[i][1])
+                input_points.append((points2d[i][0], points2d[i][1]))
 
-        return cls(points2d, origin=origin, xdir=xdir, normal=normal, tol=tol, parent=parent)
+        return cls(points2d, origin=place.origin, xdir=place.xdir, normal=place.zdir, tol=tol, parent=parent)
 
     def _from_2d_points(self, points2d: list[np.ndarray[float, float]]) -> list[Point]:
         place = self.orientation
@@ -168,36 +164,29 @@ class CurveSweep2d:
 
         debug_name = self._parent.name if self._parent is not None else "PolyCurveDebugging"
 
-        seg_list = build_polycurve(local_points2d, tol, Settings.debug, debug_name)
+        seg_list2d = build_polycurve(local_points2d, tol, Settings.debug, debug_name)
         seg_list3d = []
-        origin, xdir, normal = self.orientation.origin, self.orientation.xdir, self.orientation.zdir
         # Convert from local to global coordinates
-        for i, seg in enumerate(seg_list):
+        for i, seg in enumerate(seg_list2d):
             if type(seg) is ArcSegment:
-                lpoints = [seg.p1, seg.p2, seg.midpoint]
-                gp = local_2_global_points(lpoints, origin, xdir, normal)
-                seg_list3d.append(ArcSegment(gp[0], gp[1], gp[2]))
+                seg3d = transform_2d_arc_segment_to_3d(seg, self.orientation)
+                seg_list3d.append(seg3d)
             else:
                 lpoints = [seg.p1, seg.p2]
-                gp = local_2_global_points(lpoints, origin, xdir, normal)
+                gp = self.orientation.transform_local_points_to_global(lpoints)
                 seg_list3d.append(LineSegment(gp[0], gp[1]))
 
-        self._segments = seg_list
+        self._segments = seg_list2d
         self._segments3d = seg_list3d
         self._seg_global_points, self._seg_index = segments_to_indexed_lists(seg_list3d)
         self._nodes = [
             Node(p, r=self.radiis[i]) if i in self.radiis.keys() else Node(p) for i, p in enumerate(self._points3d)
         ]
 
-    def make_revolve_solid(self, axis, angle, origin):
-        from ada.occ.utils import make_revolve_solid
-
-        return make_revolve_solid(self.face(), axis, angle, origin)
-
     def scale(self, scale_factor, tol):
         self.orientation.origin = np.array([x * scale_factor for x in self.orientation.origin])
         self._points2d = [Point(*[x * scale_factor for x in p]) for p in self._points2d]
-        self._points3d = [Point(*[x * scale_factor for x in p]) for p in self._points3d]
+        self._points3d = [Point(*x) for x in self.orientation.transform_local_points_to_global(self._points2d)]
         self._points_to_segments(self.points2d, tol=tol)
 
     @property
@@ -207,7 +196,7 @@ class CurveSweep2d:
     @orientation.setter
     def orientation(self, value: Placement):
         self._orientation = value
-        self._points3d = self._from_2d_points(self._points2d)
+        self._points3d = [Point(*x) for x in value.transform_local_points_to_global(self._points2d)]
         points = [(*p, self.radiis[i]) if i in self.radiis.keys() else tuple(p) for i, p in enumerate(self.points2d)]
         self._points_to_segments(points, tol=self._tol)
 
@@ -301,16 +290,17 @@ class CurveSweep2d:
 
 class CurvePoly2d(CurveSweep2d):
     def __init__(
-            self,
-            points,
-            origin: Iterable | Point = None,
-            normal: Iterable | Direction = None,
-            xdir: Iterable | Direction = None,
-            tol=1e-3,
-            parent=None,
+        self,
+        points,
+        origin: Iterable | Point = None,
+        normal: Iterable | Direction = None,
+        xdir: Iterable | Direction = None,
+        tol=1e-3,
+        parent=None,
+        orientation: Placement = None,
     ):
         # Check to see if it is a closed curve
-        super().__init__(points, origin, normal, xdir, tol, parent)
+        super().__init__(points, origin, normal, xdir, tol, parent, orientation)
 
     def _points_fix(self, points):
         # Check to see if the points are clockwise
@@ -387,26 +377,50 @@ class LineSegment:
 
 
 class ArcSegment(LineSegment):
-    def __init__(self, p1, p2, midpoint=None, radius=None, center=None, intersection=None, edge_geom=None):
+    def __init__(
+        self,
+        p1,
+        p2,
+        midpoint=None,
+        radius=None,
+        center=None,
+        intersection=None,
+        s_normal: Direction = None,
+        e_normal: Direction = None,
+        edge_geom=None,
+    ):
         super(ArcSegment, self).__init__(p1, p2)
         if midpoint is not None and not isinstance(midpoint, Point):
-            midpoint = Point(*midpoint)
+            midpoint = Point(midpoint)
         if center is not None and not isinstance(center, Point):
-            center = Point(*center)
+            center = Point(center)
 
         self._midpoint = midpoint
         self._radius = radius
         self._center = center
         self._intersection = intersection
         self._edge_geom = edge_geom
+        self._s_normal = s_normal
+        self._e_normal = e_normal
 
     @staticmethod
-    def from_start_center_end_radius(start, center, end, radius) -> ArcSegment:
-        segments = make_arc_segment(start, center, end, radius)
-        arc_segments = [s for s in segments if isinstance(s, ArcSegment)]
-        if len(arc_segments) != 1:
-            raise ValueError("Expected 1 arc segment")
-        return arc_segments[0]
+    def from_start_center_end_radius(start, center, end, radius, tol=1e-3) -> ArcSegment:
+        points = np.array([start, center, end])
+        dim = points.shape[1]
+        place = None
+        if dim == 3:
+            points3d = points.copy()
+            place = Placement.from_co_linear_points(points3d)
+            points2d = place.transform_global_points_to_local(points3d)
+        else:
+            points2d = points.copy()
+
+        arc2d = calc_2darc_start_end_from_lines_radius(*points2d, radius, tol=tol)
+
+        if place is not None:
+            return transform_2d_arc_segment_to_3d(arc2d, place)
+
+        return arc2d
 
     @property
     def midpoint(self):
@@ -431,6 +445,24 @@ class ArcSegment(LineSegment):
     @property
     def intersection(self):
         return self._intersection
+
+    @property
+    def s_normal(self):
+        """Start normal"""
+        return self._s_normal
+
+    @s_normal.setter
+    def s_normal(self, value):
+        self._s_normal = value
+
+    @property
+    def e_normal(self):
+        """End normal"""
+        return self._e_normal
+
+    @e_normal.setter
+    def e_normal(self, value):
+        self._e_normal = value
 
     def curve_geom(self) -> ArcLine:
         from ada.geom.curves import ArcLine

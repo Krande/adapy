@@ -4,17 +4,17 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+import ada.geom.solids as geo_so
+import ada.geom.surfaces as geo_su
 from ada.core.vector_transforms import transform_csys_to_csys
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
-from ada.geom.curves import Line, Circle
+from ada.geom.curves import Circle, Line
 from ada.geom.placement import Axis2Placement3D, Direction
 from ada.geom.points import Point
-import ada.geom.solids as geo_so
-import ada.geom.surfaces as geo_su
 
 if TYPE_CHECKING:
-    from ada import Section, PipeSegStraight
+    from ada import PipeSegStraight, Section
     from ada.api.beams import Beam, BeamRevolve, BeamSweep, BeamTapered
 
 
@@ -26,11 +26,11 @@ def straight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geomet
         geom = Geometry(beam.guid, solid, beam.color)
     else:
         if beam.section.type in (
-                beam.section.TYPES.IPROFILE,
-                beam.section.TYPES.TPROFILE,
-                beam.section.TYPES.ANGULAR,
-                beam.section.TYPES.CHANNEL,
-                beam.section.TYPES.FLATBAR
+            beam.section.TYPES.IPROFILE,
+            beam.section.TYPES.TPROFILE,
+            beam.section.TYPES.ANGULAR,
+            beam.section.TYPES.CHANNEL,
+            beam.section.TYPES.FLATBAR,
         ):
             geom = profile_disconnected_to_face_geom(beam)
         elif beam.section.type == beam.section.TYPES.BOX:

@@ -31,5 +31,10 @@ def test_arc_line_2d_from_midpoint():
 def test_make_3d_segments():
     points = [ada.Point(1, 1, 3) + x for x in [(0, 0.5, 0), (1, 0.5, 0), (1.2, 0.7, 0.2), (1.5, 0.7, 0.2)]]
     segments = segments3d_from_points3d(points, radius=0.3979375)
-    assert len(segments) == 2
-    print('ds')
+
+    # This radius will make the two middle ArcSegments connected
+    assert len(segments) == 4
+
+    # This radius will make the two middle ArcSegments disconnected by a small LineSegment
+    segments2 = segments3d_from_points3d(points, radius=0.116625)
+    assert len(segments2) == 5

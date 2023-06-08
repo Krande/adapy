@@ -198,8 +198,8 @@ class FemElements:
         """Calculate COG of your FEM model based on element mass distributed to element and nodes"""
         from itertools import chain
 
-        from ada.core.vector_utils import poly_area, vector_length
         from ada.core.vector_transforms import global_2_local_nodes
+        from ada.core.vector_utils import poly_area, vector_length
 
         def calc_sh_elem(el: Elem):
             locx = el.fem_sec.local_x

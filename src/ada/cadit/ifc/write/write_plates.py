@@ -42,6 +42,10 @@ def write_ifc_plate(plate: Plate):
     # polyline = plate.create_ifcpolyline(f, point_list)
     ifcclosedprofile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
 
+    # Todo: Begin implementing IFC plate from neutral geom definition
+    # plate_geom = plate.solid_geom()
+    # axis3d = ifc_placement_from_axis3d(plate_geom.geometry.position, f)
+
     ifcdir = f.createIfcDirection(zvec.astype(float).tolist())
     ifcextrudedareasolid = f.createIfcExtrudedAreaSolid(ifcclosedprofile, extrusion_placement, ifcdir, plate.t)
 

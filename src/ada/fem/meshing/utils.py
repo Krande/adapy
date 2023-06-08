@@ -7,8 +7,8 @@ import gmsh
 import numpy as np
 
 from ada import FEM, Beam, Node, Pipe, Plate, Shape
-from ada.base.types import GeomRepr
 from ada.api.transforms import Placement
+from ada.base.types import GeomRepr
 from ada.core.utils import make_name_fem_ready
 from ada.fem import Elem, FemSection, FemSet
 from ada.fem.shapes import ElemType

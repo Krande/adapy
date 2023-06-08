@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from ada.api.primitives import Shape
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
-from ada.api.primitives import Shape
 from ada.core.utils import Counter
 from ada.geom.booleans import BoolOpEnum
 

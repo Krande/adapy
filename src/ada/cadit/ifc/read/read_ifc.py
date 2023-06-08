@@ -33,10 +33,7 @@ class IfcReader:
         mi.load_ifc_materials()
 
     def load_presentation_layers(self):
-        from ada.api.presentation_layers import (
-            PresentationLayer,
-            PresentationLayers,
-        )
+        from ada.api.presentation_layers import PresentationLayer, PresentationLayers
 
         layers = dict()
         for obj in self.ifc_store.f.by_type("IfcPresentationLayerAssignment"):

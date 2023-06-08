@@ -5,6 +5,7 @@ import numpy as np
 
 class Point(np.ndarray):
     precision = None
+
     def __new__(cls, *iterable):
         obj = cls.create_ndarray(iterable)
 

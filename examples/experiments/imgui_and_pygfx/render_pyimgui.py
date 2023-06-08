@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from imgui.integrations.glfw import GlfwRenderer
-from testwindow import show_test_window
-import OpenGL.GL as gl
+import sys
+
 import glfw
 import imgui
-import sys
+import OpenGL.GL as gl
+from imgui.integrations.glfw import GlfwRenderer
+from testwindow import show_test_window
 
 
 def main():
@@ -25,9 +26,7 @@ def main():
         if imgui.begin_main_menu_bar():
             if imgui.begin_menu("File", True):
 
-                clicked_quit, selected_quit = imgui.menu_item(
-                    "Quit", "Cmd+Q", False, True
-                )
+                clicked_quit, selected_quit = imgui.menu_item("Quit", "Cmd+Q", False, True)
 
                 if clicked_quit:
                     sys.exit(0)

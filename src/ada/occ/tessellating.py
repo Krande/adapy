@@ -7,7 +7,7 @@ import numpy as np
 import trimesh
 import trimesh.visual
 from OCC.Core.Tesselator import ShapeTesselator
-from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Edge
+from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Shape
 from OCC.Extend.TopologyUtils import discretize_edge
 
 from ada.base.physical_objects import BackendGeom
@@ -125,7 +125,7 @@ class BatchTessellator:
         return self.tessellate_occ_geom(occ_geom, geom.id, geom.color)
 
     def batch_tessellate(
-            self, objects: Iterable[Geometry | BackendGeom], render_override: dict[str, GeomRepr] = None
+        self, objects: Iterable[Geometry | BackendGeom], render_override: dict[str, GeomRepr] = None
     ) -> Iterable[MeshStore]:
         if render_override is None:
             render_override = dict()

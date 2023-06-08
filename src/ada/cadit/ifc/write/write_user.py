@@ -2,8 +2,8 @@ from datetime import datetime
 
 import ifcopenshell
 
-from ada.cadit.ifc.read.reader_utils import get_org, get_person
 from ada.api.user import User
+from ada.cadit.ifc.read.reader_utils import get_org, get_person
 
 
 def create_owner_history_from_user(user: User, f: ifcopenshell.file) -> ifcopenshell.entity_instance:

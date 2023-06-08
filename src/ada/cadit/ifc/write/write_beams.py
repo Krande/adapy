@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada import Beam, CurveRevolve
+from ada.api.beams import BeamRevolve, BeamSweep, BeamTapered
 from ada.cadit.ifc.utils import (
     add_colour,
     convert_bm_jusl_to_ifc,
@@ -17,7 +18,6 @@ from ada.cadit.ifc.utils import (
     to_real,
 )
 from ada.cadit.ifc.write.write_curves import write_curve_poly
-from ada.api.beams import BeamRevolve, BeamSweep, BeamTapered
 from ada.config import Settings
 from ada.core.constants import O
 

@@ -1,7 +1,7 @@
-import imgui
-from imgui.integrations.glfw import GlfwRenderer
 import glfw
+import imgui
 import pygfx as gfx
+from imgui.integrations.glfw import GlfwRenderer
 from wgpu.gui.glfw import WgpuCanvas
 
 # Initialize GLFW
@@ -31,9 +31,7 @@ while not glfw.window_should_close(window):
     imgui.new_frame()
     if imgui.begin_main_menu_bar():
         if imgui.begin_menu("File", True):
-            clicked_quit, selected_quit = imgui.menu_item(
-                "Quit", 'Ctrl+Q', False, True
-            )
+            clicked_quit, selected_quit = imgui.menu_item("Quit", "Ctrl+Q", False, True)
             if clicked_quit:
                 exit(0)
             imgui.end_menu()

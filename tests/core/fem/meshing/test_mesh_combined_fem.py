@@ -31,4 +31,3 @@ def test_plate_mesh_from_2_fem(pl1, pl2, test_dir):
     assert len(el_types.keys()) == 1
     assert len(el_types["TRIANGLE"]) == pytest.approx(276, abs=15)
     assert len(p.fem.nodes) == pytest.approx(174, abs=10)
-

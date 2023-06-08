@@ -31,7 +31,11 @@ class ReinforcedFloor(Part):
     ):
         super(ReinforcedFloor, self).__init__(name, **kwargs)
         if use3dnodes:
-            plate = Plate.from_3d_points(name + "_pl", points, pl_thick, )
+            plate = Plate.from_3d_points(
+                name + "_pl",
+                points,
+                pl_thick,
+            )
         else:
             plate = Plate(name + "_pl", points, pl_thick, placement=self.placement)
 
