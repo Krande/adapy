@@ -127,6 +127,13 @@ class Placement:
             # TODO: Add support for combining rotations as well
         return current_location
 
+    def rotate(self, axis: list[float], angle: float) -> Placement:
+        """Rotate the placement around an axis. Returns a new placement."""
+        q0 = pq.Quaternion(matrix=self.rot_matrix)
+        q = q0 * pq.Quaternion(axis=axis, angle=np.radians(angle))
+        m = q.transformation_matrix
+        return Placement(origin=self.origin, xdir=m[0, :3], ydir=m[1, :3], zdir=m[2, :3])
+
     @property
     def rot_matrix(self):
         return np.array([self.xdir, self.ydir, self.zdir])
@@ -138,7 +145,7 @@ class Placement:
         return np.vstack([Rt, np.array([0.0, 0.0, 0.0, 1.0])])
 
     def transform_local_points_to_global(
-        self, points2d: Iterable[Iterable[float | int, float | int]], inverse=False
+            self, points2d: Iterable[Iterable[float | int, float | int]], inverse=False
     ) -> np.ndarray:
         """Transform points from the coordinate system of this placement to the global coordinate system."""
         if not isinstance(points2d, np.ndarray):

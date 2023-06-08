@@ -8,6 +8,7 @@ import ada
 from ada import Placement
 from ada.core.utils import set_list_first_position_elem
 from ada.occ.utils import get_points_from_occ_shape, iter_faces_with_normal
+from ada.geom import solids as geo_so
 
 
 @pytest.fixture
@@ -197,15 +198,23 @@ def test_2ifc_simple(place2):
     # (ada.Assembly("ExportedPlates") / (ada.Part("MyPart") / pl2)).to_ifc(test_dir / "my_plate_poly.ifc")
 
 
-def test_triangle():
-    pl = ada.Plate("test", [(0, 0), (1, 0, 0.1), (0.5, 0.5)], 20e-3)
+def test_triangle(test_dir):
+    points2d = [(0, 0), (1, 0, 0.1), (0.5, 0.5)]
+    orientation = Placement()
+    pl = ada.Plate("test", points2d, 20e-3, orientation=orientation)
     assert len(pl.poly.segments) == 4
+    geom = pl.solid_geom()
+    assert isinstance(geom.geometry, geo_so.ExtrudedAreaSolid)
+    plates = [pl]
+    for a in (30, 60, 90):
+        new_orientation = orientation.rotate([1, 0, 0], a)
+        plates.append(ada.Plate(f"rot{a}", points2d, 20e-3, orientation=new_orientation))
 
-    # (ada.Assembly() / [ada.Part("te") / pl]).to_ifc(test_dir / "triangle_plate.ifc")
+    (ada.Assembly() / [ada.Part("te") / plates]).to_ifc(test_dir / "triangle_plates.ifc")
 
 
 def test_floaty_input_ex1(test_dir):
-    origin = np.array([362237.0037951513, 100000.0, 560985.9095763591])*1e-3
+    origin = np.array([362237.0037951513, 100000.0, 560985.9095763591]) * 1e-3
     csys = [
         [0.0, -1.0, 0.0],
         [-0.4626617625735456, 0.0, 0.8865348799975894],
@@ -233,7 +242,7 @@ def test_floaty_input_ex1(test_dir):
     assert pl.poly.origin == pytest.approx(origin)
     assert pl.poly.normal == pytest.approx(csys[2])
     n1 = pl.nodes[0].p
-    n1_should_be = np.array([362130.68206185, 100000.0, 561189.63923958])*1e-3
+    n1_should_be = np.array([362130.68206185, 100000.0, 561189.63923958]) * 1e-3
     assert n1.is_equal(n1_should_be, atol=1e-8)
 
 

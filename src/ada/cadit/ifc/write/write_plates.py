@@ -6,7 +6,7 @@ from ada.cadit.ifc.utils import (
     create_ifc_placement,
     create_ifcindexpolyline,
     create_ifcpolyline,
-    create_local_placement,
+    create_local_placement, ifc_placement_from_axis3d, to_real,
 )
 from ada.core.constants import O, X, Z
 
@@ -18,35 +18,33 @@ def write_ifc_plate(plate: Plate):
     a = plate.get_assembly()
     ifc_store = a.ifc_store
     f = ifc_store.f
-
+    ori = plate.poly.orientation
     owner_history = ifc_store.owner_history
     parent = f.by_guid(plate.parent.guid)
-
-    xvec = plate.poly.xdir
-    zvec = plate.poly.normal
-    yvec = np.cross(zvec, xvec)
-
-    # Wall creation: Define the wall shape as a polyline axis and an extruded area solid
-    plate_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
-
-    tra_mat = np.array([xvec, yvec, zvec])
-    t_vec = [0, 0, plate.t]
-    origin = np.array(plate.poly.origin)
-    res = origin + np.dot(tra_mat, t_vec)
-    polyline = create_ifcpolyline(f, [origin.astype(float).tolist(), res.tolist()])
-    axis_representation = f.createIfcShapeRepresentation(ifc_store.get_context("Axis"), "Axis", "Curve2D", [polyline])
-    extrusion_placement = create_ifc_placement(f, O, Z, X)
-    points = [(float(n[0]), float(n[1]), float(n[2])) for n in plate.poly.seg_global_points]
-    seg_index = plate.poly.seg_index
-    polyline = create_ifcindexpolyline(f, points, seg_index)
-    # polyline = plate.create_ifcpolyline(f, point_list)
-    ifcclosedprofile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
 
     # Todo: Begin implementing IFC plate from neutral geom definition
     # plate_geom = plate.solid_geom()
     # axis3d = ifc_placement_from_axis3d(plate_geom.geometry.position, f)
+    # profile = plate.poly.curve_geom()
 
-    ifcdir = f.createIfcDirection(zvec.astype(float).tolist())
+    # Wall creation: Define the wall shape as a polyline axis and an extruded area solid
+    plate_placement = create_local_placement(f)#, relative_to=parent.ObjectPlacement)
+
+    t_vec = [0, 0, plate.t]
+    axis_end = ori.transform_local_points_back_to_global([t_vec])
+    polyline = create_ifcpolyline(f, [ori.origin, axis_end[0]])
+    axis_representation = f.createIfcShapeRepresentation(ifc_store.get_context("Axis"), "Axis", "Curve2D", [polyline])
+
+    extrusion_placement = create_ifc_placement(f, ori.origin)
+
+    seg_points = [(float(n[0]), float(n[1]), float(n[2])) for n in plate.poly.seg_global_points]
+    seg_index = plate.poly.seg_index
+    polyline = create_ifcindexpolyline(f, seg_points, seg_index)
+
+    # polyline = plate.create_ifcpolyline(f, point_list)
+    ifcclosedprofile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
+
+    ifcdir = f.createIfcDirection(to_real(ori.zdir))
     ifcextrudedareasolid = f.createIfcExtrudedAreaSolid(ifcclosedprofile, extrusion_placement, ifcdir, plate.t)
 
     body = f.createIfcShapeRepresentation(ifc_store.get_context("Body"), "Body", "SolidModel", [ifcextrudedareasolid])

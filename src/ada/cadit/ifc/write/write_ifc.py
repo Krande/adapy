@@ -8,11 +8,7 @@ import ifcopenshell.geom
 
 from ada.base.changes import ChangeAction
 from ada.cadit.ifc.read.reader_utils import get_ifc_body
-from ada.cadit.ifc.utils import (
-    add_negative_extrusion,
-    create_guid,
-    write_elem_property_sets,
-)
+from ada.cadit.ifc.utils import add_negative_extrusion, create_guid, write_elem_property_sets
 from ada.cadit.ifc.write.write_beams import write_ifc_beam
 from ada.cadit.ifc.write.write_fasteners import write_ifc_fastener
 from ada.cadit.ifc.write.write_instances import write_mapped_instance
@@ -22,10 +18,7 @@ from ada.cadit.ifc.write.write_pipe import write_ifc_pipe
 from ada.cadit.ifc.write.write_plates import write_ifc_plate
 from ada.cadit.ifc.write.write_sections import export_beam_section_profile_def
 from ada.cadit.ifc.write.write_shapes import write_ifc_shape
-from ada.cadit.ifc.write.write_spatial_elements import (
-    write_ifc_part,
-    write_ifc_spatial_hierarchy,
-)
+from ada.cadit.ifc.write.write_spatial_elements import write_ifc_part, write_ifc_spatial_hierarchy
 from ada.cadit.ifc.write.write_wall import write_ifc_wall
 from ada.config import logger
 

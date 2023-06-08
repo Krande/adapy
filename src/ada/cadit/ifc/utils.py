@@ -218,8 +218,7 @@ def create_ifcpolyline(ifcfile, point_list):
     """
     ifcpts = []
     for p_in in point_list:
-        p = [float(x) for x in p_in]
-        point = ifcfile.createIfcCartesianPoint(p)
+        point = ifc_p(ifcfile, p_in)
         ifcpts.append(point)
     polyline = ifcfile.createIfcPolyLine(ifcpts)
     return polyline
@@ -230,7 +229,7 @@ def create_axis(f, points, context):
     return f.createIfcShapeRepresentation(context, "Axis", "Curve3D", [polyline])
 
 
-def create_ifcindexpolyline(ifcfile, points, seg_index):
+def create_ifcindexpolyline(ifcfile, points3d, seg_index):
     """
     Assumes a point list whereas all points that are to be used for creating arc-segments will have 4 values
     (x,y,z,r) instead of 3 (x,y,z)
@@ -238,7 +237,7 @@ def create_ifcindexpolyline(ifcfile, points, seg_index):
     #https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/link/annex-e.htm
 
     :param ifcfile:
-    :param points:
+    :param points3d:
     :param seg_index:
     :return:
     """
@@ -254,7 +253,7 @@ def create_ifcindexpolyline(ifcfile, points, seg_index):
     # TODO: Investigate using 2DLists instead is it could reduce complexity?
     # ifc_point_list = ifcfile.createIfcCartesianPointList2D(points)
 
-    ifc_point_list = ifcfile.createIfcCartesianPointList3D(points)
+    ifc_point_list = ifcfile.createIfcCartesianPointList3D(points3d)
     segindex = ifcfile.createIfcIndexedPolyCurve(ifc_point_list, ifc_segments, False)
     return segindex
 
@@ -426,7 +425,7 @@ def write_elem_property_sets(metadata_props, elem, f, owner_history) -> None:
 
 
 def to_real(v) -> float | list[float]:
-    from ada import Node
+    from ada import Node, Point
 
     if type(v) is float:
         return v
@@ -439,6 +438,8 @@ def to_real(v) -> float | list[float]:
             return [float(x) for x in v]
     elif type(v) is Node:
         return v.p.astype(float).tolist()
+    elif isinstance(v, Point):
+        return v.astype(float).tolist()
     else:
         return v.astype(float).tolist()
 
