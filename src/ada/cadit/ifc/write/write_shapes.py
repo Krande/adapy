@@ -23,7 +23,7 @@ from ada.cadit.ifc.utils import (
     tesselate_shape,
     to_real,
 )
-from ..geom.placement import ifc_placement_from_axis3d
+from ada.cadit.ifc.write.geom.placement import ifc_placement_from_axis3d
 from ada.core.constants import O, X, Z
 from ada.geom.solids import Box, Cone, Cylinder
 

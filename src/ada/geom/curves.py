@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from enum import Enum
+from itertools import chain
 from typing import Iterable, Union
+
+import numpy as np
 
 from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
@@ -142,6 +145,14 @@ class IndexedPolyCurve:
 
     segments: list[Line | ArcLine]
     self_intersect: bool = False
+
+    def get_points_and_segment_indices(self) -> tuple[np.ndarray, list[tuple[int]]]:
+        points = list(chain.from_iterable([list(segment) for segment in self.segments]))
+        points_tuple = [tuple(x) for x in chain.from_iterable([list(segment) for segment in self.segments])]
+        unique_pts, pts_index = np.unique(points, axis=0, return_index=False, return_inverse=True)
+        indices = [tuple([pts_index[points_tuple.index(tuple(s))] for s in segment]) for segment in self.segments]
+
+        return unique_pts, indices
 
 
 @dataclass

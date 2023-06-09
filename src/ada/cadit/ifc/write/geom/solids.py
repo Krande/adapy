@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ifcopenshell
 
-from ada.cadit.ifc.geom.placement import ifc_placement_from_axis3d, direction
+from ada.cadit.ifc.write.geom.placement import ifc_placement_from_axis3d, direction
 from ada.geom import solids as geo_so
 from ada.geom import surfaces as geo_su
 from .surfaces import arbitrary_profile_def_with_voids
