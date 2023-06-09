@@ -29,11 +29,13 @@ def write_ifc_plate(plate: Plate):
 
     # Wall creation: Define the wall shape as a polyline axis and an extruded area solid
     plate_placement = create_local_placement(f)#, relative_to=parent.ObjectPlacement)
+    representations = []
 
-    t_vec = [0, 0, plate.t]
-    axis_end = ori.transform_local_points_back_to_global([t_vec])
-    polyline = create_ifcpolyline(f, [ori.origin, axis_end[0]])
-    axis_representation = f.createIfcShapeRepresentation(ifc_store.get_context("Axis"), "Axis", "Curve2D", [polyline])
+    # t_vec = [0, 0, plate.t]
+    # axis_end = ori.transform_local_points_back_to_global([t_vec])
+    # polyline = create_ifcpolyline(f, [ori.origin, axis_end[0]])
+    # axis_representation = f.createIfcShapeRepresentation(ifc_store.get_context("Axis"), "Axis", "Curve2D", [polyline])
+    # representations.append(axis_representation)
 
     extrusion_placement = create_ifc_placement(f, ori.origin)
 
@@ -48,8 +50,9 @@ def write_ifc_plate(plate: Plate):
     ifcextrudedareasolid = f.createIfcExtrudedAreaSolid(ifcclosedprofile, extrusion_placement, ifcdir, plate.t)
 
     body = f.createIfcShapeRepresentation(ifc_store.get_context("Body"), "Body", "SolidModel", [ifcextrudedareasolid])
+    representations.append(body)
 
-    product_shape = f.createIfcProductDefinitionShape(None, None, [axis_representation, body])
+    product_shape = f.createIfcProductDefinitionShape(None, None, representations)
 
     ifc_plate = f.createIfcPlate(
         plate.guid,
