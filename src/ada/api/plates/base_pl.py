@@ -181,7 +181,10 @@ class Plate(BackendGeom):
             # self.change_type = ChangeAction.MODIFIED
 
     def __repr__(self):
-        pts = [list(x) for x in self.poly.points2d]
+        pts = [
+            list(x) + [self.poly.radiis.get(i)] if i in self.poly.radiis.keys() else list(x)
+            for i, x in enumerate(self.poly.points2d)
+        ]
         origin = f"origin={self.poly.origin.tolist()}"
         xdir = f"xdir={self.poly.xdir.tolist()}"
         normal = f"normal={self.poly.normal.tolist()}"

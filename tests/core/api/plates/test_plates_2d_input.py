@@ -214,7 +214,7 @@ def test_triangle(test_dir):
 
 
 def test_floaty_input_ex1(test_dir):
-    origin = np.array([362237.0037951513, 100000.0, 560985.9095763591]) * 1e-3
+    origin = np.array([362237.0037951513, 100000.0, 560985.9095763591])
     csys = [
         [0.0, -1.0, 0.0],
         [-0.4626617625735456, 0.0, 0.8865348799975894],
@@ -233,16 +233,18 @@ def test_floaty_input_ex1(test_dir):
         [-35.0, 350.1],
         [-15.14, 261.52],
     ]
-    thick = 0.03
+    thick = 30.0
 
-    pl = ada.Plate("test", local_points2d, thick, origin=origin, n=csys[2], xdir=csys[0])
+    pl = ada.Plate("test", local_points2d, thick, origin=origin, n=csys[2], xdir=csys[0], units="mm")
 
-    (ada.Assembly() / pl).to_ifc(test_dir / "error_plate.ifc")
+    a = ada.Assembly(units="mm") / pl
+    # a.units = "m"
+    a.to_ifc(test_dir / "error_plate.ifc")
 
     assert pl.poly.origin == pytest.approx(origin)
     assert pl.poly.normal == pytest.approx(csys[2])
     n1 = pl.nodes[0].p
-    n1_should_be = np.array([362130.68206185, 100000.0, 561189.63923958]) * 1e-3
+    n1_should_be = np.array([362130.68206185, 100000.0, 561189.63923958])
     assert n1.is_equal(n1_should_be, atol=1e-8)
 
 

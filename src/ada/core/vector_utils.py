@@ -54,25 +54,8 @@ def vector_length_2d(vector: np.ndarray) -> float:
 
 
 def distfunc(x, point, A, B):
-    """
-    A function of x for the distance between point A on vector AB and arbitrary point C. X is a scalar multiplied with
-    AB vector based on the distance to C.
-
-    f(x) = np.sqrt(vector[0] ** 2 + vector[1] ** 2 + vector[2] ** 2)
-
-    vector = C-(A+x*AB)
-
-    :param x: Variable x
-    :type x:
-    :param point: Arbitrary point parallell to AB vector
-    :type point:
-    :param A: Point A on AB vector
-    :type A:
-    :param B: Point B on AB vector
-    :type B:
-    :return: Vector length
-    :rtype:
-    """
+    """A function of x for the distance between point A on vector AB and arbitrary point C.
+    X is a scalar multiplied with AB vector based on the distance to C."""
     AB = B - A
     return vector_length(point - (A + x * AB))
 
@@ -150,12 +133,7 @@ def intersect_calc(a: np.ndarray, c: np.ndarray, ab: np.ndarray, cd: np.ndarray)
 
 
 def intersection_point(v1, v2):
-    """
-    Get the coordinate of the intersecting point
-    :param v1:
-    :param v2:
-    :return:
-    """
+    """Get the coordinate of the intersecting point between vectors v1 and v2"""
     is2d = len(list(v1[0])) == 2
 
     v1 = [np.array(list(v) + [0.0]) for v in list(v1)] if is2d else v1
@@ -172,43 +150,12 @@ def intersection_point(v1, v2):
         return res
 
 
-def normalize(curve):
-    if type(curve) is tuple:
-        return (curve[0], [y / max(abs(curve[1])) for y in curve[1]])
-    else:
-        return [x / max(abs(curve)) for x in curve]
-
-
-def is_point_inside_bbox(p, bbox, tol=1e-3) -> bool:
-    """
-
-    :param p: Point
-    :param bbox: Bounding box
-    :param tol: Tolerance
-    :return:
-    """
-    if (
-        bbox[0][0][0] - tol < p[0] < bbox[0][1][0] + tol
-        and bbox[1][0][1] - tol < p[1] < bbox[1][1][1] + tol
-        and bbox[2][0][2] - tol < p[2] < bbox[2][1][2] + tol
-    ):
-        return True
-    else:
-        return False
-
-
-def points_in_cylinder(pt1, pt2, r, q):
-    """
-
-    :param pt1: Start point of cylinder
-    :param pt2: End point of cylinder
-    :param r: Radius of cylinder
-    :param q:
-    :return:
-    """
-    vec = pt2 - pt1
-    const = r * np.linalg.norm(vec)
-    if np.dot(q - pt1, vec) >= 0 >= np.dot(q - pt2, vec) and np.linalg.norm(np.cross(q - pt1, vec)) <= const:
+def points_in_cylinder(start: np.ndarray, end: np.ndarray, radius, point: np.ndarray):
+    """Check if point is inside a cylinder with start and end points as the cylinder axis and radius as the radius of
+    the cylinder."""
+    vec = end - start
+    const = radius * np.linalg.norm(vec)
+    if np.dot(point - start, vec) >= 0 >= np.dot(point - end, vec) and np.linalg.norm(np.cross(point - start, vec)) <= const:
         return True
     else:
         return False
@@ -248,24 +195,7 @@ def convex_hull(points):
 
 
 def is_coplanar(x1, y1, z1, x2, y2, z2, x3, y3, z3, x4, y4, z4) -> bool:
-    """
-    Python program to check if 4 points in a 3-D plane are Coplanar
-    Function to find equation of plane.
-
-    :param x1:
-    :param y1:
-    :param z1:
-    :param x2:
-    :param y2:
-    :param z2:
-    :param x3:
-    :param y3:
-    :param z3:
-    :param x4:
-    :param y4:
-    :param z4:
-    :return:
-    """
+    """Python program to check if 4 points in a 3-D plane are Coplanar Function to find equation of plane."""
     a1 = x2 - x1
     b1 = y2 - y1
     c1 = z2 - z1
@@ -412,7 +342,7 @@ def calc_yvec(x_vec, z_vec=None) -> np.ndarray:
 
 
 def calc_zvec(x_vec, y_vec=None) -> np.ndarray:
-    """Calculate Z-vector (up) from an x-vector (along beam) only."""
+    """Calculate Z-vector (up) from an x-vector (along beam) only following a right handed coordinate system."""
     from ada.core.constants import Y, Z
 
     if y_vec is None:

@@ -46,7 +46,7 @@ def main():
 
     pl2_points = [(0, 0, 0.2), (0, 1, 0.2), (1, 1, 0.2), (1, 0, 0.2)]
     pl1 = ada.Plate("pl1", [(0, 0), (0, 1), (1, 1), (1, 0)], 0.01, origin=(0, 0, 4), color="red")
-    pl2 = ada.Plate("pl2", pl2_points, 0.01, origin=(2, 0, 4), color="blue")
+    pl2 = ada.Plate("pl2", pl2_points, 0.01, origin=(2, 0, 4.5), color="blue")
     pl3 = ada.Plate(
         "pl3",
         [(0, 0, 0.2), (0, 1, 0.2), (1, 1), (1, 0)],
@@ -60,6 +60,11 @@ def main():
         "pl4", [(0, 0), (0, 1), (1, 1), (1, 0)], 0.01, origin=(4, 1, 4), n=(0, -1, 0), xdir=(1, 0, 0), color="blue"
     )
     render_override[pl3.guid] = GeomRepr.SHELL
+    ori = pl2.poly.orientation
+    for a in (30, 60, 90, 120, 150, 180):
+        new_ori = ori.rotate([1, 0, 0], a)
+        pl_rot_x = ada.Plate(f"pl_rot{a}", pl2_points, 0.01, origin=pl2.poly.origin, orientation=new_ori, color="blue")
+        objects.append(pl_rot_x)
 
     box1 = ada.PrimBox("box1", (1, 0, 0), (1.5, 0.5, 0.5), color="red")
     box1.add_boolean(ada.PrimBox("box2", (1.25, -0.25, 0.25), (1.75, 0.25, 0.75)))

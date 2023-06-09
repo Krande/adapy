@@ -6,10 +6,11 @@ from ada.cadit.ifc.utils import (
     create_ifc_placement,
     create_ifcindexpolyline,
     create_ifcpolyline,
-    create_local_placement, ifc_placement_from_axis3d, to_real,
+    create_local_placement, to_real,
 )
+from ada.cadit.ifc.geom.placement import ifc_placement_from_axis3d
 from ada.core.constants import O, X, Z
-
+from ada.cadit.ifc.geom.solids import extruded_area_solid
 
 def write_ifc_plate(plate: Plate):
     if plate.parent is None:
@@ -23,9 +24,8 @@ def write_ifc_plate(plate: Plate):
     parent = f.by_guid(plate.parent.guid)
 
     # Todo: Begin implementing IFC plate from neutral geom definition
-    # plate_geom = plate.solid_geom()
-    # axis3d = ifc_placement_from_axis3d(plate_geom.geometry.position, f)
-    # profile = plate.poly.curve_geom()
+    # plate_geometry = plate.solid_geom()
+    # solid = extruded_area_solid(plate_geometry.geometry, f)
 
     # Wall creation: Define the wall shape as a polyline axis and an extruded area solid
     plate_placement = create_local_placement(f)#, relative_to=parent.ObjectPlacement)

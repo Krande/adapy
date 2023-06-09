@@ -20,10 +20,10 @@ from ada.cadit.ifc.utils import (
     create_ifcindexpolyline,
     create_ifcrevolveareasolid,
     create_local_placement,
-    ifc_placement_from_axis3d,
     tesselate_shape,
     to_real,
 )
+from ..geom.placement import ifc_placement_from_axis3d
 from ada.core.constants import O, X, Z
 from ada.geom.solids import Box, Cone, Cylinder
 
