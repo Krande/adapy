@@ -16,4 +16,5 @@ def indexed_poly_curve(ipc: geo_cu.IndexedPolyCurve, f: ifcopenshell.file) -> if
         f.create_entity("IfcArcIndex", i) if len(i) == 3 else f.create_entity("IfcLineIndex", i)
         for i in segment_indices
     ]
+
     return f.create_entity("IfcIndexedPolyCurve", ifc_point_list, s, False)

@@ -146,11 +146,11 @@ class IndexedPolyCurve:
     segments: list[Line | ArcLine]
     self_intersect: bool = False
 
-    def get_points_and_segment_indices(self) -> tuple[np.ndarray, list[tuple[int]]]:
+    def get_points_and_segment_indices(self) -> tuple[np.ndarray, list[list[int]]]:
         points = list(chain.from_iterable([list(segment) for segment in self.segments]))
         points_tuple = [tuple(x) for x in chain.from_iterable([list(segment) for segment in self.segments])]
         unique_pts, pts_index = np.unique(points, axis=0, return_index=False, return_inverse=True)
-        indices = [[int(pts_index[points_tuple.index(tuple(s))]) for s in segment] for segment in self.segments]
+        indices = [[int(pts_index[points_tuple.index(tuple(s))])+1 for s in segment] for segment in self.segments]
 
         return unique_pts, indices
 

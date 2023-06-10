@@ -22,6 +22,6 @@ def arbitrary_profile_def(
             inner_curves.append(indexed_poly_curve(ic, f))
 
     if len(inner_curves) == 0:
-        return f.create_entity("IfcArbitraryClosedProfileDef", "AREA", OuterCurve=outer_curve)
+        return f.create_entity("IfcArbitraryClosedProfileDef", "AREA", ProfileName="test", OuterCurve=outer_curve)
 
     return f.create_entity("IfcArbitraryProfileDefWithVoids", "AREA", OuterCurve=outer_curve, InnerCurves=inner_curves)

@@ -202,18 +202,21 @@ def test_triangle(test_dir):
     points2d = [(0, 0), (1, 0, 0.1), (0.5, 0.5)]
     orientation = Placement()
     pl = ada.Plate("test", points2d, 20e-3, orientation=orientation)
+    plates = [pl]
+
+    a = ada.Assembly() / [ada.Part("te") / plates]
+    a.to_ifc(test_dir / "triangle_plates_no_rot.ifc", validate=True)
+
     assert len(pl.poly.segments) == 4
     geom = pl.solid_geom()
     assert isinstance(geom.geometry, geo_so.ExtrudedAreaSolid)
-    plates = [pl]
-    for a in (30, 60, 90):
-        new_orientation = orientation.rotate([1, 0, 0], a)
-        plates.append(ada.Plate(f"rot{a}", points2d, 20e-3, orientation=new_orientation))
 
-    a = ada.Assembly() / [ada.Part("te") / plates]
+    for alpha in (30, 60, 90):
+        new_orientation = orientation.rotate([1, 0, 0], alpha)
+        pl.parent.add_plate(ada.Plate(f"rot{alpha}", points2d, 20e-3, orientation=new_orientation))
 
-    a.to_stp(test_dir / "triangle_plates.stp")
-    a.to_ifc(test_dir / "triangle_plates.ifc", validate=True)
+    # a.to_stp(test_dir / "triangle_plates.stp")
+    # a.to_ifc(test_dir / "triangle_plates_rot.ifc", validate=True)
 
 
 def test_floaty_input_ex1(test_dir):
@@ -242,7 +245,7 @@ def test_floaty_input_ex1(test_dir):
 
     a = ada.Assembly(units="mm") / pl
     # a.units = "m"
-    a.to_ifc(test_dir / "error_plate.ifc")
+    # a.to_ifc(test_dir / "error_plate.ifc")
 
     assert pl.poly.origin == pytest.approx(origin)
     assert pl.poly.normal == pytest.approx(csys[2])

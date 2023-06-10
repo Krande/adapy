@@ -1177,7 +1177,7 @@ class Assembly(Part):
             self.ifc_store.save_to_file(destination)
 
         if validate:
-            ifcopenshell.validate.validate(self.ifc_store.f, logging)
+            ifcopenshell.validate.validate(self.ifc_store.f, logger)
 
         print("IFC file creation complete")
         return self.ifc_store.f
