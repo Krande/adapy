@@ -210,7 +210,10 @@ def test_triangle(test_dir):
         new_orientation = orientation.rotate([1, 0, 0], a)
         plates.append(ada.Plate(f"rot{a}", points2d, 20e-3, orientation=new_orientation))
 
-    (ada.Assembly() / [ada.Part("te") / plates]).to_ifc(test_dir / "triangle_plates.ifc")
+    a = ada.Assembly() / [ada.Part("te") / plates]
+
+    a.to_stp(test_dir / "triangle_plates.stp")
+    a.to_ifc(test_dir / "triangle_plates.ifc", validate=True)
 
 
 def test_floaty_input_ex1(test_dir):

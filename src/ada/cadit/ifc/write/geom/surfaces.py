@@ -7,7 +7,7 @@ from ada.geom import curves as geo_cu
 from .curves import indexed_poly_curve
 
 
-def arbitrary_profile_def_with_voids(
+def arbitrary_profile_def(
     apd: geo_su.ArbitraryProfileDefWithVoids, f: ifcopenshell.file
 ) -> ifcopenshell.entity_instance:
     """Converts an ArbitraryProfileDefWithVoids to an IFC representation"""
@@ -21,4 +21,7 @@ def arbitrary_profile_def_with_voids(
         if isinstance(ic, geo_cu.IndexedPolyCurve):
             inner_curves.append(indexed_poly_curve(ic, f))
 
-    return f.create_entity("IfcArbitraryProfileDefWithVoids", "AREA", outer_curve, inner_curves)
+    if len(inner_curves) == 0:
+        return f.create_entity("IfcArbitraryClosedProfileDef", "AREA", OuterCurve=outer_curve)
+
+    return f.create_entity("IfcArbitraryProfileDefWithVoids", "AREA", OuterCurve=outer_curve, InnerCurves=inner_curves)

@@ -9,7 +9,7 @@ import pyquaternion as pq
 
 from ada.core.vector_transforms import normal_to_points_in_plane, transform_3x3
 from ada.core.vector_utils import calc_xvec, calc_yvec, calc_zvec, unit_vector
-from ada.geom.placement import Direction, O
+from ada.geom.placement import Direction, O, Axis2Placement3D
 from ada.geom.points import Point
 
 if TYPE_CHECKING:
@@ -145,7 +145,7 @@ class Placement:
         return np.vstack([Rt, np.array([0.0, 0.0, 0.0, 1.0])])
 
     def transform_local_points_to_global(
-            self, points2d: Iterable[Iterable[float | int, float | int]], inverse=False
+        self, points2d: Iterable[Iterable[float | int, float | int]], inverse=False
     ) -> np.ndarray:
         """Transform points from the coordinate system of this placement to the global coordinate system."""
         if not isinstance(points2d, np.ndarray):
@@ -177,6 +177,13 @@ class Placement:
         points2d = transform_3x3(self.rot_matrix, points3d_, inverse=False)
 
         return points2d[:, :2]
+
+    def to_axis2placement3d(self):
+        return Axis2Placement3D(
+            location=self.origin,
+            axis=Direction(self.zdir).get_normalized(),
+            ref_direction=Direction(self.xdir).get_normalized(),
+        )
 
     def __eq__(self, other: Placement):
         from ada.core.vector_utils import vector_length

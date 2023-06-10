@@ -75,6 +75,12 @@ class Axis2Placement3D:
 
 
 @dataclass
+class IfcLocalPlacement:
+    relative_placement: Axis2Placement3D
+    placement_rel_to: IfcLocalPlacement | None = None
+
+
+@dataclass
 class Axis1Placement:
     location: Point
     axis: Direction
