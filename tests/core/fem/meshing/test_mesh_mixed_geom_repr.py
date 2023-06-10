@@ -16,7 +16,7 @@ def assembly() -> Assembly:
 
     placement = Placement(origin=(1, 1, 1), xdir=(1, 0, 0), zdir=(0, 0, 1))
     pl_points = [(0, 0), (1, 0), (1, 1), (0, 1)]
-    pl1 = Plate("pl1", pl_points, 10e-3, placement=placement)
+    pl1 = Plate("pl1", pl_points, 10e-3, orientation=placement)
 
     pipe = Pipe("pipe", [(0, 0.5, 0), (1, 0.5, 0), (1.2, 0.7, 0.2), (1.5, 0.7, 0.2)], "OD120x6")
 
@@ -27,7 +27,7 @@ def assembly() -> Assembly:
     return Assembly() / (Part("MyFemObjects") / [bm1, bm2, bm3, pl1, shp1, pipe])
 
 
-def test_mix_geom_repr_in_same_session(assembly):
+def test_mix_geom_repr_in_same_session(assembly, test_dir):
     shape = ada.fem.shapes.ElemShape.TYPES
     bm1 = assembly.get_by_name("bm1")
     bm2 = assembly.get_by_name("bm2")
@@ -57,7 +57,9 @@ def test_mix_geom_repr_in_same_session(assembly):
         gs.mesh(0.1)
         p.fem = gs.get_fem()
 
-    print(p.fem.elements)
+    # print(p.fem.elements)
+    assembly.to_stp(test_dir / "test_mix_geom_repr_in_same_session.stp")
+    assembly.to_ifc(test_dir / "test_mix_geom_repr_in_same_session.ifc")
 
     map_assert = {shape.lines.LINE3: 9, shape.solids.TETRA10: 5310, shape.shell.TRI6: 840}
 

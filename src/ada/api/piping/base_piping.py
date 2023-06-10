@@ -26,7 +26,8 @@ if TYPE_CHECKING:
 
 class Pipe(BackendGeom):
     def __init__(
-        self, name, points, sec, mat="S355", content=None, metadata=None, color=None, units: Units = Units.M, guid=None
+            self, name, points, sec, mat="S355", content=None, metadata=None, color=None, units: Units = Units.M,
+            guid=None
     ):
         super().__init__(name, color=color, guid=guid, metadata=metadata, units=units)
 
@@ -142,7 +143,7 @@ class Pipe(BackendGeom):
 
 class PipeSegStraight(BackendGeom):
     def __init__(
-        self, name, p1, p2, section, material, parent=None, guid=None, metadata=None, units=Units.M, color=None
+            self, name, p1, p2, section, material, parent=None, guid=None, metadata=None, units=Units.M, color=None
     ):
         super(PipeSegStraight, self).__init__(
             name=name, guid=guid, metadata=metadata, units=units, parent=parent, color=color
@@ -210,20 +211,20 @@ class PipeSegStraight(BackendGeom):
 
 class PipeSegElbow(BackendGeom):
     def __init__(
-        self,
-        name,
-        start,
-        midpoint,
-        end,
-        bend_radius,
-        section,
-        material,
-        parent=None,
-        guid=None,
-        metadata=None,
-        units=Units.M,
-        color=None,
-        arc_seg=None,
+            self,
+            name,
+            start,
+            midpoint,
+            end,
+            bend_radius,
+            section,
+            material,
+            parent=None,
+            guid=None,
+            metadata=None,
+            units=Units.M,
+            color=None,
+            arc_seg=None,
     ):
         super(PipeSegElbow, self).__init__(
             name=name, guid=guid, metadata=metadata, units=units, parent=parent, color=color
@@ -285,32 +286,14 @@ class PipeSegElbow(BackendGeom):
         return edge
 
     def shell_occ(self):
-        from ada.fem.shapes import ElemType
-        from ada.occ.utils import sweep_pipe
+        from ada.occ.geom import geom_to_occ_geom
 
-        i = self.parent.segments.index(self)
-        if i != 0:
-            pseg = self.parent.segments[i - 1]
-            xvec = pseg.xvec1
-        else:
-            xvec = self.xvec1
-
-        return sweep_pipe(self.line_occ(), xvec, self.section.r, self.section.wt, ElemType.SHELL)
+        return geom_to_occ_geom(self.solid_geom())
 
     def solid_occ(self):
-        from ada.fem.shapes import ElemType
-        from ada.occ.utils import apply_booleans, sweep_pipe
+        from ada.occ.geom import geom_to_occ_geom
 
-        i = self.parent.segments.index(self)
-        if i != 0:
-            pseg = self.parent.segments[i - 1]
-            xvec = pseg.xvec1
-        else:
-            xvec = self.xvec1
-        raw_geom = sweep_pipe(self.line_occ(), xvec, self.section.r, self.section.wt, ElemType.SOLID)
-
-        geom = apply_booleans(raw_geom, self.booleans)
-        return geom
+        return geom_to_occ_geom(self.solid_geom())
 
     def solid_geom(self) -> Geometry:
         from ada.geom.booleans import BooleanOperation
@@ -327,7 +310,18 @@ class PipeSegElbow(BackendGeom):
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
 
     def shell_geom(self) -> Geometry:
-        raise NotImplementedError("shell_geom() not implemented")
+        from ada.geom.booleans import BooleanOperation
+        from ada.geom.solids import RevolvedAreaSolid
+
+        profile = section_to_arbitrary_profile_def_with_voids(self.section, solid=False)
+        position = Axis2Placement3D(self.p1)
+
+        axis = Axis1Placement(location=self.arc_seg.center, axis=self.xvec1)
+        revolve_angle = np.rad2deg(angle_between(self.xvec1, self.xvec2))
+        solid = RevolvedAreaSolid(profile, position, axis, revolve_angle)
+
+        booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+        return Geometry(self.guid, solid, self.color, bool_operations=booleans)
 
     @property
     def arc_seg(self) -> ArcSegment:

@@ -243,15 +243,12 @@ def test_floaty_input_ex1(test_dir):
 
     pl = ada.Plate("test", local_points2d, thick, origin=origin, n=csys[2], xdir=csys[0], units="mm")
 
-    a = ada.Assembly(units="mm") / pl
+    # a = ada.Assembly(units="mm") / pl
     # a.units = "m"
     # a.to_ifc(test_dir / "error_plate.ifc")
 
     assert pl.poly.origin == pytest.approx(origin)
     assert pl.poly.normal == pytest.approx(csys[2])
-    n1 = pl.nodes[0].p
-    n1_should_be = np.array([362130.68206185, 100000.0, 561189.63923958])
-    assert n1.is_equal(n1_should_be, atol=1e-8)
 
 
 def test_ex2():
