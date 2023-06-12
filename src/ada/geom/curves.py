@@ -5,6 +5,8 @@ from typing import Iterable, Union
 
 import numpy as np
 
+from ada.core.curve_utils import calc_arc_radius_center_from_3points
+from ada.core.vector_utils import intersection_point, intersect_calc
 from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
 
@@ -150,9 +152,50 @@ class IndexedPolyCurve:
         points = list(chain.from_iterable([list(segment) for segment in self.segments]))
         points_tuple = [tuple(x) for x in chain.from_iterable([list(segment) for segment in self.segments])]
         unique_pts, pts_index = np.unique(points, axis=0, return_index=False, return_inverse=True)
-        indices = [[int(pts_index[points_tuple.index(tuple(s))])+1 for s in segment] for segment in self.segments]
+        indices = [[int(pts_index[points_tuple.index(tuple(s))]) + 1 for s in segment] for segment in self.segments]
 
         return unique_pts, indices
+
+    def to_points2d(self):
+        local_points = []
+        segments_in = self.segments
+        segments = segments_in[1:]
+        for i, seg in enumerate(segments):
+            if i == 0:
+                pseg = segments[-1]
+            else:
+                pseg = segments[i - 1]
+
+            if i == len(segments) - 1:
+                nseg = segments[0]
+            else:
+                nseg = segments[i + 1]
+
+            if isinstance(seg, Line):
+                if i == 0:
+                    local_points.append(seg.start)
+                else:
+                    if type(segments[i - 1]) is Line:
+                        local_points.append(seg.start)
+                if i < len(segments) - 1:
+                    if type(segments[i + 1]) is Line:
+                        local_points.append(seg.end)
+                else:
+                    local_points.append(seg.end)
+            else:
+                center, radius = calc_arc_radius_center_from_3points(seg.start, seg.midpoint, seg.end)
+                v1_ = seg.start - pseg.start
+                v2_ = nseg.end - seg.end
+                # ed = np.cross(v1_, v2_)
+                # if ed < 0:
+                #     local_points.append(seg.start)
+
+                s, t = intersect_calc(seg.start, nseg.end, v1_, v2_)
+                ip = seg.start + s * v1_
+                # ip = intersection_point(v1_, v2_)
+                local_points.append((ip[0], ip[1], radius))
+
+        return local_points
 
 
 @dataclass

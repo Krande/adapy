@@ -17,7 +17,7 @@ from ada.core.vector_transforms import local_2_global_points
 from ada.core.vector_utils import is_clockwise
 from ada.geom.placement import Direction
 from ada.geom.points import Point
-from ada.geom.surfaces import ArbitraryProfileDefWithVoids, ProfileType
+from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
 
 if TYPE_CHECKING:
     from ada import Beam
@@ -308,9 +308,9 @@ class CurvePoly2d(CurveSweep2d):
             points = [points[0]] + [p for p in reversed(points[1:])]
         return points
 
-    def get_face_geom(self) -> ArbitraryProfileDefWithVoids:
+    def get_face_geom(self) -> ArbitraryProfileDef:
         outer_curve = self.curve_geom()
-        return ArbitraryProfileDefWithVoids(ProfileType.AREA, outer_curve, [])
+        return ArbitraryProfileDef(ProfileType.AREA, outer_curve, [])
 
     def face(self):
         from ada.occ.geom.surfaces import make_profile_from_geom

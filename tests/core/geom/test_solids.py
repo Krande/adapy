@@ -38,7 +38,7 @@ def test_ipe_beam():
     geo = bm.solid_geom()
     assert isinstance(geo.geometry, geo_so.ExtrudedAreaSolid)
     assert geo.geometry.depth == 1.0
-    assert isinstance(geo.geometry.swept_area, geo_su.ArbitraryProfileDefWithVoids)
+    assert isinstance(geo.geometry.swept_area, geo_su.ArbitraryProfileDef)
 
     occ_shape = geom_to_occ_geom(geo)
     assert isinstance(occ_shape, TopoDS_Solid)

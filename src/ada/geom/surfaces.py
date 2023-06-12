@@ -17,6 +17,15 @@ class ProfileType(Enum):
     AREA = "area"
     CURVE = "curve"
 
+    @staticmethod
+    def from_str(profile_type: str) -> "ProfileType":
+        if profile_type.upper() == "AREA":
+            return ProfileType.AREA
+        elif profile_type.upper() == "CURVE":
+            return ProfileType.CURVE
+        else:
+            raise ValueError(f"Invalid profile type {profile_type}")
+
 
 @dataclass
 class ProfileDef:
@@ -24,7 +33,7 @@ class ProfileDef:
 
 
 @dataclass
-class ArbitraryProfileDefWithVoids(ProfileDef):
+class ArbitraryProfileDef(ProfileDef):
     """
     IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcArbitraryProfileDefWithVoids.htm
     """
@@ -83,4 +92,4 @@ class SurfaceOfLinearExtrusion:
     depth: float
 
 
-SURFACE_GEOM_TYPES = Union[ArbitraryProfileDefWithVoids, FaceBasedSurfaceModel, CurveBoundedPlane]
+SURFACE_GEOM_TYPES = Union[ArbitraryProfileDef, FaceBasedSurfaceModel, CurveBoundedPlane]

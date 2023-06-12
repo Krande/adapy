@@ -169,26 +169,20 @@ class PipeSegStraight(BackendGeom):
     def length(self):
         return vector_length(self.p2.p - self.p1.p)
 
-    @property
     def line_occ(self):
         from ada.occ.utils import make_edge
 
         return make_edge(self.p1.p, self.p2.p)
 
     def shell_occ(self):
-        from ada.fem.shapes import ElemType
-        from ada.occ.utils import sweep_pipe
+        from ada.occ.geom import geom_to_occ_geom
 
-        return sweep_pipe(self.line_occ, self.xvec1, self.section.r, self.section.wt, ElemType.SHELL)
+        return geom_to_occ_geom(self.shell_geom())
 
     def solid_occ(self):
-        from ada.fem.shapes import ElemType
-        from ada.occ.utils import apply_booleans, sweep_pipe
+        from ada.occ.geom import geom_to_occ_geom
 
-        raw_geom = sweep_pipe(self.line_occ, self.xvec1, self.section.r, self.section.wt, ElemType.SOLID)
-
-        geom = apply_booleans(raw_geom, self.booleans)
-        return geom
+        return geom_to_occ_geom(self.solid_geom())
 
     def solid_geom(self) -> Geometry:
         import ada.geom.solids as geo_so
@@ -203,7 +197,11 @@ class PipeSegStraight(BackendGeom):
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
 
     def shell_geom(self) -> Geometry:
-        raise NotImplementedError("shell_geom() not implemented")
+        geom = self.solid_geom()
+        profile = section_to_arbitrary_profile_def_with_voids(self.section, solid=False)
+        geom.geometry.swept_area = profile
+
+        return geom
 
     def __repr__(self):
         return f"PipeSegStraight({self.name}, p1={self.p1}, p2={self.p2}, section={self.section.name})"
@@ -288,7 +286,7 @@ class PipeSegElbow(BackendGeom):
     def shell_occ(self):
         from ada.occ.geom import geom_to_occ_geom
 
-        return geom_to_occ_geom(self.solid_geom())
+        return geom_to_occ_geom(self.shell_geom())
 
     def solid_occ(self):
         from ada.occ.geom import geom_to_occ_geom
@@ -300,28 +298,27 @@ class PipeSegElbow(BackendGeom):
         from ada.geom.solids import RevolvedAreaSolid
 
         profile = section_to_arbitrary_profile_def_with_voids(self.section)
-        position = Axis2Placement3D(self.p1)
 
-        axis = Axis1Placement(location=self.arc_seg.center, axis=self.xvec1)
-        revolve_angle = np.rad2deg(angle_between(self.xvec1, self.xvec2))
+        xvec1 = unit_vector(self.arc_seg.s_normal)
+        xvec2 = unit_vector(self.arc_seg.e_normal)
+        normal = unit_vector(calc_zvec(xvec2, xvec1))
+
+        position = Axis2Placement3D(self.p1, xvec1, normal)
+
+        axis = Axis1Placement(location=self.arc_seg.center, axis=normal)
+
+        revolve_angle = 180 - np.rad2deg(angle_between(xvec1, xvec2))
         solid = RevolvedAreaSolid(profile, position, axis, revolve_angle)
 
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
 
     def shell_geom(self) -> Geometry:
-        from ada.geom.booleans import BooleanOperation
-        from ada.geom.solids import RevolvedAreaSolid
-
+        geom = self.solid_geom()
         profile = section_to_arbitrary_profile_def_with_voids(self.section, solid=False)
-        position = Axis2Placement3D(self.p1)
+        geom.geometry.swept_area = profile
 
-        axis = Axis1Placement(location=self.arc_seg.center, axis=self.xvec1)
-        revolve_angle = np.rad2deg(angle_between(self.xvec1, self.xvec2))
-        solid = RevolvedAreaSolid(profile, position, axis, revolve_angle)
-
-        booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
-        return Geometry(self.guid, solid, self.color, bool_operations=booleans)
+        return geom
 
     @property
     def arc_seg(self) -> ArcSegment:

@@ -368,10 +368,10 @@ class PrimExtrude(Shape):
     def solid_geom(self) -> Geometry:
         from ada.geom.placement import Axis2Placement3D, Direction
         from ada.geom.solids import ExtrudedAreaSolid
-        from ada.geom.surfaces import ArbitraryProfileDefWithVoids, ProfileType
+        from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
 
         outer_curve = self.poly.curve_geom()
-        profile = ArbitraryProfileDefWithVoids(ProfileType.AREA, outer_curve, [])
+        profile = ArbitraryProfileDef(ProfileType.AREA, outer_curve, [])
 
         place = Axis2Placement3D(self.poly.origin, axis=self.poly.normal, ref_direction=self.poly.xdir)
 
@@ -446,10 +446,10 @@ class PrimRevolve(Shape):
     def solid_geom(self) -> Geometry:
         from ada.geom.placement import Axis1Placement, Axis2Placement3D
         from ada.geom.solids import RevolvedAreaSolid
-        from ada.geom.surfaces import ArbitraryProfileDefWithVoids, ProfileType
+        from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
 
         outer_curve = self.poly.curve_geom()
-        profile = ArbitraryProfileDefWithVoids(ProfileType.AREA, outer_curve, [])
+        profile = ArbitraryProfileDef(ProfileType.AREA, outer_curve, [])
 
         place = Axis2Placement3D(self.poly.origin, axis=self.poly.normal, ref_direction=self.poly.xdir)
         rev_axis = Axis1Placement(self.revolve_origin, self.revolve_axis)

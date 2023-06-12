@@ -11,6 +11,7 @@ from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.config import Settings
 from ada.geom import Geometry
+from ada.geom.solids import ExtrudedAreaSolid
 from ada.geom.placement import Direction
 from ada.geom.points import Point
 from ada.materials import Material
@@ -79,6 +80,10 @@ class Plate(BackendGeom):
         poly = CurvePoly2d.from_3d_points(points, xdir=xdir, **kwargs)
         return Plate(name, poly, t, mat=mat, color=color, **kwargs)
 
+    @staticmethod
+    def from_extruded_area_solid(name, solid: ExtrudedAreaSolid):
+        ...
+
     def bbox(self) -> BoundingBox:
         """Bounding Box of plate"""
         if self._bbox is None:
@@ -118,7 +123,7 @@ class Plate(BackendGeom):
         from ada.geom.placement import Axis2Placement3D
 
         outer_curve = self.poly.curve_geom(use_3d_segments=False)
-        profile = geo_su.ArbitraryProfileDefWithVoids(geo_su.ProfileType.AREA, outer_curve, [])
+        profile = geo_su.ArbitraryProfileDef(geo_su.ProfileType.AREA, outer_curve, [])
 
         # Origin location is already included in the outer_curve definition
         place = Axis2Placement3D(location=self.poly.origin, axis=self.poly.normal, ref_direction=self.poly.xdir)

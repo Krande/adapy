@@ -8,7 +8,7 @@ from .curves import indexed_poly_curve
 
 
 def arbitrary_profile_def(
-    apd: geo_su.ArbitraryProfileDefWithVoids, f: ifcopenshell.file
+    apd: geo_su.ArbitraryProfileDef, f: ifcopenshell.file
 ) -> ifcopenshell.entity_instance:
     """Converts an ArbitraryProfileDefWithVoids to an IFC representation"""
     if isinstance(apd.outer_curve, geo_cu.IndexedPolyCurve):

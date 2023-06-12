@@ -16,8 +16,8 @@ class SectionProfile:
     is_solid: bool
     outer_curve: CurvePoly2d = None
     inner_curve: CurvePoly2d = None
-    outer_curve_disconnected: list[CurvePoly2d] = None
-    inner_curve_disconnected: list[CurvePoly2d] = None
+    outer_curve_disconnected: list[CurveSweep2d] = None
+    inner_curve_disconnected: list[CurveSweep2d] = None
     disconnected: bool = None
     shell_thickness_map: list[tuple[str, float]] = None
 

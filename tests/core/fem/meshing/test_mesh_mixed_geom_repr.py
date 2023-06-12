@@ -53,13 +53,15 @@ def test_mix_geom_repr_in_same_session(assembly, test_dir):
             gs.add_cutting_plane(cutp, [solid_bm])
 
         gs.make_cuts()
-
+        # gs.open_gui()
         gs.mesh(0.1)
+
         p.fem = gs.get_fem()
 
     # print(p.fem.elements)
-    assembly.to_stp(test_dir / "test_mix_geom_repr_in_same_session.stp")
-    assembly.to_ifc(test_dir / "test_mix_geom_repr_in_same_session.ifc")
+    # assembly.to_stp(test_dir / "test_mix_geom_repr_in_same_session.stp")
+    # assembly.to_ifc(test_dir / "test_mix_geom_repr_in_same_session.ifc")
+    # assembly.to_fem("test_mix_geom_repr_in_same_session", "code_aster", overwrite=True)
 
     map_assert = {shape.lines.LINE3: 9, shape.solids.TETRA10: 5310, shape.shell.TRI6: 840}
 

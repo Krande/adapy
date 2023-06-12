@@ -78,7 +78,7 @@ def make_wire_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
 
 
 def make_profile_from_geom(area: geo_su.ProfileDef) -> TopoDS_Shape:
-    if isinstance(area, geo_su.ArbitraryProfileDefWithVoids):
+    if isinstance(area, geo_su.ArbitraryProfileDef):
         if area.profile_type == geo_su.ProfileType.AREA:
             profile = make_face_from_curve(area.outer_curve)
             for inner_curve in map(make_face_from_curve, area.inner_curves):

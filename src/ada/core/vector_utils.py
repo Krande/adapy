@@ -134,7 +134,10 @@ def intersect_calc(a: np.ndarray, c: np.ndarray, ab: np.ndarray, cd: np.ndarray)
 
 def intersection_point(v1, v2):
     """Get the coordinate of the intersecting point between vectors v1 and v2"""
-    is2d = len(list(v1[0])) == 2
+    if isinstance(v1, np.ndarray):
+        is2d = v1.shape[0] == 2
+    else:
+        is2d = len(list(v1[0])) == 2
 
     v1 = [np.array(list(v) + [0.0]) for v in list(v1)] if is2d else v1
     v2 = [np.array(list(v) + [0.0]) for v in list(v2)] if is2d else v2

@@ -610,12 +610,7 @@ class SegCreator:
         self._fig.write_html(self.plot_path)
 
 
-def segments_to_local_points(segments_in):
-    """
-
-    :param segments_in:
-    :return:
-    """
+def segments_to_local_points(segments_in: list[LineSegment | ArcSegment]) -> list[tuple]:
     from ada import LineSegment
 
     local_points = []

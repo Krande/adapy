@@ -77,7 +77,7 @@ def revolved_beam_to_solid_geom(beam: BeamRevolve) -> Geometry:
     return Geometry()
 
 
-def section_to_arbitrary_profile_def_with_voids(section: Section, solid=True) -> geo_su.ArbitraryProfileDefWithVoids:
+def section_to_arbitrary_profile_def_with_voids(section: Section, solid=True) -> geo_su.ArbitraryProfileDef:
     inner_curves = []
     if section.type == section.TYPES.TUBULAR:
         outer_curve = Circle(Axis2Placement3D(), section.r)
@@ -90,7 +90,12 @@ def section_to_arbitrary_profile_def_with_voids(section: Section, solid=True) ->
         if sec_profile.inner_curve is not None:
             inner_curves += [sec_profile.inner_curve.curve_geom()]
 
-    return geo_su.ArbitraryProfileDefWithVoids(geo_su.ProfileType.AREA, outer_curve, inner_curves)
+    if solid:
+        profile_type = geo_su.ProfileType.AREA
+    else:
+        profile_type = geo_su.ProfileType.CURVE
+
+    return geo_su.ArbitraryProfileDef(profile_type, outer_curve, inner_curves)
 
 
 def ibeam_taper_to_geom(beam: BeamTapered) -> Geometry:
@@ -137,7 +142,7 @@ def box_to_face_geom(beam: Beam) -> Geometry:
     sec_profile = beam.section.get_section_profile(is_solid=False)
     outer_curve = sec_profile.outer_curve.curve_geom()
     place = Axis2Placement3D(location=beam.n1.p, axis=beam.xvec, ref_direction=beam.yvec)
-    profile = geo_su.ArbitraryProfileDefWithVoids(geo_su.ProfileType.CURVE, outer_curve, [])
+    profile = geo_su.ArbitraryProfileDef(geo_su.ProfileType.CURVE, outer_curve, [])
     solid = geo_so.ExtrudedAreaSolid(profile, place, beam.length, Direction(0, 0, 1))
     return Geometry(beam.guid, solid, beam.color)
 
@@ -145,6 +150,6 @@ def box_to_face_geom(beam: Beam) -> Geometry:
 def circ_to_face_geom(beam: Beam) -> Geometry:
     outer_curve = Circle(Axis2Placement3D(), beam.section.r)
     place = Axis2Placement3D(location=beam.n1.p, axis=beam.xvec, ref_direction=beam.yvec)
-    profile = geo_su.ArbitraryProfileDefWithVoids(geo_su.ProfileType.CURVE, outer_curve, [])
+    profile = geo_su.ArbitraryProfileDef(geo_su.ProfileType.CURVE, outer_curve, [])
     solid = geo_so.ExtrudedAreaSolid(profile, place, beam.length, Direction(0, 0, 1))
     return Geometry(beam.guid, solid, beam.color)
