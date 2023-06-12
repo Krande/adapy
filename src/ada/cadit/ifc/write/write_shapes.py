@@ -9,14 +9,13 @@ from ada import (
     PrimRevolve,
     PrimSphere,
     PrimSweep,
-    Shape,
+    Shape
 )
 from ada.base.units import Units
 from ada.cadit.ifc.utils import (
     add_colour,
     create_ifc_placement,
     create_ifcextrudedareasolid,
-    create_IfcFixedReferenceSweptAreaSolid,
     create_ifcindexpolyline,
     create_ifcrevolveareasolid,
     create_local_placement,
@@ -27,7 +26,8 @@ from ada.cadit.ifc.write.geom.placement import ifc_placement_from_axis3d
 from ada.core.constants import O, X, Z
 from ada.geom.solids import Box, Cone, Cylinder
 
-from .write_curves import write_curve_poly
+from ..write.geom.curves import indexed_poly_curve
+from ..write.geom.surfaces import arbitrary_profile_def
 
 
 def write_ifc_shape(shape: Shape):
@@ -43,7 +43,7 @@ def write_ifc_shape(shape: Shape):
 
     shape_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
 
-    if isinstance(shape, (PrimBox, PrimCyl, PrimExtrude, PrimRevolve, PrimSphere, PrimSweep, PrimCone)):
+    if issubclass(type(shape), Shape):
         ifc_shape = generate_parametric_solid(shape, f)
     else:
         tol = Units.get_general_point_tol(a.units)
@@ -63,6 +63,9 @@ def write_ifc_shape(shape: Shape):
         ObjectPlacement=shape_placement,
         Representation=ifc_shape,
     )
+
+    # Material
+    a.ifc_store.writer.associate_elem_with_material(shape.material, ifc_elem)
 
     return ifc_elem
 
@@ -160,10 +163,14 @@ def generate_ifc_prim_revolve_geom(shape: PrimRevolve, f):
 
 
 def generate_ifc_prim_sweep_geom(shape: PrimSweep, f):
-    sweep_curve = write_curve_poly(shape.sweep_curve)
-    outer_curve = write_curve_poly(shape.profile_curve_outer)
-    profile = f.create_entity("IfcArbitraryClosedProfileDef", "AREA", None, outer_curve)
-    ifc_xdir = f.create_entity("IfcDirection", [float(x) for x in shape.profile_curve_outer.xdir])
-    opening_axis_placement = create_ifc_placement(f, O, Z, X)
+    geom = shape.solid_geom()
 
-    return create_IfcFixedReferenceSweptAreaSolid(f, sweep_curve, profile, opening_axis_placement, None, None, ifc_xdir)
+    profile = arbitrary_profile_def(geom.geometry.swept_area, f)
+    sweep_curve = indexed_poly_curve(geom.geometry.directrix, f)
+
+    fixed_ref = f.create_entity("IfcDirection", to_real(shape.sweep_curve.start_vector.tolist()))
+    axis3d = create_ifc_placement(f)
+    return f.create_entity(
+        "IfcFixedReferenceSweptAreaSolid", SweptArea=profile, Position=axis3d, Directrix=sweep_curve,
+        FixedReference=fixed_ref,
+    )

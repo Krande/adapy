@@ -361,6 +361,6 @@ class IfcWriter:
             OwnerHistory=self.ifc_store.owner_history,
             Name=relating_mat.Name if hasattr(relating_mat, "Name") else None,
             Description=f"Objects related to {relating_mat.Name}" if hasattr(relating_mat, "Description") else None,
-            RelatedObjects=[] if related_objs is None else related_objs,
+            RelatedObjects=() if related_objs is None else related_objs,
             RelatingMaterial=relating_mat,
         )

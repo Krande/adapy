@@ -64,7 +64,7 @@ class Plate(BackendGeom):
             self._poly = points
         else:
             self._poly = CurvePoly2d(
-                points=points,
+                points2d=points,
                 normal=n,
                 origin=origin,
                 xdir=xdir,

@@ -7,32 +7,38 @@ from ada.core.vector_utils import create_right_hand_vectors_xv_yv_from_zv
 from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
 from ada.geom.points import Point
 from ada.geom.surfaces import ProfileDef
+from ada.geom.curves import CURVE_GEOM_TYPES
 
 
-def _z_dir():
-    return Direction(0, 0, 1)
-
-
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcExtrudedAreaSolid.htm)
-# STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_extruded_area_solid.html)
 @dataclass
 class ExtrudedAreaSolid:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcExtrudedAreaSolid.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_extruded_area_solid.html)
+    """
+
     swept_area: ProfileDef
     position: Axis2Placement3D
     depth: float
     extruded_direction: Direction
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcExtrudedAreaSolidTapered.htm)
 @dataclass
 class ExtrudedAreaSolidTapered(ExtrudedAreaSolid):
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcExtrudedAreaSolidTapered.htm)
+    """
+
     end_swept_area: ProfileDef
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRevolvedAreaSolid.htm)
-# STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_revolved_area_solid.html)
 @dataclass
 class RevolvedAreaSolid:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRevolvedAreaSolid.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_revolved_area_solid.html)
+    """
+
     swept_area: ProfileDef
     position: Axis2Placement3D
     axis: Axis1Placement
@@ -41,20 +47,21 @@ class RevolvedAreaSolid:
 
 @dataclass
 class FixedReferenceSweptAreaSolid:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcFixedReferenceSweptAreaSolid.htm)
+    """
     swept_area: ProfileDef
     position: Axis2Placement3D
-    directrix: list[Point]
+    directrix: CURVE_GEOM_TYPES
 
 
-@dataclass
-class DirectrixDerivedReferenceSweptAreaSolid(FixedReferenceSweptAreaSolid):
-    pass
 
-
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBlock.htm)
-# STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_box_domain.html)
 @dataclass
 class Box:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBlock.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_box_domain.html)
+    """
     position: Axis2Placement3D
     x_length: float
     y_length: float
@@ -78,20 +85,26 @@ class Box:
         return Box.from_xyz_and_dims(x, y, z, x_length, y_length, z_length)
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRectangularPyramid.htm)
-# STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_pyramid_volume.html)
+
 @dataclass
 class RectangularPyramid:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRectangularPyramid.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_pyramid_volume.html)
+    """
     position: Axis2Placement3D
     x_length: float
     y_length: float
     z_length: float
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRightCircularCone.htm)
-# STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_right_circular_cone.html)
+
 @dataclass
 class Cone:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRightCircularCone.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_right_circular_cone.html)
+    """
     position: Axis2Placement3D
     bottom_radius: float
     height: float
@@ -106,10 +119,13 @@ class Cone:
         return Cone(axis3d, r, height)
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRightCircularCylinder.htm)
-# STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_right_circular_cylinder.html)
+
 @dataclass
 class Cylinder:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRightCircularCylinder.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_right_circular_cylinder.html)
+    """
     position: Axis2Placement3D
     radius: float
     height: float
@@ -124,12 +140,15 @@ class Cylinder:
         return Cylinder(axis3d, r, height)
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcSphere.htm)
-# STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_sphere.html)
+
 @dataclass
 class Sphere:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcSphere.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_sphere.html)
+    """
     center: Point
     radius: float
 
 
-SOLID_GEOM_TYPES = Union[ExtrudedAreaSolid, RevolvedAreaSolid, Box, RectangularPyramid, Cone, Cylinder, Sphere]
+SOLID_GEOM_TYPES = Union[ExtrudedAreaSolid, RevolvedAreaSolid, Box, RectangularPyramid, Cone, Cylinder, Sphere, FixedReferenceSweptAreaSolid]

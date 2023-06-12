@@ -578,6 +578,9 @@ class Part(BackendGeom):
                     if isinstance(elem, (Beam, Plate, FemSection, PipeSegStraight, PipeSegElbow, Pipe)):
                         elem.material = res
                         num_elem_changed += 1
+                    elif issubclass(type(elem), Shape):
+                        elem.material = res
+                        num_elem_changed += 1
                     else:
                         raise NotImplementedError(f"Not yet support section {type(elem)=}")
 

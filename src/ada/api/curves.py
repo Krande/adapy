@@ -12,6 +12,7 @@ from ada.core.curve_utils import (
     calc_2darc_start_end_from_lines_radius,
     segments_to_indexed_lists,
     transform_2d_arc_segment_to_3d,
+    segments3d_from_points3d,
 )
 from ada.core.vector_transforms import local_2_global_points
 from ada.core.vector_utils import is_clockwise
@@ -97,15 +98,8 @@ class CurveRevolve:
         self._parent = value
 
 
-class CurveSweep2d:
-    """
-    A closed curve defined by a list of points.
-
-    :param points: Input of 2d points (x,y). Can include a 3rd value for assigning a radius to the point.
-    :param origin: Origin of the curve
-    :param normal: Local Normal direction
-    :param xdir: Local X-Direction
-    """
+class CurveOpen2d:
+    """A open curve defined by a list of points."""
 
     def __init__(
         self,
@@ -288,10 +282,12 @@ class CurveSweep2d:
         self._parent = value
 
 
-class CurvePoly2d(CurveSweep2d):
+class CurvePoly2d(CurveOpen2d):
+    """A closed curve defined by a list of 2d points represented by line and arc segments."""
+
     def __init__(
         self,
-        points,
+        points2d,
         origin: Iterable | Point = None,
         normal: Iterable | Direction = None,
         xdir: Iterable | Direction = None,
@@ -300,7 +296,7 @@ class CurvePoly2d(CurveSweep2d):
         orientation: Placement = None,
     ):
         # Check to see if it is a closed curve
-        super().__init__(points, origin, normal, xdir, tol, parent, orientation)
+        super().__init__(points2d, origin, normal, xdir, tol, parent, orientation)
 
     def _points_fix(self, points):
         # Check to see if the points are clockwise
@@ -316,6 +312,73 @@ class CurvePoly2d(CurveSweep2d):
         from ada.occ.geom.surfaces import make_profile_from_geom
 
         return make_profile_from_geom(self.get_face_geom())
+
+
+class CurveOpen3d:
+    """A 3 dimensional open poly curve defined by a list of 3d points represented by line and arc segments."""
+
+    def __init__(
+        self,
+        points3d,
+        origin: Iterable | Point = None,
+        normal: Iterable | Direction = None,
+        xdir: Iterable | Direction = None,
+        tol=1e-3,
+        parent=None,
+        orientation: Placement = None,
+    ):
+        self._radiis = {i: x[-1] for i, x in enumerate(points3d) if len(x) == 4}
+        self._points3d = [Point(p[:3]) for p in points3d]
+
+        self._segments = segments3d_from_points3d(self._points3d, radius_dict=self._radiis)
+        self._tol = tol
+        self._parent = parent
+        self._orientation = Placement(origin, xdir=xdir, zdir=normal) if orientation is None else orientation
+
+    def curve_geom(self) -> IndexedPolyCurve | Line | ArcLine:
+        from ada.geom.curves import ArcLine, IndexedPolyCurve, Line
+
+        poly_segments = self.segments
+
+        if len(poly_segments) == 1:
+            seg = poly_segments[0]
+            if isinstance(seg, ArcSegment):
+                return ArcLine(seg.p1, seg.midpoint, seg.p2)
+            else:
+                return Line(seg.p1, seg.p2)
+
+        segments = []
+        for seg in poly_segments:
+            if isinstance(seg, ArcSegment):
+                segments.append(ArcLine(seg.p1, seg.midpoint, seg.p2))
+            else:
+                segments.append(Line(seg.p1, seg.p2))
+
+        return IndexedPolyCurve(segments)
+
+    @property
+    def segments(self) -> list[LineSegment | ArcSegment]:
+        return self._segments
+
+    @property
+    def start_vector(self):
+        seg0 = self._segments[0]
+        if isinstance(seg0, ArcSegment):
+            return seg0.s_normal
+        else:
+            return seg0.direction
+
+    @property
+    def orientation(self) -> Placement:
+        return self._orientation
+
+    @property
+    def radiis(self) -> dict[int, float]:
+        return self._radiis
+
+    @property
+    def points3d(self) -> list[Point[float, float, float]]:
+        return self._points3d
 
 
 class LineSegment:

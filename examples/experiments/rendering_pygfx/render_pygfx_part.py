@@ -81,7 +81,35 @@ def main():
     po = [Point(1, 1, 3) + x for x in [(0, 0.5, 0), (1, 0.5, 0), (1.2, 0.7, 0.2), (1.5, 0.7, 0.2)]]
     pipe1 = ada.Pipe("pipe1", po, "PIPE200x5", color="green")
 
-    objects += [bm1, bm2, bm3, box1, bm4, bm5, bm6, cyl1, cone1, sphere1, rev, bm7_taper, pl1, pl2, pl3, pl4, pipe1]
+    curve3d = [
+        (0, 0, 0),
+        (0.5, 0.5, 0.5, 0.05),
+        (0.5, 1, 0.5),
+        (1, 1, 0.5),
+    ]
+    profile2d = [(0, 0), (0.2, 0), (0.2, 0.2), (0, 0.2)]
+    sweep = ada.PrimSweep("sweep1", curve3d, profile2d, color="red")
+
+    objects += [
+        bm1,
+        bm2,
+        bm3,
+        box1,
+        bm4,
+        bm5,
+        bm6,
+        cyl1,
+        cone1,
+        sphere1,
+        rev,
+        bm7_taper,
+        pl1,
+        pl2,
+        pl3,
+        pl4,
+        pipe1,
+        sweep,
+    ]
 
     a = ada.Assembly() / (ada.Part("MyBeam") / objects)
     # a.to_stp("temp/part.stp", geom_repr_override=render_override)

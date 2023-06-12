@@ -34,13 +34,7 @@ def test_export_primitives(shape_ifc_test_dir):
 def test_sweep_shape(shape_ifc_test_dir):
     sweep_curve = [(0, 0, 0), (5, 5.0, 0.0, 1), (10, 0, 0)]
     ot = [(-0.1, -0.1), (0.1, -0.1), (0.1, 0.1), (-0.1, 0.1)]
-    shape = ada.PrimSweep("MyShape", sweep_curve, (0, 1, 0), (1, 0, 0), ot)
+    shape = ada.PrimSweep("MyShape", sweep_curve, ot)
 
     a = ada.Assembly("SweptShapes", units="m") / [ada.Part("MyPart") / [shape]]
     _ = a.to_ifc(shape_ifc_test_dir / "my_swept_shape_m.ifc", file_obj_only=True)
-
-    # my_renderer = x3dom_renderer.X3DomRenderer()
-    # my_renderer.DisplayShape(shape.profile_curve_outer.wire)
-    # my_renderer.DisplayShape(shape.sweep_curve.wire)
-    # my_renderer.DisplayShape(shape.geom)
-    # my_renderer.render()

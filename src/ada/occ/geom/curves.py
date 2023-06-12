@@ -4,6 +4,7 @@ from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Pnt
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire
 
 import ada.geom.curves as geo_cu
+from ada.geom import curves as geo_cu
 from ada.geom.surfaces import PolyLoop
 from ada.occ.utils import point3d
 
@@ -53,3 +54,12 @@ def make_wire_from_circle(circle: geo_cu.Circle) -> TopoDS_Wire:
     wire.Add(circle_edge)
     wire.Build()
     return wire.Wire()
+
+
+def make_wire_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
+    if isinstance(outer_curve, geo_cu.IndexedPolyCurve):
+        return make_wire_from_indexed_poly_curve_geom(outer_curve)
+    elif isinstance(outer_curve, geo_cu.Circle):
+        return make_wire_from_circle(outer_curve)
+    else:
+        raise NotImplementedError("Only IndexedPolyCurve is implemented")

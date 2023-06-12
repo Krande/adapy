@@ -18,6 +18,7 @@ def test_bbox_viz():
         bm = Beam("bm_" + sec + "_XYZ", (ypos, ypos, 4), (ypos + 1, ypos + 1, 5), sec)
         blist += [Part(sec + "_XYZ") / [bm, PrimBox("Bbox_XYZ_" + sec, *bm.bbox().minmax, color="red", opacity=0.5)]]
         ypos += 1
+
     a = Assembly() / blist
     _ = a.to_ifc(test_dir / "beam_bounding_box.ifc", file_obj_only=True)
 

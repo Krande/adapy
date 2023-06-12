@@ -288,22 +288,6 @@ def create_ifcrevolveareasolid(f, profile, ifcaxis2placement, origin, revolve_ax
     return f.create_entity("IfcRevolvedAreaSolid", profile, ifcaxis2placement, ifcaxis1dir, revolve_angle)
 
 
-def create_IfcFixedReferenceSweptAreaSolid(f, curve, profile, ifcaxis2placement, start_param, end_param, fixed_ref):
-    """
-
-    :param f:
-    :param profile:
-    :param ifcaxis2placement:
-    :param curve:
-    :param start_param:
-    :param end_param:
-    :param fixed_ref:
-    :return:
-    """
-    return f.create_entity(
-        "IfcFixedReferenceSweptAreaSolid", profile, ifcaxis2placement, curve, start_param, end_param, fixed_ref
-    )
-
 
 def create_ifcextrudedareasolid(ifc_file, profile, ifcaxis2placement, extrude_dir, extrusion):
     """

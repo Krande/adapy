@@ -921,7 +921,7 @@ def line_segments3d_from_points3d(points: list[Point | Iterable]) -> list[LineSe
 
 
 def segments3d_from_points3d(
-    points: list[Point | Iterable], radius=None, angle_tol=1e-1, len_tol=1e-3
+    points: list[Point | Iterable], radius=None, radius_dict=None, angle_tol=1e-1, len_tol=1e-3
 ) -> list[LineSegment | ArcSegment]:
     from ada.api.curves import ArcSegment, LineSegment
 
@@ -954,8 +954,15 @@ def segments3d_from_points3d(
             arc_start = seg1.p1
             arc_intersection = seg1.p2
 
+        if isinstance(radius_dict, dict):
+            r = radius_dict.get(i+1, min(seg1.length, seg2.length) / 3)
+        elif isinstance(radius, (int, float)):
+            r = radius
+        else:
+            raise ValueError(f"Radius must be a float, int, or dict. Got {type(radius)}")
+
         try:
-            new_seg1, arc, new_seg2 = make_arc_segment(arc_start, arc_intersection, arc_end, radius)
+            new_seg1, arc, new_seg2 = make_arc_segment(arc_start, arc_intersection, arc_end, r)
         except (ValueError, VectorNormalizeError) as e:
             points = [arc_start.tolist(), arc_intersection.tolist(), arc_end.tolist()]
             logger.error(f"Arc build failed for points: {points}. Error: {e}")

@@ -8,7 +8,7 @@ from ada.geom.surfaces import FaceBasedSurfaceModel, PolyLoop
 from ada.occ.geom.curves import (
     make_wire_from_circle,
     make_wire_from_indexed_poly_curve_geom,
-    make_wire_from_poly_loop,
+    make_wire_from_poly_loop, make_wire_from_curve,
 )
 from ada.occ.utils import transform_shape_to_pos
 
@@ -64,15 +64,6 @@ def make_face_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
         return make_face_from_indexed_poly_curve_geom(outer_curve)
     elif isinstance(outer_curve, geo_cu.Circle):
         return make_face_from_circle(outer_curve)
-    else:
-        raise NotImplementedError("Only IndexedPolyCurve is implemented")
-
-
-def make_wire_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
-    if isinstance(outer_curve, geo_cu.IndexedPolyCurve):
-        return make_wire_from_indexed_poly_curve_geom(outer_curve)
-    elif isinstance(outer_curve, geo_cu.Circle):
-        return make_wire_from_circle(outer_curve)
     else:
         raise NotImplementedError("Only IndexedPolyCurve is implemented")
 

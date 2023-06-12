@@ -1,7 +1,7 @@
 import math
 
 import OCC.Core.BRepPrimAPI as occBrep
-from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections, BRepOffsetAPI_MakePipe
 from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Dir, gp_Pnt, gp_Vec
 from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Solid
 from OCC.Extend.TopologyUtils import TopologyExplorer
@@ -10,6 +10,7 @@ import ada.geom.solids as geo_so
 from ada.geom.placement import Direction
 from ada.geom.points import Point
 from ada.occ.geom.surfaces import make_profile_from_geom
+from ada.occ.geom.curves import make_wire_from_curve
 from ada.occ.utils import transform_shape_to_pos
 
 
@@ -85,10 +86,19 @@ def make_extruded_area_shape_from_geom(eas: geo_so.ExtrudedAreaSolid) -> TopoDS_
 def make_revolved_area_shape_from_geom(ras: geo_so.RevolvedAreaSolid) -> TopoDS_Shape | TopoDS_Solid:
     profile = make_profile_from_geom(ras.swept_area)
 
-    # Transform to correct position before returning
+    # Transform 2d profile to position before revolving the shape
     profile = transform_shape_to_pos(profile, ras.position.location, ras.position.axis, ras.position.ref_direction)
 
     rev_axis = gp_Ax1(gp_Pnt(*ras.axis.location), gp_Dir(*ras.axis.axis))
     ras_shape = occBrep.BRepPrimAPI_MakeRevol(profile, rev_axis, math.radians(ras.angle)).Shape()
 
     return ras_shape
+
+
+def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSweptAreaSolid) -> TopoDS_Solid:
+    profile = make_profile_from_geom(frs.swept_area)
+    spine = make_wire_from_curve(frs.directrix)
+    pipe_builder = BRepOffsetAPI_MakePipe(spine, profile)
+    swept_solid = pipe_builder.Shape()
+
+    return transform_shape_to_pos(swept_solid, frs.position.location, frs.position.axis, frs.position.ref_direction)
