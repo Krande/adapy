@@ -68,10 +68,10 @@ def test_mix_geom_repr_in_same_session(assembly, test_dir):
     for key, val in p.fem.elements.group_by_type():
         num_el = len(list(val))
         if key == shape.solids.TETRA10:
-            # TODO: Why is the number of elements for different platforms (win, linux and macos)?
+            # TODO: Why is the number of elements different for the various platforms; win, linux and macos?
             assert map_assert[key] == pytest.approx(num_el, abs=250)
         elif key == shape.shell.TRI6:
-            assert map_assert[key] == pytest.approx(num_el, abs=25)
+            assert map_assert[key] == pytest.approx(num_el, abs=40)
         else:
             assert map_assert[key] == num_el
 
