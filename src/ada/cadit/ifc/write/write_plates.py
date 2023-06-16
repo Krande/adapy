@@ -18,16 +18,12 @@ def write_ifc_plate(plate: Plate):
     ifc_store = a.ifc_store
     owner_history = ifc_store.owner_history
     f = ifc_store.f
-    parent = f.by_guid(plate.parent.guid)
 
-    ori = plate.poly.orientation.to_axis2placement3d()
+    ori = plate.placement.to_axis2placement3d()
     axis2placement = ifc_placement_from_axis3d(ori, f)
-    plate_placement = f.create_entity(
-        "IfcLocalPlacement", PlacementRelTo=parent.ObjectPlacement, RelativePlacement=axis2placement
-    )
-    representations = []
 
-    # Todo: Begin implementing IFC plate from neutral geom definition
+    plate_placement = f.create_entity("IfcLocalPlacement", PlacementRelTo=None, RelativePlacement=axis2placement)
+    representations = []
 
     solid = extruded_area_solid(plate.solid_geom().geometry, f)
     body = f.createIfcShapeRepresentation(ifc_store.get_context("Body"), "Body", "SolidModel", [solid])

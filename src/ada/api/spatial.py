@@ -72,7 +72,7 @@ class Part(BackendGeom):
         self,
         name,
         color=None,
-        placement=Placement(),
+        placement=None,
         fem: FEM = None,
         settings: Settings = Settings(),
         metadata=None,
@@ -82,7 +82,9 @@ class Part(BackendGeom):
         ifc_store: IfcStore = None,
         ifc_class: SpatialTypes = SpatialTypes.IfcBuildingStorey,
     ):
-        super().__init__(name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_store=ifc_store)
+        super().__init__(
+            name, guid=guid, metadata=metadata, units=units, parent=parent, ifc_store=ifc_store, placement=placement
+        )
         self._nodes = Nodes(parent=self)
         self._beams = Beams(parent=self)
         self._plates = Plates(parent=self)
@@ -92,7 +94,7 @@ class Part(BackendGeom):
         self._materials = Materials(parent=self)
         self._sections = Sections(parent=self)
         self._colour = color
-        self._placement = placement
+
         self._instances: dict[Any, Instance] = dict()
         self._shapes = []
         self._welds = []
@@ -739,7 +741,7 @@ class Part(BackendGeom):
             fem = gs.get_fem()
 
         for mass_shape in masses:
-            cog_absolute = mass_shape.placement.absolute_placement() + mass_shape.cog
+            cog_absolute = mass_shape.placement.absolute_placement().origin + mass_shape.cog
             n = fem.nodes.add(Node(cog_absolute))
             fem.add_mass(Mass(f"{mass_shape.name}_mass", [n], mass_shape.mass))
 

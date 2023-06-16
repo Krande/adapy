@@ -4,7 +4,7 @@ import ifcopenshell
 
 from ada.geom import surfaces as geo_su
 from ada.geom import curves as geo_cu
-from .curves import indexed_poly_curve
+from .curves import indexed_poly_curve, circle_curve
 
 
 def arbitrary_profile_def(
@@ -13,6 +13,8 @@ def arbitrary_profile_def(
     """Converts an ArbitraryProfileDefWithVoids to an IFC representation"""
     if isinstance(apd.outer_curve, geo_cu.IndexedPolyCurve):
         outer_curve = indexed_poly_curve(apd.outer_curve, f)
+    elif isinstance(apd.outer_curve, geo_cu.Circle):
+        outer_curve = circle_curve(apd.outer_curve, f)
     else:
         raise NotImplementedError(f"Unsupported outer curve type: {type(apd.outer_curve)}")
 

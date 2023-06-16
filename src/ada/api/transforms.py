@@ -118,14 +118,23 @@ class Placement:
         # q1 = pq.Quaternion(matrix=np.asarray([xdir, ydir, n])).inverse
         # return Placement.from_quaternion(q1, origin)
 
-    def absolute_placement(self):
-        current_location = np.array([0, 0, 0], dtype=float)
-        ancestry = self.parent.get_ancestors()
-        ancestry.reverse()
+    def absolute_placement(self, include_rotations=False) -> Placement:
+        if self.parent is None:
+            return self
+
+        current_location = self.origin.copy()
+        q = pq.Quaternion(matrix=self.rot_matrix)
+        ancestry = self.parent.get_ancestors(include_self=False)
+
         for ancestor in ancestry:
             current_location += ancestor.placement.origin
-            # TODO: Add support for combining rotations as well
-        return current_location
+            q *= pq.Quaternion(matrix=ancestor.placement.rot_matrix)
+
+        if include_rotations:
+            m = q.transformation_matrix
+            return Placement(origin=current_location, xdir=m[0, :3], ydir=m[1, :3], zdir=m[2, :3])
+
+        return Placement(origin=current_location, xdir=self.xdir, ydir=self.ydir, zdir=self.zdir)
 
     def rotate(self, axis: list[float], angle: float) -> Placement:
         """Rotate the placement around an axis. Returns a new placement."""
@@ -178,7 +187,11 @@ class Placement:
 
         return points2d[:, :2]
 
-    def to_axis2placement3d(self):
+    def to_axis2placement3d(self, use_absolute_placement=True):
+        if use_absolute_placement:
+            abs_place = self.absolute_placement()
+            return Axis2Placement3D(location=abs_place.origin, axis=abs_place.zdir, ref_direction=abs_place.xdir)
+
         return Axis2Placement3D(
             location=self.origin,
             axis=Direction(self.zdir).get_normalized(),

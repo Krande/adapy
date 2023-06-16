@@ -37,15 +37,16 @@ class BackendGeom(Root):
         units=Units.M,
         parent=None,
         color: Color | Iterable[float, float, float] | str | None = None,
-        placement=Placement(),
+        placement=None,
         ifc_store: IfcStore = None,
         opacity=1.0,
     ):
         super().__init__(name, guid, metadata, units, parent, ifc_store=ifc_store)
         self._booleans = []
 
-        self._placement = placement
-        placement.parent = self
+        self._placement = placement if placement is not None else Placement()
+        self._placement.parent = self
+
         if isinstance(color, str):
             color = Color.from_str(color, opacity=opacity)
         elif isinstance(color, Iterable):

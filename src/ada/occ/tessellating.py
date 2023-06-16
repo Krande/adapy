@@ -15,6 +15,7 @@ from ada.base.types import GeomRepr
 from ada.geom import Geometry
 from ada.occ.exceptions import UnableToCreateTesselationFromSolidOCCGeom
 from ada.occ.geom import geom_to_occ_geom
+from ada.occ.utils import transform_shape_to_pos
 from ada.visit.colors import Color
 from ada.visit.gltf.meshes import MeshStore, MeshType
 
@@ -120,8 +121,18 @@ class BatchTessellator:
             geom_id,
         )
 
-    def tessellate_geom(self, geom: Geometry) -> MeshStore:
+    def tessellate_geom(self, geom: Geometry, obj: BackendGeom) -> MeshStore:
+        from OCC.Core.gp import gp_Trsf, gp_Vec
+        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
+
         occ_geom = geom_to_occ_geom(geom)
+        if obj is not None and obj.parent is not None and obj.parent.placement is not None:
+            position = obj.parent.placement.to_axis2placement3d(use_absolute_placement=True)
+
+            trsf = gp_Trsf()
+            trsf.SetTranslation(gp_Vec(*position.location))
+            occ_geom = BRepBuilderAPI_Transform(occ_geom, trsf, True).Shape()
+            # occ_geom = transform_shape_to_pos(occ_geom, position.location, position.axis, position.ref_direction)
         return self.tessellate_occ_geom(occ_geom, geom.id, geom.color)
 
     def batch_tessellate(
@@ -132,6 +143,7 @@ class BatchTessellator:
 
         for obj in objects:
             if isinstance(obj, BackendGeom):
+                ada_obj = obj
                 geom_repr = render_override.get(obj.guid, GeomRepr.SOLID)
                 if geom_repr == GeomRepr.SOLID:
                     geom = obj.solid_geom()
@@ -141,8 +153,11 @@ class BatchTessellator:
                     geom = obj.line_geom()
             else:
                 geom = obj
+                ada_obj = None
 
-            yield self.tessellate_geom(geom)
+            # resolve transform based on parent transforms
+
+            yield self.tessellate_geom(geom, ada_obj)
 
     def get_mat_by_id(self, mat_id: int):
         _data = {value: key for key, value in self.material_store.items()}

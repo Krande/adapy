@@ -103,8 +103,8 @@ class Root:
         logger.info("No Assembly found in ancestry. Returning self")
         return self
 
-    def get_ancestors(self) -> List[Union[Part, Assembly]]:
-        ancestry = [self]
+    def get_ancestors(self, include_self=True) -> list[Part | Assembly]:
+        ancestry = [self] if include_self else []
         current = self
         while current.parent is not None:
             ancestry.append(current.parent)
