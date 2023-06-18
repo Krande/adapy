@@ -40,6 +40,7 @@ class ArbitraryProfileDef(ProfileDef):
 
     outer_curve: geo_cu.CURVE_GEOM_TYPES
     inner_curves: list[geo_cu.CURVE_GEOM_TYPES] = field(default_factory=list)
+    profile_name: str = None
 
     def __post_init__(self):
         # Check consistency of dimensions

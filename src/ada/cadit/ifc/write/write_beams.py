@@ -173,23 +173,12 @@ def extrude_straight_beam(beam: Beam, f: ifile, profile):
     global_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
 
     # Using geom core
-    solid = extruded_area_solid(beam.solid_geom().geometry, f)
+    solid = extruded_area_solid(beam.solid_geom().geometry, f, profile)
     body = f.createIfcShapeRepresentation(body_context, "Body", "SolidModel", [solid])
     loc_plac = create_local_placement(f, relative_to=global_placement)
 
-    e1 = (0.0, 0.0, 0.0)
-    if Settings.model_export.include_ecc and beam.e1 is not None:
-        e1 = beam.e1
-
-    # Transform coordinates to local coords
-    p1 = tuple([float(x) + float(e1[i]) for i, x in enumerate(beam.n1.p.copy())])
-    p2 = p1 + np.array([0, 0, 1]) * beam.length
-
-    p1_ifc = f.create_entity("IfcCartesianPoint", to_real(p1))
-    p2_ifc = f.create_entity("IfcCartesianPoint", to_real(p2))
-
     axis_context = a.ifc_store.get_context("Axis")
-    ifc_polyline = f.create_entity("IfcPolyLine", [p1_ifc, p2_ifc])
+    ifc_polyline = f.create_entity("IfcPolyLine", [ifc_p(f, beam.n1.p), ifc_p(f, beam.n2.p)])
     axis = f.create_entity("IfcShapeRepresentation", axis_context, "Axis", "Curve3D", [ifc_polyline])
 
     # Add colour
