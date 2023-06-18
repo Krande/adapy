@@ -50,28 +50,40 @@ class ArbitraryProfileDef(ProfileDef):
                     raise ValueError("Invalid segment in outer_curve")
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcPolyLoop.htm)
 @dataclass
 class PolyLoop:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcPolyLoop.htm)
+    """
+
     polygon: list[Point]
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcFaceBound.htm)
 @dataclass
 class FaceBound:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcFaceBound.htm)
+    """
+
     bound: PolyLoop
     orientation: bool
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcConnectedFaceSet.htm)
 @dataclass
 class ConnectedFaceSet:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcConnectedFaceSet.htm)
+    """
+
     cfs_faces: list[FaceBound]
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcFaceBasedSurfaceModel.htm)
 @dataclass
 class FaceBasedSurfaceModel:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcFaceBasedSurfaceModel.htm)
+    """
+
     fbsm_faces: list[ConnectedFaceSet]
 
 
@@ -82,15 +94,50 @@ class CurveBoundedPlane:
     inner_boundaries: list[geo_cu.CURVE_GEOM_TYPES] = field(default_factory=list)
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcSurfaceOfLinearExtrusion.htm)
-
-
 @dataclass
 class SurfaceOfLinearExtrusion:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcSurfaceOfLinearExtrusion.htm)
+    """
+
     swept_curve: geo_cu.CURVE_GEOM_TYPES
     position: Axis2Placement3D
     extrusion_direction: Direction
     depth: float
 
 
-SURFACE_GEOM_TYPES = Union[ArbitraryProfileDef, FaceBasedSurfaceModel, CurveBoundedPlane]
+@dataclass
+class IShapeProfileDef(ProfileDef):
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcIShapeProfileDef.htm)
+    """
+
+    overall_width: float
+    overall_depth: float
+    web_thickness: float
+    flange_thickness: float
+    fillet_radius: float
+    flange_edge_radius: float
+    flange_slope: float
+
+
+@dataclass
+class TShapeProfileDef(ProfileDef):
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcTShapeProfileDef.htm)
+    """
+
+    depth: float
+    flange_width: float
+    web_thickness: float
+    flange_thickness: float
+    fillet_radius: float
+    flange_edge_radius: float
+    web_edge_radius: float
+    web_slope: float
+    flange_slope: float
+
+
+SURFACE_GEOM_TYPES = Union[
+    ArbitraryProfileDef, FaceBasedSurfaceModel, CurveBoundedPlane, IShapeProfileDef, TShapeProfileDef
+]

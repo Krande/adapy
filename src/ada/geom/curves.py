@@ -11,7 +11,7 @@ from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
 
 CURVE_GEOM_TYPES = Union[
-    "Line", "ArcLine", "Circle", "Ellipse", "BSplineCurveWithKnots", "IndexedPolyCurve", "GeometricCurveSet"
+    "Line", "ArcLine", "Circle", "Ellipse", "BSplineCurveWithKnots", "IndexedPolyCurve", "PolyLine", "GeometricCurveSet"
 ]
 
 
@@ -90,7 +90,6 @@ class Circle:
     radius: float
 
 
-# STEP AP242
 @dataclass
 class Ellipse:
     """
@@ -103,9 +102,12 @@ class Ellipse:
     semi_axis2: float
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBSplineCurveForm.htm)
-# STEP (https://www.steptools.com/stds/stp_aim/html/t_b_spline_curve_form.html)
 class BSplineCurveFormEnum(Enum):
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBSplineCurveForm.htm)
+    STEP (https://www.steptools.com/stds/stp_aim/html/t_b_spline_curve_form.html)
+    """
+
     POLYLINE_FORM = "POLYLINE_FORM"
     CIRCULAR_ARC = "CIRCULAR_ARC"
     ELLIPTIC_ARC = "ELLIPTIC_ARC"
@@ -114,9 +116,12 @@ class BSplineCurveFormEnum(Enum):
     UNSPECIFIED = "UNSPECIFIED"
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcKnotType.htm)
-# STEP (https://www.steptools.com/stds/stp_aim/html/t_knot_type.html)
 class BsplineKnotSpecEnum(Enum):
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcKnotType.htm)
+    STEP (https://www.steptools.com/stds/stp_aim/html/t_knot_type.html)
+    """
+
     UNSPECIFIED = "UNSPECIFIED"
     PIECEWISE_BEZIER = "PIECEWISE_BEZIER"
     UNIFORM_KNOTS = "UNIFORM_KNOTS"
@@ -124,10 +129,13 @@ class BsplineKnotSpecEnum(Enum):
     PIECEWISE_CUBIC = "PIECEWISE_CUBIC"
 
 
-# IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBSplineCurveWithKnots.htm)
-# STEP (https://www.steptools.com/stds/stp_aim/html/t_b_spline_curve_with_knots.html)
 @dataclass
 class BSplineCurveWithKnots:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBSplineCurveWithKnots.htm)
+    STEP (https://www.steptools.com/stds/stp_aim/html/t_b_spline_curve_with_knots.html)
+    """
+
     degree: int
     control_points_list: list[Point] | list[tuple]
     curve_form: BSplineCurveFormEnum
@@ -136,6 +144,11 @@ class BSplineCurveWithKnots:
     knot_multiplicities: list[int]
     knots: list[float]
     knot_spec: BsplineKnotSpecEnum
+
+
+@dataclass
+class PolyLine:
+    points: list[Point]
 
 
 @dataclass

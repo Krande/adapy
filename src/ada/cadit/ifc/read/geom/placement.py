@@ -11,8 +11,10 @@ def ifc_point(ifc_entity) -> Point:
 
 
 def axis3d(ifc_entity) -> Axis2Placement3D:
+    ref_dir = ifc_direction(ifc_entity.RefDirection) if ifc_entity.RefDirection is not None else Direction(1, 0, 0)
+    axis = ifc_direction(ifc_entity.Axis) if ifc_entity.Axis is not None else Direction(0, 0, 1)
     return Axis2Placement3D(
         location=ifc_point(ifc_entity.Location),
-        axis=ifc_direction(ifc_entity.Axis),
-        ref_direction=ifc_direction(ifc_entity.RefDirection),
+        axis=axis,
+        ref_direction=ref_dir,
     )

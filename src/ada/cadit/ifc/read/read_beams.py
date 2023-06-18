@@ -9,6 +9,8 @@ from ada.api.beams import BeamRevolve
 from ada.api.curves import CurveRevolve
 from ada.config import logger
 from ada.core.vector_utils import calc_yvec, vector_length
+from .geom.geom_reader import get_product_definitions
+from .geom.solids import extruded_solid_area
 
 from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
@@ -70,25 +72,20 @@ def get_beam_geom(ifc_elem, ifc_settings):
 
 
 def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) -> Beam:
-    p1_loc = axis.Points[0].Coordinates
-    p2_loc = axis.Points[1].Coordinates
+    bodies = list(get_product_definitions(ifc_elem))
+    if len(bodies) != 1:
+        raise ValueError("Number of body objects attached to element is not 1")
+    body = bodies[0]
 
-    ifc_axis_2_place3d = ifc_elem.ObjectPlacement.RelativePlacement
-    origin = ifc_axis_2_place3d.Location.Coordinates
+    origin = body.position.location
 
-    local_z = np.array(ifc_axis_2_place3d.Axis.DirectionRatios)
-    local_x = np.array(ifc_axis_2_place3d.RefDirection.DirectionRatios)
-    local_y = calc_yvec(local_x, local_z)
+    local_y = calc_yvec(body.position.ref_direction, body.position.axis)
 
-    # res = transform3d([local_x, local_y, local_z], [X, Y], origin, [p1_loc, p2_loc])
-    vlen = vector_length(np.array(p2_loc) - np.array(p1_loc))
-
-    p1 = origin
-    p2 = np.array(p1) + local_z * vlen
+    p2 = origin + body.position.axis * body.depth
 
     return Beam(
         name,
-        p1,
+        origin,
         p2,
         sec=sec,
         mat=mat,
