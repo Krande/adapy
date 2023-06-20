@@ -236,7 +236,7 @@ def create_swept_beam(beam: BeamSweep, f, profile):
 
     extrude_dir = ifc_dir(f, (0.0, 0.0, 1.0))
 
-    placement = create_local_placement(f, (0, 0, 0), (0, 0, 1))
+    placement = create_local_placement(f)
     place = create_ifc_placement(f, beam.n1.p, beam.curve.normal)
     extrude_area_solid = f.create_entity(
         "IfcFixedReferenceSweptAreaSolid", profile, place, ifc_polyline, FixedReference=extrude_dir
@@ -256,3 +256,7 @@ def sweep_beam(beam, f, profile, global_placement, extrude_dir):
     )
     loc_plac = create_ifc_placement(f)
     return extrude_area_solid, loc_plac, ifc_polyline
+
+
+def update_ifc_beam(ifc_store: IfcStore, beam: Beam):
+    ...

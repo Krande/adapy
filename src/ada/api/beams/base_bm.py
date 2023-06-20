@@ -12,6 +12,7 @@ from ada.api.bounding_box import BoundingBox
 from ada.api.transforms import Placement
 from ada.api.curves import CurveRevolve, CurveOpen2d
 from ada.api.nodes import Node, get_singular_node_by_volume
+from ada.base.changes import ChangeAction
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.config import logger

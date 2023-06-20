@@ -118,6 +118,10 @@ class Placement:
         # q1 = pq.Quaternion(matrix=np.asarray([xdir, ydir, n])).inverse
         # return Placement.from_quaternion(q1, origin)
 
+    @staticmethod
+    def from_axis3d(axis: Axis2Placement3D) -> Placement:
+        return Placement(origin=axis.location, xdir=axis.ref_direction, zdir=axis.axis)
+
     def absolute_placement(self, include_rotations=False) -> Placement:
         if self.parent is None:
             return self
@@ -152,6 +156,14 @@ class Placement:
         t = np.array([[self.origin[0]], [self.origin[1]], [self.origin[2]]])
         Rt = np.hstack([self.rot_matrix, t])
         return np.vstack([Rt, np.array([0.0, 0.0, 0.0, 1.0])])
+
+    def transform_vector(self, vec: Iterable[float | int], inverse=False) -> np.ndarray:
+        """Transform a vector from the coordinate system of this placement to the global coordinate system."""
+        if not isinstance(vec, np.ndarray):
+            vec = np.array(vec)
+
+        vec3d = transform_3x3(self.rot_matrix, np.array([vec]), inverse=inverse)
+        return vec3d[0]
 
     def transform_local_points_to_global(
         self, points2d: Iterable[Iterable[float | int, float | int]], inverse=False

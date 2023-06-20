@@ -10,13 +10,13 @@ def indexed_poly_curve(ipc: geo_cu.IndexedPolyCurve, f: ifcopenshell.file) -> if
     """Converts an IndexedPolyCurve to an IFC representation"""
     unique_pts, segment_indices = ipc.get_points_and_segment_indices()
 
-    utuples = unique_pts.tolist()
-    if len(utuples[0]) == 2:
+    points = unique_pts.tolist()
+    if len(points[0]) == 2:
         list_type = "IfcCartesianPointList2D"
     else:
         list_type = "IfcCartesianPointList3D"
 
-    ifc_point_list = f.create_entity(list_type, utuples)
+    ifc_point_list = f.create_entity(list_type, points)
     s = [
         f.create_entity("IfcArcIndex", i) if len(i) == 3 else f.create_entity("IfcLineIndex", i)
         for i in segment_indices

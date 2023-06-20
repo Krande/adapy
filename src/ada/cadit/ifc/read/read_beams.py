@@ -4,12 +4,14 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada import Beam
+from ada import Beam, Placement
 from ada.api.beams import BeamRevolve
 from ada.api.curves import CurveRevolve
 from ada.config import logger
-from ada.core.vector_utils import calc_yvec, vector_length
+from ada.core.vector_transforms import transform_3x3
+from ada.core.vector_utils import calc_yvec, vector_length, unit_vector
 from .geom.geom_reader import get_product_definitions
+from .geom.placement import axis3d
 from .geom.solids import extruded_solid_area
 
 from .read_beam_section import import_section_from_ifc
@@ -77,11 +79,14 @@ def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
         raise ValueError("Number of body objects attached to element is not 1")
     body = bodies[0]
 
-    origin = body.position.location
+    rel_place = Placement.from_axis3d(axis3d(ifc_elem.ObjectPlacement.RelativePlacement))
 
-    local_y = calc_yvec(body.position.ref_direction, body.position.axis)
+    extrude_dir = unit_vector(rel_place.transform_vector(body.position.axis, inverse=True))
+    ref_dir = unit_vector(rel_place.transform_vector(body.position.ref_direction))
 
-    p2 = origin + body.position.axis * body.depth
+    origin = rel_place.origin
+    local_y = calc_yvec(ref_dir, extrude_dir)
+    p2 = origin + extrude_dir * body.depth
 
     return Beam(
         name,

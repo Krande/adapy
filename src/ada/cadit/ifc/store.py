@@ -10,6 +10,7 @@ import ifcopenshell.geom
 
 from ada.base.changes import ChangeAction
 from ada.base.types import GeomRepr
+from ada.cadit.ifc.units_conversion import convert_units
 from ada.cadit.ifc.utils import assembly_to_ifc_file, default_settings, get_unit_type
 from ada.cadit.ifc.write.write_sections import get_profile_class
 from ada.cadit.ifc.write.write_user import create_owner_history_from_user
@@ -166,12 +167,10 @@ class IfcStore:
 
         self.reader = IfcReader(self)
 
-        target_units = None
         unit_type = get_unit_type(self.f)
 
         if unit_type != self.assembly.units:
-            target_units = self.assembly.units
-            self.assembly.units = unit_type
+            self.f = convert_units(self.assembly.units, self.f)
 
         if elements2part is None:
             self.reader.load_spatial_hierarchy()
@@ -181,9 +180,6 @@ class IfcStore:
 
         # Load physical elements
         self.reader.load_objects(data_only=data_only, elements2part=elements2part)
-
-        if target_units is not None:
-            self.assembly.units = target_units
 
         self.reader.load_presentation_layers()
 
@@ -200,6 +196,8 @@ class IfcStore:
 
         for obj in self.assembly.get_all_parts_in_assembly(include_self=True):
             obj.change_type = ChangeAction.NOCHANGE
+
+
 
         print(f'Import of IFC file "{ifc_file_name}" is complete')
 

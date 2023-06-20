@@ -9,7 +9,7 @@ import ifcopenshell.geom
 from ada.base.changes import ChangeAction
 from ada.cadit.ifc.read.reader_utils import get_ifc_body
 from ada.cadit.ifc.utils import add_negative_extrusion, create_guid, write_elem_property_sets
-from ada.cadit.ifc.write.write_beams import write_ifc_beam
+from ada.cadit.ifc.write.write_beams import write_ifc_beam, update_ifc_beam
 from ada.cadit.ifc.write.write_fasteners import write_ifc_fastener
 from ada.cadit.ifc.write.write_instances import write_mapped_instance
 from ada.cadit.ifc.write.write_material import write_ifc_mat
@@ -68,11 +68,11 @@ class IfcWriter:
                 lambda x: x.RelatingMaterial.is_a("IfcMaterial"), self.ifc_store.f.by_type("IfcRelAssociatesMaterial")
             )
         }
-
-        num_new_objects = len(list(a.get_all_physical_objects()))
+        new_objects = list(filter(is_added, list(a.get_all_physical_objects())))
+        num_new_objects = len(new_objects)
         contained_in_spatial = {x.guid: [] for x in a.get_all_parts_in_assembly(include_self=True)}
 
-        for i, to_be_added in enumerate(filter(is_added, a.get_all_physical_objects()), start=1):
+        for i, to_be_added in enumerate(new_objects, start=1):
             self.eval_validity(to_be_added, mat_map, rel_mats_map)
 
             ifc_elem = self.add(to_be_added)
@@ -322,6 +322,22 @@ class IfcWriter:
 
         if isinstance(obj, Beam):
             return write_ifc_beam(self.ifc_store, obj)
+        elif isinstance(obj, Plate):
+            return write_ifc_plate(obj)
+        elif isinstance(obj, Pipe):
+            return write_ifc_pipe(obj)
+        elif issubclass(type(obj), Shape):
+            return write_ifc_shape(obj)
+        elif isinstance(obj, Wall):
+            return write_ifc_wall(obj)
+        else:
+            raise NotImplementedError(f"Object {obj} is not supported")
+
+    def update(self, obj: Beam | Plate | Pipe | Shape | Wall) -> ifcopenshell.entity_instance:
+        from ada import Beam, Pipe, Plate, Shape, Wall
+
+        if isinstance(obj, Beam):
+            return update_ifc_beam(self.ifc_store, obj)
         elif isinstance(obj, Plate):
             return write_ifc_plate(obj)
         elif isinstance(obj, Pipe):
