@@ -76,9 +76,9 @@ class Plate(BackendGeom):
         self._bbox = None
 
     @staticmethod
-    def from_3d_points(name, points, t, mat="S420", xdir=None, color=None, **kwargs):
+    def from_3d_points(name, points, t, mat="S420", xdir=None, color=None, metadata=None, **kwargs):
         poly = CurvePoly2d.from_3d_points(points, xdir=xdir, **kwargs)
-        return Plate(name, poly, t, mat=mat, color=color, **kwargs)
+        return Plate(name, poly, t, mat=mat, color=color, metadata=metadata, **kwargs)
 
     @staticmethod
     def from_extruded_area_solid(name, solid: ExtrudedAreaSolid):
