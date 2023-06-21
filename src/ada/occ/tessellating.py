@@ -133,6 +133,7 @@ class BatchTessellator:
             trsf.SetTranslation(gp_Vec(*position.location))
             occ_geom = BRepBuilderAPI_Transform(occ_geom, trsf, True).Shape()
             # occ_geom = transform_shape_to_pos(occ_geom, position.location, position.axis, position.ref_direction)
+
         return self.tessellate_occ_geom(occ_geom, geom.id, geom.color)
 
     def batch_tessellate(

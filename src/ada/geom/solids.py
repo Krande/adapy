@@ -55,7 +55,6 @@ class FixedReferenceSweptAreaSolid:
     directrix: CURVE_GEOM_TYPES
 
 
-
 @dataclass
 class Box:
     """
@@ -69,8 +68,8 @@ class Box:
 
     @staticmethod
     def from_xyz_and_dims(x, y, z, x_length: float, y_length: float, z_length: float, d1=None, d2=None) -> Box:
-        d1 = d1 if d1 is not None else Direction(1, 0, 0)
-        d2 = d2 if d2 is not None else Direction(0, 1, 0)
+        d1 = d1 if d1 is not None else Direction(0, 0, 1)
+        d2 = d2 if d2 is not None else Direction(1, 0, 0)
         axis3d = Axis2Placement3D(Point(x, y, z), d1, d2)
         return Box(axis3d, x_length, y_length, z_length)
 
@@ -85,7 +84,6 @@ class Box:
         return Box.from_xyz_and_dims(x, y, z, x_length, y_length, z_length)
 
 
-
 @dataclass
 class RectangularPyramid:
     """
@@ -96,7 +94,6 @@ class RectangularPyramid:
     x_length: float
     y_length: float
     z_length: float
-
 
 
 @dataclass
@@ -119,7 +116,6 @@ class Cone:
         return Cone(axis3d, r, height)
 
 
-
 @dataclass
 class Cylinder:
     """
@@ -140,7 +136,6 @@ class Cylinder:
         return Cylinder(axis3d, r, height)
 
 
-
 @dataclass
 class Sphere:
     """
@@ -151,4 +146,5 @@ class Sphere:
     radius: float
 
 
-SOLID_GEOM_TYPES = Union[ExtrudedAreaSolid, RevolvedAreaSolid, Box, RectangularPyramid, Cone, Cylinder, Sphere, FixedReferenceSweptAreaSolid]
+SOLID_GEOM_TYPES = Union[
+    ExtrudedAreaSolid, RevolvedAreaSolid, Box, RectangularPyramid, Cone, Cylinder, Sphere, FixedReferenceSweptAreaSolid]

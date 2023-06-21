@@ -19,6 +19,7 @@ def make_box_from_geom(box: geo_so.Box) -> TopoDS_Shape:
     axis2 = box.position.ref_direction
     vec1 = gp_Dir(0, 0, 1) if axis1 is None else gp_Dir(*axis1)
     vec2 = gp_Dir(0, 1, 0) if axis2 is None else gp_Dir(*axis2)
+
     box_maker = occBrep.BRepPrimAPI_MakeBox(
         gp_Ax2(
             gp_Pnt(*box.position.location),

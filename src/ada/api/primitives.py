@@ -201,6 +201,12 @@ class PrimBox(Shape):
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
         return Geometry(self.guid, box, self.color, bool_operations=booleans)
 
+    @staticmethod
+    def from_p_and_dims(name, p, length, width, height, **kwargs):
+        p1 = p
+        p2 = [p[0] + length, p[1] + width, p[2] + height]
+        return PrimBox(name, p1, p2, **kwargs)
+
     @property
     def units(self):
         return self._units
