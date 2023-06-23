@@ -30,11 +30,13 @@ jobs:
         run: bumpy pyproject --check-current --ga-version-output
         env:
           CONDA_URL: "https://api.anaconda.org/package/krande/ada-py"
-#          PYPI_URL: "https://pypi.org/pypi/ada-py/json"
+          PYPI_URL: "https://pypi.org/pypi/ada-py/json"
 
       - name: echo bump
         run: |
           echo ${{ steps.bump.outputs.version }}
+          echo "CONDA_BUMP ${{ steps.bump.outputs.conda_bump }}"
+          echo "PYPI_BUMP ${{ steps.bump.outputs.pypi_bump }}"
 
   test-core:
     name: Test ada-py-core
@@ -87,6 +89,7 @@ jobs:
 
   pypi:
     needs: [ test-core, test-full, bump ]
+    if: ${{ steps.bump.outputs.pypi_bump == 'TRUE' }}
     name: Publish to PYPI
     defaults:
       run:
@@ -111,7 +114,8 @@ jobs:
           password: ${{ secrets.PYPI_API_TOKEN }}
 
   conda_upload:
-    needs: [ test-core, test-full, bump, pypi ]
+    needs: [ test-core, test-full, bump ]
+    if: ${{ steps.bump.outputs.conda_bump == 'TRUE' }}
     name: Publish to CONDA
     defaults:
       run:
