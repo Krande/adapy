@@ -30,7 +30,7 @@ jobs:
         run: bumpy pyproject --check-current --ga-version-output
         env:
           CONDA_URL: "https://api.anaconda.org/package/krande/ada-py"
-          PYPI_URL: "https://pypi.org/pypi/ada-py/json"
+#          PYPI_URL: "https://pypi.org/pypi/ada-py/json"
 
       - name: echo bump
         run: |
@@ -46,9 +46,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         with:
-          cache-env: true
-          channels: conda-forge
-          channel-priority: strict
+          cache-environment: true
           environment-file: conda/environment.core.yml
           create-args: >-
             python=3.11
@@ -71,9 +69,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         with:
-          cache-env: true
-          channels: conda-forge
-          channel-priority: strict
+          cache-environment: true
           environment-file: conda/environment.core.yml
           create-args: >-
             python=3.11
@@ -127,11 +123,9 @@ jobs:
         build: [ { name: 'core' },{ name: 'full' } ]
     steps:
       - uses: actions/checkout@v3
-      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+      - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         with:
-          cache-env: true
-          channels: conda-forge
-          channel-priority: strict
+          cache-environment: true
           environment-file: conda/environment.build.yml
 
       - name: Build & Upload to CONDA Dev

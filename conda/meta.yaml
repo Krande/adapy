@@ -1,7 +1,6 @@
 {% set name = 'ada-py' %}
 {% set data = load_setup_py_data() %}
-{% set version_ = load_file_data('pyproject.toml')["project"]["version"] %}
-{% set version = environ.get("VERSION", version_) %}
+{% set version = load_file_data('pyproject.toml')["project"]["version"] %}
 
 {% set build = 0 %}
 {% set test_ignores = '' %}
