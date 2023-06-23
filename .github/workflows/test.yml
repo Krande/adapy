@@ -89,7 +89,7 @@ jobs:
 
   pypi:
     needs: [ test-core, test-full, bump ]
-    if: ${{ steps.bump.outputs.pypi_bump == 'TRUE' }}
+    if: ${{ needs.bump.outputs.pypi_bump == 'TRUE' }}
     name: Publish to PYPI
     defaults:
       run:
@@ -115,7 +115,7 @@ jobs:
 
   conda_upload:
     needs: [ test-core, test-full, bump ]
-    if: ${{ steps.bump.outputs.conda_bump == 'TRUE' }}
+    if: ${{ needs.bump.outputs.conda_bump == 'TRUE' }}
     name: Publish to CONDA
     defaults:
       run:
