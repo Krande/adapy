@@ -27,7 +27,7 @@ jobs:
 
       - name: Check if current pyproject version is safe for pushing to conda & pypi
         id: bump
-        run: bumpy --check-current --ga-version-output
+        run: bumpy pyproject --check-current --ga-version-output
         env:
           CONDA_URL: "https://api.anaconda.org/package/krande/ada-py"
           PYPI_URL: "https://pypi.org/pypi/ada-py/json"
