@@ -91,7 +91,6 @@ jobs:
 
   pypi:
     needs: [ test-core, test-full, bump ]
-    if: ${{ contains(github.event.head_commit.message, '[dev]') }}
     name: Publish to PYPI
     defaults:
       run:
@@ -102,11 +101,9 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.x'
-      - name: Install deps
-        run: pip install requests tomlkit semver build
 
-      - name: Bump version
-        run: python bump_version.py --bump-level=pre-release --skip-checks
+      - name: Install deps
+        run: pip install build
 
       - name: Build and upload package for pypi
         run: |
@@ -137,10 +134,6 @@ jobs:
           channels: conda-forge
           channel-priority: strict
           environment-file: conda/environment.build.yml
-
-      - name: Echo version
-        run: |
-          echo ${{ needs.bump.outputs.version }}
 
       - name: Build & Upload to CONDA Dev
         run: |
