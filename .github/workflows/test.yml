@@ -21,12 +21,16 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - name: Install deps
-        run: pip install requests tomlkit semver
 
-      - name: Bump version
+      - name: Install bumpyproject
+        run: pip install git+https://github.com/Krande/bumpyproject.git@fix/docker_fixes
+
+      - name: Check if current pyproject version is safe for pushing to conda & pypi
         id: bump
-        run: python bump_version.py --bump-ci-only
+        run: bumpy --check-current --ga-version-output
+        env:
+          CONDA_URL: "https://api.anaconda.org/package/krande/ada-py"
+          PYPI_URL: "https://pypi.org/pypi/ada-py/json"
 
       - name: echo bump
         run: |
@@ -40,13 +44,13 @@ jobs:
         shell: bash -l {0}
     steps:
       - uses: actions/checkout@v3
-      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+      - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         with:
           cache-env: true
           channels: conda-forge
           channel-priority: strict
           environment-file: conda/environment.core.yml
-          extra-specs: |
+          create-args: >-
             python=3.11
             pytest
 
@@ -65,13 +69,13 @@ jobs:
         shell: bash -l {0}
     steps:
       - uses: actions/checkout@v3
-      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+      - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         with:
           cache-env: true
           channels: conda-forge
           channel-priority: strict
           environment-file: conda/environment.core.yml
-          extra-specs: |
+          create-args: >-
             python=3.11
             pytest
             jupyterlab

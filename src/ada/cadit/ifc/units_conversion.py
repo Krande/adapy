@@ -1,9 +1,11 @@
 import ifcopenshell.api
 
-from ada import Units
+from ada.base.units import Units
 
 
 def convert_units(units: Units, file: ifcopenshell.file):
+    from ada import Units
+
     units_str = "MILLIMETERS" if units == Units.MM else "METERS"
     unit = {"is_metric": True, "raw": units_str}
     file_patched = ifcopenshell.api.run("project.create_file", version=file.schema)

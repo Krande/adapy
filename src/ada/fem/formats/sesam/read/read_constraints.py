@@ -1,8 +1,7 @@
 from itertools import groupby
 from typing import Dict, List, Union
 
-from ada import FEM
-from ada.fem import Bc, Constraint, FemSet
+from ada.fem import Bc, Constraint, FemSet, FEM
 from ada.fem.formats.utils import str_to_int
 
 from . import cards

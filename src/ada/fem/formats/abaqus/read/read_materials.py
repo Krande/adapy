@@ -1,7 +1,7 @@
 import re
 from typing import TYPE_CHECKING
 
-from ada import Material
+from ada.materials.concept import Material
 from ada.core.utils import roundoff
 from ada.materials.metals import CarbonSteel, PlasticityModel
 

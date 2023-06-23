@@ -84,18 +84,18 @@ jobs:
         ]
     steps:
       - uses: actions/checkout@v3
-      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+      - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         if: ${{ matrix.build.name == 'core' }}
         with:
           cache-env: true
           channels: conda-forge,krande
           channel-priority: strict
           environment-file: conda/environment.core.yml
-          extra-specs: |
+          create-args: >-
             python=${{ matrix.pyver.distver }}
             pytest
 
-      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+      - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         if: ${{ matrix.build.name == 'full' }}
         with:
           cache-env: true

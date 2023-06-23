@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import ifcopenshell
 import numpy as np
 
-from ada import Section
+from ada.sections.concept import Section
 from ada.config import Settings, logger
 from ada.sections.categories import SectionCat
 

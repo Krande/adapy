@@ -3,7 +3,7 @@ from __future__ import annotations
 from itertools import chain
 from typing import TYPE_CHECKING
 
-from ada import Material
+from ada.materials.concept import Material
 from ada.config import logger
 
 if TYPE_CHECKING:

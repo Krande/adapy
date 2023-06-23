@@ -22,7 +22,8 @@ from ada.api.primitives import (
     PrimSweep,
     Shape,
 )
-from ada.api.spatial import Assembly, Group, Part
+from ada.api.spatial import Part, Assembly
+from ada.api.groups import Group
 from ada.api.transforms import Instance, Placement, Transform
 from ada.api.user import User
 from ada.api.walls import Wall
