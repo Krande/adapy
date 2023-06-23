@@ -2,8 +2,9 @@ import ifcopenshell
 
 from ada.geom import solids as geo_so
 from ada.geom.placement import Axis2Placement3D
+
+from .placement import axis3d, ifc_direction
 from .surfaces import get_surface
-from .placement import axis3d, ifc_point, ifc_direction
 
 
 def extruded_solid_area(ifc_entity: ifcopenshell.entity_instance) -> geo_so.ExtrudedAreaSolid:

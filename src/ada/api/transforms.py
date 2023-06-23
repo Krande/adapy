@@ -9,7 +9,7 @@ import pyquaternion as pq
 
 from ada.core.vector_transforms import normal_to_points_in_plane, transform_3x3
 from ada.core.vector_utils import calc_xvec, calc_yvec, calc_zvec, unit_vector
-from ada.geom.placement import Direction, O, Axis2Placement3D
+from ada.geom.placement import Axis2Placement3D, Direction, O
 from ada.geom.points import Point
 
 if TYPE_CHECKING:
@@ -122,6 +122,7 @@ class Placement:
     def from_axis3d(axis: Axis2Placement3D) -> Placement:
         return Placement(origin=axis.location, xdir=axis.ref_direction, zdir=axis.axis)
 
+    @property
     def absolute_placement(self, include_rotations=False) -> Placement:
         if self.parent is None:
             return self
@@ -201,7 +202,7 @@ class Placement:
 
     def to_axis2placement3d(self, use_absolute_placement=True):
         if use_absolute_placement:
-            abs_place = self.absolute_placement()
+            abs_place = self.absolute_placement
             return Axis2Placement3D(location=abs_place.origin, axis=abs_place.zdir, ref_direction=abs_place.xdir)
 
         return Axis2Placement3D(

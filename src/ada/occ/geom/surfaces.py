@@ -7,8 +7,9 @@ from ada.geom import surfaces as geo_su
 from ada.geom.surfaces import FaceBasedSurfaceModel, PolyLoop
 from ada.occ.geom.curves import (
     make_wire_from_circle,
+    make_wire_from_curve,
     make_wire_from_indexed_poly_curve_geom,
-    make_wire_from_poly_loop, make_wire_from_curve,
+    make_wire_from_poly_loop,
 )
 from ada.occ.utils import transform_shape_to_pos
 

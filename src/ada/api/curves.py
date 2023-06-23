@@ -10,9 +10,9 @@ from ada.api.transforms import Placement
 from ada.core.curve_utils import (
     build_polycurve,
     calc_2darc_start_end_from_lines_radius,
+    segments3d_from_points3d,
     segments_to_indexed_lists,
     transform_2d_arc_segment_to_3d,
-    segments3d_from_points3d,
 )
 from ada.core.vector_transforms import local_2_global_points
 from ada.core.vector_utils import is_clockwise

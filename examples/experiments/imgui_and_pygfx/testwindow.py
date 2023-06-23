@@ -235,7 +235,6 @@ filtering_filter = None  # Todo - bind this in cimgui.pxd
 
 
 def show_help_marker(desc):
-
     imgui.text_disabled("(?)")
     if imgui.is_item_hovered():
         imgui.begin_tooltip()
@@ -268,7 +267,6 @@ def show_example_app_main_menu_bar():
 
 
 def show_example_menu_file():
-
     global example_menu_file_enabled
     global example_menu_file_options_f
     global example_menu_file_options_n
@@ -346,7 +344,6 @@ def show_example_menu_file():
 
 
 def show_test_window():
-
     global show_app_main_menu_bar
     global show_app_console
     global show_app_log
@@ -640,7 +637,6 @@ def show_test_window():
 
         show, _ = imgui.collapsing_header("Help")
         if show:
-
             imgui.text("PROGRAMMER GUIDE:")
             imgui.bullet_text("Please see the _show_demo_window() code in imgui_demo.cpp. <- you are here!")
             imgui.bullet_text("Please see the comments in imgui.cpp.")
@@ -654,11 +650,9 @@ def show_test_window():
 
     show, _ = imgui.collapsing_header("Configuration")
     if show:
-
         io = imgui.get_io()
 
         if imgui.tree_node("Configuration##2"):
-
             # TODO - for some reason this causes an error about space not being mapped, which doesn't happen in the C++ version
             clicked, io.config_flags = imgui.checkbox_flags(
                 "io.ConfigFlags: NavEnableKeyboard",
@@ -718,7 +712,6 @@ def show_test_window():
             imgui.separator()
 
         if imgui.tree_node("Backend Flags"):
-
             backend_flags = io.backend_flags
             # Make a local copy to avoid modifying the back-end flags.
             clicked, backend_flags = imgui.checkbox_flags(
@@ -738,14 +731,12 @@ def show_test_window():
             imgui.separator()
 
         if imgui.tree_node("Style"):
-
             # TODO - implement show_style_editor
             imgui.show_style_editor()
             imgui.tree_pop()
             imgui.separator()
 
         if imgui.tree_node("Capture/Logging"):
-
             # TODO -- check to see if pyimgui actually implements this functionality, then add it in
 
             # imgui.text_wrapped("The logging API redirects all text output so you can easily capture the content of a window or a block. Tree nodes can be automatically expanded.")
@@ -961,7 +952,6 @@ def show_test_window():
         # //        imgui.text("This will be displayed only once.");
 
         if imgui.tree_node("Trees"):
-
             if imgui.tree_node("Basic trees"):
                 for i in range(5):
                     if imgui.tree_node(text="Child " + str(i)):
@@ -1229,7 +1219,6 @@ def show_test_window():
             imgui.tree_pop()
 
         if imgui.tree_node("Combo"):
-
             # Expose flags as checkbox for the demo
             clicked, combo_flags = imgui.checkbox_flags(
                 "ImGuiComboFlags_PopupAlignLeft",
@@ -1283,14 +1272,12 @@ def show_test_window():
             imgui.tree_pop()
 
         if imgui.tree_node("Selectables"):
-
             # Selectable() has 2 overloads:
             #  The one taking "bool selected" as a read-only selection information. When Selectable() has been clicked is returns True and you can alter selection state accordingly.
             #  The one taking "bool* p_selected" as a read-write selection information (convenient in some cases)
             # The earlier is more flexible, as in real application your selection may be stored in a different manner (in flags within objects, as an external list, etc).
 
             if imgui.tree_node("Basic"):
-
                 _, selectables_basic_selection[0] = imgui.selectable(
                     label="1. I am selectable", selected=selectables_basic_selection[0]
                 )
@@ -1312,7 +1299,6 @@ def show_test_window():
                 imgui.tree_pop()
 
             if imgui.tree_node("Selection State: Single Selection"):
-
                 for n in range(5):
                     buf = "Object " + str(n)
                     clicked, _ = imgui.selectable(label=buf, selected=(selectables_basic_selected == n))
@@ -1322,11 +1308,9 @@ def show_test_window():
                 imgui.tree_pop()
 
             if imgui.tree_node("Selection State: Multiple Selection"):
-
                 show_help_marker("Hold CTRL and click to select multiple items.")
 
                 for n in range(5):
-
                     buf = "Object " + str(n)
                     clicked, selectables_basic_selection_2[n] = imgui.selectable(
                         label=buf, selected=selectables_basic_selection_2[n]
@@ -1339,7 +1323,6 @@ def show_test_window():
                 imgui.tree_pop()
 
             if imgui.tree_node("Rendering more text into the same line"):
-
                 #  Using the Selectable() override that takes "bool* p_selected" parameter and toggle your booleans automatically.
                 clicked, selectables_basic_selected_2[0] = imgui.selectable(
                     label="main.c", selected=selectables_basic_selected_2[0]
@@ -1359,7 +1342,6 @@ def show_test_window():
                 imgui.tree_pop()
 
             if imgui.tree_node("In columns"):
-
                 imgui.columns(count=3, identifier=None, border=False)
                 for index in range(len(selectables_basic_selected_3)):
                     label = "Item " + str(index)
@@ -1371,9 +1353,7 @@ def show_test_window():
                 imgui.tree_pop()
 
             if imgui.tree_node("Grid"):
-
                 for index in range(len(selectables_basic_selected_4)):
-
                     imgui.push_id(str(index))
                     clicked, selectables_basic_selected_4[index] = imgui.selectable(
                         label="Sailor",
@@ -1383,7 +1363,6 @@ def show_test_window():
                         height=50,
                     )
                     if clicked:
-
                         x = index % 4
                         y = index // 4
                         if x > 0:
@@ -1403,7 +1382,6 @@ def show_test_window():
             imgui.tree_pop()
 
         if imgui.tree_node("Filtered Text Input"):
-
             clicked, filtered_text_input_buf1 = imgui.input_text(
                 label="default", value=filtered_text_input_buf1, buffer_length=64
             )
@@ -1465,7 +1443,6 @@ def show_test_window():
             imgui.tree_pop()
 
         if imgui.tree_node("Multi-line Text Input"):
-
             show_help_marker(
                 "You can use the ImGuiInputTextFlags_CallbackResize facility if you need to wire InputTextMultiline() to a dynamic string type. See misc/stl/imgui_stl.h for an example. (This is not demonstrated in imgui_demo.cpp)"
             )
@@ -1486,7 +1463,6 @@ def show_test_window():
             imgui.tree_pop()
 
         if imgui.tree_node("Plots Widgets"):
-
             clicked, plots_widgets_animate = imgui.checkbox(label="Animate", state=plots_widgets_animate)
 
             imgui.plot_lines(
@@ -1573,7 +1549,6 @@ def show_test_window():
             imgui.tree_pop()
 
         if imgui.tree_node("Color/Picker Widgets"):
-
             checked, color_picker_alpha_preview = imgui.checkbox(
                 label="With Alpha Preview", state=color_picker_alpha_preview
             )
@@ -1740,7 +1715,6 @@ def show_test_window():
             imgui.tree_pop()
 
         if imgui.tree_node("Range Widgets"):
-
             # TODO - this should call drag_float_range2 instead, so implement it and do it
             # changed, (range_widgets_begin, range_widgets_end) = imgui.drag_float2(label="range",
             #                   value0=range_widgets_begin,
@@ -1753,7 +1727,6 @@ def show_test_window():
             imgui.tree_pop()
 
         if imgui.tree_node("Data Types"):
-
             # // The DragScalar/InputScalar/SliderScalar functions allow various data types: signed/unsigned int/long long and float/double
             # // To avoid polluting the public API with all possible combinations, we use the ImGuiDataType enum to pass the type,
             # // and passing all arguments by address.
@@ -1840,13 +1813,18 @@ def show_test_window():
             imgui.tree_pop()
 
         if imgui.tree_node("Multi-component Widgets"):
-
-            changed, (multi_component_vec4f[0], multi_component_vec4f[1],) = imgui.input_float2(
+            changed, (
+                multi_component_vec4f[0],
+                multi_component_vec4f[1],
+            ) = imgui.input_float2(
                 label="input float2",
                 value0=multi_component_vec4f[0],
                 value1=multi_component_vec4f[1],
             )
-            changed, (multi_component_vec4f[0], multi_component_vec4f[1],) = imgui.drag_float2(
+            changed, (
+                multi_component_vec4f[0],
+                multi_component_vec4f[1],
+            ) = imgui.drag_float2(
                 label="drag float2",
                 value0=multi_component_vec4f[0],
                 value1=multi_component_vec4f[1],
@@ -1854,7 +1832,10 @@ def show_test_window():
                 min_value=0.0,
                 max_value=1.0,
             )
-            changed, (multi_component_vec4f[0], multi_component_vec4f[1],) = imgui.slider_float2(
+            changed, (
+                multi_component_vec4f[0],
+                multi_component_vec4f[1],
+            ) = imgui.slider_float2(
                 label="slider float2",
                 value0=multi_component_vec4f[0],
                 value1=multi_component_vec4f[1],
@@ -1862,12 +1843,18 @@ def show_test_window():
                 max_value=1.0,
             )
 
-            changed, (multi_component_vec4i[0], multi_component_vec4i[1],) = imgui.input_int2(
+            changed, (
+                multi_component_vec4i[0],
+                multi_component_vec4i[1],
+            ) = imgui.input_int2(
                 label="input int2",
                 value0=multi_component_vec4i[0],
                 value1=multi_component_vec4i[1],
             )
-            changed, (multi_component_vec4i[0], multi_component_vec4i[1],) = imgui.drag_int2(
+            changed, (
+                multi_component_vec4i[0],
+                multi_component_vec4i[1],
+            ) = imgui.drag_int2(
                 label="drag int2",
                 value0=multi_component_vec4i[0],
                 value1=multi_component_vec4i[1],
@@ -1875,7 +1862,10 @@ def show_test_window():
                 min_value=0,
                 max_value=255,
             )
-            changed, (multi_component_vec4i[0], multi_component_vec4i[1],) = imgui.slider_int2(
+            changed, (
+                multi_component_vec4i[0],
+                multi_component_vec4i[1],
+            ) = imgui.slider_int2(
                 label="slider int2",
                 value0=multi_component_vec4i[0],
                 value1=multi_component_vec4i[1],
@@ -1919,13 +1909,21 @@ def show_test_window():
                 min_value=0.0,
                 max_value=1.0,
             )
-            changed, (multi_component_vec4i[0], multi_component_vec4i[1], multi_component_vec4i[2],) = imgui.input_int3(
+            changed, (
+                multi_component_vec4i[0],
+                multi_component_vec4i[1],
+                multi_component_vec4i[2],
+            ) = imgui.input_int3(
                 label="input int3",
                 value0=multi_component_vec4i[0],
                 value1=multi_component_vec4i[1],
                 value2=multi_component_vec4i[2],
             )
-            changed, (multi_component_vec4i[0], multi_component_vec4i[1], multi_component_vec4i[2],) = imgui.drag_int3(
+            changed, (
+                multi_component_vec4i[0],
+                multi_component_vec4i[1],
+                multi_component_vec4i[2],
+            ) = imgui.drag_int3(
                 label="drag int3",
                 value0=multi_component_vec4i[0],
                 value1=multi_component_vec4i[1],
@@ -2034,7 +2032,6 @@ def show_test_window():
             imgui.tree_pop()
 
         if imgui.tree_node("Vertical Sliders"):
-
             # const float spacing = 4;
             # imgui.push_style_var(ImGuiStyleVar_ItemSpacing, ImVec2(spacing, spacing));
 
@@ -2097,7 +2094,6 @@ def show_test_window():
             imgui.tree_pop()
 
         if imgui.tree_node("Drag and Drop"):
-
             # {
             #     // ColorEdit widgets automatically act as drag source and drag target.
             #     // They are using standardized payload strings IMGUI_PAYLOAD_TYPE_COLOR_3F and IMGUI_PAYLOAD_TYPE_COLOR_4F to allow your own widgets
@@ -2181,7 +2177,6 @@ def show_test_window():
             imgui.tree_pop()
 
         if imgui.tree_node("Querying Status (Active/Focused/Hovered etc.)"):
-
             # // Display the value of IsItemHovered() and other common item state functions. Note that the flags can be combined.
             # // (because BulletText is an item itself and that would affect the output of IsItemHovered() we pass all state in a single call to simplify the code).
             # static int item_type = 1;
@@ -2839,7 +2834,6 @@ def show_test_window():
             imgui.tree_pop()
 
         if imgui.tree_node("Modals"):
-
             imgui.text_wrapped(
                 "Modal windows are like popups but the user cannot close them by clicking outside the window."
             )

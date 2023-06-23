@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import pathlib
 from dataclasses import dataclass
@@ -741,7 +740,7 @@ class Part(BackendGeom):
             fem = gs.get_fem()
 
         for mass_shape in masses:
-            cog_absolute = mass_shape.placement.absolute_placement().origin + mass_shape.cog
+            cog_absolute = mass_shape.placement.absolute_placement.origin + mass_shape.cog
             n = fem.nodes.add(Node(cog_absolute))
             fem.add_mass(Mass(f"{mass_shape.name}_mass", [n], mass_shape.mass))
 

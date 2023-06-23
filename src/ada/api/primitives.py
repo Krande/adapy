@@ -15,10 +15,10 @@ from ada.materials import Material
 from ada.materials.utils import get_material
 
 from ..geom import Geometry
-from ..geom.placement import Direction, Axis2Placement3D
+from ..geom.placement import Axis2Placement3D, Direction
 from ..geom.points import Point
 from .bounding_box import BoundingBox
-from .curves import CurvePoly2d, CurveOpen2d, CurveOpen3d
+from .curves import CurveOpen3d, CurvePoly2d
 from .transforms import Placement
 
 if TYPE_CHECKING:

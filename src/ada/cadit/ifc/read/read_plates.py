@@ -6,13 +6,12 @@ import ifcopenshell
 
 from ada import Plate
 from ada.config import logger
-
-from ada.geom import surfaces as geo_su
 from ada.geom import solids as geo_so
+from ada.geom import surfaces as geo_su
 
+from .geom.geom_reader import get_product_definitions
 from .read_materials import read_material
 from .reader_utils import get_associated_material
-from .geom.geom_reader import get_product_definitions
 
 if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore

@@ -8,12 +8,10 @@ from ada import Beam, Placement
 from ada.api.beams import BeamRevolve
 from ada.api.curves import CurveRevolve
 from ada.config import logger
-from ada.core.vector_transforms import transform_3x3
-from ada.core.vector_utils import calc_yvec, vector_length, unit_vector
+from ada.core.vector_utils import calc_yvec, unit_vector
+
 from .geom.geom_reader import get_product_definitions
 from .geom.placement import axis3d
-from .geom.solids import extruded_solid_area
-
 from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
 from .reader_utils import (

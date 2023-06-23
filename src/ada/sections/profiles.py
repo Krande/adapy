@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from ada.api.curves import CurvePoly2d, CurveOpen2d
+from ada.api.curves import CurveOpen2d, CurvePoly2d
 from ada.config import get_logger
 from ada.core.utils import roundoff as rd
 from ada.sections.categories import BaseTypes

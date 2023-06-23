@@ -7,8 +7,8 @@ from ifcopenshell.validate import validate
 import ada
 from ada import Placement
 from ada.core.utils import set_list_first_position_elem
-from ada.occ.utils import get_points_from_occ_shape, iter_faces_with_normal
 from ada.geom import solids as geo_so
+from ada.occ.utils import get_points_from_occ_shape, iter_faces_with_normal
 
 
 @pytest.fixture

@@ -4,10 +4,10 @@ from dataclasses import dataclass
 from typing import Union
 
 from ada.core.vector_utils import create_right_hand_vectors_xv_yv_from_zv
+from ada.geom.curves import CURVE_GEOM_TYPES
 from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
 from ada.geom.points import Point
 from ada.geom.surfaces import ProfileDef
-from ada.geom.curves import CURVE_GEOM_TYPES
 
 
 @dataclass
@@ -50,6 +50,7 @@ class FixedReferenceSweptAreaSolid:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcFixedReferenceSweptAreaSolid.htm)
     """
+
     swept_area: ProfileDef
     position: Axis2Placement3D
     directrix: CURVE_GEOM_TYPES
@@ -61,6 +62,7 @@ class Box:
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBlock.htm)
     STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_box_domain.html)
     """
+
     position: Axis2Placement3D
     x_length: float
     y_length: float
@@ -90,6 +92,7 @@ class RectangularPyramid:
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRectangularPyramid.htm)
     STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_pyramid_volume.html)
     """
+
     position: Axis2Placement3D
     x_length: float
     y_length: float
@@ -102,6 +105,7 @@ class Cone:
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRightCircularCone.htm)
     STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_right_circular_cone.html)
     """
+
     position: Axis2Placement3D
     bottom_radius: float
     height: float
@@ -122,6 +126,7 @@ class Cylinder:
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRightCircularCylinder.htm)
     STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_right_circular_cylinder.html)
     """
+
     position: Axis2Placement3D
     radius: float
     height: float
@@ -142,9 +147,11 @@ class Sphere:
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcSphere.htm)
     STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_sphere.html)
     """
+
     center: Point
     radius: float
 
 
 SOLID_GEOM_TYPES = Union[
-    ExtrudedAreaSolid, RevolvedAreaSolid, Box, RectangularPyramid, Cone, Cylinder, Sphere, FixedReferenceSweptAreaSolid]
+    ExtrudedAreaSolid, RevolvedAreaSolid, Box, RectangularPyramid, Cone, Cylinder, Sphere, FixedReferenceSweptAreaSolid
+]

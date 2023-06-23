@@ -9,7 +9,7 @@ from ada import (
     PrimRevolve,
     PrimSphere,
     PrimSweep,
-    Shape
+    Shape,
 )
 from ada.base.units import Units
 from ada.cadit.ifc.utils import (
@@ -171,6 +171,9 @@ def generate_ifc_prim_sweep_geom(shape: PrimSweep, f):
     fixed_ref = f.create_entity("IfcDirection", to_real(shape.sweep_curve.start_vector.tolist()))
     axis3d = create_ifc_placement(f)
     return f.create_entity(
-        "IfcFixedReferenceSweptAreaSolid", SweptArea=profile, Position=axis3d, Directrix=sweep_curve,
+        "IfcFixedReferenceSweptAreaSolid",
+        SweptArea=profile,
+        Position=axis3d,
+        Directrix=sweep_curve,
         FixedReference=fixed_ref,
     )

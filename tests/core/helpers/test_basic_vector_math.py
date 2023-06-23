@@ -20,4 +20,4 @@ def test_transforms_rotations():
     assert_array_equal(orientation.rot_matrix, np.eye(3))
 
     for angle in [0, 10, 20]:
-        new_orientation = orientation.rotate([1, 0, 0], angle)
+        orientation.rotate([1, 0, 0], angle)

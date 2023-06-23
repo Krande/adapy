@@ -955,7 +955,7 @@ def segments3d_from_points3d(
             arc_intersection = seg1.p2
 
         if isinstance(radius_dict, dict):
-            r = radius_dict.get(i+1, min(seg1.length, seg2.length) / 3)
+            r = radius_dict.get(i + 1, min(seg1.length, seg2.length) / 3)
         elif isinstance(radius, (int, float)):
             r = radius
         else:

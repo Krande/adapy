@@ -1,7 +1,7 @@
 import ifcopenshell
 
-
 from ada.geom import surfaces as geo_su
+
 from .curves import get_curve
 
 

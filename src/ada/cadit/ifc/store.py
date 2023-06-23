@@ -197,8 +197,6 @@ class IfcStore:
         for obj in self.assembly.get_all_parts_in_assembly(include_self=True):
             obj.change_type = ChangeAction.NOCHANGE
 
-
-
         print(f'Import of IFC file "{ifc_file_name}" is complete')
 
     def get_ifc_geom(self, ifc_elem, settings: ifcopenshell.geom.settings):

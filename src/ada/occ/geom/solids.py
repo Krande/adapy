@@ -1,7 +1,7 @@
 import math
 
 import OCC.Core.BRepPrimAPI as occBrep
-from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections, BRepOffsetAPI_MakePipe
+from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe, BRepOffsetAPI_ThruSections
 from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Dir, gp_Pnt, gp_Vec
 from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Solid
 from OCC.Extend.TopologyUtils import TopologyExplorer
@@ -9,8 +9,8 @@ from OCC.Extend.TopologyUtils import TopologyExplorer
 import ada.geom.solids as geo_so
 from ada.geom.placement import Direction
 from ada.geom.points import Point
-from ada.occ.geom.surfaces import make_profile_from_geom
 from ada.occ.geom.curves import make_wire_from_curve
+from ada.occ.geom.surfaces import make_profile_from_geom
 from ada.occ.utils import transform_shape_to_pos
 
 

@@ -1,10 +1,6 @@
 from ada import Plate
 from ada.cadit.ifc.utils import (
     add_colour,
-    create_ifc_placement,
-    create_ifcindexpolyline,
-    create_local_placement,
-    to_real,
 )
 from ada.cadit.ifc.write.geom.placement import ifc_placement_from_axis3d
 from ada.cadit.ifc.write.geom.solids import extruded_area_solid

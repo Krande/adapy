@@ -15,7 +15,6 @@ from ada.base.types import GeomRepr
 from ada.geom import Geometry
 from ada.occ.exceptions import UnableToCreateTesselationFromSolidOCCGeom
 from ada.occ.geom import geom_to_occ_geom
-from ada.occ.utils import transform_shape_to_pos
 from ada.visit.colors import Color
 from ada.visit.gltf.meshes import MeshStore, MeshType
 
@@ -122,8 +121,8 @@ class BatchTessellator:
         )
 
     def tessellate_geom(self, geom: Geometry, obj: BackendGeom) -> MeshStore:
-        from OCC.Core.gp import gp_Trsf, gp_Vec
         from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
+        from OCC.Core.gp import gp_Trsf, gp_Vec
 
         occ_geom = geom_to_occ_geom(geom)
         if obj is not None and obj.parent is not None and obj.parent.placement is not None:

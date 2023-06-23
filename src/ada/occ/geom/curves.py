@@ -3,7 +3,6 @@ from OCC.Core.GC import GC_MakeArcOfCircle
 from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Pnt
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire
 
-import ada.geom.curves as geo_cu
 from ada.geom import curves as geo_cu
 from ada.geom.surfaces import PolyLoop
 from ada.occ.utils import point3d
@@ -17,7 +16,9 @@ def make_edge_from_geom(geom: geo_cu.Line | geo_cu.ArcLine) -> TopoDS_Edge:
         return BRepBuilderAPI_MakeEdge(point3d(geom.start), point3d(geom.end)).Edge()
 
 
-def segments_to_edges(segments: list[geo_cu.Line | geo_cu.ArcLine]) -> list[TopoDS_Edge]:
+def segments_to_edges(
+    segments: list[geo_cu.Line | geo_cu.ArcLine],
+) -> list[TopoDS_Edge]:
     return [make_edge_from_geom(seg) for seg in segments]
 
 
@@ -32,7 +33,9 @@ def segments_to_wire(segments: list[geo_cu.Line | geo_cu.ArcLine]) -> TopoDS_Wir
         raise ValueError("Segments do not form a closed loop")
 
 
-def make_wire_from_indexed_poly_curve_geom(curve: geo_cu.IndexedPolyCurve) -> TopoDS_Wire:
+def make_wire_from_indexed_poly_curve_geom(
+    curve: geo_cu.IndexedPolyCurve,
+) -> TopoDS_Wire:
     return segments_to_wire(curve.segments)
 
 

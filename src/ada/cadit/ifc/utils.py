@@ -288,7 +288,6 @@ def create_ifcrevolveareasolid(f, profile, ifcaxis2placement, origin, revolve_ax
     return f.create_entity("IfcRevolvedAreaSolid", profile, ifcaxis2placement, ifcaxis1dir, revolve_angle)
 
 
-
 def create_ifcextrudedareasolid(ifc_file, profile, ifcaxis2placement, extrude_dir, extrusion):
     """
     Creates an IfcExtrudedAreaSolid from a list of points, specified as Python tuples

@@ -59,9 +59,12 @@ class RendererPyGFX:
 
     def _init_scene(self):
         scene = self.scene
-        scene.add(gfx.DirectionalLight())
+        dir_light = gfx.DirectionalLight()
+        camera = gfx.PerspectiveCamera(70, 1, 0.1, 1000)
+        scene.add(camera)
+        scene.add(dir_light)
+        camera.add(dir_light)
         scene.add(gfx.AmbientLight())
-        scene.add(gfx_utils.GridHelper())
         scene.add(gfx_utils.AxesHelper())
 
     def _get_scene_meshes(self, scene: trimesh.Scene, tag: str) -> Iterable[gfx.Mesh]:
@@ -169,6 +172,10 @@ class RendererPyGFX:
         ob.add_event_handler(self.on_click, "pointer_down")
 
     def show(self):
+        bbox = self.scene.get_world_bounding_box()
+        grid_scale = 1.5 * max(bbox[1] - bbox[0])
+        grid = gfx.GridHelper(grid_scale, 10)
+        self.scene.add(grid)
         self._add_event_handlers()
         self.display.show(self.scene)
 

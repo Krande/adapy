@@ -36,6 +36,9 @@ class OCCStore:
         geom_repr: GeomRepr = GeomRepr.SOLID,
         render_override: dict[str, GeomRepr] = None,
     ) -> tuple[BackendGeom, TopoDS_Shape]:
+        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
+        from OCC.Core.gp import gp_Trsf, gp_Vec
+
         from ada.cadit.step.store import StepStore
 
         if render_override is None:
@@ -48,9 +51,17 @@ class OCCStore:
             geo_repr = render_override.get(obj_.guid, geom_repr)
             try:
                 if geo_repr == GeomRepr.SOLID:
-                    return obj_.solid_occ()
+                    occ_geom = obj_.solid_occ()
                 elif geo_repr == GeomRepr.SHELL:
-                    return obj_.shell_occ()
+                    occ_geom = obj_.shell_occ()
+                else:
+                    raise ValueError(f"Invalid geometry representation {geo_repr}")
+                position = obj.parent.placement.to_axis2placement3d(use_absolute_placement=True)
+
+                trsf = gp_Trsf()
+                trsf.SetTranslation(gp_Vec(*position.location))
+                occ_geom = BRepBuilderAPI_Transform(occ_geom, trsf, True).Shape()
+                return occ_geom
             except RuntimeError as e:
                 logger.warning(f"Failed to add shape {obj.name} due to {e}")
                 return None

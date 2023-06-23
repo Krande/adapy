@@ -158,7 +158,10 @@ def points_in_cylinder(start: np.ndarray, end: np.ndarray, radius, point: np.nda
     the cylinder."""
     vec = end - start
     const = radius * np.linalg.norm(vec)
-    if np.dot(point - start, vec) >= 0 >= np.dot(point - end, vec) and np.linalg.norm(np.cross(point - start, vec)) <= const:
+    if (
+        np.dot(point - start, vec) >= 0 >= np.dot(point - end, vec)
+        and np.linalg.norm(np.cross(point - start, vec)) <= const
+    ):
         return True
     else:
         return False

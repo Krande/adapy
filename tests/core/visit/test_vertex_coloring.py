@@ -78,7 +78,6 @@ def test_single_line_segments():
 
 
 def test_multiple_line_segments():
-
     scene = trimesh.Scene()
     points = np.asarray([(0, 0, 0.5), (1, 0, 0.5), (0, 1, 0.5), (1, 1, 0.5)], dtype=float)
     path = trimesh.path.Path3D(entities=[Line([0, 1]), Line([2, 3])], vertices=points)

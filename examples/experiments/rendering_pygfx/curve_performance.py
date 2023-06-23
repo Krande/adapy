@@ -45,7 +45,6 @@ for row in range(rows):
 
 
 def animate():
-
     renderer.render(scene, flush=False)
     # stats.render()
     canvas.request_draw()

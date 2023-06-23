@@ -6,7 +6,7 @@ from typing import Iterable, Union
 import numpy as np
 
 from ada.core.curve_utils import calc_arc_radius_center_from_3points
-from ada.core.vector_utils import intersection_point, intersect_calc
+from ada.core.vector_utils import intersect_calc
 from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
 

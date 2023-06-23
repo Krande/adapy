@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import ifcopenshell
 
-from ada.geom import surfaces as geo_su
 from ada.geom import curves as geo_cu
-from .curves import indexed_poly_curve, circle_curve
+from ada.geom import surfaces as geo_su
+
+from .curves import circle_curve, indexed_poly_curve
 
 
 def arbitrary_profile_def(apd: geo_su.ArbitraryProfileDef, f: ifcopenshell.file) -> ifcopenshell.entity_instance:

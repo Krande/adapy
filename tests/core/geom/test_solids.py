@@ -33,6 +33,7 @@ def test_sphere(test_dir):
 
     # (ada.Assembly("a") / sphere).to_ifc(test_dir / "test_sphere.ifc", validate=True)
 
+
 def test_ipe_beam():
     bm = ada.Beam("my_beam_z", (0, 0, 0), (0, 0, 1), "IPE300")
 
@@ -155,8 +156,7 @@ def test_prim_sweep1(test_dir):
 
     assert isinstance(geom.geometry, geo_so.FixedReferenceSweptAreaSolid)
 
-    occ_geom = sweep.solid_occ()
+    sweep.solid_occ()
 
     a = ada.Assembly("SweptShapes") / [ada.Part("MyPart") / [sweep]]
-    fp = a.to_ifc(test_dir / "my_swept_shape_m.ifc", file_obj_only=False, validate=True)
-
+    a.to_ifc(test_dir / "my_swept_shape_m.ifc", file_obj_only=False, validate=True)

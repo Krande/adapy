@@ -4,7 +4,7 @@ from ada import Units
 
 
 def convert_units(units: Units, file: ifcopenshell.file):
-    units_str = 'MILLIMETERS' if units == Units.MM else 'METERS'
+    units_str = "MILLIMETERS" if units == Units.MM else "METERS"
     unit = {"is_metric": True, "raw": units_str}
     file_patched = ifcopenshell.api.run("project.create_file", version=file.schema)
     if file.schema == "IFC2X3":
