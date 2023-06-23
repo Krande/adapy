@@ -16,8 +16,8 @@ jobs:
         shell: bash -l {0}
     outputs:
       version: ${{ steps.bump.outputs.version }}
-      conda_bump: ${{ steps.bump.outputs.conda_bump }}
-      pypi_bump: ${{ steps.bump.outputs.pypi_bump }}
+      conda_bump: ${{ steps.bump.outputs.condabump }}
+      pypi_bump: ${{ steps.bump.outputs.pypibump }}
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
@@ -37,8 +37,8 @@ jobs:
       - name: echo bump
         run: |
           echo ${{ steps.bump.outputs.version }}
-          echo CONDA_BUMP ${{ steps.bump.outputs.conda_bump }}
-          echo PYPI_BUMP ${{ steps.bump.outputs.pypi_bump }}
+          echo CONDA_BUMP ${{ steps.bump.outputs.condabump }}
+          echo PYPI_BUMP ${{ steps.bump.outputs.pypibump }}
 
   test-core:
     name: Test ada-py-core
