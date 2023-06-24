@@ -25,7 +25,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install bumpyproject
-        run: pip install git+https://github.com/Krande/bumpyproject.git@fix/docker_fixes
+        run: pip install git+https://github.com/Krande/bumpyproject.git
 
       - name: Check if current pyproject version is safe for pushing to conda & pypi
         id: bump
