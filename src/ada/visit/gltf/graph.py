@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ada.cadit.ifc.utils import create_guid
+from ada.core.utils import create_guid
 from ada.visit.gltf.meshes import MeshRef
 
 
@@ -27,6 +27,12 @@ class GraphStore:
                 n_name = n.name + suffix
             meta[n.hash] = (n_name, p_name)
         return meta
+
+    def add_node(self, node: GraphNode) -> GraphNode:
+        self.nodes[node.node_id] = node
+        self.name_map[node.name] = node
+
+        return node
 
     @staticmethod
     def from_json_data(data, split_level: int = 3):
@@ -81,7 +87,7 @@ class GraphStore:
 @dataclass
 class GraphNode:
     name: str
-    node_id: int = None
+    node_id: int | str = None
     children: list[GraphNode] = field(default_factory=list, repr=False)
     parent: GraphNode | None = field(default=None, repr=False)
     mesh_indices: list[MeshRef] = field(default_factory=list, repr=False)

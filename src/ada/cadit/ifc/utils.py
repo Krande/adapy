@@ -12,6 +12,7 @@ import ada.core.constants as ifco
 from ada.api.transforms import Transform
 from ada.config import logger
 from ada.core.file_system import get_list_of_files
+from ada.core.utils import create_guid
 from ada.visit.colors import Color
 
 if TYPE_CHECKING:
@@ -91,23 +92,6 @@ def ensure_guid_consistency(a: Assembly, project_prefix):
                     raise ValueError(f"GUID Uniqueness not maintained for '{obj}' in [{a.name}]")
 
             ensure_uniqueness[obj.guid] = obj
-
-
-def create_guid(name=None):
-    """Creates a guid from a random name or bytes or generates a random guid"""
-    import hashlib
-    import uuid
-
-    if name is None:
-        hexdig = uuid.uuid1().hex
-    else:
-        if type(name) != bytes:
-            n = name.encode()
-        else:
-            n = name
-        hexdig = hashlib.md5(n).hexdigest()
-    result = ifcopenshell.guid.compress(hexdig)
-    return result
 
 
 def ifc_p(f: ifcopenshell.file, p):

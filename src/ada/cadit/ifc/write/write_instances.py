@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 
-from ..utils import create_guid, create_ifc_placement, ifc_dir, ifc_p, to_real
+from ..utils import create_ifc_placement, ifc_dir, ifc_p, to_real
+from ada.core.utils import create_guid
 
 if TYPE_CHECKING:
     from ifcopenshell import file

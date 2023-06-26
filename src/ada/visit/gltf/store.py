@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import pathlib
 from dataclasses import dataclass, field
+from trimesh.path.entities import Line
 from typing import BinaryIO, Iterable
 
 import numpy as np
@@ -190,14 +191,30 @@ def merged_mesh_to_trimesh_scene(
     scene: trimesh.Scene, merged_mesh: MergedMesh, pbr_mat: dict | Color, buffer_id: int, graph_store: GraphStore
 ):
     vertices = merged_mesh.position.reshape(int(len(merged_mesh.position) / 3), 3)
-    faces = merged_mesh.indices.reshape(int(len(merged_mesh.indices) / 3), 3)
-
-    # Setting process=True will automatically merge duplicated vertices
-    mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
-    if isinstance(pbr_mat, Color):
-        pbr_mat = trimesh.visual.material.PBRMaterial(f"mat{buffer_id}", baseColorFactor=pbr_mat.rgb255)
-
-    mesh.visual = trimesh.visual.TextureVisuals(material=pbr_mat)
+    if merged_mesh.type == MeshType.TRIANGLES:
+        indices = merged_mesh.indices.reshape(int(len(merged_mesh.indices) / 3), 3)
+        # Setting process=True will automatically merge duplicated vertices
+        mesh = trimesh.Trimesh(vertices=vertices, faces=indices, process=False)
+        if isinstance(pbr_mat, Color):
+            pbr_mat = trimesh.visual.material.PBRMaterial(
+                f"mat{buffer_id}", baseColorFactor=pbr_mat.rgb255, doubleSided=True
+            )
+        mesh.visual = trimesh.visual.TextureVisuals(material=pbr_mat)
+    elif merged_mesh.type == MeshType.LINES:
+        entities = [Line(x) for x in merged_mesh.indices.reshape(int(len(merged_mesh.indices) / 2), 2)]
+        mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
+        # Convert the tuple to a numpy array and reshape it to have one row and X columns
+        t_array = np.array(pbr_mat.rgb255).reshape(1, -1)
+        result = np.tile(t_array, (len(vertices), 1))
+        mesh.visual = trimesh.visual.ColorVisuals(mesh=mesh, vertex_colors=result)
+    elif merged_mesh.type == MeshType.POINTS:
+        mesh = trimesh.points.PointCloud(vertices=vertices)
+        # Convert the tuple to a numpy array and reshape it to have one row and X columns
+        t_array = np.array(pbr_mat.rgb255).reshape(1, -1)
+        result = np.tile(t_array, (len(vertices), 1))
+        mesh.visual = trimesh.visual.ColorVisuals(mesh=mesh, vertex_colors=result)
+    else:
+        raise NotImplementedError(f"Mesh type {merged_mesh.type} is not supported")
 
     # Rotate the mesh to set Z up
     mesh.apply_transform(m4x4_z_up_rot)

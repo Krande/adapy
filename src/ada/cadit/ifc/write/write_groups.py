@@ -2,7 +2,7 @@ from ada.api.groups import Group
 
 
 def write_group(group: Group):
-    from ada.cadit.ifc.utils import create_guid
+    from ada.core.utils import create_guid
 
     a = group.parent.get_assembly()
     owner_history = a.ifc_store.owner_history

@@ -1,6 +1,7 @@
 # coding=utf-8
 from __future__ import annotations
 
+import ifcopenshell
 import importlib.util
 import os
 import pathlib
@@ -358,3 +359,20 @@ def set_list_first_position_elem(array: list, element) -> list:
     # shift the list so that the origin is the first point
     new_array = array[origin_index:] + array[:origin_index]
     return new_array
+
+
+def create_guid(name=None):
+    """Creates a guid from a random name or bytes or generates a random guid"""
+    import hashlib
+    import uuid
+
+    if name is None:
+        hexdig = uuid.uuid1().hex
+    else:
+        if type(name) != bytes:
+            n = name.encode()
+        else:
+            n = name
+        hexdig = hashlib.md5(n).hexdigest()
+    result = ifcopenshell.guid.compress(hexdig)
+    return result

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from itertools import groupby
+
 from dataclasses import dataclass, field
 from typing import Iterable
 
@@ -13,10 +15,14 @@ from OCC.Extend.TopologyUtils import discretize_edge
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.geom import Geometry
+from ada.api.spatial import Part
 from ada.occ.exceptions import UnableToCreateTesselationFromSolidOCCGeom
 from ada.occ.geom import geom_to_occ_geom
 from ada.visit.colors import Color
+from ada.visit.gltf.graph import GraphNode
 from ada.visit.gltf.meshes import MeshStore, MeshType
+from ada.visit.gltf.optimize import concatenate_stores
+from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
 
 @dataclass
@@ -94,6 +100,13 @@ class BatchTessellator:
     parallel: bool = False
     material_store: dict[Color, int] = field(default_factory=dict)
 
+    def add_color(self, color: Color) -> int:
+        mat_id = self.material_store.get(color, None)
+        if mat_id is None:
+            mat_id = len(self.material_store)
+            self.material_store[color] = mat_id
+        return mat_id
+
     def tessellate_occ_geom(self, occ_geom: TopoDS_Shape, geom_id, geom_color) -> MeshStore:
         if isinstance(occ_geom, TopoDS_Edge):
             tess_shape = tessellate_edges(occ_geom)
@@ -158,6 +171,50 @@ class BatchTessellator:
             # resolve transform based on parent transforms
 
             yield self.tessellate_geom(geom, ada_obj)
+
+    def tessellate_part(self, part: Part, filter_by_guids=None, render_override=None) -> trimesh.Scene:
+        graph = part.get_graph_store()
+        scene = trimesh.Scene(base_frame=graph.top_level.name)
+
+        shapes_tess_iter = self.batch_tessellate(
+            part.get_all_physical_objects(pipe_to_segments=True, filter_by_guids=filter_by_guids),
+            render_override=render_override,
+        )
+
+        all_shapes = sorted(shapes_tess_iter, key=lambda x: x.material)
+        for mat_id, meshes in groupby(all_shapes, lambda x: x.material):
+            merged_store = concatenate_stores(meshes)
+            merged_mesh_to_trimesh_scene(scene, merged_store, self.get_mat_by_id(mat_id), mat_id, graph)
+
+        shell_color = Color.from_str("white")
+        shell_color_id = self.add_color(shell_color)
+        line_color = Color.from_str("gray")
+        line_color_id = self.add_color(line_color)
+        points_color = Color.from_str("black")
+        points_color_id = self.add_color(points_color)
+
+        for p in part.get_all_subparts(include_self=True):
+            if p.fem.is_empty() is True:
+                continue
+
+            mesh = p.fem.to_mesh()
+            parent_node = graph.nodes.get(p.guid)
+
+            points_store, edge_store, face_store = mesh.create_mesh_stores(
+                p.fem.name,
+                shell_color,
+                line_color,
+                points_color,
+                graph,
+                parent_node
+            )
+
+            merged_mesh_to_trimesh_scene(scene, face_store, shell_color, shell_color_id, graph)
+            merged_mesh_to_trimesh_scene(scene, edge_store, line_color, line_color_id, graph)
+            merged_mesh_to_trimesh_scene(scene, points_store, points_color, points_color_id, graph)
+
+        scene.metadata["meta"] = graph.create_meta(suffix="")
+        return scene
 
     def get_mat_by_id(self, mat_id: int):
         _data = {value: key for key, value in self.material_store.items()}

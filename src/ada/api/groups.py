@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from ada.cadit.ifc.utils import create_guid
+from ada.core.utils import create_guid
 
 if TYPE_CHECKING:
     from ada import Assembly, Beam, Part, Pipe, Plate, Shape, Wall

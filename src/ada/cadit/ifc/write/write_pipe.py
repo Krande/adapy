@@ -7,13 +7,13 @@ import numpy as np
 
 from ada.base.units import Units
 from ada.cadit.ifc.utils import (
-    create_guid,
     create_ifc_placement,
     create_ifcpolyline,
     create_local_placement,
     to_real,
     write_elem_property_sets,
 )
+from ada.core.utils import create_guid
 from ada.config import logger
 from ada.core.constants import O, X, Z
 from ada.core.vector_transforms import global_2_local_nodes

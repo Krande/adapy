@@ -6,7 +6,7 @@ import tracemalloc
 import trimesh
 from OCC.Core.TopoDS import TopoDS_Shape
 
-from ada.cadit.ifc.utils import create_guid
+from ada.core.utils import create_guid
 from ada.geom import Geometry
 from ada.geom.solids import Box
 from ada.occ.geom import geom_to_occ_geom

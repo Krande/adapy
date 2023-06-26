@@ -720,22 +720,21 @@ class Part(BackendGeom):
 
         return fem
 
-    def to_gltf(
-        self,
-        gltf_file: str | pathlib.Path,
-        auto_sync_ifc_store=True,
-        cpus=1,
-        limit_to_guids=None,
-        embed_meta=False,
-        merge_by_color=False,
-    ):
-        from ada.visit.interface import part_to_vis_mesh2
+    def to_gltf(self, gltf_file: str | pathlib.Path, **kwargs):
+        if isinstance(gltf_file, str):
+            gltf_file = pathlib.Path(gltf_file)
+        gltf_file.parent.mkdir(parents=True, exist_ok=True)
 
-        vm = part_to_vis_mesh2(self, auto_sync_ifc_store, cpus=cpus)
-        if merge_by_color:
-            vm = vm.merge_objects_in_parts_by_color()
+        def post_pro(buffer_items, tree):
+            pass
 
-        vm.to_gltf(gltf_file, only_these_guids=limit_to_guids, embed_meta=embed_meta)
+        self.to_trimesh_scene(**kwargs).export(gltf_file, buffer_postprocessor=post_pro)
+
+    def to_trimesh_scene(self, render_override: dict[str, GeomRepr | str] = None, filter_by_guids=None):
+        from ada.occ.tessellating import BatchTessellator
+
+        bt = BatchTessellator()
+        return bt.tessellate_part(self)
 
     def to_stp(
         self,

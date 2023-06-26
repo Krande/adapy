@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import ifcopenshell.geom
 import numpy as np
 
-from ada.cadit.ifc.utils import create_guid
+from ada.core.utils import create_guid
 from ada.visit.concept import ObjectMesh, PartMesh, VisMesh
 
 if TYPE_CHECKING:

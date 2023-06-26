@@ -26,9 +26,9 @@ class MeshType(Enum):
 @dataclass
 class MeshStore:
     index: int
-    matrix: list = field(repr=False)
+    matrix: list | None = field(repr=False)
     position: np.ndarray = field(repr=False)
-    indices: np.ndarray = field(repr=False)
+    indices: np.ndarray | None = field(repr=False)
     normal: np.ndarray | None = field(repr=False)
     material: int | Color
     type: MeshType
@@ -46,7 +46,7 @@ class MeshStore:
 
 @dataclass
 class GroupReference:
-    node_id: int
+    node_id: int | str
     start: int
     length: int
 

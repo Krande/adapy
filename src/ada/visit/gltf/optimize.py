@@ -3,7 +3,7 @@ from typing import Iterable
 
 import numpy as np
 
-from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshStore
+from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshStore, MeshType
 
 
 def concatenate_stores(stores: Iterable[MeshStore]) -> MergedMesh | None:
@@ -12,6 +12,18 @@ def concatenate_stores(stores: Iterable[MeshStore]) -> MergedMesh | None:
     stores = list(stores)
     if not stores:
         return None
+    if len(stores) == 1:
+        store = stores[0]
+        return MergedMesh(
+            store.indices,
+            store.position,
+            store.normal,
+            store.material,
+            store.type,
+            [GroupReference(store.node_id, 0, len(store.indices))]
+            if store.type != MeshType.POINTS
+            else [GroupReference(store.node_id, 0, len(store.position))],
+        )
 
     groups = []
     position_list = []

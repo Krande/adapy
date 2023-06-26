@@ -193,28 +193,24 @@ def tri_mat_to_gfx_mat(tri_mat: trimesh.visual.material.PBRMaterial) -> gfx.Mesh
     return gfx.MeshPhongMaterial(color=color, flat_shading=True)
 
 
-def geometry_from_mesh(mesh: trimesh.Trimesh | MeshStore) -> gfx.Geometry:
+def geometry_from_mesh(mesh: trimesh.Trimesh | trimesh.path.Path3D | MeshStore) -> gfx.Geometry:
     """Convert a Trimesh geometry object to pygfx geometry."""
 
     if isinstance(mesh, MeshStore):
-        kwargs = dict(
+        geom = gfx.Geometry(
             positions=np.ascontiguousarray(mesh.get_position3(), dtype="f4"),
             indices=np.ascontiguousarray(mesh.get_indices3(), dtype="i4"),
         )
+    elif isinstance(mesh, trimesh.path.Path3D):
+        vertices = np.ascontiguousarray(mesh.vertices, dtype="f4")
+        indices = np.ascontiguousarray(mesh.vertex_nodes, dtype="i4")
+        geom = gfx.Geometry(positions=vertices, indices=indices)
+    elif isinstance(mesh, (trimesh.points.PointCloud)):
+        geom = gfx.Geometry(positions=np.ascontiguousarray(mesh.vertices, dtype="f4"))
     else:
-        kwargs = dict(
+        geom = gfx.Geometry(
             positions=np.ascontiguousarray(mesh.vertices, dtype="f4"),
             indices=np.ascontiguousarray(mesh.faces, dtype="i4"),
         )
-        if mesh.visual.kind == "texture" and mesh.visual.uv is not None and len(mesh.visual.uv) > 0:
-            # convert the uv coordinates from opengl to wgpu conventions.
-            # wgpu uses the D3D and Metal coordinate systems.
-            # the coordinate origin is in the upper left corner, while the opengl coordinate
-            # origin is in the lower left corner.
-            # trimesh loads textures according to the opengl coordinate system.
-            wgpu_uv = mesh.visual.uv * np.array([1, -1]) + np.array([0, 1])  # uv.y = 1 - uv.y
-            kwargs["texcoords"] = np.ascontiguousarray(wgpu_uv, dtype="f4")
-        elif mesh.visual.kind == "vertex":
-            kwargs["colors"] = np.ascontiguousarray(mesh.visual.vertex_colors, dtype="f4")
 
-    return gfx.Geometry(**kwargs)
+    return geom

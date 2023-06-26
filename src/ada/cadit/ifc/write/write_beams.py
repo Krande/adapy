@@ -10,13 +10,13 @@ from ada.api.beams import BeamRevolve, BeamSweep, BeamTapered
 from ada.cadit.ifc.utils import (
     add_colour,
     convert_bm_jusl_to_ifc,
-    create_guid,
     create_ifc_placement,
     create_local_placement,
     ifc_dir,
     ifc_p,
     to_real,
 )
+from ada.core.utils import create_guid
 from ada.cadit.ifc.write.geom.solids import extruded_area_solid
 from ada.cadit.ifc.write.write_curves import write_curve_poly
 from ada.config import Settings

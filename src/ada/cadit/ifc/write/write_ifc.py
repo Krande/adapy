@@ -10,9 +10,9 @@ from ada.base.changes import ChangeAction
 from ada.cadit.ifc.read.reader_utils import get_ifc_body
 from ada.cadit.ifc.utils import (
     add_negative_extrusion,
-    create_guid,
     write_elem_property_sets,
 )
+from ada.core.utils import create_guid
 from ada.cadit.ifc.write.write_beams import update_ifc_beam, write_ifc_beam
 from ada.cadit.ifc.write.write_fasteners import write_ifc_fastener
 from ada.cadit.ifc.write.write_instances import write_mapped_instance

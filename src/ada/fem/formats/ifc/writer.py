@@ -2,13 +2,13 @@ import ifcopenshell
 
 from ada import FEM
 from ada.cadit.ifc.utils import (
-    create_guid,
     create_ifc_placement,
     create_local_placement,
     create_reference_subrep,
     ifc_p,
     to_real,
 )
+from ada.core.utils import create_guid
 from ada.config import logger
 from ada.fem import Elem
 

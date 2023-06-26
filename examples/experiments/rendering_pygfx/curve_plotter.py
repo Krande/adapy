@@ -22,8 +22,8 @@ def segment_plotter(segments: list[LineSegment | ArcSegment], canvas_title="PyGF
     mesh_map = {}
     for i, segment in enumerate(segments_to_edges(segments)):
         color = Color.randomize()
-        mat = gfx.LineMaterial(thickness=3, color=color.hex)
         geom_mesh = bt.tessellate_occ_geom(segment, i, color)
+        mat = gfx.LineMaterial(thickness=3, color=color.hex)
         mesh = gfx.Line(gfx_utils.geometry_from_mesh(geom_mesh), material=mat)
         scene_objects.add(mesh)
         mesh_map[mesh.id] = segments[i]
