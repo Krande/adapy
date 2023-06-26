@@ -8,6 +8,7 @@ dependencies:
   - ifcopenshell
   - pythonocc-core
   - python-gmsh
+  - flatbuffers
   - pyquaternion
   - trimesh
   - send2trash

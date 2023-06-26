@@ -1,0 +1,11 @@
+include "../points.fbs";
+
+namespace IFC.curves;
+
+
+// Definition of a PolyLine
+table PolyLine {
+  points: [IFC.points.Point];
+}
+
+root_type PolyLine;

@@ -80,73 +80,6 @@ class ArcLine:
 
 
 @dataclass
-class Circle:
-    """
-    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcCircle.htm
-    STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_circle.html
-    """
-
-    position: Axis2Placement3D
-    radius: float
-
-
-@dataclass
-class Ellipse:
-    """
-    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcEllipse.htm
-    STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_ellipse.html
-    """
-
-    position: Axis2Placement3D
-    semi_axis1: float
-    semi_axis2: float
-
-
-class BSplineCurveFormEnum(Enum):
-    """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBSplineCurveForm.htm)
-    STEP (https://www.steptools.com/stds/stp_aim/html/t_b_spline_curve_form.html)
-    """
-
-    POLYLINE_FORM = "POLYLINE_FORM"
-    CIRCULAR_ARC = "CIRCULAR_ARC"
-    ELLIPTIC_ARC = "ELLIPTIC_ARC"
-    HYPERBOLIC_ARC = "HYPERBOLIC_ARC"
-    PARABOLIC_ARC = "PARABOLIC_ARC"
-    UNSPECIFIED = "UNSPECIFIED"
-
-
-class BsplineKnotSpecEnum(Enum):
-    """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcKnotType.htm)
-    STEP (https://www.steptools.com/stds/stp_aim/html/t_knot_type.html)
-    """
-
-    UNSPECIFIED = "UNSPECIFIED"
-    PIECEWISE_BEZIER = "PIECEWISE_BEZIER"
-    UNIFORM_KNOTS = "UNIFORM_KNOTS"
-    QUASI_UNIFORM_KNOTS = "QUASI_UNIFORM_KNOTS"
-    PIECEWISE_CUBIC = "PIECEWISE_CUBIC"
-
-
-@dataclass
-class BSplineCurveWithKnots:
-    """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBSplineCurveWithKnots.htm)
-    STEP (https://www.steptools.com/stds/stp_aim/html/t_b_spline_curve_with_knots.html)
-    """
-
-    degree: int
-    control_points_list: list[Point] | list[tuple]
-    curve_form: BSplineCurveFormEnum
-    closed_curve: bool
-    self_intersect: bool
-    knot_multiplicities: list[int]
-    knots: list[float]
-    knot_spec: BsplineKnotSpecEnum
-
-
-@dataclass
 class PolyLine:
     points: list[Point]
 
@@ -214,3 +147,70 @@ class IndexedPolyCurve:
 @dataclass
 class GeometricCurveSet:
     elements: list[CURVE_GEOM_TYPES]
+
+
+@dataclass
+class Circle:
+    """
+    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcCircle.htm
+    STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_circle.html
+    """
+
+    position: Axis2Placement3D
+    radius: float
+
+
+@dataclass
+class Ellipse:
+    """
+    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcEllipse.htm
+    STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_ellipse.html
+    """
+
+    position: Axis2Placement3D
+    semi_axis1: float
+    semi_axis2: float
+
+
+class BSplineCurveFormEnum(Enum):
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBSplineCurveForm.htm)
+    STEP (https://www.steptools.com/stds/stp_aim/html/t_b_spline_curve_form.html)
+    """
+
+    POLYLINE_FORM = "POLYLINE_FORM"
+    CIRCULAR_ARC = "CIRCULAR_ARC"
+    ELLIPTIC_ARC = "ELLIPTIC_ARC"
+    HYPERBOLIC_ARC = "HYPERBOLIC_ARC"
+    PARABOLIC_ARC = "PARABOLIC_ARC"
+    UNSPECIFIED = "UNSPECIFIED"
+
+
+class BsplineKnotSpecEnum(Enum):
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcKnotType.htm)
+    STEP (https://www.steptools.com/stds/stp_aim/html/t_knot_type.html)
+    """
+
+    UNSPECIFIED = "UNSPECIFIED"
+    PIECEWISE_BEZIER = "PIECEWISE_BEZIER"
+    UNIFORM_KNOTS = "UNIFORM_KNOTS"
+    QUASI_UNIFORM_KNOTS = "QUASI_UNIFORM_KNOTS"
+    PIECEWISE_CUBIC = "PIECEWISE_CUBIC"
+
+
+@dataclass
+class BSplineCurveWithKnots:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBSplineCurveWithKnots.htm)
+    STEP (https://www.steptools.com/stds/stp_aim/html/t_b_spline_curve_with_knots.html)
+    """
+
+    degree: int
+    control_points_list: list[Point] | list[tuple]
+    curve_form: BSplineCurveFormEnum
+    closed_curve: bool
+    self_intersect: bool
+    knot_multiplicities: list[int]
+    knots: list[float]
+    knot_spec: BsplineKnotSpecEnum

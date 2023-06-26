@@ -1,0 +1,11 @@
+include "../points.fbs";
+
+namespace IFC.curves;
+
+// Definition of a Line
+table Line {
+  start: IFC.points.Point;
+  end: IFC.points.Point;
+}
+
+root_type Line;
