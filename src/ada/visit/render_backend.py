@@ -86,7 +86,7 @@ class SqLiteBackend(RenderBackend):
     def commit(self):
         self.conn.commit()
 
-    def add_metadata(self, metadata: dict, tag: str) -> None:
+    def add_metadata(self, metadata: dict, tag: str) -> str:
         """Adds metadata to the database."""
         # For really large models this might provide a speedbump
         self.c.execute("""BEGIN TRANSACTION;""")
@@ -103,12 +103,13 @@ class SqLiteBackend(RenderBackend):
             start, end, buffer_id = id_sequence_data.get(mesh_id, [None, None, None])  # Get start, end values
             row = (mesh_id, parent_id, full_name, start, end, buffer_id, tag)
             self.c.execute("INSERT INTO mesh VALUES (?,?,?,?,?,?,?)", row)
+        return tag
 
-    def get_mesh_data_from_face_index(self, face_index, buffer_id, glb_file_name) -> MeshInfo:
+    def get_mesh_data_from_face_index(self, face_index, buffer_id, tag) -> MeshInfo:
         """Returns the mesh id from a face index."""
         self.c.execute(
             "SELECT * FROM mesh WHERE buffer_id=? AND glb_file_name=? AND start<=? AND end >=?",
-            (buffer_id, glb_file_name, face_index, face_index),
+            (buffer_id, tag, face_index, face_index),
         )
         result = self.c.fetchone()
         return MeshInfo(*result)

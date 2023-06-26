@@ -15,6 +15,7 @@ from ada.core.utils import create_guid
 from ada.geom import Geometry
 from ada.occ.tessellating import BatchTessellator
 from ada.visit.colors import Color
+from ada.visit.gltf.meshes import MeshStore
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
@@ -23,7 +24,9 @@ try:
 
     import ada.visit.render_pygfx_helpers as gfx_utils
 except ImportError:
-    raise ImportError("Please install pygfx to use this renderer -> 'pip install pygfx'.")
+    raise ImportError(
+        "Please install pygfx to use this renderer -> 'pip install pygfx'."
+    )
 try:
     from wgpu.gui.auto import WgpuCanvas
 except ImportError:
@@ -36,11 +39,15 @@ PICKED_COLOR = Color(0, 123, 255)
 
 
 class RendererPyGFX:
-    def __init__(self, render_backend: RenderBackend, canvas_title: str = "PyGFX Renderer"):
+    def __init__(
+        self, render_backend: RenderBackend, canvas_title: str = "PyGFX Renderer"
+    ):
         self.backend = render_backend
 
         self._mesh_map = {}
-        self._selected_mat = gfx.MeshPhongMaterial(color=PICKED_COLOR, flat_shading=True)
+        self._selected_mat = gfx.MeshPhongMaterial(
+            color=PICKED_COLOR, flat_shading=True
+        )
         self.selected_mesh = None
         self.scene = gfx.Scene()
         self.scene.add(gfx.Background(None, gfx.BackgroundMaterial(BG_GRAY.hex)))
@@ -70,22 +77,14 @@ class RendererPyGFX:
 
     def _get_scene_meshes(self, scene: trimesh.Scene, tag: str) -> Iterable[gfx.Mesh]:
         for key, m in scene.geometry.items():
-            geom = gfx_utils.geometry_from_mesh(m)
-            if isinstance(m, trimesh.points.PointCloud):
-                mat = gfx.PointsMaterial(size=10, color=m.visual.main_color)
-                mesh = gfx.Points(geom, material=mat)
-            elif isinstance(m, trimesh.path.Path3D):
-                mat = gfx.LineSegmentMaterial(thickness=3, color=mat.color)
-                # mat = gfx.LineMaterial(thickness=3, color=mat.color)
-                mesh = gfx.Line(geom, material=mat)
-            else:
-                mat = gfx_utils.tri_mat_to_gfx_mat(m.visual.material)
-                mesh = gfx.Mesh(geom, material=mat)
+            mesh = gfx_utils.gfx_mesh_from_mesh(m)
             buffer_id = int(float(key.replace("node", "")))
             self._mesh_map[mesh.id] = (tag, buffer_id)
             yield mesh
 
-    def add_geom(self, geom: Geometry, name: str, guid: str, tag=create_guid(), metadata=None):
+    def add_geom(
+        self, geom: Geometry, name: str, guid: str, tag=create_guid(), metadata=None
+    ):
         bt = BatchTessellator()
 
         geom_mesh = bt.tessellate_geom(geom)
@@ -105,7 +104,9 @@ class RendererPyGFX:
         scene = bt.tessellate_part(part, render_override=render_override)
         self.add_trimesh_scene(scene, part.name, commit=True)
 
-    def add_trimesh_scene(self, trimesh_scene: trimesh.Scene, tag: str, commit: bool = False):
+    def add_trimesh_scene(
+        self, trimesh_scene: trimesh.Scene, tag: str, commit: bool = False
+    ):
         meshes = self._get_scene_meshes(trimesh_scene, tag)
         self._scene_objects.add(*meshes)
         self.backend.add_metadata(trimesh_scene.metadata, tag)
@@ -138,10 +139,14 @@ class RendererPyGFX:
         if isinstance(obj, gfx.Mesh):
             dim = 3
             mesh: gfx.Mesh = event.target
-            geom_index = info.get("face_index", None) * dim  # Backend uses a flat array of indices
+            geom_index = (
+                info.get("face_index", None) * dim
+            )  # Backend uses a flat array of indices
         elif isinstance(obj, gfx.Line):
             dim = 2
-            geom_index = info.get("vertex_index", None) * dim  # Backend uses a flat array of indices
+            geom_index = (
+                info.get("vertex_index", None) * dim
+            )  # Backend uses a flat array of indices
             mesh: gfx.Line = event.target
         elif isinstance(obj, gfx.Points):
             dim = 3
@@ -161,7 +166,9 @@ class RendererPyGFX:
             return
         glb_fname, buffer_id = res
 
-        mesh_data = self.backend.get_mesh_data_from_face_index(geom_index, buffer_id, glb_fname)
+        mesh_data = self.backend.get_mesh_data_from_face_index(
+            geom_index, buffer_id, glb_fname
+        )
 
         if self.selected_mesh is not None:
             self.scene.remove(self.selected_mesh)
@@ -174,7 +181,9 @@ class RendererPyGFX:
         elif isinstance(mesh, gfx.Line):
             self.selected_mesh = highlight_selected_line(mesh, self._selected_mat.color)
         elif isinstance(mesh, gfx.Points):
-            self.selected_mesh = highlight_selected_points(mesh, mesh_data, self._selected_mat.color)
+            self.selected_mesh = highlight_selected_points(
+                mesh, mesh_data, self._selected_mat.color
+            )
         else:
             raise NotImplementedError()
 
@@ -199,7 +208,9 @@ class RendererPyGFX:
         self.display.show(self.scene)
 
 
-def scale_clicked_mesh(mesh: gfx.Mesh, indices, material: gfx.MeshPhongMaterial, sfac=1.01) -> gfx.Mesh:
+def scale_clicked_mesh(
+    mesh: gfx.Mesh, indices, material: gfx.MeshPhongMaterial, sfac=1.01
+) -> gfx.Mesh:
     trim = trimesh.Trimesh(vertices=mesh.geometry.positions.data, faces=indices)
     scale_tri_mesh(trim, sfac)
 
@@ -218,12 +229,17 @@ def highlight_selected_line(mesh: gfx.Line, color: gfx.Color) -> gfx.Line:
     return c_mesh
 
 
-def highlight_selected_points(mesh: gfx.Points, mesh_data: MeshInfo, color: gfx.Color) -> gfx.Points:
+def highlight_selected_points(
+    mesh: gfx.Points, mesh_data: MeshInfo, color: gfx.Color
+) -> gfx.Points:
     s = mesh_data.start
     e = mesh_data.end + 1
     selected_positions = mesh.geometry.positions.data[s:e]
 
-    c_mesh = gfx.Points(gfx.Geometry(positions=selected_positions), gfx.PointsMaterial(size=15, color=color))
+    c_mesh = gfx.Points(
+        gfx.Geometry(positions=selected_positions),
+        gfx.PointsMaterial(size=15, color=color),
+    )
     return c_mesh
 
 

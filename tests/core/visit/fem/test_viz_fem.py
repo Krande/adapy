@@ -4,7 +4,7 @@ import ada
 from ada.fem.meshing import GmshSession
 from ada.param_models.utils import beams_along_polyline
 from ada.visit.utils import get_edges_from_fem, get_faces_from_fem
-
+from ada.visit.render_backend import SqLiteBackend
 
 @pytest.fixture
 def bm_fem():
@@ -29,12 +29,40 @@ def test_beam_as_faces(bm_fem):
 
 def test_single_ses_elem(fem_files):
     a = ada.from_fem(fem_files / "sesam/1EL_SHELL_R1.SIF")
-    a.to_gltf("temp/sesam_1el_sh.glb")
+    # a.to_fem("usfos_fem", 'usfos', scratch_dir='temp')
+    scene = a.to_trimesh_scene()
+
+    # backend = SqLiteBackend('temp/sesam_1el_sh.db')
+    backend = SqLiteBackend()
+    tag = backend.add_metadata(scene.metadata, "sesam_1el_sh")
+    backend.commit()
+
+    res = backend.get_mesh_data_from_face_index(1, 0, tag)
+    assert res.full_name == 'EL1'
+    res = backend.get_mesh_data_from_face_index(2, 0, tag)
+    assert res.full_name == 'EL1'
+    # scene.to_gltf("temp/sesam_1el_sh.glb")
 
 
 def test_double_ses_elem(fem_files):
     a = ada.from_fem(fem_files / "sesam/2EL_SHELL_R1.SIF")
-    a.to_gltf("temp/sesam_2el_sh.glb")
+    scene = a.to_trimesh_scene()
+
+    # backend = SqLiteBackend('temp/sesam_2el_sh.db')
+    backend = SqLiteBackend()
+    tag = backend.add_metadata(scene.metadata, "sesam_2el_sh")
+    backend.commit()
+
+    res = backend.get_mesh_data_from_face_index(1, 0, tag)
+    assert res.full_name == 'EL1'
+
+    res = backend.get_mesh_data_from_face_index(2, 0, tag)
+    assert res.full_name == 'EL1'
+
+    res = backend.get_mesh_data_from_face_index(10, 0, tag)
+    assert res.full_name == 'EL2'
+
+    # a.to_gltf("temp/sesam_2el_sh.glb")
 
 
 def test_bm_fem():

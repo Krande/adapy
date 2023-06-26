@@ -187,13 +187,17 @@ class GridHelper(Line):
         super().__init__(geometry, material)
 
 
-def tri_mat_to_gfx_mat(tri_mat: trimesh.visual.material.PBRMaterial) -> gfx.MeshPhongMaterial | gfx.MeshBasicMaterial:
+def tri_mat_to_gfx_mat(
+    tri_mat: trimesh.visual.material.PBRMaterial,
+) -> gfx.MeshPhongMaterial | gfx.MeshBasicMaterial:
     color = gfx.Color(*[x / 255 for x in tri_mat.baseColorFactor[:3]])
 
     return gfx.MeshPhongMaterial(color=color, flat_shading=True)
 
 
-def geometry_from_mesh(mesh: trimesh.Trimesh | trimesh.path.Path3D | MeshStore) -> gfx.Geometry:
+def geometry_from_mesh(
+    mesh: trimesh.Trimesh | trimesh.path.Path3D | MeshStore,
+) -> gfx.Geometry:
     """Convert a Trimesh geometry object to pygfx geometry."""
 
     if isinstance(mesh, MeshStore):
@@ -214,3 +218,33 @@ def geometry_from_mesh(mesh: trimesh.Trimesh | trimesh.path.Path3D | MeshStore) 
         )
 
     return geom
+
+
+def gfx_mesh_from_mesh(mesh: trimesh.Trimesh | trimesh.path.Path3D | MeshStore) -> gfx.Mesh | gfx.Points | gfx.Line:
+    if isinstance(mesh, MeshStore):
+        mat = tri_mat_to_gfx_mat(mesh.visual.material)
+        geom = gfx.Geometry(
+            positions=np.ascontiguousarray(mesh.get_position3(), dtype="f4"),
+            indices=np.ascontiguousarray(mesh.get_indices3(), dtype="i4"),
+        )
+        mesh = gfx.Mesh(geom, material=mat)
+    elif isinstance(mesh, trimesh.points.PointCloud):
+        geom = gfx.Geometry(positions=np.ascontiguousarray(mesh.vertices, dtype="f4"))
+        mat = gfx.PointsMaterial(size=10, color=mesh.visual.main_color)
+        mesh = gfx.Points(geom, material=mat)
+    elif isinstance(mesh, trimesh.path.Path3D):
+        vertices = np.ascontiguousarray(mesh.vertices, dtype="f4")
+        indices = np.ascontiguousarray(mesh.vertex_nodes, dtype="i4")
+        geom = gfx.Geometry(positions=vertices, indices=indices)
+        mat = gfx.LineSegmentMaterial(thickness=3, color=mesh.visual.main_color)
+        # mat = gfx.LineMaterial(thickness=3, color=mat.color)
+        mesh = gfx.Line(geom, material=mat)
+    else:
+        geom = gfx.Geometry(
+            positions=np.ascontiguousarray(mesh.vertices, dtype="f4"),
+            indices=np.ascontiguousarray(mesh.faces, dtype="i4"),
+        )
+        mat = tri_mat_to_gfx_mat(mesh.visual.material)
+        mesh = gfx.Mesh(geom, material=mat)
+
+    return mesh

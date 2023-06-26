@@ -1,10 +1,7 @@
-import pytest
-
 from ada import Assembly, Beam, Plate
 
 
-@pytest.fixture
-def model_with_components() -> Assembly:
+def test_viz_structural_glb():
     components = [
         Beam("bm1", n1=[0, 0, 0], n2=[2, 0, 0], sec="IPE220", color="red"),
         Beam("bm2", n1=[0, 0, 1], n2=[2, 0, 1], sec="HP220x10", color="blue"),
@@ -17,9 +14,5 @@ def model_with_components() -> Assembly:
             0.01,
         ),
     ]
-    return Assembly("my_test_assembly") / components
-
-
-def test_viz_structural_glb(model_with_components):
-    model_with_components.to_gltf("temp/model_merged.glb", embed_meta=True, merge_by_color=True)
-    model_with_components.to_gltf("temp/model.glb", embed_meta=True)
+    a = Assembly("my_test_assembly") / components
+    a.to_gltf("temp/model.glb")

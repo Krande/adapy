@@ -159,17 +159,17 @@ class Mesh:
 
                 face_s = len(faces)
                 faces += elem_shape.get_faces()
-                sh_groups.append(GroupReference(elem_id, face_s, len(faces)))
-                graph.add_node(GraphNode(f"EL{elem_id}", elem_id, parent=face_node))
+                graph.add_node(GraphNode(f"EL{elem_id}", f"el{elem_id}", parent=face_node))
+                sh_groups.append(GroupReference(f"el{elem_id}", face_s, len(faces)-face_s))
 
         coords = self.nodes.coords.flatten()
         for i, n in enumerate(self.nodes.identifiers):
             graph.add_node(GraphNode(n, i, parent=points_node))
 
-        po_groups = [GroupReference(i, i, 1) for i in range(1, len(self.nodes.coords) + 1)]
+        po_groups = [GroupReference(i, i, 1) for i in range(0, len(self.nodes.coords))]
 
-        edges = MergedMesh(np.array(edges), coords, None, line_color, MeshType.LINES, li_groups)
-        points = MergedMesh(None, coords, None, points_color, MeshType.POINTS, po_groups)
+        edges = MergedMesh(np.array(edges), coords, None, line_color, MeshType.LINES, groups=li_groups)
+        points = MergedMesh(None, coords, None, points_color, MeshType.POINTS, groups=po_groups)
         face_mesh = MergedMesh(np.array(faces), coords, None, shell_color, MeshType.TRIANGLES, groups=sh_groups)
         return points, edges, face_mesh
 
