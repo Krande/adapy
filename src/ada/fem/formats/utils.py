@@ -318,10 +318,10 @@ def folder_prep(scratch_dir, analysis_name, overwrite):
     analysis_dir = scratch_dir / analysis_name
     if analysis_dir.is_dir():
         _lock_check(analysis_dir)
-        if overwrite is True:
-            _overwrite_dir(analysis_dir)
-        else:
+        if overwrite is False:
             raise IOError('The analysis folder exists. Please remove folder or pass argument "overwrite=True"')
+
+        _overwrite_dir(analysis_dir)
 
     os.makedirs(analysis_dir, exist_ok=True)
     return analysis_dir

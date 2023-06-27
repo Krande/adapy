@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 import trimesh
 
+from ada.config import logger
+
 
 @dataclass
 class MeshInfo:
@@ -105,13 +107,16 @@ class SqLiteBackend(RenderBackend):
             self.c.execute("INSERT INTO mesh VALUES (?,?,?,?,?,?,?)", row)
         return tag
 
-    def get_mesh_data_from_face_index(self, face_index, buffer_id, tag) -> MeshInfo:
+    def get_mesh_data_from_face_index(self, face_index, buffer_id, tag) -> MeshInfo | None:
         """Returns the mesh id from a face index."""
         self.c.execute(
             "SELECT * FROM mesh WHERE buffer_id=? AND glb_file_name=? AND start<=? AND end >=?",
             (buffer_id, tag, face_index, face_index),
         )
         result = self.c.fetchone()
+        if result is None:
+            logger.error(f"Could not find mesh with face index {face_index} in buffer {buffer_id} in {tag}")
+            return None
         return MeshInfo(*result)
 
     def close(self):

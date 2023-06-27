@@ -164,7 +164,7 @@ class Mesh:
 
         coords = self.nodes.coords.flatten()
         for i, n in enumerate(self.nodes.identifiers):
-            graph.add_node(GraphNode(n, i, parent=points_node))
+            graph.add_node(GraphNode(f"P{int(n)}", i, parent=points_node))
 
         po_groups = [GroupReference(i, i, 1) for i in range(0, len(self.nodes.coords))]
 

@@ -170,6 +170,9 @@ class RendererPyGFX:
             geom_index, buffer_id, glb_fname
         )
 
+        if mesh_data is None:
+            return
+
         if self.selected_mesh is not None:
             self.scene.remove(self.selected_mesh)
 

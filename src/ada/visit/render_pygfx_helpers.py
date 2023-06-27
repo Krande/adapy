@@ -154,12 +154,12 @@ class GridHelper(Line):
     """
 
     def __init__(
-        self,
-        size=10.0,
-        divisions=10,
-        color1=(0.35, 0.35, 0.35, 1),
-        color2=(0.1, 0.1, 0.1, 1),
-        thickness=1,
+            self,
+            size=10.0,
+            divisions=10,
+            color1=(0.35, 0.35, 0.35, 1),
+            color2=(0.1, 0.1, 0.1, 1),
+            thickness=1,
     ):
         assert isinstance(divisions, int)
         assert size > 0.0
@@ -188,7 +188,7 @@ class GridHelper(Line):
 
 
 def tri_mat_to_gfx_mat(
-    tri_mat: trimesh.visual.material.PBRMaterial,
+        tri_mat: trimesh.visual.material.PBRMaterial,
 ) -> gfx.MeshPhongMaterial | gfx.MeshBasicMaterial:
     color = gfx.Color(*[x / 255 for x in tri_mat.baseColorFactor[:3]])
 
@@ -196,7 +196,7 @@ def tri_mat_to_gfx_mat(
 
 
 def geometry_from_mesh(
-    mesh: trimesh.Trimesh | trimesh.path.Path3D | MeshStore,
+        mesh: trimesh.Trimesh | trimesh.path.Path3D | MeshStore,
 ) -> gfx.Geometry:
     """Convert a Trimesh geometry object to pygfx geometry."""
 
@@ -233,11 +233,15 @@ def gfx_mesh_from_mesh(mesh: trimesh.Trimesh | trimesh.path.Path3D | MeshStore) 
         mat = gfx.PointsMaterial(size=10, color=mesh.visual.main_color)
         mesh = gfx.Points(geom, material=mat)
     elif isinstance(mesh, trimesh.path.Path3D):
-        vertices = np.ascontiguousarray(mesh.vertices, dtype="f4")
         indices = np.ascontiguousarray(mesh.vertex_nodes, dtype="i4")
-        geom = gfx.Geometry(positions=vertices, indices=indices)
+        positions = np.zeros((indices.shape[0] * 2, 3), dtype="f4")
+        i = 0
+        for p1, p2 in mesh.vertex_nodes:
+            positions[i] = mesh.vertices[p1]
+            positions[i + 1] = mesh.vertices[p2]
+            i += 2
+        geom = gfx.Geometry(positions=positions)
         mat = gfx.LineSegmentMaterial(thickness=3, color=mesh.visual.main_color)
-        # mat = gfx.LineMaterial(thickness=3, color=mat.color)
         mesh = gfx.Line(geom, material=mat)
     else:
         geom = gfx.Geometry(

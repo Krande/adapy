@@ -16,7 +16,6 @@ from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.config import Settings, logger
-from ada.fem import Mass
 from ada.visit.gltf.graph import GraphStore, GraphNode
 
 if TYPE_CHECKING:
@@ -479,7 +478,8 @@ class Part(BackendGeom):
         materials = []
         for part in filter(lambda x: len(x.materials) > 0, self.get_all_parts_in_assembly(include_self=include_self)):
             materials += part.materials.materials
-
+            if part.fem is not None:
+                materials += [sec.material for sec in part.fem.sections]
         return materials
 
     def get_all_sections(self, include_self=True) -> list[Section]:
@@ -556,6 +556,9 @@ class Part(BackendGeom):
 
         for part in filter(lambda x: len(x.materials) > 0, self.get_all_parts_in_assembly(include_self=include_self)):
             part.materials = Materials(parent=part)
+
+        for i, mat in enumerate(new_materials.materials, start=1):
+            mat.id = i
 
         self.materials = new_materials
 
@@ -669,6 +672,7 @@ class Part(BackendGeom):
         experimental_bm_splitting=True,
     ) -> FEM:
         from ada import Beam, Plate, Shape
+        from ada.fem.elements import Mass
         from ada.fem.meshing import GmshOptions, GmshSession
 
         if isinstance(bm_repr, str):

@@ -15,12 +15,15 @@ def main():
     bm1.add_boolean(ada.PrimCyl("cyl2", (1.8, 0, 0.5), (2.2, 0, 0.5), 0.1))
 
     p = ada.Part("MyBeam")
-    p.fem = bm1.to_fem_obj(0.1, "shell")
+    p.fem = bm1.to_fem_obj(0.05, "shell", use_quads=True)
 
     pl = ada.Plate("plate1", [(0, 0), (1, 0), (0, 1)],  0.1, origin=(0,0,0.5), color="blue", parent=p)
     # p.fem = pl.to_fem_obj(1, "shell")
 
     a = ada.Assembly() / (p / objects)
+
+    # a.to_fem("cutout_bm", 'abaqus', overwrite=True)
+    a.to_fem("cutout_bm", 'sesam', overwrite=True)
     a.to_gltf("temp/beam.glb")
 
     render = RendererPyGFX(render_backend=SqLiteBackend("temp/meshes.db"))
