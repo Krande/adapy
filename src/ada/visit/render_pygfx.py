@@ -167,8 +167,10 @@ class RendererPyGFX:
             if self._original_geometry is not None:
                 self._original_mesh.geometry = self._original_geometry
 
-            self._original_geometry = mesh.geometry.clone()
-
+            self._original_geometry = gfx.Geometry(
+                positions=np.array(mesh.geometry.positions.data), indices=np.array(mesh.geometry.indices.data)
+            )
+            self._original_mesh = mesh
             self.selected_mesh = highlight_clicked_mesh(mesh, [s, e], self._selected_mat)
             # Copy the old mesh map entry to the new mesh
 

@@ -24,6 +24,7 @@ def main():
 
     # a.to_fem("cutout_bm_aba", "abaqus", scratch_dir="temp", overwrite=True)
     # a.to_fem("cutout_bm_ses", "sesam", scratch_dir="temp", overwrite=True)
+    a.to_fem("cutout_bm_ufo", "usfos", scratch_dir="temp", overwrite=True)
     a.to_gltf("temp/beam.glb")
 
     render = RendererPyGFX(render_backend=SqLiteBackend("temp/meshes.db"))
