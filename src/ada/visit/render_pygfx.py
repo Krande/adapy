@@ -1,12 +1,10 @@
 # pip install -U pygfx glfw
 
-import pathlib
-from itertools import groupby
-from typing import Callable, Iterable
-
 import numpy as np
+import pathlib
 import trimesh
 import trimesh.visual.material
+from typing import Callable, Iterable
 
 from ada import Part
 from ada.base.types import GeomRepr
@@ -15,18 +13,13 @@ from ada.core.utils import create_guid
 from ada.geom import Geometry
 from ada.occ.tessellating import BatchTessellator
 from ada.visit.colors import Color
-from ada.visit.gltf.meshes import MeshStore
-from ada.visit.gltf.optimize import concatenate_stores
-from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
 try:
     import pygfx as gfx
 
     import ada.visit.render_pygfx_helpers as gfx_utils
 except ImportError:
-    raise ImportError(
-        "Please install pygfx to use this renderer -> 'pip install pygfx'."
-    )
+    raise ImportError("Please install pygfx to use this renderer -> 'pip install pygfx'.")
 try:
     from wgpu.gui.auto import WgpuCanvas
 except ImportError:
@@ -39,16 +32,14 @@ PICKED_COLOR = Color(0, 123, 255)
 
 
 class RendererPyGFX:
-    def __init__(
-        self, render_backend: RenderBackend, canvas_title: str = "PyGFX Renderer"
-    ):
+    def __init__(self, render_backend: RenderBackend, canvas_title: str = "PyGFX Renderer"):
         self.backend = render_backend
 
         self._mesh_map = {}
-        self._selected_mat = gfx.MeshPhongMaterial(
-            color=PICKED_COLOR, flat_shading=True
-        )
+        self._selected_mat = gfx.MeshPhongMaterial(color=PICKED_COLOR, flat_shading=True)
         self.selected_mesh = None
+        self._original_geometry = None
+        self._original_mesh = None
         self.scene = gfx.Scene()
         self.scene.add(gfx.Background(None, gfx.BackgroundMaterial(BG_GRAY.hex)))
         self._scene_objects = gfx.Group()
@@ -82,9 +73,7 @@ class RendererPyGFX:
             self._mesh_map[mesh.id] = (tag, buffer_id)
             yield mesh
 
-    def add_geom(
-        self, geom: Geometry, name: str, guid: str, tag=create_guid(), metadata=None
-    ):
+    def add_geom(self, geom: Geometry, name: str, guid: str, tag=create_guid(), metadata=None):
         bt = BatchTessellator()
 
         geom_mesh = bt.tessellate_geom(geom)
@@ -104,9 +93,7 @@ class RendererPyGFX:
         scene = bt.tessellate_part(part, render_override=render_override)
         self.add_trimesh_scene(scene, part.name, commit=True)
 
-    def add_trimesh_scene(
-        self, trimesh_scene: trimesh.Scene, tag: str, commit: bool = False
-    ):
+    def add_trimesh_scene(self, trimesh_scene: trimesh.Scene, tag: str, commit: bool = False):
         meshes = self._get_scene_meshes(trimesh_scene, tag)
         self._scene_objects.add(*meshes)
         self.backend.add_metadata(trimesh_scene.metadata, tag)
@@ -135,18 +122,15 @@ class RendererPyGFX:
 
         if event.button != 1:
             return
+
         obj = info.get("world_object", None)
         if isinstance(obj, gfx.Mesh):
             dim = 3
             mesh: gfx.Mesh = event.target
-            geom_index = (
-                info.get("face_index", None) * dim
-            )  # Backend uses a flat array of indices
+            geom_index = info.get("face_index", None) * dim  # Backend uses a flat array of indices
         elif isinstance(obj, gfx.Line):
             dim = 2
-            geom_index = (
-                info.get("vertex_index", None) * dim
-            )  # Backend uses a flat array of indices
+            geom_index = info.get("vertex_index", None) * dim  # Backend uses a flat array of indices
             mesh: gfx.Line = event.target
         elif isinstance(obj, gfx.Points):
             dim = 3
@@ -164,13 +148,13 @@ class RendererPyGFX:
         if res is None:
             print("Could not find mesh id in map")
             return
+
         glb_fname, buffer_id = res
 
-        mesh_data = self.backend.get_mesh_data_from_face_index(
-            geom_index, buffer_id, glb_fname
-        )
+        mesh_data = self.backend.get_mesh_data_from_face_index(geom_index, buffer_id, glb_fname)
 
         if mesh_data is None:
+            logger.error(f"Could not find data for {mesh} with {geom_index=}, {buffer_id=} and {glb_fname=}")
             return
 
         if self.selected_mesh is not None:
@@ -179,14 +163,19 @@ class RendererPyGFX:
         if isinstance(mesh, gfx.Mesh):
             s = mesh_data.start // dim
             e = mesh_data.end // dim + 1
-            indices = mesh.geometry.indices.data[s:e]
-            self.selected_mesh = scale_clicked_mesh(mesh, indices, self._selected_mat)
+
+            if self._original_geometry is not None:
+                self._original_mesh.geometry = self._original_geometry
+
+            self._original_geometry = mesh.geometry.clone()
+
+            self.selected_mesh = highlight_clicked_mesh(mesh, [s, e], self._selected_mat)
+            # Copy the old mesh map entry to the new mesh
+
         elif isinstance(mesh, gfx.Line):
-            self.selected_mesh = highlight_selected_line(mesh, self._selected_mat.color)
+            self.selected_mesh = highlight_clicked_line(mesh, self._selected_mat.color)
         elif isinstance(mesh, gfx.Points):
-            self.selected_mesh = highlight_selected_points(
-                mesh, mesh_data, self._selected_mat.color
-            )
+            self.selected_mesh = highlight_clicked_points(mesh, mesh_data, self._selected_mat.color)
         else:
             raise NotImplementedError()
 
@@ -211,30 +200,34 @@ class RendererPyGFX:
         self.display.show(self.scene)
 
 
-def scale_clicked_mesh(
-    mesh: gfx.Mesh, indices, material: gfx.MeshPhongMaterial, sfac=1.01
-) -> gfx.Mesh:
-    trim = trimesh.Trimesh(vertices=mesh.geometry.positions.data, faces=indices)
-    scale_tri_mesh(trim, sfac)
-
+def highlight_clicked_mesh(mesh: gfx.Mesh, indices, material: gfx.MeshPhongMaterial) -> gfx.Group:
+    mesh_verts = mesh.geometry.positions.data
+    mesh_index = mesh.geometry.indices.data
+    new_mesh_indices = [mesh_index[x] for x in range(*indices)]
+    trim = trimesh.Trimesh(vertices=mesh_verts, faces=new_mesh_indices)
     geom = gfx.Geometry(
         positions=np.ascontiguousarray(trim.vertices, dtype="f4"),
         indices=np.ascontiguousarray(trim.faces, dtype="i4"),
     )
+    selected_mesh = gfx.Mesh(geom, material=material)
 
-    c_mesh = gfx.Mesh(geom, material)
-    c_mesh.scale.set(sfac, sfac, sfac)
-    return c_mesh
+    # Remove the selected faces from the cube (which is a numpy array located cube.geometry.indices.data)
+    cube_cut_data = np.delete(mesh_index, indices, axis=0)
+    geom = gfx.Geometry(
+        positions=np.ascontiguousarray(mesh_verts, dtype="f4"),
+        indices=np.ascontiguousarray(cube_cut_data, dtype="i4"),
+    )
+    mesh.geometry = geom
+
+    return selected_mesh
 
 
-def highlight_selected_line(mesh: gfx.Line, color: gfx.Color) -> gfx.Line:
+def highlight_clicked_line(mesh: gfx.Line, color: gfx.Color) -> gfx.Line:
     c_mesh = gfx.Line(mesh.geometry, gfx.LineSegmentMaterial(thickness=3, color=color))
     return c_mesh
 
 
-def highlight_selected_points(
-    mesh: gfx.Points, mesh_data: MeshInfo, color: gfx.Color
-) -> gfx.Points:
+def highlight_clicked_points(mesh: gfx.Points, mesh_data: MeshInfo, color: gfx.Color) -> gfx.Points:
     s = mesh_data.start
     e = mesh_data.end + 1
     selected_positions = mesh.geometry.positions.data[s:e]

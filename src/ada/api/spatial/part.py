@@ -476,10 +476,10 @@ class Part(BackendGeom):
 
     def get_all_materials(self, include_self=True) -> list[Material]:
         materials = []
+
         for part in filter(lambda x: len(x.materials) > 0, self.get_all_parts_in_assembly(include_self=include_self)):
             materials += part.materials.materials
-            if part.fem is not None:
-                materials += [sec.material for sec in part.fem.sections]
+
         return materials
 
     def get_all_sections(self, include_self=True) -> list[Section]:
@@ -534,6 +534,12 @@ class Part(BackendGeom):
     def consolidate_materials(self, include_self=True):
         from ada import Beam, Pipe, PipeSegElbow, PipeSegStraight, Plate
         from ada.fem import FemSection
+
+        # Copy all materials assigned to fem sections objects to their parent parts
+        for part in filter(lambda x: not x.fem.is_empty(), self.get_all_parts_in_assembly(include_self=include_self)):
+            for sec in part.fem.sections:
+                ext_mat = part.materials.add(sec.material)
+                sec.material = ext_mat
 
         num_elem_changed = 0
         new_materials = Materials(parent=self)

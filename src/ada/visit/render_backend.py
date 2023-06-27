@@ -115,7 +115,7 @@ class SqLiteBackend(RenderBackend):
         )
         result = self.c.fetchone()
         if result is None:
-            logger.error(f"Could not find mesh with face index {face_index} in buffer {buffer_id} in {tag}")
+
             return None
         return MeshInfo(*result)
 
