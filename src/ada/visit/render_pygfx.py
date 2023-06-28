@@ -1,4 +1,5 @@
 # pip install -U pygfx glfw
+import io
 import threading
 
 import asyncio
@@ -283,9 +284,14 @@ def standalone_viewer():
         def _check_for_messages():
             while not shared_queue.empty():
                 data = shared_queue.get()
+                logger.info('Got data from server')
                 # process data here
-                render.scene.add(gfx.Mesh(gfx.box_geometry(1, 1, 1), gfx.MeshPhongMaterial(color="red")))
-                logger.info(f"Got message: {data}")
+                with io.BytesIO(data) as f:
+                    scene = trimesh.load_mesh(f, file_type='glb')
+
+                render.add_trimesh_scene(scene, tag="userdata")
+                render._camera.show_object(render.scene)
+                # render.scene.add(gfx.Mesh(gfx.box_geometry(1, 1, 1), gfx.MeshPhongMaterial(color="red")))
 
         render.before_render = _check_for_messages
         render.show()
