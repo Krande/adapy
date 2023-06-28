@@ -6,7 +6,9 @@
 import ada
 from ada.visit.render_backend import MeshInfo, SqLiteBackend
 from ada.visit.render_pygfx import RendererPyGFX
-from ada.config import Settings
+from ada.config import logger
+logger.setLevel("INFO")
+
 
 def main():
     objects = []
@@ -18,7 +20,7 @@ def main():
     p.fem = bm1.to_fem_obj(0.05, "shell", use_quads=True)
 
     pl = ada.Plate("plate1", [(0, 0), (1, 0), (0, 1)], 0.1, origin=(0, 0, 0.5), color="blue", parent=p)
-    # p.fem = pl.to_fem_obj(1, "shell")
+    # p.fem = pl.to_fem_obj(1, "shell", use_quads=True)
 
     a = ada.Assembly() / (p / objects)
 
@@ -30,7 +32,7 @@ def main():
     render = RendererPyGFX(render_backend=SqLiteBackend("temp/meshes.db"))
 
     def _on_click(event, mesh_data: MeshInfo):
-        print(mesh_data)
+        print(mesh_data, event.pick_info)
 
     render.on_click_post = _on_click
     render.add_part(a, render_override=render_override)

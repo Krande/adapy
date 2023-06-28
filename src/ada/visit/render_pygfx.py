@@ -25,7 +25,7 @@ try:
 except ImportError:
     raise ImportError("Please install wgpu to use this renderer -> 'pip install wgpu'.")
 
-from ada.visit.render_backend import MeshInfo, RenderBackend
+from ada.visit.render_backend import MeshInfo, RenderBackend, create_selected_meshes_from_mesh_info
 
 BG_GRAY = Color(57, 57, 57)
 PICKED_COLOR = Color(0, 123, 255)
@@ -38,6 +38,7 @@ class RendererPyGFX:
         self._mesh_map = {}
         self._selected_mat = gfx.MeshPhongMaterial(color=PICKED_COLOR, flat_shading=True)
         self.selected_mesh = None
+        self._selected_mesh_info: MeshInfo = None
         self._original_geometry = None
         self._original_mesh = None
         self.scene = gfx.Scene()
@@ -125,23 +126,17 @@ class RendererPyGFX:
 
         obj = info.get("world_object", None)
         if isinstance(obj, gfx.Mesh):
-            dim = 3
             mesh: gfx.Mesh = event.target
-            geom_index = info.get("face_index", None) * dim  # Backend uses a flat array of indices
+            geom_index = info.get("face_index", None) * 3  # Backend uses a flat array of indices
         elif isinstance(obj, gfx.Line):
-            dim = 2
-            geom_index = info.get("vertex_index", None) * dim  # Backend uses a flat array of indices
+            geom_index = info.get("vertex_index", None) * 2  # Backend uses a flat array of indices
             mesh: gfx.Line = event.target
         elif isinstance(obj, gfx.Points):
-            dim = 3
             geom_index = info.get("vertex_index", None)
             mesh: gfx.Points = event.target
         else:
             logger.debug("No mesh selected")
             return
-
-        if self.selected_mesh is not None:
-            self.scene.remove(self.selected_mesh)
 
         # Get what face was clicked
         res = self._mesh_map.get(mesh.id, None)
@@ -151,29 +146,40 @@ class RendererPyGFX:
 
         glb_fname, buffer_id = res
 
+        if self.selected_mesh is not None:
+            # Check if the geom index
+            if (
+                isinstance(obj, gfx.Mesh)
+                and buffer_id == self._selected_mesh_info.buffer_id
+                and geom_index > self._selected_mesh_info.start
+            ):
+                face_index_bump = 1 + self._selected_mesh_info.end - self._selected_mesh_info.start
+                logger.info(f"Adding {face_index_bump} to {geom_index=}")
+                geom_index += face_index_bump
+
+            self.scene.remove(self.selected_mesh)
+
         mesh_data = self.backend.get_mesh_data_from_face_index(geom_index, buffer_id, glb_fname)
 
         if mesh_data is None:
             logger.error(f"Could not find data for {mesh} with {geom_index=}, {buffer_id=} and {glb_fname=}")
             return
 
+        self._selected_mesh_info = mesh_data
         if self.selected_mesh is not None:
             self.scene.remove(self.selected_mesh)
+            del self.selected_mesh
+
+        if self._original_geometry is not None:
+            self._original_mesh.geometry = self._original_geometry
 
         if isinstance(mesh, gfx.Mesh):
-            s = mesh_data.start // dim
-            e = mesh_data.end // dim + 1
-
-            if self._original_geometry is not None:
-                self._original_mesh.geometry = self._original_geometry
-
             self._original_geometry = gfx.Geometry(
-                positions=np.array(mesh.geometry.positions.data), indices=np.array(mesh.geometry.indices.data)
+                positions=mesh.geometry.positions.data,
+                indices=mesh.geometry.indices.data,
             )
             self._original_mesh = mesh
-            self.selected_mesh = highlight_clicked_mesh(mesh, [s, e], self._selected_mat)
-            # Copy the old mesh map entry to the new mesh
-
+            self.selected_mesh = highlight_clicked_mesh(mesh, mesh_data, self._selected_mat)
         elif isinstance(mesh, gfx.Line):
             self.selected_mesh = highlight_clicked_line(mesh, self._selected_mat.color)
         elif isinstance(mesh, gfx.Points):
@@ -186,8 +192,7 @@ class RendererPyGFX:
         if self.on_click_post is not None:
             self.on_click_post(event, mesh_data)
         else:
-            coord = np.array(event.pick_info["face_coord"])
-            print(mesh_data, coord)
+            print(mesh_data, event.pick_info)
 
     def _add_event_handlers(self):
         ob = self._scene_objects
@@ -202,24 +207,14 @@ class RendererPyGFX:
         self.display.show(self.scene)
 
 
-def highlight_clicked_mesh(mesh: gfx.Mesh, indices, material: gfx.MeshPhongMaterial) -> gfx.Group:
-    mesh_verts = mesh.geometry.positions.data
-    mesh_index = mesh.geometry.indices.data
-    new_mesh_indices = [mesh_index[x] for x in range(*indices)]
-    trim = trimesh.Trimesh(vertices=mesh_verts, faces=new_mesh_indices)
-    geom = gfx.Geometry(
-        positions=np.ascontiguousarray(trim.vertices, dtype="f4"),
-        indices=np.ascontiguousarray(trim.faces, dtype="i4"),
-    )
-    selected_mesh = gfx.Mesh(geom, material=material)
+def highlight_clicked_mesh(mesh: gfx.Mesh, mesh_data: MeshInfo, material: gfx.MeshPhongMaterial) -> gfx.Mesh:
+    geom = mesh.geometry
+    sel_meshes = create_selected_meshes_from_mesh_info(mesh_data, geom.indices.data, geom.positions.data)
 
-    # Remove the selected faces from the cube (which is a numpy array located cube.geometry.indices.data)
-    cube_cut_data = np.delete(mesh_index, indices, axis=0)
-    geom = gfx.Geometry(
-        positions=np.ascontiguousarray(mesh_verts, dtype="f4"),
-        indices=np.ascontiguousarray(cube_cut_data, dtype="i4"),
-    )
-    mesh.geometry = geom
+    selected_mesh = gfx_utils.gfx_mesh_from_mesh(sel_meshes.selected_mesh, material)
+
+    modified_mesh = gfx_utils.gfx_mesh_from_mesh(sel_meshes.modified_mesh, mesh.material)
+    mesh.geometry = modified_mesh.geometry
 
     return selected_mesh
 

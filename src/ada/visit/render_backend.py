@@ -1,7 +1,8 @@
 import gzip
+import numpy as np
 import pathlib
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import trimesh
 
@@ -10,13 +11,31 @@ from ada.config import logger
 
 @dataclass
 class MeshInfo:
-    mesh_id: str
-    parent_id: str
+    mesh_id: str = field(repr=False)
+    parent_id: str = field(repr=False)
     full_name: str
     start: int
     end: int
     buffer_id: int
     glb_file_name: str
+
+
+@dataclass
+class SelectedMeshData:
+    selected_mesh: trimesh.Trimesh
+    modified_mesh: trimesh.Trimesh
+
+
+def create_selected_meshes_from_mesh_info(mesh_info: MeshInfo, indices, positions, dim: int = 3) -> SelectedMeshData:
+    """Returns the cut buffer from a mesh info object."""
+    s, e = mesh_info.start // dim, (mesh_info.end + 1) // dim
+    selected_indices = list(range(s, e))
+    new_mesh_indices = [indices[x] for x in selected_indices]
+    selected_mesh = trimesh.Trimesh(vertices=positions, faces=new_mesh_indices)
+
+    modified_mesh_indices = np.delete(indices, selected_indices, axis=0)
+    modified_mesh = trimesh.Trimesh(vertices=positions, faces=modified_mesh_indices)
+    return SelectedMeshData(selected_mesh, modified_mesh)
 
 
 class RenderBackend:
@@ -115,8 +134,8 @@ class SqLiteBackend(RenderBackend):
         )
         result = self.c.fetchone()
         if result is None:
-
             return None
+
         return MeshInfo(*result)
 
     def close(self):

@@ -220,7 +220,7 @@ def geometry_from_mesh(
     return geom
 
 
-def gfx_mesh_from_mesh(mesh: trimesh.Trimesh | trimesh.path.Path3D | MeshStore) -> gfx.Mesh | gfx.Points | gfx.Line:
+def gfx_mesh_from_mesh(mesh: trimesh.Trimesh | trimesh.path.Path3D | MeshStore, material=None) -> gfx.Mesh | gfx.Points | gfx.Line:
     if isinstance(mesh, MeshStore):
         mat = tri_mat_to_gfx_mat(mesh.visual.material)
         geom = gfx.Geometry(
@@ -248,7 +248,7 @@ def gfx_mesh_from_mesh(mesh: trimesh.Trimesh | trimesh.path.Path3D | MeshStore) 
             positions=np.ascontiguousarray(mesh.vertices, dtype="f4"),
             indices=np.ascontiguousarray(mesh.faces, dtype="i4"),
         )
-        mat = tri_mat_to_gfx_mat(mesh.visual.material)
+        mat = tri_mat_to_gfx_mat(mesh.visual.material) if material is None else material
         mesh = gfx.Mesh(geom, material=mat)
 
     return mesh
