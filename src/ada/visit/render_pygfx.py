@@ -1,4 +1,10 @@
 # pip install -U pygfx glfw
+import threading
+
+import asyncio
+
+import time
+from multiprocessing import Process, Manager
 
 import numpy as np
 import pathlib
@@ -10,9 +16,11 @@ from ada import Part
 from ada.base.types import GeomRepr
 from ada.config import logger
 from ada.core.utils import create_guid
+from ada.core.vector_utils import unit_vector
 from ada.geom import Geometry
 from ada.occ.tessellating import BatchTessellator
 from ada.visit.colors import Color
+from ada.visit.comms import start_server, message_queue, receive_messages
 
 try:
     import pygfx as gfx
@@ -25,7 +33,7 @@ try:
 except ImportError:
     raise ImportError("Please install wgpu to use this renderer -> 'pip install wgpu'.")
 
-from ada.visit.render_backend import MeshInfo, RenderBackend, create_selected_meshes_from_mesh_info
+from ada.visit.render_backend import MeshInfo, RenderBackend, create_selected_meshes_from_mesh_info, SqLiteBackend
 
 BG_GRAY = Color(57, 57, 57)
 PICKED_COLOR = Color(0, 123, 255)
@@ -48,11 +56,10 @@ class RendererPyGFX:
         self._scene_objects.cast_shadow = True
         self.scene.add(self._scene_objects)
 
-        canvas = WgpuCanvas(title=canvas_title, max_fps=60)
-        renderer = gfx.renderers.WgpuRenderer(canvas, show_fps=False)
-        # window = glfw.create_window(int(600), int(400), "GlfW", None, None)
-        # glfw.make_context_current(window)
-        self.display = gfx.Display(canvas=canvas, renderer=renderer)
+        self._canvas = WgpuCanvas(title=canvas_title, max_fps=60)
+        self._renderer = gfx.renderers.WgpuRenderer(self._canvas, show_fps=False)
+        self.before_render = None
+        self.after_render = None
         self.on_click_pre: Callable[[gfx.PointerEvent], None] | None = None
         self.on_click_post: Callable[[gfx.PointerEvent, MeshInfo], None] | None = None
         self._init_scene()
@@ -60,7 +67,8 @@ class RendererPyGFX:
     def _init_scene(self):
         scene = self.scene
         dir_light = gfx.DirectionalLight()
-        camera = gfx.PerspectiveCamera(70, 1, 0.1, 1000)
+        camera = gfx.PerspectiveCamera(70, 1, depth_range=(0.1, 1000))
+        self._camera = camera
         scene.add(camera)
         scene.add(dir_light)
         camera.add(dir_light)
@@ -87,7 +95,6 @@ class RendererPyGFX:
         self._mesh_map[mesh.id] = (tag, 0)
         self._scene_objects.add(mesh)
         self.backend.add_metadata(metadata, tag)
-        # raise NotImplementedError()
 
     def add_part(self, part: Part, render_override: dict[str, GeomRepr] = None):
         bt = BatchTessellator()
@@ -148,9 +155,9 @@ class RendererPyGFX:
 
         if self.selected_mesh is not None:
             if (
-                isinstance(obj, gfx.Mesh)
-                and buffer_id == self._selected_mesh_info.buffer_id
-                and geom_index > self._selected_mesh_info.start
+                    isinstance(obj, gfx.Mesh)
+                    and buffer_id == self._selected_mesh_info.buffer_id
+                    and geom_index > self._selected_mesh_info.start
             ):
                 face_index_bump = 1 + self._selected_mesh_info.end - self._selected_mesh_info.start
                 logger.info(f"Adding {face_index_bump} to {geom_index=}")
@@ -203,7 +210,12 @@ class RendererPyGFX:
         grid = gfx.GridHelper(grid_scale, 10)
         self.scene.add(grid)
         self._add_event_handlers()
-        self.display.show(self.scene)
+        x, y, z, r = self.scene.get_world_bounding_sphere()
+        view_pos = np.array([x, y, z]) - r * 5
+        view_dir = unit_vector(view_pos + np.array([x, y, z]))
+        self._camera.show_object(self.scene, view_dir=view_dir)
+        display = gfx.Display(canvas=self._canvas, renderer=self._renderer, before_render=self.before_render)
+        display.show(self.scene)
 
 
 def highlight_clicked_mesh(mesh: gfx.Mesh, mesh_data: MeshInfo, material: gfx.MeshPhongMaterial) -> gfx.Mesh:
@@ -251,3 +263,29 @@ def scale_tri_mesh(mesh: trimesh.Trimesh, sfac: float):
 
     # Apply the transformation
     mesh.apply_transform(transform)
+
+
+def standalone_viewer():
+    with Manager() as manager:
+        # Create a shared queue
+        shared_queue = manager.Queue()
+
+        # Start the server in a separate process, passing the shared queue
+        server_process = Process(target=start_server, args=(shared_queue,))
+        server_process.start()
+
+        # Wait a moment to make sure the server has time to start
+        time.sleep(1)
+
+        # create a function that will run for each draw call and will check for messages
+        render = RendererPyGFX(render_backend=SqLiteBackend())
+
+        def _check_for_messages():
+            while not shared_queue.empty():
+                data = shared_queue.get()
+                # process data here
+                render.scene.add(gfx.Mesh(gfx.box_geometry(1, 1, 1), gfx.MeshPhongMaterial(color="red")))
+                logger.info(f"Got message: {data}")
+
+        render.before_render = _check_for_messages
+        render.show()

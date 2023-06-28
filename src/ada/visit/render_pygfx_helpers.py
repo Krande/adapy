@@ -9,10 +9,10 @@ from pygfx import (
     MeshBasicMaterial,
     cone_geometry,
 )
-from pygfx.linalg import Vector3
 from pygfx.utils import Color
 
 from ada.visit.gltf.meshes import MeshStore
+import pylinalg as la
 
 DTYPE = "f4"
 
@@ -79,13 +79,12 @@ class AxesHelper(Line):
         for pos, color in zip(line_positions[1::2], colors[1::2]):
             material = MeshBasicMaterial(color=color)
             arrow_head = Mesh(cone, material)
-            arrow_head.position = Vector3(*pos)
+            arrow_head.local.position = pos
             # offset by half of height since the cones
             # are centered around the origin
-            arrow_head.position.add_scaled_vector(Vector3(*pos).normalize(), arrow_size / 2)
-            arrow_head.rotation.set_from_unit_vectors(
-                Vector3(0, 0, 1),
-                Vector3(*pos).normalize(),
+            arrow_head.local.position += arrow_size / 2 * la.vec_normalize(pos)
+            arrow_head.local.rotation = la.quat_from_vecs(
+                (0, 0, 1), la.vec_normalize(pos)
             )
             self.add(arrow_head)
 
@@ -154,12 +153,12 @@ class GridHelper(Line):
     """
 
     def __init__(
-            self,
-            size=10.0,
-            divisions=10,
-            color1=(0.35, 0.35, 0.35, 1),
-            color2=(0.1, 0.1, 0.1, 1),
-            thickness=1,
+        self,
+        size=10.0,
+        divisions=10,
+        color1=(0.35, 0.35, 0.35, 1),
+        color2=(0.1, 0.1, 0.1, 1),
+        thickness=1,
     ):
         assert isinstance(divisions, int)
         assert size > 0.0
@@ -188,7 +187,7 @@ class GridHelper(Line):
 
 
 def tri_mat_to_gfx_mat(
-        tri_mat: trimesh.visual.material.PBRMaterial,
+    tri_mat: trimesh.visual.material.PBRMaterial,
 ) -> gfx.MeshPhongMaterial | gfx.MeshBasicMaterial:
     color = gfx.Color(*[x / 255 for x in tri_mat.baseColorFactor[:3]])
 
@@ -196,7 +195,7 @@ def tri_mat_to_gfx_mat(
 
 
 def geometry_from_mesh(
-        mesh: trimesh.Trimesh | trimesh.path.Path3D | MeshStore,
+    mesh: trimesh.Trimesh | trimesh.path.Path3D | MeshStore,
 ) -> gfx.Geometry:
     """Convert a Trimesh geometry object to pygfx geometry."""
 
@@ -220,7 +219,9 @@ def geometry_from_mesh(
     return geom
 
 
-def gfx_mesh_from_mesh(mesh: trimesh.Trimesh | trimesh.path.Path3D | MeshStore, material=None) -> gfx.Mesh | gfx.Points | gfx.Line:
+def gfx_mesh_from_mesh(
+    mesh: trimesh.Trimesh | trimesh.path.Path3D | MeshStore, material=None
+) -> gfx.Mesh | gfx.Points | gfx.Line:
     if isinstance(mesh, MeshStore):
         mat = tri_mat_to_gfx_mat(mesh.visual.material)
         geom = gfx.Geometry(

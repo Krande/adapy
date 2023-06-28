@@ -5,6 +5,7 @@ channels:
 dependencies:
   - ada-py
   - pytest
+  - websockets
   - pip
   - pip:
       - pygfx
