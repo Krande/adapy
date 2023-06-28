@@ -5,8 +5,6 @@ from typing import TYPE_CHECKING, Callable
 
 from ada.base.types import BaseEnum
 from ada.config import logger
-
-from . import abaqus, calculix, code_aster, sesam, usfos
 from .utils import interpret_fem_format_from_path
 
 if TYPE_CHECKING:
@@ -30,26 +28,38 @@ class FEATypes(BaseEnum):
         return [x for x in FEATypes if x not in non_solvers]
 
 
-fem_imports: dict[FEATypes, Callable[..., Assembly]] = {
-    FEATypes.ABAQUS: abaqus.read_fem,
-    FEATypes.SESAM: sesam.read_fem,
-    FEATypes.CODE_ASTER: code_aster.read_fem,
-}
+def get_fem_imports() -> dict[FEATypes, Callable[..., Assembly]]:
+    from . import abaqus, code_aster, sesam
 
-fem_exports = {
-    FEATypes.ABAQUS: abaqus.to_fem,
-    FEATypes.CALCULIX: calculix.to_fem,
-    FEATypes.CODE_ASTER: code_aster.to_fem,
-    FEATypes.SESAM: sesam.to_fem,
-    FEATypes.USFOS: usfos.to_fem,
-}
+    return {
+        FEATypes.ABAQUS: abaqus.read_fem,
+        FEATypes.SESAM: sesam.read_fem,
+        FEATypes.CODE_ASTER: code_aster.read_fem,
+    }
 
-fem_executables: dict[FEATypes, Callable[..., subprocess.CompletedProcess]] = {
-    FEATypes.ABAQUS: abaqus.run_abaqus,
-    FEATypes.CALCULIX: calculix.run_calculix,
-    FEATypes.CODE_ASTER: code_aster.run_code_aster,
-    FEATypes.SESAM: sesam.run_sesam,
-}
+
+def get_fem_exports() -> dict[FEATypes, Callable[..., Assembly]]:
+    from . import abaqus, calculix, code_aster, sesam, usfos
+
+    return {
+        FEATypes.ABAQUS: abaqus.to_fem,
+        FEATypes.CALCULIX: calculix.to_fem,
+        FEATypes.CODE_ASTER: code_aster.to_fem,
+        FEATypes.SESAM: sesam.to_fem,
+        FEATypes.USFOS: usfos.to_fem,
+    }
+
+
+def get_fem_executable() -> dict[FEATypes, Callable[..., subprocess.CompletedProcess]]:
+    from . import abaqus, calculix, code_aster, sesam
+
+    return {
+        FEATypes.ABAQUS: abaqus.run_abaqus,
+        FEATypes.CALCULIX: calculix.run_calculix,
+        FEATypes.CODE_ASTER: code_aster.run_code_aster,
+        FEATypes.SESAM: sesam.run_sesam,
+    }
+
 
 fem_solver_map = {FEATypes.SESAM: "sestra", FEATypes.CALCULIX: "ccx"}
 
@@ -71,8 +81,8 @@ def get_fem_converters(fem_file, fem_format: str | FEATypes, fem_converter: str 
         fem_format = interpret_fem_format_from_path(fem_file)
 
     if fem_converter == FemConverters.DEFAULT:
-        fem_importer = fem_imports.get(fem_format, None)
-        fem_exporter = fem_exports.get(fem_format, None)
+        fem_importer = get_fem_imports().get(fem_format, None)
+        fem_exporter = get_fem_exports().get(fem_format, None)
     elif fem_converter == FemConverters.MESHIO:
         fem_importer = meshio_read_fem
         fem_exporter = meshio_to_fem

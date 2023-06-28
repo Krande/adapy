@@ -23,12 +23,15 @@ from .templates import main_header_str
 from .write_elements import elements_str
 from .write_loads import get_all_grav_loads
 from .write_steps import step_str
+from ...general import FEATypes
+from ...tools import tool_register, FEA_IO
 
 if TYPE_CHECKING:
     from ada import Assembly
     from ada.fem import Interaction, Surface
 
 
+@tool_register(fem_format=FEATypes.CALCULIX, io=FEA_IO.write)
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
     """Write a Calculix input file stack"""
 

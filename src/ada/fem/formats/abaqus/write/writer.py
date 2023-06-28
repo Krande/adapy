@@ -20,6 +20,8 @@ from .write_predefined_state import predefined_fields_str
 from .write_sets import elsets_str, nsets_str
 from .write_steps import write_step
 from .write_surfaces import surfaces_str
+from ...tools import tool_register, FEA_IO
+from ...general import FEATypes
 
 if TYPE_CHECKING:
     from ada.api.spatial import Assembly
@@ -27,6 +29,7 @@ if TYPE_CHECKING:
 __all__ = ["to_fem"]
 
 
+@tool_register(fem_format=FEATypes.ABAQUS, io=FEA_IO.write)
 def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None, writable_obj: StringIO = None):
     """Build the Abaqus Analysis input deck"""
 

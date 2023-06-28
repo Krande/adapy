@@ -147,7 +147,6 @@ class RendererPyGFX:
         glb_fname, buffer_id = res
 
         if self.selected_mesh is not None:
-            # Check if the geom index
             if (
                 isinstance(obj, gfx.Mesh)
                 and buffer_id == self._selected_mesh_info.buffer_id

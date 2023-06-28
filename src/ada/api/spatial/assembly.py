@@ -200,11 +200,13 @@ class Assembly(Part):
 
         write_to_fem(self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file)
 
+        # Execute
         if execute:
             execute_fem(
                 name, fem_format, scratch_dir, cpus, gpus, run_ext, metadata, execute, exit_on_complete, run_in_shell
             )
 
+        # Gather results
         fem_res_files = default_fem_res_path(name, scratch_dir=scratch_dir)
         res_path = fem_res_files.get(fem_format, None)
 
