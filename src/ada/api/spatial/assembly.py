@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-import ifcopenshell
-import ifcopenshell.validate
 import os
 import pathlib
 from dataclasses import dataclass
-from typing import Callable, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Union
+
+import ifcopenshell
+import ifcopenshell.validate
 
 from ada.api.presentation_layers import PresentationLayers
-
+from ada.api.spatial.part import Part
 from ada.api.user import User
 from ada.base.ifc_types import SpatialTypes
 from ada.base.types import GeomRepr
@@ -16,9 +17,15 @@ from ada.base.units import Units
 from ada.cache.store import CacheStore
 from ada.cadit.ifc.store import IfcStore
 from ada.config import Settings, logger
-from ada.fem import Connector, Csys, FemSet
-from ada.fem import StepEigen, StepExplicit, StepImplicit, StepSteadyState
-from ada.api.spatial.part import Part
+from ada.fem import (
+    Connector,
+    Csys,
+    FemSet,
+    StepEigen,
+    StepExplicit,
+    StepImplicit,
+    StepSteadyState,
+)
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 

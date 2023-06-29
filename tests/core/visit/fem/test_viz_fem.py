@@ -3,8 +3,9 @@ import pytest
 import ada
 from ada.fem.meshing import GmshSession
 from ada.param_models.utils import beams_along_polyline
-from ada.visit.utils import get_edges_from_fem, get_faces_from_fem
 from ada.visit.render_backend import SqLiteBackend
+from ada.visit.utils import get_edges_from_fem, get_faces_from_fem
+
 
 @pytest.fixture
 def bm_fem():
@@ -38,9 +39,9 @@ def test_single_ses_elem(fem_files):
     backend.commit()
 
     res = backend.get_mesh_data_from_face_index(1, 0, tag)
-    assert res.full_name == 'EL1'
+    assert res.full_name == "EL1"
     res = backend.get_mesh_data_from_face_index(2, 0, tag)
-    assert res.full_name == 'EL1'
+    assert res.full_name == "EL1"
     # scene.to_gltf("temp/sesam_1el_sh.glb")
 
 
@@ -54,13 +55,13 @@ def test_double_ses_elem(fem_files):
     backend.commit()
 
     res = backend.get_mesh_data_from_face_index(1, 0, tag)
-    assert res.full_name == 'EL1'
+    assert res.full_name == "EL1"
 
     res = backend.get_mesh_data_from_face_index(2, 0, tag)
-    assert res.full_name == 'EL1'
+    assert res.full_name == "EL1"
 
     res = backend.get_mesh_data_from_face_index(10, 0, tag)
-    assert res.full_name == 'EL2'
+    assert res.full_name == "EL2"
 
     # a.to_gltf("temp/sesam_2el_sh.glb")
 

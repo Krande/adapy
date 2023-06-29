@@ -9,10 +9,9 @@ Some basic line drawing.
 # sphinx_gallery_pygfx_target_name = "canvas"
 
 import numpy as np
+import pygfx as gfx
 from pygfx.linalg import Vector3
 from wgpu.gui.auto import WgpuCanvas, run
-import pygfx as gfx
-
 
 canvas = WgpuCanvas()
 renderer = gfx.WgpuRenderer(canvas)
@@ -43,8 +42,6 @@ scene.add(line)
 
 camera = gfx.OrthographicCamera(600, 500)
 camera.position = Vector3(300, 250, 0)
-
-
 
 
 if __name__ == "__main__":

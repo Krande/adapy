@@ -172,27 +172,12 @@ class BackendGeom(Root):
         self._placement = value
 
     def _repr_html_(self):
-        from IPython.display import display
-        from ipywidgets import HBox, VBox
+        from ada.visit.config import JUPYTER_GEOM_RENDERER
 
-        from ada.config import Settings
-        from ada.visit.rendering.renderer_pythreejs import MyRenderer
+        if JUPYTER_GEOM_RENDERER is None:
+            return
 
-        if Settings.use_new_visualize_api is True:
-            from ada.visit.rendering.new_render_api import Visualize
-
-            viz = Visualize(self)
-            viz.objects = []
-            viz.add_obj(self)
-            viz.display(return_viewer=False)
-            return ""
-
-        renderer = MyRenderer()
-
-        renderer.DisplayObj(self)
-        renderer.build_display()
-        display(HBox([VBox([HBox(renderer.controls), renderer.renderer]), renderer.html]))
-        return ""
+        return JUPYTER_GEOM_RENDERER(self)
 
     def solid_occ(self) -> TopoDS_Solid | TopoDS_Compound:
         raise NotImplementedError()

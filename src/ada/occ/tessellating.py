@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from itertools import groupby
-
 from dataclasses import dataclass, field
+from itertools import groupby
 from typing import Iterable
 
 import numpy as np
@@ -12,14 +11,13 @@ from OCC.Core.Tesselator import ShapeTesselator
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Shape
 from OCC.Extend.TopologyUtils import discretize_edge
 
+from ada.api.spatial import Part
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.geom import Geometry
-from ada.api.spatial import Part
 from ada.occ.exceptions import UnableToCreateTesselationFromSolidOCCGeom
 from ada.occ.geom import geom_to_occ_geom
 from ada.visit.colors import Color
-from ada.visit.gltf.graph import GraphNode
 from ada.visit.gltf.meshes import MeshStore, MeshType
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
@@ -201,12 +199,7 @@ class BatchTessellator:
             parent_node = graph.nodes.get(p.guid)
 
             points_store, edge_store, face_store = mesh.create_mesh_stores(
-                p.fem.name,
-                shell_color,
-                line_color,
-                points_color,
-                graph,
-                parent_node
+                p.fem.name, shell_color, line_color, points_color, graph, parent_node
             )
 
             merged_mesh_to_trimesh_scene(scene, face_store, shell_color, shell_color_id, graph)

@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from ada import Beam, Part, Pipe, PipeSegElbow, PipeSegStraight, Plate, Shape, Wall
     from ada.api.connections import JointBase
 
-__all__ = ["MyRenderer", "SectionRenderer"]
+__all__ = ["MyRenderer"]
 logger = get_logger()
 
 
@@ -801,138 +801,6 @@ class MyRenderer(JupyterRenderer):
     @property
     def displayed_pickable_objects(self):
         return self._displayed_pickable_objects
-
-
-class SectionRenderer:
-    """
-    Basically just a test to see if it can serve a purpose for visualizing section properties in Jupyter Notebooks
-
-    """
-
-    def build_display(self, sec):
-        """
-
-        :type sec: ada.Section
-        """
-
-        from ipywidgets import HTML
-
-        from ada.api.curves import CurvePoly2d
-        from ada.sections import SectionCat
-        from ada.visit.plots import easy_plotly
-
-        # testb = Button(
-        #     description="plot",
-        #     button_style="",  # 'success', 'info', 'warning', 'danger' or ''
-        # )
-        #
-        # center = Button(
-        #     description="plot",
-        #     button_style="",  # 'success', 'info', 'warning', 'danger' or ''
-        # )
-        html = HTML("<b>Section Properties</b></br></br>")
-        section_profile = sec.get_section_profile(True)
-
-        def get_data(curve: CurvePoly2d):
-            x = []
-            y = []
-            for edge in curve.points2d + [curve.points2d[0]]:
-                x.append(edge[0])
-                y.append(edge[1])
-            return x, y
-
-        xrange, yrange = None, None
-        plot_data = dict()
-
-        if section_profile.outer_curve is not None and type(section_profile.outer_curve) is not float:
-            outer = get_data(section_profile.outer_curve)
-            plot_data["outer"] = outer
-            max_dim = max(max(outer[0]), max(outer[1]))
-            min_dim = min(min(outer[0]), min(outer[1]))
-            xrange = [min_dim, max_dim]
-            yrange = [min_dim, max_dim]
-        if section_profile.inner_curve is not None:
-            inner = get_data(section_profile.inner_curve)
-            plot_data["inner"] = inner
-
-        sp = sec.properties
-        for sec_prop in [
-            ("Ax", sp.Ax),
-            ("Ix", sp.Ix),
-            ("Iy", sp.Iy),
-            ("Iz", sp.Iz),
-            ("Iyz", sp.Iyz),
-            ("Wxmin", sp.Wxmin),
-            ("Wymin", sp.Wymin),
-            ("Wzmin", sp.Wzmin),
-            ("Sy", sp.Sy),
-            ("Sz", sp.Sz),
-            ("Shary", sp.Shary),
-            ("Sharz", sp.Sharz),
-            ("Shceny", sp.Shceny),
-            ("Shcenz", sp.Shcenz),
-        ]:
-            res = sec_prop[1]
-            if res is not None:
-                html.value += f"<b>{sec_prop[0]}:</b> {sec_prop[1]:.4E}<br>"
-            else:
-                html.value += f"<b>{sec_prop[0]}:</b> Prop calc not defined yet<br>"
-
-        # controls = []
-        shapes = None
-        if sec.type in SectionCat.circular:
-            xrange = [-sec.r * 1.1, sec.r * 1.1]
-            yrange = xrange
-            shapes = [
-                # unfilled circle
-                dict(
-                    type="circle",
-                    xref="x",
-                    yref="y",
-                    x0=0,
-                    y0=0,
-                    x1=sec.r,
-                    y1=0,
-                    line_color="LightSeaGreen",
-                )
-            ]
-        elif sec.type in SectionCat.tubular:
-            xrange = [-sec.r * 1.1, sec.r * 1.1]
-            yrange = xrange
-            shapes = [
-                dict(
-                    type="circle",
-                    xref="x",
-                    yref="y",
-                    x0=-sec.r,
-                    y0=-sec.r,
-                    x1=sec.r,
-                    y1=sec.r,
-                    line_color="LightSeaGreen",
-                ),
-                dict(
-                    type="circle",
-                    xref="x",
-                    yref="y",
-                    x0=-sec.r + sec.wt,
-                    y0=-sec.r + sec.wt,
-                    x1=sec.r - sec.wt,
-                    y1=sec.r - sec.wt,
-                    line_color="LightSeaGreen",
-                ),
-            ]
-
-        fig = easy_plotly(
-            f'ADA Section: "{sec.name}", Type: "{sec.type}"',
-            plot_data,
-            xrange=xrange,
-            yrange=yrange,
-            shapes=shapes,
-            return_widget=True,
-        )
-        fig["layout"]["yaxis"]["scaleanchor"] = "x"
-        return fig, HTML
-        # display(widgets.VBox([widgets.HBox([testb]), center, self._fig]))
 
 
 def get_vertices_from_elem(el: Elem, return_ids=False):

@@ -2,10 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ada.cadit.ifc.utils import (
-    create_local_placement,
-    write_elem_property_sets,
-)
+from ada.cadit.ifc.utils import create_local_placement, write_elem_property_sets
 from ada.core.constants import O, X, Z
 from ada.core.utils import Counter, create_guid
 

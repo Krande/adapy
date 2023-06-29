@@ -251,14 +251,12 @@ class Section(Root):
         return build_section_profile(self, is_solid)
 
     def _repr_html_(self):
-        from IPython.display import display
-        from ipywidgets import HBox
+        from ada.visit.config import JUPYTER_SECTION_RENDERER
 
-        from ada.visit.rendering.renderer_pythreejs import SectionRenderer
+        if JUPYTER_SECTION_RENDERER is None:
+            return "Jupyter display not available."
 
-        sec_render = SectionRenderer()
-        fig, html = sec_render.build_display(self)
-        display(HBox([fig, html]))
+        JUPYTER_SECTION_RENDERER(self)
 
     @property
     def refs(self) -> list[Beam | FemSection | Pipe | PipeSegStraight | PipeSegElbow]:

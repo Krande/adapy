@@ -11,6 +11,7 @@ from ada.sections.categories import BaseTypes
 from ada.visit.colors import Color
 from ada.visit.render_backend import MeshInfo, SqLiteBackend
 from ada.visit.render_pygfx import RendererPyGFX
+
 # from ada.config import logger
 #
 # logger.setLevel("INFO")

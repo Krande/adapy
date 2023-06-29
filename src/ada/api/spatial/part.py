@@ -3,12 +3,12 @@ from __future__ import annotations
 import os
 import pathlib
 from itertools import chain
-from typing import Any, Iterable, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
-from ada import Pipe, Shape, PrimExtrude, PrimRevolve, PrimCyl, PrimBox, Node
+from ada import Node, Pipe, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.api.beams.base_bm import Beam, BeamTapered
 from ada.api.connections import JointBase
-from ada.api.containers import Nodes, Beams, Plates, Connections, Materials, Sections
+from ada.api.containers import Beams, Connections, Materials, Nodes, Plates, Sections
 from ada.api.groups import Group
 from ada.base.changes import ChangeAction
 from ada.base.ifc_types import SpatialTypes
@@ -16,10 +16,20 @@ from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.config import Settings, logger
-from ada.visit.gltf.graph import GraphStore, GraphNode
+from ada.visit.gltf.graph import GraphNode, GraphStore
 
 if TYPE_CHECKING:
-    from ada import Boolean, Material, Plate, Section, Wall, Weld, FEM, Instance, Placement
+    from ada import (
+        FEM,
+        Boolean,
+        Instance,
+        Material,
+        Placement,
+        Plate,
+        Section,
+        Wall,
+        Weld,
+    )
     from ada.cadit.ifc.store import IfcStore
     from ada.fem.containers import COG
     from ada.fem.meshing import GmshOptions
@@ -314,7 +324,7 @@ class Part(BackendGeom):
         return self.groups[name]
 
     def add_elements_from_ifc(self, ifc_file_path: os.PathLike | str, data_only=False):
-        from ada import Beam, Pipe, Plate, Shape, Wall, Assembly
+        from ada import Assembly, Beam, Pipe, Plate, Shape, Wall
 
         a = Assembly("temp")
         a.read_ifc(ifc_file_path, data_only=data_only)
@@ -418,8 +428,8 @@ class Part(BackendGeom):
 
     def create_objects_from_fem(self, skip_plates=False, skip_beams=False) -> None:
         """Build Beams and Plates from the contents of the local FEM object"""
-        from ada.fem.formats.utils import convert_part_objects
         from ada import Assembly
+        from ada.fem.formats.utils import convert_part_objects
 
         if isinstance(self, Assembly):
             for p_ in self.get_all_parts_in_assembly():

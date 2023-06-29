@@ -1,5 +1,6 @@
 import numpy as np
 import pygfx as gfx
+import pylinalg as la
 import trimesh
 from pygfx import (
     Geometry,
@@ -12,7 +13,6 @@ from pygfx import (
 from pygfx.utils import Color
 
 from ada.visit.gltf.meshes import MeshStore
-import pylinalg as la
 
 DTYPE = "f4"
 
@@ -83,9 +83,7 @@ class AxesHelper(Line):
             # offset by half of height since the cones
             # are centered around the origin
             arrow_head.local.position += arrow_size / 2 * la.vec_normalize(pos)
-            arrow_head.local.rotation = la.quat_from_vecs(
-                (0, 0, 1), la.vec_normalize(pos)
-            )
+            arrow_head.local.rotation = la.quat_from_vecs((0, 0, 1), la.vec_normalize(pos))
             self.add(arrow_head)
 
     def set_colors(self, x, y, z):

@@ -4,6 +4,8 @@ import os
 from io import StringIO
 from typing import TYPE_CHECKING
 
+from ...general import FEATypes
+from ...tools import FEA_IO, tool_register
 from .write_amplitudes import amplitudes_str
 from .write_bc import boundary_conditions_str
 from .write_connectors import connector_sections_str, connectors_str
@@ -20,8 +22,6 @@ from .write_predefined_state import predefined_fields_str
 from .write_sets import elsets_str, nsets_str
 from .write_steps import write_step
 from .write_surfaces import surfaces_str
-from ...tools import tool_register, FEA_IO
-from ...general import FEATypes
 
 if TYPE_CHECKING:
     from ada.api.spatial import Assembly

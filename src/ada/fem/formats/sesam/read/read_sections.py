@@ -3,12 +3,11 @@ from typing import Union
 
 import numpy as np
 
-
 from ada.api.containers import Sections
 from ada.config import logger
 from ada.core.utils import roundoff
 from ada.core.vector_utils import unit_vector, vector_length
-from ada.fem import Csys, Elem, FemSection, FemSet, FEM
+from ada.fem import FEM, Csys, Elem, FemSection, FemSet
 from ada.fem.containers import FemSections
 from ada.fem.formats.utils import str_to_int
 from ada.fem.shapes import ElemType

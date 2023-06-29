@@ -1,18 +1,15 @@
 # pip install -U pygfx glfw
 import io
-import threading
-
-import asyncio
-
-import time
-from multiprocessing import Process, Manager
-
-import numpy as np
 import pathlib
-import trimesh
-import trimesh.visual.material
+import time
+from multiprocessing import Manager, Process
 from typing import Callable, Iterable
 
+import numpy as np
+import trimesh
+import trimesh.visual.material
+
+import ada
 from ada import Part
 from ada.base.types import GeomRepr
 from ada.config import logger
@@ -21,7 +18,7 @@ from ada.core.vector_utils import unit_vector
 from ada.geom import Geometry
 from ada.occ.tessellating import BatchTessellator
 from ada.visit.colors import Color
-from ada.visit.comms import start_server, message_queue, receive_messages
+from ada.visit.comms import start_server
 
 try:
     import pygfx as gfx
@@ -34,7 +31,12 @@ try:
 except ImportError:
     raise ImportError("Please install wgpu to use this renderer -> 'pip install wgpu'.")
 
-from ada.visit.render_backend import MeshInfo, RenderBackend, create_selected_meshes_from_mesh_info, SqLiteBackend
+from ada.visit.render_backend import (
+    MeshInfo,
+    RenderBackend,
+    SqLiteBackend,
+    create_selected_meshes_from_mesh_info,
+)
 
 BG_GRAY = Color(57, 57, 57)
 PICKED_COLOR = Color(0, 123, 255)
@@ -154,9 +156,9 @@ class RendererPyGFX:
 
         if self.selected_mesh is not None:
             if (
-                    isinstance(obj, gfx.Mesh)
-                    and buffer_id == self._selected_mesh_info.buffer_id
-                    and geom_index > self._selected_mesh_info.start
+                isinstance(obj, gfx.Mesh)
+                and buffer_id == self._selected_mesh_info.buffer_id
+                and geom_index > self._selected_mesh_info.start
             ):
                 face_index_bump = 1 + self._selected_mesh_info.end - self._selected_mesh_info.start
                 logger.info(f"Adding {face_index_bump} to {geom_index=}")
@@ -283,13 +285,28 @@ def standalone_viewer():
             while not shared_queue.empty():
                 data = shared_queue.get()
                 render._scene_objects.clear()
-                logger.info('Got data from server')
+                logger.info("Got data from server")
                 # process data here
                 with io.BytesIO(data) as f:
-                    scene = trimesh.load_mesh(f, file_type='glb')
+                    scene = trimesh.load_mesh(f, file_type="glb")
 
                 render.add_trimesh_scene(scene, tag="userdata")
                 render._camera.show_object(render.scene)
 
         render.before_render = _check_for_messages
         render.show()
+
+
+def render_object(part: ada.Part | ada.Beam | ada.Plate):
+    render = RendererPyGFX(render_backend=SqLiteBackend())
+
+    def _on_click(event, mesh_data: MeshInfo):
+        obj = part.get_by_guid(mesh_data.mesh_id)
+        print(obj)
+
+    if not isinstance(part, ada.Part):
+        part = ada.Part("temp") / part
+
+    render.on_click_post = _on_click
+    render.add_part(part)
+    render.show()

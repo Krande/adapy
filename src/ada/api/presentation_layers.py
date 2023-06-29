@@ -4,8 +4,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from ada.base.changes import ChangeAction
-from ada.core.utils import create_guid
 from ada.config import logger
+from ada.core.utils import create_guid
 
 if TYPE_CHECKING:
     from ada.base.physical_objects import BackendGeom

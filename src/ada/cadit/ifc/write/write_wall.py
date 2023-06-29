@@ -7,8 +7,8 @@ from ada.cadit.ifc.utils import (
     create_local_placement,
     tesselate_shape,
 )
-from ada.core.utils import create_guid
 from ada.core.constants import O, X, Z
+from ada.core.utils import create_guid
 
 from .write_stru_components import write_door, write_window
 

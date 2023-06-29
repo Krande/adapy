@@ -12,10 +12,10 @@ from ada.config import logger
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
 
-from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 from ...core.utils import create_guid
-from ...visit.gltf.graph import GraphStore, GraphNode
-from ...visit.gltf.meshes import MeshStore, MeshType, MergedMesh, GroupReference
+from ...visit.gltf.graph import GraphNode, GraphStore
+from ...visit.gltf.meshes import GroupReference, MergedMesh, MeshType
+from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 
 if TYPE_CHECKING:
     from ada import Material, Node, Section
@@ -121,7 +121,8 @@ class Mesh:
     def create_mesh_stores(
         self, parent_name: str, shell_color, line_color, points_color, graph: GraphStore, parent_node: GraphNode
     ) -> tuple[MergedMesh, MergedMesh, MergedMesh]:
-        from ada.fem.shapes import ElemShape, definitions as shape_def
+        from ada.fem.shapes import ElemShape
+        from ada.fem.shapes import definitions as shape_def
 
         face_node = graph.add_node(GraphNode(parent_name + "_sh", create_guid(), parent=parent_node))
         line_node = graph.add_node(GraphNode(parent_name + "_li", create_guid(), parent=parent_node))
@@ -160,7 +161,7 @@ class Mesh:
                 face_s = len(faces)
                 faces += elem_shape.get_faces()
                 graph.add_node(GraphNode(f"EL{elem_id}", f"el{elem_id}", parent=face_node))
-                sh_groups.append(GroupReference(f"el{elem_id}", face_s, len(faces)-face_s))
+                sh_groups.append(GroupReference(f"el{elem_id}", face_s, len(faces) - face_s))
 
         coords = self.nodes.coords.flatten()
         for i, n in enumerate(self.nodes.identifiers):

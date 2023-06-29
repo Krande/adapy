@@ -1,8 +1,8 @@
+import asyncio
 import io
 import time
 from multiprocessing import Queue
 
-import asyncio
 import websockets
 
 import ada
@@ -36,6 +36,7 @@ def start_server(shared_queue: Queue = None):
 
 def send_to_viewer(part: ada.Part):
     from websockets.sync.client import connect
+
     start = time.time()
     data = io.BytesIO()
     part.to_trimesh_scene().export(data, file_type="glb")

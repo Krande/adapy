@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 import pathlib
 from dataclasses import dataclass, field
-from trimesh.path.entities import Line
 from typing import BinaryIO, Iterable
 
 import numpy as np
 import trimesh
 import trimesh.visual
+from trimesh.path.entities import Line
 
 from ada.config import logger
 from ada.core.vector_transforms import transform_4x4

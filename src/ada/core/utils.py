@@ -1,7 +1,6 @@
 # coding=utf-8
 from __future__ import annotations
 
-import ifcopenshell
 import importlib.util
 import os
 import pathlib
@@ -10,6 +9,7 @@ import zipfile
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import TYPE_CHECKING, Any, Dict, Union
 
+import ifcopenshell
 import numpy as np
 
 from ada.config import Settings, logger

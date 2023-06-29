@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Callable
 
 from ada.base.types import BaseEnum
 from ada.config import logger
+
 from .utils import interpret_fem_format_from_path
 
 if TYPE_CHECKING:

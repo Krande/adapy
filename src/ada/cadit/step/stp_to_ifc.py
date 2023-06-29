@@ -8,10 +8,10 @@ from ifcopenshell import ifcopenshell_wrapper
 import ada
 from ada.base.units import Units
 from ada.cadit.ifc.utils import add_colour, create_local_placement
-from ada.core.utils import create_guid
 from ada.cadit.ifc.write.write_ifc import IfcWriter
 from ada.cadit.step.store import StepStore
 from ada.config import logger
+from ada.core.utils import create_guid
 from ada.occ.serializers import serialize_shape
 
 

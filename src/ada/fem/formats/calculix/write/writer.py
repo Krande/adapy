@@ -18,13 +18,13 @@ from ada.fem.formats.utils import get_fem_model_from_assembly
 from ada.fem.steps import StepExplicit
 from ada.sections import SectionCat as Sc
 
+from ...general import FEATypes
+from ...tools import FEA_IO, tool_register
 from ..compatibility import check_compatibility
 from .templates import main_header_str
 from .write_elements import elements_str
 from .write_loads import get_all_grav_loads
 from .write_steps import step_str
-from ...general import FEATypes
-from ...tools import tool_register, FEA_IO
 
 if TYPE_CHECKING:
     from ada import Assembly

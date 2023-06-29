@@ -1,12 +1,11 @@
 import gzip
-import numpy as np
 import pathlib
 import sqlite3
 from dataclasses import dataclass, field
 
+import numpy as np
 import trimesh
 
-from ada.config import logger
 
 
 @dataclass

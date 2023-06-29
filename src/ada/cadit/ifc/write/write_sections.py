@@ -5,9 +5,9 @@ from dataclasses import dataclass
 import ifcopenshell
 import numpy as np
 
-from ada.sections.concept import Section
 from ada.config import Settings, logger
 from ada.sections.categories import SectionCat
+from ada.sections.concept import Section
 
 from ..utils import create_ifcindexpolyline, create_ifcpolyline, to_real
 

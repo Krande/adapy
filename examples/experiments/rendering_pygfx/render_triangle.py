@@ -17,7 +17,6 @@ Similar example in other languages / API's:
 
 import wgpu
 
-
 # %% Shaders
 
 
@@ -71,9 +70,7 @@ def main(canvas, power_preference="high-performance", limits=None):
 
 async def main_async(canvas):
     """Async function to setup a viz on the given canvas."""
-    adapter = await wgpu.request_adapter_async(
-        canvas=canvas, power_preference="high-performance"
-    )
+    adapter = await wgpu.request_adapter_async(canvas=canvas, power_preference="high-performance")
     device = await adapter.request_device_async(required_limits={})
     return _main(canvas, device)
 

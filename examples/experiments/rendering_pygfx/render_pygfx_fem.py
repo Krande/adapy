@@ -4,9 +4,10 @@
 #
 
 import ada
+from ada.config import logger
 from ada.visit.render_backend import MeshInfo, SqLiteBackend
 from ada.visit.render_pygfx import RendererPyGFX
-from ada.config import logger
+
 logger.setLevel("INFO")
 
 
@@ -19,7 +20,7 @@ def main():
     p = ada.Part("MyBeam")
     p.fem = bm1.to_fem_obj(0.05, "shell", use_quads=True)
 
-    pl = ada.Plate("plate1", [(0, 0), (1, 0), (0, 1)], 0.1, origin=(0, 0, 0.5), color="blue", parent=p)
+    ada.Plate("plate1", [(0, 0), (1, 0), (0, 1)], 0.1, origin=(0, 0, 0.5), color="blue", parent=p)
     # p.fem = pl.to_fem_obj(1, "shell", use_quads=True)
 
     a = ada.Assembly() / (p / objects)
