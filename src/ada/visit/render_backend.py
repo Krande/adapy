@@ -124,6 +124,8 @@ class SqLiteBackend(RenderBackend):
             start, end, buffer_id = id_sequence_data.get(mesh_id, [None, None, None])  # Get start, end values
             row = (mesh_id, parent_id, full_name, start, end, buffer_id, tag)
             self.c.execute("INSERT INTO mesh VALUES (?,?,?,?,?,?,?)", row)
+
+        self.commit()
         return tag
 
     def get_mesh_data_from_face_index(self, face_index, buffer_id, tag) -> MeshInfo | None:

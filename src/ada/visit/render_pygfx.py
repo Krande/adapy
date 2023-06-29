@@ -100,14 +100,12 @@ class RendererPyGFX:
     def add_part(self, part: Part, render_override: dict[str, GeomRepr] = None):
         bt = BatchTessellator()
         scene = bt.tessellate_part(part, render_override=render_override)
-        self.add_trimesh_scene(scene, part.name, commit=True)
+        self.add_trimesh_scene(scene, part.name)
 
-    def add_trimesh_scene(self, trimesh_scene: trimesh.Scene, tag: str, commit: bool = False):
+    def add_trimesh_scene(self, trimesh_scene: trimesh.Scene, tag: str):
         meshes = self._get_scene_meshes(trimesh_scene, tag)
         self._scene_objects.add(*meshes)
         self.backend.add_metadata(trimesh_scene.metadata, tag)
-        if commit:
-            self.backend.commit()
 
     def load_glb_files_into_scene(self, glb_files: Iterable[pathlib.Path]):
         num_scenes = 0
@@ -284,6 +282,7 @@ def standalone_viewer():
         def _check_for_messages():
             while not shared_queue.empty():
                 data = shared_queue.get()
+                render._scene_objects.clear()
                 logger.info('Got data from server')
                 # process data here
                 with io.BytesIO(data) as f:
@@ -291,7 +290,6 @@ def standalone_viewer():
 
                 render.add_trimesh_scene(scene, tag="userdata")
                 render._camera.show_object(render.scene)
-                # render.scene.add(gfx.Mesh(gfx.box_geometry(1, 1, 1), gfx.MeshPhongMaterial(color="red")))
 
         render.before_render = _check_for_messages
         render.show()
