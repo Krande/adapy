@@ -1,0 +1,10 @@
+name: ada-trame
+channels:
+  - conda-forge
+  - krande
+dependencies:
+  - pytest
+  - websockets
+  - trame
+  - vtk
+  - pandas
