@@ -151,4 +151,6 @@ __all__ = [
     "Units",
     "fem",
     "set_jupyter_part_renderer",
+    "BM_N",
+    "PL_N",
 ]

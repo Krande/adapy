@@ -310,3 +310,7 @@ def render_object(part: ada.Part | ada.Beam | ada.Plate):
     render.on_click_post = _on_click
     render.add_part(part)
     render.show()
+
+
+if __name__ == "__main__":
+    standalone_viewer()
