@@ -8,6 +8,7 @@ from typing import Iterable, List, Union
 import gmsh
 import numpy as np
 
+import ada
 from ada import FEM, Beam, Pipe, Plate, Shape
 from ada.api.containers import Nodes
 from ada.base.physical_objects import BackendGeom
@@ -367,6 +368,7 @@ def import_into_gmsh_using_step(
 
 def import_into_gmsh_use_nativepointer(obj: BackendGeom | Shape, geom_repr: GeomRepr, model: gmsh.model) -> List[tuple]:
     from OCC.Extend.TopologyUtils import TopologyExplorer
+    from ada.occ.utils import transform_shape
 
     from ada import PrimBox
 
@@ -385,6 +387,8 @@ def import_into_gmsh_use_nativepointer(obj: BackendGeom | Shape, geom_repr: Geom
         geom_iter = t.edges()
 
     for shp in geom_iter:
+        if ada.Placement() != obj.placement:
+            shp = transform_shape(shp, transform=obj.placement)
         ents += model.occ.importShapesNativePointer(int(shp.this))
 
     if len(ents) == 0:

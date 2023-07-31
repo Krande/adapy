@@ -31,3 +31,10 @@ def test_plate_mesh_from_2_fem(pl1, pl2, test_dir):
     assert len(el_types.keys()) == 1
     assert len(el_types["TRIANGLE"]) == pytest.approx(276, abs=15)
     assert len(p.fem.nodes) == pytest.approx(174, abs=10)
+
+
+def test_plate_offset():
+    pl1 = ada.Plate('pl1', [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01, placement=ada.Placement())
+    pl2 = ada.Plate('pl2', [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01, placement=ada.Placement((0, 0, 1)))
+    p = ada.Part("MyFem") / [pl1, pl2]
+    p.to_fem_obj(0.1, "shell", interactive=True)
