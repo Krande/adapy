@@ -20,6 +20,16 @@ async def consumer(data):
     message_queue.put(data)
 
 
+async def check_server_running():
+    try:
+        async with websockets.connect('ws://localhost:8765'):
+            logger.info('WebSocket server is already running on ws://localhost:8765')
+            return True
+    except Exception as e:
+        logger.info('WebSocket server is not running')
+        return False
+
+
 async def server_start_main():
     async with websockets.serve(receive_messages, "localhost", 8765, max_size=10**9):
         await asyncio.Future()  # run forever

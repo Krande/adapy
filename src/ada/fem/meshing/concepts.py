@@ -302,11 +302,19 @@ class GmshSession:
 
         # Get Elements
         elements = []
+        el_ids = []
         for gmsh_data in self.model_map.values():
             entity_elements = get_elements_from_entities(self.model, gmsh_data.entities, fem)
             gmsh_data.obj.elem_refs = entity_elements
-            [add_obj_to_elem_ref(el, gmsh_data.obj) for el in entity_elements]
-            elements += entity_elements
+            # [add_obj_to_elem_ref(el, gmsh_data.obj) for el in entity_elements]
+            # test implementation
+            for el in entity_elements:
+                el.refs.append(gmsh_data.obj)
+                if el.id not in el_ids:
+                    elements.append(el)
+                    el_ids.append(el.id)
+            # [add_obj_to_elem_ref(el, gmsh_data.obj) ]
+            # elements += entity_elements
 
         fem.elements = FemElements(elements, fem_obj=fem)
 

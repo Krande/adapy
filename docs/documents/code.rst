@@ -6,19 +6,19 @@ ADA
 The main library.
 
 
-.. automodule:: ada.concepts.levels
+.. automodule:: ada.api.spatial
    :members:
 
-.. automodule:: ada.concepts.primitives
+.. automodule:: ada.api.primitives
    :members:
 
-.. automodule:: ada.concepts.stru_beams
+.. automodule:: ada.api.beams
    :members:
 
-.. automodule:: ada.concepts.stru_plates
+.. automodule:: ada.api.plates
    :members:
 
-.. automodule:: ada.concepts.containers
+.. automodule:: ada.api.containers
    :members:
 
 .. automodule:: ada.base.root
@@ -34,7 +34,7 @@ IFC utilities
 
 `IFC4X1 <https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/link/annex-e.htm>`_
 
-.. automodule:: ada.ifc
+.. automodule:: ada.cadit.ifc
    :members:
 
 Blender wrapper and utilities

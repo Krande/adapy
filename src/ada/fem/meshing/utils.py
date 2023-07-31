@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from itertools import chain
-from typing import List, Union
 
 import gmsh
 import numpy as np
@@ -13,14 +12,11 @@ from ada.core.utils import make_name_fem_ready
 from ada.fem import Elem, FemSection, FemSet
 from ada.fem.shapes import ElemType
 from ada.fem.shapes.mesh_types import aba_to_meshio_types, gmsh_to_meshio_ordering
-
 from .common import gmsh_map
 from .concepts import GmshData
 
 
-def add_fem_sections(
-    model: gmsh.model, fem: FEM, model_obj: Union[Beam, Plate, Pipe, Shape], gmsh_data: GmshData
-) -> None:
+def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Beam | Plate | Pipe | Shape, gmsh_data: GmshData) -> None:
     if type(model_obj) is Beam and gmsh_data.geom_repr == GeomRepr.SHELL:
         get_sh_sections_for_beam_obj(model, model_obj, gmsh_data, fem)
         return None
@@ -124,7 +120,7 @@ def add_shell_section(
     normal,
     thickness,
     elements,
-    model_obj: Union[Beam, Plate, Pipe, Shape],
+    model_obj: Beam | Plate | Pipe | Shape,
     fem: FEM,
     is_rigid=False,
 ):
@@ -147,9 +143,11 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
     set_name = make_name_fem_ready(f"el{beam.name}_set_bm")
     fem_sec_name = make_name_fem_ready(f"d{beam.name}_sec_bm")
     fem_set = FemSet(set_name, elements, FemSet.TYPES.ELSET, parent=fem)
-    fem_sec = FemSection(fem_sec_name, ElemType.LINE, fem_set, beam.material, beam.section, beam.ori[2], refs=[beam])
+    fem_sec = fem.sections.name_map.get(fem_sec_name, None)
+    if fem_sec is None:
+        fem_sec = FemSection(fem_sec_name, ElemType.LINE, fem_set, beam.material, beam.section, beam.ori[2], refs=[beam])
+        add_sec_to_fem(fem, fem_sec, fem_set)
 
-    add_sec_to_fem(fem, fem_sec, fem_set)
     hinge_prop = beam.connection_props.hinge_prop
     if hinge_prop is None:
         return
@@ -185,7 +183,7 @@ def get_so_sections(model: gmsh.model, solid_object: Beam, gmsh_data: GmshData, 
 
 
 def add_sec_to_fem(fem: FEM, fem_section: FemSection, fem_set: FemSet):
-    fem_set_ = fem.sets.add(fem_set)
+    fem_set_ = fem.sets.add(fem_set, append_suffix_on_exist=True)
     fem_section.elset = fem_set_
     fem.add_section(fem_section)
 
@@ -197,14 +195,14 @@ def get_point(model: gmsh.model, p, tol):
     return model.getEntitiesInBoundingBox(*lower.tolist(), *upper.tolist(), 0)
 
 
-def get_nodes_from_gmsh(model: gmsh.model, fem: FEM) -> List[Node]:
+def get_nodes_from_gmsh(model: gmsh.model, fem: FEM) -> list[Node]:
     nodes = list(model.mesh.getNodes(-1, -1))
     node_ids = nodes[0]
     node_coords = nodes[1].reshape(len(node_ids), 3)
     return [Node(coord, nid, parent=fem) for nid, coord in zip(node_ids, node_coords)]
 
 
-def get_elements_from_entity(model: gmsh.model, ent, fem: FEM, dim) -> List[Elem]:
+def get_elements_from_entity(model: gmsh.model, ent, fem: FEM, dim) -> list[Elem]:
     elem_types, elem_tags, elem_node_tags = model.mesh.getElements(dim, ent)
     elements = []
     el_tags = []
@@ -232,7 +230,7 @@ def get_elements_from_entity(model: gmsh.model, ent, fem: FEM, dim) -> List[Elem
     return elements
 
 
-def get_elements_from_entities(model: gmsh.model, entities, fem: FEM) -> List[Elem]:
+def get_elements_from_entities(model: gmsh.model, entities, fem: FEM) -> list[Elem]:
     elements = []
     for dim, ent in entities:
         elements += get_elements_from_entity(model, ent, fem, dim)
