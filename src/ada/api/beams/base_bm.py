@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING, Callable, Iterable, Union
+from typing import TYPE_CHECKING, Iterable, Union
 
 import numpy as np
 
@@ -91,7 +91,7 @@ class Beam(BackendGeom):
 
     @staticmethod
     def array_from_list_of_coords(
-        list_of_coords: list[tuple], sec: Section | str, mat: Material | str = None, name_gen: Callable = None
+        list_of_coords: list[tuple], sec: Section | str, mat: Material | str = None, name_gen: Iterable = None
     ) -> list[Beam]:
         """Create an array of beams from a list of coordinates"""
         beams = []

@@ -911,24 +911,23 @@ class Nodes:
             raise ValueError("No Nodes are found")
         nodes_yids = sorted(self._nodes, key=attrgetter("y"))
         nodes_zids = sorted(self._nodes, key=attrgetter("z"))
-        xmin, xmax = self._nodes[0], self._nodes[-1]
-        ymin, ymax = nodes_yids[0], nodes_yids[-1]
-        zmin, zmax = nodes_zids[0], nodes_zids[-1]
+        xmin, xmax = self._nodes[0][0], self._nodes[-1][0]
+        ymin, ymax = nodes_yids[0][1], nodes_yids[-1][1]
+        zmin, zmax = nodes_zids[0][2], nodes_zids[-1][2]
         return (xmin, xmax), (ymin, ymax), (zmin, zmax)
 
     @property
     def dmap(self) -> Dict[str, Node]:
         return self._idmap
 
-    @property
     def bbox(self):
         if self._bbox is None:
             self._bbox = self._get_bbox()
         return self._bbox
 
-    @property
     def vol_cog(self):
-        return tuple([(self.bbox[i][0][i] + self.bbox[i][1][i]) / 2 for i in range(3)])
+        bbox = self.bbox()
+        return tuple([(bbox[i][0] + bbox[i][1]) / 2 for i in range(3)])
 
     @property
     def max_nid(self) -> int:
@@ -939,7 +938,7 @@ class Nodes:
         return min(self.dmap.keys()) if len(self.dmap.keys()) > 0 else 0
 
     @property
-    def nodes(self) -> List[Node]:
+    def nodes(self) -> list[Node]:
         return self._nodes
 
     def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=Settings.point_tol) -> List[Node]:

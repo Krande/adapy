@@ -1,4 +1,4 @@
-from typing import Callable, List, Tuple
+from typing import Callable, Tuple
 
 import numpy as np
 
@@ -135,9 +135,9 @@ class SimpleStru(Part):
         return 0, self.Params.l, z
 
     def add_bcs(self):
-        funcs: List[Callable] = [self.c1, self.c2, self.c3, self.c4]
+        funcs: list[Callable] = [self.c1, self.c2, self.c3, self.c4]
         fem_set_btn = self.fem.add_set(FemSet("fix", [], FemSet.TYPES.NSET))
-        nodes: List[Node] = []
+        nodes: list[Node] = []
         col_btn_offset = np.array([0, 0, self._btn_col])
         for bc_loc in funcs:
             location = self.placement.origin + bc_loc(self._elevations[0]) + col_btn_offset

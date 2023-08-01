@@ -686,7 +686,7 @@ class MyRenderer(JupyterRenderer):
             html_value += "{fem_data}<br>".format(
                 fem_data=", ".join([f"(<b>{x}</b>: {y})" for x, y in fem_data.items()])
             )
-            vol_cog_str = ", ".join([f"{x:.3f}" for x in selected_part.fem.nodes.vol_cog])
+            vol_cog_str = ", ".join([f"{x:.3f}" for x in selected_part.fem.nodes.vol_cog()])
             cog = selected_part.fem.elements.calc_cog()
             cog_str = ", ".join([f"{x:.3f}" for x in cog.p])
             html_value += f"<b>Vol:</b> {cog.tot_vol:.3f} <b>COG:</b> ({vol_cog_str}) <br>"

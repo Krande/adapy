@@ -9,6 +9,7 @@ from ada.config import logger
 
 from .containers import FemElements, FemSections, FemSets
 from .sets import FemSet
+from .surfaces import Surface
 
 if TYPE_CHECKING:
     from ada import Part
@@ -33,7 +34,6 @@ if TYPE_CHECKING:
         StepExplicit,
         StepImplicit,
         StepSteadyState,
-        Surface,
     )
     from ada.fem.results.common import Mesh
     from ada.fem.steps import Step
@@ -212,7 +212,14 @@ class FEM:
             self.add_set(constraint.m_set)
 
         if constraint.s_set.parent is None:
-            self.add_set(constraint.s_set)
+            if isinstance(constraint.s_set, FemSet):
+                self.add_set(constraint.s_set)
+            elif isinstance(constraint.s_set, Surface):
+                self.add_surface(constraint.s_set)
+                if constraint.s_set.fem_set.parent is None:
+                    self.add_set(constraint.s_set.fem_set)
+            else:
+                raise ValueError(f"Constraint s_set must be FemSet or Surface, not {type(constraint.s_set)}")
 
         self.constraints[constraint.name] = constraint
         return constraint

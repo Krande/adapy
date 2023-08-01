@@ -122,8 +122,7 @@ class Placement:
     def from_axis3d(axis: Axis2Placement3D) -> Placement:
         return Placement(origin=axis.location, xdir=axis.ref_direction, zdir=axis.axis)
 
-    @property
-    def absolute_placement(self, include_rotations=False) -> Placement:
+    def get_absolute_placement(self, include_rotations=False) -> Placement:
         if self.parent is None:
             return self
 
@@ -202,7 +201,7 @@ class Placement:
 
     def to_axis2placement3d(self, use_absolute_placement=True):
         if use_absolute_placement:
-            abs_place = self.absolute_placement
+            abs_place = self.get_absolute_placement()
             return Axis2Placement3D(location=abs_place.origin, axis=abs_place.zdir, ref_direction=abs_place.xdir)
 
         return Axis2Placement3D(
@@ -256,13 +255,6 @@ class EquationOfPlane:
 
     PLANE: ClassVar[Plane]
 
-    @staticmethod
-    def from_arbitrary_points(points):
-        points = np.array(points)
-        normal = normal_to_points_in_plane(points)
-        pip = points[0]
-        return EquationOfPlane(pip, normal)
-
     def __post_init__(self):
         point_in_plane = self.point_in_plane
         normal = self.normal
@@ -271,6 +263,13 @@ class EquationOfPlane:
         b = normal[1]
         c = normal[2]
         self.d = -(a * x1 + b * y1 + c * z1)
+
+    @staticmethod
+    def from_arbitrary_points(points):
+        points = np.array(points)
+        normal = normal_to_points_in_plane(points)
+        pip = points[0]
+        return EquationOfPlane(pip, normal)
 
     def calc_distance_to_point(self, point: Iterable | Point) -> float:
         if not isinstance(point, Point):

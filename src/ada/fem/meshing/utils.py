@@ -12,6 +12,7 @@ from ada.core.utils import make_name_fem_ready
 from ada.fem import Elem, FemSection, FemSet
 from ada.fem.shapes import ElemType
 from ada.fem.shapes.mesh_types import aba_to_meshio_types, gmsh_to_meshio_ordering
+
 from .common import gmsh_map
 from .concepts import GmshData
 
@@ -145,7 +146,9 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
     fem_set = FemSet(set_name, elements, FemSet.TYPES.ELSET, parent=fem)
     fem_sec = fem.sections.name_map.get(fem_sec_name, None)
     if fem_sec is None:
-        fem_sec = FemSection(fem_sec_name, ElemType.LINE, fem_set, beam.material, beam.section, beam.ori[2], refs=[beam])
+        fem_sec = FemSection(
+            fem_sec_name, ElemType.LINE, fem_set, beam.material, beam.section, beam.ori[2], refs=[beam]
+        )
         add_sec_to_fem(fem, fem_sec, fem_set)
 
     hinge_prop = beam.connection_props.hinge_prop

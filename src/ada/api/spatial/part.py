@@ -686,6 +686,8 @@ class Part(BackendGeom):
         use_quads=False,
         use_hex=False,
         experimental_bm_splitting=True,
+        experimental_pl_splitting=True,
+        name=None,
     ) -> FEM:
         from ada import Beam, Plate, Shape
         from ada.fem.elements import Mass
@@ -718,25 +720,27 @@ class Part(BackendGeom):
 
             gs.split_plates_by_beams()
 
-            if experimental_bm_splitting is True and len(list(self.get_all_physical_objects(by_type=Plate))) == 0:
+            num_plates = len(list(self.get_all_physical_objects(by_type=Plate)))
+            if experimental_pl_splitting is True and num_plates > 1:
+                gs.split_plates_by_plates()
+
+            if experimental_bm_splitting is True and num_plates == 0:
                 gs.split_crossing_beams()
+
+            if interactive is True:
+                gs.open_gui()
 
             gs.mesh(mesh_size, use_quads=use_quads, use_hex=use_hex)
 
             if interactive is True:
                 gs.open_gui()
 
-            fem = gs.get_fem()
+            fem = gs.get_fem(name=name if name is not None else self.name)
 
         for mass_shape in masses:
-            cog_absolute = mass_shape.placement.absolute_placement.origin + mass_shape.cog
+            cog_absolute = mass_shape.placement.get_absolute_placement().origin + mass_shape.cog
             n = fem.nodes.add(Node(cog_absolute))
             fem.add_mass(Mass(f"{mass_shape.name}_mass", [n], mass_shape.mass))
-
-        # Move FEM mesh to match part placement origin
-        x, y, z = self.placement.origin
-        if x != 0.0 or y != 0.0 or z == 0.0:
-            fem.nodes.move(self.placement.origin)
 
         return fem
 

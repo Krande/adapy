@@ -162,27 +162,27 @@ class Step(FemBase):
         return self._total_time
 
     @property
-    def interactions(self) -> Dict[str, Interaction]:
+    def interactions(self) -> dict[str, Interaction]:
         return self._interactions
 
     @property
-    def bcs(self) -> Dict[str, Bc]:
+    def bcs(self) -> dict[str, Bc]:
         return self._bcs
 
     @property
-    def loads(self) -> List[Load]:
+    def loads(self) -> list[Load]:
         return self._loads
 
     @property
-    def load_cases(self) -> Dict[str, LoadCase]:
+    def load_cases(self) -> dict[str, LoadCase]:
         return self._load_cases
 
     @property
-    def field_outputs(self) -> List[FieldOutput]:
+    def field_outputs(self) -> list[FieldOutput]:
         return self._field_outputs
 
     @property
-    def hist_outputs(self) -> List[HistOutput]:
+    def hist_outputs(self) -> dist[HistOutput]:
         return self._hist_outputs
 
     def __repr__(self):

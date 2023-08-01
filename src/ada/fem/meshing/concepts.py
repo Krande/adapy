@@ -15,7 +15,6 @@ from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.config import Settings, logger
 from ada.core.utils import create_guid
-from ada.fem import Elem
 from ada.fem.containers import FemElements
 from ada.fem.shapes import ElemType
 
@@ -203,6 +202,8 @@ class GmshSession:
         )
 
         beams = [obj for obj in self.model_map.keys() if type(obj) is Beam]
+        if len(beams) == 0:
+            return None
         plates = [obj for obj in self.model_map.keys() if type(obj) is Plate]
         for pl in plates:
             pl_gmsh_obj = self.model_map[pl]
@@ -222,6 +223,8 @@ class GmshSession:
 
                 res, res_map = self.model.occ.fragment(intersecting_beams, [(pl_dim, pl_ent)])
                 replaced_pl_entities = [(dim, r) for dim, r in res if dim == 2]
+                if len(replaced_pl_entities) == 0:
+                    continue
                 for i, int_bm in enumerate(intersecting_beams):
                     bm_gmsh_obj = int_bm_map[int_bm]
                     new_ents = res_map[i]
@@ -229,6 +232,32 @@ class GmshSession:
                 pl_gmsh_obj.entities = replaced_pl_entities
 
                 self.model.occ.synchronize()
+
+    def split_plates_by_plates(self):
+        """Split plates that are intersecting each other"""
+        from ada.core.clash_check import find_edge_connected_perpendicular_plates
+
+        plates = [obj for obj in self.model_map.keys() if type(obj) is Plate]
+
+        plate_map = find_edge_connected_perpendicular_plates(plates)
+
+        for pl1, con_plates in plate_map.items():
+
+            pl1_gmsh_obj = self.model_map[pl1]
+            intersecting_plates = []
+            pl1_dim, pl1_ent = pl1_gmsh_obj.entities[0]
+
+            for pl2 in con_plates:
+                pl2_gmsh_obj = self.model_map[pl2]
+
+                for pl2_dim, pl2_ent in pl2_gmsh_obj.entities:
+                    intersecting_plates.append((pl2_dim, pl2_ent))
+
+            res, res_map = self.model.occ.fragment(intersecting_plates, [(pl1_dim, pl1_ent)])
+            replaced_pl_entities = [(dim, r) for dim, r in res if dim == 2]
+            pl1_gmsh_obj.entities = replaced_pl_entities
+
+            self.model.occ.synchronize()
 
     def mesh(self, size: float = None, use_quads=False, use_hex=False):
         if self.silent is True:
@@ -259,14 +288,15 @@ class GmshSession:
 
         ents = []
         for obj, model in self.model_map.items():
-            if model.geom_repr == ElemType.SHELL:
-                if len(obj.booleans) > 0:
-                    partition_objects_with_holes(model, self)
-                else:
-                    for dim, tag in model.entities:
-                        ents.append(tag)
-                        self.model.mesh.set_transfinite_surface(tag)
-                        self.model.mesh.setRecombine(dim, tag)
+            if model.geom_repr != ElemType.SHELL:
+                continue
+            if len(obj.booleans) > 0:
+                partition_objects_with_holes(model, self)
+            else:
+                for dim, tag in model.entities:
+                    ents.append(tag)
+                    self.model.mesh.set_transfinite_surface(tag)
+                    self.model.mesh.setRecombine(dim, tag)
 
     def make_hex(self):
         from ada.fem.meshing.partitioning.strategies import partition_solid_beams
@@ -277,13 +307,14 @@ class GmshSession:
                 self.model.mesh.setRecombine(dim, tag)
 
         for obj, model in self.model_map.items():
-            if model.geom_repr == GeomRepr.SOLID:
-                if isinstance(obj, Beam):
-                    partition_solid_beams(model, self)
-                else:
-                    for dim, tag in model.entities:
-                        self.model.mesh.set_transfinite_volume(tag)
-                        self.model.mesh.setRecombine(dim, tag)
+            if model.geom_repr != GeomRepr.SOLID:
+                continue
+            if isinstance(obj, Beam):
+                partition_solid_beams(model, self)
+            else:
+                for dim, tag in model.entities:
+                    self.model.mesh.set_transfinite_volume(tag)
+                    self.model.mesh.setRecombine(dim, tag)
 
         self.model.mesh.recombine()
 
@@ -298,24 +329,17 @@ class GmshSession:
         gmsh_nodes = get_nodes_from_gmsh(self.model, fem)
         fem.nodes = Nodes(gmsh_nodes, parent=fem)
 
-        def add_obj_to_elem_ref(el: Elem, obj: Shape | Beam | Plate | Pipe):
-            el.refs.append(obj)
-
         # Get Elements
         elements = []
         el_ids = []
         for gmsh_data in self.model_map.values():
             entity_elements = get_elements_from_entities(self.model, gmsh_data.entities, fem)
             gmsh_data.obj.elem_refs = entity_elements
-            # [add_obj_to_elem_ref(el, gmsh_data.obj) for el in entity_elements]
-            # test implementation
             for el in entity_elements:
                 el.refs.append(gmsh_data.obj)
                 if el.id not in el_ids:
                     elements.append(el)
                     el_ids.append(el.id)
-            # [add_obj_to_elem_ref(el, gmsh_data.obj) ]
-            # elements += entity_elements
 
         fem.elements = FemElements(elements, fem_obj=fem)
 
@@ -368,27 +392,33 @@ def import_into_gmsh_using_step(
 
 def import_into_gmsh_use_nativepointer(obj: BackendGeom | Shape, geom_repr: GeomRepr, model: gmsh.model) -> List[tuple]:
     from OCC.Extend.TopologyUtils import TopologyExplorer
-    from ada.occ.utils import transform_shape
 
     from ada import PrimBox
+    from ada.occ.utils import transform_shape
+
+    abs_place = obj.placement.get_absolute_placement()
+
+    def transform_occ(geo):
+        if ada.Placement() != abs_place:
+            geo = transform_shape(geo, transform=abs_place)
+        return geo
 
     ents = []
     if geom_repr == GeomRepr.SOLID:
-        geom = obj.solid_occ()
+        geom = transform_occ(obj.solid_occ())
         t = TopologyExplorer(geom)
         geom_iter = t.solids()
     elif geom_repr == GeomRepr.SHELL:
         geom = obj.shell_occ() if type(obj) not in (PrimBox,) else obj.solid_occ()
+        geom = transform_occ(geom)
         t = TopologyExplorer(geom)
         geom_iter = t.faces()
     else:
-        geom = obj.line_occ()
+        geom = transform_occ(obj.line_occ())
         t = TopologyExplorer(geom)
         geom_iter = t.edges()
 
     for shp in geom_iter:
-        if ada.Placement() != obj.placement:
-            shp = transform_shape(shp, transform=obj.placement)
         ents += model.occ.importShapesNativePointer(int(shp.this))
 
     if len(ents) == 0:

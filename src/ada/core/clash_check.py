@@ -7,6 +7,7 @@ from typing import Iterable, List
 
 import numpy as np
 
+import ada
 from ada import Assembly, Beam, Node, Part, Pipe, PipeSegStraight, Plate, PrimCyl
 from ada.config import logger
 
@@ -150,7 +151,7 @@ def find_beams_connected_to_plate(pl: Plate, beams: List[Beam]) -> List[Beam]:
 
 def penetration_check(part: Part):
     a = part.get_assembly()
-    cog = part.nodes.vol_cog
+    cog = part.nodes.vol_cog()
     normal = part.placement.zdir
     for p in a.get_all_subparts():
         for pipe in p.pipes:
@@ -229,3 +230,28 @@ class PipeClash:
         part.add_beam(Beam(next(reinforce_name), bm_p2, bm_p3, "HP140x8"), add_to_layer=add_to_layer)
         part.add_beam(Beam(next(reinforce_name), bm_p3, bm_p4, "HP140x8"), add_to_layer=add_to_layer)
         part.add_beam(Beam(next(reinforce_name), bm_p4, bm_p1, "HP140x8"), add_to_layer=add_to_layer)
+
+
+def find_edge_connected_perpendicular_plates(plates: list[ada.Plate]) -> dict[ada.Plate, list[ada.Plate]]:
+    """Find all plates that are connected to a plate edge and are perpendicular to that edge"""
+    plates = list(plates)
+    edge_connected = dict()
+
+    for pl1 in plates:
+        place1 = pl1.placement.get_absolute_placement()
+        eop = EquationOfPlane(pl1.poly.origin, pl1.poly.normal, pl1.poly.ydir)
+        p13d = place1.origin + pl1.poly.points3d
+        for pl2 in plates:
+            if pl1 == pl2:
+                continue
+            place2 = pl2.placement.get_absolute_placement()
+            p23d = place2.origin + pl2.poly.points3d
+            res = eop.return_points_in_plane(np.asarray(p23d))
+            # pop out the elements in the numpy array res that are rows in p13d
+            res_clear = [r for r in res if not any(np.all(r == p) for p in p13d)]
+            if len(res_clear) == 2:
+                if pl1 not in edge_connected:
+                    edge_connected[pl1] = []
+                edge_connected[pl1].append(pl2)
+
+    return edge_connected

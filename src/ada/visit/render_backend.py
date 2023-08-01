@@ -7,7 +7,6 @@ import numpy as np
 import trimesh
 
 
-
 @dataclass
 class MeshInfo:
     mesh_id: str = field(repr=False)

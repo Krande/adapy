@@ -4,7 +4,8 @@ Delta v1..v2          - https://github.com/Kitware/trame/commit/3ee54ce5b663bf2a
 """
 
 import asyncio
-from trame.app import get_server, asynchronous
+
+from trame.app import asynchronous, get_server
 from trame.ui.vuetify import SinglePageLayout
 from trame.widgets import vuetify
 

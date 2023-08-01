@@ -124,7 +124,7 @@ class CurveOpen2d:
 
         self._radiis = {i: x[-1] for i, x in enumerate(points) if len(x) == 3}
         self._points2d = [Point(p[:2]) for p in points]
-        self._points3d = [Point(x) for x in self._orientation.transform_local_points_to_global(self._points2d)]
+        self._points3d = [Point(x) for x in self._orientation.transform_local_points_back_to_global(self._points2d)]
         self._points_to_segments(points, tol)
 
     def _points_fix(self, points):

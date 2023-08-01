@@ -34,7 +34,46 @@ def test_plate_mesh_from_2_fem(pl1, pl2, test_dir):
 
 
 def test_plate_offset():
-    pl1 = ada.Plate('pl1', [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01, placement=ada.Placement())
-    pl2 = ada.Plate('pl2', [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01, placement=ada.Placement((0, 0, 1)))
+    pl1 = ada.Plate("pl1", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01, orientation=ada.Placement())
+    pl2 = ada.Plate("pl2", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01, orientation=ada.Placement((0, 0, 1)))
     p = ada.Part("MyFem") / [pl1, pl2]
-    p.to_fem_obj(0.1, "shell", interactive=True)
+    fem = p.to_fem_obj(1, "shell", interactive=False)
+    assert len(fem.nodes) == 8
+    assert len(fem.elements) == 4
+
+
+def test_plates_perpendicular():
+    p1x1 = [(0, 0), (1, 0), (1, 1), (0, 1)]
+    pl1_5 = ada.Plate("pl1_5", p1x1, 0.01, orientation=ada.Placement((0, 0, 0.5)))
+    pl3 = ada.Plate("pl3", p1x1, 0.01, orientation=ada.Placement(xdir=(1, 0, 0), zdir=(0, -1, 0)))
+
+    p = ada.Part("MyFem") / [pl1_5, pl3]
+    fem = p.to_fem_obj(1, "shell", interactive=False)
+    assert len(fem.nodes) == 8
+    assert len(fem.elements) == 6
+
+
+def test_double_plates_perpendicular():
+    p1x1 = [(0, 0), (1, 0), (1, 1), (0, 1)]
+    pl1_25 = ada.Plate("pl1_25", p1x1, 0.01, orientation=ada.Placement((0, 0, 0.25)))
+    pl1_75 = ada.Plate("pl1_75", p1x1, 0.01, orientation=ada.Placement((0, 0, 0.75)))
+    pl3 = ada.Plate("pl3", p1x1, 0.01, orientation=ada.Placement(xdir=(1, 0, 0), zdir=(0, -1, 0)))
+
+    p = ada.Part("MyFem") / [pl1_25, pl1_75, pl3]
+    fem = p.to_fem_obj(1, "shell", interactive=False)
+    assert len(fem.nodes) == 12
+    assert len(fem.elements) == 10
+
+
+def test_plate_offset_perpendicular():
+    p1x1 = [(0, 0), (1, 0), (1, 1), (0, 1)]
+    pl1 = ada.Plate("pl1", p1x1, 0.01, orientation=ada.Placement())
+    pl1_5 = ada.Plate("pl1_5", p1x1, 0.01, orientation=ada.Placement((0, 0, 0.5)))
+    pl2 = ada.Plate("pl2", p1x1, 0.01, orientation=ada.Placement((0, 0, 1)))
+    pl3 = ada.Plate("pl3", p1x1, 0.01, orientation=ada.Placement(xdir=(1, 0, 0), zdir=(0, -1, 0)))
+    pl4 = ada.Plate("pl4", p1x1, 0.01, orientation=ada.Placement(xdir=(0, 1, 0), zdir=(1, 0, 0)))
+
+    p = ada.Part("MyFem") / [pl1, pl1_5, pl2, pl3, pl4]
+    fem = p.to_fem_obj(1, "shell", interactive=False)
+    assert len(fem.nodes) == 12
+    assert len(fem.elements) == 14

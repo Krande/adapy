@@ -2,9 +2,9 @@ from itertools import groupby
 from operator import attrgetter
 from typing import TYPE_CHECKING
 
+from ada.config import logger
 from ada.core.utils import NewLine
 from ada.fem import FemSet
-from ada.config import logger
 
 if TYPE_CHECKING:
     from ada import FEM

@@ -3,20 +3,21 @@ Version for trame 1.x - https://github.com/Kitware/trame/blob/release-v1/example
 Delta v1..v2          - https://github.com/Kitware/trame/commit/03f28bb0084490acabf218264b96a1dbb3a17f19
 """
 
-import os
 import io
+import os
+
 import numpy as np
 import pandas as pd
-
-from vtkmodules.vtkCommonCore import vtkPoints, vtkIdList
-from vtkmodules.vtkCommonDataModel import vtkUnstructuredGrid, vtkCellArray
-from vtkmodules.vtkFiltersCore import vtkThreshold
-from vtkmodules.numpy_interface.dataset_adapter import numpyTovtkDataArray as np2da
-from vtkmodules.util import vtkConstants
-
 from trame.app import get_server
 from trame.ui.vuetify import SinglePageLayout
-from trame.widgets import vuetify, trame, vtk as vtk_widgets
+from trame.widgets import trame
+from trame.widgets import vtk as vtk_widgets
+from trame.widgets import vuetify
+from vtkmodules.numpy_interface.dataset_adapter import numpyTovtkDataArray as np2da
+from vtkmodules.util import vtkConstants
+from vtkmodules.vtkCommonCore import vtkIdList, vtkPoints
+from vtkmodules.vtkCommonDataModel import vtkCellArray, vtkUnstructuredGrid
+from vtkmodules.vtkFiltersCore import vtkThreshold
 
 # -----------------------------------------------------------------------------
 # Constants
@@ -79,9 +80,7 @@ def update_grid(nodes_file, elems_file, field_file, **kwargs):
     df_nodes["id"] = df_nodes["id"].astype(int)
     df_nodes = df_nodes.set_index("id", drop=True)
     # fill missing ids in range as VTK uses position (index) to map cells to points
-    df_nodes = df_nodes.reindex(
-        np.arange(df_nodes.index.min(), df_nodes.index.max() + 1), fill_value=0
-    )
+    df_nodes = df_nodes.reindex(np.arange(df_nodes.index.min(), df_nodes.index.max() + 1), fill_value=0)
 
     df_elems = pd.read_csv(
         io.StringIO(elems_bytes.decode("utf-8")),
@@ -94,9 +93,7 @@ def update_grid(nodes_file, elems_file, field_file, **kwargs):
     # order: 0: eid, 1: eshape, 2+: nodes, iloc[:,0] is index
     df_elems.iloc[:, 0] = df_elems.iloc[:, 0].astype(int)
 
-    n_nodes = df_elems.iloc[:, 1].map(
-        lambda x: int("".join(i for i in x if i.isdigit()))
-    )
+    n_nodes = df_elems.iloc[:, 1].map(lambda x: int("".join(i for i in x if i.isdigit())))
     df_elems.insert(2, "n_nodes", n_nodes)
     # fill missing ids in range as VTK uses position (index) to map data to cells
     new_range = np.arange(df_elems.iloc[:, 0].min(), df_elems.iloc[:, 0].max() + 1)
@@ -115,12 +112,8 @@ def update_grid(nodes_file, elems_file, field_file, **kwargs):
         "Wed15": vtkConstants.VTK_QUADRATIC_WEDGE,
     }
     df_elems["cell_types"] = np.nan
-    df_elems.loc[df_elems.loc[:, 0] > 0, "cell_types"] = df_elems.loc[
-        df_elems.loc[:, 0] > 0, 1
-    ].map(
-        lambda x: vtk_shape_id_map[x.strip()]
-        if x.strip() in vtk_shape_id_map.keys()
-        else np.nan
+    df_elems.loc[df_elems.loc[:, 0] > 0, "cell_types"] = df_elems.loc[df_elems.loc[:, 0] > 0, 1].map(
+        lambda x: vtk_shape_id_map[x.strip()] if x.strip() in vtk_shape_id_map.keys() else np.nan
     )
     df_elems = df_elems.dropna(subset=["cell_types"], axis=0)
 
@@ -144,12 +137,8 @@ def update_grid(nodes_file, elems_file, field_file, **kwargs):
     vtk_grid.SetPoints(vtk_pts)
 
     vtk_cells = vtkCellArray()
-    vtk_cells.SetCells(
-        cell_types.shape[0], np2da(cells, array_type=vtkConstants.VTK_ID_TYPE)
-    )
-    vtk_grid.SetCells(
-        np2da(cell_types, array_type=vtkConstants.VTK_UNSIGNED_CHAR), vtk_cells
-    )
+    vtk_cells.SetCells(cell_types.shape[0], np2da(cells, array_type=vtkConstants.VTK_ID_TYPE))
+    vtk_grid.SetCells(np2da(cell_types, array_type=vtkConstants.VTK_UNSIGNED_CHAR), vtk_cells)
 
     # Add field if any
     if field_file:
@@ -165,9 +154,7 @@ def update_grid(nodes_file, elems_file, field_file, **kwargs):
         )
         df_elem_data = df_elem_data.sort_values("id").set_index("id", drop=True)
         # fill missing ids in range as VTK uses position (index) to map data to cells
-        df_elem_data = df_elem_data.reindex(
-            np.arange(df_elems.index.min(), df_elems.index.max() + 1), fill_value=0.0
-        )
+        df_elem_data = df_elem_data.reindex(np.arange(df_elems.index.min(), df_elems.index.max() + 1), fill_value=0.0)
         np_val = df_elem_data["val"].to_numpy()
         # assign data to grid with the name 'my_array'
         vtk_array = np2da(np_val, name=field_to_keep)
@@ -291,9 +278,7 @@ with SinglePageLayout(server) as layout:
         with vuetify.VBtn(v_if=("mesh",), icon=True, click=ctrl.view_reset_camera):
             vuetify.VIcon("mdi-crop-free")
 
-        vuetify.VProgressLinear(
-            indeterminate=True, absolute=True, bottom=True, active=("trame__busy",)
-        )
+        vuetify.VProgressLinear(indeterminate=True, absolute=True, bottom=True, active=("trame__busy",))
 
         trame.ClientStateChange(value="mesh", change=ctrl.view_reset_camera)
 
@@ -330,9 +315,7 @@ with SinglePageLayout(server) as layout:
                     v_if=("threshold",),
                     color_data_range=("full_range", [0, 1]),
                 ):
-                    threshold = vtk_widgets.VtkMesh(
-                        "threshold", dataset=vtk_filter, field_to_keep=field_to_keep
-                    )
+                    threshold = vtk_widgets.VtkMesh("threshold", dataset=vtk_filter, field_to_keep=field_to_keep)
                     ctrl.threshold_update = threshold.update
             with vuetify.VCard(
                 style=("tooltip_style", {"display": "none"}),
