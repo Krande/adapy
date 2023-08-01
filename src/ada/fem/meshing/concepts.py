@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import os
 import pathlib
 from dataclasses import dataclass, field
@@ -324,12 +326,16 @@ class GmshSession:
             get_elements_from_entities,
             get_nodes_from_gmsh,
         )
+        start = time.time()
 
         fem = FEM(name)
         gmsh_nodes = get_nodes_from_gmsh(self.model, fem)
         fem.nodes = Nodes(gmsh_nodes, parent=fem)
+        end = time.time()
+        logger.info(f"Time to get nodes: {end - start:.2f}s")
 
         # Get Elements
+        start = time.time()
         elements = []
         el_ids = []
         for gmsh_data in self.model_map.values():
@@ -342,6 +348,8 @@ class GmshSession:
                     el_ids.append(el.id)
 
         fem.elements = FemElements(elements, fem_obj=fem)
+        end = time.time()
+        logger.info(f"Time to get elements: {end - start:.2f}s")
 
         # Add FEM sections
         for model_obj, gmsh_data in self.model_map.items():
