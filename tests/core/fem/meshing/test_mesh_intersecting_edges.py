@@ -1,3 +1,5 @@
+import numpy as np
+
 import ada
 from ada.core.utils import Counter
 from ada.fem.shapes.definitions import LineShapes
@@ -43,3 +45,24 @@ def test_crossing_free_beams():
     assert len(list(filter(lambda x: x.type == LineShapes.LINE, n.refs))) == 4
 
     # a.to_fem("MyIntersectingedge_ufo", "usfos", overwrite=True)
+
+
+def test_beams_enclosing_beams():
+    p1x1 = np.array([(0, 0), (1, 0), (1, 1), (0, 1)])
+    pl = ada.Plate("pl1", p1x1 * 5, 10e-3)
+    # add a new row to p1x1 from p1x1[0]
+    p1x1 = np.vstack((p1x1, p1x1[0]))
+    f_ = np.zeros((5, 1))
+    inner_points = ada.Point(2.1, 2.1, 0) + np.hstack((p1x1, f_))
+    beams_inner = ada.Beam.array_from_list_of_coords(inner_points, "IPE100")
+
+    # Multiply p1x1 with 5 and append a new column of value 0
+    p5x5 = np.hstack((p1x1 * 5, f_))
+    beams = ada.Beam.array_from_list_of_coords(p5x5, "IPE100")
+
+    a = ada.Assembly() / (ada.Part("XBeams") / (pl, *beams, *beams_inner))
+    a.fem = a.to_fem_obj(0.3, interactive=False)
+    for el in a.fem.elements.lines:
+        assert el.fem_sec is not None
+    # a.to_fem("MyIntersectingedge_aba", "abaqus", overwrite=True, scratch_dir='temp/abaqus')
+    # a.to_fem("MyIntersectingedge_ufo", "usfos", overwrite=True, scratch_dir='temp/usfos')
