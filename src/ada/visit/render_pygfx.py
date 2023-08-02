@@ -66,6 +66,15 @@ class RendererPyGFX:
         self.on_click_pre: Callable[[gfx.PointerEvent], None] | None = None
         self.on_click_post: Callable[[gfx.PointerEvent, MeshInfo], None] | None = None
         self._init_scene()
+        self.process_terminate_on_end: Process | None = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.process_terminate_on_end is not None:
+            logger.info("Terminating websockets server")
+            self.process_terminate_on_end.terminate()
 
     def _init_scene(self):
         scene = self.scene
@@ -156,9 +165,9 @@ class RendererPyGFX:
 
         if self.selected_mesh is not None:
             if (
-                isinstance(obj, gfx.Mesh)
-                and buffer_id == self._selected_mesh_info.buffer_id
-                and geom_index > self._selected_mesh_info.start
+                    isinstance(obj, gfx.Mesh)
+                    and buffer_id == self._selected_mesh_info.buffer_id
+                    and geom_index > self._selected_mesh_info.start
             ):
                 face_index_bump = 1 + self._selected_mesh_info.end - self._selected_mesh_info.start
                 logger.info(f"Adding {face_index_bump} to {geom_index=}")
@@ -279,22 +288,22 @@ def standalone_viewer():
         time.sleep(1)
 
         # create a function that will run for each draw call and will check for messages
-        render = RendererPyGFX(render_backend=SqLiteBackend())
+        with RendererPyGFX(render_backend=SqLiteBackend()) as render:
+            def _check_for_messages():
+                while not shared_queue.empty():
+                    data = shared_queue.get()
+                    render._scene_objects.clear()
+                    logger.info("Got data from server")
+                    # process data here
+                    with io.BytesIO(data) as f:
+                        scene = trimesh.load_mesh(f, file_type="glb")
 
-        def _check_for_messages():
-            while not shared_queue.empty():
-                data = shared_queue.get()
-                render._scene_objects.clear()
-                logger.info("Got data from server")
-                # process data here
-                with io.BytesIO(data) as f:
-                    scene = trimesh.load_mesh(f, file_type="glb")
+                    render.add_trimesh_scene(scene, tag="userdata")
+                    render._camera.show_object(render.scene)
 
-                render.add_trimesh_scene(scene, tag="userdata")
-                render._camera.show_object(render.scene)
-
-        render.before_render = _check_for_messages
-        render.show()
+            render.before_render = _check_for_messages
+            render.process_terminate_on_end = server_process
+            render.show()
 
 
 def render_object(part: ada.Part | ada.Beam | ada.Plate):
