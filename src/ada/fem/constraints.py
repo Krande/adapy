@@ -109,8 +109,8 @@ class Constraint(FemBase):
         self,
         name,
         con_type,
-        m_set: FemSet,
-        s_set: Union[FemSet, Surface],
+        m_set: FemSet | Surface,
+        s_set: FemSet | Surface,
         dofs=None,
         pos_tol=None,
         mpc_type=None,
@@ -152,27 +152,28 @@ class Constraint(FemBase):
         n_id2 = [fem2.nodes.nodes[i] for i in c2]
         fs1 = FemSet(f"{name}_{fem1.name}_tie_set", n_id1, FemSet.TYPES.NSET)
         fs2 = FemSet(f"{name}_{fem2.name}_tie_set", n_id2, FemSet.TYPES.NSET)
-        surf2 = Surface(f"{name}_tie_surf", Surface.TYPES.NODE, fs2)
-        return Constraint(name, ConstraintTypes.TIE, fs1, surf2, [1, 2, 3, 4, 5, 6] if dofs is None else dofs)
+        surf1 = Surface(f"{name}_tie_surf1", Surface.TYPES.NODE, fs1)
+        surf2 = Surface(f"{name}_tie_surf2", Surface.TYPES.NODE, fs2)
+        return Constraint(name, ConstraintTypes.TIE, surf1, surf2, [1, 2, 3, 4, 5, 6] if dofs is None else dofs)
 
     @property
     def type(self):
         return self._con_type
 
     @property
-    def m_set(self) -> FemSet:
+    def m_set(self) -> FemSet | Surface:
         return self._m_set
 
     @m_set.setter
-    def m_set(self, value: FemSet):
+    def m_set(self, value: FemSet | Surface):
         self._m_set = value
 
     @property
-    def s_set(self) -> Union[FemSet, Surface]:
+    def s_set(self) -> FemSet | Surface:
         return self._s_set
 
     @s_set.setter
-    def s_set(self, value: Union[FemSet, Surface]):
+    def s_set(self, value: FemSet | Surface):
         self._s_set = value
 
     @property

@@ -209,7 +209,14 @@ class FEM:
     def add_constraint(self, constraint: Constraint) -> Constraint:
         constraint.parent = self
         if constraint.m_set.parent is None:
-            self.add_set(constraint.m_set)
+            if isinstance(constraint.m_set, FemSet):
+                self.add_set(constraint.m_set)
+            elif isinstance(constraint.m_set, Surface):
+                self.add_surface(constraint.m_set)
+                if constraint.m_set.fem_set.parent is None:
+                    self.add_set(constraint.m_set.fem_set)
+            else:
+                raise ValueError(f"Constraint m_set must be FemSet or Surface, not {type(constraint.m_set)}")
 
         if constraint.s_set.parent is None:
             if isinstance(constraint.s_set, FemSet):

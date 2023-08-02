@@ -180,14 +180,6 @@ def sort_nodes_by_distance(point: Union[Node, np.ndarray], nodes: list[Node]) ->
 
 
 def replace_nodes_by_tol(nodes, decimals=0, tol=Settings.point_tol):
-    """
-
-    :param nodes:
-    :param decimals:
-    :param tol:
-    :type nodes: ada.core.containers.Nodes
-    """
-
     def rounding(vec, decimals_):
         return np.around(vec, decimals=decimals_)
 
@@ -212,12 +204,11 @@ def replace_nodes_by_tol(nodes, decimals=0, tol=Settings.point_tol):
 
 
 def replace_node(old_node: Node, new_node: Node) -> None:
-    """
-    Exchange the old nod with the new. The refs in old node is cleared, and added to new node ref
-    :param old_node:
-    :param new_node:
-    """
+    """Replaces old node with a new. The refs in old node is cleared, and added to new node ref"""
+
     from ada.api.beams.helpers import updating_nodes
+    from ada import Beam
+    from ada.fem import Elem
 
     for obj in old_node.refs.copy():
         obj: Union[Beam, Csys, Elem]
