@@ -54,6 +54,7 @@ def start_server(shared_queue: Queue = None):
 
 
 def send_to_viewer(part: ada.Part):
+    """Send a part to the viewer. This will start the viewer if it is not already running."""
     from websockets.sync.client import connect
 
     if check_server_running() is False:
