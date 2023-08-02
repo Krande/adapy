@@ -15,6 +15,7 @@ from ada.fem.shapes.mesh_types import aba_to_meshio_types, gmsh_to_meshio_orderi
 
 from .common import gmsh_map
 from .concepts import GmshData
+from ...config import logger
 
 
 def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Beam | Plate | Pipe | Shape, gmsh_data: GmshData) -> None:
@@ -116,14 +117,14 @@ def get_sh_sections_for_plate_obj(model: gmsh.model, model_obj: Plate, gmsh_data
 
 
 def add_shell_section(
-    set_name,
-    fem_sec_name,
-    normal,
-    thickness,
-    elements,
-    model_obj: Beam | Plate | Pipe | Shape,
-    fem: FEM,
-    is_rigid=False,
+        set_name,
+        fem_sec_name,
+        normal,
+        thickness,
+        elements,
+        model_obj: Beam | Plate | Pipe | Shape,
+        fem: FEM,
+        is_rigid=False,
 ):
     fem_set = FemSet(set_name, elements, FemSet.TYPES.ELSET)
     props = dict(local_z=normal, thickness=thickness, int_points=5, is_rigid=is_rigid)
@@ -144,6 +145,7 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
     set_name = make_name_fem_ready(f"el{beam.name}_set_bm")
     fem_sec_name = make_name_fem_ready(f"d{beam.name}_sec_bm")
     fem_set = FemSet(set_name, elements, FemSet.TYPES.ELSET, parent=fem)
+
     fem_sec = fem.sections.name_map.get(fem_sec_name, None)
     if fem_sec is None:
         fem_sec = FemSection(
@@ -154,18 +156,19 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
     hinge_prop = beam.connection_props.hinge_prop
     if hinge_prop is None:
         return
+
     end1_p = hinge_prop.end1.concept_node.p if hinge_prop.end1 is not None else None
     end2_p = hinge_prop.end2.concept_node.p if hinge_prop.end2 is not None else None
-    if hinge_prop is not None:
-        for el in elements:
-            n1 = el.nodes[0]
-            n2 = el.nodes[-1]
-            el.hinge_prop = hinge_prop
-            if hinge_prop.end1 is not None and vector_length(end1_p - n1.p) == 0.0:
-                el.hinge_prop.end1.fem_node = n1
 
-            if hinge_prop.end2 is not None and vector_length(end2_p - n2.p) == 0.0:
-                el.hinge_prop.end2.fem_node = n2
+    for el in elements:
+        n1 = el.nodes[0]
+        n2 = el.nodes[-1]
+        el.hinge_prop = hinge_prop
+        if hinge_prop.end1 is not None and vector_length(end1_p - n1.p) == 0.0:
+            el.hinge_prop.end1.fem_node = n1
+
+        if hinge_prop.end2 is not None and vector_length(end2_p - n2.p) == 0.0:
+            el.hinge_prop.end2.fem_node = n2
 
 
 def get_so_sections(model: gmsh.model, solid_object: Beam, gmsh_data: GmshData, fem: FEM):

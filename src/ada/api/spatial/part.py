@@ -555,20 +555,21 @@ class Part(BackendGeom):
         new_materials = Materials(parent=self)
         for mat in self.get_all_materials(include_self=include_self):
             res = new_materials.add(mat)
-            if res.guid != mat.guid:
-                refs = [r for r in mat.refs]
-                for elem in refs:
-                    mat.refs.pop(mat.refs.index(elem))
-                    if elem not in res.refs:
-                        res.refs.append(elem)
-                    if isinstance(elem, (Beam, Plate, FemSection, PipeSegStraight, PipeSegElbow, Pipe)):
-                        elem.material = res
-                        num_elem_changed += 1
-                    elif issubclass(type(elem), Shape):
-                        elem.material = res
-                        num_elem_changed += 1
-                    else:
-                        raise NotImplementedError(f"Not yet support section {type(elem)=}")
+            if res.guid == mat.guid:
+                continue
+            refs = [r for r in mat.refs]
+            for elem in refs:
+                mat.refs.pop(mat.refs.index(elem))
+                if elem not in res.refs:
+                    res.refs.append(elem)
+                if isinstance(elem, (Beam, Plate, FemSection, PipeSegStraight, PipeSegElbow, Pipe)):
+                    elem.material = res
+                    num_elem_changed += 1
+                elif issubclass(type(elem), Shape):
+                    elem.material = res
+                    num_elem_changed += 1
+                else:
+                    raise NotImplementedError(f"Not yet support section {type(elem)=}")
 
         for part in filter(lambda x: len(x.materials) > 0, self.get_all_parts_in_assembly(include_self=include_self)):
             part.materials = Materials(parent=part)
