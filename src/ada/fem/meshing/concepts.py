@@ -321,6 +321,7 @@ class GmshSession:
         self.model.mesh.recombine()
 
     def get_fem(self, name="AdaFEM") -> FEM:
+        from ada.fem import Elem
         from .utils import (
             add_fem_sections,
             get_elements_from_entities,
@@ -334,20 +335,20 @@ class GmshSession:
         end = time.time()
         logger.info(f"Time to get nodes: {end - start:.2f}s")
 
+        def add_obj_to_elem_ref(el: Elem, obj: Shape | Beam | Plate | Pipe):
+            el.refs.append(obj)
+
         # Get Elements
         start = time.time()
-        elements = []
-        el_ids = []
+        elements = dict()
+
         for gmsh_data in self.model_map.values():
             entity_elements = get_elements_from_entities(self.model, gmsh_data.entities, fem)
             gmsh_data.obj.elem_refs = entity_elements
-            for el in entity_elements:
-                el.refs.append(gmsh_data.obj)
-                if el.id not in el_ids:
-                    elements.append(el)
-                    el_ids.append(el.id)
+            [add_obj_to_elem_ref(el, gmsh_data.obj) for el in entity_elements]
+            elements.update({el.id: el for el in entity_elements})
 
-        fem.elements = FemElements(elements, fem_obj=fem)
+        fem.elements = FemElements(elements.values(), fem_obj=fem)
         end = time.time()
         logger.info(f"Time to get elements: {end - start:.2f}s")
 
