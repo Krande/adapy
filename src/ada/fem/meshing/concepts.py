@@ -241,10 +241,25 @@ class GmshSession:
 
         plates = [obj for obj in self.model_map.keys() if type(obj) is Plate]
 
-        plate_map = find_edge_connected_perpendicular_plates(plates)
+        plate_con = find_edge_connected_perpendicular_plates(plates)
 
-        for pl1, con_plates in plate_map.items():
+        # fragment plates (ie. making all interfaces conformal) that are connected at their edges
+        for pl1, con_plates in plate_con.edge_connected.items():
+            pl1_gmsh_obj = self.model_map[pl1]
+            intersecting_plates = []
+            pl1_dim, pl1_ent = pl1_gmsh_obj.entities[0]
 
+            for pl2 in con_plates:
+                pl2_gmsh_obj = self.model_map[pl2]
+
+                for pl2_dim, pl2_ent in pl2_gmsh_obj.entities:
+                    intersecting_plates.append((pl2_dim, pl2_ent))
+
+            self.model.occ.fragment(intersecting_plates, [(pl1_dim, pl1_ent)])
+            self.model.occ.synchronize()
+
+        # split plates that have plate connections at their mid-span
+        for pl1, con_plates in plate_con.mid_span_connected.items():
             pl1_gmsh_obj = self.model_map[pl1]
             intersecting_plates = []
             pl1_dim, pl1_ent = pl1_gmsh_obj.entities[0]

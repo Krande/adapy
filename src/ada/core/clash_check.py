@@ -142,7 +142,9 @@ def find_beams_connected_to_plate(pl: Plate, beams: list[Beam]) -> list[Beam]:
     from ada.api.containers import Nodes
 
     nid = Counter(1)
-    nodes = Nodes([Node((bm.placement.get_absolute_placement().origin + (bm.n2.p + bm.n1.p) / 2), next(nid), refs=[bm]) for bm in beams])
+    nodes = Nodes(
+        [Node((bm.placement.get_absolute_placement().origin + (bm.n2.p + bm.n1.p) / 2), next(nid), refs=[bm]) for bm in
+         beams])
 
     pmin = pl.bbox().p1
     pmax = pl.bbox().p2
@@ -235,7 +237,48 @@ class PipeClash:
         part.add_beam(Beam(next(reinforce_name), bm_p4, bm_p1, "HP140x8"), add_to_layer=add_to_layer)
 
 
-def find_edge_connected_perpendicular_plates(plates: list[ada.Plate]) -> dict[ada.Plate, list[ada.Plate]]:
+@dataclass
+class PlateConnections:
+    mid_span_connected: dict[ada.Plate, list[ada.Plate]]
+    edge_connected: dict[ada.Plate, list[ada.Plate]]
+
+
+def find_edge_connected_perpendicular_plates(plates: list[ada.Plate]) -> PlateConnections:
+    """Find all plates that are connected to a plate edge and are perpendicular to that edge"""
+    plates = list(plates)
+    mid_span_connected = dict()
+    edge_connected = dict()
+
+    for pl1 in plates:
+        place1 = pl1.placement.get_absolute_placement()
+        eop = EquationOfPlane(pl1.poly.origin, pl1.poly.normal, pl1.poly.ydir)
+        p13d = place1.origin + pl1.poly.points3d
+        for pl2 in plates:
+            if pl1 == pl2:
+                continue
+            place2 = pl2.placement.get_absolute_placement()
+            p23d = place2.origin + pl2.poly.points3d
+            res = eop.return_points_in_plane(np.asarray(p23d))
+            if len(res) < 1:
+                continue
+
+            # pop out the elements in the numpy array res that are rows in p13d
+            res_clear = [r for r in res if not any(np.all(r == p) for p in p13d)]
+
+            if len(res) == 2 and len(res_clear) == 0:
+                if pl1 not in edge_connected:
+                    edge_connected[pl1] = []
+                edge_connected[pl1].append(pl2)
+
+            if len(res_clear) == 2:
+                if pl1 not in mid_span_connected:
+                    mid_span_connected[pl1] = []
+                mid_span_connected[pl1].append(pl2)
+
+    return PlateConnections(mid_span_connected, edge_connected)
+
+
+def find_plates_that_share_only_1_edge(plates) -> dict[ada.Plate, list[ada.Plate]]:
     """Find all plates that are connected to a plate edge and are perpendicular to that edge"""
     plates = list(plates)
     edge_connected = dict()

@@ -114,15 +114,17 @@ def beam_str(fem_sec: FemSection):
 
 def get_section_str(fem_sec: FemSection):
     from .write_elements import must_be_converted_to_general_section
+    from ada.sections.categories import BaseTypes
 
     sec_type = fem_sec.section.type
     if "section_type" in fem_sec.metadata.keys():
         return fem_sec.metadata["section_type"]
+
     if must_be_converted_to_general_section(sec_type):
         return CcxSecTypes.GENERAL
-    elif sec_type in Sc.box:
+    elif sec_type == BaseTypes.BOX:
         return CcxSecTypes.BOX
-    elif sec_type in Sc.tubular:
+    elif sec_type == BaseTypes.TUBULAR:
         return CcxSecTypes.PIPE
     else:
         raise Exception(f'Section "{sec_type}" is not yet supported by Calculix exporter.\n{traceback.format_exc()}')
@@ -168,7 +170,7 @@ def gen_set_str(fem_set: FemSet):
             assert len(fem_set.metadata["gen_mem"]) == 3
             el_root += "" if "," in el_root[-2] else ", "
             set_str += (
-                el_root + "generate\n {},  {},   {}" "".format(*[no for no in fem_set.metadata["gen_mem"]]) + "\n"
+                    el_root + "generate\n {},  {},   {}" "".format(*[no for no in fem_set.metadata["gen_mem"]]) + "\n"
             )
         else:
             set_str += el_root + "\n " + " ".join([f"{no.id}," + next(newline) for no in members]).rstrip()[:-1] + "\n"
