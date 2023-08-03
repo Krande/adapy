@@ -508,19 +508,20 @@ class Part(BackendGeom):
 
         for sec in self.get_all_sections(include_self=include_self):
             res = new_sections.add(sec)
-            if res.guid != sec.guid:
-                refs = [r for r in sec.refs]
-                for elem in refs:
-                    refs_num += 1
-                    sec.refs.pop(sec.refs.index(elem))
-                    if elem not in res.refs:
-                        res.refs.append(elem)
-                    if isinstance(elem, (Beam, FemSection)):
-                        if isinstance(elem, BeamTapered) and sec.guid == elem.taper.guid:
-                            elem.taper = res
-                        elem.section = res
-                    else:
-                        raise NotImplementedError(f"Not yet support section {type(elem)=}")
+            if res.guid == sec.guid:
+                continue
+            refs = [r for r in sec.refs]
+            for elem in refs:
+                refs_num += 1
+                sec.refs.pop(sec.refs.index(elem))
+                if elem not in res.refs:
+                    res.refs.append(elem)
+                if isinstance(elem, (Beam, FemSection)):
+                    if isinstance(elem, BeamTapered) and sec.guid == elem.taper.guid:
+                        elem.taper = res
+                    elem.section = res
+                else:
+                    raise NotImplementedError(f"Not yet support section {type(elem)=}")
 
         for part in filter(lambda x: len(x.sections) > 0, self.get_all_parts_in_assembly(include_self=include_self)):
             part.sections = Sections(parent=part)
