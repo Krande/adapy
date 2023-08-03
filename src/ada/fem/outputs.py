@@ -197,6 +197,10 @@ class FieldOutput(FemBase):
     def element(self):
         return self._element
 
+    @element.setter
+    def element(self, value: list[str]):
+        self._element = value
+
     @property
     def contact(self):
         return self._contact

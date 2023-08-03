@@ -182,7 +182,7 @@ class Step(FemBase):
         return self._field_outputs
 
     @property
-    def hist_outputs(self) -> dist[HistOutput]:
+    def hist_outputs(self) -> list[HistOutput]:
         return self._hist_outputs
 
     def __repr__(self):
@@ -261,9 +261,11 @@ class StepExplicit(Step):
 
 
 class StepEigen(Step):
-    def __init__(self, name, num_eigen_modes: int, **kwargs):
+    def __init__(self, name, num_eigen_modes: int, field_el_outputs=None, **kwargs):
         super(StepEigen, self).__init__(name, Step.TYPES.EIGEN, **kwargs)
         self._num_eigen_modes = num_eigen_modes
+        for field in self.field_outputs:
+            field.element = [] if field_el_outputs is None else field_el_outputs
 
     @property
     def num_eigen_modes(self):

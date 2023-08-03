@@ -35,7 +35,7 @@ async def _check_server_running():
         return False
 
 
-def check_server_running():
+def is_server_running():
     return asyncio.run(_check_server_running())
 
 
@@ -57,13 +57,12 @@ def send_to_viewer(part: ada.Part):
     """Send a part to the viewer. This will start the viewer if it is not already running."""
     from websockets.sync.client import connect
 
-    if check_server_running() is False:
+    if is_server_running() is False:
         logger.info("Starting server in separate process")
-        # Note that this is a new Python script that you will have to create and place at the specified location
-        subprocess.Popen([sys.executable, str(RENDERER_EXE_PY)],
-                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         stdin=subprocess.PIPE, close_fds=True)
-        time.sleep(3)
+        # Start the server in a separate process that opens a new shell window (on Windows)
+        subprocess.Popen(['start', 'cmd.exe', '/K', sys.executable, str(RENDERER_EXE_PY)], shell=True)
+        while is_server_running() is False:
+            time.sleep(0.1)
 
     start = time.time()
     data = io.BytesIO()
