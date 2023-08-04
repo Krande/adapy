@@ -5,3 +5,4 @@ dependencies:
   - pythreejs
   - pyparsing
   - pygfx
+  - websockets

@@ -81,6 +81,8 @@ jobs:
             jupyterlab
             pythreejs
             pyparsing
+            websockets
+            pygfx
 
       - name: Install latest adapy
         run: |
