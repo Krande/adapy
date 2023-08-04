@@ -11,6 +11,7 @@ from pygfx import (
     cone_geometry,
 )
 from pygfx.utils import Color
+from ada.visit.colors import Color as AdaColor
 
 from ada.visit.gltf.meshes import MeshStore
 
@@ -220,6 +221,9 @@ def geometry_from_mesh(
 def gfx_mesh_from_mesh(
     mesh: trimesh.Trimesh | trimesh.path.Path3D | MeshStore, material=None
 ) -> gfx.Mesh | gfx.Points | gfx.Line:
+    default_point_color = AdaColor.from_str("black")
+    default_line_color = AdaColor.from_str("gray")
+
     if isinstance(mesh, MeshStore):
         mat = tri_mat_to_gfx_mat(mesh.visual.material)
         geom = gfx.Geometry(
@@ -229,7 +233,10 @@ def gfx_mesh_from_mesh(
         mesh = gfx.Mesh(geom, material=mat)
     elif isinstance(mesh, trimesh.points.PointCloud):
         geom = gfx.Geometry(positions=np.ascontiguousarray(mesh.vertices, dtype="f4"))
-        mat = gfx.PointsMaterial(size=10, color=mesh.visual.main_color)
+        # if hasattr(mesh, "visual"):
+        #     mat = gfx.PointsMaterial(size=10, color=mesh.visual.main_color)
+        # else:
+        mat = gfx.PointsMaterial(size=10, color=Color(*default_point_color.rgb))
         mesh = gfx.Points(geom, material=mat)
     elif isinstance(mesh, trimesh.path.Path3D):
         indices = np.ascontiguousarray(mesh.vertex_nodes, dtype="i4")
@@ -240,7 +247,10 @@ def gfx_mesh_from_mesh(
             positions[i + 1] = mesh.vertices[p2]
             i += 2
         geom = gfx.Geometry(positions=positions)
-        mat = gfx.LineSegmentMaterial(thickness=3, color=mesh.visual.main_color)
+        if hasattr(mesh, "visual"):
+            mat = gfx.LineSegmentMaterial(thickness=3, color=mesh.visual.main_color)
+        else:
+            mat = gfx.LineSegmentMaterial(thickness=3, color=Color(*default_line_color.rgb))
         mesh = gfx.Line(geom, material=mat)
     else:
         geom = gfx.Geometry(

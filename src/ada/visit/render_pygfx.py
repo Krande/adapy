@@ -25,11 +25,11 @@ try:
 
     import ada.visit.render_pygfx_helpers as gfx_utils
 except ImportError:
-    raise ImportError("Please install pygfx to use this renderer -> 'pip install pygfx'.")
+    raise ImportError("Please install pygfx to use this renderer -> 'mamba install pygfx'.")
 try:
     from wgpu.gui.auto import WgpuCanvas
 except ImportError:
-    raise ImportError("Please install wgpu to use this renderer -> 'pip install wgpu'.")
+    raise ImportError("Please install wgpu to use this renderer -> 'mamba install wgpu'.")
 
 from ada.visit.render_backend import (
     MeshInfo,
@@ -43,9 +43,8 @@ PICKED_COLOR = Color(0, 123, 255)
 
 
 class RendererPyGFX:
-    def __init__(self, render_backend: RenderBackend, canvas_title: str = "PyGFX Renderer"):
+    def __init__(self, render_backend=SqLiteBackend(), canvas_title: str = "PyGFX Renderer", no_gui: bool = False):
         self.backend = render_backend
-
         self._mesh_map = {}
         self._selected_mat = gfx.MeshPhongMaterial(color=PICKED_COLOR, flat_shading=True)
         self.selected_mesh = None
@@ -58,9 +57,13 @@ class RendererPyGFX:
         self._scene_objects.receive_shadow = True
         self._scene_objects.cast_shadow = True
         self.scene.add(self._scene_objects)
+        if no_gui:
+            self._canvas = None
+            self._renderer = None
+        else:
+            self._canvas = WgpuCanvas(title=canvas_title, max_fps=60)
+            self._renderer = gfx.renderers.WgpuRenderer(self._canvas, show_fps=False)
 
-        self._canvas = WgpuCanvas(title=canvas_title, max_fps=60)
-        self._renderer = gfx.renderers.WgpuRenderer(self._canvas, show_fps=False)
         self.before_render = None
         self.after_render = None
         self.on_click_pre: Callable[[gfx.PointerEvent], None] | None = None

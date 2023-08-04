@@ -737,7 +737,7 @@ class Part(BackendGeom):
             if interactive is True:
                 gs.open_gui()
 
-            fem = gs.get_fem(name=name if name is not None else self.name)
+            fem = gs.get_fem(name=name if name is not None else f"{self.name}-FEM")
 
         for mass_shape in masses:
             cog_absolute = mass_shape.placement.get_absolute_placement().origin + mass_shape.cog

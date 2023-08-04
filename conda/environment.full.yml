@@ -4,3 +4,4 @@ dependencies:
   - jupyterlab
   - pythreejs
   - pyparsing
+  - pygfx
