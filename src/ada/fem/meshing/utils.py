@@ -19,7 +19,7 @@ from ...config import logger
 
 
 def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Beam | Plate | Pipe | Shape, gmsh_data: GmshData) -> None:
-    if type(model_obj) is Beam and gmsh_data.geom_repr == GeomRepr.SHELL:
+    if isinstance(model_obj, Beam) and gmsh_data.geom_repr == GeomRepr.SHELL:
         get_sh_sections_for_beam_obj(model, model_obj, gmsh_data, fem)
         return None
 
