@@ -4,5 +4,6 @@ dependencies:
   - jupyterlab
   - pythreejs
   - pyparsing
+  - glfw
   - pygfx
   - websockets

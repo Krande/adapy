@@ -2,9 +2,5 @@ name: conda-build
 channels:
   - conda-forge
 dependencies:
-  - conda-build
-  - conda-verify
   - anaconda-client
-  - wheel
   - boa
-  - numpy

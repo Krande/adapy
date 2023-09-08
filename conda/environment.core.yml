@@ -11,6 +11,7 @@ dependencies:
   - flatbuffers
   - pyquaternion
   - trimesh
+  - occt 7.7.0
   - send2trash
   - meshio
   - pytexit

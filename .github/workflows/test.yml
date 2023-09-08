@@ -83,6 +83,8 @@ jobs:
             pyparsing
             websockets
             pygfx
+            glfw
+            pygfx
 
       - name: Install latest adapy
         run: |
