@@ -84,7 +84,7 @@ jobs:
             websockets
             pygfx
             glfw
-            pygfx
+            pyglfw
 
       - name: Install latest adapy
         run: |

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, List, Tuple, Union
 
 import ifcopenshell
+import ifcopenshell.api
 import ifcopenshell.geom
 import ifcopenshell.util.element
 import numpy as np
@@ -135,7 +136,19 @@ def create_local_placement(f: ifcopenshell.file, origin=ifco.O, loc_z=ifco.Z, lo
 
 
 def assembly_to_ifc_file(a: "Assembly"):
-    return generate_tpl_ifc_file(a.name, a.metadata["project"], a.metadata["schema"], a.units, a.user)
+    schema = a.metadata["schema"]
+    # f = ifcopenshell.file(a.name + ".ifc", schema_version=)
+    f = ifcopenshell.api.run("project.create_file", version=schema)
+    project = ifcopenshell.api.run("root.create_entity", f, ifc_class="IfcProject", name=a.metadata["project"])
+    f.add(project)
+    ifcopenshell.api.run("unit.assign_unit", f, **{"length": {"is_metric": True, "raw": "METERS"}})
+    # Let's create a modeling geometry context, so we can store 3D geometry (note: IFC supports 2D too!)
+    # context = ifcopenshell.api.run("context.add_context", f, context_type="Model")
+
+    # In particular, in this example we want to store the 3D "body" geometry of objects, i.e. the body shape
+    ifcopenshell.api.run("context.add_context", f, context_type="Model",
+                         context_identifier="Body", target_view="MODEL_VIEW")
+    return f
 
 
 def generate_tpl_ifc_file(file_name, project, schema, units, user):
@@ -431,11 +444,11 @@ def add_negative_extrusion(f, origin, loc_z, loc_x, depth, points, parent):
 
 
 def add_colour(
-    f,
-    ifc_body: Union[List[ifcopenshell.entity_instance], ifcopenshell.entity_instance],
-    name,
-    color: Color,
-    use_surface_style_rendering=False,
+        f,
+        ifc_body: Union[List[ifcopenshell.entity_instance], ifcopenshell.entity_instance],
+        name,
+        color: Color,
+        use_surface_style_rendering=False,
 ) -> None:
     """Add IFcSurfaceStyle using either IfcSurfaceStyleRendering or IfcSurfaceStyleShading"""
     if color is None:
@@ -526,18 +539,18 @@ def scale_ifc_file_object(ifc_file, scale_factor):
                         return obj_
                     elif obj_.is_a("IfcPressureMeasure") or obj_.is_a("IfcModulusOfElasticityMeasure"):
                         # sf is a length unit.
-                        conv_unit = 1 / sf**2
+                        conv_unit = 1 / sf ** 2
                         obj_.wrappedValue = obj_.wrappedValue * conv_unit
                         return obj_
                     elif obj_.is_a("IfcMassDensityMeasure"):
-                        conv_unit = 1 / sf**3
+                        conv_unit = 1 / sf ** 3
                         obj_.wrappedValue = obj_.wrappedValue * conv_unit
                         return obj_
                     # Unit-less
                     elif obj_.is_a("IfcText") is True or obj_.is_a("IfcPositiveRatioMeasure") is True:
                         return obj_
                     elif obj_.is_a("IfcThermalExpansionCoefficientMeasure") or obj_.is_a(
-                        "IfcSpecificHeatCapacityMeasure"
+                            "IfcSpecificHeatCapacityMeasure"
                     ):
                         return obj_
                     elif obj_.is_a("IfcLogical") is True:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ada.cadit.sat.exceptions import InsufficientPointsError
+from ada.config import logger
 
 if TYPE_CHECKING:
     from ada.cadit.sat.store import SatStore
@@ -19,7 +20,7 @@ class PlateFactory:
     def __init__(self, sat_store: SatStore):
         self.sat_store = sat_store
 
-    def get_face_name_and_points(self, face_data_str: str) -> tuple[str, list[tuple[float]]]:
+    def get_face_name_and_points(self, face_data_str: str) -> tuple[str, list[tuple[float]]] | None:
         res = face_data_str.strip().split()
 
         name = self.sat_store.get_name(res[self.name_idx])
@@ -27,7 +28,13 @@ class PlateFactory:
             raise NotImplementedError(f"Only face_refs starting with 'FACE' is supported. Found {name}")
 
         edges = self.get_edges(res)
-        points = self.get_points(edges)
+
+        try:
+            points = self.get_points(edges)
+        except InsufficientPointsError as e:
+            logger.warning(f"face: '{name}' failed to get points due to {e}. Skipping...")
+            return None
+
         return name, points
 
     def get_points(self, edges: list[list[str]]) -> list[tuple[float]]:
