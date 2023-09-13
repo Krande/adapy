@@ -4,8 +4,8 @@ from ada.cadit.sat.store import SatReaderFactory
 from ada.cadit.ifc.store import IfcStore
 
 
-def test_read_a_curved_plate():
-    sat_reader = SatReaderFactory('curved_plate.sat')
+def test_read_a_curved_plate(example_files):
+    sat_reader = SatReaderFactory(example_files / 'sat_files/curved_plate.sat')
     bsplines = list(sat_reader.iter_bspline_objects())
     assert len(bsplines) == 1
 

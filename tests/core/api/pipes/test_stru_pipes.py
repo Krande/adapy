@@ -38,7 +38,7 @@ def test_pipe_multiple_bends(pipe_w_multiple_bends):
 
 
 def test_write_elbow_revolved_solid_ifc_gen(pipe_w_multiple_bends):
-    a = Assembly("MyTest", schema="IFC4x3") / (Part("MyPart") / pipe_w_multiple_bends)
+    a = Assembly("MyTest", schema="IFC4x1") / (Part("MyPart") / pipe_w_multiple_bends)
     a.ifc_store.sync()
     # a.to_ifc('temp/pipes.ifc', file_obj_only=True, validate=True)
     f = a.ifc_store.f

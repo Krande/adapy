@@ -95,5 +95,5 @@ def test_poly_revolve():
 
     bm.add_boolean(PrimRevolve("my_pen_revolved", points2d, rev_angle, origin, xdir, normal))
 
-    a.to_stp(test_dir / "penetrations_revolve.stp")
+    # a.to_stp(test_dir / "penetrations_revolve.stp")
     _ = a.to_ifc(test_dir / "penetrations_revolve.ifc", file_obj_only=True)
