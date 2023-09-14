@@ -14,6 +14,7 @@ from OCC.Extend.TopologyUtils import discretize_edge
 from ada.api.spatial import Part
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
+from ada.config import logger
 from ada.geom import Geometry
 from ada.occ.exceptions import UnableToCreateTesselationFromSolidOCCGeom
 from ada.occ.geom import geom_to_occ_geom
@@ -135,7 +136,11 @@ class BatchTessellator:
         from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
         from OCC.Core.gp import gp_Trsf, gp_Vec
 
-        occ_geom = geom_to_occ_geom(geom)
+        try:
+            occ_geom = geom_to_occ_geom(geom)
+        except BaseException as e:
+            raise UnableToCreateTesselationFromSolidOCCGeom(e)
+
         if obj is not None and obj.parent is not None and obj.parent.placement is not None:
             position = obj.parent.placement.to_axis2placement3d(use_absolute_placement=True)
 
@@ -167,8 +172,11 @@ class BatchTessellator:
                 ada_obj = None
 
             # resolve transform based on parent transforms
-
-            yield self.tessellate_geom(geom, ada_obj)
+            try:
+                yield self.tessellate_geom(geom, ada_obj)
+            except UnableToCreateTesselationFromSolidOCCGeom as e:
+                logger.error(e)
+                continue
 
     def tessellate_part(self, part: Part, filter_by_guids=None, render_override=None) -> trimesh.Scene:
         graph = part.get_graph_store()

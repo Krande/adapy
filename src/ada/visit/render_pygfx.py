@@ -18,7 +18,6 @@ from ada.core.vector_utils import unit_vector
 from ada.geom import Geometry
 from ada.occ.tessellating import BatchTessellator
 from ada.visit.colors import Color
-from ada.visit.websocket_server import start_server
 
 try:
     import pygfx as gfx
@@ -279,6 +278,8 @@ def scale_tri_mesh(mesh: trimesh.Trimesh, sfac: float):
 
 
 def standalone_viewer():
+    from ada.visit.websocket_server import start_server
+
     with Manager() as manager:
         # Create a shared queue
         shared_queue = manager.Queue()
@@ -307,21 +308,6 @@ def standalone_viewer():
             render.before_render = _check_for_messages
             render.process_terminate_on_end = server_process
             render.show()
-
-
-def render_object(part: ada.Part | ada.Beam | ada.Plate):
-    render = RendererPyGFX(render_backend=SqLiteBackend())
-
-    def _on_click(event, mesh_data: MeshInfo):
-        obj = part.get_by_guid(mesh_data.mesh_id)
-        print(obj)
-
-    if not isinstance(part, ada.Part):
-        part = ada.Part("temp") / part
-
-    render.on_click_post = _on_click
-    render.add_part(part)
-    render.show()
 
 
 if __name__ == "__main__":
