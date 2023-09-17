@@ -7,6 +7,7 @@ from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
 from OCC.Core.TDF import TDF_Label, TDF_LabelSequence
 from OCC.Core.TopLoc import TopLoc_Location
 from OCC.Core.TopoDS import TopoDS_Shape
+from OCC.Core.XCAFDoc import XCAFDoc_ColorType
 
 from ada.occ.xcaf_utils import get_color
 
@@ -56,9 +57,9 @@ def read_step_file_with_names_colors(store: StepStore) -> dict[TopoDS_Shape, tup
             c = Quantity_Color(0.5, 0.5, 0.5, Quantity_TOC_RGB)  # default color
             color_set = False
             if (
-                color_tool.GetInstanceColor(shape, 0, c)
-                or color_tool.GetInstanceColor(shape, 1, c)
-                or color_tool.GetInstanceColor(shape, 2, c)
+                    color_tool.GetInstanceColor(shape, 0, c)
+                    or color_tool.GetInstanceColor(shape, 1, c)
+                    or color_tool.GetInstanceColor(shape, 2, c)
             ):
                 color_tool.SetInstanceColor(shape, 0, c)
                 color_tool.SetInstanceColor(shape, 1, c)
@@ -66,10 +67,8 @@ def read_step_file_with_names_colors(store: StepStore) -> dict[TopoDS_Shape, tup
                 color_set = True
 
             if not color_set:
-                if color_tool.GetColor(lab, 0, c) or color_tool.GetColor(lab, 1, c) or color_tool.GetColor(lab, 2, c):
-                    color_tool.SetInstanceColor(shape, 0, c)
-                    color_tool.SetInstanceColor(shape, 1, c)
-                    color_tool.SetInstanceColor(shape, 2, c)
+                set_color(color_tool, shape, lab, c)
+                print('color not set')
 
             shape_disp = BRepBuilderAPI_Transform(shape, loc.Transformation()).Shape()
             if shape_disp not in output_shapes:
@@ -81,9 +80,9 @@ def read_step_file_with_names_colors(store: StepStore) -> dict[TopoDS_Shape, tup
                 c = Quantity_Color(0.5, 0.5, 0.5, Quantity_TOC_RGB)  # default color
                 color_set = False
                 if (
-                    color_tool.GetInstanceColor(shape_sub, 0, c)
-                    or color_tool.GetInstanceColor(shape_sub, 1, c)
-                    or color_tool.GetInstanceColor(shape_sub, 2, c)
+                        color_tool.GetInstanceColor(shape_sub, 0, c)
+                        or color_tool.GetInstanceColor(shape_sub, 1, c)
+                        or color_tool.GetInstanceColor(shape_sub, 2, c)
                 ):
                     color_tool.SetInstanceColor(shape_sub, 0, c)
                     color_tool.SetInstanceColor(shape_sub, 1, c)
@@ -92,9 +91,9 @@ def read_step_file_with_names_colors(store: StepStore) -> dict[TopoDS_Shape, tup
 
                 if not color_set:
                     if (
-                        color_tool.GetColor(lab_subs, 0, c)
-                        or color_tool.GetColor(lab_subs, 1, c)
-                        or color_tool.GetColor(lab_subs, 2, c)
+                            color_tool.GetColor(lab_subs, 0, c)
+                            or color_tool.GetColor(lab_subs, 1, c)
+                            or color_tool.GetColor(lab_subs, 2, c)
                     ):
                         color_tool.SetInstanceColor(shape, 0, c)
                         color_tool.SetInstanceColor(shape, 1, c)
@@ -174,3 +173,42 @@ def iter_children(doc_node, store, num_shapes):
         child = child_iter.Value()
         yield node_to_step_shape(child, store, num_shapes)
         child.Next()
+
+
+def set_color(color_tool, shape, label, color):
+    """Set the color of a shape"""
+    # if adacpp module is present, use that instead
+    set_color_adapy(color_tool, shape, label, color)
+    # try:
+    #     set_color_adacpp(color_tool, shape, label, color)
+    # except ImportError:
+    #     set_color_adapy(color_tool, shape, label, color)
+
+
+def set_color_adapy(color_tool, shape, label, color):
+    if color_tool.GetColor(shape, 0, color) or color_tool.GetColor(shape, 1, color) or color_tool.GetColor(shape, 2, color):
+        color_tool.SetInstanceColor(shape, 0, color)
+        color_tool.SetInstanceColor(shape, 1, color)
+        color_tool.SetInstanceColor(shape, 2, color)
+
+
+def set_color_adacpp(color_tool, shape, label, color):
+    from adacpp import setInstanceColorIfAvailable
+    from adacpp import TopoDS_Shape as adacpp_shape
+    from adacpp import XCAFDoc_ColorTool as adacpp_color_tool
+    from adacpp import TDF_Label as adacpp_label
+    from adacpp import Quantity_Color as adacpp_color
+
+    ctool_pointer = int(color_tool.this)
+    lab_pointer = int(label.this)
+    shape_pointer = int(shape.this)
+    c_pointer = int(color.this)
+
+    adacpp_shape = adacpp_shape.from_ptr(shape_pointer)
+    adacpp_label = adacpp_label.from_ptr(lab_pointer)
+    adacpp_color = adacpp_color.from_ptr(c_pointer)
+    adacpp_color_tool = adacpp_color_tool.from_ptr(ctool_pointer)
+    setInstanceColorIfAvailable(adacpp_color_tool, adacpp_label, adacpp_shape, adacpp_color)
+    # assert that the shape is not converted to a null pointer
+    if not shape:
+        raise RuntimeError("Failed to set color")

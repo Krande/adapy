@@ -8,10 +8,9 @@ dependencies:
   - ifcopenshell
   - pythonocc-core
   - python-gmsh
-  - flatbuffers
   - pyquaternion
   - trimesh
-  - occt
+  - occt >=7.7.2
   - send2trash
   - meshio
   - pytexit

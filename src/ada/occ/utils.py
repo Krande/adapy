@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING, Iterable, Union
 
 import numpy as np
 from OCC.Core.Bnd import Bnd_Box
-from OCC.Core.BRep import BRep_Tool_Pnt
+from OCC.Core.BRep import BRep_Tool
 from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Common, BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
-from OCC.Core.BRepBndLib import brepbndlib_Add
+from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeFace,
@@ -164,7 +164,7 @@ def get_boundingbox(shape: TopoDS_Shape, tol=1e-6, use_mesh=True) -> tuple[tuple
         mesh.Perform()
         if not mesh.IsDone():
             raise AssertionError("Mesh not done.")
-    brepbndlib_Add(shape, bbox, use_mesh)
+    brepbndlib.Add(shape, bbox, use_mesh)
 
     xmin, ymin, zmin, xmax, ymax, zmax = bbox.Get()
     return (xmin, ymin, zmin), (xmax, ymax, zmax)
@@ -189,7 +189,7 @@ def make_fillet(edge1, edge2, bend_radius):
     t = TopologyExplorer(edge1)
     apt = None
     for v in t.vertices():
-        apt = BRep_Tool_Pnt(v)
+        apt = BRep_Tool.Pnt(v)
 
     f.Init(edge1, edge2, gp_Pln(apt, plane_normal))
     f.Perform(bend_radius)
@@ -233,7 +233,7 @@ def get_points_from_occ_shape(occ_shape: TopoDS_Shape | TopoDS_Vertex | TopoDS_E
     t = TopologyExplorer(occ_shape)
     points = []
     for v in t.vertices():
-        apt = BRep_Tool_Pnt(v)
+        apt = BRep_Tool.Pnt(v)
         points.append((apt.X(), apt.Y(), apt.Z()))
     return points
 
@@ -511,13 +511,12 @@ def make_eq_plane_object(name, eq_plane: EquationOfPlane, p_dist=1, plane: Plane
 
 
 def get_edge_points(edge):
-    from OCC.Core.BRep import BRep_Tool_Pnt
     from OCC.Extend.TopologyUtils import TopologyExplorer
 
     t = TopologyExplorer(edge)
     points = []
     for v in t.vertices():
-        apt = BRep_Tool_Pnt(v)
+        apt = BRep_Tool.Pnt(v)
         points.append((apt.X(), apt.Y(), apt.Z()))
     return points
 
@@ -570,7 +569,7 @@ def sweep_pipe(edge, xvec, r, wt, geom_repr=ElemType.SOLID):
 
     t = TopologyExplorer(edge)
     points = [v for v in t.vertices()]
-    point = BRep_Tool_Pnt(points[0])
+    point = BRep_Tool.Pnt(points[0])
     # x, y, z = point.X(), point.Y(), point.Z()
     direction = gp_Dir(*unit_vector(xvec).astype(float).tolist())
 

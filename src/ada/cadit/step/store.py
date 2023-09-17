@@ -1,21 +1,16 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
-from typing import Iterable
-
 from OCC.Core.IFSelect import IFSelect_ItemsByEntity, IFSelect_RetDone
-from OCC.Core.Interface import Interface_Static_SetCVal
+from OCC.Core.Interface import Interface_Static
 from OCC.Core.STEPCAFControl import STEPCAFControl_Reader
 from OCC.Core.STEPControl import STEPControl_Reader
-from OCC.Core.TCollection import TCollection_ExtendedString
 from OCC.Core.TDocStd import TDocStd_Document
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
-from OCC.Core.XCAFDoc import (
-    XCAFDoc_DocumentTool_ColorTool,
-    XCAFDoc_DocumentTool_ShapeTool,
-)
+from OCC.Core.XCAFDoc import XCAFDoc_DocumentTool
 from OCC.Extend.TopologyUtils import TopologyExplorer, list_of_shapes_to_compound
+from dataclasses import dataclass
+from typing import Iterable
 
 from ada.base.units import Units
 from ada.cadit.step.read.reader_utils import read_step_file_with_names_colors
@@ -37,8 +32,8 @@ class StepStore:
         self.step_reader: STEPControl_Reader | STEPCAFControl_Reader | None = None
 
         # For OCAF
-        self.shape_tool: XCAFDoc_DocumentTool_ShapeTool = None
-        self.color_tool: XCAFDoc_DocumentTool_ColorTool = None
+        self.shape_tool: XCAFDoc_DocumentTool.ShapeTool = None
+        self.color_tool: XCAFDoc_DocumentTool.ColorTool = None
         self.doc: TDocStd_Document | None = None
 
     def create_step_reader(self, use_ocaf=False) -> STEPControl_Reader | STEPCAFControl_Reader:
@@ -49,9 +44,9 @@ class StepStore:
         if not use_ocaf:
             step_reader = STEPControl_Reader()
         else:
-            self.doc = TDocStd_Document(TCollection_ExtendedString("XmlOcaf"))
-            self.shape_tool = XCAFDoc_DocumentTool_ShapeTool(self.doc.Main())
-            self.color_tool = XCAFDoc_DocumentTool_ColorTool(self.doc.Main())
+            self.doc = TDocStd_Document("XmlOcaf")
+            self.shape_tool = XCAFDoc_DocumentTool.ShapeTool(self.doc.Main())
+            self.color_tool = XCAFDoc_DocumentTool.ColorTool(self.doc.Main())
             step_reader = STEPCAFControl_Reader()
             step_reader.SetColorMode(True)
             step_reader.SetLayerMode(True)
@@ -59,7 +54,7 @@ class StepStore:
             step_reader.SetMatMode(True)
             step_reader.SetGDTMode(True)
 
-        Interface_Static_SetCVal("xstep.cascade.unit", self.store_units.value.upper())
+        Interface_Static.SetCVal("xstep.cascade.unit", self.store_units.value.upper())
 
         logger.info(f"Reading STEP file: '{filename}' [{self.store_units.value=}] [{use_ocaf=}]")
         status = step_reader.ReadFile(filename)

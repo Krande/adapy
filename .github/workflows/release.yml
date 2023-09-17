@@ -52,5 +52,5 @@ jobs:
 
       - name: Build & Upload to CONDA Main
         run: |
-          conda build -c conda-forge -c krande . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --token=${{ secrets.ANACONDA_TOKEN }} --no-copy-test-source-files --no-test --no-build-id
+          conda mambabuild -c conda-forge -c krande . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --token=${{ secrets.ANACONDA_TOKEN }} --no-copy-test-source-files --no-test --no-build-id
         working-directory: conda

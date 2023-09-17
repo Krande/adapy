@@ -4,14 +4,11 @@ from typing import Callable, Iterable
 from OCC.Core.Message import Message_ProgressRange
 from OCC.Core.RWGltf import RWGltf_CafWriter, RWGltf_WriterTrsfFormat
 from OCC.Core.RWMesh import RWMesh_CoordinateSystem_Zup
-from OCC.Core.TCollection import TCollection_AsciiString, TCollection_ExtendedString
+from OCC.Core.TCollection import TCollection_AsciiString
 from OCC.Core.TColStd import TColStd_IndexedDataMapOfStringString
 from OCC.Core.TDocStd import TDocStd_Document
 from OCC.Core.TopoDS import TopoDS_Compound
-from OCC.Core.XCAFDoc import (
-    XCAFDoc_DocumentTool_ColorTool,
-    XCAFDoc_DocumentTool_ShapeTool,
-)
+from OCC.Core.XCAFDoc import XCAFDoc_DocumentTool
 
 from ada.base.units import Units
 from ada.cadit.ifc.utils import tesselate_shape
@@ -34,9 +31,9 @@ def to_gltf(
     if isinstance(gltf_file, str):
         gltf_file = pathlib.Path(gltf_file)
 
-    doc = TDocStd_Document(TCollection_ExtendedString("ada-py"))
-    shape_tool = XCAFDoc_DocumentTool_ShapeTool(doc.Main())
-    color_tool = XCAFDoc_DocumentTool_ColorTool(doc.Main())
+    doc = TDocStd_Document("ada-py")
+    shape_tool = XCAFDoc_DocumentTool.ShapeTool(doc.Main())
+    color_tool = XCAFDoc_DocumentTool.ColorTool(doc.Main())
 
     for i, step_shape in enumerate(occ_shape_iterable, start=1):
         shp = step_shape.shape
@@ -65,7 +62,7 @@ def to_gltf(
     # Binary export
     binary = True if gltf_file.suffix == ".glb" else False
 
-    glb_writer = RWGltf_CafWriter(TCollection_AsciiString(str(gltf_file)), binary)
+    glb_writer = RWGltf_CafWriter(str(gltf_file), binary)
     if export_units == Units.M and source_units == Units.MM:
         glb_writer.ChangeCoordinateSystemConverter().SetInputLengthUnit(0.001)
     elif export_units == Units.MM and source_units == Units.M:

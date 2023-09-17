@@ -13,10 +13,9 @@ from OCC.Core.BRepBuilderAPI import (
 from OCC.Core.Geom import Geom_Curve
 from OCC.Core.Geom2d import Geom2d_BSplineCurve
 from OCC.Core.gp import gp_Pnt, gp_Pnt2d
-from OCC.Core.Interface import Interface_Static_SetCVal
+import OCC.Core.Interface as OCCInterface
 from OCC.Core.STEPCAFControl import STEPCAFControl_Writer
 from OCC.Core.STEPControl import STEPControl_AsIs
-from OCC.Core.TCollection import TCollection_ExtendedString
 from OCC.Core.TDocStd import TDocStd_Application, TDocStd_Document
 from OCC.Core.TopoDS import TopoDS_Compound
 from OCC.Core.XCAFDoc import XCAFDoc_DocumentTool
@@ -38,7 +37,7 @@ class StepWriter:
     def __init__(self, top_level_name: str = "Assembly", units: Units = Units.M, schema: StepSchema = StepSchema.AP214):
         self.schema = schema
         app = TDocStd_Application()
-        doc = TDocStd_Document(TCollection_ExtendedString("XmlOcaf"))
+        doc = TDocStd_Document("XmlOcaf")
         app.InitDocument(doc)
 
         # The shape tool
@@ -108,8 +107,15 @@ class StepWriter:
         writer.SetColorMode(True)
         writer.SetNameMode(True)
 
-        Interface_Static_SetCVal("write.step.unit", self.units.value.upper())
-        Interface_Static_SetCVal("write.step.schema", self.schema.value.upper())
+        if hasattr(OCCInterface, "Interface_Static_SetCVal"):
+            SetCVal = OCCInterface.Interface_Static_SetCVal
+        elif hasattr(OCCInterface, "Interface_Static"):
+            SetCVal = OCCInterface.Interface_Static.SetCVal
+        else:
+            raise Exception("Could not find Interface_Static_SetCVal or Interface_Static")
+
+        SetCVal("write.step.unit", self.units.value.upper())
+        SetCVal("write.step.schema", self.schema.value.upper())
 
         writer.Transfer(self.doc, STEPControl_AsIs)
         status = writer.Write(str(step_file))
