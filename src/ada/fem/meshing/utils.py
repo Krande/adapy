@@ -15,7 +15,6 @@ from ada.fem.shapes.mesh_types import aba_to_meshio_types, gmsh_to_meshio_orderi
 
 from .common import gmsh_map
 from .concepts import GmshData
-from ...config import logger
 
 
 def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Beam | Plate | Pipe | Shape, gmsh_data: GmshData) -> None:
@@ -117,14 +116,14 @@ def get_sh_sections_for_plate_obj(model: gmsh.model, model_obj: Plate, gmsh_data
 
 
 def add_shell_section(
-        set_name,
-        fem_sec_name,
-        normal,
-        thickness,
-        elements,
-        model_obj: Beam | Plate | Pipe | Shape,
-        fem: FEM,
-        is_rigid=False,
+    set_name,
+    fem_sec_name,
+    normal,
+    thickness,
+    elements,
+    model_obj: Beam | Plate | Pipe | Shape,
+    fem: FEM,
+    is_rigid=False,
 ):
     fem_set = FemSet(set_name, elements, FemSet.TYPES.ELSET)
     props = dict(local_z=normal, thickness=thickness, int_points=5, is_rigid=is_rigid)

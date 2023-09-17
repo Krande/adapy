@@ -1,5 +1,4 @@
 from OCC.Core.BRepTools import breptools
-
 from OCC.Core.TopoDS import TopoDS_Shape
 
 

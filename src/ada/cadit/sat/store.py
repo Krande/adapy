@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Iterable
 
-from ada.api.primitives import RationalBSplineSurfaceWithKnots, BSplineSurfaceWithKnots
+from ada.api.primitives import BSplineSurfaceWithKnots, RationalBSplineSurfaceWithKnots
 from ada.cadit.sat.read.bsplinesurface import create_bsplinesurface_from_sat
 from ada.cadit.sat.read.face import PlateFactory
 
@@ -118,7 +118,7 @@ class SatReaderFactory:
 
     def iter_flat_plates(self) -> Iterable[tuple[str, list[tuple[float, float, float]]]]:
         for face_data in self.iter_faces():
-            if 'spline-surface' in face_data:
+            if "spline-surface" in face_data:
                 continue
             pl = self.plate_factory.get_face_name_and_points(face_data)
             if pl is None:
@@ -127,7 +127,7 @@ class SatReaderFactory:
 
     def iter_bspline_objects(self) -> Iterable[BSplineSurfaceWithKnots | RationalBSplineSurfaceWithKnots]:
         for face_data in self.iter_faces():
-            if 'spline-surface' not in face_data:
+            if "spline-surface" not in face_data:
                 continue
             yield create_bsplinesurface_from_sat(face_data)
 

@@ -48,7 +48,7 @@ def test_crossing_free_beams():
 
 
 def test_beams_enclosing_beams():
-    name_gen = ada.Counter(prefix='bm')
+    name_gen = ada.Counter(prefix="bm")
 
     p1x1 = np.array([(0, 0), (1, 0), (1, 1), (0, 1)])
     pl = ada.Plate("pl1", p1x1 * 5, 10e-3)
@@ -75,8 +75,8 @@ def test_beams_enclosing_beams():
     p21_x = cmin * xdir + imax * ydir
     p22_x = cmax * xdir + imax * ydir
 
-    bm_11x = ada.Beam(next(name_gen), p11_x, p12_x, 'IPE300')
-    bm_12x = ada.Beam(next(name_gen), p21_x, p22_x, 'IPE300')
+    bm_11x = ada.Beam(next(name_gen), p11_x, p12_x, "IPE300")
+    bm_12x = ada.Beam(next(name_gen), p21_x, p22_x, "IPE300")
     beams_inner = [bm_11x, bm_12x]
 
     # Y direction
@@ -85,8 +85,8 @@ def test_beams_enclosing_beams():
     p21_y = cmin * ydir + imax * xdir
     p22_y = cmax * ydir + imax * xdir
 
-    bm_11y = ada.Beam(next(name_gen), p11_y, p12_y, 'IPE300')
-    bm_12y = ada.Beam(next(name_gen), p21_y, p22_y, 'IPE300')
+    bm_11y = ada.Beam(next(name_gen), p11_y, p12_y, "IPE300")
+    bm_12y = ada.Beam(next(name_gen), p21_y, p22_y, "IPE300")
     beams_inner += [bm_11y, bm_12y]
 
     beams = ada.Beam.array_from_list_of_coords(p5x5, "IPE100", name_gen=name_gen)
@@ -100,4 +100,4 @@ def test_beams_enclosing_beams():
         assert el.fem_sec is not None
 
     # a.to_fem("MyIntersectingedge_aba", "abaqus", overwrite=True, scratch_dir='temp/abaqus')
-    a.to_fem("MyIntersectingedge_ufo", "usfos", overwrite=True, scratch_dir='temp/usfos')
+    a.to_fem("MyIntersectingedge_ufo", "usfos", overwrite=True, scratch_dir="temp/usfos")

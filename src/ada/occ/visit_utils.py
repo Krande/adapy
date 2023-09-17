@@ -13,10 +13,10 @@ if TYPE_CHECKING:
 
 
 def occ_geom_to_poly_mesh(
-        obj: BackendGeom,
-        export_config: ExportConfig = ExportConfig(),
-        opt_func: Callable = None,
-        geom_repr: GeomRepr = GeomRepr.SOLID,
+    obj: BackendGeom,
+    export_config: ExportConfig = ExportConfig(),
+    opt_func: Callable = None,
+    geom_repr: GeomRepr = GeomRepr.SOLID,
 ) -> ObjectMesh:
     if geom_repr == GeomRepr.SOLID:
         geom = obj.solid_occ()
@@ -34,5 +34,3 @@ def occ_geom_to_poly_mesh(
     )
     colour = list(obj.color)
     return ObjectMesh(obj.guid, tm.faces, tm.positions, tm.normals, colour, translation=export_config.volume_center)
-
-

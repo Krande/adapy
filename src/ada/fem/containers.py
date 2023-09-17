@@ -54,9 +54,7 @@ class COG:
 class FemElements:
     """Container class for FEM elements"""
 
-    def __init__(
-        self, elements: Iterable[Elem | Mass | Connector] = None, fem_obj: FEM = None, from_np_array=None
-    ):
+    def __init__(self, elements: Iterable[Elem | Mass | Connector] = None, fem_obj: FEM = None, from_np_array=None):
         self._fem_obj = fem_obj
         if from_np_array is not None:
             elements = self.elements_from_array(from_np_array)

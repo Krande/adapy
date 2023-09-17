@@ -16,7 +16,6 @@ from ada.fem.formats.abaqus.write.write_sections import (
 )
 from ada.fem.formats.utils import get_fem_model_from_assembly
 from ada.fem.steps import StepExplicit
-from ada.sections import SectionCat as Sc
 
 from ...general import FEATypes
 from ...tools import FEA_IO, tool_register
@@ -113,8 +112,9 @@ def beam_str(fem_sec: FemSection):
 
 
 def get_section_str(fem_sec: FemSection):
-    from .write_elements import must_be_converted_to_general_section
     from ada.sections.categories import BaseTypes
+
+    from .write_elements import must_be_converted_to_general_section
 
     sec_type = fem_sec.section.type
     if "section_type" in fem_sec.metadata.keys():
@@ -170,7 +170,7 @@ def gen_set_str(fem_set: FemSet):
             assert len(fem_set.metadata["gen_mem"]) == 3
             el_root += "" if "," in el_root[-2] else ", "
             set_str += (
-                    el_root + "generate\n {},  {},   {}" "".format(*[no for no in fem_set.metadata["gen_mem"]]) + "\n"
+                el_root + "generate\n {},  {},   {}" "".format(*[no for no in fem_set.metadata["gen_mem"]]) + "\n"
             )
         else:
             set_str += el_root + "\n " + " ".join([f"{no.id}," + next(newline) for no in members]).rstrip()[:-1] + "\n"

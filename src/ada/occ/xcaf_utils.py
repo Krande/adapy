@@ -1,6 +1,6 @@
 from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
-from OCC.Core.TDF import TDF_Label
 from OCC.Core.TDataStd import TDataStd_Name
+from OCC.Core.TDF import TDF_Label
 from OCC.Core.XCAFDoc import XCAFDoc_ColorType, XCAFDoc_DocumentTool
 
 from ada.visit.colors import Color

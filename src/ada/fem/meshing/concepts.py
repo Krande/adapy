@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import time
-
 import os
 import pathlib
+import time
 from dataclasses import dataclass, field
 from typing import Iterable, List, Union
 
@@ -337,11 +336,13 @@ class GmshSession:
 
     def get_fem(self, name="AdaFEM") -> FEM:
         from ada.fem import Elem
+
         from .utils import (
             add_fem_sections,
             get_elements_from_entities,
             get_nodes_from_gmsh,
         )
+
         start = time.time()
 
         fem = FEM(name)

@@ -11,8 +11,8 @@ from pygfx import (
     cone_geometry,
 )
 from pygfx.utils import Color
-from ada.visit.colors import Color as AdaColor
 
+from ada.visit.colors import Color as AdaColor
 from ada.visit.gltf.meshes import MeshStore
 
 DTYPE = "f4"

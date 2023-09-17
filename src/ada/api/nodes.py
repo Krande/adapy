@@ -206,8 +206,8 @@ def replace_nodes_by_tol(nodes, decimals=0, tol=Settings.point_tol):
 def replace_node(old_node: Node, new_node: Node) -> None:
     """Replaces old node with a new. The refs in old node is cleared, and added to new node ref"""
 
-    from ada.api.beams.helpers import updating_nodes
     from ada import Beam
+    from ada.api.beams.helpers import updating_nodes
     from ada.fem import Elem
 
     for obj in old_node.refs.copy():

@@ -143,8 +143,11 @@ def find_beams_connected_to_plate(pl: Plate, beams: list[Beam]) -> list[Beam]:
 
     nid = Counter(1)
     nodes = Nodes(
-        [Node((bm.placement.get_absolute_placement().origin + (bm.n2.p + bm.n1.p) / 2), next(nid), refs=[bm]) for bm in
-         beams])
+        [
+            Node((bm.placement.get_absolute_placement().origin + (bm.n2.p + bm.n1.p) / 2), next(nid), refs=[bm])
+            for bm in beams
+        ]
+    )
 
     pmin = pl.bbox().p1
     pmax = pl.bbox().p2

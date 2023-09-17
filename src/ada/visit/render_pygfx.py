@@ -9,7 +9,6 @@ import numpy as np
 import trimesh
 import trimesh.visual.material
 
-import ada
 from ada import Part
 from ada.base.types import GeomRepr
 from ada.config import logger
@@ -32,7 +31,6 @@ except ImportError:
 
 from ada.visit.render_backend import (
     MeshInfo,
-    RenderBackend,
     SqLiteBackend,
     create_selected_meshes_from_mesh_info,
 )
@@ -167,9 +165,9 @@ class RendererPyGFX:
 
         if self.selected_mesh is not None:
             if (
-                    isinstance(obj, gfx.Mesh)
-                    and buffer_id == self._selected_mesh_info.buffer_id
-                    and geom_index > self._selected_mesh_info.start
+                isinstance(obj, gfx.Mesh)
+                and buffer_id == self._selected_mesh_info.buffer_id
+                and geom_index > self._selected_mesh_info.start
             ):
                 face_index_bump = 1 + self._selected_mesh_info.end - self._selected_mesh_info.start
                 logger.info(f"Adding {face_index_bump} to {geom_index=}")
@@ -293,6 +291,7 @@ def standalone_viewer():
 
         # create a function that will run for each draw call and will check for messages
         with RendererPyGFX(render_backend=SqLiteBackend()) as render:
+
             def _check_for_messages():
                 while not shared_queue.empty():
                     data = shared_queue.get()

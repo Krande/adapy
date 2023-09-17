@@ -37,7 +37,7 @@ class WebSocketServer:
                 await client.send(data)
 
     async def server_start_main(self):
-        async with websockets.serve(self.handler, self.host, self.port, max_size=10 ** 9):
+        async with websockets.serve(self.handler, self.host, self.port, max_size=10**9):
             await asyncio.Future()  # run forever
 
     def start(self):
@@ -65,7 +65,7 @@ def is_server_running(port="8765"):
 
 
 async def server_start_main(port):
-    async with websockets.serve(receive_messages, "localhost", port, max_size=10 ** 9):
+    async with websockets.serve(receive_messages, "localhost", port, max_size=10**9):
         await asyncio.Future()  # run forever
 
 
@@ -78,11 +78,11 @@ def start_server(shared_queue: Queue = None, port="8765"):
     asyncio.run(server_start_main(port))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     argparse = argparse.ArgumentParser()
     argparse.add_argument("--port", type=int, default=8765)
     argparse.add_argument("--origins", type=str)
     args = argparse.parse_args()
 
-    server = WebSocketServer(port=args.port, client_origins=args.origins.split(';'))
+    server = WebSocketServer(port=args.port, client_origins=args.origins.split(";"))
     server.start()

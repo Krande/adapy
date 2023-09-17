@@ -11,11 +11,13 @@ from ada.visit.websocket_server import is_server_running, start_server
 RENDERER_EXE_PY = pathlib.Path(__file__).parent / "render_pygfx.py"
 WEBSOCKET_EXE_PY = pathlib.Path(__file__).parent / "websocket_server.py"
 
+
 def send_to_viewer(part: ada.Part, port="8765", origins: list[str] = None):
     if origins is None:
         send_to_local_viewer(part)
     else:
         send_to_web_viewer(part, port=port, origins=origins)
+
 
 def send_to_local_viewer(part: ada.Part):
     """Send a part to the viewer. This will start the viewer if it is not already running."""
@@ -24,7 +26,7 @@ def send_to_local_viewer(part: ada.Part):
     if is_server_running() is False:
         logger.info("Starting server in separate process")
         # Start the server in a separate process that opens a new shell window (on Windows)
-        subprocess.Popen(['start', 'cmd.exe', '/K', sys.executable, str(RENDERER_EXE_PY)], shell=True)
+        subprocess.Popen(["start", "cmd.exe", "/K", sys.executable, str(RENDERER_EXE_PY)], shell=True)
         while is_server_running() is False:
             time.sleep(0.1)
 
@@ -44,7 +46,7 @@ def send_to_web_viewer(part: ada.Part, port="8765", origins: list[str] = None):
     if is_server_running(port=port) is False:
         logger.info("Starting server in separate process")
         # Start the server in a separate process that opens a new shell window (on Windows)
-        args = ['start', 'cmd.exe', '/K', sys.executable, str(WEBSOCKET_EXE_PY), f"--port={port}"]
+        args = ["start", "cmd.exe", "/K", sys.executable, str(WEBSOCKET_EXE_PY), f"--port={port}"]
         if origins is not None:
             args.append(f"--origins={';'.join(origins)}")
 

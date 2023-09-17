@@ -4,6 +4,7 @@ import pathlib
 from enum import Enum
 from typing import Any, Iterable
 
+import OCC.Core.Interface as OCCInterface
 from OCC.Core.BRep import BRep_Builder
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
@@ -13,7 +14,6 @@ from OCC.Core.BRepBuilderAPI import (
 from OCC.Core.Geom import Geom_Curve
 from OCC.Core.Geom2d import Geom2d_BSplineCurve
 from OCC.Core.gp import gp_Pnt, gp_Pnt2d
-import OCC.Core.Interface as OCCInterface
 from OCC.Core.STEPCAFControl import STEPCAFControl_Writer
 from OCC.Core.STEPControl import STEPControl_AsIs
 from OCC.Core.TDocStd import TDocStd_Application, TDocStd_Document

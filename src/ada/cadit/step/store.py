@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
+from typing import Iterable
+
 from OCC.Core.IFSelect import IFSelect_ItemsByEntity, IFSelect_RetDone
 from OCC.Core.Interface import Interface_Static
 from OCC.Core.STEPCAFControl import STEPCAFControl_Reader
@@ -9,8 +12,6 @@ from OCC.Core.TDocStd import TDocStd_Document
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
 from OCC.Core.XCAFDoc import XCAFDoc_DocumentTool
 from OCC.Extend.TopologyUtils import TopologyExplorer, list_of_shapes_to_compound
-from dataclasses import dataclass
-from typing import Iterable
 
 from ada.base.units import Units
 from ada.cadit.step.read.reader_utils import read_step_file_with_names_colors

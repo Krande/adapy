@@ -55,11 +55,19 @@ def straight_tapered_beam_to_geom(beam: BeamTapered, is_solid=True) -> Geometry:
         raise NotImplementedError(f"Beam section type {beam.section.type} not implemented")
 
 
+def swept_beam_to_face_geom(beam):
+    pass
+
+
 def swept_beam_to_geom(beam: BeamSweep, is_solid=True) -> Geometry:
     if is_solid:
         return swept_beam_to_solid_geom(beam)
     else:
         return swept_beam_to_face_geom(beam)
+
+
+def revolved_beam_to_face_geom(beam):
+    pass
 
 
 def revolved_beam_to_geom(beam: BeamRevolve, is_solid=True) -> Geometry:
