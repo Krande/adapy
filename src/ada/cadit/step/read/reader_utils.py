@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Iterable
 
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
@@ -8,6 +9,7 @@ from OCC.Core.TDF import TDF_Label, TDF_LabelSequence
 from OCC.Core.TopLoc import TopLoc_Location
 from OCC.Core.TopoDS import TopoDS_Shape
 
+from ada.config import logger
 from ada.occ.xcaf_utils import get_color
 
 try:
@@ -177,14 +179,17 @@ def iter_children(doc_node, store, num_shapes):
 def set_color(color_tool, shape, label, color):
     """Set the color of a shape"""
     # if adacpp module is present, use that instead
-    set_color_adapy(color_tool, shape, label, color)
-    # try:
-    #     set_color_adacpp(color_tool, shape, label, color)
-    # except ImportError:
-    #     set_color_adapy(color_tool, shape, label, color)
+    if os.getenv("USE_ADACPP", "0") == "1":
+        try:
+            set_color_adacpp(color_tool, shape, label, color)
+            return
+        except BaseException as e:
+            logger.error("Failed to import adacpp module")
+
+    set_color_adapy(color_tool, shape, color)
 
 
-def set_color_adapy(color_tool, shape, label, color):
+def set_color_adapy(color_tool, shape, color):
     if (
         color_tool.GetColor(shape, 0, color)
         or color_tool.GetColor(shape, 1, color)
@@ -196,22 +201,23 @@ def set_color_adapy(color_tool, shape, label, color):
 
 
 def set_color_adacpp(color_tool, shape, label, color):
-    from adacpp import Quantity_Color as adacpp_color
-    from adacpp import TDF_Label as adacpp_label
-    from adacpp import TopoDS_Shape as adacpp_shape
-    from adacpp import XCAFDoc_ColorTool as adacpp_color_tool
-    from adacpp import setInstanceColorIfAvailable
+    import adacpp
 
     ctool_pointer = int(color_tool.this)
     lab_pointer = int(label.this)
     shape_pointer = int(shape.this)
     c_pointer = int(color.this)
 
-    adacpp_shape = adacpp_shape.from_ptr(shape_pointer)
-    adacpp_label = adacpp_label.from_ptr(lab_pointer)
-    adacpp_color = adacpp_color.from_ptr(c_pointer)
-    adacpp_color_tool = adacpp_color_tool.from_ptr(ctool_pointer)
-    setInstanceColorIfAvailable(adacpp_color_tool, adacpp_label, adacpp_shape, adacpp_color)
+    adacpp_shape = adacpp.TopoDS_Shape.from_ptr(shape_pointer)
+    adacpp_label = adacpp.TDF_Label.from_ptr(lab_pointer)
+    adacpp_color = adacpp.Quantity_Color.from_ptr(c_pointer)
+    adacpp_color_tool = adacpp.XCAFDoc_ColorTool.from_ptr(ctool_pointer)
+    adacpp.setInstanceColorIfAvailable(adacpp_color_tool, adacpp_label, adacpp_shape, adacpp_color)
+
     # assert that the shape is not converted to a null pointer
-    if not shape:
-        raise RuntimeError("Failed to set color")
+    new_shape_pt = adacpp_shape.get_ptr()
+    new_label_pt = adacpp_label.get_ptr()
+    new_color_pt = adacpp_color.get_ptr()
+
+    if shape_pointer != new_shape_pt:
+        shape.this = new_shape_pt
