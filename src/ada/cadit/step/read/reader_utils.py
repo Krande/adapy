@@ -183,7 +183,7 @@ def set_color(color_tool, shape, label, color):
         try:
             set_color_adacpp(color_tool, shape, label, color)
             return
-        except BaseException as e:
+        except BaseException:
             logger.error("Failed to import adacpp module")
 
     set_color_adapy(color_tool, shape, color)
@@ -216,8 +216,8 @@ def set_color_adacpp(color_tool, shape, label, color):
 
     # assert that the shape is not converted to a null pointer
     new_shape_pt = adacpp_shape.get_ptr()
-    new_label_pt = adacpp_label.get_ptr()
-    new_color_pt = adacpp_color.get_ptr()
+    adacpp_label.get_ptr()
+    adacpp_color.get_ptr()
 
     if shape_pointer != new_shape_pt:
         shape.this = new_shape_pt

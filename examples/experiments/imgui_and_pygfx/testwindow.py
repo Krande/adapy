@@ -1813,12 +1813,18 @@ def show_test_window():
             imgui.tree_pop()
 
         if imgui.tree_node("Multi-component Widgets"):
-            changed, (multi_component_vec4f[0], multi_component_vec4f[1],) = imgui.input_float2(
+            changed, (
+                multi_component_vec4f[0],
+                multi_component_vec4f[1],
+            ) = imgui.input_float2(
                 label="input float2",
                 value0=multi_component_vec4f[0],
                 value1=multi_component_vec4f[1],
             )
-            changed, (multi_component_vec4f[0], multi_component_vec4f[1],) = imgui.drag_float2(
+            changed, (
+                multi_component_vec4f[0],
+                multi_component_vec4f[1],
+            ) = imgui.drag_float2(
                 label="drag float2",
                 value0=multi_component_vec4f[0],
                 value1=multi_component_vec4f[1],
@@ -1826,7 +1832,10 @@ def show_test_window():
                 min_value=0.0,
                 max_value=1.0,
             )
-            changed, (multi_component_vec4f[0], multi_component_vec4f[1],) = imgui.slider_float2(
+            changed, (
+                multi_component_vec4f[0],
+                multi_component_vec4f[1],
+            ) = imgui.slider_float2(
                 label="slider float2",
                 value0=multi_component_vec4f[0],
                 value1=multi_component_vec4f[1],
@@ -1834,12 +1843,18 @@ def show_test_window():
                 max_value=1.0,
             )
 
-            changed, (multi_component_vec4i[0], multi_component_vec4i[1],) = imgui.input_int2(
+            changed, (
+                multi_component_vec4i[0],
+                multi_component_vec4i[1],
+            ) = imgui.input_int2(
                 label="input int2",
                 value0=multi_component_vec4i[0],
                 value1=multi_component_vec4i[1],
             )
-            changed, (multi_component_vec4i[0], multi_component_vec4i[1],) = imgui.drag_int2(
+            changed, (
+                multi_component_vec4i[0],
+                multi_component_vec4i[1],
+            ) = imgui.drag_int2(
                 label="drag int2",
                 value0=multi_component_vec4i[0],
                 value1=multi_component_vec4i[1],
@@ -1847,7 +1862,10 @@ def show_test_window():
                 min_value=0,
                 max_value=255,
             )
-            changed, (multi_component_vec4i[0], multi_component_vec4i[1],) = imgui.slider_int2(
+            changed, (
+                multi_component_vec4i[0],
+                multi_component_vec4i[1],
+            ) = imgui.slider_int2(
                 label="slider int2",
                 value0=multi_component_vec4i[0],
                 value1=multi_component_vec4i[1],
@@ -1891,13 +1909,21 @@ def show_test_window():
                 min_value=0.0,
                 max_value=1.0,
             )
-            changed, (multi_component_vec4i[0], multi_component_vec4i[1], multi_component_vec4i[2],) = imgui.input_int3(
+            changed, (
+                multi_component_vec4i[0],
+                multi_component_vec4i[1],
+                multi_component_vec4i[2],
+            ) = imgui.input_int3(
                 label="input int3",
                 value0=multi_component_vec4i[0],
                 value1=multi_component_vec4i[1],
                 value2=multi_component_vec4i[2],
             )
-            changed, (multi_component_vec4i[0], multi_component_vec4i[1], multi_component_vec4i[2],) = imgui.drag_int3(
+            changed, (
+                multi_component_vec4i[0],
+                multi_component_vec4i[1],
+                multi_component_vec4i[2],
+            ) = imgui.drag_int3(
                 label="drag int3",
                 value0=multi_component_vec4i[0],
                 value1=multi_component_vec4i[1],
