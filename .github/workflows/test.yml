@@ -36,6 +36,7 @@ jobs:
 
       - name: echo bump
         run: |
+          echo GITHUB_REF ${{ github.ref }}
           echo ${{ steps.bump.outputs.version }}
           echo CONDA_BUMP ${{ steps.bump.outputs.condabump }}
           echo PYPI_BUMP ${{ steps.bump.outputs.pypibump }}
