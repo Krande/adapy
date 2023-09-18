@@ -785,6 +785,11 @@ class Part(BackendGeom):
 
         step_writer.export(destination_file)
 
+    def to_viewer(self, **kwargs):
+        from ada.visit.comms import send_to_viewer
+
+        send_to_viewer(self, **kwargs)
+
     @property
     def parts(self) -> dict[str, Part]:
         return self._parts

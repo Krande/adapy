@@ -12,11 +12,11 @@ RENDERER_EXE_PY = pathlib.Path(__file__).parent / "render_pygfx.py"
 WEBSOCKET_EXE_PY = pathlib.Path(__file__).parent / "websocket_server.py"
 
 
-def send_to_viewer(part: ada.Part, port="8765", origins: list[str] = None):
+def send_to_viewer(part: ada.Part, port="8765", origins: list[str] = None, meta: dict = None):
     if origins is None:
         send_to_local_viewer(part)
     else:
-        send_to_web_viewer(part, port=port, origins=origins)
+        send_to_web_viewer(part, port=port, origins=origins, meta=meta)
 
 
 def send_to_local_viewer(part: ada.Part):
@@ -39,7 +39,7 @@ def send_to_local_viewer(part: ada.Part):
         websocket.send(data.getvalue())
 
 
-def send_to_web_viewer(part: ada.Part, port="8765", origins: list[str] = None):
+def send_to_web_viewer(part: ada.Part, port="8765", origins: list[str] = None, meta: dict = None):
     """Send a part to the viewer. This will start the viewer if it is not already running."""
     from websockets.sync.client import connect
 
@@ -56,7 +56,10 @@ def send_to_web_viewer(part: ada.Part, port="8765", origins: list[str] = None):
 
     start = time.time()
     data = io.BytesIO()
-    part.to_trimesh_scene().export(data, file_type="glb")
+    scene = part.to_trimesh_scene()
+    scene.metadata["extra_meta"] = meta
+    scene.export(data, file_type="glb")
+
     end = time.time()
     logger.info(f"Exported to glb in {end - start:.2f} seconds")
 
