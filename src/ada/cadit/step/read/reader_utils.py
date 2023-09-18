@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING, Iterable
 
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
 from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
 from OCC.Core.TDF import TDF_Label, TDF_LabelSequence
 from OCC.Core.TopLoc import TopLoc_Location
-from OCC.Core.TopoDS import TopoDS_Shape
+from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Shell
 
-from ada.config import logger
+from ada.base.adacpp_interface import adacpp_switch
 from ada.occ.xcaf_utils import get_color
 
 try:
@@ -176,48 +175,51 @@ def iter_children(doc_node, store, num_shapes):
         child.Next()
 
 
-def set_color(color_tool, shape, label, color):
-    """Set the color of a shape"""
-    # if adacpp module is present, use that instead
-    if os.getenv("USE_ADACPP", "0") == "1":
-        try:
-            set_color_adacpp(color_tool, shape, label, color)
-            return
-        except BaseException:
-            logger.error("Failed to import adacpp module")
-
-    set_color_adapy(color_tool, shape, color)
-
-
-def set_color_adapy(color_tool, shape, color):
-    if (
-        color_tool.GetColor(shape, 0, color)
-        or color_tool.GetColor(shape, 1, color)
-        or color_tool.GetColor(shape, 2, color)
-    ):
-        color_tool.SetInstanceColor(shape, 0, color)
-        color_tool.SetInstanceColor(shape, 1, color)
-        color_tool.SetInstanceColor(shape, 2, color)
-
-
 def set_color_adacpp(color_tool, shape, label, color):
-    import adacpp
+    """This is an experiment to see if one can alter a SWIG wrapped C++ object using a nanobind wrapped C++ function"""
+    from adacpp.cadit import occt as nano_occt
 
+    # Take the pointers from the SWIG wrapped objects
     ctool_pointer = int(color_tool.this)
     lab_pointer = int(label.this)
     shape_pointer = int(shape.this)
     c_pointer = int(color.this)
 
-    adacpp_shape = adacpp.TopoDS_Shape.from_ptr(shape_pointer)
-    adacpp_label = adacpp.TDF_Label.from_ptr(lab_pointer)
-    adacpp_color = adacpp.Quantity_Color.from_ptr(c_pointer)
-    adacpp_color_tool = adacpp.XCAFDoc_ColorTool.from_ptr(ctool_pointer)
-    adacpp.setInstanceColorIfAvailable(adacpp_color_tool, adacpp_label, adacpp_shape, adacpp_color)
+    # Convert the pointers to nanobind wrapped objects
+    if isinstance(shape, TopoDS_Shell):
+        adacpp_shape = nano_occt.TopoDS_Shell.from_ptr(shape_pointer)
+    elif isinstance(shape, TopoDS_Shape):  # TopoDS_Shape is the base class of TopoDS_Shell
+        adacpp_shape = nano_occt.TopoDS_Shape.from_ptr(shape_pointer)
+    else:
+        raise ValueError(f"Unsupported shape type {type(shape)}")
 
-    # assert that the shape is not converted to a null pointer
-    new_shape_pt = adacpp_shape.get_ptr()
-    adacpp_label.get_ptr()
-    adacpp_color.get_ptr()
+    adacpp_label = nano_occt.TDF_Label.from_ptr(lab_pointer)
+    adacpp_color = nano_occt.Quantity_Color.from_ptr(c_pointer)
+    adacpp_color_tool = nano_occt.XCAFDoc_ColorTool.from_ptr(ctool_pointer)
 
-    if shape_pointer != new_shape_pt:
-        shape.this = new_shape_pt
+    # Change the color conditionally
+    new_shape = nano_occt.setInstanceColorIfAvailable(adacpp_color_tool, adacpp_label, adacpp_shape, adacpp_color)
+
+    # check if the shape object is not null
+    if shape.IsNull():
+        raise ValueError("Shape is null")
+
+    new_shape_ptr = new_shape.get_ptr()  # Set the pointer of the SWIG wrapped object to the new shape pointer
+    return new_shape
+
+
+@adacpp_switch(alt_function=set_color_adacpp, broken=True)
+def set_color(color_tool, shape, label, color):
+    """Set the color of a shape"""
+    if not (
+            color_tool.GetColor(shape, 0, color)
+            or color_tool.GetColor(shape, 1, color)
+            or color_tool.GetColor(shape, 2, color)
+    ):
+        return None
+
+    color_tool.SetInstanceColor(shape, 0, color)
+    color_tool.SetInstanceColor(shape, 1, color)
+    color_tool.SetInstanceColor(shape, 2, color)
+
+
