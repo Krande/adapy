@@ -67,8 +67,7 @@ def read_step_file_with_names_colors(store: StepStore) -> dict[TopoDS_Shape, tup
                 color_set = True
 
             if not color_set:
-                set_color(color_tool, shape, lab, c)
-                print("color not set")
+                _ = set_color(color_tool, shape, lab, c)
 
             shape_disp = BRepBuilderAPI_Transform(shape, loc.Transformation()).Shape()
             if shape_disp not in output_shapes:
@@ -198,17 +197,17 @@ def set_color_adacpp(color_tool, shape, label, color):
     adacpp_color_tool = nano_occt.XCAFDoc_ColorTool.from_ptr(ctool_pointer)
 
     # Change the color conditionally
-    new_shape = nano_occt.setInstanceColorIfAvailable(adacpp_color_tool, adacpp_label, adacpp_shape, adacpp_color)
+    nano_occt.setInstanceColorIfAvailable(adacpp_color_tool, adacpp_label, adacpp_shape, adacpp_color)
 
     # check if the shape object is not null
     if shape.IsNull():
         raise ValueError("Shape is null")
 
-    new_shape_ptr = new_shape.get_ptr()  # Set the pointer of the SWIG wrapped object to the new shape pointer
-    return new_shape
+    # need to return all these objects to avoid garbage collection :(
+    return adacpp_shape, adacpp_label, adacpp_color, adacpp_color_tool
 
 
-@adacpp_switch(alt_function=set_color_adacpp, broken=True)
+@adacpp_switch(alt_function=set_color_adacpp, broken=False)
 def set_color(color_tool, shape, label, color):
     """Set the color of a shape"""
     if not (
@@ -221,5 +220,6 @@ def set_color(color_tool, shape, label, color):
     color_tool.SetInstanceColor(shape, 0, color)
     color_tool.SetInstanceColor(shape, 1, color)
     color_tool.SetInstanceColor(shape, 2, color)
+    return shape
 
 
