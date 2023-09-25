@@ -15,7 +15,7 @@ from ada.api.containers import Nodes
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.config import Settings, logger
-from ada.core.utils import create_guid
+from ada.core.guid import create_guid
 from ada.fem.containers import FemElements
 from ada.fem.shapes import ElemType
 

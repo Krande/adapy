@@ -24,7 +24,7 @@ from ada.cadit.ifc.write.write_spatial_elements import (
 )
 from ada.cadit.ifc.write.write_wall import write_ifc_wall
 from ada.config import logger
-from ada.core.utils import create_guid
+from ada.core.guid import create_guid
 
 if TYPE_CHECKING:
     from ada import Beam, Boolean, Material, Part, Pipe, Plate, Section, Shape, Wall

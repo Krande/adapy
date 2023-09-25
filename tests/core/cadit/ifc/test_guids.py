@@ -1,4 +1,4 @@
-from ada.core.utils import create_guid
+from ada.core.guid import create_guid
 
 
 def test_roundtrip_guid():

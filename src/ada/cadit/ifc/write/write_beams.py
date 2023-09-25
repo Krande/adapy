@@ -20,7 +20,7 @@ from ada.cadit.ifc.write.geom.solids import extruded_area_solid
 from ada.cadit.ifc.write.write_curves import write_curve_poly
 from ada.config import Settings
 from ada.core.constants import O
-from ada.core.utils import create_guid
+from ada.core.guid import create_guid
 
 if TYPE_CHECKING:
     from ifcopenshell import file as ifile

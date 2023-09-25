@@ -5,9 +5,6 @@ import pathlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Union
 
-import ifcopenshell
-import ifcopenshell.validate
-
 from ada.api.presentation_layers import PresentationLayers
 from ada.api.spatial.part import Part
 from ada.api.user import User
@@ -15,7 +12,6 @@ from ada.base.ifc_types import SpatialTypes
 from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.cache.store import CacheStore
-from ada.cadit.ifc.store import IfcStore
 from ada.config import Settings, logger
 from ada.fem import (
     Connector,
@@ -30,6 +26,9 @@ from ada.fem import (
 _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 
 if TYPE_CHECKING:
+    import ifcopenshell
+    import ifcopenshell.validate
+    from ada.cadit.ifc.store import IfcStore
     from ada.fem.formats.general import FEATypes, FemConverters
     from ada.fem.results.common import FEAResult
 
@@ -94,6 +93,7 @@ class Assembly(Part):
         self, ifc_file: str | os.PathLike | ifcopenshell.file, data_only=False, elements2part=None, create_cache=False
     ):
         """Import from IFC file."""
+        import ifcopenshell
 
         if self.cache_store is not None and isinstance(ifc_file, ifcopenshell.file) is False:
             if self.cache_store.from_cache(self, ifc_file) is True:

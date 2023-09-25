@@ -228,7 +228,7 @@ class Instance:
     def to_list_of_custom_json_matrices(self):
         from pyquaternion import Quaternion
 
-        from ada.core.utils import create_guid
+        from ada.core.guid import create_guid
 
         matrices = [[self.instance_ref.guid, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]]
         for place in self.placements:

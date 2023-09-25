@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from ada.core.utils import create_guid
+from ada.core.guid import create_guid
 
 from ..utils import create_ifc_placement, ifc_dir, ifc_p, to_real
 

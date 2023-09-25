@@ -15,7 +15,7 @@ from ada.cadit.ifc.utils import (
 )
 from ada.config import logger
 from ada.core.constants import O, X, Z
-from ada.core.utils import create_guid
+from ada.core.guid import create_guid
 from ada.core.vector_transforms import global_2_local_nodes
 from ada.core.vector_utils import (
     angle_between,

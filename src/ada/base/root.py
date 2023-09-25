@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Union
 from ada.config import Settings as _Settings
 from ada.config import logger
 
-from ..core.utils import create_guid
+from ..core.guid import create_guid
 from .changes import ChangeAction
 from .units import Units
 

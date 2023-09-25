@@ -23,10 +23,21 @@ def send_to_local_viewer(part: ada.Part):
     """Send a part to the viewer. This will start the viewer if it is not already running."""
     from websockets.sync.client import connect
 
+    import os
+    import platform
+
     if is_server_running() is False:
         logger.info("Starting server in separate process")
-        # Start the server in a separate process that opens a new shell window (on Windows)
-        subprocess.Popen(["start", "cmd.exe", "/K", sys.executable, str(RENDERER_EXE_PY)], shell=True)
+        # Start the server in a separate process that opens a new shell window (on Windows) or a new terminal window (on Linux or Mac)
+        if platform.system() == "Windows":
+            os.system("start cmd.exe /K {} {}".format(sys.executable, str(RENDERER_EXE_PY)))
+        elif platform.system() == "Linux":
+            os.system("xterm -e {} {}".format(sys.executable, str(RENDERER_EXE_PY)))
+        elif platform.system() == "Darwin":
+            os.system("open -a Terminal.app {} {}".format(sys.executable, str(RENDERER_EXE_PY)))
+        else:
+            raise NotImplementedError("Unsupported platform: {}".format(platform.system()))
+
         while is_server_running() is False:
             time.sleep(0.1)
 

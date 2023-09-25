@@ -9,7 +9,7 @@ from ada.cadit.ifc.utils import (
     to_real,
 )
 from ada.config import logger
-from ada.core.utils import create_guid
+from ada.core.guid import create_guid
 from ada.fem import Elem
 
 from .helper_utils import ifc_vertex

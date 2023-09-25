@@ -55,7 +55,7 @@ def organize_by_colour(objects: Iterable[ObjectMesh]) -> Dict[tuple, List[Object
 
 
 def merge_mesh_objects(list_of_objects: Iterable[ObjectMesh]) -> ObjectMesh:
-    from ada.core.utils import create_guid
+    from ada.core.guid import create_guid
 
     from .concept import ObjectMesh
 

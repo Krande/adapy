@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Iterable, Optional
 
 import numpy as np
-from OCC.Core.TopoDS import TopoDS_Edge
+
 
 from ada.api.nodes import Node
 from ada.api.transforms import Placement
@@ -21,6 +21,7 @@ from ada.geom.points import Point
 from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
 
 if TYPE_CHECKING:
+    from OCC.Core.TopoDS import TopoDS_Edge
     from ada import Beam
     from ada.geom.curves import ArcLine, IndexedPolyCurve, Line
 

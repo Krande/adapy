@@ -30,4 +30,5 @@ def run_code_aster():
 
 
 if __name__ == "__main__":
-    run_ccx()
+    # run_ccx()
+    run_code_aster()

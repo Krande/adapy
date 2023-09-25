@@ -8,8 +8,6 @@ import shutil
 import zipfile
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import TYPE_CHECKING, Any, Dict, Union
-
-import ifcopenshell
 import numpy as np
 
 from ada.config import Settings, logger
@@ -361,18 +359,3 @@ def set_list_first_position_elem(array: list, element) -> list:
     return new_array
 
 
-def create_guid(name=None):
-    """Creates a guid from a random name or bytes or generates a random guid"""
-    import hashlib
-    import uuid
-
-    if name is None:
-        hexdig = uuid.uuid1().hex
-    else:
-        if type(name) != bytes:
-            n = name.encode()
-        else:
-            n = name
-        hexdig = hashlib.md5(n).hexdigest()
-    result = ifcopenshell.guid.compress(hexdig)
-    return result

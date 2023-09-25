@@ -13,7 +13,7 @@ import ada.core.constants as ifco
 from ada.api.transforms import Transform
 from ada.config import logger
 from ada.core.file_system import get_list_of_files
-from ada.core.utils import create_guid
+from ada.core.guid import create_guid
 from ada.visit.colors import Color
 
 if TYPE_CHECKING:

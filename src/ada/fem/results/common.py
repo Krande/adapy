@@ -12,7 +12,7 @@ from ada.config import logger
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
 
-from ...core.utils import create_guid
+from ...core.guid import create_guid
 from ...visit.gltf.graph import GraphNode, GraphStore
 from ...visit.gltf.meshes import GroupReference, MergedMesh, MeshType
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType

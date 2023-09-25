@@ -9,7 +9,7 @@ from ada.cadit.ifc.utils import (
     ifc_p,
     to_real,
 )
-from ada.core.utils import create_guid
+from ada.core.guid import create_guid
 from ada.core.vector_utils import unit_vector, vector_length
 
 if TYPE_CHECKING:

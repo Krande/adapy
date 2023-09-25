@@ -190,7 +190,7 @@ class PartMesh:
         }
 
     def merge_by_color(self):
-        from ..core.utils import create_guid
+        from ..core.guid import create_guid
         from .utils import merge_mesh_objects, organize_by_colour
 
         colour_map = organize_by_colour(self.id_map.values())

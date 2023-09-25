@@ -12,7 +12,7 @@ import trimesh.visual.material
 from ada import Part
 from ada.base.types import GeomRepr
 from ada.config import logger
-from ada.core.utils import create_guid
+from ada.core.guid import create_guid
 from ada.core.vector_utils import unit_vector
 from ada.geom import Geometry
 from ada.occ.tessellating import BatchTessellator

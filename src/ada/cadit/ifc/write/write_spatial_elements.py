@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ada.cadit.ifc.utils import create_local_placement, write_elem_property_sets
-from ada.core.utils import create_guid
+from ada.core.guid import create_guid
 from ada.fem.formats.ifc.writer import to_ifc_fem
 
 if TYPE_CHECKING:

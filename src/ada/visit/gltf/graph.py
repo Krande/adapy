@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ada.core.utils import create_guid
+from ada.core.guid import create_guid
 from ada.visit.gltf.meshes import MeshRef
 
 
