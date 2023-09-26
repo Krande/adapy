@@ -12,7 +12,6 @@ dependencies:
   - trimesh
   - occt >=7.7.2
   - send2trash
-  - meshio
   - pytexit
   - plotly
   - python-kaleido
