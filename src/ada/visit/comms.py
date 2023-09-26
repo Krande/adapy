@@ -14,9 +14,9 @@ RENDERER_EXE_PY = pathlib.Path(__file__).parent / "render_pygfx.py"
 WEBSOCKET_EXE_PY = pathlib.Path(__file__).parent / "websocket_server.py"
 
 
-def send_to_viewer(part: ada.Part, port="8765", origins: list[str] = None, meta: dict = None):
+def send_to_viewer(part: ada.Part, host="localhost", port=8765, origins: list[str] = None, meta: dict = None):
     if origins is None:
-        send_to_local_viewer(part)
+        send_to_local_viewer(part, host=host, port=port)
     else:
         send_to_web_viewer(part, port=port, origins=origins, meta=meta)
 
@@ -49,7 +49,7 @@ def send_to_local_viewer(part: ada.Part, host="localhost", port=8765):
     ws.send(data.getvalue())
 
 
-def send_to_web_viewer(part: ada.Part, port="8765", origins: list[str] = None, meta: dict = None):
+def send_to_web_viewer(part: ada.Part, port=8765, origins: list[str] = None, meta: dict = None):
     """Send a part to the viewer. This will start the viewer if it is not already running."""
     from websockets.sync.client import connect
 

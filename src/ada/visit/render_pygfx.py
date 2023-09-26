@@ -291,7 +291,6 @@ def standalone_viewer(host="localhost", port="8765"):
 
         # create a function that will run for each draw call and will check for messages
         with RendererPyGFX(render_backend=SqLiteBackend()) as render:
-
             def _check_for_messages():
                 while not shared_queue.empty():
                     data = shared_queue.get()
@@ -316,7 +315,7 @@ def main():
     parser.add_argument("--host", type=str, default="localhost")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
-    standalone_viewer(port=args.port)
+    standalone_viewer(host=args.host, port=args.port)
 
 
 if __name__ == "__main__":
