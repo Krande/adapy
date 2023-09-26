@@ -25,6 +25,8 @@ classifiers = [
     "Topic :: Scientific/Engineering",
     "Topic :: Utilities",
 ]
+[project.scripts]
+ada-viewer = "ada.visit.render_pygfx:main"
 
 [project.urls]
 "Homepage" = "https://github.com/Krande/adapy"

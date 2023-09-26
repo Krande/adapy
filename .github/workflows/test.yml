@@ -96,7 +96,9 @@ jobs:
 # Only if triggered by a tag and passes tests, then publish to pypi and conda
   pypi:
     needs: [ test-core, test-full, bump ]
-    if: ${{ startsWith(github.ref, 'refs/tags/') && needs.bump.outputs.pypi_bump == 'TRUE' }}
+#    if: ${{ startsWith(github.ref, 'refs/tags/') && needs.bump.outputs.pypi_bump == 'TRUE' }}
+    # Will rely only on the bump output.
+    if: ${{ needs.bump.outputs.pypi_bump == 'TRUE' }}
     name: Publish to PYPI
     defaults:
       run:
@@ -122,7 +124,8 @@ jobs:
 
   conda_upload:
     needs: [ test-core, test-full, bump ]
-    if: ${{ startsWith(github.ref, 'refs/tags/') && needs.bump.outputs.conda_bump == 'TRUE' }}
+#    if: ${{ startsWith(github.ref, 'refs/tags/') && needs.bump.outputs.conda_bump == 'TRUE' }}
+    if: ${{ needs.bump.outputs.conda_bump == 'TRUE' }}
     name: Publish to CONDA
     defaults:
       run:

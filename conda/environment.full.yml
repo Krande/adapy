@@ -6,4 +6,4 @@ dependencies:
   - pyparsing
   - pyglfw
   - pygfx
-  - websockets
+

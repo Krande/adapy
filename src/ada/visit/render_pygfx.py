@@ -275,7 +275,7 @@ def scale_tri_mesh(mesh: trimesh.Trimesh, sfac: float):
     mesh.apply_transform(transform)
 
 
-def standalone_viewer():
+def standalone_viewer(host="localhost", port="8765"):
     from ada.visit.websocket_server import start_server
 
     with Manager() as manager:
@@ -283,7 +283,7 @@ def standalone_viewer():
         shared_queue = manager.Queue()
 
         # Start the server in a separate process, passing the shared queue
-        server_process = Process(target=start_server, args=(shared_queue,))
+        server_process = Process(target=start_server, args=(shared_queue, host, port))
         server_process.start()
 
         # Wait a moment to make sure the server has time to start
@@ -309,5 +309,16 @@ def standalone_viewer():
             render.show()
 
 
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", type=str, default="localhost")
+    parser.add_argument("--port", type=int, default=8765)
+    args = parser.parse_args()
+    standalone_viewer(port=args.port)
+
+
 if __name__ == "__main__":
-    standalone_viewer()
+    main()
+
