@@ -7,13 +7,6 @@ import websockets
 
 from ada.config import logger
 
-message_queue = Queue()
-
-
-async def receive_messages(websocket):
-    async for message in websocket:
-        await consumer(message)
-
 
 @dataclass
 class WebSocketServer:
@@ -21,7 +14,7 @@ class WebSocketServer:
     clients: set = field(default_factory=set)
     port: int = 8765
     host: str = "localhost"
-    message_queue: Queue = field(default_factory=Queue)
+    message_queue: Queue = None
 
     def check_server_running(self):
         host = self.host
@@ -37,6 +30,8 @@ class WebSocketServer:
             self.clients.add(websocket)
 
         async for message in websocket:
+            if self.message_queue is not None:
+                self.message_queue.put(message)
             await self.update_clients(message)
 
     async def update_clients(self, data):
@@ -46,7 +41,7 @@ class WebSocketServer:
                 await client.send(data)
 
     async def server_start_main(self):
-        async with websockets.serve(self.handler, self.host, self.port, max_size=10**9):
+        async with websockets.serve(self.handler, self.host, self.port, max_size=10 ** 9):
             await asyncio.Future()  # run forever
 
     def start(self):
@@ -54,9 +49,18 @@ class WebSocketServer:
         logger.info(f"Starting server {self.host}:{self.port}")
         asyncio.run(self.server_start_main())
 
+    def send(self, data: bytes):
+        from websockets.sync.client import connect
 
-async def consumer(data):
-    message_queue.put(data)
+        with connect(self.host_url) as websocket:
+            websocket.send(data)
+
+    @property
+    def host_url(self):
+        if not self.host.startswith('ws://'):
+            return f"ws://{self.host}:{self.port}"
+
+        return f"{self.host}:{self.port}"
 
 
 async def _check_server_running(host="ws://localhost", port=8765):
@@ -74,18 +78,8 @@ def is_server_running(host="localhost", port=8765):
     return asyncio.run(_check_server_running(host, port))
 
 
-async def server_start_main(port):
-    async with websockets.serve(receive_messages, "localhost", port, max_size=10**9):
-        await asyncio.Future()  # run forever
-
-
 def start_server(shared_queue: Queue = None, host="localhost", port=8765):
-    if shared_queue is not None:
-        global message_queue
-        message_queue = shared_queue
-
-    # asyncio.run(server_start_main(port))
-    _server = WebSocketServer(host=host, port=port)
+    _server = WebSocketServer(host=host, port=port, message_queue=shared_queue)
     _server.start()
 
 
