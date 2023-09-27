@@ -341,7 +341,7 @@ class FEAResult:
         mesh = self.to_meshio_mesh()
         mesh.write(fem_file)
 
-    def to_trimesh(self, step: int, field: str, warp_field=None, warp_step=None, warp_scale=None, cfunc=None):
+    def to_trimesh(self, step: int, field: str, warp_field: str=None, warp_step: int=None, warp_scale: float=None, cfunc=None):
         import trimesh
         from trimesh.path.entities import Line
         from trimesh.visual.material import PBRMaterial
