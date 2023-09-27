@@ -104,7 +104,7 @@ def create_sconcept_str(fem_sec: FemSection) -> ConceptStructure:
     sconcept_str = ""
     # Give concept relationship based on inputted values
 
-    beams = [x for x in fem_sec.refs if type(x) is Beam]
+    beams = [x for x in fem_sec.refs if isinstance(x, Beam)]
     if len(beams) != 1:
         raise ValueError("A FemSection cannot be sourced from multiple beams")
     beam = beams[0]

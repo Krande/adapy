@@ -1,0 +1,15 @@
+name: ada-wgpu
+channels:
+  - conda-forge
+  - krande
+dependencies:
+  - ada-py
+  - PyOpenGL
+  - pytest
+  - pip
+  - pip:
+      - pygfx
+      - glfw
+      - jupyter_rfb
+      - simplejpeg
+      - imgui # For testing only

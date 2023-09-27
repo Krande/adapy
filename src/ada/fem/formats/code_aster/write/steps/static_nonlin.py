@@ -9,7 +9,7 @@ from ada.fem.loads import Load
 from ..write_loads import write_load
 
 if TYPE_CHECKING:
-    from ada.concepts.spatial import Part
+    from ada.api.spatial import Part
 
 
 @dataclass

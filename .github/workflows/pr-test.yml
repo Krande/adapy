@@ -55,12 +55,16 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - name: Install requests
-        run: pip install requests tomlkit semver
 
-      - name: Check release version
-        id: check
-        run: python bump_version.py --version-check-only
+      - name: Install bumpyproject
+        run: pip install git+https://github.com/Krande/bumpyproject.git
+
+      - name: Check if current pyproject version is safe for pushing to conda & pypi
+        id: bump
+        run: bumpy pyproject --check-current --ga-version-output
+        env:
+          CONDA_URL: "https://api.anaconda.org/package/krande/ada-py"
+          PYPI_URL: "https://pypi.org/pypi/ada-py/json"
 
   test:
     needs: activate
@@ -84,30 +88,36 @@ jobs:
         ]
     steps:
       - uses: actions/checkout@v3
-      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+      - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         if: ${{ matrix.build.name == 'core' }}
         with:
-          cache-env: true
-          channels: conda-forge,krande
-          channel-priority: strict
+          cache-environment: true
+          condarc: |
+            channels:
+              - krande
+              - conda-forge
           environment-file: conda/environment.core.yml
-          extra-specs: |
+          create-args: >-
             python=${{ matrix.pyver.distver }}
             pytest
 
-      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+      - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         if: ${{ matrix.build.name == 'full' }}
         with:
-          cache-env: true
-          channels: conda-forge,krande
-          channel-priority: strict
+          cache-environment: true
+          condarc: |
+            channels:
+              - krande
+              - conda-forge
           environment-file: conda/environment.core.yml
-          extra-specs: |
+          create-args: >-
             python=${{ matrix.pyver.distver }}
             pytest
             jupyterlab
             pythreejs
             pyparsing
+            pygfx
+            pyglfw
 
       - name: pip install
         run: |

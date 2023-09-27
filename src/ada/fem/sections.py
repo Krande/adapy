@@ -7,16 +7,11 @@ import numpy as np
 from ada.base.types import GeomRepr
 from ada.config import logger
 from ada.core.utils import Counter
-from ada.core.vector_utils import (
-    calc_yvec,
-    calc_zvec,
-    normal_to_points_in_plane,
-    unit_vector,
-    vector_length,
-)
+from ada.core.vector_utils import calc_yvec, calc_zvec, unit_vector, vector_length
 from ada.materials import Material
 from ada.sections import Section
 
+from ..core.vector_transforms import normal_to_points_in_plane
 from .common import FemBase
 from .shapes import ElemType
 

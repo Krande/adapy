@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
-from ada.concepts.containers import Nodes
-from ada.concepts.points import Node
+from ada.api.containers import Nodes
+from ada.api.nodes import Node
 from ada.fem.formats.utils import str_to_int
 
 from . import cards

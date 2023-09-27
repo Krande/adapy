@@ -8,7 +8,7 @@ from .static_lin import step_static_lin_str
 from .static_nonlin import step_static_nonlin_str
 
 if TYPE_CHECKING:
-    from ada.concepts.spatial import Part
+    from ada.api.spatial import Part
 
 
 def step_static_str(step: StepImplicit, part: Part) -> str:

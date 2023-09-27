@@ -12,7 +12,7 @@ import numpy as np
 
 from ada.config import logger
 from ada.fem.formats.general import FEATypes
-from ada.visualize.femviz import get_edges_and_faces_from_meshio, magnitude
+from ada.visit.rendering.femviz import get_edges_and_faces_from_meshio, magnitude
 
 from ..formats.abaqus.results import read_abaqus_results
 from ..formats.calculix.results import read_calculix_results
@@ -22,7 +22,7 @@ from .eigenvalue import EigenDataSummary
 
 if TYPE_CHECKING:
     from ada import Assembly
-    from ada.visualize.concept import PartMesh, VisMesh
+    from ada.visit.concept import PartMesh, VisMesh
 
 
 class Results:

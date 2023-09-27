@@ -45,7 +45,7 @@ def connector_section_str(con_sec: "ConnectorSection") -> str:
     plastic_comp = con_sec.plastic_comp
     rigid_dofs = con_sec.rigid_dofs
     soft_elastic_dofs = con_sec.soft_elastic_dofs
-    if type(elast) is float:
+    if isinstance(elast, float):
         conn_txt += """\n*Connector Elasticity, component=1\n{0:.3E},""".format(elast)
     else:
         for i, comp in enumerate(elast):
@@ -56,11 +56,11 @@ def connector_section_str(con_sec: "ConnectorSection") -> str:
                 for val in comp:
                     conn_txt += "\n" + ", ".join([f"{x:>12.3E}" if u <= 1 else f",{x:>12d}" for u, x in enumerate(val)])
 
-    if type(damping) is float:
+    if isinstance(damping, float):
         conn_txt += """\n*Connector Damping, component=1\n{0:.3E},""".format(damping)
     else:
         for i, comp in enumerate(damping):
-            if type(comp) is float:
+            if isinstance(comp, float):
                 conn_txt += """\n*Connector Damping, component={1} \n{0:.3E},""".format(comp, i + 1)
             else:
                 conn_txt += """\n*Connector Damping, nonlinear, component=1, DEPENDENCIES=1"""

@@ -4,7 +4,6 @@ import pathlib
 import pytest
 
 import ada
-from ada.config import Settings
 
 is_printed = False
 TESTS_DIR = pathlib.Path(__file__).resolve().absolute().parent
@@ -25,7 +24,7 @@ def root_dir() -> pathlib.Path:
 
 @pytest.fixture
 def test_dir() -> pathlib.Path:
-    testing_dir = Settings.test_dir
+    testing_dir = TESTS_DIR / "temp"
     os.makedirs(testing_dir, exist_ok=True)
     return testing_dir
 

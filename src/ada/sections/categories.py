@@ -31,6 +31,20 @@ class BaseTypes(Enum):
 
         return result
 
+    @staticmethod
+    def get_valid_example_map() -> dict[BaseTypes, str]:
+        """Returns a map of valid section types and an example of each type."""
+        return {
+            BaseTypes.BOX: "BG800x600x20x30",
+            BaseTypes.TUBULAR: "TUB375x35",
+            BaseTypes.IPROFILE: "HEA300",
+            BaseTypes.TPROFILE: "TG650x300x25x40",
+            BaseTypes.ANGULAR: "HP180x10",
+            BaseTypes.CHANNEL: "UNP180x10",
+            BaseTypes.CIRCULAR: "CIRC100",
+            BaseTypes.FLATBAR: "FB100x10",
+        }
+
 
 class SectionCat:
     BASETYPES = BaseTypes

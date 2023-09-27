@@ -24,7 +24,7 @@ def convert_to_pckle(odb_path, pickle_path, use_aba_version=None):
     aba_ver = "abaqus" if use_aba_version is None else use_aba_version
     aba_exe_path = pathlib.Path(shutil.which(aba_ver))
 
-    odb_path = pathlib.Path(odb_path)
+    odb_path = pathlib.Path(odb_path).resolve().absolute()
 
     if os.path.isfile(pickle_path):
         os.remove(pickle_path)

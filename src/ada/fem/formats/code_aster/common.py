@@ -1,3 +1,5 @@
+from enum import Enum
+
 from ada.config import logger
 from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
 
@@ -45,3 +47,10 @@ _ada_to_med_type = {
     SolidShapes.WEDGE: "PE6",
     # "wedge15": "P15",
 }
+
+
+class IntType(str, Enum):
+    """Integer type for the mesh"""
+
+    INT32 = "INT32"
+    INT64 = "INT64"

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
+
+import numpy as np
 
 from .common import Csys, FemBase
 from .sets import FemSet
+from .surfaces import Surface
 
 if TYPE_CHECKING:
     from .common import Amplitude
-    from .surfaces import Surface
+    from .concept import FEM
 
 
 class BcTypes:
@@ -57,11 +60,11 @@ class Bc(FemBase):
         self._fem_set = fem_set
         fem_set.refs.append(self)
 
-        self._dofs = dofs if type(dofs) is list else [dofs]
+        self._dofs = dofs if isinstance(dofs, (list, tuple)) else [dofs]
         if magnitudes is None:
             self._magnitudes = [None] * len(self._dofs)
         else:
-            self._magnitudes = magnitudes if type(magnitudes) is list else [magnitudes]
+            self._magnitudes = magnitudes if isinstance(magnitudes, list) else [magnitudes]
         self.type = bc_type.lower()
         self._amplitude = amplitude
         self._init_condition = init_condition
@@ -106,8 +109,8 @@ class Constraint(FemBase):
         self,
         name,
         con_type,
-        m_set: FemSet,
-        s_set: Union[FemSet, Surface],
+        m_set: FemSet | Surface,
+        s_set: FemSet | Surface,
         dofs=None,
         pos_tol=None,
         mpc_type=None,
@@ -138,24 +141,39 @@ class Constraint(FemBase):
         else:
             self.m_set, self.s_set = self.s_set, self.m_set
 
+    @staticmethod
+    def tie_fem_with_coincident_nodes(name, fem1: FEM, fem2: FEM, dofs=None) -> Constraint:
+        f1_np = fem1.nodes.to_np_array(False)
+        f2_np = fem2.nodes.to_np_array(False)
+
+        # find coincident rows in the x,y,z coordinate numpy arrays f1_np and f2_np
+        c2, c1 = np.where((f1_np == f2_np[:, None]).all(-1))
+        n_id1 = [fem1.nodes.nodes[i] for i in c1]
+        n_id2 = [fem2.nodes.nodes[i] for i in c2]
+        fs1 = FemSet(f"{name}_{fem1.name}_tie_set", n_id1, FemSet.TYPES.NSET)
+        fs2 = FemSet(f"{name}_{fem2.name}_tie_set", n_id2, FemSet.TYPES.NSET)
+        surf1 = Surface(f"{name}_tie_surf1", Surface.TYPES.NODE, fs1)
+        surf2 = Surface(f"{name}_tie_surf2", Surface.TYPES.NODE, fs2)
+        return Constraint(name, ConstraintTypes.TIE, surf1, surf2, [1, 2, 3, 4, 5, 6] if dofs is None else dofs)
+
     @property
     def type(self):
         return self._con_type
 
     @property
-    def m_set(self) -> FemSet:
+    def m_set(self) -> FemSet | Surface:
         return self._m_set
 
     @m_set.setter
-    def m_set(self, value: FemSet):
+    def m_set(self, value: FemSet | Surface):
         self._m_set = value
 
     @property
-    def s_set(self) -> Union[FemSet, Surface]:
+    def s_set(self) -> FemSet | Surface:
         return self._s_set
 
     @s_set.setter
-    def s_set(self, value: Union[FemSet, Surface]):
+    def s_set(self, value: FemSet | Surface):
         self._s_set = value
 
     @property

@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import os
 
-from ada.concepts.spatial import Assembly, Part
+from ada.api.spatial import Assembly, Part
 
 from .read_constraints import get_bcs, get_constraints
 from .read_elements import get_elements, get_mass, get_springs

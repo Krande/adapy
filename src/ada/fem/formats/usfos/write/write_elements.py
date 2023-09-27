@@ -62,6 +62,8 @@ def beam_str(fem: FEM, eccen):
         n1 = el.nodes[0]
         n2 = el.nodes[1]
         fem_sec = el.fem_sec
+        if fem_sec is None:
+            raise ValueError(f"Element {el.id} is missing a fem section")
         mat = fem_sec.material
         xvec = fem_sec.local_z
         xvec_str = f"{xvec[0]:>13.5f}{xvec[1]:>15.5f}{xvec[2]:>15.5f}"

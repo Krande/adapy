@@ -4,16 +4,17 @@ from dataclasses import dataclass, field
 from itertools import chain
 from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple, Union
 
-from ada.concepts.containers import Nodes
+from ada.api.containers import Nodes
 from ada.config import logger
 
 from .containers import FemElements, FemSections, FemSets
 from .sets import FemSet
+from .surfaces import Surface
 
 if TYPE_CHECKING:
     from ada import Part
-    from ada.concepts.points import Node
-    from ada.concepts.stru_beams import Beam
+    from ada.api.beams import Beam
+    from ada.api.nodes import Node
     from ada.fem import (
         Amplitude,
         Bc,
@@ -33,7 +34,6 @@ if TYPE_CHECKING:
         StepExplicit,
         StepImplicit,
         StepSteadyState,
-        Surface,
     )
     from ada.fem.results.common import Mesh
     from ada.fem.steps import Step
@@ -209,10 +209,24 @@ class FEM:
     def add_constraint(self, constraint: Constraint) -> Constraint:
         constraint.parent = self
         if constraint.m_set.parent is None:
-            self.add_set(constraint.m_set)
+            if isinstance(constraint.m_set, FemSet):
+                self.add_set(constraint.m_set)
+            elif isinstance(constraint.m_set, Surface):
+                self.add_surface(constraint.m_set)
+                if constraint.m_set.fem_set.parent is None:
+                    self.add_set(constraint.m_set.fem_set)
+            else:
+                raise ValueError(f"Constraint m_set must be FemSet or Surface, not {type(constraint.m_set)}")
 
         if constraint.s_set.parent is None:
-            self.add_set(constraint.s_set)
+            if isinstance(constraint.s_set, FemSet):
+                self.add_set(constraint.s_set)
+            elif isinstance(constraint.s_set, Surface):
+                self.add_surface(constraint.s_set)
+                if constraint.s_set.fem_set.parent is None:
+                    self.add_set(constraint.s_set.fem_set)
+            else:
+                raise ValueError(f"Constraint s_set must be FemSet or Surface, not {type(constraint.s_set)}")
 
         self.constraints[constraint.name] = constraint
         return constraint

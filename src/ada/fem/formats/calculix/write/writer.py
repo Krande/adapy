@@ -5,7 +5,7 @@ from itertools import groupby
 from operator import attrgetter
 from typing import TYPE_CHECKING
 
-from ada.concepts.containers import Nodes
+from ada.api.containers import Nodes
 from ada.core.utils import NewLine, get_current_user
 from ada.fem import Bc, FemSection, FemSet
 from ada.fem.formats.abaqus.write.write_bc import aba_bc_map, valid_aba_bcs
@@ -16,8 +16,9 @@ from ada.fem.formats.abaqus.write.write_sections import (
 )
 from ada.fem.formats.utils import get_fem_model_from_assembly
 from ada.fem.steps import StepExplicit
-from ada.sections import SectionCat as Sc
 
+from ...general import FEATypes
+from ...tools import FEA_IO, tool_register
 from ..compatibility import check_compatibility
 from .templates import main_header_str
 from .write_elements import elements_str
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from ada.fem import Interaction, Surface
 
 
+@tool_register(fem_format=FEATypes.CALCULIX, io=FEA_IO.write)
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
     """Write a Calculix input file stack"""
 
@@ -110,16 +112,19 @@ def beam_str(fem_sec: FemSection):
 
 
 def get_section_str(fem_sec: FemSection):
+    from ada.sections.categories import BaseTypes
+
     from .write_elements import must_be_converted_to_general_section
 
     sec_type = fem_sec.section.type
     if "section_type" in fem_sec.metadata.keys():
         return fem_sec.metadata["section_type"]
+
     if must_be_converted_to_general_section(sec_type):
         return CcxSecTypes.GENERAL
-    elif sec_type in Sc.box:
+    elif sec_type == BaseTypes.BOX:
         return CcxSecTypes.BOX
-    elif sec_type in Sc.tubular:
+    elif sec_type == BaseTypes.TUBULAR:
         return CcxSecTypes.PIPE
     else:
         raise Exception(f'Section "{sec_type}" is not yet supported by Calculix exporter.\n{traceback.format_exc()}')
@@ -249,7 +254,7 @@ def bc_str(bc: Bc) -> str:
             continue
         # magn_str = f", {magn:.4f}" if magn is not None else ""
 
-        if bc.type in ["connector displacement", "connector velocity"] or type(dof) is str:
+        if bc.type in ["connector displacement", "connector velocity"] or isinstance(dof, str):
             inst_name = bc.fem_set.name
             dofs_str += f" {inst_name}, {dof}\n"
         else:

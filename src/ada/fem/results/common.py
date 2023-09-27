@@ -12,6 +12,9 @@ from ada.config import logger
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
 
+from ...core.guid import create_guid
+from ...visit.gltf.graph import GraphNode, GraphStore
+from ...visit.gltf.meshes import GroupReference, MergedMesh, MeshType
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 
 if TYPE_CHECKING:
@@ -114,6 +117,62 @@ class Mesh:
         faces = np.array(faces).reshape(int(len(faces) / 3), 3)
         edges = np.array(edges).reshape(int(len(edges) / 2), 2)
         return edges, faces
+
+    def create_mesh_stores(
+        self, parent_name: str, shell_color, line_color, points_color, graph: GraphStore, parent_node: GraphNode
+    ) -> tuple[MergedMesh, MergedMesh, MergedMesh]:
+        from ada.fem.shapes import ElemShape
+        from ada.fem.shapes import definitions as shape_def
+
+        face_node = graph.add_node(GraphNode(parent_name + "_sh", create_guid(), parent=parent_node))
+        line_node = graph.add_node(GraphNode(parent_name + "_li", create_guid(), parent=parent_node))
+        points_node = graph.add_node(GraphNode(parent_name + "_po", create_guid(), parent=parent_node))
+
+        nmap = {x: i for i, x in enumerate(self.nodes.identifiers)}
+        keys = np.array(list(nmap.keys()))
+
+        edges = []
+        faces = []
+        sh_groups = []
+        li_groups = []
+
+        for cell_block in self.elements:
+            el_type = cell_block.elem_info.type
+
+            nodes_copy = cell_block.node_refs.copy()
+            nodes_copy[np.isin(nodes_copy, keys)] = np.vectorize(nmap.get)(nodes_copy[np.isin(nodes_copy, keys)])
+
+            for elem_id, elem in enumerate(nodes_copy, start=1):
+                elem_shape = ElemShape(el_type, elem)
+                if elem_shape.type in (MassTypes.MASS,):
+                    continue
+                try:
+                    li_s = len(edges)
+                    edges += elem_shape.edges
+                    graph.add_node(GraphNode(f"Li{elem_id}", f"li{elem_id}", parent=line_node))
+                    li_groups.append(GroupReference(f"li{elem_id}", li_s, len(faces)))
+
+                except IndexError as e:
+                    logger.error(e)
+                    continue
+                if isinstance(elem_shape.type, shape_def.LineShapes):
+                    continue
+
+                face_s = len(faces)
+                faces += elem_shape.get_faces()
+                graph.add_node(GraphNode(f"EL{elem_id}", f"el{elem_id}", parent=face_node))
+                sh_groups.append(GroupReference(f"el{elem_id}", face_s, len(faces) - face_s))
+
+        coords = self.nodes.coords.flatten()
+        for i, n in enumerate(self.nodes.identifiers):
+            graph.add_node(GraphNode(f"P{int(n)}", i, parent=points_node))
+
+        po_groups = [GroupReference(i, i, 1) for i in range(0, len(self.nodes.coords))]
+
+        edges = MergedMesh(np.array(edges), coords, None, line_color, MeshType.LINES, groups=li_groups)
+        points = MergedMesh(None, coords, None, points_color, MeshType.POINTS, groups=po_groups)
+        face_mesh = MergedMesh(np.array(faces), coords, None, shell_color, MeshType.TRIANGLES, groups=sh_groups)
+        return points, edges, face_mesh
 
 
 @dataclass
@@ -237,7 +296,7 @@ class FEAResult:
         return cell_data, point_data
 
     def _colorize_data(self, field: str, step: int, colorize_function: Callable = None):
-        from ada.visualize.colors import DataColorizer
+        from ada.visit.colors import DataColorizer
 
         data = self.get_data(field, step)
         vertex_colors = DataColorizer.colorize_data(data, func=colorize_function)
@@ -282,7 +341,9 @@ class FEAResult:
         mesh = self.to_meshio_mesh()
         mesh.write(fem_file)
 
-    def to_trimesh(self, step: int, field: str, warp_field=None, warp_step=None, warp_scale=None, cfunc=None):
+    def to_trimesh(
+        self, step: int, field: str, warp_field: str = None, warp_step: int = None, warp_scale: float = None, cfunc=None
+    ):
         import trimesh
         from trimesh.path.entities import Line
         from trimesh.visual.material import PBRMaterial
@@ -310,7 +371,7 @@ class FEAResult:
         return scene
 
     def to_gltf(self, dest_file, step: int, field: str, warp_field=None, warp_step=None, warp_scale=None, cfunc=None):
-        from ada.core.vector_utils import rot_matrix
+        from ...core.vector_transforms import rot_matrix
 
         dest_file = pathlib.Path(dest_file).resolve().absolute()
         scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)

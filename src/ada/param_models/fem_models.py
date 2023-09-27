@@ -17,27 +17,27 @@ def add_random_cutouts(bm: Beam):
     origin = np.array([0.2, -0.1, -0.1])
     points = [(0, 0), (0.1, 0), (0.05, 0.1)]
 
-    bm.add_penetration(PrimExtrude("Poly1", points, h, normal, origin, xdir))
+    bm.add_boolean(PrimExtrude("Poly1", points, h, normal, origin, xdir))
 
     origin += np.array([0.2, 0, 0])
     points = [(0, 0, r), (0.1, 0, r), (0.05, 0.1, r)]
 
-    bm.add_penetration(PrimExtrude("Poly2", points, h, normal, origin, xdir))
+    bm.add_boolean(PrimExtrude("Poly2", points, h, normal, origin, xdir))
 
     origin += np.array([0.2, 0, 0])
     points = [(0, 0, r), (0.1, 0, r), (0.1, 0.2, r), (0.0, 0.2, r)]
 
-    bm.add_penetration(PrimExtrude("Poly3", points, h, normal, origin, xdir))
+    bm.add_boolean(PrimExtrude("Poly3", points, h, normal, origin, xdir))
 
     # Cylinder Extrude
     x = origin[0] + 0.2
 
-    bm.add_penetration(PrimCyl("cylinder", (x, -0.1, 0), (x, 0.1, 0), 0.1))
+    bm.add_boolean(PrimCyl("cylinder", (x, -0.1, 0), (x, 0.1, 0), 0.1))
 
     # Box Extrude
     x += 0.2
 
-    bm.add_penetration(PrimBox("box", (x, -0.1, -0.1), (x + 0.2, 0.1, 0.1)))
+    bm.add_boolean(PrimBox("box", (x, -0.1, -0.1), (x + 0.2, 0.1, 0.1)))
 
 
 def beam_ex1(p1=(0, 0, 0), p2=(1.5, 0, 0), profile="IPE400", geom_repr=ElemType.SHELL) -> Assembly:

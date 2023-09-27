@@ -8,14 +8,14 @@ import pytest
 
 import ada
 from ada.base.types import GeomRepr
-from ada.config import Settings
 from ada.fem.exceptions.element_support import IncompatibleElements
 from ada.fem.formats.general import FEATypes as FEA
 from ada.fem.formats.utils import default_fem_res_path
 from ada.fem.meshing.concepts import GmshOptions
 from ada.fem.results.common import FEAResult
 
-test_dir = Settings.scratch_dir / "ada_fem_test_eigen"
+SCRATCH_DIR = pathlib.Path(__file__).parent / "temp/eigen"
+
 EL_TYPES = ada.fem.Elem.EL_TYPES
 
 
@@ -46,11 +46,13 @@ def test_fem_eig(
     execute=True,
     eigen_modes=11,
     name=None,
+    debug=False,
+    **kwargs,
 ) -> FEAResult | None:
     geom_repr = GeomRepr.from_str(geom_repr)
 
     if name is None:
-        short_name = short_name_map.get(fem_format)
+        short_name = short_name_map.get(fem_format, fem_format)
         name = f"cantilever_EIG_{short_name}_{geom_repr.value}_o{elem_order}_hq{use_hex_quad}"
 
     fem_format = FEA.from_str(fem_format)
@@ -61,7 +63,8 @@ def test_fem_eig(
         return None
 
     props = dict(use_hex=use_hex_quad) if geom_repr == GeomRepr.SOLID else dict(use_quads=use_hex_quad)
-
+    if debug:
+        props.update(**kwargs)
     a.fem.add_step(ada.fem.StepEigen("Eigen", num_eigen_modes=eigen_modes))
 
     if overwrite is False:
@@ -71,7 +74,7 @@ def test_fem_eig(
         if "PYTEST_CURRENT_TEST" in os.environ:
             return None
 
-        res_path = default_fem_res_path(name, scratch_dir=test_dir, fem_format=fem_format)
+        res_path = default_fem_res_path(name, scratch_dir=SCRATCH_DIR, fem_format=fem_format)
         return ada.from_fem_res(res_path, fem_format=fem_format)
     else:
         p.fem = beam_fixture.to_fem_obj(0.05, geom_repr, options=GmshOptions(Mesh_ElementOrder=elem_order), **props)
@@ -81,14 +84,14 @@ def test_fem_eig(
         a.fem.add_bc(ada.fem.Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
 
     try:
-        res = a.to_fem(name, fem_format, overwrite=overwrite, execute=execute, scratch_dir=test_dir)
+        res = a.to_fem(name, fem_format, overwrite=overwrite, execute=execute, scratch_dir=SCRATCH_DIR)
     except IncompatibleElements as e:
         if is_conditions_unsupported(fem_format, geom_repr, elem_order):
             logging.error(e)
             return None
         raise e
 
-    if pathlib.Path(res.results_file_path).exists() is False:
+    if res is None or pathlib.Path(res.results_file_path).exists() is False:
         raise FileNotFoundError(f'FEM analysis was not successful. Result file "{res.results_file_path}" not found.')
 
     if "PYTEST_CURRENT_TEST" in os.environ:

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from send2trash import send2trash
 
-from ada.concepts.containers import Beams, Plates
+from ada.api.containers import Beams, Plates
 from ada.config import Settings, logger
 from ada.fem import Elem
 from ada.fem.exceptions import FEASolverNotInstalled
@@ -261,13 +261,13 @@ def get_ff_regex(flag, *args):
         return rf" \s*(?P<{k}>.*?)"
 
     for i, key in enumerate(args):
-        if type(key) is str:
+        if isinstance(key, str):
             pattern_str += add_key(key)
             counter += 1
             if counter == 4 and i < len(args) - 1:
                 counter = 0
                 pattern_str += r"(?:\n|)\s*"
-        elif type(key) is list:
+        elif isinstance(key, list):
             for subkey in key:
                 pattern_str += add_key(subkey)
             pattern_str += r"(?:\n|)\s*"
@@ -318,10 +318,10 @@ def folder_prep(scratch_dir, analysis_name, overwrite):
     analysis_dir = scratch_dir / analysis_name
     if analysis_dir.is_dir():
         _lock_check(analysis_dir)
-        if overwrite is True:
-            _overwrite_dir(analysis_dir)
-        else:
+        if overwrite is False:
             raise IOError('The analysis folder exists. Please remove folder or pass argument "overwrite=True"')
+
+        _overwrite_dir(analysis_dir)
 
     os.makedirs(analysis_dir, exist_ok=True)
     return analysis_dir
@@ -461,39 +461,32 @@ def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> list[Plate]:
             *elem.nodes[3].p,
         ):
             plates.append(
-                Plate(
-                    f"sh{elem.id}",
-                    [n.p for n in elem.nodes],
-                    fem_sec.thickness,
-                    mat=fem_sec.material,
-                    use3dnodes=True,
-                    parent=parent,
+                Plate.from_3d_points(
+                    f"sh{elem.id}", [n.p for n in elem.nodes], fem_sec.thickness, mat=fem_sec.material, parent=parent
                 )
             )
         else:
             el_n1 = [elem.nodes[0].p, elem.nodes[1].p, elem.nodes[2].p]
             el_n2 = [elem.nodes[0].p, elem.nodes[2].p, elem.nodes[3].p]
             plates.append(
-                Plate(f"sh{elem.id}", el_n1, fem_sec.thickness, mat=fem_sec.material, use3dnodes=True, parent=parent)
+                Plate.from_3d_points(f"sh{elem.id}", el_n1, fem_sec.thickness, mat=fem_sec.material, parent=parent)
             )
             plates.append(
-                Plate(
+                Plate.from_3d_points(
                     f"sh{elem.id}_1",
                     el_n2,
                     fem_sec.thickness,
-                    use3dnodes=True,
                     mat=fem_sec.material,
                     parent=parent,
                 )
             )
     else:
         plates.append(
-            Plate(
+            Plate.from_3d_points(
                 f"sh{elem.id}",
                 [n.p for n in elem.nodes],
                 fem_sec.thickness,
                 mat=fem_sec.material,
-                use3dnodes=True,
                 parent=parent,
             )
         )

@@ -27,7 +27,7 @@ def mass_str(mass: Mass, written_on_assembly_level: bool) -> str:
             raise NotImplementedError()
         type_str = f", type={aba_type}"
 
-    mstr = ",".join([str(x) for x in mass.mass]) if type(mass.mass) is list else str(mass.mass)
+    mstr = ",".join([str(x) for x in mass.mass]) if isinstance(mass.mass, list) else str(mass.mass)
 
     if mass.elset is not None:
         set_ref = mass.elset

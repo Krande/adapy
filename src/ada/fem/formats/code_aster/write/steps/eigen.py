@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from ada.fem import StepEigen
 
 if TYPE_CHECKING:
-    from ada.concepts.spatial import Part
+    from ada.api.spatial import Part
 
 
 def step_eig_str(step: StepEigen, part: Part) -> str:

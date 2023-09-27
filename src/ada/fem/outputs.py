@@ -197,6 +197,10 @@ class FieldOutput(FemBase):
     def element(self):
         return self._element
 
+    @element.setter
+    def element(self, value: list[str]):
+        self._element = value
+
     @property
     def contact(self):
         return self._contact
@@ -230,5 +234,5 @@ class Defaults:
 
 def defaults():
     history_output = HistOutput("default_hist", None, HistOutput.TYPES.ENERGY, HistOutput.TYPES_DATA.all)
-    field_output = FieldOutput("default_fields", int_type=HistOutput.TYPES_INTERVAL.FREQUENCY, int_value=1)
+    field_output = FieldOutput("default_fields", int_type=HistOutput.TYPES_INTERVAL.FREQUENCY, int_value=1, nodal=["U"])
     return history_output, field_output

@@ -10,8 +10,10 @@ dependencies:
   - python-gmsh
   - pyquaternion
   - trimesh
+  - occt >=7.7.2
   - send2trash
   - meshio
+  - websockets
   - pytexit
   - plotly
   - python-kaleido

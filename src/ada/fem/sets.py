@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Union
 
-from ada.concepts.points import Node
+from ada.api.nodes import Node
 
 from .common import FemBase
 

@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple, Union
 
 import numpy as np
 
-from ada.concepts.containers import Materials
-from ada.concepts.points import Node
+from ada.api.containers import Materials
+from ada.api.nodes import Node
 from ada.config import logger
 from ada.core.utils import Counter
 from ada.fem.elements import Connector, Elem, Mass, MassTypes
@@ -54,9 +54,7 @@ class COG:
 class FemElements:
     """Container class for FEM elements"""
 
-    def __init__(
-        self, elements: Iterable[Union[Elem, Mass, Connector]] = None, fem_obj: FEM = None, from_np_array=None
-    ):
+    def __init__(self, elements: Iterable[Elem | Mass | Connector] = None, fem_obj: FEM = None, from_np_array=None):
         self._fem_obj = fem_obj
         if from_np_array is not None:
             elements = self.elements_from_array(from_np_array)
@@ -104,7 +102,7 @@ class FemElements:
         list(map(grab_nodes, self._elements))
 
     def _build_sets_from_elsets(self, elset, elem_iter):
-        if elset is not None and type(elset) == str:
+        if elset is not None and isinstance(elset, str):
 
             def link_elset(elem, elem_set_):
                 elem._elset = elem_set_
@@ -198,7 +196,8 @@ class FemElements:
         """Calculate COG of your FEM model based on element mass distributed to element and nodes"""
         from itertools import chain
 
-        from ada.core.vector_utils import global_2_local_nodes, poly_area, vector_length
+        from ada.core.vector_transforms import global_2_local_nodes
+        from ada.core.vector_utils import poly_area, vector_length
 
         def calc_sh_elem(el: Elem):
             locx = el.fem_sec.local_x
@@ -438,8 +437,6 @@ class FemSections:
             self._link_data()
 
     def _map_by_properties(self) -> Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]]:
-        from ada import Material, Section
-
         merge_map: Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]] = dict()
         for fs in self.lines:
             props = (fs.material, fs.section.unique_props(), tuple(), tuple(fs.local_z), tuple(fs.local_y))
@@ -479,16 +476,16 @@ class FemSections:
         self.remove(rest_list)
 
     def _map_materials(self, fem_sec: FemSection, mat_repo: Materials):
-        if type(fem_sec.material) is str:
+        if isinstance(fem_sec.material, str):
             logger.error(f'Material "{fem_sec.material}" was passed as string')
             fem_sec._material = mat_repo.get_by_name(fem_sec.material.name)
 
     def _map_elsets(self, fem_sec: FemSection, elset_repo):
-        if type(fem_sec.elset) is str:
+        if isinstance(fem_sec.elset, str):
             if fem_sec.elset not in elset_repo:
                 raise ValueError(f'The element set "{fem_sec.elset}" is not imported. ')
             fem_sec._elset = elset_repo[fem_sec.elset]
-        elif type(fem_sec) is FemSection:
+        elif isinstance(fem_sec, FemSection):
             pass
         else:
             raise ValueError("Invalid element set has been attached to this fem section")
@@ -587,7 +584,7 @@ class FemSections:
         self._id_map[sec.id] = sec
 
     def remove(self, fs_in: Union[List[FemSection], FemSection]):
-        if type(fs_in) is not list:
+        if not isinstance(fs_in, list):
             fs_in = [fs_in]
 
         for fs in fs_in:
@@ -682,7 +679,11 @@ class FemSets:
                 fem_set.metadata["generate"] = False
 
         if fem_set.type == SetTypes.NSET:
-            if len(fem_set.members) == 1 and type(fem_set.members[0]) is str and type(fem_set.members[0]) is not Node:
+            if (
+                len(fem_set.members) == 1
+                and isinstance(fem_set.members[0], str)
+                and not isinstance(fem_set.members[0], Node)
+            ):
                 fem_set._members = self.nodes[fem_set.members[0]]
                 fem_set.parent = self._fem_obj
                 return fem_set

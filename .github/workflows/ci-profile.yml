@@ -13,14 +13,14 @@ jobs:
         shell: bash -l {0}
     steps:
       - uses: actions/checkout@v3
-      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+      - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         with:
           cache-env: true
           environment-name: ada
           channels: conda-forge
           channel-priority: strict
           environment-file: conda/environment.core.yml
-          extra-specs: |
+          create-args: >-
             python=3.11
             jupyterlab
             pythreejs

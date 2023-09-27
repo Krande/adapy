@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada import Beam, Material, Part, Section
-from ada.concepts.containers import Nodes
+from ada.api.containers import Nodes
 from ada.config import logger
 
 from .utils import to_safe_name

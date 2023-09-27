@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
 
-from ada.concepts.points import Node
+from ada.api.nodes import Node
 from ada.config import logger
 
 from .common import Csys, FemBase

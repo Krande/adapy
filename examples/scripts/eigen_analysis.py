@@ -1,6 +1,10 @@
+import pathlib
+
 import ada
 from ada.fem.meshing import GmshOptions
 from ada.materials.metals import CarbonSteel
+
+SCRATCH = pathlib.Path("temp")
 
 
 def make_fem(geom_repr) -> ada.Assembly:
@@ -24,10 +28,11 @@ def run_ccx():
 
 def run_code_aster():
     a = make_fem("shell")
-    res = a.to_fem("Cantilever_CA_EIG_sh", "code_aster", overwrite=True, execute=True)
+    res = a.to_fem("Cantilever_CA_EIG_sh", "code_aster", scratch_dir=SCRATCH, overwrite=True, execute=True)
     for x in res.iter_results_by_field_value():
         print(x)
 
 
 if __name__ == "__main__":
-    run_ccx()
+    # run_ccx()
+    run_code_aster()

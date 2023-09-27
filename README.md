@@ -4,6 +4,7 @@
 [![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/latest_release_date.svg)](https://anaconda.org/krande/ada-py)
 [![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/platforms.svg)](https://anaconda.org/krande/ada-py)
 [![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/downloads.svg)](https://anaconda.org/krande/ada-py)
+[![PyPi Badge](https://img.shields.io/pypi/v/ada-py)](https://pypi.org/project/ada-py/)
 
 A python library for working with structural analysis and design. This library should be considered as experimental.
 

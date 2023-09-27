@@ -31,7 +31,7 @@ def format_data(d):
     elif type(d) in (np.float64, float, int, np.uint64, np.int32) and d < 0:
         d = make_zero(d)
         return f" {d:<15.8E}"
-    elif type(d) is str:
+    elif isinstance(d, str):
         return d
     else:
         raise ValueError(f"Unknown input {type(d)} {d}")

@@ -9,7 +9,7 @@ from ada.base.units import Units
 from .metals import CarbonSteel
 
 if TYPE_CHECKING:
-    from ada.ifc.store import IfcStore
+    from ada.cadit.ifc.store import IfcStore
 
 
 class Material(Root):

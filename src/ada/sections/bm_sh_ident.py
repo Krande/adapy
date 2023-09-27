@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ada.concepts.transforms import Placement
+from ada.api.transforms import Placement
 from ada.core.vector_utils import is_parallel
 from ada.sections import SectionCat
 from ada.sections.concept import Section, SectionParts

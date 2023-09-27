@@ -4,6 +4,8 @@ import os
 from io import StringIO
 from typing import TYPE_CHECKING
 
+from ...general import FEATypes
+from ...tools import FEA_IO, tool_register
 from .write_amplitudes import amplitudes_str
 from .write_bc import boundary_conditions_str
 from .write_connectors import connector_sections_str, connectors_str
@@ -22,11 +24,12 @@ from .write_steps import write_step
 from .write_surfaces import surfaces_str
 
 if TYPE_CHECKING:
-    from ada.concepts.spatial import Assembly
+    from ada.api.spatial import Assembly
 
 __all__ = ["to_fem"]
 
 
+@tool_register(fem_format=FEATypes.ABAQUS, io=FEA_IO.write)
 def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None, writable_obj: StringIO = None):
     """Build the Abaqus Analysis input deck"""
 

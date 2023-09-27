@@ -1,0 +1,11 @@
+include "arbitrary_profile_def.fbs";
+
+namespace IFC.surfaces;
+
+union _ProfileDefUnion { ArbitraryProfileDef }
+
+table ProfileDefUnion {
+    profile_types: ProfileDefUnion;
+}
+
+root_type ProfileDefUnion;

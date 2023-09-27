@@ -93,9 +93,6 @@ class Csys(FemBase):
     def nodes(self) -> List[Node]:
         return self._nodes
 
-    def updating_nodes(self, old_node: Node, new_node: Node) -> None:
-        """Updating nodes on Csys"""
-
     @property
     def coords(self):
         """Coordinates: (x, y, origin[optional]). y can be anywhere in the x-y plane"""

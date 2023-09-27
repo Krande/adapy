@@ -4,7 +4,7 @@ import numpy as np
 
 from ada import Beam
 from ada.core.utils import Counter
-from ada.visualize.plots import easy_plotly
+from ada.visit.plots import easy_plotly
 
 from .utils import equation_compiler
 

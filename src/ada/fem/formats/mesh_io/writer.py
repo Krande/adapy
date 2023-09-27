@@ -4,7 +4,7 @@ from typing import Union
 import meshio
 import numpy as np
 
-from ada.concepts.spatial import Assembly
+from ada.api.spatial import Assembly
 from ada.config import Settings as _Settings
 from ada.config import logger
 from ada.fem import FEM

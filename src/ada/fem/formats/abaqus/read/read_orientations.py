@@ -1,5 +1,4 @@
-from ada import FEM
-from ada.fem import Csys
+from ada.fem import FEM, Csys
 
 from . import cards
 from .helper_utils import get_set_from_assembly

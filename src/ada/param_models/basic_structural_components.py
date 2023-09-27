@@ -1,8 +1,8 @@
 import numpy as np
 
-from ada import CurvePoly, Shape
+from ada import PrimExtrude
+from ada.api.walls import WallInsert
 from ada.base.units import Units
-from ada.concepts.stru_walls import WallInsert
 
 
 class Window(WallInsert):
@@ -34,9 +34,10 @@ class Window(WallInsert):
         normal = self.placement.zdir
         origin = self.placement.origin - self.placement.zdir * self.depth
         points = [(0, 0), (self.width, 0), (self.width, self.height), (0, self.height)]
-        poly = CurvePoly(points2d=points, origin=origin, normal=normal, xdir=self.placement.xdir, parent=self)
-        geom = poly.make_extruded_solid(self.depth)
-        self.add_shape(Shape(self.name, geom, metadata=self.metadata))
+        prim = PrimExtrude(
+            self.name, points, self.depth, origin=origin, normal=normal, xdir=self.placement.xdir, parent=self
+        )
+        self.add_shape(prim)
 
 
 class Door(WallInsert):
@@ -75,8 +76,14 @@ class Door(WallInsert):
         origin = self.placement.origin - self.placement.zdir * self.depth
         points = [(0, 0), (self.width, 0), (self.width, self.height), (0, self.height)]
 
-        poly = CurvePoly(
-            points2d=points, origin=origin, normal=self.placement.zdir, xdir=self.placement.xdir, parent=self
+        prim = PrimExtrude(
+            self.name,
+            points,
+            self.depth,
+            origin=origin,
+            normal=self.placement.zdir,
+            xdir=self.placement.xdir,
+            parent=self,
         )
-        geom = poly.make_extruded_solid(self.depth)
-        self.add_shape(Shape(self.name, geom, metadata=self.metadata))
+
+        self.add_shape(prim)

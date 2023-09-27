@@ -1,4 +1,4 @@
-from ada.ifc.utils import ifc_p
+from ada.cadit.ifc.utils import ifc_p
 
 
 def ifc_vertex(p, f):

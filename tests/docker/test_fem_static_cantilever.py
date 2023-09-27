@@ -6,14 +6,13 @@ import pytest
 
 import ada
 from ada.base.types import GeomRepr
-from ada.config import Settings
 from ada.fem.exceptions.element_support import IncompatibleElements
 from ada.fem.formats.general import FEATypes as FEA
 from ada.fem.formats.utils import default_fem_res_path
 from ada.fem.meshing.concepts import GmshOptions
 from ada.fem.results import Results
 
-test_dir = Settings.scratch_dir / "ada_fem_test_static"
+SCRATCH_DIR = pathlib.Path(__file__).parent / "temp/static"
 EL_TYPES = ada.fem.Elem.EL_TYPES
 
 
@@ -73,7 +72,7 @@ def test_fem_static(
         if "PYTEST_CURRENT_TEST" in os.environ:
             return None
 
-        res_path = default_fem_res_path(name, scratch_dir=test_dir, fem_format=fem_format)
+        res_path = default_fem_res_path(name, scratch_dir=SCRATCH_DIR, fem_format=fem_format)
         return Results(res_path, name, fem_format, a, import_mesh=False)
     else:
         p.fem = beam_fixture.to_fem_obj(0.05, geom_repr, options=GmshOptions(Mesh_ElementOrder=elem_order), **props)
@@ -84,7 +83,7 @@ def test_fem_static(
 
     try:
         res = a.to_fem(
-            name, fem_format, overwrite=overwrite, execute=execute, scratch_dir=test_dir, exit_on_complete=False
+            name, fem_format, overwrite=overwrite, execute=execute, scratch_dir=SCRATCH_DIR, exit_on_complete=False
         )
     except IncompatibleElements as e:
         if is_conditions_unsupported(fem_format, geom_repr, elem_order, nl_geom):

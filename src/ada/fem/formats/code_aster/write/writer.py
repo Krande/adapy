@@ -12,14 +12,13 @@ from ada.fem.utils import is_quad8_shell_elem, is_tri6_shell_elem
 from ..compatibility import check_compatibility
 from .templates import el_convert_str, main_comm_str
 from .write_bc import create_bc_str
-from .write_elements import elements_str
 from .write_materials import materials_str
-from .write_nodes import _write_nodes
+from .write_med import med_elements, med_nodes
 from .write_sections import create_sections_str
 from .write_steps import create_step_str
 
 if TYPE_CHECKING:
-    from ada.concepts.spatial import Assembly, Part
+    from ada.api.spatial import Assembly, Part
 
 
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
@@ -149,10 +148,10 @@ def write_to_med(name, part: Part, analysis_dir):
         part.fem.sets.add_references()
 
         # Nodes and node sets
-        _write_nodes(part, time_step, profile, families)
+        med_nodes(part, time_step, profile, families)
 
         # Elements (mailles in French) and element sets
-        elements_str(part, time_step, profile, families)
+        med_elements(part, time_step, profile, families)
 
 
 def _write_mesh_presets(f, mesh_name):

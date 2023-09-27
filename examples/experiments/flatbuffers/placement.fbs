@@ -1,0 +1,9 @@
+namespace IFC.placements;
+
+table Direction {
+    x: double;
+    y: double;
+    z: double;
+}
+
+root_type Direction;

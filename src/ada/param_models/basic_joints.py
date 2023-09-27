@@ -1,7 +1,7 @@
 from typing import Union
 
 from ada import Beam
-from ada.concepts.connections import JointBase, JointReqChecker
+from ada.api.connections import JointBase, JointReqChecker
 from ada.config import get_logger
 from ada.core.clash_check import beam_cross_check
 

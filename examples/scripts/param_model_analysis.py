@@ -18,8 +18,8 @@ def main():
     p.add_bcs()
     a = ada.Assembly("ParametricSite") / p
     a.fem.add_step(gravity_step())
-    # a.to_fem("ca_param_model_ca", "code_aster", overwrite=True, execute=True)
-    a.to_fem("ca_param_model_ses", "sesam", overwrite=True, execute=True)
+    a.to_fem("ca_param_model_ca", "code_aster", overwrite=True, execute=True)
+    # a.to_fem("ca_param_model_ses", "sesam", overwrite=True, execute=True)
 
 
 if __name__ == "__main__":

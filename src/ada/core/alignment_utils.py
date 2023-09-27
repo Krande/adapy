@@ -11,8 +11,8 @@ if TYPE_CHECKING:
 def align_to_plate(plate: "Plate"):
     normal = plate.poly.normal
     h = plate.t * 5
-    origin = plate.poly.placement.origin - h * normal * 1.1 / 2
-    xdir = plate.poly.placement.xdir
+    origin = plate.poly.origin - h * normal * 1.1 / 2
+    xdir = plate.poly.xdir
     return dict(h=h, normal=normal, origin=origin, xdir=xdir)
 
 
