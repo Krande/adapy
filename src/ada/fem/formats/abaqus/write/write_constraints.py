@@ -39,7 +39,9 @@ def constraint_str(constraint: Constraint, on_assembly_level: bool):
 
 
 def _coupling(constraint: Constraint, on_assembly_level: bool):
-    dofs_str = "".join([f" {x[0]}, {x[1]}\n" if type(x) != int else f" {x}, {x}\n" for x in constraint.dofs]).rstrip()
+    dofs_str = "".join(
+        [f" {x[0]}, {x[1]}\n" if not isinstance(x, int) else f" {x}, {x}\n" for x in constraint.dofs]
+    ).rstrip()
 
     if type(constraint.s_set) is FemSet:
         new_surf = surface_str(

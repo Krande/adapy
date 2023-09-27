@@ -64,7 +64,7 @@ class Bc(FemBase):
         if magnitudes is None:
             self._magnitudes = [None] * len(self._dofs)
         else:
-            self._magnitudes = magnitudes if type(magnitudes) is list else [magnitudes]
+            self._magnitudes = magnitudes if isinstance(magnitudes, list) else [magnitudes]
         self.type = bc_type.lower()
         self._amplitude = amplitude
         self._init_condition = init_condition

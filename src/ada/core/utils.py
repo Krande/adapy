@@ -8,6 +8,7 @@ import shutil
 import zipfile
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import TYPE_CHECKING, Any, Dict, Union
+
 import numpy as np
 
 from ada.config import Settings, logger
@@ -357,5 +358,3 @@ def set_list_first_position_elem(array: list, element) -> list:
     # shift the list so that the origin is the first point
     new_array = array[origin_index:] + array[:origin_index]
     return new_array
-
-

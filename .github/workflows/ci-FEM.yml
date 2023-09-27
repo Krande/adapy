@@ -49,11 +49,17 @@ jobs:
             paradoc
             pytest
 
+      - name: install latest ada-py
+        run: |
+          pip install .
+
       - name: Test
-        run: pytest .
+        run: |
+          pytest .
 
       - name: Create Verification Report
-        run: python build_verification_report.py
+        run: |
+          python build_verification_report.py
 
       - uses: actions/upload-artifact@v2
         if: failure()

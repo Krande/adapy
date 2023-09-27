@@ -63,8 +63,8 @@ class Surface(FemBase):
             raise ValueError(f'Surface type "{self.type}" is currently not supported\\implemented. Valid types are')
 
         self._fem_set = fem_set
-        if type(fem_set) is list:
-            if type(el_face_index) is not list:
+        if isinstance(fem_set, list):
+            if not isinstance(el_face_index, list):
                 raise ValueError("You cannot define a list of FemSets and not also include a List of el_face_indices")
 
         self._weight_factor = weight_factor

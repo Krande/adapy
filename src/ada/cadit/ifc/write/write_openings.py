@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING
 
 from ada.cadit.ifc.utils import create_local_placement, write_elem_property_sets
 from ada.core.constants import O, X, Z
-from ada.core.utils import Counter
 from ada.core.guid import create_guid
+from ada.core.utils import Counter
 
 from .write_shapes import generate_parametric_solid
 

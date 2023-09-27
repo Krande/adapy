@@ -657,18 +657,13 @@ class MyRenderer(JupyterRenderer):
                 callback(self._current_shape_selection)
 
     def _click_ada_to_html(self, obj):
-        """
-
-        :param obj:
-        :return:
-        """
         from ada import Beam, Part, Pipe, Plate, Shape, Wall
         from ada.fem.utils import get_eldata
 
         def write_metadata_to_html(met_d):
             table_str = ""
             for subkey, val in met_d.items():
-                if type(val) is dict:
+                if isinstance(val, dict):
                     table_str += f"<tr></tr><td><b>{subkey}:</b></td></tr></tr>"
                     table_str += write_metadata_to_html(val)
                 else:
@@ -768,10 +763,10 @@ class MyRenderer(JupyterRenderer):
         """
         fem = self._fem_refs[fem_name][0]
         edge_geom = self._fem_refs[fem_name][1]
-        if type(elem_id) is int:
+        if isinstance(elem_id, int):
             el = fem.elements.from_id(elem_id)
             elem_nodes = get_vertices_from_elem(el, True)
-        elif type(elem_id) in (tuple, list):
+        elif isinstance(elem_id, (tuple, list)):
             elem_nodes = list(
                 chain.from_iterable(
                     filter(None, [get_vertices_from_elem(fem.elements.from_id(el), True) for el in elem_id])

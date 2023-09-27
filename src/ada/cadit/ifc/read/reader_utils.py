@@ -98,7 +98,7 @@ def get_beam_type(ifc_elem: ifcopenshell.entity_instance) -> ifcopenshell.entity
 def get_name_from_props(props: dict) -> str | None:
     name = None
     for key, val in props.items():
-        if type(val) is dict:
+        if isinstance(val, dict):
             name = get_name_from_props(val)
             if name is not None:
                 break

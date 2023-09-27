@@ -13,7 +13,7 @@ from ..compatibility import check_compatibility
 from .templates import el_convert_str, main_comm_str
 from .write_bc import create_bc_str
 from .write_materials import materials_str
-from .write_med import med_nodes, med_elements
+from .write_med import med_elements, med_nodes
 from .write_sections import create_sections_str
 from .write_steps import create_step_str
 

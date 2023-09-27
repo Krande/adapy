@@ -16,5 +16,7 @@ def adacpp_switch(alt_function, broken=False):
                     logger.error(f"Failed to use the adacpp module, {e}, {traceback.format_exc()}")
                     raise e
             return func(*args, **kwargs)
+
         return wrapper
+
     return decorator

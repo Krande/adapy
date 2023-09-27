@@ -2,11 +2,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada import Part
-from ada.config import logger, Settings
+from ada.config import Settings, logger
 from ada.fem.shapes import definitions as shape_def
 
-from ..common import ada_to_med_type, IntType
+from ..common import IntType, ada_to_med_type
 from .write_sets import _add_cell_sets, _add_node_sets
 
 if TYPE_CHECKING:

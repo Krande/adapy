@@ -308,7 +308,7 @@ def make_box_by_points(p1, p2, scale=1.0):
     from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
     from OCC.Core.gp import gp_Pnt
 
-    if type(p1) == list or type(p1) == tuple or type(p1) is np.ndarray:
+    if isinstance(p1, list) or isinstance(p1, tuple) or isinstance(p1, np.ndarray):
         deltas = [roundoff((p2_ - p1_) * scale) for p1_, p2_ in zip(p1, p2)]
         p1_in = [roundoff(x * scale) for x in p1]
 

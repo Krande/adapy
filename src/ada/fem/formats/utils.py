@@ -261,13 +261,13 @@ def get_ff_regex(flag, *args):
         return rf" \s*(?P<{k}>.*?)"
 
     for i, key in enumerate(args):
-        if type(key) is str:
+        if isinstance(key, str):
             pattern_str += add_key(key)
             counter += 1
             if counter == 4 and i < len(args) - 1:
                 counter = 0
                 pattern_str += r"(?:\n|)\s*"
-        elif type(key) is list:
+        elif isinstance(key, list):
             for subkey in key:
                 pattern_str += add_key(subkey)
             pattern_str += r"(?:\n|)\s*"

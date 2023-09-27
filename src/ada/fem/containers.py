@@ -102,7 +102,7 @@ class FemElements:
         list(map(grab_nodes, self._elements))
 
     def _build_sets_from_elsets(self, elset, elem_iter):
-        if elset is not None and type(elset) == str:
+        if elset is not None and isinstance(elset, str):
 
             def link_elset(elem, elem_set_):
                 elem._elset = elem_set_
@@ -437,8 +437,6 @@ class FemSections:
             self._link_data()
 
     def _map_by_properties(self) -> Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]]:
-        from ada import Material, Section
-
         merge_map: Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]] = dict()
         for fs in self.lines:
             props = (fs.material, fs.section.unique_props(), tuple(), tuple(fs.local_z), tuple(fs.local_y))
@@ -478,16 +476,16 @@ class FemSections:
         self.remove(rest_list)
 
     def _map_materials(self, fem_sec: FemSection, mat_repo: Materials):
-        if type(fem_sec.material) is str:
+        if isinstance(fem_sec.material, str):
             logger.error(f'Material "{fem_sec.material}" was passed as string')
             fem_sec._material = mat_repo.get_by_name(fem_sec.material.name)
 
     def _map_elsets(self, fem_sec: FemSection, elset_repo):
-        if type(fem_sec.elset) is str:
+        if isinstance(fem_sec.elset, str):
             if fem_sec.elset not in elset_repo:
                 raise ValueError(f'The element set "{fem_sec.elset}" is not imported. ')
             fem_sec._elset = elset_repo[fem_sec.elset]
-        elif type(fem_sec) is FemSection:
+        elif isinstance(fem_sec, FemSection):
             pass
         else:
             raise ValueError("Invalid element set has been attached to this fem section")
@@ -586,7 +584,7 @@ class FemSections:
         self._id_map[sec.id] = sec
 
     def remove(self, fs_in: Union[List[FemSection], FemSection]):
-        if type(fs_in) is not list:
+        if not isinstance(fs_in, list):
             fs_in = [fs_in]
 
         for fs in fs_in:
@@ -681,7 +679,11 @@ class FemSets:
                 fem_set.metadata["generate"] = False
 
         if fem_set.type == SetTypes.NSET:
-            if len(fem_set.members) == 1 and type(fem_set.members[0]) is str and type(fem_set.members[0]) is not Node:
+            if (
+                len(fem_set.members) == 1
+                and isinstance(fem_set.members[0], str)
+                and not isinstance(fem_set.members[0], Node)
+            ):
                 fem_set._members = self.nodes[fem_set.members[0]]
                 fem_set.parent = self._fem_obj
                 return fem_set

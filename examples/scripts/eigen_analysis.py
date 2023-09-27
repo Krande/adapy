@@ -3,7 +3,9 @@ import pathlib
 import ada
 from ada.fem.meshing import GmshOptions
 from ada.materials.metals import CarbonSteel
+
 SCRATCH = pathlib.Path("temp")
+
 
 def make_fem(geom_repr) -> ada.Assembly:
     bm = ada.Beam("MyBeam", (0, 0.5, 0.5), (5, 0.5, 0.5), "IPE400", ada.Material("S420", CarbonSteel("S420")))

@@ -123,7 +123,7 @@ def get_list_of_files(
             all_files += get_list_of_files(full_path, file_ext, strict, filter_path_contains)
         else:
             if filter_path_contains is not None:
-                if type(filter_path_contains) is str:
+                if isinstance(filter_path_contains, str):
                     filter_path_contains = [filter_path_contains]
                 skip_it = False
                 for f in filter_path_contains:
@@ -133,7 +133,7 @@ def get_list_of_files(
                 if skip_it:
                     continue
             if keep_path_contains is not None:
-                if type(keep_path_contains) is str:
+                if isinstance(keep_path_contains, str):
                     keep_path_contains = [keep_path_contains]
                 skip_it = True
                 for f in keep_path_contains:

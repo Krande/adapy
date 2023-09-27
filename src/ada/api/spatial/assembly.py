@@ -28,6 +28,7 @@ _step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
 if TYPE_CHECKING:
     import ifcopenshell
     import ifcopenshell.validate
+
     from ada.cadit.ifc.store import IfcStore
     from ada.fem.formats.general import FEATypes, FemConverters
     from ada.fem.results.common import FEAResult

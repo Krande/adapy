@@ -211,9 +211,9 @@ def set_color_adacpp(color_tool, shape, label, color):
 def set_color(color_tool, shape, label, color):
     """Set the color of a shape"""
     if not (
-            color_tool.GetColor(shape, 0, color)
-            or color_tool.GetColor(shape, 1, color)
-            or color_tool.GetColor(shape, 2, color)
+        color_tool.GetColor(shape, 0, color)
+        or color_tool.GetColor(shape, 1, color)
+        or color_tool.GetColor(shape, 2, color)
     ):
         return None
 
@@ -221,5 +221,3 @@ def set_color(color_tool, shape, label, color):
     color_tool.SetInstanceColor(shape, 1, color)
     color_tool.SetInstanceColor(shape, 2, color)
     return shape
-
-

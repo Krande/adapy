@@ -65,7 +65,7 @@ class Load(FemBase):
         self._magnitude = magnitude
         self._fem_set = fem_set
 
-        if type(dof) is int:
+        if isinstance(dof, int):
             dofs = [None, None, None, None, None, None]
             dofs[dof - 1] = 1
             self._dof = dofs

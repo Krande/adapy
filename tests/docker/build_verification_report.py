@@ -6,13 +6,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 import pandas as pd
-
-from ada.config import logger
 from conftest import beam
 from paradoc import OneDoc
 from paradoc.common import TableFormat
 from test_fem_eig_cantilever import test_fem_eig
 
+from ada.config import logger
 from ada.fem.results import EigenDataSummary
 from ada.fem.results.common import FEAResult
 
@@ -182,10 +181,10 @@ def main(overwrite, execute):
     one = OneDoc("report")
     one.variables = dict(
         geom_specifics=str(bm),
-        ca_version='16.4.2',
-        ccx_version='2.21',
-        aba_version='2021',
-        ses_version='10',
+        ca_version="16.4.2",
+        ccx_version="2.21",
+        aba_version="2021",
+        ses_version="10",
         num_modes=eig_modes,
     )
 

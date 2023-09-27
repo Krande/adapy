@@ -51,5 +51,6 @@ _ada_to_med_type = {
 
 class IntType(str, Enum):
     """Integer type for the mesh"""
+
     INT32 = "INT32"
     INT64 = "INT64"

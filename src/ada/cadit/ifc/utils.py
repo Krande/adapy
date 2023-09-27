@@ -389,7 +389,7 @@ def write_elem_property_sets(metadata_props, elem, f, owner_history) -> None:
     if len(metadata_props.keys()) == 0 or Settings.model_export.export_props is False:
         return None
 
-    if type(list(metadata_props.values())[0]) is dict:
+    if isinstance(list(metadata_props.values())[0], dict):
         for pro_id, prop_ in metadata_props.items():
             add_properties_to_elem(pro_id, f, elem, prop_, owner_history=owner_history)
     else:
@@ -399,16 +399,16 @@ def write_elem_property_sets(metadata_props, elem, f, owner_history) -> None:
 def to_real(v) -> float | list[float]:
     from ada import Node, Point
 
-    if type(v) is float:
+    if isinstance(v, float):
         return v
-    elif type(v) is tuple:
+    elif isinstance(v, tuple):
         return [float(x) for x in v]
-    elif type(v) is list:
-        if type(v[0]) is float:
+    elif isinstance(v, list):
+        if isinstance(v[0], float):
             return v
         else:
             return [float(x) for x in v]
-    elif type(v) is Node:
+    elif isinstance(v, Node):
         return v.p.astype(float).tolist()
     elif isinstance(v, Point):
         return v.astype(float).tolist()

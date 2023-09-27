@@ -70,7 +70,7 @@ class Wall(BackendGeom):
         self._openings = []
         self._doors = []
         self._inserts = []
-        if type(offset) is str:
+        if isinstance(offset, str):
             if offset not in Wall.TYPES_JUSL.all:
                 raise ValueError(f'Unknown string input "{offset}" for offset')
             if offset == Wall.TYPES_JUSL.CENTER:

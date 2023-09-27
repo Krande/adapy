@@ -109,7 +109,7 @@ class Section(Root):
 
     @id.setter
     def id(self, value):
-        if type(value) is not int:
+        if not isinstance(value, int):
             raise ValueError
         self._id = value
 

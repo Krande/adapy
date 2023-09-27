@@ -18,8 +18,8 @@ class WebSocketServer:
 
     def check_server_running(self):
         host = self.host
-        if host == 'localhost':
-            host = 'ws://localhost'
+        if host == "localhost":
+            host = "ws://localhost"
         if is_server_running(host, self.port):
             return True
         else:
@@ -41,7 +41,7 @@ class WebSocketServer:
                 await client.send(data)
 
     async def server_start_main(self):
-        async with websockets.serve(self.handler, self.host, self.port, max_size=10 ** 9):
+        async with websockets.serve(self.handler, self.host, self.port, max_size=10**9):
             await asyncio.Future()  # run forever
 
     def start(self):
@@ -57,7 +57,7 @@ class WebSocketServer:
 
     @property
     def host_url(self):
-        if not self.host.startswith('ws://'):
+        if not self.host.startswith("ws://"):
             return f"ws://{self.host}:{self.port}"
 
         return f"{self.host}:{self.port}"

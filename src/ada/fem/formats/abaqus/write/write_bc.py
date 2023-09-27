@@ -45,7 +45,7 @@ def bc_str(bc: "Bc", written_on_assembly_level: bool) -> str:
         if dof is None:
             continue
         magn_str = f", {magn:.6E}" if magn is not None else ""
-        if bc.type in [Bc.TYPES.CONN_DISPL, Bc.TYPES.CONN_VEL] or type(dof) is str:
+        if bc.type in [Bc.TYPES.CONN_DISPL, Bc.TYPES.CONN_VEL] or isinstance(dof, str):
             dofs_str += f" {inst_name}, {dof}{magn_str}\n"
         else:
             dofs_str += f" {inst_name}, {dof}, {dof}{magn_str}\n"

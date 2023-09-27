@@ -18,13 +18,10 @@
 
 """Reads and writes encoded GlobalIds"""
 
-from __future__ import absolute_import, annotations
-from __future__ import division
-from __future__ import print_function
+from __future__ import absolute_import, annotations, division, print_function
 
-import uuid
 import string
-
+import uuid
 from functools import reduce
 
 import ada.core
@@ -36,7 +33,7 @@ def compress(g):
     bs = [int(g[i : i + 2], 16) for i in range(0, len(g), 2)]
 
     def b64(v, l=4):
-        return "".join([chars[(v // (64 ** i)) % 64] for i in range(l)][::-1])
+        return "".join([chars[(v // (64**i)) % 64] for i in range(l)][::-1])
 
     return "".join([b64(bs[0], 2)] + [b64((bs[i] << 16) + (bs[i + 1] << 8) + bs[i + 2]) for i in range(1, 16, 3)])
 
@@ -68,7 +65,7 @@ def create_guid(name=None):
     if name is None:
         hexdig = uuid.uuid1().hex
     else:
-        if type(name) != bytes:
+        if not isinstance(name, bytes):
             n = name.encode()
         else:
             n = name

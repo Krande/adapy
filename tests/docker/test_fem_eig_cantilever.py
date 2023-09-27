@@ -37,16 +37,16 @@ def is_conditions_unsupported(fem_format, geom_repr, elem_order):
 @pytest.mark.parametrize("geom_repr", ["line", "shell", "solid"])
 @pytest.mark.parametrize("elem_order", [1, 2])
 def test_fem_eig(
-        beam_fixture,
-        fem_format,
-        geom_repr,
-        elem_order,
-        use_hex_quad,
-        short_name_map,
-        overwrite=True,
-        execute=True,
-        eigen_modes=11,
-        name=None
+    beam_fixture,
+    fem_format,
+    geom_repr,
+    elem_order,
+    use_hex_quad,
+    short_name_map,
+    overwrite=True,
+    execute=True,
+    eigen_modes=11,
+    name=None,
 ) -> FEAResult | None:
     geom_repr = GeomRepr.from_str(geom_repr)
 

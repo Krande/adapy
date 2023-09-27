@@ -254,7 +254,7 @@ def bc_str(bc: Bc) -> str:
             continue
         # magn_str = f", {magn:.4f}" if magn is not None else ""
 
-        if bc.type in ["connector displacement", "connector velocity"] or type(dof) is str:
+        if bc.type in ["connector displacement", "connector velocity"] or isinstance(dof, str):
             inst_name = bc.fem_set.name
             dofs_str += f" {inst_name}, {dof}\n"
         else:

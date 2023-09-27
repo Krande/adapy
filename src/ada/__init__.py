@@ -75,9 +75,9 @@ def from_fem(
     fem_converter="default",
 ) -> Assembly:
     a = Assembly(enable_cache=enable_cache, units=source_units)
-    if type(fem_file) is str or issubclass(type(fem_file), pathlib.Path):
+    if isinstance(fem_file, str) or issubclass(type(fem_file), pathlib.Path):
         a.read_fem(fem_file, fem_format, name, fem_converter=fem_converter)
-    elif type(fem_file) is list:
+    elif isinstance(fem_file, list):
         for i, f in enumerate(fem_file):
             fem_format_in = fem_format if fem_format is None else fem_format[i]
             name_in = name if name is None else name[i]

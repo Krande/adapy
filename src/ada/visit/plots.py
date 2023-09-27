@@ -144,12 +144,12 @@ def extract_plot_data(in_data, mode, marker):
     import plotly.graph_objs as go
 
     plot_data = []
-    if type(in_data) is dict:
+    if isinstance(in_data, dict):
         for key in in_data.keys():
-            if type(in_data[key]) is dict:
+            if isinstance(in_data[key], dict):
                 x_ = in_data[key]["x"]
                 y_ = in_data[key]["y"]
-            elif type(in_data[key]) in (tuple, list):
+            elif isinstance(in_data[key], (tuple, list)):
                 x_ = in_data[key][0]
                 y_ = in_data[key][1]
             else:
@@ -163,7 +163,7 @@ def extract_plot_data(in_data, mode, marker):
                 marker=dict(symbol=marker),
             )
             plot_data.append(trace)
-    elif type(in_data) in [list, tuple]:
+    elif isinstance(in_data, (list, tuple)):
         if len(in_data) == 2:
             x, y = in_data
         else:
@@ -204,7 +204,7 @@ def build_display(sec):
     xrange, yrange = None, None
     plot_data = dict()
 
-    if section_profile.outer_curve is not None and type(section_profile.outer_curve) is not float:
+    if section_profile.outer_curve is not None and not isinstance(section_profile.outer_curve, float):
         outer = get_data(section_profile.outer_curve)
         plot_data["outer"] = outer
         max_dim = max(max(outer[0]), max(outer[1]))

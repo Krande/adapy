@@ -28,7 +28,7 @@ def send_to_local_viewer(part: ada.Part, host="localhost", port=8765):
     ws = WebSocketServer(host=host, port=port)
     if ws.check_server_running() is False:
         logger.info("Starting server in separate process")
-        # Start the server in a separate process that opens a new shell window (on Windows) or a new terminal window (on Linux or Mac)
+        # Start the server in a separate process that opens a new shell window
         if platform.system() == "Windows":
             os.system("start cmd.exe /K {} {}".format(sys.executable, str(RENDERER_EXE_PY)))
         elif platform.system() == "Linux":
