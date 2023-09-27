@@ -55,7 +55,6 @@ jobs:
       - name: install latest ada-py
         run: |
           pip install .
-        working-directory: tests/docker
 
       - name: Test
         run: |
