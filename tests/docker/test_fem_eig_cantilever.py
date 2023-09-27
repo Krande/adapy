@@ -8,14 +8,15 @@ import pytest
 
 import ada
 from ada.base.types import GeomRepr
-from ada.config import Settings
 from ada.fem.exceptions.element_support import IncompatibleElements
 from ada.fem.formats.general import FEATypes as FEA
 from ada.fem.formats.utils import default_fem_res_path
 from ada.fem.meshing.concepts import GmshOptions
 from ada.fem.results.common import FEAResult
 
-test_dir = Settings.scratch_dir / "ada_fem_test_eigen"
+SCRATCH_DIR = pathlib.Path(__file__).parent / "temp/eigen"
+
+
 EL_TYPES = ada.fem.Elem.EL_TYPES
 
 
@@ -36,16 +37,16 @@ def is_conditions_unsupported(fem_format, geom_repr, elem_order):
 @pytest.mark.parametrize("geom_repr", ["line", "shell", "solid"])
 @pytest.mark.parametrize("elem_order", [1, 2])
 def test_fem_eig(
-    beam_fixture,
-    fem_format,
-    geom_repr,
-    elem_order,
-    use_hex_quad,
-    short_name_map,
-    overwrite=True,
-    execute=True,
-    eigen_modes=11,
-    name=None,
+        beam_fixture,
+        fem_format,
+        geom_repr,
+        elem_order,
+        use_hex_quad,
+        short_name_map,
+        overwrite=True,
+        execute=True,
+        eigen_modes=11,
+        name=None
 ) -> FEAResult | None:
     geom_repr = GeomRepr.from_str(geom_repr)
 
@@ -71,7 +72,7 @@ def test_fem_eig(
         if "PYTEST_CURRENT_TEST" in os.environ:
             return None
 
-        res_path = default_fem_res_path(name, scratch_dir=test_dir, fem_format=fem_format)
+        res_path = default_fem_res_path(name, scratch_dir=SCRATCH_DIR, fem_format=fem_format)
         return ada.from_fem_res(res_path, fem_format=fem_format)
     else:
         p.fem = beam_fixture.to_fem_obj(0.05, geom_repr, options=GmshOptions(Mesh_ElementOrder=elem_order), **props)
@@ -81,7 +82,7 @@ def test_fem_eig(
         a.fem.add_bc(ada.fem.Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
 
     try:
-        res = a.to_fem(name, fem_format, overwrite=overwrite, execute=execute, scratch_dir=test_dir)
+        res = a.to_fem(name, fem_format, overwrite=overwrite, execute=execute, scratch_dir=SCRATCH_DIR)
     except IncompatibleElements as e:
         if is_conditions_unsupported(fem_format, geom_repr, elem_order):
             logging.error(e)

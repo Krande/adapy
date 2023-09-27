@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 import pandas as pd
+
+from ada.config import logger
 from conftest import beam
 from paradoc import OneDoc
 from paradoc.common import TableFormat
@@ -130,17 +132,21 @@ def simulate(
         for geo in geom_repr:
             for soft in analysis_software:
                 for hexquad in use_hex_quad:
-                    result = test_fem_eig(
-                        bm,
-                        soft,
-                        geo,
-                        elo,
-                        hexquad,
-                        short_name_map=short_name_map,
-                        overwrite=overwrite,
-                        execute=execute,
-                        eigen_modes=eig_modes,
-                    )
+                    try:
+                        result = test_fem_eig(
+                            bm,
+                            soft,
+                            geo,
+                            elo,
+                            hexquad,
+                            short_name_map=short_name_map,
+                            overwrite=overwrite,
+                            execute=execute,
+                            eigen_modes=eig_modes,
+                        )
+                    except FileNotFoundError as e:
+                        logger.error(e)
+                        continue
                     if result is None:
                         logging.error("No result file is located")
                         continue
@@ -176,10 +182,10 @@ def main(overwrite, execute):
     one = OneDoc("report")
     one.variables = dict(
         geom_specifics=str(bm),
-        ca_version=14.2,
-        ccx_version=2.16,
-        aba_version=2021,
-        ses_version=10,
+        ca_version='16.4.2',
+        ccx_version='2.21',
+        aba_version='2021',
+        ses_version='10',
         num_modes=eig_modes,
     )
 

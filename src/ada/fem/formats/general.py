@@ -62,7 +62,7 @@ def get_fem_executable() -> dict[FEATypes, Callable[..., subprocess.CompletedPro
     }
 
 
-fem_solver_map = {FEATypes.SESAM: "sestra", FEATypes.CALCULIX: "ccx"}
+fem_solver_map = {FEATypes.SESAM: "sestra", FEATypes.CALCULIX: "ccx", FEATypes.CODE_ASTER: "run_aster"}
 
 
 class FemConverters(BaseEnum):

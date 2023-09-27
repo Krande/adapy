@@ -112,6 +112,8 @@ jobs:
             jupyterlab
             pythreejs
             pyparsing
+            pygfx
+            pyglfw
 
       - name: pip install
         run: |
