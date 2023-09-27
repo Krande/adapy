@@ -294,6 +294,8 @@ class GmshSession:
         self.model.geo.synchronize()
         self.model.mesh.setRecombine(3, -1)
         self.model.mesh.generate(3)
+
+        self.model.mesh.remove_duplicate_elements()
         self.model.mesh.removeDuplicateNodes()
 
         if use_quads is True or use_hex is True:

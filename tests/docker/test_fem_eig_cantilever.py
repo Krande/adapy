@@ -16,7 +16,6 @@ from ada.fem.results.common import FEAResult
 
 SCRATCH_DIR = pathlib.Path(__file__).parent / "temp/eigen"
 
-
 EL_TYPES = ada.fem.Elem.EL_TYPES
 
 
@@ -47,11 +46,13 @@ def test_fem_eig(
     execute=True,
     eigen_modes=11,
     name=None,
+    debug=False,
+    **kwargs,
 ) -> FEAResult | None:
     geom_repr = GeomRepr.from_str(geom_repr)
 
     if name is None:
-        short_name = short_name_map.get(fem_format)
+        short_name = short_name_map.get(fem_format, fem_format)
         name = f"cantilever_EIG_{short_name}_{geom_repr.value}_o{elem_order}_hq{use_hex_quad}"
 
     fem_format = FEA.from_str(fem_format)
@@ -62,7 +63,8 @@ def test_fem_eig(
         return None
 
     props = dict(use_hex=use_hex_quad) if geom_repr == GeomRepr.SOLID else dict(use_quads=use_hex_quad)
-
+    if debug:
+        props.update(**kwargs)
     a.fem.add_step(ada.fem.StepEigen("Eigen", num_eigen_modes=eigen_modes))
 
     if overwrite is False:
@@ -89,7 +91,7 @@ def test_fem_eig(
             return None
         raise e
 
-    if pathlib.Path(res.results_file_path).exists() is False:
+    if res is None or pathlib.Path(res.results_file_path).exists() is False:
         raise FileNotFoundError(f'FEM analysis was not successful. Result file "{res.results_file_path}" not found.')
 
     if "PYTEST_CURRENT_TEST" in os.environ:
