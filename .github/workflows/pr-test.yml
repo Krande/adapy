@@ -91,9 +91,11 @@ jobs:
       - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         if: ${{ matrix.build.name == 'core' }}
         with:
-          cache-env: true
-          channels: conda-forge,krande
-          channel-priority: strict
+          cache-environment: true
+          condarc: |
+            channels:
+              - krande
+              - conda-forge
           environment-file: conda/environment.core.yml
           create-args: >-
             python=${{ matrix.pyver.distver }}
@@ -102,9 +104,11 @@ jobs:
       - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         if: ${{ matrix.build.name == 'full' }}
         with:
-          cache-env: true
-          channels: conda-forge,krande
-          channel-priority: strict
+          cache-environment: true
+          condarc: |
+            channels:
+              - krande
+              - conda-forge
           environment-file: conda/environment.core.yml
           create-args: >-
             python=${{ matrix.pyver.distver }}

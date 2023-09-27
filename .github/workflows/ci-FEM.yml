@@ -40,7 +40,7 @@ jobs:
 
       - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         with:
-          cache-env: true
+          cache-environment: true
           condarc: |
             channels:
               - krande
@@ -55,27 +55,30 @@ jobs:
       - name: install latest ada-py
         run: |
           pip install .
+        working-directory: tests/docker
 
       - name: Test
         run: |
           pytest .
+        working-directory: tests/docker
 
       - name: Create Verification Report
         run: |
           python build_verification_report.py
+        working-directory: tests/docker
 
       - uses: actions/upload-artifact@v2
         if: failure()
         with:
           name: ADA-FEA-res-debug
-          path: temp/scratch
+          path: tests/docker/temp
 
       - name: Upload Zip file to release
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: temp/report/_dist/ADA-FEA-verification.docx
+          file: tests/docker/temp/_dist/ADA-FEA-verification.docx
           asset_name: ADA-FEA-verification-${{ env.DATE }}.docx
           tag: "ADA-FEA-Verification-Report-${{ env.DATE }}"
           overwrite: true
