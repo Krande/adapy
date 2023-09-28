@@ -1,5 +1,6 @@
-import pytest
 import sys
+
+import pytest
 
 import ada
 from ada.fem.meshing import GmshOptions
