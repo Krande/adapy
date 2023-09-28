@@ -1,0 +1,2 @@
+class BadJacobians(Exception):
+    pass

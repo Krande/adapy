@@ -1,4 +1,16 @@
 import ada
+from ada.fem.meshing import GmshOptions
+from ada.fem.meshing.exceptions import BadJacobians
+
+def test_beam_tetramesh(test_meshing_dir):
+    bm = ada.Beam("MyBeam", (0, 0.5, 0.5), (3, 0.5, 0.5), "IPE400")
+    p = ada.Part("MyFem") / bm
+    options = GmshOptions(Mesh_ElementOrder=2)
+
+    with pytest.raises(BadJacobians):
+        p.fem = bm.to_fem_obj(0.05, "solid", interactive=False, options=options, perform_quality_check=True, silent=True)
+
+    # (ada.Assembly("Test") / p).to_fem("test", "abaqus", execute=True)
 
 
 def test_beam_mesh_with_hole(test_meshing_dir):

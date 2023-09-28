@@ -75,7 +75,7 @@ def test_fem_static(
         res_path = default_fem_res_path(name, scratch_dir=SCRATCH_DIR, fem_format=fem_format)
         return Results(res_path, name, fem_format, a, import_mesh=False)
     else:
-        p.fem = beam_fixture.to_fem_obj(0.05, geom_repr, options=GmshOptions(Mesh_ElementOrder=elem_order), **props)
+        p.fem = beam_fixture.to_fem_obj(0.07, geom_repr, options=GmshOptions(Mesh_ElementOrder=elem_order), **props)
         fix_set = p.fem.add_set(
             ada.fem.FemSet("bc_nodes", beam_fixture.bbox().sides.back(return_fem_nodes=True, fem=p.fem))
         )
