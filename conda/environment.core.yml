@@ -4,6 +4,7 @@ channels:
   - conda-forge
 dependencies:
   - numpy 1.25.*
+  - hdf5 1.10.6=*nompi*
   - h5py
   - ifcopenshell
   - pythonocc-core
