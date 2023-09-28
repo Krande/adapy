@@ -93,6 +93,7 @@ jobs:
         with:
           cache-environment: false
           condarc: |
+            channel_priority: strict
             channels:
               - krande
               - conda-forge
@@ -106,6 +107,7 @@ jobs:
         with:
           cache-environment: false
           condarc: |
+            channel_priority: strict
             channels:
               - krande
               - conda-forge
