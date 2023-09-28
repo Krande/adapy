@@ -1,6 +1,7 @@
 import ada
 from ada.fem.meshing import GmshOptions
 from ada.fem.meshing.exceptions import BadJacobians
+import pytest
 
 def test_beam_tetramesh(test_meshing_dir):
     bm = ada.Beam("MyBeam", (0, 0.5, 0.5), (3, 0.5, 0.5), "IPE400")
