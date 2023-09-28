@@ -56,7 +56,7 @@ class CodeAsterExecute(LocalExecute):
         exe_path = self.get_exe(FEATypes.CODE_ASTER)
         args = f"{exe_path} {self.analysis_name}.export"
         if 'run_aster' in exe_path.name:
-            args += "--wrkdir=temp"
+            args += " --wrkdir=temp"
 
         out = self._run_local(args, exit_on_complete=exit_on_complete)
         return out
