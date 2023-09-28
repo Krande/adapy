@@ -92,7 +92,7 @@ def test_fem_eig(
         raise e
 
     if res is None or pathlib.Path(res.results_file_path).exists() is False:
-        raise FileNotFoundError(f'FEM analysis was not successful. Result file "{res.results_file_path}" not found.')
+        raise FileNotFoundError(f'FEM analysis was not successful. Result file "{res}" not found.')
 
     if "PYTEST_CURRENT_TEST" in os.environ:
         return None

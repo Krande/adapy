@@ -115,7 +115,7 @@ class GmshSession:
         else:
             if use_native_pointer and hasattr(self.model.occ, "importShapesNativePointer"):
                 # Use hasattr to ensure that it works for gmsh < 4.9.*
-                if type(obj) is Pipe:
+                if isinstance(obj, Pipe):
                     entities = []
                     for seg in obj.segments:
                         entities += import_into_gmsh_use_nativepointer(seg, geom_repr, self.model)

@@ -143,7 +143,7 @@ class Assembly(Part):
         metadata=None,
         execute=False,
         run_ext=False,
-        cpus=2,
+        cpus=1,
         gpus=None,
         overwrite=False,
         fem_converter="default",

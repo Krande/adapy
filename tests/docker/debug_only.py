@@ -4,9 +4,9 @@ def main():
 
     test_fem_eig(
         beam(),
-        "code_aster",
+        "abaqus",
         "solid",
-        1,
+        2,
         False,
         short_name_map=None,
         overwrite=True,
