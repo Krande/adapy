@@ -91,7 +91,7 @@ jobs:
       - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         if: ${{ matrix.build.name == 'core' }}
         with:
-          cache-environment: true
+          cache-environment: false
           condarc: |
             channels:
               - krande
@@ -101,10 +101,10 @@ jobs:
             python=${{ matrix.pyver.distver }}
             pytest
 
-      - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
+      - uses: mamba-org/setup-micromamba@v1
         if: ${{ matrix.build.name == 'full' }}
         with:
-          cache-environment: true
+          cache-environment: false
           condarc: |
             channels:
               - krande
