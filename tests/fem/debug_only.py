@@ -7,7 +7,7 @@ def main():
 
     test_fem_eig(
         beam(),
-        "abaqus",
+        "calculix",
         "solid",
         2,
         False,
@@ -19,7 +19,7 @@ def main():
         debug=True,
         interactive=True,
         silent=False,
-        options=GmshOptions(Mesh_ElementOrder=2, Mesh_Algorithm=6, Mesh_Algorithm3D=1),
+        options=GmshOptions(Mesh_ElementOrder=2, Mesh_Algorithm=6, Mesh_Algorithm3D=10),
         perform_quality_check=True,
     )
 
