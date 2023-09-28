@@ -42,7 +42,8 @@ requirements:
     - python
   run:
     - python
-    - code-aster # [linux]
+    - code-aster              # [linux]
+    - kaleido-core 0.1.0      # [win]
   {% for dep in deps %}
     - {{ dep }}
   {% endfor %}
