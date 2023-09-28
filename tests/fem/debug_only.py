@@ -1,3 +1,4 @@
+from ada.config import logger
 from ada.fem.meshing import GmshOptions
 
 
@@ -14,10 +15,10 @@ def main():
         short_name_map=None,
         overwrite=True,
         execute=True,
-        eigen_modes=None,
+        eigen_modes=10,
         name="debug",
         debug=True,
-        interactive=True,
+        interactive=False,
         silent=False,
         options=GmshOptions(Mesh_ElementOrder=2, Mesh_Algorithm=6, Mesh_Algorithm3D=10),
         perform_quality_check=True,
@@ -25,4 +26,5 @@ def main():
 
 
 if __name__ == "__main__":
+    logger.setLevel("INFO")
     main()
