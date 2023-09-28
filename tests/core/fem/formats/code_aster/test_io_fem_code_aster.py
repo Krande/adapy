@@ -53,7 +53,7 @@ def test_read_write_portal_frame(example_files, code_aster_test_dir):
     compare_fem_objects(p_a.fem, p_b.fem)
 
 
-@pytest.mark.parametrize("geom_repr", ["solid", 'shell', 'line'])
+@pytest.mark.parametrize("geom_repr", ["solid", "shell", "line"])
 def test_roundtrip_cantilever(code_aster_test_dir, geom_repr):
     name = f"cantilever_code_aster_{geom_repr}"
 
@@ -82,8 +82,8 @@ def compare_fem_objects(fem_a: ada.FEM, fem_b: ada.FEM):
 
     def assert_sets(s1, s2):
         for m1, m2 in zip(
-                sorted(s1, key=attrgetter("name")),
-                sorted(s2, key=attrgetter("name")),
+            sorted(s1, key=attrgetter("name")),
+            sorted(s2, key=attrgetter("name")),
         ):
             for ma, mb in zip(sorted(m1.members, key=attrgetter("id")), sorted(m2.members, key=attrgetter("id"))):
                 assert ma.id == mb.id

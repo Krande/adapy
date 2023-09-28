@@ -36,18 +36,18 @@ def is_conditions_unsupported(fem_format, geom_repr, elem_order):
 @pytest.mark.parametrize("geom_repr", ["line", "shell", "solid"])
 @pytest.mark.parametrize("elem_order", [1, 2])
 def test_fem_eig(
-        beam_fixture,
-        fem_format,
-        geom_repr,
-        elem_order,
-        use_hex_quad,
-        short_name_map,
-        overwrite=True,
-        execute=True,
-        eigen_modes=11,
-        name=None,
-        debug=False,
-        **kwargs,
+    beam_fixture,
+    fem_format,
+    geom_repr,
+    elem_order,
+    use_hex_quad,
+    short_name_map,
+    overwrite=True,
+    execute=True,
+    eigen_modes=11,
+    name=None,
+    debug=False,
+    **kwargs,
 ) -> FEAResult | None:
     geom_repr = GeomRepr.from_str(geom_repr)
 
@@ -67,7 +67,7 @@ def test_fem_eig(
         props.update(**kwargs)
     a.fem.add_step(ada.fem.StepEigen("Eigen", num_eigen_modes=eigen_modes))
 
-    if kwargs.get('options') is None:
+    if kwargs.get("options") is None:
         props["options"] = GmshOptions(Mesh_ElementOrder=elem_order)
 
     if overwrite is False:

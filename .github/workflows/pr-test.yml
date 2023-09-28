@@ -125,7 +125,7 @@ jobs:
 
       - name: Test Core
         if: ${{ matrix.build.name == 'core' }}
-        run: pytest ./tests --ignore=./tests/docker/ --ignore=./tests/full/
+        run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/
       - name: Test Full
         if: ${{ matrix.build.name == 'full' }}
-        run: pytest ./tests --ignore=./tests/docker/
+        run: pytest ./tests --ignore=./tests/fem/

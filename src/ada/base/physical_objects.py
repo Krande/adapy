@@ -100,7 +100,7 @@ class BackendGeom(Root):
         use_hex=False,
         name="AdaFEM",
         interactive=False,
-        perform_quality_check=True
+        perform_quality_check=False,
     ) -> FEM:
         from ada.fem.meshing import GmshOptions, GmshSession
 
