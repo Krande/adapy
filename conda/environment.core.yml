@@ -3,8 +3,8 @@ channels:
   - krande
   - conda-forge
 dependencies:
-  - numpy 1.25.*
-  - hdf5 1.10.6=*nompi*
+  - numpy
+  - hdf5
   - h5py
   - ifcopenshell
   - pythonocc-core
