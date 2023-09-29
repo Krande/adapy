@@ -42,7 +42,7 @@ requirements:
     - python
   run:
     - python
-    - code-aster # [linux]
+    - kaleido-core 0.1.0
   {% for dep in deps %}
     - {{ dep }}
   {% endfor %}
@@ -58,7 +58,7 @@ test:
   imports:
     - ada
   commands:
-    - pytest tests --ignore=tests/docker{{ test_ignores }} --cov=ada --cov-report=xml
+    - pytest tests --ignore=tests/fem{{ test_ignores }} --cov=ada --cov-report=xml
 
 about:
   home: https://github.com/krande/adapy

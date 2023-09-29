@@ -29,8 +29,3 @@ def short_name_map() -> dict:
 @pytest.fixture
 def test_dir():
     return pathlib.Path(__file__).parent / "temp"
-
-
-if __name__ == "__main__":
-    bm = beam()
-    print("")

@@ -62,7 +62,7 @@ jobs:
           pip install -e .
 
       - name: Runs Tests
-        run: pytest ./tests --ignore=./tests/docker/ --ignore=./tests/full/
+        run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/
 
   test-full:
     name: Test ada-py-full
@@ -91,7 +91,7 @@ jobs:
           pip install -e .
 
       - name: Run Tests
-        run: pytest ./tests --ignore=./tests/docker/
+        run: pytest ./tests --ignore=./tests/fem/
 
 # Only if triggered by a tag and passes tests, then publish to pypi and conda
   pypi:

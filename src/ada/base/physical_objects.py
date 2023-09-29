@@ -100,6 +100,7 @@ class BackendGeom(Root):
         use_hex=False,
         name="AdaFEM",
         interactive=False,
+        perform_quality_check=False,
     ) -> FEM:
         from ada.fem.meshing import GmshOptions, GmshSession
 
@@ -109,7 +110,7 @@ class BackendGeom(Root):
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
         with GmshSession(silent=silent, options=options) as gs:
             gs.add_obj(self, geom_repr=geom_repr)
-            gs.mesh(mesh_size, use_quads=use_quads, use_hex=use_hex)
+            gs.mesh(mesh_size, use_quads=use_quads, use_hex=use_hex, perform_quality_check=perform_quality_check)
             if interactive:
                 gs.open_gui()
             return gs.get_fem(name)

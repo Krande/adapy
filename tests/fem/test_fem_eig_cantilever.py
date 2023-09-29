@@ -67,6 +67,9 @@ def test_fem_eig(
         props.update(**kwargs)
     a.fem.add_step(ada.fem.StepEigen("Eigen", num_eigen_modes=eigen_modes))
 
+    if kwargs.get("options") is None:
+        props["options"] = GmshOptions(Mesh_ElementOrder=elem_order)
+
     if overwrite is False:
         if is_conditions_unsupported(fem_format, geom_repr, elem_order):
             return None
@@ -77,7 +80,7 @@ def test_fem_eig(
         res_path = default_fem_res_path(name, scratch_dir=SCRATCH_DIR, fem_format=fem_format)
         return ada.from_fem_res(res_path, fem_format=fem_format)
     else:
-        p.fem = beam_fixture.to_fem_obj(0.05, geom_repr, options=GmshOptions(Mesh_ElementOrder=elem_order), **props)
+        p.fem = beam_fixture.to_fem_obj(0.07, geom_repr, **props)
         fix_set = p.fem.add_set(
             ada.fem.FemSet("bc_nodes", beam_fixture.bbox().sides.back(return_fem_nodes=True, fem=p.fem))
         )
@@ -92,7 +95,7 @@ def test_fem_eig(
         raise e
 
     if res is None or pathlib.Path(res.results_file_path).exists() is False:
-        raise FileNotFoundError(f'FEM analysis was not successful. Result file "{res.results_file_path}" not found.')
+        raise FileNotFoundError(f'FEM analysis was not successful. Result file "{res}" not found.')
 
     if "PYTEST_CURRENT_TEST" in os.environ:
         return None

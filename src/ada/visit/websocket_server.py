@@ -52,6 +52,7 @@ class WebSocketServer:
     def send(self, data: bytes):
         from websockets.sync.client import connect
 
+        logger.info(f"Sending data to {self.host_url}")
         with connect(self.host_url) as websocket:
             websocket.send(data)
 

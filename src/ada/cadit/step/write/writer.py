@@ -107,12 +107,7 @@ class StepWriter:
         writer.SetColorMode(True)
         writer.SetNameMode(True)
 
-        if hasattr(OCCInterface, "Interface_Static_SetCVal"):
-            SetCVal = OCCInterface.Interface_Static_SetCVal
-        elif hasattr(OCCInterface, "Interface_Static"):
-            SetCVal = OCCInterface.Interface_Static.SetCVal
-        else:
-            raise Exception("Could not find Interface_Static_SetCVal or Interface_Static")
+        SetCVal = OCCInterface.Interface_Static.SetCVal
 
         SetCVal("write.step.unit", self.units.value.upper())
         SetCVal("write.step.schema", self.schema.value.upper())

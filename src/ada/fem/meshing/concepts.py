@@ -17,12 +17,14 @@ from ada.base.types import GeomRepr
 from ada.config import Settings, logger
 from ada.core.guid import create_guid
 from ada.fem.containers import FemElements
+from ada.fem.meshing.exceptions import BadJacobians
 from ada.fem.shapes import ElemType
 
 
 @dataclass
 class GmshOptions:
-    # Mesh
+    # https://gmsh.info/doc/texinfo/gmsh.html#Gmsh-options
+    # search for Mesh.Algorithm3D
     Mesh_Algorithm: int = 6  #
     Mesh_ElementOrder: int = 1
     Mesh_Algorithm3D: int = 1
@@ -115,7 +117,7 @@ class GmshSession:
         else:
             if use_native_pointer and hasattr(self.model.occ, "importShapesNativePointer"):
                 # Use hasattr to ensure that it works for gmsh < 4.9.*
-                if type(obj) is Pipe:
+                if isinstance(obj, Pipe):
                     entities = []
                     for seg in obj.segments:
                         entities += import_into_gmsh_use_nativepointer(seg, geom_repr, self.model)
@@ -275,7 +277,7 @@ class GmshSession:
 
             self.model.occ.synchronize()
 
-    def mesh(self, size: float = None, use_quads=False, use_hex=False):
+    def mesh(self, size: float = None, use_quads=False, use_hex=False, perform_quality_check=False):
         if self.silent is True:
             self.options.General_Terminal = 0
 
@@ -295,8 +297,11 @@ class GmshSession:
         self.model.mesh.setRecombine(3, -1)
         self.model.mesh.generate(3)
 
-        self.model.mesh.remove_duplicate_elements()
         self.model.mesh.removeDuplicateNodes()
+        self.model.mesh.remove_duplicate_elements()
+
+        if perform_quality_check:
+            quality_check_mesh(self.model)
 
         if use_quads is True or use_hex is True:
             self.model.mesh.recombine()
@@ -459,3 +464,19 @@ def import_into_gmsh_use_nativepointer(obj: BackendGeom | Shape, geom_repr: Geom
         raise ValueError("No entities found")
 
     return ents
+
+
+def quality_check_mesh(model: gmsh.model):
+    element_types, element_tags, _ = model.mesh.getElements()
+
+    for elementType, tags in zip(element_types, element_tags):
+        if elementType == 15:
+            continue
+        qualities = gmsh.model.mesh.getElementQualities(tags, "minSJ")
+        bad_indices = [i for i, q in enumerate(qualities) if q <= 0]
+        if len(bad_indices) > 0:
+            bad_elements = tags[bad_indices]
+            bad_jacobis = qualities[bad_indices]
+            raise BadJacobians(f"Bad elements (Jacobi<=0) found in mesh: {bad_elements}->{bad_jacobis}")
+
+    logger.info("Mesh quality check passed")

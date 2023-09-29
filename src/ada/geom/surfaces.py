@@ -35,7 +35,7 @@ class ProfileDef:
 @dataclass
 class ArbitraryProfileDef(ProfileDef):
     """
-    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcArbitraryProfileDefWithVoids.htm
+    IFC4x3 https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcArbitraryProfileDefWithVoids.htm
     """
 
     outer_curve: geo_cu.CURVE_GEOM_TYPES
@@ -53,7 +53,7 @@ class ArbitraryProfileDef(ProfileDef):
 @dataclass
 class PolyLoop:
     """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcPolyLoop.htm)
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcPolyLoop.htm)
     """
 
     polygon: list[Point]
@@ -62,7 +62,7 @@ class PolyLoop:
 @dataclass
 class FaceBound:
     """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcFaceBound.htm)
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcFaceBound.htm)
     """
 
     bound: PolyLoop
@@ -72,7 +72,7 @@ class FaceBound:
 @dataclass
 class ConnectedFaceSet:
     """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcConnectedFaceSet.htm)
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcConnectedFaceSet.htm)
     """
 
     cfs_faces: list[FaceBound]
@@ -81,7 +81,7 @@ class ConnectedFaceSet:
 @dataclass
 class FaceBasedSurfaceModel:
     """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcFaceBasedSurfaceModel.htm)
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcFaceBasedSurfaceModel.htm)
     """
 
     fbsm_faces: list[ConnectedFaceSet]
@@ -97,7 +97,7 @@ class CurveBoundedPlane:
 @dataclass
 class SurfaceOfLinearExtrusion:
     """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcSurfaceOfLinearExtrusion.htm)
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcSurfaceOfLinearExtrusion.htm)
     """
 
     swept_curve: geo_cu.CURVE_GEOM_TYPES
@@ -109,7 +109,7 @@ class SurfaceOfLinearExtrusion:
 @dataclass
 class IShapeProfileDef(ProfileDef):
     """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcIShapeProfileDef.htm)
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcIShapeProfileDef.htm)
     """
 
     overall_width: float
@@ -124,7 +124,7 @@ class IShapeProfileDef(ProfileDef):
 @dataclass
 class TShapeProfileDef(ProfileDef):
     """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcTShapeProfileDef.htm)
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcTShapeProfileDef.htm)
     """
 
     depth: float

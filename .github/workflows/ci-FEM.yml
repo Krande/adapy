@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - src/**
-      - tests/docker/**
+      - tests/fem/**
       - .github/workflows/ci-FEM.yml
       - images/femtests.Dockerfile
     branches:
@@ -59,25 +59,25 @@ jobs:
       - name: Test
         run: |
           pytest .
-        working-directory: tests/docker
+        working-directory: tests/fem
 
       - name: Create Verification Report
         run: |
           python build_verification_report.py
-        working-directory: tests/docker
+        working-directory: tests/fem
 
       - uses: actions/upload-artifact@v2
         if: failure()
         with:
           name: ADA-FEA-res-debug
-          path: tests/docker/temp
+          path: tests/fem/temp
 
       - name: Upload Zip file to release
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: tests/docker/temp/_dist/ADA-FEA-verification.docx
+          file: tests/fem/temp/_dist/ADA-FEA-verification.docx
           asset_name: ADA-FEA-verification-${{ env.DATE }}.docx
           tag: "ADA-FEA-Verification-Report-${{ env.DATE }}"
           overwrite: true

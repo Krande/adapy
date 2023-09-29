@@ -53,16 +53,17 @@ def test_read_write_portal_frame(example_files, code_aster_test_dir):
     compare_fem_objects(p_a.fem, p_b.fem)
 
 
-def test_write_cantilever(code_aster_test_dir):
-    name = "cantilever_code_aster"
+@pytest.mark.parametrize("geom_repr", ["solid", "shell", "line"])
+def test_roundtrip_cantilever(code_aster_test_dir, geom_repr):
+    name = f"cantilever_code_aster_{geom_repr}"
 
-    a = beam_ex1()
+    a = beam_ex1(geom_repr=geom_repr)
 
     a.to_fem(name, fem_format="code_aster", overwrite=True, scratch_dir=code_aster_test_dir)
     b = ada.from_fem((code_aster_test_dir / name / name).with_suffix(".med"), fem_format="code_aster")
 
     p_a = a.parts["MyPart"]
-    p_b = b.parts["cantilever_code_aster"]
+    p_b = b.parts[name]
 
     compare_fem_objects(p_a.fem, p_b.fem)
 

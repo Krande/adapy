@@ -468,6 +468,10 @@ class BeamTapered(Beam):
     def solid_geom(self) -> Geometry:
         return geo_conv.straight_tapered_beam_to_geom(self)
 
+    def shell_geom(self) -> Geometry:
+        geom = geo_conv.straight_tapered_beam_to_geom(self, is_solid=False)
+        return geom
+
     def __repr__(self):
         p1s = self.n1.p.tolist()
         p2s = self.n2.p.tolist()

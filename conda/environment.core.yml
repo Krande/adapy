@@ -1,9 +1,10 @@
 name: core
 channels:
-  - conda-forge
   - krande
+  - conda-forge
 dependencies:
   - numpy
+  - hdf5
   - h5py
   - ifcopenshell
   - pythonocc-core
