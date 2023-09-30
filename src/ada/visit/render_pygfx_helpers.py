@@ -188,7 +188,10 @@ class GridHelper(Line):
 def tri_mat_to_gfx_mat(
     tri_mat: trimesh.visual.material.PBRMaterial,
 ) -> gfx.MeshPhongMaterial | gfx.MeshBasicMaterial:
-    color = gfx.Color(*[x / 255 for x in tri_mat.baseColorFactor[:3]])
+    if tri_mat.baseColorFactor is None:
+        color = gfx.Color(1, 1, 1)
+    else:
+        color = gfx.Color(*[x / 255 for x in tri_mat.baseColorFactor[:3]])
 
     return gfx.MeshPhongMaterial(color=color, flat_shading=True)
 

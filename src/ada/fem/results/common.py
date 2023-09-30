@@ -13,6 +13,7 @@ from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
 
 from ...core.guid import create_guid
+from ...visit.comms import send_to_viewer
 from ...visit.gltf.graph import GraphNode, GraphStore
 from ...visit.gltf.meshes import GroupReference, MergedMesh, MeshType
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
@@ -386,6 +387,9 @@ class FEAResult:
         print(f'Writing Visual Mesh to "{dest_file}"')
         with open(dest_file, "wb") as f:
             scene.export(file_obj=f, file_type=dest_file.suffix[1:])
+
+    def to_viewer(self, step: int, field: str, warp_field: str = None, warp_step: int = None, warp_scale: float = None, cfunc=None):
+        send_to_viewer(self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc))
 
     def get_eig_summary(self) -> EigenDataSummary:
         """If the results are eigenvalue results, this method will return a summary of the eigenvalues and modes"""
