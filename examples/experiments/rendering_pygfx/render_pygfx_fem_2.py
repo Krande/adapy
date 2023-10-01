@@ -15,10 +15,12 @@ EX_DIR = _ROOT_DIR / "files" / "fem_files" / "cantilever" / "code_aster"
 
 def main():
     rmed_file = EX_DIR / "eigen_shell_cantilever_code_aster.rmed"
-    mesh = meshio.read(rmed_file, file_format="med")
+    # mesh = meshio.read(rmed_file, file_format="med")
+    # meshio.write("temp/eigen_shell_cantilever_code_aster.vtu", mesh, file_format="vtu")
+
     rmed = ada.from_fem_res(rmed_file)
     rmed.to_xdmf("temp/eigen_shell_cantilever_code_aster.xdmf")
-    rmed.to_viewer(1, 'modes___DEPL[0] - 13.5363')
+    # rmed.to_viewer(1, 'modes___DEPL[0] - 13.5363')
 
 
 if __name__ == "__main__":
