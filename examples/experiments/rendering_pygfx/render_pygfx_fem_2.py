@@ -19,8 +19,9 @@ def main():
     # meshio.write("temp/eigen_shell_cantilever_code_aster.vtu", mesh, file_format="vtu")
 
     rmed = ada.from_fem_res(rmed_file)
-    rmed.to_xdmf("temp/eigen_shell_cantilever_code_aster.xdmf")
-    # rmed.to_viewer(1, 'modes___DEPL[0] - 13.5363')
+    # rmed.to_xdmf("temp/eigen_shell_cantilever_code_aster.xdmf")
+    rmed.to_gltf("temp/eigen_shell_cantilever_code_aster.glb")
+    rmed.to_viewer(1, 'modes___DEPL[0] - 13.5363')
 
 
 if __name__ == "__main__":
