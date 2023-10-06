@@ -17,8 +17,12 @@ def main():
     p.fem = p.to_fem_obj(0.1, use_quads=True)
     p.add_bcs()
     a = ada.Assembly("ParametricSite") / p
-    a.fem.add_step(gravity_step())
-    a.to_fem("ca_param_model_ca", "code_aster", overwrite=True, execute=True)
+    # a.fem.add_step(gravity_step())
+    a.fem.add_step(eigen_step())
+    res = a.to_fem("ca_param_model_ca", "code_aster", overwrite=True, execute=True, scratch_dir="temp")
+    res.to_xdmf(res.name + ".xdmf")
+    # res.to_vtu()
+
     # a.to_fem("ca_param_model_ses", "sesam", overwrite=True, execute=True)
 
 
