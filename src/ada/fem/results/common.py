@@ -309,11 +309,24 @@ class FEAResult:
         result = vertices + data[:, :3] * scale
         return result
 
-    def to_meshio_mesh(self) -> meshio.Mesh:
+    def to_meshio_mesh(self, make_3xn_dofs=True) -> meshio.Mesh:
         cells = self._get_cell_blocks()
         cell_data, point_data = self._get_point_and_cell_data()
 
-        return meshio.Mesh(points=self.mesh.nodes.coords, cells=cells, cell_data=cell_data, point_data=point_data)
+        mesh = meshio.Mesh(points=self.mesh.nodes.coords, cells=cells, cell_data=cell_data, point_data=point_data)
+
+        # RMED has 6xN DOF's vertex vectors, but VTU has 3xN DOF's vectors
+        if make_3xn_dofs:
+            new_fields = {}
+            for key, field in mesh.point_data.items():
+                if field.shape[1] == 6:
+                    new_fields[key] = np.array_split(field, 2, axis=1)[0]
+                else:
+                    new_fields[key] = field
+
+            mesh.point_data = new_fields
+
+        return mesh
 
     def to_xdmf(self, filepath):
         cells = self._get_cell_blocks()

@@ -1,5 +1,9 @@
+import pathlib
+
 import ada
 from ada.param_models.basic_module import SimpleStru
+
+SCRATCH = pathlib.Path("temp")
 
 
 def gravity_step():
@@ -19,12 +23,22 @@ def main():
     a = ada.Assembly("ParametricSite") / p
     # a.fem.add_step(gravity_step())
     a.fem.add_step(eigen_step())
-    res = a.to_fem("ca_param_model_ca", "code_aster", overwrite=True, execute=True, scratch_dir="temp")
+    res = a.to_fem("ca_param_model_ca", "code_aster", overwrite=True, execute=True, scratch_dir=SCRATCH)
     res.to_xdmf(res.name + ".xdmf")
     # res.to_vtu()
 
     # a.to_fem("ca_param_model_ses", "sesam", overwrite=True, execute=True)
 
 
+def read_res():
+    fem_res = "ca_param_model_ca"
+    res_file = (SCRATCH / fem_res / fem_res).with_suffix(".rmed")
+    res = ada.from_fem_res(res_file, "code_aster")
+    mesh = res.to_meshio_mesh(make_3xn_dofs=True)
+    mesh.write(res_file.with_suffix('.vtu'))
+    # res.to_xdmf(res.name + ".xdmf")
+
+
 if __name__ == "__main__":
-    main()
+    # main()
+    read_res()
