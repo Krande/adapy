@@ -1,5 +1,6 @@
 import pathlib
 
+from ada.config import logger
 from ..utils import LocalExecute
 
 
@@ -9,15 +10,15 @@ def write_to_log(res_str, fname):
 
 
 def run_code_aster(
-        inp_path,
-        cpus=2,
-        gpus=None,
-        run_ext=False,
-        metadata=None,
-        execute=True,
-        return_bat_str=False,
-        exit_on_complete=True,
-        run_in_shell=False,
+    inp_path,
+    cpus=2,
+    gpus=None,
+    run_ext=False,
+    metadata=None,
+    execute=True,
+    return_bat_str=False,
+    exit_on_complete=True,
+    run_in_shell=False,
 ):
     """
 
@@ -83,23 +84,30 @@ def init_close_code_aster(func):
 
     conda_dir = pathlib.Path(os.getenv("CONDA_PREFIX"))
     lib_dir = conda_dir / "lib/aster"
+    os.environ["LD_LIBRARY_PATH"] = lib_dir.as_posix() + ":" + os.getenv("LD_LIBRARY_PATH", "")
+    os.environ["PYTHONPATH"] = lib_dir.as_posix() + ":" + os.getenv("PYTHONPATH", "")
+
     os.environ["ASTER_LIBDIR"] = lib_dir.as_posix()
     os.environ["ASTER_DATADIR"] = (conda_dir / "share/aster").as_posix()
     os.environ["ASTER_LOCALEDIR"] = (conda_dir / "share/locale/aster").as_posix()
     os.environ["ASTER_ELEMENTSDIR"] = lib_dir.as_posix()
 
     import code_aster
-
+    this_dir = pathlib.Path(".").resolve().absolute()
     # Clear all temp files
-    for f in pathlib.Path(".").parent.glob("fort.*"):
+    for f in this_dir.glob("fort.*"):
         os.remove(f)
 
     def wrapper(*args, **kwargs):
-        code_aster.init("--wrkdir=./temp")
+        temp_dir = this_dir/"temp"
+        temp_dir.mkdir(exist_ok=True, parents=True)
+        print(temp_dir.as_posix())
+        code_aster.init("--wrkdir=temp")
 
         try:
             func(*args, **kwargs)
         except BaseException as e:
+            logger.error(e)
             raise e
         finally:
             code_aster.close()
