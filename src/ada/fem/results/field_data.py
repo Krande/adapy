@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar
@@ -50,6 +50,7 @@ class ElementFieldData(FieldData):
     """Values from element integration points"""
 
     field_pos: FieldPosition = FieldPosition.NODAL
+    elem_type: LineShapes | ShellShapes | SolidShapes = None
     COLS: ClassVar[list[str]] = ["elem_label", "sec_num"]
     int_positions: list[tuple] = None
 

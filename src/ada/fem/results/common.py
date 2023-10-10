@@ -278,6 +278,7 @@ class FEAResult:
 
         cell_data = dict()
         point_data = dict()
+        elem_block_map = {x.elem_info.type: i for i, x in enumerate(self.mesh.elements)}
         for values in self.get_results_grouped_by_field_value().values():
             for x in values:
                 res = x.get_all_values()
@@ -288,9 +289,10 @@ class FEAResult:
                     point_data[name] = res
                 elif isinstance(x, ElementFieldData) and x.field_pos == x.field_pos.INT:
                     if isinstance(res, dict):
-                        cell_data.update(res)
+                        for key, value in res.items():
+                            cell_data[key] = value
                     else:
-                        cell_data[name] = [res]
+                        cell_data[name] = res
                 else:
                     raise ValueError()
 
@@ -327,6 +329,12 @@ class FEAResult:
             mesh.point_data = new_fields
 
         return mesh
+
+    def to_vtu(self, filepath, make_3xn_dofs=True):
+        from ada.fem.formats.vtu.write import write_to_vtu_file
+        cell_data, point_data = self._get_point_and_cell_data()
+
+        write_to_vtu_file(self.mesh.nodes, self.mesh.elements, point_data, cell_data, filepath)
 
     def to_xdmf(self, filepath):
         cells = self._get_cell_blocks()
@@ -401,7 +409,9 @@ class FEAResult:
         with open(dest_file, "wb") as f:
             scene.export(file_obj=f, file_type=dest_file.suffix[1:])
 
-    def to_viewer(self, step: int, field: str, warp_field: str = None, warp_step: int = None, warp_scale: float = None, cfunc=None):
+    def to_viewer(
+        self, step: int, field: str, warp_field: str = None, warp_step: int = None, warp_scale: float = None, cfunc=None
+    ):
         send_to_viewer(self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc))
 
     def get_eig_summary(self) -> EigenDataSummary:

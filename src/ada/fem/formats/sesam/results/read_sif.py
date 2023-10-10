@@ -430,17 +430,18 @@ class Sif2Mesh:
 
         sif = self.sif
 
-        nodes = FemNodes(coords=sif.nodes[:, 1:], identifiers=sif.node_ids[:, 0])
+        nodes = FemNodes(coords=sif.nodes[:, 1:], identifiers=np.asarray(sif.node_ids[:, 0], dtype=int))
+        sorted_elem_data = sorted(sif.elements, key=lambda x: x[0])
         elem_blocks = []
-        for eltype, elements in groupby(sif.elements, key=lambda x: x[0]):
+        for eltype, elements in groupby(sorted_elem_data, key=lambda x: x[0]):
             elem_type = int(eltype)
             elem_data = list(elements)
             general_elem_type = sesam_eltype_2_general(elem_type)
             num_nodes = ShapeResolver.get_el_nodes_from_type(general_elem_type)
             elem_identifiers = np.array([x[1] for x in elem_data], dtype=int)
-            elem_node_refs = np.array([x[2][:num_nodes] for x in elem_data], dtype=float)
-            res = sesam_eltype_2_general(elem_type)
-            elem_info = ElementInfo(type=res, source_software=FEATypes.SESAM, source_type=elem_type)
+            elem_node_refs = np.array([x[2][:num_nodes] for x in elem_data], dtype=int)
+
+            elem_info = ElementInfo(type=general_elem_type, source_software=FEATypes.SESAM, source_type=elem_type)
             elem_blocks.append(
                 ElementBlock(elem_info=elem_info, node_refs=elem_node_refs, identifiers=elem_identifiers)
             )
@@ -470,6 +471,10 @@ class Sif2Mesh:
     def get_result_name_map(self):
         tdresref = self.sif.get_tdresref()
         rdresref = self.sif.get_rdresref()
+        if tdresref is None:
+            # No STEP name is defined
+            return {key: key for key, value in rdresref.items()}
+
         return {key: tdresref[value[1]][-1] for key, value in rdresref.items()}
 
     def get_nodal_data(self) -> list[NodalFieldData]:
@@ -519,10 +524,12 @@ class Sif2Mesh:
         rdforces_map = self.sif.get_rdforces_map()
         force_types = [FORCE_MAP[c][0] for c in rdforces_map[irforc]]
         data = np.array(list(_iter_line_forces(rv_forces, rdforces_map, nsp)))
+        elem_type_ada = sesam_eltype_2_general(elem_type)
         return ElementFieldData(
             "FORCES",
             int(ires),
             components=force_types,
+            elem_type=elem_type_ada,
             values=data,
             field_pos=ElementFieldData.field_pos.INT,
             int_positions=INT_LOCATIONS[elem_type],
@@ -561,9 +568,11 @@ class Sif2Mesh:
         rdstress_map = self.sif.get_rdstress_map()
         stress_types = [STRESS_MAP[c][0] for c in rdstress_map[irstrs]]
         data = np.array(list(_iter_shell_stress(rv_stresses, rdstress_map, nsp)))
+        elem_type_ada = sesam_eltype_2_general(elem_type)
         return ElementFieldData(
             "STRESS",
             int(ires),
+            elem_type=elem_type_ada,
             components=stress_types,
             values=data,
             field_pos=ElementFieldData.field_pos.INT,
