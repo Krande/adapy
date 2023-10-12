@@ -186,7 +186,7 @@ class Step(FemBase):
         return self._hist_outputs
 
     def __repr__(self):
-        return f"{self.__class__.name}({self.name}, type={self.type}, nl_geom={self.nl_geom})"
+        return f"{self.__class__.__name__}({self.name}, type={self.type}, nl_geom={self.nl_geom})"
 
 
 class StepImplicit(Step):

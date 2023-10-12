@@ -1,7 +1,7 @@
 from enum import Enum
 
 from ada.config import logger
-from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
+from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes, ConnectorTypes
 
 
 def ada_to_med_type(value):
@@ -31,6 +31,7 @@ def med_to_ada_type(value):
 
 _ada_to_med_type = {
     LineShapes.LINE: "SE2",
+    ConnectorTypes.CONNECTOR: "SE2",
     LineShapes.LINE3: "SE3",
     ShellShapes.TRI: "TR3",
     ShellShapes.TRI6: "TR6",

@@ -289,7 +289,7 @@ def _overwrite_dir(analysis_dir):
             send2trash(analysis_dir)
         else:
             shutil.rmtree(analysis_dir)
-    except WindowsError as e:
+    except BaseException as e:
         print(f"Failed to delete due to '{e}'")
 
     os.makedirs(analysis_dir, exist_ok=True)

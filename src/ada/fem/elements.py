@@ -251,14 +251,17 @@ class Connector(Elem):
     ):
         if type(n1) is not Node or type(n2) is not Node:
             raise ValueError("Connector Start\\end must be nodes")
-        super(Connector, self).__init__(el_id, [n1, n2], ElemType.CONNECTOR_SHAPES.CONNECTOR)
-        super(Elem, self).__init__(name, metadata, parent)
         self._n1 = n1
         self._n2 = n2
         self._con_type = con_type
         self._con_sec = con_sec
         self._preload = preload
         self._csys = csys if csys is not None else Csys(f"{name}_csys")
+
+        super(Connector, self).__init__(el_id, [n1, n2], ElemType.CONNECTOR_SHAPES.CONNECTOR)
+        super(Elem, self).__init__(name, metadata, parent)
+
+
 
     @property
     def con_type(self):
