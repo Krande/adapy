@@ -311,7 +311,7 @@ class FemElements:
 
     @property
     def connectors(self) -> Iterable[Connector]:
-        return filter(lambda x: isinstance(x.type, Connector), self.elements)
+        return filter(lambda x: isinstance(x, Connector), self.elements)
 
     @property
     def masses(self) -> Iterable[Mass]:

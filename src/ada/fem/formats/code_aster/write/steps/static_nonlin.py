@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ada.fem import StepImplicit
+from ada.fem import StepImplicitStatic
 from ada.fem.loads import Load
 
 from ..write_loads import write_load
@@ -149,7 +149,7 @@ class ImprResu:
 )"""
 
 
-def step_static_nonlin_str(step: StepImplicit, part: Part) -> str:
+def step_static_nonlin_str(step: StepImplicitStatic, part: Part) -> str:
     from ada.fem.exceptions.model_definition import NoLoadsApplied
 
     load_str = "\n".join(list(map(write_load, step.loads)))

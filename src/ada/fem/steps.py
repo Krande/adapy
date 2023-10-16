@@ -189,9 +189,7 @@ class Step(FemBase):
         return f"{self.__class__.__name__}({self.name}, type={self.type}, nl_geom={self.nl_geom})"
 
 
-class StepImplicit(Step):
-    TYPES_DYNAMIC = _DynStepType
-
+class StepImplicitStatic(Step):
     def __init__(
         self,
         name,
@@ -202,7 +200,6 @@ class StepImplicit(Step):
         init_incr=100.0,
         min_incr=1e-8,
         max_incr=100.0,
-        dyn_type=TYPES_DYNAMIC.QUASI_STATIC,
         **kwargs,
     ):
         """
@@ -223,12 +220,8 @@ class StepImplicit(Step):
         else:
             total_time = init_incr
 
-        super(StepImplicit, self).__init__(name, implicit_type, total_time=total_time, nl_geom=nl_geom, **kwargs)
+        super(StepImplicitStatic, self).__init__(name, implicit_type, total_time=total_time, nl_geom=nl_geom, **kwargs)
 
-        if dyn_type not in _DynStepType.all:
-            raise ValueError(f'Dynamic input type "{dyn_type}" is not supported')
-
-        self._dyn_type = dyn_type
         self._total_incr = total_incr
         self._init_incr = init_incr
         self._min_incr = min_incr
@@ -249,6 +242,39 @@ class StepImplicit(Step):
     @property
     def max_incr(self):
         return self._max_incr
+
+
+class StepImplicitDynamic(StepImplicitStatic):
+    TYPES_DYNAMIC = _DynStepType
+
+    def __init__(
+        self,
+        name,
+        dyn_type=TYPES_DYNAMIC.QUASI_STATIC,
+        nl_geom=False,
+        total_time=100.0,
+        total_incr=1000,
+        init_incr=100.0,
+        min_incr=1e-8,
+        max_incr=100.0,
+        **kwargs,
+    ):
+        if dyn_type not in _DynStepType.all:
+            raise ValueError(f'Dynamic input type "{dyn_type}" is not supported')
+
+        self._dyn_type = dyn_type
+
+        super().__init__(
+            name=name,
+            implicit_type=Step.TYPES.DYNAMIC,
+            nl_geom=nl_geom,
+            total_time=total_time,
+            total_incr=total_incr,
+            init_incr=init_incr,
+            min_incr=min_incr,
+            max_incr=max_incr,
+            **kwargs,
+        )
 
     @property
     def dyn_type(self):

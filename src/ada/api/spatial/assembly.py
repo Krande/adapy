@@ -19,11 +19,11 @@ from ada.fem import (
     FemSet,
     StepEigen,
     StepExplicit,
-    StepImplicit,
+    StepImplicitStatic,
     StepSteadyState,
 )
 
-_step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
+_step_types = Union[StepSteadyState, StepEigen, StepImplicitStatic, StepExplicit]
 
 if TYPE_CHECKING:
     import ifcopenshell
@@ -143,6 +143,7 @@ class Assembly(Part):
         metadata=None,
         execute=False,
         run_ext=False,
+        mesh_only=False,
         cpus=1,
         gpus=None,
         overwrite=False,

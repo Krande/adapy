@@ -7,7 +7,7 @@ SCRATCH = pathlib.Path("temp")
 
 
 def gravity_step():
-    step = ada.fem.StepImplicit("gravity", nl_geom=False, init_incr=50.0, total_time=100.0)
+    step = ada.fem.StepImplicitStatic("gravity", nl_geom=False, init_incr=50.0, total_time=100.0)
     step.add_load(ada.fem.LoadGravity("grav", -9.81 * 80))
     return step
 

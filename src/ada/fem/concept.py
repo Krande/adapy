@@ -32,7 +32,7 @@ if TYPE_CHECKING:
         Spring,
         StepEigen,
         StepExplicit,
-        StepImplicit,
+        StepImplicitStatic,
         StepSteadyState,
     )
     from ada.fem.results.common import Mesh
@@ -66,7 +66,7 @@ class FEM:
     constraints: Dict[str, Constraint] = field(init=False, default_factory=dict)
 
     bcs: List[Bc] = field(init=False, default_factory=list)
-    steps: List[Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]] = field(init=False, default_factory=list)
+    steps: List[Union[StepSteadyState, StepEigen, StepImplicitStatic, StepExplicit]] = field(init=False, default_factory=list)
 
     nodes: Nodes = field(default_factory=Nodes, init=True)
     ref_points: Nodes = field(default_factory=Nodes, init=True)
@@ -121,12 +121,12 @@ class FEM:
         self.bcs.append(bc)
         return bc
 
-    def add_mass(self, mass: Mass) -> Tuple[Mass, FemSet]:
+    def add_mass(self, mass: Mass) -> Mass:
         mass.parent = self
         self.elements.add(mass)
         elset = self.sets.add(FemSet(mass.name + "_set", [mass], "elset"))
         mass.elset = elset
-        return mass, elset
+        return mass
 
     def add_set(
         self,

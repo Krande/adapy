@@ -1,7 +1,7 @@
 import numpy as np
 
 from ada import Assembly, Beam, Material, Part, PrimBox, PrimCyl, PrimExtrude, User
-from ada.fem import Bc, FemSet, Load, StepImplicit
+from ada.fem import Bc, FemSet, Load, StepImplicitStatic
 from ada.fem.shapes import ElemType
 from ada.fem.utils import get_beam_end_nodes
 from ada.materials.metals import CarbonSteel, DnvGl16Mat
@@ -53,7 +53,7 @@ def beam_ex1(p1=(0, 0, 0), p2=(1.5, 0, 0), profile="IPE400", geom_repr=ElemType.
     # Add a set containing ALL elements (necessary for Calculix loads).
     fs = p.fem.add_set(FemSet("Eall", [el for el in p.fem.elements], FemSet.TYPES.ELSET))
 
-    step = a.fem.add_step(StepImplicit("gravity", nl_geom=False, init_incr=100.0, total_time=100.0))
+    step = a.fem.add_step(StepImplicitStatic("gravity", nl_geom=False, init_incr=100.0, total_time=100.0))
     step.add_load(Load("grav", Load.TYPES.GRAVITY, -9.81 * 800, fem_set=fs))
 
     fix_set = p.fem.add_set(FemSet("bc_nodes", get_beam_end_nodes(bm), FemSet.TYPES.NSET))

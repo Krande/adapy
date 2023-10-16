@@ -25,12 +25,13 @@ def med_elements(part: "Part", time_step, profile, families, int_type: IntType =
     elements_group = time_step.create_group("MAI")
     elements_group.attrs.create("CGT", 1)
     for group, elements in part.fem.elements.group_by_type():
-        if isinstance(group, (shape_def.MassTypes, shape_def.SpringTypes)):
-            logger.warning("NotImplemented: Skipping Mass or Spring Elements")
-            continue
+
         med_type = ada_to_med_type(group)
         elements = list(elements)
-        cells = np.array(list(map(get_node_ids_from_element, elements)))
+        if isinstance(group, (shape_def.MassTypes, shape_def.SpringTypes)):
+            cells = np.array([el.members[0].id for el in elements])
+        else:
+            cells = np.array(list(map(get_node_ids_from_element, elements)))
 
         med_cells = elements_group.create_group(med_type)
         med_cells.attrs.create("CGT", 1)

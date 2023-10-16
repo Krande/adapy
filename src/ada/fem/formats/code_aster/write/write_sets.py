@@ -37,9 +37,6 @@ def _add_cell_sets(cells_group, part: "Part", families):
         return [int(n.id - 1) for n in el_.nodes]
 
     for group, elements in part.fem.elements.group_by_type():
-        if isinstance(group, (shape_def.MassTypes, shape_def.SpringTypes)):
-            logger.warning("NotImplemented: Skipping Mass or Spring Elements")
-            continue
         elements = list(elements)
         cell_ids = {el.id: i for i, el in enumerate(elements)}
 
@@ -50,7 +47,11 @@ def _add_cell_sets(cells_group, part: "Part", families):
             for index in list_filtered:
                 cell_data[index] = t
 
-        cells = np.array(list(map(get_node_ids_from_element, elements)))
+        if isinstance(group, (shape_def.MassTypes, shape_def.SpringTypes)):
+            cells = np.array([el.members[0].id for el in elements])
+        else:
+            cells = np.array(list(map(get_node_ids_from_element, elements)))
+
         med_type = ada_to_med_type(group)
         med_cells = cells_group.get(med_type)
         family = med_cells.create_dataset("FAM", data=cell_data)

@@ -3,12 +3,12 @@ from __future__ import annotations
 import datetime
 
 from ada.core.utils import get_current_user
-from ada.fem.steps import Step, StepEigen, StepImplicit
+from ada.fem.steps import Step, StepEigen, StepImplicitStatic
 
 from .templates import sestra_eig_inp_str, sestra_header_inp_str, sestra_static_inp_str
 
 
-def write_sestra_inp(name, step: StepEigen | StepImplicit):
+def write_sestra_inp(name, step: StepEigen | StepImplicitStatic):
     step_map = {Step.TYPES.EIGEN: write_sestra_eig_str, Step.TYPES.STATIC: write_sestra_static_str}
     step_str_writer = step_map.get(step.type, None)
     if step_str_writer is None:
@@ -26,5 +26,5 @@ def write_sestra_eig_str(name: str, step: StepEigen):
     return sestra_eig_inp_str.format(name=name, modes=step.num_eigen_modes, supnr=1)
 
 
-def write_sestra_static_str(name: str, step: StepImplicit):
+def write_sestra_static_str(name: str, step: StepImplicitStatic):
     return sestra_static_inp_str.format(name=name, supnr=1)

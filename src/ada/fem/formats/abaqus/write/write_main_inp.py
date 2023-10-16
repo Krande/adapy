@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 def write_main_inp_str(assembly: "Assembly", analysis_dir) -> str:
     part_str = "\n".join(map(part_inp_str, filter(skip_if_this, assembly.get_all_subparts())))
     i_str = "\n".join((instance_str(i, analysis_dir) for i in filter(inst_skip, assembly.get_all_subparts()))).rstrip()
+    all_fem_parts = [p.fem for p in assembly.get_all_subparts(include_self=True)]
 
     step_str = "** No Steps added"
     incl = "*INCLUDE,INPUT=core_input_files"
@@ -26,7 +27,7 @@ def write_main_inp_str(assembly: "Assembly", analysis_dir) -> str:
         step_str = "\n".join(list(map(main_step_inp_str, assembly.fem.steps))).rstrip()
     if len(assembly.fem.amplitudes) > 0:
         ampl_str = f"{incl}\\amplitude_data.inp"
-    if len(assembly.fem.connector_sections) > 0:
+    if len([con for fem_part in all_fem_parts for con in fem_part.connector_sections.values()]) > 0:
         consec_str = f"{incl}\\connector_sections.inp"
     if len(assembly.fem.intprops) > 0:
         iprop_str = f"{incl}\\interaction_prop.inp"

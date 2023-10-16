@@ -8,7 +8,7 @@ from ada.fem.steps import (
     StepEigen,
     StepEigenComplex,
     StepExplicit,
-    StepImplicit,
+    StepImplicitStatic,
     StepSteadyState,
 )
 
@@ -18,7 +18,7 @@ from .templates import step_inp_str
 if TYPE_CHECKING:
     from ada import FEM
 
-_step_types = Union[StepEigen, StepExplicit, StepImplicit, StepSteadyState, StepEigenComplex]
+_step_types = Union[StepEigen, StepExplicit, StepImplicitStatic, StepSteadyState, StepEigenComplex]
 
 
 def main_step_inp_str(step: _step_types) -> str:
@@ -125,7 +125,7 @@ def restart_request_str(step: _step_types):
     return f"*Restart, write, frequency={solver_options.restart_int}"
 
 
-def dynamic_implicit_str(step: StepImplicit):
+def dynamic_implicit_str(step: StepImplicitStatic):
     return f"""*Step, name={step.name}, nlgeom={bool2text(step.nl_geom)}, inc={step.total_incr}
 *Dynamic,application={step.dyn_type}, INITIAL={bool2text(step.options.ABAQUS.init_accel_calc)}
 {step.init_incr},{step.total_time},{step.min_incr}, {step.max_incr}"""
@@ -139,7 +139,7 @@ def explicit_str(step: StepExplicit):
 0.06, 1.2"""
 
 
-def static_step_str(step: StepImplicit):
+def static_step_str(step: StepImplicitStatic):
     stabilize_str = ""
     solver_options = step.options.ABAQUS
     stabilize = solver_options.stabilize
