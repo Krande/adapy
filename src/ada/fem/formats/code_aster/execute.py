@@ -1,5 +1,8 @@
-import pathlib
+import sys
 
+import os
+import pathlib
+from functools import wraps
 from ada.config import logger
 from ..utils import LocalExecute
 
@@ -79,37 +82,51 @@ F rmed {name}.rmed R 80"""
     return export_str
 
 
-def init_close_code_aster(func):
-    import os
+def clear_temp_files(this_dir):
+    patterns = ["fort*", "glob*", "vola*"]
 
-    conda_dir = pathlib.Path(os.getenv("CONDA_PREFIX"))
-    lib_dir = conda_dir / "lib/aster"
-    os.environ["LD_LIBRARY_PATH"] = lib_dir.as_posix() + ":" + os.getenv("LD_LIBRARY_PATH", "")
-    os.environ["PYTHONPATH"] = lib_dir.as_posix() + ":" + os.getenv("PYTHONPATH", "")
+    for pattern in patterns:
+        for f in this_dir.glob(pattern):
+            if f.is_file():
+                os.remove(f)
 
-    os.environ["ASTER_LIBDIR"] = lib_dir.as_posix()
-    os.environ["ASTER_DATADIR"] = (conda_dir / "share/aster").as_posix()
-    os.environ["ASTER_LOCALEDIR"] = (conda_dir / "share/locale/aster").as_posix()
-    os.environ["ASTER_ELEMENTSDIR"] = lib_dir.as_posix()
 
-    import code_aster
-    this_dir = pathlib.Path(".").resolve().absolute()
-    # Clear all temp files
-    for f in this_dir.glob("fort.*"):
-        os.remove(f)
+def init_close_code_aster(func_=None, *, info_level=0):
+    def actual_decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            conda_dir = pathlib.Path(os.getenv("CONDA_PREFIX"))
+            lib_dir = conda_dir / "lib/aster"
+            os.environ["LD_LIBRARY_PATH"] = lib_dir.as_posix() + ":" + os.getenv("LD_LIBRARY_PATH", "")
+            os.environ["PYTHONPATH"] = lib_dir.as_posix() + ":" + os.getenv("PYTHONPATH", "")
+            os.environ["ASTER_LIBDIR"] = lib_dir.as_posix()
+            os.environ["ASTER_DATADIR"] = (conda_dir / "share/aster").as_posix()
+            os.environ["ASTER_LOCALEDIR"] = (conda_dir / "share/locale/aster").as_posix()
+            os.environ["ASTER_ELEMENTSDIR"] = lib_dir.as_posix()
 
-    def wrapper(*args, **kwargs):
-        temp_dir = this_dir/"temp"
-        temp_dir.mkdir(exist_ok=True, parents=True)
-        print(temp_dir.as_posix())
-        code_aster.init("--wrkdir=temp")
+            import code_aster
 
-        try:
-            func(*args, **kwargs)
-        except BaseException as e:
-            logger.error(e)
-            raise e
-        finally:
-            code_aster.close()
+            this_dir = pathlib.Path(".").resolve().absolute()
+            clear_temp_files(this_dir)  # Assuming you have this function defined elsewhere
 
-    return wrapper
+            temp_dir = this_dir / "temp"
+            temp_dir.mkdir(exist_ok=True, parents=True)
+            print(f"{info_level=}")
+            sys.argv = ["--wrkdir", temp_dir.as_posix()]
+            code_aster.init(INFO=info_level)
+
+            try:
+                func(*args, **kwargs)
+            except BaseException as e:
+                # Assuming you have a logger
+                # logger.error(e)
+                raise e
+            finally:
+                code_aster.close()
+
+        return wrapper
+
+    if func_ is None:
+        return actual_decorator
+    else:
+        return actual_decorator(func_)
