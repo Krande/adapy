@@ -83,7 +83,7 @@ F rmed {name}.rmed R 80"""
 
 
 def clear_temp_files(this_dir):
-    patterns = ["fort*", "glob*", "vola*"]
+    patterns = ["fort*", "glob*", "vola*", "pick.code_aster*"]
 
     for pattern in patterns:
         for f in this_dir.glob(pattern):
