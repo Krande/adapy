@@ -10,14 +10,14 @@ class SQLiteFEAStore:
     def __del__(self):
         self.conn.close()
 
-    def get_history_data(self, name, step_id=None, instance_id=None):
+    def get_history_data(self, name, step_id=None, instance_id=None, point_id=None, elem_id=None):
         base_query = """SELECT mi.Name,
                            ho.ResType,
-                           PointID,
+                           ho.PointID,
                            st.Name,
                            fv.Name,
-                           Frame,
-                           Value
+                           ho.Frame,
+                           ho.Value
                         FROM FieldVars as fv
                              INNER JOIN HistOutput ho ON fv.FieldID = ho.FieldVarID
                              INNER JOIN ModelInstances as mi on ho.InstanceID = mi.ID
@@ -27,25 +27,71 @@ class SQLiteFEAStore:
         params = [name]
 
         if step_id is not None:
-            base_query += " AND fn.StepID = ?"
+            base_query += " AND ho.StepID = ?"
             params.append(step_id)
 
         if instance_id is not None:
-            base_query += " AND fn.InstanceID = ?"
+            base_query += " AND ho.InstanceID = ?"
             params.append(instance_id)
+
+        if point_id is not None:
+            base_query += " AND ho.PointID = ?"
+            params.append(point_id)
+
+        if elem_id is not None:
+            base_query += " AND ho.ElemID = ?"
+            params.append(elem_id)
 
         self.cursor.execute(base_query, params)
         results = self.cursor.fetchall()
         return results
 
-    def get_field_data(self, name, step_id=None, instance_id=None):
-        """This returns a join from the FieldVars table and the FieldNodes and FieldElem tables."""
+    def get_field_elem_data(self, name, step_id=None, instance_id=None, elem_id=None, int_point=None):
+        """This returns a join from the FieldVars table and the FieldElem tables."""
         base_query = """SELECT mi.Name,
-                           PointID,
+                             fe.ElemID,
+                            st.Name,
+                            fv.Name,
+                            fe.IntPt,
+                            fe.Frame,
+                            fe.Value
+                            FROM FieldVars as fv
+                              INNER JOIN FieldElem fe ON fv.FieldID = fe.FieldVarID
+                              INNER JOIN ModelInstances as mi on fe.InstanceID = mi.ID
+                              INNER JOIN Steps as st on fe.StepID = st.ID
+    
+                            WHERE fv.Name = ?"""
+
+        params = [name]
+
+        if step_id is not None:
+            base_query += " AND fe.StepID = ?"
+            params.append(step_id)
+
+        if instance_id is not None:
+            base_query += " AND fe.InstanceID = ?"
+            params.append(instance_id)
+
+        if elem_id is not None:
+            base_query += " AND fe.ElemID = ?"
+            params.append(elem_id)
+
+        if int_point is not None:
+            base_query += " AND fe.IntPt = ?"
+            params.append(int_point)
+
+        self.cursor.execute(base_query, params)
+        results = self.cursor.fetchall()
+        return results
+
+    def get_field_nodal_data(self, name, step_id=None, instance_id=None, point_id=None):
+        """This returns a join from the FieldVars table and the FieldNodes tables."""
+        base_query = """SELECT mi.Name,
+                           fn.PointID,
                            st.Name,
                            fv.Name,
-                           Frame,
-                           Value
+                           fn.Frame,
+                           fn.Value
                         FROM FieldVars as fv
                              INNER JOIN FieldNodes fn ON fv.FieldID = fn.FieldVarID
                              INNER JOIN ModelInstances as mi on fn.InstanceID = mi.ID
@@ -62,6 +108,10 @@ class SQLiteFEAStore:
         if instance_id is not None:
             base_query += " AND fn.InstanceID = ?"
             params.append(instance_id)
+
+        if point_id is not None:
+            base_query += " AND fn.PointID = ?"
+            params.append(point_id)
 
         self.cursor.execute(base_query, params)
         results = self.cursor.fetchall()
