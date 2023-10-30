@@ -1,14 +1,37 @@
+import pathlib
 import sqlite3
+
+_RESULTS_SCHEMA_PATH = pathlib.Path(__file__).parent / "resources/results.sql"
 
 
 class SQLiteFEAStore:
     def __init__(self, db_file):
+        if isinstance(db_file, str):
+            db_file = pathlib.Path(db_file)
+        clean_start = False
+        if not db_file.exists():
+            clean_start = True
         self.db_file = db_file
         self.conn = sqlite3.connect(db_file)
+        if clean_start:
+            self._init_db()
         self.cursor = self.conn.cursor()
 
     def __del__(self):
         self.conn.close()
+
+    def _init_db(self):
+        with open(_RESULTS_SCHEMA_PATH, "r") as f:
+            schema = f.read()
+        self.conn.executescript(schema)
+
+    def add_model_instance(self, instance_id, name):
+        self.cursor.execute("INSERT INTO ModelInstances VALUES (?, ?)", (instance_id, name))
+        self.conn.commit()
+
+    def add_model_points(self, point_data):
+        self.cursor.executemany("INSERT INTO Points VALUES (?, ?, ?, ?)", point_data)
+        self.conn.commit()
 
     def get_history_data(self, name, step_id=None, instance_id=None, point_id=None, elem_id=None):
         base_query = """SELECT mi.Name,
