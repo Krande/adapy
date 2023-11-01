@@ -25,28 +25,32 @@ class SQLiteFEAStore:
             schema = f.read()
         self.conn.executescript(schema)
 
-    def add_model_instance(self, instance_id, name):
-        self.cursor.execute("INSERT INTO ModelInstances VALUES (?, ?)", (instance_id, name))
-        self.conn.commit()
+    def insert_table(self, table_name: str, data: list[tuple]):
+        if not data:
+            print("No data to insert")
+            return
 
-    def add_model_points(self, point_data):
-        self.cursor.executemany("INSERT INTO Points VALUES (?, ?, ?, ?)", point_data)
+        num_columns = len(data[0])
+        placeholders = ", ".join(["?" for _ in range(num_columns)])
+        sql_query = f"INSERT INTO {table_name} VALUES ({placeholders})"
+
+        self.cursor.executemany(sql_query, data)
         self.conn.commit()
 
     def get_history_data(self, name, step_id=None, instance_id=None, point_id=None, elem_id=None):
         base_query = """SELECT mi.Name,
-                           ho.ResType,
-                           ho.PointID,
-                           st.Name,
-                           fv.Name,
-                           ho.Frame,
-                           ho.Value
-                        FROM FieldVars as fv
-                             INNER JOIN HistOutput ho ON fv.FieldID = ho.FieldVarID
-                             INNER JOIN ModelInstances as mi on ho.InstanceID = mi.ID
-                             INNER JOIN Steps as st on ho.StepID = st.ID
-                    
-                        WHERE fv.Name == ?"""
+                       ho.ResType,
+                       ho.PointID,
+                       st.Name,
+                       fv.Name,
+                       ho.Frame,
+                       ho.Value
+                    FROM FieldVars as fv
+                         INNER JOIN HistOutput ho ON fv.FieldID = ho.FieldVarID
+                         INNER JOIN ModelInstances as mi on ho.InstanceID = mi.ID
+                         INNER JOIN Steps as st on ho.StepID = st.ID
+                
+                    WHERE fv.Name == ?"""
         params = [name]
 
         if step_id is not None:

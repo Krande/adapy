@@ -91,7 +91,7 @@ def clear_temp_files(this_dir):
                 os.remove(f)
 
 
-def init_close_code_aster(func_=None, *, info_level=0):
+def init_close_code_aster(func_=None, *, info_level=1):
     def actual_decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):

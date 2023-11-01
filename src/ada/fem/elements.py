@@ -262,7 +262,6 @@ class Connector(Elem):
         super(Elem, self).__init__(name, metadata, parent)
 
 
-
     @property
     def con_type(self):
         return self._con_type

@@ -12,6 +12,10 @@ if TYPE_CHECKING:
     from ada.api.spatial import Part
 
 
+def get_node_ids_from_element(el_):
+    return [int(n.id - 1) for n in el_.nodes]
+
+
 def _add_cell_sets(cells_group, part: "Part", families):
     """
 
@@ -32,9 +36,6 @@ def _add_cell_sets(cells_group, part: "Part", families):
         cell_id_current -= 1
 
     res_data = resolve_ids_in_multiple(tags, tags_data, True)
-
-    def get_node_ids_from_element(el_):
-        return [int(n.id - 1) for n in el_.nodes]
 
     for group, elements in part.fem.elements.group_by_type():
         elements = list(elements)
@@ -62,11 +63,6 @@ def _add_cell_sets(cells_group, part: "Part", families):
 
 
 def _add_node_sets(nodes_group, part: "Part", points, families):
-    """
-    :param nodes_group:
-    :param part:
-    :param families:
-    """
     tags = dict()
     nsets = dict()
     for key, val in part.fem.nsets.items():
