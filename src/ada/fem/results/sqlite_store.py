@@ -11,10 +11,26 @@ class SQLiteFEAStore:
         clean_start = False
         if not db_file.exists():
             clean_start = True
+
         self.db_file = db_file
         self.conn = sqlite3.connect(db_file)
         if clean_start:
             self._init_db()
+        else:
+            # clear all tables
+            self.conn.executescript("DELETE FROM HistOutput;")
+            self.conn.executescript("DELETE FROM FieldElem;")
+            self.conn.executescript("DELETE FROM FieldNodes;")
+            self.conn.executescript("DELETE FROM FieldVars;")
+            self.conn.executescript("DELETE FROM ModelInstances;")
+            self.conn.executescript("DELETE FROM Steps;")
+            self.conn.executescript("DELETE FROM FieldVars;")
+            self.conn.executescript("DELETE FROM Points;")
+            self.conn.executescript("DELETE FROM ElementConnectivity;")
+            self.conn.executescript("DELETE FROM ElementInfo;")
+            self.conn.executescript("DELETE FROM PointSets;")
+            self.conn.executescript("DELETE FROM ElementSets;")
+
         self.cursor = self.conn.cursor()
 
     def __del__(self):
