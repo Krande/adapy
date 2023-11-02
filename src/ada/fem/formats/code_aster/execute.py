@@ -2,6 +2,7 @@ import sys
 
 import os
 import pathlib
+import time
 from functools import wraps
 from ada.config import logger
 from ..utils import LocalExecute
@@ -13,15 +14,15 @@ def write_to_log(res_str, fname):
 
 
 def run_code_aster(
-    inp_path,
-    cpus=2,
-    gpus=None,
-    run_ext=False,
-    metadata=None,
-    execute=True,
-    return_bat_str=False,
-    exit_on_complete=True,
-    run_in_shell=False,
+        inp_path,
+        cpus=2,
+        gpus=None,
+        run_ext=False,
+        metadata=None,
+        execute=True,
+        return_bat_str=False,
+        exit_on_complete=True,
+        run_in_shell=False,
 ):
     """
 
@@ -95,6 +96,8 @@ def init_close_code_aster(func_=None, *, info_level=1):
     def actual_decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
+            print('Starting code_aster')
+            start = time.time()
             conda_dir = pathlib.Path(os.getenv("CONDA_PREFIX"))
             lib_dir = conda_dir / "lib/aster"
             os.environ["LD_LIBRARY_PATH"] = lib_dir.as_posix() + ":" + os.getenv("LD_LIBRARY_PATH", "")
@@ -123,6 +126,8 @@ def init_close_code_aster(func_=None, *, info_level=1):
                 raise e
             finally:
                 code_aster.close()
+                end = time.time()
+                print(f"Simulation time: {end - start:.2f}s")
 
         return wrapper
 
