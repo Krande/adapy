@@ -30,7 +30,7 @@ __all__ = ["to_fem"]
 
 
 @tool_register(fem_format=FEATypes.ABAQUS, io=FEA_IO.write)
-def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None, writable_obj: StringIO = None):
+def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None, writable_obj: StringIO = None, model_data_only=False):
     """Build the Abaqus Analysis input deck"""
 
     # Write part bulk files

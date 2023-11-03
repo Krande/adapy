@@ -249,7 +249,8 @@ class FEM:
         connector.csys.parent = self
         if connector.con_sec.parent is None:
             self.add_connector_section(connector.con_sec)
-        self.add_set(FemSet(name=connector.name, members=[connector], set_type="elset"))
+        fs = self.add_set(FemSet(name=connector.name, members=[connector], set_type="elset"))
+        connector.elset = fs
         return connector
 
     def add_rp(self, name: str, node: Node):

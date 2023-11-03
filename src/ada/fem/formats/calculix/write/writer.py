@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 
 @tool_register(fem_format=FEATypes.CALCULIX, io=FEA_IO.write)
-def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
+def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_only=False):
     """Write a Calculix input file stack"""
 
     check_compatibility(assembly)

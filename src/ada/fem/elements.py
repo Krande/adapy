@@ -137,7 +137,7 @@ class Elem(FemBase):
         self._eccentricity = value
 
     @property
-    def elset(self):
+    def elset(self) -> FemSet:
         return self._elset
 
     @elset.setter
@@ -260,7 +260,6 @@ class Connector(Elem):
 
         super(Connector, self).__init__(el_id, [n1, n2], ElemType.CONNECTOR_SHAPES.CONNECTOR)
         super(Elem, self).__init__(name, metadata, parent)
-
 
     @property
     def con_type(self):

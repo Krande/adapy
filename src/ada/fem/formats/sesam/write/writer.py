@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from ada import Material
 
 
-def to_fem(assembly, name, analysis_dir=None, metadata=None):
+def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=False):
     from .write_constraints import constraint_str
     from .write_elements import elem_str
     from .write_loads import loads_str
