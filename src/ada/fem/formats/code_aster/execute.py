@@ -118,8 +118,9 @@ def init_close_code_aster(func_=None, *, info_level=1):
             sys.argv = ["--wrkdir", temp_dir.as_posix()]
             code_aster.init(INFO=info_level)
 
+            result = None
             try:
-                func(*args, **kwargs)
+                result = func(*args, **kwargs)
             except BaseException as e:
                 # Assuming you have a logger
                 # logger.error(e)
@@ -128,6 +129,7 @@ def init_close_code_aster(func_=None, *, info_level=1):
                 code_aster.close()
                 end = time.time()
                 print(f"Simulation time: {end - start:.2f}s")
+                return result
 
         return wrapper
 

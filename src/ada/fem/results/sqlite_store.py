@@ -5,7 +5,7 @@ _RESULTS_SCHEMA_PATH = pathlib.Path(__file__).parent / "resources/results.sql"
 
 
 class SQLiteFEAStore:
-    def __init__(self, db_file):
+    def __init__(self, db_file, clean_tables=False):
         if isinstance(db_file, str):
             db_file = pathlib.Path(db_file)
         clean_start = False
@@ -17,19 +17,20 @@ class SQLiteFEAStore:
         if clean_start:
             self._init_db()
         else:
-            # clear all tables
-            self.conn.executescript("DELETE FROM HistOutput;")
-            self.conn.executescript("DELETE FROM FieldElem;")
-            self.conn.executescript("DELETE FROM FieldNodes;")
-            self.conn.executescript("DELETE FROM FieldVars;")
-            self.conn.executescript("DELETE FROM ModelInstances;")
-            self.conn.executescript("DELETE FROM Steps;")
-            self.conn.executescript("DELETE FROM FieldVars;")
-            self.conn.executescript("DELETE FROM Points;")
-            self.conn.executescript("DELETE FROM ElementConnectivity;")
-            self.conn.executescript("DELETE FROM ElementInfo;")
-            self.conn.executescript("DELETE FROM PointSets;")
-            self.conn.executescript("DELETE FROM ElementSets;")
+            if clean_tables:
+                # clear all tables
+                self.conn.executescript("DELETE FROM HistOutput;")
+                self.conn.executescript("DELETE FROM FieldElem;")
+                self.conn.executescript("DELETE FROM FieldNodes;")
+                self.conn.executescript("DELETE FROM FieldVars;")
+                self.conn.executescript("DELETE FROM ModelInstances;")
+                self.conn.executescript("DELETE FROM Steps;")
+                self.conn.executescript("DELETE FROM FieldVars;")
+                self.conn.executescript("DELETE FROM Points;")
+                self.conn.executescript("DELETE FROM ElementConnectivity;")
+                self.conn.executescript("DELETE FROM ElementInfo;")
+                self.conn.executescript("DELETE FROM PointSets;")
+                self.conn.executescript("DELETE FROM ElementSets;")
 
         self.cursor = self.conn.cursor()
 
@@ -53,7 +54,19 @@ class SQLiteFEAStore:
         self.cursor.executemany(sql_query, data)
         self.conn.commit()
 
-    def get_history_data(self, name, step_id=None, instance_id=None, point_id=None, elem_id=None):
+    def get_steps(self):
+        query = """SELECT * FROM Steps"""
+        self.cursor.execute(query)
+        results = self.cursor.fetchall()
+        return results
+
+    def get_field_vars(self):
+        query = """SELECT * FROM FieldVars"""
+        self.cursor.execute(query)
+        results = self.cursor.fetchall()
+        return results
+
+    def get_history_data(self, field_var, step_id=None, instance_id=None, point_id=None, elem_id=None):
         base_query = """SELECT mi.Name,
                        ho.ResType,
                        ho.PointID,
@@ -67,7 +80,7 @@ class SQLiteFEAStore:
                          INNER JOIN Steps as st on ho.StepID = st.ID
                 
                     WHERE fv.Name == ?"""
-        params = [name]
+        params = [field_var]
 
         if step_id is not None:
             base_query += " AND ho.StepID = ?"
