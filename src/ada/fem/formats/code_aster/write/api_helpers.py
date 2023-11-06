@@ -5,9 +5,11 @@ import pathlib
 from typing import TYPE_CHECKING, Iterable
 
 import code_aster
+from code_aster.Cata.Commands.meca_statique import MECA_STATIQUE
 from code_aster.Cata.Language.SyntaxObjects import _F
 from code_aster.Commands import DEFI_GROUP, AFFE_MODELE, AFFE_CARA_ELEM, AFFE_CHAR_MECA
 
+import ada.fem
 from ada.fem import Elem, Connector, Mass, ConnectorSection
 from ada.fem.formats.code_aster.write.writer import write_to_med
 from ada.fem.formats.utils import get_fem_model_from_assembly
@@ -193,3 +195,22 @@ def assign_forces(a: Assembly, model: code_aster.Model) -> code_aster.Mechanical
         FORCE_NODALE=nodal_loads
     )
     return forces
+
+
+def assign_steps(a: Assembly, model: code_aster.Model, fix: code_aster.MechanicalLoadReal,
+                 forces: code_aster.MechanicalLoadReal, material_field: code_aster.MaterialField,
+                 elem_car: code_aster.ElementaryCharacteristics) -> code_aster.ElasticResult:
+    for step in a.fem.steps:
+        if isinstance(step, ada.fem.StepImplicitDynamic):
+            raise NotImplementedError("Not yet implemented 'StepImplicitDynamic'")
+        elif isinstance(step, ada.fem.StepImplicitStatic):
+            step.type
+            linear_step: code_aster.ElasticResult = MECA_STATIQUE(
+                MODELE=model,
+                CHAM_MATER=material_field,
+                CARA_ELEM=elem_car,
+                EXCIT=(
+                    _F(CHARGE=fix),
+                    _F(CHARGE=forces)
+                )
+            )
