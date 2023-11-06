@@ -1,9 +1,8 @@
-import sys
-
 import os
 import pathlib
 import time
 from functools import wraps
+
 from ada.config import logger
 from ..utils import LocalExecute
 
@@ -92,44 +91,65 @@ def clear_temp_files(this_dir):
                 os.remove(f)
 
 
-def init_close_code_aster(func_=None, *, info_level=1):
+def init_close_code_aster(func_=None, *, info_level=1, temp_dir=None):
     def actual_decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             print('Starting code_aster')
             start = time.time()
             conda_dir = pathlib.Path(os.getenv("CONDA_PREFIX"))
-            lib_dir = conda_dir / "lib/aster"
-            os.environ["LD_LIBRARY_PATH"] = lib_dir.as_posix() + ":" + os.getenv("LD_LIBRARY_PATH", "")
-            os.environ["PYTHONPATH"] = lib_dir.as_posix() + ":" + os.getenv("PYTHONPATH", "")
+            lib_dir = conda_dir / "lib"
+            lib_aster_dir = lib_dir / "aster"
+            os.environ["LD_LIBRARY_PATH"] = lib_aster_dir.as_posix() + ":" + os.getenv("LD_LIBRARY_PATH", "")
+            os.environ["PYTHONPATH"] = lib_aster_dir.as_posix() + ":" + os.getenv("PYTHONPATH", "")
             os.environ["ASTER_LIBDIR"] = lib_dir.as_posix()
             os.environ["ASTER_DATADIR"] = (conda_dir / "share/aster").as_posix()
             os.environ["ASTER_LOCALEDIR"] = (conda_dir / "share/locale/aster").as_posix()
-            os.environ["ASTER_ELEMENTSDIR"] = lib_dir.as_posix()
+            os.environ["ASTER_ELEMENTSDIR"] = lib_aster_dir.as_posix()
 
             import code_aster
 
             this_dir = pathlib.Path(".").resolve().absolute()
-            clear_temp_files(this_dir)  # Assuming you have this function defined elsewhere
 
-            temp_dir = this_dir / "temp"
-            temp_dir.mkdir(exist_ok=True, parents=True)
+            nonlocal temp_dir
+            if temp_dir is None:
+                clear_temp_files(this_dir)  # Assuming you have this function defined elsewhere
+            else:
+                if isinstance(temp_dir, str):
+                    temp_dir = pathlib.Path(temp_dir)
+                    temp_dir = temp_dir.resolve().absolute()
+
+                if temp_dir.exists():
+                    clear_temp_files(temp_dir)
+
+                temp_dir.mkdir(exist_ok=True, parents=True)
+                logger.info("Changing current directory to keep Code_Aster files away from the code directory")
+                os.chdir(temp_dir)
+
             print(f"{info_level=}")
-            sys.argv = ["--wrkdir", temp_dir.as_posix()]
             code_aster.init(INFO=info_level)
 
             result = None
+            run_issue = None
             try:
                 result = func(*args, **kwargs)
             except BaseException as e:
                 # Assuming you have a logger
-                # logger.error(e)
-                raise e
+                logger.error(e)
+                run_issue = e
+                raise
             finally:
                 code_aster.close()
+                if temp_dir is not None:
+                    # Change back
+                    os.chdir(this_dir)
                 end = time.time()
                 print(f"Simulation time: {end - start:.2f}s")
+
+            if result is not None:
                 return result
+
+            raise Exception(run_issue)
 
         return wrapper
 

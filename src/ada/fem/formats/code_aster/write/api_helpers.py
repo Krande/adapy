@@ -6,14 +6,17 @@ from typing import TYPE_CHECKING, Iterable
 
 import code_aster
 from code_aster.Cata.Language.SyntaxObjects import _F
-from code_aster.Commands import DEFI_GROUP, AFFE_MODELE
+from code_aster.Commands import DEFI_GROUP, AFFE_MODELE, AFFE_CARA_ELEM, AFFE_CHAR_MECA
 
 from ada.fem import Elem, Connector, Mass, ConnectorSection
 from ada.fem.formats.code_aster.write.writer import write_to_med
 from ada.fem.formats.utils import get_fem_model_from_assembly
 
 if TYPE_CHECKING:
-    from ada import Assembly
+    from ada import Assembly, FEM
+
+DISPL_DOF_MAP = {1: "DX", 2: "DY", 3: "DZ", 4: "DRX", 5: "DRY", 6: "DRZ"}
+FORCE_DOF_MAP = {1: "FX", 2: "FY", 3: "FZ", 4: "FRX", 5: "FRY", 6: "FRZ"}
 
 
 def import_mesh(a: Assembly, scratch_dir):
@@ -35,16 +38,19 @@ def import_mesh(a: Assembly, scratch_dir):
     return mesh
 
 
-def assembly_element_iterator(a: Assembly) -> Iterable[Elem]:
+def assembly_fem_iterator(a: Assembly) -> Iterable[FEM]:
     parts_w_fem = [p for p in a.get_all_parts_in_assembly() if not p.fem.is_empty()]
     if len(parts_w_fem) != 1:
         raise NotImplementedError("Assemblies with multiple parts containing FEM data is not yet supported")
     p = parts_w_fem[0]
+    yield a.fem
+    yield p.fem
 
-    for elem in a.fem.elements:
-        yield elem
-    for elem in p.fem.elements:
-        yield elem
+
+def assembly_element_iterator(a: Assembly) -> Iterable[Elem]:
+    for fem in assembly_fem_iterator(a):
+        for elem in fem.elements:
+            yield elem
 
 
 def assign_element_definitions(a: Assembly, mesh: code_aster.Mesh) -> code_aster.Model | None:
@@ -53,15 +59,16 @@ def assign_element_definitions(a: Assembly, mesh: code_aster.Mesh) -> code_aster
 
     for elem in assembly_element_iterator(a):
         if isinstance(elem, (Connector, Mass)):
-            discrete_elements.append(elem.elset.name)
+            discrete_elements.append(elem)
         elif isinstance(elem, Elem) and elem.fem_sec.type:
-            line_elements.append(elem.elset.name)
+            line_elements.append(elem)
 
     # Discrete Elements
     discrete_modelings = []
     if len(discrete_elements) > 0:
+        elset_names = [el.elset.name for el in discrete_elements]
         discrete_modelings.append(_F(
-            GROUP_MA=discrete_elements,
+            GROUP_MA=elset_names,
             PHENOMENE='MECANIQUE',
             MODELISATION='DIS_T',
         ))
@@ -92,7 +99,7 @@ def assign_material_definitions(a: Assembly, mesh: code_aster.Mesh) -> code_aste
     material = code_aster.MaterialField(mesh)
     for mat, element_names in mat_map.items():
         if isinstance(mat, ConnectorSection):
-            if isinstance(mat.elastic_comp, float):
+            if isinstance(mat.elastic_comp, (float, int)):
                 e_mod = mat.elastic_comp
                 # Todo: figure out where this is supposed to be implemented
             else:
@@ -106,3 +113,83 @@ def assign_material_definitions(a: Assembly, mesh: code_aster.Mesh) -> code_aste
 
     material.build()
     return material
+
+
+def assign_element_characteristics(a: Assembly, model: code_aster.Model,
+                                   rigid_size=1e8) -> code_aster.ElementaryCharacteristics:
+    discrete_elements = []
+    line_elements = []
+
+    for elem in assembly_element_iterator(a):
+        if isinstance(elem, Mass):
+            mass = elem.mass
+            if isinstance(mass, (float, int)):
+                value = mass
+            else:
+                raise NotImplementedError("A non-scalar mass is not yet supported")
+            mass_def = _F(
+                GROUP_MA=elem.elset.name,
+                CARA="M_T_D_N", VALE=value
+            )
+            discrete_elements.append(mass_def)
+        elif isinstance(elem, Connector):
+            con_sec = elem.con_sec
+            if isinstance(con_sec.elastic_comp, (float, int)):
+                value = [con_sec.elastic_comp, con_sec.elastic_comp, con_sec.elastic_comp]
+            else:
+                raise NotImplementedError("Only scalar values are currently accepted for Connector elasticity")
+
+            if isinstance(con_sec.rigid_dofs, list):
+                for index in con_sec.rigid_dofs:
+                    value[index] = rigid_size
+
+            con_elem = _F(
+                GROUP_MA=elem.elset.name,
+                CARA="K_T_D_L", VALE=value, REPERE="GLOBAL"
+            )
+            discrete_elements.append(con_elem)
+
+        else:
+            raise NotImplementedError(f"Currently unsupported non-discrete element type {elem}")
+
+    elem_car: code_aster.ElementaryCharacteristics = AFFE_CARA_ELEM(
+        MODELE=model,
+        DISCRET=discrete_elements
+    )
+    return elem_car
+
+
+def assign_boundary_conditions(a: Assembly, model: code_aster.Model) -> code_aster.MechanicalLoadReal:
+    imposed_bcs = []
+
+    for fem in assembly_fem_iterator(a):
+        for bc in fem.bcs:
+            # Todo: Need to figure out rules for when code_aster accepts imposing constraints on nodal rotations.
+            skip_rotations = True
+
+            if skip_rotations:
+                dofs = [x for x in bc.dofs if x < 4]
+            else:
+                dofs = bc.dofs
+            dofs_constrained = {DISPL_DOF_MAP[x]: 0 for x in dofs}
+            ca_bc = _F(GROUP_NO=bc.fem_set.name, **dofs_constrained)
+            imposed_bcs.append(ca_bc)
+
+    fix: code_aster.MechanicalLoadReal = AFFE_CHAR_MECA(MODELE=model, DDL_IMPO=imposed_bcs)
+    return fix
+
+
+def assign_forces(a: Assembly, model: code_aster.Model) -> code_aster.MechanicalLoadReal:
+    nodal_loads = []
+    for fem in assembly_fem_iterator(a):
+        for load in fem.get_all_loads():
+            imposed_loads = {FORCE_DOF_MAP[x]: force for x, force in enumerate(load.forces, start=1) if
+                             float(force) != 0.0}
+            ca_load = _F(GROUP_NO=load.fem_set.name, **imposed_loads)
+            nodal_loads.append(ca_load)
+
+    forces: code_aster.MechanicalLoadReal = AFFE_CHAR_MECA(
+        MODELE=model,
+        FORCE_NODALE=nodal_loads
+    )
+    return forces
