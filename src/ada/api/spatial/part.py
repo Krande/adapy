@@ -256,19 +256,19 @@ class Part(BackendGeom):
         from ada import Beam, Part, Pipe, Plate, Shape, Wall, Weld
 
         if isinstance(obj, Beam):
-            self.add_beam(obj)
+            return self.add_beam(obj)
         elif isinstance(obj, Plate):
-            self.add_plate(obj)
+            return self.add_plate(obj)
         elif isinstance(obj, Pipe):
-            self.add_pipe(obj)
+            return self.add_pipe(obj)
         elif issubclass(type(obj), Part):
-            self.add_part(obj)
+            return self.add_part(obj)
         elif issubclass(type(obj), Shape):
-            self.add_shape(obj)
+            return self.add_shape(obj)
         elif isinstance(obj, Wall):
-            self.add_wall(obj)
+            return self.add_wall(obj)
         elif isinstance(obj, Weld):
-            self.add_weld(obj)
+            return self.add_weld(obj)
         else:
             raise NotImplementedError(f'"{type(obj)}" is not yet supported for smart append')
 
