@@ -252,8 +252,8 @@ class Part(BackendGeom):
             section.units = self.units
         return self._sections.add(section)
 
-    def add_object(self, obj: Part | Beam | Plate | Wall | Pipe | Shape | Weld):
-        from ada import Beam, Part, Pipe, Plate, Shape, Wall, Weld
+    def add_object(self, obj: Part | Beam | Plate | Wall | Pipe | Shape | Weld | Section):
+        from ada import Beam, Part, Pipe, Plate, Shape, Wall, Weld, Section
 
         if isinstance(obj, Beam):
             return self.add_beam(obj)
@@ -269,6 +269,8 @@ class Part(BackendGeom):
             return self.add_wall(obj)
         elif isinstance(obj, Weld):
             return self.add_weld(obj)
+        elif isinstance(obj, Section):
+            return self.add_section(obj)
         else:
             raise NotImplementedError(f'"{type(obj)}" is not yet supported for smart append')
 

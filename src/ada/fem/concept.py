@@ -408,6 +408,16 @@ class FEM:
 
         self.elements += other.elements
         self.sections += other.sections
+
+        # Copy any Beam sections to the current FEM parent Part object
+        if self.parent is not None:
+            for sec in self.sections:
+                sec.parent = self
+                if sec.section is None:
+                    continue
+                if sec.section.parent != self.parent:
+                    self.parent.add_object(sec.section)
+
         self.sets += other.sets
 
         for bc in other.bcs:
