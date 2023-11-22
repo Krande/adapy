@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING
 
 from .common import FemBase
 from .sets import FemSet
@@ -79,15 +79,15 @@ class HistOutput(FemBase):
     TYPES_DATA = HistDataTypes
 
     def __init__(
-        self,
-        name: str,
-        fem_set: Union[FemSet, None, List[Surface]],
-        set_type: str,
-        variables: List[str],
-        int_value=1,
-        int_type=TYPES_INTERVAL.FREQUENCY,
-        metadata=None,
-        parent=None,
+            self,
+            name: str,
+            fem_set: FemSet | None | list[Surface],
+            set_type: str,
+            variables: list[str],
+            int_value=1,
+            int_type=TYPES_INTERVAL.FREQUENCY,
+            metadata=None,
+            parent=None,
     ):
         super().__init__(name, metadata, parent)
 
@@ -103,11 +103,11 @@ class HistOutput(FemBase):
         self._int_type = int_type
 
     @property
-    def parent(self) -> "Step":
+    def parent(self) -> Step:
         return self._parent
 
     @parent.setter
-    def parent(self, value: "Step"):
+    def parent(self, value: Step):
         self._parent = value
 
     @property
@@ -164,15 +164,15 @@ class FieldOutput(FemBase):
     default_co = ["CSTRESS", "CDISP", "CFORCE", "CSTATUS"]
 
     def __init__(
-        self,
-        name,
-        nodal=None,
-        element=None,
-        contact=None,
-        int_value=1,
-        int_type=TYPES_INTERVAL.FREQUENCY,
-        metadata=None,
-        parent: "Step" = None,
+            self,
+            name,
+            nodal=None,
+            element=None,
+            contact=None,
+            int_value=1,
+            int_type=TYPES_INTERVAL.FREQUENCY,
+            metadata=None,
+            parent: "Step" = None,
     ):
         super().__init__(name, metadata, parent)
         self._nodal = FieldOutput.default_no if nodal is None else nodal

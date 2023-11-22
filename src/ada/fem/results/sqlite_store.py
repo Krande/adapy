@@ -66,7 +66,7 @@ class SQLiteFEAStore:
         results = self.cursor.fetchall()
         return results
 
-    def get_history_data(self, field_var, step_id=None, instance_id=None, point_id=None, elem_id=None):
+    def get_history_data(self, field_var=None, step_id=None, instance_id=None, point_id=None, elem_id=None):
         base_query = """SELECT mi.Name,
                        ho.ResType,
                        ho.PointID,
@@ -79,24 +79,35 @@ class SQLiteFEAStore:
                          INNER JOIN ModelInstances as mi on ho.InstanceID = mi.ID
                          INNER JOIN Steps as st on ho.StepID = st.ID
                 
-                    WHERE fv.Name == ?"""
-        params = [field_var]
+                    """
+        params = []
+
+        add_queries = []
+        if field_var is not None:
+            add_queries += ["fv.Name == ?"]
+            params = [field_var]
 
         if step_id is not None:
-            base_query += " AND ho.StepID = ?"
+            add_queries += ["ho.StepID = ?"]
             params.append(step_id)
 
         if instance_id is not None:
-            base_query += " AND ho.InstanceID = ?"
+            add_queries += ["ho.InstanceID = ?"]
             params.append(instance_id)
 
         if point_id is not None:
-            base_query += " AND ho.PointID = ?"
+            add_queries += ["ho.PointID = ?"]
             params.append(point_id)
 
         if elem_id is not None:
-            base_query += " AND ho.ElemID = ?"
+            add_queries += ["ho.ElemID = ?"]
             params.append(elem_id)
+
+        if len(add_queries) > 0:
+            base_query += "WHERE " + add_queries[0]
+            if len(add_queries) > 1:
+                extra_queries = ' AND'.join([f' AND {x}' for x in add_queries[1:]])
+                base_query += extra_queries
 
         self.cursor.execute(base_query, params)
         results = self.cursor.fetchall()
