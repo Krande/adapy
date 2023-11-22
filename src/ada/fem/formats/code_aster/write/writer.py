@@ -125,8 +125,6 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
 def write_to_med(name, part: Part, filename):
     """Custom Method for writing a part directly based on meshio"""
 
-
-
     with h5py.File(filename, "w") as f:
         mesh_name = name if name is not None else part.fem.name
         # Strangely the version must be 3.0.x

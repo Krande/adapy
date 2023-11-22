@@ -302,7 +302,7 @@ class Connector(Elem):
         self._csys = value
 
     def __repr__(self):
-        return f'ConnectorElem(ID: {self.id}, Type: {self.type}, End1: "{self.n1}", End2: "{self.n2}")'
+        return f'Connector(ID: {self.id}, Type: {self.type}, End1: "{self.n1}", End2: "{self.n2}")'
 
 
 class Spring(Elem):
@@ -472,7 +472,7 @@ class Mass(Elem):
         self._ptype = value
 
     def __repr__(self) -> str:
-        return f"Mass({self.name}, {self.point_mass_type}, [{self.mass}])"
+        return f"Mass(ID: {self._el_id}, {self.name}, {self.point_mass_type}, [{self.mass}])"
 
 
 def find_element_type_from_list(elements: List[Elem]) -> str:
