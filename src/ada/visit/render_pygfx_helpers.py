@@ -73,7 +73,7 @@ class AxesHelper(Line):
         line_positions *= line_size
 
         geometry = Geometry(positions=line_positions, colors=colors)
-        material = LineSegmentMaterial(vertex_colors=True, thickness=thickness, aa=True)
+        material = LineSegmentMaterial(thickness=thickness, aa=True, color_mode='vertex')
 
         super().__init__(geometry, material)
 
