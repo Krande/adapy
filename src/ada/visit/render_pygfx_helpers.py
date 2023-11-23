@@ -266,8 +266,9 @@ def gfx_mesh_from_mesh(
             if hasattr(mesh.visual, "material"):
                 mat = tri_mat_to_gfx_mat(mesh.visual.material)
             else:
-                logger.warning("No material found for mesh, using None. Maybe related to changes in trimesh>4?")
-                mat = None
+                logger.warning("No material found for mesh, using default color. Maybe related to changes in trimesh>4?")
+                color = mesh.visual.main_color
+                mat = gfx.MeshPhongMaterial(color=color, flat_shading=True)
         else:
             mat = material
 

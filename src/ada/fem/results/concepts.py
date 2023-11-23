@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import pathlib
 import subprocess
@@ -13,16 +12,15 @@ import numpy as np
 from ada.config import logger
 from ada.fem.formats.general import FEATypes
 from ada.visit.rendering.femviz import get_edges_and_faces_from_meshio, magnitude
-
+from .eigenvalue import EigenDataSummary
 from ..formats.abaqus.results import read_abaqus_results
 from ..formats.calculix.results import read_calculix_results
 from ..formats.code_aster.results import read_code_aster_results
 from ..formats.sesam.results import read_sesam_results
-from .eigenvalue import EigenDataSummary
 
 if TYPE_CHECKING:
     from ada import Assembly
-    from ada.visit.concept import PartMesh, VisMesh
+    from ada.visit.concept import PartMesh
 
 
 class Results:
@@ -34,16 +32,16 @@ class Results:
     }
 
     def __init__(
-        self,
-        res_path,
-        name: str = None,
-        fem_format: str | FEATypes = None,
-        assembly: None | Assembly = None,
-        palette=None,
-        output=None,
-        overwrite=True,
-        metadata=None,
-        import_mesh=False,
+            self,
+            res_path,
+            name: str = None,
+            fem_format: str | FEATypes = None,
+            assembly: None | Assembly = None,
+            palette=None,
+            output=None,
+            overwrite=True,
+            metadata=None,
+            import_mesh=False,
     ):
         if isinstance(fem_format, str):
             fem_format = FEATypes.from_str(fem_format)
@@ -100,31 +98,6 @@ class Results:
 
         return res_reader(self, file_ref, overwrite)
 
-    def save_output(self, dest_file) -> None:
-        if self.output is None or self.output.stdout is None:
-            print("No output is found")
-            return None
-        dest_file = pathlib.Path(dest_file)
-
-        os.makedirs(dest_file.parent, exist_ok=True)
-        with open(dest_file, "w") as f:
-            f.write(self.output.stdout)
-
-    def save_results_to_json(self, dest_file):
-        dest_file = pathlib.Path(dest_file).with_suffix(".json")
-        res = dict(
-            name=self.name,
-            fem_format=self.fem_format,
-            eigen_mode_data=self.eigen_mode_data.to_dict(),
-            metadata=self.metadata,
-            last_modified=self.last_modified,
-        )
-        with open(dest_file, "w") as f:
-            try:
-                json.dump(res, f, indent=4)
-            except TypeError as e:
-                raise TypeError(e)
-
     def save_results_to_excel(self, dest_file, filter_components_by_name=None):
         """This method is just a sample for how certain results can easily be exported to Excel"""
 
@@ -163,17 +136,6 @@ class Results:
                     i += 1
 
         workbook.close()
-
-    def to_vis_mesh(self, data_type: str = None, name: str = "AdaFEM") -> VisMesh | None:
-        from ada.visualize.concept import VisMesh
-
-        name = self.assembly.name if self.assembly is not None else name
-        pm = self.result_mesh.to_part_mesh(name=name, data_type=data_type)
-        if len(pm.id_map) == 0:
-            logger.warning("Created Part mesh contains no object meshes")
-            return None
-        project = self.assembly.metadata.get("project", "DummyProject") if self.assembly is not None else "DummyProject"
-        return VisMesh(name=name, project=project, world=[pm], meta=None)
 
     @property
     def name(self):
@@ -497,49 +459,3 @@ class ResultsMesh:
             )
 
         return PartMesh(name=name, id_map=id_map)
-
-
-def get_fem_stats(fem_file, dest_md_file, data_file="data.json"):
-    """
-
-    :param fem_file:
-    :param dest_md_file:
-    :param data_file: Destination of data.json file (keeping track of last modified status etc..)
-    """
-    import json
-    import os
-
-    from ada import Assembly
-    from ada.fem.utils import get_eldata
-
-    dest_md_file = pathlib.Path(dest_md_file)
-    data_file = pathlib.Path(data_file)
-    a = Assembly()
-    a.read_fem(fem_file)
-
-    out_str = ""
-
-    for name, part in a.parts.items():
-        fem = part.fem
-        r = get_eldata(fem_source=fem)
-        if len(r.keys()) == 0:
-            continue
-        out_str += f"* **{name}**: ("
-
-        el_data = ""
-        for el_type, el_num in r.items():
-            el_data += f"{el_type}: {el_num}, "
-
-        out_str += el_data[:-2] + ")\n"
-
-    os.makedirs(dest_md_file.parent, exist_ok=True)
-
-    with open(dest_md_file, "w") as f:
-        f.write(out_str)
-
-    if data_file.exists():
-        with open(data_file, "r") as f:
-            data = json.load(f)
-    else:
-        data = dict()
-    print(data)

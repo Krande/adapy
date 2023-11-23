@@ -22,7 +22,7 @@ def test_basic_vtu_write():
     point_data = {"Temperature": np.array([30.5, 32.5, 34.0, 36.0], dtype=np.float32)}
     cell_data = {"Stress": np.array([1.0, 2.0], dtype=np.float32)}
 
-    write_to_vtu_file(fem_nodes, [element_block], point_data, cell_data, "temp/basic_mesh.vtu")
+    write_to_vtu_file(fem_nodes, [element_block], point_data, cell_data, "temp/vtu/basic_mesh.vtu")
 
 
 def test_mixed_mesh():
@@ -47,4 +47,4 @@ def test_mixed_mesh():
     point_data = {"Temperature": np.array([30.5, 32.5, 34.0, 36.0], dtype=np.float32)}
     cell_data = {"Stress": np.array([1.0, 2.0, 0.5, 0.8], dtype=np.float32)}
 
-    write_to_vtu_file(fem_nodes, element_blocks, point_data, cell_data, "mixed_mesh.vtu")
+    write_to_vtu_file(fem_nodes, element_blocks, point_data, cell_data, "temp/vtu/mixed_mesh.vtu")
