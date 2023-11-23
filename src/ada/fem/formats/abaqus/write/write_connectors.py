@@ -44,7 +44,7 @@ def connector_section_str(con_sec: "ConnectorSection") -> str:
     damping = con_sec.damping_comp
     plastic_comp = con_sec.plastic_comp
     rigid_dofs = con_sec.rigid_dofs
-    soft_elastic_dofs = con_sec.soft_elastic_dofs
+
     if isinstance(elast, float):
         conn_txt += """\n*Connector Elasticity, component=1\n{0:.3E},""".format(elast)
     else:
@@ -82,9 +82,5 @@ def connector_section_str(con_sec: "ConnectorSection") -> str:
     if rigid_dofs is not None:
         conn_txt += "\n*Connector Elasticity, rigid\n "
         conn_txt += ", ".join(["{0}".format(x) for x in rigid_dofs])
-
-    if soft_elastic_dofs is not None:
-        for dof in soft_elastic_dofs:
-            conn_txt += "\n*Connector Elasticity, component={0}\n 5.0,\n".format(dof)
 
     return conn_txt

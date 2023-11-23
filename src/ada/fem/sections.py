@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, List, Tuple, Union
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, List, Union, TypeVar
 
 import numpy as np
 
@@ -10,10 +11,9 @@ from ada.core.utils import Counter
 from ada.core.vector_utils import calc_yvec, calc_zvec, unit_vector, vector_length
 from ada.materials import Material
 from ada.sections import Section
-
-from ..core.vector_transforms import normal_to_points_in_plane
-from .common import FemBase
-from .shapes import ElemType
+from ada.fem.common import FemBase
+from ada.fem.shapes import ElemType
+from ada.core.vector_transforms import normal_to_points_in_plane
 
 if TYPE_CHECKING:
     from ada import Beam, Plate
@@ -118,7 +118,9 @@ class FemSection(FemBase):
                 xvec = unit_vector(v)
             self._local_z = calc_zvec(xvec, self.local_y)
         elif self.type == ElemType.SHELL:
-            self._local_z = normal_to_points_in_plane([n.p for n in self.elset.members[0].nodes])
+            self._local_z = normal_to_points_in_plane(
+                [n.p for n in self.elset.members[0].nodes]
+            )
         else:
             from ada.core.constants import Z
 
@@ -137,7 +139,9 @@ class FemSection(FemBase):
             n1, n2 = el.nodes[0], el.nodes[-1]
             v = n2.p - n1.p
             if vector_length(v) == 0.0:
-                raise ValueError(f'Element "{el}" has no length. UNable to calculate y-vector')
+                raise ValueError(
+                    f'Element "{el}" has no length. UNable to calculate y-vector'
+                )
 
             xvec = unit_vector(v)
 
@@ -208,21 +212,15 @@ class FemSection(FemBase):
     def refs(self) -> List[Union[Beam, Plate]]:
         return self._refs
 
-    def unique_fem_section_permutation(self) -> Tuple[int, Material, Section, tuple, tuple, float]:
-        if self.type == self.SEC_TYPES.LINE:
-            return self.id, self.material, self.section, tuple(self.local_x), tuple(self.local_z), self.thickness
-        elif self.type == self.SEC_TYPES.SHELL:
-            return self.id, self.material, self.section, (None,), tuple(self.local_z), self.thickness
-        else:
-            return self.id, self.material, self.section, (None,), tuple(self.local_z), 0.0
-
     def has_equal_props(self, other: FemSection):
         equal_mat = self.material == other.material
         if self.type == self.SEC_TYPES.SHELL:
             equal_sec = self.thickness == other.thickness
         elif self.type == self.SEC_TYPES.LINE:
             equal_sec = self.section.equal_props(other.section)
-            if tuple(self.local_y) != tuple(other.local_y) or tuple(self.local_z) != tuple(other.local_z):
+            if tuple(self.local_y) != tuple(other.local_y) or tuple(
+                self.local_z
+            ) != tuple(other.local_z):
                 equal_sec = False
         else:
             equal_sec = True
@@ -247,17 +245,63 @@ class FemSection(FemBase):
         )
 
 
+# Todo: This should be improved
+_A = TypeVar("_A", float, int)
+_T_E = TypeVar(
+    "_T_E",
+    float,
+    list[float | int],
+    list[tuple[tuple[float | int, float | int]]],
+    list[tuple[tuple[float | int, float | int]]],
+)
+_T_D = TypeVar(
+    "_T_D",
+    float,
+    list[float],
+    list[int],
+    list[tuple[tuple[float, float]]],
+    list[tuple[tuple[int, int]]],
+)
+_T_P = TypeVar(
+    "_T_P",
+    float,
+    list[float],
+    list[int],
+    list[tuple[tuple[float, float]]],
+    list[tuple[tuple[int, int]]],
+)
+_T_R = TypeVar(
+    "_T_R",
+    float,
+    list[float],
+    list[int],
+    list[tuple[tuple[float, float]]],
+    list[tuple[tuple[int, int]]],
+)
+
+
 class ConnectorSection(FemBase):
-    """A Connector Section"""
+    """A connector section.
+
+    All *_comp properties can be one of the following
+
+     * scalar stiffness value <float | int> (assumed linear stiffness in all degrees of freedom)
+     * Tabular stiffness values <list[list[list[scalar numeric, scalar numeric]]]> where the structure is as follows
+
+        list[                                           # Tabular data for stiffness in all Degrees of Freedom
+            list[                                       # Tabular data for stiffness in Degree of Freedom i]
+                list[numeric scalar, numeric scalar]    # Tabular scalars [Force, Displacement]
+                ]
+            ]
+    """
 
     def __init__(
         self,
         name,
-        elastic_comp: Union[None, float, List[Any]] = None,
-        damping_comp: Union[None, float, List[Any]] = None,
-        plastic_comp: Union[None, float, List[Any]] = None,
-        rigid_dofs: Union[None, float, List[Any]] = None,
-        soft_elastic_dofs=None,
+        elastic_comp: _T_E = None,
+        damping_comp: _T_D = None,
+        plastic_comp: _T_P = None,
+        rigid_dofs: _T_R = None,
         metadata=None,
         parent=None,
     ):
@@ -266,10 +310,9 @@ class ConnectorSection(FemBase):
         self._damping_comp = damping_comp if damping_comp is not None else []
         self._plastic_comp = plastic_comp
         self._rigid_dofs = rigid_dofs
-        self._soft_elastic_dofs = soft_elastic_dofs
 
     @property
-    def elastic_comp(self):
+    def elastic_comp(self) -> _T_E:
         return self._elastic_comp
 
     @elastic_comp.setter
@@ -277,17 +320,13 @@ class ConnectorSection(FemBase):
         self._elastic_comp = value
 
     @property
-    def damping_comp(self):
+    def damping_comp(self) -> _T_D:
         return self._damping_comp
 
     @property
-    def plastic_comp(self):
+    def plastic_comp(self) -> _T_P:
         return self._plastic_comp
 
     @property
-    def rigid_dofs(self):
+    def rigid_dofs(self) -> _T_R:
         return self._rigid_dofs
-
-    @property
-    def soft_elastic_dofs(self):
-        return self._soft_elastic_dofs
