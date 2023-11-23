@@ -12,6 +12,7 @@ from pygfx import (
 )
 from pygfx.utils import Color
 
+from ada.config import logger
 from ada.visit.colors import Color as AdaColor
 from ada.visit.gltf.meshes import MeshStore
 
@@ -260,7 +261,16 @@ def gfx_mesh_from_mesh(
             positions=np.ascontiguousarray(mesh.vertices, dtype="f4"),
             indices=np.ascontiguousarray(mesh.faces, dtype="i4"),
         )
-        mat = tri_mat_to_gfx_mat(mesh.visual.material) if material is None else material
+        if material is None:
+            # This seems to have broken with newer versions of pygfx
+            if hasattr(mesh.visual, "material"):
+                mat = tri_mat_to_gfx_mat(mesh.visual.material)
+            else:
+                logger.warning("No material found for mesh, using None. Maybe related to changes in trimesh>4?")
+                mat = None
+        else:
+            mat = material
+
         mesh = gfx.Mesh(geom, material=mat)
 
     return mesh

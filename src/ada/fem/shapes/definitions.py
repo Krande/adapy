@@ -208,7 +208,7 @@ class ElemShape:
             return ElemType.SOLID
         elif isinstance(self.type, ShellShapes):
             return ElemType.SHELL
-        elif isinstance(self.type, LineShapes):
+        elif isinstance(self.type, (LineShapes, ConnectorTypes)):
             return ElemType.LINE
         elif isinstance(self.type, SpringTypes):
             return ElemType.LINE
