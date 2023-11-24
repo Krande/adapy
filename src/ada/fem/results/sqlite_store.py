@@ -69,7 +69,9 @@ class SQLiteFEAStore:
     def get_history_data(self, field_var=None, step_id=None, instance_id=None, point_id=None, elem_id=None):
         base_query = """SELECT mi.Name,
                        ho.ResType,
+                       ho.Region,
                        ho.PointID,
+                       ho.ElemID,
                        st.Name,
                        fv.Name,
                        ho.Frame,

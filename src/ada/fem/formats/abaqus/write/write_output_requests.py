@@ -24,7 +24,16 @@ def hist_output_str(hist_output: HistOutput) -> str:
         iname2 = get_instance_name(hist_output.fem_set[0], True)
         fem_set_str = f", master={iname1}, slave={iname2}"
     else:
-        fem_set_str = "" if hist_output.fem_set is None else get_instance_name(hist_output.fem_set, True)
+        if hist_output.fem_set is None:
+            fem_set_str = ""
+        else:
+            instance_name = get_instance_name(hist_output.fem_set, True)
+            if hist_output.type in (HistOutput.TYPES.ENERGY, HistOutput.TYPES.CONTACT):
+                fem_set_str = f", elset={instance_name}"
+            else:
+                fem_set_str = instance_name
+
+
     return f"""*Output, history, {hist_output.int_type}={hist_output.int_value}
 ** HISTORY OUTPUT: {hist_output.name}
 **
