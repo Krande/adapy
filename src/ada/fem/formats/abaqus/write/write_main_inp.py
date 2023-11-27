@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import shutil
 from typing import TYPE_CHECKING
@@ -11,7 +13,7 @@ if TYPE_CHECKING:
     from ada.api.spatial import Assembly, Part
 
 
-def write_main_inp_str(assembly: "Assembly", analysis_dir) -> str:
+def write_main_inp_str(assembly: Assembly, analysis_dir) -> str:
     part_str = "\n".join(map(part_inp_str, filter(skip_if_this, assembly.get_all_subparts())))
     i_str = "\n".join((instance_str(i, analysis_dir) for i in filter(inst_skip, assembly.get_all_subparts()))).rstrip()
     all_fem_parts = [p.fem for p in assembly.get_all_subparts(include_self=True)]
@@ -80,10 +82,12 @@ def instance_str(part: "Part", analysis_dir) -> str:
 def skip_if_this(p):
     if p.fem.initial_state is not None:
         return False
-    return len(p.fem.elements)
+
+    return len(p.fem.elements) + len(p.fem.nodes) > 0
 
 
 def inst_skip(p):
     if p.fem.initial_state is not None:
         return True
-    return len(p.fem.elements)
+
+    return len(p.fem.elements) + len(p.fem.nodes) > 0

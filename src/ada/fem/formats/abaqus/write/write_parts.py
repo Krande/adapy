@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import os
 from typing import TYPE_CHECKING
 
 from ada.fem.conversion_utils import convert_ecc_to_mpc, convert_hinges_2_couplings
-
 from .write_constraints import constraints_str
 from .write_elements import elements_str
 from .write_masses import masses_str
@@ -16,9 +17,9 @@ if TYPE_CHECKING:
     from ada import Assembly, Part
 
 
-def write_all_parts(assembly: "Assembly", analysis_dir):
+def write_all_parts(assembly: Assembly, analysis_dir):
     for part in assembly.get_all_subparts():
-        if len(part.fem.elements) == 0:
+        if len(part.fem.elements) == 0 and len(part.fem.nodes) == 0:
             continue
 
         if assembly.convert_options.hinges_to_coupling is True:
