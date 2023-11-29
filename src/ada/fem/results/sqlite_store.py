@@ -66,7 +66,7 @@ class SQLiteFEAStore:
         results = self.cursor.fetchall()
         return results
 
-    def get_history_data(self, field_var=None, step_id=None, instance_id=None, point_id=None, elem_id=None):
+    def get_history_data(self, field_var=None, step_id=None, instance_id=None, point_id=None, elem_id=None, return_df=False):
         base_query = """SELECT mi.Name,
                        ho.ResType,
                        ho.Region,
@@ -108,11 +108,26 @@ class SQLiteFEAStore:
         if len(add_queries) > 0:
             base_query += "WHERE " + add_queries[0]
             if len(add_queries) > 1:
-                extra_queries = ' AND'.join([f' AND {x}' for x in add_queries[1:]])
+                extra_queries = " AND".join([f" AND {x}" for x in add_queries[1:]])
                 base_query += extra_queries
 
         self.cursor.execute(base_query, params)
         results = self.cursor.fetchall()
+        if return_df:
+            import pandas as pd
+            columns = [
+                "Name",
+                "Restype",
+                "Region",
+                "PointID",
+                "ElemID",
+                "StepName",
+                "FieldVarName",
+                "Frame",
+                "Value",
+            ]
+            df = pd.DataFrame(results, columns=columns)
+            return df
         return results
 
     def get_field_elem_data(self, name, step_id=None, instance_id=None, elem_id=None, int_point=None):
@@ -185,3 +200,6 @@ class SQLiteFEAStore:
         self.cursor.execute(base_query, params)
         results = self.cursor.fetchall()
         return results
+
+    def __repr__(self):
+        return f"SQLiteFEAStore({self.db_file})"
