@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import numpy as np
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-
-import numpy as np
 
 from ada.config import Settings
 
@@ -13,10 +12,20 @@ if TYPE_CHECKING:
 
 
 class FemBase:
-    def __init__(self, name, metadata, parent: FEM | Step):
+    """Base class for all FEM objects
+
+    Args:
+        name (str): Name of the object
+        metadata (dict, optional): Metadata for the object. Defaults to None.
+        parent (FEM, optional): Parent FEM object. Defaults to None.
+        str_override (str, optional): String representation of the object. Will override object writing. Defaults to None.
+    """
+
+    def __init__(self, name, metadata, parent: FEM | Step, str_override: str | None = None):
         self.name = name
         self.parent = parent
         self._metadata = metadata if metadata is not None else dict()
+        self._str_override = str_override
 
     @property
     def name(self):
@@ -35,7 +44,7 @@ class FemBase:
             self._name = value.strip()
 
     @property
-    def parent(self) -> FEM:
+    def parent(self) -> FEM | Step:
         return self._parent
 
     @parent.setter
@@ -43,8 +52,16 @@ class FemBase:
         self._parent = value
 
     @property
-    def metadata(self):
+    def metadata(self) -> dict:
         return self._metadata
+
+    @property
+    def str_override(self) -> str | None:
+        return self._str_override
+
+    @str_override.setter
+    def str_override(self, value):
+        self._str_override = value
 
 
 class CsysSystems:

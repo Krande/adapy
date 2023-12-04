@@ -118,9 +118,7 @@ class FemSection(FemBase):
                 xvec = unit_vector(v)
             self._local_z = calc_zvec(xvec, self.local_y)
         elif self.type == ElemType.SHELL:
-            self._local_z = normal_to_points_in_plane(
-                [n.p for n in self.elset.members[0].nodes]
-            )
+            self._local_z = normal_to_points_in_plane([n.p for n in self.elset.members[0].nodes])
         else:
             from ada.core.constants import Z
 
@@ -139,9 +137,7 @@ class FemSection(FemBase):
             n1, n2 = el.nodes[0], el.nodes[-1]
             v = n2.p - n1.p
             if vector_length(v) == 0.0:
-                raise ValueError(
-                    f'Element "{el}" has no length. UNable to calculate y-vector'
-                )
+                raise ValueError(f'Element "{el}" has no length. UNable to calculate y-vector')
 
             xvec = unit_vector(v)
 
@@ -218,9 +214,7 @@ class FemSection(FemBase):
             equal_sec = self.thickness == other.thickness
         elif self.type == self.SEC_TYPES.LINE:
             equal_sec = self.section.equal_props(other.section)
-            if tuple(self.local_y) != tuple(other.local_y) or tuple(
-                self.local_z
-            ) != tuple(other.local_z):
+            if tuple(self.local_y) != tuple(other.local_y) or tuple(self.local_z) != tuple(other.local_z):
                 equal_sec = False
         else:
             equal_sec = True

@@ -52,6 +52,9 @@ def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None, writable_
     with open(core_dir / "connector_sections.inp", "w") as d:
         if len(all_con_sections) > 0:
             for con_section in all_con_sections:
+                if con_section.str_override is not None:
+                    d.write(con_section.str_override)
+                    continue
                 d.write(connector_section_str(con_section))
         else:
             d.write("** No Connector Sections")
