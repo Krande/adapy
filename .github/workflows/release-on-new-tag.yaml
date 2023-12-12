@@ -1,0 +1,86 @@
+name: Make Release on push of new tag
+
+# triggered on a tagged release
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  interpret_tag:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.interpret_tag.outputs.tagged_release }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Read and output tag (remove 'v' prefix)
+        id: interpret_tag
+        shell: python
+        run: |
+          import os
+          
+          def set_output(name, value):
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+                print(f'{name}={value}', file=fh)
+          
+          tag = os.getenv('GITHUB_REF').split('/')[-1]
+          if tag.startswith('v'):
+              tag = tag[1:]
+          
+          print(f"{tag=}")
+          set_output('tagged_release', tag)
+
+  load-config:
+    uses: AibelDevs/action-toolbox/.github/workflows/tool-load-config.yaml@main
+
+  release_pypi:
+    needs: [ load-config, interpret_tag ]
+    if: ${{ needs.load-config.outputs.pip_enabled == 'true' }}
+    uses: AibelDevs/action-toolbox/.github/workflows/tool-release-pip.yaml@main
+    with:
+      use_custom_pypi: ${{ needs.load-config.outputs.custom_pypi_server }}
+    secrets:
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+      CUSTOM_PYPI_USERNAME: ${{ secrets.CUSTOM_PYPI_USERNAME }}
+      CUSTOM_PYPI_PASSWORD: ${{ secrets.CUSTOM_PYPI_PASSWORD }}
+      CUSTOM_PYPI_URL: ${{ secrets.CUSTOM_PYPI_URL }}
+
+  release_conda:
+    needs: [ load-config, interpret_tag ]
+    if: ${{ needs.load-config.outputs.conda_enabled == 'true' }}
+    uses: AibelDevs/action-toolbox/.github/workflows/tool-release-conda.yaml@main
+    with:
+      use_quetz_server: ${{ needs.load-config.outputs.custom_quetz_server }}
+      push_conda: 'true'
+    secrets:
+      CONDA_API_TOKEN: ${{ secrets.CONDA_API_TOKEN }}
+      QUETZ_API_KEY: ${{ secrets.QUETZ_API_KEY }}
+      QUETZ_URL: ${{ secrets.QUETZ_URL }}
+
+  release_docker:
+    needs: [ load-config, interpret_tag ]
+    if: ${{ needs.load-config.outputs.docker_enabled == 'true' }}
+    uses: AibelDevs/action-toolbox/.github/workflows/tool-release-docker.yaml@main
+    with:
+      push_docker: 'true'
+      docker_tag_override: ${{ needs.interpret_tag.outputs.version }}
+    secrets:
+      CONTAINER_REGISTRY_URL: ${{ secrets.CONTAINER_REGISTRY_URL }}
+      CONTAINER_REGISTRY_USERNAME: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
+      CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
+
+  release_gitops:
+    needs: [ load-config, interpret_tag, release_docker ]
+    if: ${{ needs.load-config.outputs.gitops_enabled == 'true' }}
+    uses: AibelDevs/action-toolbox/.github/workflows/tool-release-gitops-update.yaml@main
+    with:
+      push_commit: 'true'
+      release_tag_override: ${{ needs.interpret_tag.outputs.version }}
+    secrets:
+      CONTAINER_REGISTRY_URL: ${{ secrets.CONTAINER_REGISTRY_URL }}
+      GITOPS_KEY: ${{ secrets.GITOPS_KEY }}
