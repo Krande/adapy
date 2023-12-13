@@ -9,7 +9,7 @@ on:
 
 permissions:
   pull-requests: write
-  contents: read
+  contents: write
 
 # Use concurrency to ensure that only one instance of this workflow is running at a time
 concurrency:
@@ -17,22 +17,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  load-config:
-    uses: AibelDevs/action-toolbox/.github/workflows/tool-load-config.yaml@main
-
-  pr-review:
-    uses: AibelDevs/action-toolbox/.github/workflows/tool-review-pr.yaml@main
-    needs: load-config
+  review:
+    uses: AibelDevs/action-toolbox/.github/workflows/default-tool-pr-review.yaml@main
     secrets:
       SOURCE_KEY: ${{ secrets.SOURCE_KEY }}
-
-  python-review:
-    uses: AibelDevs/action-toolbox/.github/workflows/tool-review-python.yaml@main
-    with:
-      use_pylint: false
-    needs: load-config
-    if : ${{ needs.load-config.outputs.python_enabled == 'true' }}
-    secrets:
       CONDA_API_TOKEN: ${{ secrets.CONDA_API_TOKEN }}
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
       CUSTOM_PYPI_USERNAME: ${{ secrets.CUSTOM_PYPI_USERNAME }}
@@ -40,141 +28,7 @@ jobs:
       CUSTOM_PYPI_URL: ${{ secrets.CUSTOM_PYPI_URL }}
       QUETZ_API_KEY: ${{ secrets.QUETZ_API_KEY }}
       QUETZ_URL: ${{ secrets.QUETZ_URL }}
-
-  docker-review:
-    uses: AibelDevs/action-toolbox/.github/workflows/tool-review-docker.yaml@main
-    needs: load-config
-    if : ${{ needs.load-config.outputs.docker_enabled == 'true' }}
-    secrets:
       CONTAINER_REGISTRY_URL: ${{ secrets.CONTAINER_REGISTRY_URL }}
       CONTAINER_REGISTRY_USERNAME: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
       CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
-
-  gitops-review:
-    uses: AibelDevs/action-toolbox/.github/workflows/tool-review-gitops.yaml@main
-    needs: load-config
-    if : ${{ needs.load-config.outputs.gitops_enabled == 'true' }}
-    secrets:
-      CONTAINER_REGISTRY_URL: ${{ secrets.CONTAINER_REGISTRY_URL }}
-      SOURCE_KEY: ${{ secrets.SOURCE_KEY }}
       GITOPS_KEY: ${{ secrets.GITOPS_KEY }}
-
-  pr-review-summary:
-    name: Python Check Pull Request
-    needs: [ load-config, pr-review, python-review, docker-review, gitops-review ]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Set up Python
-        uses: actions/setup-python@v3
-        with:
-          python-version: 3.11
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install toml==0.10.2
-
-      - name: Checkout PR
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Review all results and write a summary
-        id: comment_body
-        shell: python
-        run: |
-          import os
-          import base64
-          
-          def set_output(name, value, encode_it=False):
-            if encode_it:
-              value = base64.b64encode(value.encode('utf-8')).decode('utf-8')
-            with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
-                print(f'{name}={value}', file=fh)
-          
-          def deserialize_str(s):
-            return base64.b64decode(s).decode('utf-8')
-          
-          all_checks = []
-          review_str = ''
-                    
-          # PR
-          review_str += deserialize_str('${{ needs.pr-review.outputs.pr_review_str }}')
-          all_checks.append('${{ needs.pr-review.outputs.pr_review_ok }}' == 'true')
-          
-          # Python
-          if ${{ needs.load-config.outputs.python_enabled }}:
-            review_str += deserialize_str('${{ needs.python-review.outputs.python_review_str }}')
-            all_checks.append('${{ needs.python-review.outputs.python_review_ok }}' == 'true')
-          
-          # Docker
-          if ${{ needs.load-config.outputs.docker_enabled }}:
-            review_str += deserialize_str('${{ needs.docker-review.outputs.docker_review_str }}')
-            all_checks.append('${{ needs.docker-review.outputs.docker_review_ok }}' == 'true')
-          
-          # GitOps
-          if ${{ needs.load-config.outputs.gitops_enabled }}:
-            review_str += deserialize_str('${{ needs.gitops-review.outputs.gitops_review_str }}')
-            all_checks.append('${{ needs.gitops-review.outputs.gitops_review_ok }}' == 'true')
-          
-          # check if all_checks are true
-          if all(all_checks):
-            header = "👋 Hi there! I have checked your PR and found no issues. Thanks for your contribution!\n"
-            set_output('REVIEW_OK', 'true')
-          else:
-            header = "👋 Hi there! I have checked your PR and found the following:\n\n"
-            set_output('REVIEW_OK', 'false')
-          
-          body = header + review_str
-          
-          # Set the output
-          set_output('body', body, True)
-          
-          print(body)
-
-      - name: Delete previous bot comment
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const issue_number = context.issue.number
-            const owner = context.repo.owner
-            const repo = context.repo.repo
-        
-            // List all comments on the PR
-            const comments = await github.rest.issues.listComments({
-              issue_number,
-              owner,
-              repo
-            });
-        
-            // Find the last comment made by the bot
-            const botComment = comments.data.reverse().find(comment => comment.user.login === 'github-actions[bot]');
-        
-            // If a previous comment by the bot exists, delete it
-            if (botComment) {
-              await github.rest.issues.deleteComment({
-                owner,
-                repo,
-                comment_id: botComment.id
-              });
-            }
-
-      - name: Comment on PR
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const bodyBase64 = '${{ steps.comment_body.outputs.body }}'
-            const body = Buffer.from(bodyBase64, 'base64').toString('utf-8')
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            })
-
-      - name: Fail if linting failed
-        if: steps.comment_body.outputs.REVIEW_OK == 'false'
-        run: exit 1
