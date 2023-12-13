@@ -7,12 +7,12 @@ on:
         description: 'Issue Pre-Release to PyPI'
         required: false
         type: boolean
-        default: false
+        default: true
       release_conda:
         description: 'Issue Pre-Release to conda'
         required: false
         type: boolean
-        default: false
+        default: true
       release_docker:
         description: 'Issue Pre-Release to docker'
         required: false
@@ -35,93 +35,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  load-config:
-    uses: AibelDevs/action-toolbox/.github/workflows/tool-load-config.yaml@main
-
-  # Add a step to create a patch version "next.run_id"
-  bump_version:
-    runs-on: ubuntu-latest
-    outputs:
-      current_version: ${{ steps.get_current_version.outputs.current_version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Fetches all history for all branches and tags
-
-      - name: Create "next" version
-        id: get_current_version
-        shell: python
-        run: |
-          import os
-          
-          def set_output(name, value):
-            with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
-                print(f'{name}={value}', file=fh)
-          
-          # get the latest tagged release          
-          tag_release = os.popen('git describe --tags --abbrev=0').read().strip()
-          print(f"{tag_release=}")
-          
-          # strip v from the tag
-          if tag_release.startswith('v'):
-              tag_release = tag_release[1:]
-          
-          # add a pre-release "version-next.build_id" to the latest tagged release
-          build_id = os.getenv('GITHUB_RUN_NUMBER')
-          print(f"{build_id=}")
-          
-          # concatenate the version and build_id
-          current_version = f"{tag_release}-next.{build_id}"
-          
-          print(current_version)
-          set_output('current_version', current_version)
-
-  release_pypi:
-    if: ${{ github.event.inputs.release_pypi == 'true' }}
-    needs: [ load-config, bump_version ]
-    uses: AibelDevs/action-toolbox/.github/workflows/tool-release-pip.yaml@main
+  run:
+    uses: AibelDevs/action-toolbox/.github/workflows/default-tool-pre-release-dispatch.yaml@main
     with:
-      use_custom_pypi: ${{ needs.load-config.outputs.custom_pypi_server }}
-      version_override: ${{ needs.bump_version.outputs.current_version }}
+      release_pypi: ${{ github.event.inputs.release_pypi }}
+      release_conda: ${{ github.event.inputs.release_conda }}
+      release_docker: ${{ github.event.inputs.release_docker }}
+      release_gitops: ${{ github.event.inputs.release_gitops }}
     secrets:
+      SOURCE_KEY: ${{ secrets.SOURCE_KEY }}
+      CONDA_API_TOKEN: ${{ secrets.CONDA_API_TOKEN }}
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
       CUSTOM_PYPI_USERNAME: ${{ secrets.CUSTOM_PYPI_USERNAME }}
       CUSTOM_PYPI_PASSWORD: ${{ secrets.CUSTOM_PYPI_PASSWORD }}
       CUSTOM_PYPI_URL: ${{ secrets.CUSTOM_PYPI_URL }}
-
-  release_conda:
-    if: ${{ github.event.inputs.release_conda == 'true' }}
-    needs: [ load-config, bump_version ]
-    uses: AibelDevs/action-toolbox/.github/workflows/tool-release-conda.yaml@main
-    with:
-      use_quetz_server: ${{ needs.load-config.outputs.custom_quetz_server }}
-      push_conda: "true"
-      version_override: ${{ needs.bump_version.outputs.current_version }}
-    secrets:
-      CONDA_API_TOKEN: ${{ secrets.CONDA_API_TOKEN }}
       QUETZ_API_KEY: ${{ secrets.QUETZ_API_KEY }}
       QUETZ_URL: ${{ secrets.QUETZ_URL }}
-
-  release_docker:
-    if: ${{ github.event.inputs.release_docker == 'true' }}
-    needs: bump_version
-    uses: AibelDevs/action-toolbox/.github/workflows/tool-release-docker.yaml@main
-    with:
-      docker_tag_override: ${{ needs.bump_version.outputs.current_version }}
-      push_docker: "true"
-    secrets:
       CONTAINER_REGISTRY_URL: ${{ secrets.CONTAINER_REGISTRY_URL }}
       CONTAINER_REGISTRY_USERNAME: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
       CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
-
-  release_gitops:
-    if: ${{ github.event.inputs.release_gitops == 'true' }}
-    needs: [bump_version, release_docker]
-    uses: AibelDevs/action-toolbox/.github/workflows/tool-release-gitops-update.yaml@main
-    with:
-      push_commit: "true"
-      release_tag_override: ${{ needs.bump_version.outputs.current_version }}
-    secrets:
-      CONTAINER_REGISTRY_URL: ${{ secrets.CONTAINER_REGISTRY_URL }}
       GITOPS_KEY: ${{ secrets.GITOPS_KEY }}
