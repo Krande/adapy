@@ -1,4 +1,4 @@
-name: ada
+name: ada-full
 channels:
   - conda-forge
   - krande
