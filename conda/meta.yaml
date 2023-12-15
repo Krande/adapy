@@ -26,6 +26,8 @@ build:
   script: python -m pip install . --no-deps -vv
   number: {{ build }}
   string: {{ variant }}_h{{ PKG_HASH }}_{{ build }}
+  entry_points:
+    - ada-viewer=ada.visit.render_pygfx:main
 
 # Set list of core dependencies (core -> conversion and analysis)
 {% set core_deps = load_file_data('conda/environment.core.yml')['dependencies'] %}
