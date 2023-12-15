@@ -1,12 +1,12 @@
 import pathlib
 
 import ifcopenshell
-from ifcopenshell.util.unit import get_unit_assignment
+
 # from convert_length_unit_patch import Patcher
 from convert_length_unit_patch_v2 import Patcher
+
 # from convert_length_unit_patch_v3 import Patcher
 parents = list(pathlib.Path(__file__).resolve().absolute().parents)
-print(parents)
 FILES_DIR = [fp for fp in parents if fp.name == "examples"][0].parent / "files"
 
 
