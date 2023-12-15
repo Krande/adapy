@@ -78,6 +78,7 @@ class Patcher:
         self.file_patched: ifcopenshell.file
 
     def patch(self):
+        prefix = "MILLI" if self.unit == "MILLIMETERS" else None
         self.file_patched = ifcopenshell.api.run("project.create_file", version=self.file.schema)
         if self.file.schema == "IFC2X3":
             user = self.file_patched.add(self.file.by_type("IfcProject")[0].OwnerHistory.OwningUser)
@@ -91,10 +92,10 @@ class Patcher:
         for el in self.file:
             self.file_patched.add(el)
 
-        prefix = "MILLI" if self.unit == "MILLIMETERS" else None
-        new_length = ifcopenshell.api.run("unit.add_si_unit", self.file_patched, unit_type="LENGTHUNIT", prefix=prefix)
-        unit_assignment = ifcopenshell.util.unit.get_unit_assignment(self.file)
+        unit_assignment = ifcopenshell.util.unit.get_unit_assignment(self.file_patched)
+
         old_length = [u for u in unit_assignment.Units if getattr(u, "UnitType", None) == "LENGTHUNIT"][0]
+        new_length = ifcopenshell.api.run("unit.add_si_unit", self.file_patched, unit_type="LENGTHUNIT", prefix=prefix)
 
         schema = wrap.schema_by_name(self.file.schema)
         # Traverse all elements and their nested attributes in the file and convert them
@@ -118,6 +119,8 @@ class Patcher:
                     new_el = ifcopenshell.util.unit.convert_unit(val, old_length, new_length)
                     # set the new value
                     setattr(element, attr.name(), new_el)
+
+        self.file_patched.remove(old_length)
 
         if self.file.schema == "IFC2X3":
             ifcopenshell.api.owner.settings.get_user = old_get_user
