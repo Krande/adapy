@@ -48,8 +48,8 @@ jobs:
           cache-environment: false
           condarc: |
             channels:
-              - krande
               - conda-forge
+              - krande
           environment-file: conda/environment.core.yml
           create-args: >-
             python=3.11
