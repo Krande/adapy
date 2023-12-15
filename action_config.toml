@@ -13,7 +13,7 @@ extra_conda_dep_channels = ["krande"]
 # Anaconda Related
 use_anaconda_server = true
 owner = "Krande"
-label = "dev"
+label = "main"
 #
 # info
 #
