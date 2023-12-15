@@ -86,6 +86,7 @@ class Patcher:
             old_get_application = ifcopenshell.api.owner.settings.get_application
             ifcopenshell.api.owner.settings.get_user = lambda ifc: user
             ifcopenshell.api.owner.settings.get_application = lambda ifc: application
+
         for el in self.file:
             self.file_patched.add(el)
 
@@ -97,13 +98,11 @@ class Patcher:
         schema = wrap.schema_by_name(self.file.schema)
         # Traverse all elements and their nested attributes in the file and convert them
         for element in self.file_patched:
-            values = list(element)
             entity = schema.declaration_by_name(element.is_a())
             attrs = entity.all_attributes()
-            for i, (attr, val, is_derived) in enumerate(zip(attrs, values, entity.derived())):
+            for i, (attr, val, is_derived) in enumerate(zip(attrs, list(element), entity.derived())):
                 if is_derived:
                     continue
-                attr: wrap.attribute
                 # Get all methods and attributes of the element
                 attr_type = attr.type_of_attribute()
                 base_type = get_base_type_name(attr_type)
@@ -118,6 +117,3 @@ class Patcher:
                     new_el = ifcopenshell.util.unit.convert_unit(val, old_length, new_length)
                     # set the new value
                     setattr(element, attr.name(), new_el)
-
-            # Add the element to the new file
-            # self.file_patched.add(element)
