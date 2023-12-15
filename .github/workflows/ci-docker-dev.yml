@@ -1,6 +1,8 @@
 name: ci-ada-docker-dev
 
-on: push
+on:
+  workflow_dispatch:
+
 
 jobs:
   docker:
