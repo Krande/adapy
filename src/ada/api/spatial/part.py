@@ -758,11 +758,15 @@ class Part(BackendGeom):
 
         self.to_trimesh_scene(**kwargs).export(gltf_file, buffer_postprocessor=post_pro)
 
-    def to_trimesh_scene(self, render_override: dict[str, GeomRepr | str] = None, filter_by_guids=None):
+    def to_trimesh_scene(
+        self, render_override: dict[str, GeomRepr | str] = None, filter_by_guids=None, merge_meshes=True
+    ):
         from ada.occ.tessellating import BatchTessellator
 
         bt = BatchTessellator()
-        return bt.tessellate_part(self)
+        return bt.tessellate_part(
+            self, merge_meshes=merge_meshes, render_override=render_override, filter_by_guids=filter_by_guids
+        )
 
     def to_stp(
         self,

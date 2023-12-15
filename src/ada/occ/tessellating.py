@@ -178,7 +178,7 @@ class BatchTessellator:
                 logger.error(e)
                 continue
 
-    def tessellate_part(self, part: Part, filter_by_guids=None, render_override=None) -> trimesh.Scene:
+    def tessellate_part(self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True) -> trimesh.Scene:
         graph = part.get_graph_store()
         scene = trimesh.Scene(base_frame=graph.top_level.name)
 
@@ -189,8 +189,12 @@ class BatchTessellator:
 
         all_shapes = sorted(shapes_tess_iter, key=lambda x: x.material)
         for mat_id, meshes in groupby(all_shapes, lambda x: x.material):
-            merged_store = concatenate_stores(meshes)
-            merged_mesh_to_trimesh_scene(scene, merged_store, self.get_mat_by_id(mat_id), mat_id, graph)
+            if merge_meshes:
+                merged_store = concatenate_stores(meshes)
+                merged_mesh_to_trimesh_scene(scene, merged_store, self.get_mat_by_id(mat_id), mat_id, graph)
+            else:
+                for mesh_store in meshes:
+                    merged_mesh_to_trimesh_scene(scene, mesh_store, self.get_mat_by_id(mat_id), mat_id, graph)
 
         shell_color = Color.from_str("white")
         shell_color_id = self.add_color(shell_color)

@@ -15,3 +15,7 @@ class FemSetNameExists(Exception):
         self.name = name
         self.message = f"FemSet {name} already exists"
         super(FemSetNameExists, self).__init__(self.message)
+
+
+class DoesNotSupportMultiPart(Exception):
+    pass

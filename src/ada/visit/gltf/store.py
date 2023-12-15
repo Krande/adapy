@@ -188,7 +188,11 @@ class GltfMergeStore:
 
 
 def merged_mesh_to_trimesh_scene(
-    scene: trimesh.Scene, merged_mesh: MergedMesh, pbr_mat: dict | Color, buffer_id: int, graph_store: GraphStore
+    scene: trimesh.Scene,
+    merged_mesh: MergedMesh | MeshStore,
+    pbr_mat: dict | Color,
+    buffer_id: int,
+    graph_store: GraphStore,
 ):
     vertices = merged_mesh.position.reshape(int(len(merged_mesh.position) / 3), 3)
     if merged_mesh.type == MeshType.TRIANGLES:
