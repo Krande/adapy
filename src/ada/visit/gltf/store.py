@@ -224,14 +224,15 @@ def merged_mesh_to_trimesh_scene(
         mesh,
         node_name=f"node{buffer_id}",
         geom_name=f"node{buffer_id}",
-        parent_node_name=graph_store.top_level.name,
+        parent_node_name=graph_store.top_level.name if graph_store else None,
     )
 
-    id_sequence = dict()
-    for group in merged_mesh.groups:
-        n = graph_store.nodes.get(group.node_id)
-        if n is None:
-            raise ValueError(f"Node {group.node_id} not found in graph store")
-        id_sequence[n.hash] = (group.start, group.start + group.length - 1)
+    if graph_store:
+        id_sequence = dict()
+        for group in merged_mesh.groups:
+            n = graph_store.nodes.get(group.node_id)
+            if n is None:
+                raise ValueError(f"Node {group.node_id} not found in graph store")
+            id_sequence[n.hash] = (group.start, group.start + group.length - 1)
 
-    scene.metadata[f"id_sequence{buffer_id}"] = id_sequence
+        scene.metadata[f"id_sequence{buffer_id}"] = id_sequence

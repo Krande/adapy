@@ -1,13 +1,15 @@
 import ifcopenshell.api
+import ifcopenshell.api.owner.settings
+import ifcopenshell.util.pset
+import ifcopenshell.util.element
 
 from ada.base.units import Units
 
 
 def convert_units(units: Units, file: ifcopenshell.file):
-    from ada import Units
-
     units_str = "MILLIMETERS" if units == Units.MM else "METERS"
     unit = {"is_metric": True, "raw": units_str}
+
     file_patched = ifcopenshell.api.run("project.create_file", version=file.schema)
     if file.schema == "IFC2X3":
         user = file_patched.add(file.by_type("IfcProject")[0].OwnerHistory.OwningUser)
