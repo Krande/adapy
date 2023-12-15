@@ -19,12 +19,36 @@
 import ifcopenshell
 import ifcopenshell.api
 import ifcopenshell.api.owner.settings
-import ifcopenshell.util.pset
-import ifcopenshell.util.element
-import ifcopenshell.util.unit
 import ifcopenshell.express.schema
+import ifcopenshell.util.element
+import ifcopenshell.util.pset
+import ifcopenshell.util.unit
 
 wrap = ifcopenshell.ifcopenshell_wrapper
+
+
+def get_base_type_name(content_type: wrap.named_type | wrap.type_declaration) -> wrap.type_declaration | None:
+    cur_decl = content_type
+    while hasattr(cur_decl, "declared_type") is True:
+        cur_decl = cur_decl.declared_type()
+        if hasattr(cur_decl, "name") is False:
+            continue
+        if cur_decl.name() == "IfcLengthMeasure":
+            return cur_decl
+
+    if isinstance(cur_decl, wrap.aggregation_type):
+        res = cur_decl.type_of_element()
+        cur_decl = res.declared_type()
+        if hasattr(cur_decl, "name") and cur_decl.name() == "IfcLengthMeasure":
+            return cur_decl
+        while hasattr(cur_decl, "declared_type") is True:
+            cur_decl = cur_decl.declared_type()
+            if hasattr(cur_decl, "name") is False:
+                continue
+            if cur_decl.name() == "IfcLengthMeasure":
+                return cur_decl
+
+    return None
 
 
 class Patcher:
@@ -62,47 +86,38 @@ class Patcher:
             old_get_application = ifcopenshell.api.owner.settings.get_application
             ifcopenshell.api.owner.settings.get_user = lambda ifc: user
             ifcopenshell.api.owner.settings.get_application = lambda ifc: application
-
-        project_super = (
-            ifcopenshell.ifcopenshell_wrapper.schema_by_name(self.file.schema)
-            .declaration_by_name("IfcProject")
-            .supertype()
-            .name()
-        )
-        if project_super == "IfcObject":
-            project_super = "IfcProject"
-
-        schema = wrap.schema_by_name(self.file.schema)
-        decl = schema.declarations()
-        length_type = [x for x in decl if x.name() == "IfcLengthMeasure"][0]
-        # Find all classes that are using IfcLengthMeasure
-        length_classes = [x for x in decl if x == length_type]
-        length_class = length_classes[0]
-        res = self.file.wrapped_data.get_total_inverses(length_class)
-        for element in filter(lambda inst: not inst.is_a(project_super), self.file):
-            self.file_patched.add(element)
-
-        unit_assignment = ifcopenshell.util.unit.get_unit_assignment(self.file_patched)
+        for el in self.file:
+            self.file_patched.add(el)
 
         prefix = "MILLI" if self.unit == "MILLIMETERS" else None
         new_length = ifcopenshell.api.run("unit.add_si_unit", self.file_patched, unit_type="LENGTHUNIT", prefix=prefix)
-        self.file_patched.add(new_length)
-
+        unit_assignment = ifcopenshell.util.unit.get_unit_assignment(self.file)
         old_length = [u for u in unit_assignment.Units if getattr(u, "UnitType", None) == "LENGTHUNIT"][0]
 
-        for elem in self.file.by_type("IfcRepresentationItem"):
-            # walk element properties
-            elem: ifcopenshell.entity_instance
-            for sub_prop in self.file.traverse(elem):
-                print(sub_prop)
-                ifcopenshell.util.unit.convert_unit(elem, old_length, new_length)
-            # ifcopenshell.util.unit.convert(elem, None, old_length, None, new_length)
+        schema = wrap.schema_by_name(self.file.schema)
+        # Traverse all elements and their nested attributes in the file and convert them
+        for element in self.file_patched:
+            values = list(element)
+            entity = schema.declaration_by_name(element.is_a())
+            attrs = entity.all_attributes()
+            for i, (attr, val, is_derived) in enumerate(zip(attrs, values, entity.derived())):
+                if is_derived:
+                    continue
+                attr: wrap.attribute
+                # Get all methods and attributes of the element
+                attr_type = attr.type_of_attribute()
+                base_type = get_base_type_name(attr_type)
+                if base_type is None:
+                    continue
+                if val is None:
+                    continue
+                if isinstance(val, tuple):
+                    new_el = [ifcopenshell.util.unit.convert_unit(v, old_length, new_length) for v in val]
+                    setattr(element, attr.name(), tuple(new_el))
+                else:
+                    new_el = ifcopenshell.util.unit.convert_unit(val, old_length, new_length)
+                    # set the new value
+                    setattr(element, attr.name(), new_el)
 
-        for inverse in self.file_patched.get_inverse(old_length):
-            ifcopenshell.util.element.replace_attribute(inverse, old_length, new_length)
-
-        self.file_patched.remove(old_length)
-
-        if self.file.schema == "IFC2X3":
-            ifcopenshell.api.owner.settings.get_user = old_get_user
-            ifcopenshell.api.owner.settings.get_application = old_get_application
+            # Add the element to the new file
+            # self.file_patched.add(element)
