@@ -121,6 +121,7 @@ class Patcher:
                     setattr(element, attr.name(), new_el)
 
         self.file_patched.remove(old_length)
+        unit_assignment.Units = tuple([new_length, *unit_assignment.Units])
 
         if self.file.schema == "IFC2X3":
             ifcopenshell.api.owner.settings.get_user = old_get_user
