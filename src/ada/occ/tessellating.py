@@ -51,10 +51,9 @@ def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, paral
     # first, compute the tesselation
     try:
         tess = ShapeTesselator(shape)
+        tess.Compute(compute_edges=render_edges, mesh_quality=quality, parallel=parallel)
     except RuntimeError as e:
-        raise UnableToCreateTesselationFromSolidOCCGeom(e)
-
-    tess.Compute(compute_edges=render_edges, mesh_quality=quality, parallel=parallel)
+        raise UnableToCreateTesselationFromSolidOCCGeom(f'Failed to tessellate OCC geometry due to "{e}"')
 
     # get vertices and normals
     vertices_position = tess.GetVerticesPositionAsTuple()
@@ -178,7 +177,9 @@ class BatchTessellator:
                 logger.error(e)
                 continue
 
-    def tessellate_part(self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True) -> trimesh.Scene:
+    def tessellate_part(
+        self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True
+    ) -> trimesh.Scene:
         graph = part.get_graph_store()
         scene = trimesh.Scene(base_frame=graph.top_level.name)
 

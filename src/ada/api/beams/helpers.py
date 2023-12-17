@@ -202,11 +202,16 @@ def is_strong_axis_stiffened(beam: Beam, other_beam: Beam) -> bool:
 def get_justification(beam: Beam) -> Justification:
     """Justification line"""
     # Check if both self.e1 and self.e2 are None
+    if beam.section.type in (beam.section.TYPES.TUBULAR, beam.section.TYPES.CIRCULAR):
+        bm_height = beam.section.r * 2
+    else:
+        bm_height = beam.section.h
+
     if beam.e1 is None and beam.e2 is None:
         return Justification.NA
     elif beam.e1 is None or beam.e2 is None:
         return Justification.CUSTOM
-    elif beam.e1.is_equal(beam.e2) and beam.e1.is_equal(beam.up * beam.section.h / 2):
+    elif beam.e1.is_equal(beam.e2) and beam.e1.is_equal(beam.up * bm_height / 2):
         return Justification.TOS
     else:
         return Justification.CUSTOM

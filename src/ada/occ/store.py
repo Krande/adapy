@@ -47,7 +47,7 @@ class OCCStore:
         if isinstance(geom_repr, str):
             geom_repr = GeomRepr.from_str(geom_repr)
 
-        def safe_geom(obj_):
+        def safe_geom(obj_, name_ref=None):
             geo_repr = render_override.get(obj_.guid, geom_repr)
             try:
                 if geo_repr == GeomRepr.SOLID:
@@ -63,7 +63,10 @@ class OCCStore:
                 occ_geom = BRepBuilderAPI_Transform(occ_geom, trsf, True).Shape()
                 return occ_geom
             except RuntimeError as e:
-                logger.warning(f"Failed to add shape {obj.name} due to {e}")
+                logger.warning(f"Failed to add shape {obj.name} due to \"{e}\" from {name_ref}")
+                return None
+            except BaseException as e:
+                logger.warning(f"Failed to add shape {obj.name} due to \"{e}\" from {name_ref}")
                 return None
 
         if isinstance(part, StepStore):
@@ -76,11 +79,11 @@ class OCCStore:
                     geom_repr = GeomRepr.from_str(geom_repr)
 
                 if issubclass(type(obj), ada.Shape):
-                    geom = safe_geom(obj)
+                    geom = safe_geom(obj, part.name)
                 elif isinstance(obj, (ada.Beam, ada.Plate, ada.Wall)):
-                    geom = safe_geom(obj)
+                    geom = safe_geom(obj, part.name)
                 elif isinstance(obj, (ada.PipeSegStraight, ada.PipeSegElbow)):
-                    geom = safe_geom(obj)
+                    geom = safe_geom(obj, part.name)
                 else:
                     logger.error(f"Geometry type {type(obj)} not yet implemented")
                     geom = None
