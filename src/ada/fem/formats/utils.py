@@ -481,15 +481,19 @@ def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> list[Plate]:
                 )
             )
     else:
-        plates.append(
-            Plate.from_3d_points(
-                f"sh{elem.id}",
-                [n.p for n in elem.nodes],
-                fem_sec.thickness,
-                mat=fem_sec.material,
-                parent=parent,
+        try:
+            plates.append(
+                Plate.from_3d_points(
+                    f"sh{elem.id}",
+                    [n.p for n in elem.nodes],
+                    fem_sec.thickness,
+                    mat=fem_sec.material,
+                    parent=parent,
+                )
             )
-        )
+        except BaseException as e:
+            logger.error(f"Unable to convert {elem.id=} to plate due to {e}")
+
     return plates
 
 
