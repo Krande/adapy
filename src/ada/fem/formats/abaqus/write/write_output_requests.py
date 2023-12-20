@@ -33,7 +33,6 @@ def hist_output_str(hist_output: HistOutput) -> str:
             else:
                 fem_set_str = instance_name
 
-
     return f"""*Output, history, {hist_output.int_type}={hist_output.int_value}
 ** HISTORY OUTPUT: {hist_output.name}
 **

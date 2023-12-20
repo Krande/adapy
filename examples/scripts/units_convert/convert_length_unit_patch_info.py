@@ -20,8 +20,8 @@ import pathlib
 import ifcopenshell
 import ifcopenshell.api
 import ifcopenshell.api.owner.settings
-import ifcopenshell.util.pset
 import ifcopenshell.util.element
+import ifcopenshell.util.pset
 
 
 class Patcher:
@@ -110,5 +110,5 @@ def main():
         print(tuple(inverse))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

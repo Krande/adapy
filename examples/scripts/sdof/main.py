@@ -1,12 +1,12 @@
 import pathlib
 
 from analyze import transient_modal_analysis
-from plot import plot_sdof
 from model import build_model
+from plot import plot_sdof
 
 
 def main():
-    scratch_dir = pathlib.Path('temp/sdof_test').resolve().absolute()
+    scratch_dir = pathlib.Path("temp/sdof_test").resolve().absolute()
     scratch_dir.mkdir(exist_ok=True, parents=True)
 
     a = build_model("sdof_test")
@@ -14,5 +14,5 @@ def main():
     plot_sdof(sql_file, scratch_dir)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

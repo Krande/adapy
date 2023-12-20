@@ -9,9 +9,10 @@ from .sets import FemSet
 from .surfaces import Surface
 
 if TYPE_CHECKING:
+    from ada import Part
+
     from .common import Amplitude
     from .concept import FEM
-    from ada import Part
 
 
 class BcTypes:
@@ -45,16 +46,16 @@ class Bc(FemBase):
     TYPES = BcTypes
 
     def __init__(
-            self,
-            name,
-            fem_set: FemSet,
-            dofs,
-            magnitudes=None,
-            bc_type=BcTypes.DISPL,
-            amplitude: "Amplitude" = None,
-            init_condition=None,
-            metadata=None,
-            parent=None,
+        self,
+        name,
+        fem_set: FemSet,
+        dofs,
+        magnitudes=None,
+        bc_type=BcTypes.DISPL,
+        amplitude: "Amplitude" = None,
+        init_condition=None,
+        metadata=None,
+        parent=None,
     ):
         """dofs should be a list with integers from 1-6"""
         super().__init__(name, metadata, parent)
@@ -107,18 +108,18 @@ class Constraint(FemBase):
     TYPES = ConstraintTypes
 
     def __init__(
-            self,
-            name,
-            con_type,
-            m_set: FemSet | Surface,
-            s_set: FemSet | Surface,
-            dofs=None,
-            pos_tol=None,
-            mpc_type=None,
-            csys: Csys = None,
-            parent=None,
-            metadata=None,
-            influence_distance: float = None,
+        self,
+        name,
+        con_type,
+        m_set: FemSet | Surface,
+        s_set: FemSet | Surface,
+        dofs=None,
+        pos_tol=None,
+        mpc_type=None,
+        csys: Csys = None,
+        parent=None,
+        metadata=None,
+        influence_distance: float = None,
     ):
         super().__init__(name, metadata, parent)
         m_set.refs.append(self)
@@ -205,16 +206,16 @@ class PredefinedField(FemBase):
     TYPES = PreDefTypes
 
     def __init__(
-            self,
-            name,
-            field_type,
-            fem_set: FemSet = None,
-            dofs=None,
-            magnitude=None,
-            initial_state_file=None,
-            initial_state_part=None,
-            metadata=None,
-            parent=None,
+        self,
+        name,
+        field_type,
+        fem_set: FemSet = None,
+        dofs=None,
+        magnitude=None,
+        initial_state_file=None,
+        initial_state_part=None,
+        metadata=None,
+        parent=None,
     ):
         super().__init__(name, metadata, parent)
         self.type = field_type

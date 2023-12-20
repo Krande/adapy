@@ -4,6 +4,7 @@ import os
 from typing import TYPE_CHECKING
 
 from ada.fem.conversion_utils import convert_ecc_to_mpc, convert_hinges_2_couplings
+
 from .write_constraints import constraints_str
 from .write_elements import elements_str
 from .write_masses import masses_str

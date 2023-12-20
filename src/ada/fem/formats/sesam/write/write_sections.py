@@ -5,6 +5,7 @@ from ada.config import logger
 from ada.core.utils import Counter, make_name_fem_ready
 from ada.fem import FemSection
 from ada.fem.exceptions.element_support import IncompatibleElements
+
 from .write_utils import write_ff
 
 shid = Counter(1)
@@ -60,7 +61,7 @@ def create_shell_section_str(fem_sec: FemSection, thick_map) -> str:
         sh_id = next(shid)
         thick_map[fem_sec.thickness] = sh_id
     else:
-        return ''
+        return ""
     return write_ff("GELTH", [(sh_id, fem_sec.thickness, 5)])
 
 

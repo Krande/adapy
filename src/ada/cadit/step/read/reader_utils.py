@@ -7,9 +7,9 @@ from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
 from OCC.Core.TDF import TDF_Label, TDF_LabelSequence
 from OCC.Core.TopLoc import TopLoc_Location
 from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Shell
-from ada.config import logger
 
 from ada.base.adacpp_interface import adacpp_switch
+from ada.config import logger
 from ada.occ.xcaf_utils import get_color
 
 try:

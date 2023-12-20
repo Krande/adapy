@@ -79,15 +79,15 @@ class HistOutput(FemBase):
     TYPES_DATA = HistDataTypes
 
     def __init__(
-            self,
-            name: str,
-            fem_set: FemSet | None | list[Surface],
-            set_type: str,
-            variables: list[str],
-            int_value=1,
-            int_type=TYPES_INTERVAL.FREQUENCY,
-            metadata=None,
-            parent=None,
+        self,
+        name: str,
+        fem_set: FemSet | None | list[Surface],
+        set_type: str,
+        variables: list[str],
+        int_value=1,
+        int_type=TYPES_INTERVAL.FREQUENCY,
+        metadata=None,
+        parent=None,
     ):
         super().__init__(name, metadata, parent)
 
@@ -164,15 +164,15 @@ class FieldOutput(FemBase):
     default_co = ["CSTRESS", "CDISP", "CFORCE", "CSTATUS"]
 
     def __init__(
-            self,
-            name,
-            nodal=None,
-            element=None,
-            contact=None,
-            int_value=1,
-            int_type=TYPES_INTERVAL.FREQUENCY,
-            metadata=None,
-            parent: "Step" = None,
+        self,
+        name,
+        nodal=None,
+        element=None,
+        contact=None,
+        int_value=1,
+        int_type=TYPES_INTERVAL.FREQUENCY,
+        metadata=None,
+        parent: "Step" = None,
     ):
         super().__init__(name, metadata, parent)
         self._nodal = FieldOutput.default_no if nodal is None else nodal

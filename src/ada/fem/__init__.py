@@ -9,7 +9,7 @@ from .loads import Load, LoadCase, LoadGravity, LoadPoint, LoadPressure
 from .outputs import FieldOutput, HistOutput
 from .sections import ConnectorSection, FemSection
 from .sets import FemSet
-from .steps import StepEigen, StepExplicit, StepImplicitStatic, StepSteadyState, StepImplicitDynamic
+from .steps import StepEigen, StepExplicit, StepImplicitStatic, StepSteadyState
 from .surfaces import Surface
 
 __all__ = [

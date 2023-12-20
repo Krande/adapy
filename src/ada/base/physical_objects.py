@@ -160,6 +160,30 @@ class BackendGeom(Root):
 
         return occ_geom_to_poly_mesh(self, geom_repr=geom_repr, export_config=export_config)
 
+    def show(self):
+        from itertools import groupby
+
+        import trimesh
+
+        from ada.occ.tessellating import BatchTessellator
+        from ada.visit.gltf.optimize import concatenate_stores
+        from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
+
+        bt = BatchTessellator()
+        mesh_stores = list(bt.batch_tessellate([self]))
+
+        scene = trimesh.Scene()
+        mesh_map = []
+
+        for mat_id, meshes in groupby(mesh_stores, lambda x: x.material):
+            meshes = list(meshes)
+
+            merged_store = concatenate_stores(meshes)
+            mesh_map.append((mat_id, meshes, merged_store))
+            merged_mesh_to_trimesh_scene(scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, None)
+
+        return scene.show("notebook")
+
     @property
     def booleans(self) -> list[Boolean]:
         return self._booleans

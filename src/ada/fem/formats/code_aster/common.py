@@ -1,7 +1,14 @@
 from enum import Enum
 
 from ada.config import logger
-from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes, ConnectorTypes, MassTypes, SpringTypes
+from ada.fem.shapes.definitions import (
+    ConnectorTypes,
+    LineShapes,
+    MassTypes,
+    ShellShapes,
+    SolidShapes,
+    SpringTypes,
+)
 
 
 def ada_to_med_type(value):

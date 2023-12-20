@@ -5,6 +5,7 @@ import platform
 import subprocess
 import sys
 import time
+
 import trimesh
 
 import ada
@@ -15,7 +16,9 @@ RENDERER_EXE_PY = pathlib.Path(__file__).parent / "render_pygfx.py"
 WEBSOCKET_EXE_PY = pathlib.Path(__file__).parent / "websocket_server.py"
 
 
-def send_to_viewer(part: ada.Part | trimesh.Scene, host="localhost", port=8765, origins: list[str] = None, meta: dict = None):
+def send_to_viewer(
+    part: ada.Part | trimesh.Scene, host="localhost", port=8765, origins: list[str] = None, meta: dict = None
+):
     if origins is None:
         send_to_local_viewer(part, host=host, port=port)
     else:

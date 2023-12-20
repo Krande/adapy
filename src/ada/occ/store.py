@@ -63,10 +63,10 @@ class OCCStore:
                 occ_geom = BRepBuilderAPI_Transform(occ_geom, trsf, True).Shape()
                 return occ_geom
             except RuntimeError as e:
-                logger.warning(f"Failed to add shape {obj.name} due to \"{e}\" from {name_ref}")
+                logger.warning(f'Failed to add shape {obj.name} due to "{e}" from {name_ref}')
                 return None
             except BaseException as e:
-                logger.warning(f"Failed to add shape {obj.name} due to \"{e}\" from {name_ref}")
+                logger.warning(f'Failed to add shape {obj.name} due to "{e}" from {name_ref}')
                 return None
 
         if isinstance(part, StepStore):

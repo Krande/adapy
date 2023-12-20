@@ -74,7 +74,7 @@ class AxesHelper(Line):
         line_positions *= line_size
 
         geometry = Geometry(positions=line_positions, colors=colors)
-        material = LineSegmentMaterial(thickness=thickness, aa=True, color_mode='vertex')
+        material = LineSegmentMaterial(thickness=thickness, aa=True, color_mode="vertex")
 
         super().__init__(geometry, material)
 
@@ -266,7 +266,9 @@ def gfx_mesh_from_mesh(
             if hasattr(mesh.visual, "material"):
                 mat = tri_mat_to_gfx_mat(mesh.visual.material)
             else:
-                logger.warning("No material found for mesh, using default color. Maybe related to changes in trimesh>4?")
+                logger.warning(
+                    "No material found for mesh, using default color. Maybe related to changes in trimesh>4?"
+                )
                 color = mesh.visual.main_color
                 mat = gfx.MeshPhongMaterial(color=color, flat_shading=True)
         else:

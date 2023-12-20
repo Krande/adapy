@@ -3,11 +3,10 @@ An example demonstrating a wx app with a wgpu viz inside.
 """
 # run_example = false
 
-import wx
-from wgpu.gui.wx import WgpuWidget
 import wgpu.backends.rs  # noqa: F401, Select Rust backend
-
+import wx
 from triangle import main
+from wgpu.gui.wx import WgpuWidget
 
 
 class Example(wx.Frame):

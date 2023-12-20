@@ -90,7 +90,7 @@ class RendererPyGFX:
     def _get_scene_meshes(self, scene: trimesh.Scene, tag: str) -> Iterable[gfx.Mesh]:
         for key, m in scene.geometry.items():
             mesh = gfx_utils.gfx_mesh_from_mesh(m)
-            if 'node' in key:
+            if "node" in key:
                 buffer_id = int(float(key.replace("node", "")))
             else:
                 buffer_id = len(self._mesh_map)

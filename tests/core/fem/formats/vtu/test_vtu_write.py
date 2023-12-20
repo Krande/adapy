@@ -2,8 +2,8 @@ import numpy as np
 
 from ada.fem.formats.general import FEATypes
 from ada.fem.formats.vtu.write import write_to_vtu_file
-from ada.fem.results.common import ElementInfo, ElementBlock, FemNodes
-from ada.fem.shapes.definitions import LineShapes, SolidShapes, ShellShapes
+from ada.fem.results.common import ElementBlock, ElementInfo, FemNodes
+from ada.fem.shapes.definitions import LineShapes, ShellShapes
 
 
 def test_basic_vtu_write():

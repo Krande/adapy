@@ -7,7 +7,7 @@ from ada.fem import StepEigen, StepImplicitStatic
 if TYPE_CHECKING:
     from ada.api.spatial import Part
 
-from .steps import eigen, static, dynamic
+from .steps import dynamic, eigen, static
 
 
 def create_step_str(step: StepEigen | StepImplicitStatic, part: Part) -> str:

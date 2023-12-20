@@ -66,7 +66,9 @@ class SQLiteFEAStore:
         results = self.cursor.fetchall()
         return results
 
-    def get_history_data(self, field_var=None, step_id=None, instance_id=None, point_id=None, elem_id=None, return_df=False):
+    def get_history_data(
+        self, field_var=None, step_id=None, instance_id=None, point_id=None, elem_id=None, return_df=False
+    ):
         base_query = """SELECT mi.Name,
                        ho.ResType,
                        ho.Region,
@@ -115,6 +117,7 @@ class SQLiteFEAStore:
         results = self.cursor.fetchall()
         if return_df:
             import pandas as pd
+
             columns = [
                 "Name",
                 "Restype",

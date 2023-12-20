@@ -114,7 +114,7 @@ def write_to_fem(
     scratch_dir,
     metadata: dict,
     make_zip_file,
-    model_data_only=False
+    model_data_only=False,
 ):
     from ada.fem.formats.utils import default_fem_res_path, folder_prep, should_convert
 

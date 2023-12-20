@@ -12,11 +12,12 @@ import numpy as np
 from ada.config import logger
 from ada.fem.formats.general import FEATypes
 from ada.visit.rendering.femviz import get_edges_and_faces_from_meshio, magnitude
-from .eigenvalue import EigenDataSummary
+
 from ..formats.abaqus.results import read_abaqus_results
 from ..formats.calculix.results import read_calculix_results
 from ..formats.code_aster.results import read_code_aster_results
 from ..formats.sesam.results import read_sesam_results
+from .eigenvalue import EigenDataSummary
 
 if TYPE_CHECKING:
     from ada import Assembly
@@ -32,16 +33,16 @@ class Results:
     }
 
     def __init__(
-            self,
-            res_path,
-            name: str = None,
-            fem_format: str | FEATypes = None,
-            assembly: None | Assembly = None,
-            palette=None,
-            output=None,
-            overwrite=True,
-            metadata=None,
-            import_mesh=False,
+        self,
+        res_path,
+        name: str = None,
+        fem_format: str | FEATypes = None,
+        assembly: None | Assembly = None,
+        palette=None,
+        output=None,
+        overwrite=True,
+        metadata=None,
+        import_mesh=False,
     ):
         if isinstance(fem_format, str):
             fem_format = FEATypes.from_str(fem_format)

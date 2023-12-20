@@ -1,10 +1,12 @@
 from __future__ import annotations
-from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar
 
 import numpy as np
+
+from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
 
 
 @dataclass

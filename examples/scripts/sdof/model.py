@@ -44,4 +44,4 @@ def build_model(name: str):
 
 
 if __name__ == "__main__":
-    build_model('sdof_local_test')
+    build_model("sdof_local_test")

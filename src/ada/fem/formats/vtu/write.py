@@ -1,8 +1,9 @@
 import base64
 import pathlib
 import struct
-import numpy as np
 import xml.etree.ElementTree as ET
+
+import numpy as np
 
 from ada.fem.results.common import ElementBlock, FemNodes
 from ada.fem.shapes.definitions import LineShapes, ShellShapes

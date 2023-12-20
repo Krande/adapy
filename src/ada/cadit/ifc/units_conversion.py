@@ -1,8 +1,9 @@
-from typing import Iterable, Any
+from typing import Any, Iterable
 
+import ifcopenshell.api
 import ifcopenshell.util.element
 import ifcopenshell.util.unit
-import ifcopenshell.api
+
 from ada.base.units import Units
 from ada.cadit.ifc.convert_length_unit_patch import Patcher
 

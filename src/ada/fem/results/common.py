@@ -332,6 +332,7 @@ class FEAResult:
 
     def to_vtu(self, filepath, make_3xn_dofs=True):
         from ada.fem.formats.vtu.write import write_to_vtu_file
+
         cell_data, point_data = self._get_point_and_cell_data()
 
         write_to_vtu_file(self.mesh.nodes, self.mesh.elements, point_data, cell_data, filepath)

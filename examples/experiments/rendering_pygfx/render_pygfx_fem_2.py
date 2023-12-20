@@ -2,8 +2,9 @@
 # or
 # mamba env update -f environment.yml --prune
 #
-import meshio
 import pathlib
+
+import meshio
 
 import ada
 from ada.config import logger
@@ -21,7 +22,7 @@ def main():
     rmed = ada.from_fem_res(rmed_file)
     # rmed.to_xdmf("temp/eigen_shell_cantilever_code_aster.xdmf")
     rmed.to_gltf("temp/eigen_shell_cantilever_code_aster.glb")
-    rmed.to_viewer(1, 'modes___DEPL[0] - 13.5363')
+    rmed.to_viewer(1, "modes___DEPL[0] - 13.5363")
 
 
 if __name__ == "__main__":

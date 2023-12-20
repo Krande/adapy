@@ -208,7 +208,9 @@ class Assembly(Part):
 
         scratch_dir = Settings.scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
 
-        write_to_fem(self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file, model_data_only)
+        write_to_fem(
+            self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file, model_data_only
+        )
 
         # Execute
         if execute:

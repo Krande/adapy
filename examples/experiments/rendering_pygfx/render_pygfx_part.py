@@ -29,7 +29,9 @@ def main():
     bm5 = ada.Beam("my_beam_xyz_shell", (3, 2, 1), (3.5, 2.5, 1.5), "IPE300", color="red")
     bm6 = ada.Beam("my_beam_xyz", (1, 2, 1), (1.5, 2.5, 1.5), "IPE300", color="yellow")
     bm7_taper = ada.BeamTapered("my_Ibeam_taper", (2, 2, 1), (2.5, 2.5, 1.5), "IPE600", "IPE300", color="blue")
-    bm8_taper = ada.BeamTapered("my_BOX_beam_taper", (4, 2, 1), (4.5, 2.5, 1.5), "BG300x200x8x10", "BG200x200x8x10", color="red")
+    bm8_taper = ada.BeamTapered(
+        "my_BOX_beam_taper", (4, 2, 1), (4.5, 2.5, 1.5), "BG300x200x8x10", "BG200x200x8x10", color="red"
+    )
     render_override.update({bm4.guid: GeomRepr.SHELL, bm5.guid: GeomRepr.SHELL})
 
     # All beam profiles as solids

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from itertools import chain
-from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 
 from ada.api.containers import Nodes
 from ada.config import logger
@@ -66,8 +66,9 @@ class FEM:
     constraints: Dict[str, Constraint] = field(init=False, default_factory=dict)
 
     bcs: List[Bc] = field(init=False, default_factory=list)
-    steps: List[Union[StepSteadyState, StepEigen, StepImplicitStatic, StepExplicit]] = field(init=False,
-                                                                                             default_factory=list)
+    steps: List[Union[StepSteadyState, StepEigen, StepImplicitStatic, StepExplicit]] = field(
+        init=False, default_factory=list
+    )
 
     nodes: Nodes = field(default_factory=Nodes, init=True)
     ref_points: Nodes = field(default_factory=Nodes, init=True)
@@ -130,13 +131,13 @@ class FEM:
         return mass
 
     def add_set(
-            self,
-            fem_set: FemSet,
-            p=None,
-            vol_box=None,
-            vol_cyl=None,
-            single_member=False,
-            tol=1e-4,
+        self,
+        fem_set: FemSet,
+        p=None,
+        vol_box=None,
+        vol_cyl=None,
+        single_member=False,
+        tol=1e-4,
     ) -> FemSet:
         """
         :param fem_set: A fem set object
@@ -250,7 +251,8 @@ class FEM:
         connector.parent = self
         if not isinstance(self.parent, Assembly):
             logger.warning(
-                "Connector Elements can usually only be added to an Assembly object. Please check your model.")
+                "Connector Elements can usually only be added to an Assembly object. Please check your model."
+            )
 
         self.elements.add(connector)
         connector.csys.parent = self

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from io import StringIO
 from typing import TYPE_CHECKING
 
@@ -8,7 +7,7 @@ from ...general import FEATypes
 from ...tools import FEA_IO, tool_register
 from .write_amplitudes import amplitudes_str
 from .write_bc import boundary_conditions_str
-from .write_connectors import connector_sections_str, connectors_str, connector_str, connector_section_str
+from .write_connectors import connector_section_str, connector_str
 from .write_constraints import constraints_str
 from .write_elements import elements_str
 from .write_interactions import eval_interactions, int_prop_str
@@ -30,7 +29,9 @@ __all__ = ["to_fem"]
 
 
 @tool_register(fem_format=FEATypes.ABAQUS, io=FEA_IO.write)
-def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None, writable_obj: StringIO = None, model_data_only=False):
+def to_fem(
+    assembly: Assembly, name, analysis_dir=None, metadata=None, writable_obj: StringIO = None, model_data_only=False
+):
     """Build the Abaqus Analysis input deck"""
 
     # Write part bulk files

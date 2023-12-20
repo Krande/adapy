@@ -10,18 +10,33 @@ from code_aster.Cata.Commands.meca_statique import MECA_STATIQUE
 from code_aster.Cata.Commands.proj_base import PROJ_BASE
 
 import ada
-from ada.fem.formats.code_aster.results.results_helpers import export_mesh_data_to_sqlite
-from ada.fem.formats.code_aster.write.api_helpers import import_mesh, assign_element_definitions, \
-    assign_material_definitions, assign_element_characteristics, assign_boundary_conditions, assign_forces
+from ada.fem.formats.code_aster.results.results_helpers import (
+    export_mesh_data_to_sqlite,
+)
+from ada.fem.formats.code_aster.write.api_helpers import (
+    assign_boundary_conditions,
+    assign_element_characteristics,
+    assign_element_definitions,
+    assign_forces,
+    assign_material_definitions,
+    import_mesh,
+)
 
 USE_STAR = True
 if USE_STAR:
-    from code_aster.Commands import *
     from code_aster.Cata.Language.SyntaxObjects import _F
+    from code_aster.Commands import *
 
 else:
-    from code_aster.Commands import IMPR_RESU, POST_ELEM, CREA_CHAMP, DEFI_LIST_REEL, COMB_MATR_ASSE, DYNA_VIBRA, \
-        RECU_FONCTION
+    from code_aster.Commands import (
+        IMPR_RESU,
+        POST_ELEM,
+        CREA_CHAMP,
+        DEFI_LIST_REEL,
+        COMB_MATR_ASSE,
+        DYNA_VIBRA,
+        RECU_FONCTION,
+    )
 
     from code_aster.Supervis.ExecuteCommand import CO
 
@@ -65,29 +80,21 @@ def transient_modal_analysis(a: ada.Assembly, scratch_dir):
 
     # Step Information
     linear_step: code_aster.ElasticResult = MECA_STATIQUE(
-        MODELE=model,
-        CHAM_MATER=material_field,
-        CARA_ELEM=elem_car,
-        EXCIT=(
-            _F(CHARGE=fix),
-            _F(CHARGE=forces)
-        )
+        MODELE=model, CHAM_MATER=material_field, CARA_ELEM=elem_car, EXCIT=(_F(CHARGE=fix), _F(CHARGE=forces))
     )
 
     # Results Information
     IMPR_RESU(
         MODELE=model,
         FORMAT="RESULTAT",
-        RESU=_F(
-            NOM_CHAM="DEPL",
-            GROUP_NO="mass_set",
-            RESULTAT=linear_step,
-            FORMAT_R="1PE12.3"
-        )
+        RESU=_F(NOM_CHAM="DEPL", GROUP_NO="mass_set", RESULTAT=linear_step, FORMAT_R="1PE12.3"),
     )
     massin: libaster.Table = POST_ELEM(
-        MODELE=model, CHAM_MATER=material_field, CARA_ELEM=elem_car,
-        MASS_INER=_F(GROUP_MA=("mass_set", "spring")), TITRE="massin"
+        MODELE=model,
+        CHAM_MATER=material_field,
+        CARA_ELEM=elem_car,
+        MASS_INER=_F(GROUP_MA=("mass_set", "spring")),
+        TITRE="massin",
     )
     IMPR_TABLE(TABLE=massin, NOM_PARA=("LIEU", "MASSE"), FORMAT_R="1PE12.3")
     ASSEMBLAGE(
@@ -95,10 +102,7 @@ def transient_modal_analysis(a: ada.Assembly, scratch_dir):
         CARA_ELEM=elem_car,
         CHARGE=fix,
         NUME_DDL=CO("numdof"),
-        MATR_ASSE=(
-            _F(MATRICE=CO("rigidity"), OPTION="RIGI_MECA"),
-            _F(MATRICE=CO("masse"), OPTION="MASS_MECA")
-        )
+        MATR_ASSE=(_F(MATRICE=CO("rigidity"), OPTION="RIGI_MECA"), _F(MATRICE=CO("masse"), OPTION="MASS_MECA")),
     )
 
     rigidity = operator_store.get("rigidity")
@@ -118,7 +122,8 @@ def transient_modal_analysis(a: ada.Assembly, scratch_dir):
         RESU=_F(
             RESULTAT=undamped,
             NOM_PARA=("FREQ", "MASS_GENE", "MASS_EFFE_DX", "MASS_EFFE_DY", "MASS_EFFE_DZ"),
-            FORM_TABL="OUI")
+            FORM_TABL="OUI",
+        ),
     )
     IMPR_RESU(FORMAT="MED", UNITE=80, RESU=_F(RESULTAT=undamped, NOM_CHAM="DEPL"))
 
@@ -127,26 +132,17 @@ def transient_modal_analysis(a: ada.Assembly, scratch_dir):
     dsplini: libaster.FieldOnNodesReal = CREA_CHAMP(
         TYPE_CHAM="NOEU_DEPL_R",
         NUME_DDL=numdof,
-        OPERATION="AFFE", PROL_ZERO="OUI",
+        OPERATION="AFFE",
+        PROL_ZERO="OUI",
         MODELE=model,
-        AFFE=_F(
-            GROUP_NO="mass_set",
-            NOM_CMP="DX", VALE=-1
-        )
+        AFFE=_F(GROUP_NO="mass_set", NOM_CMP="DX", VALE=-1),
     )
     nbvect = 3
     PROJ_BASE(
         BASE=undamped,
         NB_VECT=nbvect,
-        MATR_ASSE_GENE=(
-            _F(MATRICE=CO("stifGen"), MATR_ASSE=rigidity),
-            _F(MATRICE=CO("massGen"), MATR_ASSE=masse)
-        ),
-        VECT_ASSE_GENE=_F(
-            VECTEUR=CO("dispGen"),
-            TYPE_VECT="DEPL",
-            VECT_ASSE=dsplini
-        )
+        MATR_ASSE_GENE=(_F(MATRICE=CO("stifGen"), MATR_ASSE=rigidity), _F(MATRICE=CO("massGen"), MATR_ASSE=masse)),
+        VECT_ASSE_GENE=_F(VECTEUR=CO("dispGen"), TYPE_VECT="DEPL", VECT_ASSE=dsplini),
     )
     # modal transient analysis
     # #here we use the previously calculated
@@ -159,11 +155,7 @@ def transient_modal_analysis(a: ada.Assembly, scratch_dir):
     nperiod = 4.0
 
     liste: libaster.ListOfFloats = DEFI_LIST_REEL(
-        DEBUT=0.0,
-        INTERVALLE=_F(
-            JUSQU_A=nperiod / natfreq,
-            NOMBRE=int(number * nperiod)
-        )
+        DEBUT=0.0, INTERVALLE=_F(JUSQU_A=nperiod / natfreq, NOMBRE=int(number * nperiod))
     )
 
     # make 6 calculations with varying damping factor "xi"
@@ -180,26 +172,18 @@ def transient_modal_analysis(a: ada.Assembly, scratch_dir):
     dispGen: code_aster.GeneralizedAssemblyMatrixReal = operator_store.get("dispGen")
 
     # Define sqlite results database
-    sqlite_file = (scratch_dir / a.name).with_suffix('.sqlite')
+    sqlite_file = (scratch_dir / a.name).with_suffix(".sqlite")
     sql_store = SQLiteFEAStore(sqlite_file, clean_tables=True)
     export_mesh_data_to_sqlite(0, a.name, mesh, sql_store)
 
-    sql_store.insert_table('FieldVars', [
-        (0, 'U1', 'Spatial Displacement'),
-        (1, 'V1', 'Spatial Velocity'),
-        (2, 'A1', 'Spatial Acceleration')
-    ]
-                           )
+    sql_store.insert_table(
+        "FieldVars",
+        [(0, "U1", "Spatial Displacement"), (1, "V1", "Spatial Velocity"), (2, "A1", "Spatial Acceleration")],
+    )
 
     for i in range(0, it):
-        sql_store.insert_table('Steps', [(i, 'dynamic', f'xi={xi[i]}', 'TIME')])
-        amorG[i] = COMB_MATR_ASSE(
-            CALC_AMOR_GENE=_F(
-                RIGI_GENE=stifGen,
-                MASS_GENE=massGen,
-                AMOR_REDUIT=xi[i]
-            )
-        )
+        sql_store.insert_table("Steps", [(i, "dynamic", f"xi={xi[i]}", "TIME")])
+        amorG[i] = COMB_MATR_ASSE(CALC_AMOR_GENE=_F(RIGI_GENE=stifGen, MASS_GENE=massGen, AMOR_REDUIT=xi[i]))
         tranG[i] = DYNA_VIBRA(
             BASE_CALCUL="GENE",
             TYPE_CALCUL="TRAN",
@@ -208,53 +192,38 @@ def transient_modal_analysis(a: ada.Assembly, scratch_dir):
             MATR_AMOR=amorG[i],
             ETAT_INIT=_F(DEPL=dispGen),
             INCREMENT=_F(LIST_INST=liste),
-            SCHEMA_TEMPS=_F(SCHEMA="NEWMARK")
+            SCHEMA_TEMPS=_F(SCHEMA="NEWMARK"),
         )
         respo[i] = RECU_FONCTION(
-            RESU_GENE=tranG[i],
-            TOUT_INST="OUI",
-            NOM_CHAM="DEPL",
-            NOM_CMP="DX",
-            GROUP_NO="mass_set"
+            RESU_GENE=tranG[i], TOUT_INST="OUI", NOM_CHAM="DEPL", NOM_CMP="DX", GROUP_NO="mass_set"
         )
 
         IMPR_FONCTION(
-            FORMAT="TABLEAU",
-            COURBE=_F(FONCTION=respo[i]),
-            UNITE=8,
-            TITRE="DX_endmass",
-            SOUS_TITRE="DX_endmass"
+            FORMAT="TABLEAU", COURBE=_F(FONCTION=respo[i]), UNITE=8, TITRE="DX_endmass", SOUS_TITRE="DX_endmass"
         )
 
         displ: libaster.ListOfFloats = RECU_FONCTION(
-            RESU_GENE=tranG[i],
-            TOUT_INST="OUI",
-            NOM_CHAM="DEPL",
-            NOM_CMP="DX",
-            GROUP_NO="mass_set"
+            RESU_GENE=tranG[i], TOUT_INST="OUI", NOM_CHAM="DEPL", NOM_CMP="DX", GROUP_NO="mass_set"
         )
         speed: libaster.ListOfFloats = RECU_FONCTION(
-            RESU_GENE=tranG[i],
-            TOUT_INST="OUI",
-            NOM_CHAM="VITE",
-            NOM_CMP="DX",
-            GROUP_NO="mass_set"
+            RESU_GENE=tranG[i], TOUT_INST="OUI", NOM_CHAM="VITE", NOM_CMP="DX", GROUP_NO="mass_set"
         )
         accel: libaster.ListOfFloats = RECU_FONCTION(
-            RESU_GENE=tranG[i],
-            TOUT_INST="OUI",
-            NOM_CHAM="ACCE",
-            NOM_CMP="DX",
-            GROUP_NO="mass_set"
+            RESU_GENE=tranG[i], TOUT_INST="OUI", NOM_CHAM="ACCE", NOM_CMP="DX", GROUP_NO="mass_set"
         )
-        np_t, np_d, np_v, np_a = liste.getValuesAsArray(), displ.getValuesAsArray(), speed.getValuesAsArray(), accel.getValuesAsArray()
+        np_t, np_d, np_v, np_a = (
+            liste.getValuesAsArray(),
+            displ.getValuesAsArray(),
+            speed.getValuesAsArray(),
+            accel.getValuesAsArray(),
+        )
 
         # Write to sqlite db HistOutput
-        shared_opts = [-1, 'NODAL', 0, -1, 2, i]
+        shared_opts = [-1, "NODAL", 0, -1, 2, i]
         sql_store.insert_table("HistOutput", [(*shared_opts, 0, x, y) for x, y in zip(np_t, np_d[:, 1])])
         sql_store.insert_table("HistOutput", [(*shared_opts, 1, x, y) for x, y in zip(np_t, np_v[:, 1])])
         sql_store.insert_table("HistOutput", [(*shared_opts, 2, x, y) for x, y in zip(np_t, np_a[:, 1])])
 
-    undamped.printMedFile((scratch_dir / a.name).with_suffix('.rmed').as_posix())
+    undamped.printMedFile((scratch_dir / a.name).with_suffix(".rmed").as_posix())
     sql_store.conn.close()
     return sqlite_file

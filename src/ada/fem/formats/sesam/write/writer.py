@@ -32,7 +32,9 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
 
     parts = list(filter(lambda x: len(x.fem.nodes) > 0, assembly.get_all_subparts(include_self=True)))
     if len(parts) != 1:
-        raise DoesNotSupportMultiPart(f"Sesam writer currently only works for a single part. Currently found {len(parts)}")
+        raise DoesNotSupportMultiPart(
+            f"Sesam writer currently only works for a single part. Currently found {len(parts)}"
+        )
 
     if len(assembly.fem.steps) > 1:
         logger.error("Sesam writer currently only supports 1 step. Will only use 1st step")
