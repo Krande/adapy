@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from ada.fem.results.common import Mesh
     from ada.fem.steps import Step
 
-_step_types = Union["StepSteadyState", "StepEigen", "StepImplicit", "StepExplicit"]
+_step_types = Union["StepSteadyState", "StepEigen", "StepImplicitStatic", "StepExplicit"]
 
 
 @dataclass

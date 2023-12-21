@@ -5,7 +5,6 @@ import pathlib
 from typing import TYPE_CHECKING, Iterable
 
 import code_aster
-from code_aster.Cata.Commands.meca_statique import MECA_STATIQUE
 from code_aster.Cata.Language.SyntaxObjects import _F
 from code_aster.Commands import AFFE_CARA_ELEM, AFFE_CHAR_MECA, AFFE_MODELE, DEFI_GROUP
 
@@ -97,7 +96,7 @@ def assign_material_definitions(a: Assembly, mesh: code_aster.Mesh) -> code_aste
     for mat, element_names in mat_map.items():
         if isinstance(mat, ConnectorSection):
             if isinstance(mat.elastic_comp, (float, int)):
-                e_mod = mat.elastic_comp
+                pass
                 # Todo: figure out where this is supposed to be implemented
             else:
                 raise NotImplementedError("Currently only supports linear elastic connectors")
@@ -116,7 +115,6 @@ def assign_element_characteristics(
     a: Assembly, model: code_aster.Model, rigid_size=1e8
 ) -> code_aster.ElementaryCharacteristics:
     discrete_elements = []
-    line_elements = []
 
     for elem in assembly_element_iterator(a):
         if isinstance(elem, Mass):
@@ -194,7 +192,4 @@ def assign_steps(
         if isinstance(step, ada.fem.StepImplicitDynamic):
             raise NotImplementedError("Not yet implemented 'StepImplicitDynamic'")
         elif isinstance(step, ada.fem.StepImplicitStatic):
-            step.type
-            linear_step: code_aster.ElasticResult = MECA_STATIQUE(
-                MODELE=model, CHAM_MATER=material_field, CARA_ELEM=elem_car, EXCIT=(_F(CHARGE=fix), _F(CHARGE=forces))
-            )
+            pass

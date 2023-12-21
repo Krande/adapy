@@ -278,7 +278,6 @@ class FEAResult:
 
         cell_data = dict()
         point_data = dict()
-        elem_block_map = {x.elem_info.type: i for i, x in enumerate(self.mesh.elements)}
         for values in self.get_results_grouped_by_field_value().values():
             for x in values:
                 res = x.get_all_values()

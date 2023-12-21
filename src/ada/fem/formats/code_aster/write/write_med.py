@@ -30,8 +30,6 @@ def med_elements(
     elements_group = time_step.create_group("MAI")
     elements_group.attrs.create("CGT", 1)
 
-    res = list(part.fem.elements.group_by_type())
-
     for group, elements in part.fem.elements.group_by_type():
         med_type = ada_to_med_type(group)
         elements = list(elements)
