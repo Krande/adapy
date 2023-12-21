@@ -209,11 +209,14 @@ def get_exe_path(fea_type: FEATypes):
         exe_name = fea_type
 
     env_name = f"ADA_{exe_name}_exe"
+    env_path = os.getenv(env_name, None)
+    if env_path is not None:
+        exe_path = pathlib.Path(env_path)
+        if exe_path.exists():
+            return exe_path
 
     if Settings.fem_exe_paths.get(exe_name, None) is not None:
         exe_path = Settings.fem_exe_paths[exe_name]
-    elif os.getenv(env_name):
-        exe_path = os.getenv(env_name)
     elif shutil.which(f"{exe_name}"):
         exe_path = shutil.which(f"{exe_name}")
     elif shutil.which(f"{exe_name}.exe"):
@@ -289,7 +292,7 @@ def _overwrite_dir(analysis_dir):
             send2trash(analysis_dir)
         else:
             shutil.rmtree(analysis_dir)
-    except WindowsError as e:
+    except BaseException as e:
         print(f"Failed to delete due to '{e}'")
 
     os.makedirs(analysis_dir, exist_ok=True)
@@ -481,15 +484,19 @@ def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> list[Plate]:
                 )
             )
     else:
-        plates.append(
-            Plate.from_3d_points(
-                f"sh{elem.id}",
-                [n.p for n in elem.nodes],
-                fem_sec.thickness,
-                mat=fem_sec.material,
-                parent=parent,
+        try:
+            plates.append(
+                Plate.from_3d_points(
+                    f"sh{elem.id}",
+                    [n.p for n in elem.nodes],
+                    fem_sec.thickness,
+                    mat=fem_sec.material,
+                    parent=parent,
+                )
             )
-        )
+        except BaseException as e:
+            logger.error(f"Unable to convert {elem.id=} to plate due to {e}")
+
     return plates
 
 

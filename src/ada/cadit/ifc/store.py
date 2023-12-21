@@ -10,7 +10,7 @@ import ifcopenshell.geom
 
 from ada.base.changes import ChangeAction
 from ada.base.types import GeomRepr
-from ada.cadit.ifc.units_conversion import convert_units
+from ada.cadit.ifc.units_conversion import convert_file_length_units
 from ada.cadit.ifc.utils import assembly_to_ifc_file, default_settings, get_unit_type
 from ada.cadit.ifc.write.write_sections import get_profile_class
 from ada.cadit.ifc.write.write_user import create_owner_history_from_user
@@ -170,7 +170,7 @@ class IfcStore:
         unit_type = get_unit_type(self.f)
 
         if unit_type != self.assembly.units:
-            self.f = convert_units(self.assembly.units, self.f)
+            self.f = convert_file_length_units(self.f, self.assembly.units)
 
         if elements2part is None:
             self.reader.load_spatial_hierarchy()

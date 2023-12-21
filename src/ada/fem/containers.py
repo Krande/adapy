@@ -177,7 +177,17 @@ class FemElements:
         for el in other.elements:
             el.parent = self.parent
 
-        return FemElements(chain.from_iterable([self.elements, other.elements]), self.parent)
+        other_num = len(other.elements)
+        self_num = len(self.elements)
+        final_elem = FemElements(chain.from_iterable([self.elements, other.elements]), self.parent)
+        if len(final_elem.elements) != (other_num + self_num):
+            raise ValueError("Unequal length of elements after concatenation")
+
+        self._elements = final_elem.elements
+        self._idmap = final_elem.idmap
+        self._group_by_types()
+        return self
+        # return final_elem
 
     def __repr__(self):
         data = {}
@@ -301,7 +311,7 @@ class FemElements:
 
     @property
     def connectors(self) -> Iterable[Connector]:
-        return filter(lambda x: isinstance(x.type, Connector), self.elements)
+        return filter(lambda x: isinstance(x, Connector), self.elements)
 
     @property
     def masses(self) -> Iterable[Mass]:

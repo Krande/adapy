@@ -1,13 +1,19 @@
 [tool.python]
 enabled = true
+pre_release_tag = "dev"
+
 [tool.python.pip]
 enabled = true
 
 [tool.python.conda]
 enabled = true
-#pkg_name_override
 recipe_dir = "./conda"
-owner = "Krandedev"
+extra_conda_dep_channels = ["krande"]
+
+# Anaconda Related
+use_anaconda_server = true
+owner = "Krande"
+label = "main"
 #
 # info
 #

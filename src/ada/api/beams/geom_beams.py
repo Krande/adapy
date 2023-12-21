@@ -51,6 +51,11 @@ def straight_tapered_beam_to_geom(beam: BeamTapered, is_solid=True) -> Geometry:
             return ibeam_taper_to_geom(beam)
         else:
             return ibeam_taper_to_face_geom(beam)
+    elif beam.section.type == beam.section.TYPES.BOX:
+        if is_solid:
+            return boxbeam_taper_to_geom(beam)
+        else:
+            raise NotImplementedError("Box beam taper to face geometry not implemented")
     else:
         raise NotImplementedError(f"Beam section type {beam.section.type} not implemented")
 
@@ -104,6 +109,15 @@ def section_to_arbitrary_profile_def_with_voids(section: Section, solid=True) ->
         profile_type = geo_su.ProfileType.CURVE
 
     return geo_su.ArbitraryProfileDef(profile_type, outer_curve, inner_curves, profile_name=section.name)
+
+
+def boxbeam_taper_to_geom(beam: BeamTapered) -> Geometry:
+    profile1 = section_to_arbitrary_profile_def_with_voids(beam.section)
+    profile2 = section_to_arbitrary_profile_def_with_voids(beam.taper)
+
+    place = Axis2Placement3D(location=beam.n1.p, axis=beam.xvec, ref_direction=beam.yvec)
+    geom = geo_so.ExtrudedAreaSolidTapered(profile1, place, beam.length, Direction(0, 0, 1), profile2)
+    return Geometry(beam.guid, geom, beam.color)
 
 
 def ibeam_taper_to_geom(beam: BeamTapered) -> Geometry:

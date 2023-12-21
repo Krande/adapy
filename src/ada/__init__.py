@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 
 __author__ = "Kristoffer H. Andersen"
 
+# A set of convenience name generators for plates and beams
 PL_N = Counter(start=1, prefix="PL")
 BM_N = Counter(start=1, prefix="BM")
 

@@ -252,23 +252,25 @@ class Part(BackendGeom):
             section.units = self.units
         return self._sections.add(section)
 
-    def add_object(self, obj: Part | Beam | Plate | Wall | Pipe | Shape | Weld):
-        from ada import Beam, Part, Pipe, Plate, Shape, Wall, Weld
+    def add_object(self, obj: Part | Beam | Plate | Wall | Pipe | Shape | Weld | Section):
+        from ada import Beam, Part, Pipe, Plate, Section, Shape, Wall, Weld
 
         if isinstance(obj, Beam):
-            self.add_beam(obj)
+            return self.add_beam(obj)
         elif isinstance(obj, Plate):
-            self.add_plate(obj)
+            return self.add_plate(obj)
         elif isinstance(obj, Pipe):
-            self.add_pipe(obj)
+            return self.add_pipe(obj)
         elif issubclass(type(obj), Part):
-            self.add_part(obj)
+            return self.add_part(obj)
         elif issubclass(type(obj), Shape):
-            self.add_shape(obj)
+            return self.add_shape(obj)
         elif isinstance(obj, Wall):
-            self.add_wall(obj)
+            return self.add_wall(obj)
         elif isinstance(obj, Weld):
-            self.add_weld(obj)
+            return self.add_weld(obj)
+        elif isinstance(obj, Section):
+            return self.add_section(obj)
         else:
             raise NotImplementedError(f'"{type(obj)}" is not yet supported for smart append')
 
@@ -756,11 +758,15 @@ class Part(BackendGeom):
 
         self.to_trimesh_scene(**kwargs).export(gltf_file, buffer_postprocessor=post_pro)
 
-    def to_trimesh_scene(self, render_override: dict[str, GeomRepr | str] = None, filter_by_guids=None):
+    def to_trimesh_scene(
+        self, render_override: dict[str, GeomRepr | str] = None, filter_by_guids=None, merge_meshes=True
+    ):
         from ada.occ.tessellating import BatchTessellator
 
         bt = BatchTessellator()
-        return bt.tessellate_part(self)
+        return bt.tessellate_part(
+            self, merge_meshes=merge_meshes, render_override=render_override, filter_by_guids=filter_by_guids
+        )
 
     def to_stp(
         self,
@@ -789,6 +795,14 @@ class Part(BackendGeom):
         from ada.visit.comms import send_to_viewer
 
         send_to_viewer(self, **kwargs)
+
+    def show(self):
+        from ada.occ.tessellating import BatchTessellator
+
+        bt = BatchTessellator()
+        scene = bt.tessellate_part(self)
+
+        return scene.show("notebook")
 
     @property
     def parts(self) -> dict[str, Part]:

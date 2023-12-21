@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING
 
 from .common import FemBase
 from .sets import FemSet
@@ -81,9 +81,9 @@ class HistOutput(FemBase):
     def __init__(
         self,
         name: str,
-        fem_set: Union[FemSet, None, List[Surface]],
+        fem_set: FemSet | None | list[Surface],
         set_type: str,
-        variables: List[str],
+        variables: list[str],
         int_value=1,
         int_type=TYPES_INTERVAL.FREQUENCY,
         metadata=None,
@@ -103,11 +103,11 @@ class HistOutput(FemBase):
         self._int_type = int_type
 
     @property
-    def parent(self) -> "Step":
+    def parent(self) -> Step:
         return self._parent
 
     @parent.setter
-    def parent(self, value: "Step"):
+    def parent(self, value: Step):
         self._parent = value
 
     @property

@@ -5,6 +5,7 @@ from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire
 
 from ada.geom import curves as geo_cu
 from ada.geom.surfaces import PolyLoop
+from ada.occ.exceptions import UnableToCreateCurveOCCGeom
 from ada.occ.utils import point3d
 
 
@@ -30,7 +31,7 @@ def segments_to_wire(segments: list[geo_cu.Line | geo_cu.ArcLine]) -> TopoDS_Wir
     try:
         return wire.Wire()
     except RuntimeError:
-        raise ValueError("Segments do not form a closed loop")
+        raise UnableToCreateCurveOCCGeom("Segments do not form a closed loop")
 
 
 def make_wire_from_indexed_poly_curve_geom(

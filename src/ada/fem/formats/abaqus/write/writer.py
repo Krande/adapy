@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from io import StringIO
 from typing import TYPE_CHECKING
 
@@ -8,7 +7,7 @@ from ...general import FEATypes
 from ...tools import FEA_IO, tool_register
 from .write_amplitudes import amplitudes_str
 from .write_bc import boundary_conditions_str
-from .write_connectors import connector_sections_str, connectors_str
+from .write_connectors import connector_section_str, connector_str
 from .write_constraints import constraints_str
 from .write_elements import elements_str
 from .write_interactions import eval_interactions, int_prop_str
@@ -30,7 +29,9 @@ __all__ = ["to_fem"]
 
 
 @tool_register(fem_format=FEATypes.ABAQUS, io=FEA_IO.write)
-def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None, writable_obj: StringIO = None):
+def to_fem(
+    assembly: Assembly, name, analysis_dir=None, metadata=None, writable_obj: StringIO = None, model_data_only=False
+):
     """Build the Abaqus Analysis input deck"""
 
     # Write part bulk files
@@ -38,21 +39,36 @@ def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None, writable_
 
     # Write Assembly level files
     core_dir = analysis_dir / r"core_input_files"
-    os.makedirs(core_dir)
+    core_dir.mkdir(parents=True, exist_ok=True)
 
     afem = assembly.fem
+    all_fem_parts = [p.fem for p in assembly.get_all_subparts(include_self=True)]
 
     # Main Input File
     with open(analysis_dir / f"{name}.inp", "w") as d:
         d.write(write_main_inp_str(assembly, analysis_dir))
 
     # Connector Sections
+    all_con_sections = [con for fem_part in all_fem_parts for con in fem_part.connector_sections.values()]
     with open(core_dir / "connector_sections.inp", "w") as d:
-        d.write(connector_sections_str(afem))
+        if len(all_con_sections) > 0:
+            for con_section in all_con_sections:
+                if con_section.str_override is not None:
+                    d.write(con_section.str_override)
+                    continue
+                d.write(connector_section_str(con_section))
+        else:
+            d.write("** No Connector Sections")
 
     # Connectors
+    all_connectors = [con for fem_part in all_fem_parts for con in fem_part.elements.connectors]
     with open(core_dir / "connectors.inp", "w") as d:
-        d.write(connectors_str(afem) if len(list(afem.elements.connectors)) > 0 else "**")
+        if len(all_connectors) > 0:
+            for con in all_connectors:
+                d.write(connector_str(con, True))
+            # d.write(connectors_str(afem))
+        else:
+            d.write("** No Connectors")
 
     # Constraints
     with open(core_dir / "constraints.inp", "w") as d:

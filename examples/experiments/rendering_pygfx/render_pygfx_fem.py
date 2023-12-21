@@ -30,7 +30,7 @@ def main():
     a.to_fem("cutout_bm_ufo", "usfos", scratch_dir="temp", overwrite=True)
     a.to_gltf("temp/beam.glb")
 
-    render = RendererPyGFX(render_backend=SqLiteBackend("temp/meshes.db"))
+    render = RendererPyGFX(render_backend=SqLiteBackend())
 
     def _on_click(event, mesh_data: MeshInfo):
         print(mesh_data, event.pick_info)

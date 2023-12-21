@@ -114,6 +114,7 @@ def write_to_fem(
     scratch_dir,
     metadata: dict,
     make_zip_file,
+    model_data_only=False,
 ):
     from ada.fem.formats.utils import default_fem_res_path, folder_prep, should_convert
 
@@ -131,7 +132,7 @@ def write_to_fem(
         if fem_exporter is None:
             raise ValueError(f'FEM export for "{fem_format}" using "{fem_converter}" is currently not supported')
 
-        fem_exporter(assembly, name, analysis_dir, metadata)
+        fem_exporter(assembly, name, analysis_dir, metadata, model_data_only)
 
         if make_zip_file is True:
             import shutil

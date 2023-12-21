@@ -27,8 +27,10 @@ def run_ccx():
 
 
 def run_code_aster():
-    a = make_fem("shell")
-    res = a.to_fem("Cantilever_CA_EIG_sh", "code_aster", scratch_dir=SCRATCH, overwrite=True, execute=True)
+    geo_repr = "solid"
+    a = make_fem(geo_repr)
+    res = a.to_fem(f"Cantilever_CA_EIG_{geo_repr}", "code_aster", scratch_dir=SCRATCH, overwrite=True, execute=True)
+    res.to_xdmf(res.name.replace(".rmed", ".xdmf"))
     for x in res.iter_results_by_field_value():
         print(x)
 

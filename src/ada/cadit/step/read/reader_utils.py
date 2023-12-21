@@ -9,6 +9,7 @@ from OCC.Core.TopLoc import TopLoc_Location
 from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Shell
 
 from ada.base.adacpp_interface import adacpp_switch
+from ada.config import logger
 from ada.occ.xcaf_utils import get_color
 
 try:
@@ -89,14 +90,17 @@ def read_step_file_with_names_colors(store: StepStore) -> dict[TopoDS_Shape, tup
                     color_set = True
 
                 if not color_set:
-                    if (
-                        color_tool.GetColor(lab_subs, 0, c)
-                        or color_tool.GetColor(lab_subs, 1, c)
-                        or color_tool.GetColor(lab_subs, 2, c)
-                    ):
-                        color_tool.SetInstanceColor(shape, 0, c)
-                        color_tool.SetInstanceColor(shape, 1, c)
-                        color_tool.SetInstanceColor(shape, 2, c)
+                    try:
+                        if (
+                            color_tool.GetColor(lab_subs, 0, c)
+                            or color_tool.GetColor(lab_subs, 1, c)
+                            or color_tool.GetColor(lab_subs, 2, c)
+                        ):
+                            color_tool.SetInstanceColor(shape, 0, c)
+                            color_tool.SetInstanceColor(shape, 1, c)
+                            color_tool.SetInstanceColor(shape, 2, c)
+                    except TypeError as e:
+                        logger.warning(f"Could not set color for {lab_subs.GetLabelName()}: {e}")
 
                 shape_to_disp = BRepBuilderAPI_Transform(shape_sub, loc.Transformation()).Shape()
                 if shape_to_disp not in output_shapes:

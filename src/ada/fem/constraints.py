@@ -9,6 +9,8 @@ from .sets import FemSet
 from .surfaces import Surface
 
 if TYPE_CHECKING:
+    from ada import Part
+
     from .common import Amplitude
     from .concept import FEM
 
@@ -250,11 +252,7 @@ class PredefinedField(FemBase):
         return self._magnitude
 
     @property
-    def initial_state_part(self):
-        """
-
-        :rtype: ada.Part
-        """
+    def initial_state_part(self) -> Part:
         return self._initial_state_part
 
     @property

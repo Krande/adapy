@@ -31,7 +31,7 @@ def build_box_model(geom_repr: str | GeomRepr, use_hex_quad):
     p.fem = p.to_fem_obj(0.5, shp_repr=geom_repr, interactive=False, **props)
 
     # Add Step
-    step = a.fem.add_step(ada.fem.StepImplicit("MyStep"))
+    step = a.fem.add_step(ada.fem.StepImplicitStatic("MyStep"))
 
     # Add Boundary condition
     btn_nodes = box.bbox().sides.bottom(return_fem_nodes=True)
@@ -91,7 +91,7 @@ def test_surface_beam(surfaces_test_dir):
     p.fem = p.to_fem_obj(0.10, "solid", interactive=False, options=GmshOptions(Mesh_ElementOrder=2))
 
     # Add Step
-    step = a.fem.add_step(ada.fem.StepImplicit("MyStep"))
+    step = a.fem.add_step(ada.fem.StepImplicitStatic("MyStep"))
 
     # Add Boundary Condition
     start_of_beam = bm.bbox().sides.back(return_fem_nodes=True)

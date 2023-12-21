@@ -31,7 +31,7 @@ def convert_sin_to_sif(sin_file: str | pathlib.Path, use_siu=False) -> None:
 
     run_str = f"{exe_str}\nstart /w %EXEPATH% /INTER=L/COM-FI=run_prepost.jnl {run_params} & {log_params}"
 
-    run_bat_file = sin_file.parent / "run_sin2sif.bat"
+    run_bat_file = (sin_file.parent / "run_sin2sif.bat").resolve().absolute()
     with open(run_bat_file, "w") as f:
         f.write(run_str)
 

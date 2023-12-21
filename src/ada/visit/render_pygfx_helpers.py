@@ -12,6 +12,7 @@ from pygfx import (
 )
 from pygfx.utils import Color
 
+from ada.config import logger
 from ada.visit.colors import Color as AdaColor
 from ada.visit.gltf.meshes import MeshStore
 
@@ -73,7 +74,7 @@ class AxesHelper(Line):
         line_positions *= line_size
 
         geometry = Geometry(positions=line_positions, colors=colors)
-        material = LineSegmentMaterial(vertex_colors=True, thickness=thickness, aa=True)
+        material = LineSegmentMaterial(thickness=thickness, aa=True, color_mode="vertex")
 
         super().__init__(geometry, material)
 
@@ -188,7 +189,10 @@ class GridHelper(Line):
 def tri_mat_to_gfx_mat(
     tri_mat: trimesh.visual.material.PBRMaterial,
 ) -> gfx.MeshPhongMaterial | gfx.MeshBasicMaterial:
-    color = gfx.Color(*[x / 255 for x in tri_mat.baseColorFactor[:3]])
+    if tri_mat.baseColorFactor is None:
+        color = gfx.Color(1, 1, 1)
+    else:
+        color = gfx.Color(*[x / 255 for x in tri_mat.baseColorFactor[:3]])
 
     return gfx.MeshPhongMaterial(color=color, flat_shading=True)
 
@@ -257,7 +261,19 @@ def gfx_mesh_from_mesh(
             positions=np.ascontiguousarray(mesh.vertices, dtype="f4"),
             indices=np.ascontiguousarray(mesh.faces, dtype="i4"),
         )
-        mat = tri_mat_to_gfx_mat(mesh.visual.material) if material is None else material
+        if material is None:
+            # This seems to have broken with newer versions of pygfx
+            if hasattr(mesh.visual, "material"):
+                mat = tri_mat_to_gfx_mat(mesh.visual.material)
+            else:
+                logger.warning(
+                    "No material found for mesh, using default color. Maybe related to changes in trimesh>4?"
+                )
+                color = mesh.visual.main_color
+                mat = gfx.MeshPhongMaterial(color=color, flat_shading=True)
+        else:
+            mat = material
+
         mesh = gfx.Mesh(geom, material=mat)
 
     return mesh

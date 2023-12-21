@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from itertools import chain
-from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 
 from ada.api.containers import Nodes
 from ada.config import logger
@@ -32,13 +32,13 @@ if TYPE_CHECKING:
         Spring,
         StepEigen,
         StepExplicit,
-        StepImplicit,
+        StepImplicitStatic,
         StepSteadyState,
     )
     from ada.fem.results.common import Mesh
     from ada.fem.steps import Step
 
-_step_types = Union["StepSteadyState", "StepEigen", "StepImplicit", "StepExplicit"]
+_step_types = Union["StepSteadyState", "StepEigen", "StepImplicitStatic", "StepExplicit"]
 
 
 @dataclass
@@ -66,7 +66,9 @@ class FEM:
     constraints: Dict[str, Constraint] = field(init=False, default_factory=dict)
 
     bcs: List[Bc] = field(init=False, default_factory=list)
-    steps: List[Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]] = field(init=False, default_factory=list)
+    steps: List[Union[StepSteadyState, StepEigen, StepImplicitStatic, StepExplicit]] = field(
+        init=False, default_factory=list
+    )
 
     nodes: Nodes = field(default_factory=Nodes, init=True)
     ref_points: Nodes = field(default_factory=Nodes, init=True)
@@ -121,12 +123,12 @@ class FEM:
         self.bcs.append(bc)
         return bc
 
-    def add_mass(self, mass: Mass) -> Tuple[Mass, FemSet]:
+    def add_mass(self, mass: Mass) -> Mass:
         mass.parent = self
         self.elements.add(mass)
         elset = self.sets.add(FemSet(mass.name + "_set", [mass], "elset"))
         mass.elset = elset
-        return mass, elset
+        return mass
 
     def add_set(
         self,
@@ -244,12 +246,20 @@ class FEM:
         return connector_section
 
     def add_connector(self, connector: Connector) -> Connector:
+        from ada import Assembly
+
         connector.parent = self
+        if not isinstance(self.parent, Assembly):
+            logger.warning(
+                "Connector Elements can usually only be added to an Assembly object. Please check your model."
+            )
+
         self.elements.add(connector)
         connector.csys.parent = self
         if connector.con_sec.parent is None:
             self.add_connector_section(connector.con_sec)
-        self.add_set(FemSet(name=connector.name, members=[connector], set_type="elset"))
+        fs = self.add_set(FemSet(name=connector.name, members=[connector], set_type="elset"))
+        connector.elset = fs
         return connector
 
     def add_rp(self, name: str, node: Node):
@@ -407,6 +417,16 @@ class FEM:
 
         self.elements += other.elements
         self.sections += other.sections
+
+        # Copy any Beam sections to the current FEM parent Part object
+        if self.parent is not None:
+            for sec in self.sections:
+                sec.parent = self
+                if sec.section is None:
+                    continue
+                if sec.section.parent != self.parent:
+                    self.parent.add_object(sec.section)
+
         self.sets += other.sets
 
         for bc in other.bcs:

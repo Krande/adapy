@@ -941,7 +941,9 @@ class Nodes:
     def nodes(self) -> list[Node]:
         return self._nodes
 
-    def get_by_volume(self, p=None, vol_box=None, vol_cyl=None, tol=Settings.point_tol) -> List[Node]:
+    def get_by_volume(
+        self, p=None, vol_box=None, vol_cyl=None, tol=Settings.point_tol, single_member=False
+    ) -> list[Node]:
         """
 
         :param p: Point
@@ -997,9 +999,20 @@ class Nodes:
                         return no
                 return None
 
-            return list(filter(None, [eval_p_in_cyl(q) for q in simplesearch]))
+            result = list(filter(None, [eval_p_in_cyl(q) for q in simplesearch]))
         else:
-            return list(simplesearch)
+            result = list(simplesearch)
+
+        if len(result) == 0:
+            logger.info(f"No vertices found using {p=}, {vol_box=}, {vol_cyl=} and {tol=}")
+            return result
+
+        if single_member:
+            if len(result) != 1:
+                logger.warning(f"Returning member at index=0 despite {len(result)=}. Please check your results")
+            return result[0]
+
+        return result
 
     def add(self, node: Node, point_tol: float = Settings.point_tol, allow_coincident: bool = False) -> Node:
         """Insert node into sorted list"""

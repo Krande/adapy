@@ -19,11 +19,11 @@ from ada.fem import (
     FemSet,
     StepEigen,
     StepExplicit,
-    StepImplicit,
+    StepImplicitStatic,
     StepSteadyState,
 )
 
-_step_types = Union[StepSteadyState, StepEigen, StepImplicit, StepExplicit]
+_step_types = Union[StepSteadyState, StepEigen, StepImplicitStatic, StepExplicit]
 
 if TYPE_CHECKING:
     import ifcopenshell
@@ -143,6 +143,7 @@ class Assembly(Part):
         metadata=None,
         execute=False,
         run_ext=False,
+        mesh_only=False,
         cpus=1,
         gpus=None,
         overwrite=False,
@@ -151,6 +152,7 @@ class Assembly(Part):
         run_in_shell=False,
         make_zip_file=False,
         return_fea_results=True,
+        model_data_only=False,
     ) -> FEAResult | None:
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
@@ -206,7 +208,9 @@ class Assembly(Part):
 
         scratch_dir = Settings.scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
 
-        write_to_fem(self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file)
+        write_to_fem(
+            self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file, model_data_only
+        )
 
         # Execute
         if execute:

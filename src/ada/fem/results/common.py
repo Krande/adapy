@@ -13,6 +13,7 @@ from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
 
 from ...core.guid import create_guid
+from ...visit.comms import send_to_viewer
 from ...visit.gltf.graph import GraphNode, GraphStore
 from ...visit.gltf.meshes import GroupReference, MergedMesh, MeshType
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
@@ -155,7 +156,7 @@ class Mesh:
                 except IndexError as e:
                     logger.error(e)
                     continue
-                if isinstance(elem_shape.type, shape_def.LineShapes):
+                if isinstance(elem_shape.type, (shape_def.LineShapes, shape_def.ConnectorTypes)):
                     continue
 
                 face_s = len(faces)
@@ -287,9 +288,10 @@ class FEAResult:
                     point_data[name] = res
                 elif isinstance(x, ElementFieldData) and x.field_pos == x.field_pos.INT:
                     if isinstance(res, dict):
-                        cell_data.update(res)
+                        for key, value in res.items():
+                            cell_data[key] = value
                     else:
-                        cell_data[name] = [res]
+                        cell_data[name] = res
                 else:
                     raise ValueError()
 
@@ -308,11 +310,31 @@ class FEAResult:
         result = vertices + data[:, :3] * scale
         return result
 
-    def to_meshio_mesh(self) -> meshio.Mesh:
+    def to_meshio_mesh(self, make_3xn_dofs=True) -> meshio.Mesh:
         cells = self._get_cell_blocks()
         cell_data, point_data = self._get_point_and_cell_data()
 
-        return meshio.Mesh(points=self.mesh.nodes.coords, cells=cells, cell_data=cell_data, point_data=point_data)
+        mesh = meshio.Mesh(points=self.mesh.nodes.coords, cells=cells, cell_data=cell_data, point_data=point_data)
+
+        # RMED has 6xN DOF's vertex vectors, but VTU has 3xN DOF's vectors
+        if make_3xn_dofs:
+            new_fields = {}
+            for key, field in mesh.point_data.items():
+                if field.shape[1] == 6:
+                    new_fields[key] = np.array_split(field, 2, axis=1)[0]
+                else:
+                    new_fields[key] = field
+
+            mesh.point_data = new_fields
+
+        return mesh
+
+    def to_vtu(self, filepath, make_3xn_dofs=True):
+        from ada.fem.formats.vtu.write import write_to_vtu_file
+
+        cell_data, point_data = self._get_point_and_cell_data()
+
+        write_to_vtu_file(self.mesh.nodes, self.mesh.elements, point_data, cell_data, filepath)
 
     def to_xdmf(self, filepath):
         cells = self._get_cell_blocks()
@@ -386,6 +408,11 @@ class FEAResult:
         print(f'Writing Visual Mesh to "{dest_file}"')
         with open(dest_file, "wb") as f:
             scene.export(file_obj=f, file_type=dest_file.suffix[1:])
+
+    def to_viewer(
+        self, step: int, field: str, warp_field: str = None, warp_step: int = None, warp_scale: float = None, cfunc=None
+    ):
+        send_to_viewer(self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc))
 
     def get_eig_summary(self) -> EigenDataSummary:
         """If the results are eigenvalue results, this method will return a summary of the eigenvalues and modes"""

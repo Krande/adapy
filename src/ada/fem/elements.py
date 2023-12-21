@@ -137,7 +137,7 @@ class Elem(FemBase):
         self._eccentricity = value
 
     @property
-    def elset(self):
+    def elset(self) -> FemSet:
         return self._elset
 
     @elset.setter
@@ -251,14 +251,15 @@ class Connector(Elem):
     ):
         if type(n1) is not Node or type(n2) is not Node:
             raise ValueError("Connector Start\\end must be nodes")
-        super(Connector, self).__init__(el_id, [n1, n2], ElemType.CONNECTOR_SHAPES.CONNECTOR)
-        super(Elem, self).__init__(name, metadata, parent)
         self._n1 = n1
         self._n2 = n2
         self._con_type = con_type
         self._con_sec = con_sec
         self._preload = preload
         self._csys = csys if csys is not None else Csys(f"{name}_csys")
+
+        super(Connector, self).__init__(el_id, [n1, n2], ElemType.CONNECTOR_SHAPES.CONNECTOR)
+        super(Elem, self).__init__(name, metadata, parent)
 
     @property
     def con_type(self):
@@ -301,7 +302,7 @@ class Connector(Elem):
         self._csys = value
 
     def __repr__(self):
-        return f'ConnectorElem(ID: {self.id}, Type: {self.type}, End1: "{self.n1}", End2: "{self.n2}")'
+        return f'Connector(ID: {self.id}, Type: {self.type}, End1: "{self.n1}", End2: "{self.n2}")'
 
 
 class Spring(Elem):
@@ -471,7 +472,7 @@ class Mass(Elem):
         self._ptype = value
 
     def __repr__(self) -> str:
-        return f"Mass({self.name}, {self.point_mass_type}, [{self.mass}])"
+        return f"Mass(ID: {self._el_id}, {self.name}, {self.point_mass_type}, [{self.mass}])"
 
 
 def find_element_type_from_list(elements: List[Elem]) -> str:

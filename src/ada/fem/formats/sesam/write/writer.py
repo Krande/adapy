@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from ada.config import logger
 from ada.core.utils import Counter, get_current_user
 from ada.fem import FEM
+from ada.fem.exceptions.model_definition import DoesNotSupportMultiPart
 
 from .templates import top_level_fem_str
 from .write_utils import write_ff
@@ -15,7 +16,7 @@ if TYPE_CHECKING:
     from ada import Material
 
 
-def to_fem(assembly, name, analysis_dir=None, metadata=None):
+def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=False):
     from .write_constraints import constraint_str
     from .write_elements import elem_str
     from .write_loads import loads_str
@@ -31,7 +32,9 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None):
 
     parts = list(filter(lambda x: len(x.fem.nodes) > 0, assembly.get_all_subparts(include_self=True)))
     if len(parts) != 1:
-        raise ValueError(f"Sesam writer currently only works for a single part. Currently found {len(parts)}")
+        raise DoesNotSupportMultiPart(
+            f"Sesam writer currently only works for a single part. Currently found {len(parts)}"
+        )
 
     if len(assembly.fem.steps) > 1:
         logger.error("Sesam writer currently only supports 1 step. Will only use 1st step")

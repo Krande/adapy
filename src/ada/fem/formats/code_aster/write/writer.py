@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pathlib
 from typing import TYPE_CHECKING
 
 import h5py
@@ -21,7 +20,7 @@ if TYPE_CHECKING:
     from ada.api.spatial import Assembly, Part
 
 
-def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
+def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_only=False):
     """Write Code_Aster .med and .comm file from Assembly data"""
     from ada.materials.utils import shorten_material_names
 
@@ -35,7 +34,11 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None):
     shorten_material_names(assembly)
     # TODO: Implement support for multiple parts. Need to understand how submeshes in Salome and Code Aster works.
     # for p in filter(lambda x: len(x.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)):
-    write_to_med(name, p, analysis_dir)
+
+    filename = (analysis_dir / name).with_suffix(".med")
+    write_to_med(name, p, filename)
+    if model_data_only:
+        return
 
     with open((analysis_dir / name).with_suffix(".comm"), "w") as f:
         f.write(create_comm_str(assembly, p))
@@ -118,11 +121,8 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     return comm_str
 
 
-def write_to_med(name, part: Part, analysis_dir):
+def write_to_med(name, part: Part, filename):
     """Custom Method for writing a part directly based on meshio"""
-
-    analysis_dir = pathlib.Path(analysis_dir)
-    filename = (analysis_dir / name).with_suffix(".med")
 
     with h5py.File(filename, "w") as f:
         mesh_name = name if name is not None else part.fem.name
