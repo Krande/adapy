@@ -2,3 +2,4 @@ include src/ada/sections/resources/ProfileDB.json
 include src/ada/materials/metals/resources/NLMatParams.json
 include src/ada/cadit/gxml/write/resources/xml_blank.xml
 include src/ada/fem/results/resources/results.sql
+include src/ada/visit/resources/index.zip
