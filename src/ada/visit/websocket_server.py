@@ -41,7 +41,7 @@ class WebSocketServer:
                 await client.send(data)
 
     async def server_start_main(self):
-        async with websockets.serve(self.handler, self.host, self.port, max_size=10**9):
+        async with websockets.serve(self.handler, self.host, self.port, max_size=10 ** 9):
             await asyncio.Future()  # run forever
 
     def start(self):
@@ -76,7 +76,20 @@ async def _check_server_running(host="ws://localhost", port=8765):
 
 
 def is_server_running(host="localhost", port=8765):
-    return asyncio.run(_check_server_running(host, port))
+    loop = asyncio.get_event_loop()
+    if loop.is_running():
+        from websockets.sync.client import connect as sync_connect
+        try:
+            with sync_connect(f"{host}:{port}"):
+                logger.info(f"WebSocket server is already running on ws://localhost:{port}")
+                return True
+        except Exception as e:
+            logger.debug(e)
+            logger.info("WebSocket server is not running")
+            return False
+    else:
+        # If the loop is not running, use run_until_complete
+        return loop.run_until_complete(_check_server_running(host, port))
 
 
 def start_server(shared_queue: Queue = None, host="localhost", port=8765):

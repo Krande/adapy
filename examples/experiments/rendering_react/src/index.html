@@ -3,12 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Three-Fiber Demo</title>
+    <style>
+        html, body, #root {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden; /* Optional: if you want to disable scroll */
+        }
+
+        /* Add any additional global styles here */
+    </style>
 </head>
 <body>
-<p>Something Something</p>
-<div id="root"></div>
-<script type="module" src="index.js"></script>
 
+<div id="root"></div>
+
+<script type="module" src="index.jsx"></script>
 </body>
 </html>

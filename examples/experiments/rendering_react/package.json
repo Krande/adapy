@@ -2,16 +2,16 @@
   "name": "three-fiber-demo",
   "version": "1.0.0",
   "scripts": {
-    "build": "parcel build src/index.html --public-url ./ --no-source-maps"
+    "prebuild": "node clean.js",
+    "build": "vite build && node embed-script.js",
+    "dev": "vite"
   },
   "dependencies": {
     "@react-three/drei": "^9.92.5",
     "@react-three/fiber": "^8.15.12",
+    "@vitejs/plugin-react": "^4.2.1",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
-  },
-  "devDependencies": {
-    "parcel": "2.9.0",
-    "process": "^0.11.10"
+    "react-dom": "^18.2.0",
+    "vite": "^5.0.10"
   }
 }
