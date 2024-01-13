@@ -1,7 +1,7 @@
 // src/App.js
 import {Canvas} from '@react-three/fiber'
 import React, {useCallback, useState} from 'react'
-import {OrbitControls, useGLTF} from '@react-three/drei';
+import {OrbitControls, StatsGl} from '@react-three/drei';
 import GridHelper from './GridHelper';
 import OrientationGizmo from "./OrientationGizmo";
 import useWebSocket from './hooks/useWebSocket';
@@ -47,6 +47,7 @@ function App() {
                 <pointLight position={[-10, -10, -10]} decay={0} intensity={Math.PI}/>
                 {modelUrl && <Model url={modelUrl} onMeshSelected={handleMeshSelected}/>}
                 <GridHelper size={10} divisions={10} colorCenterLine="white" colorGrid="white"/>
+                <StatsGl/>
                 <OrbitControls/>
                 <OrientationGizmo/>
             </Canvas>
