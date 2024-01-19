@@ -5,8 +5,6 @@ from itertools import groupby
 from typing import Iterable
 
 import numpy as np
-import trimesh
-import trimesh.visual
 from OCC.Core.Tesselator import ShapeTesselator
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Shape
 from OCC.Extend.TopologyUtils import discretize_edge
@@ -22,6 +20,10 @@ from ada.visit.colors import Color
 from ada.visit.gltf.meshes import MeshStore, MeshType
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import trimesh
 
 
 @dataclass
@@ -81,6 +83,8 @@ def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, paral
 
 
 def shape_to_tri_mesh(shape: TopoDS_Shape, rgba_color: Iterable[float, float, float, float] = None) -> trimesh.Trimesh:
+    import trimesh.visual
+
     tm = tessellate_shape(shape)
     positions = tm.positions.reshape(len(tm.positions) // 3, 3)
     faces = tm.faces.reshape(len(tm.faces) // 3, 3)
@@ -151,7 +155,7 @@ class BatchTessellator:
         return self.tessellate_occ_geom(occ_geom, geom.id, geom.color)
 
     def batch_tessellate(
-        self, objects: Iterable[Geometry | BackendGeom], render_override: dict[str, GeomRepr] = None
+            self, objects: Iterable[Geometry | BackendGeom], render_override: dict[str, GeomRepr] = None
     ) -> Iterable[MeshStore]:
         if render_override is None:
             render_override = dict()
@@ -178,8 +182,10 @@ class BatchTessellator:
                 continue
 
     def tessellate_part(
-        self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True
+            self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True
     ) -> trimesh.Scene:
+        import trimesh
+
         graph = part.get_graph_store()
         scene = trimesh.Scene(base_frame=graph.top_level.name)
 

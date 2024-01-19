@@ -1,5 +1,5 @@
-import React from 'react';
-import { GizmoHelper, GizmoViewport } from '@react-three/drei';
+import {GizmoHelper, GizmoViewport} from '@react-three/drei';
+import React from "react";
 
 const OrientationGizmo = () => {
     return (
@@ -7,7 +7,7 @@ const OrientationGizmo = () => {
             alignment='bottom-right' // Aligns the gizmo to the bottom-right
             margin={[80, 80]} // Adjust margin as needed
         >
-            <GizmoViewport axisColors={['red', 'green', 'blue']} labelColor="black" />
+            <GizmoViewport axisColors={['red', 'green', 'blue']} labelColor="black"/>
         </GizmoHelper>
     );
 };
