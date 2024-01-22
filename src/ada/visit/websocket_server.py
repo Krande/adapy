@@ -26,6 +26,10 @@ class WebSocketServer:
             return False
 
     async def handler(self, websocket):
+        """This will handle the connection of a new client"""
+        logger.info(f"New client connected from {websocket.remote_address} with origin {websocket.origin}")
+        logger.info(f"Client origins: {self.client_origins}")
+
         if websocket.origin in self.client_origins:
             self.clients.add(websocket)
 
@@ -46,7 +50,7 @@ class WebSocketServer:
 
     def start(self):
         logger.setLevel("INFO")
-        logger.info(f"Starting server {self.host}:{self.port}")
+        logger.info(f"Starting server {self.host}:{self.port} with origins {self.client_origins}")
         asyncio.run(self.server_start_main())
 
     def send(self, data: bytes):
@@ -104,5 +108,13 @@ if __name__ == "__main__":
     argparse.add_argument("--host", type=str, default="localhost")
     args = argparse.parse_args()
 
-    server = WebSocketServer(host=args.host, port=args.port, client_origins=args.origins.split(";"))
+    origins_list = []
+    for origin in args.origins.split(";"):
+        if origin == "localhost":
+            origins_list.append("http://localhost:5173")  # development server
+            origins_list.append("null")  # local html
+        else:
+            origins_list.append(origin)
+
+    server = WebSocketServer(host=args.host, port=args.port, client_origins=origins_list)
     server.start()

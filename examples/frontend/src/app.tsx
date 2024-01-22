@@ -13,13 +13,13 @@ import {useModelStore} from './state/modelStore';
 import {MeshInfo} from "./state/modelInterfaces";
 import {handleWebSocketMessage} from "./utils/handleWebSocketMessage";
 import AnimationControls from './components/AnimationControls';
-import {handleClickEmptySpace} from "./utils/handleClick";
 import {useSelectedObjectStore} from "./state/selectedObjectStore";
+import * as THREE from "three";
 
 function App() {
     const {modelUrl, setModelUrl} = useModelStore();
     const [showPerf, setShowPerf] = useState(true);
-    const {selectedObject, setSelectedObject} = useSelectedObjectStore();
+    const {selectedObject, setSelectedObject, originalColor} = useSelectedObjectStore();
 
     const sendData = useWebSocket('ws://localhost:8765', handleWebSocketMessage(setModelUrl));
     const handleMeshSelected = useCallback((meshInfo: MeshInfo) => {
@@ -28,6 +28,16 @@ function App() {
     }, [sendData]);
     // Wrapper function for onPlay
 
+    const handleMeshEmptySpace = useCallback((event: MouseEvent) => {
+        event.stopPropagation();
+        console.log('click on empty space');
+        if (selectedObject) {
+            console.log(`deselecting object. Reverting to original color ${originalColor}`);
+            (selectedObject.material as THREE.MeshBasicMaterial).color.set(originalColor || 'white');
+            setSelectedObject(null);
+        }
+
+    }, [selectedObject, setSelectedObject, originalColor]);
 
     const blenderBackgroundColor = "#393939"; // Approximation of Blender's background color
     // Custom camera settings
@@ -56,7 +66,7 @@ function App() {
             <Canvas className={"flex-1"}
                 // @ts-ignore
                     camera={cameraProps}
-                    onPointerMissed={(event) => handleClickEmptySpace(event, selectedObject, setSelectedObject)}
+                    onPointerMissed={handleMeshEmptySpace}
                     style={{backgroundColor: blenderBackgroundColor}}>
                 <ambientLight intensity={Math.PI / 2}/>
                 <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} decay={0} intensity={Math.PI}/>
