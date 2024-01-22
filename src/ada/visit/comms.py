@@ -38,14 +38,18 @@ def send_to_viewer(
 
 def send_to_ws_server(data: str | bytes, host="localhost", port=8765, server_exe: pathlib.Path = None,
                       server_args: list[str] = None):
-
     ws = WebSocketServer(host=host, port=port)
-    args = [sys.executable, str(server_exe)]
-    if server_args is not None:
-        args.extend(server_args)
-    args_str = ' '.join(args)
 
     if ws.check_server_running() is False:
+        if server_exe is None:
+            server_exe = WEBSOCKET_EXE_PY
+            server_args = ["--origins", "localhost"]
+
+        args = [sys.executable, str(server_exe)]
+        if server_args is not None:
+            args.extend(server_args)
+
+        args_str = ' '.join(args)
         logger.info("Starting server in separate process")
         # Start the server in a separate process that opens a new shell window
         if platform.system() == "Windows":
@@ -71,25 +75,24 @@ def send_to_viewer_v2(scene: trimesh.Scene, tri_anim: Animate = None, look_at=No
     if isinstance(camera_position, np.ndarray):
         camera_position = camera_position.tolist()
 
-    data = io.BytesIO()
-    scene.export(file_obj=data, file_type="glb", buffer_postprocessor=tri_anim)
-    msg = Message(
-        data=base64.b64encode(data.getvalue()).decode(),
-        look_at=look_at,
-        camera_position=camera_position,
-    )
-    if dry_run:
-        return None
+    with io.BytesIO() as data:
+        scene.export(file_obj=data, file_type="glb", buffer_postprocessor=tri_anim)
+        msg = Message(
+            data=base64.b64encode(data.getvalue()).decode(),
+            look_at=look_at,
+            camera_position=camera_position,
+        )
+        if dry_run:
+            return None
 
-    send_to_ws_server(json.dumps(msg.__dict__))
+        send_to_ws_server(json.dumps(msg.__dict__))
 
-    # Optionally save binary data to file
-    if new_gltf_file is not None:
-        data.seek(0)
-        new_gltf_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(new_gltf_file, "wb") as f:
-            f.write(data.read())
-    data.close()
+        # Optionally save binary data to file
+        if new_gltf_file is not None:
+            data.seek(0)
+            new_gltf_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(new_gltf_file, "wb") as f:
+                f.write(data.read())
 
 
 def send_to_local_viewer(part: ada.Part | trimesh.Scene, host="localhost", port=8765):
