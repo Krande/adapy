@@ -11,7 +11,7 @@ import {useSelectedObjectStore} from '../state/selectedObjectStore';
 
 const Model: React.FC<ModelProps> = ({url, onMeshSelected}) => {
     const {scene, animations} = useGLTF(url, false) as unknown as GLTFResult;
-    const {selectedObject, setSelectedObject, setOriginalColor} = useSelectedObjectStore();
+    const {selectedObject, setSelectedObject, setOriginalColor, originalColor} = useSelectedObjectStore();
     const {action, setCurrentKey} = useAnimationStore();
 
     useAnimationEffects(animations, scene);
@@ -20,7 +20,7 @@ const Model: React.FC<ModelProps> = ({url, onMeshSelected}) => {
         const mesh = event.object as THREE.Mesh;
         if (selectedObject !== mesh) {
             if (selectedObject) {
-                (selectedObject.material as THREE.MeshBasicMaterial).color.set(selectedObject.userData.originalColor || 'white');
+                (selectedObject.material as THREE.MeshBasicMaterial).color.set(originalColor || 'white');
             }
 
             const material = mesh.material as THREE.MeshBasicMaterial;

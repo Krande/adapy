@@ -1,5 +1,7 @@
 # pip install -U pygfx glfw
+import base64
 import io
+import json
 import pathlib
 import time
 from multiprocessing import Manager, Process
@@ -17,6 +19,7 @@ from ada.core.vector_utils import unit_vector
 from ada.geom import Geometry
 from ada.occ.tessellating import BatchTessellator
 from ada.visit.colors import Color
+from ada.visit.comms import WsRenderMessage
 
 try:
     import pygfx as gfx
@@ -168,9 +171,9 @@ class RendererPyGFX:
 
         if self.selected_mesh is not None:
             if (
-                isinstance(obj, gfx.Mesh)
-                and buffer_id == self._selected_mesh_info.buffer_id
-                and geom_index > self._selected_mesh_info.start
+                    isinstance(obj, gfx.Mesh)
+                    and buffer_id == self._selected_mesh_info.buffer_id
+                    and geom_index > self._selected_mesh_info.start
             ):
                 face_index_bump = 1 + self._selected_mesh_info.end - self._selected_mesh_info.start
                 logger.info(f"Adding {face_index_bump} to {geom_index=}")
@@ -294,14 +297,15 @@ def standalone_viewer(host="localhost", port="8765"):
 
         # create a function that will run for each draw call and will check for messages
         with RendererPyGFX(render_backend=SqLiteBackend()) as render:
-
             def _check_for_messages():
                 while not shared_queue.empty():
                     data = shared_queue.get()
+                    data_dict = json.loads(data)
+                    msg = WsRenderMessage(**data_dict)
                     render._scene_objects.clear()
                     logger.info("Got data from server")
                     # process data here
-                    with io.BytesIO(data) as f:
+                    with io.BytesIO(base64.b64decode(msg.data)) as f:
                         scene = trimesh.load_mesh(f, file_type="glb")
 
                     render.add_trimesh_scene(scene, tag="userdata")

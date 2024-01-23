@@ -36,6 +36,9 @@ const AnimationControls = () => {
             <button className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
                     onClick={pauseAnimation}>Pause
             </button>
+            <button className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
+                    onClick={() => seekAnimation(0)}>Reset
+            </button>
             <button
                 className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
                 onClick={() => console.log(useAnimationStore.getState())}

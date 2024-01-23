@@ -122,7 +122,8 @@ def main():
     a = ada.Assembly() / (ada.Part("MyBeam") / objects)
     # a.to_stp("temp/part.stp", geom_repr_override=render_override)
     # a.to_ifc("temp/part.ifc", geom_repr_override=render_override)
-    a.to_viewer()
+    a.show(renderer="react")
+    # a.show(renderer="pygfx")
     # render = RendererPyGFX(render_backend=SqLiteBackend("temp/meshes.db"))
     #
     # def _on_click(event, mesh_data: MeshInfo):

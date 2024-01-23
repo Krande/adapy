@@ -13,18 +13,18 @@ import trimesh
 
 import ada
 from ada.config import logger
-from ada.visit.gltf.gltf_write_animation import Animate
+from ada.api.animations import Animation
 from ada.visit.websocket_server import start_server, WebSocketServer
 
-RENDERER_EXE_PY = pathlib.Path(__file__).parent / "render_pygfx.py"
+PYGFX_RENDERER_EXE_PY = pathlib.Path(__file__).parent / "render_pygfx.py"
 WEBSOCKET_EXE_PY = pathlib.Path(__file__).parent / "websocket_server.py"
 
 
 @dataclass
-class Message:
+class WsRenderMessage:
     data: str  # This will hold the Base64 encoded bytes
-    look_at: list[float, float, float] = None
-    camera_position: list[float, float, float] = None
+    look_at: list[float, float, float] | None = None
+    camera_position: list[float, float, float] | None = None
 
 
 def send_to_viewer(
@@ -36,14 +36,14 @@ def send_to_viewer(
         send_to_web_viewer(part, port=port, origins=origins, meta=meta)
 
 
-def send_to_ws_server(data: str | bytes, host="localhost", port=8765, server_exe: pathlib.Path = None,
-                      server_args: list[str] = None):
+def start_ws_server(host="localhost", port=8765, server_exe: pathlib.Path = None, server_args: list[str] = None):
     ws = WebSocketServer(host=host, port=port)
 
     if ws.check_server_running() is False:
         if server_exe is None:
             server_exe = WEBSOCKET_EXE_PY
-            server_args = ["--origins", "localhost"]
+            if server_args is None or '--origins' not in server_args:
+                server_args = ["--origins", "localhost"]
 
         args = [sys.executable, str(server_exe)]
         if server_args is not None:
@@ -64,10 +64,17 @@ def send_to_ws_server(data: str | bytes, host="localhost", port=8765, server_exe
         while ws.check_server_running() is False:
             time.sleep(0.1)
 
+    return ws
+
+
+def send_to_ws_server(data: str | bytes, host="localhost", port=8765, server_exe: pathlib.Path = None,
+                      server_args: list[str] = None):
+    ws = start_ws_server(host=host, port=port, server_exe=server_exe, server_args=server_args)
+
     ws.send(data)
 
 
-def send_to_viewer_v2(scene: trimesh.Scene, tri_anim: Animate = None, look_at=None, camera_position=None,
+def send_to_viewer_v2(scene: trimesh.Scene, tri_anim: Animation = None, look_at=None, camera_position=None,
                       new_gltf_file=None, dry_run=False):
     if isinstance(look_at, np.ndarray):
         look_at = look_at.tolist()
@@ -77,7 +84,7 @@ def send_to_viewer_v2(scene: trimesh.Scene, tri_anim: Animate = None, look_at=No
 
     with io.BytesIO() as data:
         scene.export(file_obj=data, file_type="glb", buffer_postprocessor=tri_anim)
-        msg = Message(
+        msg = WsRenderMessage(
             data=base64.b64encode(data.getvalue()).decode(),
             look_at=look_at,
             camera_position=camera_position,
@@ -106,7 +113,7 @@ def send_to_local_viewer(part: ada.Part | trimesh.Scene, host="localhost", port=
         end = time.time()
         logger.info(f"Exported to glb in {end - start:.2f} seconds")
 
-        send_to_ws_server(data.getvalue(), host=host, port=port, server_exe=RENDERER_EXE_PY)
+        send_to_ws_server(data.getvalue(), host=host, port=port, server_exe=PYGFX_RENDERER_EXE_PY)
 
 
 def send_to_web_viewer(part: ada.Part, port=8765, origins: list[str] = None, meta: dict = None):

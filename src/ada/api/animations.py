@@ -1,9 +1,13 @@
+from dataclasses import dataclass, field
+
 import numpy as np
 
 
-class Animate:
-    def __init__(self, name: str, translation_keyframes, keyframe_times, rotation_keyframes=None, node_idx: int = None):
+class Animation:
+    def __init__(self, name: str, ref_obj, translation_keyframes, keyframe_times, rotation_keyframes=None,
+                 node_idx: int = None):
         self.name = name
+        self.ref_obj = ref_obj
         self.node_idx = node_idx
         self.translation_keyframes = translation_keyframes
         self.rotation_keyframes = rotation_keyframes
@@ -55,3 +59,15 @@ class Animate:
                 "channels": channels,
             }
         ]
+
+
+@dataclass
+class AnimationStore:
+    animations: list[Animation] = field(default_factory=list)
+
+    def __call__(self, buffer_items, tree, *args, **kwargs):
+        for animation in self.animations:
+            animation(buffer_items, tree, *args, **kwargs)
+
+    def add(self, animation: Animation):
+        self.animations.append(animation)

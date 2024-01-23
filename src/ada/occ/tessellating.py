@@ -195,6 +195,9 @@ class BatchTessellator:
         )
 
         all_shapes = sorted(shapes_tess_iter, key=lambda x: x.material)
+        # filter out all shapes associated with an animation,
+
+
         for mat_id, meshes in groupby(all_shapes, lambda x: x.material):
             if merge_meshes:
                 merged_store = concatenate_stores(meshes)

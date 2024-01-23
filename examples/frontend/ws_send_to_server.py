@@ -7,7 +7,7 @@ def send_ada_model_to_ws_server():
     a = ada.Assembly() / (ada.Part("MyPart") / [bm1, bm2])
     b = ada.Assembly()
     b.fem = a.to_fem_obj(0.1, 'solid')
-    a.to_viewer()
+    a.show()
 
 
 if __name__ == '__main__':

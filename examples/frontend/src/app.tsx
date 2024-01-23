@@ -26,8 +26,8 @@ function App() {
         console.log('Mesh clicked:', meshInfo);
         sendData(JSON.stringify({action: 'meshClick', data: meshInfo}));
     }, [sendData]);
-    // Wrapper function for onPlay
 
+    // Wrapper function for onPlay
     const handleMeshEmptySpace = useCallback((event: MouseEvent) => {
         event.stopPropagation();
         console.log('click on empty space');
@@ -40,11 +40,13 @@ function App() {
     }, [selectedObject, setSelectedObject, originalColor]);
 
     const blenderBackgroundColor = "#393939"; // Approximation of Blender's background color
+
     // Custom camera settings
     const cameraProps = {
         fov: 60, // Adjust this value as needed, a lower value reduces fish-eye effect
         position: [5, 5, 5]
     };
+
     return (
         <div className={"flex flex-col h-full"}>
             <div className={"absolute left-0 z-10 flex flex-col p-2 space-y-4"}>
@@ -76,7 +78,6 @@ function App() {
                 {showPerf && <Perf/>}
                 <OrbitControls enableDamping={false}/>
                 <OrientationGizmo/>
-
             </Canvas>
         </div>
 
