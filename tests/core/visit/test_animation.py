@@ -78,15 +78,16 @@ def test_polygon_animation_simple(polygon_mesh):
     )
 
 
-def test_polygon_animate_using_store(polygon_mesh):
+def test_single_polygon_animate_using_store(polygon_mesh):
     scene = trimesh.Scene()
 
     node_name = scene.add_geometry(polygon_mesh, node_name="test", geom_name="test")
     node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == node_name][0]
+
     animation_store = AnimationStore()
+
     animation = Animation(
-        "squirmy_poly",
-        None,
+        "squirmy_poly_1",
         [0, 2, 4],
         deformation_weights_keyframes=[0, 1, 0],
         deformation_shape=[
@@ -103,4 +104,50 @@ def test_polygon_animate_using_store(polygon_mesh):
         file_obj="temp/polygon_animation_using_store.glb",
         file_type=".glb",
         buffer_postprocessor=animation_store,
+        tree_postprocessor=animation_store.tree_postprocessor,
+    )
+
+
+def test_single_polygon_multiple_animations(polygon_mesh):
+    scene = trimesh.Scene()
+
+    node_name = scene.add_geometry(polygon_mesh, node_name="test", geom_name="test")
+    node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == node_name][0]
+
+    animation_store = AnimationStore()
+    time_keys = [0, 2, 4]
+    def_weights_keys = [0, 1, 0]
+
+    animation = Animation(
+        "squirmy_poly_1",
+        time_keys,
+        deformation_weights_keyframes=def_weights_keys,
+        deformation_shape=[
+            [0.07455, 0.13965, -0.02597],
+            [0.03956, -0.02361, 0.03978],
+            [-0.14752, -0.10503, -0.04253],
+        ],
+        node_idx=node_idx,
+    )
+    animation_store.add(animation)
+
+    animation = Animation(
+        "squirmy_poly_2",
+        time_keys,
+        deformation_weights_keyframes=def_weights_keys,
+        deformation_shape=[
+            [-0.01455, 0.13965, 0.04597],
+            [0.03956, -0.07361, -0.03978],
+            [-0.4752, 0.30503, 0.01253],
+        ],
+        node_idx=node_idx,
+    )
+    animation_store.add(animation)
+
+    os.makedirs("temp", exist_ok=True)
+    scene.export(
+        file_obj="temp/animated_poly_x2.glb",
+        file_type=".glb",
+        buffer_postprocessor=animation_store,
+        tree_postprocessor=animation_store.tree_postprocessor,
     )

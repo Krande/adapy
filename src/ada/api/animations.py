@@ -1,32 +1,22 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 import numpy as np
+from trimesh.exchange.gltf import _data_append
 
 
+@dataclass
 class Animation:
-    def __init__(
-        self,
-        name: str,
-        ref_obj,
-        keyframe_times,
-        translation_keyframes=None,
-        rotation_keyframes=None,
-        deformation_weights_keyframes=None,
-        deformation_shape=None,
-        node_idx: int | list[int] = None,
-    ):
-        self.name = name
-        self.ref_obj = ref_obj
-        self.node_idx = node_idx
-        self.translation_keyframes = translation_keyframes
-        self.rotation_keyframes = rotation_keyframes
-        self.deformation_keyframes = deformation_weights_keyframes
-        self.deformation_shape = deformation_shape
-        self.keyframe_times = keyframe_times
+    name: str
+    keyframe_times: list[float | int]
+    translation_keyframes: list[float | int] = None
+    rotation_keyframes: list[list[float, float, float, float]] = None
+    deformation_weights_keyframes: list[float | int] = None
+    deformation_shape: list[list[float]] = None
+    node_idx: int | list[int] = None
 
-    def __call__(self, buffer_items, tree, *args, **kwargs):
-        from trimesh.exchange.gltf import _data_append
-
+    def __call__(self, buffer_items, tree, num_morph_targets):
         node_idx_list = self.node_idx
         if not isinstance(node_idx_list, list):
             node_idx_list = [node_idx_list]
@@ -68,21 +58,29 @@ class Animation:
                 rotation_channel = {"sampler": sampler_idx, "target": {"node": node_idx, "path": "rotation"}}
                 channels.append(rotation_channel)
 
-        if self.deformation_keyframes is not None:
+        if self.deformation_weights_keyframes is not None:
             deformation_shape_idx = _data_append(
                 acc=tree["accessors"],
                 buff=buffer_items,
                 blob={"componentType": 5126, "type": "VEC3"},
                 data=np.array(self.deformation_shape, dtype="float32"),
             )
-            deformation_keys_idx = _data_append(
+
+            keyframe_weights = self.deformation_weights_keyframes  # An array of 5 scalars
+
+            # Repeat the keyframe weights for each morph target
+            combined_weights = np.tile(keyframe_weights, num_morph_targets)
+
+            deformation_weights_keys_idx = _data_append(
                 acc=tree["accessors"],
                 buff=buffer_items,
                 blob={"componentType": 5126, "type": "SCALAR"},
-                data=np.array(self.deformation_keyframes, dtype="float32"),
+                data=np.array(combined_weights, dtype="float32"),
+                allow_duplicate=False,
             )
 
-            deformation_sampler = {"input": keyframe_idx, "interpolation": "LINEAR", "output": deformation_keys_idx}
+            deformation_sampler = {"input": keyframe_idx, "interpolation": "LINEAR",
+                                   "output": deformation_weights_keys_idx}
             sampler_idx = len(samplers)
             samplers.append(deformation_sampler)
 
@@ -94,14 +92,20 @@ class Animation:
                 mesh_no = tree["nodes"][node_idx]["mesh"]
                 mesh = tree["meshes"][mesh_no]
 
+                deform_target = {"POSITION": deformation_shape_idx}
+
+                # make sure the referenced bufferview contains the target property
                 primitive = mesh["primitives"][0]
                 if primitive.get("targets") is None:
                     primitive["targets"] = []
 
                 target_idx = len(primitive["targets"])
-                primitive["targets"].append({"POSITION": deformation_shape_idx})
+                primitive["targets"].append(deform_target)
 
-                mesh["extras"]["targetNames"] = [self.name]
+                if mesh["extras"].get("targetNames") is None:
+                    mesh["extras"]["targetNames"] = []
+                mesh["extras"]["targetNames"].append(self.name)
+
                 if mesh.get("weights") is None:
                     mesh["weights"] = []
 
@@ -126,7 +130,26 @@ class AnimationStore:
 
     def __call__(self, buffer_items, tree, *args, **kwargs):
         for animation in self.animations:
-            animation(buffer_items, tree, *args, **kwargs)
+            animation(buffer_items, tree, num_morph_targets=len(self.animations))
 
     def add(self, animation: Animation):
         self.animations.append(animation)
+
+    @staticmethod
+    def update_buffer_view(tree, accessor_idx, target_num):
+        buffer_view_idx = tree["accessors"][accessor_idx]["bufferView"]
+        buffer_view = tree["bufferViews"][buffer_view_idx]
+        if buffer_view.get("target") is None:
+            buffer_view["target"] = target_num
+
+    @staticmethod
+    def tree_postprocessor(tree):
+        for anim in tree['animations']:
+            node_idx = anim['channels'][0]['target']['node']
+            mesh_idx = tree['nodes'][node_idx]['mesh']
+            mesh = tree['meshes'][mesh_idx]
+            for primitive in mesh['primitives']:
+                AnimationStore.update_buffer_view(tree, primitive["attributes"]["POSITION"], 34962)
+                AnimationStore.update_buffer_view(tree, primitive["indices"], 34963)
+                for target in primitive["targets"]:
+                    AnimationStore.update_buffer_view(tree, target["POSITION"], 34962)

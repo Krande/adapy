@@ -121,7 +121,7 @@ class Mesh:
         return edges, faces
 
     def create_mesh_stores(
-        self, parent_name: str, shell_color, line_color, points_color, graph: GraphStore, parent_node: GraphNode
+            self, parent_name: str, shell_color, line_color, points_color, graph: GraphStore, parent_node: GraphNode
     ) -> tuple[MergedMesh, MergedMesh, MergedMesh]:
         from ada.fem.shapes import ElemShape
         from ada.fem.shapes import definitions as shape_def
@@ -210,7 +210,7 @@ class FEAResult:
         return results
 
     def get_data_by_field_and_elem_ids(
-        self, field: str, elem_ids: list[int], int_points: list[int] = None
+            self, field: str, elem_ids: list[int], int_points: list[int] = None
     ) -> list[ElementFieldData]:
         data = self.get_results_grouped_by_field_value()
         values = data.get(field)
@@ -225,7 +225,7 @@ class FEAResult:
         return self.get_data_by_field_and_elem_ids(field, fs.members, int_points)
 
     def get_field_value_by_name(
-        self, name: str, step: int = None
+            self, name: str, step: int = None
     ) -> ElementFieldData | NodalFieldData | list[ElementFieldData | NodalFieldData]:
         data = self.get_results_grouped_by_field_value()
         values = data.get(name)
@@ -365,7 +365,8 @@ class FEAResult:
         mesh.write(fem_file)
 
     def to_trimesh(
-        self, step: int, field: str, warp_field: str = None, warp_step: int = None, warp_scale: float = None, cfunc=None
+            self, step: int, field: str, warp_field: str = None, warp_step: int = None, warp_scale: float = None,
+            cfunc=None
     ):
         import trimesh
         from trimesh.path.entities import Line
@@ -411,20 +412,20 @@ class FEAResult:
             scene.export(file_obj=f, file_type=dest_file.suffix[1:])
 
     def show(
-        self,
-        step: int=None,
-        field: str=None,
-        warp_field: str = None,
-        warp_step: int = None,
-        warp_scale: float = 1.0,
-        cfunc=None,
-        host="localhost",
-        port=8765,
-        renderer="react",
-        server_exe: pathlib.Path = None,
-        server_args: list[str] = None,
-        new_glb_file: str = None,
-        **kwargs,
+            self,
+            step: int = None,
+            field: str = None,
+            warp_field: str = None,
+            warp_step: int = None,
+            warp_scale: float = 1.0,
+            cfunc=None,
+            host="localhost",
+            port=8765,
+            renderer="react",
+            server_exe: pathlib.Path = None,
+            server_args: list[str] = None,
+            new_glb_file: str = None,
+            **kwargs,
     ):
         import io
         import trimesh
@@ -444,14 +445,14 @@ class FEAResult:
         edges, faces = self.mesh.get_edges_and_faces_from_mesh()
 
         faces_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
-        faces_mesh.visual.material = PBRMaterial(doubleSided=True)
 
         entities = [Line(x) for x in edges]
         edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
 
         scene = trimesh.Scene()
         face_node = scene.add_geometry(faces_mesh, node_name=self.name, geom_name="faces")
-        edge_node = scene.add_geometry(edge_mesh, node_name=f"{self.name}_edges", geom_name="edges", parent_node_name=self.name)
+        edge_node = scene.add_geometry(edge_mesh, node_name=f"{self.name}_edges", geom_name="edges",
+                                       parent_node_name=self.name)
 
         face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == face_node][0]
         edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == edge_node][0]
@@ -469,9 +470,8 @@ class FEAResult:
             delta_vertices = warped_vertices - vertices
             animation = Animation(
                 result.name,
-                None,
-                [0, 2],
-                deformation_weights_keyframes=[0, 1],
+                [0, 2, 4, 6, 8],
+                deformation_weights_keyframes=[0, 1, 0, -1, 0],
                 deformation_shape=delta_vertices,
                 node_idx=[face_node_idx],
             )
@@ -483,8 +483,11 @@ class FEAResult:
         m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
         scene.apply_transform(m4x4)
 
+
+
         with io.BytesIO() as data:
-            scene.export(file_obj=data, file_type="glb", buffer_postprocessor=animation_store)
+            scene.export(file_obj=data, file_type="glb", buffer_postprocessor=animation_store,
+                         tree_postprocessor=AnimationStore.tree_postprocessor)
 
             msg = WsRenderMessage(
                 data=base64.b64encode(data.getvalue()).decode(),
@@ -495,7 +498,8 @@ class FEAResult:
 
         if new_glb_file is not None:
             with open(new_glb_file, "wb") as f:
-                scene.export(file_obj=f, file_type="glb", buffer_postprocessor=animation_store)
+                scene.export(file_obj=f, file_type="glb", buffer_postprocessor=animation_store,
+                             tree_postprocessor=AnimationStore.tree_postprocessor)
 
     def get_eig_summary(self) -> EigenDataSummary:
         """If the results are eigenvalue results, this method will return a summary of the eigenvalues and modes"""
