@@ -1,5 +1,5 @@
 // Model.tsx
-import React from 'react';
+import React, {useEffect} from 'react';
 import {useGLTF} from '@react-three/drei';
 import {ThreeEvent, useFrame} from "@react-three/fiber";
 import * as THREE from 'three'
@@ -15,6 +15,15 @@ const Model: React.FC<ModelProps> = ({url, onMeshSelected}) => {
     const {action, setCurrentKey} = useAnimationStore();
 
     useAnimationEffects(animations, scene);
+
+    useEffect(() => {
+        scene.traverse((object) => {
+            if (object instanceof THREE.Mesh) {
+                object.material.side = THREE.DoubleSide;
+            }
+        });
+    }, [scene]);
+
     const handleMeshSelected = (event: ThreeEvent<PointerEvent>) => {
         event.stopPropagation();
         const mesh = event.object as THREE.Mesh;

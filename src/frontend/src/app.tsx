@@ -71,7 +71,7 @@ function App() {
                     onPointerMissed={handleMeshEmptySpace}
                     style={{backgroundColor: blenderBackgroundColor}}>
                 <ambientLight intensity={Math.PI / 2}/>
-                <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} decay={0} intensity={Math.PI}/>
+                <spotLight position={[50, 50, 50]} angle={0.15} penumbra={1} decay={0} intensity={Math.PI}/>
                 <pointLight position={[-10, -10, -10]} decay={0} intensity={Math.PI}/>
                 {modelUrl && <Model url={modelUrl} onMeshSelected={handleMeshSelected}/>}
                 <GridHelper size={10} divisions={10} colorCenterLine="white" colorGrid="white"/>

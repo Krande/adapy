@@ -3,6 +3,8 @@ import os
 import numpy as np
 import trimesh
 
+from ada.api.animations import Animation, AnimationStore
+
 
 def test_polygon_animation_simple(polygon_mesh):
     scene = trimesh.Scene()
@@ -73,4 +75,32 @@ def test_polygon_animation_simple(polygon_mesh):
         file_obj="temp/polygon_animation.glb",
         file_type=".glb",
         buffer_postprocessor=add_animation_to_buffer,
+    )
+
+
+def test_polygon_animate_using_store(polygon_mesh):
+    scene = trimesh.Scene()
+
+    node_name = scene.add_geometry(polygon_mesh, node_name="test", geom_name="test")
+    node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == node_name][0]
+    animation_store = AnimationStore()
+    animation = Animation(
+        "squirmy_poly",
+        None,
+        [0, 2, 4],
+        deformation_weights_keyframes=[0, 1, 0],
+        deformation_shape=[
+            [0.07455, 0.13965, -0.02597],
+            [0.03956, -0.02361, 0.03978],
+            [-0.14752, -0.10503, -0.04253],
+        ],
+        node_idx=node_idx,
+    )
+    animation_store.add(animation)
+
+    os.makedirs("temp", exist_ok=True)
+    scene.export(
+        file_obj="temp/polygon_animation_using_store.glb",
+        file_type=".glb",
+        buffer_postprocessor=animation_store,
     )

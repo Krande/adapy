@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 import os
 import pathlib
 from dataclasses import dataclass
@@ -11,12 +13,11 @@ import numpy as np
 from ada.config import logger
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
-
+from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 from ...core.guid import create_guid
 from ...visit.comms import send_to_viewer
 from ...visit.gltf.graph import GraphNode, GraphStore
 from ...visit.gltf.meshes import GroupReference, MergedMesh, MeshType
-from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 
 if TYPE_CHECKING:
     from ada import Material, Node, Section
@@ -409,10 +410,92 @@ class FEAResult:
         with open(dest_file, "wb") as f:
             scene.export(file_obj=f, file_type=dest_file.suffix[1:])
 
-    def to_viewer(
-        self, step: int, field: str, warp_field: str = None, warp_step: int = None, warp_scale: float = None, cfunc=None
+    def show(
+        self,
+        step: int=None,
+        field: str=None,
+        warp_field: str = None,
+        warp_step: int = None,
+        warp_scale: float = 1.0,
+        cfunc=None,
+        host="localhost",
+        port=8765,
+        renderer="react",
+        server_exe: pathlib.Path = None,
+        server_args: list[str] = None,
+        new_glb_file: str = None,
+        **kwargs,
     ):
-        send_to_viewer(self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc))
+        import io
+        import trimesh
+        from trimesh.visual.material import PBRMaterial
+        from ...core.vector_transforms import rot_matrix
+        from ada.api.animations import AnimationStore, Animation
+        from ada.visit.comms import start_ws_server, WsRenderMessage
+        from trimesh.path.entities import Line
+
+        if renderer == "pygfx":
+            scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)
+            send_to_viewer(scene)
+            return None
+
+        # initial mesh
+        vertices = self.mesh.nodes.coords
+        edges, faces = self.mesh.get_edges_and_faces_from_mesh()
+
+        faces_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+        faces_mesh.visual.material = PBRMaterial(doubleSided=True)
+
+        entities = [Line(x) for x in edges]
+        edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
+
+        scene = trimesh.Scene()
+        face_node = scene.add_geometry(faces_mesh, node_name=self.name, geom_name="faces")
+        edge_node = scene.add_geometry(edge_mesh, node_name=f"{self.name}_edges", geom_name="edges", parent_node_name=self.name)
+
+        face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == face_node][0]
+        edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == edge_node][0]
+
+        # Start the websocket server
+        ws = start_ws_server(server_exe=server_exe, server_args=server_args, host=host, port=port)
+
+        # React renderer supports animations
+        animation_store = AnimationStore()
+
+        # Loop over the results and create an animation from it
+        vertices = self.mesh.nodes.coords
+        for result in self.results:
+            warped_vertices = self._warp_data(vertices, result.name, result.step, warp_scale)
+            delta_vertices = warped_vertices - vertices
+            animation = Animation(
+                result.name,
+                None,
+                [0, 2],
+                deformation_weights_keyframes=[0, 1],
+                deformation_shape=delta_vertices,
+                node_idx=[face_node_idx],
+            )
+            animation_store.add(animation)
+
+        # Trimesh automatically transforms by setting up = Y. This will counteract that transform
+        m3x3 = rot_matrix((0, -1, 0))
+        m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
+        m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
+        scene.apply_transform(m4x4)
+
+        with io.BytesIO() as data:
+            scene.export(file_obj=data, file_type="glb", buffer_postprocessor=animation_store)
+
+            msg = WsRenderMessage(
+                data=base64.b64encode(data.getvalue()).decode(),
+                look_at=kwargs.get("look_at", None),
+                camera_position=kwargs.get("camera_position", None),
+            )
+            ws.send(json.dumps(msg.__dict__))
+
+        if new_glb_file is not None:
+            with open(new_glb_file, "wb") as f:
+                scene.export(file_obj=f, file_type="glb", buffer_postprocessor=animation_store)
 
     def get_eig_summary(self) -> EigenDataSummary:
         """If the results are eigenvalue results, this method will return a summary of the eigenvalues and modes"""

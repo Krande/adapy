@@ -21,8 +21,8 @@ def main():
 
     rmed = ada.from_fem_res(rmed_file)
     # rmed.to_xdmf("temp/eigen_shell_cantilever_code_aster.xdmf")
-    rmed.to_gltf("temp/eigen_shell_cantilever_code_aster.glb")
-    rmed.to_viewer(1, "modes___DEPL[0] - 13.5363")
+    #rmed.to_gltf("temp/eigen_shell_cantilever_code_aster.glb")
+    rmed.show(new_glb_file="temp/eigen_shell_cantilever_code_aster.glb")
 
 
 if __name__ == "__main__":
