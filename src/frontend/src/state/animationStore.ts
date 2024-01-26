@@ -1,6 +1,8 @@
 // animationStore.ts
 import {create} from 'zustand';
 import {AnimationMixer, AnimationAction, AnimationClip} from 'three';
+import * as THREE from 'three';
+import {colorVerticesBasedOnDeformation} from '../utils/colorize_vector_data';
 
 type State = {
     animations: AnimationClip[];
@@ -30,32 +32,83 @@ export const useAnimationStore = create<State>((set) => ({
 
     setAnimations: (animations) => {
         set((state) => {
-        // Set the animations array
-        const newState = { ...state, animations };
+            // Set the animations array
+            const newState = {...state, animations};
 
-        // If there are animations, select the first one
-        if (animations.length > 0) {
-            const firstAnimationName = animations[0].name;
-            const selectedClip = animations.find(clip => clip.name === firstAnimationName);
-            const selectedDuration = selectedClip ? selectedClip.duration : 0;
 
-            newState.selectedAnimation = firstAnimationName;
-            newState.animationDuration = selectedDuration;
-        }
+            // If there are animations, select the first one
+            if (animations.length > 0) {
+                // If there is no selected animation, select the "No Animation" option
+                if (!state.selectedAnimation) {
+                    newState.selectedAnimation = 'No Animation';
+                } else {
+                    const firstAnimationName = animations[0].name;
+                    const selectedClip = animations.find(clip => clip.name === firstAnimationName);
+                    const selectedDuration = selectedClip ? selectedClip.duration : 0;
 
-        return newState;
-    });
+                    newState.selectedAnimation = firstAnimationName;
+                    newState.animationDuration = selectedDuration;
+                }
+            }
+
+            return newState;
+        });
     },
     setSelectedAnimation: (animation) => {
         set((state) => {
-            const selectedClip = state.animations.find(clip => clip.name === animation);
-            const selectedDuration = selectedClip ? selectedClip.duration : 0;
+            if (animation === 'No Animation') {
+                if (state.action) {
+                    state.action.stop();
+                }
 
-            return {
-                ...state,
-                selectedAnimation: animation,
-                animationDuration: selectedDuration,
-            };
+                // Reset morph target influences
+                if (state.mixer) {
+                    const root = state.mixer.getRoot();
+                    if (root instanceof THREE.Object3D) {
+                        root.traverse((object: THREE.Object3D) => {
+                            if (object instanceof THREE.Mesh && object.morphTargetInfluences) {
+                                object.morphTargetInfluences.fill(0);
+                            }
+                        });
+                    }
+                }
+
+                return {
+                    ...state,
+                    selectedAnimation: animation,
+                    animationDuration: 0,
+                };
+            } else {
+                const selectedClip = state.animations.find(clip => clip.name === animation);
+                const selectedDuration = selectedClip ? selectedClip.duration : 0;
+                const selectedClipIndex = state.animations.findIndex(clip => clip.name === animation);
+
+
+
+                // find the morphed mesh object related to selectedClip animation
+                if (state.mixer) {
+                    const root = state.mixer.getRoot();
+                    let selectedObject = null;
+                    if (root instanceof THREE.Object3D) {
+                        root.traverse((object: THREE.Object3D) => {
+                            if (object instanceof THREE.Mesh && object.morphTargetInfluences) {
+                                selectedObject = object;
+                            }
+                        });
+                    }
+                    if (selectedObject) {
+                        colorVerticesBasedOnDeformation(selectedObject, selectedClipIndex);
+                    }
+                }
+
+
+
+                return {
+                    ...state,
+                    selectedAnimation: animation,
+                    animationDuration: selectedDuration,
+                };
+            }
         });
     },
     setAnimationDuration: (duration) => set({animationDuration: duration}),

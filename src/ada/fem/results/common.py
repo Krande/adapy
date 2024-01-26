@@ -444,7 +444,6 @@ class FEAResult:
         edges, faces = self.mesh.get_edges_and_faces_from_mesh()
 
         faces_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
-        faces_mesh.visual.material.doubleSided = True
 
         entities = [Line(x) for x in edges]
         edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)

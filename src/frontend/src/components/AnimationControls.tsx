@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useEffect} from 'react';
 import {useAnimationStore} from '../state/animationStore';
 
 
@@ -17,14 +17,24 @@ const AnimationControls = () => {
     } = useAnimationStore();
 
     const roundedCurrentKey = parseFloat(currentKey.toFixed(2));
+    const handleAnimationChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const animationName = e.target.value;
+        setSelectedAnimation(animationName);
+    };
+
+    const stopAnimation = () => {
+        pauseAnimation();
+        seekAnimation(0);
+    }
 
     return (
         <div className={"flex flex-col space-y-4"}>
             <select
                 className={"font-bold py-2 px-4 ml-2 rounded"}
                 value={selectedAnimation}
-                onChange={(e) => setSelectedAnimation(e.target.value)}
+                onChange={handleAnimationChange}
             >
+                <option>No Animation</option>
                 {animations.map(animation => (
                     <option key={animation.name} value={animation.name}>{animation.name}</option>
                 ))}
@@ -37,13 +47,14 @@ const AnimationControls = () => {
                     onClick={pauseAnimation}>Pause
             </button>
             <button className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
-                    onClick={() => seekAnimation(0)}>Reset
+                    onClick={stopAnimation}>Stop
             </button>
             <button
                 className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
                 onClick={() => console.log(useAnimationStore.getState())}
             >Print State
             </button>
+
             <div className="px-4">
                 <input
                     type="range"

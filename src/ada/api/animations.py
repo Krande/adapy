@@ -70,7 +70,7 @@ class Animation:
             for i, weight in enumerate(self.deformation_weights_keyframes):
                 keyframe_weights[i * num_morph_targets + morph_target_index] = weight
 
-            print(keyframe_weights)
+            # print(keyframe_weights)
             deformation_weights_keys_idx = _data_append(
                 acc=tree["accessors"],
                 buff=buffer_items,

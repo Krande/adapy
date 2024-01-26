@@ -15,6 +15,7 @@ import {handleWebSocketMessage} from "./utils/handleWebSocketMessage";
 import AnimationControls from './components/AnimationControls';
 import {useSelectedObjectStore} from "./state/selectedObjectStore";
 import * as THREE from "three";
+import ColorLegend from "./components/ColorLegend";
 
 function App() {
     const {modelUrl, setModelUrl} = useModelStore();
@@ -79,6 +80,11 @@ function App() {
                 <OrbitControls enableDamping={false}/>
                 <OrientationGizmo/>
             </Canvas>
+
+            <div className={"absolute right-5 top-60"}>
+                <ColorLegend/>
+            </div>
+
         </div>
 
 

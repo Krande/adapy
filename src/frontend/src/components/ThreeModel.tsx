@@ -12,7 +12,7 @@ import {useSelectedObjectStore} from '../state/selectedObjectStore';
 const Model: React.FC<ModelProps> = ({url, onMeshSelected}) => {
     const {scene, animations} = useGLTF(url, false) as unknown as GLTFResult;
     const {selectedObject, setSelectedObject, setOriginalColor, originalColor} = useSelectedObjectStore();
-    const {action, setCurrentKey} = useAnimationStore();
+    const {action, setCurrentKey, setSelectedAnimation} = useAnimationStore();
 
     useAnimationEffects(animations, scene);
 
@@ -22,6 +22,9 @@ const Model: React.FC<ModelProps> = ({url, onMeshSelected}) => {
                 object.material.side = THREE.DoubleSide;
             }
         });
+
+        setSelectedAnimation('No Animation');
+
     }, [scene]);
 
     const handleMeshSelected = (event: ThreeEvent<PointerEvent>) => {

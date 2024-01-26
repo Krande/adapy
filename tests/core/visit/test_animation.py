@@ -115,6 +115,7 @@ def test_single_polygon_multiple_animations(polygon_mesh):
     node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == node_name][0]
 
     animation_store = AnimationStore()
+
     time_keys = [0, 2, 4]
     def_weights_keys = [0, 1, 0]
 
