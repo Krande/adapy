@@ -16,7 +16,7 @@ class Animation:
     deformation_shape: list[list[float]] = None
     node_idx: int | list[int] = None
 
-    def __call__(self, buffer_items, tree, num_morph_targets):
+    def __call__(self, buffer_items, tree, morph_target_index, num_morph_targets):
         node_idx_list = self.node_idx
         if not isinstance(node_idx_list, list):
             node_idx_list = [node_idx_list]
@@ -66,17 +66,16 @@ class Animation:
                 data=np.array(self.deformation_shape, dtype="float32"),
             )
 
-            keyframe_weights = self.deformation_weights_keyframes  # An array of 5 scalars
+            keyframe_weights = np.zeros((len(self.deformation_weights_keyframes) * num_morph_targets), dtype="float32")
+            for i, weight in enumerate(self.deformation_weights_keyframes):
+                keyframe_weights[i * num_morph_targets + morph_target_index] = weight
 
-            # Repeat the keyframe weights for each morph target
-            combined_weights = np.tile(keyframe_weights, num_morph_targets)
-
+            print(keyframe_weights)
             deformation_weights_keys_idx = _data_append(
                 acc=tree["accessors"],
                 buff=buffer_items,
                 blob={"componentType": 5126, "type": "SCALAR"},
-                data=np.array(combined_weights, dtype="float32"),
-                allow_duplicate=False,
+                data=keyframe_weights
             )
 
             deformation_sampler = {"input": keyframe_idx, "interpolation": "LINEAR",
@@ -129,8 +128,8 @@ class AnimationStore:
     animations: list[Animation] = field(default_factory=list)
 
     def __call__(self, buffer_items, tree, *args, **kwargs):
-        for animation in self.animations:
-            animation(buffer_items, tree, num_morph_targets=len(self.animations))
+        for idx, animation in enumerate(self.animations):
+            animation(buffer_items, tree, morph_target_index=idx, num_morph_targets=len(self.animations))
 
     def add(self, animation: Animation):
         self.animations.append(animation)
@@ -144,6 +143,9 @@ class AnimationStore:
 
     @staticmethod
     def tree_postprocessor(tree):
+        for material in tree['materials']:
+            material["doubleSided"] = True
+
         for anim in tree['animations']:
             node_idx = anim['channels'][0]['target']['node']
             mesh_idx = tree['nodes'][node_idx]['mesh']

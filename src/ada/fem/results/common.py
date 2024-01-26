@@ -429,7 +429,6 @@ class FEAResult:
     ):
         import io
         import trimesh
-        from trimesh.visual.material import PBRMaterial
         from ...core.vector_transforms import rot_matrix
         from ada.api.animations import AnimationStore, Animation
         from ada.visit.comms import start_ws_server, WsRenderMessage
@@ -445,6 +444,7 @@ class FEAResult:
         edges, faces = self.mesh.get_edges_and_faces_from_mesh()
 
         faces_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+        faces_mesh.visual.material.doubleSided = True
 
         entities = [Line(x) for x in edges]
         edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
@@ -482,8 +482,6 @@ class FEAResult:
         m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
         m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
         scene.apply_transform(m4x4)
-
-
 
         with io.BytesIO() as data:
             scene.export(file_obj=data, file_type="glb", buffer_postprocessor=animation_store,

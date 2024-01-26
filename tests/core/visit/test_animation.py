@@ -118,31 +118,25 @@ def test_single_polygon_multiple_animations(polygon_mesh):
     time_keys = [0, 2, 4]
     def_weights_keys = [0, 1, 0]
 
-    animation = Animation(
-        "squirmy_poly_1",
-        time_keys,
-        deformation_weights_keyframes=def_weights_keys,
-        deformation_shape=[
-            [0.07455, 0.13965, -0.02597],
-            [0.03956, -0.02361, 0.03978],
-            [-0.14752, -0.10503, -0.04253],
-        ],
-        node_idx=node_idx,
-    )
-    animation_store.add(animation)
+    origin_vertices = [
+        [0., 0., 0.],
+        [0., 0., 0.],
+        [0., 0., 0.],
+    ]
 
-    animation = Animation(
-        "squirmy_poly_2",
-        time_keys,
-        deformation_weights_keyframes=def_weights_keys,
-        deformation_shape=[
-            [-0.01455, 0.13965, 0.04597],
-            [0.03956, -0.07361, -0.03978],
-            [-0.4752, 0.30503, 0.01253],
-        ],
-        node_idx=node_idx,
-    )
-    animation_store.add(animation)
+    move_vertice = [0.5, 0.5, 0.]
+    for i in range(0, 3):
+        current_vertices = origin_vertices.copy()
+        current_vertices[i] = move_vertice
+
+        animation = Animation(
+            f"squirmy_poly_{i}",
+            time_keys,
+            deformation_weights_keyframes=def_weights_keys,
+            deformation_shape=current_vertices,
+            node_idx=node_idx,
+        )
+        animation_store.add(animation)
 
     os.makedirs("temp", exist_ok=True)
     scene.export(
