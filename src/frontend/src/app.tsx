@@ -61,7 +61,7 @@ function App() {
                 >Hide stats
                 </button>
 
-                <div className={"flex-1"}>
+                <div className={"flex-1 w-60"}>
                     <AnimationControls/>
                 </div>
             </div>
@@ -81,7 +81,7 @@ function App() {
                 <OrientationGizmo/>
             </Canvas>
 
-            <div className={"absolute right-5 top-60"}>
+            <div className={"absolute right-5 top-60 h-96 w-28"}>
                 <ColorLegend/>
             </div>
 

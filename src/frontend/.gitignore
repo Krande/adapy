@@ -1,3 +1,4 @@
 .parcel-cache/
 .cache/
 node_modules/
+stats.html

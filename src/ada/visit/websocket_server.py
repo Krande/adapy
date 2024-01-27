@@ -112,6 +112,7 @@ if __name__ == "__main__":
     for origin in args.origins.split(";"):
         if origin == "localhost":
             origins_list.append("http://localhost:5173")  # development server
+            origins_list.append("http://localhost:8889")  # jupyter server
             origins_list.append("null")  # local html
         else:
             origins_list.append(origin)

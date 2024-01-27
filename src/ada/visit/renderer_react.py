@@ -1,8 +1,6 @@
 import os
-
-import zipfile
-
 import pathlib
+import zipfile
 
 from ada.visit.colors import Color
 from ada.visit.render_backend import (
@@ -27,15 +25,32 @@ class RendererReact:
 
     def show(self):
         if in_notebook():
-            return self._render_in_notebook()
+            return self.get_notebook_renderer()
         else:
             # open html file in browser
             os.startfile(self.local_html_path)
 
-    def _render_in_notebook(self):
-        from IPython.display import IFrame
+    def get_notebook_renderer(self):
+        from IPython.display import HTML
 
-        return IFrame(src=self.local_html_path, width="100%", height=500)
+        height = 500
+        as_html = self.local_html_path.read_text()
+        # escape the quotes in the HTML
+        srcdoc = as_html.replace('"', "&quot;")
+        # embed this puppy as the srcdoc attr of an IFframe
+        # I tried this a dozen ways and this is the only one that works
+        # display.IFrame/display.Javascript really, really don't work
+        # div is to avoid IPython's pointless hardcoded warning
+        embedded = HTML(
+            " ".join(
+                [
+                    '<div><iframe srcdoc="{srcdoc}"',
+                    'width="100%" height="{height}px"',
+                    'style="border:none;"></iframe></div>',
+                ]
+            ).format(srcdoc=srcdoc, height=height)
+        )
+        return embedded
 
 
 def main():

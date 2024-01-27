@@ -4,7 +4,7 @@ import ada
 from ada.config import logger
 
 logger.setLevel("INFO")
-_ROOT_DIR = pathlib.Path(__file__).parent.parent.parent.parent
+_ROOT_DIR = pathlib.Path(__file__).parent.parent.parent
 EX_DIR = _ROOT_DIR / "files" / "fem_files" / "cantilever" / "code_aster"
 
 

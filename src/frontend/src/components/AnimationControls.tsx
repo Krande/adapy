@@ -1,9 +1,7 @@
-import React, {useEffect} from 'react';
+import React, {useState} from 'react';
 import {useAnimationStore} from '../state/animationStore';
 
-
 const AnimationControls = () => {
-
     const {
         animations,
         selectedAnimation,
@@ -16,19 +14,35 @@ const AnimationControls = () => {
         seekAnimation,
     } = useAnimationStore();
 
+    const [isPlaying, setIsPlaying] = useState(false); // Add this line
+
     const roundedCurrentKey = parseFloat(currentKey.toFixed(2));
     const handleAnimationChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const animationName = e.target.value;
         setSelectedAnimation(animationName);
+        // stop animation if it's playing
+        if (isPlaying) {
+            stopAnimation();
+        }
     };
 
     const stopAnimation = () => {
         pauseAnimation();
         seekAnimation(0);
+        setIsPlaying(false); // Add this line
+    }
+
+    const togglePlayPause = () => { // Modify this function
+        if (isPlaying) {
+            pauseAnimation();
+        } else {
+            playAnimation(selectedAnimation);
+        }
+        setIsPlaying(!isPlaying);
     }
 
     return (
-        <div className={"flex flex-col space-y-4"}>
+        <div className={"flex flex-col space-y-4 w-full"}>
             <select
                 className={"font-bold py-2 px-4 ml-2 rounded"}
                 value={selectedAnimation}
@@ -40,11 +54,11 @@ const AnimationControls = () => {
                 ))}
             </select>
 
-            <button className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
-                    onClick={() => playAnimation(selectedAnimation)}>Play
-            </button>
-            <button className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
-                    onClick={pauseAnimation}>Pause
+            <button
+                className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
+                onClick={togglePlayPause}
+            >
+                Play/Pause
             </button>
             <button className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
                     onClick={stopAnimation}>Stop
@@ -55,7 +69,7 @@ const AnimationControls = () => {
             >Print State
             </button>
 
-            <div className="px-4">
+            <div className="px-4 w-full">
                 <input
                     type="range"
                     min="0"

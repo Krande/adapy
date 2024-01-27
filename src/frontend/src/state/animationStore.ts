@@ -88,16 +88,16 @@ export const useAnimationStore = create<State>((set) => ({
                 // find the morphed mesh object related to selectedClip animation
                 if (state.mixer) {
                     const root = state.mixer.getRoot();
-                    let selectedObject = null;
+                    let morphTargetObject = null;
                     if (root instanceof THREE.Object3D) {
                         root.traverse((object: THREE.Object3D) => {
                             if (object instanceof THREE.Mesh && object.morphTargetInfluences) {
-                                selectedObject = object;
+                                morphTargetObject = object;
                             }
                         });
                     }
-                    if (selectedObject) {
-                        colorVerticesBasedOnDeformation(selectedObject, selectedClipIndex);
+                    if (morphTargetObject) {
+                        colorVerticesBasedOnDeformation(morphTargetObject, selectedClipIndex);
                     }
                 }
 

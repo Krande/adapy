@@ -18,6 +18,7 @@ from ...core.guid import create_guid
 from ...visit.comms import send_to_viewer
 from ...visit.gltf.graph import GraphNode, GraphStore
 from ...visit.gltf.meshes import GroupReference, MergedMesh, MeshType
+from ...visit.renderer_react import RendererReact
 
 if TYPE_CHECKING:
     from ada import Material, Node, Section
@@ -425,6 +426,7 @@ class FEAResult:
             server_exe: pathlib.Path = None,
             server_args: list[str] = None,
             new_glb_file: str = None,
+            update_only=False,
             **kwargs,
     ):
         import io
@@ -433,6 +435,7 @@ class FEAResult:
         from ada.api.animations import AnimationStore, Animation
         from ada.visit.comms import start_ws_server, WsRenderMessage
         from trimesh.path.entities import Line
+        from ada.visit.utils import in_notebook
 
         if renderer == "pygfx":
             scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)
@@ -497,6 +500,10 @@ class FEAResult:
             with open(new_glb_file, "wb") as f:
                 scene.export(file_obj=f, file_type="glb", buffer_postprocessor=animation_store,
                              tree_postprocessor=AnimationStore.tree_postprocessor)
+
+        if in_notebook() and update_only is False:
+            renderer = RendererReact()
+            return renderer.get_notebook_renderer()
 
     def get_eig_summary(self) -> EigenDataSummary:
         """If the results are eigenvalue results, this method will return a summary of the eigenvalues and modes"""
