@@ -17,4 +17,11 @@ export default defineConfig({
         }
     },
     base: './',
+    optimizeDeps: {
+        esbuildOptions: {
+            loader: {
+                ".glsl": "text",
+            },
+        },
+    },
 });

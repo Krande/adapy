@@ -7,7 +7,9 @@ function App() {
 
     return (
         <div className={"flex flex-col h-full w-full"}>
-            <VTKRenderer/>
+            <div className={"flex-1 border-2 border-black"}>
+                <VTKRenderer/>
+            </div>
         </div>
 
 
