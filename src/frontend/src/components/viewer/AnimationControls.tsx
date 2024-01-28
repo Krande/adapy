@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {useAnimationStore} from '../state/animationStore';
+import {useAnimationStore} from '../../state/animationStore';
 
 const AnimationControls = () => {
     const {
@@ -42,9 +42,9 @@ const AnimationControls = () => {
     }
 
     return (
-        <div className={"flex flex-col space-y-4 w-full"}>
+        <div className={""}>
             <select
-                className={"font-bold py-2 px-4 ml-2 rounded"}
+                className={""}
                 value={selectedAnimation}
                 onChange={handleAnimationChange}
             >
@@ -55,21 +55,21 @@ const AnimationControls = () => {
             </select>
 
             <button
-                className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
+                className={""}
                 onClick={togglePlayPause}
             >
                 Play/Pause
             </button>
-            <button className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
+            <button className={""}
                     onClick={stopAnimation}>Stop
             </button>
             <button
-                className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
+                className={""}
                 onClick={() => console.log(useAnimationStore.getState())}
             >Print State
             </button>
 
-            <div className="px-4 w-full">
+            <div className="">
                 <input
                     type="range"
                     min="0"

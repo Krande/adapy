@@ -3,10 +3,10 @@ import React, {useEffect} from 'react';
 import {useGLTF} from '@react-three/drei';
 import {ThreeEvent, useFrame} from "@react-three/fiber";
 import * as THREE from 'three'
-import {GLTFResult, ModelProps} from "../state/modelInterfaces";
-import {useAnimationStore} from '../state/animationStore';
-import {useAnimationEffects} from '../hooks/useAnimationEffects';
-import {useSelectedObjectStore} from '../state/selectedObjectStore';
+import {GLTFResult, ModelProps} from "../../state/modelInterfaces";
+import {useAnimationStore} from '../../state/animationStore';
+import {useAnimationEffects} from '../../hooks/useAnimationEffects';
+import {useSelectedObjectStore} from '../../state/selectedObjectStore';
 
 
 const Model: React.FC<ModelProps> = ({url, onMeshSelected}) => {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { useColorStore } from '../state/colorLegendStore';
+import { useColorStore } from '../../state/colorLegendStore';
 
 const ColorLegend = () => {
     const { min, max, step, colorPalette } = useColorStore();
@@ -18,8 +18,8 @@ const ColorLegend = () => {
     };
 
     return (
-        <div className="flex flex-col h-full w-full">
-            <div className="h-full w-full" style={gradientStyle}/>
+        <div className="">
+            <div className=""/>
         </div>
     );
 };

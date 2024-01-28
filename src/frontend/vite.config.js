@@ -4,8 +4,9 @@ import path from 'path';
 import visualizer from 'rollup-plugin-visualizer';
 
 export default defineConfig({
-    plugins: [react(), visualizer({open: true, gzipSize: true, brotliSize: true})],
     root: path.resolve(__dirname, 'src'), // Set the root directory to 'src'
+    base: './',
+    plugins: [react(), visualizer({open: true, gzipSize: true, brotliSize: true})],
     build: {
         outDir: path.resolve(__dirname, 'dist'), // Output directory outside of 'src'
         sourcemap: false,
@@ -16,5 +17,5 @@ export default defineConfig({
             }
         }
     },
-    base: './',
+
 });
