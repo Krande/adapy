@@ -4,4 +4,4 @@ channels:
   - krande
 dependencies:
   - ada-py
-  - paradoc
+  - trimesh >=4.1.0

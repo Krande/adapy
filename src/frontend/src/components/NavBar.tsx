@@ -1,15 +1,15 @@
-import React, {useState} from 'react';
-import {useMeshHandlers} from "../hooks/useMeshHandlers";
+import React from 'react';
 import {useAnimationStore} from "../state/animationStore";
 import {useNavBarStore} from "../state/navBarStore";
+import {useWebSocketStore} from '../state/webSocketStore';
 
 type NavBarProps = {
     setIsNavBarVisible: (value: boolean) => void;
 };
 
 const NavBar: React.FC<NavBarProps> = ({setIsNavBarVisible}) => {
-    const {sendData} = useMeshHandlers();
     const {showPerf, setShowPerf} = useNavBarStore(); // use showPerf and setShowPerf from useNavBarStore
+    const {sendData} = useWebSocketStore();
 
     return (
         <div className={"flex flex-col space-y-4 p-2"}>

@@ -2,14 +2,11 @@ import {useCallback} from 'react';
 import {MeshInfo} from "../state/modelInterfaces";
 import {useSelectedObjectStore} from "../state/selectedObjectStore";
 import * as THREE from "three";
-import useWebSocket from './useWebSocket';
-import {handleWebSocketMessage} from "../utils/handleWebSocketMessage";
-import {useModelStore} from '../state/modelStore';
+import {useWebSocketStore} from '../state/webSocketStore';
 
 export const useMeshHandlers = () => {
-    const {setModelUrl} = useModelStore();
     const {selectedObject, setSelectedObject, originalColor} = useSelectedObjectStore();
-    const sendData = useWebSocket('ws://localhost:8765', handleWebSocketMessage(setModelUrl));
+    const {sendData} = useWebSocketStore(); // This line triggers the WebSocket connection
 
     const handleMeshSelected = useCallback((meshInfo: MeshInfo) => {
         console.log('Mesh clicked:', meshInfo);

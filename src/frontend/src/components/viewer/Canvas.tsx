@@ -10,10 +10,17 @@ import {useModelStore} from '../../state/modelStore';
 import {useNavBarStore} from "../../state/navBarStore";
 import {useMeshHandlers} from "../../hooks/useMeshHandlers";
 import AnimationControls from "./AnimationControls";
+import {useWebSocketStore} from "../../state/webSocketStore";
+import useWebSocket from "../../hooks/useWebSocket";
+import {handleWebSocketMessage} from "../../utils/handleWebSocketMessage";
 
 const CanvasComponent = () => {
     const {modelUrl} = useModelStore();
     const {showPerf} = useNavBarStore(); // use showPerf and setShowPerf from useNavBarStore
+    const {webSocketAddress, setWebSocketAddress, sendData: oldSendData} = useWebSocketStore();
+    const {setModelUrl} = useModelStore();
+
+    useWebSocket(webSocketAddress, handleWebSocketMessage(setModelUrl));
 
     const {handleMeshSelected, handleMeshEmptySpace} = useMeshHandlers();
 

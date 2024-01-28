@@ -6,7 +6,7 @@ const useWebSocket = (url: string, onMessageReceived: (event: MessageEvent) => v
     useEffect(() => {
         const socket = new WebSocket(url);
         socketRef.current = socket;
-
+        console.log('WebSocket connecting to:', url);
         socket.addEventListener('message', (event: MessageEvent) => {
             if (onMessageReceived) {
                 onMessageReceived(event);
