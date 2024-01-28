@@ -18,8 +18,8 @@ const ColorLegend = () => {
     };
 
     return (
-        <div className="">
-            <div className=""/>
+        <div className="w-20 h-80">
+            <div className="w-full h-full" style={gradientStyle}/>
         </div>
     );
 };

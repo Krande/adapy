@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React from 'react';
 import {Canvas} from '@react-three/fiber';
 import {OrbitControls} from '@react-three/drei';
 import GridHelper from './GridHelper';
@@ -7,12 +7,13 @@ import ColorLegend from "./ColorLegend";
 import {Perf} from 'r3f-perf';
 import OrientationGizmo from "./OrientationGizmo";
 import {useModelStore} from '../../state/modelStore';
+import {useNavBarStore} from "../../state/navBarStore";
 import {useMeshHandlers} from "../../hooks/useMeshHandlers";
 import AnimationControls from "./AnimationControls";
 
 const CanvasComponent = () => {
     const {modelUrl} = useModelStore();
-    const [showPerf, setShowPerf] = useState(false);
+    const {showPerf} = useNavBarStore(); // use showPerf and setShowPerf from useNavBarStore
 
     const {handleMeshSelected, handleMeshEmptySpace} = useMeshHandlers();
 
@@ -24,27 +25,16 @@ const CanvasComponent = () => {
     };
 
     return (
-        <div className={""}>
-            <div className={""}>
-                <div className={""}>
-                    <button
-                        className={""}
-                        onClick={() => setShowPerf(!showPerf)}
-                    >Show stats
-                    </button>
-
-                    <div className={""}>
-                        <AnimationControls/>
-                    </div>
-                </div>
-
+        <div className={"relative w-full h-full"}>
+            <div className={"absolute left-0 top-0 z-10 p-2 flex flex-col w-60 space-y-4"}>
+                <AnimationControls/>
             </div>
-            <div className="">
+            <div className="absolute right-5 top-80 z-10">
                 <ColorLegend/>
             </div>
 
 
-            <div className={""}>
+            <div className={"absolute w-full h-full"}>
                 <Canvas
                     // @ts-ignore
                     camera={cameraProps}

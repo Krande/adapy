@@ -42,9 +42,9 @@ const AnimationControls = () => {
     }
 
     return (
-        <div className={""}>
+        <div className={"w-full h-full flex flex-col space-y-4"}>
             <select
-                className={""}
+                className={"text-black font-bold py-2 px-4 ml-2 rounded"}
                 value={selectedAnimation}
                 onChange={handleAnimationChange}
             >
@@ -55,21 +55,18 @@ const AnimationControls = () => {
             </select>
 
             <button
-                className={""}
+                className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
                 onClick={togglePlayPause}
             >
                 Play/Pause
             </button>
-            <button className={""}
-                    onClick={stopAnimation}>Stop
-            </button>
             <button
-                className={""}
-                onClick={() => console.log(useAnimationStore.getState())}
-            >Print State
+                className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
+                onClick={stopAnimation}>Stop
             </button>
 
-            <div className="">
+
+            <div className="m-2 flex flex-row">
                 <input
                     type="range"
                     min="0"
@@ -82,9 +79,10 @@ const AnimationControls = () => {
                         seekAnimation(newTime); // Use the method from the store
                     }}
                 />
+                <div className={"p-2"}>{roundedCurrentKey}</div>
             </div>
 
-            <div>Current Key: {roundedCurrentKey}</div>
+
         </div>
     );
 };

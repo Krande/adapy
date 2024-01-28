@@ -497,6 +497,8 @@ class FEAResult:
             ws.send(json.dumps(msg.__dict__))
 
         if new_glb_file is not None:
+            new_glb_file = pathlib.Path(new_glb_file).resolve().absolute()
+            os.makedirs(new_glb_file.parent, exist_ok=True)
             with open(new_glb_file, "wb") as f:
                 scene.export(file_obj=f, file_type="glb", buffer_postprocessor=animation_store,
                              tree_postprocessor=AnimationStore.tree_postprocessor)

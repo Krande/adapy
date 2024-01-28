@@ -20,6 +20,7 @@ const Model: React.FC<ModelProps> = ({url, onMeshSelected}) => {
         scene.traverse((object) => {
             if (object instanceof THREE.Mesh) {
                 object.material.side = THREE.DoubleSide;
+                console.log(object.material)
             }
         });
 
