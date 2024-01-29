@@ -19,7 +19,7 @@ const useWebSocket = (url: string, onMessageReceived: (event: MessageEvent) => v
         return () => {
             socket.close();
         };
-    }, [url, onMessageReceived]);
+    }, []);
 
     return useCallback((data: string) => {
         const currentSocket = socketRef.current;
