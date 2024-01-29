@@ -30,11 +30,11 @@ class RendererReact:
             # open html file in browser
             os.startfile(self.local_html_path)
 
-    def get_notebook_renderer(self):
+    def get_notebook_renderer(self, height=500):
         from IPython.display import HTML
 
-        height = 500
-        as_html = self.local_html_path.read_text(encoding='utf-8')
+        # Copied from https://github.com/mikedh/trimesh/blob/main/trimesh/viewer/notebook.py#L51-L88
+        as_html = self.local_html_path.read_text(encoding="utf-8")
         # escape the quotes in the HTML
         srcdoc = as_html.replace('"', "&quot;")
         # embed this puppy as the srcdoc attr of an IFframe
