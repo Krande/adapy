@@ -34,7 +34,7 @@ class RendererReact:
         from IPython.display import HTML
 
         height = 500
-        as_html = self.local_html_path.read_text()
+        as_html = self.local_html_path.read_text(encoding='utf-8')
         # escape the quotes in the HTML
         srcdoc = as_html.replace('"', "&quot;")
         # embed this puppy as the srcdoc attr of an IFframe

@@ -13,6 +13,7 @@ import AnimationControls from "./AnimationControls";
 import {useWebSocketStore} from "../../state/webSocketStore";
 import useWebSocket from "../../hooks/useWebSocket";
 import {handleWebSocketMessage} from "../../utils/handleWebSocketMessage";
+import {Camera, PerspectiveCamera} from "three";
 
 const CanvasComponent = () => {
     const {modelUrl} = useModelStore();
@@ -25,15 +26,17 @@ const CanvasComponent = () => {
     const {handleMeshSelected, handleMeshEmptySpace} = useMeshHandlers();
 
     const blenderBackgroundColor = "#393939"; // Approximation of Blender's background color
-
-    const cameraProps = {
-        fov: 60, // Adjust this value as needed, a lower value reduces fish-eye effect
-        position: [5, 5, 5]
-    };
+    const canvasParent = document.getElementById('canvasParent');
+    const parentWidth = canvasParent?.clientWidth;
+    const parentHeight = canvasParent?.clientHeight;
+    const aspectRatio = parentWidth && parentHeight ? parentWidth / parentHeight : window.innerWidth / window.innerHeight;
+    const cameraProps = new PerspectiveCamera(60, aspectRatio, 0.1, 10000);
+    cameraProps.position.set(5, 5, 5);
+    cameraProps.lookAt(0, 0, 0);
 
     return (
         <div className={"relative w-full h-full"}>
-            <div className={"absolute left-0 top-0 z-10 p-2 flex flex-col w-60 space-y-4"}>
+            <div className={"absolute left-0 top-0 z-10 py-2"}>
                 <AnimationControls/>
             </div>
             <div className="absolute right-5 top-80 z-10">
@@ -41,9 +44,8 @@ const CanvasComponent = () => {
             </div>
 
 
-            <div className={"absolute w-full h-full"}>
+            <div id={"canvasParent"} className={"absolute w-full h-full"}>
                 <Canvas
-                    // @ts-ignore
                     camera={cameraProps}
                     onPointerMissed={handleMeshEmptySpace}
                     style={{backgroundColor: blenderBackgroundColor}}>
@@ -53,7 +55,7 @@ const CanvasComponent = () => {
                     {modelUrl && <Model url={modelUrl} onMeshSelected={handleMeshSelected}/>}
                     <GridHelper size={10} divisions={10} colorCenterLine="white" colorGrid="white"/>
                     {showPerf && <Perf/>}
-                    <OrbitControls enableDamping={false}/>
+                    <OrbitControls camera={cameraProps} enableDamping={false} makeDefault={true}/>
                     <OrientationGizmo/>
                 </Canvas>
             </div>

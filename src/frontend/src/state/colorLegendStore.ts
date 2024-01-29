@@ -16,6 +16,8 @@ type ColorState = {
     setMaxColor: (maxColor: string) => void; // Add this line
     colorPalette: Palette;
     setColorPalette: (palette: Palette) => void;
+    showLegend: boolean;
+    setShowLegend: (showLegend: boolean) => void;
 };
 
 export const useColorStore = create<ColorState>((set) => ({
@@ -31,4 +33,6 @@ export const useColorStore = create<ColorState>((set) => ({
     setMaxColor: (maxColor) => set({maxColor}), // Add this line
     colorPalette: [[0, 149 / 255, 239 / 255], [1, 0, 0]],
     setColorPalette: (palette) => set({colorPalette: palette}),
+    showLegend: false,
+    setShowLegend: (showLegend) => set({showLegend}),
 }));

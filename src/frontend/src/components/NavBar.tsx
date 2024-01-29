@@ -2,6 +2,7 @@ import React from 'react';
 import {useAnimationStore} from "../state/animationStore";
 import {useNavBarStore} from "../state/navBarStore";
 import {useWebSocketStore} from '../state/webSocketStore';
+import {useColorStore} from "../state/colorLegendStore";
 
 type NavBarProps = {
     setIsNavBarVisible: (value: boolean) => void;
@@ -9,6 +10,7 @@ type NavBarProps = {
 
 const NavBar: React.FC<NavBarProps> = ({setIsNavBarVisible}) => {
     const {showPerf, setShowPerf} = useNavBarStore(); // use showPerf and setShowPerf from useNavBarStore
+    const {showLegend, setShowLegend} = useColorStore();
     const {sendData} = useWebSocketStore();
 
     return (
@@ -29,6 +31,11 @@ const NavBar: React.FC<NavBarProps> = ({setIsNavBarVisible}) => {
                 className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
                 onClick={() => setShowPerf(!showPerf)}
             >Show stats
+            </button>
+            <button
+                className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
+                onClick={() => setShowLegend(!showLegend)}
+            >Show ColorLegend
             </button>
             <button
                 className={"absolute bottom-0 left-0 bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}

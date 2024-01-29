@@ -8,7 +8,7 @@ type State = {
 };
 
 export const useNavBarStore = create<State>((set: StoreApi<State>['setState']) => ({
-    isNavBarVisible: true,
+    isNavBarVisible: false,
     setIsNavBarVisible: (value: boolean) => set(() => ({isNavBarVisible: value})),
     showPerf: false,
     setShowPerf: (value: boolean) => set(() => ({showPerf: value})),

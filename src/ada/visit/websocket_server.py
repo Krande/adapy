@@ -45,7 +45,7 @@ class WebSocketServer:
                 await client.send(data)
 
     async def server_start_main(self):
-        async with websockets.serve(self.handler, self.host, self.port, max_size=10 ** 9):
+        async with websockets.serve(self.handler, self.host, self.port, max_size=10**9):
             await asyncio.Future()  # run forever
 
     def start(self):
@@ -83,6 +83,7 @@ def is_server_running(host="localhost", port=8765):
     loop = asyncio.get_event_loop()
     if loop.is_running():
         from websockets.sync.client import connect as sync_connect
+
         try:
             with sync_connect(f"{host}:{port}"):
                 logger.info(f"WebSocket server is already running on ws://localhost:{port}")
@@ -112,7 +113,8 @@ if __name__ == "__main__":
     for origin in args.origins.split(";"):
         if origin == "localhost":
             origins_list.append("http://localhost:5173")  # development server
-            origins_list.append("http://localhost:8889")  # jupyter server
+            for i in range(8888, 8899):  # local jupyter servers
+                origins_list.append(f"http://localhost:{i}")
             origins_list.append("null")  # local html
         else:
             origins_list.append(origin)
