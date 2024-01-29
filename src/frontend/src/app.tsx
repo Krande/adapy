@@ -3,15 +3,23 @@ import "./app.css";
 import React from 'react'
 import CanvasComponent from './components/viewer/Canvas';
 import NavBar from './components/NavBar';
-import {useNavBarStore} from './state/navBarStore'; // import the useNavBarStore function
+import {useNavBarStore} from './state/navBarStore';
+import {useWebSocketStore} from "./state/webSocketStore";
+import {useWebSocket} from "./hooks/useWebSocket";
+import {handleWebSocketMessage} from "./utils/handleWebSocketMessage";
+import {useModelStore} from "./state/modelStore"; // import the useNavBarStore function
 
 function App() {
     const {isNavBarVisible, setIsNavBarVisible} = useNavBarStore(); // use the useNavBarStore function
+    const {webSocketAddress} = useWebSocketStore();
+    const {setModelUrl} = useModelStore();
+
+    const {sendMessage} = useWebSocket(webSocketAddress, handleWebSocketMessage(setModelUrl));
 
     return (
         <div className={"relative flex flex-row h-full w-full bg-gray-900"}>
             <div className={isNavBarVisible ? "w-60" : "w-0 overflow-hidden"}>
-                <NavBar setIsNavBarVisible={setIsNavBarVisible}/>
+                <NavBar setIsNavBarVisible={setIsNavBarVisible} sendMessage={sendMessage}/>
             </div>
 
             <div className={isNavBarVisible ? "flex-1" : "w-full h-full"}>

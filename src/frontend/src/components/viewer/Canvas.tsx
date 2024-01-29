@@ -10,22 +10,16 @@ import {useModelStore} from '../../state/modelStore';
 import {useNavBarStore} from "../../state/navBarStore";
 import {useMeshHandlers} from "../../hooks/useMeshHandlers";
 import AnimationControls from "./AnimationControls";
-import {useWebSocketStore} from "../../state/webSocketStore";
-import useWebSocket from "../../hooks/useWebSocket";
-import {handleWebSocketMessage} from "../../utils/handleWebSocketMessage";
-import {Camera, PerspectiveCamera} from "three";
+import {PerspectiveCamera} from "three";
 
 const CanvasComponent = () => {
     const {modelUrl} = useModelStore();
     const {showPerf} = useNavBarStore(); // use showPerf and setShowPerf from useNavBarStore
-    const {webSocketAddress, setWebSocketAddress, sendData: oldSendData} = useWebSocketStore();
-    const {setModelUrl} = useModelStore();
-
-    useWebSocket(webSocketAddress, handleWebSocketMessage(setModelUrl));
 
     const {handleMeshSelected, handleMeshEmptySpace} = useMeshHandlers();
 
     const blenderBackgroundColor = "#393939"; // Approximation of Blender's background color
+
     const canvasParent = document.getElementById('canvasParent');
     const parentWidth = canvasParent?.clientWidth;
     const parentHeight = canvasParent?.clientHeight;

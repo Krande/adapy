@@ -33,7 +33,7 @@ class WebSocketServer:
     clients: dict = field(default_factory=dict)
     port: int = 8765
     host: str = "localhost"
-    message_queue: Queue = None
+    message_queue: Queue = field(default_factory=Queue)
     debug_mode: bool = False
 
     def check_server_running(self):
@@ -50,6 +50,10 @@ class WebSocketServer:
         if websocket.origin in self.client_origins and websocket.origin not in self.clients.keys():
             logger.debug(f"Client connected from origin {websocket.origin}")
             self.clients[websocket.origin] = websocket
+            # if message queue is not empty, send the latest message
+            if self.message_queue is not None and not self.message_queue.empty():
+                logger.debug("Sending cached data to client")
+                await websocket.send(self.message_queue.get())
 
         async for message in websocket:
             if self.message_queue is not None:
@@ -60,8 +64,17 @@ class WebSocketServer:
         """This will update all clients with the latest data"""
         logger.debug(f"Active clients: {self.clients.keys()}")
         logger.info(f"Updating {len(self.clients)} clients")
+
+        # if 0 clients, cache the data
+        if len(self.clients.keys()) == 0:
+            logger.debug("No clients connected, caching data")
+            self.message_queue.put(data)
+            return
+
         for client_origin, client in self.clients.items():
+            logger.debug(f"Client {client_origin} is open: {client.open}")
             if client.open and client.origin in self.clients:
+                logger.debug(f"Sending data to {client_origin}")
                 await client.send(data)
 
     async def server_start_main(self):
