@@ -456,9 +456,7 @@ class FEAResult:
 
         scene = trimesh.Scene()
         face_node = scene.add_geometry(faces_mesh, node_name=self.name, geom_name="faces")
-        _ = scene.add_geometry(
-            edge_mesh, node_name=f"{self.name}_edges", geom_name="edges", parent_node_name=self.name
-        )
+        _ = scene.add_geometry(edge_mesh, node_name=f"{self.name}_edges", geom_name="edges", parent_node_name=self.name)
 
         face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == face_node][0]
         # edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == edge_node][0]

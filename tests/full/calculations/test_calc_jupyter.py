@@ -1,4 +1,3 @@
-
 from ada import Beam
 from ada.calc.beams import BeamCalc
 

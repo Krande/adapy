@@ -258,7 +258,7 @@ def get_initial_conditions_from_lines(assembly: Assembly, bulk_str: str):
         set_name, dofs, magn = list(zip(*props))
         fem_set = None
         set_name_up = set_name[0]
-        if '.' in set_name_up:
+        if "." in set_name_up:
             part_name, set_name_up = set_name_up.split(".")
             for p in assembly.get_all_parts_in_assembly():
                 if p.fem.instance_name == part_name:
