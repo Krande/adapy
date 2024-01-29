@@ -1,4 +1,4 @@
-from ada.visit.render_backend import SqLiteBackend
+from ada.visit.rendering.render_backend import SqLiteBackend
 
 
 def test_sqlite_backend(example_files):

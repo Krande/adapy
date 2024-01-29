@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from itertools import groupby
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
-import trimesh
-import trimesh.visual
 from OCC.Core.Tesselator import ShapeTesselator
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Shape
 from OCC.Extend.TopologyUtils import discretize_edge
@@ -22,6 +20,9 @@ from ada.visit.colors import Color
 from ada.visit.gltf.meshes import MeshStore, MeshType
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
+
+if TYPE_CHECKING:
+    import trimesh
 
 
 @dataclass
@@ -81,6 +82,8 @@ def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, paral
 
 
 def shape_to_tri_mesh(shape: TopoDS_Shape, rgba_color: Iterable[float, float, float, float] = None) -> trimesh.Trimesh:
+    import trimesh.visual
+
     tm = tessellate_shape(shape)
     positions = tm.positions.reshape(len(tm.positions) // 3, 3)
     faces = tm.faces.reshape(len(tm.faces) // 3, 3)
@@ -180,6 +183,8 @@ class BatchTessellator:
     def tessellate_part(
         self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True
     ) -> trimesh.Scene:
+        import trimesh
+
         graph = part.get_graph_store()
         scene = trimesh.Scene(base_frame=graph.top_level.name)
 
@@ -189,6 +194,8 @@ class BatchTessellator:
         )
 
         all_shapes = sorted(shapes_tess_iter, key=lambda x: x.material)
+        # filter out all shapes associated with an animation,
+
         for mat_id, meshes in groupby(all_shapes, lambda x: x.material):
             if merge_meshes:
                 merged_store = concatenate_stores(meshes)

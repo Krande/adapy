@@ -64,9 +64,6 @@ class Assembly(Part):
         clear_cache: bool = False,
         ifc_class: SpatialTypes = SpatialTypes.IfcSite,
     ):
-        from ada.cadit.ifc.store import IfcStore
-        from ada.cadit.ifc.utils import assembly_to_ifc_file
-
         metadata = dict() if metadata is None else metadata
         metadata["project"] = project
         metadata["schema"] = schema
@@ -76,7 +73,8 @@ class Assembly(Part):
         self._user = user
 
         self._ifc_class = ifc_class
-        self._ifc_file = assembly_to_ifc_file(self)
+        self._ifc_store = None
+        self._ifc_file = None
         self._convert_options = _ConvertOptions()
         self._ifc_sections = None
         self._ifc_materials = None
@@ -84,7 +82,6 @@ class Assembly(Part):
         self._ifc_settings = ifc_settings
         self._presentation_layers = PresentationLayers()
 
-        self._ifc_store = IfcStore(assembly=self)
         self._cache_store = None
         if enable_cache:
             self._cache_store = CacheStore(name)
@@ -290,6 +287,13 @@ class Assembly(Part):
 
     @property
     def ifc_store(self) -> IfcStore:
+        if self._ifc_store is None:
+            from ada.cadit.ifc.store import IfcStore
+            from ada.cadit.ifc.utils import assembly_to_ifc_file
+
+            self._ifc_file = assembly_to_ifc_file(self)
+            self._ifc_store = IfcStore(assembly=self)
+
         return self._ifc_store
 
     @ifc_store.setter

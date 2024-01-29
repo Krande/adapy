@@ -1,5 +1,5 @@
 import ada
-from ada.visit.render_pygfx import RendererPyGFX
+from ada.visit.rendering.render_pygfx import RendererPyGFX
 
 
 def test_read_fem_object():

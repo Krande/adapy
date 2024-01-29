@@ -6,6 +6,7 @@ from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 from ada import Node, Pipe, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
+from ada.api.animations import AnimationStore
 from ada.api.beams.base_bm import Beam, BeamTapered
 from ada.api.connections import JointBase
 from ada.api.containers import Beams, Connections, Materials, Nodes, Plates, Sections
@@ -76,6 +77,7 @@ class Part(BackendGeom):
         self._groups: dict[str, Group] = dict()
         self._ifc_class = ifc_class
         self._props = settings
+        self._animation_store = AnimationStore()
         if fem is not None:
             fem.parent = self
 
@@ -791,18 +793,42 @@ class Part(BackendGeom):
 
         step_writer.export(destination_file)
 
-    def to_viewer(self, **kwargs):
-        from ada.visit.comms import send_to_viewer
-
-        send_to_viewer(self, **kwargs)
-
-    def show(self):
+    def show(
+        self,
+        renderer="react",
+        auto_open_viewer=False,
+        host="localhost",
+        port=8765,
+        server_exe: pathlib.Path = None,
+        server_args: list[str] = None,
+        **kwargs,
+    ):
         from ada.occ.tessellating import BatchTessellator
+        from ada.visit.comms import PYGFX_RENDERER_EXE_PY, start_ws_server
 
+        server_exe = None
+        if renderer == "pygfx":
+            server_exe = PYGFX_RENDERER_EXE_PY
+
+        # Start the websocket server
+        ws = start_ws_server(server_exe=server_exe, server_args=server_args, host=host, port=port)
+
+        # Set the rendering engine
+        if renderer == "react":
+            from ada.visit.rendering.renderer_react import RendererReact
+
+            if auto_open_viewer:
+                RendererReact().show()
+
+        # Tessellate the geometry
         bt = BatchTessellator()
         scene = bt.tessellate_part(self)
 
-        return scene.show("notebook")
+        ws.send_scene(scene, self.animation_store, **kwargs)
+
+    @property
+    def animation_store(self) -> AnimationStore:
+        return self._animation_store
 
     @property
     def parts(self) -> dict[str, Part]:

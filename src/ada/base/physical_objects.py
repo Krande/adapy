@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pathlib
 from typing import TYPE_CHECKING, Callable, Iterable
 
 from ada.api.transforms import Placement
@@ -160,12 +161,22 @@ class BackendGeom(Root):
 
         return occ_geom_to_poly_mesh(self, geom_repr=geom_repr, export_config=export_config)
 
-    def show(self):
+    def show(
+        self,
+        renderer="react",
+        auto_open_viewer=False,
+        host="localhost",
+        port=8765,
+        server_exe: pathlib.Path = None,
+        server_args: list[str] = None,
+        dry_run=False,
+    ):
         from itertools import groupby
 
         import trimesh
 
         from ada.occ.tessellating import BatchTessellator
+        from ada.visit.comms import start_ws_server
         from ada.visit.gltf.optimize import concatenate_stores
         from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
@@ -182,6 +193,11 @@ class BackendGeom(Root):
             mesh_map.append((mat_id, meshes, merged_store))
             merged_mesh_to_trimesh_scene(scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, None)
 
+        if dry_run:
+            return None
+
+        ws = start_ws_server(server_exe=server_exe, server_args=server_args, host=host, port=port)
+        ws.send_scene(scene)
         return scene.show("notebook")
 
     @property

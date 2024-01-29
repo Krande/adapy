@@ -15,14 +15,11 @@ def dummy_display_func(ada_obj):
         return None
 
     from ada.visit.plots import build_display
-    from ada.visit.rendering.renderer_pythreejs import MyRenderer
 
     if isinstance(ada_obj, ada.Section):
         build_display(ada_obj)
     else:
-        renderer = MyRenderer()
-        renderer.DisplayObj(ada_obj)
-        renderer.build_display()
+        ada_obj.show(dry_run=True)
 
 
 @pytest.fixture

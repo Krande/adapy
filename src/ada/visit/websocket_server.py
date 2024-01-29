@@ -1,8 +1,10 @@
 import argparse
 import asyncio
+import io
 from dataclasses import dataclass, field
 from multiprocessing import Queue
 
+import trimesh
 import websockets
 
 from ada.config import logger
@@ -26,6 +28,10 @@ class WebSocketServer:
             return False
 
     async def handler(self, websocket):
+        """This will handle the connection of a new client"""
+        logger.debug(f"New client connected from {websocket.remote_address} with origin {websocket.origin}")
+        logger.debug(f"Client origins: {self.client_origins}")
+
         if websocket.origin in self.client_origins:
             self.clients.add(websocket)
 
@@ -36,6 +42,7 @@ class WebSocketServer:
 
     async def update_clients(self, data):
         """This will update all clients with the latest data"""
+        logger.info(f"Updating {len(self.clients)} clients")
         for client in self.clients:
             if client.open and client in self.clients:
                 await client.send(data)
@@ -46,15 +53,32 @@ class WebSocketServer:
 
     def start(self):
         logger.setLevel("INFO")
-        logger.info(f"Starting server {self.host}:{self.port}")
+        logger.info(f"Starting server {self.host}:{self.port} with origins {self.client_origins}")
         asyncio.run(self.server_start_main())
 
-    def send(self, data: bytes):
+    def send(self, data: bytes | str):
         from websockets.sync.client import connect
 
         logger.info(f"Sending data to {self.host_url}")
         with connect(self.host_url) as websocket:
             websocket.send(data)
+
+    def send_scene(self, scene: trimesh.Scene, animation_store=None, **kwargs):
+        import base64
+        import json
+
+        from ada.visit.comms import WsRenderMessage
+
+        with io.BytesIO() as data:
+            scene.export(file_obj=data, file_type="glb", buffer_postprocessor=animation_store)
+
+            msg = WsRenderMessage(
+                data=base64.b64encode(data.getvalue()).decode(),
+                look_at=kwargs.get("look_at", None),
+                camera_position=kwargs.get("camera_position", None),
+            )
+
+            self.send(json.dumps(msg.__dict__))
 
     @property
     def host_url(self):
@@ -76,7 +100,21 @@ async def _check_server_running(host="ws://localhost", port=8765):
 
 
 def is_server_running(host="localhost", port=8765):
-    return asyncio.run(_check_server_running(host, port))
+    loop = asyncio.get_event_loop()
+    if loop.is_running():
+        from websockets.sync.client import connect as sync_connect
+
+        try:
+            with sync_connect(f"{host}:{port}"):
+                logger.info(f"WebSocket server is already running on ws://localhost:{port}")
+                return True
+        except Exception as e:
+            logger.debug(e)
+            logger.info("WebSocket server is not running")
+            return False
+    else:
+        # If the loop is not running, use run_until_complete
+        return loop.run_until_complete(_check_server_running(host, port))
 
 
 def start_server(shared_queue: Queue = None, host="localhost", port=8765):
@@ -91,5 +129,15 @@ if __name__ == "__main__":
     argparse.add_argument("--host", type=str, default="localhost")
     args = argparse.parse_args()
 
-    server = WebSocketServer(host=args.host, port=args.port, client_origins=args.origins.split(";"))
+    origins_list = []
+    for origin in args.origins.split(";"):
+        if origin == "localhost":
+            origins_list.append("http://localhost:5173")  # development server
+            for i in range(8888, 8899):  # local jupyter servers
+                origins_list.append(f"http://localhost:{i}")
+            origins_list.append("null")  # local html
+        else:
+            origins_list.append(origin)
+
+    server = WebSocketServer(host=args.host, port=args.port, client_origins=origins_list)
     server.start()

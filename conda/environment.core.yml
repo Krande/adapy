@@ -10,12 +10,11 @@ dependencies:
   - pythonocc-core
   - python-gmsh
   - pyquaternion
-  - trimesh
+  - trimesh >=4.1.0
   - occt >=7.7.2
   - send2trash
   - meshio
   - websockets
-  - pytexit
   - plotly
   - python-kaleido
   - calculix

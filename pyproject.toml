@@ -1,8 +1,5 @@
 [build-system]
-requires = [
-    "setuptools>=42",
-    "wheel"
-]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -34,7 +31,17 @@ ada-viewer = "ada.visit.render_pygfx:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["ada*"]
+exclude = ["frontend*"]
 
+[tool.setuptools.package-data]
+ada = [
+    "sections/resources/ProfileDB.json",
+    "materials/metals/resources/NLMatParams.json",
+    "cadit/gxml/write/resources/xml_blank.xml",
+    "fem/results/resources/results.sql",
+    "visit/resources/index.zip"
+]
 
 [tool.black]
 line-length = 120
@@ -42,7 +49,7 @@ line-length = 120
 [tool.ruff]
 line-length = 120
 ignore = ["E741"]
-exclude = ["examples/experiments/"]
+exclude = ["examples/"]
 
 [tool.isort]
 profile = "black"
