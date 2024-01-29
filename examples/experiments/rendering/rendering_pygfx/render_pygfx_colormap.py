@@ -2,7 +2,7 @@ import numpy as np
 import pygfx as gfx
 import trimesh
 
-from ada.visit.render_pygfx import PICKED_COLOR
+from ada.visit.rendering.render_pygfx import PICKED_COLOR
 
 cube = gfx.Mesh(
     gfx.box_geometry(100, 100, 100),

@@ -79,12 +79,13 @@ class GmshData:
 
 
 class GmshSession:
-    def __init__(self, silent=False, persist=True, options: GmshOptions = GmshOptions()):
+    def __init__(self, silent=False, persist=True, options: GmshOptions = GmshOptions(), debug_mode=False):
         logger.debug("init method called")
         self._gmsh = None
         self.options = options
         self.cutting_planes: List[CutPlane] = []
         self.silent = silent
+        self.debug_mode = debug_mode
         if silent is True:
             self.options.General_Terminal = 0
         self.persist = persist
@@ -146,13 +147,16 @@ class GmshSession:
             cut_plane.cut_objects += cut_objects
         self.cutting_planes.append(cut_plane)
 
-    def make_cuts(self):
-        geom_repr_map = {ElemType.SOLID: 3, ElemType.SHELL: 2, ElemType.LINE: 1}
+    def make_cuts(self, keep_cutting_planes=True):
+        remove_tool = not keep_cutting_planes
 
-        for cut in self.cutting_planes:
+        geom_repr_map = {ElemType.SOLID: 3, ElemType.SHELL: 2, ElemType.LINE: 1}
+        for i, cut in enumerate(self.cutting_planes):
             x, y, z = cut.origin
             rect = self.model.occ.addRectangle(x, y, z, cut.dx, cut.dy)
+            self.model.set_physical_name(2, rect, f"CuttingPlane{i}")
 
+            logger.info(f"Cutting plane {cut.plane} at {cut.origin}")
             if cut.plane == "XZ":
                 self.model.occ.synchronize()
                 self.model.geo.synchronize()
@@ -162,15 +166,15 @@ class GmshSession:
 
             cut.gmsh_id = rect
             for obj in cut.cut_objects:
-                res, _ = self.model.occ.fragment(obj.entities, [(2, rect)], removeTool=True)
+                res, _ = self.model.occ.fragment(obj.entities, [(2, rect)], removeTool=remove_tool)
                 cut_geom_dim = geom_repr_map[obj.geom_repr]
                 replaced_entities = [(dim, r) for dim, r in res if r != rect and dim == cut_geom_dim]
                 obj.entities = replaced_entities
+
             self.model.occ.remove([(2, rect)], True)
 
-        # rem_ids = [(2, c.gmsh_id) for c in self.cutting_planes]
-        # self.model.occ.remove(rem_ids, True)
-
+        if self.debug_mode:
+            self.open_gui()
         self.model.occ.synchronize()
         self.model.geo.synchronize()
 

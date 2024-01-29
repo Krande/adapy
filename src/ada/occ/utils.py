@@ -66,9 +66,11 @@ def extract_shapes(step_path, scale, transform, rotate, include_shells=False):
 
     cad_file_path = pathlib.Path(step_path)
     if cad_file_path.is_file():
-        shapes += extract_subshapes(
-            read_step_file(str(cad_file_path), as_compound=False), include_shells=include_shells
-        )
+        stp_data = read_step_file(str(cad_file_path), as_compound=False)
+        if not isinstance(stp_data, list):
+            stp_data = [stp_data]
+        for sub_shape in stp_data:
+            shapes += extract_subshapes(sub_shape, include_shells=include_shells)
     elif cad_file_path.is_dir():
         shapes += walk_shapes(cad_file_path)
     else:

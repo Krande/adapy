@@ -6,7 +6,7 @@
 import ada
 from ada.geom.points import Point
 from ada.visit.render_backend import MeshInfo, SqLiteBackend
-from ada.visit.render_pygfx import RendererPyGFX
+from ada.visit.rendering.render_pygfx import RendererPyGFX
 
 
 def main():

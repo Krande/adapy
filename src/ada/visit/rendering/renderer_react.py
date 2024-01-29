@@ -3,9 +3,7 @@ import pathlib
 import zipfile
 
 from ada.visit.colors import Color
-from ada.visit.render_backend import (
-    SqLiteBackend,
-)
+from ada.visit.rendering.render_backend import SqLiteBackend
 from ada.visit.utils import in_notebook
 
 BG_GRAY = Color(57, 57, 57)

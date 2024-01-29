@@ -13,12 +13,13 @@ import numpy as np
 from ada.config import logger
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
+
+from ada.core.guid import create_guid
+from ada.visit.comms import send_to_viewer
+from ada.visit.gltf.graph import GraphNode, GraphStore
+from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
+from ada.visit.rendering.renderer_react import RendererReact
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
-from ...core.guid import create_guid
-from ...visit.comms import send_to_viewer
-from ...visit.gltf.graph import GraphNode, GraphStore
-from ...visit.gltf.meshes import GroupReference, MergedMesh, MeshType
-from ...visit.renderer_react import RendererReact
 
 if TYPE_CHECKING:
     from ada import Material, Node, Section
@@ -122,7 +123,7 @@ class Mesh:
         return edges, faces
 
     def create_mesh_stores(
-            self, parent_name: str, shell_color, line_color, points_color, graph: GraphStore, parent_node: GraphNode
+        self, parent_name: str, shell_color, line_color, points_color, graph: GraphStore, parent_node: GraphNode
     ) -> tuple[MergedMesh, MergedMesh, MergedMesh]:
         from ada.fem.shapes import ElemShape
         from ada.fem.shapes import definitions as shape_def
@@ -211,7 +212,7 @@ class FEAResult:
         return results
 
     def get_data_by_field_and_elem_ids(
-            self, field: str, elem_ids: list[int], int_points: list[int] = None
+        self, field: str, elem_ids: list[int], int_points: list[int] = None
     ) -> list[ElementFieldData]:
         data = self.get_results_grouped_by_field_value()
         values = data.get(field)
@@ -226,7 +227,7 @@ class FEAResult:
         return self.get_data_by_field_and_elem_ids(field, fs.members, int_points)
 
     def get_field_value_by_name(
-            self, name: str, step: int = None
+        self, name: str, step: int = None
     ) -> ElementFieldData | NodalFieldData | list[ElementFieldData | NodalFieldData]:
         data = self.get_results_grouped_by_field_value()
         values = data.get(name)
@@ -366,8 +367,7 @@ class FEAResult:
         mesh.write(fem_file)
 
     def to_trimesh(
-            self, step: int, field: str, warp_field: str = None, warp_step: int = None, warp_scale: float = None,
-            cfunc=None
+        self, step: int, field: str, warp_field: str = None, warp_step: int = None, warp_scale: float = None, cfunc=None
     ):
         import trimesh
         from trimesh.path.entities import Line
@@ -413,29 +413,32 @@ class FEAResult:
             scene.export(file_obj=f, file_type=dest_file.suffix[1:])
 
     def show(
-            self,
-            step: int = None,
-            field: str = None,
-            warp_field: str = None,
-            warp_step: int = None,
-            warp_scale: float = 1.0,
-            cfunc=None,
-            host="localhost",
-            port=8765,
-            renderer="react",
-            server_exe: pathlib.Path = None,
-            server_args: list[str] = None,
-            new_glb_file: str = None,
-            update_only=False,
-            **kwargs,
+        self,
+        step: int = None,
+        field: str = None,
+        warp_field: str = None,
+        warp_step: int = None,
+        warp_scale: float = 1.0,
+        cfunc=None,
+        host="localhost",
+        port=8765,
+        renderer="react",
+        server_exe: pathlib.Path = None,
+        server_args: list[str] = None,
+        new_glb_file: str = None,
+        update_only=False,
+        **kwargs,
     ):
         import io
+
         import trimesh
-        from ...core.vector_transforms import rot_matrix
-        from ada.api.animations import AnimationStore, Animation
-        from ada.visit.comms import start_ws_server, WsRenderMessage
         from trimesh.path.entities import Line
+
+        from ada.api.animations import Animation, AnimationStore
+        from ada.visit.comms import WsRenderMessage, start_ws_server
         from ada.visit.utils import in_notebook
+
+        from ...core.vector_transforms import rot_matrix
 
         if renderer == "pygfx":
             scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)
@@ -453,8 +456,9 @@ class FEAResult:
 
         scene = trimesh.Scene()
         face_node = scene.add_geometry(faces_mesh, node_name=self.name, geom_name="faces")
-        edge_node = scene.add_geometry(edge_mesh, node_name=f"{self.name}_edges", geom_name="edges",
-                                       parent_node_name=self.name)
+        edge_node = scene.add_geometry(
+            edge_mesh, node_name=f"{self.name}_edges", geom_name="edges", parent_node_name=self.name
+        )
 
         face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == face_node][0]
         edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == edge_node][0]
@@ -486,8 +490,12 @@ class FEAResult:
         scene.apply_transform(m4x4)
 
         with io.BytesIO() as data:
-            scene.export(file_obj=data, file_type="glb", buffer_postprocessor=animation_store,
-                         tree_postprocessor=AnimationStore.tree_postprocessor)
+            scene.export(
+                file_obj=data,
+                file_type="glb",
+                buffer_postprocessor=animation_store,
+                tree_postprocessor=AnimationStore.tree_postprocessor,
+            )
 
             msg = WsRenderMessage(
                 data=base64.b64encode(data.getvalue()).decode(),
@@ -500,8 +508,12 @@ class FEAResult:
             new_glb_file = pathlib.Path(new_glb_file).resolve().absolute()
             os.makedirs(new_glb_file.parent, exist_ok=True)
             with open(new_glb_file, "wb") as f:
-                scene.export(file_obj=f, file_type="glb", buffer_postprocessor=animation_store,
-                             tree_postprocessor=AnimationStore.tree_postprocessor)
+                scene.export(
+                    file_obj=f,
+                    file_type="glb",
+                    buffer_postprocessor=animation_store,
+                    tree_postprocessor=AnimationStore.tree_postprocessor,
+                )
 
         if in_notebook() and update_only is False:
             renderer = RendererReact()

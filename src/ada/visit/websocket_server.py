@@ -1,8 +1,10 @@
 import argparse
 import asyncio
+import io
 from dataclasses import dataclass, field
 from multiprocessing import Queue
 
+import trimesh
 import websockets
 
 from ada.config import logger
@@ -27,8 +29,8 @@ class WebSocketServer:
 
     async def handler(self, websocket):
         """This will handle the connection of a new client"""
-        logger.info(f"New client connected from {websocket.remote_address} with origin {websocket.origin}")
-        logger.info(f"Client origins: {self.client_origins}")
+        logger.debug(f"New client connected from {websocket.remote_address} with origin {websocket.origin}")
+        logger.debug(f"Client origins: {self.client_origins}")
 
         if websocket.origin in self.client_origins:
             self.clients.add(websocket)
@@ -40,6 +42,7 @@ class WebSocketServer:
 
     async def update_clients(self, data):
         """This will update all clients with the latest data"""
+        logger.info(f"Updating {len(self.clients)} clients")
         for client in self.clients:
             if client.open and client in self.clients:
                 await client.send(data)
@@ -53,12 +56,29 @@ class WebSocketServer:
         logger.info(f"Starting server {self.host}:{self.port} with origins {self.client_origins}")
         asyncio.run(self.server_start_main())
 
-    def send(self, data: bytes):
+    def send(self, data: bytes | str):
         from websockets.sync.client import connect
 
         logger.info(f"Sending data to {self.host_url}")
         with connect(self.host_url) as websocket:
             websocket.send(data)
+
+    def send_scene(self, scene: trimesh.Scene, animation_store=None, **kwargs):
+        import base64
+        import json
+
+        from ada.visit.comms import WsRenderMessage
+
+        with io.BytesIO() as data:
+            scene.export(file_obj=data, file_type="glb", buffer_postprocessor=animation_store)
+
+            msg = WsRenderMessage(
+                data=base64.b64encode(data.getvalue()).decode(),
+                look_at=kwargs.get("look_at", None),
+                camera_position=kwargs.get("camera_position", None),
+            )
+
+            self.send(json.dumps(msg.__dict__))
 
     @property
     def host_url(self):

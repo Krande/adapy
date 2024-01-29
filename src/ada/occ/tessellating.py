@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from itertools import groupby
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
 from OCC.Core.Tesselator import ShapeTesselator
@@ -20,7 +20,6 @@ from ada.visit.colors import Color
 from ada.visit.gltf.meshes import MeshStore, MeshType
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import trimesh
@@ -155,7 +154,7 @@ class BatchTessellator:
         return self.tessellate_occ_geom(occ_geom, geom.id, geom.color)
 
     def batch_tessellate(
-            self, objects: Iterable[Geometry | BackendGeom], render_override: dict[str, GeomRepr] = None
+        self, objects: Iterable[Geometry | BackendGeom], render_override: dict[str, GeomRepr] = None
     ) -> Iterable[MeshStore]:
         if render_override is None:
             render_override = dict()
@@ -182,7 +181,7 @@ class BatchTessellator:
                 continue
 
     def tessellate_part(
-            self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True
+        self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True
     ) -> trimesh.Scene:
         import trimesh
 
@@ -196,7 +195,6 @@ class BatchTessellator:
 
         all_shapes = sorted(shapes_tess_iter, key=lambda x: x.material)
         # filter out all shapes associated with an animation,
-
 
         for mat_id, meshes in groupby(all_shapes, lambda x: x.material):
             if merge_meshes:

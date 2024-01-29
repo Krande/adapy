@@ -1,4 +1,3 @@
-import pathlib
 
 import numpy as np
 from pyquaternion import Quaternion
@@ -16,8 +15,8 @@ def create_quaternion(axis, degrees):
 
 
 def main():
-    box = ada.PrimBox('box', (0, 0, 0), (1, 1, 1), color='red')
-    a = ada.Assembly('Project') / (ada.Part('part1') / box)
+    box = ada.PrimBox("box", (0, 0, 0), (1, 1, 1), color="red")
+    a = ada.Assembly("Project") / (ada.Part("part1") / box)
 
     # Define Animation
     w = 0.04
@@ -45,7 +44,7 @@ def main():
     camera_position = p0 + np.array([0.35, 0.25, 0.15])
 
     # Update the view
-    a.show(renderer='react', camera_position=camera_position.astype(float).tolist())
+    a.show(renderer="react", camera_position=camera_position.astype(float).tolist())
     # a.to_ifc("temp/moving_box.ifc")
 
 

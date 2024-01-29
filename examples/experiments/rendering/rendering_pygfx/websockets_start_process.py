@@ -1,4 +1,4 @@
-from ada.visit.render_pygfx import standalone_viewer
+from ada.visit.rendering.render_pygfx import standalone_viewer
 
 # logger.setLevel("INFO")
 

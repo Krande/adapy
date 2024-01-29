@@ -42,7 +42,7 @@ line-length = 120
 [tool.ruff]
 line-length = 120
 ignore = ["E741"]
-exclude = ["examples/experiments/"]
+exclude = ["examples/"]
 
 [tool.isort]
 profile = "black"

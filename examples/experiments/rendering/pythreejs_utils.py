@@ -1,9 +1,4 @@
-from pythreejs import (
-    BufferAttribute,
-    BufferGeometry,
-    Mesh,
-    MeshBasicMaterial,
-)
+from pythreejs import BufferAttribute, BufferGeometry, Mesh, MeshBasicMaterial
 
 
 def faces_to_mesh(name, vertices, faces, colors, opacity=None):

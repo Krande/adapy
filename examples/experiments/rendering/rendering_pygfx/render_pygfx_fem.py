@@ -6,7 +6,7 @@
 import ada
 from ada.config import logger
 from ada.visit.render_backend import MeshInfo, SqLiteBackend
-from ada.visit.render_pygfx import RendererPyGFX
+from ada.visit.rendering.render_pygfx import RendererPyGFX
 
 logger.setLevel("INFO")
 

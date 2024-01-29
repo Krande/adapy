@@ -3,7 +3,7 @@ import pytest
 import ada
 from ada.fem.meshing import GmshSession
 from ada.param_models.utils import beams_along_polyline
-from ada.visit.render_backend import SqLiteBackend
+from ada.visit.rendering.render_backend import SqLiteBackend
 from ada.visit.utils import get_edges_from_fem, get_faces_from_fem
 
 

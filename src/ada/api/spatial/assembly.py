@@ -51,18 +51,18 @@ class Assembly(Part):
     """The Assembly object. A top level container of parts, beams, plates, shapes and FEM."""
 
     def __init__(
-            self,
-            name="Ada",
-            project="AdaProject",
-            user: User = User(),
-            schema="IFC4X1",
-            settings=Settings(),
-            metadata=None,
-            units: Units | str = Units.M,
-            ifc_settings=None,
-            enable_cache: bool = False,
-            clear_cache: bool = False,
-            ifc_class: SpatialTypes = SpatialTypes.IfcSite,
+        self,
+        name="Ada",
+        project="AdaProject",
+        user: User = User(),
+        schema="IFC4X1",
+        settings=Settings(),
+        metadata=None,
+        units: Units | str = Units.M,
+        ifc_settings=None,
+        enable_cache: bool = False,
+        clear_cache: bool = False,
+        ifc_class: SpatialTypes = SpatialTypes.IfcSite,
     ):
         metadata = dict() if metadata is None else metadata
         metadata["project"] = project
@@ -88,8 +88,7 @@ class Assembly(Part):
             self.cache_store.sync(self, clear_cache=clear_cache)
 
     def read_ifc(
-            self, ifc_file: str | os.PathLike | ifcopenshell.file, data_only=False, elements2part=None,
-            create_cache=False
+        self, ifc_file: str | os.PathLike | ifcopenshell.file, data_only=False, elements2part=None, create_cache=False
     ):
         """Import from IFC file."""
         import ifcopenshell
@@ -104,12 +103,12 @@ class Assembly(Part):
             self.cache_store.to_cache(self, ifc_file, create_cache)
 
     def read_fem(
-            self,
-            fem_file: str | os.PathLike,
-            fem_format: FEATypes | str = None,
-            name: str = None,
-            fem_converter: FemConverters | str = "default",
-            cache_model_now=False,
+        self,
+        fem_file: str | os.PathLike,
+        fem_format: FEATypes | str = None,
+        name: str = None,
+        fem_converter: FemConverters | str = "default",
+        cache_model_now=False,
     ):
         """Import a Finite Element model. Currently supported FEM formats: Abaqus, Sesam and Calculix"""
         from ada.fem.formats.general import get_fem_converters
@@ -134,23 +133,23 @@ class Assembly(Part):
             self.cache_store.to_cache(self, fem_file, cache_model_now)
 
     def to_fem(
-            self,
-            name: str,
-            fem_format: FEATypes | str,
-            scratch_dir=None,
-            metadata=None,
-            execute=False,
-            run_ext=False,
-            mesh_only=False,
-            cpus=1,
-            gpus=None,
-            overwrite=False,
-            fem_converter="default",
-            exit_on_complete=True,
-            run_in_shell=False,
-            make_zip_file=False,
-            return_fea_results=True,
-            model_data_only=False,
+        self,
+        name: str,
+        fem_format: FEATypes | str,
+        scratch_dir=None,
+        metadata=None,
+        execute=False,
+        run_ext=False,
+        mesh_only=False,
+        cpus=1,
+        gpus=None,
+        overwrite=False,
+        fem_converter="default",
+        exit_on_complete=True,
+        run_in_shell=False,
+        make_zip_file=False,
+        return_fea_results=True,
+        model_data_only=False,
     ) -> FEAResult | None:
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
@@ -226,13 +225,13 @@ class Assembly(Part):
         return postprocess(res_path, fem_format=fem_format)
 
     def to_ifc(
-            self,
-            destination=None,
-            include_fem=False,
-            file_obj_only=False,
-            validate=False,
-            progress_callback: Callable[[int, int], None] = None,
-            geom_repr_override: dict[str, GeomRepr] = None,
+        self,
+        destination=None,
+        include_fem=False,
+        file_obj_only=False,
+        validate=False,
+        progress_callback: Callable[[int, int], None] = None,
+        geom_repr_override: dict[str, GeomRepr] = None,
     ) -> ifcopenshell.file:
         import ifcopenshell.validate
 
@@ -291,6 +290,7 @@ class Assembly(Part):
         if self._ifc_store is None:
             from ada.cadit.ifc.store import IfcStore
             from ada.cadit.ifc.utils import assembly_to_ifc_file
+
             self._ifc_file = assembly_to_ifc_file(self)
             self._ifc_store = IfcStore(assembly=self)
 

@@ -1,10 +1,10 @@
 import random
 
+import pygfx as gfx
+
 # mamba install pyside
 from PySide6 import QtWidgets
 from wgpu.gui.qt import WgpuCanvas
-
-import pygfx as gfx
 
 
 class Main(QtWidgets.QWidget):
@@ -31,12 +31,8 @@ class Main(QtWidgets.QWidget):
         layout.addWidget(self._canvas)
 
     def _on_button_click(self):
-        positions = [
-            [random.uniform(-50, 50), random.uniform(-50, 50), 0] for i in range(8)
-        ]
-        line = gfx.Line(
-            gfx.Geometry(positions=positions), gfx.LineMaterial(thickness=3)
-        )
+        positions = [[random.uniform(-50, 50), random.uniform(-50, 50), 0] for i in range(8)]
+        line = gfx.Line(gfx.Geometry(positions=positions), gfx.LineMaterial(thickness=3))
         self._scene.add(line)
         self._canvas.update()
 

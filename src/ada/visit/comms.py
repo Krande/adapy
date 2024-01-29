@@ -12,12 +12,13 @@ import numpy as np
 import trimesh
 
 import ada
-from ada.config import logger
 from ada.api.animations import Animation
-from ada.visit.websocket_server import start_server, WebSocketServer
+from ada.config import logger
+from ada.visit.websocket_server import WebSocketServer, start_server
 
-PYGFX_RENDERER_EXE_PY = pathlib.Path(__file__).parent / "render_pygfx.py"
-WEBSOCKET_EXE_PY = pathlib.Path(__file__).parent / "websocket_server.py"
+_THIS_DIR = pathlib.Path(__file__).parent
+PYGFX_RENDERER_EXE_PY = _THIS_DIR / "rendering" / "render_pygfx.py"
+WEBSOCKET_EXE_PY = _THIS_DIR / "websocket_server.py"
 
 
 @dataclass
@@ -28,7 +29,7 @@ class WsRenderMessage:
 
 
 def send_to_viewer(
-        part: ada.Part | trimesh.Scene, host="localhost", port=8765, origins: list[str] = None, meta: dict = None
+    part: ada.Part | trimesh.Scene, host="localhost", port=8765, origins: list[str] = None, meta: dict = None
 ):
     if origins is None:
         send_to_local_viewer(part, host=host, port=port)
@@ -36,20 +37,22 @@ def send_to_viewer(
         send_to_web_viewer(part, port=port, origins=origins, meta=meta)
 
 
-def start_ws_server(host="localhost", port=8765, server_exe: pathlib.Path = None, server_args: list[str] = None):
+def start_ws_server(
+    host="localhost", port=8765, server_exe: pathlib.Path = None, server_args: list[str] = None
+) -> WebSocketServer:
     ws = WebSocketServer(host=host, port=port)
 
     if ws.check_server_running() is False:
         if server_exe is None:
             server_exe = WEBSOCKET_EXE_PY
-            if server_args is None or '--origins' not in server_args:
+            if server_args is None or "--origins" not in server_args:
                 server_args = ["--origins", "localhost"]
 
         args = [sys.executable, str(server_exe)]
         if server_args is not None:
             args.extend(server_args)
 
-        args_str = ' '.join(args)
+        args_str = " ".join(args)
         logger.info("Starting server in separate process")
         # Start the server in a separate process that opens a new shell window
         if platform.system() == "Windows":
@@ -67,15 +70,22 @@ def start_ws_server(host="localhost", port=8765, server_exe: pathlib.Path = None
     return ws
 
 
-def send_to_ws_server(data: str | bytes, host="localhost", port=8765, server_exe: pathlib.Path = None,
-                      server_args: list[str] = None):
+def send_to_ws_server(
+    data: str | bytes, host="localhost", port=8765, server_exe: pathlib.Path = None, server_args: list[str] = None
+):
     ws = start_ws_server(host=host, port=port, server_exe=server_exe, server_args=server_args)
 
     ws.send(data)
 
 
-def send_to_viewer_v2(scene: trimesh.Scene, tri_anim: Animation = None, look_at=None, camera_position=None,
-                      new_gltf_file=None, dry_run=False):
+def send_to_viewer_v2(
+    scene: trimesh.Scene,
+    tri_anim: Animation = None,
+    look_at=None,
+    camera_position=None,
+    new_gltf_file=None,
+    dry_run=False,
+):
     if isinstance(look_at, np.ndarray):
         look_at = look_at.tolist()
 
@@ -127,7 +137,7 @@ def send_to_web_viewer(part: ada.Part, port=8765, origins: list[str] = None, met
 
     server_args = ["--port", str(port)]
     if origins is not None:
-        server_args.extend(["--origins", ';'.join(origins)])
+        server_args.extend(["--origins", ";".join(origins)])
     end = time.time()
 
     logger.info(f"Exported to glb in {end - start:.2f} seconds")

@@ -9,7 +9,7 @@ from ada.geom.points import Point
 from ada.occ.tessellating import BatchTessellator
 from ada.occ.utils import segments_to_edges
 from ada.visit.colors import Color
-from ada.visit.render_pygfx import BG_GRAY
+from ada.visit.rendering.render_pygfx import BG_GRAY
 
 
 def segment_plotter(segments: list[LineSegment | ArcSegment], canvas_title="PyGFX 2D Plotter"):

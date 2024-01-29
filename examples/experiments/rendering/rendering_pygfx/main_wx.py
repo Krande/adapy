@@ -6,7 +6,6 @@ import pygfx as gfx
 import wx
 from wgpu.gui.wx import WgpuCanvas
 
-
 app = wx.App()
 
 canvas = WgpuCanvas()

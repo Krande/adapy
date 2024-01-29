@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import os
-import base64
-import json
-import io
 import pathlib
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable, Iterable
@@ -45,18 +42,18 @@ class Part(BackendGeom):
     IFC_CLASSES = SpatialTypes
 
     def __init__(
-            self,
-            name,
-            color=None,
-            placement=None,
-            fem: FEM = None,
-            settings: Settings = Settings(),
-            metadata=None,
-            parent=None,
-            units: Units = Units.M,
-            guid=None,
-            ifc_store: IfcStore = None,
-            ifc_class: SpatialTypes = SpatialTypes.IfcBuildingStorey,
+        self,
+        name,
+        color=None,
+        placement=None,
+        fem: FEM = None,
+        settings: Settings = Settings(),
+        metadata=None,
+        parent=None,
+        units: Units = Units.M,
+        guid=None,
+        ifc_store: IfcStore = None,
+        ifc_class: SpatialTypes = SpatialTypes.IfcBuildingStorey,
     ):
         from ada import FEM
 
@@ -280,10 +277,10 @@ class Part(BackendGeom):
             raise NotImplementedError(f'"{type(obj)}" is not yet supported for smart append')
 
     def add_boolean(
-            self,
-            boolean: Boolean | PrimExtrude | PrimRevolve | PrimCyl | PrimBox,
-            add_pen_to_subparts=True,
-            add_to_layer: str = None,
+        self,
+        boolean: Boolean | PrimExtrude | PrimRevolve | PrimCyl | PrimBox,
+        add_pen_to_subparts=True,
+        add_to_layer: str = None,
     ) -> Boolean:
         def create_pen(pen_):
             if isinstance(pen_, (PrimExtrude, PrimRevolve, PrimCyl, PrimBox)):
@@ -360,16 +357,16 @@ class Part(BackendGeom):
                 raise ValueError(f"Unrecognized {type(obj)=}")
 
     def read_step_file(
-            self,
-            step_path,
-            name=None,
-            scale=None,
-            transform=None,
-            rotate=None,
-            colour=None,
-            opacity=1.0,
-            source_units=Units.M,
-            include_shells=False,
+        self,
+        step_path,
+        name=None,
+        scale=None,
+        transform=None,
+        rotate=None,
+        colour=None,
+        opacity=1.0,
+        source_units=Units.M,
+        include_shells=False,
     ):
         """
 
@@ -607,7 +604,7 @@ class Part(BackendGeom):
         return list_of_parts
 
     def get_all_physical_objects(
-            self, sub_elements_only=False, by_type=None, filter_by_guids: list[str] = None, pipe_to_segments=False
+        self, sub_elements_only=False, by_type=None, filter_by_guids: list[str] = None, pipe_to_segments=False
     ) -> Iterable[Beam | Plate | Wall | Pipe | Shape]:
         physical_objects = []
         if sub_elements_only:
@@ -684,19 +681,19 @@ class Part(BackendGeom):
         raise NotImplementedError()
 
     def to_fem_obj(
-            self,
-            mesh_size: float,
-            bm_repr: GeomRepr = GeomRepr.LINE,
-            pl_repr: GeomRepr = GeomRepr.SHELL,
-            shp_repr: GeomRepr = GeomRepr.SOLID,
-            options: GmshOptions = None,
-            silent=True,
-            interactive=False,
-            use_quads=False,
-            use_hex=False,
-            experimental_bm_splitting=True,
-            experimental_pl_splitting=True,
-            name=None,
+        self,
+        mesh_size: float,
+        bm_repr: GeomRepr = GeomRepr.LINE,
+        pl_repr: GeomRepr = GeomRepr.SHELL,
+        shp_repr: GeomRepr = GeomRepr.SOLID,
+        options: GmshOptions = None,
+        silent=True,
+        interactive=False,
+        use_quads=False,
+        use_hex=False,
+        experimental_bm_splitting=True,
+        experimental_pl_splitting=True,
+        name=None,
     ) -> FEM:
         from ada import Beam, Plate, Shape
         from ada.fem.elements import Mass
@@ -764,7 +761,7 @@ class Part(BackendGeom):
         self.to_trimesh_scene(**kwargs).export(gltf_file, buffer_postprocessor=post_pro)
 
     def to_trimesh_scene(
-            self, render_override: dict[str, GeomRepr | str] = None, filter_by_guids=None, merge_meshes=True
+        self, render_override: dict[str, GeomRepr | str] = None, filter_by_guids=None, merge_meshes=True
     ):
         from ada.occ.tessellating import BatchTessellator
 
@@ -774,14 +771,14 @@ class Part(BackendGeom):
         )
 
     def to_stp(
-            self,
-            destination_file,
-            geom_repr: GeomRepr = GeomRepr.SOLID,
-            progress_callback: Callable[
-                [int, int],
-                None,
-            ] = None,
-            geom_repr_override: dict[str, GeomRepr] = None,
+        self,
+        destination_file,
+        geom_repr: GeomRepr = GeomRepr.SOLID,
+        progress_callback: Callable[
+            [int, int],
+            None,
+        ] = None,
+        geom_repr_override: dict[str, GeomRepr] = None,
     ):
         from ada.occ.store import OCCStore
 
@@ -796,10 +793,18 @@ class Part(BackendGeom):
 
         step_writer.export(destination_file)
 
-    def show(self, renderer="react", auto_open_viewer=False, host="localhost", port=8765,
-             server_exe: pathlib.Path = None, server_args: list[str] = None, **kwargs):
+    def show(
+        self,
+        renderer="react",
+        auto_open_viewer=False,
+        host="localhost",
+        port=8765,
+        server_exe: pathlib.Path = None,
+        server_args: list[str] = None,
+        **kwargs,
+    ):
         from ada.occ.tessellating import BatchTessellator
-        from ada.visit.comms import start_ws_server, PYGFX_RENDERER_EXE_PY, WsRenderMessage
+        from ada.visit.comms import PYGFX_RENDERER_EXE_PY, start_ws_server
 
         server_exe = None
         if renderer == "pygfx":
@@ -810,7 +815,7 @@ class Part(BackendGeom):
 
         # Set the rendering engine
         if renderer == "react":
-            from ada.visit.renderer_react import RendererReact
+            from ada.visit.rendering.renderer_react import RendererReact
 
             if auto_open_viewer:
                 RendererReact().show()
@@ -819,15 +824,7 @@ class Part(BackendGeom):
         bt = BatchTessellator()
         scene = bt.tessellate_part(self)
 
-        with io.BytesIO() as data:
-            scene.export(file_obj=data, file_type="glb", buffer_postprocessor=self.animation_store)
-
-            msg = WsRenderMessage(
-                data=base64.b64encode(data.getvalue()).decode(),
-                look_at=kwargs.get('look_at', None),
-                camera_position=kwargs.get('camera_position', None),
-            )
-            ws.send(json.dumps(msg.__dict__))
+        ws.send_scene(scene, self.animation_store, **kwargs)
 
     @property
     def animation_store(self) -> AnimationStore:

@@ -85,7 +85,5 @@ if __name__ == "__main__":
 
     import subprocess
 
-    subprocess.check_call(
-        ["zip", "-9", "-j", "../viewer.template.zip", "../viewer.html.template"]
-    )
+    subprocess.check_call(["zip", "-9", "-j", "../viewer.template.zip", "../viewer.html.template"])
     os.remove("../viewer.html.template")

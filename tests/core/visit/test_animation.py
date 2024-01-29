@@ -120,12 +120,12 @@ def test_single_polygon_multiple_animations(polygon_mesh):
     def_weights_keys = [0, 1, 0]
 
     origin_vertices = [
-        [0., 0., 0.],
-        [0., 0., 0.],
-        [0., 0., 0.],
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
     ]
 
-    move_vertice = [0.5, 0.5, 0.]
+    move_vertice = [0.5, 0.5, 0.0]
     for i in range(0, 3):
         current_vertices = origin_vertices.copy()
         current_vertices[i] = move_vertice

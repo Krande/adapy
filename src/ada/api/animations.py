@@ -75,11 +75,14 @@ class Animation:
                 acc=tree["accessors"],
                 buff=buffer_items,
                 blob={"componentType": 5126, "type": "SCALAR"},
-                data=keyframe_weights
+                data=keyframe_weights,
             )
 
-            deformation_sampler = {"input": keyframe_idx, "interpolation": "LINEAR",
-                                   "output": deformation_weights_keys_idx}
+            deformation_sampler = {
+                "input": keyframe_idx,
+                "interpolation": "LINEAR",
+                "output": deformation_weights_keys_idx,
+            }
             sampler_idx = len(samplers)
             samplers.append(deformation_sampler)
 
@@ -143,14 +146,14 @@ class AnimationStore:
 
     @staticmethod
     def tree_postprocessor(tree):
-        for material in tree['materials']:
+        for material in tree["materials"]:
             material["doubleSided"] = True
 
-        for anim in tree['animations']:
-            node_idx = anim['channels'][0]['target']['node']
-            mesh_idx = tree['nodes'][node_idx]['mesh']
-            mesh = tree['meshes'][mesh_idx]
-            for primitive in mesh['primitives']:
+        for anim in tree["animations"]:
+            node_idx = anim["channels"][0]["target"]["node"]
+            mesh_idx = tree["nodes"][node_idx]["mesh"]
+            mesh = tree["meshes"][mesh_idx]
+            for primitive in mesh["primitives"]:
                 AnimationStore.update_buffer_view(tree, primitive["attributes"]["POSITION"], 34962)
                 AnimationStore.update_buffer_view(tree, primitive["indices"], 34963)
                 for target in primitive["targets"]:

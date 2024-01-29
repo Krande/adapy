@@ -24,7 +24,7 @@ from ada.visit.comms import WsRenderMessage
 try:
     import pygfx as gfx
 
-    import ada.visit.render_pygfx_helpers as gfx_utils
+    import ada.visit.rendering.pygfx_helpers as gfx_utils
 except ImportError:
     raise ImportError("Please install pygfx to use this renderer -> 'mamba install pygfx'.")
 try:
@@ -32,7 +32,7 @@ try:
 except ImportError:
     raise ImportError("Please install wgpu to use this renderer -> 'mamba install wgpu'.")
 
-from ada.visit.render_backend import (
+from ada.visit.rendering.render_backend import (
     MeshInfo,
     SqLiteBackend,
     create_selected_meshes_from_mesh_info,
@@ -171,9 +171,9 @@ class RendererPyGFX:
 
         if self.selected_mesh is not None:
             if (
-                    isinstance(obj, gfx.Mesh)
-                    and buffer_id == self._selected_mesh_info.buffer_id
-                    and geom_index > self._selected_mesh_info.start
+                isinstance(obj, gfx.Mesh)
+                and buffer_id == self._selected_mesh_info.buffer_id
+                and geom_index > self._selected_mesh_info.start
             ):
                 face_index_bump = 1 + self._selected_mesh_info.end - self._selected_mesh_info.start
                 logger.info(f"Adding {face_index_bump} to {geom_index=}")
@@ -297,6 +297,7 @@ def standalone_viewer(host="localhost", port="8765"):
 
         # create a function that will run for each draw call and will check for messages
         with RendererPyGFX(render_backend=SqLiteBackend()) as render:
+
             def _check_for_messages():
                 while not shared_queue.empty():
                     data = shared_queue.get()

@@ -14,7 +14,7 @@ from ada.param_models.primitives_generators import (
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 from ada.visit.render_backend import SqLiteBackend
-from ada.visit.render_pygfx import RendererPyGFX
+from ada.visit.rendering.render_pygfx import RendererPyGFX
 
 
 def main():
