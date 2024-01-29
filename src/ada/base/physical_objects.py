@@ -174,9 +174,9 @@ class BackendGeom(Root):
         from itertools import groupby
 
         import trimesh
-        from ada.visit.comms import start_ws_server
 
         from ada.occ.tessellating import BatchTessellator
+        from ada.visit.comms import start_ws_server
         from ada.visit.gltf.optimize import concatenate_stores
         from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 

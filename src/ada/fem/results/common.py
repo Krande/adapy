@@ -11,14 +11,14 @@ import meshio
 import numpy as np
 
 from ada.config import logger
+from ada.core.guid import create_guid
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
-
-from ada.core.guid import create_guid
 from ada.visit.comms import send_to_viewer
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
 from ada.visit.rendering.renderer_react import RendererReact
+
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 
 if TYPE_CHECKING:
@@ -456,12 +456,12 @@ class FEAResult:
 
         scene = trimesh.Scene()
         face_node = scene.add_geometry(faces_mesh, node_name=self.name, geom_name="faces")
-        edge_node = scene.add_geometry(
+        _ = scene.add_geometry(
             edge_mesh, node_name=f"{self.name}_edges", geom_name="edges", parent_node_name=self.name
         )
 
         face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == face_node][0]
-        edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == edge_node][0]
+        # edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == edge_node][0]
 
         # Start the websocket server
         ws = start_ws_server(server_exe=server_exe, server_args=server_args, host=host, port=port)
