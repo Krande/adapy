@@ -2,6 +2,13 @@
 
 
 
+## v0.2.0 (2024-01-29)
+
+### Feature
+
+* feat: updated webgl renderer (#82) ([`2f4629e`](https://github.com/Krande/adapy/commit/2f4629e89670f0e50b859296b3bbe32f9edc2a79))
+
+
 ## v0.1.0 (2023-12-21)
 
 ### Feature
