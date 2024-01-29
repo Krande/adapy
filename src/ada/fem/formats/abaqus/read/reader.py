@@ -233,7 +233,7 @@ def get_initial_conditions_from_lines(assembly: Assembly, bulk_str: str):
     """
     if bulk_str.find("*Initial Conditions") == -1:
         return
-    re_str = r"(?:\*\*\s*Name:\s*(.*?)\s*Type:\s*(.*?)\n)+\*Initial Conditions, type=.*?\n(?<=)((?:.*?)(?=\*|\Z))"
+    re_str = r"(?:\*\*\s*Name:\s*(?P<name>\S+)\s*Type:\s*(?P<type>\S+)\n)+\*Initial Conditions, type=.*?\n(?P<conditions>((?:.*?)(?=\*|\Z)))"
 
     def sort_props(line):
         ev = [x.strip() for x in line.split(",")]
@@ -250,21 +250,31 @@ def get_initial_conditions_from_lines(assembly: Assembly, bulk_str: str):
         return set_name, dofs, magn
 
     def grab_init_props(m):
-        bc_name = m.group(1)
-        bc_type = m.group(2)
-        bcs = m.group(3)
+        d = m.groupdict()
+        bc_name = d.get("name")
+        bc_type = d.get("type")
+        bcs = d.get("conditions")
         props = [sort_props(line) for line in bcs.splitlines()]
         set_name, dofs, magn = list(zip(*props))
         fem_set = None
         set_name_up = set_name[0]
-        if set_name_up in assembly.fem.elsets.keys():
-            fem_set = assembly.fem.elsets[set_name_up]
-        elif set_name_up in assembly.fem.nsets.keys():
-            fem_set = assembly.fem.nsets[set_name_up]
-        else:
+        if '.' in set_name_up:
+            part_name, set_name_up = set_name_up.split(".")
             for p in assembly.get_all_parts_in_assembly():
-                if set_name_up in p.fem.elsets.keys():
-                    fem_set = p.fem.elsets[set_name_up]
+                if p.fem.instance_name == part_name:
+                    fem_set = p.fem.sets.get_nset_from_name(set_name_up)
+                    break
+        else:
+            if set_name_up in assembly.fem.elsets.keys():
+                fem_set = assembly.fem.elsets[set_name_up]
+            elif set_name_up in assembly.fem.nsets.keys():
+                fem_set = assembly.fem.nsets[set_name_up]
+            else:
+                for p in assembly.get_all_parts_in_assembly():
+                    if set_name_up in p.fem.elsets.keys():
+                        fem_set = p.fem.elsets[set_name_up]
+                    elif set_name_up in p.fem.nsets.keys():
+                        fem_set = p.fem.nsets[set_name_up]
         if fem_set is None:
             raise ValueError(f'Unable to find fem set "{set_name[0]}"')
 
