@@ -31,7 +31,7 @@ ada-viewer = "ada.visit.render_pygfx:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["ada"]
+include = ["ada*"]
 exclude = ["frontend*"]
 
 [tool.setuptools.package-data]
