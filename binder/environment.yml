@@ -8,3 +8,6 @@ dependencies:
   - occt=*=*novtk*
   - trimesh >=4.1.0
   - code-aster
+  - pip
+  - pip:
+      - ../
