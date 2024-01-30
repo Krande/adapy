@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useEffect} from 'react';
 import {Canvas} from '@react-three/fiber';
 import {OrbitControls} from '@react-three/drei';
 import GridHelper from './GridHelper';
@@ -12,6 +12,7 @@ import {useMeshHandlers} from "../../hooks/useMeshHandlers";
 import AnimationControls from "./AnimationControls";
 import {PerspectiveCamera} from "three";
 
+const cameraProps = new PerspectiveCamera(60, 1.0, 0.1, 10000);
 const CanvasComponent = () => {
     const {modelUrl} = useModelStore();
     const {showPerf} = useNavBarStore(); // use showPerf and setShowPerf from useNavBarStore
@@ -23,10 +24,13 @@ const CanvasComponent = () => {
     const canvasParent = document.getElementById('canvasParent');
     const parentWidth = canvasParent?.clientWidth;
     const parentHeight = canvasParent?.clientHeight;
-    const aspectRatio = parentWidth && parentHeight ? parentWidth / parentHeight : window.innerWidth / window.innerHeight;
-    const cameraProps = new PerspectiveCamera(60, aspectRatio, 0.1, 10000);
-    cameraProps.position.set(5, 5, 5);
-    cameraProps.lookAt(0, 0, 0);
+
+    useEffect(() => {
+        cameraProps.aspect = parentWidth && parentHeight ? parentWidth / parentHeight : window.innerWidth / window.innerHeight;
+        cameraProps.position.set(5, 5, 5);
+        cameraProps.lookAt(0, 0, 0);
+    }, []);
+
 
     return (
         <div className={"relative w-full h-full"}>
