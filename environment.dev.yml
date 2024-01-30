@@ -1,0 +1,10 @@
+name: ada-dev
+channels:
+  - conda-forge
+  - krande
+dependencies:
+  - ada-py
+  - ada-cpp
+  - occt=*=*novtk*
+  - trimesh >=4.1.0
+  - pytest
