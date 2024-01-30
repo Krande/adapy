@@ -1,6 +1,6 @@
 {
   "name": "three-fiber-demo",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "scripts": {
     "prebuild": "node clean.js",
     "build": "vite build && node embed-script.js",

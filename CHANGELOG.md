@@ -2,6 +2,13 @@
 
 
 
+## v0.2.2 (2024-01-30)
+
+### Fix
+
+* fix: react misuse and resulting camera bug (#86) ([`017148a`](https://github.com/Krande/adapy/commit/017148a479b7620e3f84e42e8e52d9a32bfeea26))
+
+
 ## v0.2.1 (2024-01-30)
 
 ### Fix
