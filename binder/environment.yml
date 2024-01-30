@@ -3,7 +3,12 @@ channels:
   - conda-forge
   - krande
 dependencies:
+  - python=3.11
   - ada-py
   - ada-cpp
   - occt=*=*novtk*
   - trimesh >=4.1.0
+  - code-aster
+  - pip
+  - pip:
+      - ../

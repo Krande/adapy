@@ -1,5 +1,6 @@
 import React, {useState} from 'react';
 import {useAnimationStore} from '../../state/animationStore';
+import {handleAnimationChange, stopAnimation, togglePlayPause} from "../../utils/animation_utils";
 
 const playpause_svg = <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5}
                            stroke="currentColor" className="w-6 h-6">
@@ -17,9 +18,6 @@ const AnimationControls = () => {
     const {
         animations,
         selectedAnimation,
-        setSelectedAnimation,
-        playAnimation,
-        pauseAnimation,
         animationDuration,
         currentKey,
         setCurrentKey,
@@ -27,30 +25,8 @@ const AnimationControls = () => {
     } = useAnimationStore();
 
 
-    const [isPlaying, setIsPlaying] = useState(false); // Add this line
-
     const roundedCurrentKey = parseFloat(currentKey.toFixed(2));
-    const handleAnimationChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const animationName = e.target.value;
-        setSelectedAnimation(animationName);
-        // stop animation if it's playing
-        stopAnimation();
-    };
 
-    const stopAnimation = () => {
-        pauseAnimation();
-        seekAnimation(0);
-        setIsPlaying(false); // Add this line
-    }
-
-    const togglePlayPause = () => { // Modify this function
-        if (isPlaying) {
-            pauseAnimation();
-        } else {
-            playAnimation(selectedAnimation);
-        }
-        setIsPlaying(!isPlaying);
-    }
 
     return (
         <div className={"w-full h-full flex flex-row space-x-2"}>

@@ -21,7 +21,7 @@ But there are certain things that are present in all of them.
   * 1 string: `element type`
   * N number of integers: point ID's making up the element
 
-Sources:
+Some resources on the topic:
 
 * <https://gitlab.kitware.com/xdmf/xdmf/-/issues/29>
 * <https://kitware.github.io/vtk-examples/site/VTKFileFormats/>
