@@ -1,6 +1,6 @@
 // src/App.js
 import "./app.css";
-import React, {useEffect} from 'react'
+import React from 'react'
 import CanvasComponent from './components/viewer/Canvas';
 import NavBar from './components/NavBar';
 import {useNavBarStore} from './state/navBarStore';

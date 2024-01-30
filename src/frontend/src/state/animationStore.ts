@@ -20,6 +20,8 @@ type State = {
     playAnimation: (animationName: string) => void;
     pauseAnimation: () => void;
     seekAnimation: (time: number) => void;
+    isPlaying: boolean;
+    setIsPlaying: (isPlaying: boolean) => void;
 };
 
 export const useAnimationStore = create<State>((set) => ({
@@ -29,6 +31,8 @@ export const useAnimationStore = create<State>((set) => ({
     currentKey: 0,
     mixer: null,
     action: null,
+    isPlaying: false,
+    setIsPlaying: (isPlaying) => set({isPlaying}),
 
     setAnimations: (animations) => {
         set((state) => {
@@ -84,7 +88,6 @@ export const useAnimationStore = create<State>((set) => ({
                 const selectedClipIndex = state.animations.findIndex(clip => clip.name === animation);
 
 
-
                 // find the morphed mesh object related to selectedClip animation
                 if (state.mixer) {
                     const root = state.mixer.getRoot();
@@ -100,7 +103,6 @@ export const useAnimationStore = create<State>((set) => ({
                         colorVerticesBasedOnDeformation(morphTargetObject, selectedClipIndex);
                     }
                 }
-
 
 
                 return {

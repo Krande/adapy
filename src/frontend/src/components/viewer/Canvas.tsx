@@ -8,24 +8,23 @@ import {Perf} from 'r3f-perf';
 import OrientationGizmo from "./OrientationGizmo";
 import {useModelStore} from '../../state/modelStore';
 import {useNavBarStore} from "../../state/navBarStore";
-import {useMeshHandlers} from "../../hooks/useMeshHandlers";
 import AnimationControls from "./AnimationControls";
 import {PerspectiveCamera} from "three";
+import {handleMeshEmptySpace, handleMeshSelected} from "../../utils/mesh_handling";
 
 const cameraProps = new PerspectiveCamera(60, 1.0, 0.1, 10000);
+const blenderBackgroundColor = "#393939"; // Approximation of Blender's background color
+
 const CanvasComponent = () => {
     const {modelUrl} = useModelStore();
     const {showPerf} = useNavBarStore(); // use showPerf and setShowPerf from useNavBarStore
 
-    const {handleMeshSelected, handleMeshEmptySpace} = useMeshHandlers();
-
-    const blenderBackgroundColor = "#393939"; // Approximation of Blender's background color
-
-    const canvasParent = document.getElementById('canvasParent');
-    const parentWidth = canvasParent?.clientWidth;
-    const parentHeight = canvasParent?.clientHeight;
 
     useEffect(() => {
+        const canvasParent = document.getElementById('canvasParent');
+        const parentWidth = canvasParent?.clientWidth;
+        const parentHeight = canvasParent?.clientHeight;
+
         cameraProps.aspect = parentWidth && parentHeight ? parentWidth / parentHeight : window.innerWidth / window.innerHeight;
         cameraProps.position.set(5, 5, 5);
         cameraProps.lookAt(0, 0, 0);
