@@ -49,7 +49,7 @@ const CanvasComponent = () => {
                     {modelUrl && <Model url={modelUrl} onMeshSelected={handleMeshSelected}/>}
                     <GridHelper size={10} divisions={10} colorCenterLine="white" colorGrid="white"/>
                     {showPerf && <Perf/>}
-                    <OrbitControls camera={cameraProps} enableDamping={false} makeDefault={true}/>
+                    <OrbitControls camera={cameraProps} enableDamping={false} makeDefault={false}/>
                     <OrientationGizmo/>
                 </Canvas>
             </div>

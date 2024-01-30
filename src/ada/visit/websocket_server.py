@@ -12,9 +12,19 @@ import websockets
 from ada.config import logger
 
 
-def pretty_print_ports(d):
+def pretty_print_ports(client_origins):
+    split_origins = defaultdict(list)
+    for item in client_origins:
+        result = re.search(r"(?P<protocol>\w+)://(?P<host>\w+):(?P<port>\d+)", item)
+        if result is None:
+            continue
+        d = result.groupdict()
+        port = int(d.get("port"))
+        host = d.get("host")
+        split_origins[host].append(port)
+
     result = []
-    for key, values in d.items():
+    for key, values in split_origins.items():
         values.sort()
         ranges = [[values[0]]]
         for v in values[1:]:
@@ -47,10 +57,13 @@ class WebSocketServer:
 
     async def handler(self, websocket):
         """This will handle the connection of a new client"""
-        if websocket.origin in self.client_origins and websocket.origin not in self.clients.keys():
-            logger.debug(f"Client connected from origin {websocket.origin}")
+        if websocket.origin in self.client_origins:
+            if websocket.origin in self.clients.keys():
+                logger.debug(f"Client re-connected from origin {websocket.origin}")
+            else:
+                logger.debug(f"Client connected from origin {websocket.origin}")
             self.clients[websocket.origin] = websocket
-            # if message queue is not empty, send the latest message
+
             if self.message_queue is not None and not self.message_queue.empty():
                 logger.debug("Sending cached data to client")
                 await websocket.send(self.message_queue.get())
@@ -58,10 +71,11 @@ class WebSocketServer:
         async for message in websocket:
             if self.message_queue is not None:
                 self.message_queue.put(message)
-            await self.update_clients(message)
+            await self.update_clients(message, websocket.origin)
 
-    async def update_clients(self, data):
+    async def update_clients(self, data, origin):
         """This will update all clients with the latest data"""
+        logger.debug(f"Received data from {origin}")
         logger.debug(f"Active clients: {self.clients.keys()}")
         logger.info(f"Updating {len(self.clients)} clients")
 
@@ -73,6 +87,8 @@ class WebSocketServer:
 
         for client_origin, client in self.clients.items():
             logger.debug(f"Client {client_origin} is open: {client.open}")
+            if client_origin == origin:
+                continue
             if client.open and client.origin in self.clients:
                 logger.debug(f"Sending data to {client_origin}")
                 await client.send(data)
@@ -86,18 +102,9 @@ class WebSocketServer:
             logger.setLevel("DEBUG")
         else:
             logger.setLevel("INFO")
-        split_origins = defaultdict(list)
-        for item in self.client_origins:
-            result = re.search(r"(?P<protocol>\w+)://(?P<host>\w+):(?P<port>\d+)", item)
-            if result is None:
-                continue
-            d = result.groupdict()
-            port = int(d.get("port"))
-            host = d.get("host")
-            split_origins[host].append(port)
 
         # pretty printed string of origins
-        result_str = pretty_print_ports(split_origins)
+        result_str = pretty_print_ports(self.client_origins)
         logger.info(f"Starting server {self.host}:{self.port} with accepted origins {result_str}")
         asyncio.run(self.server_start_main())
 

@@ -5,4 +5,5 @@ channels:
 dependencies:
   - ada-py
   - ada-cpp
+  - occt=*=*novtk*
   - trimesh >=4.1.0

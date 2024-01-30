@@ -7,10 +7,6 @@ import {GLTFResult, ModelProps} from "../../state/modelInterfaces";
 import {useAnimationStore} from '../../state/animationStore';
 import {useAnimationEffects} from '../../hooks/useAnimationEffects';
 import {useSelectedObjectStore} from '../../state/selectedObjectStore';
-import useWebSocket from "../../hooks/useWebSocket";
-import {handleWebSocketMessage} from "../../utils/handleWebSocketMessage";
-import {useWebSocketStore} from "../../state/webSocketStore";
-import {useModelStore} from "../../state/modelStore";
 
 
 const Model: React.FC<ModelProps> = ({url, onMeshSelected}) => {
