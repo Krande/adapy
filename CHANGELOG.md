@@ -2,6 +2,13 @@
 
 
 
+## v0.2.1 (2024-01-30)
+
+### Fix
+
+* fix: stability improvements to websocket handling (#83) ([`e1b39e7`](https://github.com/Krande/adapy/commit/e1b39e7a1e5a95de653686353be3c51f0e55de7b))
+
+
 ## v0.2.0 (2024-01-29)
 
 ### Feature
