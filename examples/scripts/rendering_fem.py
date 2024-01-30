@@ -12,7 +12,7 @@ def main():
     rmed_file = EX_DIR / "eigen_shell_cantilever_code_aster.rmed"
 
     rmed = ada.from_fem_res(rmed_file)
-    rmed.show(new_glb_file="temp/eigen_shell_cantilever_code_aster.glb")
+    rmed.show(new_glb_file="temp/eigen_shell_cantilever_code_aster.glb", server_args=["--debug"])
 
 
 if __name__ == "__main__":

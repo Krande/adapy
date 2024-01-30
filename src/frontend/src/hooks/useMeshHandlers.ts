@@ -6,12 +6,10 @@ import {useWebSocketStore} from '../state/webSocketStore';
 
 export const useMeshHandlers = () => {
     const {selectedObject, setSelectedObject, originalColor} = useSelectedObjectStore();
-    const {sendData} = useWebSocketStore(); // This line triggers the WebSocket connection
 
     const handleMeshSelected = useCallback((meshInfo: MeshInfo) => {
         console.log('Mesh clicked:', meshInfo);
-        sendData(JSON.stringify({action: 'meshClick', data: meshInfo}));
-    }, [sendData]);
+    }, []);
 
     const handleMeshEmptySpace = useCallback((event: MouseEvent) => {
         event.stopPropagation();
@@ -23,5 +21,5 @@ export const useMeshHandlers = () => {
         }
     }, [selectedObject, setSelectedObject, originalColor]);
 
-    return {handleMeshSelected, handleMeshEmptySpace, sendData};
+    return {handleMeshSelected, handleMeshEmptySpace};
 };

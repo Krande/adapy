@@ -45,8 +45,6 @@ def start_ws_server(
     if ws.check_server_running() is False:
         if server_exe is None:
             server_exe = WEBSOCKET_EXE_PY
-            if server_args is None or "--origins" not in server_args:
-                server_args = ["--origins", "localhost"]
 
         args = [sys.executable, str(server_exe)]
         if server_args is not None:

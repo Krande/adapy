@@ -1,24 +1,25 @@
 import React from 'react';
 import {useAnimationStore} from "../state/animationStore";
 import {useNavBarStore} from "../state/navBarStore";
-import {useWebSocketStore} from '../state/webSocketStore';
 import {useColorStore} from "../state/colorLegendStore";
+
 
 type NavBarProps = {
     setIsNavBarVisible: (value: boolean) => void;
+    sendMessage: (message: string | object) => void;
 };
 
-const NavBar: React.FC<NavBarProps> = ({setIsNavBarVisible}) => {
+const NavBar: React.FC<NavBarProps> = ({setIsNavBarVisible, sendMessage}) => {
     const {showPerf, setShowPerf} = useNavBarStore(); // use showPerf and setShowPerf from useNavBarStore
     const {showLegend, setShowLegend} = useColorStore();
-    const {sendData} = useWebSocketStore();
+
 
     return (
         <div className={"flex flex-col space-y-4 p-2"}>
 
             <button
                 className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
-                onClick={() => sendData('Hello from React')}
+                onClick={() => sendMessage('Hello from React')}
             >
                 Send Message
             </button>
