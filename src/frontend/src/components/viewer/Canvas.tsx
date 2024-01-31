@@ -11,6 +11,8 @@ import {useNavBarStore} from "../../state/navBarStore";
 import AnimationControls from "./AnimationControls";
 import {PerspectiveCamera} from "three";
 import {handleMeshEmptySpace, handleMeshSelected} from "../../utils/mesh_handling";
+import ObjectInfoBox from "./objectInfo";
+import {useObjectInfoStore} from "../../state/objectInfoStore";
 
 const cameraProps = new PerspectiveCamera(60, 1.0, 0.1, 10000);
 const blenderBackgroundColor = "#393939"; // Approximation of Blender's background color
@@ -18,6 +20,7 @@ const blenderBackgroundColor = "#393939"; // Approximation of Blender's backgrou
 const CanvasComponent = () => {
     const {modelUrl} = useModelStore();
     const {showPerf} = useNavBarStore(); // use showPerf and setShowPerf from useNavBarStore
+    const {show} = useObjectInfoStore()
 
 
     useEffect(() => {
@@ -28,18 +31,20 @@ const CanvasComponent = () => {
         cameraProps.aspect = parentWidth && parentHeight ? parentWidth / parentHeight : window.innerWidth / window.innerHeight;
         cameraProps.position.set(5, 5, 5);
         cameraProps.lookAt(0, 0, 0);
+
     }, []);
 
 
     return (
         <div className={"relative w-full h-full"}>
-            <div className={"absolute left-0 top-0 z-10 py-2"}>
+            <div className={"absolute left-0 top-0 z-10 py-2 flex flex-col"}>
                 <AnimationControls/>
+                <div className={show ? "hidden": ""}><ObjectInfoBox/></div>
+
             </div>
             <div className="absolute right-5 top-80 z-10">
                 <ColorLegend/>
             </div>
-
 
             <div id={"canvasParent"} className={"absolute w-full h-full"}>
                 <Canvas

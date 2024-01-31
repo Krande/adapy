@@ -1,41 +1,52 @@
 import {useSelectedObjectStore} from "../state/selectedObjectStore";
 import * as THREE from "three";
 import {ThreeEvent} from "@react-three/fiber";
+import {useObjectInfoStore} from "../state/objectInfoStore";
 
-export function handleMeshSelected(event: ThreeEvent<PointerEvent>) {
+
+const selectedMaterial = new THREE.MeshStandardMaterial({color: 'blue', side: THREE.DoubleSide});
+const defaultMaterial = new THREE.MeshStandardMaterial({color: 'white', side: THREE.DoubleSide});
+
+
+function deselectObject() {
     const selectedObject = useSelectedObjectStore.getState().selectedObject;
-    const originalColor = useSelectedObjectStore.getState().originalColor;
-    const mesh = event.object as THREE.Mesh;
-    if (selectedObject !== mesh) {
-        if (selectedObject) {
-            (selectedObject.material as THREE.MeshBasicMaterial).color.set(originalColor || 'white');
-        }
-
-        const material = mesh.material as THREE.MeshBasicMaterial;
-        useSelectedObjectStore.getState().setOriginalColor(material.color);
-        useSelectedObjectStore.getState().setSelectedObject(mesh);
-        const meshInfo = {
-            name: mesh.name,
-            materialName: material.name,
-            intersectionPoint: event.point,
-            faceIndex: event.faceIndex || 0,
-            meshClicked: true,
-        };
-
-        console.log('mesh clicked');
-        console.log(meshInfo);
-        console.log(event);
+    const originalMaterial = useSelectedObjectStore.getState().originalMaterial;
+    if (selectedObject) {
+        selectedObject.material = originalMaterial? originalMaterial : defaultMaterial;
+        useSelectedObjectStore.getState().setOriginalMaterial(null);
+        useSelectedObjectStore.getState().setSelectedObject(null);
     }
 }
 
-export function handleMeshEmptySpace(event: MouseEvent) {
-    const selectedObject = useSelectedObjectStore.getState().selectedObject;
-    const originalColor = useSelectedObjectStore.getState().originalColor;
 
-    console.log('click on empty space');
-    if (selectedObject) {
-        console.log(`deselecting object. Reverting to original color ${originalColor}`);
-        (selectedObject.material as THREE.MeshBasicMaterial).color.set(originalColor || 'white');
-        useSelectedObjectStore.getState().setSelectedObject(null);
+export function handleMeshSelected(event: ThreeEvent<PointerEvent>) {
+    event.stopPropagation();
+
+    const selectedObject = useSelectedObjectStore.getState().selectedObject;
+    const originalMaterial = useSelectedObjectStore.getState().originalMaterial;
+    const mesh = event.object as THREE.Mesh;
+
+    if (selectedObject !== mesh) {
+        if (selectedObject) {
+            selectedObject.material = originalMaterial? originalMaterial : defaultMaterial;
+        }
+        const material = mesh.material as THREE.MeshBasicMaterial;
+        useSelectedObjectStore.getState().setOriginalMaterial(mesh.material? material : null);
+        useSelectedObjectStore.getState().setSelectedObject(mesh);
+
+        // Update the object info store
+        useObjectInfoStore.getState().setName(mesh.name);
+        useObjectInfoStore.getState().setFaceIndex(event.faceIndex || 0);
+
+        // Create a new material for the selected mesh
+        mesh.material = selectedMaterial;
+    } else {
+        deselectObject();
     }
+
+}
+
+export function handleMeshEmptySpace(event: MouseEvent) {
+    event.stopPropagation();
+    deselectObject();
 }
