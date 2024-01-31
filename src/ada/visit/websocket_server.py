@@ -256,6 +256,7 @@ def start_ws_server(
         logger.info(
             "Running in binder environment, starting server in thread. Pass override_binder_check=True to override"
         )
+        logger.warning("Binder does not support websockets, so you will not be able to send data to the viewer")
         run_in_thread = True
 
     if ws.check_server_running() is False:
