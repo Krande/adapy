@@ -40,11 +40,12 @@ const NavBar: React.FC<NavBarProps> = ({setIsNavBarVisible, sendMessage}) => {
             >Show ColorLegend
             </button>
             <button
-                className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
+                className={"bg-blue-700 hidden hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
                 onClick={connect_to_jupyter}
             >Jupyter Test</button>
+
             <button
-                className={"absolute hidden bottom-0 left-0 bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
+                className={"absolute bottom-0 left-0 bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
                 onClick={() => setIsNavBarVisible(false)}
             >
                 ☰

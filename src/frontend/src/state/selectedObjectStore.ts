@@ -4,13 +4,13 @@ import * as THREE from 'three';
 type SelectedObjectState = {
     selectedObject: THREE.Mesh | null;
     setSelectedObject: (mesh: THREE.Mesh | null) => void;
-    originalColor: THREE.Color | null;
-    setOriginalColor: (color: THREE.Color) => void;
+    originalMaterial: THREE.MeshBasicMaterial | null;
+    setOriginalMaterial: (material: THREE.MeshBasicMaterial | null) => void;
 };
 
 export const useSelectedObjectStore = create<SelectedObjectState>((set) => ({
     selectedObject: null,
     setSelectedObject: (mesh) => set(() => ({selectedObject: mesh})),
-    originalColor: null,
-    setOriginalColor: (color: THREE.Color) => set(() => ({originalColor: color})),
+    originalMaterial: null,
+    setOriginalMaterial: (material: THREE.MeshBasicMaterial | null) => set(() => ({originalMaterial: material})),
 }));
