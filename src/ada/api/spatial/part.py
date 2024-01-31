@@ -806,8 +806,7 @@ class Part(BackendGeom):
         **kwargs,
     ):
         from ada.occ.tessellating import BatchTessellator
-        from ada.visit.websocket_server import start_ws_server
-        from ada.visit.websocket_server import PYGFX_RENDERER_EXE_PY
+        from ada.visit.websocket_server import PYGFX_RENDERER_EXE_PY, start_ws_server
 
         server_exe = None
         if renderer == "pygfx":

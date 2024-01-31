@@ -14,11 +14,11 @@ from ada.config import logger
 from ada.core.guid import create_guid
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
-from ...visit.websocket_server import send_to_viewer, start_ws_server
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
 from ada.visit.rendering.renderer_react import RendererReact
 
+from ...visit.websocket_server import send_to_viewer, start_ws_server
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 
 if TYPE_CHECKING:
@@ -435,10 +435,10 @@ class FEAResult:
         from trimesh.path.entities import Line
 
         from ada.api.animations import Animation, AnimationStore
-        from ...visit.websocket_server import WsRenderMessage
         from ada.visit.utils import in_notebook
 
         from ...core.vector_transforms import rot_matrix
+        from ...visit.websocket_server import WsRenderMessage
 
         if renderer == "pygfx":
             scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)
