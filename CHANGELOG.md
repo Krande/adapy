@@ -2,6 +2,17 @@
 
 
 
+## v0.2.4 (2024-01-31)
+
+### Chore
+
+* chore: fix ci pr review trigger event ([`6e3c7d9`](https://github.com/Krande/adapy/commit/6e3c7d93c4bd67a078a7fc84ffb6d3390e31f73a))
+
+### Fix
+
+* fix: added selection coloring and an info box for the selected object (#88) ([`7869156`](https://github.com/Krande/adapy/commit/7869156f3cd4f748d73b7c469314f71a30e030f7))
+
+
 ## v0.2.3 (2024-01-31)
 
 ### Fix
