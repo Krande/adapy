@@ -2,6 +2,7 @@ import os
 import pathlib
 import zipfile
 
+from ada.config import logger
 from ada.visit.colors import Color
 from ada.visit.rendering.render_backend import SqLiteBackend
 from ada.visit.utils import in_notebook
@@ -10,6 +11,7 @@ BG_GRAY = Color(57, 57, 57)
 PICKED_COLOR = Color(0, 123, 255)
 THIS_DIR = pathlib.Path(__file__).parent.absolute()
 ZIP_VIEWER = THIS_DIR / "resources" / "index.zip"
+HASH_FILE = ZIP_VIEWER.with_suffix(".hash")
 
 
 class RendererReact:
@@ -17,9 +19,25 @@ class RendererReact:
         self.backend = render_backend
         self.local_html_path = local_html_path
 
-        if not local_html_path.exists():
-            archive = zipfile.ZipFile(ZIP_VIEWER)
-            archive.extractall(THIS_DIR / "resources")
+        self._extract_html()
+
+    def _extract_html(self):
+        from ada.core.utils import get_md5_hash_for_file
+
+        hash_content = get_md5_hash_for_file(ZIP_VIEWER).hexdigest()
+        if self.local_html_path.exists() and HASH_FILE.exists():
+            with open(HASH_FILE, "r") as f:
+                hash_stored = f.read()
+            if hash_content == hash_stored:
+                return
+
+        logger.info("Extracting HTML viewer")
+        archive = zipfile.ZipFile(ZIP_VIEWER)
+        archive.extractall(THIS_DIR / "resources")
+
+        # Update HASH file
+        with open(HASH_FILE, "w") as f:
+            f.write(hash_content)
 
     def show(self):
         if in_notebook():

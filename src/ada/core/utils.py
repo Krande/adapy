@@ -1,6 +1,7 @@
 # coding=utf-8
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import os
 import pathlib
@@ -358,3 +359,11 @@ def set_list_first_position_elem(array: list, element) -> list:
     # shift the list so that the origin is the first point
     new_array = array[origin_index:] + array[:origin_index]
     return new_array
+
+
+def get_md5_hash_for_file(filepath: str | pathlib.Path) -> hashlib._Hash:
+    with open(filepath, "rb") as f:
+        file_hash = hashlib.md5()
+        while chunk := f.read(8192):
+            file_hash.update(chunk)
+        return file_hash

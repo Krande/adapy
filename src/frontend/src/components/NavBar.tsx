@@ -2,6 +2,7 @@ import React from 'react';
 import {useAnimationStore} from "../state/animationStore";
 import {useNavBarStore} from "../state/navBarStore";
 import {useColorStore} from "../state/colorLegendStore";
+import {connect_to_jupyter} from "../utils/jupyter_connection";
 
 
 type NavBarProps = {
@@ -39,7 +40,11 @@ const NavBar: React.FC<NavBarProps> = ({setIsNavBarVisible, sendMessage}) => {
             >Show ColorLegend
             </button>
             <button
-                className={"absolute bottom-0 left-0 bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
+                className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
+                onClick={connect_to_jupyter}
+            >Jupyter Test</button>
+            <button
+                className={"absolute hidden bottom-0 left-0 bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
                 onClick={() => setIsNavBarVisible(false)}
             >
                 ☰
