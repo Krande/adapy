@@ -2,6 +2,13 @@
 
 
 
+## v0.2.3 (2024-01-31)
+
+### Fix
+
+* fix: rendering packaging (#87) ([`0be1c28`](https://github.com/Krande/adapy/commit/0be1c28d3a8d2946b4c88ccd1f96276493f3e144))
+
+
 ## v0.2.2 (2024-01-30)
 
 ### Fix
