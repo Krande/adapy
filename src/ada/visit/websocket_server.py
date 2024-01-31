@@ -246,13 +246,16 @@ def start_ws_server(
     run_in_thread=False,
     origins: list[str] = None,
     debug_mode=False,
-    override_binder_check=False
+    override_binder_check=False,
 ) -> WebSocketServer:
     ws = WebSocketServer(host=host, port=port)
 
     # Check if we are running in a binder environment
-    res = os.getenv('BINDER_SERVICE_HOST', None)
+    res = os.getenv("BINDER_SERVICE_HOST", None)
     if res is not None and override_binder_check is False:
+        logger.info(
+            "Running in binder environment, starting server in thread. Pass override_binder_check=True to override"
+        )
         run_in_thread = True
 
     if ws.check_server_running() is False:
