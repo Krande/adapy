@@ -40,7 +40,7 @@ ada = [
     "materials/metals/resources/NLMatParams.json",
     "cadit/gxml/write/resources/xml_blank.xml",
     "fem/results/resources/results.sql",
-    "visit/resources/index.zip"
+    "visit/rendering/resources/index.zip"
 ]
 
 [tool.black]

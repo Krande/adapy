@@ -19,7 +19,7 @@ from ada.core.vector_utils import unit_vector
 from ada.geom import Geometry
 from ada.occ.tessellating import BatchTessellator
 from ada.visit.colors import Color
-from ada.visit.comms import WsRenderMessage
+from ada.visit.websocket_server import WsRenderMessage
 
 try:
     import pygfx as gfx

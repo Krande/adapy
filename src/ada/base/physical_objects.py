@@ -176,7 +176,7 @@ class BackendGeom(Root):
         import trimesh
 
         from ada.occ.tessellating import BatchTessellator
-        from ada.visit.comms import start_ws_server
+        from ada.visit.websocket_server import start_ws_server
         from ada.visit.gltf.optimize import concatenate_stores
         from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 

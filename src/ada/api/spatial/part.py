@@ -801,29 +801,33 @@ class Part(BackendGeom):
         port=8765,
         server_exe: pathlib.Path = None,
         server_args: list[str] = None,
+        run_ws_in_thread=False,
+        origins: list[str] = None,
         **kwargs,
     ):
         from ada.occ.tessellating import BatchTessellator
-        from ada.visit.comms import PYGFX_RENDERER_EXE_PY, start_ws_server
+        from ada.visit.websocket_server import start_ws_server
+        from ada.visit.websocket_server import PYGFX_RENDERER_EXE_PY
 
         server_exe = None
         if renderer == "pygfx":
             server_exe = PYGFX_RENDERER_EXE_PY
 
         # Start the websocket server
-        ws = start_ws_server(server_exe=server_exe, server_args=server_args, host=host, port=port)
-
-        # Set the rendering engine
-        if renderer == "react":
-            from ada.visit.rendering.renderer_react import RendererReact
-
-            if auto_open_viewer:
-                RendererReact().show()
+        ws = start_ws_server(
+            server_exe=server_exe,
+            server_args=server_args,
+            host=host,
+            port=port,
+            origins=origins,
+            run_in_thread=run_ws_in_thread,
+        )
 
         # Tessellate the geometry
         bt = BatchTessellator()
         scene = bt.tessellate_part(self)
 
+        # Send the geometry to the frontend through the websocket server
         ws.send_scene(scene, self.animation_store, **kwargs)
 
     @property
