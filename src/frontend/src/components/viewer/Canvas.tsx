@@ -39,7 +39,7 @@ const CanvasComponent = () => {
         <div className={"relative w-full h-full"}>
             <div className={"absolute left-0 top-0 z-10 py-2 flex flex-col"}>
                 <AnimationControls/>
-                <div className={show ? "hidden": ""}><ObjectInfoBox/></div>
+                <div className={show ? "": "hidden"}><ObjectInfoBox/></div>
 
             </div>
             <div className="absolute right-5 top-80 z-10">
@@ -48,6 +48,7 @@ const CanvasComponent = () => {
 
             <div id={"canvasParent"} className={"absolute w-full h-full"}>
                 <Canvas
+                    // frameloop="demand"
                     camera={cameraProps}
                     onPointerMissed={handleMeshEmptySpace}
                     style={{backgroundColor: blenderBackgroundColor}}>

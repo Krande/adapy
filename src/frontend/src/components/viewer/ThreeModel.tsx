@@ -20,13 +20,7 @@ const Model: React.FC<ModelProps> = ({url, onMeshSelected}) => {
         raycaster.params.Line.threshold = 0.01;
         scene.traverse((object) => {
             if (object instanceof THREE.Mesh) {
-                // Check if the geometry of the mesh is an instance of THREE.BufferGeometry or THREE.Geometry
-                if (object.geometry instanceof THREE.BufferGeometry) {
-                    // This is a volume-bounding mesh, do nothing
-                } else {
-                    // This is a flat surface mesh, set the material to DoubleSide
-                    object.material.side = THREE.DoubleSide;
-                }
+                object.material.side = THREE.DoubleSide;
             }
         });
 
