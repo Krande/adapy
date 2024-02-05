@@ -2,6 +2,7 @@ from itertools import groupby
 from operator import itemgetter
 from typing import TYPE_CHECKING
 
+from ada.config import logger
 from ada.fem import FemSet
 from ada.fem.containers import FemSets
 from ada.fem.formats.utils import str_to_int
@@ -40,10 +41,12 @@ def get_setmap(m, parent):
 def get_femsets(m, set_map, parent) -> FemSet:
     d = m.groupdict()
     isref = str_to_int(d["isref"])
-    fem_set = FemSet(
-        d["set_name"].strip(),
-        set_map[isref][0],
-        set_map[isref][1],
-        parent=parent,
-    )
+    set_name = d["set_name"].strip()
+    try:
+        isref_set = set_map[isref]
+    except KeyError:
+        logger.info(f"Set ID={isref} [{set_name=}] is likely an empty set.")
+        isref_set = [[], "nset"]
+
+    fem_set = FemSet(set_name, isref_set[0], isref_set[1], parent=parent)
     return fem_set

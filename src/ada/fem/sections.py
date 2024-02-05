@@ -316,6 +316,10 @@ class ConnectorSection(FemBase):
     def damping_comp(self) -> _T_D:
         return self._damping_comp
 
+    @damping_comp.setter
+    def damping_comp(self, value):
+        self._damping_comp = value
+
     @property
     def plastic_comp(self) -> _T_P:
         return self._plastic_comp
@@ -323,3 +327,6 @@ class ConnectorSection(FemBase):
     @property
     def rigid_dofs(self) -> _T_R:
         return self._rigid_dofs
+
+    def __repr__(self):
+        return f"ConnectorSection({self.name})"

@@ -1,5 +1,5 @@
 {
-  "name": "three-fiber-demo",
+  "name": "ada-py-viewer",
   "version": "0.2.4",
   "scripts": {
     "prebuild": "node clean.js",
