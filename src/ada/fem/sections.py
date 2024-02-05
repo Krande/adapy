@@ -327,3 +327,6 @@ class ConnectorSection(FemBase):
     @property
     def rigid_dofs(self) -> _T_R:
         return self._rigid_dofs
+
+    def __repr__(self):
+        return f"ConnectorSection({self.name})"
