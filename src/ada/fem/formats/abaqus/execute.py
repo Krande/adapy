@@ -1,7 +1,6 @@
 import pathlib
 import shutil
 
-from ada.fem.formats.abaqus.config import AbaqusPaths
 from ada.fem.formats.utils import LocalExecute
 
 
@@ -81,6 +80,8 @@ def create_subroutine_input(inp_path, subroutine_path, aba_ver):
 
 
 def create_subroutine_entry_batch(aba_ver):
+    from ada.fem.formats.abaqus.config import AbaqusPaths
+
     aba_path = AbaqusPaths.abaqus_path_map(aba_ver)
     vs_vars_path = AbaqusPaths.vs_paths()
     intel_vars_path = AbaqusPaths.intel_fort_path()

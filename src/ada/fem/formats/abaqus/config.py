@@ -3,6 +3,7 @@ import os
 import pathlib
 
 from ada.fem.formats.fea_config import FrameworkConfig
+from ada.fem.formats.abaqus.execute import run_abaqus
 
 
 def get_existing_path(paths) -> pathlib.Path:
@@ -73,4 +74,4 @@ class AbaqusPaths:
 
 
 class AbaqusSetup(FrameworkConfig):
-    pass
+    default_executor = run_abaqus
