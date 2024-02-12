@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 
 _script_dir = pathlib.Path(__file__).parent.resolve().absolute()
 
-
 ABA_IO = _script_dir / "aba_io.py"
 
 
@@ -65,6 +64,9 @@ def read_odb_pckle_file(pickle_path: str | pathlib.Path) -> FEAResult:
 
     if pickle_path.suffix.lower() == ".odb":
         pickle_path = pickle_path.with_suffix(".pckle")
+
+    if pickle_path.exists() is False:
+        convert_to_pckle(pickle_path.with_suffix(".odb"), pickle_path)
 
     with open(pickle_path, "rb") as f:
         data = pickle.load(f)
