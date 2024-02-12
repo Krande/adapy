@@ -39,17 +39,17 @@ def run_abaqus(
         if subr_path.exists() is False:
             raise FileNotFoundError(f'Unable to find subroutine file "{subr_path}"')
 
-        custom_bat_str = create_subroutine_input(inp_path, subr_path, aba_version)
+        subroutine_entry_point_str = create_subroutine_input(inp_path, subr_path, aba_version)
 
         bat_file_path = (inp_path.parent / "abaqus").with_suffix(".bat")
         with open(bat_file_path, "w") as f:
-            f.write(custom_bat_str)
+            f.write(subroutine_entry_point_str)
 
         run_cmds = [bat_file_path.name, f"job={inp_path.stem}", f"CPUS={cpus}", f"user={subr_path.stem}", "interactive"]
-        run_cmd = " ".join(run_cmds)
+        custom_bat_str = " ".join(run_cmds)
 
         if gpus is not None:
-            run_cmd += f" GPUS={gpus}"
+            custom_bat_str += f" GPUS={gpus}"
 
     aba_exe = AbaqusExecute(
         inp_path, cpus=cpus, run_ext=run_ext, metadata=metadata, auto_execute=execute, run_in_shell=run_in_shell
