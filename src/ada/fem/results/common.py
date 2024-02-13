@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import base64
 import json
+import meshio
+import numpy as np
 import os
 import pathlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Iterable
-
-import meshio
-import numpy as np
 
 from ada.config import logger
 from ada.core.guid import create_guid
@@ -17,9 +16,8 @@ from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, Solid
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
 from ada.visit.rendering.renderer_react import RendererReact
-
-from ...visit.websocket_server import send_to_viewer, start_ws_server
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
+from ...visit.websocket_server import send_to_viewer, start_ws_server
 
 if TYPE_CHECKING:
     from ada import Material, Node, Section
@@ -123,7 +121,7 @@ class Mesh:
         return edges, faces
 
     def create_mesh_stores(
-        self, parent_name: str, shell_color, line_color, points_color, graph: GraphStore, parent_node: GraphNode
+            self, parent_name: str, shell_color, line_color, points_color, graph: GraphStore, parent_node: GraphNode
     ) -> tuple[MergedMesh, MergedMesh, MergedMesh]:
         from ada.fem.shapes import ElemShape
         from ada.fem.shapes import definitions as shape_def
@@ -212,7 +210,7 @@ class FEAResult:
         return results
 
     def get_data_by_field_and_elem_ids(
-        self, field: str, elem_ids: list[int], int_points: list[int] = None
+            self, field: str, elem_ids: list[int], int_points: list[int] = None
     ) -> list[ElementFieldData]:
         data = self.get_results_grouped_by_field_value()
         values = data.get(field)
@@ -227,7 +225,7 @@ class FEAResult:
         return self.get_data_by_field_and_elem_ids(field, fs.members, int_points)
 
     def get_field_value_by_name(
-        self, name: str, step: int = None
+            self, name: str, step: int = None
     ) -> ElementFieldData | NodalFieldData | list[ElementFieldData | NodalFieldData]:
         data = self.get_results_grouped_by_field_value()
         values = data.get(name)
@@ -339,26 +337,6 @@ class FEAResult:
 
         write_to_vtu_file(self.mesh.nodes, self.mesh.elements, point_data, cell_data, filepath)
 
-    def to_xdmf(self, filepath):
-        cells = self._get_cell_blocks()
-        with meshio.xdmf.TimeSeriesWriter(filepath) as writer:
-            writer.write_points_cells(self.mesh.nodes.coords, cells)
-            for key, values in self.get_results_grouped_by_field_value().items():
-                for x in values:
-                    res = x.get_all_values()
-                    name = x.name
-                    point_data = dict()
-                    if isinstance(x, NodalFieldData):
-                        point_data[name] = res
-                    elif isinstance(x, ElementFieldData) and x.field_pos == x.field_pos.NODAL:
-                        point_data[name] = res
-                    elif isinstance(x, ElementFieldData) and x.field_pos == x.field_pos.INT:
-                        raise NotImplementedError("Currently not supporting element data directly from int. points")
-                    else:
-                        raise ValueError()
-
-                    writer.write_data(x.step, point_data=point_data)
-
     def to_fem_file(self, fem_file: str | pathlib.Path):
         if isinstance(fem_file, str):
             fem_file = pathlib.Path(fem_file)
@@ -367,7 +345,8 @@ class FEAResult:
         mesh.write(fem_file)
 
     def to_trimesh(
-        self, step: int, field: str, warp_field: str = None, warp_step: int = None, warp_scale: float = None, cfunc=None
+            self, step: int, field: str, warp_field: str = None, warp_step: int = None, warp_scale: float = None,
+            cfunc=None
     ):
         import trimesh
         from trimesh.path.entities import Line
@@ -413,21 +392,21 @@ class FEAResult:
             scene.export(file_obj=f, file_type=dest_file.suffix[1:])
 
     def show(
-        self,
-        step: int = None,
-        field: str = None,
-        warp_field: str = None,
-        warp_step: int = None,
-        warp_scale: float = 1.0,
-        cfunc=None,
-        host="localhost",
-        port=8765,
-        renderer="react",
-        server_exe: pathlib.Path = None,
-        server_args: list[str] = None,
-        new_glb_file: str = None,
-        update_only=False,
-        **kwargs,
+            self,
+            step: int = None,
+            field: str = None,
+            warp_field: str = None,
+            warp_step: int = None,
+            warp_scale: float = 1.0,
+            cfunc=None,
+            host="localhost",
+            port=8765,
+            renderer="react",
+            server_exe: pathlib.Path = None,
+            server_args: list[str] = None,
+            new_glb_file: str = None,
+            update_only=False,
+            **kwargs,
     ):
         import io
 
@@ -437,8 +416,8 @@ class FEAResult:
         from ada.api.animations import Animation, AnimationStore
         from ada.visit.utils import in_notebook
 
-        from ...core.vector_transforms import rot_matrix
-        from ...visit.websocket_server import WsRenderMessage
+        from ada.core.vector_transforms import rot_matrix
+        from ada.visit.websocket_server import WsRenderMessage
 
         if renderer == "pygfx":
             scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)
@@ -469,11 +448,16 @@ class FEAResult:
 
         # Loop over the results and create an animation from it
         vertices = self.mesh.nodes.coords
-        for result in self.results:
+        added_results = []
+        for i, result in enumerate(self.results):
             warped_vertices = self._warp_data(vertices, result.name, result.step, warp_scale)
             delta_vertices = warped_vertices - vertices
+            result_name = f"{result.name}_{result.step}"
+            if result_name in added_results:
+                result_name = f"{result.name}_{result.step}_{i}"
+            added_results.append(result_name)
             animation = Animation(
-                result.name,
+                result_name,
                 [0, 2, 4, 6, 8],
                 deformation_weights_keyframes=[0, 1, 0, -1, 0],
                 deformation_shape=delta_vertices,
@@ -513,9 +497,12 @@ class FEAResult:
                     tree_postprocessor=AnimationStore.tree_postprocessor,
                 )
 
+        renderer = RendererReact()
         if in_notebook() and update_only is False:
-            renderer = RendererReact()
             return renderer.get_notebook_renderer()
+
+        if update_only is False:
+            renderer.show()
 
     def get_eig_summary(self) -> EigenDataSummary:
         """If the results are eigenvalue results, this method will return a summary of the eigenvalues and modes"""

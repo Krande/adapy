@@ -42,6 +42,7 @@ class BoundingBox:
             )
         elif isinstance(self.parent, Plate):
             self.p1, self.p2 = self._calc_bbox_of_plate()
+            self.placement = self.parent.placement
         else:
             raise NotImplementedError(f'Bounding Box Support for object type "{type(self.parent)}" is not yet added')
 
@@ -233,3 +234,6 @@ class BoxSides:
         pmax = p2 - l * y + tol
 
         return self._return_data(pmin, pmax, fem, return_fem_nodes, return_surface, surface_name, surf_positive)
+
+    def all_sides(self, **kwargs):
+        return self.top(**kwargs), self.bottom(**kwargs), self.front(**kwargs), self.back(**kwargs)

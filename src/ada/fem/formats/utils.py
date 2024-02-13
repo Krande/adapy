@@ -565,7 +565,7 @@ def default_fem_res_path(
         FEATypes.CODE_ASTER: base_path.with_suffix(".rmed"),
         FEATypes.ABAQUS: base_path.with_suffix(".odb"),
         FEATypes.CALCULIX: base_path.with_suffix(".frd"),
-        FEATypes.SESAM: (base_path.parent / f"{name}R1").with_suffix(".SIF"),
+        FEATypes.SESAM: (base_path.parent / f"{name}R1").with_suffix(".SIN"),
         FEATypes.USFOS: base_path.with_suffix(".fem"),
         FEATypes.XDMF: base_path.with_suffix(".xdmf"),
     }

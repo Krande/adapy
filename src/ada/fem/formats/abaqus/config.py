@@ -2,8 +2,9 @@ import json
 import os
 import pathlib
 
-from ada.fem.formats.fea_config import FrameworkConfig
 from ada.fem.formats.abaqus.execute import run_abaqus
+from ada.fem.formats.abaqus.results.read_odb import read_odb_pckle_file
+from ada.fem.formats.fea_config import FrameworkConfig
 
 
 def get_existing_path(paths) -> pathlib.Path:
@@ -75,3 +76,4 @@ class AbaqusPaths:
 
 class AbaqusSetup(FrameworkConfig):
     default_executor = run_abaqus
+    default_post_processor = read_odb_pckle_file

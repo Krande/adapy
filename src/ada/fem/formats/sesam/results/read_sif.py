@@ -10,6 +10,7 @@ import numpy as np
 from ada.core.utils import Counter
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
+from ada.fem.formats.sesam.results.sin2sif import convert_sin_to_sif
 
 if TYPE_CHECKING:
     from ada import Material, Section
@@ -383,9 +384,7 @@ class SifReader:
         return {int(x[1]): x for x in res}
 
 
-def read_sif_file(sif_file: str | pathlib.Path) -> FEAResult:
-    sif_file = pathlib.Path(sif_file)
-
+def read_sif_file(sif_file) -> FEAResult:
     with open(sif_file, "r") as f:
         sif = SifReader(f)
         sif.load()
@@ -394,6 +393,17 @@ def read_sif_file(sif_file: str | pathlib.Path) -> FEAResult:
     fea_results = s2m.convert(sif_file)
 
     return fea_results
+
+
+def read_sin_file(sin_file: str | pathlib.Path, overwrite=False) -> FEAResult:
+    if isinstance(sin_file, str):
+        sin_file = pathlib.Path(sin_file)
+    sif_file = sin_file.with_suffix(".SIF")
+
+    if not sif_file.exists() or overwrite:
+        convert_sin_to_sif(sin_file)
+
+    return read_sif_file(sif_file)
 
 
 @dataclass
@@ -509,7 +519,7 @@ class Sif2Mesh:
 
         force_res_name = cards.RVFORCES.name
         for (ires, nsp, elem_type, irforc), rv_forces in groupby(
-            sorted(self.sif.get_result(force_res_name)[0][1][1:], key=keyfunc), key=keyfunc
+                sorted(self.sif.get_result(force_res_name)[0][1][1:], key=keyfunc), key=keyfunc
         ):
             if elem_type not in (15,):
                 continue
@@ -552,7 +562,7 @@ class Sif2Mesh:
         field_results = []
 
         for (ires, nsp, elem_type, irstrs), rv_stresses in groupby(
-            sorted(sif.get_result(cards.RVSTRESS.name)[0][1][1:], key=keyfunc), key=keyfunc
+                sorted(sif.get_result(cards.RVSTRESS.name)[0][1][1:], key=keyfunc), key=keyfunc
         ):
             if elem_type not in (25, 24):
                 continue
@@ -628,7 +638,7 @@ def get_nodal_results(res) -> list[NodalFieldData]:
 
 
 def _get_rdpoints_nox_data(rdpoints_res, nlay_i, nsptra_len):
-    nox_data = rdpoints_res[nlay_i + 1 : -nsptra_len]
+    nox_data = rdpoints_res[nlay_i + 1: -nsptra_len]
     nox_data_clean = dict()
     data_iter = iter(nox_data)
     init_int_point = next(data_iter)
@@ -666,7 +676,7 @@ def _iter_shell_stress(rv_stresses: Iterator, rdstress_map, nsp) -> Iterator:
         iielno = int(rv_stress[iielno_i])
         irstrs = int(rv_stress[irstrs_i])
         rdstress_res = rdstress_map[irstrs]
-        data = np.array(rv_stress[irstrs_i + 1 :])
+        data = np.array(rv_stress[irstrs_i + 1:])
 
         reshaped_data = data.reshape((nsp, len(rdstress_res)))
 
@@ -681,7 +691,7 @@ def _iter_line_forces(rv_forces: Iterator, rdforces_map, nsp) -> Iterator:
         iielno = int(rv_force[iielno_i])
         irforc = int(rv_force[irforc_i])
         rdstress_res = rdforces_map[irforc]
-        data = np.array(rv_force[irforc_i + 1 :])
+        data = np.array(rv_force[irforc_i + 1:])
         for i, data_per_int in enumerate(data.reshape((nsp, len(rdstress_res))), start=1):
             yield iielno, i, *data_per_int
 
