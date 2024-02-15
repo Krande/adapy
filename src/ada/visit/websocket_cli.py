@@ -9,6 +9,7 @@ def ws_cli_app():
     parser.add_argument("--origins", type=str, default="localhost")
     parser.add_argument("--host", type=str, default="localhost")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--open-viewer", action="store_true")
     args = parser.parse_args()
 
     origins_list = []
@@ -20,6 +21,10 @@ def ws_cli_app():
             origins_list.append("null")  # local html
         else:
             origins_list.append(origin)
+
+    if args.open_viewer:
+        from ada.visit.rendering.renderer_react import RendererReact
+        RendererReact().show()
 
     server = WebSocketServer(host=args.host, port=args.port, client_origins=origins_list, debug_mode=args.debug)
     server.start()
