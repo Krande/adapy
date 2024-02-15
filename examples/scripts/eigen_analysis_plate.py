@@ -1,10 +1,12 @@
-import os
 import pathlib
 
-import ada
-from ada.fem.meshing import GmshOptions
 # requires mamba install python-dotenv
 from dotenv import load_dotenv
+
+import ada
+from ada.config import logger
+from ada.fem.exceptions import FEASolverNotInstalled
+from ada.fem.meshing import GmshOptions
 
 load_dotenv()
 SCRATCH = pathlib.Path("temp")
@@ -29,6 +31,10 @@ def run(fem_format):
 
 
 if __name__ == "__main__":
-    # os.environ['ADA_sesam_exe'] = r'C:\Program Files\DNV\Sestra V10.16-00\Bin\Sestra.exe'
+    run("code_aster")
     for fea in ["calculix", "code_aster", "sesam", "abaqus"]:
-        run(fea)
+        try:
+            run(fea)
+        except FEASolverNotInstalled as e:
+            logger.warning(e)
+            continue

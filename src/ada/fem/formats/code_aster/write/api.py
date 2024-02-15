@@ -5,6 +5,14 @@ import pathlib
 from typing import TYPE_CHECKING, Iterable
 
 import code_aster
+
+from ada.config import logger
+
+logger.info(f'Starting Code Aster {code_aster.__version__}')
+if code_aster.__version__.startswith('16'):
+    CA = code_aster
+else:
+    from code_aster import CA
 from code_aster.Cata.Language.SyntaxObjects import _F
 from code_aster.Commands import AFFE_CARA_ELEM, AFFE_CHAR_MECA, AFFE_MODELE, DEFI_GROUP
 
@@ -28,7 +36,7 @@ def import_mesh(a: Assembly, scratch_dir):
     med_file = (scratch_dir / a.name).with_suffix(".med")
     write_to_med(a.name, p, med_file)
 
-    mesh = code_aster.Mesh()
+    mesh = CA.Mesh()
     mesh.readMedFile(med_file.as_posix(), a.name)
 
     DEFI_GROUP(MAILLAGE=mesh, reuse=mesh, CREA_GROUP_NO=_F(TOUT_GROUP_MA="OUI"))
@@ -50,7 +58,7 @@ def assembly_element_iterator(a: Assembly) -> Iterable[Elem]:
             yield elem
 
 
-def assign_element_definitions(a: Assembly, mesh: code_aster.Mesh) -> code_aster.Model | None:
+def assign_element_definitions(a: Assembly, mesh: CA.Mesh) -> CA.Model | None:
     discrete_elements = []
     line_elements = []
 
@@ -72,11 +80,11 @@ def assign_element_definitions(a: Assembly, mesh: code_aster.Mesh) -> code_aster
             )
         )
 
-    model: code_aster.Model = AFFE_MODELE(AFFE=(*discrete_modelings,), MAILLAGE=mesh)
+    model: CA.Model = AFFE_MODELE(AFFE=(*discrete_modelings,), MAILLAGE=mesh)
     return model
 
 
-def assign_material_definitions(a: Assembly, mesh: code_aster.Mesh) -> code_aster.MaterialField:
+def assign_material_definitions(a: Assembly, mesh: CA.Mesh) -> CA.MaterialField:
     mat_map = {}
     for elem in assembly_element_iterator(a):
         if isinstance(elem, Connector):
@@ -92,7 +100,7 @@ def assign_material_definitions(a: Assembly, mesh: code_aster.Mesh) -> code_aste
                 mat_map[mat] = []
             mat_map[mat].append(elem.elset.name)
 
-    material = code_aster.MaterialField(mesh)
+    material = CA.MaterialField(mesh)
     for mat, element_names in mat_map.items():
         if isinstance(mat, ConnectorSection):
             if isinstance(mat.elastic_comp, (float, int)):
@@ -101,7 +109,7 @@ def assign_material_definitions(a: Assembly, mesh: code_aster.Mesh) -> code_aste
             else:
                 raise NotImplementedError("Currently only supports linear elastic connectors")
 
-            dummy = code_aster.Material()
+            dummy = CA.Material()
             dummy.addProperties("ELAS", E=1, NU=0.3, RHO=1)
             material.addMaterialOnGroupOfCells(dummy, element_names)
         else:
@@ -112,8 +120,8 @@ def assign_material_definitions(a: Assembly, mesh: code_aster.Mesh) -> code_aste
 
 
 def assign_element_characteristics(
-    a: Assembly, model: code_aster.Model, rigid_size=1e8
-) -> code_aster.ElementaryCharacteristics:
+        a: Assembly, model: CA.Model, rigid_size=1e8
+) -> CA.ElementaryCharacteristics:
     discrete_elements = []
 
     for elem in assembly_element_iterator(a):
@@ -142,11 +150,11 @@ def assign_element_characteristics(
         else:
             raise NotImplementedError(f"Currently unsupported non-discrete element type {elem}")
 
-    elem_car: code_aster.ElementaryCharacteristics = AFFE_CARA_ELEM(MODELE=model, DISCRET=discrete_elements)
+    elem_car: CA.ElementaryCharacteristics = AFFE_CARA_ELEM(MODELE=model, DISCRET=discrete_elements)
     return elem_car
 
 
-def assign_boundary_conditions(a: Assembly, model: code_aster.Model) -> code_aster.MechanicalLoadReal:
+def assign_boundary_conditions(a: Assembly, model: CA.Model) -> CA.MechanicalLoadReal:
     imposed_bcs = []
 
     for fem in assembly_fem_iterator(a):
@@ -162,11 +170,11 @@ def assign_boundary_conditions(a: Assembly, model: code_aster.Model) -> code_ast
             ca_bc = _F(GROUP_NO=bc.fem_set.name, **dofs_constrained)
             imposed_bcs.append(ca_bc)
 
-    fix: code_aster.MechanicalLoadReal = AFFE_CHAR_MECA(MODELE=model, DDL_IMPO=imposed_bcs)
+    fix: CA.MechanicalLoadReal = AFFE_CHAR_MECA(MODELE=model, DDL_IMPO=imposed_bcs)
     return fix
 
 
-def assign_forces(a: Assembly, model: code_aster.Model) -> code_aster.MechanicalLoadReal:
+def assign_forces(a: Assembly, model: CA.Model) -> CA.MechanicalLoadReal:
     nodal_loads = []
     for fem in assembly_fem_iterator(a):
         for load in fem.get_all_loads():
@@ -176,18 +184,18 @@ def assign_forces(a: Assembly, model: code_aster.Model) -> code_aster.Mechanical
             ca_load = _F(GROUP_NO=load.fem_set.name, **imposed_loads)
             nodal_loads.append(ca_load)
 
-    forces: code_aster.MechanicalLoadReal = AFFE_CHAR_MECA(MODELE=model, FORCE_NODALE=nodal_loads)
+    forces: CA.MechanicalLoadReal = AFFE_CHAR_MECA(MODELE=model, FORCE_NODALE=nodal_loads)
     return forces
 
 
 def assign_steps(
-    a: Assembly,
-    model: code_aster.Model,
-    fix: code_aster.MechanicalLoadReal,
-    forces: code_aster.MechanicalLoadReal,
-    material_field: code_aster.MaterialField,
-    elem_car: code_aster.ElementaryCharacteristics,
-) -> code_aster.ElasticResult:
+        a: Assembly,
+        model: CA.Model,
+        fix: CA.MechanicalLoadReal,
+        forces: CA.MechanicalLoadReal,
+        material_field: CA.MaterialField,
+        elem_car: CA.ElementaryCharacteristics,
+) -> CA.ElasticResult:
     for step in a.fem.steps:
         if isinstance(step, ada.fem.StepImplicitDynamic):
             raise NotImplementedError("Not yet implemented 'StepImplicitDynamic'")
