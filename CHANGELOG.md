@@ -2,6 +2,13 @@
 
 
 
+## v0.2.6 (2024-02-16)
+
+### Fix
+
+* fix: code aster updates and abaqus reader/writer fixes (#90) ([`368fad4`](https://github.com/Krande/adapy/commit/368fad4961b3e24f35506294fb8553ac26d7ae44))
+
+
 ## v0.2.5 (2024-02-05)
 
 ### Fix
