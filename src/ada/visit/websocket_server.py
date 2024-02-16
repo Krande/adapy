@@ -44,7 +44,7 @@ def pretty_print_ports(client_origins):
                 ranges.append([v])
         range_strs = [f"{r[0]}:{r[-1]}" if len(r) > 1 else str(r[0]) for r in ranges]
         result.append(f"- {key}: [{', '.join(range_strs)}]")
-    return "\n"+"\n".join(result)
+    return "\n" + "\n".join(result)
 
 
 @dataclass

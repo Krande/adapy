@@ -519,7 +519,7 @@ class Sif2Mesh:
 
         force_res_name = cards.RVFORCES.name
         for (ires, nsp, elem_type, irforc), rv_forces in groupby(
-                sorted(self.sif.get_result(force_res_name)[0][1][1:], key=keyfunc), key=keyfunc
+            sorted(self.sif.get_result(force_res_name)[0][1][1:], key=keyfunc), key=keyfunc
         ):
             if elem_type not in (15,):
                 continue
@@ -562,7 +562,7 @@ class Sif2Mesh:
         field_results = []
 
         for (ires, nsp, elem_type, irstrs), rv_stresses in groupby(
-                sorted(sif.get_result(cards.RVSTRESS.name)[0][1][1:], key=keyfunc), key=keyfunc
+            sorted(sif.get_result(cards.RVSTRESS.name)[0][1][1:], key=keyfunc), key=keyfunc
         ):
             if elem_type not in (25, 24):
                 continue
@@ -638,7 +638,7 @@ def get_nodal_results(res) -> list[NodalFieldData]:
 
 
 def _get_rdpoints_nox_data(rdpoints_res, nlay_i, nsptra_len):
-    nox_data = rdpoints_res[nlay_i + 1: -nsptra_len]
+    nox_data = rdpoints_res[nlay_i + 1 : -nsptra_len]
     nox_data_clean = dict()
     data_iter = iter(nox_data)
     init_int_point = next(data_iter)
@@ -676,7 +676,7 @@ def _iter_shell_stress(rv_stresses: Iterator, rdstress_map, nsp) -> Iterator:
         iielno = int(rv_stress[iielno_i])
         irstrs = int(rv_stress[irstrs_i])
         rdstress_res = rdstress_map[irstrs]
-        data = np.array(rv_stress[irstrs_i + 1:])
+        data = np.array(rv_stress[irstrs_i + 1 :])
 
         reshaped_data = data.reshape((nsp, len(rdstress_res)))
 
@@ -691,7 +691,7 @@ def _iter_line_forces(rv_forces: Iterator, rdforces_map, nsp) -> Iterator:
         iielno = int(rv_force[iielno_i])
         irforc = int(rv_force[irforc_i])
         rdstress_res = rdforces_map[irforc]
-        data = np.array(rv_force[irforc_i + 1:])
+        data = np.array(rv_force[irforc_i + 1 :])
         for i, data_per_int in enumerate(data.reshape((nsp, len(rdstress_res))), start=1):
             yield iielno, i, *data_per_int
 

@@ -8,11 +8,11 @@ import code_aster
 
 from ada.config import logger
 
-logger.info(f'Starting Code Aster {code_aster.__version__}')
-if code_aster.__version__.startswith('16'):
+if code_aster.__version__.startswith("16"):
     CA = code_aster
 else:
     from code_aster import CA
+
 from code_aster.Cata.Language.SyntaxObjects import _F
 from code_aster.Commands import AFFE_CARA_ELEM, AFFE_CHAR_MECA, AFFE_MODELE, DEFI_GROUP
 
@@ -24,6 +24,7 @@ from ada.fem.formats.utils import get_fem_model_from_assembly
 if TYPE_CHECKING:
     from ada import FEM, Assembly
 
+logger.info(f"Starting Code Aster {code_aster.__version__}")
 DISPL_DOF_MAP = {1: "DX", 2: "DY", 3: "DZ", 4: "DRX", 5: "DRY", 6: "DRZ"}
 FORCE_DOF_MAP = {1: "FX", 2: "FY", 3: "FZ", 4: "FRX", 5: "FRY", 6: "FRZ"}
 
@@ -119,9 +120,7 @@ def assign_material_definitions(a: Assembly, mesh: CA.Mesh) -> CA.MaterialField:
     return material
 
 
-def assign_element_characteristics(
-        a: Assembly, model: CA.Model, rigid_size=1e8
-) -> CA.ElementaryCharacteristics:
+def assign_element_characteristics(a: Assembly, model: CA.Model, rigid_size=1e8) -> CA.ElementaryCharacteristics:
     discrete_elements = []
 
     for elem in assembly_element_iterator(a):
@@ -189,12 +188,12 @@ def assign_forces(a: Assembly, model: CA.Model) -> CA.MechanicalLoadReal:
 
 
 def assign_steps(
-        a: Assembly,
-        model: CA.Model,
-        fix: CA.MechanicalLoadReal,
-        forces: CA.MechanicalLoadReal,
-        material_field: CA.MaterialField,
-        elem_car: CA.ElementaryCharacteristics,
+    a: Assembly,
+    model: CA.Model,
+    fix: CA.MechanicalLoadReal,
+    forces: CA.MechanicalLoadReal,
+    material_field: CA.MaterialField,
+    elem_car: CA.ElementaryCharacteristics,
 ) -> CA.ElasticResult:
     for step in a.fem.steps:
         if isinstance(step, ada.fem.StepImplicitDynamic):

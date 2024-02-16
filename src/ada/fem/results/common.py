@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import base64
 import json
-import meshio
-import numpy as np
 import os
 import pathlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Iterable
+
+import meshio
+import numpy as np
 
 from ada.config import logger
 from ada.core.guid import create_guid
@@ -16,8 +17,9 @@ from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, Solid
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
 from ada.visit.rendering.renderer_react import RendererReact
-from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
+
 from ...visit.websocket_server import send_to_viewer, start_ws_server
+from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 
 if TYPE_CHECKING:
     from ada import Material, Node, Section
@@ -121,7 +123,7 @@ class Mesh:
         return edges, faces
 
     def create_mesh_stores(
-            self, parent_name: str, shell_color, line_color, points_color, graph: GraphStore, parent_node: GraphNode
+        self, parent_name: str, shell_color, line_color, points_color, graph: GraphStore, parent_node: GraphNode
     ) -> tuple[MergedMesh, MergedMesh, MergedMesh]:
         from ada.fem.shapes import ElemShape
         from ada.fem.shapes import definitions as shape_def
@@ -210,7 +212,7 @@ class FEAResult:
         return results
 
     def get_data_by_field_and_elem_ids(
-            self, field: str, elem_ids: list[int], int_points: list[int] = None
+        self, field: str, elem_ids: list[int], int_points: list[int] = None
     ) -> list[ElementFieldData]:
         data = self.get_results_grouped_by_field_value()
         values = data.get(field)
@@ -225,7 +227,7 @@ class FEAResult:
         return self.get_data_by_field_and_elem_ids(field, fs.members, int_points)
 
     def get_field_value_by_name(
-            self, name: str, step: int = None
+        self, name: str, step: int = None
     ) -> ElementFieldData | NodalFieldData | list[ElementFieldData | NodalFieldData]:
         data = self.get_results_grouped_by_field_value()
         values = data.get(name)
@@ -345,8 +347,7 @@ class FEAResult:
         mesh.write(fem_file)
 
     def to_trimesh(
-            self, step: int, field: str, warp_field: str = None, warp_step: int = None, warp_scale: float = None,
-            cfunc=None
+        self, step: int, field: str, warp_field: str = None, warp_step: int = None, warp_scale: float = None, cfunc=None
     ):
         import trimesh
         from trimesh.path.entities import Line
@@ -392,21 +393,21 @@ class FEAResult:
             scene.export(file_obj=f, file_type=dest_file.suffix[1:])
 
     def show(
-            self,
-            step: int = None,
-            field: str = None,
-            warp_field: str = None,
-            warp_step: int = None,
-            warp_scale: float = 1.0,
-            cfunc=None,
-            host="localhost",
-            port=8765,
-            renderer="react",
-            server_exe: pathlib.Path = None,
-            server_args: list[str] = None,
-            new_glb_file: str = None,
-            update_only=False,
-            **kwargs,
+        self,
+        step: int = None,
+        field: str = None,
+        warp_field: str = None,
+        warp_step: int = None,
+        warp_scale: float = 1.0,
+        cfunc=None,
+        host="localhost",
+        port=8765,
+        renderer="react",
+        server_exe: pathlib.Path = None,
+        server_args: list[str] = None,
+        new_glb_file: str = None,
+        update_only=False,
+        **kwargs,
     ):
         import io
 
@@ -414,9 +415,8 @@ class FEAResult:
         from trimesh.path.entities import Line
 
         from ada.api.animations import Animation, AnimationStore
-        from ada.visit.utils import in_notebook
-
         from ada.core.vector_transforms import rot_matrix
+        from ada.visit.utils import in_notebook
         from ada.visit.websocket_server import WsRenderMessage
 
         if renderer == "pygfx":

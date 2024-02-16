@@ -1,8 +1,9 @@
 import base64
-import numpy as np
 import pathlib
 import struct
 import xml.etree.ElementTree as ET
+
+import numpy as np
 
 from ada.fem.results.common import ElementBlock, FemNodes
 from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
@@ -26,7 +27,7 @@ VTK_TYPE_MAP = {
     SolidShapes.TETRA: 10,
     SolidShapes.HEX8: 12,
     SolidShapes.TETRA10: 24,
-    SolidShapes.HEX20: 25
+    SolidShapes.HEX20: 25,
 }
 
 # New mapping dictionary
@@ -139,7 +140,7 @@ def write_to_vtu_object(nodes: FemNodes, element_blocks: list[ElementBlock], poi
 
 
 def write_to_vtu_file(
-        nodes: FemNodes, element_blocks: list[ElementBlock], point_data: dict, cell_data: dict, filename: str
+    nodes: FemNodes, element_blocks: list[ElementBlock], point_data: dict, cell_data: dict, filename: str
 ):
     tree = write_to_vtu_object(nodes, element_blocks, point_data, cell_data)
 

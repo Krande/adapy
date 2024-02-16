@@ -1,20 +1,18 @@
 import pathlib
-import re
 
 from ada.config import logger
-from ada.fem.formats.sesam.results.sin2sif import convert_sin_to_sif
 from ada.fem.formats.utils import LocalExecute
 
 
 def run_sesam(
-        inp_path: pathlib.Path,
-        cpus=2,
-        gpus=None,
-        run_ext=False,
-        metadata=None,
-        execute=True,
-        exit_on_complete=True,
-        run_in_shell=False,
+    inp_path: pathlib.Path,
+    cpus=2,
+    gpus=None,
+    run_ext=False,
+    metadata=None,
+    execute=True,
+    exit_on_complete=True,
+    run_in_shell=False,
 ):
     logger.info("sestra runs on single core only. changing cpus=1")
     cpus = 1

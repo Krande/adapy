@@ -3,8 +3,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 from .helper_utils import get_instance_name
 from .write_orientations import csys_str
 
@@ -98,13 +96,13 @@ def connector_damping_str(con_sec: ConnectorSection) -> str:
 
     conn_txt = ""
     for i, comp in enumerate(damping):
-        conn_txt += f"\n*Connector Damping, "
+        conn_txt += "\n*Connector Damping, "
         if isinstance(comp, float):
             conn_txt += f"component={i + 1} "
             conn_txt += f"\n{comp:.3E},"
         else:
             conn_txt += f"component=1, nonlinear, DEPENDENCIES=1{extra_header_str}"
-            table_str = format_2d_column_data(comp, [12]*len(comp[0]))
+            table_str = format_2d_column_data(comp, [12] * len(comp[0]))
             conn_txt += f"\n{table_str}"
 
     return conn_txt

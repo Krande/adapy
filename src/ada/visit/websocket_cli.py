@@ -24,6 +24,7 @@ def ws_cli_app():
 
     if args.open_viewer:
         from ada.visit.rendering.renderer_react import RendererReact
+
         RendererReact().show()
 
     server = WebSocketServer(host=args.host, port=args.port, client_origins=origins_list, debug_mode=args.debug)

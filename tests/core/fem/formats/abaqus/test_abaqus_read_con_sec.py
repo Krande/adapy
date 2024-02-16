@@ -23,8 +23,12 @@ CON_SEC2 = """*Connector Behavior, name=ConnProp-1_SE2
 
 
 def test_con_sec1():
-    con = get_connector_sections_from_bulk(CON_SEC1)
+    connectors = get_connector_sections_from_bulk(CON_SEC1)
+    con = list(connectors.values())[0]
+    assert con.name == "vE4"
 
 
 def test_con_sec2():
-    con = get_connector_sections_from_bulk(CON_SEC2)
+    connectors = get_connector_sections_from_bulk(CON_SEC2)
+    con = list(connectors.values())[0]
+    assert con.name == "ConnProp-1_SE2"

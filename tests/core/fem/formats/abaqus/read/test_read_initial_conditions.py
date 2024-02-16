@@ -42,3 +42,20 @@ EXAMPLEMODEL-1.POINT, 1, -1.
 
     pre_def = a.fem.predefined_fields.get("IC-1")
     assert pre_def is not None
+
+
+def test_read_predefined_field_v3():
+    init_c3 = """** PREDEFINED FIELDS
+**
+** Name: InitState   Type: VELOCITY
+*Initial Conditions, type=VELOCITY
+DC-1.move_point, 1, -1.73
+
+"""
+
+    p = ada.Part("DC")
+    node = p.fem.nodes.add(ada.Node((0, 0, 0), nid=1))
+    p.fem.sets.add(ada.fem.FemSet("move_point", [node]))
+    a = ada.Assembly() / p
+    get_initial_conditions_from_lines(a, init_c3)
+    assert len(a.fem.predefined_fields) == 1
