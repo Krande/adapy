@@ -11,6 +11,19 @@ if TYPE_CHECKING:
     from ada.fem import Connector, ConnectorSection
 
 
+def format_2d_column_data(data: list[list[str | int]], column_widths: list[int], separator: str = ", ") -> str:
+    # Prepare the format string based on column widths
+    format_str = separator.join(f"{{:<{width}}}" for width in column_widths)
+
+    # Format each row in the data
+    formatted_rows = [format_str.format(*row) for row in data]
+
+    # Join all rows into a single string with newline characters
+    result = "\n".join(formatted_rows)
+
+    return result
+
+
 def connectors_str(fem: FEM) -> str:
     return "\n".join([connector_str(con, True) for con in fem.elements.connectors])
 
@@ -73,20 +86,24 @@ def connector_plastic_str(con_sec: ConnectorSection) -> str:
 
 
 def connector_damping_str(con_sec: ConnectorSection) -> str:
+    extra_header_str = con_sec.metadata.get("abaqus", {}).get("extra_damper_args", "")
+    if extra_header_str:
+        extra_header_str = f", {extra_header_str}"
+
     damping = con_sec.damping_comp
     if isinstance(damping, float):
-        return """\n*Connector Damping, component=1\n{0:.3E},""".format(damping)
+        return f"\n*Connector Damping, component=1{extra_header_str}\n{damping:.3E},"
 
     conn_txt = ""
     for i, comp in enumerate(damping):
+        conn_txt += "\n*Connector Damping, "
         if isinstance(comp, float):
-            conn_txt += """\n*Connector Damping, component={1} \n{0:.3E},""".format(comp, i + 1)
+            conn_txt += f"component={i + 1} "
+            conn_txt += f"\n{comp:.3E},"
         else:
-            conn_txt += """\n*Connector Damping, nonlinear, component=1, DEPENDENCIES=1"""
-            for val in comp:
-                conn_txt += "\n" + ", ".join(
-                    ["{:>12.3E}".format(x) if u <= 1 else ",{:>12d}".format(x) for u, x in enumerate(val)]
-                )
+            conn_txt += f"component=1, nonlinear, DEPENDENCIES=1{extra_header_str}"
+            table_str = format_2d_column_data(comp, [12] * len(comp[0]))
+            conn_txt += f"\n{table_str}"
 
     return conn_txt
 

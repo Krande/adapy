@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 
 _script_dir = pathlib.Path(__file__).parent.resolve().absolute()
 
-
 ABA_IO = _script_dir / "aba_io.py"
 
 
@@ -56,24 +55,31 @@ def get_odb_data(odb_path, overwrite=False, use_aba_version=None):
     return data
 
 
-def read_odb_pckle_file(pickle_path: str | pathlib.Path) -> FEAResult:
+def read_odb_pckle_file(result_file_path: str | pathlib.Path, overwrite=False) -> FEAResult:
     from ada.fem.formats.general import FEATypes
     from ada.fem.results.common import FEAResult
 
-    if isinstance(pickle_path, pathlib.Path) is False:
-        pickle_path = pathlib.Path(pickle_path)
+    if isinstance(result_file_path, pathlib.Path) is False:
+        result_file_path = pathlib.Path(result_file_path)
 
-    if pickle_path.suffix.lower() == ".odb":
-        pickle_path = pickle_path.with_suffix(".pckle")
+    if result_file_path.suffix.lower() == ".odb":
+        result_file_path = result_file_path.with_suffix(".pckle")
 
-    with open(pickle_path, "rb") as f:
+    if result_file_path.exists() is False or overwrite is True:
+        convert_to_pckle(result_file_path.with_suffix(".odb"), result_file_path)
+
+    with open(result_file_path, "rb") as f:
         data = pickle.load(f)
 
     mesh = get_odb_instance_data(data["rootAssembly"]["instances"])
     fields = get_odb_frame_data(data["steps"])
 
     return FEAResult(
-        name=pickle_path.stem, software=FEATypes.ABAQUS, mesh=mesh, results=fields, results_file_path=pickle_path
+        name=result_file_path.stem,
+        software=FEATypes.ABAQUS,
+        mesh=mesh,
+        results=fields,
+        results_file_path=result_file_path,
     )
 
 

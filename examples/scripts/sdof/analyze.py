@@ -13,7 +13,7 @@ import ada
 from ada.fem.formats.code_aster.results.results_helpers import (
     export_mesh_data_to_sqlite,
 )
-from ada.fem.formats.code_aster.write.api_helpers import (
+from ada.fem.formats.code_aster.write.api import (
     assign_boundary_conditions,
     assign_element_characteristics,
     assign_element_definitions,

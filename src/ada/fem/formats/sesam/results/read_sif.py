@@ -10,6 +10,7 @@ import numpy as np
 from ada.core.utils import Counter
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
+from ada.fem.formats.sesam.results.sin2sif import convert_sin_to_sif
 
 if TYPE_CHECKING:
     from ada import Material, Section
@@ -383,9 +384,7 @@ class SifReader:
         return {int(x[1]): x for x in res}
 
 
-def read_sif_file(sif_file: str | pathlib.Path) -> FEAResult:
-    sif_file = pathlib.Path(sif_file)
-
+def read_sif_file(sif_file) -> FEAResult:
     with open(sif_file, "r") as f:
         sif = SifReader(f)
         sif.load()
@@ -394,6 +393,17 @@ def read_sif_file(sif_file: str | pathlib.Path) -> FEAResult:
     fea_results = s2m.convert(sif_file)
 
     return fea_results
+
+
+def read_sin_file(sin_file: str | pathlib.Path, overwrite=False) -> FEAResult:
+    if isinstance(sin_file, str):
+        sin_file = pathlib.Path(sin_file)
+    sif_file = sin_file.with_suffix(".SIF")
+
+    if not sif_file.exists() or overwrite:
+        convert_sin_to_sif(sin_file)
+
+    return read_sif_file(sif_file)
 
 
 @dataclass

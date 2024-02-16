@@ -114,7 +114,7 @@ class Mesh:
                 except IndexError as e:
                     logger.error(e)
                     continue
-                if isinstance(elem_shape.type, shape_def.LineShapes):
+                if isinstance(elem_shape.type, (shape_def.LineShapes, shape_def.ConnectorTypes)):
                     continue
                 faces += elem_shape.get_faces()
 
@@ -339,26 +339,6 @@ class FEAResult:
 
         write_to_vtu_file(self.mesh.nodes, self.mesh.elements, point_data, cell_data, filepath)
 
-    def to_xdmf(self, filepath):
-        cells = self._get_cell_blocks()
-        with meshio.xdmf.TimeSeriesWriter(filepath) as writer:
-            writer.write_points_cells(self.mesh.nodes.coords, cells)
-            for key, values in self.get_results_grouped_by_field_value().items():
-                for x in values:
-                    res = x.get_all_values()
-                    name = x.name
-                    point_data = dict()
-                    if isinstance(x, NodalFieldData):
-                        point_data[name] = res
-                    elif isinstance(x, ElementFieldData) and x.field_pos == x.field_pos.NODAL:
-                        point_data[name] = res
-                    elif isinstance(x, ElementFieldData) and x.field_pos == x.field_pos.INT:
-                        raise NotImplementedError("Currently not supporting element data directly from int. points")
-                    else:
-                        raise ValueError()
-
-                    writer.write_data(x.step, point_data=point_data)
-
     def to_fem_file(self, fem_file: str | pathlib.Path):
         if isinstance(fem_file, str):
             fem_file = pathlib.Path(fem_file)
@@ -435,10 +415,9 @@ class FEAResult:
         from trimesh.path.entities import Line
 
         from ada.api.animations import Animation, AnimationStore
+        from ada.core.vector_transforms import rot_matrix
         from ada.visit.utils import in_notebook
-
-        from ...core.vector_transforms import rot_matrix
-        from ...visit.websocket_server import WsRenderMessage
+        from ada.visit.websocket_server import WsRenderMessage
 
         if renderer == "pygfx":
             scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)
@@ -469,11 +448,16 @@ class FEAResult:
 
         # Loop over the results and create an animation from it
         vertices = self.mesh.nodes.coords
-        for result in self.results:
+        added_results = []
+        for i, result in enumerate(self.results):
             warped_vertices = self._warp_data(vertices, result.name, result.step, warp_scale)
             delta_vertices = warped_vertices - vertices
+            result_name = f"{result.name}_{result.step}"
+            if result_name in added_results:
+                result_name = f"{result.name}_{result.step}_{i}"
+            added_results.append(result_name)
             animation = Animation(
-                result.name,
+                result_name,
                 [0, 2, 4, 6, 8],
                 deformation_weights_keyframes=[0, 1, 0, -1, 0],
                 deformation_shape=delta_vertices,
@@ -513,9 +497,12 @@ class FEAResult:
                     tree_postprocessor=AnimationStore.tree_postprocessor,
                 )
 
+        renderer = RendererReact()
         if in_notebook() and update_only is False:
-            renderer = RendererReact()
             return renderer.get_notebook_renderer()
+
+        if update_only is False:
+            renderer.show()
 
     def get_eig_summary(self) -> EigenDataSummary:
         """If the results are eigenvalue results, this method will return a summary of the eigenvalues and modes"""

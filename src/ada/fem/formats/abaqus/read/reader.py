@@ -254,7 +254,7 @@ def get_initial_conditions_from_lines(assembly: Assembly, bulk_str: str):
         bc_name = d.get("name")
         bc_type = d.get("type")
         bcs = d.get("conditions")
-        props = [sort_props(line) for line in bcs.splitlines()]
+        props = [sort_props(line) for line in bcs.splitlines() if line != ""]
         set_name, dofs, magn = list(zip(*props))
         fem_set = None
         set_name_up = set_name[0]

@@ -87,7 +87,7 @@ contact_general = AbaFF(
 connector_behaviour = AbaFF(
     "Connector Behavior",
     [("name=",)],
-    [("Connector Elasticity", [("nonlinear|", "component=|"), ("bulk>",)])],
+    [("Connector Elasticity", [("nonlinear|", "component=|", "dependencies=|"), ("bulk>",)])],
 )
 connector_section = AbaFF("Connector Section", [("elset=", "behavior="), ("contype",), ("csys",)])
 

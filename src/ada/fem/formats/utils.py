@@ -115,30 +115,6 @@ class LocalExecute:
 
         return out
 
-    def get_exe(self, fea_software):
-        from ada.fem.formats.general import fem_solver_map
-
-        solver_exe_name = fem_solver_map.get(fea_software, fea_software)
-        exe_path = None
-        for exe_test in [fea_software, solver_exe_name]:
-            try:
-                exe_path = get_exe_path(exe_test)
-            except FileNotFoundError:
-                continue
-            if exe_path is not None:
-                break
-
-        if exe_path is None:
-            msg = (
-                f'FEA Solver executable for "{solver_exe_name}" is not found. '
-                f"Please make sure that an executable exists at the specified location.\n"
-                f"See section about adding FEA solvers to paths "
-                f"so that adapy finds them in the readme at https://github.com/Krande/adapy"
-            )
-            raise FEASolverNotInstalled(msg)
-
-        return exe_path
-
     def run(self):
         raise NotImplementedError("The run function is not implemented")
 
@@ -168,6 +144,30 @@ class LocalExecute:
     @property
     def cpus(self):
         return self._cpus
+
+    def get_exe(self, fea_software):
+        from ada.fem.formats.general import fem_solver_map
+
+        solver_exe_name = fem_solver_map.get(fea_software, fea_software)
+        exe_path = None
+        for exe_test in [fea_software, solver_exe_name]:
+            try:
+                exe_path = get_exe_path(exe_test)
+            except FileNotFoundError:
+                continue
+            if exe_path is not None:
+                break
+
+        if exe_path is None:
+            msg = (
+                f'FEA Solver executable for "{solver_exe_name}" is not found. '
+                f"Please make sure that an executable exists at the specified location.\n"
+                f"See section about adding FEA solvers to paths "
+                f"so that adapy finds them in the readme at https://github.com/Krande/adapy"
+            )
+            raise FEASolverNotInstalled(msg)
+
+        return exe_path
 
 
 def is_buffer(obj, mode):
@@ -563,9 +563,9 @@ def default_fem_res_path(
     base_path = scratch_dir / name / name if analysis_dir is None else analysis_dir / name
     fem_format_map = {
         FEATypes.CODE_ASTER: base_path.with_suffix(".rmed"),
-        FEATypes.ABAQUS: base_path.with_suffix(".pckle"),
+        FEATypes.ABAQUS: base_path.with_suffix(".odb"),
         FEATypes.CALCULIX: base_path.with_suffix(".frd"),
-        FEATypes.SESAM: (base_path.parent / f"{name}R1").with_suffix(".SIF"),
+        FEATypes.SESAM: (base_path.parent / f"{name}R1").with_suffix(".SIN"),
         FEATypes.USFOS: base_path.with_suffix(".fem"),
         FEATypes.XDMF: base_path.with_suffix(".xdmf"),
     }

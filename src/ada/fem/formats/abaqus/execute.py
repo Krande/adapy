@@ -1,8 +1,18 @@
 import pathlib
 import shutil
 
-from ada.fem.formats.abaqus.results.read_odb import convert_to_pckle
 from ada.fem.formats.utils import LocalExecute
+
+
+def get_latest_version():
+    abaqus_exe_path = shutil.which("abaqus")
+    if abaqus_exe_path is None:
+        raise FileNotFoundError("Unable to find abaqus in the system path")
+    # go up to parent dir called EstProducts
+    for parent in pathlib.Path(abaqus_exe_path).parents:
+        if parent.name == "EstProducts":
+            dir_names = [x.name for x in parent.iterdir()]
+            return dir_names[0]
 
 
 def run_abaqus(
@@ -11,26 +21,40 @@ def run_abaqus(
     gpus=None,
     run_ext=False,
     metadata=None,
-    subr_path=None,
     execute=True,
-    return_bat_str=False,
     exit_on_complete=True,
     run_in_shell=False,
 ):
-    gpus = "" if gpus is None else f"GPUS={gpus}"
     run_cmd = None
     custom_bat_str = None
+
+    aba_version = metadata.get("abaqus_version", get_latest_version())
+    subr_path = metadata.get("subroutine_path", None)
+
     if subr_path is not None:
-        run_cmd, custom_bat_str = create_subroutine_input(inp_path, subr_path, cpus, gpus)
+        if isinstance(subr_path, str):
+            subr_path = pathlib.Path(subr_path).resolve().absolute()
+
+        if subr_path.exists() is False:
+            raise FileNotFoundError(f'Unable to find subroutine file "{subr_path}"')
+
+        subroutine_entry_point_str = create_subroutine_input(inp_path, subr_path, aba_version)
+
+        bat_file_path = (inp_path.parent / "abaqus").with_suffix(".bat")
+        with open(bat_file_path, "w") as f:
+            f.write(subroutine_entry_point_str)
+
+        run_cmds = [bat_file_path.name, f"job={inp_path.stem}", f"CPUS={cpus}", f"user={subr_path.stem}", "interactive"]
+        custom_bat_str = " ".join(run_cmds)
+
+        if gpus is not None:
+            custom_bat_str += f" GPUS={gpus}"
 
     aba_exe = AbaqusExecute(
         inp_path, cpus=cpus, run_ext=run_ext, metadata=metadata, auto_execute=execute, run_in_shell=run_in_shell
     )
     out = aba_exe.run(exit_on_complete, run_cmd=run_cmd, bat_start_str=custom_bat_str)
-    odb_path = inp_path.with_suffix(".odb")
-    pickle_path = inp_path.with_suffix(".pckle")
 
-    convert_to_pckle(odb_path, pickle_path)
     return out
 
 
@@ -47,20 +71,27 @@ class AbaqusExecute(LocalExecute):
         return out
 
 
-def create_subroutine_input(inp_path, subroutine_path, cpus, gpus):
-    inp_path = pathlib.Path(inp_path)
-    if inp_path.exists() is False:
-        raise FileNotFoundError(f'Unable to find inp file "{inp_path}"')
-    analysis_name = inp_path.name.replace(".inp", "")
+def create_subroutine_input(inp_path, subroutine_path, aba_ver):
     subroutine_path = pathlib.Path(subroutine_path)
-    subr_name = subroutine_path.with_suffix("").name
     shutil.copy(subroutine_path, inp_path.parent / subroutine_path.name)
-    subr = f"user={subr_name}"
-    param = ["job=" + analysis_name, subr, "CPUS=" + str(cpus), gpus, "interactive"]
-    run_cmd = " ".join([str(val) for val in param if str(val) != ""])
-    prog = r"C:\Program Files (x86)"
-    custom_bat_str = rf'''
-call "{prog}\IntelSWTools\compilers_and_libraries_2018.3.210\windows\bin\ipsxe-comp-vars.bat" intel64 vs2017
-call "{prog}\Microsoft Visual Studio 11.0\VC\bin\amd64\vcvars64.bat" intel 64
-call "C:\SIMULIA\CAE\2017\win_b64\code\bin\ABQLauncher.exe"'''
-    return run_cmd, custom_bat_str
+
+    custom_bat_str = create_subroutine_entry_batch(aba_ver=aba_ver)
+    return custom_bat_str
+
+
+def create_subroutine_entry_batch(aba_ver):
+    from ada.fem.formats.abaqus.config import AbaqusPaths
+
+    aba_path = AbaqusPaths.abaqus_path_map(aba_ver)
+    vs_vars_path = AbaqusPaths.vs_paths()
+    intel_vars_path = AbaqusPaths.intel_fort_path()
+
+    return rf"""@echo off
+setlocal
+set ABA_COMMAND=%~nx0
+set ABA_COMMAND_FULL=%~f0
+call "{vs_vars_path}\vcvars64.bat"
+@call "{intel_vars_path}\vars.bat" -arch intel64 vs2022
+"{aba_path}" %*
+endlocal
+"""

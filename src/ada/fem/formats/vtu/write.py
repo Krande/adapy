@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 from ada.fem.results.common import ElementBlock, FemNodes
-from ada.fem.shapes.definitions import LineShapes, ShellShapes
+from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
 
 
 def array_to_binary(array, dtype):
@@ -21,7 +21,13 @@ VTK_TYPE_MAP = {
     LineShapes.LINE: 3,
     LineShapes.LINE3: 21,
     ShellShapes.TRI: 5,
+    ShellShapes.TRI6: 22,
     ShellShapes.QUAD: 9,
+    ShellShapes.QUAD8: 23,
+    SolidShapes.TETRA: 10,
+    SolidShapes.HEX8: 12,
+    SolidShapes.TETRA10: 24,
+    SolidShapes.HEX20: 25,
 }
 
 # New mapping dictionary
@@ -60,6 +66,8 @@ def write_to_vtu_object(nodes: FemNodes, element_blocks: list[ElementBlock], poi
 
     for block in element_blocks:
         vtk_type = VTK_TYPE_MAP.get(block.elem_info.type)
+        if vtk_type is None:
+            raise ValueError(f"Element type {block.elem_info.type} not supported by VTK")
         # Block node_refs starts at 1, but VTK starts at 0
         refs = block.node_refs - 1
         for refs in refs:

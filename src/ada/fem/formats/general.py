@@ -52,10 +52,11 @@ def get_fem_exports() -> dict[FEATypes, Callable[..., Assembly]]:
 
 
 def get_fem_executable() -> dict[FEATypes, Callable[..., subprocess.CompletedProcess]]:
-    from . import abaqus, calculix, code_aster, sesam
+    from . import calculix, code_aster, sesam
+    from .abaqus.config import AbaqusSetup
 
     return {
-        FEATypes.ABAQUS: abaqus.run_abaqus,
+        FEATypes.ABAQUS: AbaqusSetup.default_executor,
         FEATypes.CALCULIX: calculix.run_calculix,
         FEATypes.CODE_ASTER: code_aster.run_code_aster,
         FEATypes.SESAM: sesam.run_sesam,
