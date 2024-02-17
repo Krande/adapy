@@ -16,21 +16,17 @@ from ada.fem.formats.abaqus.write.write_sections import (
 )
 from ada.fem.formats.utils import get_fem_model_from_assembly
 from ada.fem.steps import StepExplicit
-
-from ...general import FEATypes
-from ...tools import FEA_IO, tool_register
-from ..compatibility import check_compatibility
 from .templates import main_header_str
 from .write_elements import elements_str
 from .write_loads import get_all_grav_loads
 from .write_steps import step_str
+from ..compatibility import check_compatibility
 
 if TYPE_CHECKING:
     from ada import Assembly
     from ada.fem import Interaction, Surface
 
 
-@tool_register(fem_format=FEATypes.CALCULIX, io=FEA_IO.write)
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_only=False):
     """Write a Calculix input file stack"""
 
