@@ -25,10 +25,6 @@ def run_code_aster(
     run_in_shell=False,
 ):
     """
-
-    TODO: Setup running for the code_aster docker image
-
-
     :param inp_path: Path to input file folder(s)
     :param cpus: Number of CPUs to run the analysis on. Default is 2.
     :param gpus: Number of GPUs to run the analysis on. Default is none.

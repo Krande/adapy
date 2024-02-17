@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Callable
 
 from ada.base.types import BaseEnum
 from ada.config import logger
-
 from .utils import interpret_fem_format_from_path
 
 if TYPE_CHECKING:
@@ -52,14 +51,16 @@ def get_fem_exports() -> dict[FEATypes, Callable[..., Assembly]]:
 
 
 def get_fem_executable() -> dict[FEATypes, Callable[..., subprocess.CompletedProcess]]:
-    from . import calculix, code_aster, sesam
+    from . import calculix
     from .abaqus.config import AbaqusSetup
+    from .sesam.config import SesamSetup
+    from .code_aster.config import CodeAsterSetup
 
     return {
         FEATypes.ABAQUS: AbaqusSetup.default_executor,
         FEATypes.CALCULIX: calculix.run_calculix,
-        FEATypes.CODE_ASTER: code_aster.run_code_aster,
-        FEATypes.SESAM: sesam.run_sesam,
+        FEATypes.CODE_ASTER: CodeAsterSetup.default_executor,
+        FEATypes.SESAM: SesamSetup.default_executor,
     }
 
 
