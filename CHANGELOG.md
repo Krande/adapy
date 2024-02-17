@@ -2,6 +2,13 @@
 
 
 
+## v0.2.7 (2024-02-17)
+
+### Fix
+
+* fix: viewer conda cli entrypoint (#91) ([`289554c`](https://github.com/Krande/adapy/commit/289554c3ddcc945bf37037eea9650c2f5b066b37))
+
+
 ## v0.2.6 (2024-02-16)
 
 ### Fix
