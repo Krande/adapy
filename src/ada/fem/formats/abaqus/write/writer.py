@@ -3,8 +3,6 @@ from __future__ import annotations
 from io import StringIO
 from typing import TYPE_CHECKING
 
-from ...general import FEATypes
-from ...tools import FEA_IO, tool_register
 from .write_amplitudes import amplitudes_str
 from .write_bc import boundary_conditions_str
 from .write_connectors import connector_section_str, connector_str
@@ -28,7 +26,6 @@ if TYPE_CHECKING:
 __all__ = ["to_fem"]
 
 
-@tool_register(fem_format=FEATypes.ABAQUS, io=FEA_IO.write)
 def to_fem(
     assembly: Assembly, name, analysis_dir=None, metadata=None, writable_obj: StringIO = None, model_data_only=False
 ):

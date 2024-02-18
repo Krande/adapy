@@ -215,12 +215,18 @@ def get_exe_path(fea_type: FEATypes):
         if exe_path.exists():
             return exe_path
 
+    exe_linux = shutil.which(exe_name)
+    bin_exe_linux = pathlib.Path(os.getenv("CONDA_PREFIX", "")) / f"bin/{exe_name}"
+    if exe_linux is None and bin_exe_linux.exists():
+        exe_linux = bin_exe_linux
+    exe_win = shutil.which(f"{exe_name}.exe")
+
     if Settings.fem_exe_paths.get(exe_name, None) is not None:
         exe_path = Settings.fem_exe_paths[exe_name]
-    elif shutil.which(f"{exe_name}"):
-        exe_path = shutil.which(f"{exe_name}")
-    elif shutil.which(f"{exe_name}.exe"):
-        exe_path = shutil.which(f"{exe_name}.exe")
+    elif exe_linux:
+        exe_path = exe_linux
+    elif exe_win:
+        exe_path = exe_win
     elif shutil.which(f"{exe_name}.bat"):
         exe_path = shutil.which(f"{exe_name}.bat")
     else:

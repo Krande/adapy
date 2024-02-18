@@ -40,26 +40,32 @@ def get_fem_imports() -> dict[FEATypes, Callable[..., Assembly]]:
 
 
 def get_fem_exports() -> dict[FEATypes, Callable[..., Assembly]]:
-    from . import abaqus, calculix, code_aster, sesam, usfos
+    from ada.fem.formats.abaqus.config import AbaqusSetup
+    from ada.fem.formats.calculix.config import CalculixSetup
+    from ada.fem.formats.code_aster.config import CodeAsterSetup
+    from ada.fem.formats.sesam.config import SesamSetup
+    from ada.fem.formats.usfos.config import UsfosSetup
 
     return {
-        FEATypes.ABAQUS: abaqus.to_fem,
-        FEATypes.CALCULIX: calculix.to_fem,
-        FEATypes.CODE_ASTER: code_aster.to_fem,
-        FEATypes.SESAM: sesam.to_fem,
-        FEATypes.USFOS: usfos.to_fem,
+        FEATypes.ABAQUS: AbaqusSetup.default_pre_processor,
+        FEATypes.CALCULIX: CalculixSetup.default_pre_processor,
+        FEATypes.CODE_ASTER: CodeAsterSetup.default_pre_processor,
+        FEATypes.SESAM: SesamSetup.default_pre_processor,
+        FEATypes.USFOS: UsfosSetup.default_pre_processor,
     }
 
 
 def get_fem_executable() -> dict[FEATypes, Callable[..., subprocess.CompletedProcess]]:
-    from . import calculix, code_aster, sesam
     from .abaqus.config import AbaqusSetup
+    from .calculix.config import CalculixSetup
+    from .code_aster.config import CodeAsterSetup
+    from .sesam.config import SesamSetup
 
     return {
         FEATypes.ABAQUS: AbaqusSetup.default_executor,
-        FEATypes.CALCULIX: calculix.run_calculix,
-        FEATypes.CODE_ASTER: code_aster.run_code_aster,
-        FEATypes.SESAM: sesam.run_sesam,
+        FEATypes.CALCULIX: CalculixSetup.default_executor,
+        FEATypes.CODE_ASTER: CodeAsterSetup.default_executor,
+        FEATypes.SESAM: SesamSetup.default_executor,
     }
 
 
