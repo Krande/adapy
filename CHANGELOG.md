@@ -2,6 +2,17 @@
 
 
 
+## v0.2.8 (2024-02-18)
+
+### Fix
+
+* fix: updated fem plugin arch (#92) ([`fb05a55`](https://github.com/Krande/adapy/commit/fb05a55fc3296755047962663166a314ad6cf46a))
+
+### Unknown
+
+* update formatting ([`37e5212`](https://github.com/Krande/adapy/commit/37e52127b5e72cff9d3af922e1b783645de946da))
+
+
 ## v0.2.7 (2024-02-17)
 
 ### Fix
