@@ -20,9 +20,11 @@ def concatenate_stores(stores: Iterable[MeshStore]) -> MergedMesh | None:
             store.normal,
             store.material,
             store.type,
-            [GroupReference(store.node_id, 0, len(store.indices))]
-            if store.type != MeshType.POINTS
-            else [GroupReference(store.node_id, 0, len(store.position))],
+            (
+                [GroupReference(store.node_id, 0, len(store.indices))]
+                if store.type != MeshType.POINTS
+                else [GroupReference(store.node_id, 0, len(store.position))]
+            ),
         )
 
     groups = []
