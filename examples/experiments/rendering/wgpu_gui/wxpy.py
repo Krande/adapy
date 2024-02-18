@@ -1,6 +1,7 @@
 """
 An example demonstrating a wx app with a wgpu viz inside.
 """
+
 # run_example = false
 
 import wgpu.backends.rs  # noqa: F401, Select Rust backend

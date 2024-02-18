@@ -3,8 +3,8 @@ import os
 import pathlib
 
 from ada.fem.formats.abaqus.execute import run_abaqus
-from ada.fem.formats.abaqus.write.writer import to_fem as to_fem_abaqus
 from ada.fem.formats.abaqus.results.read_odb import read_odb_pckle_file
+from ada.fem.formats.abaqus.write.writer import to_fem as to_fem_abaqus
 from ada.fem.formats.fea_config import FrameworkConfig
 
 

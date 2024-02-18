@@ -16,11 +16,12 @@ from ada.fem.formats.abaqus.write.write_sections import (
 )
 from ada.fem.formats.utils import get_fem_model_from_assembly
 from ada.fem.steps import StepExplicit
+
+from ..compatibility import check_compatibility
 from .templates import main_header_str
 from .write_elements import elements_str
 from .write_loads import get_all_grav_loads
 from .write_steps import step_str
-from ..compatibility import check_compatibility
 
 if TYPE_CHECKING:
     from ada import Assembly

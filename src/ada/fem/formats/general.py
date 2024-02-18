@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Callable
 
 from ada.base.types import BaseEnum
 from ada.config import logger
+
 from .utils import interpret_fem_format_from_path
 
 if TYPE_CHECKING:
@@ -39,8 +40,8 @@ def get_fem_imports() -> dict[FEATypes, Callable[..., Assembly]]:
 
 
 def get_fem_exports() -> dict[FEATypes, Callable[..., Assembly]]:
-    from ada.fem.formats.calculix.config import CalculixSetup
     from ada.fem.formats.abaqus.config import AbaqusSetup
+    from ada.fem.formats.calculix.config import CalculixSetup
     from ada.fem.formats.code_aster.config import CodeAsterSetup
     from ada.fem.formats.sesam.config import SesamSetup
     from ada.fem.formats.usfos.config import UsfosSetup
@@ -55,11 +56,10 @@ def get_fem_exports() -> dict[FEATypes, Callable[..., Assembly]]:
 
 
 def get_fem_executable() -> dict[FEATypes, Callable[..., subprocess.CompletedProcess]]:
-    from . import calculix
     from .abaqus.config import AbaqusSetup
-    from .sesam.config import SesamSetup
-    from .code_aster.config import CodeAsterSetup
     from .calculix.config import CalculixSetup
+    from .code_aster.config import CodeAsterSetup
+    from .sesam.config import SesamSetup
 
     return {
         FEATypes.ABAQUS: AbaqusSetup.default_executor,
@@ -113,15 +113,15 @@ def export_fem(assembly, name, analysis_dir, fem_format, fem_converter, metadata
 
 
 def write_to_fem(
-        assembly: Assembly,
-        name: str,
-        fem_format: FEATypes,
-        overwrite: bool,
-        fem_converter: str,
-        scratch_dir,
-        metadata: dict,
-        make_zip_file,
-        model_data_only=False,
+    assembly: Assembly,
+    name: str,
+    fem_format: FEATypes,
+    overwrite: bool,
+    fem_converter: str,
+    scratch_dir,
+    metadata: dict,
+    make_zip_file,
+    model_data_only=False,
 ):
     from ada.fem.formats.utils import default_fem_res_path, folder_prep, should_convert
 

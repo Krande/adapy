@@ -72,15 +72,15 @@ class LocalExecute:
     """Backend Component for executing local analysis"""
 
     def __init__(
-            self,
-            inp_path,
-            cpus=2,
-            gpus=None,
-            run_ext=False,
-            metadata=None,
-            auto_execute=True,
-            excute_locally=True,
-            run_in_shell=False,
+        self,
+        inp_path,
+        cpus=2,
+        gpus=None,
+        run_ext=False,
+        metadata=None,
+        auto_execute=True,
+        excute_locally=True,
+        run_in_shell=False,
     ):
         self._inp_path = pathlib.Path(inp_path)
         self._cpus = cpus
@@ -216,7 +216,7 @@ def get_exe_path(fea_type: FEATypes):
             return exe_path
 
     exe_linux = shutil.which(exe_name)
-    bin_exe_linux = pathlib.Path(os.getenv('CONDA_PREFIX', '')) / f"bin/{exe_name}"
+    bin_exe_linux = pathlib.Path(os.getenv("CONDA_PREFIX", "")) / f"bin/{exe_name}"
     if exe_linux is None and bin_exe_linux.exists():
         exe_linux = bin_exe_linux
     exe_win = shutil.which(f"{exe_name}.exe")
@@ -464,10 +464,10 @@ def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> list[Plate]:
     fem_sec.material.parent = parent
     if len(elem.nodes) == 4:
         if is_coplanar(
-                *elem.nodes[0].p,
-                *elem.nodes[1].p,
-                *elem.nodes[2].p,
-                *elem.nodes[3].p,
+            *elem.nodes[0].p,
+            *elem.nodes[1].p,
+            *elem.nodes[2].p,
+            *elem.nodes[3].p,
         ):
             plates.append(
                 Plate.from_3d_points(
@@ -559,7 +559,7 @@ def convert_part_objects(p: Part, skip_plates, skip_beams):
 
 
 def default_fem_res_path(
-        name, scratch_dir=None, analysis_dir=None, fem_format=None
+    name, scratch_dir=None, analysis_dir=None, fem_format=None
 ) -> dict[FEATypes, pathlib.Path] | str:
     from ada.fem.formats.general import FEATypes
 

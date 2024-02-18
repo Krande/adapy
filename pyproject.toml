@@ -48,8 +48,10 @@ line-length = 120
 
 [tool.ruff]
 line-length = 120
-ignore = ["E741"]
 exclude = ["examples/"]
+
+[tool.ruff.lint]
+ignore = ["E741"]
 
 [tool.isort]
 profile = "black"

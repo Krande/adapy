@@ -15,8 +15,7 @@ def ifc_placement_from_axis3d(axis3d: Axis2Placement3D, f: ifcopenshell.file) ->
     return f.create_entity("IfcAxis2Placement3D", location, axis, ref_direction)
 
 
-def ifc_local_placement():
-    ...
+def ifc_local_placement(): ...
 
 
 def direction(vec: Direction, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
