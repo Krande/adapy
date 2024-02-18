@@ -39,14 +39,18 @@ def get_fem_imports() -> dict[FEATypes, Callable[..., Assembly]]:
 
 
 def get_fem_exports() -> dict[FEATypes, Callable[..., Assembly]]:
-    from . import abaqus, calculix, code_aster, sesam, usfos
+    from ada.fem.formats.calculix.config import CalculixSetup
+    from ada.fem.formats.abaqus.config import AbaqusSetup
+    from ada.fem.formats.code_aster.config import CodeAsterSetup
+    from ada.fem.formats.sesam.config import SesamSetup
+    from ada.fem.formats.usfos.config import UsfosSetup
 
     return {
-        FEATypes.ABAQUS: abaqus.to_fem,
-        FEATypes.CALCULIX: calculix.to_fem,
-        FEATypes.CODE_ASTER: code_aster.to_fem,
-        FEATypes.SESAM: sesam.to_fem,
-        FEATypes.USFOS: usfos.to_fem,
+        FEATypes.ABAQUS: AbaqusSetup.default_pre_processor,
+        FEATypes.CALCULIX: CalculixSetup.default_pre_processor,
+        FEATypes.CODE_ASTER: CodeAsterSetup.default_pre_processor,
+        FEATypes.SESAM: SesamSetup.default_pre_processor,
+        FEATypes.USFOS: UsfosSetup.default_pre_processor,
     }
 
 
@@ -55,10 +59,11 @@ def get_fem_executable() -> dict[FEATypes, Callable[..., subprocess.CompletedPro
     from .abaqus.config import AbaqusSetup
     from .sesam.config import SesamSetup
     from .code_aster.config import CodeAsterSetup
+    from .calculix.config import CalculixSetup
 
     return {
         FEATypes.ABAQUS: AbaqusSetup.default_executor,
-        FEATypes.CALCULIX: calculix.run_calculix,
+        FEATypes.CALCULIX: CalculixSetup.default_executor,
         FEATypes.CODE_ASTER: CodeAsterSetup.default_executor,
         FEATypes.SESAM: SesamSetup.default_executor,
     }
@@ -108,15 +113,15 @@ def export_fem(assembly, name, analysis_dir, fem_format, fem_converter, metadata
 
 
 def write_to_fem(
-    assembly: Assembly,
-    name: str,
-    fem_format: FEATypes,
-    overwrite: bool,
-    fem_converter: str,
-    scratch_dir,
-    metadata: dict,
-    make_zip_file,
-    model_data_only=False,
+        assembly: Assembly,
+        name: str,
+        fem_format: FEATypes,
+        overwrite: bool,
+        fem_converter: str,
+        scratch_dir,
+        metadata: dict,
+        make_zip_file,
+        model_data_only=False,
 ):
     from ada.fem.formats.utils import default_fem_res_path, folder_prep, should_convert
 

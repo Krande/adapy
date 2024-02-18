@@ -8,7 +8,7 @@ on:
       - .github/workflows/ci-FEM.yml
       - images/femtests.Dockerfile
     branches:
-    - main
+      - main
   pull_request:
     paths-ignore:
       - setup.py
@@ -41,6 +41,7 @@ jobs:
       - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         with:
           cache-environment: true
+          cache-environment-key: ada-py-fem-test-001
           condarc: |
             channels:
               - krande
