@@ -49,7 +49,7 @@ jobs:
           environment-file: conda/environment.core.yml
           create-args: >-
             python=3.11
-            code-aster
+            code-aster=*=*nompi*
             paradoc
             pytest
 
