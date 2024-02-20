@@ -25,6 +25,7 @@ PYGFX_RENDERER_EXE_PY = _THIS_DIR / "rendering" / "render_pygfx.py"
 
 
 class SceneAction(str, Enum):
+    NEW = "new"
     REPLACE = "replace"
     ADD = "add"
     REMOVE = "remove"
@@ -138,7 +139,8 @@ class WebSocketServer:
         scene: trimesh.Scene,
         animation_store=None,
         auto_reposition=True,
-        scene_action: SceneAction = SceneAction.REPLACE,
+        scene_action: SceneAction = SceneAction.NEW,
+        scene_action_arg: str = None,
         **kwargs,
     ):
         import base64
@@ -162,7 +164,8 @@ class WebSocketServer:
                 look_at=kwargs.get("look_at", None),
                 camera_position=kwargs.get("camera_position", None),
                 model_translation=translation_list,
-                scene_action=scene_action
+                scene_action=scene_action,
+            scene_action_arg=scene_action_arg,
             )
 
             self.send(json.dumps(msg.__dict__))
@@ -256,6 +259,7 @@ class WsRenderMessage:
     camera_position: list[float, float, float] | None = None
     model_translation: list[float, float, float] | None = None
     scene_action: SceneAction = SceneAction.REPLACE
+    scene_action_arg: str = None
 
 
 def send_to_viewer(
