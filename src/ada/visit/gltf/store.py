@@ -223,15 +223,19 @@ def merged_mesh_to_trimesh_scene(
 
     # Rotate the mesh to set Z up
     mesh.apply_transform(m4x4_z_up_rot)
+    if isinstance(merged_mesh, MergedMesh):
+        node_name = f"node{buffer_id}"
+    else:
+        node_name = f"node{buffer_id}_{merged_mesh.node_id}"
 
     scene.add_geometry(
         mesh,
-        node_name=f"node{buffer_id}",
+        node_name=node_name,
         geom_name=f"node{buffer_id}",
         parent_node_name=graph_store.top_level.name if graph_store else None,
     )
 
-    if graph_store:
+    if graph_store and isinstance(merged_mesh, MergedMesh):
         id_sequence = dict()
         for group in merged_mesh.groups:
             n = graph_store.nodes.get(group.node_id)

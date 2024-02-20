@@ -18,6 +18,7 @@ from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.config import Settings, logger
 from ada.visit.gltf.graph import GraphNode, GraphStore
+from ada.visit.websocket_server import SceneAction
 
 if TYPE_CHECKING:
     from ada import (
@@ -803,6 +804,10 @@ class Part(BackendGeom):
         server_args: list[str] = None,
         run_ws_in_thread=False,
         origins: list[str] = None,
+        scene_override=None,
+        stream_from_ifc=False,
+        merge_meshes=True,
+        scene_action: SceneAction = SceneAction.REPLACE,
         **kwargs,
     ):
         from ada.occ.tessellating import BatchTessellator
@@ -822,9 +827,16 @@ class Part(BackendGeom):
             run_in_thread=run_ws_in_thread,
         )
 
-        # Tessellate the geometry
+        if scene_override is not None:
+            ws.send_scene(scene_override, self.animation_store, **kwargs)
+            return
+
         bt = BatchTessellator()
-        scene = bt.tessellate_part(self)
+        # Tessellate the geometry
+        if stream_from_ifc:
+            scene = bt.ifc_to_trimesh_scene(self.get_assembly().ifc_store, merge_meshes=merge_meshes)
+        else:
+            scene = bt.tessellate_part(self, merge_meshes=merge_meshes)
 
         # Send the geometry to the frontend through the websocket server
         ws.send_scene(scene, self.animation_store, **kwargs)

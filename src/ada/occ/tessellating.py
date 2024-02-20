@@ -10,8 +10,10 @@ from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Shape
 from OCC.Extend.TopologyUtils import discretize_edge
 
 from ada.api.spatial import Part
+from ada.base.ifc_types import ShapeTypes
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
+from ada.cadit.ifc.store import IfcStore
 from ada.config import logger
 from ada.geom import Geometry
 from ada.occ.exceptions import UnableToCreateTesselationFromSolidOCCGeom
@@ -163,6 +165,16 @@ class BatchTessellator:
             if isinstance(obj, BackendGeom):
                 ada_obj = obj
                 geom_repr = render_override.get(obj.guid, GeomRepr.SOLID)
+                if getattr(ada_obj, "ifc_class", None) == ShapeTypes.IfcBuildingElementProxy:
+                    a = ada_obj.get_assembly()
+                    ifc_elem = a.ifc_store.get_by_guid(ada_obj.guid)
+                    try:
+                        ifc_geom = a.ifc_store.get_ifc_geom(ifc_elem, a.ifc_store.settings)
+                    except RuntimeError as e:
+                        logger.error(f"{e} -> {ada_obj}")
+                        continue
+                    yield self.tessellate_occ_geom(ifc_geom.geometry, ada_obj.guid, ada_obj.color)
+                    continue
                 if geom_repr == GeomRepr.SOLID:
                     geom = obj.solid_geom()
                 elif geom_repr == GeomRepr.SHELL:
@@ -180,22 +192,15 @@ class BatchTessellator:
                 logger.error(e)
                 continue
 
-    def tessellate_part(
-        self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True
+    def meshes_to_trimesh(
+        self, shapes_tess_iter: Iterable[MeshStore], graph, merge_meshes: bool = True
     ) -> trimesh.Scene:
         import trimesh
 
-        graph = part.get_graph_store()
-        scene = trimesh.Scene(base_frame=graph.top_level.name)
-
-        shapes_tess_iter = self.batch_tessellate(
-            part.get_all_physical_objects(pipe_to_segments=True, filter_by_guids=filter_by_guids),
-            render_override=render_override,
-        )
-
         all_shapes = sorted(shapes_tess_iter, key=lambda x: x.material)
-        # filter out all shapes associated with an animation,
 
+        # filter out all shapes associated with an animation,
+        scene = trimesh.Scene(base_frame=graph.top_level.name)
         for mat_id, meshes in groupby(all_shapes, lambda x: x.material):
             if merge_meshes:
                 merged_store = concatenate_stores(meshes)
@@ -203,7 +208,9 @@ class BatchTessellator:
             else:
                 for mesh_store in meshes:
                     merged_mesh_to_trimesh_scene(scene, mesh_store, self.get_mat_by_id(mat_id), mat_id, graph)
+        return scene
 
+    def append_fem_to_trimesh(self, scene: trimesh.Scene, part: Part, graph):
         shell_color = Color.from_str("white")
         shell_color_id = self.add_color(shell_color)
         line_color = Color.from_str("gray")
@@ -226,9 +233,65 @@ class BatchTessellator:
             merged_mesh_to_trimesh_scene(scene, edge_store, line_color, line_color_id, graph)
             merged_mesh_to_trimesh_scene(scene, points_store, points_color, points_color_id, graph)
 
+    def tessellate_part(
+        self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True
+    ) -> trimesh.Scene:
+        shapes_tess_iter = self.batch_tessellate(
+            part.get_all_physical_objects(pipe_to_segments=True, filter_by_guids=filter_by_guids),
+            render_override=render_override,
+        )
+
+        graph = part.get_graph_store()
+        scene = self.meshes_to_trimesh(shapes_tess_iter, graph, merge_meshes=merge_meshes)
+
+        self.append_fem_to_trimesh(scene, part, graph)
+
         scene.metadata["meta"] = graph.create_meta(suffix="")
         return scene
 
     def get_mat_by_id(self, mat_id: int):
         _data = {value: key for key, value in self.material_store.items()}
         return _data.get(mat_id)
+
+    def iter_ifc_store(self, ifc_store: IfcStore) -> Iterable[MeshStore]:
+        from ada.visit.gltf.meshes import MeshStore
+        import ifcopenshell.geom
+        from ada.visit.colors import Color
+        from ada.visit.gltf.meshes import MeshType
+
+        settings = ifcopenshell.geom.settings()
+        settings.set(settings.USE_PYTHON_OPENCASCADE, False)
+
+        cpus = 2
+        iterator = ifcopenshell.geom.iterator(settings, ifc_store.f, cpus)
+
+        iterator.initialize()
+        while True:
+            shape = iterator.get()
+            if shape:
+                if hasattr(shape, "geometry"):
+                    geom = shape.geometry
+                    diffuse = geom.materials[0].diffuse
+                    opacity = 1.0 - geom.materials[0].transparency
+                    mat_id = self.add_color(Color(*diffuse, opacity=opacity))
+                    yield MeshStore(
+                        shape.guid,
+                        matrix=shape.transformation.matrix,
+                        position=np.asarray(geom.verts),
+                        indices=np.asarray(geom.faces, dtype=np.uint32),
+                        normal=None,
+                        material=mat_id,
+                        type=MeshType.TRIANGLES,
+                        node_id=shape.guid,
+                    )
+                else:
+                    logger.warning(f"Shape {shape} is not a TopoDS_Shape")
+
+            if not iterator.next():
+                break
+
+    def ifc_to_trimesh_scene(self, ifc_store: IfcStore, merge_meshes=True) -> trimesh.Scene:
+        shapes_tess_iter = self.iter_ifc_store(ifc_store)
+
+        graph = ifc_store.assembly.get_graph_store()
+        return self.meshes_to_trimesh(shapes_tess_iter, graph, merge_meshes=merge_meshes)
