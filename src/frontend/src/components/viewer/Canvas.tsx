@@ -1,4 +1,4 @@
-import React, {useEffect} from 'react';
+import React, {Suspense, useEffect} from 'react';
 import {Canvas} from '@react-three/fiber';
 import {OrbitControls} from '@react-three/drei';
 import GridHelper from './GridHelper';
@@ -10,7 +10,7 @@ import {useModelStore} from '../../state/modelStore';
 import {useNavBarStore} from "../../state/navBarStore";
 import AnimationControls from "./AnimationControls";
 import {PerspectiveCamera} from "three";
-import {handleMeshEmptySpace, handleMeshSelected} from "../../utils/mesh_handling";
+import {handleMeshEmptySpace} from "../../utils/mesh_handling";
 import ObjectInfoBox from "./objectInfo";
 import {useObjectInfoStore} from "../../state/objectInfoStore";
 
@@ -18,7 +18,7 @@ const cameraProps = new PerspectiveCamera(60, 1.0, 0.1, 10000);
 const blenderBackgroundColor = "#393939"; // Approximation of Blender's background color
 
 const CanvasComponent = () => {
-    const {modelUrl} = useModelStore();
+    const {modelUrl, scene_action, scene_action_arg} = useModelStore();
     const {showPerf} = useNavBarStore(); // use showPerf and setShowPerf from useNavBarStore
     const {show} = useObjectInfoStore()
 
@@ -39,7 +39,7 @@ const CanvasComponent = () => {
         <div className={"relative w-full h-full"}>
             <div className={"absolute left-0 top-0 z-10 py-2 flex flex-col"}>
                 <AnimationControls/>
-                <div className={show ? "": "hidden"}><ObjectInfoBox/></div>
+                <div className={show ? "" : "hidden"}><ObjectInfoBox/></div>
 
             </div>
             <div className="absolute right-5 top-80 z-10">
@@ -47,20 +47,25 @@ const CanvasComponent = () => {
             </div>
 
             <div id={"canvasParent"} className={"absolute w-full h-full"}>
-                <Canvas
-                    // frameloop="demand"
-                    camera={cameraProps}
-                    onPointerMissed={handleMeshEmptySpace}
-                    style={{backgroundColor: blenderBackgroundColor}}>
-                    <ambientLight intensity={Math.PI / 2}/>
-                    <spotLight position={[50, 50, 50]} angle={0.15} penumbra={1} decay={0} intensity={Math.PI}/>
-                    <pointLight position={[-10, -10, -10]} decay={0} intensity={Math.PI}/>
-                    {modelUrl && <Model url={modelUrl} onMeshSelected={handleMeshSelected}/>}
-                    <GridHelper size={10} divisions={10} colorCenterLine="white" colorGrid="white"/>
-                    {showPerf && <Perf/>}
-                    <OrbitControls camera={cameraProps} enableDamping={false} makeDefault={false}/>
-                    <OrientationGizmo/>
-                </Canvas>
+                <Suspense>
+                    <Canvas
+                        // frameloop="demand"
+                        camera={cameraProps}
+                        onPointerMissed={handleMeshEmptySpace}
+                        style={{backgroundColor: blenderBackgroundColor}}>
+                        <ambientLight intensity={Math.PI / 2}/>
+                        <spotLight position={[50, 50, 50]} angle={0.15} penumbra={1} decay={0} intensity={Math.PI}/>
+                        <pointLight position={[-10, -10, -10]} decay={0} intensity={Math.PI}/>
+
+                        {modelUrl &&
+                            <Model url={modelUrl} scene_action={scene_action} scene_action_arg={scene_action_arg}/>}
+
+                        <GridHelper size={10} divisions={10} colorCenterLine="white" colorGrid="white"/>
+                        {showPerf && <Perf/>}
+                        <OrbitControls camera={cameraProps} enableDamping={false} makeDefault={false}/>
+                        <OrientationGizmo/>
+                    </Canvas>
+                </Suspense>
             </div>
         </div>
     );

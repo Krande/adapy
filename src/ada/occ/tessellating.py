@@ -153,7 +153,7 @@ class BatchTessellator:
             occ_geom = BRepBuilderAPI_Transform(occ_geom, trsf, True).Shape()
             # occ_geom = transform_shape_to_pos(occ_geom, position.location, position.axis, position.ref_direction)
 
-        return self.tessellate_occ_geom(occ_geom, geom.id, geom.color)
+        return self.tessellate_occ_geom(occ_geom, obj.guid, geom.color)
 
     def batch_tessellate(
         self, objects: Iterable[Geometry | BackendGeom], render_override: dict[str, GeomRepr] = None
@@ -165,16 +165,6 @@ class BatchTessellator:
             if isinstance(obj, BackendGeom):
                 ada_obj = obj
                 geom_repr = render_override.get(obj.guid, GeomRepr.SOLID)
-                if getattr(ada_obj, "ifc_class", None) == ShapeTypes.IfcBuildingElementProxy:
-                    a = ada_obj.get_assembly()
-                    ifc_elem = a.ifc_store.get_by_guid(ada_obj.guid)
-                    try:
-                        ifc_geom = a.ifc_store.get_ifc_geom(ifc_elem, a.ifc_store.settings)
-                    except RuntimeError as e:
-                        logger.error(f"{e} -> {ada_obj}")
-                        continue
-                    yield self.tessellate_occ_geom(ifc_geom.geometry, ada_obj.guid, ada_obj.color)
-                    continue
                 if geom_repr == GeomRepr.SOLID:
                     geom = obj.solid_geom()
                 elif geom_repr == GeomRepr.SHELL:

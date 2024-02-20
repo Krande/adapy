@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import {SceneAction} from "../utils/handleWebSocketMessage";
 
 
 export interface GLTFResult {
@@ -8,5 +9,6 @@ export interface GLTFResult {
 
 export interface ModelProps {
     url: string;
-    onMeshSelected: (meshInfo: any) => void;
+    scene_action: SceneAction | null;
+    scene_action_arg: string | null;
 }

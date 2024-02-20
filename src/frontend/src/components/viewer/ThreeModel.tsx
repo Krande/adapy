@@ -9,7 +9,7 @@ import {useAnimationEffects} from '../../hooks/useAnimationEffects';
 import {handleMeshSelected} from "../../utils/mesh_handling";
 
 
-const Model: React.FC<ModelProps> = ({url, onMeshSelected}) => {
+const Model: React.FC<ModelProps> = ({url}) => {
     const {raycaster} = useThree();
     const {scene, animations} = useGLTF(url, false) as unknown as GLTFResult;
     const {action, setCurrentKey, setSelectedAnimation} = useAnimationStore();

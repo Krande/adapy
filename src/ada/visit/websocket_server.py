@@ -88,8 +88,6 @@ class WebSocketServer:
                 await websocket.send(self.message_queue.get())
 
         async for message in websocket:
-            if self.message_queue is not None:
-                self.message_queue.put(message)
             await self.update_clients(message, websocket.origin)
 
     async def update_clients(self, data, origin):
@@ -165,7 +163,7 @@ class WebSocketServer:
                 camera_position=kwargs.get("camera_position", None),
                 model_translation=translation_list,
                 scene_action=scene_action,
-            scene_action_arg=scene_action_arg,
+                scene_action_arg=scene_action_arg,
             )
 
             self.send(json.dumps(msg.__dict__))

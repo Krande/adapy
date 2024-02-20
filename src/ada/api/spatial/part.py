@@ -807,7 +807,7 @@ class Part(BackendGeom):
         scene_override=None,
         stream_from_ifc=False,
         merge_meshes=True,
-        scene_action: SceneAction = None,
+        scene_action: SceneAction = "new",
         scene_action_arg: str = None,
         **kwargs,
     ):
