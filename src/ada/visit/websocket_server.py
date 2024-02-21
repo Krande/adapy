@@ -9,8 +9,10 @@ import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
+from enum import Enum
 from multiprocessing import Queue
 
+import numpy as np
 import trimesh
 import websockets
 
@@ -20,6 +22,13 @@ from ada.config import logger
 _THIS_DIR = pathlib.Path(__file__).parent
 WEBSOCKET_EXE_PY = _THIS_DIR / "websocket_cli.py"
 PYGFX_RENDERER_EXE_PY = _THIS_DIR / "rendering" / "render_pygfx.py"
+
+
+class SceneAction(str, Enum):
+    NEW = "new"
+    REPLACE = "replace"
+    ADD = "add"
+    REMOVE = "remove"
 
 
 def pretty_print_ports(client_origins):
@@ -79,8 +88,6 @@ class WebSocketServer:
                 await websocket.send(self.message_queue.get())
 
         async for message in websocket:
-            if self.message_queue is not None:
-                self.message_queue.put(message)
             await self.update_clients(message, websocket.origin)
 
     async def update_clients(self, data, origin):
@@ -125,9 +132,28 @@ class WebSocketServer:
         with connect(self.host_url) as websocket:
             websocket.send(data)
 
-    def send_scene(self, scene: trimesh.Scene, animation_store=None, **kwargs):
+    def send_scene(
+        self,
+        scene: trimesh.Scene,
+        animation_store=None,
+        auto_reposition=True,
+        scene_action: SceneAction = SceneAction.NEW,
+        scene_action_arg: str = None,
+        save_to_file_path: str | None = None,
+        **kwargs,
+    ):
         import base64
         import json
+
+        translation_list = None
+        if auto_reposition:
+            y_delta = -scene.bounding_box.bounds[0][1]
+            c = -scene.bounding_box.centroid
+            translation = np.asarray([c[0], y_delta, c[2]])
+            # move the scene to the origin
+            logger.info(f"Applying translation {translation}")
+            scene.apply_translation(translation)
+            translation_list = translation.astype(float).tolist()
 
         with io.BytesIO() as data:
             scene.export(file_obj=data, file_type="glb", buffer_postprocessor=animation_store)
@@ -136,9 +162,18 @@ class WebSocketServer:
                 data=base64.b64encode(data.getvalue()).decode(),
                 look_at=kwargs.get("look_at", None),
                 camera_position=kwargs.get("camera_position", None),
+                model_translation=translation_list,
+                scene_action=scene_action,
+                scene_action_arg=scene_action_arg,
             )
 
             self.send(json.dumps(msg.__dict__))
+
+            if save_to_file_path is not None:
+                data.seek(0)
+                logger.info(f"Saving scene to {save_to_file_path}")
+                with open(save_to_file_path, "wb") as f:
+                    f.write(data.getvalue())
 
     @property
     def host_url(self):
@@ -227,6 +262,9 @@ class WsRenderMessage:
     data: str  # This will hold the Base64 encoded bytes
     look_at: list[float, float, float] | None = None
     camera_position: list[float, float, float] | None = None
+    model_translation: list[float, float, float] | None = None
+    scene_action: SceneAction = SceneAction.REPLACE
+    scene_action_arg: str = None
 
 
 def send_to_viewer(

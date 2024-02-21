@@ -31,6 +31,11 @@ def is_attr_type(
 
     if isinstance(cur_decl, ifcopenshell.ifcopenshell_wrapper.aggregation_type):
         res = cur_decl.type_of_element()
+        if hasattr(res, "declared_type") is False:
+            # it's likely a list of lists situation
+            subres = res.type_of_element()
+            if hasattr(subres, "declared_type"):
+                res = subres
         cur_decl = res.declared_type()
         if hasattr(cur_decl, "name") and cur_decl.name() == ifc_unit_type_name:
             return cur_decl
@@ -68,6 +73,14 @@ def iter_element_and_attributes_per_type(
             yield element, attr, val
 
 
+def convert_list_values(value, old_length, new_length):
+    for v in value:
+        if isinstance(v, tuple):
+            yield tuple([x for x in convert_list_values(v, old_length, new_length)])
+        else:
+            yield ifcopenshell.util.unit.convert_unit(v, old_length, new_length)
+
+
 def convert_file_length_units(ifc_file: ifcopenshell.file, units: Units) -> ifcopenshell.file:
     """Converts all units in an IFC file to the specified target units. Returns a new file."""
     target_units = "MILLIMETERS" if units == Units.MM else "METERS"
@@ -84,8 +97,8 @@ def convert_file_length_units(ifc_file: ifcopenshell.file, units: Units) -> ifco
     # Traverse all elements and their nested attributes in the file and convert them
     for element, attr, val in iter_element_and_attributes_per_type(file_patched, "IfcLengthMeasure"):
         if isinstance(val, tuple):
-            new_value = [ifcopenshell.util.unit.convert_unit(v, old_length, new_length) for v in val]
-            setattr(element, attr.name(), tuple(new_value))
+            new_value = tuple(convert_list_values(val, old_length, new_length))
+            setattr(element, attr.name(), new_value)
         else:
             new_value = ifcopenshell.util.unit.convert_unit(val, old_length, new_length)
             setattr(element, attr.name(), new_value)

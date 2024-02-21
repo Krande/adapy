@@ -109,7 +109,16 @@ def get_beam_sections_from_inp(bulk_str: str, fem: FEM) -> Iterable[FemSection]:
                 ),
                 Iy=(h**3) * (3 * a + b) / 12,
                 Iz=h
-                * (a**3 + 3 * a * c**2 + 3 * c * a**2 + b**3 + c * b**2 + a * b**2 + 2 * a * b * c + b * a**2)
+                * (
+                    a**3
+                    + 3 * a * c**2
+                    + 3 * c * a**2
+                    + b**3
+                    + c * b**2
+                    + a * b**2
+                    + 2 * a * b * c
+                    + b * a**2
+                )
                 / 12,
             )
             return Section(profile_name, "GENBEAM", genprops=genprops, parent=fem)

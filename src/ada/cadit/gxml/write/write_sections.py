@@ -26,6 +26,8 @@ def add_sections(root: ET.Element, part: Part):
             add_unsymm_i_section(section, sections_elem)
         elif section.type == section.TYPES.BOX:
             add_box_section(section, sections_elem)
+        elif section.type == section.TYPES.CHANNEL:
+            add_channel_section(section, sections_elem)
         else:
             logger.error(f"The profile type {section.type} is not yet supported for Genie XML export")
 
@@ -127,6 +129,26 @@ def add_unsymm_i_section(section: Section, xml_root: ET.Element):
             bfbot1=str(section.w_btn / 2),
             tfbot=str(section.t_fbtn),
             tftop=str(section.t_ftop),
+            fabrication="unknown",
+            sfy="1",
+            sfz="1",
+            general_properties_method="computed",
+        ),
+    )
+
+    section_elem.append(section_props)
+    xml_root.append(section_elem)
+
+
+def add_channel_section(section: Section, xml_root: ET.Element):
+    section_elem = ET.Element("section", {"name": section.name})
+    section_props = ET.Element(
+        "channel_section",
+        dict(
+            h=str(section.h),
+            b=str(section.w_btn),
+            tw=str(section.t_w),
+            tf=str(section.t_fbtn),
             fabrication="unknown",
             sfy="1",
             sfz="1",
