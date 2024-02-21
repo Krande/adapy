@@ -27,6 +27,8 @@ def write_xml(part: Part, xml_file, embed_sat=False):
 
     part.consolidate_sections()
     part.consolidate_materials()
+    part.move_all_nodes_here_from_subparts()
+    part.move_all_masses_here_from_subparts()
 
     # Find the <properties> element
     structure_domain = root.find("./model/structure_domain")

@@ -34,6 +34,7 @@ if TYPE_CHECKING:
         Weld,
     )
     from ada.cadit.ifc.store import IfcStore
+    from ada.concepts.points import MassPoint
     from ada.fem.containers import COG
     from ada.fem.meshing import GmshOptions
     from ada.visit.websocket_server import SceneAction
@@ -72,7 +73,7 @@ class Part(BackendGeom):
         self._materials = Materials(parent=self)
         self._sections = Sections(parent=self)
         self._colour = color
-
+        self._masses = []
         self._instances: dict[Any, Instance] = dict()
         self._shapes = []
         self._welds = []
@@ -256,6 +257,10 @@ class Part(BackendGeom):
         if section.units != self.units:
             section.units = self.units
         return self._sections.add(section)
+
+    def add_mass(self, mass: MassPoint) -> MassPoint:
+        self._masses.append(mass)
+        return mass
 
     def add_object(self, obj: Part | Beam | Plate | Wall | Pipe | Shape | Weld | Section):
         from ada import Beam, Part, Pipe, Plate, Section, Shape, Wall, Weld
@@ -674,6 +679,14 @@ class Part(BackendGeom):
         self.sections.merge_sections_by_properties()
         self.materials.merge_materials_by_properties()
 
+    def move_all_nodes_here_from_subparts(self):
+        for p in self.get_all_subparts():
+            self._nodes += p.nodes
+
+    def move_all_masses_here_from_subparts(self):
+        for p in self.get_all_subparts():
+            self._masses += p.masses
+
     def _flatten_list_of_subparts(self, p, list_of_parts=None):
         for value in p.parts.values():
             list_of_parts.append(value)
@@ -932,6 +945,10 @@ class Part(BackendGeom):
     @property
     def sections(self) -> Sections:
         return self._sections
+
+    @property
+    def masses(self) -> [MassPoint]:
+        return self._masses
 
     @sections.setter
     def sections(self, value: Sections):

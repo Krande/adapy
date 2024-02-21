@@ -28,6 +28,8 @@ def add_sections(root: ET.Element, part: Part):
             add_box_section(section, sections_elem)
         elif section.type == section.TYPES.CHANNEL:
             add_channel_section(section, sections_elem)
+        elif section.type == section.TYPES.FLATBAR:
+            add_bar_section(section, sections_elem)
         else:
             logger.error(f"The profile type {section.type} is not yet supported for Genie XML export")
 
@@ -158,3 +160,24 @@ def add_channel_section(section: Section, xml_root: ET.Element):
 
     section_elem.append(section_props)
     xml_root.append(section_elem)
+
+
+def add_bar_section(section: Section, xml_root: ET.Element):
+    # Create the <section> element
+    xml_section = ET.Element("section", {"name": section.name})
+    bar_section = ET.Element(
+        "bar_section",
+        dict(
+            h=str(section.h),
+            b=str(section.w_btn),
+            fabrication="unknown",
+            sfy="1",
+            sfz="1",
+            general_properties_method="computed",
+        ),
+    )
+
+    # Append the <bar_section> element to the <section> element
+    xml_section.append(bar_section)
+    xml_root.append(xml_section)
+    # You can now append the <section> element to your xml tree
