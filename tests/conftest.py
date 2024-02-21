@@ -93,8 +93,8 @@ def pipe_w_multiple_bends(pipe_sec) -> ada.Pipe:
 @pytest.fixture
 def mixed_model(pipe_w_multiple_bends, basic_2d_plate):
     bm1 = ada.Beam("bm1", (0, 0, 0), (1, 0, 0), "HP140x8")
-    bm2 = ada.Beam("bm2", (0, 0, 0), (1, 0, 0), "HP140x8")
-    bm3 = ada.Beam("bm3", (0, 0, 0), (1, 0, 0), "HP140x8")
+    bm2 = ada.Beam("bm2", (0, 1, 0), (1, 1, 0), "HP140x8")
+    bm3 = ada.Beam("bm3", (0, 2, 0), (1, 2, 0), "HP140x8")
 
     mix1 = [bm1, pipe_w_multiple_bends]
     mix2 = [bm2, basic_2d_plate]
