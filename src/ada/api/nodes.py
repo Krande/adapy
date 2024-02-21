@@ -227,6 +227,7 @@ def replace_node(old_node: Node, new_node: Node) -> None:
 
 class MassPoint:
     """Concept mass point object, added to handle export to genie xml without needing to use fem-object"""
+
     def __init__(self, name: str, p: Iterable[numeric, numeric, numeric], mass: float()):
         self.name = name
         self.p = p
@@ -234,4 +235,3 @@ class MassPoint:
 
     def __repr__(self):
         return f"Mass([{self.p}, {self.mass})"
-

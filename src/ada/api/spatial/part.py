@@ -34,10 +34,11 @@ if TYPE_CHECKING:
         Weld,
     )
     from ada.cadit.ifc.store import IfcStore
+    from ada.concepts.points import MassPoint
     from ada.fem.containers import COG
     from ada.fem.meshing import GmshOptions
     from ada.visit.websocket_server import SceneAction
-    from ada.concepts.points import MassPoint
+
 
 class Part(BackendGeom):
     """A Part superclass design to host all relevant information for cad and FEM modelling."""
@@ -257,7 +258,7 @@ class Part(BackendGeom):
             section.units = self.units
         return self._sections.add(section)
 
-    def add_mass (self, mass: MassPoint) -> MassPoint:
+    def add_mass(self, mass: MassPoint) -> MassPoint:
         self._masses.append(mass)
         return mass
 
@@ -682,11 +683,9 @@ class Part(BackendGeom):
         for p in self.get_all_subparts():
             self._nodes += p.nodes
 
-
     def move_all_masses_here_from_subparts(self):
         for p in self.get_all_subparts():
             self._masses += p.masses
-
 
     def _flatten_list_of_subparts(self, p, list_of_parts=None):
         for value in p.parts.values():
