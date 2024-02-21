@@ -7,8 +7,6 @@ import numpy as np
 from ada.base.types import GeomRepr
 from ada.config import logger
 
-# The element names are based on the naming scheme by meshio
-
 
 class UnsupportedFeaShapeException(Exception):
     pass
@@ -121,6 +119,7 @@ class ShapeResolver:
             raise ValueError(f'Unrecognized Shape Type: "{el_type}"')
 
 
+# todo: clean up elem shape types. Mass and connector shapes should be removed (they are either Point or Line shapes) now that they are subclasses of Elem.
 class ElemType:
     SHELL = GeomRepr.SHELL
     SOLID = GeomRepr.SOLID
@@ -209,7 +208,7 @@ class ElemShape:
             return ElemType.SOLID
         elif isinstance(self.type, ShellShapes):
             return ElemType.SHELL
-        elif isinstance(self.type, LineShapes):
+        elif isinstance(self.type, (LineShapes, ConnectorTypes)):
             return ElemType.LINE
         elif isinstance(self.type, SpringTypes):
             return ElemType.LINE

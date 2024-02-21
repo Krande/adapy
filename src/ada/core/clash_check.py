@@ -7,11 +7,13 @@ from typing import Iterable, List
 
 import numpy as np
 
+import ada
 from ada import Assembly, Beam, Node, Part, Pipe, PipeSegStraight, Plate, PrimCyl
 from ada.config import logger
 
+from ..api.transforms import EquationOfPlane
 from .utils import Counter
-from .vector_utils import EquationOfPlane, intersect_calc, is_parallel, vector_length
+from .vector_utils import intersect_calc, is_parallel, vector_length
 
 
 def basic_intersect(bm: Beam, margins, all_parts: [Part]):
@@ -87,7 +89,7 @@ def are_plates_touching(pl1: Plate, pl2: Plate, tol=1e-3):
     """Check if two plates are within tolerance of each other"""
     from ..occ.utils import compute_minimal_distance_between_shapes
 
-    dss = compute_minimal_distance_between_shapes(pl1.solid(), pl2.solid())
+    dss = compute_minimal_distance_between_shapes(pl1.solid_occ(), pl2.solid_occ())
     if dss.Value() <= tol:
         return dss
 
@@ -95,7 +97,7 @@ def are_plates_touching(pl1: Plate, pl2: Plate, tol=1e-3):
 
 
 def filter_away_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]) -> List[Beam]:
-    corners = [n for n in pl.poly.points3d]
+    corners = [tuple(n) for n in pl.poly.points3d]
 
     # filter away all beams with both ends on any of corner points of the plate
     beams_not_along_plate_edge = []
@@ -135,13 +137,21 @@ def filter_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]):
     return crossing_beams
 
 
-def find_beams_connected_to_plate(pl: Plate, beams: List[Beam]) -> List[Beam]:
+def find_beams_connected_to_plate(pl: Plate, beams: list[Beam]) -> list[Beam]:
     """Return all beams with their midpoints inside a specified plate for a given list of beams"""
-    from ada.concepts.containers import Nodes
+    from ada.api.containers import Nodes
 
     nid = Counter(1)
-    nodes = Nodes([Node((bm.n2.p + bm.n1.p) / 2, next(nid), refs=[bm]) for bm in beams])
-    res = nodes.get_by_volume(pl.bbox().p1, pl.bbox().p2)
+    nodes = Nodes(
+        [
+            Node((bm.placement.get_absolute_placement().origin + (bm.n2.p + bm.n1.p) / 2), next(nid), refs=[bm])
+            for bm in beams
+        ]
+    )
+
+    pmin = pl.bbox().p1
+    pmax = pl.bbox().p2
+    res = nodes.get_by_volume(pmin, pmax)
 
     all_beams_within = list(chain.from_iterable([r.refs for r in res]))
     return all_beams_within
@@ -149,7 +159,7 @@ def find_beams_connected_to_plate(pl: Plate, beams: List[Beam]) -> List[Beam]:
 
 def penetration_check(part: Part):
     a = part.get_assembly()
-    cog = part.nodes.vol_cog
+    cog = part.nodes.vol_cog()
     normal = part.placement.zdir
     for p in a.get_all_subparts():
         for pipe in p.pipes:
@@ -160,7 +170,7 @@ def penetration_check(part: Part):
                     v1 = (p1.p - cog) * normal
                     v2 = (p2.p - cog) * normal
                     if np.dot(v1, v2) < 0:
-                        part.add_penetration(
+                        part.add_boolean(
                             PrimCyl(f"{p.name}_{pipe.name}_{segment.name}_pen", p1.p, p2.p, pipe.section.r + 0.1)
                         )
 
@@ -207,7 +217,7 @@ class PipeClash:
 
         # Cut away in plate and stringers here
         name = f"{plate.name}_{pipe.name}_{seg.name}_pen"
-        part.add_penetration(PrimCyl(name, p1, p2, seg.section.r + 0.1), add_to_layer=add_to_layer)
+        part.add_boolean(PrimCyl(name, p1, p2, seg.section.r + 0.1), add_to_layer=add_to_layer)
 
         # specify reinforcement here
         reinforce_name = Counter(prefix=f"{plate.name}_{pipe.name}_{seg.name}_reinf_")
@@ -228,3 +238,69 @@ class PipeClash:
         part.add_beam(Beam(next(reinforce_name), bm_p2, bm_p3, "HP140x8"), add_to_layer=add_to_layer)
         part.add_beam(Beam(next(reinforce_name), bm_p3, bm_p4, "HP140x8"), add_to_layer=add_to_layer)
         part.add_beam(Beam(next(reinforce_name), bm_p4, bm_p1, "HP140x8"), add_to_layer=add_to_layer)
+
+
+@dataclass
+class PlateConnections:
+    mid_span_connected: dict[ada.Plate, list[ada.Plate]]
+    edge_connected: dict[ada.Plate, list[ada.Plate]]
+
+
+def find_edge_connected_perpendicular_plates(plates: list[ada.Plate]) -> PlateConnections:
+    """Find all plates that are connected to a plate edge and are perpendicular to that edge"""
+    plates = list(plates)
+    mid_span_connected = dict()
+    edge_connected = dict()
+
+    for pl1 in plates:
+        place1 = pl1.placement.get_absolute_placement()
+        eop = EquationOfPlane(pl1.poly.origin, pl1.poly.normal, pl1.poly.ydir)
+        p13d = place1.origin + pl1.poly.points3d
+        for pl2 in plates:
+            if pl1 == pl2:
+                continue
+            place2 = pl2.placement.get_absolute_placement()
+            p23d = place2.origin + pl2.poly.points3d
+            res = eop.return_points_in_plane(np.asarray(p23d))
+            if len(res) < 1:
+                continue
+
+            # pop out the elements in the numpy array res that are rows in p13d
+            res_clear = [r for r in res if not any(np.all(r == p) for p in p13d)]
+
+            if len(res) == 2 and len(res_clear) == 0:
+                if pl1 not in edge_connected:
+                    edge_connected[pl1] = []
+                edge_connected[pl1].append(pl2)
+
+            if len(res_clear) == 2:
+                if pl1 not in mid_span_connected:
+                    mid_span_connected[pl1] = []
+                mid_span_connected[pl1].append(pl2)
+
+    return PlateConnections(mid_span_connected, edge_connected)
+
+
+def find_plates_that_share_only_1_edge(plates) -> dict[ada.Plate, list[ada.Plate]]:
+    """Find all plates that are connected to a plate edge and are perpendicular to that edge"""
+    plates = list(plates)
+    edge_connected = dict()
+
+    for pl1 in plates:
+        place1 = pl1.placement.get_absolute_placement()
+        eop = EquationOfPlane(pl1.poly.origin, pl1.poly.normal, pl1.poly.ydir)
+        p13d = place1.origin + pl1.poly.points3d
+        for pl2 in plates:
+            if pl1 == pl2:
+                continue
+            place2 = pl2.placement.get_absolute_placement()
+            p23d = place2.origin + pl2.poly.points3d
+            res = eop.return_points_in_plane(np.asarray(p23d))
+            # pop out the elements in the numpy array res that are rows in p13d
+            res_clear = [r for r in res if not any(np.all(r == p) for p in p13d)]
+            if len(res_clear) == 2:
+                if pl1 not in edge_connected:
+                    edge_connected[pl1] = []
+                edge_connected[pl1].append(pl2)
+
+    return edge_connected

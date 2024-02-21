@@ -1,16 +1,16 @@
 import ifcopenshell
 
 from ada import FEM
-from ada.config import logger
-from ada.fem import Elem
-from ada.ifc.utils import (
-    create_guid,
+from ada.cadit.ifc.utils import (
     create_ifc_placement,
     create_local_placement,
     create_reference_subrep,
     ifc_p,
     to_real,
 )
+from ada.config import logger
+from ada.core.guid import create_guid
+from ada.fem import Elem
 
 from .helper_utils import ifc_vertex
 

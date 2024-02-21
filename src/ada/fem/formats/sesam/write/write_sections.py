@@ -5,7 +5,6 @@ from ada.config import logger
 from ada.core.utils import Counter, make_name_fem_ready
 from ada.fem import FemSection
 from ada.fem.exceptions.element_support import IncompatibleElements
-from ada.fem.shapes import ElemType
 
 from .write_utils import write_ff
 
@@ -35,24 +34,24 @@ def sections_str(fem: FEM, thick_map) -> str:
     names_str = ""
     concept_str = ""
     tdsconc_str, sconcept_str, scon_mesh = "", "", ""
-
+    shid.set_i(max(fem.sections.id_map.keys()) + 1)
     sec_names = []
-    for fem_sec in fem.sections:
-        if fem_sec.type == ElemType.LINE:
-            sec = create_line_section(fem_sec, sec_names, sec_ids)
-            names_str += sec.names_str
-            sec_str += sec.sec_str
+    for sh_sec in fem.sections.shells:
+        sec_str += create_shell_section_str(sh_sec, thick_map)
 
-            stru = create_sconcept_str(fem_sec)
-            tdsconc_str += stru.tdsconc_str
-            sconcept_str += stru.sconcept_str
-            scon_mesh += stru.scon_mesh
-        elif fem_sec.type == ElemType.SHELL:
-            sec_str += create_shell_section_str(fem_sec, thick_map)
-        elif fem_sec.type == ElemType.SOLID:
-            sec_str += create_solid_section(fem_sec)
-        else:
-            raise IncompatibleElements(f"Solid element type {fem_sec.type} is not yet supported for writing to Sesam")
+    for fem_sec in fem.sections.lines:
+        sec = create_line_section(fem_sec, sec_names, sec_ids)
+        names_str += sec.names_str
+        sec_str += sec.sec_str
+
+        stru = create_sconcept_str(fem_sec)
+        tdsconc_str += stru.tdsconc_str
+        sconcept_str += stru.sconcept_str
+        scon_mesh += stru.scon_mesh
+
+    # TODO: Add support for solid elements
+    for fem_sec in fem.sections.solids:
+        sec_str += create_solid_section(fem_sec)
 
     return names_str + sec_str + concept_str + tdsconc_str + sconcept_str + scon_mesh
 
@@ -62,7 +61,7 @@ def create_shell_section_str(fem_sec: FemSection, thick_map) -> str:
         sh_id = next(shid)
         thick_map[fem_sec.thickness] = sh_id
     else:
-        sh_id = thick_map[fem_sec.thickness]
+        return ""
     return write_ff("GELTH", [(sh_id, fem_sec.thickness, 5)])
 
 
@@ -104,7 +103,7 @@ def create_sconcept_str(fem_sec: FemSection) -> ConceptStructure:
     sconcept_str = ""
     # Give concept relationship based on inputted values
 
-    beams = [x for x in fem_sec.refs if type(x) is Beam]
+    beams = [x for x in fem_sec.refs if isinstance(x, Beam)]
     if len(beams) != 1:
         raise ValueError("A FemSection cannot be sourced from multiple beams")
     beam = beams[0]

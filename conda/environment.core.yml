@@ -1,18 +1,20 @@
 name: core
 channels:
-  - conda-forge
   - krande
+  - conda-forge
 dependencies:
   - numpy
+  - hdf5
   - h5py
   - ifcopenshell
   - pythonocc-core
   - python-gmsh
   - pyquaternion
-  - trimesh
+  - trimesh >=4.1.0
+  - occt >=7.7.2
   - send2trash
   - meshio
-  - pytexit
+  - websockets
   - plotly
   - python-kaleido
   - calculix

@@ -1,0 +1,15 @@
+include "../points.fbs";
+include "../placement.fbs";
+include "../surfaces/profile_def.fbs";
+
+namespace IFC.solids;
+
+
+table IfcExtrudedAreaSolid {
+    swept_area: IFC.surfaces.ProfileDefUnion;
+    position: IFC.points.Point;
+    extruded_direction: IFC.placements.Direction;
+    depth: double;
+}
+
+root_type IfcExtrudedAreaSolid;

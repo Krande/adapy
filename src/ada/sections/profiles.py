@@ -1,19 +1,63 @@
-from typing import List, Tuple
+from dataclasses import dataclass
 
-from ada.concepts.curves import CurvePoly
+from ada.api.curves import CurveOpen2d, CurvePoly2d
+from ada.config import get_logger
 from ada.core.utils import roundoff as rd
+from ada.sections.categories import BaseTypes
 
-from .concept import Section, SectionParts, SectionProfile
+from .concept import Section, SectionParts
+
+logger = get_logger()
+
+
+@dataclass
+class SectionProfile:
+    sec: Section
+    is_solid: bool
+    outer_curve: CurvePoly2d = None
+    inner_curve: CurvePoly2d = None
+    outer_curve_disconnected: list[CurveOpen2d] = None
+    inner_curve_disconnected: list[CurveOpen2d] = None
+    disconnected: bool = None
+    shell_thickness_map: list[tuple[str, float]] = None
+
+
+def build_section_profile(sec: Section, is_solid) -> SectionProfile:
+    if sec.type in [BaseTypes.TUBULAR, BaseTypes.CIRCULAR, BaseTypes.GENERAL]:
+        logger.info("Tubular profiles do not need curve representations")
+        return SectionProfile(sec, is_solid)
+
+    build_map = {
+        BaseTypes.ANGULAR: angular,
+        BaseTypes.IPROFILE: iprofiles,
+        BaseTypes.TPROFILE: tprofiles,
+        BaseTypes.BOX: box,
+        BaseTypes.FLATBAR: flatbar,
+        BaseTypes.CHANNEL: channel,
+    }
+
+    section_builder = build_map.get(sec.type, None)
+
+    if section_builder is None and sec.poly_outer is None:
+        raise ValueError("Currently geometry build is unsupported for profile type {ptype}".format(ptype=sec.type))
+
+    if section_builder is not None:
+        section_profile = section_builder(sec, is_solid)
+    else:
+        section_profile = SectionProfile(sec, outer_curve=sec.poly_outer, is_solid=is_solid, disconnected=False)
+
+    return section_profile
+
 
 build_props = dict(origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1))
 
 
-def build_disconnected(input_curve: List[Tuple[tuple, tuple]]) -> List[CurvePoly]:
-    return [CurvePoly(x, is_closed=False, **build_props) for x in input_curve]
+def build_disconnected(input_curve: list[tuple[tuple, tuple]]) -> list[CurveOpen2d]:
+    return [CurveOpen2d(x, **build_props) for x in input_curve]
 
 
-def build_joined(input_curve: List[tuple]) -> CurvePoly:
-    return CurvePoly(input_curve, **build_props)
+def build_joined(input_curve: list[tuple]) -> CurvePoly2d:
+    return CurvePoly2d(input_curve, **build_props)
 
 
 def angular(sec: Section, return_solid) -> SectionProfile:
@@ -179,7 +223,16 @@ def box(sec: Section, return_solid) -> SectionProfile:
     )
 
 
-def flatbar(sec: Section, return_solid=None) -> SectionProfile:
+def flatbar(sec: Section, return_solid=False) -> SectionProfile:
+    if return_solid is False:
+        outer_curve = build_disconnected([((0, sec.h / 2), (sec.w_top / 2, -sec.h / 2))])
+        return SectionProfile(
+            sec,
+            return_solid,
+            outer_curve_disconnected=outer_curve,
+            disconnected=True,
+        )
+
     input_curve = [
         (-sec.w_top / 2, sec.h / 2),
         (sec.w_top / 2, sec.h / 2),
@@ -195,16 +248,34 @@ def flatbar(sec: Section, return_solid=None) -> SectionProfile:
     )
 
 
-def channel(sec: Section, return_solid=None) -> SectionProfile:
+def channel(sec: Section, return_solid=False) -> SectionProfile:
+    # top flange outer
+    p1 = (sec.w_top, sec.h / 2)  # right corner
+    # web
+    p2 = (0, sec.h / 2)  # top of web
+    p3 = (0, -sec.h / 2)  # bottom of web
+    # bottom flange outer
+    p4 = (sec.w_top, -sec.h / 2)  # right corner
+
+    if return_solid is False:
+        input_curve = [(p1, p2), (p2, p3), (p3, p4)]
+        outer_curve = build_disconnected(input_curve)
+        return SectionProfile(
+            sec,
+            return_solid,
+            outer_curve_disconnected=outer_curve,
+            disconnected=True,
+        )
+
     input_curve = [
-        (sec.w_top, sec.h / 2 - sec.t_ftop),
-        (sec.w_top, sec.h / 2),
-        (0, sec.h / 2),
-        (0, -sec.h / 2),
-        (sec.w_top, -sec.h / 2),
+        p1,
+        p2,
+        p3,
+        p4,
         (sec.w_top, -sec.h / 2 + sec.t_fbtn),
         (sec.t_w, -sec.h / 2 + sec.t_fbtn),
         (sec.t_w, sec.h / 2 - sec.t_fbtn),
+        (sec.w_top, sec.h / 2 - sec.t_ftop),
     ]
     outer_curve = build_joined(input_curve)
     return SectionProfile(

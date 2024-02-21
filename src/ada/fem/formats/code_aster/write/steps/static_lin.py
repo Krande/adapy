@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ada.fem import StepImplicit
+from ada.fem import StepImplicitStatic
 
 from ..write_loads import write_load
 from .fields import create_field_output_str
 
 if TYPE_CHECKING:
-    from ada.concepts.spatial import Part
+    from ada.api.spatial import Part
 
 
-def step_static_lin_str(step: StepImplicit, part: Part) -> str:
+def step_static_lin_str(step: StepImplicitStatic, part: Part) -> str:
     from ada.fem.exceptions.model_definition import (
         NoBoundaryConditionsApplied,
         NoLoadsApplied,

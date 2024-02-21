@@ -1,7 +1,6 @@
 {% set name = 'ada-py' %}
 {% set data = load_setup_py_data() %}
-{% set version_ = load_file_data('pyproject.toml')["project"]["version"] %}
-{% set version = environ.get("VERSION", version_) %}
+{% set version = load_file_data('pyproject.toml')["project"]["version"] %}
 
 {% set build = 0 %}
 {% set test_ignores = '' %}
@@ -27,12 +26,20 @@ build:
   script: python -m pip install . --no-deps -vv
   number: {{ build }}
   string: {{ variant }}_h{{ PKG_HASH }}_{{ build }}
+  entry_points:
+    - ada-viewer=ada.visit.websocket_cli:ws_cli_app
+  ignore_files:
+    - node_modules/**/*
+    - src/frontend/**/*
+    - docs/**/*
+    - examples/**/*
+    - images/**/*
+    - .github/**/*
 
 # Set list of core dependencies (core -> conversion and analysis)
 {% set core_deps = load_file_data('conda/environment.core.yml')['dependencies'] %}
 
 # Maybe pytexit, plotly and python-kaleido should be moved to the "full" dependencies list
-# Also Calculix might move to the core deps once the fem wrapper is more stable
 
 # Set full list of dependencies
 {% set full_deps = core_deps + load_file_data('conda/environment.full.yml')['dependencies'] %}
@@ -44,6 +51,7 @@ requirements:
     - python
   run:
     - python
+    - kaleido-core 0.1.0
   {% for dep in deps %}
     - {{ dep }}
   {% endfor %}
@@ -59,7 +67,7 @@ test:
   imports:
     - ada
   commands:
-    - pytest tests --ignore=tests/docker{{ test_ignores }} --cov=ada --cov-report=xml
+    - pytest tests --ignore=tests/fem{{ test_ignores }} --cov=ada --cov-report=xml
 
 about:
   home: https://github.com/krande/adapy

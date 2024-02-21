@@ -75,7 +75,7 @@ def test_hex20_meshed_beam(test_meshing_dir):
 
 # def test_hex_meshed_plate_with_hole(test_meshing_dir):
 #     pl = ada.Plate("pl1", [(0, 0), (1, 0), (1, 1), (0, 1)], 10e-3)
-#     pl.add_penetration(ada.PrimCyl("Mycyl", (0.5, 0.5, -0.5), (0.5, 0.5, 0.5), 0.2))
+#     pl.add_boolean(ada.PrimCyl("Mycyl", (0.5, 0.5, -0.5), (0.5, 0.5, 0.5), 0.2))
 #
 #     with GmshSession(options=GmshOptions(Mesh_ElementOrder=1), silent=True) as gs:
 #         gs.add_obj(pl, "solid")

@@ -9,8 +9,9 @@ from ada.config import Settings, get_logger
 from ada.sections.categories import BaseTypes, SectionCat
 
 if TYPE_CHECKING:
-    from ada import Beam, CurvePoly, Pipe, PipeSegElbow, PipeSegStraight
+    from ada import Beam, CurvePoly2d, Pipe, PipeSegElbow, PipeSegStraight
     from ada.fem import FemSection
+    from ada.sections.profiles import SectionProfile
 
 logger = get_logger()
 
@@ -34,8 +35,8 @@ class Section(Root):
         parent=None,
         sec_str=None,
         from_str=None,
-        outer_poly: CurvePoly = None,
-        inner_poly: CurvePoly = None,
+        outer_poly: CurvePoly2d = None,
+        inner_poly: CurvePoly2d = None,
         genprops: GeneralProperties = None,
         metadata=None,
         units=Units.M,
@@ -108,7 +109,7 @@ class Section(Root):
 
     @id.setter
     def id(self, value):
-        if type(value) is not int:
+        if not isinstance(value, int):
             raise ValueError
         self._id = value
 
@@ -237,25 +238,25 @@ class Section(Root):
             self._units = value
 
     @property
-    def poly_outer(self) -> CurvePoly:
+    def poly_outer(self) -> CurvePoly2d:
         return self._outer_poly
 
     @property
-    def poly_inner(self) -> CurvePoly:
+    def poly_inner(self) -> CurvePoly2d:
         return self._inner_poly
 
     def get_section_profile(self, is_solid=True) -> SectionProfile:
+        from .profiles import build_section_profile
+
         return build_section_profile(self, is_solid)
 
     def _repr_html_(self):
-        from IPython.display import display
-        from ipywidgets import HBox
+        from ada.visit.config import JUPYTER_SECTION_RENDERER
 
-        from ada.visualize.renderer_pythreejs import SectionRenderer
+        if JUPYTER_SECTION_RENDERER is None:
+            return "Jupyter display not available."
 
-        sec_render = SectionRenderer()
-        fig, html = sec_render.build_display(self)
-        display(HBox([fig, html]))
+        JUPYTER_SECTION_RENDERER(self)
 
     @property
     def refs(self) -> list[Beam | FemSection | Pipe | PipeSegStraight | PipeSegElbow]:
@@ -275,6 +276,18 @@ class Section(Root):
                 f"Section({self.name}, {self.type}, h: {self.h}, w_btn: {self.w_btn}, "
                 f"w_top: {self.w_top}, t_fbtn: {self.t_fbtn}, t_ftop: {self.t_ftop}, t_w: {self.t_w})"
             )
+
+
+class SectionI(Section):
+    def __init__(self, name: str, h, w_top, t_w, t_ftop, w_btn=None, t_fbtn=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self._h = h
+        self._w_top = w_top
+        self._w_btn = w_btn
+        self._t_w = t_w
+        self._t_ftop = t_ftop
+        self._t_fbtn = t_fbtn
+        self._sec_str = None
 
 
 class SectionParts:
@@ -339,44 +352,3 @@ class GeneralProperties:
         from ada.sections.properties import calculate_general_properties
 
         return calculate_general_properties(self.parent)
-
-
-@dataclass
-class SectionProfile:
-    sec: Section
-    is_solid: bool
-    outer_curve: CurvePoly = None
-    inner_curve: CurvePoly = None
-    outer_curve_disconnected: list[CurvePoly] = None
-    inner_curve_disconnected: list[CurvePoly] = None
-    disconnected: bool = None
-    shell_thickness_map: list[tuple[str, float]] = None
-
-
-def build_section_profile(sec: Section, is_solid) -> SectionProfile:
-    import ada.sections.profiles as profile_builder
-
-    if sec.type in [BaseTypes.TUBULAR, BaseTypes.CIRCULAR, BaseTypes.GENERAL]:
-        logger.info("Tubular profiles do not need curve representations")
-        return SectionProfile(sec, is_solid)
-
-    build_map = {
-        BaseTypes.ANGULAR: profile_builder.angular,
-        BaseTypes.IPROFILE: profile_builder.iprofiles,
-        BaseTypes.TPROFILE: profile_builder.tprofiles,
-        BaseTypes.BOX: profile_builder.box,
-        BaseTypes.FLATBAR: profile_builder.flatbar,
-        BaseTypes.CHANNEL: profile_builder.channel,
-    }
-
-    section_builder = build_map.get(sec.type, None)
-
-    if section_builder is None and sec.poly_outer is None:
-        raise ValueError("Currently geometry build is unsupported for profile type {ptype}".format(ptype=sec.type))
-
-    if section_builder is not None:
-        section_profile = section_builder(sec, is_solid)
-    else:
-        section_profile = SectionProfile(sec, outer_curve=sec.poly_outer, is_solid=is_solid, disconnected=False)
-
-    return section_profile

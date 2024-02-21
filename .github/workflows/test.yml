@@ -1,6 +1,6 @@
 name: ci-branch-tests
 
-# Bump 4
+
 on: push
 
 concurrency:
@@ -8,30 +8,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  bump:
-    name: Bump version
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash -l {0}
-    outputs:
-      version: ${{ steps.bump.outputs.version }}
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-      - name: Install deps
-        run: pip install requests tomlkit semver
-
-      - name: Bump version
-        id: bump
-        run: python bump_version.py --bump-ci-only
-
-      - name: echo bump
-        run: |
-          echo ${{ steps.bump.outputs.version }}
-
   test-core:
     name: Test ada-py-core
     runs-on: ubuntu-latest
@@ -40,13 +16,15 @@ jobs:
         shell: bash -l {0}
     steps:
       - uses: actions/checkout@v3
-      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+      - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         with:
-          cache-env: true
-          channels: conda-forge
-          channel-priority: strict
+          cache-environment: false
+          condarc: |
+            channels:
+              - conda-forge
+              - krande
           environment-file: conda/environment.core.yml
-          extra-specs: |
+          create-args: >-
             python=3.11
             pytest
 
@@ -55,7 +33,7 @@ jobs:
           pip install -e .
 
       - name: Runs Tests
-        run: pytest ./tests --ignore=./tests/docker/ --ignore=./tests/full/
+        run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/
 
   test-full:
     name: Test ada-py-full
@@ -64,83 +42,28 @@ jobs:
       run:
         shell: bash -l {0}
     steps:
-      - uses: actions/checkout@v3
-      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
+      - uses: actions/checkout@v4
+      - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         with:
-          cache-env: true
-          channels: conda-forge
-          channel-priority: strict
+          cache-environment: false
+          condarc: |
+            channels:
+              - conda-forge
+              - krande
           environment-file: conda/environment.core.yml
-          extra-specs: |
+          create-args: >-
             python=3.11
             pytest
             jupyterlab
             pythreejs
             pyparsing
+            websockets
+            pygfx
+            pyglfw
 
       - name: Install latest adapy
         run: |
           pip install -e .
 
       - name: Run Tests
-        run: pytest ./tests --ignore=./tests/docker/
-
-  pypi:
-    needs: [ test-core, test-full, bump ]
-    if: ${{ contains(github.event.head_commit.message, '[dev]') }}
-    name: Publish to PYPI
-    defaults:
-      run:
-        shell: bash -l {0}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.x'
-      - name: Install deps
-        run: pip install requests tomlkit semver build
-
-      - name: Bump version
-        run: python bump_version.py --bump-level=pre-release --skip-checks
-
-      - name: Build and upload package for pypi
-        run: |
-          python -m build
-      - name: Publish a Python distribution to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
-
-  conda_upload:
-    needs: [ test-core, test-full, bump, pypi ]
-    if: ${{ contains(github.event.head_commit.message, '[dev]') }}
-    name: Publish to CONDA
-    defaults:
-      run:
-        shell: bash -l {0}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        build: [ { name: 'core' },{ name: 'full' } ]
-    steps:
-      - uses: actions/checkout@v3
-      - uses: mamba-org/provision-with-micromamba@main # https://github.com/mamba-org/provision-with-micromamba
-        with:
-          cache-env: true
-          channels: conda-forge
-          channel-priority: strict
-          environment-file: conda/environment.build.yml
-
-      - name: Echo version
-        run: |
-          echo ${{ needs.bump.outputs.version }}
-
-      - name: Build & Upload to CONDA Dev
-        run: |
-          conda mambabuild -c conda-forge -c krande/label/dev . --variants "{'variant': '${{matrix.build.name}}'}" --user krande --token=${{ secrets.ANACONDA_TOKEN }} --label dev --no-copy-test-source-files --no-test --no-build-id
-        working-directory: conda
-        env:
-          VERSION: ${{ needs.bump.outputs.version }}
+        run: pytest ./tests --ignore=./tests/fem/

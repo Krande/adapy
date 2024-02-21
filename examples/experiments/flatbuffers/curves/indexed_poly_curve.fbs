@@ -1,0 +1,19 @@
+include "arc_line.fbs";
+include "line.fbs";
+
+namespace IFC.curves;
+
+// Here we declare a union that will hold the possible curve types
+union _Curve { Line, ArcLine }
+
+table Curve {
+  curve: _Curve;
+}
+
+// Definition of an IndexedPolyCurve
+table IndexedPolyCurve {
+  segments: [Curve];
+  self_intersect: bool;
+}
+
+root_type IndexedPolyCurve;

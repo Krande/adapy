@@ -1,10 +1,11 @@
-from typing import Callable, List, Tuple
+from typing import Callable, Tuple
 
 import numpy as np
 
 import ada
 from ada import Assembly, Beam, Material, Node, Part, Pipe, Plate, PrimSphere, Section
-from ada.concepts.transforms import Placement
+from ada.api.beams.helpers import Justification, get_offset_from_justification
+from ada.api.transforms import Placement
 from ada.core.clash_check import penetration_check
 from ada.core.constants import X, Y, Z
 from ada.core.utils import Counter
@@ -29,13 +30,15 @@ class ReinforcedFloor(Part):
         **kwargs,
     ):
         super(ReinforcedFloor, self).__init__(name, **kwargs)
-        plate = Plate(
-            name + "_pl",
-            points,
-            pl_thick,
-            placement=self.placement,
-            use3dnodes=use3dnodes,
-        )
+        if use3dnodes:
+            plate = Plate.from_3d_points(
+                name + "_pl",
+                points,
+                pl_thick,
+            )
+        else:
+            plate = Plate(name + "_pl", points, pl_thick, placement=self.placement)
+
         self.add_plate(plate)
 
         # Calculate number of stringers
@@ -47,7 +50,7 @@ class ReinforcedFloor(Part):
         else:
             snum = int((ymax - ymin) / spacing) - 1
 
-        z = plate.poly.placement.origin[2]
+        z = plate.poly.origin[2]
 
         tot_spacing = snum * spacing
         diff = xmax - xmin - tot_spacing
@@ -104,7 +107,9 @@ class SimpleStru(Part):
 
         for elev in self._elevations:
             for p1, p2 in beams:
-                self.add_beam(Beam(next(bm_name), n1=p1(elev), n2=p2(elev), sec=sec, jusl=Beam.JUSL_TYPES.TOS))
+                bm = self.add_beam(Beam(next(bm_name), n1=p1(elev), n2=p2(elev), sec=sec))
+                ecc = get_offset_from_justification(bm, Justification.TOS)
+                bm.e1 = bm.e2 = ecc
             points = [c1(elev), c2(elev), c3(elev), c4(elev)]
             p = self.add_part(ReinforcedFloor(next(floor_name), points, pl_thick))
             self.add_set("floors", [p])
@@ -130,9 +135,9 @@ class SimpleStru(Part):
         return 0, self.Params.l, z
 
     def add_bcs(self):
-        funcs: List[Callable] = [self.c1, self.c2, self.c3, self.c4]
+        funcs: list[Callable] = [self.c1, self.c2, self.c3, self.c4]
         fem_set_btn = self.fem.add_set(FemSet("fix", [], FemSet.TYPES.NSET))
-        nodes: List[Node] = []
+        nodes: list[Node] = []
         col_btn_offset = np.array([0, 0, self._btn_col])
         for bc_loc in funcs:
             location = self.placement.origin + bc_loc(self._elevations[0]) + col_btn_offset

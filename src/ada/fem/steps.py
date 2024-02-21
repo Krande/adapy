@@ -162,36 +162,34 @@ class Step(FemBase):
         return self._total_time
 
     @property
-    def interactions(self) -> Dict[str, Interaction]:
+    def interactions(self) -> dict[str, Interaction]:
         return self._interactions
 
     @property
-    def bcs(self) -> Dict[str, Bc]:
+    def bcs(self) -> dict[str, Bc]:
         return self._bcs
 
     @property
-    def loads(self) -> List[Load]:
+    def loads(self) -> list[Load]:
         return self._loads
 
     @property
-    def load_cases(self) -> Dict[str, LoadCase]:
+    def load_cases(self) -> dict[str, LoadCase]:
         return self._load_cases
 
     @property
-    def field_outputs(self) -> List[FieldOutput]:
+    def field_outputs(self) -> list[FieldOutput]:
         return self._field_outputs
 
     @property
-    def hist_outputs(self) -> List[HistOutput]:
+    def hist_outputs(self) -> list[HistOutput]:
         return self._hist_outputs
 
     def __repr__(self):
-        return f"{self.__class__.name}({self.name}, type={self.type}, nl_geom={self.nl_geom})"
+        return f"{self.__class__.__name__}({self.name}, type={self.type}, nl_geom={self.nl_geom})"
 
 
-class StepImplicit(Step):
-    TYPES_DYNAMIC = _DynStepType
-
+class StepImplicitStatic(Step):
     def __init__(
         self,
         name,
@@ -202,7 +200,6 @@ class StepImplicit(Step):
         init_incr=100.0,
         min_incr=1e-8,
         max_incr=100.0,
-        dyn_type=TYPES_DYNAMIC.QUASI_STATIC,
         **kwargs,
     ):
         """
@@ -223,12 +220,8 @@ class StepImplicit(Step):
         else:
             total_time = init_incr
 
-        super(StepImplicit, self).__init__(name, implicit_type, total_time=total_time, nl_geom=nl_geom, **kwargs)
+        super(StepImplicitStatic, self).__init__(name, implicit_type, total_time=total_time, nl_geom=nl_geom, **kwargs)
 
-        if dyn_type not in _DynStepType.all:
-            raise ValueError(f'Dynamic input type "{dyn_type}" is not supported')
-
-        self._dyn_type = dyn_type
         self._total_incr = total_incr
         self._init_incr = init_incr
         self._min_incr = min_incr
@@ -250,6 +243,39 @@ class StepImplicit(Step):
     def max_incr(self):
         return self._max_incr
 
+
+class StepImplicitDynamic(StepImplicitStatic):
+    TYPES_DYNAMIC = _DynStepType
+
+    def __init__(
+        self,
+        name,
+        dyn_type=TYPES_DYNAMIC.QUASI_STATIC,
+        nl_geom=False,
+        total_time=100.0,
+        total_incr=1000,
+        init_incr=100.0,
+        min_incr=1e-8,
+        max_incr=100.0,
+        **kwargs,
+    ):
+        if dyn_type not in _DynStepType.all:
+            raise ValueError(f'Dynamic input type "{dyn_type}" is not supported')
+
+        self._dyn_type = dyn_type
+
+        super().__init__(
+            name=name,
+            implicit_type=Step.TYPES.DYNAMIC,
+            nl_geom=nl_geom,
+            total_time=total_time,
+            total_incr=total_incr,
+            init_incr=init_incr,
+            min_incr=min_incr,
+            max_incr=max_incr,
+            **kwargs,
+        )
+
     @property
     def dyn_type(self):
         return self._dyn_type
@@ -261,9 +287,11 @@ class StepExplicit(Step):
 
 
 class StepEigen(Step):
-    def __init__(self, name, num_eigen_modes: int, **kwargs):
+    def __init__(self, name, num_eigen_modes: int, field_el_outputs=None, **kwargs):
         super(StepEigen, self).__init__(name, Step.TYPES.EIGEN, **kwargs)
         self._num_eigen_modes = num_eigen_modes
+        for field in self.field_outputs:
+            field.element = [] if field_el_outputs is None else field_el_outputs
 
     @property
     def num_eigen_modes(self):

@@ -1,6 +1,8 @@
 # coding=utf-8
 from __future__ import annotations
 
+import hashlib
+import importlib.util
 import os
 import pathlib
 import shutil
@@ -14,6 +16,14 @@ from ada.config import Settings, logger
 
 if TYPE_CHECKING:
     from ada import Node
+
+
+def is_package_installed(package_name):
+    try:
+        importlib.util.find_spec(package_name)
+        return True
+    except ImportError:
+        return False
 
 
 class NewLine:
@@ -59,19 +69,6 @@ class Counter:
     def __next__(self):
         self.i += 1
         return self.i if self._prefix is None else f"{self._prefix}{self.i}"
-
-
-def random_color():
-    from random import randint
-
-    from OCC.Display.WebGl.jupyter_renderer import format_color
-
-    return format_color(randint(0, 255), randint(0, 255), randint(0, 255))
-
-
-def d2npy(node: Node) -> np.ndarray:
-    """This method takes in a node object and returns a np.array."""
-    return np.array([node.x, node.y, node.z], dtype=np.float)
 
 
 def roundoff(x: float, precision=Settings.precision) -> float:
@@ -355,5 +352,18 @@ def replace_nodes_by_tol(nodes, decimals=0, tol=Settings.point_tol):
                 replace_node(nearby_node, node)
 
 
-class UnitTypes:
-    LENGTH = "length"
+def set_list_first_position_elem(array: list, element) -> list:
+    """Moves the element to the first position in the list and maintains order. Returns a new list."""
+    origin_index = array.index(element)
+
+    # shift the list so that the origin is the first point
+    new_array = array[origin_index:] + array[:origin_index]
+    return new_array
+
+
+def get_md5_hash_for_file(filepath: str | pathlib.Path) -> hashlib._Hash:
+    with open(filepath, "rb") as f:
+        file_hash = hashlib.md5()
+        while chunk := f.read(8192):
+            file_hash.update(chunk)
+        return file_hash

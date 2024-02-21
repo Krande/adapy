@@ -1,0 +1,68 @@
+name: Issue pre-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_pypi:
+        description: 'Issue Pre-Release to PyPI'
+        required: false
+        type: boolean
+        default: true
+      release_conda:
+        description: 'Issue Pre-Release to conda'
+        required: false
+        type: boolean
+        default: true
+      release_docker:
+        description: 'Issue Pre-Release to docker'
+        required: false
+        type: boolean
+        default: false
+      release_gitops:
+        description: 'Issue Pre-Release to gitops'
+        required: false
+        type: boolean
+        default: false
+      release_level:
+        description: 'Pre-release level (rebuild=latest tag)'
+        required: false
+        type: choice
+        default: "patch"
+        options:
+          - "patch"
+          - "minor"
+          - "major"
+          - "rebuild"
+
+
+permissions:
+  id-token: write
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: release-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  run:
+    uses: AibelDevs/action-toolbox/.github/workflows/default-tool-pre-release-dispatch.yaml@main
+    with:
+      release_pypi: ${{ github.event.inputs.release_pypi }}
+      release_conda: ${{ github.event.inputs.release_conda }}
+      release_docker: ${{ github.event.inputs.release_docker }}
+      release_gitops: ${{ github.event.inputs.release_gitops }}
+      pre_release_level: ${{ github.event.inputs.release_level }}
+    secrets:
+      SOURCE_KEY: ${{ secrets.SOURCE_KEY }}
+      CONDA_API_TOKEN: ${{ secrets.CONDA_API_TOKEN }}
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+      CUSTOM_PYPI_USERNAME: ${{ secrets.CUSTOM_PYPI_USERNAME }}
+      CUSTOM_PYPI_PASSWORD: ${{ secrets.CUSTOM_PYPI_PASSWORD }}
+      CUSTOM_PYPI_URL: ${{ secrets.CUSTOM_PYPI_URL }}
+      QUETZ_API_KEY: ${{ secrets.QUETZ_API_KEY }}
+      QUETZ_URL: ${{ secrets.QUETZ_URL }}
+      CONTAINER_REGISTRY_URL: ${{ secrets.CONTAINER_REGISTRY_URL }}
+      CONTAINER_REGISTRY_USERNAME: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
+      CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
+      GITOPS_KEY: ${{ secrets.GITOPS_KEY }}

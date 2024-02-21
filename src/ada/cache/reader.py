@@ -3,9 +3,9 @@ import json
 import h5py
 
 from ada import Beam, Material, Section
-from ada.concepts.containers import Beams, Materials, Nodes, Sections
-from ada.concepts.points import Node
-from ada.concepts.spatial import Assembly, Part
+from ada.api.containers import Beams, Materials, Nodes, Sections
+from ada.api.nodes import Node
+from ada.api.spatial import Assembly, Part
 from ada.config import logger
 from ada.fem import FEM, Elem
 from ada.fem.containers import FemElements

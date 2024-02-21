@@ -4,6 +4,7 @@
 [![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/latest_release_date.svg)](https://anaconda.org/krande/ada-py)
 [![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/platforms.svg)](https://anaconda.org/krande/ada-py)
 [![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/downloads.svg)](https://anaconda.org/krande/ada-py)
+[![PyPi Badge](https://img.shields.io/pypi/v/ada-py)](https://pypi.org/project/ada-py/)
 
 A python library for working with structural analysis and design. This library should be considered as experimental.
 
@@ -21,17 +22,19 @@ conda create -n adaenv -c conda-forge -c krande/label/dev ada-py
 
 Here are some of the goals with `ada-py`:
 
-* To create a toolbox that makes it easy to add support for conversion to/from different FE packages and 3D model formats
-* Provide a path for creating FE meshes from IFC models.
-* Add tools for running and post-processing FE analysis to directly compare results from different open source and proprietary FE solvers.
-* Using IFC as the 3d model data structure, provide tools for advanced parametric 3d model design and automated design modification and verification.
-* The library should strive for user ergonomics.
+* Support reading, writing and modifying FE models and post-processing FE results
+* Support open source and commercial FE packages (based on what I use/would like to use regularly)
+* Support scriptable FE meshing
+* Support reading/writing CAD/BIM formats (STEP/IFC) & mesh formats (GLTF)
+* Use a CSG (Constructive Solid Geometry) core primitives library for boolean operations based on the IFC/STEP standards
+* Provide the building blocks for advanced parametric and procedural 3d model design and simulation workflows
+* The library should always strive for user ergonomics.
 
 ## Quick Links
 
-Try ada-py online (main branch / dev branch) with code-aster and calculix pre-installed
+Try ada-py online with code-aster and calculix pre-installed
 
-[![Binder-main](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Krande/adapy/main) / [![Binder-dev](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Krande/adapy/dev)
+[![Binder-main](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Krande/adapy/main)
 
 
 * Feel free to start/join any informal topic related to adapy [here](https://github.com/Krande/adapy/discussions).
@@ -76,10 +79,6 @@ import ada
 a = ada.from_fem('path_to_your_sesam_file.FEM')
 a.to_fem('name_of_my_analysis_file_deck_directory_abaqus', 'abaqus')
 a.to_fem('name_of_my_analysis_file_deck_directory_code_aster', 'code_aster')
-
-# Note! If you are in a Jupyter Notebook\lab environment 
-# this will generate a pythreejs 3D visualization of your FEM mesh
-a
 ```
 
 Current read support is: abaqus, code aster and sesam  
@@ -173,13 +172,9 @@ Although listed in the package dependencies (which is a long list), here are som
 core of adapy;
 
 * IfcOpenShell
+* OpenCascade
 * PythonOCC-Core
 * Gmsh
-
-And the following packages are integral in the interoperability and visualization of FEM results.
-
-* Pythreejs
-* Meshio
 * Trimesh
 
 A huge thanks to all involved in the development of the packages mentioned here and in the list of packages adapy

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 def partition_objects_with_holes(gmsh_data: "GmshData", gmsh_session: "GmshSession"):
     obj = gmsh_data.obj
 
-    partition_map = {Plate: partition_plate_with_hole}
+    partition_map = {Plate: partition_plate_with_hole, Beam: partition_beam_with_hole}
     partition_tool = partition_map.get(type(obj), None)
 
     if partition_tool is None:
@@ -42,3 +42,11 @@ def partition_plate_with_hole(model: "GmshData", gmsh_session: "GmshSession"):
     # gmsh_session.open_gui()
     #
     # raise NotImplementedError()
+
+
+def partition_beam_with_hole(model: "GmshData", gmsh_session: "GmshSession"):
+    gmsh_session.model.mesh.recombine()
+    for dim, tag in model.entities:
+        gmsh_session.model.mesh.setRecombine(dim, tag)
+
+    # gmsh_session.open_gui()

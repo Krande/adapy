@@ -1,13 +1,10 @@
-name: ada
+name: ada-dev
 channels:
-#  - ifcopenshell
-  - krande/label/dev
-  - krande
   - conda-forge
+  - krande
 dependencies:
   - ada-py
+  - ada-cpp
+  - occt=*=*novtk*
+  - trimesh >=4.1.0
   - pytest
-  - calculix
-  - nomkl
-  - semver
-  - tomlkit

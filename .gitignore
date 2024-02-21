@@ -22,3 +22,5 @@ Dockerfile_*
 .state
 .env
 pyproject_test.toml
+node_modules/
+*.html

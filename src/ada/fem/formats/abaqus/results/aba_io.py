@@ -161,10 +161,10 @@ def get_section_data(section_obj):
 
 analysis_path = sys.argv[1]
 parent_dir = os.path.dirname(analysis_path)
-logger.basicConfig(
+logging.basicConfig(
     filename=os.path.join(parent_dir, "aba_io.log"),
     filemode="w",
-    level=logger.INFO,
+    level=logging.INFO,
     format="%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )

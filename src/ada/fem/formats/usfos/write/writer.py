@@ -9,8 +9,9 @@ from .write_elements import beam_str, shell_str
 from .write_profiles import sections_str
 
 
-def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None):
+def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None, model_data_only=False):
     metadata = dict() if metadata is None else metadata
+    assembly.consolidate_materials()
     parts = list(filter(lambda x: len(x.fem.nodes) > 0, assembly.get_all_subparts(include_self=True)))
     if len(parts) != 1:
         raise ValueError(f"Usfos writer currently only works for a single part. Passed {len(parts)=}")

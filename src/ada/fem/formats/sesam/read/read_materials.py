@@ -1,6 +1,6 @@
 from itertools import chain
 
-from ada.concepts.containers import Materials
+from ada.api.containers import Materials
 from ada.core.utils import roundoff
 from ada.fem.formats.utils import str_to_int
 from ada.materials import Material

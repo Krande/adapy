@@ -1,45 +1,147 @@
+from __future__ import annotations
+
 import os
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
 
 from ada.config import Settings as _Settings
-from ada.occ.utils import get_midpoint_of_arc
+from ada.config import logger
 
+from ..geom.points import Point
+from .exceptions import VectorNormalizeError
 from .utils import roundoff
+from .vector_transforms import linear_2dtransform_rotate, transform_3x3
 from .vector_utils import (
     angle_between,
-    calc_yvec,
-    global_2_local_nodes,
     intersect_calc,
     intersection_point,
-    linear_2dtransform_rotate,
-    local_2_global_points,
-    normal_to_points_in_plane,
     unit_vector,
+    vector_length,
     vector_length_2d,
 )
 
 if TYPE_CHECKING:
-    from ada.concepts.curves import ArcSegment, LineSegment
+    from ada.api.curves import ArcSegment, LineSegment
+
+    from .. import Placement
 
 
-def make_arc_segment(p1, p2, p3, radius):
-    from ada import ArcSegment, LineSegment
+def calculate_center(v1, v2) -> Point | None:
+    # Calculate midpoints of v1 and v2
+    m1 = v1 / 2
+    m2 = v2 / 2
 
-    from ..occ.utils import get_edge_points
+    # Calculate slopes of perpendicular bisectors
+    slope1 = -v1[0] / v1[1] if v1[1] != 0 else np.inf
+    slope2 = -v2[0] / v2[1] if v2[1] != 0 else np.inf
 
-    ed1, ed2, fillet = make_edges_and_fillet_from_3points(p1, p2, p3, radius)
+    if np.isinf(slope1) and np.isinf(slope2):
+        return None  # parallel or antiparallel vectors, no unique center
+    elif np.isinf(slope1):
+        return Point(*[m1[0], slope2 * m1[0] + (m2[1] - slope2 * m2[0])])
+    elif np.isinf(slope2):
+        return Point(*[m2[0], slope1 * m2[0] + (m1[1] - slope1 * m1[0])])
+    else:
+        # Calculate y-intercepts
+        b1 = m1[1] - slope1 * m1[0]
+        b2 = m2[1] - slope2 * m2[0]
 
-    ed1_p = get_edge_points(ed1)
-    ed2_p = get_edge_points(ed2)
-    fil_p = get_edge_points(fillet)
-    midpoint = get_midpoint_of_arc(fillet)
-    l1 = LineSegment(*ed1_p, edge_geom=ed1)
-    arc = ArcSegment(fil_p[0], fil_p[1], midpoint, radius, edge_geom=fillet)
-    l2 = LineSegment(*ed2_p, edge_geom=ed2)
-    return [l1, arc, l2]
+        # Solve for intersection point
+        px = (b2 - b1) / (slope1 - slope2)
+        py = slope1 * px + b1
+
+        return Point(*[px, py])
+
+
+def create_arc_segment(v1, v2, radius):
+    from ada import ArcSegment
+
+    # Normalize vectors
+    v1 = v1 / np.linalg.norm(v1)
+    v2 = v2 / np.linalg.norm(v2)
+
+    # Calculate center point
+    pc = calculate_center(v1, v2)
+    if pc is None:
+        return None  # cannot create arc segment
+
+    # Get angle between vectors
+    angle = np.arccos(np.clip(np.dot(v1, v2), -1.0, 1.0))
+
+    # Find arc points
+    start = pc + radius * v1
+    end = pc + radius * v2
+    midpoint = pc + radius * np.cos(angle / 2) * (v1 + v2) / np.linalg.norm(v1 + v2)
+
+    return ArcSegment(start, end, midpoint, radius, pc)
+
+
+def make_arc_segment_with_tolerance(
+    start: Iterable | Point,
+    center: Iterable | Point,
+    end: Iterable | Point,
+    radius: float,
+    min_radius_abs: float = None,
+    min_radius_rel: float = 0.3,
+) -> list[LineSegment | ArcSegment]:
+    original_radius = radius
+    while True:
+        try:
+            segments = make_arc_segment(start, center, end, radius)
+            if radius != original_radius:
+                logger.warning(f"radius: {radius}")
+            break
+        except VectorNormalizeError:
+            radius *= 0.99
+            if min_radius_abs is not None and radius < min_radius_abs:
+                raise ValueError(f"Could not make arc with radius {original_radius}. stopped at {radius}")
+            if radius < min_radius_rel * original_radius:
+                raise ValueError(f"Could not make arc with radius {original_radius}. stopped at {radius}")
+    return segments
+
+
+def make_arc_segment(
+    start: Iterable | Point, intersect_p: Iterable | Point, end: Iterable | Point, radius: float
+) -> list[LineSegment | ArcSegment]:
+    from ada import ArcSegment, Placement
+
+    if not isinstance(start, Point):
+        start = Point(*start)
+    if not isinstance(intersect_p, Point):
+        intersect_p = Point(*intersect_p)
+    if not isinstance(end, Point):
+        end = Point(*end)
+
+    # The SegCreator always creates a closed loop, that's why we pop the first segment
+    if start.dim == 3:
+        place = Placement.from_co_linear_points([start, intersect_p, end])
+        points2d = place.transform_global_points_to_local([start, intersect_p, end])
+
+        points = [points2d[0], [*points2d[1], radius], points2d[2]]
+        sc = SegCreator(points, is_closed=False)
+        segments = sc.build()
+        segments3d = []
+        for seg in segments:
+            if isinstance(seg, ArcSegment):
+                seg3d = transform_2d_arc_segment_to_3d(seg, place)
+                segments3d.append(seg3d)
+            else:
+                points = np.array([seg.p1, seg.p2])
+                s, e = place.transform_local_points_back_to_global(points)
+                seg.p1 = s
+                seg.p2 = e
+                segments3d.append(seg)
+        segments = segments3d
+    else:
+        points = [start, [*intersect_p, radius], end]
+        sc = SegCreator(points, is_closed=False)
+        segments = sc.build()
+
+    if len(segments) > 3:
+        segments.pop(0)
+
+    return segments
 
 
 class SegCreator:
@@ -63,10 +165,7 @@ class SegCreator:
         self._fig = fig
         self._i = 0
         self._debug = debug
-        self._arc_center = None
-        self._arc_start = None
-        self._arc_end = None
-        self._arc_midpoint = None
+        self._curve_data: ArcSegment | None = None
         self._is_closed = is_closed
         if debug is True:
             self._debug_path = _Settings.debug_dir
@@ -74,6 +173,28 @@ class SegCreator:
             if os.path.isdir(_Settings.debug_dir) is False:
                 os.makedirs(_Settings.debug_dir, exist_ok=True)
             self._start_plot()
+
+    def build(self) -> list[LineSegment | ArcSegment]:
+        in_loop = True
+        while in_loop:
+            if self.radius is not None:
+                self.calc_circle_line()
+                if abs(self.radius) < 1e-5:
+                    self._curve_data = None
+
+                    self.calc_line()
+                else:
+                    self.calc_arc()
+            else:
+                self._curve_data = None
+                self.calc_line()
+
+            if self.i == len(self._local_points) - 1:
+                in_loop = False
+            else:
+                self.next()
+
+        return self._seg_list
 
     def next(self):
         self._i += 1
@@ -87,11 +208,7 @@ class SegCreator:
             self._add_to_plot([self.p1, self.p2, self.p3], label=lbl_str)
 
     def calc_line(self):
-        """
-        Calculate line segment between p2 and p3 (p1 - p2 for i == 0)
-
-        :return:
-        """
+        """Calculate line segment between p2 and p3 (p1 - p2 for i == 0)"""
         from ada import ArcSegment, LineSegment
 
         i = self._i
@@ -162,11 +279,7 @@ class SegCreator:
                     pass
 
     def calc_arc(self):
-        """
-        Calculate arc segments when a fillet radius is given as 3rd value in the local_points listed tuples.
-
-        :return:
-        """
+        """Calculate arc segments when a fillet radius is given as 3rd value in the local_points listed tuples."""
         i = self._i
         from ada import ArcSegment, LineSegment
 
@@ -174,93 +287,93 @@ class SegCreator:
 
         # Before Arc
         if i == 0:
-            d1 = vector_length_2d(np.array(self.arc_start) - self.p1)
+            d1 = vector_length_2d(np.array(self.curve_data.p1) - self.p1)
             if d1 > self._tol and len(self._local_points[-1]) == 2:
                 if self._debug is True:
                     self._add_to_plot(
-                        [self.p1, self.arc_start],
+                        [self.p1, self.curve_data.p1],
                         label=f"p={i}: Line Gen BeforeArc p1, arc_start ",
                     )
-                self._seg_list.append(LineSegment(p1=self.p1, p2=self.arc_start))
+                self._seg_list.append(LineSegment(p1=self.p1, p2=self.curve_data.p1))
             else:
                 if type(self._local_points[-1]) is LineSegment:
                     if self._debug is True:
                         self._add_to_plot(
-                            [self.p1, self.arc_start],
+                            [self.p1, self.curve_data.p1],
                             label=f"p={i}: Moving arc_start to p1",
                         )
-                    self.arc_start = self.p1
+                    self.curve_data.p1 = self.p1
         elif self.pseg is None:
             pass
         else:
-            if vector_length_2d(self.pseg.p2 - self.arc_start) < self._tol:
+            if vector_length_2d(self.pseg.p2 - self.curve_data.p1) < self._tol:
                 if self._debug is True:
                     self._add_to_plot(
-                        [self.pseg.p2, self.arc_start],
+                        [self.pseg.p2, self.curve_data.p1],
                         label=f"p={i}: Moving arc_start to pseg.p2",
                     )
-                self.arc_start = self.pseg.p2
+                self.curve_data.p1 = self.pseg.p2
             else:
-                v1 = self.arc_midpoint - self.pseg.p2
-                v2 = self.arc_start - self.pseg.p2
+                v1 = self.curve_data.midpoint - self.pseg.p2
+                v2 = self.curve_data.p1 - self.pseg.p2
                 deg1 = np.rad2deg(angle_between(v1, v2))
                 if deg1 < 120:
                     if self._debug is True:
                         self._add_to_plot(
-                            [self.pseg.p2, self.arc_start],
+                            [self.pseg.p2, self.curve_data.p1],
                             label=f"p={i}: Line Gen BeforeArc p1, arc_start ",
                         )
-                    self._seg_list.append(LineSegment(p1=self.pseg.p2, p2=self.arc_start))
+                    self._seg_list.append(LineSegment(p1=self.pseg.p2, p2=self.curve_data.p1))
                 else:
                     if type(self.pseg) is LineSegment and roundoff(self.angle_pseg_p1arc_start) == 180.0:
                         if self._debug is True:
                             self._add_to_plot(
-                                [self.pseg.p2, self.arc_start],
+                                [self.pseg.p2, self.curve_data.p1],
                                 label=f"p={i}: Moving pseg.p2 to arc_start ",
                             )
-                        self.pseg.p2 = self.arc_start
+                        self.pseg.p2 = self.curve_data.p1
                     else:
                         if self._debug is True:
                             self._add_to_plot(
-                                [self.pseg.p2, self.arc_start],
+                                [self.pseg.p2, self.curve_data.p1],
                                 label=f"p={i}: Moving arc_start to pseg.p2",
                             )
-                        self.arc_start = self.pseg.p2
+                        self.curve_data.p1 = self.pseg.p2
 
         # After Arc
         after_arc_end = None
         if i == len(self._local_points) - 1:
             if self._is_closed is False:
                 return None
-            if vector_length_2d(self._seg_list[0].p1 - np.array(self.arc_end)) > self._tol:
+            if vector_length_2d(self._seg_list[0].p1 - np.array(self.curve_data.p2)) > self._tol:
                 after_arc_end = self._seg_list[0].p1
-                seg_after = LineSegment(p1=self.arc_end, p2=self._seg_list[0].p1)
+                seg_after = LineSegment(p1=self.curve_data.p2, p2=self._seg_list[0].p1)
             else:
                 if type(self._seg_list[0]) is ArcSegment:
-                    self._seg_list[0].p1 = self.arc_end
+                    self._seg_list[0].p1 = self.curve_data.p2
                 else:
-                    self.arc_end = self._seg_list[0].p1
+                    self.curve_data.p2 = self._seg_list[0].p1
         else:
-            delta_p3_arc_end = vector_length_2d(self.p3 - np.array(self.arc_end))
+            delta_p3_arc_end = vector_length_2d(self.p3 - np.array(self.curve_data.p2))
             if delta_p3_arc_end < self._tol:
                 if self._debug:
-                    self._add_to_plot([self.arc_end, self.p3], label=f"p={i}: Moving arc_end to p3")
-                self.arc_end = self.p3
+                    self._add_to_plot([self.curve_data.p2, self.p3], label=f"p={i}: Moving arc_end to p3")
+                self.curve_data.p2 = self.p3
             else:
-                v1 = unit_vector(self.arc_end - self.arc_midpoint)
-                v2 = unit_vector(self.p3 - self.arc_end)
+                v1 = unit_vector(self.curve_data.p2 - self.curve_data.midpoint)
+                v2 = unit_vector(self.p3 - self.curve_data.p2)
                 deg1 = np.rad2deg(angle_between(v1, v2))
                 if len(self._local_points[i + 1]) == 2:
                     if deg1 < 100:
                         after_arc_end = self.p3
-                        seg_after = LineSegment(p1=self.arc_end, p2=self.p3)
+                        seg_after = LineSegment(p1=self.curve_data.p2, p2=self.p3)
                     else:
                         if self._debug:
                             self._add_to_plot(
-                                [self.arc_end, self.p3],
+                                [self.curve_data.p2, self.p3],
                                 label=f"p={i}: Moving arc_end to p3",
                             )
-                        self.arc_end = self.p3
+                        self.curve_data.p2 = self.p3
                 else:
                     # A line segment is added prior to next arc\line segment
                     pass
@@ -268,40 +381,39 @@ class SegCreator:
         # Adding segments
         if self._debug is True:
             self._add_to_plot(
-                [self.arc_start, self.arc_midpoint, self.arc_end],
+                [self.curve_data.p1, self.curve_data.midpoint, self.curve_data.p2],
                 label=f"p={i}: Arc Gen start, midp, end, radius={self.radius}",
             )
 
         self._seg_list.append(
             ArcSegment(
-                p1=self.arc_start,
-                p2=self.arc_end,
-                midpoint=self.arc_midpoint,
+                p1=self.curve_data.p1,
+                p2=self.curve_data.p2,
+                midpoint=self.curve_data.midpoint,
                 radius=self.radius,
-                center=self.arc_center,
+                center=self.curve_data.center,
+                intersection=self.curve_data.intersection,
+                s_normal=self.curve_data.s_normal,
+                e_normal=self.curve_data.e_normal,
             )
         )
 
         if seg_after is not None:
             if self._debug is True:
                 self._add_to_plot(
-                    [self.arc_end, after_arc_end],
+                    [self.curve_data.p2, after_arc_end],
                     label=f"p={i}: Line Gen AfterArc, end, p3",
                 )
             self._seg_list.append(seg_after)
 
     def calc_circle_line(self):
-        loc_c, loc_start, loc_end, loc_midp = calc_2darc_start_end_from_lines_radius(
-            self.p1, self.p2, self.p3, self.radius
-        )
-        self._arc_center = loc_c
-        self._arc_start = loc_start
-        self._arc_end = loc_end
-        self._arc_midpoint = loc_midp
+        from ada import ArcSegment
+
+        self._curve_data = ArcSegment.from_start_center_end_radius(self.p1, self.p2, self.p3, self.radius)
 
         if self._debug is True:
             self._add_to_plot(
-                [self.arc_center, self.arc_start, self.arc_end, self.arc_midpoint],
+                [self.curve_data.center, self.curve_data.p1, self.curve_data.p2, self.curve_data.midpoint],
                 label=f"p={self._i}: Arc Center, start, end, midp",
                 mode="markers",
             )
@@ -338,8 +450,8 @@ class SegCreator:
 
     @property
     def prevp_to_arc_start_len(self):
-        if self.arc_start is not None:
-            return vector_length_2d(np.array(self.arc_start) - self.p1)
+        if self.curve_data.p1 is not None:
+            return vector_length_2d(np.array(self.curve_data.p1) - self.p1)
         else:
             return vector_length_2d(self.p2 - self.p1)
 
@@ -371,16 +483,16 @@ class SegCreator:
         A = np.append(self.pseg.p1, [0])
         B = np.append(self.pseg.p2, [0])
         C = np.append(self.p1, [0])
-        D = np.append(self.arc_start, [0])
+        D = np.append(self.curve_data.p1, [0])
         s, t = intersect_calc(A, C, B - A, D - C)
         return s
 
     @property
     def intersect_p3arcend_arcmidend(self):
-        A = np.append(self.arc_end, [0])
+        A = np.append(self.curve_data.p2, [0])
         B = np.append(self.p3, [0])
-        C = np.append(self.arc_midpoint, [0])
-        D = np.append(self.arc_end, [0])
+        C = np.append(self.curve_data.midpoint, [0])
+        D = np.append(self.curve_data.p2, [0])
         s, t = intersect_calc(A, C, B - A, D - C)
         return s
 
@@ -399,49 +511,17 @@ class SegCreator:
     @property
     def angle_arc_end_p3(self):
         n = np.array([0, 0, 1])
-        end = np.append(self.arc_end, [0])
-        center = np.append(self.arc_center, [0])
+        end = np.append(self.curve_data.p2, [0])
+        center = np.append(self.curve_data.center, [0])
         tangent = np.cross(unit_vector(end - center), n)
-        nextseg = np.append(self.p3 - self.arc_end, [0])
+        nextseg = np.append(self.p3 - self.curve_data.p2, [0])
         deg = np.rad2deg(angle_between(tangent, nextseg))
         return deg
 
     # Arc Related properties
     @property
-    def arc_center(self):
-        if self._arc_center is not None:
-            return self._arc_center
-        else:
-            return None
-
-    @property
-    def arc_start(self):
-        if self._arc_start is not None:
-            return np.array(self._arc_start)
-        else:
-            return None
-
-    @arc_start.setter
-    def arc_start(self, value):
-        self._arc_start = value
-
-    @property
-    def arc_end(self):
-        if self._arc_end is not None:
-            return np.array(self._arc_end)
-        else:
-            return None
-
-    @arc_end.setter
-    def arc_end(self, value):
-        self._arc_end = value
-
-    @property
-    def arc_midpoint(self):
-        if self._arc_midpoint is not None:
-            return np.array(self._arc_midpoint)
-        else:
-            return None
+    def curve_data(self) -> ArcSegment:
+        return self._curve_data
 
     @property
     def radius(self):
@@ -455,24 +535,24 @@ class SegCreator:
 
     @property
     def arc_start_tangent(self):
-        if self.arc_start is not None:
+        if self.curve_data.p1 is not None:
             n = np.array([0, 0, 1])
-            tangent = np.cross(unit_vector(self.arc_start - self.arc_center), n)
+            tangent = np.cross(unit_vector(self.curve_data.p1 - self.curve_data.center), n)
             return tangent[:2]
         else:
             return None
 
     @property
     def psegp2_arc_start_cross(self):
-        if self.arc_start is not None and self.pseg is not None:
-            return np.cross(unit_vector(self.arc_start - self.pseg.p2), np.array([0, 0, 1]))
+        if self.curve_data.p1 is not None and self.pseg is not None:
+            return np.cross(unit_vector(self.curve_data.p1 - self.pseg.p2), np.array([0, 0, 1]))
         else:
             return None
 
     @property
     def arc_endp3_cross(self):
-        if self.arc_end is not None:
-            return np.cross(unit_vector(self.arc_end - self.p3), np.array([0, 0, 1]))
+        if self.curve_data.p2 is not None:
+            return np.cross(unit_vector(self.curve_data.p2 - self.p3), np.array([0, 0, 1]))
         else:
             return None
 
@@ -530,12 +610,7 @@ class SegCreator:
         self._fig.write_html(self.plot_path)
 
 
-def segments_to_local_points(segments_in):
-    """
-
-    :param segments_in:
-    :return:
-    """
+def segments_to_local_points(segments_in: list[LineSegment | ArcSegment]) -> list[tuple]:
     from ada import LineSegment
 
     local_points = []
@@ -580,12 +655,16 @@ def segments_to_local_points(segments_in):
     return local_points
 
 
-def segments_to_indexed_lists(segments: List[Union["LineSegment", "ArcSegment"]]):
-    """
+def transform_2d_arc_segment_to_3d(arc2d: ArcSegment, place: Placement):
+    from ada import ArcSegment
 
-    :param segments:
-    :return:
-    """
+    arc_points = [arc2d.p1, arc2d.p2, arc2d.midpoint, arc2d.center, arc2d.intersection]
+    r = place.transform_local_points_back_to_global(np.asarray(arc_points))
+    sn, en = transform_3x3(place.rot_matrix, np.array([arc2d.s_normal, arc2d.e_normal]), inverse=True)
+    return ArcSegment(r[0], r[1], r[2], arc2d.radius, r[3], r[4], sn, en)
+
+
+def segments_to_indexed_lists(segments: list[LineSegment | ArcSegment]):
     from ada import ArcSegment
 
     final_point_list = []
@@ -701,47 +780,7 @@ def intersect_line_circle(line, center, radius, tol=1e-1):
     return p
 
 
-@dataclass
-class CurveData:
-    center: np.ndarray
-    start: np.ndarray
-    end: np.ndarray
-    midp: np.ndarray
-
-
-def get_center_from_3_points_and_radius(p1, p2, p3, radius, tol=1e-1) -> CurveData:
-    """The 3rd number is required to determine the normal, and then 2 numbers and the radii is used to find c"""
-    from ada.core.constants import O, X, Y
-
-    p1 = np.array(p1)
-    p2 = np.array(p2)
-    p3 = np.array(p3)
-
-    points = [p1, p2, p3]
-    n = normal_to_points_in_plane(points)
-    xv = p2 - p1
-    yv = calc_yvec(xv, n)
-
-    point_to_origin = [p - p1 for p in points]
-
-    is_in_xy_plane = angle_between(xv, X) in (np.pi, 0) and angle_between(yv, Y) in (np.pi, 0)
-
-    if is_in_xy_plane:
-        res_locn = calc_2darc_start_end_from_lines_radius(*point_to_origin, radius)
-        res_glob = [np.array([p[0], p[1], 0]) + p1 for p in res_locn]
-    else:
-        xv_norm, yv_norm = unit_vector(xv), unit_vector(yv)
-        points_in_2d_plane = global_2_local_nodes([xv_norm, yv_norm], O, point_to_origin)
-        res_loc = calc_2darc_start_end_from_lines_radius(*points_in_2d_plane, radius, tol=tol)
-        res_rotated_back = local_2_global_points(res_loc, O, xv_norm, n)
-        res_glob = [p + p1 for p in res_rotated_back]
-
-    center, start, end, midp = res_glob
-
-    return CurveData(center, start, end, midp)
-
-
-def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius, tol=1e-1):
+def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius, tol=1e-1) -> ArcSegment:
     """
     From intersecting lines and a given radius return the arc start, end, center of radius and a point on the arc
 
@@ -751,10 +790,14 @@ def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius, tol=1e-1):
         https://math.stackexchange.com/questions/797828/calculate-center-of-circle-tangent-to-two-lines-in-space
 
     """
+    from ada import ArcSegment
 
-    p1 = p1[:2] if type(p1) is np.ndarray else np.array(p1[:2])
-    p2 = p2[:2] if type(p2) is np.ndarray else np.array(p2[:2])
-    p3 = p3[:2] if type(p3) is np.ndarray else np.array(p3[:2])
+    points = np.array([p1, p2, p3])
+
+    if len(points.shape) > 1 and points.shape[1] == 3:
+        raise NotImplementedError("3D not implemented yet")
+
+    p1, p2, p3 = points
 
     v1 = unit_vector(p2 - p1)
     v2 = unit_vector(p2 - p3)
@@ -800,52 +843,19 @@ def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius, tol=1e-1):
 
     midp = linear_2dtransform_rotate(center, start, np.rad2deg(gamma))
 
-    return center, start, end, midp
+    return ArcSegment(start, end, midp, radius, center, p2, v1, v2)
 
 
 def build_polycurve(
-    local_points2d: List[tuple], tol=1e-3, debug=False, debug_name=None, is_closed=True
-) -> List[Union["LineSegment", "ArcSegment"]]:
+    local_points2d: list[tuple], tol=1e-3, debug=False, debug_name=None, is_closed=True
+) -> list[LineSegment | ArcSegment]:
     if len(local_points2d) == 2:
-        from ada.concepts.curves import LineSegment
+        from ada.api.curves import LineSegment
 
         return [LineSegment(p1=local_points2d[0], p2=local_points2d[1])]
 
     segc = SegCreator(local_points2d, tol=tol, debug=debug, debug_name=debug_name, is_closed=is_closed)
-    in_loop = True
-    while in_loop:
-        if segc.radius is not None:
-            segc.calc_circle_line()
-            if abs(segc.radius) < 1e-5:
-                segc._arc_center = None
-                segc._arc_start = None
-                segc._arc_end = None
-                segc._arc_midpoint = None
-                segc.calc_line()
-            else:
-                segc.calc_arc()
-        else:
-            segc._arc_center = None
-            segc._arc_start = None
-            segc._arc_end = None
-            segc._arc_midpoint = None
-            segc.calc_line()
-
-        if segc.i == len(local_points2d) - 1:
-            in_loop = False
-        else:
-            segc.next()
-
-    return segc._seg_list
-
-
-def make_edges_and_fillet_from_3points(p1, p2, p3, radius):
-    from ..occ.utils import make_edge, make_fillet
-
-    edge1 = make_edge(p1[:3], p2[:3])
-    edge2 = make_edge(p2[:3], p3[:3])
-    ed1, ed2, fillet = make_fillet(edge1, edge2, radius)
-    return ed1, ed2, fillet
+    return segc.build()
 
 
 def s_curve(ramp_up_t, ramp_down_t, magnitude, sustained_time=0.0):
@@ -890,3 +900,99 @@ def s_curve(ramp_up_t, ramp_down_t, magnitude, sustained_time=0.0):
         total_curve = np.append(x1, x2[1:] + x1[-1]), np.append(y1, y2[::-1][1:])
 
     return total_curve
+
+
+def line_segments3d_from_points3d(points: list[Point | Iterable]) -> list[LineSegment]:
+    from ada.api.curves import LineSegment
+
+    if not isinstance(points[0], Point):
+        points = [Point(*p) for p in points]
+
+    prelim_segments: list[LineSegment] = []
+    for p1, p2 in zip(points[:-1], points[1:]):
+        straight_seg = LineSegment(p1, p2)
+
+        if straight_seg.length == 0.0:
+            logger.info("skipping zero length segment")
+            continue
+
+        prelim_segments.append(straight_seg)
+    return prelim_segments
+
+
+def segments3d_from_points3d(
+    points: list[Point | Iterable], radius=None, radius_dict=None, angle_tol=1e-1, len_tol=1e-3
+) -> list[LineSegment | ArcSegment]:
+    from ada.api.curves import ArcSegment, LineSegment
+
+    prelim_segments = line_segments3d_from_points3d(points)
+
+    if len(prelim_segments) == 1:
+        return prelim_segments
+    prelim_segments_zip = list(zip(prelim_segments[:-1], prelim_segments[1:]))
+    segments = []
+    for i, (seg1, seg2) in enumerate(prelim_segments_zip):
+        seg1: LineSegment
+        seg2: LineSegment
+
+        if seg1.length < len_tol or seg2.length == len_tol:
+            logger.error(f'Segment Length is below point tolerance "{len_tol}". Skipping')
+            continue
+
+        if seg1.direction.is_parallel(seg2.direction, angle_tol):
+            segments.append(LineSegment(seg1.p1.copy(), seg1.p2.copy()))
+            continue
+
+        if not seg1.p2.is_equal(seg2.p1):
+            logger.error("No shared point found")
+
+        arc_end = seg2.p2
+        if i != 0 and len(segments) > 0:
+            arc_start = segments[-1].p1
+            arc_intersection = segments[-1].p2
+        else:
+            arc_start = seg1.p1
+            arc_intersection = seg1.p2
+
+        if isinstance(radius_dict, dict):
+            r = radius_dict.get(i + 1, min(seg1.length, seg2.length) / 3)
+        elif isinstance(radius, (int, float)):
+            r = radius
+        else:
+            raise ValueError(f"Radius must be a float, int, or dict. Got {type(radius)}")
+
+        try:
+            new_seg1, arc, new_seg2 = make_arc_segment(arc_start, arc_intersection, arc_end, r)
+        except (ValueError, VectorNormalizeError) as e:
+            points = [arc_start.tolist(), arc_intersection.tolist(), arc_end.tolist()]
+            logger.error(f"Arc build failed for points: {points}. Error: {e}")
+            continue
+
+        if i == 0 or len(segments) == 0:
+            segments.append(LineSegment(new_seg1.p1.copy(), new_seg1.p2.copy()))
+        else:
+            if len(segments) == 0:
+                continue
+            pseg = segments[-1]
+            nlen = vector_length(new_seg1.p2 - pseg.p1)
+            if nlen < len_tol:
+                # The new arc starts at the same point as the previous segment. Remove the previous segment
+                segments.pop(-1)
+            else:
+                pseg.p2 = new_seg1.p2
+
+        segments.append(
+            ArcSegment(
+                arc.p1.copy(),
+                arc.p2.copy(),
+                midpoint=arc.midpoint.copy(),
+                center=arc.center.copy() if arc.center is not None else None,
+                intersection=arc.intersection.copy() if arc.intersection is not None else None,
+                radius=arc.radius,
+                s_normal=arc.s_normal.copy(),
+                e_normal=arc.e_normal.copy(),
+            )
+        )
+        segments.append(LineSegment(new_seg2.p1.copy(), new_seg2.p2.copy()))
+
+    return segments

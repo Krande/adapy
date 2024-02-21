@@ -67,7 +67,7 @@ class Settings:
 
     @classmethod
     def default_ifc_settings(cls):
-        from ada.ifc.utils import default_settings
+        from ada.cadit.ifc.utils import default_settings
 
         return default_settings()
 

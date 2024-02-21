@@ -4,9 +4,7 @@ import numpy as np
 
 from ada import Beam
 from ada.core.utils import Counter
-from ada.visualize.plots import easy_plotly
-
-from .utils import equation_compiler
+from ada.visit.plots import easy_plotly
 
 
 class ResType:
@@ -79,12 +77,18 @@ class BeamCalc:
         self._p.append((name, p, x, use_relative_position))
 
     def get_displ_formula(self):
+        from .utils import equation_compiler
+
         return equation_compiler(displ, True)
 
     def get_shear_formula(self):
+        from .utils import equation_compiler
+
         return equation_compiler(shear, True)
 
     def get_moment_formula(self):
+        from .utils import equation_compiler
+
         return equation_compiler(moment, True)
 
     def _repr_html_(self):

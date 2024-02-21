@@ -5,14 +5,17 @@ import pathlib
 from typing import TYPE_CHECKING
 
 from ada import fem
-from ada.base.units import Units
-from ada.concepts.curves import ArcSegment, CurvePoly, CurveRevolve, LineSegment
-from ada.concepts.fasteners import Bolts, Weld
-from ada.concepts.piping import Pipe, PipeSegElbow, PipeSegStraight
-from ada.concepts.points import Node
-from ada.concepts.primitives import (
-    Penetration,
+from ada.api.beams import Beam, BeamRevolve, BeamSweep, BeamTapered
+from ada.api.curves import ArcSegment, CurvePoly2d, CurveRevolve, LineSegment
+from ada.api.fasteners import Bolts, Weld
+from ada.api.groups import Group
+from ada.api.nodes import Node
+from ada.api.piping import Pipe, PipeSegElbow, PipeSegStraight
+from ada.api.plates import Plate
+from ada.api.primitive_boolean import Boolean
+from ada.api.primitives import (
     PrimBox,
+    PrimCone,
     PrimCyl,
     PrimExtrude,
     PrimRevolve,
@@ -20,15 +23,18 @@ from ada.concepts.primitives import (
     PrimSweep,
     Shape,
 )
-from ada.concepts.spatial import Assembly, Group, Part
-from ada.concepts.stru_beams import Beam
-from ada.concepts.stru_plates import Plate
-from ada.concepts.stru_walls import Wall
-from ada.concepts.transforms import Instance, Placement, Transform
-from ada.concepts.user import User
+from ada.api.spatial import Assembly, Part
+from ada.api.transforms import Instance, Placement, Transform
+from ada.api.user import User
+from ada.api.walls import Wall
+from ada.base.units import Units
+from ada.core.utils import Counter
 from ada.fem import FEM
+from ada.geom.placement import Direction
+from ada.geom.points import Point
 from ada.materials import Material
 from ada.sections import Section
+from ada.visit.config import set_jupyter_part_renderer
 
 if TYPE_CHECKING:
     import ifcopenshell
@@ -37,6 +43,10 @@ if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
 
 __author__ = "Kristoffer H. Andersen"
+
+# A set of convenience name generators for plates and beams
+PL_N = Counter(start=1, prefix="PL")
+BM_N = Counter(start=1, prefix="BM")
 
 
 def from_ifc(ifc_file: os.PathLike | ifcopenshell.file, units=Units.M, name="Ada") -> Assembly:
@@ -66,9 +76,9 @@ def from_fem(
     fem_converter="default",
 ) -> Assembly:
     a = Assembly(enable_cache=enable_cache, units=source_units)
-    if type(fem_file) is str or issubclass(type(fem_file), pathlib.Path):
+    if isinstance(fem_file, str) or issubclass(type(fem_file), pathlib.Path):
         a.read_fem(fem_file, fem_format, name, fem_converter=fem_converter)
-    elif type(fem_file) is list:
+    elif isinstance(fem_file, list):
         for i, f in enumerate(fem_file):
             fem_format_in = fem_format if fem_format is None else fem_format[i]
             name_in = name if name is None else name[i]
@@ -92,7 +102,7 @@ def from_sesam_cc(fem_file: str | pathlib.Path) -> dict[str, CCData]:
 
 
 def from_genie_xml(xml_path, **kwargs) -> Assembly:
-    from ada.fem.formats.sesam.xml.store import GxmlStore
+    from ada.cadit.gxml.store import GxmlStore
 
     gxml = GxmlStore(xml_path)
     p = gxml.to_part(**kwargs)
@@ -106,25 +116,31 @@ __all__ = [
     "from_ifc",
     "from_fem",
     "Beam",
+    "BeamTapered",
+    "BeamSweep",
+    "BeamRevolve",
+    "Boolean",
     "Group",
     "Plate",
     "Pipe",
     "PipeSegStraight",
     "PipeSegElbow",
     "Wall",
-    "Penetration",
     "Section",
     "Material",
     "Shape",
     "Node",
+    "Point",
+    "Direction",
     "Placement",
     "PrimBox",
+    "PrimCone",
     "PrimCyl",
     "PrimExtrude",
     "PrimRevolve",
     "PrimSphere",
     "PrimSweep",
-    "CurvePoly",
+    "CurvePoly2d",
     "CurveRevolve",
     "LineSegment",
     "ArcSegment",
@@ -133,5 +149,9 @@ __all__ = [
     "User",
     "Bolts",
     "Weld",
+    "Units",
     "fem",
+    "set_jupyter_part_renderer",
+    "BM_N",
+    "PL_N",
 ]

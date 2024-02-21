@@ -1,13 +1,10 @@
 [build-system]
-requires = [
-    "setuptools>=42",
-    "wheel"
-]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "ada-py"
-version = "0.0.40-alpha.3"
+version = "0.2.9"
 authors = [
     { name = "Kristoffer H. Andersen", email = "kristoffer_andersen@outlook.com" },
 ]
@@ -25,6 +22,8 @@ classifiers = [
     "Topic :: Scientific/Engineering",
     "Topic :: Utilities",
 ]
+[project.scripts]
+ada-viewer = "ada.visit.websocket_cli:ws_cli_app"
 
 [project.urls]
 "Homepage" = "https://github.com/Krande/adapy"
@@ -32,6 +31,17 @@ classifiers = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["ada*"]
+exclude = ["frontend*"]
+
+[tool.setuptools.package-data]
+ada = [
+    "sections/resources/ProfileDB.json",
+    "materials/metals/resources/NLMatParams.json",
+    "cadit/gxml/write/resources/xml_blank.xml",
+    "fem/results/resources/results.sql",
+    "visit/rendering/resources/index.zip"
+]
 
 
 [tool.black]
@@ -39,6 +49,9 @@ line-length = 120
 
 [tool.ruff]
 line-length = 120
+exclude = ["examples/"]
+
+[tool.ruff.lint]
 ignore = ["E741"]
 
 [tool.isort]

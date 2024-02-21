@@ -1,6 +1,8 @@
 name: ci-ada-docker-dev
 
-on: push
+on:
+  workflow_dispatch:
+
 
 jobs:
   docker:
@@ -9,7 +11,7 @@ jobs:
       contains(github.event.head_commit.message, '[docker]')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
       - name: Set up Docker Buildx

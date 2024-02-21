@@ -2,5 +2,8 @@ channels:
 # These dependencies are appended to the core environment
 dependencies:
   - jupyterlab
-  - pythreejs
+  - ipywidgets
   - pyparsing
+  - pyglfw
+  - pygfx
+

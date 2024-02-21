@@ -14,15 +14,12 @@ def dummy_display_func(ada_obj):
         logging.error("pythreejs is not installed. Install with 'conda install pythreejs'")
         return None
 
-    from ada.visualize.renderer_pythreejs import MyRenderer, SectionRenderer
+    from ada.visit.plots import build_display
 
-    if type(ada_obj) is ada.Section:
-        sec_render = SectionRenderer()
-        _, _ = sec_render.build_display(ada_obj)
+    if isinstance(ada_obj, ada.Section):
+        build_display(ada_obj)
     else:
-        renderer = MyRenderer()
-        renderer.DisplayObj(ada_obj)
-        renderer.build_display()
+        ada_obj.show(dry_run=True)
 
 
 @pytest.fixture

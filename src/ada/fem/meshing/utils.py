@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from itertools import chain
-from typing import List, Union
 
 import gmsh
 import numpy as np
 
 from ada import FEM, Beam, Node, Pipe, Plate, Shape
+from ada.api.transforms import Placement
 from ada.base.types import GeomRepr
-from ada.concepts.transforms import Placement
 from ada.core.utils import make_name_fem_ready
 from ada.fem import Elem, FemSection, FemSet
 from ada.fem.shapes import ElemType
@@ -18,10 +17,8 @@ from .common import gmsh_map
 from .concepts import GmshData
 
 
-def add_fem_sections(
-    model: gmsh.model, fem: FEM, model_obj: Union[Beam, Plate, Pipe, Shape], gmsh_data: GmshData
-) -> None:
-    if type(model_obj) is Beam and gmsh_data.geom_repr == GeomRepr.SHELL:
+def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Beam | Plate | Pipe | Shape, gmsh_data: GmshData) -> None:
+    if isinstance(model_obj, Beam) and gmsh_data.geom_repr == GeomRepr.SHELL:
         get_sh_sections_for_beam_obj(model, model_obj, gmsh_data, fem)
         return None
 
@@ -67,7 +64,7 @@ def get_sh_sections_for_beam_obj(model: gmsh.model, beam: Beam, gmsh_data: GmshD
 
 def get_sh_sections_for_pipe_obj(model: gmsh.model, model_obj: Pipe, gmsh_data: GmshData, fem: FEM):
     thickness = model_obj.section.wt
-    normal = model_obj.segments[0].zvec
+    normal = model_obj.segments[0].zvec1
 
     for i, (_, ent) in enumerate(gmsh_data.entities):
         _, tags, _ = model.mesh.getElements(2, ent)
@@ -124,7 +121,7 @@ def add_shell_section(
     normal,
     thickness,
     elements,
-    model_obj: Union[Beam, Plate, Pipe, Shape],
+    model_obj: Beam | Plate | Pipe | Shape,
     fem: FEM,
     is_rigid=False,
 ):
@@ -147,23 +144,30 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
     set_name = make_name_fem_ready(f"el{beam.name}_set_bm")
     fem_sec_name = make_name_fem_ready(f"d{beam.name}_sec_bm")
     fem_set = FemSet(set_name, elements, FemSet.TYPES.ELSET, parent=fem)
-    fem_sec = FemSection(fem_sec_name, ElemType.LINE, fem_set, beam.material, beam.section, beam.ori[2], refs=[beam])
 
-    add_sec_to_fem(fem, fem_sec, fem_set)
-    if beam.hinge_prop is None:
+    fem_sec = fem.sections.name_map.get(fem_sec_name, None)
+    if fem_sec is None:
+        fem_sec = FemSection(
+            fem_sec_name, ElemType.LINE, fem_set, beam.material, beam.section, beam.ori[2], refs=[beam]
+        )
+        add_sec_to_fem(fem, fem_sec, fem_set)
+
+    hinge_prop = beam.connection_props.hinge_prop
+    if hinge_prop is None:
         return
-    end1_p = beam.hinge_prop.end1.concept_node.p if beam.hinge_prop.end1 is not None else None
-    end2_p = beam.hinge_prop.end2.concept_node.p if beam.hinge_prop.end2 is not None else None
-    if beam.hinge_prop is not None:
-        for el in elements:
-            n1 = el.nodes[0]
-            n2 = el.nodes[-1]
-            el.hinge_prop = beam.hinge_prop
-            if beam.hinge_prop.end1 is not None and vector_length(end1_p - n1.p) == 0.0:
-                el.hinge_prop.end1.fem_node = n1
 
-            if beam.hinge_prop.end2 is not None and vector_length(end2_p - n2.p) == 0.0:
-                el.hinge_prop.end2.fem_node = n2
+    end1_p = hinge_prop.end1.concept_node.p if hinge_prop.end1 is not None else None
+    end2_p = hinge_prop.end2.concept_node.p if hinge_prop.end2 is not None else None
+
+    for el in elements:
+        n1 = el.nodes[0]
+        n2 = el.nodes[-1]
+        el.hinge_prop = hinge_prop
+        if hinge_prop.end1 is not None and vector_length(end1_p - n1.p) == 0.0:
+            el.hinge_prop.end1.fem_node = n1
+
+        if hinge_prop.end2 is not None and vector_length(end2_p - n2.p) == 0.0:
+            el.hinge_prop.end2.fem_node = n2
 
 
 def get_so_sections(model: gmsh.model, solid_object: Beam, gmsh_data: GmshData, fem: FEM):
@@ -184,7 +188,7 @@ def get_so_sections(model: gmsh.model, solid_object: Beam, gmsh_data: GmshData, 
 
 
 def add_sec_to_fem(fem: FEM, fem_section: FemSection, fem_set: FemSet):
-    fem_set_ = fem.sets.add(fem_set)
+    fem_set_ = fem.sets.add(fem_set, append_suffix_on_exist=True)
     fem_section.elset = fem_set_
     fem.add_section(fem_section)
 
@@ -196,14 +200,14 @@ def get_point(model: gmsh.model, p, tol):
     return model.getEntitiesInBoundingBox(*lower.tolist(), *upper.tolist(), 0)
 
 
-def get_nodes_from_gmsh(model: gmsh.model, fem: FEM) -> List[Node]:
+def get_nodes_from_gmsh(model: gmsh.model, fem: FEM) -> list[Node]:
     nodes = list(model.mesh.getNodes(-1, -1))
     node_ids = nodes[0]
     node_coords = nodes[1].reshape(len(node_ids), 3)
     return [Node(coord, nid, parent=fem) for nid, coord in zip(node_ids, node_coords)]
 
 
-def get_elements_from_entity(model: gmsh.model, ent, fem: FEM, dim) -> List[Elem]:
+def get_elements_from_entity(model: gmsh.model, ent, fem: FEM, dim) -> list[Elem]:
     elem_types, elem_tags, elem_node_tags = model.mesh.getElements(dim, ent)
     elements = []
     el_tags = []
@@ -231,7 +235,7 @@ def get_elements_from_entity(model: gmsh.model, ent, fem: FEM, dim) -> List[Elem
     return elements
 
 
-def get_elements_from_entities(model: gmsh.model, entities, fem: FEM) -> List[Elem]:
+def get_elements_from_entities(model: gmsh.model, entities, fem: FEM) -> list[Elem]:
     elements = []
     for dim, ent in entities:
         elements += get_elements_from_entity(model, ent, fem, dim)
@@ -257,13 +261,13 @@ def node_reordering(elem_type, nodes):
 
 def build_bm_lines(model: gmsh.model, bm: Beam, point_tol):
     p1, p2 = bm.n1.p, bm.n2.p
+    con_props = bm.connection_props
+    midpoints = con_props.calc_con_points(point_tol=point_tol)
 
-    midpoints = bm.calc_con_points(point_tol=point_tol)
-
-    if bm.connected_end1 is not None:
-        p1 = bm.connected_end1.centre
-    if bm.connected_end2 is not None:
-        p2 = bm.connected_end2.centre
+    if con_props.connected_end1 is not None:
+        p1 = con_props.connected_end1.centre
+    if con_props.connected_end2 is not None:
+        p2 = con_props.connected_end2.centre
 
     s = get_point(model, p1, point_tol)
     e = get_point(model, p2, point_tol)

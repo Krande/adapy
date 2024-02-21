@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import h5py
 import numpy as np
 
-from ada.concepts.containers import Nodes
+from ada.api.containers import Nodes
 from ada.config import logger
 from ada.fem import Elem
 from ada.fem.containers import FemElements, FemSets
@@ -20,7 +20,7 @@ from .read_sets import (
 )
 
 if TYPE_CHECKING:
-    from ada.concepts.spatial import Assembly
+    from ada.api.spatial import Assembly
     from ada.fem import FEM
 
 

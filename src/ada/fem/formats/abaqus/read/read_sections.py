@@ -18,7 +18,7 @@ part_name_counter = Counter(1, "Part")
 _re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 
 if TYPE_CHECKING:
-    from ada.concepts.spatial import Assembly
+    from ada.api.spatial import Assembly
     from ada.fem import FEM
 
 
@@ -225,7 +225,7 @@ def get_shell_section(m, sh_name, fem: "FEM", a: "Assembly"):
     )
 
 
-def get_connector_sections_from_bulk(bulk_str: str, parent: FEM) -> dict[str, ConnectorSection]:
+def get_connector_sections_from_bulk(bulk_str: str, parent: FEM = None) -> dict[str, ConnectorSection]:
     import numpy as np
 
     consecsd = dict()
@@ -234,7 +234,11 @@ def get_connector_sections_from_bulk(bulk_str: str, parent: FEM) -> dict[str, Co
         d = m.groupdict()
         name = d["name"]
         comp = int(d["component"])
-
+        # This does not work reliably
+        logger.warning(
+            f'Connector section "{name}" has a component number of "{comp}". '
+            "Please verify the imported connector, as the connector properties import is not reliable."
+        )
         res = np.fromstring(list_cleanup(d["bulk"]), sep=",", dtype=np.float64)
         size = res.size
         cols = comp + 1

@@ -2,6 +2,7 @@ from itertools import groupby
 from operator import attrgetter
 from typing import TYPE_CHECKING
 
+from ada.config import logger
 from ada.core.utils import NewLine
 from ada.fem import FemSet
 
@@ -29,7 +30,8 @@ def aba_set_str(fem_set: FemSet, written_on_assembly_level: bool, is_ref_point_s
             if fem_set.metadata["generate"] is False:
                 raise ValueError(f'set "{fem_set.name}" is empty. Please check your input')
         else:
-            raise ValueError("No Members are found")
+            logger.error(f"No members are found for FemSet '{fem_set.name}'")
+            return ""
 
     generate = fem_set.metadata.get("generate", False)
     internal = fem_set.metadata.get("internal", False)

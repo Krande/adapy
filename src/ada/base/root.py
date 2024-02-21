@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, Union
 
 from ada.config import Settings as _Settings
 from ada.config import logger
-from ada.ifc.utils import create_guid
 
+from ..core.guid import create_guid
 from .changes import ChangeAction
 from .units import Units
 
 if TYPE_CHECKING:
     from ada import Assembly, Part
-    from ada.ifc.store import IfcStore
+    from ada.cadit.ifc.store import IfcStore
 
 
 class Root:
@@ -103,8 +103,8 @@ class Root:
         logger.info("No Assembly found in ancestry. Returning self")
         return self
 
-    def get_ancestors(self) -> List[Union[Part, Assembly]]:
-        ancestry = [self]
+    def get_ancestors(self, include_self=True) -> list[Part | Assembly]:
+        ancestry = [self] if include_self else []
         current = self
         while current.parent is not None:
             ancestry.append(current.parent)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 import os
 import pathlib
 from dataclasses import dataclass
@@ -9,9 +11,14 @@ import meshio
 import numpy as np
 
 from ada.config import logger
+from ada.core.guid import create_guid
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
+from ada.visit.gltf.graph import GraphNode, GraphStore
+from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
+from ada.visit.rendering.renderer_react import RendererReact
 
+from ...visit.websocket_server import send_to_viewer, start_ws_server
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 
 if TYPE_CHECKING:
@@ -107,13 +114,69 @@ class Mesh:
                 except IndexError as e:
                     logger.error(e)
                     continue
-                if isinstance(elem_shape.type, shape_def.LineShapes):
+                if isinstance(elem_shape.type, (shape_def.LineShapes, shape_def.ConnectorTypes)):
                     continue
                 faces += elem_shape.get_faces()
 
         faces = np.array(faces).reshape(int(len(faces) / 3), 3)
         edges = np.array(edges).reshape(int(len(edges) / 2), 2)
         return edges, faces
+
+    def create_mesh_stores(
+        self, parent_name: str, shell_color, line_color, points_color, graph: GraphStore, parent_node: GraphNode
+    ) -> tuple[MergedMesh, MergedMesh, MergedMesh]:
+        from ada.fem.shapes import ElemShape
+        from ada.fem.shapes import definitions as shape_def
+
+        face_node = graph.add_node(GraphNode(parent_name + "_sh", create_guid(), parent=parent_node))
+        line_node = graph.add_node(GraphNode(parent_name + "_li", create_guid(), parent=parent_node))
+        points_node = graph.add_node(GraphNode(parent_name + "_po", create_guid(), parent=parent_node))
+
+        nmap = {x: i for i, x in enumerate(self.nodes.identifiers)}
+        keys = np.array(list(nmap.keys()))
+
+        edges = []
+        faces = []
+        sh_groups = []
+        li_groups = []
+
+        for cell_block in self.elements:
+            el_type = cell_block.elem_info.type
+
+            nodes_copy = cell_block.node_refs.copy()
+            nodes_copy[np.isin(nodes_copy, keys)] = np.vectorize(nmap.get)(nodes_copy[np.isin(nodes_copy, keys)])
+
+            for elem_id, elem in enumerate(nodes_copy, start=1):
+                elem_shape = ElemShape(el_type, elem)
+                if elem_shape.type in (MassTypes.MASS,):
+                    continue
+                try:
+                    li_s = len(edges)
+                    edges += elem_shape.edges
+                    graph.add_node(GraphNode(f"Li{elem_id}", f"li{elem_id}", parent=line_node))
+                    li_groups.append(GroupReference(f"li{elem_id}", li_s, len(faces)))
+
+                except IndexError as e:
+                    logger.error(e)
+                    continue
+                if isinstance(elem_shape.type, (shape_def.LineShapes, shape_def.ConnectorTypes)):
+                    continue
+
+                face_s = len(faces)
+                faces += elem_shape.get_faces()
+                graph.add_node(GraphNode(f"EL{elem_id}", f"el{elem_id}", parent=face_node))
+                sh_groups.append(GroupReference(f"el{elem_id}", face_s, len(faces) - face_s))
+
+        coords = self.nodes.coords.flatten()
+        for i, n in enumerate(self.nodes.identifiers):
+            graph.add_node(GraphNode(f"P{int(n)}", i, parent=points_node))
+
+        po_groups = [GroupReference(i, i, 1) for i in range(0, len(self.nodes.coords))]
+
+        edges = MergedMesh(np.array(edges), coords, None, line_color, MeshType.LINES, groups=li_groups)
+        points = MergedMesh(None, coords, None, points_color, MeshType.POINTS, groups=po_groups)
+        face_mesh = MergedMesh(np.array(faces), coords, None, shell_color, MeshType.TRIANGLES, groups=sh_groups)
+        return points, edges, face_mesh
 
 
 @dataclass
@@ -228,16 +291,17 @@ class FEAResult:
                     point_data[name] = res
                 elif isinstance(x, ElementFieldData) and x.field_pos == x.field_pos.INT:
                     if isinstance(res, dict):
-                        cell_data.update(res)
+                        for key, value in res.items():
+                            cell_data[key] = value
                     else:
-                        cell_data[name] = [res]
+                        cell_data[name] = res
                 else:
                     raise ValueError()
 
         return cell_data, point_data
 
     def _colorize_data(self, field: str, step: int, colorize_function: Callable = None):
-        from ada.visualize.colors import DataColorizer
+        from ada.visit.colors import DataColorizer
 
         data = self.get_data(field, step)
         vertex_colors = DataColorizer.colorize_data(data, func=colorize_function)
@@ -249,31 +313,31 @@ class FEAResult:
         result = vertices + data[:, :3] * scale
         return result
 
-    def to_meshio_mesh(self) -> meshio.Mesh:
+    def to_meshio_mesh(self, make_3xn_dofs=True) -> meshio.Mesh:
         cells = self._get_cell_blocks()
         cell_data, point_data = self._get_point_and_cell_data()
 
-        return meshio.Mesh(points=self.mesh.nodes.coords, cells=cells, cell_data=cell_data, point_data=point_data)
+        mesh = meshio.Mesh(points=self.mesh.nodes.coords, cells=cells, cell_data=cell_data, point_data=point_data)
 
-    def to_xdmf(self, filepath):
-        cells = self._get_cell_blocks()
-        with meshio.xdmf.TimeSeriesWriter(filepath) as writer:
-            writer.write_points_cells(self.mesh.nodes.coords, cells)
-            for key, values in self.get_results_grouped_by_field_value().items():
-                for x in values:
-                    res = x.get_all_values()
-                    name = x.name
-                    point_data = dict()
-                    if isinstance(x, NodalFieldData):
-                        point_data[name] = res
-                    elif isinstance(x, ElementFieldData) and x.field_pos == x.field_pos.NODAL:
-                        point_data[name] = res
-                    elif isinstance(x, ElementFieldData) and x.field_pos == x.field_pos.INT:
-                        raise NotImplementedError("Currently not supporting element data directly from int. points")
-                    else:
-                        raise ValueError()
+        # RMED has 6xN DOF's vertex vectors, but VTU has 3xN DOF's vectors
+        if make_3xn_dofs:
+            new_fields = {}
+            for key, field in mesh.point_data.items():
+                if field.shape[1] == 6:
+                    new_fields[key] = np.array_split(field, 2, axis=1)[0]
+                else:
+                    new_fields[key] = field
 
-                    writer.write_data(x.step, point_data=point_data)
+            mesh.point_data = new_fields
+
+        return mesh
+
+    def to_vtu(self, filepath, make_3xn_dofs=True):
+        from ada.fem.formats.vtu.write import write_to_vtu_file
+
+        cell_data, point_data = self._get_point_and_cell_data()
+
+        write_to_vtu_file(self.mesh.nodes, self.mesh.elements, point_data, cell_data, filepath)
 
     def to_fem_file(self, fem_file: str | pathlib.Path):
         if isinstance(fem_file, str):
@@ -282,7 +346,9 @@ class FEAResult:
         mesh = self.to_meshio_mesh()
         mesh.write(fem_file)
 
-    def to_trimesh(self, step: int, field: str, warp_field=None, warp_step=None, warp_scale=None, cfunc=None):
+    def to_trimesh(
+        self, step: int, field: str, warp_field: str = None, warp_step: int = None, warp_scale: float = None, cfunc=None
+    ):
         import trimesh
         from trimesh.path.entities import Line
         from trimesh.visual.material import PBRMaterial
@@ -310,7 +376,7 @@ class FEAResult:
         return scene
 
     def to_gltf(self, dest_file, step: int, field: str, warp_field=None, warp_step=None, warp_scale=None, cfunc=None):
-        from ada.core.vector_utils import rot_matrix
+        from ...core.vector_transforms import rot_matrix
 
         dest_file = pathlib.Path(dest_file).resolve().absolute()
         scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)
@@ -325,6 +391,118 @@ class FEAResult:
         print(f'Writing Visual Mesh to "{dest_file}"')
         with open(dest_file, "wb") as f:
             scene.export(file_obj=f, file_type=dest_file.suffix[1:])
+
+    def show(
+        self,
+        step: int = None,
+        field: str = None,
+        warp_field: str = None,
+        warp_step: int = None,
+        warp_scale: float = 1.0,
+        cfunc=None,
+        host="localhost",
+        port=8765,
+        renderer="react",
+        server_exe: pathlib.Path = None,
+        server_args: list[str] = None,
+        new_glb_file: str = None,
+        update_only=False,
+        **kwargs,
+    ):
+        import io
+
+        import trimesh
+        from trimesh.path.entities import Line
+
+        from ada.api.animations import Animation, AnimationStore
+        from ada.core.vector_transforms import rot_matrix
+        from ada.visit.utils import in_notebook
+        from ada.visit.websocket_server import WsRenderMessage
+
+        if renderer == "pygfx":
+            scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)
+            send_to_viewer(scene)
+            return None
+
+        # initial mesh
+        vertices = self.mesh.nodes.coords
+        edges, faces = self.mesh.get_edges_and_faces_from_mesh()
+
+        faces_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+
+        entities = [Line(x) for x in edges]
+        edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
+
+        scene = trimesh.Scene()
+        face_node = scene.add_geometry(faces_mesh, node_name=self.name, geom_name="faces")
+        _ = scene.add_geometry(edge_mesh, node_name=f"{self.name}_edges", geom_name="edges", parent_node_name=self.name)
+
+        face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == face_node][0]
+        # edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == edge_node][0]
+
+        # Start the websocket server
+        ws = start_ws_server(server_exe=server_exe, server_args=server_args, host=host, port=port)
+
+        # React renderer supports animations
+        animation_store = AnimationStore()
+
+        # Loop over the results and create an animation from it
+        vertices = self.mesh.nodes.coords
+        added_results = []
+        for i, result in enumerate(self.results):
+            warped_vertices = self._warp_data(vertices, result.name, result.step, warp_scale)
+            delta_vertices = warped_vertices - vertices
+            result_name = f"{result.name}_{result.step}"
+            if result_name in added_results:
+                result_name = f"{result.name}_{result.step}_{i}"
+            added_results.append(result_name)
+            animation = Animation(
+                result_name,
+                [0, 2, 4, 6, 8],
+                deformation_weights_keyframes=[0, 1, 0, -1, 0],
+                deformation_shape=delta_vertices,
+                node_idx=[face_node_idx],
+            )
+            animation_store.add(animation)
+
+        # Trimesh automatically transforms by setting up = Y. This will counteract that transform
+        m3x3 = rot_matrix((0, -1, 0))
+        m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
+        m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
+        scene.apply_transform(m4x4)
+
+        with io.BytesIO() as data:
+            scene.export(
+                file_obj=data,
+                file_type="glb",
+                buffer_postprocessor=animation_store,
+                tree_postprocessor=AnimationStore.tree_postprocessor,
+            )
+
+            msg = WsRenderMessage(
+                data=base64.b64encode(data.getvalue()).decode(),
+                look_at=kwargs.get("look_at", None),
+                camera_position=kwargs.get("camera_position", None),
+            )
+            ws.send(json.dumps(msg.__dict__))
+
+        if new_glb_file is not None:
+            new_glb_file = pathlib.Path(new_glb_file).resolve().absolute()
+            os.makedirs(new_glb_file.parent, exist_ok=True)
+            with open(new_glb_file, "wb") as f:
+                scene.export(
+                    file_obj=f,
+                    file_type="glb",
+                    buffer_postprocessor=animation_store,
+                    tree_postprocessor=AnimationStore.tree_postprocessor,
+                )
+
+        renderer = RendererReact()
+        if in_notebook() and update_only is False:
+            return renderer.get_notebook_renderer()
+
+        if update_only is False:
+            renderer.show()
 
     def get_eig_summary(self) -> EigenDataSummary:
         """If the results are eigenvalue results, this method will return a summary of the eigenvalues and modes"""

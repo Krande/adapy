@@ -6,6 +6,8 @@ from typing import ClassVar
 
 import numpy as np
 
+from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
+
 
 @dataclass
 class FieldData:
@@ -50,6 +52,7 @@ class ElementFieldData(FieldData):
     """Values from element integration points"""
 
     field_pos: FieldPosition = FieldPosition.NODAL
+    elem_type: LineShapes | ShellShapes | SolidShapes = None
     COLS: ClassVar[list[str]] = ["elem_label", "sec_num"]
     int_positions: list[tuple] = None
 

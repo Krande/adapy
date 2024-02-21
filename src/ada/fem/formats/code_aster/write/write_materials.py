@@ -3,11 +3,11 @@ from __future__ import annotations
 from itertools import chain
 from typing import TYPE_CHECKING
 
-from ada import Material
 from ada.config import logger
+from ada.materials.concept import Material
 
 if TYPE_CHECKING:
-    from ada.concepts.spatial import Assembly
+    from ada.api.spatial import Assembly
 
 
 def materials_str(assembly: Assembly) -> str:

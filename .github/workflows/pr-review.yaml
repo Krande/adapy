@@ -1,0 +1,34 @@
+name: Review Pull Request
+
+on:
+  pull_request_target:
+    types: [ opened, synchronize, edited, unlabeled ]
+    branches:
+      - main
+      - develop
+
+permissions:
+  pull-requests: write
+  contents: write
+
+# Use concurrency to ensure that only one instance of this workflow is running at a time
+concurrency:
+  group: pr-lint-checker-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    uses: AibelDevs/action-toolbox/.github/workflows/default-tool-pr-review.yaml@main
+    secrets:
+      SOURCE_KEY: ${{ secrets.SOURCE_KEY }}
+      CONDA_API_TOKEN: ${{ secrets.CONDA_API_TOKEN }}
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+      CUSTOM_PYPI_USERNAME: ${{ secrets.CUSTOM_PYPI_USERNAME }}
+      CUSTOM_PYPI_PASSWORD: ${{ secrets.CUSTOM_PYPI_PASSWORD }}
+      CUSTOM_PYPI_URL: ${{ secrets.CUSTOM_PYPI_URL }}
+      QUETZ_API_KEY: ${{ secrets.QUETZ_API_KEY }}
+      QUETZ_URL: ${{ secrets.QUETZ_URL }}
+      CONTAINER_REGISTRY_URL: ${{ secrets.CONTAINER_REGISTRY_URL }}
+      CONTAINER_REGISTRY_USERNAME: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
+      CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
+      GITOPS_KEY: ${{ secrets.GITOPS_KEY }}
