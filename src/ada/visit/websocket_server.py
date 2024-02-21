@@ -139,6 +139,7 @@ class WebSocketServer:
         auto_reposition=True,
         scene_action: SceneAction = SceneAction.NEW,
         scene_action_arg: str = None,
+        save_to_file_path: str | None = None,
         **kwargs,
     ):
         import base64
@@ -167,6 +168,12 @@ class WebSocketServer:
             )
 
             self.send(json.dumps(msg.__dict__))
+
+            if save_to_file_path is not None:
+                data.seek(0)
+                logger.info(f"Saving scene to {save_to_file_path}")
+                with open(save_to_file_path, "wb") as f:
+                    f.write(data.getvalue())
 
     @property
     def host_url(self):

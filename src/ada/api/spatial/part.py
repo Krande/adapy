@@ -20,6 +20,8 @@ from ada.config import Settings, logger
 from ada.visit.gltf.graph import GraphNode, GraphStore
 
 if TYPE_CHECKING:
+    import trimesh
+
     from ada import (
         FEM,
         Boolean,
@@ -762,11 +764,18 @@ class Part(BackendGeom):
         self.to_trimesh_scene(**kwargs).export(gltf_file, buffer_postprocessor=post_pro)
 
     def to_trimesh_scene(
-        self, render_override: dict[str, GeomRepr | str] = None, filter_by_guids=None, merge_meshes=True
-    ):
+        self,
+        render_override: dict[str, GeomRepr | str] = None,
+        filter_by_guids=None,
+        merge_meshes=True,
+        stream_from_ifc=False,
+    ) -> trimesh.Scene:
         from ada.occ.tessellating import BatchTessellator
 
         bt = BatchTessellator()
+        if stream_from_ifc:
+            return bt.ifc_to_trimesh_scene(self.get_assembly().ifc_store, merge_meshes=merge_meshes)
+
         return bt.tessellate_part(
             self, merge_meshes=merge_meshes, render_override=render_override, filter_by_guids=filter_by_guids
         )
@@ -809,9 +818,10 @@ class Part(BackendGeom):
         merge_meshes=True,
         scene_action: SceneAction = "new",
         scene_action_arg: str = None,
+        scene_post_processor: Callable[[trimesh.Scene], trimesh.Scene] = None,
+        auto_reposition=False,
         **kwargs,
-    ):
-        from ada.occ.tessellating import BatchTessellator
+    ) -> None:
         from ada.visit.websocket_server import PYGFX_RENDERER_EXE_PY, start_ws_server
 
         server_exe = None
@@ -829,20 +839,26 @@ class Part(BackendGeom):
         )
 
         if scene_override is not None:
-            ws.send_scene(scene_override, self.animation_store, **kwargs)
+            ws.send_scene(scene_override, self.animation_store, auto_reposition=auto_reposition, **kwargs)
             return
 
-        bt = BatchTessellator()
-        # Tessellate the geometry
-        if stream_from_ifc:
-            scene = bt.ifc_to_trimesh_scene(self.get_assembly().ifc_store, merge_meshes=merge_meshes)
-        else:
-            scene = bt.tessellate_part(self, merge_meshes=merge_meshes)
+        scene = self.to_trimesh_scene(stream_from_ifc=stream_from_ifc, merge_meshes=merge_meshes)
+        if scene_post_processor is not None:
+            scene = scene_post_processor(scene)
 
-        # Send the geometry to the frontend through the websocket server
+        # Send the geometry to the frontend using the websocket server
         ws.send_scene(
-            scene, self.animation_store, scene_action=scene_action, scene_action_arg=scene_action_arg, **kwargs
+            scene,
+            self.animation_store,
+            scene_action=scene_action,
+            scene_action_arg=scene_action_arg,
+            auto_reposition=auto_reposition,
+            **kwargs,
         )
+        if auto_open_viewer:
+            from ada.visit.rendering.renderer_react import RendererReact
+
+            RendererReact().show()
 
     @property
     def animation_store(self) -> AnimationStore:

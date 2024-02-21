@@ -71,9 +71,11 @@ def export_beam_section_profile_def(section: Section):
 class ProfileBase:
     section: Section
 
-    def get_ifc_type(self) -> str: ...
+    def get_ifc_type(self) -> str:
+        ...
 
-    def get_ifc_props(self, f: ifcopenshell.file) -> dict: ...
+    def get_ifc_props(self, f: ifcopenshell.file) -> dict:
+        ...
 
 
 @dataclass

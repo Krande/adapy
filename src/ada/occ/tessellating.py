@@ -9,11 +9,8 @@ from OCC.Core.Tesselator import ShapeTesselator
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Shape
 from OCC.Extend.TopologyUtils import discretize_edge
 
-from ada.api.spatial import Part
-from ada.base.ifc_types import ShapeTypes
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
-from ada.cadit.ifc.store import IfcStore
 from ada.config import logger
 from ada.geom import Geometry
 from ada.occ.exceptions import UnableToCreateTesselationFromSolidOCCGeom
@@ -25,6 +22,9 @@ from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
 if TYPE_CHECKING:
     import trimesh
+
+    from ada.api.spatial import Part
+    from ada.cadit.ifc.store import IfcStore
 
 
 @dataclass
@@ -153,7 +153,7 @@ class BatchTessellator:
             occ_geom = BRepBuilderAPI_Transform(occ_geom, trsf, True).Shape()
             # occ_geom = transform_shape_to_pos(occ_geom, position.location, position.axis, position.ref_direction)
 
-        return self.tessellate_occ_geom(occ_geom, obj.guid, geom.color)
+        return self.tessellate_occ_geom(occ_geom, getattr(obj, "guid", geom.id), geom.color)
 
     def batch_tessellate(
         self, objects: Iterable[Geometry | BackendGeom], render_override: dict[str, GeomRepr] = None
@@ -244,10 +244,10 @@ class BatchTessellator:
         return _data.get(mat_id)
 
     def iter_ifc_store(self, ifc_store: IfcStore) -> Iterable[MeshStore]:
-        from ada.visit.gltf.meshes import MeshStore
         import ifcopenshell.geom
+
         from ada.visit.colors import Color
-        from ada.visit.gltf.meshes import MeshType
+        from ada.visit.gltf.meshes import MeshStore, MeshType
 
         settings = ifcopenshell.geom.settings()
         settings.set(settings.USE_PYTHON_OPENCASCADE, False)
