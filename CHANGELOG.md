@@ -2,6 +2,13 @@
 
 
 
+## v0.2.9 (2024-02-21)
+
+### Fix
+
+* fix: bugfixes and minor updates (#94) ([`de5ffd4`](https://github.com/Krande/adapy/commit/de5ffd48258f7d46bcfb95c496174f2220296f28))
+
+
 ## v0.2.8 (2024-02-18)
 
 ### Fix
