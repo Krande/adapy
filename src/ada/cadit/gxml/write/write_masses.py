@@ -28,12 +28,13 @@ def add_masses(root: ET.Element, part: Part):
             bc_con = ET.SubElement(sup_point, "mass")
             ET.SubElement(bc_con, "mass_scalar", dict(mass=str(mass.mass)))
     else:
-        for mass in part.masses:
-            print(mass)
-            bc_stru = ET.SubElement(root, "structure")
-            sup_point = ET.SubElement(bc_stru, "point_mass", {"name": mass.name})
-            sup_point.append(add_local_system(X, Y, Z))
-            geom = ET.SubElement(sup_point, "geometry")
-            ET.SubElement(geom, "position", {"x": str(mass.p[0]), "y": str(mass.p[1]), "z": str(mass.p[2])})
-            bc_con = ET.SubElement(sup_point, "mass")
-            ET.SubElement(bc_con, "mass_scalar", dict(mass=str(mass.mass)))
+        for p in part.get_all_subparts(True):
+            for mass in p.masses:
+                print(mass)
+                bc_stru = ET.SubElement(root, "structure")
+                sup_point = ET.SubElement(bc_stru, "point_mass", {"name": mass.name})
+                sup_point.append(add_local_system(X, Y, Z))
+                geom = ET.SubElement(sup_point, "geometry")
+                ET.SubElement(geom, "position", {"x": str(mass.p[0]), "y": str(mass.p[1]), "z": str(mass.p[2])})
+                bc_con = ET.SubElement(sup_point, "mass")
+                ET.SubElement(bc_con, "mass_scalar", dict(mass=str(mass.mass)))
