@@ -1,7 +1,7 @@
 name: Create Tag on PR Merge
 
 on:
-  pull_request:
+  pull_request_target:
     branches:
       - main
     types: [closed]
