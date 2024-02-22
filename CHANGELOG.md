@@ -2,6 +2,15 @@
 
 
 
+## v0.2.10 (2024-02-22)
+
+### Fix
+
+* fix: concept masses (#95)
+
+Co-authored-by: krande &lt;kristoffer_andersen@outlook.com&gt; ([`d07c9c8`](https://github.com/Krande/adapy/commit/d07c9c80670a3472ff5217a75612ce22af5d31e1))
+
+
 ## v0.2.9 (2024-02-21)
 
 ### Fix
@@ -101,242 +110,242 @@
 
 * Fix/fem gmsh med bug (#78)
 
-* add more tests of roundtrip of med written meshes
-
-* fix deprecation warning
-
-* minor change
-
-* further investigation into mesh errors
-
-* update conda with pinning kaleido-core to 0.1.0 on windows so that image-creation with plotly don&#39;t hang on windows
-
-* refactor docker fem now that code_aster is a conda_package.
-
-* add pytest
-
-* fix failing tests
-
-* do not add code-aster as a dep yet (should have multiplatform support first)
-
-* add a pass/fail test variation dependending on the type of mesher
-
-* bump version
-
-* fix code aster cmd bug
-
-* update tests dir docker -&gt; fem refactor
-
-* bump version
-
-* remove cache to force pulling updates packages
-
-* make sure the channel_priority is strict
-
-* rearrange env core yml
-
-* do not run specific test on darwin
-
-* fix lint
-
-* loosen numpy patch pinning
-
+* add more tests of roundtrip of med written meshes
+
+* fix deprecation warning
+
+* minor change
+
+* further investigation into mesh errors
+
+* update conda with pinning kaleido-core to 0.1.0 on windows so that image-creation with plotly don&#39;t hang on windows
+
+* refactor docker fem now that code_aster is a conda_package.
+
+* add pytest
+
+* fix failing tests
+
+* do not add code-aster as a dep yet (should have multiplatform support first)
+
+* add a pass/fail test variation dependending on the type of mesher
+
+* bump version
+
+* fix code aster cmd bug
+
+* update tests dir docker -&gt; fem refactor
+
+* bump version
+
+* remove cache to force pulling updates packages
+
+* make sure the channel_priority is strict
+
+* rearrange env core yml
+
+* do not run specific test on darwin
+
+* fix lint
+
+* loosen numpy patch pinning
+
 * had to increase abs tolerances for linux ([`73974c0`](https://github.com/Krande/adapy/commit/73974c066b267a6a6146fd8bc0be27382b274471))
 
 * Feature/geom core (#77) ([`b51db12`](https://github.com/Krande/adapy/commit/b51db127d79c394bc9920c3872b52b0a6bac9c02))
 
 * Feature/batch step ifc (#75)
 
-* ongoing work on improving the state of STEP parsing.
-
-Also simplified logging by instantiating the shared logger 1 place instead of in every file
-
-* further work on optimizing step to ifc conversion
-
-* further work on optimizing step handling
-
-* minor change
-
-* test with gltf writer in occt
-
-* add functional support for gltf conversion from step using opencascade
-
-* add step to gltf writer [pre]
-
-* fix unresolved reference and add option to choose step store units and gltf export units [dev]
-
+* ongoing work on improving the state of STEP parsing.
+
+Also simplified logging by instantiating the shared logger 1 place instead of in every file
+
+* further work on optimizing step to ifc conversion
+
+* further work on optimizing step handling
+
+* minor change
+
+* test with gltf writer in occt
+
+* add functional support for gltf conversion from step using opencascade
+
+* add step to gltf writer [pre]
+
+* fix unresolved reference and add option to choose step store units and gltf export units [dev]
+
 * fix formatting and failing cli cmd ([`dbeb7f4`](https://github.com/Krande/adapy/commit/dbeb7f48827db87731be782eeaca702d691c96c8))
 
 * Logging suppress (#74)
 
-* move to pyproject.toml
-
-* add a logging suppression capability
-
-* bump 0.0.38 --&gt; 0.0.39
-
+* move to pyproject.toml
+
+* add a logging suppression capability
+
+* bump 0.0.38 --&gt; 0.0.39
+
 * ensure both pypi and conda pre-releases are properly converted to/from semver in bump script [dev] ([`a8748ad`](https://github.com/Krande/adapy/commit/a8748ada38fb2ae656b87730cb118b4af5b8c2b2))
 
 * Move to pyproject (#73)
 
-* move to pyproject.toml
-
+* move to pyproject.toml
+
 * fix dev release pipeline ([`b3bf643`](https://github.com/Krande/adapy/commit/b3bf643a2d9052d5813a5124cf35515173e2a95a))
 
 * fix another slip in the conda release action (#72) ([`e1c969d`](https://github.com/Krande/adapy/commit/e1c969da8db6a89dd3f53e488000fe2d62ac44d1))
 
 * Gxml cleanup (#71)
 
-* ensure that the release trigger is started
-
-* minor refactor
-
-* fix pr
-
+* ensure that the release trigger is started
+
+* minor refactor
+
+* fix pr
+
 * make linter happy ([`a2972d3`](https://github.com/Krande/adapy/commit/a2972d3acb974297ff3e79d5bec6e4ac0c3d5ec3))
 
 * ensure that the release trigger is started (#70) ([`b3225e6`](https://github.com/Krande/adapy/commit/b3225e6522dc5fc0dc2eab38c522dbf253e86b22))
 
 * Fix gxml plates (#69)
 
-* add cProfile to the profiling suite [profile]
-
-fix: bug in genie xml reader
-
-* pr tests run only on prs
-
-* do another profiling [profile]
-
-* create a dev release [dev]
-
-* create a dev release and profile [dev] [profile]
-
-* fix: bug in step writer and angular profiles [dev] [profile]
-
-fix: make scalene export json profile file
-
-* try with a different output folder [dev]
-
-* try with a different output folder again again [dev]
-
-* fix bump script to pass None [dev]
-
-* wip: improve genie xml reader of plates
-
-* fix: support all types of flat plates in gxml reader that [dev]
-
-* add a gitignore file [skip ci]
-
-* update bumpversion to use only setup.cfg
-
-* Bump version: 0.0.37 → 0.0.38
-
-* update metadata.version and add a __version__ in the top init file
-
+* add cProfile to the profiling suite [profile]
+
+fix: bug in genie xml reader
+
+* pr tests run only on prs
+
+* do another profiling [profile]
+
+* create a dev release [dev]
+
+* create a dev release and profile [dev] [profile]
+
+* fix: bug in step writer and angular profiles [dev] [profile]
+
+fix: make scalene export json profile file
+
+* try with a different output folder [dev]
+
+* try with a different output folder again again [dev]
+
+* fix bump script to pass None [dev]
+
+* wip: improve genie xml reader of plates
+
+* fix: support all types of flat plates in gxml reader that [dev]
+
+* add a gitignore file [skip ci]
+
+* update bumpversion to use only setup.cfg
+
+* Bump version: 0.0.37 → 0.0.38
+
+* update metadata.version and add a __version__ in the top init file
+
 * make linter happy ([`1f1bb38`](https://github.com/Krande/adapy/commit/1f1bb38ff7825ff70d3566a7c797dd6736b23306))
 
 * Make daily Ci testing faster and improve ci build sequence (#68)
 
-* run tests faster
-
-* restack channel priority on dev env
-
-* use conda mambabuild
-
-* use build string instead of separate packages
-
-* Add the dev build flag to the ci test.yml
-
-* split testing in full and core
-
-* add core and full env yml files
-
-* use regular setup-python in bump job to speedup build time and skip testing of packages when uploading
-
-* start converting expensive properties into methods
-
-* move the conditional upload check statement to job initiation
-
-* Add profiling job to ci
-
-* improved STEP writer efficiency
-
-* Bump version: 0.0.36 → 0.0.37
-
-* add support for progress callback on step and ifc exports
-
-* minor fixes to genie xml reading
-
-* make primary build run on PR
-
-* add concurrency groups
-
-* separate main testing routines from conda build
-
+* run tests faster
+
+* restack channel priority on dev env
+
+* use conda mambabuild
+
+* use build string instead of separate packages
+
+* Add the dev build flag to the ci test.yml
+
+* split testing in full and core
+
+* add core and full env yml files
+
+* use regular setup-python in bump job to speedup build time and skip testing of packages when uploading
+
+* start converting expensive properties into methods
+
+* move the conditional upload check statement to job initiation
+
+* Add profiling job to ci
+
+* improved STEP writer efficiency
+
+* Bump version: 0.0.36 → 0.0.37
+
+* add support for progress callback on step and ifc exports
+
+* minor fixes to genie xml reading
+
+* make primary build run on PR
+
+* add concurrency groups
+
+* separate main testing routines from conda build
+
 * fix: bug in writing ifcBeam with offsets actually changing the original coordinates ([`1d802ff`](https://github.com/Krande/adapy/commit/1d802ff5c1362205b3a474b6ff35aa259f7d2d05))
 
 * Add ada-py-core and -test packages to conda build (#66)
 
-* bump
-
-* inverse conditional
-
-* fix conditional main conda upload
-
-* fix ci FEM not creating releases on PRs
-
-* chore: split attempt to split into multiple packages
-
-* Bump version: 0.0.33 → 0.0.34
-
-* Bump version: 0.0.34 → 0.0.35
-
-* chore: second attempt of splitting ada-py in subpackages
-
-* chore: third attempt of splitting ada-py in subpackages
-
-* chore: fix paths to test files
-
-* chore: further work with splitting packages
-
-* try to create dev packages [dev]
-
-* reorganize so that imports don&#39;t break on &#34;ada-py-core&#34;
-
-* add plotly and pytexit to core adapy
-
-* rearrange order of package testing
-
-* fix brackets
-
-* fix top brackets
-
-* add send2trash as a dependency
-
-* add a basic iter function for gxml beams
-
-* reorganize tests in core and full variants and
-
-refactored meta.yaml significantly using jinja templates
-
-* do not use {{ python }}
-
-* remove pytest.ini
-
-* update docker testing path and pytest ignore arg
-
-* make linter happy
-
-* Use try except block on easy_plotly go.FigureWidget
-
-* add python-kaleido and calculix to core deps
-
-* fix lint
-
-* do not push to pypi on anything but pushes to main
-
-* Bump version: 0.0.35 → 0.0.36
-
+* bump
+
+* inverse conditional
+
+* fix conditional main conda upload
+
+* fix ci FEM not creating releases on PRs
+
+* chore: split attempt to split into multiple packages
+
+* Bump version: 0.0.33 → 0.0.34
+
+* Bump version: 0.0.34 → 0.0.35
+
+* chore: second attempt of splitting ada-py in subpackages
+
+* chore: third attempt of splitting ada-py in subpackages
+
+* chore: fix paths to test files
+
+* chore: further work with splitting packages
+
+* try to create dev packages [dev]
+
+* reorganize so that imports don&#39;t break on &#34;ada-py-core&#34;
+
+* add plotly and pytexit to core adapy
+
+* rearrange order of package testing
+
+* fix brackets
+
+* fix top brackets
+
+* add send2trash as a dependency
+
+* add a basic iter function for gxml beams
+
+* reorganize tests in core and full variants and
+
+refactored meta.yaml significantly using jinja templates
+
+* do not use {{ python }}
+
+* remove pytest.ini
+
+* update docker testing path and pytest ignore arg
+
+* make linter happy
+
+* Use try except block on easy_plotly go.FigureWidget
+
+* add python-kaleido and calculix to core deps
+
+* fix lint
+
+* do not push to pypi on anything but pushes to main
+
+* Bump version: 0.0.35 → 0.0.36
+
 * remove branch ([`f399a6f`](https://github.com/Krande/adapy/commit/f399a6f6a20b06156cbb7ff331523febbbdb7c71))
 
 * Merge pull request #65 from Krande/bump
@@ -415,296 +424,296 @@ V0.0.32 dev ([`dd51b40`](https://github.com/Krande/adapy/commit/dd51b40c0b336f8c
 
 * Add basic support for static FEM analysis (#58)
 
-* chore: begin work on adding functional support for static analysis
-
-* chore: write a new calculix frd result file reader inspired by https://github.com/rsmith-nl/calculix-frdconvert without any external dependencies
-
-* wip: improving fem results handling
-
-* chore: bump to build latest docs updates
-
-* chore: fix channel order in docs packages
-
-* chore: add myst_parser dep to docs pages
-
-* Bump version: 0.0.29 → 0.0.30
-
-* chore: setup static example and refactor fea results tests
-
-* feature: add utils for sesam and abaqus for converting to readable formats
-
-* chore: add tests for reading result files from different formats
-
-* feature: add support for extraction of field outputs from abaqus odb into pckle files
-
-* wip: adding support for field outputs from abaqus
-
-* chore: add nodal values and reduce duplication of instance data
-
-* chore: add export of explicit field location member in abaqus odb
-
-* chore: add check for potential multiple section locations
-
-* chore: add more analysis for fea results tests
-
-* chore: refactored FEM shape handling
-
-* chore: add more data to be exported from abaqus and further work on common data structure for fea results
-
-* fix: shell and solid sections no longer breaks profile extraction
-
-* wip: fea results data structure
-
-* wip: improved fea results data structure and export of odb results
-
-* wip: fea results data structure
-
-* chore: add basic support for weld fastener
-
-* wip: add sifreader
-
-* chore: bump ci packages versions
-
-* fix: add proper support for sub-contexts in IFC to provide the bare minimum IFC classes for ifc opening to show using blenderbim
-
-* chore: almost done with gltf export from new fea results mesh class
-
-* wip: sesam sif results support
-
-* feature: minor update of results export support for sesam fea including nodal displacements
-
-* chore: begin adding stresses for sesam fea
-
-* chore: add more results files
-
-* chore: begin adding stresses for sesam fea
-
-* wip: stress export for shell elements
-
-* wip: stresses from sesam fea
-
-* chore: add 2 extra sesam result files
-
-* wip: begin work on code check example
-
-* wip: cc in fea
-
-* wip: add support for export full hierarchies to gltf
-
-* chore: remove adding meta to glb export
-
-* Update ci.yml
-
-* feature: add prototype fem line element splitter
-
-* chore: minor reorganizing of spatial class.
-
-Added mesh splitting on crossing beams
-
-* wip: fix final issues before milestone release
-
-* wip: improve sesam export
-
-* wip: poc fea code check calc on stress/forces results
-
-* wip: finalize fea results handling
-
-* wip: fea results
-
-* wip: test ada-py as a noarch package
-
-* wip: fix for visualizing solid FEM elements
-
-* fix: FEM visualization issue with hex solids
-
-* wip: prep for next patch release. minor changes
-
-* set up adapy dev daily docker image production
-
-* bump adapy docker dev image
-
-* feature: functional support for adding animations to gltf is now in PR for trimesh. Will add support for this in next release of adapy
-
-* fix: if no duplicate points for normal plane calc do nothing with list
-
-* fix: improved sesam results reader
-
-* feature: change return type of get_by_element_id to ElementFieldData
-
-* fix: section profile handling in STEP export is now using BaseTypes
-
-* chore: make abaqus constraints import more tolerant
-
-* chore: make FEM results visualization more tolerant
-
-* Bump version: 0.0.30 → 0.0.31
-
-* minor bugfix
-
-* fix: bug in vis mesh creation when there is no physical geom, but there are FEM objects
-
-* wip: adding tests for mixed fem viz
-
-* incorporate fix from https://github.com/Krande/adapy/pull/59
-
-* remove pre-commit
-
-* fix failing test. And minor speed improvements in slow FEM import caused by recent changes
-
-* improve py311 support
-
-* chore: improve merging by properties of FEM sections by cleaning up unused element sets
-
-* use * not x for ci package distros
-
-* wip: fixing error in FEM viz export to gltf
-
-* fix: improved export FEM to gltf
-
-* do linting only on pull requests
-
-* make test only depend on activate
-
-* fix: merging by properties now take into account different horizontal orientation of beams
-
-* fix: a few failing tests
-
-chore: improve some of the error message handling
-
-minor bugfixes
-
-* Update ci.yml
-
-* wip: add basic support for sat geometry
-
-* fix linting and start adding basic support for SAT geometry
-
-* fix: failing static FEM analysis.
-
-* feature: begin adding support for writing genie xml
-
-* wip: support genie xml writing
-
-* wip: support genie xml writing. Functional support for writing beams and boundary conditions
-
-* feature: add support for point masses in genie XML export
-
-fix: read beam orientations from genie xml
-
-* add extra files for testing [skip ci]
-
-* fix: docker base image
-
-* bump creation of base docker image
-
-* use conda calculix package [skip ci]
-
-* feature: add shorthand static method for creating a series of connected beams from a list of coords
-
-* further work on compiling new docker image
-
-* further work of next gen docker build
-
-* minor sesam fixes and use micromamba in ci
-
-* fix linting
-
-* remove dev branch from ci trigger
-
-* update linting based on black preference v23
-
-* fix: do not include recipe and also print various ci stuff
-
-* fix: always apply label &#34;dev&#34; unless it belongs to the main branch
-
-* fix: try to echo more stuff
-
-* fix: remove noarch marker (for now)
-
-* fix: proper echo of ga text
-
-* update codeql [skip ci]
-
-* wip: use aethereng docker image as base [skip ci]
-
-* wip: use aethereng docker image as base
-
-* wip: fix linux subprocess run command
-
-* wip: add build section in meta.yaml
-
-* fix: fix docker code aster and calculix
-
-* wip: fix fem testing
-
-* wip: update FEM testing dockerfiles
-
-* wip: moving away from outdated Results classe to new FEAResult
-
-* wip: further work on updating the results pipeline for eigenvalue analysis
-
-* fix: verification report
-
-* fix: chmod for run_tests.sh
-
-* fix: user root during chmod
-
-* wip: be more explicit in femtests docker parent by adding sha
-
-* wip: more work on fixing docker fem testing
-
-* wip: change ownership of test directory
-
-* fix: outdated mount paths
-
-* wip: skip writing cache jsons
-
-* wip: add chmod to temp directories
-
-* fix: use updated date setting
-
+* chore: begin work on adding functional support for static analysis
+
+* chore: write a new calculix frd result file reader inspired by https://github.com/rsmith-nl/calculix-frdconvert without any external dependencies
+
+* wip: improving fem results handling
+
+* chore: bump to build latest docs updates
+
+* chore: fix channel order in docs packages
+
+* chore: add myst_parser dep to docs pages
+
+* Bump version: 0.0.29 → 0.0.30
+
+* chore: setup static example and refactor fea results tests
+
+* feature: add utils for sesam and abaqus for converting to readable formats
+
+* chore: add tests for reading result files from different formats
+
+* feature: add support for extraction of field outputs from abaqus odb into pckle files
+
+* wip: adding support for field outputs from abaqus
+
+* chore: add nodal values and reduce duplication of instance data
+
+* chore: add export of explicit field location member in abaqus odb
+
+* chore: add check for potential multiple section locations
+
+* chore: add more analysis for fea results tests
+
+* chore: refactored FEM shape handling
+
+* chore: add more data to be exported from abaqus and further work on common data structure for fea results
+
+* fix: shell and solid sections no longer breaks profile extraction
+
+* wip: fea results data structure
+
+* wip: improved fea results data structure and export of odb results
+
+* wip: fea results data structure
+
+* chore: add basic support for weld fastener
+
+* wip: add sifreader
+
+* chore: bump ci packages versions
+
+* fix: add proper support for sub-contexts in IFC to provide the bare minimum IFC classes for ifc opening to show using blenderbim
+
+* chore: almost done with gltf export from new fea results mesh class
+
+* wip: sesam sif results support
+
+* feature: minor update of results export support for sesam fea including nodal displacements
+
+* chore: begin adding stresses for sesam fea
+
+* chore: add more results files
+
+* chore: begin adding stresses for sesam fea
+
+* wip: stress export for shell elements
+
+* wip: stresses from sesam fea
+
+* chore: add 2 extra sesam result files
+
+* wip: begin work on code check example
+
+* wip: cc in fea
+
+* wip: add support for export full hierarchies to gltf
+
+* chore: remove adding meta to glb export
+
+* Update ci.yml
+
+* feature: add prototype fem line element splitter
+
+* chore: minor reorganizing of spatial class.
+
+Added mesh splitting on crossing beams
+
+* wip: fix final issues before milestone release
+
+* wip: improve sesam export
+
+* wip: poc fea code check calc on stress/forces results
+
+* wip: finalize fea results handling
+
+* wip: fea results
+
+* wip: test ada-py as a noarch package
+
+* wip: fix for visualizing solid FEM elements
+
+* fix: FEM visualization issue with hex solids
+
+* wip: prep for next patch release. minor changes
+
+* set up adapy dev daily docker image production
+
+* bump adapy docker dev image
+
+* feature: functional support for adding animations to gltf is now in PR for trimesh. Will add support for this in next release of adapy
+
+* fix: if no duplicate points for normal plane calc do nothing with list
+
+* fix: improved sesam results reader
+
+* feature: change return type of get_by_element_id to ElementFieldData
+
+* fix: section profile handling in STEP export is now using BaseTypes
+
+* chore: make abaqus constraints import more tolerant
+
+* chore: make FEM results visualization more tolerant
+
+* Bump version: 0.0.30 → 0.0.31
+
+* minor bugfix
+
+* fix: bug in vis mesh creation when there is no physical geom, but there are FEM objects
+
+* wip: adding tests for mixed fem viz
+
+* incorporate fix from https://github.com/Krande/adapy/pull/59
+
+* remove pre-commit
+
+* fix failing test. And minor speed improvements in slow FEM import caused by recent changes
+
+* improve py311 support
+
+* chore: improve merging by properties of FEM sections by cleaning up unused element sets
+
+* use * not x for ci package distros
+
+* wip: fixing error in FEM viz export to gltf
+
+* fix: improved export FEM to gltf
+
+* do linting only on pull requests
+
+* make test only depend on activate
+
+* fix: merging by properties now take into account different horizontal orientation of beams
+
+* fix: a few failing tests
+
+chore: improve some of the error message handling
+
+minor bugfixes
+
+* Update ci.yml
+
+* wip: add basic support for sat geometry
+
+* fix linting and start adding basic support for SAT geometry
+
+* fix: failing static FEM analysis.
+
+* feature: begin adding support for writing genie xml
+
+* wip: support genie xml writing
+
+* wip: support genie xml writing. Functional support for writing beams and boundary conditions
+
+* feature: add support for point masses in genie XML export
+
+fix: read beam orientations from genie xml
+
+* add extra files for testing [skip ci]
+
+* fix: docker base image
+
+* bump creation of base docker image
+
+* use conda calculix package [skip ci]
+
+* feature: add shorthand static method for creating a series of connected beams from a list of coords
+
+* further work on compiling new docker image
+
+* further work of next gen docker build
+
+* minor sesam fixes and use micromamba in ci
+
+* fix linting
+
+* remove dev branch from ci trigger
+
+* update linting based on black preference v23
+
+* fix: do not include recipe and also print various ci stuff
+
+* fix: always apply label &#34;dev&#34; unless it belongs to the main branch
+
+* fix: try to echo more stuff
+
+* fix: remove noarch marker (for now)
+
+* fix: proper echo of ga text
+
+* update codeql [skip ci]
+
+* wip: use aethereng docker image as base [skip ci]
+
+* wip: use aethereng docker image as base
+
+* wip: fix linux subprocess run command
+
+* wip: add build section in meta.yaml
+
+* fix: fix docker code aster and calculix
+
+* wip: fix fem testing
+
+* wip: update FEM testing dockerfiles
+
+* wip: moving away from outdated Results classe to new FEAResult
+
+* wip: further work on updating the results pipeline for eigenvalue analysis
+
+* fix: verification report
+
+* fix: chmod for run_tests.sh
+
+* fix: user root during chmod
+
+* wip: be more explicit in femtests docker parent by adding sha
+
+* wip: more work on fixing docker fem testing
+
+* wip: change ownership of test directory
+
+* fix: outdated mount paths
+
+* wip: skip writing cache jsons
+
+* wip: add chmod to temp directories
+
+* fix: use updated date setting
+
 * fix DATE env var ([`bfe7ef7`](https://github.com/Krande/adapy/commit/bfe7ef7eb3071b3cbbaa1c30e74d3f4ba494e576))
 
 * Ifc handling (#55)
 
-* wip: begin work of improving IFC handling in adapy
-
-* feature: add support for reading ifc pipe straight segments
-
-fix: bug in reading ifc files and then writing them after modifying the content
-
-* feature: add limited roundtripping for pipe elbows. Improved roundtripping ifc property sets using proper types
-
-* chore: begin rewrite of ifc handling
-
-* chore: improve units handling
-
-* chore: ongoing migration to IfcStore class handler
-
-* chore: further work on rewrite of ifc handling
-
-* chore: work on fixing vertex colored FEM analysis results export
-
-* chore: make all tests pass before shifting focus on FEM improvements
-
-* chore: add line segments for exports to gltf
-
-* fix: add FEM line elements as line segment export to GLTF
-
-* chore: remove toposort as a dependency as it was never used
-
+* wip: begin work of improving IFC handling in adapy
+
+* feature: add support for reading ifc pipe straight segments
+
+fix: bug in reading ifc files and then writing them after modifying the content
+
+* feature: add limited roundtripping for pipe elbows. Improved roundtripping ifc property sets using proper types
+
+* chore: begin rewrite of ifc handling
+
+* chore: improve units handling
+
+* chore: ongoing migration to IfcStore class handler
+
+* chore: further work on rewrite of ifc handling
+
+* chore: work on fixing vertex colored FEM analysis results export
+
+* chore: make all tests pass before shifting focus on FEM improvements
+
+* chore: add line segments for exports to gltf
+
+* fix: add FEM line elements as line segment export to GLTF
+
+* chore: remove toposort as a dependency as it was never used
+
 * chore: fix fem verification report builder ([`14e14a3`](https://github.com/Krande/adapy/commit/14e14a3ab3f4d9bd818a83a2dc87d319548f830c))
 
 * Pipeelbow (#44)
 
-* added a jupyter notebook with a visual aid for debugging revolution of out-of-plane solids
-
-* feature: add support for ifcrevolvedareasolid representing pipe elbows
-
-* chore: loosen tolerance for intersection of line and circle in millimeters
-
-* chore: add more descriptive value error
-
+* added a jupyter notebook with a visual aid for debugging revolution of out-of-plane solids
+
+* feature: add support for ifcrevolvedareasolid representing pipe elbows
+
+* chore: loosen tolerance for intersection of line and circle in millimeters
+
+* chore: add more descriptive value error
+
 * chore: make curve tolerance more loose for line circle intersection ([`de1eda2`](https://github.com/Krande/adapy/commit/de1eda2c806a6343d4f251ff820524cd41ca8a8a))
 
 * Update README.md ([`66d00d1`](https://github.com/Krande/adapy/commit/66d00d13c8958de102622f6042bc963950c2e1a1))
@@ -729,434 +738,434 @@ Now that conda-corge versions of ifcopenshell and pythonocc-core is updated to o
 
 * Add python 3.10 support (#41)
 
-* fix copying of elements between IFC files
-
-* fix: trying to add colour to ifc element when there is None assigned should not break IFC export
-
-* fix: improved color import from IFC. Separate guids from IFC source so that one can edit global guid without loosing connection to existing IFC element
-
-* feature: add option for STEP import to include shells (currently only imports solids)
-
-* fix: make sure lack of associated style on ifc element does not break execution
-
-* fix: improve color import from IFC.
-
-* chore: add repr for Shape objects. Further improve IFC read/write capabilities
-
-* chore: improve hdf5 reading by using context manager to always close file
-
-* feature: support removal of plate objects and caching mechanism for vis meshes
-
-* fix: missing ExportConfig resulting in nameerror
-
-* fix: update geometry pointer to original IFC files to use ifc_guid
-
-* WIP: vis mesh extract individual geometries inside IFC elements
-
-* feature: improved lookup speed for global name search within assembly and other visual mesh improvements
-
-* chore: cosmetics in Shape repr
-
-* WIP: VisMesh rewrite.
-
-* feature: improved hdf5 caching for vismesh
-
-* WIP: optimize new vmesh creation
-
-* feature: skip writing normals
-
-* feature: test docs theme `furo`
-
-* Sections, and how to write names to FEM files and compare properties (#40)
-
-* feature: docs now using gh pages
-
-* use proper shell
-
-* do not activate env again
-
-* fix: missing output dir in binder dockerfile.
-chore: minor text edit in docs
-
-* fix: reduce generation of duplicate IFC objects
-
-* fix: linting and further reduce generation of duplicate IFC objects
-
-* fix: minor chang
-
-* chore: further reduce IFC element duplication when writing IFC files
-
-* chore: fix linting
-
-* add pre-commit config
-update CONTRIBUTING.md
-
-* chore: update dependencies to latest conda forge version of ifcopenshell and pythonocc-core
-
-* add sponsor link
-
-* fix: skip fem testing static analysis
-
-* Bump version: 0.0.28 → 0.0.29
-
-* fix: failing function ref in verification doc is fixed
-
-* fix: formatting and invalid key for json export
-
+* fix copying of elements between IFC files
+
+* fix: trying to add colour to ifc element when there is None assigned should not break IFC export
+
+* fix: improved color import from IFC. Separate guids from IFC source so that one can edit global guid without loosing connection to existing IFC element
+
+* feature: add option for STEP import to include shells (currently only imports solids)
+
+* fix: make sure lack of associated style on ifc element does not break execution
+
+* fix: improve color import from IFC.
+
+* chore: add repr for Shape objects. Further improve IFC read/write capabilities
+
+* chore: improve hdf5 reading by using context manager to always close file
+
+* feature: support removal of plate objects and caching mechanism for vis meshes
+
+* fix: missing ExportConfig resulting in nameerror
+
+* fix: update geometry pointer to original IFC files to use ifc_guid
+
+* WIP: vis mesh extract individual geometries inside IFC elements
+
+* feature: improved lookup speed for global name search within assembly and other visual mesh improvements
+
+* chore: cosmetics in Shape repr
+
+* WIP: VisMesh rewrite.
+
+* feature: improved hdf5 caching for vismesh
+
+* WIP: optimize new vmesh creation
+
+* feature: skip writing normals
+
+* feature: test docs theme `furo`
+
+* Sections, and how to write names to FEM files and compare properties (#40)
+
+* feature: docs now using gh pages
+
+* use proper shell
+
+* do not activate env again
+
+* fix: missing output dir in binder dockerfile.
+chore: minor text edit in docs
+
+* fix: reduce generation of duplicate IFC objects
+
+* fix: linting and further reduce generation of duplicate IFC objects
+
+* fix: minor chang
+
+* chore: further reduce IFC element duplication when writing IFC files
+
+* chore: fix linting
+
+* add pre-commit config
+update CONTRIBUTING.md
+
+* chore: update dependencies to latest conda forge version of ifcopenshell and pythonocc-core
+
+* add sponsor link
+
+* fix: skip fem testing static analysis
+
+* Bump version: 0.0.28 → 0.0.29
+
+* fix: failing function ref in verification doc is fixed
+
+* fix: formatting and invalid key for json export
+
 Co-authored-by: Håvard Kristiansen &lt;39682335+haavahk@users.noreply.github.com&gt; ([`ef5746b`](https://github.com/Krande/adapy/commit/ef5746ba3ee979ac58316ed1f37499173ce850b1))
 
 * stick version for all occt related to 7.5.3 ([`64ea998`](https://github.com/Krande/adapy/commit/64ea998afe008d0a2cdc4242cf08b4416e42671a))
 
 * Bump to v0.0.28 (#39)
 
-* More refactoring in FEM.abaqus. Add ability to convert Primitives to FEM models using Shell elements.
-
-* Minor changes related to refactoring
-
-* Fix face numbering for HEX elements. Minor refactoring
-
-* Minor fix related to fem_to_concept_objects method not adding parents to materials.
-
-* Begun work on improving support for reading ifc files
-
-* minor changes to wall and wall inserts
-
-* further small changes to wall and wall inserts
-
-* Further work on ifc reading
-
-* further work on proper IFCBeam reading
-
-* Proper IFC reading of beams. Next up -&gt; Cardinality
-
-* add functionality to read badly created IFC files (lack of name/tag on elements).
-
-* Add test workflow for docker builds and azure acr
-
-* Further work on masses in FEM
-
-* Further work on improving FEM code stability and decoupling.
-
-* Add option to write physical objects to fem directly without having to define assemblies and parts (creates dummy objects instead).
-
-* Further work on packaging theory. Structuring into local and conda tests.
-
-* prepare testing of snapshot versions of gmsh and pythonocc-core
-
-* fix errors in missing references
-
-* fix win/linux mistake
-
-* Minor fix to version name
-
-* Fix bug in surface set referencing
-
-* Add support for Interface nodes updating Csys object upon merge
-
-* Fix bug where default field and history outputs being set globally
-
-* Fix sesam reader not importing masses due to updated mass element handling
-
-* WIP: Further development on treatment of mass elements.
-
-* Add sesam test file
-
-* Update meta.yaml
-
-* minor fixes and improvements to FEM
-
-* minor update to test assertions
-
-* Write something to start using Ifc instancing
-
-* Start work on ifcmapped repr
-
-* Bump gmsh dep
-
-* Add example ifc file
-
-* Begin work on visualization module
-
-* Working sample of Instancing using MappedItem [WIP]
-
-* Simplify method of turning off/on property exports to IFC
-
-* Further work on revolved IFC beam and exporting to visualization formats such as threejs
-
-* Fix custom json export
-
-* Further work on revolved IFC beam
-
-* WIP export to json and instances export
-
-* Further work on instanced visualization objects
-
-* Further work on IFC
-
-* Add option for exporting to custom json using multithreading
-
-* Set default color to white if trying to normalize something without color
-
-* Prep for FEM viz export to json
-
-* Fix minor bugs in calculix and code aster fem writers.
-
-Continue work on custom json exporter for visualization
-
-Calculix postprocessing is currently suffering from dll errors related to vtk package. Should consider skipping dependency altogether (if possible
-
-* Minor bugfixes in FEM tests
-
-* Further work on conversion of OCC to visualization mesh
-
-* Fix bug in primitive shape units conversion
-
-* Further work on adding features to FEM class and various FEM objects.
-
-Changed FEM container of constraints from list to dict. Seems more user-friendly
-
-* Changing typing for consistency, and added functionality for merging and splitting beams
-
-* Minor fixes in abaqus reading
-
-* Made changes to make tests pass
-
-* FEM: Fix bug in reading/writing abaqus orientations
-
-* Various improvements to fem module
-
-* FEM: Minor improvements to usability of orientations, vector rotations and readability.
-
-* Fix bug in point rotation transform.
-
-* Fix formatting issue caused by outdated black version
-
-* Try to simply swap order in channel priority from krande first to conda-forge
-
-* fix formatting
-
-* Change gmsh package dep to python-gmsh
-
-* start on fixing code aster FEM analysis for static
-
-* FEM: Reduce load in static fem test. Edit Code Aster load writer to not multiply with negative 1
-
-* Further work on debugging dependencies
-
-* Experiment with reduction in dependencies (#37)
-
-* An attempt to reduce package dependency complexity.
-
-Certain deps are only included due to a single function. Should revise
-
-* Add to devops
-
-* Fix failing tests.
-
-* test occt &gt;= 7.6.0 as dependency
-
-* Further work on visualization module and added support for editing section properties and updating the section props calculations
-
-* Separate installing local adapy and pytest
-
-* chore: test using conda build scripts and minor improvements to json export for visualization
-
-* chore: Add conditional use of dev label on conda for testing experimental upstream packages
-
-* chore: Use conditional to set env variable opposed to copying entire statements
-
-* chore: remove no longer used conditionals
-
-* chore: slight edit of conda build command
-
-* chore: further work on conda compilation using fewer dependencies.
-
-* fix: added support for penetration of piping objects using opencascade.
-
-* further work on resolving dependencies
-
-* fix: add support for visualizing joints and exporting it to STEP.
-
-* fix: path makedir prior to bump
-
-* fix: make live file if not exists
-
-* chore: remove python version from name given that it is a noarch package
-
-* chore: Use noarch path for exported package from condabuild
-
-* chore: Try using newly created noarch packages of pytexit and pyquaternion
-
-* chore: do not skip existing of pytexit and pyquaternion
-
-* chore: bump
-
-* chore: fix failing tests for linux
-
-* chore: fix the last failing tests for linux
-
-* chore: add test for reading STEP files.
-
-* chore: add conditional use of native_pointer for importing occ geometry into gmsh
-
-* chore: add minor user options to open and view model in gmsh when using the to_fem_obj method.
-
-* fix: Add handling of pipe elements for new FEM mesh generation using native pointer
-
-* chore: minor improvements in Beam initialization
-
-* chore: minor improvement in exporting custom json related to visualization
-
-* chore: Add option to return file like object in addition to writing to file
-
-* feature: add ability to create custom json file-like object in addition to writing to json file.
-
-* chore: change all tests writing IFC files to disk to reduce IO and to reduce testing time
-
-* chore: reformat visualize module
-
-* fix: now working merging of polygons for custom json
-
-* fix: fix normals. Minor reorganizing of code. Created a PolyModel object
-
-* chore: minor renaming of PolyModel adding
-
-* fix: skip objects not able to convert to polymodel
-
-* chore: lint
-
-* chore: further work on custom json exports
-
-* fix: import colours properly from IFC files. Also fix normalization of colours in colour_norm property. Further work on visualization module
-
-* fix: bug in PolyModel merging fixed
-
-* chore: further work on simplifying generating objects for visualization
-
-* chore: WIP more work on exporting geometries for visualization
-
-* chore: WIP further work visualization export
-
-* chore: WIP visualization export and linting
-
-* fix: WIP viz export and linting
-
-* chore: WIP ifc guid creation
-
-* chore: WIP mesh class AssemblyMesh will now be the core container of model objects designed for visualization only.
-
-* chore: WIP - add example of export to binary + json visualization file set
-
-* chore: Add ability to restart json conversion and skip already converted files
-
-* fix: to_assembly_mesh exported twice the number of geometries due to error in get_physical_objects method
-
-chore: rename to_assembly_mesh to to_vis_mesh
-
-* fix: No longer export all physical objects within parts with a multilevel hierarchy multiple times
-
-* fix: Multiprocessing now works. Translation of models happens after conversion step and no longer needs to be done before mp starts
-
-* fix: merging by colours is not fixed
-
-* chore: fix step export not exporting all subelements (including subparts).
-
-* chore: change default behaviour of get_physical_objects to find all subelements in sublevels
-
-* fix: regression in viz object output due to get_physical_object default change
-
-* chore: add minor improvements in allowable arguments and defaults
-
-* chore: WIP binary support
-
-* chore: add more filtering options to get_list_of_files
-
-* chore: test pre-commit linter service in gh action
-
-* fix: edit spelling mistake
-
-* chore: do not allow returning None and provide logging of error whenever a world has no parts.
-
-* fix: when exporting to binjson, first remove all local files in temp dir
-
-* fix: set int32 as export format for binary numbers AND do not use pre-commit linting (yet)
-
-* add filter functions
-
-* More robust modifications of attributes on Beam instance, and general enhanced readability (#38)
-
-* Updated type hints for consistency
-
-* Updated sections
-
-* Updated some vector utils
-
-* Some updates regarding beam and node
-
-* Updates on node and containers for concepts
-
-* Updating node refs
-
-* Updating refs
-
-* Updating section and taper
-
-* Updating Beam
-
-* Adding functions for sorting nodes
-
-* add extra type hint for beam nodes and fix the failing test
-
-* lint using black, isort and flake8
-
-* chore: minor improvements to type hints and default config for viz exports
-
-* fix: pass owner history to lower level ifc write functions opposed to use ifcopenshell to get it. This improves speeds significantly. TODO: Should move to a Ifc&lt;Type&gt;Exporter class system as opposed to always have to pass variables between functions
-
-* chore: change default to always create zip-files during binary export
-
-* chore: minor changes in defaults in PartMesh
-
-* chore: start using a module-specific logger opposed to logging to root
-
-* fix: noticing built packages are not tested against correct python version. Trying with conda_build_config.yaml file now
-
-* fix: remove cache
-
-* chore: experiment with meta.yaml
-
-* chore: further experiment with meta.yaml
-
-* chore: Do not build noarch. Use regular OS-specific packaging
-
-* chore: skip python version in conda config and remove python jinja in meta.yaml
-
-* chore: fix meta mistake
-
-* chore: fix repr trying to print un-initialized attributes
-
-* found incompatible packages for python 3.10
-
-* fix: python 3.10 dev release for adapy on linux and windows
-
-* chore: cleanup of vis export code
-
-* feature: add STL export (requires trimesh installed)
-
-* add method for reading already converted data
-
-* fix: correct failing test on osx
-
-* fix: linting
-
-* feature: add support for gltf export
-
-* add support for trimesh Scene export containing correct color and name of  objects
-
-* add bumpversion as versioning mechanism
-
-* Bump version: 0.0.27 → 0.0.28
-
+* More refactoring in FEM.abaqus. Add ability to convert Primitives to FEM models using Shell elements.
+
+* Minor changes related to refactoring
+
+* Fix face numbering for HEX elements. Minor refactoring
+
+* Minor fix related to fem_to_concept_objects method not adding parents to materials.
+
+* Begun work on improving support for reading ifc files
+
+* minor changes to wall and wall inserts
+
+* further small changes to wall and wall inserts
+
+* Further work on ifc reading
+
+* further work on proper IFCBeam reading
+
+* Proper IFC reading of beams. Next up -&gt; Cardinality
+
+* add functionality to read badly created IFC files (lack of name/tag on elements).
+
+* Add test workflow for docker builds and azure acr
+
+* Further work on masses in FEM
+
+* Further work on improving FEM code stability and decoupling.
+
+* Add option to write physical objects to fem directly without having to define assemblies and parts (creates dummy objects instead).
+
+* Further work on packaging theory. Structuring into local and conda tests.
+
+* prepare testing of snapshot versions of gmsh and pythonocc-core
+
+* fix errors in missing references
+
+* fix win/linux mistake
+
+* Minor fix to version name
+
+* Fix bug in surface set referencing
+
+* Add support for Interface nodes updating Csys object upon merge
+
+* Fix bug where default field and history outputs being set globally
+
+* Fix sesam reader not importing masses due to updated mass element handling
+
+* WIP: Further development on treatment of mass elements.
+
+* Add sesam test file
+
+* Update meta.yaml
+
+* minor fixes and improvements to FEM
+
+* minor update to test assertions
+
+* Write something to start using Ifc instancing
+
+* Start work on ifcmapped repr
+
+* Bump gmsh dep
+
+* Add example ifc file
+
+* Begin work on visualization module
+
+* Working sample of Instancing using MappedItem [WIP]
+
+* Simplify method of turning off/on property exports to IFC
+
+* Further work on revolved IFC beam and exporting to visualization formats such as threejs
+
+* Fix custom json export
+
+* Further work on revolved IFC beam
+
+* WIP export to json and instances export
+
+* Further work on instanced visualization objects
+
+* Further work on IFC
+
+* Add option for exporting to custom json using multithreading
+
+* Set default color to white if trying to normalize something without color
+
+* Prep for FEM viz export to json
+
+* Fix minor bugs in calculix and code aster fem writers.
+
+Continue work on custom json exporter for visualization
+
+Calculix postprocessing is currently suffering from dll errors related to vtk package. Should consider skipping dependency altogether (if possible
+
+* Minor bugfixes in FEM tests
+
+* Further work on conversion of OCC to visualization mesh
+
+* Fix bug in primitive shape units conversion
+
+* Further work on adding features to FEM class and various FEM objects.
+
+Changed FEM container of constraints from list to dict. Seems more user-friendly
+
+* Changing typing for consistency, and added functionality for merging and splitting beams
+
+* Minor fixes in abaqus reading
+
+* Made changes to make tests pass
+
+* FEM: Fix bug in reading/writing abaqus orientations
+
+* Various improvements to fem module
+
+* FEM: Minor improvements to usability of orientations, vector rotations and readability.
+
+* Fix bug in point rotation transform.
+
+* Fix formatting issue caused by outdated black version
+
+* Try to simply swap order in channel priority from krande first to conda-forge
+
+* fix formatting
+
+* Change gmsh package dep to python-gmsh
+
+* start on fixing code aster FEM analysis for static
+
+* FEM: Reduce load in static fem test. Edit Code Aster load writer to not multiply with negative 1
+
+* Further work on debugging dependencies
+
+* Experiment with reduction in dependencies (#37)
+
+* An attempt to reduce package dependency complexity.
+
+Certain deps are only included due to a single function. Should revise
+
+* Add to devops
+
+* Fix failing tests.
+
+* test occt &gt;= 7.6.0 as dependency
+
+* Further work on visualization module and added support for editing section properties and updating the section props calculations
+
+* Separate installing local adapy and pytest
+
+* chore: test using conda build scripts and minor improvements to json export for visualization
+
+* chore: Add conditional use of dev label on conda for testing experimental upstream packages
+
+* chore: Use conditional to set env variable opposed to copying entire statements
+
+* chore: remove no longer used conditionals
+
+* chore: slight edit of conda build command
+
+* chore: further work on conda compilation using fewer dependencies.
+
+* fix: added support for penetration of piping objects using opencascade.
+
+* further work on resolving dependencies
+
+* fix: add support for visualizing joints and exporting it to STEP.
+
+* fix: path makedir prior to bump
+
+* fix: make live file if not exists
+
+* chore: remove python version from name given that it is a noarch package
+
+* chore: Use noarch path for exported package from condabuild
+
+* chore: Try using newly created noarch packages of pytexit and pyquaternion
+
+* chore: do not skip existing of pytexit and pyquaternion
+
+* chore: bump
+
+* chore: fix failing tests for linux
+
+* chore: fix the last failing tests for linux
+
+* chore: add test for reading STEP files.
+
+* chore: add conditional use of native_pointer for importing occ geometry into gmsh
+
+* chore: add minor user options to open and view model in gmsh when using the to_fem_obj method.
+
+* fix: Add handling of pipe elements for new FEM mesh generation using native pointer
+
+* chore: minor improvements in Beam initialization
+
+* chore: minor improvement in exporting custom json related to visualization
+
+* chore: Add option to return file like object in addition to writing to file
+
+* feature: add ability to create custom json file-like object in addition to writing to json file.
+
+* chore: change all tests writing IFC files to disk to reduce IO and to reduce testing time
+
+* chore: reformat visualize module
+
+* fix: now working merging of polygons for custom json
+
+* fix: fix normals. Minor reorganizing of code. Created a PolyModel object
+
+* chore: minor renaming of PolyModel adding
+
+* fix: skip objects not able to convert to polymodel
+
+* chore: lint
+
+* chore: further work on custom json exports
+
+* fix: import colours properly from IFC files. Also fix normalization of colours in colour_norm property. Further work on visualization module
+
+* fix: bug in PolyModel merging fixed
+
+* chore: further work on simplifying generating objects for visualization
+
+* chore: WIP more work on exporting geometries for visualization
+
+* chore: WIP further work visualization export
+
+* chore: WIP visualization export and linting
+
+* fix: WIP viz export and linting
+
+* chore: WIP ifc guid creation
+
+* chore: WIP mesh class AssemblyMesh will now be the core container of model objects designed for visualization only.
+
+* chore: WIP - add example of export to binary + json visualization file set
+
+* chore: Add ability to restart json conversion and skip already converted files
+
+* fix: to_assembly_mesh exported twice the number of geometries due to error in get_physical_objects method
+
+chore: rename to_assembly_mesh to to_vis_mesh
+
+* fix: No longer export all physical objects within parts with a multilevel hierarchy multiple times
+
+* fix: Multiprocessing now works. Translation of models happens after conversion step and no longer needs to be done before mp starts
+
+* fix: merging by colours is not fixed
+
+* chore: fix step export not exporting all subelements (including subparts).
+
+* chore: change default behaviour of get_physical_objects to find all subelements in sublevels
+
+* fix: regression in viz object output due to get_physical_object default change
+
+* chore: add minor improvements in allowable arguments and defaults
+
+* chore: WIP binary support
+
+* chore: add more filtering options to get_list_of_files
+
+* chore: test pre-commit linter service in gh action
+
+* fix: edit spelling mistake
+
+* chore: do not allow returning None and provide logging of error whenever a world has no parts.
+
+* fix: when exporting to binjson, first remove all local files in temp dir
+
+* fix: set int32 as export format for binary numbers AND do not use pre-commit linting (yet)
+
+* add filter functions
+
+* More robust modifications of attributes on Beam instance, and general enhanced readability (#38)
+
+* Updated type hints for consistency
+
+* Updated sections
+
+* Updated some vector utils
+
+* Some updates regarding beam and node
+
+* Updates on node and containers for concepts
+
+* Updating node refs
+
+* Updating refs
+
+* Updating section and taper
+
+* Updating Beam
+
+* Adding functions for sorting nodes
+
+* add extra type hint for beam nodes and fix the failing test
+
+* lint using black, isort and flake8
+
+* chore: minor improvements to type hints and default config for viz exports
+
+* fix: pass owner history to lower level ifc write functions opposed to use ifcopenshell to get it. This improves speeds significantly. TODO: Should move to a Ifc&lt;Type&gt;Exporter class system as opposed to always have to pass variables between functions
+
+* chore: change default to always create zip-files during binary export
+
+* chore: minor changes in defaults in PartMesh
+
+* chore: start using a module-specific logger opposed to logging to root
+
+* fix: noticing built packages are not tested against correct python version. Trying with conda_build_config.yaml file now
+
+* fix: remove cache
+
+* chore: experiment with meta.yaml
+
+* chore: further experiment with meta.yaml
+
+* chore: Do not build noarch. Use regular OS-specific packaging
+
+* chore: skip python version in conda config and remove python jinja in meta.yaml
+
+* chore: fix meta mistake
+
+* chore: fix repr trying to print un-initialized attributes
+
+* found incompatible packages for python 3.10
+
+* fix: python 3.10 dev release for adapy on linux and windows
+
+* chore: cleanup of vis export code
+
+* feature: add STL export (requires trimesh installed)
+
+* add method for reading already converted data
+
+* fix: correct failing test on osx
+
+* fix: linting
+
+* feature: add support for gltf export
+
+* add support for trimesh Scene export containing correct color and name of  objects
+
+* add bumpversion as versioning mechanism
+
+* Bump version: 0.0.27 → 0.0.28
+
 * stick version for now occt=7.5.3 ([`37168ea`](https://github.com/Krande/adapy/commit/37168ea73f5aefc1fea250fa038fb0ab7a9f6380))
 
 * Bump new release ([`e9cdbce`](https://github.com/Krande/adapy/commit/e9cdbce06406a6f1d322face0d0570dca2920b93))
@@ -1795,13 +1804,13 @@ Major refactor, a few minor bugfixes and bump dockerized calculix from v2.16 to 
 
 * Merge pull request #25 from Krande/pr-0.0.17
 
-Update to version 0.0.17
-
-- Moved to conda packaging
-- Started on new backend support using VTK and ipygany for FEM res visualization
-- Further improvements to automatic joint identification and subsequent FEM mesh handling
-- Various bugfixes in usfos and sesam refactor
-- Added beam hashing for further improved uniqueness in beam clash check handling
+Update to version 0.0.17
+
+- Moved to conda packaging
+- Started on new backend support using VTK and ipygany for FEM res visualization
+- Further improvements to automatic joint identification and subsequent FEM mesh handling
+- Various bugfixes in usfos and sesam refactor
+- Added beam hashing for further improved uniqueness in beam clash check handling
 - Caching: added support for caching &#34;up&#34; vector on beams ([`80cb8e9`](https://github.com/Krande/adapy/commit/80cb8e97cc8889b8325cb36305e39f10342ec13e))
 
 * Version 0.0.17
