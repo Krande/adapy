@@ -50,7 +50,8 @@ def write_xml(part: Part, xml_file, embed_sat=False, writer_postprocessor: Calla
     add_boundary_conditions(structures_elem, part)
     add_masses(structures_elem, part)
 
-    writer_postprocessor(root, part)
+    if writer_postprocessor:
+        writer_postprocessor(root, part)
 
     # Write the modified XML back to the file
     os.makedirs(xml_file.parent, exist_ok=True)
