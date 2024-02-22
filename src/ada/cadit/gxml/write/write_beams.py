@@ -37,7 +37,7 @@ def add_segments(beam: Beam):
     wire = ET.SubElement(geom, "wire")
     guide = ET.SubElement(wire, "guide")
     for i, pos in enumerate([beam.n1, beam.n2], start=1):
-        props = {d[i]: str(k) for i, k in enumerate(origin+pos.p)}
+        props = {d[i]: str(k) for i, k in enumerate(origin + pos.p)}
         props.update(dict(end=str(i)))
         ET.SubElement(guide, "position", props)
 

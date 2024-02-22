@@ -26,6 +26,8 @@ from ada.fem import (
 _step_types = Union[StepSteadyState, StepEigen, StepImplicitStatic, StepExplicit]
 
 if TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
+
     import ifcopenshell
     import ifcopenshell.validate
 
@@ -256,10 +258,10 @@ class Assembly(Part):
         print("IFC file creation complete")
         return self.ifc_store.f
 
-    def to_genie_xml(self, destination_xml):
+    def to_genie_xml(self, destination_xml, writer_postprocessor: Callable[[ET.Element, Part], None] = None):
         from ada.cadit.gxml.write.write_xml import write_xml
 
-        write_xml(self, destination_xml)
+        write_xml(self, destination_xml, writer_postprocessor=writer_postprocessor)
 
     def push(self, comment, bimserver_url, username, password, project, merge=False, sync=False):
         """Push current assembly to BimServer with a comment tag that defines the revision name"""
