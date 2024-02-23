@@ -1,6 +1,6 @@
 {
   "name": "ada-py-viewer",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "scripts": {
     "prebuild": "node clean.js",
     "build": "vite build && node embed-script.js",
