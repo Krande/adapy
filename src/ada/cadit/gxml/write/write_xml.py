@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import pathlib
 import xml.etree.ElementTree as ET
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from .write_bcs import add_boundary_conditions
 from .write_beams import add_beams
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 _XML_TEMPLATE = pathlib.Path(__file__).parent / "resources/xml_blank.xml"
 
 
-def write_xml(part: Part, xml_file, embed_sat=False):
+def write_xml(part: Part, xml_file, embed_sat=False, writer_postprocessor: Callable[[ET.Element, Part], None] = None):
     if not isinstance(xml_file, pathlib.Path):
         xml_file = pathlib.Path(xml_file)
 
@@ -27,8 +27,9 @@ def write_xml(part: Part, xml_file, embed_sat=False):
 
     part.consolidate_sections()
     part.consolidate_materials()
-    part.move_all_nodes_here_from_subparts()
-    part.move_all_masses_here_from_subparts()
+
+    # part.move_all_nodes_here_from_subparts()
+    # part.move_all_masses_here_from_subparts()
 
     # Find the <properties> element
     structure_domain = root.find("./model/structure_domain")
@@ -48,6 +49,9 @@ def write_xml(part: Part, xml_file, embed_sat=False):
     add_beams(structures_elem, part, sat_map)
     add_boundary_conditions(structures_elem, part)
     add_masses(structures_elem, part)
+
+    if writer_postprocessor:
+        writer_postprocessor(root, part)
 
     # Write the modified XML back to the file
     os.makedirs(xml_file.parent, exist_ok=True)

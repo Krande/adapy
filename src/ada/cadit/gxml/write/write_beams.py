@@ -31,12 +31,13 @@ def add_segments(beam: Beam):
     straight_segment = ET.SubElement(segments, "straight_segment", props)
 
     d = ["x", "y", "z"]
+    origin = beam.parent.placement.get_absolute_placement().origin
 
     geom = ET.SubElement(straight_segment, "geometry")
     wire = ET.SubElement(geom, "wire")
     guide = ET.SubElement(wire, "guide")
     for i, pos in enumerate([beam.n1, beam.n2], start=1):
-        props = {d[i]: str(k) for i, k in enumerate(pos.p)}
+        props = {d[i]: str(k) for i, k in enumerate(origin + pos.p)}
         props.update(dict(end=str(i)))
         ET.SubElement(guide, "position", props)
 
