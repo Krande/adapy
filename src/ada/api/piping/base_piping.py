@@ -440,5 +440,4 @@ def build_pipe_segments_alt(pipe: Pipe) -> list[PipeSegStraight | PipeSegElbow]:
     return pipe_segments
 
 
-def make_elbow() -> tuple[PipeSegStraight, PipeSegElbow, PipeSegStraight] | None:
-    ...
+def make_elbow() -> tuple[PipeSegStraight, PipeSegElbow, PipeSegStraight] | None: ...
