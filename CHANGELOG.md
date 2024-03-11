@@ -2,6 +2,17 @@
 
 
 
+## v0.2.12 (2024-03-11)
+
+### Chore
+
+* chore: use develop branch of ci tool ([`233c75d`](https://github.com/Krande/adapy/commit/233c75d13269e9a881a28b0f904618824a1f90d6))
+
+### Fix
+
+* fix: pygfx axes helper (#99) ([`3aed586`](https://github.com/Krande/adapy/commit/3aed586299045df9726cde720660de37a8864019))
+
+
 ## v0.2.11 (2024-02-23)
 
 ### Chore
