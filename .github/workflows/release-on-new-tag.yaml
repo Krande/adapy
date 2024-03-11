@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   release:
-    uses: AibelDevs/action-toolbox/.github/workflows/default-tool-release.yaml@main
+    uses: AibelDevs/action-toolbox/.github/workflows/default-tool-release.yaml@fix/conda-build-control
     secrets:
       SOURCE_KEY: ${{ secrets.SOURCE_KEY }}
       CONDA_API_TOKEN: ${{ secrets.CONDA_API_TOKEN }}
