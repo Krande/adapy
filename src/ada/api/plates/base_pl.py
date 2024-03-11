@@ -81,8 +81,7 @@ class Plate(BackendGeom):
         return Plate(name, poly, t, mat=mat, color=color, metadata=metadata, **kwargs)
 
     @staticmethod
-    def from_extruded_area_solid(name, solid: ExtrudedAreaSolid):
-        ...
+    def from_extruded_area_solid(name, solid: ExtrudedAreaSolid): ...
 
     def bbox(self) -> BoundingBox:
         """Bounding Box of plate"""

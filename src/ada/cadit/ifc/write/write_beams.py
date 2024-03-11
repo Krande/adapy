@@ -258,5 +258,4 @@ def sweep_beam(beam, f, profile, global_placement, extrude_dir):
     return extrude_area_solid, loc_plac, ifc_polyline
 
 
-def update_ifc_beam(ifc_store: IfcStore, beam: Beam):
-    ...
+def update_ifc_beam(ifc_store: IfcStore, beam: Beam): ...
