@@ -2,6 +2,7 @@ name: Make Release on push of new tag
 
 # triggered on a tagged release
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*.*.*'
