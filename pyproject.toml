@@ -49,10 +49,26 @@ line-length = 120
 
 [tool.ruff]
 line-length = 120
-exclude = ["examples/"]
+exclude = ["examples/", ".pixi/"]
 
 [tool.ruff.lint]
 ignore = ["E741"]
 
 [tool.isort]
 profile = "black"
+skip = [".pixi/", "node_modules/"]
+
+[tool.pixi.project]
+channels = ["conda-forge"]
+platforms = ["win-64"]
+
+[tool.pixi.feature.lint.dependencies]
+black = "24.4.2"
+isort = "5.13.2"
+ruff = "0.4.10"
+
+[tool.pixi.feature.lint.tasks]
+lint = "isort . && black . --config pyproject.toml && ruff check ."
+
+[tool.pixi.environments]
+lint = ["lint"]
