@@ -2,6 +2,17 @@
 
 
 
+## v0.2.13 (2024-06-26)
+
+### Chore
+
+* chore: allow manual dispatch of release ([`2eb966b`](https://github.com/Krande/adapy/commit/2eb966bce632881028745f969e85ac939ce1b986))
+
+### Fix
+
+* fix: bug in sesam fem reader that did not import larger sets (#100) ([`6e4af9a`](https://github.com/Krande/adapy/commit/6e4af9a75db9d10192e34122b456eeabcbe60197))
+
+
 ## v0.2.12 (2024-03-11)
 
 ### Chore
