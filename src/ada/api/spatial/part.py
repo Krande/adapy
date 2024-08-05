@@ -868,7 +868,7 @@ class Part(BackendGeom):
             auto_reposition=auto_reposition,
             **kwargs,
         )
-        if auto_open_viewer:
+        if auto_open_viewer and renderer == "react":
             from ada.visit.rendering.renderer_react import RendererReact
 
             RendererReact().show()

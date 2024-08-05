@@ -51,7 +51,8 @@ requirements:
     - python
   run:
     - python
-    - kaleido-core 0.1.0
+    - kaleido-core 0.1.0 # [win]
+    - kaleido-core # [not win]
   {% for dep in deps %}
     - {{ dep }}
   {% endfor %}
