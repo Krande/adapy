@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   review:
-    uses: AibelDevs/action-toolbox/.github/workflows/default-tool-pr-review.yaml@fix/conda-build-control
+    uses: AibelDevs/action-toolbox/.github/workflows/default-tool-pr-review.yaml@main
     secrets:
       SOURCE_KEY: ${{ secrets.SOURCE_KEY }}
       CONDA_API_TOKEN: ${{ secrets.CONDA_API_TOKEN }}
