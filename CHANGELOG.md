@@ -2,6 +2,17 @@
 
 
 
+## v0.2.14 (2024-08-05)
+
+### Chore
+
+* chore: remove issue templates ([`fa146c9`](https://github.com/Krande/adapy/commit/fa146c982e2eaee0647d871819e1acece5d828be))
+
+### Fix
+
+* fix: make minor updates to add compatibility with ifcopenshell v0.8 (#103) ([`829c638`](https://github.com/Krande/adapy/commit/829c6380f8166cc9872969d307ac11ec03b90fa2))
+
+
 ## v0.2.13 (2024-06-26)
 
 ### Chore
