@@ -1,7 +1,7 @@
 name: ada-dev
 channels:
+  - https://repo.prefix.dev/code-aster
   - conda-forge
-  - krande
 dependencies:
   - ada-py
   - ada-cpp

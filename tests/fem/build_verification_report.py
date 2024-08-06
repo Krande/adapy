@@ -69,6 +69,7 @@ def create_df_of_data(results: list[FeaVerificationResult], geom_repr, el_order,
         geo = res.metadata["geo"]
         elo = res.metadata["elo"]
         hq = res.metadata["hexquad"]
+        uri = res.metadata["reduced_integration"]
 
         if geom_repr != geo or elo != el_order:
             continue
@@ -123,45 +124,47 @@ def results_from_cache(results_dict: dict) -> FeaVerificationResult:
 
 
 def simulate(
-    bm, el_order, geom_repr, analysis_software, use_hex_quad, eig_modes, overwrite, execute
+    bm, el_order, geom_repr, analysis_software, use_hex_quad, use_reduced_int, eig_modes, overwrite, execute
 ) -> list[FeaVerificationResult]:
     results = []
-    short_name_map = dict(calculix="ccx", code_aster="ca", abaqus="aba", sesam="ses")
     for elo in el_order:
         for geo in geom_repr:
             for soft in analysis_software:
                 for hexquad in use_hex_quad:
-                    try:
-                        result = test_fem_eig(
-                            bm,
-                            soft,
-                            geo,
-                            elo,
-                            hexquad,
-                            short_name_map=short_name_map,
-                            overwrite=overwrite,
-                            execute=execute,
-                            eigen_modes=eig_modes,
-                        )
-                    except FileNotFoundError as e:
-                        logger.error(e)
-                        continue
-                    if result is None:
-                        logging.error("No result file is located")
-                        continue
+                    for uri in use_reduced_int:
+                        try:
+                            result = test_fem_eig(
+                                bm,
+                                soft,
+                                geo,
+                                elo,
+                                hexquad,
+                                reduced_integration=uri,
+                                short_name_map=short_name_map,
+                                overwrite=overwrite,
+                                execute=execute,
+                                eigen_modes=eig_modes,
+                            )
+                        except FileNotFoundError as e:
+                            logger.error(e)
+                            continue
+                        if result is None:
+                            logging.error("No result file is located")
+                            continue
 
-                    metadata = dict()
-                    metadata["geo"] = geo
-                    metadata["elo"] = elo
-                    metadata["hexquad"] = hexquad
-                    fvr = FeaVerificationResult(
-                        name=result.name,
-                        fem_format=soft,
-                        results=result,
-                        metadata=metadata,
-                        eig_data=result.get_eig_summary(),
-                    )
-                    results.append(fvr)
+                        metadata = dict()
+                        metadata["geo"] = geo
+                        metadata["elo"] = elo
+                        metadata["hexquad"] = hexquad
+                        metadata["reduced_integration"] = uri
+                        fvr = FeaVerificationResult(
+                            name=result.name,
+                            fem_format=soft,
+                            results=result,
+                            metadata=metadata,
+                            eig_data=result.get_eig_summary(),
+                        )
+                        results.append(fvr)
 
     if len(results) == 0:
         raise ValueError("No results are located")
@@ -170,11 +173,12 @@ def simulate(
 
 
 def main(overwrite, execute):
-    analysis_software = ["calculix", "code_aster"]
+    software = ["calculix", "code_aster"]
     el_order = [1, 2]
     geom_repr = ["line", "shell", "solid"]
     eig_modes = 11
-    use_hex_quad = [False, True]
+    uhq = [False, True]  # use hex or quad elements instead of tri or tet
+    uri = [False, True]  # use reduced integration
 
     bm = beam()
 
@@ -190,7 +194,7 @@ def main(overwrite, execute):
 
     table_format = TableFormat(font_size=8, float_fmt=".3f")
 
-    results = simulate(bm, el_order, geom_repr, analysis_software, use_hex_quad, eig_modes, overwrite, execute)
+    results = simulate(bm, el_order, geom_repr, software, uhq, uri, eig_modes, overwrite, execute)
 
     cache_dir = pathlib.Path("").resolve().absolute() / ".cache"
     os.makedirs(cache_dir, exist_ok=True)
