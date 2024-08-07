@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 
 from ada.api.containers import Nodes
 from ada.config import logger
+
 from .containers import FemElements, FemSections, FemSets
 from .sets import FemSet
 from .surfaces import Surface
@@ -14,7 +15,6 @@ if TYPE_CHECKING:
     from ada import Part
     from ada.api.beams import Beam
     from ada.api.nodes import Node
-    from ada.fem.options import FemOptions
     from ada.fem import (
         Amplitude,
         Bc,
@@ -35,6 +35,7 @@ if TYPE_CHECKING:
         StepImplicitStatic,
         StepSteadyState,
     )
+    from ada.fem.options import FemOptions
     from ada.fem.results.common import Mesh
     from ada.fem.steps import Step
 
@@ -131,13 +132,13 @@ class FEM:
         return mass
 
     def add_set(
-            self,
-            fem_set: FemSet,
-            p=None,
-            vol_box=None,
-            vol_cyl=None,
-            single_member=False,
-            tol=1e-4,
+        self,
+        fem_set: FemSet,
+        p=None,
+        vol_box=None,
+        vol_cyl=None,
+        single_member=False,
+        tol=1e-4,
     ) -> FemSet:
         """
         :param fem_set: A fem set object

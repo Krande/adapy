@@ -16,6 +16,36 @@ from ada.fem.results import EigenDataSummary
 from ada.fem.results.common import FEAResult
 
 
+def get_package_version(package_names: list[str]) -> list[str]:
+    import subprocess
+
+    # Construct the command to list packages in the current environment
+    command = ["mamba", "list"]
+
+    # Execute the command using the current process env and capture the output
+    result = subprocess.run(command, text=True, capture_output=True, shell=True)
+
+    # Check if the command was successful
+    if result.returncode != 0:
+        raise Exception(f"Failed to list packages: {result.stderr}")
+    versions = []
+    for package_name in package_names:
+        # Process the output to find the package version
+        for line in result.stdout.splitlines():
+            if not line.startswith(package_name):
+                continue
+            # Extract the version number, which is the second column
+            parts = line.split()
+            if len(parts) > 1:
+                versions.append(parts[1])
+                break
+    if len(versions) == 0 or len(versions) != len(package_names):
+        raise Exception(f"Failed to find versions for packages: {package_names}")
+
+    # If the package is not found, return None
+    return versions
+
+
 @dataclass
 class FeaVerificationResult:
     name: str
@@ -69,10 +99,14 @@ def create_df_of_data(results: list[FeaVerificationResult], geom_repr, el_order,
         geo = res.metadata["geo"]
         elo = res.metadata["elo"]
         hq = res.metadata["hexquad"]
-        uri = res.metadata["reduced_integration"]
+        uri = res.metadata.get("reduced_integration", False)
 
         if geom_repr != geo or elo != el_order:
             continue
+
+        uri_str = ""
+        if uri is True:
+            uri_str = "R"
 
         if geo.upper() == "SOLID":
             s_str = "_"
@@ -84,7 +118,7 @@ def create_df_of_data(results: list[FeaVerificationResult], geom_repr, el_order,
             s_str = ""
 
         short_name = soft.replace(soft, short_name_map[soft])
-        value_col = f"{short_name}{s_str}"
+        value_col = f"{short_name}{s_str}{uri_str}"
         df_current = eig_data_to_df(res.eig_data, ["Mode", value_col])
         new_col = df_current[value_col] if df_main is not None else df_current
         df_main = append_df(df_main, new_col)
@@ -181,18 +215,19 @@ def main(overwrite, execute):
     uri = [False, True]  # use reduced integration
 
     bm = beam()
+    ca_ver, ccx_ver = get_package_version(["code-aster", "calculix"])
 
     one = OneDoc("report")
     one.variables = dict(
         geom_specifics=str(bm),
-        ca_version="16.4.2",
-        ccx_version="2.21",
+        ca_version=ca_ver,
+        ccx_version=ccx_ver,
         aba_version="2021",
         ses_version="10",
         num_modes=eig_modes,
     )
 
-    table_format = TableFormat(font_size=8, float_fmt=".3f")
+    table_format = TableFormat(font_size=6, float_fmt=".2f")
 
     results = simulate(bm, el_order, geom_repr, software, uhq, uri, eig_modes, overwrite, execute)
 

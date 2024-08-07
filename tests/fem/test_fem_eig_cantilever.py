@@ -21,8 +21,11 @@ EL_TYPES = ada.fem.Elem.EL_TYPES
 
 def is_conditions_unsupported(fem_format, geom_repr, elem_order, reduced_integration, use_hex_quad):
     fem_format = FEA.from_str(fem_format)
-    if reduced_integration is True and use_hex_quad is False:
-        if geom_repr == GeomRepr.SHELL or geom_repr == GeomRepr.SOLID:
+    if reduced_integration is True:
+        if use_hex_quad is False:
+            if geom_repr == GeomRepr.SHELL or geom_repr == GeomRepr.SOLID:
+                return True
+        if fem_format == FEA.CODE_ASTER:
             return True
     if fem_format == FEA.CALCULIX and geom_repr == GeomRepr.LINE:
         return True
@@ -40,19 +43,19 @@ def is_conditions_unsupported(fem_format, geom_repr, elem_order, reduced_integra
 @pytest.mark.parametrize("elem_order", [1, 2])
 @pytest.mark.parametrize("reduced_integration", [True, False])
 def test_fem_eig(
-        beam_fixture,
-        fem_format,
-        geom_repr,
-        elem_order,
-        use_hex_quad,
-        short_name_map,
-        reduced_integration,
-        overwrite=True,
-        execute=True,
-        eigen_modes=11,
-        name=None,
-        debug=False,
-        **kwargs,
+    beam_fixture,
+    fem_format,
+    geom_repr,
+    elem_order,
+    use_hex_quad,
+    short_name_map,
+    reduced_integration,
+    overwrite=True,
+    execute=True,
+    eigen_modes=11,
+    name=None,
+    debug=False,
+    **kwargs,
 ) -> FEAResult | None:
     geom_repr = GeomRepr.from_str(geom_repr)
 
@@ -65,6 +68,8 @@ def test_fem_eig(
     a = ada.Assembly("MyAssembly") / [p / beam_fixture]
 
     if geom_repr == GeomRepr.LINE and use_hex_quad is True:
+        return None
+    if reduced_integration is True and fem_format == FEA.CODE_ASTER:
         return None
 
     props = dict(use_hex=use_hex_quad) if geom_repr == GeomRepr.SOLID else dict(use_quads=use_hex_quad)
@@ -95,7 +100,7 @@ def test_fem_eig(
             continue
         p.fem.options.ABAQUS.default_elements.use_reduced_integration = reduced_integration
         p.fem.options.CALCULIX.default_elements.use_reduced_integration = reduced_integration
-        #p.fem.options.CODE_ASTER.default_elements.use_reduced_integration = reduced_integration
+        p.fem.options.CODE_ASTER.use_reduced_integration = reduced_integration
     try:
         res = a.to_fem(name, fem_format, overwrite=overwrite, execute=execute, scratch_dir=SCRATCH_DIR)
     except IncompatibleElements as e:

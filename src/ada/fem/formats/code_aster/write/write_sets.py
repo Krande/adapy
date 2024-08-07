@@ -53,7 +53,7 @@ def _add_cell_sets(cells_group, part: "Part", families):
         else:
             cells = np.array(list(map(get_node_ids_from_element, elements)))
 
-        med_type = ada_to_med_type(group)
+        med_type = ada_to_med_type(group, part.fem.options.CODE_ASTER.use_reduced_integration)
         med_cells = cells_group.get(med_type)
         family = med_cells.create_dataset("FAM", data=cell_data)
         family.attrs.create("CGT", 1)
