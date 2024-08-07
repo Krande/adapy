@@ -60,16 +60,43 @@ profile = "black"
 skip = [".pixi/", "node_modules/"]
 
 [tool.pixi.project]
-channels = ["conda-forge"]
+channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
 platforms = ["win-64"]
+
+[tool.pixi.environments]
+prod = {features = ["py312"], solve-group = "prod"}
+lint = { features = ["lint"], no-default-feature = true}
+docs = { features = ["py312", "docs"], solve-group = "prod"}
+tests = { features = ["py312", "tests"], solve-group = "prod"}
+
+[tool.pixi.feature.py312.dependencies]
+python="3.12"
+ada-py = "*"
+code-aster = "*"
+lark = "*"
+
+[tool.pixi.feature.py312.pypi-dependencies]
+ada-py = {path = ".", editable = true}
+
+[tool.pixi.feature.tests.dependencies]
+pytest = "*"
+
 
 [tool.pixi.feature.lint.dependencies]
 black = "24.4.2"
 isort = "5.13.2"
 ruff = "0.4.10"
 
+[tool.pixi.feature.docs.dependencies]
+sphinx = "*"
+furo = "*"
+myst-parser = "*"
+scipy = "*"
+
 [tool.pixi.feature.lint.tasks]
 lint = "isort . && black . --config pyproject.toml && ruff check ."
+[tool.pixi.feature.docs.tasks]
+docs = "cd docs && make html"
+[tool.pixi.feature.tests.tasks]
+tests = "pytest tests"
 
-[tool.pixi.environments]
-lint = ["lint"]
