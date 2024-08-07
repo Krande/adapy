@@ -5,10 +5,10 @@
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="prev" title="IFC Database" href="ifc_database.html" />
 
-    <!-- Generated with Sphinx 7.4.7 and Furo 2024.07.18 -->
+    <!-- Generated with Sphinx 8.0.2 and Furo 2024.08.06 -->
         <title>Code Documentation - ADA - Assembly for Design &amp; Analysis</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=a746c00c" />
-    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=613ab9ff" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=354aac6f" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=302659d7" />
     <link rel="stylesheet" type="text/css" href="../_static/custom.css" />
     
@@ -1741,8 +1741,18 @@ a library of structural material properties that have been properly defined and 
 <section id="module-ada.base">
 <span id="base-classes"></span><h3>Base Classes<a class="headerlink" href="#module-ada.base" title="Link to this heading">¶</a></h3>
 </section>
-<section id="visualization-classes">
-<h3>Visualization Classes<a class="headerlink" href="#visualization-classes" title="Link to this heading">¶</a></h3>
+<section id="module-ada.visit.concept">
+<span id="visualization-classes"></span><h3>Visualization Classes<a class="headerlink" href="#module-ada.visit.concept" title="Link to this heading">¶</a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="ada.visit.concept.ObjectMesh">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ada.visit.concept.</span></span><span class="sig-name descname"><span class="pre">ObjectMesh</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">guid:</span> <span class="pre">'str'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">faces:</span> <span class="pre">'np.ndarray'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">position:</span> <span class="pre">'np.ndarray'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">normal:</span> <span class="pre">'np.ndarray</span> <span class="pre">|</span> <span class="pre">None'</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">color:</span> <span class="pre">'list</span> <span class="pre">|</span> <span class="pre">None'</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">edges:</span> <span class="pre">'np.ndarray'</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">vertex_color:</span> <span class="pre">'np.ndarray'</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">instances:</span> <span class="pre">'np.ndarray</span> <span class="pre">|</span> <span class="pre">None'</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">id_sequence:</span> <span class="pre">'dict'</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">translation:</span> <span class="pre">'np.ndarray'</span> <span class="pre">=</span> <span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.visit.concept.ObjectMesh" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="ada.visit.concept.PartMesh">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ada.visit.concept.</span></span><span class="sig-name descname"><span class="pre">PartMesh</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'str'</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">id_map</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'dict[str,</span> <span class="pre">ObjectMesh]'</span></span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.visit.concept.PartMesh" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
 </section>
 </section>
 </section>
@@ -2060,7 +2070,11 @@ a library of structural material properties that have been properly defined and 
 <li><a class="reference internal" href="#ada.sections.utils.interpret_section_str"><code class="docutils literal notranslate"><span class="pre">interpret_section_str()</span></code></a></li>
 <li><a class="reference internal" href="#ada.sections.utils.profile_db_collect"><code class="docutils literal notranslate"><span class="pre">profile_db_collect()</span></code></a></li>
 <li><a class="reference internal" href="#module-ada.base">Base Classes</a></li>
-<li><a class="reference internal" href="#visualization-classes">Visualization Classes</a></li>
+<li><a class="reference internal" href="#module-ada.visit.concept">Visualization Classes</a><ul>
+<li><a class="reference internal" href="#ada.visit.concept.ObjectMesh"><code class="docutils literal notranslate"><span class="pre">ObjectMesh</span></code></a></li>
+<li><a class="reference internal" href="#ada.visit.concept.PartMesh"><code class="docutils literal notranslate"><span class="pre">PartMesh</span></code></a></li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>

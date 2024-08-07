@@ -199,5 +199,5 @@ Base Classes
 Visualization Classes
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. automodule:: ada.visualize.concept
+.. automodule:: ada.visit.concept
    :members:
