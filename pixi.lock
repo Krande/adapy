@@ -611,6 +611,13 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/zstandard-0.23.0-py312h7606c53_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/zstd-1.5.6-h0ea2cb4_0.conda
       - pypi: .
+  frontend:
+    channels:
+    - url: https://repo.prefix.dev/code-aster/
+    - url: https://conda.anaconda.org/conda-forge/
+    packages:
+      win-64:
+      - conda: https://conda.anaconda.org/conda-forge/win-64/nodejs-22.5.1-h57928b3_0.conda
   lint:
     channels:
     - url: https://repo.prefix.dev/code-aster/
@@ -1203,7 +1210,7 @@ packages:
   name: ada-py
   version: 0.2.14
   path: .
-  sha256: 2a921b8c282e884712dcc9d373e72bf64fd911e3f9c6a96c0eecdacb290000bb
+  sha256: 50a3a5d6752f50d169035372d28582d72c79047c348f4fa35c59f4e887f2063c
   requires_python: '>=3.10'
   editable: true
 - kind: conda
@@ -1575,7 +1582,6 @@ packages:
   - vc14_runtime >=14.29.30139
   license: bzip2-1.0.6
   license_family: BSD
-  purls: []
   size: 54927
   timestamp: 1720974860185
 - kind: conda
@@ -1587,7 +1593,6 @@ packages:
   sha256: 7f37bb33c7954de1b4d19ad622859feb4f6c58f751c38b895524cad4e44af72e
   md5: 9caa97c9504072cd060cf0a3142cc0ed
   license: ISC
-  purls: []
   size: 154943
   timestamp: 1720077592592
 - kind: conda
@@ -3567,7 +3572,6 @@ packages:
   - expat 2.6.2.*
   license: MIT
   license_family: MIT
-  purls: []
   size: 139224
   timestamp: 1710362609641
 - kind: conda
@@ -3584,7 +3588,6 @@ packages:
   - vs2015_runtime >=14.16.27012
   license: MIT
   license_family: MIT
-  purls: []
   size: 42063
   timestamp: 1636489106777
 - kind: conda
@@ -3862,7 +3865,6 @@ packages:
   - vc >=14.2,<15
   - vc14_runtime >=14.29.30139
   license: Unlicense
-  purls: []
   size: 876677
   timestamp: 1718051113874
 - kind: conda
@@ -4021,7 +4023,6 @@ packages:
   - zlib 1.3.1 *_1
   license: Zlib
   license_family: Other
-  purls: []
   size: 56186
   timestamp: 1716874730539
 - kind: conda
@@ -4623,6 +4624,18 @@ packages:
   size: 992965
   timestamp: 1722704130398
 - kind: conda
+  name: nodejs
+  version: 22.5.1
+  build: h57928b3_0
+  subdir: win-64
+  url: https://conda.anaconda.org/conda-forge/win-64/nodejs-22.5.1-h57928b3_0.conda
+  sha256: 9fa72667f364172fbb256bdd373c80c514cf022c97fb2fde98808d5ab20f042b
+  md5: d2a82d7978da16598d53d2a254a46deb
+  license: MIT
+  license_family: MIT
+  size: 24852654
+  timestamp: 1721505665699
+- kind: conda
   name: notebook-shim
   version: 0.2.4
   build: pyhd8ed1ab_0
@@ -4767,7 +4780,6 @@ packages:
   - pyopenssl >=22.1
   license: Apache-2.0
   license_family: Apache
-  purls: []
   size: 8385012
   timestamp: 1721197465883
 - kind: conda
@@ -5433,7 +5445,6 @@ packages:
   constrains:
   - python_abi 3.12.* *_cp312
   license: Python-2.0
-  purls: []
   size: 16173770
   timestamp: 1718619012084
 - kind: conda
@@ -6347,7 +6358,6 @@ packages:
   - vc14_runtime >=14.29.30139
   license: TCL
   license_family: BSD
-  purls: []
   size: 3503410
   timestamp: 1699202577803
 - kind: conda
@@ -6579,7 +6589,6 @@ packages:
   sha256: 7b2b69c54ec62a243eb6fba2391b5e443421608c3ae5dbff938ad33ca8db5122
   md5: 161081fc7cec0bfda0d86d7cb595f8d8
   license: LicenseRef-Public-Domain
-  purls: []
   size: 119815
   timestamp: 1706886945727
 - kind: conda
@@ -6594,7 +6603,6 @@ packages:
   - vs2015_runtime >=14.29.30037
   license: LicenseRef-Proprietary
   license_family: PROPRIETARY
-  purls: []
   size: 1283972
   timestamp: 1666630199266
 - kind: conda
@@ -6671,7 +6679,6 @@ packages:
   - vc14
   license: BSD-3-Clause
   license_family: BSD
-  purls: []
   size: 17391
   timestamp: 1717709040616
 - kind: conda
@@ -6689,7 +6696,6 @@ packages:
   - vs2015_runtime 14.40.33810.* *_20
   license: LicenseRef-ProprietaryMicrosoft
   license_family: Proprietary
-  purls: []
   size: 751934
   timestamp: 1717709031266
 - kind: conda
@@ -6705,7 +6711,6 @@ packages:
   - vc14_runtime >=14.40.33810
   license: BSD-3-Clause
   license_family: BSD
-  purls: []
   size: 17395
   timestamp: 1717709043353
 - kind: conda
@@ -7116,7 +7121,6 @@ packages:
   - vc >=14.1,<15
   - vs2015_runtime >=14.16.27033
   license: LGPL-2.1 and GPL-2.0
-  purls: []
   size: 217804
   timestamp: 1660346976440
 - kind: conda

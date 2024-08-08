@@ -69,6 +69,7 @@ lint = { features = ["lint"], no-default-feature = true}
 docs = { features = ["py312", "docs"], solve-group = "prod"}
 tests = { features = ["py312", "tests"], solve-group = "prod"}
 femtests = { features = ["py312", "tests", "femtests"], solve-group = "prod"}
+frontend = { features = ["web"], no-default-feature = true}
 
 [tool.pixi.feature.py312.dependencies]
 python="3.12"
@@ -96,6 +97,9 @@ furo = "*"
 myst-parser = "*"
 scipy = "*"
 
+[tool.pixi.feature.web.dependencies]
+nodejs = "*"
+
 [tool.pixi.feature.lint.tasks]
 lint = "isort . && black . --config pyproject.toml && ruff check ."
 [tool.pixi.feature.docs.tasks]
@@ -104,3 +108,5 @@ docs = "cd docs && make html"
 tests = "pytest tests"
 [tool.pixi.feature.femtests.tasks]
 ftests = { cmd="python build_verification_report.py", cwd="./tests/fem" }
+[tool.pixi.feature.web.tasks]
+npm = { cmd="npm", cwd="./src/frontend" }
