@@ -299,7 +299,9 @@ def main(overwrite, execute):
     uri = [False, True]  # use reduced integration
 
     bm = beam()
-    ca_ver, ccx_ver = get_package_version(["code-aster", "calculix"])
+    # ca_ver, ccx_ver = get_package_version(["code-aster", "calculix"])
+    ca_ver = "17.1.0"
+    ccx_ver = "2.21"
 
     one = OneDoc("report")
     one.variables = dict(
