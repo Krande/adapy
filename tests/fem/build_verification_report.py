@@ -9,8 +9,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 import pandas as pd
-
-from ada.fem.results.sqlite_store import SQLiteFEAStore
 from conftest import beam
 from dotenv import load_dotenv
 from paradoc import OneDoc
@@ -21,6 +19,7 @@ from ada.config import logger
 from ada.fem.formats.abaqus.config import AbaqusSetup
 from ada.fem.results import EigenDataSummary
 from ada.fem.results.common import FEAResult
+from ada.fem.results.sqlite_store import SQLiteFEAStore
 
 load_dotenv()
 
