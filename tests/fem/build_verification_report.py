@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 import pandas as pd
+
+from ada.fem.results.sqlite_store import SQLiteFEAStore
 from conftest import beam
 from dotenv import load_dotenv
 from paradoc import OneDoc
@@ -260,7 +262,7 @@ def simulate(
     return results
 
 
-def post_processing_abaqus(odb_file: pathlib.Path, overwrite=False):
+def post_processing_abaqus(odb_file: pathlib.Path, overwrite=False) -> SQLiteFEAStore:
     sqlite_file = odb_file.with_suffix(".sqlite")
     if sqlite_file.exists() is False or overwrite is True:
         result = subprocess.run(
@@ -268,8 +270,7 @@ def post_processing_abaqus(odb_file: pathlib.Path, overwrite=False):
         )
         if result.returncode != 0:
             raise Exception(f"Failed to run ODBDump: {result.stderr}")
-
-    return
+    return SQLiteFEAStore(sqlite_file)
 
 
 def main(overwrite, execute):
@@ -392,4 +393,4 @@ def main(overwrite, execute):
 
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)
-    main(overwrite=False, execute=False)
+    main(overwrite=True, execute=True)
