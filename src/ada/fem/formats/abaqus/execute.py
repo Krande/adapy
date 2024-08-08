@@ -28,6 +28,9 @@ def run_abaqus(
     run_cmd = None
     custom_bat_str = None
 
+    if metadata is None:
+        metadata = {}
+
     aba_version = metadata.get("abaqus_version", get_latest_version())
     subr_path = metadata.get("subroutine_path", None)
 

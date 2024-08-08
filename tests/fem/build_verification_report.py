@@ -2,25 +2,47 @@ import json
 import logging
 import os
 import pathlib
+import re
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 
 import pandas as pd
 from conftest import beam
+from dotenv import load_dotenv
 from paradoc import OneDoc
 from paradoc.common import TableFormat
 from test_fem_eig_cantilever import test_fem_eig
 
 from ada.config import logger
+from ada.fem.formats.abaqus.config import AbaqusSetup
 from ada.fem.results import EigenDataSummary
 from ada.fem.results.common import FEAResult
 
+load_dotenv()
+
+ODB_DUMP_EXE = shutil.which("ODBDump")
+if ODB_DUMP_EXE is not None:
+    ODB_DUMP_EXE = pathlib.Path(ODB_DUMP_EXE)
+else:
+    ODB_DUMP_EXE = os.getenv("ODB_DUMP_EXE", None)
+    if ODB_DUMP_EXE is not None:
+        ODB_DUMP_EXE = pathlib.Path(ODB_DUMP_EXE)
+
+
+ABAQUS_EXE = os.getenv("ADA_abaqus_exe", None)
+if ABAQUS_EXE is not None:
+    ABAQUS_EXE = pathlib.Path(ABAQUS_EXE)
+
+SESTRA_EXE = os.getenv("ADA_sestra_exe", None)
+if SESTRA_EXE is not None:
+    SESTRA_EXE = pathlib.Path(SESTRA_EXE)
+
 
 def get_package_version(package_names: list[str]) -> list[str]:
-    import subprocess
-
     # Construct the command to list packages in the current environment
-    command = ["mamba", "list"]
+    command = ["conda", "list"]
 
     # Execute the command using the current process env and capture the output
     result = subprocess.run(command, text=True, capture_output=True, shell=True)
@@ -44,6 +66,26 @@ def get_package_version(package_names: list[str]) -> list[str]:
 
     # If the package is not found, return None
     return versions
+
+
+def get_abaqus_version():
+    command = [ABAQUS_EXE.as_posix(), "information=release"]
+    result = subprocess.run(command, text=True, capture_output=True, shell=True)
+    if result.returncode != 0:
+        raise Exception(f"Failed to get Abaqus version: {result.stderr}")
+    re_aba = re.compile(r"(?<=Abaqus\s)(?P<version>\d{4}).*?(?P<release>RELr\d+\s\d+)", re.MULTILINE | re.DOTALL)
+    match = re_aba.search(result.stdout)
+    version_number = match.group("version")
+    release_info = match.group("release")
+    return f"{version_number} ({release_info})"
+
+
+def get_sesam_version():
+    ses_path_str = SESTRA_EXE.as_posix()
+    re_sestra = re.compile(r"V(?P<version>\d+\.\d+-\d+)", re.MULTILINE | re.DOTALL)
+    match = re_sestra.search(ses_path_str)
+    version_number = match.group("version")
+    return f"{version_number}"
 
 
 @dataclass
@@ -157,6 +199,17 @@ def results_from_cache(results_dict: dict) -> FeaVerificationResult:
     return res
 
 
+def run_odb_dump(result: FEAResult) -> pathlib.Path | None:
+    if ODB_DUMP_EXE is None:
+        return None
+    sqlite_file = result.results_file_path.with_suffix(".sqlite")
+    command = [ODB_DUMP_EXE.as_posix(), "--odbFile", result.results_file_path, "--sqliteFile", sqlite_file]
+    result = subprocess.run(command, shell=True, check=True)
+    if result.returncode != 0:
+        raise Exception(f"Failed to run ODBDump: {result.stderr}")
+    return sqlite_file
+
+
 def simulate(
     bm, el_order, geom_repr, analysis_software, use_hex_quad, use_reduced_int, eig_modes, overwrite, execute
 ) -> list[FeaVerificationResult]:
@@ -191,6 +244,7 @@ def simulate(
                         metadata["elo"] = elo
                         metadata["hexquad"] = hexquad
                         metadata["reduced_integration"] = uri
+
                         fvr = FeaVerificationResult(
                             name=result.name,
                             fem_format=soft,
@@ -206,8 +260,38 @@ def simulate(
     return results
 
 
+def post_processing_abaqus(odb_file: pathlib.Path, overwrite=False):
+    sqlite_file = odb_file.with_suffix(".sqlite")
+    if sqlite_file.exists() is False or overwrite is True:
+        result = subprocess.run(
+            [ODB_DUMP_EXE, "--odbFile", odb_file, "--sqliteFile", sqlite_file], text=True, check=True
+        )
+        if result.returncode != 0:
+            raise Exception(f"Failed to run ODBDump: {result.stderr}")
+
+    return
+
+
 def main(overwrite, execute):
-    software = ["calculix", "code_aster"]
+    if ODB_DUMP_EXE is not None:
+        AbaqusSetup.set_default_post_processor(post_processing_abaqus)
+
+    software = []
+    software.extend(["calculix", "code_aster"])
+    aba_version = "2021"
+    if ABAQUS_EXE is not None:
+        if not ABAQUS_EXE.exists():
+            raise FileNotFoundError(f"ABAQUS executable not found at {ABAQUS_EXE}")
+        software.append("abaqus")
+        aba_version = get_abaqus_version()
+
+    ses_version = "10"
+    if SESTRA_EXE is not None:
+        if not SESTRA_EXE.exists():
+            raise FileNotFoundError(f"SESTRA executable not found at {SESTRA_EXE}")
+        software.append("sesam")
+        ses_version = get_sesam_version()
+
     el_order = [1, 2]
     geom_repr = ["line", "shell", "solid"]
     eig_modes = 11
@@ -222,8 +306,8 @@ def main(overwrite, execute):
         geom_specifics=str(bm),
         ca_version=ca_ver,
         ccx_version=ccx_ver,
-        aba_version="2021",
-        ses_version="10",
+        aba_version=aba_version,
+        ses_version=ses_version,
         num_modes=eig_modes,
     )
 

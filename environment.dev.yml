@@ -9,4 +9,5 @@ dependencies:
   - code-aster
   - occt=*=*novtk*
   - trimesh >=4.1.0
+  - python-dotenv
   - pytest

@@ -68,6 +68,7 @@ prod = {features = ["py312"], solve-group = "prod"}
 lint = { features = ["lint"], no-default-feature = true}
 docs = { features = ["py312", "docs"], solve-group = "prod"}
 tests = { features = ["py312", "tests"], solve-group = "prod"}
+femtests = { features = ["py312", "tests", "femtests"], solve-group = "prod"}
 
 [tool.pixi.feature.py312.dependencies]
 python="3.12"
@@ -81,6 +82,8 @@ ada-py = {path = ".", editable = true}
 [tool.pixi.feature.tests.dependencies]
 pytest = "*"
 
+[tool.pixi.feature.femtests.dependencies]
+paradoc = "*"
 
 [tool.pixi.feature.lint.dependencies]
 black = "24.4.2"
@@ -99,4 +102,5 @@ lint = "isort . && black . --config pyproject.toml && ruff check ."
 docs = "cd docs && make html"
 [tool.pixi.feature.tests.tasks]
 tests = "pytest tests"
-
+[tool.pixi.feature.femtests.tasks]
+ftests = { cmd="python build_verification_report.py", cwd="./tests/fem" }

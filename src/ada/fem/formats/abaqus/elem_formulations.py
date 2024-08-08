@@ -63,7 +63,7 @@ class AbaqusDefaultElemTypes:
         if res is None:
             raise ValueError(f'Unrecognized element type "{el_type}"')
 
-        if self.use_reduced_integration and self.SHELL.TRIANGLE in res:
+        if self.use_reduced_integration and res in (self.SHELL.TRIANGLE, self.SHELL.TRIANGLE6, "S6"):
             raise IncompatibleElements(f"Reduced integration is not supported for triangle elements {res}")
         if self.use_reduced_integration and res in (self.SOLID.PRISM6, self.SOLID.TETRA, self.SOLID.TETRA10):
             raise IncompatibleElements(f"Reduced integration is not supported for tetrahedral elements {res}")
