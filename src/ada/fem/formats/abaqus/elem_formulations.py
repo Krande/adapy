@@ -37,11 +37,12 @@ class AbaqusDefaultLineTypes:
 
 
 class AbaqusDefaultElemTypes:
-    def __init__(self):
+    def __init__(self, is_calculix_variant: bool = False):
         self.LINE = AbaqusDefaultLineTypes()
         self.SHELL = AbaqusDefaultShellTypes()
         self.SOLID = AbaqusDefaultSolidTypes()
         self.use_reduced_integration = False
+        self.is_calculix_variant = is_calculix_variant
 
     def get_element_type(self, el_type: shape_def.LineShapes | shape_def.ShellShapes | shape_def.SolidShapes) -> str:
         from ada.fem.shapes import ElemType
@@ -63,10 +64,21 @@ class AbaqusDefaultElemTypes:
         if res is None:
             raise ValueError(f'Unrecognized element type "{el_type}"')
 
-        if self.use_reduced_integration and res in (self.SHELL.TRIANGLE, self.SHELL.TRIANGLE6, "S6"):
-            raise IncompatibleElements(f"Reduced integration is not supported for triangle elements {res}")
-        if self.use_reduced_integration and res in (self.SOLID.PRISM6, self.SOLID.TETRA, self.SOLID.TETRA10):
-            raise IncompatibleElements(f"Reduced integration is not supported for tetrahedral elements {res}")
+        if self.is_calculix_variant:
+            if self.use_reduced_integration and res in (self.SHELL.TRIANGLE, self.SHELL.TRIANGLE6, "S6"):
+                raise IncompatibleElements(f"Reduced integration is not supported for triangle elements {res}")
+            if self.use_reduced_integration and res in (self.SOLID.PRISM6, self.SOLID.TETRA, self.SOLID.TETRA10):
+                raise IncompatibleElements(f"Reduced integration is not supported for tetrahedral elements {res}")
+        else:
+            if res in (self.LINE.LINE, self.LINE.LINE3) and self.use_reduced_integration is True:
+                raise IncompatibleElements(f"Reduced integration is not supported for line elements {res}")
+
+            if self.use_reduced_integration:
+                if res in (self.SOLID.TETRA10, self.SOLID.TETRA, self.SHELL.TRIANGLE6):
+                    raise IncompatibleElements(f"Reduced integration is not supported for {res}")
+            else:
+                if res in (self.SHELL.TRIANGLE6, self.SHELL.QUAD8):
+                    raise IncompatibleElements(f"Full integration is not supported for {res}")
 
         if self.use_reduced_integration:
             res += "R"
