@@ -1,29 +1,29 @@
 from enum import Enum
 
 from ada.config import logger
-from ada.fem.shapes.definitions import (
-    ConnectorTypes,
-    LineShapes,
-    MassTypes,
-    ShellShapes,
-    SolidShapes,
-    SpringTypes,
-)
+from ada.fem.exceptions import IncompatibleElements
+from ada.fem.formats.code_aster.elem_shapes import ada_to_med_format
+from ada.fem.shapes.definitions import BaseShapeEnum
 
 
-def ada_to_med_type(value):
-    if value in _ada_to_med_type.keys():
-        return _ada_to_med_type[value]
-    else:
-        for key, val in _ada_to_med_type.items():
-            if type(key) is tuple:
-                if value in key:
-                    return val
-    raise KeyError(f'Unsupported value "{value}"')
+def ada_to_med_type(ada_elem_type: BaseShapeEnum, reduced_integration: bool = False):
+    result = ada_to_med_format.get(ada_elem_type, None)
+    if result is None:
+        raise KeyError(f'Unsupported value "{ada_elem_type}"')
+
+    if reduced_integration is True:
+        raise IncompatibleElements(f"Reduced integration is not yet supported for element type {ada_elem_type}")
+        # reduced_elem = med_reduced_map.get(result, None)
+        # if reduced_elem is None:
+        #     logger.warning(f"Reduced integration is not supported for element type {result}")
+        # else:
+        #     result = reduced_elem
+
+    return result
 
 
 def med_to_ada_type(value):
-    _tmp = {v: k for k, v in _ada_to_med_type.items()}
+    _tmp = {v: k for k, v in ada_to_med_format.items()}
 
     if value not in _tmp:
         raise KeyError(f'Unsupported value "{value}"')
@@ -34,30 +34,6 @@ def med_to_ada_type(value):
         return res[0]
     else:
         return res
-
-
-_ada_to_med_type = {
-    MassTypes.MASS: "PO1",
-    SpringTypes.SPRING1: "PO1",
-    SpringTypes.SPRING2: "SE2",
-    LineShapes.LINE: "SE2",
-    ConnectorTypes.CONNECTOR: "SE2",
-    LineShapes.LINE3: "SE3",
-    ShellShapes.TRI: "TR3",
-    ShellShapes.TRI6: "TR6",
-    ShellShapes.TRI7: "TR7",  # Code Aster Specific type
-    ShellShapes.QUAD: "QU4",
-    ShellShapes.QUAD8: "QU8",
-    ShellShapes.QUAD9: "QU9",  # Code Aster Specific type
-    SolidShapes.TETRA: "TE4",
-    SolidShapes.TETRA10: "T10",
-    SolidShapes.HEX8: "HE8",
-    SolidShapes.HEX20: "H20",
-    SolidShapes.PYRAMID5: "PY5",
-    # "pyramid13": "P13",
-    SolidShapes.WEDGE: "PE6",
-    # "wedge15": "P15",
-}
 
 
 class IntType(str, Enum):

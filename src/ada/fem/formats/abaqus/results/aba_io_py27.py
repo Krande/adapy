@@ -4,10 +4,10 @@
 import inspect
 import logging
 import os
-import pickle as pickle
 import sys
 import traceback
 
+import cPickle as pickle
 import numpy as np
 import symbolicConstants
 from odbAccess import (
@@ -47,7 +47,7 @@ def is_constant(value):
 
 
 def get_data_from_attr(obj, attributes):
-    att_filter = [attr for attr in attributes if filter1(obj, attr)]
+    att_filter = filter(lambda attr: filter1(obj, attr), attributes)
     return {attr: serialize(getattr(obj, attr)) for attr in att_filter}
 
 

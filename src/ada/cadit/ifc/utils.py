@@ -708,7 +708,6 @@ def default_settings():
     ifc_settings.set(ifc_settings.USE_PYTHON_OPENCASCADE, True)
     ifc_ver = tuple([int(x) for x in ifcopenshell.version.split(".")])
     if ifc_ver < (0, 7, 9) and ifc_ver != (0, 0, 0):
-        ifc_settings.set(ifc_settings.USE_PYTHON_OPENCASCADE, False)
         ifc_settings.set(ifc_settings.SEW_SHELLS, True)
         ifc_settings.set(ifc_settings.INCLUDE_CURVES, True)
         ifc_settings.set(ifc_settings.VALIDATE_QUANTITIES, True)

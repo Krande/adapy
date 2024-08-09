@@ -1,6 +1,6 @@
 import numpy as np
 
-from ada.visualize.plots import easy_plotly
+from ada.visit.plots import easy_plotly
 
 
 class MatDataSheet:

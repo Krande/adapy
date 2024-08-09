@@ -5,6 +5,7 @@ from typing import Iterable
 from ada.core.utils import NewLine
 from ada.fem import Elem, FemSection
 from ada.fem.containers import FemElements
+from ada.fem.exceptions import IncompatibleElements
 from ada.fem.shapes import ElemShape
 from ada.fem.shapes import definitions as shape_def
 
@@ -36,10 +37,14 @@ def el_type_sub(el_type, fem_sec: FemSection) -> str:
     if isinstance(el_type, shape_def.LineShapes):
         if must_be_converted_to_general_section(fem_sec.section.type):
             return "U1"
-    if el_type == ElemShape.TYPES.shell.TRI6:
-        return "S6"
     fem = fem_sec.parent
-    return fem.options.ABAQUS.default_elements.get_element_type(el_type)
+    if el_type == ElemShape.TYPES.shell.TRI6:
+        if fem.options.CALCULIX.default_elements.use_reduced_integration:
+            raise IncompatibleElements(f"Reduced integration is not supported for triangle elements {el_type}")
+        return "S6"
+
+    default_elem = fem.options.CALCULIX.default_elements.get_element_type(el_type)
+    return default_elem
 
 
 def must_be_converted_to_general_section(sec_type):

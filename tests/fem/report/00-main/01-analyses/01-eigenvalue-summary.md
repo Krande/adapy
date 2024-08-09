@@ -49,3 +49,7 @@ Short description:
 * HEX: Hexahedrons
 * TRI: Triangle
 * QUAD: Quadrilateral
+
+**Reduced Integration**
+
+All element types ending with capital R (QUAD**R**, HEX**R** etc.) are reduced integration elements.

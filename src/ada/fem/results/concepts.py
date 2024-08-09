@@ -21,7 +21,6 @@ from .eigenvalue import EigenDataSummary
 
 if TYPE_CHECKING:
     from ada import Assembly
-    from ada.visit.concept import PartMesh
 
 
 class Results:
@@ -307,7 +306,7 @@ class ResultsMesh:
     def build_renderer(self) -> bool:
         from ipywidgets import Dropdown
 
-        from ada.visualize.renderer_pythreejs import MyRenderer
+        from ada.visit.renderer_pythreejs import MyRenderer
 
         self.renderer = MyRenderer()
         if len(self.point_data) == 0:
@@ -418,45 +417,3 @@ class ResultsMesh:
             self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
         else:
             self.create_viz_geom(data, renderer=self.renderer)
-
-    def to_part_mesh(self, name: str, data_type: str = None) -> PartMesh:
-        from ada.visualize.concept import ObjectMesh, PartMesh
-
-        if data_type is not None:
-            step_names = [data_type]
-        else:
-            step_names = self.point_data
-
-        id_map = dict()
-        for step in step_names:
-            data = np.asarray(self.mesh.point_data[step], dtype="float32")
-            if step.lower() in ["forc", "stress"]:
-                vertices = np.asarray([x for x, u in zip(self.vertices, data)], dtype="float32")
-            else:
-                try:
-                    vertices = np.asarray([x + u[:3] for x, u in zip(self.vertices, data)], dtype="float32")
-                except IndexError:
-                    logger.warning(f"Data step {step} contains invalid data. Skipping")
-                    continue
-            try:
-                colors = self.colorize_data(data)
-            except IndexError:
-                logger.warning(f"Data step {step} was unable to colorize data. Skipping")
-                continue
-
-            faces = self.faces
-            edges = self.edges
-
-            id_map[step] = ObjectMesh(
-                guid=step,
-                faces=faces.astype(int),
-                position=vertices.flatten().astype(float),
-                normal=None,
-                color=None,
-                vertex_color=colors.flatten().astype(float),
-                edges=edges,
-                instances=None,
-                # id_sequence=dict()
-            )
-
-        return PartMesh(name=name, id_map=id_map)

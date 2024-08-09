@@ -25,11 +25,13 @@ _NTYPE = Union[int, float]
 
 class Plate(BackendGeom):
     """
-    A plate object. The plate element covers all plate elements. Contains a dictionary with each point of the plate
+    A plate object. The plate element covers all plate elements.
+
+    Contains a dictionary with each point of the plate
     described by an id (index) and a Node object.
 
     :param name: Name of plate
-    :param points: List of coordinates (or a PolyCurve) that make up the plate. Each point is (x, y, optional [radius])
+    :param points: List of 2D point coordinates (or a PolyCurve) that make up the plate. Each point is (x, y, optional [radius])
     :param t: Thickness of plate
     :param mat: Material. Can be either Material object or built-in materials ('S420' or 'S355')
     :param origin: Explicitly define origin of plate. If not set
@@ -40,7 +42,7 @@ class Plate(BackendGeom):
     def __init__(
         self,
         name: str,
-        points: CurvePoly2d | list[tuple[_NTYPE, _NTYPE] | tuple[_NTYPE, _NTYPE, _NTYPE]],
+        points: CurvePoly2d | list[tuple[_NTYPE, _NTYPE]],
         t: float,
         mat: str | Material = "S420",
         origin: Iterable | Point = None,

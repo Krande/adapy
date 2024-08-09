@@ -51,6 +51,7 @@ jobs:
             python=3.11
             code-aster=*=*nompi*
             paradoc
+            python-dotenv
             pytest
 
       - name: install latest ada-py
