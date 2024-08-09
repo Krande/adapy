@@ -3,7 +3,7 @@ import logging
 import os
 import pathlib
 
-import fem.build_report_utils as ru
+import build_report_utils as ru
 from conftest import beam
 from dotenv import load_dotenv
 from paradoc import OneDoc
