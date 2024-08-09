@@ -188,7 +188,7 @@ def main(overwrite, execute):
 
     results = simulate(bm, el_order, geom_repr, software, uhq, uri, eig_modes, overwrite, execute)
 
-    cache_dir = pathlib.Path("").resolve().absolute() / ".cache"
+    cache_dir = pathlib.Path(__file__).parent.resolve().absolute() / ".cache"
     os.makedirs(cache_dir, exist_ok=True)
 
     ru.retrieve_cached_results(results, cache_dir)
@@ -198,4 +198,4 @@ def main(overwrite, execute):
 
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)
-    main(overwrite=False, execute=False)
+    main(overwrite=True, execute=True)
