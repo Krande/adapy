@@ -58,14 +58,14 @@ jobs:
         run: |
           pip install .
 
-      - name: Test
-        run: |
-          pytest .
-        working-directory: tests/fem
+      #- name: Test
+      #  run: |
+      #    pytest .
+      #  working-directory: tests/fem
 
       - name: Create Verification Report
         run: |
-          python build_verification_report.py false false --export-format=docx
+          python build_verification_report.py true true --export-format=docx
         working-directory: tests/fem
 
       - uses: actions/upload-artifact@v2
