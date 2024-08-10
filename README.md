@@ -11,13 +11,7 @@ A python library for working with structural analysis and design. This library s
 The recommended way of installing ada-py is by creating a new isolated environment for the installation like so:
 
 ```
-conda create -n adaenv -c conda-forge -c krande ada-py
-```
-
-or if you wish to download the latest build from any branch passing all unittests you can do
-
-```
-conda create -n adaenv -c conda-forge -c krande/label/dev ada-py
+mamba create -n adaenv ada-py
 ```
 
 Here are some of the goals with `ada-py`:
