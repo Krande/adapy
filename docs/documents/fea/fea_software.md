@@ -18,7 +18,7 @@ More information [http://www.dhondt.de/](http://www.dhondt.de/)
 Code Aster is distributed as a conda-forge package and is now a dependency of `adapy`.
 It is currently only supported on Linux.
 
-Work is ongoing to support Windows and Mac.
+Work is ongoing to support Windows. See https://github.com/conda-forge/code-aster-feedstock/issues/65 for more information.
 
 More information [https://www.code-aster.org](https://www.code-aster.org/spip.php?rubrique2)
 

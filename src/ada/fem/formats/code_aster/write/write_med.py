@@ -8,16 +8,14 @@ import numpy as np
 from ada.config import Settings
 from ada.fem.shapes import definitions as shape_def
 
-from ..common import IntType, ada_to_med_type
+from ..common import ada_to_med_type
 from .write_sets import _add_cell_sets, _add_node_sets
 
 if TYPE_CHECKING:
     from ada.api.spatial import Part
 
 
-def med_elements(
-    part: Part, time_step: h5py.Group, profile: str, families: h5py.Group, int_type: IntType = IntType.INT32
-):
+def med_elements(part: Part, time_step: h5py.Group, profile: str, families: h5py.Group):
     """
     Add the following ['FAM', 'NOD', 'NUM'] to the 'MAI' group
 
@@ -31,7 +29,7 @@ def med_elements(
     elements_group.attrs.create("CGT", 1)
 
     for group, elements in part.fem.elements.group_by_type():
-        med_type = ada_to_med_type(group)
+        med_type = ada_to_med_type(group, part.fem.options.CODE_ASTER.use_reduced_integration)
         elements = list(elements)
         if isinstance(group, (shape_def.MassTypes, shape_def.SpringTypes)):
             cells = np.array([el.members[0].id for el in elements])

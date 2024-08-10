@@ -2,166 +2,59 @@ import json
 import logging
 import os
 import pathlib
-from dataclasses import dataclass, field
-from datetime import datetime
 
-import pandas as pd
+import build_report_utils as ru
 from conftest import beam
+from dotenv import load_dotenv
 from paradoc import OneDoc
 from paradoc.common import TableFormat
 from test_fem_eig_cantilever import test_fem_eig
 
+import ada
 from ada.config import logger
-from ada.fem.results import EigenDataSummary
-from ada.fem.results.common import FEAResult
+from ada.fem.formats.abaqus.config import AbaqusSetup
 
-
-@dataclass
-class FeaVerificationResult:
-    name: str
-    fem_format: str
-    eig_data: EigenDataSummary = None
-    results: FEAResult = None
-    metadata: dict = field(default_factory=dict)
-    last_modified: datetime = field(default_factory=datetime.now)
-
-    def save_results_to_json(self, cache_filepath):
-        if isinstance(cache_filepath, str):
-            cache_filepath = pathlib.Path(cache_filepath)
-
-        res_dict = dict()
-        res_dict["name"] = self.name
-        res_dict["fem_format"] = self.fem_format
-        res_dict["metadata"] = self.metadata
-        res_dict["eigen_mode_data"] = self.eig_data.to_dict()
-        res_dict["last_modified"] = self.last_modified.timestamp()
-
-        with open(cache_filepath.with_suffix(".json"), "w") as f:
-            json.dump(res_dict, f, indent=4)
-
-
-def append_df(old_df, new_df):
-    return new_df if old_df is None else pd.concat([old_df, new_df], axis=1)
-
-
-def eig_data_to_df(eig_data: EigenDataSummary, columns):
-    return pd.DataFrame([(e.no, e.f_hz) for e in eig_data.modes], columns=columns)
-
-
-short_name_map = dict(calculix="ccx", code_aster="ca", abaqus="aba", sesam="ses")
-
-
-def shorten_name(name, fem_format, geom_repr) -> str:
-    short_name = name.replace("cantilever_EIG_", "")
-
-    geom_repr_map = dict(solid="so", line="li", shell="sh")
-    short_name = short_name.replace(fem_format, short_name_map[fem_format])
-    short_name = short_name.replace(geom_repr, geom_repr_map[geom_repr])
-
-    return short_name
-
-
-def create_df_of_data(results: list[FeaVerificationResult], geom_repr, el_order, hexquad):
-    df_main = None
-
-    for res in results:
-        soft = res.fem_format
-        geo = res.metadata["geo"]
-        elo = res.metadata["elo"]
-        hq = res.metadata["hexquad"]
-
-        if geom_repr != geo or elo != el_order:
-            continue
-
-        if geo.upper() == "SOLID":
-            s_str = "_"
-            s_str += "TET" if hq is False else "HEX"
-        elif geo.upper() == "SHELL":
-            s_str = "_"
-            s_str += "TRI" if hq is False else "QUAD"
-        else:
-            s_str = ""
-
-        short_name = soft.replace(soft, short_name_map[soft])
-        value_col = f"{short_name}{s_str}"
-        df_current = eig_data_to_df(res.eig_data, ["Mode", value_col])
-        new_col = df_current[value_col] if df_main is not None else df_current
-        df_main = append_df(df_main, new_col)
-
-    return df_main
-
-
-def retrieve_cached_results(results: list[FeaVerificationResult], cache_dir):
-    from ada.core.file_system import get_list_of_files
-
-    res_names = [r.name for r in results]
-    res_elo = [r.metadata["elo"] for r in results]
-    for res_file in get_list_of_files(cache_dir, ".json"):
-        with open(res_file, "r") as f:
-            try:
-                res = json.load(f)
-            except json.decoder.JSONDecodeError as e:
-                logging.error((res_file, e))
-                continue
-            if res["name"] in res_names:
-                continue
-        cached_results = results_from_cache(res)
-        cache_elo = cached_results.metadata["elo"]
-        index_insert = res_elo.index(cache_elo)
-        results.insert(index_insert, cached_results)
-
-
-def results_from_cache(results_dict: dict) -> FeaVerificationResult:
-    res = FeaVerificationResult(
-        name=results_dict["name"], fem_format=results_dict["fem_format"], metadata=results_dict["metadata"]
-    )
-    eig_data = EigenDataSummary([])
-    eig_data.from_dict(results_dict["eigen_mode_data"])
-    res.eig_data = eig_data
-    res.last_modified = datetime.fromtimestamp(results_dict["last_modified"])
-    return res
+load_dotenv()
 
 
 def simulate(
-    bm, el_order, geom_repr, analysis_software, use_hex_quad, eig_modes, overwrite, execute
-) -> list[FeaVerificationResult]:
+    bm, el_order, geom_repr, analysis_software, use_hex_quad, use_reduced_int, eig_modes, overwrite, execute
+) -> list[ru.FeaVerificationResult]:
     results = []
-    short_name_map = dict(calculix="ccx", code_aster="ca", abaqus="aba", sesam="ses")
     for elo in el_order:
         for geo in geom_repr:
             for soft in analysis_software:
                 for hexquad in use_hex_quad:
-                    try:
-                        result = test_fem_eig(
-                            bm,
-                            soft,
-                            geo,
-                            elo,
-                            hexquad,
-                            short_name_map=short_name_map,
-                            overwrite=overwrite,
-                            execute=execute,
-                            eigen_modes=eig_modes,
-                        )
-                    except FileNotFoundError as e:
-                        logger.error(e)
-                        continue
-                    if result is None:
-                        logging.error("No result file is located")
-                        continue
+                    for uri in use_reduced_int:
+                        try:
+                            result = test_fem_eig(
+                                bm,
+                                soft,
+                                geo,
+                                elo,
+                                hexquad,
+                                reduced_integration=uri,
+                                short_name_map=ru.short_name_map,
+                                overwrite=overwrite,
+                                execute=execute,
+                                eigen_modes=eig_modes,
+                            )
+                        except FileNotFoundError as e:
+                            logger.error(e)
+                            continue
+                        if result is None:
+                            logging.error("No result file is located")
+                            continue
 
-                    metadata = dict()
-                    metadata["geo"] = geo
-                    metadata["elo"] = elo
-                    metadata["hexquad"] = hexquad
-                    fvr = FeaVerificationResult(
-                        name=result.name,
-                        fem_format=soft,
-                        results=result,
-                        metadata=metadata,
-                        eig_data=result.get_eig_summary(),
-                    )
-                    results.append(fvr)
+                        metadata = dict()
+                        metadata["geo"] = geo
+                        metadata["elo"] = elo
+                        metadata["hexquad"] = hexquad
+                        metadata["reduced_integration"] = uri
+
+                        fvr = ru.postprocess_result(result, metadata)
+
+                        results.append(fvr)
 
     if len(results) == 0:
         raise ValueError("No results are located")
@@ -169,33 +62,42 @@ def simulate(
     return results
 
 
-def main(overwrite, execute):
-    analysis_software = ["calculix", "code_aster"]
-    el_order = [1, 2]
-    geom_repr = ["line", "shell", "solid"]
-    eig_modes = 11
-    use_hex_quad = [False, True]
+def build_fea_report(bm: ada.Beam, results, eig_modes, cache_dir=None):
+    version_cache = cache_dir / "software_versions.json"
 
-    bm = beam()
+    # Hardcoded calculix and code aster versions for now
+    ccx_ver = "2.21"
+    ca_ver = "17.1.0"
+
+    version_dict = dict()
+    if version_cache.exists():
+        version_dict = json.loads(version_cache.read_text())
+
+    if ru.ABAQUS_EXE is not None:
+        aba_version = ru.get_abaqus_version()
+    else:
+        aba_version = version_dict.get("abaqus", "2021")
+
+    if ru.SESTRA_EXE is not None:
+        ses_version = ru.get_sesam_version()
+    else:
+        ses_version = version_dict.get("sesam", "10")
+
+    # save version dict to cache
+    with open(version_cache, "w") as f:
+        json.dump(version_dict, f, indent=4)
 
     one = OneDoc("report")
     one.variables = dict(
         geom_specifics=str(bm),
-        ca_version="16.4.2",
-        ccx_version="2.21",
-        aba_version="2021",
-        ses_version="10",
+        ca_version=ca_ver,
+        ccx_version=ccx_ver,
+        aba_version=aba_version,
+        ses_version=ses_version,
         num_modes=eig_modes,
     )
 
-    table_format = TableFormat(font_size=8, float_fmt=".3f")
-
-    results = simulate(bm, el_order, geom_repr, analysis_software, use_hex_quad, eig_modes, overwrite, execute)
-
-    cache_dir = pathlib.Path("").resolve().absolute() / ".cache"
-    os.makedirs(cache_dir, exist_ok=True)
-
-    retrieve_cached_results(results, cache_dir)
+    table_format = TableFormat(font_size=6, float_fmt=".2f")
 
     solid_tables = dict(
         eig_compare_solid_o1=dict(o=1),
@@ -217,7 +119,9 @@ def main(overwrite, execute):
         o = props["o"]
         order = "1st" if o == 1 else "2nd"
 
-        df = create_df_of_data(results, geo, o, None)
+        df = ru.create_df_of_data(results, geo, o, None)
+        if df is None:
+            continue
 
         one.add_table(
             name,
@@ -230,7 +134,9 @@ def main(overwrite, execute):
         geo = "shell"
         o, hq = props["o"], props["hq"]
         order = "1st" if o == 1 else "2nd"
-        df = create_df_of_data(results, geo, o, hq)
+        df = ru.create_df_of_data(results, geo, o, hq)
+        if df is None:
+            continue
 
         one.add_table(
             name,
@@ -243,7 +149,7 @@ def main(overwrite, execute):
         geo = "line"
         o, hq = props["o"], props["hq"]
         order = "1st" if o == 1 else "2nd"
-        df = create_df_of_data(results, geo, o, hq)
+        df = ru.create_df_of_data(results, geo, o, hq)
         if df is None:
             continue
         one.add_table(
@@ -255,16 +161,41 @@ def main(overwrite, execute):
 
     for res in results:
         if os.environ.get("ADA_FEM_DO_NOT_SAVE_CACHE", None) is None:
-            res.save_results_to_json(cache_dir / res.name)
+            if cache_dir is not None:
+                res.save_results_to_json(cache_dir / res.name)
         one.add_table(
             res.name,
-            eig_data_to_df(res.eig_data, ["Mode", "Eigenvalue (real)"]),
+            ru.eig_data_to_df(res.eig_data, ["Mode", "Eigenvalue (real)"]),
             res.name,
         )
 
     one.compile("ADA-FEA-verification")
 
 
+def main(overwrite, execute):
+    if ru.ODB_DUMP_EXE is not None:
+        AbaqusSetup.set_default_post_processor(ru.post_processing_abaqus)
+
+    software = ru.get_available_software()
+
+    el_order = [1, 2]
+    geom_repr = ["line", "shell", "solid"]
+    eig_modes = 11
+    uhq = [False, True]  # use hex or quad elements instead of tet or tri respectively
+    uri = [False, True]  # use reduced integration
+
+    bm = beam()
+
+    results = simulate(bm, el_order, geom_repr, software, uhq, uri, eig_modes, overwrite, execute)
+
+    cache_dir = pathlib.Path(__file__).parent.resolve().absolute() / ".cache"
+    os.makedirs(cache_dir, exist_ok=True)
+
+    ru.retrieve_cached_results(results, cache_dir)
+
+    build_fea_report(bm, results, eig_modes, cache_dir)
+
+
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)
-    main(overwrite=False, execute=False)
+    main(overwrite=True, execute=True)

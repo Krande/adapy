@@ -7,7 +7,7 @@ import scipy.optimize
 from IPython.display import display
 
 from ada.config import get_logger
-from ada.visualize.plots import easy_plotly
+from ada.visit.plots import easy_plotly
 
 logger = get_logger()
 

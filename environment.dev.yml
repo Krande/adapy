@@ -1,10 +1,13 @@
 name: ada-dev
 channels:
+  - https://repo.prefix.dev/code-aster
   - conda-forge
-  - krande
 dependencies:
   - ada-py
-  - ada-cpp
+#  - ada-cpp
+  - paradoc
+  - code-aster
   - occt=*=*novtk*
   - trimesh >=4.1.0
+  - python-dotenv
   - pytest

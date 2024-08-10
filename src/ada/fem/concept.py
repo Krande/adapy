@@ -35,6 +35,7 @@ if TYPE_CHECKING:
         StepImplicitStatic,
         StepSteadyState,
     )
+    from ada.fem.options import FemOptions
     from ada.fem.results.common import Mesh
     from ada.fem.steps import Step
 
@@ -397,7 +398,7 @@ class FEM:
         return self.sets.elements
 
     @property
-    def options(self):
+    def options(self) -> FemOptions:
         return self._options
 
     def __add__(self, other: FEM):
