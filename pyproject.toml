@@ -62,10 +62,10 @@ skip_glob=["**/node_modules/**", "**/temp/**"]
 
 [tool.pixi.project]
 channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
-platforms = ["win-64"]
+platforms = ["win-64", "linux-64"]
 
 [tool.pixi.environments]
-prod = {features = ["py312"], solve-group = "prod"}
+prod = { features = ["py312"], solve-group = "prod"}
 lint = { features = ["lint"], no-default-feature = true}
 docs = { features = ["py312", "docs"], solve-group = "prod"}
 tests = { features = ["py312", "tests"], solve-group = "prod"}
