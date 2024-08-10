@@ -192,7 +192,7 @@ def retrieve_cached_results(results: list[FeaVerificationResult], cache_dir: pat
     res_names = [r.name for r in results]
     res_elo = [r.metadata["elo"] for r in results]
     for res_file in cache_dir.rglob("*.json"):
-        if res_file.stem == "software_versions":
+        if res_file.stem in ("software_versions", "debug"):
             continue
         with open(res_file, "r") as f:
             try:

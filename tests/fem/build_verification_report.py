@@ -16,6 +16,9 @@ from ada.fem.formats.abaqus.config import AbaqusSetup
 
 load_dotenv()
 
+cache_dir = pathlib.Path(__file__).parent.resolve().absolute() / ".cache"
+os.makedirs(cache_dir, exist_ok=True)
+
 
 def simulate(
     bm, el_order, geom_repr, analysis_software, use_hex_quad, use_reduced_int, eig_modes, overwrite, execute
@@ -62,7 +65,7 @@ def simulate(
     return results
 
 
-def build_fea_report(bm: ada.Beam, results, eig_modes, cache_dir=None):
+def build_fea_report(bm: ada.Beam, results, eig_modes, export_format="docx"):
     version_cache = cache_dir / "software_versions.json"
 
     # Hardcoded calculix and code aster versions for now
@@ -169,10 +172,10 @@ def build_fea_report(bm: ada.Beam, results, eig_modes, cache_dir=None):
             res.name,
         )
 
-    one.compile("ADA-FEA-verification")
+    one.compile("ADA-FEA-verification", export_format=export_format)
 
 
-def main(overwrite, execute):
+def create_fea_report(overwrite, execute, export_format="docx"):
     if ru.ODB_DUMP_EXE is not None:
         AbaqusSetup.set_default_post_processor(ru.post_processing_abaqus)
 
@@ -188,14 +191,13 @@ def main(overwrite, execute):
 
     results = simulate(bm, el_order, geom_repr, software, uhq, uri, eig_modes, overwrite, execute)
 
-    cache_dir = pathlib.Path(__file__).parent.resolve().absolute() / ".cache"
-    os.makedirs(cache_dir, exist_ok=True)
-
     ru.retrieve_cached_results(results, cache_dir)
 
-    build_fea_report(bm, results, eig_modes, cache_dir)
+    build_fea_report(bm, results, eig_modes, export_format=export_format)
 
 
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)
-    main(overwrite=True, execute=True)
+    import typer
+
+    typer.run(create_fea_report)

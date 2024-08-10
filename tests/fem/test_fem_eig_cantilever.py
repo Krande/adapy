@@ -71,7 +71,13 @@ def test_fem_eig(
         return None
     if reduced_integration is True and fem_format in (FEA.CODE_ASTER, FEA.SESAM):
         return None
-    if fem_format == FEA.ABAQUS and geom_repr == GeomRepr.SHELL and elem_order == 1 and reduced_integration is False:
+    if (
+        fem_format == FEA.ABAQUS
+        and geom_repr == GeomRepr.SHELL
+        and elem_order == 1
+        and reduced_integration is False
+        and use_hex_quad is False
+    ):
         print("Abaqus S3 and S3R are identical. Skipping S3 for now.")
         return None
 
