@@ -1,17 +1,17 @@
 {
-    "name": "cantilever_EIG_aba_shell_o2_hqTrue_riTrue",
+    "name": "cantilever_EIG_aba_shell_o1_hqTrue_riFalse",
     "fem_format": "abaqus",
     "metadata": {
         "geo": "shell",
-        "elo": 2,
+        "elo": 1,
         "hexquad": true,
-        "reduced_integration": true
+        "reduced_integration": false
     },
     "eigen_mode_data": {
         "1": {
             "no": 1,
-            "f_hz": 12.7583,
-            "eigenvalue": 6426.07,
+            "f_hz": 12.7804,
+            "eigenvalue": 6448.36,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -30,8 +30,8 @@
         },
         "2": {
             "no": 2,
-            "f_hz": 19.4861,
-            "eigenvalue": 14990.3,
+            "f_hz": 19.593,
+            "eigenvalue": 15155.3,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -50,8 +50,8 @@
         },
         "3": {
             "no": 3,
-            "f_hz": 51.9975,
-            "eigenvalue": 106740.0,
+            "f_hz": 51.9979,
+            "eigenvalue": 106741.0,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -70,8 +70,8 @@
         },
         "4": {
             "no": 4,
-            "f_hz": 75.1489,
-            "eigenvalue": 222949.0,
+            "f_hz": 75.6834,
+            "eigenvalue": 226132.0,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -90,8 +90,8 @@
         },
         "5": {
             "no": 5,
-            "f_hz": 95.9197,
-            "eigenvalue": 363224.0,
+            "f_hz": 96.393,
+            "eigenvalue": 366818.0,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -110,8 +110,8 @@
         },
         "6": {
             "no": 6,
-            "f_hz": 125.001,
-            "eigenvalue": 616856.0,
+            "f_hz": 126.961,
+            "eigenvalue": 636352.0,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -130,8 +130,8 @@
         },
         "7": {
             "no": 7,
-            "f_hz": 142.325,
-            "eigenvalue": 799690.0,
+            "f_hz": 145.566,
+            "eigenvalue": 836523.0,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -150,8 +150,8 @@
         },
         "8": {
             "no": 8,
-            "f_hz": 165.849,
-            "eigenvalue": 1085890.0,
+            "f_hz": 169.389,
+            "eigenvalue": 1132750.0,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -170,8 +170,8 @@
         },
         "9": {
             "no": 9,
-            "f_hz": 192.184,
-            "eigenvalue": 1458120.0,
+            "f_hz": 198.748,
+            "eigenvalue": 1559430.0,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -190,8 +190,8 @@
         },
         "10": {
             "no": 10,
-            "f_hz": 232.867,
-            "eigenvalue": 2140790.0,
+            "f_hz": 242.545,
+            "eigenvalue": 2322440.0,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -210,8 +210,8 @@
         },
         "11": {
             "no": 11,
-            "f_hz": 250.173,
-            "eigenvalue": 2470820.0,
+            "f_hz": 252.486,
+            "eigenvalue": 2516720.0,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -229,5 +229,5 @@
             "source_dict": null
         }
     },
-    "last_modified": 1723277000.39359
+    "last_modified": 1723276907.568388
 }

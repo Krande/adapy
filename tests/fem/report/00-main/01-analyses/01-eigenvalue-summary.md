@@ -3,10 +3,19 @@
 A simple cantilevered beam is subjected to eigenvalue analysis with a total of 
 {{__num_modes__}} eigenmodes requested.
 
+The beam model will be analyzed by varying the following parameters:
+
+- Mesh type (Solid, Shell, Line)
+- Mesh element types (TET, HEX, TRI, QUAD)
+- Mesh element order (1st and 2nd order)
+- Reduced integration elements (R)
+- Different FEA solvers (Calculix, Code Aster, Abaqus, Sesam)
 
 ### Model Description
 
 Model object: {{__geom_specifics__}}
+
+![Simple Beam subject for eigenvalue analysis](figures/simple_beam.png)
 
 ### Summary
 

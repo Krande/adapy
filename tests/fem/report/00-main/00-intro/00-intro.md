@@ -41,7 +41,8 @@ The following python packages were instrumental in the creation of this document
 ### Adapy
 
 The intention behind _adapy_ is to make it easier to work with finite element models 
-and BIM models.
+and BIM models and act as a high-level scripting library for parametric and procedural modelling techniques.
+
 
 ### Paradoc
 

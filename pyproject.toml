@@ -50,14 +50,15 @@ line-length = 120
 
 [tool.ruff]
 line-length = 120
-exclude = ["examples/", ".pixi/"]
+exclude = ["examples/", ".pixi/", "temp/"]
 
 [tool.ruff.lint]
 ignore = ["E741"]
 
 [tool.isort]
 profile = "black"
-skip = [".pixi", "node_modules"]
+skip = [".pixi", "node_modules", "temp"]
+skip_glob=["**/node_modules/**", "**/temp/**"]
 
 [tool.pixi.project]
 channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
@@ -83,6 +84,7 @@ ada-py = {path = ".", editable = true}
 pytest = "*"
 paradoc = "*"
 python-dotenv = "*"
+watchdog = "*"
 
 [tool.pixi.feature.lint.dependencies]
 black = "24.4.2"
@@ -105,5 +107,10 @@ docs = "cd docs && make html"
 [tool.pixi.feature.tests.tasks]
 test = "pytest tests"
 ftest = { cmd="python build_verification_report.py", cwd="./tests/fem" }
+fdoc = { cmd="python doc_live_html.py", cwd="./tests/fem" }
+
 [tool.pixi.feature.web.tasks]
 npm = { cmd="npm", cwd="./src/frontend" }
+
+[tool.pixi.dependencies]
+pixi-pycharm = ">=0.0.6,<0.0.7"
