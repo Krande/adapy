@@ -65,7 +65,7 @@ jobs:
 
       - name: Create Verification Report
         run: |
-          python build_verification_report.py true true --export-format=docx
+          python build_verification_report.py false false --export-format=docx
         working-directory: tests/fem
 
       - uses: actions/upload-artifact@v2
