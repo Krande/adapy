@@ -2,6 +2,13 @@
 
 
 
+## v0.2.15 (2024-08-10)
+
+### Fix
+
+* fix: fem tester update (#105) ([`714afc0`](https://github.com/Krande/adapy/commit/714afc0eda96b286ea42126fcca04fc99c0f9523))
+
+
 ## v0.2.14 (2024-08-05)
 
 ### Chore
