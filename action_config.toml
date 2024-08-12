@@ -11,7 +11,7 @@ isort_version = "5.13.2"
 enabled = true
 
 [tool.python.conda]
-enabled = true
+enabled = false
 recipe_dir = "./conda"
 extra_conda_dep_channels = ["krande"]
 platforms = "ubuntu-latest,windows-latest,macos-latest"

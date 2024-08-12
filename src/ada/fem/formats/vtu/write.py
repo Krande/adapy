@@ -28,6 +28,8 @@ VTK_TYPE_MAP = {
     SolidShapes.HEX8: 12,
     SolidShapes.TETRA10: 24,
     SolidShapes.HEX20: 25,
+    SolidShapes.WEDGE: 13,
+    SolidShapes.WEDGE15: 26,
 }
 
 # New mapping dictionary

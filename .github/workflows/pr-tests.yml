@@ -1,0 +1,57 @@
+name: Pull Request Tests
+
+on:
+  pull_request_target:
+    types: [ opened, synchronize, edited, unlabeled ]
+    branches:
+      - main
+      - develop
+
+# Use concurrency to ensure that only one instance of this workflow is running at a time
+concurrency:
+  group: pr-tests--${{ github.sha }}
+  cancel-in-progress: true
+
+# installs mamba-org/setup-micromamba@v1 on all 3 platforms using matrix and runs pytest:
+jobs:
+    lint:
+        runs-on: ubuntu-latest
+        steps:
+          - uses: actions/checkout@v4
+
+          - uses: prefix-dev/setup-pixi@v0.8.0
+            with:
+              pixi-version: v0.27.1
+              cache: true
+              environment: tests
+
+          - run: pixi run lint
+
+    test:
+        runs-on: ${{ matrix.os }}
+        defaults:
+          run:
+            shell: bash -l {0}
+        strategy:
+          matrix:
+            os: [ubuntu-latest, windows-latest, macos-13]
+        steps:
+        - uses: actions/checkout@v4
+
+        - uses: mamba-org/setup-micromamba@v1  # https://github.com/mamba-org/setup-micromamba
+          with:
+            cache-environment: false
+            condarc: |
+                channels:
+                - conda-forge
+            environment-file: conda/environment.core.yml
+            create-args: >-
+                python=3.12
+                pytest
+
+        - name: Install latest adapy
+          run: |
+            pip install -e .
+
+        - name: Runs Tests
+          run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/

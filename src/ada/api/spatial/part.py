@@ -851,6 +851,11 @@ class Part(BackendGeom):
             run_in_thread=run_ws_in_thread,
         )
 
+        if renderer == "react" and ws.is_target_alive() is False:
+            from ada.visit.rendering.renderer_react import RendererReact
+
+            RendererReact().show()
+
         if scene_override is not None:
             ws.send_scene(scene_override, self.animation_store, auto_reposition=auto_reposition, **kwargs)
             return
@@ -868,10 +873,6 @@ class Part(BackendGeom):
             auto_reposition=auto_reposition,
             **kwargs,
         )
-        if auto_open_viewer and renderer == "react":
-            from ada.visit.rendering.renderer_react import RendererReact
-
-            RendererReact().show()
 
     @property
     def animation_store(self) -> AnimationStore:

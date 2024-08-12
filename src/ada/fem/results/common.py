@@ -443,6 +443,13 @@ class FEAResult:
         # Start the websocket server
         ws = start_ws_server(server_exe=server_exe, server_args=server_args, host=host, port=port)
 
+        renderer = RendererReact()
+        if in_notebook() and update_only is False:
+            return renderer.get_notebook_renderer()
+
+        if update_only is False and ws.is_target_alive() is False:
+            renderer.show()
+
         # React renderer supports animations
         animation_store = AnimationStore()
 
@@ -496,13 +503,6 @@ class FEAResult:
                     buffer_postprocessor=animation_store,
                     tree_postprocessor=AnimationStore.tree_postprocessor,
                 )
-
-        renderer = RendererReact()
-        if in_notebook() and update_only is False:
-            return renderer.get_notebook_renderer()
-
-        if update_only is False:
-            renderer.show()
 
     def get_eig_summary(self) -> EigenDataSummary:
         """If the results are eigenvalue results, this method will return a summary of the eigenvalues and modes"""
