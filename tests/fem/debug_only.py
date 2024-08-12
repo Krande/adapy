@@ -23,7 +23,6 @@ def main(overwrite=True, execute=True, test_gmsh_options=False, build_report=Fal
     bm = beam()
     a = ada.Assembly("MyAssembly") / [bm]
 
-
     result = test_fem_eig(
         beam_fixture=bm,
         fem_format=fea_format,

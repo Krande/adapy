@@ -504,7 +504,6 @@ class FEAResult:
                     tree_postprocessor=AnimationStore.tree_postprocessor,
                 )
 
-
     def get_eig_summary(self) -> EigenDataSummary:
         """If the results are eigenvalue results, this method will return a summary of the eigenvalues and modes"""
         from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
