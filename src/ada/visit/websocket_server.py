@@ -64,6 +64,7 @@ class WebSocketServer:
     host: str = "localhost"
     message_queue: Queue = field(default_factory=Queue)
     debug_mode: bool = False
+    _ping_sender: websockets.WebSocketServerProtocol | None = None
 
     def check_server_running(self):
         host = self.host
@@ -74,8 +75,9 @@ class WebSocketServer:
         else:
             return False
 
-    async def handler(self, websocket):
+    async def handler(self, websocket: websockets.WebSocketServerProtocol):
         """This will handle the connection of a new client"""
+
         if websocket.origin in self.client_origins:
             if websocket.origin in self.clients.keys():
                 logger.debug(f"Client re-connected from origin {websocket.origin}")
@@ -86,9 +88,14 @@ class WebSocketServer:
             if self.message_queue is not None and not self.message_queue.empty():
                 logger.debug("Sending cached data to client")
                 await websocket.send(self.message_queue.get())
-
-        async for message in websocket:
-            await self.update_clients(message, websocket.origin)
+        try:
+            async for message in websocket:
+                if message == "ping":
+                    self._ping_sender = websocket
+                await self.update_clients(message, websocket.origin)
+        except websockets.exceptions.ConnectionClosedError:
+            logger.debug(f"Client {websocket.origin} disconnected")
+            # self.clients.pop(websocket.origin)
 
     async def update_clients(self, data, origin):
         """This will update all clients with the latest data"""
@@ -104,6 +111,12 @@ class WebSocketServer:
 
         for client_origin, client in self.clients.items():
             logger.debug(f"Client {client_origin} is open: {client.open}")
+            if data == "pong" and self._ping_sender is not None:
+                try:
+                    await self._ping_sender.send(data)
+                except websockets.exceptions.ConnectionClosedError:
+                    logger.debug("Ping sender is closed")
+                self._ping_sender = None
             if client_origin == origin:
                 continue
             if client.open and client.origin in self.clients:
@@ -131,6 +144,24 @@ class WebSocketServer:
         logger.info(f"Sending data to {self.host_url}")
         with connect(self.host_url) as websocket:
             websocket.send(data)
+
+    def is_target_alive(self) -> bool:
+        """sends a websocket message to the target and wait for a response"""
+        from websockets.sync.client import connect
+
+        logger.info(f"Checking if target is alive at {self.host_url}")
+        with connect(self.host_url) as websocket:
+            websocket.send("ping")
+            try:
+                result = websocket.recv(timeout=1)
+            except TimeoutError:
+                logger.info("Target did not respond")
+                return False
+            if result == "pong":
+                logger.info("Target is alive")
+                return True
+
+        return False
 
     def send_scene(
         self,

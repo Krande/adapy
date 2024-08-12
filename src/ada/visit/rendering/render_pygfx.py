@@ -301,6 +301,10 @@ def standalone_viewer(host="localhost", port="8765"):
             def _check_for_messages():
                 while not shared_queue.empty():
                     data = shared_queue.get()
+                    if data == "ping":
+                        continue
+                    if data == "pong":
+                        continue
                     data_dict = json.loads(data)
                     msg = WsRenderMessage(**data_dict)
                     render._scene_objects.clear()

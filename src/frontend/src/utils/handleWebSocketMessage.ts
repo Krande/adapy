@@ -1,4 +1,6 @@
 // handleWebSocketMessage.ts
+import {webSocketHandler} from "./websocket_connector";
+
 export enum SceneAction {
     NEW = "new",
     REPLACE = "replace",
@@ -60,6 +62,12 @@ const handleBlobMessage = (setModelUrl: (url: string | null, scene_action: Scene
 
 export const handleWebSocketMessage = (setModelUpdate: (url: string | null, scene_action: SceneAction | null, scene_action_arg: string | null) => void) => (event: MessageEvent) => {
     if (typeof event.data === 'string') {
+        // if string == 'ping' then send 'pong'
+        if (event.data === 'ping') {
+            console.log('Received ping from server');
+            webSocketHandler.sendMessage('pong');
+            return;
+        }
         handleStringMessage(setModelUpdate, event.data);
     } else if (event.data instanceof Blob) {
         handleBlobMessage(setModelUpdate, event.data);
