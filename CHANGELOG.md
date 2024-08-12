@@ -2,6 +2,19 @@
 
 
 
+## v0.2.16 (2024-08-12)
+
+### Chore
+
+* chore: small update to pixi.lock and pyproject.toml ([`33e5972`](https://github.com/Krande/adapy/commit/33e5972fc74b97323becd75430d91433798a1dfd))
+
+* chore: fixed mistake in quad element conditional in fem verifier. And added … (#106) ([`2a72f2a`](https://github.com/Krande/adapy/commit/2a72f2aff9207a04df859d7e8f86dcc662bd15eb))
+
+### Fix
+
+* fix: viewer liveness probe (#107) ([`f398eb5`](https://github.com/Krande/adapy/commit/f398eb50902008d7d93f2944d77972aa7c4962a2))
+
+
 ## v0.2.15 (2024-08-10)
 
 ### Fix
