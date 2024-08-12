@@ -579,14 +579,15 @@ and it returns a dictionary of all beam ids and the touching beams. A margin to 
 
 <dl class="py class" id="module-ada.api.plates">
 <dt class="sig sig-object py" id="ada.api.plates.Plate">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ada.api.plates.</span></span><span class="sig-name descname"><span class="pre">Plate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">CurvePoly2d</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">_NTYPE</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">_NTYPE</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">_NTYPE</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">_NTYPE</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">_NTYPE</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">t</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mat</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Material</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'S420'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">origin</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Iterable</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Point</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xdir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Iterable</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Direction</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Iterable</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Direction</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">orientation</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Placement</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pl_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.api.plates.Plate" title="Link to this definition">¶</a></dt>
-<dd><p>A plate object. The plate element covers all plate elements. Contains a dictionary with each point of the plate
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ada.api.plates.</span></span><span class="sig-name descname"><span class="pre">Plate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">CurvePoly2d</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">_NTYPE</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">_NTYPE</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">t</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mat</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Material</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'S420'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">origin</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Iterable</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Point</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xdir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Iterable</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Direction</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Iterable</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Direction</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">orientation</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Placement</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pl_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.api.plates.Plate" title="Link to this definition">¶</a></dt>
+<dd><p>A plate object. The plate element covers all plate elements.</p>
+<p>Contains a dictionary with each point of the plate
 described by an id (index) and a Node object.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>name</strong> – Name of plate</p></li>
-<li><p><strong>points</strong> – List of coordinates (or a PolyCurve) that make up the plate. Each point is (x, y, optional [radius])</p></li>
+<li><p><strong>points</strong> – List of 2D point coordinates (or a PolyCurve) that make up the plate. Each point is (x, y, optional [radius])</p></li>
 <li><p><strong>t</strong> – Thickness of plate</p></li>
 <li><p><strong>mat</strong> – Material. Can be either Material object or built-in materials (‘S420’ or ‘S355’)</p></li>
 <li><p><strong>origin</strong> – Explicitly define origin of plate. If not set</p></li>
@@ -1687,8 +1688,321 @@ a library of structural material properties that have been properly defined and 
 <dd></dd></dl>
 
 </section>
-<section id="polymers">
-<h3>Polymers<a class="headerlink" href="#polymers" title="Link to this heading">¶</a></h3>
+<section id="module-ada.materials.polymers">
+<span id="polymers"></span><h3>Polymers<a class="headerlink" href="#module-ada.materials.polymers" title="Link to this heading">¶</a></h3>
+<dl class="py class" id="module-ada.materials.polymers.models">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.Calibrate">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ada.materials.polymers.models.</span></span><span class="sig-name descname"><span class="pre">Calibrate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mat_data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_int</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">300</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">load_types</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interpolate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">incompressible</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.materials.polymers.models.Calibrate" title="Link to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>mat_data</strong> (<em>matdb.classes.MatDataSheet</em>) – Material data sheet object</p></li>
+<li><p><strong>interpolate</strong> – All test dataset arrays are interpolated to have equal length.</p></li>
+<li><p><strong>num_int</strong> – Total number of points employed in the linear interpolation of test strain and stress data.</p></li>
+<li><p><strong>load_types</strong> – Manually override which test result you wish to calibrate for. Default is None which means it
+will be checked for all available test data [‘uniaxial’, ‘biaxial’, ‘planar’]</p></li>
+<li><p><strong>incompressible</strong> – Does nothing (for now)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py property">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.Calibrate.aba_str">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">aba_str</span></span><a class="headerlink" href="#ada.materials.polymers.models.Calibrate.aba_str" title="Link to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Abaqus input str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.Calibrate.bia_eps">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">bia_eps</span></span><a class="headerlink" href="#ada.materials.polymers.models.Calibrate.bia_eps" title="Link to this definition">¶</a></dt>
+<dd><p>Interpolated array of biaxial strain test data</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.Calibrate.biaxial">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">biaxial</span></span><a class="headerlink" href="#ada.materials.polymers.models.Calibrate.biaxial" title="Link to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p></p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>matdb.classes.TestData</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.Calibrate.mat_data">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">mat_data</span></span><a class="headerlink" href="#ada.materials.polymers.models.Calibrate.mat_data" title="Link to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p></p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>matdb.classes.MatDataSheet</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.Calibrate.pla_eps">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">pla_eps</span></span><a class="headerlink" href="#ada.materials.polymers.models.Calibrate.pla_eps" title="Link to this definition">¶</a></dt>
+<dd><p>Interpolated array of planar strain test data</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.Calibrate.planar">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">planar</span></span><a class="headerlink" href="#ada.materials.polymers.models.Calibrate.planar" title="Link to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p></p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>matdb.classes.TestData</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.Calibrate.plot">
+<span class="sig-name descname"><span class="pre">plot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eng_plot</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.materials.polymers.models.Calibrate.plot" title="Link to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>model</strong></p></li>
+<li><p><strong>params</strong></p></li>
+<li><p><strong>eng_plot</strong> – Plot using engineering stress and strain.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.Calibrate.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">initial_guess</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'leastsq'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.materials.polymers.models.Calibrate.run" title="Link to this definition">¶</a></dt>
+<dd><p>Run calibration for a specific model.</p>
+<p>requires the “lmfit” package.</p>
+<p>conda install -c conda-forge lmfit</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>model</strong> – Define which polymer model to calibrate for</p></li>
+<li><p><strong>initial_guess</strong></p></li>
+<li><p><strong>method</strong></p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.Calibrate.uni_eps">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">uni_eps</span></span><a class="headerlink" href="#ada.materials.polymers.models.Calibrate.uni_eps" title="Link to this definition">¶</a></dt>
+<dd><p>Interpolated or original array of uniaxial strain test data</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.Calibrate.uniaxial">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">uniaxial</span></span><a class="headerlink" href="#ada.materials.polymers.models.Calibrate.uniaxial" title="Link to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p></p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>matdb.classes.TestData</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.NH_3D">
+<span class="sig-prename descclassname"><span class="pre">ada.materials.polymers.models.</span></span><span class="sig-name descname"><span class="pre">NH_3D</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">stretch</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">param</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.materials.polymers.models.NH_3D" title="Link to this definition">¶</a></dt>
+<dd><p>Neo-Hookean. 3D loading specified by stretches.</p>
+<p>param[0]=mu, param[1]=kappa</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>stretch</strong></p></li>
+<li><p><strong>param</strong></p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.Yeoh_3D">
+<span class="sig-prename descclassname"><span class="pre">ada.materials.polymers.models.</span></span><span class="sig-name descname"><span class="pre">Yeoh_3D</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">stretch</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">param</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.materials.polymers.models.Yeoh_3D" title="Link to this definition">¶</a></dt>
+<dd><p>Yeoh. 3D loading specified by stretches. param: [C10, C20, C30, kappa]. Returns true stress.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.biaxial_stress">
+<span class="sig-prename descclassname"><span class="pre">ada.materials.polymers.models.</span></span><span class="sig-name descname"><span class="pre">biaxial_stress</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">trueStrainVec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.materials.polymers.models.biaxial_stress" title="Link to this definition">¶</a></dt>
+<dd><p>Compressible biaxial loading. Returns true stress.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.neo_hookean">
+<span class="sig-prename descclassname"><span class="pre">ada.materials.polymers.models.</span></span><span class="sig-name descname"><span class="pre">neo_hookean</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">strain</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mu</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">load_type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'uniaxial'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.materials.polymers.models.neo_hookean" title="Link to this definition">¶</a></dt>
+<dd><p>Neo-Hookean incompressible uniaxial</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>strain</strong></p></li>
+<li><p><strong>mu</strong> – Shear modulus</p></li>
+<li><p><strong>load_type</strong> – Type of loading</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.planar_stress">
+<span class="sig-prename descclassname"><span class="pre">ada.materials.polymers.models.</span></span><span class="sig-name descname"><span class="pre">planar_stress</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">trueStrainVec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.materials.polymers.models.planar_stress" title="Link to this definition">¶</a></dt>
+<dd><p>Compressible planar loading. Returns true stress.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.uniaxial_stress">
+<span class="sig-prename descclassname"><span class="pre">ada.materials.polymers.models.</span></span><span class="sig-name descname"><span class="pre">uniaxial_stress</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">true_strain</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.materials.polymers.models.uniaxial_stress" title="Link to this definition">¶</a></dt>
+<dd><p>Compressible uniaxial loading. Returns true stress.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ada.materials.polymers.models.yeoh">
+<span class="sig-prename descclassname"><span class="pre">ada.materials.polymers.models.</span></span><span class="sig-name descname"><span class="pre">yeoh</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">strain</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">c10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">c20</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">c30</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">load_type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'uniaxial'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.materials.polymers.models.yeoh" title="Link to this definition">¶</a></dt>
+<dd><p>Yeoh incompressible</p>
+</dd></dl>
+
+<dl class="py function" id="module-ada.materials.polymers.utils">
+<dt class="sig sig-object py" id="ada.materials.polymers.utils.E_from_mu_kappa">
+<span class="sig-prename descclassname"><span class="pre">ada.materials.polymers.utils.</span></span><span class="sig-name descname"><span class="pre">E_from_mu_kappa</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mu</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kappa</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.materials.polymers.utils.E_from_mu_kappa" title="Link to this definition">¶</a></dt>
+<dd><p>Young’s Modulus from known shear and bulk modulus’</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>mu</strong> – Shear Modulus</p></li>
+<li><p><strong>kappa</strong> – Bulk Modulus</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ada.materials.polymers.utils.S_from_sig">
+<span class="sig-prename descclassname"><span class="pre">ada.materials.polymers.utils.</span></span><span class="sig-name descname"><span class="pre">S_from_sig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">e</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sig</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.materials.polymers.utils.S_from_sig" title="Link to this definition">¶</a></dt>
+<dd><p>Convert true stress to engineering stress</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>e</strong> – engineering strain</p></li>
+<li><p><strong>sig</strong> – true stress</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>engineering stress</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ada.materials.polymers.utils.coeff_det">
+<span class="sig-prename descclassname"><span class="pre">ada.materials.polymers.utils.</span></span><span class="sig-name descname"><span class="pre">coeff_det</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">e</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.materials.polymers.utils.coeff_det" title="Link to this definition">¶</a></dt>
+<dd><p>Coefficient of Determination
+The Coefficient of Determination (R2) is defined by:</p>
+<blockquote>
+<div><p>R2=1−∑i(ei–pi)2(ei–em)2</p>
+</div></blockquote>
+<p>where</p>
+<blockquote>
+<div><p>ei is an experimental stress value (or strain value if stress control)
+pi is a predicted stress value (or strain value if stress control)
+em is the mean of the experimental values</p>
+</div></blockquote>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ada.materials.polymers.utils.e_from_eps">
+<span class="sig-prename descclassname"><span class="pre">ada.materials.polymers.utils.</span></span><span class="sig-name descname"><span class="pre">e_from_eps</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eps</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.materials.polymers.utils.e_from_eps" title="Link to this definition">¶</a></dt>
+<dd><p>Convert true strain to engineering strain</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>eps</strong> – true strain</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>engineering strain</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ada.materials.polymers.utils.msd">
+<span class="sig-prename descclassname"><span class="pre">ada.materials.polymers.utils.</span></span><span class="sig-name descname"><span class="pre">msd</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">e</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.materials.polymers.utils.msd" title="Link to this definition">¶</a></dt>
+<dd><p>Mean Square Difference (MSD)
+The Mean Square Difference (MSD) is defined by:</p>
+<blockquote>
+<div><p>MSD=1n∑i=1n(ei–pi)2</p>
+</div></blockquote>
+<p>where:</p>
+<blockquote>
+<div><p>ei is an experimental stress value (or strain value if stress control)
+pi is a predicted stress value (of strain value if stress control)
+n is the total number of points</p>
+</div></blockquote>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ada.materials.polymers.utils.nmad">
+<span class="sig-prename descclassname"><span class="pre">ada.materials.polymers.utils.</span></span><span class="sig-name descname"><span class="pre">nmad</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">e</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.materials.polymers.utils.nmad" title="Link to this definition">¶</a></dt>
+<dd><p>Normalized Mean Absolute Difference (NMAD)</p>
+<p>The Normalized Mean Absolute Difference (NMAD) fitness value represents the average error in percent between the
+experimental data and the model predictions. The NMAD value is defined by:</p>
+<blockquote>
+<div><p>NMAD = 100*(|e-p|)max(|e|,|p|)</p>
+</div></blockquote>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>e</strong> – Is the vector of experimental stress values (or if strain control,
+the vector of experimental strain values)</p></li>
+<li><p><strong>p</strong> – Is the vector of predicted stress values</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p></p>
+</dd>
+</dl>
+</dd></dl>
+
 </section>
 </section>
 <section id="module-ada.sections">
@@ -2057,7 +2371,35 @@ a library of structural material properties that have been properly defined and 
 <li><a class="reference internal" href="#ada.materials.metals.PlasticityModel"><code class="docutils literal notranslate"><span class="pre">PlasticityModel</span></code></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#polymers">Polymers</a></li>
+<li><a class="reference internal" href="#module-ada.materials.polymers">Polymers</a><ul>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate"><code class="docutils literal notranslate"><span class="pre">Calibrate</span></code></a><ul>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.aba_str"><code class="docutils literal notranslate"><span class="pre">Calibrate.aba_str</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.bia_eps"><code class="docutils literal notranslate"><span class="pre">Calibrate.bia_eps</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.biaxial"><code class="docutils literal notranslate"><span class="pre">Calibrate.biaxial</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.mat_data"><code class="docutils literal notranslate"><span class="pre">Calibrate.mat_data</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.pla_eps"><code class="docutils literal notranslate"><span class="pre">Calibrate.pla_eps</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.planar"><code class="docutils literal notranslate"><span class="pre">Calibrate.planar</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.plot"><code class="docutils literal notranslate"><span class="pre">Calibrate.plot()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.run"><code class="docutils literal notranslate"><span class="pre">Calibrate.run()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.uni_eps"><code class="docutils literal notranslate"><span class="pre">Calibrate.uni_eps</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Calibrate.uniaxial"><code class="docutils literal notranslate"><span class="pre">Calibrate.uniaxial</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.NH_3D"><code class="docutils literal notranslate"><span class="pre">NH_3D()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.Yeoh_3D"><code class="docutils literal notranslate"><span class="pre">Yeoh_3D()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.biaxial_stress"><code class="docutils literal notranslate"><span class="pre">biaxial_stress()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.neo_hookean"><code class="docutils literal notranslate"><span class="pre">neo_hookean()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.planar_stress"><code class="docutils literal notranslate"><span class="pre">planar_stress()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.uniaxial_stress"><code class="docutils literal notranslate"><span class="pre">uniaxial_stress()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.models.yeoh"><code class="docutils literal notranslate"><span class="pre">yeoh()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.utils.E_from_mu_kappa"><code class="docutils literal notranslate"><span class="pre">E_from_mu_kappa()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.utils.S_from_sig"><code class="docutils literal notranslate"><span class="pre">S_from_sig()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.utils.coeff_det"><code class="docutils literal notranslate"><span class="pre">coeff_det()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.utils.e_from_eps"><code class="docutils literal notranslate"><span class="pre">e_from_eps()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.utils.msd"><code class="docutils literal notranslate"><span class="pre">msd()</span></code></a></li>
+<li><a class="reference internal" href="#ada.materials.polymers.utils.nmad"><code class="docutils literal notranslate"><span class="pre">nmad()</span></code></a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li><a class="reference internal" href="#module-ada.sections">Sections</a><ul>
