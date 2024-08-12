@@ -14,6 +14,19 @@ concurrency:
 
 # installs mamba-org/setup-micromamba@v1 on all 3 platforms using matrix and runs pytest:
 jobs:
+    lint:
+        runs-on: ubuntu-latest
+        steps:
+          - uses: actions/checkout@v4
+
+          - uses: prefix-dev/setup-pixi@v0.8.0
+            with:
+              pixi-version: v0.27.1
+              cache: true
+              environment: tests
+
+          - run: pixi run lint
+
     test:
         runs-on: ${{ matrix.os }}
         defaults:
