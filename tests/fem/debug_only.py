@@ -42,7 +42,7 @@ def main(overwrite=True, execute=True, test_gmsh_options=False, build_report=Fal
         perform_quality_check=False,
     )
 
-    a.show(renderer="pygfx")
+    a.show()
     # result.show()
 
     if build_report:
@@ -63,4 +63,4 @@ def main(overwrite=True, execute=True, test_gmsh_options=False, build_report=Fal
 
 if __name__ == "__main__":
     logger.setLevel("INFO")
-    main(overwrite=False, execute=False, test_gmsh_options=False, build_report=False)
+    main(overwrite=False, execute=True, test_gmsh_options=False, build_report=False)

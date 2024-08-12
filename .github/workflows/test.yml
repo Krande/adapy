@@ -22,10 +22,9 @@ jobs:
           condarc: |
             channels:
               - conda-forge
-              - krande
           environment-file: conda/environment.core.yml
           create-args: >-
-            python=3.11
+            python=3.12
             pytest
 
       - name: Install latest adapy
@@ -49,10 +48,9 @@ jobs:
           condarc: |
             channels:
               - conda-forge
-              - krande
           environment-file: conda/environment.core.yml
           create-args: >-
-            python=3.11
+            python=3.12
             pytest
             jupyterlab
             pythreejs
