@@ -306,10 +306,7 @@ class IfcWriter:
             )
 
     def associate_elem_with_material(self, material: Material, ifc_elem: ifcopenshell.entity_instance):
-        try:
-            rel_mat = self.ifc_store.f.by_guid(material.guid)
-        except RuntimeError as e:
-            raise RuntimeError(e)
+        rel_mat = self.ifc_store.f.by_guid(material.guid)
         related_objects = [*rel_mat.RelatedObjects, ifc_elem]
         rel_mat.RelatedObjects = related_objects
         return rel_mat
