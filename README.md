@@ -1,9 +1,9 @@
 # ADA - Assembly for Design & Analysis
 
-[![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/version.svg)](https://anaconda.org/krande/ada-py)
-[![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/latest_release_date.svg)](https://anaconda.org/krande/ada-py)
-[![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/platforms.svg)](https://anaconda.org/krande/ada-py)
-[![Anaconda-Server Badge](https://anaconda.org/krande/ada-py/badges/downloads.svg)](https://anaconda.org/krande/ada-py)
+[![Anaconda-Server Badge](https://anaconda.org/conda-forge/ada-py/badges/version.svg)](https://anaconda.org/conda-forge/ada-py)
+[![Anaconda-Server Badge](https://anaconda.org/conda-forge/ada-py/badges/latest_release_date.svg)](https://anaconda.org/krande/ada-py)
+[![Anaconda-Server Badge](https://anaconda.org/conda-forge/ada-py/badges/platforms.svg)](https://anaconda.org/conda-forge/ada-py)
+[![Anaconda-Server Badge](https://anaconda.org/conda-forge/ada-py/badges/downloads.svg)](https://anaconda.org/conda-forge/ada-py)
 [![PyPi Badge](https://img.shields.io/pypi/v/ada-py)](https://pypi.org/project/ada-py/)
 
 A python library for working with structural analysis and design. This library should be considered as experimental.
@@ -155,9 +155,6 @@ For installation files of open source FEM software such as Calculix and Code Ast
 * https://salome-platform.org/downloads/current-version (Salome v9.6.0 for windows/linux)
 * https://prepomax.fs.um.si/downloads/ (PreProMax -> Calculix preprocessor)
 
-
-**Note!** pip is not a recommended installation method due to an unstable behaviour often 
-manifested as DLL import errors related to the vtk package.
 
 ## Acknowledgements
 
