@@ -6,6 +6,7 @@ import ifcopenshell.geom
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
 
 from ada import Assembly, Shape
+from ada.cadit.ifc.read.geom.geom_reader import get_product_definitions
 from ada.config import logger
 from ada.visit.colors import Color
 
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
 def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: IfcStore):
     logger.info(f'importing Shape "{name}"')
     color, opacity = get_colour(product, ifc_store.assembly)
-
+    # geometries = list(get_product_definitions(product))
     return Shape(
         name,
         None,

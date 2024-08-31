@@ -55,6 +55,7 @@ def write_ifc_shape(shape: Shape):
         add_colour(f, ifc_shape.Representations[0].Items[0], str(shape.color), shape.color)
 
     from ada.base.ifc_types import ShapeTypes
+
     ifc_elem = f.create_entity(
         str(shape.ifc_class.value) if isinstance(shape.ifc_class, ShapeTypes) else shape.ifc_class,
         GlobalId=shape.guid,

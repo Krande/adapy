@@ -106,6 +106,7 @@ lint = "isort . && black . --config pyproject.toml && ruff check ."
 docs = "cd docs && make html"
 [tool.pixi.feature.tests.tasks]
 test = "pytest tests"
+test-no-fem = "pytest tests --ignore=tests/fem"
 ftest = { cmd="python build_verification_report.py true true --export-format=docx", cwd="./tests/fem" }
 fdoc = { cmd="python doc_live_html.py", cwd="./tests/fem" }
 

@@ -138,6 +138,43 @@ class TShapeProfileDef(ProfileDef):
     flange_slope: float
 
 
+@dataclass
+class CircleProfileDef(ProfileDef):
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcCircleProfileDef.htm)
+    """
+
+    radius: float
+
+
+@dataclass
+class TriangulatedFaceSet:
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcTriangulatedFaceSet.htm)
+    """
+
+    coordinates: list[Point]
+    normals: list[Direction]
+    indices: list[int]
+
+
+@dataclass
+class RectangleProfileDef(ProfileDef):
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcRectangleProfileDef.htm)
+    """
+
+    x_dim: float
+    y_dim: float
+
+
 SURFACE_GEOM_TYPES = Union[
-    ArbitraryProfileDef, FaceBasedSurfaceModel, CurveBoundedPlane, IShapeProfileDef, TShapeProfileDef
+    ArbitraryProfileDef,
+    FaceBasedSurfaceModel,
+    CurveBoundedPlane,
+    IShapeProfileDef,
+    TShapeProfileDef,
+    TriangulatedFaceSet,
+    CircleProfileDef,
+    RectangleProfileDef,
 ]

@@ -20,7 +20,7 @@ def test_export_basic(ifc_test_dir):
     pl1 = Plate.from_3d_points("pl1", [(0, 0, 0), (0, 0, 2), (0, 2, 2), (0, 2.0, 0.0)], 0.01)
 
     a = Assembly("MyFirstIfcFile", user=user) / (
-            Part("MyBldg", metadata=dict(ifctype="building")) / [bm, bm1, bm2, bm3, bm4, bm5, pl1]
+        Part("MyBldg", metadata=dict(ifctype="building")) / [bm, bm1, bm2, bm3, bm4, bm5, pl1]
     )
 
     ifc_obj = a.to_ifc(ifc_test_dir / "my_test.ifc", file_obj_only=False)
@@ -29,7 +29,6 @@ def test_export_basic(ifc_test_dir):
 
     result = ifc_obj.by_type("IFCMATERIALPROPERTIES")
     assert len(result) == 2
-
 
 
 def test_ifc_groups(ifc_test_dir):

@@ -1,6 +1,9 @@
 import ifcopenshell
 
+from ada.core.utils import flatten
 from ada.geom import surfaces as geo_su
+from ada.geom.placement import Direction
+from ada.geom.points import Point
 
 from .curves import get_curve
 
@@ -12,6 +15,10 @@ def get_surface(ifc_entity: ifcopenshell.entity_instance) -> geo_su.SURFACE_GEOM
         return i_shape_profile_def(ifc_entity)
     elif ifc_entity.is_a("IfcTShapeProfileDef"):
         return t_shape_profile_def(ifc_entity)
+    elif ifc_entity.is_a("IfcCircleProfileDef"):
+        return circle_profile_def(ifc_entity)
+    elif ifc_entity.is_a("IfcRectangleProfileDef"):
+        return rectangle_profile_def(ifc_entity)
     else:
         raise NotImplementedError(f"Geometry type {ifc_entity.is_a()} not implemented")
 
@@ -56,4 +63,27 @@ def t_shape_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.TSha
         web_edge_radius=ifc_entity.WebEdgeRadius,
         web_slope=ifc_entity.WebSlope,
         flange_slope=ifc_entity.FlangeSlope,
+    )
+
+
+def circle_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.CircleProfileDef:
+    return geo_su.CircleProfileDef(
+        profile_type=geo_su.ProfileType.from_str(ifc_entity.ProfileType),
+        radius=ifc_entity.Radius,
+    )
+
+
+def triangulated_face_set(ifc_entity: ifcopenshell.entity_instance) -> geo_su.TriangulatedFaceSet:
+    return geo_su.TriangulatedFaceSet(
+        coordinates=[Point(*x) for x in ifc_entity.Coordinates.CoordList],
+        indices=flatten(ifc_entity.CoordIndex),
+        normals=[Direction(*x) for x in ifc_entity.Normals],
+    )
+
+
+def rectangle_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.RectangleProfileDef:
+    return geo_su.RectangleProfileDef(
+        profile_type=geo_su.ProfileType.from_str(ifc_entity.ProfileType),
+        x_dim=ifc_entity.XDim,
+        y_dim=ifc_entity.YDim,
     )
