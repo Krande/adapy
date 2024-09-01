@@ -21,6 +21,7 @@ jobs:
       - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         with:
           cache-environment: false
+          environment-name: testing
           condarc: |
             channels:
               - conda-forge
