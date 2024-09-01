@@ -94,11 +94,13 @@ class IfcWriter:
                 self.callback(i, num_new_objects)
 
         # Create relationships between materials and physical objects here inside the object creation
-        bm_map = defaultdict(list)
-        for bm in new_objects:
-            bm_map[bm.material].append(bm)
+        obj_map = defaultdict(list)
+        for obj in new_objects:
+            if not hasattr(obj, "material"):
+                continue
+            obj_map[obj.material].append(obj)
 
-        for mat, objects in bm_map.items():
+        for mat, objects in obj_map.items():
             rel_mat = self.ifc_store.f.by_guid(mat.guid)
             ifc_elems = [self.ifc_store.f.by_guid(obj.guid) for obj in objects]
             rel_mat.RelatedObjects = [*rel_mat.RelatedObjects, *ifc_elems]
