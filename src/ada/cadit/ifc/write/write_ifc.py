@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
 import ifcopenshell
 import ifcopenshell.geom
+import ifcopenshell.api.material
 
 from ada.base.changes import ChangeAction
 from ada.cadit.ifc.read.reader_utils import get_ifc_body
@@ -64,6 +66,8 @@ class IfcWriter:
         ...
 
     def sync_added_physical_objects(self) -> int:
+        from ada import Beam
+
         a = self.ifc_store.assembly
         mat_map = {mat.guid: mat for mat in a.get_all_materials()}
         rel_mats_map = {
@@ -88,6 +92,16 @@ class IfcWriter:
             to_be_added.change_type = ChangeAction.NOCHANGE
             if self.callback is not None:
                 self.callback(i, num_new_objects)
+
+        # Create relationships between materials and physical objects here inside the object creation
+        bm_map = defaultdict(list)
+        for bm in new_objects:
+            bm_map[bm.material].append(bm)
+
+        for mat, objects in bm_map.items():
+            rel_mat = self.ifc_store.f.by_guid(mat.guid)
+            ifc_elems = [self.ifc_store.f.by_guid(obj.guid) for obj in objects]
+            rel_mat.RelatedObjects = [*rel_mat.RelatedObjects, *ifc_elems]
 
         for spatial_elem_guid, relating_elements in contained_in_spatial.items():
             if len(relating_elements) == 0:
