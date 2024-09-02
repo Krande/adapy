@@ -114,7 +114,7 @@ class IfcBeamWriter:
         ifc_store.writer.create_rel_associates_material(create_guid(), mat_usage, [ifc_beam])
 
         # this is done as a post-step
-        #ifc_store.writer.associate_elem_with_material(beam.material, ifc_beam)
+        # ifc_store.writer.associate_elem_with_material(beam.material, ifc_beam)
 
         return mat_profile_set
 

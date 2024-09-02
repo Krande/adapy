@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
 import ifcopenshell
-import ifcopenshell.geom
 import ifcopenshell.api.material
+import ifcopenshell.geom
 
 from ada.base.changes import ChangeAction
 from ada.cadit.ifc.read.reader_utils import get_ifc_body
@@ -66,7 +66,6 @@ class IfcWriter:
         ...
 
     def sync_added_physical_objects(self) -> int:
-        from ada import Beam
 
         a = self.ifc_store.assembly
         mat_map = {mat.guid: mat for mat in a.get_all_materials()}

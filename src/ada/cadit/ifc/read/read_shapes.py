@@ -6,7 +6,6 @@ import ifcopenshell.geom
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
 
 from ada import Assembly, Shape
-from ada.cadit.ifc.read.geom.geom_reader import get_product_definitions
 from ada.config import logger
 from ada.visit.colors import Color
 
