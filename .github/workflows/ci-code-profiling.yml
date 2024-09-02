@@ -42,7 +42,7 @@ jobs:
             pytest-codspeed
 
       - name: Run pytest-benchmark
-        run: pytest bench.py --benchmark-json output.json
+        run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/ --benchmark-json output.json
 
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1

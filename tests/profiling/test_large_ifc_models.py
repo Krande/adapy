@@ -2,6 +2,7 @@ import pytest
 
 import ada
 
+
 @pytest.mark.parametrize("num_beams", [100, 1_000, 5_000, 10_000])
 @pytest.mark.benchmark
 def test_build_big_ifc(num_beams):
