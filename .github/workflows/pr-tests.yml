@@ -54,4 +54,4 @@ jobs:
             pip install -e .
 
         - name: Runs Tests
-          run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/
+          run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/ --ignore=./tests/profiling/

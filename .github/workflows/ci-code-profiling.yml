@@ -1,0 +1,38 @@
+name: codspeed-benchmarks
+
+on:
+  push:
+    branches:
+      - "main" # or "master"
+      - fix/ifc-rel-mat-efficiency
+  pull_request:
+  # `workflow_dispatch` allows CodSpeed to trigger backtest
+  # performance analysis in order to generate initial data.
+  workflow_dispatch:
+
+jobs:
+  benchmarks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
+        with:
+          cache-environment: false
+          environment-name: testing
+          condarc: |
+            channels:
+              - conda-forge
+          create-args: >-
+            ada-py
+            python=3.12
+            pytest
+            pytest-codspeed
+
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@v3
+        with:
+          token: ${{ secrets.CODSPEED_TOKEN }}
+          run: bash -el -c "pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/ --codspeed"

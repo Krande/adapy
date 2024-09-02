@@ -32,7 +32,7 @@ jobs:
           pip install -e .
 
       - name: Runs Tests
-        run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/
+        run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/ --ignore=./tests/profiling/
 
   test-full:
     name: Test ada-py-full
@@ -64,4 +64,4 @@ jobs:
           pip install -e .
 
       - name: Run Tests
-        run: pytest ./tests --ignore=./tests/fem/
+        run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/profiling/
