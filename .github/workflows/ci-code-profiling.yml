@@ -21,6 +21,10 @@ jobs:
       run:
         shell: bash -el {0}
     steps:
+      - name: Set up swap space
+        uses: pierotofy/set-swap-space@v1.0
+        with:
+          swap-size-gb: 10
       - uses: actions/checkout@v4
       - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         with:
