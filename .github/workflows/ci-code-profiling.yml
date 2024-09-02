@@ -33,6 +33,7 @@ jobs:
             ada-py
             python=3.12
             pytest
+            pytest-benchmark
             pytest-codspeed
 
       - name: Run benchmarks

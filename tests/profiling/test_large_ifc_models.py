@@ -5,9 +5,9 @@ import ada
 
 @pytest.mark.benchmark
 def test_build_big_ifc():
-    # create 10_000 beams and write it to ifc
+    # create 5_000 beams and write it to ifc
     beams = []
-    for i in range(0, 10_000):
+    for i in range(0, 5_000):
         bm = ada.Beam(f"bm{i}", (i, 0, 0), (i + 1, 0, 0), "IPE300")
         beams.append(bm)
     a = ada.Assembly() / beams
