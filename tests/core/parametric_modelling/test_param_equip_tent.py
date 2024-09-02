@@ -15,7 +15,7 @@ def eq_model_4legged():
     return EquipmentTent("MyEqtent", 15e3, (2, 2, 1), height=1, width=1, length=2)
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def simple_stru():
     return SimpleStru(
         "SimpleStructure",
