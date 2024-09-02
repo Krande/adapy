@@ -27,7 +27,7 @@ def simple_stru():
         placement=Placement(origin=(200, 100, 500)),
     )
 
-
+@pytest.mark.benchmark
 def test_eq_model_to_ifc_and_fem(eq_model_4legged, param_models_test_dir):
     eq_model_4legged.fem = eq_model_4legged.to_fem_obj(0.1)
 
@@ -40,7 +40,7 @@ def test_eq_model_to_ifc_and_fem(eq_model_4legged, param_models_test_dir):
     # a.to_ifc(test_dir / "eq_model.ifc")
     # a.to_fem("EqtentFEM", "sesam", scratch_dir=param_models_test_dir, overwrite=True)
 
-
+@pytest.mark.benchmark
 def test_simple_stru_with_equipment(simple_stru, eq_model_4legged, param_models_test_dir):
     a = ada.Assembly() / simple_stru
 
@@ -67,7 +67,7 @@ def test_simple_stru_with_equipment(simple_stru, eq_model_4legged, param_models_
     # from ada.fem import Load, StepImplicit
 
     # a.to_stp(test_dir / "simple_stru_with_equipments_before_fem")
-    a.to_ifc("temp/simple_stru_with_equipments_before_fem.ifc", include_fem=False)
+    a.to_ifc("temp/simple_stru_with_equipments_before_fem.ifc", include_fem=False, file_obj_only=True)
     # a.to_fem("MySimpleStruWEquip_ca", "code_aster", overwrite=True, execute=True)
     # a.to_fem("MySimpleStruWEquip_ufo", "usfos", overwrite=True)
     # a.to_fem("MySimpleStruWEquip_ses", "sesam", overwrite=True)

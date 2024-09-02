@@ -5,6 +5,7 @@ from ada.core.utils import roundoff
 from ada.param_models.basic_module import SimpleStru
 
 
+@pytest.mark.benchmark
 def test_to_fem(param_models_test_dir):
     a = build_test_simplestru_fem(use_quads=True)
 
@@ -30,6 +31,7 @@ def test_to_fem(param_models_test_dir):
     assert abs(roundoff(cog.tot_vol) - 0.865048) < tol
 
 
+@pytest.mark.benchmark
 def build_test_simplestru_fem(mesh_size=0.3, make_fem=True, use_quads=False) -> ada.Assembly:
     p = SimpleStru("ParametricModel")
 
