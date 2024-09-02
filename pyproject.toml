@@ -105,13 +105,13 @@ lint = "isort . && black . --config pyproject.toml && ruff check ."
 [tool.pixi.feature.docs.tasks]
 docs = "cd docs && make html"
 [tool.pixi.feature.tests.tasks]
-test = "pytest tests"
+test = "pytest tests --ignore=tests/profiling"
+test-no-fem = "pytest tests --ignore=tests/fem --ignore=tests/profiling"
 ftest = { cmd="python build_verification_report.py true true --export-format=docx", cwd="./tests/fem" }
 fdoc = { cmd="python doc_live_html.py", cwd="./tests/fem" }
 
 [tool.pixi.feature.web.tasks]
 npm = { cmd="npm", cwd="./src/frontend" }
-webd = { cmd="npm run dev", cwd="./src/frontend" }
 
 [tool.pixi.dependencies]
 pixi-pycharm = ">=0.0.6,<0.0.7"

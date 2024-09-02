@@ -21,9 +21,9 @@ jobs:
 
           - uses: prefix-dev/setup-pixi@v0.8.0
             with:
-              pixi-version: v0.27.1
+              pixi-version: v0.28.2
               cache: true
-              environment: tests
+              environments: lint
 
           - run: pixi run lint
 
@@ -54,4 +54,4 @@ jobs:
             pip install -e .
 
         - name: Runs Tests
-          run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/
+          run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/ --ignore=./tests/profiling/
