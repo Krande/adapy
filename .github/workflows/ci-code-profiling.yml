@@ -48,16 +48,16 @@ jobs:
         run: |
           pip install -e .
 
-      - name: Run pytest-benchmark
-        run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/ --benchmark-json output.json
-
-      - name: Store benchmark result
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          tool: 'pytest'
-          output-file-path: output.json
-          # Enable Job Summary for PRs
-          summary-always: true
+#      - name: Run pytest-benchmark
+#        run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/ --benchmark-json output.json
+#
+#      - name: Store benchmark result
+#        uses: benchmark-action/github-action-benchmark@v1
+#        with:
+#          tool: 'pytest'
+#          output-file-path: output.json
+#          # Enable Job Summary for PRs
+#          summary-always: true
 
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v3
