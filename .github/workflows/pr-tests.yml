@@ -1,7 +1,7 @@
 name: Pull Request Tests
 
 on:
-  pull_request_target:
+  pull_request:
     types: [ opened, synchronize, edited, unlabeled ]
     branches:
       - main
@@ -39,6 +39,8 @@ jobs:
             os: [ubuntu-latest, windows-latest, macos-13]
         steps:
         - uses: actions/checkout@v4
+          with:
+            ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
         - uses: mamba-org/setup-micromamba@v1  # https://github.com/mamba-org/setup-micromamba
           with:
