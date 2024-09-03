@@ -15,13 +15,18 @@ if TYPE_CHECKING:
 @dataclass
 class CacheStore:
     name: str
+    cache_dir: pathlib.Path | None = None
     state_file: pathlib.Path = field(default=None)
     cache_file: pathlib.Path = field(default=None)
 
     _cache_loaded: bool = False
 
     def __post_init__(self):
-        state_path = pathlib.Path("").parent.resolve().absolute() / ".state" / self.name
+        if self.cache_dir is None:
+            self.cache_dir = pathlib.Path("").parent.resolve().absolute() / ".state"
+        if isinstance(self.cache_dir, str):
+            self.cache_dir = pathlib.Path(self.cache_dir)
+        state_path = self.cache_dir / self.name
         self.state_file = state_path.with_suffix(".json")
         self.cache_file = state_path.with_suffix(".h5")
 

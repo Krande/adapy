@@ -77,9 +77,6 @@ ada-py = "*"
 code-aster = "*"
 lark = "*"
 
-[tool.pixi.feature.py312.pypi-dependencies]
-ada-py = {path = ".", editable = true}
-
 [tool.pixi.feature.tests.dependencies]
 pytest = "*"
 paradoc = "*"

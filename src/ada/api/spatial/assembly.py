@@ -64,6 +64,7 @@ class Assembly(Part):
         ifc_settings=None,
         enable_cache: bool = False,
         clear_cache: bool = False,
+        cache_dir: str | pathlib.Path = None,
         ifc_class: SpatialTypes = SpatialTypes.IfcSite,
     ):
         metadata = dict() if metadata is None else metadata
@@ -86,7 +87,7 @@ class Assembly(Part):
 
         self._cache_store = None
         if enable_cache:
-            self._cache_store = CacheStore(name)
+            self._cache_store = CacheStore(name, cache_dir=cache_dir)
             self.cache_store.sync(self, clear_cache=clear_cache)
 
     def read_ifc(
