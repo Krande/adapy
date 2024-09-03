@@ -43,3 +43,13 @@ def test_build_big_ifc_sphere():
         objects.append(bm)
     a = ada.Assembly() / objects
     a.to_ifc(file_obj_only=True)
+
+
+@pytest.mark.benchmark
+def test_build_big_ifc_pipe():
+    objects = []
+    for i in range(0, 500):
+        bm = ada.Pipe(f"obj{i}", [(0, 0, i), (1, 0, i), (1, 1, i)], "PIPE200x5")
+        objects.append(bm)
+    a = ada.Assembly() / objects
+    a.to_ifc(file_obj_only=True)
