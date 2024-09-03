@@ -2,6 +2,29 @@
 
 
 
+## v0.2.17 (2024-09-03)
+
+### Chore
+
+* chore: reduce number of pipes in profiling tests ([`91b7ec9`](https://github.com/Krande/adapy/commit/91b7ec9a76dacb4ee04c2627af42d4f1604bcddf))
+
+* chore: add pipe ifc writing performance profile test ([`3dbac82`](https://github.com/Krande/adapy/commit/3dbac8296d77b4f1d202ad5c4869847a1a74f9ec))
+
+* chore: increase number of objects for ifc write to 500 ([`fa7665e`](https://github.com/Krande/adapy/commit/fa7665e4cb76876fbe6492f897e9e633d315693e))
+
+* chore: update tests ([`347ee56`](https://github.com/Krande/adapy/commit/347ee56d2d2d8e032bd55bb07447f78e9b349abe))
+
+* chore: add ci profiling (#108) ([`6f6dca4`](https://github.com/Krande/adapy/commit/6f6dca4215585e43be30f073a85eccc06e564f90))
+
+### Fix
+
+* fix: ifc rel mat efficiency (#109) ([`3231486`](https://github.com/Krande/adapy/commit/32314869a695456c59231da6aca960e5d85cc2c8))
+
+### Unknown
+
+* update pixi ([`38aeb66`](https://github.com/Krande/adapy/commit/38aeb66968e486cc1ef6b789e17d2f7b16b4c820))
+
+
 ## v0.2.16 (2024-08-12)
 
 ### Chore
