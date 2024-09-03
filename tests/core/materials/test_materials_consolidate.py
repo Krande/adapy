@@ -23,4 +23,4 @@ def test_mixed_materials_consolidate(mixed_model):
     for obj in mixed_model.get_all_physical_objects():
         assert obj.material.guid in all_mat_map.keys()
 
-    mixed_model.to_ifc(file_obj_only=True, validate=True)
+    mixed_model.to_ifc("temp/mixed_mat_validate.ifc", file_obj_only=False, validate=True)
