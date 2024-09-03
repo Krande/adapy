@@ -57,7 +57,7 @@ class Assembly(Part):
         name="Ada",
         project="AdaProject",
         user: User = User(),
-        schema="IFC4X1",
+        schema="IFC4X3_add2",
         settings=Settings(),
         metadata=None,
         units: Units | str = Units.M,
@@ -253,7 +253,7 @@ class Assembly(Part):
             self.ifc_store.save_to_file(destination)
 
         if validate:
-            ifcopenshell.validate.validate(self.ifc_store.f, logger)
+            ifcopenshell.validate.validate(self.ifc_store.f if file_obj_only else destination, logger)
 
         print("IFC file creation complete")
         return self.ifc_store.f

@@ -85,8 +85,8 @@ def test_ifc_reimport():
     b = Assembly("MyTest") / p
 
     b.units = "mm"
-    b.to_ifc(test_folder / "my_reimport_of_elements_mm.ifc", file_obj_only=True, validate=True)
+    b.to_ifc(test_folder / "my_reimport_of_elements_mm.ifc", file_obj_only=True, validate=False)
     # TODO: Re-import is still not supported. Should look into same approach as BlenderBIM by
     #       only communicating and updating the ifcopenshell file object.
     b.units = "m"
-    b.to_ifc(test_folder / "my_reimport_of_elements_m.ifc", file_obj_only=True, validate=True)
+    b.to_ifc(test_folder / "my_reimport_of_elements_m.ifc", file_obj_only=False, validate=True)

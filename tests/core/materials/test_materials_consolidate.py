@@ -11,7 +11,7 @@ def test_beam_sections_consolidate():
     a.consolidate_materials()
     assert len(a.get_all_materials()) == 1
 
-    a.to_ifc(file_obj_only=True, validate=True)
+    a.to_ifc("temp/bm_sec_validate.ifc", file_obj_only=False, validate=True)
 
 
 def test_mixed_materials_consolidate(mixed_model):

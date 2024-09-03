@@ -12,7 +12,7 @@ def test_pipe_straight():
     p = a.add_part(Part("MyPart"))
     y0 = -200e-3
     p.add_pipe(Pipe("Pipe1", [(0, y0, 0), (0, y0, 3.2)], Section("PSec", "PIPE", r=0.10, wt=5e-3)))
-    _ = a.to_ifc(test_dir / "pipe_straight.ifc", file_obj_only=True, validate=True)
+    _ = a.to_ifc(test_dir / "pipe_straight.ifc", file_obj_only=False, validate=True)
 
 
 def test_write_single_90_deg_elbow_revolved_solid(pipe_w_single_90_deg_bend):
@@ -34,7 +34,7 @@ def test_pipe_multiple_bends(pipe_w_multiple_bends):
 
     a = Assembly("MyTest") / (Part("MyPart") / pipe_w_multiple_bends)
     # a.to_stp(test_dir / "pipe_bend_multiple.stp")
-    a.to_ifc(test_dir / "pipe_bend_multiple.ifc", file_obj_only=True, validate=True)
+    a.to_ifc(test_dir / "pipe_bend_multiple.ifc", file_obj_only=False, validate=True)
 
 
 def test_write_elbow_revolved_solid_ifc_gen(pipe_w_multiple_bends):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import pathlib
+import shutil
 
 import pytest
 
@@ -35,7 +36,6 @@ def is_conditions_unsupported(fem_format, geom_repr, elem_order, reduced_integra
         return True
     else:
         return False
-
 
 @pytest.mark.parametrize("use_hex_quad", [True, False])
 @pytest.mark.parametrize("fem_format", ["code_aster", "calculix"])
