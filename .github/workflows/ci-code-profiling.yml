@@ -11,7 +11,7 @@ on:
 
 # Use concurrency to ensure that only one instance of this workflow is running at a time
 concurrency:
-  group: ci-profiling-codspeed-${{ github.sha }}
+  group: ci-profiling-codspeed-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
