@@ -4,13 +4,14 @@ import re
 from itertools import chain
 from typing import TYPE_CHECKING, Iterable
 
+import numpy as np
+
 from ada.config import logger
 from ada.core.utils import Counter, roundoff
 from ada.fem import ConnectorSection, FemSection
 from ada.fem.containers import FemSections
 from ada.fem.elements import Eccentricity
 from ada.fem.shapes import ElemType
-
 from . import cards
 from .helper_utils import list_cleanup
 
@@ -94,23 +95,24 @@ def get_beam_sections_from_inp(bulk_str: str, fem: FEM) -> Iterable[FemSection]:
             genprops = GeneralProperties(
                 Ax=h * (a + b) / 2,
                 Ix=h
-                * (
-                    b * h**2
-                    + 3 * a * h**2
-                    + a**3
-                    + 3 * a * c**2
-                    + 3 * c * a**2
-                    + b**3
-                    + c * b**2
-                    + a * b**2
-                    + b * c**2
-                    + 2 * a * b * c
-                    + b * a**2
-                ),
-                Iy=(h**3) * (3 * a + b) / 12,
+                   * (
+                           b * h ** 2
+                           + 3 * a * h ** 2
+                           + a ** 3
+                           + 3 * a * c ** 2
+                           + 3 * c * a ** 2
+                           + b ** 3
+                           + c * b ** 2
+                           + a * b ** 2
+                           + b * c ** 2
+                           + 2 * a * b * c
+                           + b * a ** 2
+                   ),
+                Iy=(h ** 3) * (3 * a + b) / 12,
                 Iz=h
-                * (a**3 + 3 * a * c**2 + 3 * c * a**2 + b**3 + c * b**2 + a * b**2 + 2 * a * b * c + b * a**2)
-                / 12,
+                   * (
+                               a ** 3 + 3 * a * c ** 2 + 3 * c * a ** 2 + b ** 3 + c * b ** 2 + a * b ** 2 + 2 * a * b * c + b * a ** 2)
+                   / 12,
             )
             return Section(profile_name, "GENBEAM", genprops=genprops, parent=fem)
         else:
@@ -216,24 +218,26 @@ def get_shell_section(m, sh_name, fem: "FEM", a: "Assembly"):
     )
 
 
-def get_connector_sections_from_bulk(bulk_str: str, parent: FEM = None) -> dict[str, ConnectorSection]:
-    import numpy as np
+def conn_from_groupdict(d: dict, parent):
+    name = d["name"]
+    comp = int(d["component"])
+    # This does not work reliably
+    logger.warning(
+        f'Connector section "{name}" has a component number of "{comp}". '
+        "Please verify the imported connector, as the connector properties import is not reliable."
+    )
+    res = np.fromstring(list_cleanup(d["bulk"]), sep=",", dtype=np.float64)
+    size = res.size
+    cols = comp + 1
+    rows = int(size / cols)
+    res_ = res.reshape(rows, cols)
+    return ConnectorSection(name, [res_], [], metadata=d, parent=parent)
 
+
+def get_connector_sections_from_bulk(bulk_str: str, parent: FEM = None) -> dict[str, ConnectorSection]:
     consecsd = dict()
 
     for m in cards.connector_behaviour.regex.finditer(bulk_str):
         d = m.groupdict()
-        name = d["name"]
-        comp = int(d["component"])
-        # This does not work reliably
-        logger.warning(
-            f'Connector section "{name}" has a component number of "{comp}". '
-            "Please verify the imported connector, as the connector properties import is not reliable."
-        )
-        res = np.fromstring(list_cleanup(d["bulk"]), sep=",", dtype=np.float64)
-        size = res.size
-        cols = comp + 1
-        rows = int(size / cols)
-        res_ = res.reshape(rows, cols)
-        consecsd[name] = ConnectorSection(name, [res_], [], metadata=d, parent=parent)
+        consecsd[d["name"]] = conn_from_groupdict(d, parent)
     return consecsd
