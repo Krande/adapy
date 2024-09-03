@@ -3,10 +3,10 @@ import pytest
 import ada
 
 
-def test_read_standard_case_beams(example_files, ifc_test_dir):
+def test_read_standard_case_beams(example_files, tmp_path):
     a = ada.from_ifc(example_files / "ifc_files/beams/beam-standard-case.ifc")
 
-    a.to_ifc(ifc_test_dir / "beam-standard-case-re-exported.ifc")
+    a.to_ifc(tmp_path / "beam-standard-case-re-exported.ifc")
 
     p = a.get_by_name("Building")
     assert len(p.beams) == 18
@@ -24,7 +24,7 @@ def test_read_standard_case_beams(example_files, ifc_test_dir):
     assert tuple(bm_b1.n2.p) == pytest.approx((2.94, 0.243, 2.046), abs=1e-3)
 
 
-def test_read_extruded_solid_beams(example_files, ifc_test_dir):
+def test_read_extruded_solid_beams(example_files):
     a = ada.from_ifc(example_files / "ifc_files/beams/beam-extruded-solid.ifc")
     p = a.get_part("Grasshopper Building")
     assert len(p.beams) == 1
@@ -34,7 +34,7 @@ def test_read_extruded_solid_beams(example_files, ifc_test_dir):
     assert tuple(bm.n2.p) == (0.0, 10.0, 0.0)
 
 
-def test_read_varying_cardinal_points(example_files, ifc_test_dir):
+def test_read_varying_cardinal_points(example_files):
     a = ada.from_ifc(example_files / "ifc_files/beams/beam-varying-cardinal-points.ifc")
     p = a.get_part("IfcBuilding")
     assert len(p.beams) == 4
@@ -43,13 +43,13 @@ def test_read_varying_cardinal_points(example_files, ifc_test_dir):
     # Todo: import and check the cardinal points
 
 
-def test_read_varying_extrusion_path(example_files, ifc_test_dir):
+def test_read_varying_extrusion_path(example_files):
     a = ada.from_ifc(example_files / "ifc_files/beams/beam-varying-extrusion-paths.ifc")
-    _ = a.to_ifc(ifc_test_dir / "beam-varying-extrusion-paths.ifc", file_obj_only=True)
+    _ = a.to_ifc(file_obj_only=True)
     print(a)
 
 
-def test_read_revolved_solid(example_files, ifc_test_dir):
+def test_read_revolved_solid(example_files):
     a = ada.from_ifc(example_files / "ifc_files/beams/beam-revolved-solid.ifc")
-    _ = a.to_ifc(ifc_test_dir / "beam-revolved-solid.ifc", file_obj_only=True)
+    _ = a.to_ifc(file_obj_only=True)
     print(a)

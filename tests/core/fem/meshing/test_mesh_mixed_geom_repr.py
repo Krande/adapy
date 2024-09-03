@@ -27,7 +27,7 @@ def assembly() -> Assembly:
     return Assembly() / (Part("MyFemObjects") / [bm1, bm2, bm3, pl1, shp1, pipe])
 
 
-def test_mix_geom_repr_in_same_session(assembly, test_dir):
+def test_mix_geom_repr_in_same_session(assembly, tmp_path):
     shape = ada.fem.shapes.ElemShape.TYPES
     bm1 = assembly.get_by_name("bm1")
     bm2 = assembly.get_by_name("bm2")
@@ -59,8 +59,8 @@ def test_mix_geom_repr_in_same_session(assembly, test_dir):
         p.fem = gs.get_fem()
 
     # print(p.fem.elements)
-    # assembly.to_stp(test_dir / "test_mix_geom_repr_in_same_session.stp")
-    # assembly.to_ifc(test_dir / "test_mix_geom_repr_in_same_session.ifc")
+    # assembly.to_stp(tmp_path / "test_mix_geom_repr_in_same_session.stp")
+    # assembly.to_ifc(tmp_path / "test_mix_geom_repr_in_same_session.ifc")
     # assembly.to_fem("test_mix_geom_repr_in_same_session", "abaqus", overwrite=True)
 
     map_assert = {shape.lines.LINE3: 9, shape.solids.TETRA10: 5310, shape.shell.TRI6: 840}
@@ -76,7 +76,7 @@ def test_mix_geom_repr_in_same_session(assembly, test_dir):
             assert map_assert[key] == num_el
 
 
-def test_diff_geom_repr_in_separate_sessions(assembly, test_meshing_dir):
+def test_diff_geom_repr_in_separate_sessions(assembly):
     shape = ada.fem.shapes.ElemShape.TYPES
     bm1 = assembly.get_by_name("bm1")
     bm2 = assembly.get_by_name("bm2")

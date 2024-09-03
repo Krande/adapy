@@ -16,7 +16,7 @@ def test_hex_element():
     # ada.Assembly("Assembly") / (ada.Part("BoxP", fem=fem) / box).to_gltf("temp/Box.glb")
 
 
-def test_hex_meshed_plate(test_meshing_dir):
+def test_hex_meshed_plate():
     pl = ada.Plate("pl1", [(0, 0), (1, 0), (1, 1), (0, 1)], 10e-3)
 
     with GmshSession(silent=True) as gs:
@@ -37,7 +37,7 @@ def test_hex_meshed_plate(test_meshing_dir):
     # )
 
 
-def test_hex_meshed_beam(test_meshing_dir):
+def test_hex_meshed_beam():
     bm = ada.Beam("bm1", (0, 0, 0), (1, 0, 0), "IPE400")
 
     with GmshSession(silent=True) as gs:
@@ -55,7 +55,7 @@ def test_hex_meshed_beam(test_meshing_dir):
     assert len(el_types["HEXAHEDRON"]) == 140
 
 
-def test_hex20_meshed_beam(test_meshing_dir):
+def test_hex20_meshed_beam():
     bm = ada.Beam("bm1", (0, 0, 0), (1, 0, 0), "IPE400")
 
     with GmshSession(silent=True, options=GmshOptions(Mesh_ElementOrder=2)) as gs:

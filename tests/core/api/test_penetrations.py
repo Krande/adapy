@@ -11,9 +11,6 @@ from ada import (
     Section,
     User,
 )
-from ada.config import Settings
-
-test_dir = Settings.test_dir / "booleans"
 
 
 def test_mix_extrude():
@@ -46,7 +43,7 @@ def test_mix_extrude():
     x = 1.0
     bm.add_boolean(PrimBox("my_pen6", (x, -0.1, -0.1), (x + 0.2, 0.1, 0.1)))
 
-    _ = a.to_ifc(test_dir / "penetrations_mix.ifc", file_obj_only=True)
+    _ = a.to_ifc(file_obj_only=True)
 
 
 def test_poly_extrude():
@@ -81,7 +78,7 @@ def test_poly_extrude():
         (0, 0.25, r),
     ]
     bm.add_boolean(PrimExtrude("my_pen4", points, h, normal, origin, xdir))
-    _ = a.to_ifc(test_dir / "penetrations_poly.ifc", file_obj_only=True)
+    _ = a.to_ifc(file_obj_only=True)
 
 
 def test_poly_revolve():
@@ -96,4 +93,4 @@ def test_poly_revolve():
     bm.add_boolean(PrimRevolve("my_pen_revolved", points2d, rev_angle, origin, xdir, normal))
 
     # a.to_stp(test_dir / "penetrations_revolve.stp")
-    _ = a.to_ifc(test_dir / "penetrations_revolve.ifc", file_obj_only=True)
+    _ = a.to_ifc(file_obj_only=True)

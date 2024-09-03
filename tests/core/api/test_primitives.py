@@ -1,15 +1,8 @@
-import pytest
-
 import ada
 
 
-@pytest.fixture
-def shape_ifc_test_dir(test_dir):
-    return test_dir / "shapes"
-
-
-def test_export_primitives(shape_ifc_test_dir):
-    ifc_file = shape_ifc_test_dir / "world_of_shapes.ifc"
+def test_export_primitives(tmp_path):
+    ifc_file = tmp_path / "world_of_shapes.ifc"
 
     a = ada.Assembly("Site") / [
         ada.PrimBox("VolBox", (0.2, 0.2, 2), (1.2, 1.2, 4)),
@@ -31,10 +24,10 @@ def test_export_primitives(shape_ifc_test_dir):
     print(b)
 
 
-def test_sweep_shape(shape_ifc_test_dir):
+def test_sweep_shape():
     sweep_curve = [(0, 0, 0), (5, 5.0, 0.0, 1), (10, 0, 0)]
     ot = [(-0.1, -0.1), (0.1, -0.1), (0.1, 0.1), (-0.1, 0.1)]
     shape = ada.PrimSweep("MyShape", sweep_curve, ot)
 
     a = ada.Assembly("SweptShapes", units="m") / [ada.Part("MyPart") / [shape]]
-    _ = a.to_ifc(shape_ifc_test_dir / "my_swept_shape_m.ifc", file_obj_only=True)
+    _ = a.to_ifc(file_obj_only=True)

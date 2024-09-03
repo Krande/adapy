@@ -1,7 +1,7 @@
 from ada import Assembly, Beam, Part
 
 
-def test_beam_rotation_by_angle(test_dir):
+def test_beam_rotation_by_angle():
     # Define beam rotations using vectors
     angles = [0, 90, 180, 270]
     vectorX = [(0, 0, 1), (0, -1, 0), (0, 0, -1), (0, 1, 0)]

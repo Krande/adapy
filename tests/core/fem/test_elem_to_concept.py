@@ -3,8 +3,6 @@ from typing import List
 import ada
 from ada import Node
 
-test_dir = ada.config.Settings.test_dir / "fem_to_concepts"
-
 
 def create_shell_elem(el_id: int, nodes: List[Node], fem: ada.FEM):
     for n in nodes:
@@ -56,6 +54,3 @@ def test_shell_elem_to_plate():
     assert tuple(pl.poly.seg_global_points[1]) == tuple(nodes_eval[0].p)
     assert tuple(pl.poly.seg_global_points[2]) == tuple(nodes_eval[1].p)
     assert tuple(pl.poly.seg_global_points[3]) == tuple(nodes_eval[2].p)
-
-    # a.to_ifc(test_dir / "Shell2Plate")
-    # a.to_fem("MyTest", "abaqus", overwrite=True)

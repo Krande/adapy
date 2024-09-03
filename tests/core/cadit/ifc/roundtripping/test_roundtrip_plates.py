@@ -1,10 +1,10 @@
 import ada
 
 
-def test_roundtrip_plate(ifc_test_dir):
+def test_roundtrip_plate(tmp_path):
     plate = ada.Plate("MyPlate", [(0, 0), (1, 0, 0.2), (1, 1), (0, 1)], 20e-3)
 
-    fp = (ada.Assembly() / (ada.Part("MyPart") / plate)).to_ifc(ifc_test_dir / "plate1.ifc", file_obj_only=True)
+    fp = (ada.Assembly() / (ada.Part("MyPart") / plate)).to_ifc(tmp_path / "plate1.ifc", file_obj_only=True)
 
     a = ada.from_ifc(fp)
     pl: ada.Plate = a.get_by_name("MyPlate")

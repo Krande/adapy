@@ -1,17 +1,10 @@
-import pytest
-
 import ada
 from ada.fem.formats.general import FEATypes
 from ada.fem.formats.utils import default_fem_inp_path
 from ada.sections.properties import GeneralProperties
 
 
-@pytest.fixture
-def merge_sections_dir(test_dir):
-    return test_dir / "merge_sections"
-
-
-def test_merge_fem_sections(merge_sections_dir):
+def test_merge_fem_sections(tmp_path):
     bm1 = ada.Beam("Bm1", (0, 0, 0), (10, 0, 0), "IPE300")
     bm2 = ada.Beam("Bm2", (10, 0, 0), (10, 10, 0), "IPE400")
 
@@ -24,9 +17,9 @@ def test_merge_fem_sections(merge_sections_dir):
     name = "Merges_Sections"
     fem_format = FEATypes.SESAM
 
-    a.to_fem(name, fem_format, overwrite=True, scratch_dir=merge_sections_dir)
+    a.to_fem(name, fem_format, overwrite=True, scratch_dir=tmp_path)
 
-    inp_path = default_fem_inp_path(name, merge_sections_dir)[fem_format]
+    inp_path = default_fem_inp_path(name, tmp_path)[fem_format]
     b = ada.from_fem(inp_path)
     pb = b.get_part("T1")
 
@@ -41,7 +34,7 @@ def test_merge_fem_sections(merge_sections_dir):
     # b.to_fem("SectionsMerged", "abaqus", overwrite=True)
 
 
-def test_merge_fem_sections2(merge_sections_dir):
+def test_merge_fem_sections2(tmp_path):
     bm1 = ada.Beam("Bm1", (0, 0, 0), (10, 0, 0), "IPE300")
     bm2 = ada.Beam("Bm2", (10, 0, 0), (10, 10, 0), "IPE300")
     a = ada.Assembly() / (ada.Part("MyPart") / [bm1, bm2])
@@ -53,9 +46,9 @@ def test_merge_fem_sections2(merge_sections_dir):
     name = "Merges_Sections_Same_Sections"
     fem_format = FEATypes.SESAM
 
-    a.to_fem(name, fem_format, overwrite=True, scratch_dir=merge_sections_dir)
+    a.to_fem(name, fem_format, overwrite=True, scratch_dir=tmp_path)
 
-    inp_path = default_fem_inp_path(name, merge_sections_dir)[fem_format]
+    inp_path = default_fem_inp_path(name, tmp_path)[fem_format]
     b = ada.from_fem(inp_path)
     pb = b.get_part("T1")
 
@@ -70,7 +63,7 @@ def test_merge_fem_sections2(merge_sections_dir):
     # b.to_fem("SectionsMerged2", "abaqus", overwrite=True)
 
 
-def test_merge_gen_beams(merge_sections_dir):
+def test_merge_gen_beams(tmp_path):
     gp1 = GeneralProperties(
         Ax=0.00188594277,
         Ix=7.178e-08,
@@ -119,9 +112,9 @@ def test_merge_gen_beams(merge_sections_dir):
     name = "Merges_Sections_GenBeams"
     fem_format = FEATypes.SESAM
 
-    a.to_fem(name, fem_format, overwrite=True, scratch_dir=merge_sections_dir)
+    a.to_fem(name, fem_format, overwrite=True, scratch_dir=tmp_path)
 
-    inp_path = default_fem_inp_path(name, merge_sections_dir)[fem_format]
+    inp_path = default_fem_inp_path(name, tmp_path)[fem_format]
     b = ada.from_fem(inp_path)
     pb = b.get_part("T1")
 

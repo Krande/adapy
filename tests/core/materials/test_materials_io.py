@@ -1,19 +1,9 @@
-import pytest
-
 import ada
 from ada import Assembly, Material, Part
-from ada.config import Settings
-
-test_folder = Settings.test_dir / "materials"
 
 
-@pytest.fixture
-def materials_test_dir(test_dir):
-    return test_dir / "materials"
-
-
-def test_material_ifc_roundtrip(materials_test_dir):
-    ifc_path = materials_test_dir / "my_material.ifc"
+def test_material_ifc_roundtrip(tmp_path):
+    ifc_path = tmp_path / "my_material.ifc"
 
     p = Part("MyPart")
     p.add_material(Material("my_mat"))

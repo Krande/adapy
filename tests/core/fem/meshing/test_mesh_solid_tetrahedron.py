@@ -34,7 +34,7 @@ def test_beam_tet_mesh_pass():
     # (ada.Assembly("Test") / p).to_fem("test", "abaqus", execute=True)
 
 
-def test_beam_mesh_with_hole(test_meshing_dir):
+def test_beam_mesh_with_hole():
     bm = ada.Beam("bm1", n1=[0, 0, 0], n2=[1, 0, 0], sec="IPE220")
     p = ada.Part("MyFem") / bm
     bm.add_boolean(ada.PrimCyl("Cylinder", (0.5, -0.5, 0), (0.5, 0.5, 0), 0.05))

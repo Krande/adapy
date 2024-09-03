@@ -1,19 +1,9 @@
-import pytest
-
 from ada import Assembly, Beam, Part, Pipe, Plate, Section, Wall
-from ada.config import Settings
 from ada.param_models.basic_module import SimpleStru
 from ada.param_models.basic_structural_components import Door, Window
 
-test_folder = Settings.test_dir / "units"
 
-
-@pytest.fixture
-def test_units_dir(test_dir):
-    return test_dir / "units"
-
-
-def test_meter_to_millimeter(test_units_dir):
+def test_meter_to_millimeter(tmp_path):
     p = Part(
         "MyTopSpatialLevel",
         metadata=dict(ifctype="storey", description="MyTopLevelSpace"),
@@ -47,10 +37,10 @@ def test_meter_to_millimeter(test_units_dir):
     # a.to_ifc(test_units_dir / "my_test_in_millimeter.ifc")
 
 
-def test_ifc_reimport():
+def test_ifc_reimport(tmp_path):
     # Model to be re-imported
     a = Assembly("my_test_assembly") / SimpleStru("my_simple_stru")
-    fp = a.to_ifc(test_folder / "my_exported_param_model.ifc", file_obj_only=True)
+    fp = a.to_ifc(tmp_path / "my_exported_param_model.ifc", file_obj_only=True)
 
     points = [(0, 0, 0), (5, 0, 0), (5, 5, 0)]
     w = Wall("MyWall", points, 3, 0.15, offset="LEFT")
@@ -85,8 +75,8 @@ def test_ifc_reimport():
     b = Assembly("MyTest") / p
 
     b.units = "mm"
-    b.to_ifc(test_folder / "my_reimport_of_elements_mm.ifc", file_obj_only=True, validate=False)
+    b.to_ifc(tmp_path / "my_reimport_of_elements_mm.ifc", file_obj_only=True, validate=False)
     # TODO: Re-import is still not supported. Should look into same approach as BlenderBIM by
     #       only communicating and updating the ifcopenshell file object.
     b.units = "m"
-    b.to_ifc(test_folder / "my_reimport_of_elements_m.ifc", file_obj_only=False, validate=True)
+    b.to_ifc(tmp_path / "my_reimport_of_elements_m.ifc", file_obj_only=False, validate=True)

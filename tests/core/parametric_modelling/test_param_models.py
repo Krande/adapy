@@ -5,7 +5,7 @@ from ada.core.utils import roundoff
 from ada.param_models.basic_module import SimpleStru
 
 
-def test_to_fem(param_models_test_dir):
+def test_to_fem(tmp_path):
     a = build_test_simplestru_fem(use_quads=True)
 
     param_model: SimpleStru = a.get_by_name("ParametricModel")
@@ -21,7 +21,7 @@ def test_to_fem(param_models_test_dir):
     my_step.add_load(ada.fem.Load("Gravity", "gravity", -9.81))
 
     # a.to_fem("SimpleStru_ca", fem_format="code_aster", overwrite=True, execute=False)
-    # a.to_ifc(param_models_test_dir / "SimpleStru", file_obj_only=True, validate=True)
+    # a.to_ifc(tmp_path / "SimpleStru", file_obj_only=True, validate=True)
 
     assert abs(roundoff(cog.p[0]) - 2.5) < tol
     assert abs(roundoff(cog.p[1]) - 2.5) < tol

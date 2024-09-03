@@ -6,7 +6,7 @@ import trimesh
 from ada.api.animations import Animation, AnimationStore
 
 
-def test_polygon_animation_simple(polygon_mesh):
+def test_polygon_animation_simple(polygon_mesh, tmp_path):
     scene = trimesh.Scene()
 
     scene.add_geometry(polygon_mesh, node_name="test", geom_name="test")
@@ -70,15 +70,15 @@ def test_polygon_animation_simple(polygon_mesh):
         primitive.pop("mode")
         primitive["targets"] = [{"POSITION": pos}]
 
-    os.makedirs("temp", exist_ok=True)
+    os.makedirs(tmp_path, exist_ok=True)
     scene.export(
-        file_obj="temp/polygon_animation.glb",
+        file_obj=tmp_path / "polygon_animation.glb",
         file_type=".glb",
         buffer_postprocessor=add_animation_to_buffer,
     )
 
 
-def test_single_polygon_animate_using_store(polygon_mesh):
+def test_single_polygon_animate_using_store(polygon_mesh, tmp_path):
     scene = trimesh.Scene()
 
     node_name = scene.add_geometry(polygon_mesh, node_name="test", geom_name="test")
@@ -108,7 +108,7 @@ def test_single_polygon_animate_using_store(polygon_mesh):
     )
 
 
-def test_single_polygon_multiple_animations(polygon_mesh):
+def test_single_polygon_multiple_animations(polygon_mesh, tmp_path):
     scene = trimesh.Scene()
 
     node_name = scene.add_geometry(polygon_mesh, node_name="test", geom_name="test")
@@ -139,9 +139,9 @@ def test_single_polygon_multiple_animations(polygon_mesh):
         )
         animation_store.add(animation)
 
-    os.makedirs("temp", exist_ok=True)
+    os.makedirs(tmp_path, exist_ok=True)
     scene.export(
-        file_obj="temp/animated_poly_x2.glb",
+        file_obj=tmp_path / "animated_poly_x2.glb",
         file_type=".glb",
         buffer_postprocessor=animation_store,
         tree_postprocessor=animation_store.tree_postprocessor,

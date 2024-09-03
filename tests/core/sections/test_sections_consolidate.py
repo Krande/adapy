@@ -12,16 +12,16 @@ def three_beams():
     return Assembly() / [(Part("P1") / bm1), (Part("P2") / bm2), (Part("P3") / bm3)]
 
 
-def test_beam_sections_consolidate(three_beams):
+def test_beam_sections_consolidate(three_beams, tmp_path):
     a = three_beams
     assert len(a.get_all_sections()) == 3
     a.consolidate_sections()
     assert len(a.get_all_sections()) == 1
 
-    a.to_ifc(file_obj_only=True, validate=True)
+    a.to_ifc(tmp_path / "sec_consolidate.ifc", file_obj_only=False, validate=True)
 
 
-def test_mixed_sections_consolidate(mixed_model):
+def test_mixed_sections_consolidate(mixed_model, tmp_path):
     assert len(mixed_model.get_all_sections()) == 4
     all_sec_map = {sec.guid: sec for sec in mixed_model.get_all_sections()}
     for obj in mixed_model.get_all_physical_objects():
@@ -41,17 +41,17 @@ def test_mixed_sections_consolidate(mixed_model):
         if hasattr(obj, "taper") and obj.taper is not None and obj.taper.guid not in all_sec_map.keys():
             raise ValueError()
 
-    mixed_model.to_ifc(file_obj_only=True, validate=True)
+    mixed_model.to_ifc(tmp_path / "mixed_model_validate.ifc", file_obj_only=False, validate=True)
 
 
-def test_mixed_multi_sync_sections_consolidate(three_beams, pipe_w_multiple_bends):
+def test_mixed_multi_sync_sections_consolidate(three_beams, pipe_w_multiple_bends, tmp_path):
     assert len(three_beams.get_all_sections()) == 3
     three_beams.ifc_store.sync()
     three_beams.add_object(pipe_w_multiple_bends)
-    three_beams.to_ifc(file_obj_only=True, validate=True)
+    three_beams.to_ifc(tmp_path / "three_beams.ifc", file_obj_only=False, validate=True)
 
 
-def test_mixed_roundtrip_sections_consolidate(three_beams, pipe_w_multiple_bends):
+def test_mixed_roundtrip_sections_consolidate(three_beams, pipe_w_multiple_bends, tmp_path):
     assert len(three_beams.get_all_sections()) == 3
     f_res = three_beams.to_ifc(file_obj_only=True)
 
@@ -59,4 +59,4 @@ def test_mixed_roundtrip_sections_consolidate(three_beams, pipe_w_multiple_bends
     p2 = a.get_by_name("P2")
     p2.add_object(pipe_w_multiple_bends)
 
-    a.to_ifc(file_obj_only=True, validate=True)
+    a.to_ifc(tmp_path / "three_beams_roundtrip_validate.ifc", file_obj_only=False, validate=True)

@@ -1,4 +1,3 @@
-import os
 import pathlib
 
 import pytest
@@ -20,13 +19,6 @@ def this_dir() -> pathlib.Path:
 @pytest.fixture
 def root_dir() -> pathlib.Path:
     return ROOT_DIR
-
-
-@pytest.fixture
-def test_dir() -> pathlib.Path:
-    testing_dir = TESTS_DIR / "temp"
-    os.makedirs(testing_dir, exist_ok=True)
-    return testing_dir
 
 
 @pytest.fixture

@@ -20,7 +20,7 @@ def test_merge_materials():
 
     for i in range(1, 10):
         mat = Material(f"mat{i}", CarbonSteel("S355"))
-        plates.append(Plate(f"pl{i}", [(0, 0, 0), (0, 1, 0), (1, 1, 0)], 20e-3, mat=mat))
+        plates.append(Plate(f"pl{i}", [(0, 0), (0, 1), (1, 1)], 20e-3, mat=mat))
 
     a = Assembly() / (Part("MyPart") / plates)
     p = a.get_part("MyPart")

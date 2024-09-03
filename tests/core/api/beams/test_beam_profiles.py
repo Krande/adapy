@@ -1,8 +1,5 @@
 from ada import Assembly, Beam, CurvePoly2d, Material, Part, Section
 from ada.api.beams import BeamTapered
-from ada.config import Settings
-
-test_dir = Settings.test_dir / "beams"
 
 
 def test_iprofiles():
@@ -76,7 +73,7 @@ def test_tapered_profile():
     # a.to_ifc(test_dir / "tapered.ifc")
 
 
-def test_cone_beam():
+def test_cone_beam(tmp_path):
     s_o = [(375.0, 375.0, 375.0), (375.0, -375.0, 375.0), (-375.0, -375.0, 375.0), (-375.0, 375.0, 375.0)]
     s_i = [(325.0, 325.0, 325.0), (-325.0, 325.0, 325.0), (-325.0, -325.0, 325.0), (325.0, -325.0, 325.0)]
 
@@ -92,4 +89,4 @@ def test_cone_beam():
 
     bm = BeamTapered("MyCone", (2, 2, 2), (4, 4, 4), sec=section_s, tap=section_e)
     a = Assembly("Level1", project="Project0", units="mm") / (Part("Level2") / bm)
-    _ = a.to_ifc(test_dir / "cone_ex.ifc", file_obj_only=True)
+    _ = a.to_ifc(tmp_path / "cone_ex.ifc", file_obj_only=True)

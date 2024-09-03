@@ -6,7 +6,7 @@ from ada.fem.results.common import ElementBlock, ElementInfo, FemNodes
 from ada.fem.shapes.definitions import LineShapes, ShellShapes
 
 
-def test_basic_vtu_write():
+def test_basic_vtu_write(tmp_path):
     # Sample usage
     elem_info = ElementInfo(type=ShellShapes.TRI, source_software=FEATypes.CODE_ASTER, source_type="ELGA3")
     element_block = ElementBlock(
@@ -22,10 +22,10 @@ def test_basic_vtu_write():
     point_data = {"Temperature": np.array([30.5, 32.5, 34.0, 36.0], dtype=np.float32)}
     cell_data = {"Stress": np.array([1.0, 2.0], dtype=np.float32)}
 
-    write_to_vtu_file(fem_nodes, [element_block], point_data, cell_data, "temp/vtu/basic_mesh.vtu")
+    write_to_vtu_file(fem_nodes, [element_block], point_data, cell_data, tmp_path / "basic_mesh.vtu")
 
 
-def test_mixed_mesh():
+def test_mixed_mesh(tmp_path):
     # Sample usage
     element_blocks = [
         ElementBlock(
@@ -47,4 +47,4 @@ def test_mixed_mesh():
     point_data = {"Temperature": np.array([30.5, 32.5, 34.0, 36.0], dtype=np.float32)}
     cell_data = {"Stress": np.array([1.0, 2.0, 0.5, 0.8], dtype=np.float32)}
 
-    write_to_vtu_file(fem_nodes, element_blocks, point_data, cell_data, "temp/vtu/mixed_mesh.vtu")
+    write_to_vtu_file(fem_nodes, element_blocks, point_data, cell_data, tmp_path / "mixed_mesh.vtu")
