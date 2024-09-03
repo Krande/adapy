@@ -61,10 +61,10 @@ class Material(Root):
     def __hash__(self):
         return hash(self.guid)
 
-    def copy_to(self, new_name: str) -> Material:
+    def copy_to(self, new_name: str, parent=None) -> Material:
         og_parent = self.model.parent
         self.model.parent = None
-        new_mat = Material(new_name, mat_model=copy.deepcopy(self.model))
+        new_mat = Material(new_name, mat_model=copy.deepcopy(self.model), parent=parent)
         self.model.parent = og_parent
         return new_mat
 
