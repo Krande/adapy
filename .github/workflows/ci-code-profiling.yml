@@ -21,12 +21,15 @@ jobs:
       run:
         shell: bash -el {0}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
       - name: Set up swap space
         uses: pierotofy/set-swap-space@v1.0
         with:
           swap-size-gb: 10
 
-      - uses: actions/checkout@v4
       - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         with:
           cache-environment: false
@@ -40,6 +43,10 @@ jobs:
             pytest
             pytest-benchmark
             pytest-codspeed
+
+      - name: Install latest version
+        run: |
+          pip install -e .
 
       - name: Run pytest-benchmark
         run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/ --benchmark-json output.json
