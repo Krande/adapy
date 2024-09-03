@@ -7,7 +7,7 @@ on:
 
 # Use concurrency to ensure that only one instance of this workflow is running at a time
 concurrency:
-  group: pr-tests--${{ github.sha }}
+  group: pr-tests
   cancel-in-progress: true
 
 # installs mamba-org/setup-micromamba@v1 on all 3 platforms using matrix and runs pytest:
