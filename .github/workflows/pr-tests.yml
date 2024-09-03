@@ -2,10 +2,8 @@ name: Pull Request Tests
 
 on:
   pull_request:
-    types: [ opened, synchronize, edited, unlabeled ]
     branches:
       - main
-      - develop
 
 # Use concurrency to ensure that only one instance of this workflow is running at a time
 concurrency:
