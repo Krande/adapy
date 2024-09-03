@@ -38,7 +38,7 @@ jobs:
         run: python -m cProfile -o profile -m pytest tests --ignore=./tests/docker
 
       - name: Create Release Package
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             profile.json
