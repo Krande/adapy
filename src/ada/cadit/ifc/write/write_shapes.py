@@ -66,9 +66,6 @@ def write_ifc_shape(shape: Shape):
         Representation=ifc_shape,
     )
 
-    # Material
-    a.ifc_store.writer.associate_elem_with_material(shape.material, ifc_elem)
-
     return ifc_elem
 
 
