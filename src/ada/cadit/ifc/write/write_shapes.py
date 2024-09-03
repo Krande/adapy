@@ -54,8 +54,10 @@ def write_ifc_shape(shape: Shape):
     if shape.color is not None:
         add_colour(f, ifc_shape.Representations[0].Items[0], str(shape.color), shape.color)
 
+    from ada.base.ifc_types import ShapeTypes
+
     ifc_elem = f.create_entity(
-        str(shape.ifc_class.value),
+        str(shape.ifc_class.value) if isinstance(shape.ifc_class, ShapeTypes) else shape.ifc_class,
         GlobalId=shape.guid,
         OwnerHistory=owner_history,
         Name=shape.name,
@@ -63,9 +65,6 @@ def write_ifc_shape(shape: Shape):
         ObjectPlacement=shape_placement,
         Representation=ifc_shape,
     )
-
-    # Material
-    a.ifc_store.writer.associate_elem_with_material(shape.material, ifc_elem)
 
     return ifc_elem
 

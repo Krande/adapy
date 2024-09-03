@@ -1,7 +1,7 @@
 import ada
 
 
-def test_butt_weld():
+def test_butt_weld(tmp_path):
     pl_points = [(0, 0), (1, 0.0), (1, 1), (0, 1)]
 
     pl1 = ada.Plate("pl1", pl_points, 0.01)
@@ -18,4 +18,4 @@ def test_butt_weld():
     wld = ada.Weld("weld1", p1, p2, "V", [pl1, pl2], weld_profile, groove=groove_profile, xdir=xdir)
 
     a = ada.Assembly() / (pl1, pl2, wld)
-    a.to_ifc("temp/welded_plates.ifc", validate=True, file_obj_only=True)
+    a.to_ifc(tmp_path / "welded_plates.ifc", validate=True, file_obj_only=False)

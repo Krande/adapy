@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
 import ifcopenshell
+import ifcopenshell.api.material
 import ifcopenshell.geom
 
 from ada.base.changes import ChangeAction
@@ -64,6 +66,8 @@ class IfcWriter:
         ...
 
     def sync_added_physical_objects(self) -> int:
+        from ada import Pipe
+
         a = self.ifc_store.assembly
         mat_map = {mat.guid: mat for mat in a.get_all_materials()}
         rel_mats_map = {
@@ -88,6 +92,21 @@ class IfcWriter:
             to_be_added.change_type = ChangeAction.NOCHANGE
             if self.callback is not None:
                 self.callback(i, num_new_objects)
+
+        # Create relationships between materials and physical objects here inside the object creation
+        obj_map = defaultdict(list)
+        for obj in new_objects:
+            if not hasattr(obj, "material"):
+                continue
+            obj_map[obj.material].append(obj)
+
+        for mat, objects in obj_map.items():
+            rel_mat = self.ifc_store.f.by_guid(mat.guid)
+            ifc_elems = [self.ifc_store.f.by_guid(obj.guid) for obj in objects if not isinstance(obj, Pipe)]
+            ifc_elems_pipe_seg = [
+                self.ifc_store.f.by_guid(seg.guid) for obj in objects if isinstance(obj, Pipe) for seg in obj.segments
+            ]
+            rel_mat.RelatedObjects = [*rel_mat.RelatedObjects, *ifc_elems, *ifc_elems_pipe_seg]
 
         for spatial_elem_guid, relating_elements in contained_in_spatial.items():
             if len(relating_elements) == 0:
@@ -306,10 +325,7 @@ class IfcWriter:
             )
 
     def associate_elem_with_material(self, material: Material, ifc_elem: ifcopenshell.entity_instance):
-        try:
-            rel_mat = self.ifc_store.f.by_guid(material.guid)
-        except RuntimeError as e:
-            raise RuntimeError(e)
+        rel_mat = self.ifc_store.f.by_guid(material.guid)
         related_objects = [*rel_mat.RelatedObjects, ifc_elem]
         rel_mat.RelatedObjects = related_objects
         return rel_mat

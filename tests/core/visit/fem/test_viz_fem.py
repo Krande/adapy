@@ -66,14 +66,14 @@ def test_double_ses_elem(fem_files):
     # a.to_gltf("temp/sesam_2el_sh.glb")
 
 
-def test_bm_fem():
+def test_bm_fem(tmp_path):
     bm = ada.Beam("bm1", n1=[0, 0, 0], n2=[1, 0, 0], sec="IPE220", color="red")
     p = ada.Part("MyBmFEM")
     p.fem = bm.to_fem_obj(0.5, "shell")
-    (ada.Assembly() / p).to_gltf("temp/bm.glb")
+    (ada.Assembly() / p).to_gltf(tmp_path / "bm.glb")
 
 
-def test_mix_fem():
+def test_mix_fem(tmp_path):
     bm = ada.Beam("bm1", n1=[0, 0, 0], n2=[2, 0, 0], sec="IPE220", color="red")
     poly = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
 
@@ -86,5 +86,5 @@ def test_mix_fem():
     p.fem = part.to_fem_obj(0.5, interactive=False)
     mix_fem = ada.Assembly() / p
 
-    mix_fem.to_fem("mixed-fem", "usfos", "temp", overwrite=True)
+    mix_fem.to_fem("mixed-fem", "usfos", overwrite=True, scratch_dir=tmp_path)
     # mix_fem.to_gltf("temp/mix_fem.glb")

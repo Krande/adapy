@@ -15,7 +15,10 @@ jobs:
       run:
         shell: bash -l {0}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
       - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         with:
           cache-environment: false
@@ -64,4 +67,4 @@ jobs:
           pip install -e .
 
       - name: Run Tests
-        run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/profiling/
+        run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/profiling/ --durations=0

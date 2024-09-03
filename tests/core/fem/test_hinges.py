@@ -4,7 +4,7 @@ from ada.fem.conversion_utils import convert_hinges_2_couplings
 from ada.fem.elements import Hinge, HingeProp
 
 
-def test_simple_hinged_beam(test_dir):
+def test_simple_hinged_beam():
     bm = Beam("MyBeam", (0, 0, 0), (1, 0, 0), "IPE400")
     bm.connection_props.hinge_prop = HingeProp(end1=Hinge([1, 2, 3, 4, 6], Csys("MyBeam_hinge")))
     p = Part("MyPart") / bm

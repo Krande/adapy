@@ -3,7 +3,7 @@ import pytest
 import ada
 
 
-def test_basic_plate(pl1, test_meshing_dir):
+def test_basic_plate(pl1):
     p = ada.Part("MyFem") / pl1
     p.fem = pl1.to_fem_obj(5, "shell")
 

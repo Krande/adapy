@@ -9,7 +9,7 @@ from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
 
-def test_shape_grid():
+def test_shape_grid(tmp_path):
     bg = ShapeGenerator(grid_size=1)
     shape_grid = list(bg.generate_shape_grid())
 
@@ -29,5 +29,5 @@ def test_shape_grid():
     assert len(mesh_map) == len(scene.geometry)
     mat_id0, meshes0, merged_store0 = mesh_map[0]
     scene.geometry.get(f"node{mat_id0}")
-    os.makedirs("temp", exist_ok=True)
-    scene.export("temp/test.glb")
+    os.makedirs(tmp_path, exist_ok=True)
+    scene.export(tmp_path / "test.glb")

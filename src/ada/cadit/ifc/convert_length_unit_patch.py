@@ -19,7 +19,6 @@
 import ifcopenshell
 import ifcopenshell.api
 import ifcopenshell.api.owner.settings
-import ifcopenshell.express.schema
 import ifcopenshell.util.element
 import ifcopenshell.util.pset
 import ifcopenshell.util.unit

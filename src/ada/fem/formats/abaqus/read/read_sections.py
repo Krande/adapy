@@ -4,6 +4,8 @@ import re
 from itertools import chain
 from typing import TYPE_CHECKING, Iterable
 
+import numpy as np
+
 from ada.config import logger
 from ada.core.utils import Counter, roundoff
 from ada.fem import ConnectorSection, FemSection
@@ -216,24 +218,26 @@ def get_shell_section(m, sh_name, fem: "FEM", a: "Assembly"):
     )
 
 
-def get_connector_sections_from_bulk(bulk_str: str, parent: FEM = None) -> dict[str, ConnectorSection]:
-    import numpy as np
+def conn_from_groupdict(d: dict, parent):
+    name = d["name"]
+    comp = int(d["component"])
+    # This does not work reliably
+    logger.warning(
+        f'Connector section "{name}" has a component number of "{comp}". '
+        "Please verify the imported connector, as the connector properties import is not reliable."
+    )
+    res = np.fromstring(list_cleanup(d["bulk"]), sep=",", dtype=np.float64)
+    size = res.size
+    cols = comp + 1
+    rows = int(size / cols)
+    res_ = res.reshape(rows, cols)
+    return ConnectorSection(name, [res_], [], metadata=d, parent=parent)
 
+
+def get_connector_sections_from_bulk(bulk_str: str, parent: FEM = None) -> dict[str, ConnectorSection]:
     consecsd = dict()
 
     for m in cards.connector_behaviour.regex.finditer(bulk_str):
         d = m.groupdict()
-        name = d["name"]
-        comp = int(d["component"])
-        # This does not work reliably
-        logger.warning(
-            f'Connector section "{name}" has a component number of "{comp}". '
-            "Please verify the imported connector, as the connector properties import is not reliable."
-        )
-        res = np.fromstring(list_cleanup(d["bulk"]), sep=",", dtype=np.float64)
-        size = res.size
-        cols = comp + 1
-        rows = int(size / cols)
-        res_ = res.reshape(rows, cols)
-        consecsd[name] = ConnectorSection(name, [res_], [], metadata=d, parent=parent)
+        consecsd[d["name"]] = conn_from_groupdict(d, parent)
     return consecsd

@@ -1,4 +1,5 @@
 from ada.fem.formats.abaqus.read import cards
+from ada.fem.formats.abaqus.read.read_sections import conn_from_groupdict
 
 
 def test_consec(consec):
@@ -22,9 +23,17 @@ def test_consec(consec):
 
 
 def test_conn_beha(conbeh):
-    for m in cards.connector_behaviour.regex.finditer(conbeh):
-        _ = m.groupdict()
-        # print(_)
+    results = list(cards.connector_behaviour.regex.finditer(conbeh))
+    assert len(results) == 1
+
+    result = results[0]
+    gd = result.groupdict()
+    assert gd["name"] == "ConnProp-1_VISC_DAMPER_ELEM"
+    assert gd["component"] == "1"
+
+    conn = conn_from_groupdict(gd, None)
+    assert conn.name == "ConnProp-1_VISC_DAMPER_ELEM"
+    assert len(conn.elastic_comp) == 1
 
 
 def test_shell2solid(shell2solids):

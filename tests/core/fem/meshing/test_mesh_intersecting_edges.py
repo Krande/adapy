@@ -5,7 +5,7 @@ from ada.core.utils import Counter
 from ada.fem.shapes.definitions import LineShapes
 
 
-def test_edges_intersect(test_meshing_dir):
+def test_edges_intersect(tmp_path):
     bm_name = Counter(1, "bm")
     pl = ada.Plate("pl1", [(0, 0), (1, 0), (1, 1), (0, 1)], 10e-3)
     points = pl.poly.points3d
@@ -31,8 +31,8 @@ def test_edges_intersect(test_meshing_dir):
 
     n = p.fem.nodes.get_by_volume(p=(0.5, 0.5, 0))[0]
     assert len(list(filter(lambda x: x.type == LineShapes.LINE, n.refs))) == 4
-    # a.to_fem("MyIntersectingedge_ufo", "usfos", overwrite=True, scratch_dir=test_meshing_dir)
-    # a.to_ifc(test_meshing_dir / "IntersectingFEM", include_fem=False)
+    # a.to_fem("MyIntersectingedge_ufo", "usfos", overwrite=True, scratch_dir=tmp_path)
+    # a.to_ifc(tmp_path / "IntersectingFEM", include_fem=False)
 
 
 def test_crossing_free_beams():

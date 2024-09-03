@@ -57,13 +57,14 @@ class Assembly(Part):
         name="Ada",
         project="AdaProject",
         user: User = User(),
-        schema="IFC4X1",
+        schema="IFC4X3_add2",
         settings=Settings(),
         metadata=None,
         units: Units | str = Units.M,
         ifc_settings=None,
         enable_cache: bool = False,
         clear_cache: bool = False,
+        cache_dir: str | pathlib.Path = None,
         ifc_class: SpatialTypes = SpatialTypes.IfcSite,
     ):
         metadata = dict() if metadata is None else metadata
@@ -86,7 +87,7 @@ class Assembly(Part):
 
         self._cache_store = None
         if enable_cache:
-            self._cache_store = CacheStore(name)
+            self._cache_store = CacheStore(name, cache_dir=cache_dir)
             self.cache_store.sync(self, clear_cache=clear_cache)
 
     def read_ifc(
@@ -253,7 +254,7 @@ class Assembly(Part):
             self.ifc_store.save_to_file(destination)
 
         if validate:
-            ifcopenshell.validate.validate(self.ifc_store.f, logger)
+            ifcopenshell.validate.validate(self.ifc_store.f if file_obj_only else destination, logger)
 
         print("IFC file creation complete")
         return self.ifc_store.f

@@ -26,19 +26,19 @@ def cache_validation(a, b):
     print(b)
 
 
-def test_simplestru_fem_cache(bm_ipe300):
+def test_simplestru_fem_cache(bm_ipe300, tmp_path):
     model_name = "ParamAssembly"
 
     start = time.time()
     pfem = Part("ParamModel") / bm_ipe300
-    a = Assembly(model_name, clear_cache=True, enable_cache=True) / pfem
+    a = Assembly(model_name, clear_cache=True, enable_cache=True, cache_dir=tmp_path) / pfem
 
     pfem.fem = pfem.to_fem_obj(0.1)
     time1 = time.time() - start
 
     a.cache_store.update_cache(a)
     start = time.time()
-    b = Assembly(model_name, enable_cache=True)
+    b = Assembly(model_name, enable_cache=True, cache_dir=tmp_path)
     time2 = time.time() - start
     cache_validation(a, b)
 

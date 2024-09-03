@@ -10,18 +10,18 @@ from ada.core.vector_transforms import rot_matrix
 from ada.core.vector_utils import unit_vector
 
 
-def test_vertex_coloring_simple(polygon_mesh):
+def test_vertex_coloring_simple(polygon_mesh, tmp_path):
     scene = trimesh.Scene()
 
     assert polygon_mesh.visual.kind == "vertex"
 
     scene.add_geometry(polygon_mesh, node_name="test", geom_name="test")
 
-    os.makedirs("temp", exist_ok=True)
-    scene.export(file_obj="temp/polygon2.glb", file_type=".glb")
+    os.makedirs(tmp_path, exist_ok=True)
+    scene.export(file_obj=tmp_path / "polygon2.glb", file_type=".glb")
 
 
-def test_instanced_mapped_geometry():
+def test_instanced_mapped_geometry(tmp_path):
     bm = Beam("bm1", (0, 0, 0), (1, 0, 0), sec="IPE300")
     obj_mesh = bm.to_obj_mesh()
     scale_vector = bm.xvec * 0.1
@@ -51,10 +51,10 @@ def test_instanced_mapped_geometry():
     m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
     scene.apply_transform(m4x4)
 
-    scene.export(file_obj="temp/mapped_instances.glb", file_type=".glb")
+    scene.export(file_obj=tmp_path / "mapped_instances.glb", file_type=".glb")
 
 
-def test_vertex_coloring_advanced(root_dir):
+def test_vertex_coloring_advanced(root_dir, tmp_path):
     neutral_dir = root_dir / "files/fem_files/numpy_files/simple_stru_eig1"
     vertices = np.load(neutral_dir / "vertices.npy")
     faces = np.load(neutral_dir / "faces.npy")
@@ -65,19 +65,19 @@ def test_vertex_coloring_advanced(root_dir):
     new_mesh.visual.material = PBRMaterial(doubleSided=True)
 
     scene.add_geometry(new_mesh, node_name="test", geom_name="test")
-    os.makedirs("temp", exist_ok=True)
-    scene.export(file_obj="temp/planes.glb", file_type=".glb")
+    os.makedirs(tmp_path, exist_ok=True)
+    scene.export(file_obj=tmp_path / "planes.glb", file_type=".glb")
 
 
-def test_single_line_segments():
+def test_single_line_segments(tmp_path):
     scene = trimesh.Scene()
     points = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (1, 1, 1)]
     path = trimesh.load_path(np.asarray(points))
     scene.add_geometry(path)
-    scene.export(file_obj="temp/lines.glb", file_type=".glb")
+    scene.export(file_obj=tmp_path / "lines.glb", file_type=".glb")
 
 
-def test_multiple_line_segments():
+def test_multiple_line_segments(tmp_path):
     scene = trimesh.Scene()
     points = np.asarray([(0, 0, 0.5), (1, 0, 0.5), (0, 1, 0.5), (1, 1, 0.5)], dtype=float)
     path = trimesh.path.Path3D(entities=[Line([0, 1]), Line([2, 3])], vertices=points)
@@ -87,5 +87,5 @@ def test_multiple_line_segments():
     m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
     m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
     scene.apply_transform(m4x4)
-    os.makedirs("temp", exist_ok=True)
-    scene.export(file_obj="temp/multi_lines.glb", file_type=".glb")
+    os.makedirs(tmp_path, exist_ok=True)
+    scene.export(file_obj=tmp_path / "multi_lines.glb", file_type=".glb")

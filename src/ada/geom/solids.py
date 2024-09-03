@@ -35,7 +35,7 @@ class ExtrudedAreaSolidTapered(ExtrudedAreaSolid):
 @dataclass
 class RevolvedAreaSolid:
     """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRevolvedAreaSolid.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcRevolvedAreaSolid.htm)
     STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_revolved_area_solid.html)
     """
 
@@ -59,7 +59,7 @@ class FixedReferenceSweptAreaSolid:
 @dataclass
 class Box:
     """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBlock.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcBlock.htm)
     STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_box_domain.html)
     """
 

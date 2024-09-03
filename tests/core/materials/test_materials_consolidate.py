@@ -1,7 +1,7 @@
 from ada import Assembly, Beam, Part
 
 
-def test_beam_sections_consolidate():
+def test_beam_sections_consolidate(tmp_path):
     bm1 = Beam("bm1", (0, 0, 0), (1, 0, 0), "HP140x8")
     bm2 = Beam("bm2", (0, 0, 0), (1, 0, 0), "HP140x8")
     bm3 = Beam("bm3", (0, 0, 0), (1, 0, 0), "HP140x8")
@@ -11,10 +11,10 @@ def test_beam_sections_consolidate():
     a.consolidate_materials()
     assert len(a.get_all_materials()) == 1
 
-    a.to_ifc(file_obj_only=True, validate=True)
+    a.to_ifc(tmp_path / "bm_sec_validate.ifc", file_obj_only=False, validate=True)
 
 
-def test_mixed_materials_consolidate(mixed_model):
+def test_mixed_materials_consolidate(mixed_model, tmp_path):
     assert len(mixed_model.get_all_materials()) == 4
     mixed_model.consolidate_materials()
     assert len(mixed_model.get_all_materials()) == 2
@@ -23,4 +23,4 @@ def test_mixed_materials_consolidate(mixed_model):
     for obj in mixed_model.get_all_physical_objects():
         assert obj.material.guid in all_mat_map.keys()
 
-    mixed_model.to_ifc(file_obj_only=True, validate=True)
+    mixed_model.to_ifc(tmp_path / "mixed_mat_validate.ifc", file_obj_only=False, validate=True)

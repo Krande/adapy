@@ -4,7 +4,7 @@ import ada
 from ada.core.alignment_utils import align_to_plate
 
 
-def test_plate_mesh_from_2_fem(pl1, pl2, test_dir):
+def test_plate_mesh_from_2_fem(pl1, pl2, tmp_path):
     points = [(1, 1, 0.2), (2, 1, 0.2), (2, 2, 0.2), (1, 2, 0.2)]
     pl1.color.opacity = 0.5
     pl2.color.opacity = 0.5
@@ -23,10 +23,10 @@ def test_plate_mesh_from_2_fem(pl1, pl2, test_dir):
 
     el_types = {el_type.value: list(group) for el_type, group in p.fem.elements.group_by_type()}
 
-    # a.to_ifc(test_dir / "ADA_pl_w_holes_mesh.ifc", include_fem=False)
-    # a.to_gltf(test_dir / "ADA_pl_w_holes_mesh.glb")
-    # a.to_stp(test_dir / "ADA_pl_w_holes_mesh.step")
-    # a.to_fem("ADA_pl_mesh", "code_aster", scratch_dir=test_dir, overwrite=True)
+    # a.to_ifc(tmp_path / "ADA_pl_w_holes_mesh.ifc", include_fem=False)
+    # a.to_gltf(tmp_path / "ADA_pl_w_holes_mesh.glb")
+    # a.to_stp(tmp_path / "ADA_pl_w_holes_mesh.step")
+    # a.to_fem("ADA_pl_mesh", "code_aster", scratch_dir=tmp_path, overwrite=True)
 
     assert len(el_types.keys()) == 1
     assert len(el_types["TRIANGLE"]) == pytest.approx(276, abs=15)

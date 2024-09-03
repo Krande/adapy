@@ -33,7 +33,7 @@ class Shape(BackendGeom):
     def __init__(
         self,
         name,
-        geom: Geometry | None = None,
+        geom: Geometry | list[Geometry] | None = None,
         color=None,
         opacity=1.0,
         mass: float = None,

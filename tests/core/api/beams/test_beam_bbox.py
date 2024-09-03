@@ -1,7 +1,4 @@
 from ada import Assembly, Beam, Part, PrimBox
-from ada.config import Settings
-
-test_dir = Settings.test_dir / "beams"
 
 
 def test_bbox_viz():
@@ -20,7 +17,7 @@ def test_bbox_viz():
         ypos += 1
 
     a = Assembly() / blist
-    _ = a.to_ifc(test_dir / "beam_bounding_box.ifc", file_obj_only=True)
+    _ = a.to_ifc(file_obj_only=True)
 
 
 def test_iprofiles_bbox():

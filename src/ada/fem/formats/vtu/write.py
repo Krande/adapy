@@ -142,7 +142,7 @@ def write_to_vtu_object(nodes: FemNodes, element_blocks: list[ElementBlock], poi
 
 
 def write_to_vtu_file(
-    nodes: FemNodes, element_blocks: list[ElementBlock], point_data: dict, cell_data: dict, filename: str
+    nodes: FemNodes, element_blocks: list[ElementBlock], point_data: dict, cell_data: dict, filename: str | pathlib.Path
 ):
     tree = write_to_vtu_object(nodes, element_blocks, point_data, cell_data)
 

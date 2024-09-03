@@ -26,12 +26,12 @@ def test_cone():
     assert isinstance(geo.geometry, geo_so.Cone)
 
 
-def test_sphere(test_dir):
+def test_sphere(tmp_path):
     sphere = ada.PrimSphere("my_sphere", (0, 0, 0), 1.0)
     geo = sphere.solid_geom()
     assert isinstance(geo.geometry, geo_so.Sphere)
 
-    # (ada.Assembly("a") / sphere).to_ifc(test_dir / "test_sphere.ifc", validate=True)
+    # (ada.Assembly("a") / sphere).to_ifc(tmp_path / "test_sphere.ifc", validate=True)
 
 
 def test_ipe_beam():
@@ -82,7 +82,7 @@ def test_plate_xy():
     assert pl_2.poly.xdir.is_equal(pl.poly.xdir)
 
 
-def test_plate_xy_offset(test_dir):
+def test_plate_xy_offset(tmp_path):
     pl = ada.Plate("pl1", [(0, 0), (0, 1), (1, 1), (1, 0)], 0.1, origin=(0, 0, 2), color="red")
 
     geo = pl.solid_geom()
@@ -103,7 +103,7 @@ def test_plate_xy_offset(test_dir):
     assert pl_2.poly.origin.is_equal(pl.poly.origin)
     assert pl_2.poly.xdir.is_equal(pl.poly.xdir)
 
-    # (ada.Assembly("a") / pl_2).to_ifc(test_dir / "test_plate_xy_offset.ifc", validate=True)
+    # (ada.Assembly("a") / pl_2).to_ifc(tmp_path / "test_plate_xy_offset.ifc", validate=True)
 
 
 def test_plate_xz():
@@ -143,7 +143,7 @@ def test_pipe1():
     assert isinstance(elbow2_geo.geometry, geo_so.RevolvedAreaSolid)
 
 
-def test_prim_sweep1(test_dir):
+def test_prim_sweep1(tmp_path):
     curve3d = [
         (0, 0, 0),
         (0.5, 0.5, 0.5, 0.2),
@@ -159,4 +159,4 @@ def test_prim_sweep1(test_dir):
     sweep.solid_occ()
 
     a = ada.Assembly("SweptShapes") / [ada.Part("MyPart") / [sweep]]
-    a.to_ifc(test_dir / "my_swept_shape_m.ifc", file_obj_only=False, validate=True)
+    a.to_ifc(tmp_path / "my_swept_shape_m.ifc", file_obj_only=False, validate=True)

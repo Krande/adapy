@@ -1,7 +1,7 @@
 from ada import Assembly, Beam, Plate
 
 
-def test_viz_structural_glb():
+def test_viz_structural_glb(tmp_path):
     components = [
         Beam("bm1", n1=[0, 0, 0], n2=[2, 0, 0], sec="IPE220", color="red"),
         Beam("bm2", n1=[0, 0, 1], n2=[2, 0, 1], sec="HP220x10", color="blue"),
@@ -15,4 +15,4 @@ def test_viz_structural_glb():
         ),
     ]
     a = Assembly("my_test_assembly") / components
-    a.to_gltf("temp/model.glb")
+    a.to_gltf(tmp_path / "model.glb")

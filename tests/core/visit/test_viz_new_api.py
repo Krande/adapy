@@ -9,7 +9,7 @@ def beam():
     return Beam("MyBeam", (0, 0, 0), (1, 0, 0), "IPE300")
 
 
-def test_viz_beam_manual(test_dir, beam):
+def test_viz_beam_manual(beam):
     geom = beam.solid_occ()
     quality = 1.0
     render_edges = False

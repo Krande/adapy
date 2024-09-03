@@ -25,30 +25,30 @@ def bm3():
     return Beam("Ymem", (1, 0, 0), (1, 2, 0), "IPE300")
 
 
-def test_ipe_x2_90deg_Z(bm1, bm2, joints_test_dir):
+def test_ipe_x2_90deg_Z(bm1, bm2, tmp_path):
     a = Assembly("IPE") / [bm1, bm2]
     a.connections.find(joint_func=joint_map)
-    _ = a.to_ifc(joints_test_dir / "ipe_x2_90deg_Z.ifc", file_obj_only=True)
+    _ = a.to_ifc(tmp_path / "ipe_x2_90deg_Z.ifc", file_obj_only=True)
 
 
-def test_ipe_x2_45deg_Z(bm1, bm2_1, joints_test_dir):
+def test_ipe_x2_45deg_Z(bm1, bm2_1, tmp_path):
     a = Assembly("IPE") / [bm1, bm2_1]
     a.connections.find(joint_func=joint_map)
-    _ = a.to_ifc(joints_test_dir / "ipe_x2_45deg_Z.ifc", file_obj_only=True)
+    _ = a.to_ifc(tmp_path / "ipe_x2_45deg_Z.ifc", file_obj_only=True)
 
 
-def test_ipe_x2_90deg_Y(bm1, bm3, joints_test_dir):
+def test_ipe_x2_90deg_Y(bm1, bm3, tmp_path):
     a = Assembly("IPE") / [bm1, bm3]
     a.connections.find(joint_func=joint_map)
-    _ = a.to_ifc(joints_test_dir / "ipe_x2_90deg_Y.ifc", file_obj_only=True)
+    _ = a.to_ifc(tmp_path / "ipe_x2_90deg_Y.ifc", file_obj_only=True)
 
 
 # TODO: Fix cause behind this test case no longer producing a correct result
 
 
-def test_joint_auto_map_param(joints_test_dir):
+def test_joint_auto_map_param(tmp_path):
     a = Assembly() / SimpleStru("MySimpleStru")
-    _ = a.to_ifc(joints_test_dir / "simplestru_no_joints.ifc", file_obj_only=True)
+    _ = a.to_ifc(tmp_path / "simplestru_no_joints.ifc", file_obj_only=True)
 
     a.connections.find(joint_func=joint_map)
-    a.to_ifc(joints_test_dir / "simplestru_joints_b.ifc", file_obj_only=True)
+    a.to_ifc(tmp_path / "simplestru_joints_b.ifc", file_obj_only=True)

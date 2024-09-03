@@ -1,15 +1,13 @@
 name: Pull Request Tests
 
 on:
-  pull_request_target:
-    types: [ opened, synchronize, edited, unlabeled ]
+  pull_request:
     branches:
       - main
-      - develop
 
 # Use concurrency to ensure that only one instance of this workflow is running at a time
 concurrency:
-  group: pr-tests--${{ github.sha }}
+  group: pr-tests-${{ github.ref_name }}
   cancel-in-progress: true
 
 # installs mamba-org/setup-micromamba@v1 on all 3 platforms using matrix and runs pytest:
@@ -18,8 +16,10 @@ jobs:
         runs-on: ubuntu-latest
         steps:
           - uses: actions/checkout@v4
+            with:
+              ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
-          - uses: prefix-dev/setup-pixi@v0.8.0
+          - uses: prefix-dev/setup-pixi@v0.8.1  # https://github.com/prefix-dev/setup-pixi
             with:
               pixi-version: v0.28.2
               cache: true
@@ -37,6 +37,8 @@ jobs:
             os: [ubuntu-latest, windows-latest, macos-13]
         steps:
         - uses: actions/checkout@v4
+          with:
+            ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
         - uses: mamba-org/setup-micromamba@v1  # https://github.com/mamba-org/setup-micromamba
           with:
@@ -54,4 +56,4 @@ jobs:
             pip install -e .
 
         - name: Runs Tests
-          run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/ --ignore=./tests/profiling/
+          run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/ --ignore=./tests/profiling/ --durations=0

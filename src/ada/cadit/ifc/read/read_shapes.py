@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: IfcStore):
     logger.info(f'importing Shape "{name}"')
     color, opacity = get_colour(product, ifc_store.assembly)
-
+    # geometries = list(get_product_definitions(product))
     return Shape(
         name,
         None,

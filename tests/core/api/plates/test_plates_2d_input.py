@@ -198,14 +198,14 @@ def test_2ifc_simple(place2):
     # (ada.Assembly("ExportedPlates") / (ada.Part("MyPart") / pl2)).to_ifc(test_dir / "my_plate_poly.ifc")
 
 
-def test_triangle(test_dir):
+def test_triangle(tmp_path):
     points2d = [(0, 0), (1, 0, 0.1), (0.5, 0.5)]
     orientation = Placement()
     pl = ada.Plate("test", points2d, 20e-3, orientation=orientation)
     plates = [pl]
 
     a = ada.Assembly() / [ada.Part("te") / plates]
-    a.to_ifc(test_dir / "triangle_plates_no_rot.ifc", validate=True)
+    a.to_ifc(tmp_path / "triangle_plates_no_rot.ifc", validate=True)
 
     assert len(pl.poly.segments) == 4
     geom = pl.solid_geom()
@@ -219,7 +219,7 @@ def test_triangle(test_dir):
     # a.to_ifc(test_dir / "triangle_plates_rot.ifc", validate=True)
 
 
-def test_floaty_input_ex1(test_dir):
+def test_floaty_input_ex1():
     origin = np.array([362237.0037951513, 100000.0, 560985.9095763591])
     csys = [
         [0.0, -1.0, 0.0],

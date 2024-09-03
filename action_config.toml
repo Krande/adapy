@@ -16,7 +16,7 @@ recipe_dir = "./conda"
 extra_conda_dep_channels = ["krande"]
 platforms = "ubuntu-latest,windows-latest,macos-latest"
 # Anaconda Related
-use_anaconda_server = true
+use_anaconda_server = false
 owner = "Krande"
 label = "main"
 #

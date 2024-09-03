@@ -2,17 +2,14 @@ import pytest
 
 from ada import Assembly, Part, Pipe, PipeSegElbow, Section
 from ada.cadit.ifc.write.write_pipe import elbow_revolved_solid
-from ada.config import Settings
-
-test_dir = Settings.test_dir / "pipes"
 
 
-def test_pipe_straight():
+def test_pipe_straight(tmp_path):
     a = Assembly("MyTest")
     p = a.add_part(Part("MyPart"))
     y0 = -200e-3
     p.add_pipe(Pipe("Pipe1", [(0, y0, 0), (0, y0, 3.2)], Section("PSec", "PIPE", r=0.10, wt=5e-3)))
-    _ = a.to_ifc(test_dir / "pipe_straight.ifc", file_obj_only=True, validate=True)
+    _ = a.to_ifc(tmp_path / "pipe_straight.ifc", file_obj_only=False, validate=True)
 
 
 def test_write_single_90_deg_elbow_revolved_solid(pipe_w_single_90_deg_bend):
@@ -29,12 +26,12 @@ def test_write_single_90_deg_elbow_revolved_solid(pipe_w_single_90_deg_bend):
     # a.to_ifc(test_dir / "pipe_bend.ifc")
 
 
-def test_pipe_multiple_bends(pipe_w_multiple_bends):
+def test_pipe_multiple_bends(pipe_w_multiple_bends, tmp_path):
     assert pipe_w_multiple_bends.segments[1].bend_radius == pytest.approx(0.1979375)
 
     a = Assembly("MyTest") / (Part("MyPart") / pipe_w_multiple_bends)
     # a.to_stp(test_dir / "pipe_bend_multiple.stp")
-    a.to_ifc(test_dir / "pipe_bend_multiple.ifc", file_obj_only=True, validate=True)
+    a.to_ifc(tmp_path / "pipe_bend_multiple.ifc", file_obj_only=False, validate=True)
 
 
 def test_write_elbow_revolved_solid_ifc_gen(pipe_w_multiple_bends):
