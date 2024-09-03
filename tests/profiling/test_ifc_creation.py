@@ -4,7 +4,7 @@ import ada
 
 
 @pytest.mark.benchmark
-def test_build_big_ifc():
+def test_build_big_ifc_beams():
     # create beams and write it to ifc
     beams = []
     for i in range(0, 100):
@@ -19,7 +19,7 @@ def test_build_big_ifc_plates():
     objects = []
     points = [(0, 0), (1, 0), (1, 1), (0, 1)]
     for i in range(0, 100):
-        bm = ada.Plate(f"pl{i}", points, 0.01, origin=(0, 0, i), )
+        bm = ada.Plate(f"pl{i}", points, 0.01, origin=(0, 0, i))
         objects.append(bm)
     a = ada.Assembly() / objects
     a.to_ifc(file_obj_only=True)

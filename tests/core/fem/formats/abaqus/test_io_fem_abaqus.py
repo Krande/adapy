@@ -28,11 +28,11 @@ def test_conn_beha(conbeh):
 
     result = results[0]
     gd = result.groupdict()
-    assert gd["name"] == 'ConnProp-1_VISC_DAMPER_ELEM'
+    assert gd["name"] == "ConnProp-1_VISC_DAMPER_ELEM"
     assert gd["component"] == "1"
 
     conn = conn_from_groupdict(gd, None)
-    assert conn.name == 'ConnProp-1_VISC_DAMPER_ELEM'
+    assert conn.name == "ConnProp-1_VISC_DAMPER_ELEM"
     assert len(conn.elastic_comp) == 1
 
 
