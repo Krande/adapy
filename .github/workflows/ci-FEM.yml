@@ -68,7 +68,7 @@ jobs:
           python build_verification_report.py true true --export-format=docx
         working-directory: tests/fem
 
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: ADA-FEA-res-debug
