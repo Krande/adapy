@@ -2,6 +2,21 @@
 
 
 
+## v0.2.18 (2024-09-04)
+
+### Chore
+
+* chore: bump the dependencies group with 9 updates (#110)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`f5ad492`](https://github.com/Krande/adapy/commit/f5ad49279ef10152524d42401e343c9c8bb4b077))
+
+### Fix
+
+* fix: config rework (#111) ([`62980ac`](https://github.com/Krande/adapy/commit/62980ac06d66dd4ac0545981467dbc6ce022897a))
+
+
 ## v0.2.17 (2024-09-03)
 
 ### Chore
