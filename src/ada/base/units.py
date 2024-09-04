@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from enum import Enum
 
+from ada.config import Config
+
+_config = Config()
+
 
 class InvalidUnit(Exception):
     pass
@@ -43,17 +47,13 @@ class Units(Enum):
 
     @staticmethod
     def get_general_point_tol(units: str | Units):
-        from ada.config import Config
-
-        config = Config()
-
         if isinstance(units, str):
             units = Units.from_str(units)
 
         if units == Units.MM:
-            tol = config.general_mmtol
+            tol = _config.general_mmtol
         elif units == Units.M:
-            tol = config.general_mtol
+            tol = _config.general_mtol
         else:
             raise ValueError(f'Unknown unit "{units}"')
         return tol
