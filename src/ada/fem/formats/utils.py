@@ -480,9 +480,7 @@ def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> list[Plate]:
         else:
             el_n1 = [elem.nodes[0].p, elem.nodes[1].p, elem.nodes[2].p]
             el_n2 = [elem.nodes[0].p, elem.nodes[2].p, elem.nodes[3].p]
-            plates.append(
-                Plate.from_3d_points(f"sh{elem.id}", el_n1, fem_sec.thickness, mat=new_mat, parent=parent)
-            )
+            plates.append(Plate.from_3d_points(f"sh{elem.id}", el_n1, fem_sec.thickness, mat=new_mat, parent=parent))
             plates.append(
                 Plate.from_3d_points(
                     f"sh{elem.id}_1",

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import h5py
 import numpy as np
 
-from ada.config import Settings
+from ada.config import Config
 from ada.fem.shapes import definitions as shape_def
 
 from ..common import ada_to_med_type
@@ -65,6 +65,8 @@ def med_nodes(part: "Part", time_step, profile, families):
 
     Add the following datasets ['COO', 'FAM', 'NUM'] to the 'NOE' group
     """
+    config = Config()
+
     points = np.zeros((int(part.fem.nodes.max_nid), 3))
 
     def pmap(n):
@@ -73,7 +75,7 @@ def med_nodes(part: "Part", time_step, profile, families):
     list(map(pmap, part.fem.nodes))
 
     # Try this
-    if Settings.ca_experimental_id_numbering is True:
+    if config.code_aster_ca_experimental_id_numbering is True:
         points = np.array([n.p for n in part.fem.nodes])
 
     nodes_group = time_step.create_group("NOE")
@@ -85,7 +87,7 @@ def med_nodes(part: "Part", time_step, profile, families):
     coo.attrs.create("CGT", 1)
     coo.attrs.create("NBR", len(points))
 
-    if Settings.ca_experimental_id_numbering is True:
+    if config.code_aster_ca_experimental_id_numbering is True:
         node_ids = [n.id for n in part.fem.nodes]
         num = nodes_group.create_dataset("NUM", data=node_ids)
         num.attrs.create("CGT", 1)

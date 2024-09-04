@@ -33,8 +33,8 @@ if TYPE_CHECKING:
         Wall,
         Weld,
     )
+    from ada.api.nodes import MassPoint
     from ada.cadit.ifc.store import IfcStore
-    from ada.concepts.points import MassPoint
     from ada.fem.containers import COG
     from ada.fem.meshing import GmshOptions
     from ada.visit.websocket_server import SceneAction

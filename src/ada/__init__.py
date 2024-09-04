@@ -28,6 +28,7 @@ from ada.api.transforms import Instance, Placement, Transform
 from ada.api.user import User
 from ada.api.walls import Wall
 from ada.base.units import Units
+from ada.config import configure_logger
 from ada.core.utils import Counter
 from ada.fem import FEM
 from ada.geom.placement import Direction
@@ -47,6 +48,7 @@ __author__ = "Kristoffer H. Andersen"
 # A set of convenience name generators for plates and beams
 PL_N = Counter(start=1, prefix="PL")
 BM_N = Counter(start=1, prefix="BM")
+configure_logger()
 
 
 def from_ifc(ifc_file: os.PathLike | ifcopenshell.file, units=Units.M, name="Ada") -> Assembly:
