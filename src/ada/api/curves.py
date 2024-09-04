@@ -6,6 +6,7 @@ import numpy as np
 
 from ada.api.nodes import Node
 from ada.api.transforms import Placement
+from ada.config import Config
 from ada.core.curve_utils import (
     build_polycurve,
     calc_2darc_start_end_from_lines_radius,
@@ -155,11 +156,9 @@ class CurveOpen2d:
         return local_2_global_points(points2d, place.origin, place.xdir, place.zdir)
 
     def _points_to_segments(self, local_points2d, tol=1e-3):
-        from ada.config import Settings
-
         debug_name = self._parent.name if self._parent is not None else "PolyCurveDebugging"
 
-        seg_list2d = build_polycurve(local_points2d, tol, Settings.debug, debug_name)
+        seg_list2d = build_polycurve(local_points2d, tol, Config().general_debug, debug_name)
         seg_list3d = []
         # Convert from local to global coordinates
         for i, seg in enumerate(seg_list2d):

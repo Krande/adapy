@@ -1,8 +1,5 @@
 import ada
 from ada import Assembly, Beam, Part, Placement, Plate, Section
-from ada.config import Settings
-
-test_dir = Settings.test_dir / "ifc_layers"
 
 
 def test_export_layers():

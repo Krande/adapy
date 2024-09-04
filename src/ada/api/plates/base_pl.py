@@ -9,7 +9,7 @@ from ada.api.curves import CurvePoly2d
 from ada.api.nodes import Node
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
-from ada.config import Settings
+from ada.config import Config
 from ada.geom import Geometry
 from ada.geom.placement import Direction
 from ada.geom.points import Point
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from ada import Placement
 
 _NTYPE = Union[int, float]
+_config = Config()
 
 
 class Plate(BackendGeom):
@@ -176,7 +177,7 @@ class Plate(BackendGeom):
             value = Units.from_str(value)
         if self._units != value:
             scale_factor = Units.get_scale_factor(self._units, value)
-            tol = Settings.mmtol if value == "mm" else Settings.mtol
+            tol = _config.general_mmtol if value == "mm" else _config.general_mtol
             self._t *= scale_factor
             self.poly.scale(scale_factor, tol)
             for pen in self.booleans:

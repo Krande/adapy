@@ -17,11 +17,13 @@ def test_read_static_shell_results(cantilever_dir):
     # results.to_gltf("temp/ca_sh_stat.glb", -1, 'result__DEPL', warp_field='result__DEPL', warp_step=-1, warp_scale=10)
 
 
-def test_read_static_solid_results(cantilever_dir):
+def test_read_static_solid_results(cantilever_dir, tmp_path):
     results = ada.from_fem_res(cantilever_dir / "code_aster/static_solid_cantilever_code_aster.rmed")
     assert len(results.results) == 5
 
-    results.to_gltf("temp/ca_so_stat.glb", -1, "result__DEPL", warp_field="result__DEPL", warp_step=-1, warp_scale=10)
+    results.to_gltf(
+        tmp_path / "ca_so_stat.glb", -1, "result__DEPL", warp_field="result__DEPL", warp_step=-1, warp_scale=10
+    )
 
 
 def test_read_eigen_line_results(cantilever_dir):

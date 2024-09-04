@@ -5,8 +5,7 @@ from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
 
-from ada.config import Settings as _Settings
-from ada.config import logger
+from ada.config import Config, logger
 
 from ..geom.points import Point
 from .exceptions import VectorNormalizeError
@@ -25,6 +24,8 @@ if TYPE_CHECKING:
     from ada.api.curves import ArcSegment, LineSegment
 
     from .. import Placement
+
+_config = Config()
 
 
 def calculate_center(v1, v2) -> Point | None:
@@ -168,10 +169,10 @@ class SegCreator:
         self._curve_data: ArcSegment | None = None
         self._is_closed = is_closed
         if debug is True:
-            self._debug_path = _Settings.debug_dir
+            self._debug_path = _config.general_debug_dir
 
-            if os.path.isdir(_Settings.debug_dir) is False:
-                os.makedirs(_Settings.debug_dir, exist_ok=True)
+            if os.path.isdir(_config.general_debug_dir) is False:
+                os.makedirs(_config.general_debug_dir, exist_ok=True)
             self._start_plot()
 
     def build(self) -> list[LineSegment | ArcSegment]:

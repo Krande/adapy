@@ -1,5 +1,3 @@
-import pathlib
-
 import pytest
 
 import ada
@@ -24,8 +22,3 @@ def beam_fixture() -> ada.Beam:
 @pytest.fixture
 def short_name_map() -> dict:
     return dict(calculix="ccx", code_aster="ca", abaqus="aba", sesam="ses")
-
-
-@pytest.fixture
-def test_dir():
-    return pathlib.Path(__file__).parent / "temp"

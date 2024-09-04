@@ -5,11 +5,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.config import Settings
+from ada.config import Config
 
 if TYPE_CHECKING:
     from ada import FEM, Node
     from ada.fem.steps import Step
+
+_config = Config()
 
 
 class FemBase:
@@ -39,7 +41,7 @@ class FemBase:
         if str.isnumeric(value[0]):
             raise ValueError("Name cannot start with numeric")
 
-        if Settings.convert_bad_names_for_fem:
+        if _config.general_convert_bad_names_for_fem:
             self._name = make_name_fem_ready(value)
         else:
             self._name = value.strip()

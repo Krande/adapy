@@ -2,11 +2,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.config import Settings, logger
+from ada.config import Config, logger
 from ada.fem import Bc, Connector, ConnectorSection, Constraint, Elem, FemSet
 
 if TYPE_CHECKING:
     from ada import FEM, Assembly
+
+_config = Config()
 
 
 def convert_ecc_to_mpc(fem: "FEM"):
@@ -15,7 +17,7 @@ def convert_ecc_to_mpc(fem: "FEM"):
     from ada.core.vector_utils import vector_length
 
     edited_nodes = dict()
-    tol = Settings.point_tol
+    tol = _config.general_point_tol
 
     def build_constraint(n_old, elem, ecc, i):
         n_new = edited_nodes[n_old.id]

@@ -17,7 +17,6 @@ def test_vertex_coloring_simple(polygon_mesh, tmp_path):
 
     scene.add_geometry(polygon_mesh, node_name="test", geom_name="test")
 
-    os.makedirs(tmp_path, exist_ok=True)
     scene.export(file_obj=tmp_path / "polygon2.glb", file_type=".glb")
 
 

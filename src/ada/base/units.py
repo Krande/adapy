@@ -43,15 +43,17 @@ class Units(Enum):
 
     @staticmethod
     def get_general_point_tol(units: str | Units):
-        from ada.config import Settings
+        from ada.config import Config
+
+        config = Config()
 
         if isinstance(units, str):
             units = Units.from_str(units)
 
         if units == Units.MM:
-            tol = Settings.mmtol
+            tol = config.general_mmtol
         elif units == Units.M:
-            tol = Settings.mtol
+            tol = config.general_mtol
         else:
             raise ValueError(f'Unknown unit "{units}"')
         return tol

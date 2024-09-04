@@ -14,11 +14,13 @@ from ada import FEM, Beam, Pipe, Plate, Shape
 from ada.api.containers import Nodes
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
-from ada.config import Settings, logger
+from ada.config import Config, logger
 from ada.core.guid import create_guid
 from ada.fem.containers import FemElements
 from ada.fem.meshing.exceptions import BadJacobians
 from ada.fem.shapes import ElemType
+
+_config = Config()
 
 
 @dataclass
@@ -99,7 +101,7 @@ class GmshSession:
         silent=True,
         mesh_size=None,
         build_native_lines=False,
-        point_tol=Settings.point_tol,
+        point_tol=_config.general_point_tol,
         use_native_pointer=True,
     ):
         from ada.core.utils import Counter
@@ -110,7 +112,7 @@ class GmshSession:
             geom_repr = GeomRepr.from_str(geom_repr)
 
         self.apply_settings()
-        temp_dir = Settings.temp_dir
+        temp_dir = _config.general_temp_dir
         os.makedirs(temp_dir, exist_ok=True)
 
         if build_native_lines is True and geom_repr == ElemType.LINE and type(obj) is Beam:

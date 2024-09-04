@@ -9,6 +9,8 @@ _filename = "ada_config.toml"
 _env_prefix = "ADA_"
 _env_config_file = "ADA_CONFIG_FILE"
 _cwd = os.getcwd()
+_tmp_dir = pathlib.Path(_cwd) / "temp"
+_home_dir = pathlib.Path.home() / "ADA"
 
 
 class ConfigError(Exception):
@@ -88,6 +90,11 @@ class Config:
                 ConfigEntry("silence_display", bool, False),
                 ConfigEntry("use_experimental_cache", bool, False),
                 ConfigEntry("use_duplicate_log_filter", bool, True),
+                ConfigEntry("debug", bool, False),
+                ConfigEntry("debug_dir", pathlib.Path, _tmp_dir / "logs"),
+                ConfigEntry("temp_dir", pathlib.Path, _tmp_dir),
+                ConfigEntry("home_dir", pathlib.Path, _home_dir),
+                ConfigEntry("tools_dir", pathlib.Path, _home_dir / "tools"),
             ],
         ),
         ConfigSection(
@@ -105,11 +112,21 @@ class Config:
                 ConfigEntry(
                     "fem_exe_paths", dict, dict(abaqus=None, ccx=None, sestra=None, usfos=None, code_aster=None)
                 ),
+                ConfigEntry("scratch_dir", pathlib.Path, _tmp_dir / "scratch"),
+                ConfigEntry("test_dir", pathlib.Path, _tmp_dir / "tests"),
             ],
         ),
         ConfigSection(
             "code_aster",
             [ConfigEntry("ca_experimental_id_numbering", bool, False)],
+        ),
+        ConfigSection(
+            "fem_convert_options",
+            [
+                ConfigEntry("ecc_to_mpc", bool, True),
+                ConfigEntry("hinges_to_coupling", bool, True),
+                ConfigEntry("fem2concepts_include_ecc", bool, False),
+            ],
         ),
     ]
     _config_dirs = [_cwd]
@@ -343,64 +360,6 @@ class Config:
                 config[first_level.name]["_".join(splitted_key[idx:]).lower()] = value
 
         return config
-
-
-def _get_platform_home():
-    """Home location for each platform"""
-    # _platform_home = dict(win32="C:/ADA", linux="/home/ADA", linux2="/home/ADA", macos="/home/ADA")
-    # return _platform_home[sys.platform]
-
-    return pathlib.Path.home() / "ADA"
-
-
-class Settings:
-    """The Properties object contains all general purpose properties relevant for Parts and Assemblies"""
-
-    point_tol = 1e-4
-    precision = 6
-    mtol = 1e-3
-    mmtol = 1
-    valid_units = ["m", "mm"]
-
-    safe_deletion = True
-
-    convert_bad_names = False
-    convert_bad_names_for_fem = True
-    use_occ_bounding_box_algo = False
-
-    force_param_profiles = True
-    silence_display = False
-    use_experimental_cache = False
-
-    # IFC export settings
-    model_export: ModelExportOptions = ModelExportOptions()
-
-    # FEM analysis settings
-    if os.getenv("ADA_execute_dir", None) is not None:
-        execute_dir = pathlib.Path(os.getenv("ADA_execute_dir", None))
-    else:
-        execute_dir = None
-
-    # Code Aster conversion specific settings
-    ca_experimental_id_numbering = False
-
-    debug = False
-    _home = _get_platform_home()
-    scratch_dir = pathlib.Path(os.getenv("ADA_scratch_dir", f"{_home}/Analyses"))
-    temp_dir = pathlib.Path(os.getenv("ADA_temp_dir", f"{_home}/temp"))
-    debug_dir = pathlib.Path(os.getenv("ADA_log_dir", f"{_home}/logs"))
-    test_dir = pathlib.Path(os.getenv("ADA_test_dir", f"{_home}/tests"))
-    tools_dir = pathlib.Path(os.getenv("ADA_tools_dir", f"{_home}/tools"))
-
-    fem_exe_paths = dict(abaqus=None, ccx=None, sestra=None, usfos=None, code_aster=None)
-
-    use_duplicate_log_filter = True
-
-    @classmethod
-    def default_ifc_settings(cls):
-        from ada.cadit.ifc.utils import default_settings
-
-        return default_settings()
 
 
 class DuplicateFilter(logging.Filter):

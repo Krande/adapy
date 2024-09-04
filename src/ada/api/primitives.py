@@ -14,6 +14,7 @@ from ada.geom.booleans import BooleanOperation
 from ada.materials import Material
 from ada.materials.utils import get_material
 
+from ..config import Config
 from ..geom import Geometry
 from ..geom.placement import Axis2Placement3D, Direction
 from ..geom.points import Point
@@ -25,6 +26,8 @@ if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada.cadit.ifc.store import IfcStore
+
+_config = Config()
 
 
 class Shape(BackendGeom):
@@ -346,10 +349,8 @@ class PrimExtrude(Shape):
         if isinstance(value, str):
             value = Units.from_str(value)
         if value != self._units:
-            from ada.config import Settings
-
             scale_factor = Units.get_scale_factor(self._units, value)
-            tol = Settings.mmtol if value == "mm" else Settings.mtol
+            tol = _config.general_mmtol if value == "mm" else _config.general_mtol
             self.poly.scale(scale_factor, tol)
             self._extrude_depth = self._extrude_depth * scale_factor
             self._units = value
@@ -418,10 +419,8 @@ class PrimRevolve(Shape):
         if isinstance(value, str):
             value = Units.from_str(value)
         if value != self._units:
-            from ada.config import Settings
-
             scale_factor = Units.get_scale_factor(self._units, value)
-            tol = Settings.mmtol if value == "mm" else Settings.mtol
+            tol = _config.general_mmtol if value == "mm" else _config.general_mtol
             self.poly.scale(scale_factor, tol)
 
     @property

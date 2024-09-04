@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import pathlib
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Union
 
 from ada.api.presentation_layers import PresentationLayers
@@ -12,7 +11,7 @@ from ada.base.ifc_types import SpatialTypes
 from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.cache.store import CacheStore
-from ada.config import Settings, logger
+from ada.config import Config, logger
 from ada.fem import (
     Connector,
     Csys,
@@ -24,6 +23,7 @@ from ada.fem import (
 )
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicitStatic, StepExplicit]
+_config = Config()
 
 if TYPE_CHECKING:
     import xml.etree.ElementTree as ET
@@ -40,15 +40,6 @@ class FormatNotSupportedException(Exception):
     pass
 
 
-@dataclass
-class _ConvertOptions:
-    ecc_to_mpc: bool = True
-    hinges_to_coupling: bool = True
-
-    # From FEM to concepts
-    fem2concepts_include_ecc = False
-
-
 class Assembly(Part):
     """The Assembly object. A top level container of parts, beams, plates, shapes and FEM."""
 
@@ -58,10 +49,8 @@ class Assembly(Part):
         project="AdaProject",
         user: User = User(),
         schema="IFC4X3_add2",
-        settings=Settings(),
         metadata=None,
         units: Units | str = Units.M,
-        ifc_settings=None,
         enable_cache: bool = False,
         clear_cache: bool = False,
         cache_dir: str | pathlib.Path = None,
@@ -70,7 +59,7 @@ class Assembly(Part):
         metadata = dict() if metadata is None else metadata
         metadata["project"] = project
         metadata["schema"] = schema
-        super(Assembly, self).__init__(name=name, settings=settings, metadata=metadata, units=units)
+        super(Assembly, self).__init__(name=name, metadata=metadata, units=units)
         self.fem.parent = self
         user.parent = self
         self._user = user
@@ -78,11 +67,9 @@ class Assembly(Part):
         self._ifc_class = ifc_class
         self._ifc_store = None
         self._ifc_file = None
-        self._convert_options = _ConvertOptions()
         self._ifc_sections = None
         self._ifc_materials = None
         self._source_ifc_files = dict()
-        self._ifc_settings = ifc_settings
         self._presentation_layers = PresentationLayers()
 
         self._cache_store = None
@@ -206,7 +193,7 @@ class Assembly(Part):
         if isinstance(fem_format, str):
             fem_format = FEATypes.from_str(fem_format)
 
-        scratch_dir = Settings.scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
+        scratch_dir = _config.general_scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
 
         write_to_fem(
             self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file, model_data_only
@@ -314,10 +301,6 @@ class Assembly(Part):
     @property
     def user(self) -> User:
         return self._user
-
-    @property
-    def convert_options(self) -> _ConvertOptions:
-        return self._convert_options
 
     @property
     def cache_store(self) -> CacheStore:

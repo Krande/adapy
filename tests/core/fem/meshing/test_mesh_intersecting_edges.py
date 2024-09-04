@@ -47,7 +47,7 @@ def test_crossing_free_beams():
     # a.to_fem("MyIntersectingedge_ufo", "usfos", overwrite=True)
 
 
-def test_beams_enclosing_beams():
+def test_beams_enclosing_beams(tmp_path):
     name_gen = ada.Counter(prefix="bm")
 
     p1x1 = np.array([(0, 0), (1, 0), (1, 1), (0, 1)])
@@ -99,5 +99,5 @@ def test_beams_enclosing_beams():
     for el in line_elem:
         assert el.fem_sec is not None
 
-    # a.to_fem("MyIntersectingedge_aba", "abaqus", overwrite=True, scratch_dir='temp/abaqus')
-    a.to_fem("MyIntersectingedge_ufo", "usfos", overwrite=True, scratch_dir="temp/usfos")
+    # a.to_fem("MyIntersectingedge_aba", "abaqus", overwrite=True, scratch_dir=tmp_path / 'abaqus')
+    a.to_fem("MyIntersectingedge_ufo", "usfos", overwrite=True, scratch_dir=tmp_path / "usfos")

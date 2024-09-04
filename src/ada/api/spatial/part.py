@@ -16,7 +16,7 @@ from ada.base.ifc_types import SpatialTypes
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.base.units import Units
-from ada.config import Settings, logger
+from ada.config import logger
 from ada.visit.gltf.graph import GraphNode, GraphStore
 
 if TYPE_CHECKING:
@@ -51,7 +51,6 @@ class Part(BackendGeom):
         color=None,
         placement=None,
         fem: FEM = None,
-        settings: Settings = Settings(),
         metadata=None,
         parent=None,
         units: Units = Units.M,
@@ -80,7 +79,6 @@ class Part(BackendGeom):
         self._parts = dict()
         self._groups: dict[str, Group] = dict()
         self._ifc_class = ifc_class
-        self._props = settings
         self._animation_store = AnimationStore()
         if fem is not None:
             fem.parent = self
@@ -975,10 +973,6 @@ class Part(BackendGeom):
     @colour.setter
     def colour(self, value):
         self._colour = value
-
-    @property
-    def properties(self):
-        return self._props
 
     @property
     def placement(self) -> Placement:
