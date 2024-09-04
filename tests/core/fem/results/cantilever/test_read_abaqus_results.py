@@ -16,9 +16,9 @@ def test_read_static_line_abaqus_results(cantilever_dir):
     # results.to_gltf('temp/line_res.glb', 2, 'U')
 
 
-def test_read_static_shell_abaqus_results(cantilever_dir):
+def test_read_static_shell_abaqus_results(cantilever_dir, tmp_path):
     results = read_odb_pckle_file(cantilever_dir / "abaqus/static_shell_cantilever_abaqus.pckle")
     assert len(results.results) == 36
     assert results.software == FEATypes.ABAQUS
 
-    results.to_gltf("temp/shell_res.glb", 2, "U")
+    results.to_gltf(tmp_path / "shell_res.glb", 2, "U")

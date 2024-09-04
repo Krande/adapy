@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Union
 
-from ada.config import Settings as _Settings
-from ada.config import logger
+from ada.config import Config, logger
 
 from ..core.guid import create_guid
 from .changes import ChangeAction
@@ -12,6 +11,8 @@ from .units import Units
 if TYPE_CHECKING:
     from ada import Assembly, Part
     from ada.cadit.ifc.store import IfcStore
+
+_config = Config()
 
 
 class Root:
@@ -44,7 +45,7 @@ class Root:
 
     @name.setter
     def name(self, value):
-        if _Settings.convert_bad_names:
+        if _config.general_convert_bad_names:
             logger.debug("Converting bad name")
             value = value.replace("/", "_").replace("=", "")
             if str.isnumeric(value[0]):

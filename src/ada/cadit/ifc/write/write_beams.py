@@ -18,7 +18,7 @@ from ada.cadit.ifc.utils import (
 )
 from ada.cadit.ifc.write.geom.solids import extruded_area_solid
 from ada.cadit.ifc.write.write_curves import write_curve_poly
-from ada.config import Settings
+from ada.config import Config
 from ada.core.constants import O
 from ada.core.guid import create_guid
 
@@ -26,6 +26,8 @@ if TYPE_CHECKING:
     from ifcopenshell import file as ifile
 
     from ada.cadit.ifc.store import IfcStore
+
+_config = Config()
 
 
 def write_ifc_beam(ifc_store: IfcStore, beam: Beam):
@@ -131,7 +133,7 @@ def extrude_straight_tapered_beam(beam: BeamTapered, f: ifile, profile):
 
     vec = beam.xvec
     yvec = beam.yvec
-    if Settings.model_export.include_ecc and beam.e1 is not None:
+    if _config.ifc_export_include_ecc and beam.e1 is not None:
         e1 = beam.e1
         vec = beam.xvec_e
 

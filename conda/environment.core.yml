@@ -16,5 +16,6 @@ dependencies:
   - meshio
   - websockets
   - plotly
+  - kaleido-core 0.1.0
   - python-kaleido
   - calculix

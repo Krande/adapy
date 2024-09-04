@@ -14,13 +14,15 @@ from typing import TYPE_CHECKING
 from send2trash import send2trash
 
 from ada.api.containers import Beams, Plates
-from ada.config import Settings, logger
+from ada.config import Config, logger
 from ada.fem import Elem
 from ada.fem.exceptions import FEASolverNotInstalled
 
 if TYPE_CHECKING:
     from ada import Assembly, Beam, Part, Plate
     from ada.fem.formats.general import FEATypes
+
+_config = Config()
 
 
 class DatFormatReader:
@@ -124,10 +126,10 @@ class LocalExecute:
 
     @property
     def execute_dir(self):
-        if Settings.execute_dir is None:
+        if _config.fem_analysis_execute_dir is None:
             return self.analysis_dir
         else:
-            return Settings.execute_dir / self.analysis_name
+            return _config.fem_analysis_execute_dir / self.analysis_name
 
     @property
     def analysis_name(self):
@@ -221,8 +223,8 @@ def get_exe_path(fea_type: FEATypes):
         exe_linux = bin_exe_linux
     exe_win = shutil.which(f"{exe_name}.exe")
 
-    if Settings.fem_exe_paths.get(exe_name, None) is not None:
-        exe_path = Settings.fem_exe_paths[exe_name]
+    if _config.fem_analysis_fem_exe_paths.get(exe_name, None) is not None:
+        exe_path = _config.fem_analysis_fem_exe_paths[exe_name]
     elif exe_linux:
         exe_path = exe_linux
     elif exe_win:
@@ -294,7 +296,7 @@ def get_ff_regex(flag, *args):
 def _overwrite_dir(analysis_dir):
     print("Removing old files before copying new")
     try:
-        if Settings.safe_deletion is True:
+        if _config.general_safe_deletion is True:
             send2trash(analysis_dir)
         else:
             shutil.rmtree(analysis_dir)
@@ -320,7 +322,7 @@ def _lock_check(analysis_dir):
 
 def folder_prep(scratch_dir, analysis_name, overwrite):
     if scratch_dir is None:
-        scratch_dir = pathlib.Path(Settings.scratch_dir)
+        scratch_dir = pathlib.Path(_config.fem_analysis_scratch_dir)
     else:
         scratch_dir = pathlib.Path(scratch_dir)
 
@@ -359,9 +361,9 @@ echo ON\ncall {run_cmd}"""
         with open(exe.execute_dir / stop_bat, "w") as d:
             d.write(f"cd /d {exe.analysis_dir}\n{stop_cmd}")
 
-    if Settings.execute_dir is not None:
-        shutil.copy(exe.execute_dir / start_bat, Settings.execute_dir / start_bat)
-        shutil.copy(exe.execute_dir / stop_bat, Settings.execute_dir / stop_bat)
+    if _config.fem_analysis_execute_dir is not None:
+        shutil.copy(exe.execute_dir / start_bat, _config.fem_analysis_execute_dir / start_bat)
+        shutil.copy(exe.execute_dir / stop_bat, _config.fem_analysis_execute_dir / stop_bat)
 
     # If the script should be running from batch files, then this can be used
     if run_in_shell:
@@ -462,6 +464,9 @@ def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> list[Plate]:
     plates = []
     fem_sec = elem.fem_sec
     fem_sec.material.parent = parent
+    mat_dict = {}
+
+    new_mat = mat_dict.get(fem_sec.material.name, fem_sec.material.copy_to(fem_sec.material.name, parent=parent))
     if len(elem.nodes) == 4:
         if is_coplanar(
             *elem.nodes[0].p,
@@ -471,21 +476,19 @@ def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> list[Plate]:
         ):
             plates.append(
                 Plate.from_3d_points(
-                    f"sh{elem.id}", [n.p for n in elem.nodes], fem_sec.thickness, mat=fem_sec.material, parent=parent
+                    f"sh{elem.id}", [n.p for n in elem.nodes], fem_sec.thickness, mat=new_mat, parent=parent
                 )
             )
         else:
             el_n1 = [elem.nodes[0].p, elem.nodes[1].p, elem.nodes[2].p]
             el_n2 = [elem.nodes[0].p, elem.nodes[2].p, elem.nodes[3].p]
-            plates.append(
-                Plate.from_3d_points(f"sh{elem.id}", el_n1, fem_sec.thickness, mat=fem_sec.material, parent=parent)
-            )
+            plates.append(Plate.from_3d_points(f"sh{elem.id}", el_n1, fem_sec.thickness, mat=new_mat, parent=parent))
             plates.append(
                 Plate.from_3d_points(
                     f"sh{elem.id}_1",
                     el_n2,
                     fem_sec.thickness,
-                    mat=fem_sec.material,
+                    mat=new_mat,
                     parent=parent,
                 )
             )
@@ -520,14 +523,12 @@ def line_elem_to_beam(elem: Elem, parent: Part) -> Beam:
     """Convert FEM line element to Beam"""
     from ada import Beam
 
-    a = parent.get_assembly()
-
     n1 = elem.nodes[0]
     n2 = elem.nodes[-1]
     e1 = None
     e2 = None
     elem.fem_sec.material.parent = parent
-    if a.convert_options.fem2concepts_include_ecc is True:
+    if _config.fem_convert_options_fem2concepts_include_ecc is True:
         if elem.eccentricity is not None:
             ecc = elem.eccentricity
             if ecc.end1 is not None and ecc.end1.node.id == n1.id:
@@ -564,7 +565,7 @@ def default_fem_res_path(
     from ada.fem.formats.general import FEATypes
 
     if scratch_dir is None and analysis_dir is None:
-        scratch_dir = Settings.scratch_dir
+        scratch_dir = _config.fem_analysis_scratch_dir
 
     base_path = scratch_dir / name / name if analysis_dir is None else analysis_dir / name
     fem_format_map = {

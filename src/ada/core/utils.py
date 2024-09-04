@@ -12,10 +12,12 @@ from typing import TYPE_CHECKING, Any, Dict, Union
 
 import numpy as np
 
-from ada.config import Settings, logger
+from ada.config import Config, logger
 
 if TYPE_CHECKING:
     from ada import Node
+
+_config = Config()
 
 
 def is_package_installed(package_name):
@@ -71,7 +73,7 @@ class Counter:
         return self.i if self._prefix is None else f"{self._prefix}{self.i}"
 
 
-def roundoff(x: float, precision=Settings.precision) -> float:
+def roundoff(x: float, precision=_config.general_precision) -> float:
     """Round using a specific number precision using the Decimal package"""
     import warnings
 
@@ -320,7 +322,7 @@ def replace_node(old_node: Node, new_node: Node) -> None:
         logger.debug(f"{old_node} exchanged with {new_node} --> {elem}")
 
 
-def replace_nodes_by_tol(nodes, decimals=0, tol=Settings.point_tol):
+def replace_nodes_by_tol(nodes, decimals=0, tol=_config.general_point_tol):
     """
 
     :param nodes:

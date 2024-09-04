@@ -5,17 +5,18 @@ import meshio
 import numpy as np
 
 from ada.api.spatial import Assembly
-from ada.config import Settings as _Settings
-from ada.config import logger
+from ada.config import Config, logger
 from ada.fem import FEM
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import MassTypes, SpringTypes
+
+_config = Config()
 
 
 def meshio_to_fem(assembly: Assembly, name: str, scratch_dir=None, metadata=None, model_data_only=False) -> None:
     """Convert Assembly information to FEM using Meshio"""
     if scratch_dir is None:
-        scratch_dir = _Settings.scratch_dir
+        scratch_dir = _config.fem_analysis_scratch_dir
 
     mesh_format = metadata["fem_format"]
 

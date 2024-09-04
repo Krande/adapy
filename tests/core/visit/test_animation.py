@@ -99,9 +99,8 @@ def test_single_polygon_animate_using_store(polygon_mesh, tmp_path):
     )
     animation_store.add(animation)
 
-    os.makedirs("temp", exist_ok=True)
     scene.export(
-        file_obj="temp/polygon_animation_using_store.glb",
+        file_obj=tmp_path / "polygon_animation_using_store.glb",
         file_type=".glb",
         buffer_postprocessor=animation_store,
         tree_postprocessor=animation_store.tree_postprocessor,
