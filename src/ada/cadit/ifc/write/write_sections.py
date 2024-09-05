@@ -6,10 +6,11 @@ import ifcopenshell
 import numpy as np
 
 from ada.config import Config, logger
+from ada.core.utils import to_real
 from ada.sections.categories import SectionCat
 from ada.sections.concept import Section
 
-from ..utils import create_ifcindexpolyline, create_ifcpolyline, to_real
+from ..utils import create_ifcindexpolyline, create_ifcpolyline
 
 _config = Config()
 

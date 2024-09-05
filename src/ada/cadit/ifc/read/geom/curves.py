@@ -28,3 +28,23 @@ def indexed_poly_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Index
             segments.append(geo_cu.ArcLine(pts[value[0]], pts[value[1]], pts[value[2]]))
 
     return geo_cu.IndexedPolyCurve(segments, ifc_entity.SelfIntersect)
+
+
+def edge(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Edge:
+    return geo_cu.Edge(
+        edge_start=Point(ifc_entity.EdgeStart.VertexGeometry.Coordinates),
+        edge_end=Point(ifc_entity.EdgeEnd.VertexGeometry.Coordinates),
+    )
+
+
+def oriented_edge(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.OrientedEdge:
+    return geo_cu.OrientedEdge(
+        edge_start=Point(ifc_entity.EdgeStart.VertexGeometry.Coordinates),
+        edge_end=Point(ifc_entity.EdgeEnd.VertexGeometry.Coordinates),
+        edge_element=edge(ifc_entity.EdgeElement),
+        orientation=ifc_entity.Orientation,
+    )
+
+
+def edge_loop(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.EdgeLoop:
+    return geo_cu.EdgeLoop([oriented_edge(e) for e in ifc_entity.EdgeList])

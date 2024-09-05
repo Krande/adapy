@@ -4,7 +4,8 @@ from OCC.Core.TopoDS import TopoDS_Shape
 
 from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
-from ada.geom.surfaces import FaceBasedSurfaceModel, PolyLoop
+from ada.geom.curves import PolyLoop
+from ada.geom.surfaces import FaceBasedSurfaceModel
 from ada.occ.geom.curves import (
     make_wire_from_circle,
     make_wire_from_curve,

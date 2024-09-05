@@ -5,11 +5,11 @@ from ada.cadit.ifc.utils import (
     create_ifc_placement,
     create_local_placement,
     create_reference_subrep,
-    ifc_p,
-    to_real,
 )
+from ada.cadit.ifc.write.geom.points import cpt
 from ada.config import logger
 from ada.core.guid import create_guid
+from ada.core.utils import to_real
 from ada.fem import Elem
 
 from .helper_utils import ifc_vertex
@@ -89,7 +89,7 @@ def line_elem_to_ifc(elem: Elem, f, subref, owner_history):
     local_z = f.createIfcDirection(to_real(elem.fem_sec.local_z))
     p1 = elem.nodes[0].p
     p2 = elem.nodes[-1].p
-    edge = f.createIfcEdge(f.createIfcVertexPoint(ifc_p(f, p1)), f.createIfcVertexPoint(ifc_p(f, p2)))
+    edge = f.createIfcEdge(f.createIfcVertexPoint(cpt(f, p1)), f.createIfcVertexPoint(cpt(f, p2)))
 
     edge_topology_rep = f.createIfcTopologyRepresentation(subref["reference"], "Reference", "Edge", (edge,))
     edge_prod_def_shape = f.create_entity("IfcProductDefinitionShape", None, None, (edge_topology_rep,))

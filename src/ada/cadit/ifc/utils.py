@@ -11,9 +11,11 @@ from ifcopenshell.util.unit import get_prefix_multiplier
 
 import ada.core.constants as ifco
 from ada.api.transforms import Transform
+from ada.cadit.ifc.write.geom.points import cpt
 from ada.config import Config, logger
 from ada.core.file_system import get_list_of_files
 from ada.core.guid import create_guid
+from ada.core.utils import to_real
 from ada.visit.colors import Color
 
 if TYPE_CHECKING:
@@ -97,10 +99,6 @@ def ensure_guid_consistency(a: Assembly, project_prefix):
             ensure_uniqueness[obj.guid] = obj
 
 
-def ifc_p(f: ifcopenshell.file, p):
-    return f.create_entity("IfcCartesianPoint", to_real(p))
-
-
 def create_ifc_placement(f: ifcopenshell.file, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X):
     """
     Creates an IfcAxis2Placement3D from Location, Axis and RefDirection specified as Python tuples
@@ -114,7 +112,7 @@ def create_ifc_placement(f: ifcopenshell.file, origin=ifco.O, loc_z=ifco.Z, loc_
 
     ifc_loc_z = f.create_entity("IfcDirection", to_real(loc_z))
     ifc_loc_x = f.create_entity("IfcDirection", to_real(loc_x))
-    return f.create_entity("IfcAxis2Placement3D", ifc_p(f, origin), ifc_loc_z, ifc_loc_x)
+    return f.create_entity("IfcAxis2Placement3D", cpt(f, origin), ifc_loc_z, ifc_loc_x)
 
 
 def create_local_placement(f: ifcopenshell.file, origin=ifco.O, loc_z=ifco.Z, loc_x=ifco.X, relative_to=None):
@@ -209,7 +207,7 @@ def create_ifcpolyline(ifcfile, point_list):
     """
     ifcpts = []
     for p_in in point_list:
-        point = ifc_p(ifcfile, p_in)
+        point = cpt(ifcfile, p_in)
         ifcpts.append(point)
     polyline = ifcfile.createIfcPolyLine(ifcpts)
     return polyline
@@ -394,26 +392,6 @@ def write_elem_property_sets(metadata_props, elem, f, owner_history) -> None:
             add_properties_to_elem(pro_id, f, elem, prop_, owner_history=owner_history)
     else:
         add_properties_to_elem("Properties", f, elem, metadata_props, owner_history=owner_history)
-
-
-def to_real(v) -> float | list[float]:
-    from ada import Node, Point
-
-    if isinstance(v, float):
-        return v
-    elif isinstance(v, tuple):
-        return [float(x) for x in v]
-    elif isinstance(v, list):
-        if isinstance(v[0], float):
-            return v
-        else:
-            return [float(x) for x in v]
-    elif isinstance(v, Node):
-        return v.p.astype(float).tolist()
-    elif isinstance(v, Point):
-        return v.astype(float).tolist()
-    else:
-        return v.astype(float).tolist()
 
 
 def add_negative_extrusion(f, origin, loc_z, loc_x, depth, points, parent):

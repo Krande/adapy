@@ -4,7 +4,7 @@ from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Pnt
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire
 
 from ada.geom import curves as geo_cu
-from ada.geom.surfaces import PolyLoop
+from ada.geom.curves import PolyLoop
 from ada.occ.exceptions import UnableToCreateCurveOCCGeom
 from ada.occ.utils import point3d
 

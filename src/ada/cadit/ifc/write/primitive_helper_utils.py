@@ -6,10 +6,10 @@ from ada.cadit.ifc.utils import (
     create_axis,
     create_ifc_placement,
     create_local_placement,
-    ifc_p,
-    to_real,
 )
+from ada.cadit.ifc.write.geom.points import cpt
 from ada.core.guid import create_guid
+from ada.core.utils import to_real
 from ada.core.vector_utils import unit_vector, vector_length
 
 if TYPE_CHECKING:
@@ -62,13 +62,13 @@ def add_bsplinesurface_to_ifc(
     ifc_surface = surface.to_ifcopenshell(f)
 
     # IfcPolyLine
-    p11 = ifc_p(f, (0, 0, 0))
-    p21 = ifc_p(f, (0, 0, 1))
+    p11 = cpt(f, (0, 0, 0))
+    p21 = cpt(f, (0, 0, 1))
     poly_line = f.create_entity("IFCPOLYLINE", (p11, p21))
 
     # List of vertex points
-    p1 = ifc_p(f, (0, 0, 0))
-    p2 = ifc_p(f, (0, 0, 1))
+    p1 = cpt(f, (0, 0, 0))
+    p2 = cpt(f, (0, 0, 1))
     vp1 = f.create_entity("IfcVertexPoint", p1)
     vp2 = f.create_entity("IfcVertexPoint", p2)
 

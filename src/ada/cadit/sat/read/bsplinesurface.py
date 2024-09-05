@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from ada.api.primitives import (
+from ada import Point
+from ada.config import logger
+from ada.geom.curves import KnotType
+from ada.geom.surfaces import (
+    BSplineSurfaceForm,
     BSplineSurfaceWithKnots,
-    IfcBSplineSurfaceForm,
     RationalBSplineSurfaceWithKnots,
 )
-from ada.config import logger
 
 
 def create_bsplinesurface_from_sat(spline_data_str: str) -> BSplineSurfaceWithKnots | RationalBSplineSurfaceWithKnots:
@@ -13,8 +15,13 @@ def create_bsplinesurface_from_sat(spline_data_str: str) -> BSplineSurfaceWithKn
 
     data_lines = [x.strip() for x in data.splitlines()]
     dline = data_lines[0].split()
-    u_degree, v_degree = [int(float(x)) for x in dline[3:5]]
-    surf_form = IfcBSplineSurfaceForm.UNSPECIFIED
+    try:
+        u_degree, v_degree = [int(float(x)) for x in dline[3:5]]
+    except ValueError as e:
+        logger.error(f"Could not create shape from bspline: {e}")
+        return None
+
+    surf_form = BSplineSurfaceForm.UNSPECIFIED
     uknots_in = [float(x) for x in data_lines[1].split()]
     uknots = uknots_in[0::2]
     uMult = [int(x) for x in uknots_in[1::2]]
@@ -35,20 +42,38 @@ def create_bsplinesurface_from_sat(spline_data_str: str) -> BSplineSurfaceWithKn
     if dline[0] == "exactsur":
         logger.info("Exact surface")
 
-    props = dict(
-        uDegree=u_degree,
-        vDegree=v_degree,
-        controlPointsList=control_points,
-        surfaceForm=surf_form,
-        uKnots=uknots,
-        vKnots=vknots,
-        uMultiplicities=uMult,
-        vMultiplicities=vMult,
-    )
+    ctrl_points = [[Point(*p[0:3]) for p in x] for x in control_points]
 
     if weights is not None:
-        surface = RationalBSplineSurfaceWithKnots(**props, weightsData=weights)
+        surface = RationalBSplineSurfaceWithKnots(
+            u_degree=u_degree,
+            v_degree=v_degree,
+            control_points_list=ctrl_points,
+            surface_form=surf_form,
+            u_closed=False,
+            v_closed=False,
+            self_intersect=False,
+            u_multiplicities=uMult,
+            v_multiplicities=vMult,
+            u_knots=uknots,
+            v_knots=vknots,
+            knot_spec=KnotType.UNSPECIFIED,
+            weights_data=weights,
+        )
     else:
-        surface = BSplineSurfaceWithKnots(**props)
+        surface = BSplineSurfaceWithKnots(
+            u_degree=u_degree,
+            v_degree=v_degree,
+            control_points_list=ctrl_points,
+            surface_form=surf_form,
+            u_knots=uknots,
+            v_knots=vknots,
+            u_multiplicities=uMult,
+            v_multiplicities=vMult,
+            u_closed=False,
+            v_closed=False,
+            self_intersect=False,
+            knot_spec=KnotType.UNSPECIFIED,
+        )
 
     return surface

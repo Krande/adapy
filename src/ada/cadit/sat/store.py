@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Iterable
 
-from ada.api.primitives import BSplineSurfaceWithKnots, RationalBSplineSurfaceWithKnots
 from ada.cadit.sat.read.bsplinesurface import create_bsplinesurface_from_sat
 from ada.cadit.sat.read.face import PlateFactory
+from ada.geom.surfaces import (
+    AdvancedFace,
+    BSplineSurfaceWithKnots,
+    RationalBSplineSurfaceWithKnots,
+)
 
 if TYPE_CHECKING:
     pass
@@ -130,6 +134,10 @@ class SatReaderFactory:
             if "spline-surface" not in face_data:
                 continue
             yield create_bsplinesurface_from_sat(face_data)
+
+    def iter_advanced_faces(self) -> Iterable[AdvancedFace]:
+        # TODO: Implement this
+        ...
 
     def read_data(self):
         self.store_sat_object_data()

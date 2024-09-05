@@ -369,3 +369,23 @@ def get_md5_hash_for_file(filepath: str | pathlib.Path) -> hashlib._Hash:
         while chunk := f.read(8192):
             file_hash.update(chunk)
         return file_hash
+
+
+def to_real(v) -> float | list[float]:
+    from ada import Node, Point
+
+    if isinstance(v, float):
+        return v
+    elif isinstance(v, tuple):
+        return [float(x) for x in v]
+    elif isinstance(v, list):
+        if isinstance(v[0], float):
+            return v
+        else:
+            return [float(x) for x in v]
+    elif isinstance(v, Node):
+        return v.p.astype(float).tolist()
+    elif isinstance(v, Point):
+        return v.astype(float).tolist()
+    else:
+        return v.astype(float).tolist()

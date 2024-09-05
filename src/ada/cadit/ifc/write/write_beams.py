@@ -13,14 +13,14 @@ from ada.cadit.ifc.utils import (
     create_ifc_placement,
     create_local_placement,
     ifc_dir,
-    ifc_p,
-    to_real,
 )
+from ada.cadit.ifc.write.geom.points import cpt
 from ada.cadit.ifc.write.geom.solids import extruded_area_solid
 from ada.cadit.ifc.write.write_curves import write_curve_poly
 from ada.config import Config
 from ada.core.constants import O
 from ada.core.guid import create_guid
+from ada.core.utils import to_real
 
 if TYPE_CHECKING:
     from ifcopenshell import file as ifile
@@ -181,7 +181,7 @@ def extrude_straight_beam(beam: Beam, f: ifile, profile):
     loc_plac = create_local_placement(f, relative_to=global_placement)
 
     axis_context = a.ifc_store.get_context("Axis")
-    ifc_polyline = f.create_entity("IfcPolyLine", [ifc_p(f, beam.n1.p), ifc_p(f, beam.n2.p)])
+    ifc_polyline = f.create_entity("IfcPolyLine", [cpt(f, beam.n1.p), cpt(f, beam.n2.p)])
     axis = f.create_entity("IfcShapeRepresentation", axis_context, "Axis", "Curve3D", [ifc_polyline])
 
     # Add colour
@@ -211,8 +211,8 @@ def create_revolved_beam(beam: BeamRevolve, f: "ifile", profile):
 def create_ifc_trimmed_curve(curve: CurveRevolve, f: "ifile"):
     loc_plac = create_ifc_placement(f, origin=curve.rot_origin)
     ifc_circle = f.create_entity("IFCCIRCLE", loc_plac, curve.radius)
-    param1 = (f.create_entity("IFCPARAMETERVALUE", 0.0), ifc_p(f, curve.p1))
-    param2 = (f.create_entity("IFCPARAMETERVALUE", np.deg2rad(curve.angle)), ifc_p(f, curve.p2))
+    param1 = (f.create_entity("IFCPARAMETERVALUE", 0.0), cpt(f, curve.p1))
+    param2 = (f.create_entity("IFCPARAMETERVALUE", np.deg2rad(curve.angle)), cpt(f, curve.p2))
     trim_curve = f.create_entity(
         "IFCTRIMMEDCURVE",
         BasisCurve=ifc_circle,
@@ -226,7 +226,7 @@ def create_ifc_trimmed_curve(curve: CurveRevolve, f: "ifile"):
 
 def create_ifcrevolveareasolid(f, profile, ifcaxis2placement, origin, revolve_axis, revolve_angle):
     """Creates an IfcExtrudedAreaSolid from a list of points, specified as Python tuples"""
-    ifcaxis1dir = f.create_entity("IfcAxis1Placement", ifc_p(f, origin), ifc_dir(f, revolve_axis))
+    ifcaxis1dir = f.create_entity("IfcAxis1Placement", cpt(f, origin), ifc_dir(f, revolve_axis))
     return f.create_entity("IfcRevolvedAreaSolid", profile, ifcaxis2placement, ifcaxis1dir, revolve_angle)
 
 

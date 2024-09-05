@@ -68,11 +68,18 @@ class GxmlStore:
             yield from yield_plate_elems_to_plate(fp, self.p, sat_d, thick_map)
 
     def to_part(self, extract_joints=False) -> Part:
+        from ada import Shape
         from ada.api.containers import Beams, Plates
 
         p = self.p
         p._plates = Plates(self.iter_plates_from_xml(), parent=p)
         p._beams = Beams(self.iter_beams_from_xml(), parent=p)
+
+        for i, advanced_face in enumerate(self.sat_factory.iter_advanced_faces()):
+            if advanced_face is None:
+                continue
+            p._shapes.append(Shape(f"bspline{i}", geom=advanced_face, parent=p))
+
         for bm in p.beams:
             p.nodes.add(bm.n1)
             p.nodes.add(bm.n2)

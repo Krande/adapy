@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import Enum
 from itertools import chain
@@ -186,17 +188,20 @@ class BSplineCurveFormEnum(Enum):
     UNSPECIFIED = "UNSPECIFIED"
 
 
-class BsplineKnotSpecEnum(Enum):
+class KnotType(Enum):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcKnotType.htm)
     STEP (https://www.steptools.com/stds/stp_aim/html/t_knot_type.html)
     """
 
-    UNSPECIFIED = "UNSPECIFIED"
-    PIECEWISE_BEZIER = "PIECEWISE_BEZIER"
-    UNIFORM_KNOTS = "UNIFORM_KNOTS"
+    PIECEWISE_BEZIER_KNOTS = "PIECEWISE_BEZIER_KNOTS"
     QUASI_UNIFORM_KNOTS = "QUASI_UNIFORM_KNOTS"
-    PIECEWISE_CUBIC = "PIECEWISE_CUBIC"
+    UNIFORM_KNOTS = "UNIFORM_KNOTS"
+    UNSPECIFIED = "UNSPECIFIED"
+
+    @staticmethod
+    def from_str(value: str) -> KnotType:
+        return KnotType(value)
 
 
 @dataclass
@@ -213,5 +218,42 @@ class BSplineCurveWithKnots:
     self_intersect: bool
     knot_multiplicities: list[int]
     knots: list[float]
-    knot_spec: BsplineKnotSpecEnum
+    knot_spec: KnotType
 
+
+@dataclass
+class Edge:
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcEdge.htm)
+    """
+
+    edge_start: Point
+    edge_end: Point
+
+
+@dataclass
+class OrientedEdge(Edge):
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcOrientedEdge.htm)
+    """
+
+    edge_element: Edge
+    orientation: bool
+
+
+@dataclass
+class PolyLoop:
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcPolyLoop.htm)
+    """
+
+    polygon: list[Point]
+
+
+@dataclass
+class EdgeLoop:
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcEdgeLoop.htm)
+    """
+
+    edge_list: list[OrientedEdge]

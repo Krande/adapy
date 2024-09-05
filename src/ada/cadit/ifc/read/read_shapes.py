@@ -31,6 +31,7 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: Ifc
         geometries = geometries[0]
     else:
         geometries = None
+
     return Shape(
         name,
         geom=geometries,

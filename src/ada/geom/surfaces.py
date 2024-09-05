@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Union
 
 import ada.geom.curves as geo_cu
+from ada.geom.curves import EdgeLoop, PolyLoop
 from ada.geom.placement import Axis2Placement3D, Direction
 from ada.geom.points import Point
 
@@ -48,22 +51,6 @@ class ArbitraryProfileDef(ProfileDef):
             for segment in self.outer_curve.segments:
                 if segment.dim != 2:
                     raise ValueError("Invalid segment in outer_curve")
-
-@dataclass
-class OrientedEdge:
-    ...
-
-@dataclass
-class PolyLoop:
-    """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcPolyLoop.htm)
-    """
-
-    polygon: list[Point]
-
-@dataclass
-class EdgeLoop:
-    edge_list: list[OrientedEdge]
 
 
 @dataclass
@@ -175,6 +162,61 @@ class RectangleProfileDef(ProfileDef):
     y_dim: float
 
 
+class BSplineSurfaceForm(Enum):
+    PLANE_SURF = "PLANE_SURF"
+    CYLINDRICAL_SURF = "CYLINDRICAL_SURF"
+    CONICAL_SURF = "CONICAL_SURF"
+    SPHERICAL_SURF = "SPHERICAL_SURF"
+    TOROIDAL_SURF = "TOROIDAL_SURF"
+    SURF_OF_REVOLUTION = "SURF_OF_REVOLUTION"
+    RULED_SURF = "RULED_SURF"
+    GENERALISED_CONE = "GENERALISED_CONE"
+    QUADRIC_SURF = "QUADRIC_SURF"
+    SURF_OF_LINEAR_EXTRUSION = "SURF_OF_LINEAR_EXTRUSION"
+    UNSPECIFIED = "UNSPECIFIED"
+
+    @staticmethod
+    def from_str(value: str) -> BSplineSurfaceForm:
+        return BSplineSurfaceForm(value)
+
+
+@dataclass
+class BSplineSurface:
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcBSplineSurface.htm)
+    """
+
+    u_degree: int
+    v_degree: int
+    control_points_list: list[list[Point]]
+    surface_form: BSplineSurfaceForm
+    u_closed: bool
+    v_closed: bool
+    self_intersect: bool
+
+
+@dataclass
+class BSplineSurfaceWithKnots(BSplineSurface):
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcBSplineSurfaceWithKnots.htm)
+    """
+
+    u_multiplicities: list[int]
+    v_multiplicities: list[int]
+    u_knots: list[float]
+    v_knots: list[float]
+    knot_spec: geo_cu.KnotType
+
+
+@dataclass
+class RationalBSplineSurfaceWithKnots(BSplineSurfaceWithKnots):
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcRationalBSplineSurfaceWithKnots.htm)
+    """
+
+    weights_data: list[list[float]]
+
+
 @dataclass
 class AdvancedFace:
     """
@@ -182,7 +224,7 @@ class AdvancedFace:
     """
 
     bounds: list[FaceBound]
-    face_surface: Union[ArbitraryProfileDef, CircleProfileDef, RectangleProfileDef]
+    face_surface: Union[ArbitraryProfileDef, CircleProfileDef, RectangleProfileDef, BSplineSurface]
     same_sense: bool = True
 
 
@@ -196,4 +238,7 @@ SURFACE_GEOM_TYPES = Union[
     CircleProfileDef,
     RectangleProfileDef,
     AdvancedFace,
+    BSplineSurfaceWithKnots,
+    RationalBSplineSurfaceWithKnots,
+    SurfaceOfLinearExtrusion,
 ]

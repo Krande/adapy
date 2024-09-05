@@ -7,7 +7,7 @@ from ada.geom import solids as geo_so
 from ada.geom import surfaces as geo_su
 
 from .solids import extruded_solid_area, ifc_block, revolved_solid_area
-from .surfaces import triangulated_face_set, advanced_face
+from .surfaces import advanced_face, triangulated_face_set
 
 GEOM = Union[geo_so.SOLID_GEOM_TYPES | geo_cu.CURVE_GEOM_TYPES | geo_su.SURFACE_GEOM_TYPES]
 

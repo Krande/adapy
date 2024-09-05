@@ -1,11 +1,12 @@
 import ifcopenshell
 
 from ada.core.utils import flatten
+from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
 from ada.geom.placement import Direction
 from ada.geom.points import Point
 
-from .curves import get_curve
+from .curves import edge_loop, get_curve
 
 
 def get_surface(ifc_entity: ifcopenshell.entity_instance) -> geo_su.SURFACE_GEOM_TYPES:
@@ -88,15 +89,13 @@ def rectangle_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.Re
         y_dim=ifc_entity.YDim,
     )
 
+
 def face_bound(ifc_entity: ifcopenshell.entity_instance) -> geo_su.FaceBound:
 
     ifc_bound = ifc_entity.Bound
-    bound = None
     if ifc_bound.is_a("IfcEdgeLoop"):
-        bound = geo_su.EdgeLoop(
-            edge_list=[]
-        )
-    if bound is None:
+        bound = edge_loop(ifc_bound)
+    else:
         raise NotImplementedError(f"{ifc_entity} is not yet implemented.")
 
     return geo_su.FaceBound(
@@ -105,9 +104,31 @@ def face_bound(ifc_entity: ifcopenshell.entity_instance) -> geo_su.FaceBound:
     )
 
 
+def bspline_surface_with_knots(ifc_entity: ifcopenshell.entity_instance) -> geo_su.BSplineSurfaceWithKnots:
+    return geo_su.BSplineSurfaceWithKnots(
+        u_degree=ifc_entity.UDegree,
+        v_degree=ifc_entity.VDegree,
+        control_points_list=[[Point(*p) for p in x] for x in ifc_entity.ControlPointsList],
+        surface_form=geo_su.BSplineSurfaceForm.from_str(ifc_entity.SurfaceForm),
+        u_closed=ifc_entity.UClosed,
+        v_closed=ifc_entity.VClosed,
+        self_intersect=ifc_entity.SelfIntersect,
+        u_multiplicities=ifc_entity.UMultiplicities,
+        v_multiplicities=ifc_entity.VMultiplicities,
+        u_knots=ifc_entity.UKnots,
+        v_knots=ifc_entity.VKnots,
+        knot_spec=geo_cu.KnotType.from_str(ifc_entity.KnotSpec),
+    )
+
 
 def advanced_face(ifc_entity: ifcopenshell.entity_instance) -> geo_su.AdvancedFace:
-    return geo_su.AdvancedFace(
-        bounds=[face_bound(x) for x in ifc_entity.Bounds],
-        face_surface=
-    )
+    ifc_face_surface = ifc_entity.FaceSurface
+
+    face_surface = None
+    if ifc_face_surface.is_a("IfcBSplineSurfaceWithKnots"):
+        face_surface = bspline_surface_with_knots(ifc_face_surface)
+
+    if face_surface is None:
+        raise NotImplementedError(f"{ifc_entity} is not yet implemented.")
+
+    return geo_su.AdvancedFace(bounds=[face_bound(x) for x in ifc_entity.Bounds], face_surface=face_surface)

@@ -1,5 +1,6 @@
 import ada
-from ada.cadit.ifc.utils import create_local_placement, ifc_p
+from ada.cadit.ifc.utils import create_local_placement
+from ada.cadit.ifc.write.geom.points import cpt
 from ada.cadit.ifc.write.write_ifc import IfcWriter
 from ada.core.guid import create_guid
 
@@ -9,8 +10,6 @@ def test_export_ifc_plate(plate1):
 
 
 def test_export_rational_bspline_wknots(tmp_path, example_files):
-    ctrl_pts_file = example_files / "other/rational_bspline_surf_wknots/ex_surface01.cpt"
-
     a = ada.Assembly()
 
     ctrl_pts = []
@@ -21,7 +20,7 @@ def test_export_rational_bspline_wknots(tmp_path, example_files):
             for x in p.split(","):
                 xf = float(x)
                 pt.append(xf)
-            points = ifc_p(a.ifc_store.f, pt)
+            points = cpt(a.ifc_store.f, pt)
             subp.append(points)
         ctrl_pts.append(tuple(subp))
     knotvector_u = (0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 3.0, 3.0, 3.0, 3.0)

@@ -20,14 +20,15 @@ from ada.cadit.ifc.utils import (
     create_ifcrevolveareasolid,
     create_local_placement,
     tesselate_shape,
-    to_real,
 )
 from ada.cadit.ifc.write.geom.placement import ifc_placement_from_axis3d
 from ada.core.constants import O, X, Z
+from ada.core.utils import to_real
 from ada.geom.solids import Box, Cone, Cylinder
+from ada.geom.surfaces import AdvancedFace
 
 from ..write.geom.curves import indexed_poly_curve
-from ..write.geom.surfaces import arbitrary_profile_def
+from ..write.geom.surfaces import advanced_face, arbitrary_profile_def
 
 
 def write_ifc_shape(shape: Shape):
@@ -73,7 +74,10 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
     a = shape.parent.get_assembly()
     body_context = a.ifc_store.get_context("Body")
 
-    param_solid_map = {
+    if isinstance(shape, Boolean):
+        raise ValueError(f'Penetration type "{shape}" is not yet supported')
+
+    param_geom_map = {
         PrimSphere: generate_ifc_prim_sphere_geom,
         PrimBox: generate_ifc_box_geom,
         PrimCyl: generate_ifc_cylinder_geom,
@@ -81,16 +85,18 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         PrimExtrude: generate_ifc_prim_extrude_geom,
         PrimRevolve: generate_ifc_prim_revolve_geom,
         PrimSweep: generate_ifc_prim_sweep_geom,
+        AdvancedFace: advanced_face,
     }
+    if isinstance(shape, Shape):
+        param_geo = shape.geom
+    else:
+        param_geo = shape
 
-    ifc_geom_converter = param_solid_map.get(type(shape), None)
+    ifc_geom_converter = param_geom_map.get(type(param_geo), None)
     if ifc_geom_converter is None:
         raise NotImplementedError(f'Shape type "{type(shape)}" is not yet supported for export to IFC')
 
-    solid_geom = ifc_geom_converter(shape, f)
-
-    if type(shape) is Boolean:
-        raise ValueError(f'Penetration type "{shape}" is not yet supported')
+    solid_geom = ifc_geom_converter(param_geo, f)
 
     shape_representation = f.create_entity("IfcShapeRepresentation", body_context, "Body", "SweptSolid", [solid_geom])
     ifc_shape = f.create_entity("IfcProductDefinitionShape", None, None, [shape_representation])
