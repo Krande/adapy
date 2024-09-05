@@ -49,6 +49,9 @@ class ArbitraryProfileDef(ProfileDef):
                 if segment.dim != 2:
                     raise ValueError("Invalid segment in outer_curve")
 
+@dataclass
+class OrientedEdge:
+    ...
 
 @dataclass
 class PolyLoop:
@@ -58,6 +61,10 @@ class PolyLoop:
 
     polygon: list[Point]
 
+@dataclass
+class EdgeLoop:
+    edge_list: list[OrientedEdge]
+
 
 @dataclass
 class FaceBound:
@@ -65,7 +72,7 @@ class FaceBound:
     IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcFaceBound.htm)
     """
 
-    bound: PolyLoop
+    bound: Union[PolyLoop, EdgeLoop]
     orientation: bool
 
 

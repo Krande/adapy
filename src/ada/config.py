@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import pathlib
-from dataclasses import dataclass
 from typing import Any, Dict, List, NamedTuple, Optional, Type, Union
 
 _filename = "ada_config.toml"
@@ -64,14 +63,8 @@ class ConfigSection(NamedTuple):
     required: bool = True
 
 
-@dataclass
-class ModelExportOptions:
-    export_props: bool = True
-    import_props: bool = True
-    include_ecc = True
-
-
 class Config:
+    # Singleton ("danger danger!" yeah I know).
     # Config class structure based on the wonderful https://github.com/mamba-org/quetz
     _config_map = [
         ConfigSection(
@@ -102,7 +95,7 @@ class Config:
             [
                 ConfigEntry("export_props", bool, True),
                 ConfigEntry("import_props", bool, True),
-                ConfigEntry("include_ecc", bool, True),
+                ConfigEntry("export_include_ecc", bool, True),
                 ConfigEntry("import_shape_geom", bool, False),
             ],
         ),
@@ -139,24 +132,15 @@ class Config:
         if not deployment_config and None in cls._instances:
             return cls._instances[None]
 
-        if isinstance(deployment_config, str) and deployment_config.startswith("tmp_unique"):
-            path = deployment_config
-        else:
-            try:
-                path = os.path.abspath(cls.find_file(deployment_config))
-            except TypeError:
-                # if not config path exists, set it to empty string.
-                path = ""
+        try:
+            path = os.path.abspath(cls.find_file(deployment_config))
+        except TypeError:
+            # if not config path exists, set it to empty string.
+            path = ""
 
         if path not in cls._instances:
             config = super().__new__(cls)
-            if isinstance(path, str) and not path.startswith("tmp_unique"):
-                config.init(path)
-            else:
-                config.config: Dict[str, Any] = {}
-                config.config.update(config._get_environ_config())
-                config._trigger_update_config()
-
+            config.init(path)
             cls._instances[path] = config
             # optimization - for default config path we also store the instance
             # under None key
@@ -177,6 +161,10 @@ class Config:
         for f in cls._config_files + deployment_config_files:
             if os.path.isfile(f):
                 return f
+
+    def reload_config(self):
+        self.config.update(self._get_environ_config())
+        self._trigger_update_config()
 
     def init(self, path: str) -> None:
         """Load configurations from various places.

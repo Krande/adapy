@@ -214,3 +214,4 @@ class BSplineCurveWithKnots:
     knot_multiplicities: list[int]
     knots: list[float]
     knot_spec: BsplineKnotSpecEnum
+

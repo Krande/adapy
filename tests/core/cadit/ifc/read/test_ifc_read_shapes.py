@@ -7,7 +7,8 @@ def test_import_arcboundary(example_files):
     print(a)
 
 
-def test_import_bspline_w_knots(example_files):
-    Config().ifc_import_shape_geom = True
+def test_import_bspline_w_knots(example_files, monkeypatch):
+    monkeypatch.setenv("ADA_IFC_IMPORT_SHAPE_GEOM", "true")
+    Config().reload_config()
     a = ada.from_ifc(example_files / "ifc_files/bsplinewknots.ifc")
     print(a)

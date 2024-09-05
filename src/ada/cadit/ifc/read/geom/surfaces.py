@@ -88,6 +88,26 @@ def rectangle_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.Re
         y_dim=ifc_entity.YDim,
     )
 
+def face_bound(ifc_entity: ifcopenshell.entity_instance) -> geo_su.FaceBound:
 
-def ifc_advanced_face(ifc_entity: ifcopenshell.entity_instance) -> geo_su.AdvancedFace:
-    return geo_su.AdvancedFace()
+    ifc_bound = ifc_entity.Bound
+    bound = None
+    if ifc_bound.is_a("IfcEdgeLoop"):
+        bound = geo_su.EdgeLoop(
+            edge_list=[]
+        )
+    if bound is None:
+        raise NotImplementedError(f"{ifc_entity} is not yet implemented.")
+
+    return geo_su.FaceBound(
+        bound=bound,
+        orientation=ifc_entity.Orientation,
+    )
+
+
+
+def advanced_face(ifc_entity: ifcopenshell.entity_instance) -> geo_su.AdvancedFace:
+    return geo_su.AdvancedFace(
+        bounds=[face_bound(x) for x in ifc_entity.Bounds],
+        face_surface=
+    )
