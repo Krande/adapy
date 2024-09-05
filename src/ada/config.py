@@ -98,11 +98,12 @@ class Config:
             ],
         ),
         ConfigSection(
-            "ifc_export",
+            "ifc",
             [
                 ConfigEntry("export_props", bool, True),
                 ConfigEntry("import_props", bool, True),
                 ConfigEntry("include_ecc", bool, True),
+                ConfigEntry("import_shape_geom", bool, False),
             ],
         ),
         ConfigSection(

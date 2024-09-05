@@ -466,7 +466,11 @@ def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> list[Plate]:
     fem_sec.material.parent = parent
     mat_dict = {}
 
-    new_mat = mat_dict.get(fem_sec.material.name, fem_sec.material.copy_to(fem_sec.material.name, parent=parent))
+    new_mat = mat_dict.get(fem_sec.material.name, None)
+    if new_mat is None:
+        new_mat = parent.materials.add(fem_sec.material.copy_to(fem_sec.material.name, parent=parent))
+        mat_dict[fem_sec.material.name] = new_mat
+
     if len(elem.nodes) == 4:
         if is_coplanar(
             *elem.nodes[0].p,

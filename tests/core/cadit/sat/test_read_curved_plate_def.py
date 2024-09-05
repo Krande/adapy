@@ -10,5 +10,5 @@ def test_read_a_curved_plate(example_files, tmp_path):
     bsplines[0]
     ifc_store = IfcStore()
     # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/schema/ifcgeometryresource/lexical/ifcrationalbsplinesurfacewithknots.htm
-    # ifc.add(ifc.create_entity('IfcRationalBSplineSurfaceWithKnots', ...))
+    ifc_store.f.add(ifc_store.f.create_entity("IfcRationalBSplineSurfaceWithKnots", ...))
     ifc_store.save_to_file(tmp_path / "curved_plate.ifc")

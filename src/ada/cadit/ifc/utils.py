@@ -386,7 +386,7 @@ def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props, owner_history):
 
 
 def write_elem_property_sets(metadata_props, elem, f, owner_history) -> None:
-    if len(metadata_props.keys()) == 0 or _config.ifc_export_export_props is False:
+    if len(metadata_props.keys()) == 0 or _config.ifc_export_props is False:
         return None
 
     if isinstance(list(metadata_props.values())[0], dict):

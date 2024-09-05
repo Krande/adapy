@@ -935,6 +935,8 @@ class Part(BackendGeom):
     @fem.setter
     def fem(self, value: FEM):
         value.parent = self
+        for sec in value.sections.sections:
+            sec.material = self.add_material(sec.material)
         self._fem = value
 
     @property

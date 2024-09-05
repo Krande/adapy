@@ -87,3 +87,7 @@ def rectangle_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.Re
         x_dim=ifc_entity.XDim,
         y_dim=ifc_entity.YDim,
     )
+
+
+def ifc_advanced_face(ifc_entity: ifcopenshell.entity_instance) -> geo_su.AdvancedFace:
+    return geo_su.AdvancedFace()

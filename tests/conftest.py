@@ -32,12 +32,6 @@ def fem_files(example_files) -> pathlib.Path:
 
 
 @pytest.fixture
-def test_shell_beam() -> ada.Assembly:
-    bm = ada.Beam("Bm", (0, 0, 0), (1, 0, 0), "IPE300")
-    return ada.Assembly("MyAssembly") / (ada.Part("MyPart", fem=bm.to_fem_obj(0.1, "shell")) / bm)
-
-
-@pytest.fixture
 def plate1():
     return ada.Plate("MyPlate", [(0, 0), (1, 0), (1, 1), (0, 1)], 20e-3)
 

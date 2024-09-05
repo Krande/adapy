@@ -168,6 +168,17 @@ class RectangleProfileDef(ProfileDef):
     y_dim: float
 
 
+@dataclass
+class AdvancedFace:
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcAdvancedFace.htm)
+    """
+
+    bounds: list[FaceBound]
+    face_surface: Union[ArbitraryProfileDef, CircleProfileDef, RectangleProfileDef]
+    same_sense: bool = True
+
+
 SURFACE_GEOM_TYPES = Union[
     ArbitraryProfileDef,
     FaceBasedSurfaceModel,
@@ -177,4 +188,5 @@ SURFACE_GEOM_TYPES = Union[
     TriangulatedFaceSet,
     CircleProfileDef,
     RectangleProfileDef,
+    AdvancedFace,
 ]

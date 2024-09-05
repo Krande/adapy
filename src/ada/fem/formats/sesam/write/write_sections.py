@@ -62,7 +62,9 @@ def create_shell_section_str(fem_sec: FemSection, thick_map) -> str:
         thick_map[fem_sec.thickness] = sh_id
     else:
         return ""
-    return write_ff("GELTH", [(sh_id, fem_sec.thickness, 5)])
+
+    number_of_integration_points = 5
+    return write_ff("GELTH", [(sh_id, fem_sec.thickness, number_of_integration_points)])
 
 
 def create_line_section(fem_sec: FemSection, sec_names: list[str], sec_ids: list[Section]) -> ConceptSection:

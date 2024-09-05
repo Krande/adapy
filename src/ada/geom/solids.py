@@ -7,7 +7,7 @@ from ada.core.vector_utils import create_right_hand_vectors_xv_yv_from_zv
 from ada.geom.curves import CURVE_GEOM_TYPES
 from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
 from ada.geom.points import Point
-from ada.geom.surfaces import ProfileDef
+from ada.geom.surfaces import ConnectedFaceSet, ProfileDef
 
 
 @dataclass
@@ -152,6 +152,23 @@ class Sphere:
     radius: float
 
 
+@dataclass
+class AdvancedBrep:
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcAdvancedBrep.htm)
+    """
+
+    outer: ConnectedFaceSet
+
+
 SOLID_GEOM_TYPES = Union[
-    ExtrudedAreaSolid, RevolvedAreaSolid, Box, RectangularPyramid, Cone, Cylinder, Sphere, FixedReferenceSweptAreaSolid
+    ExtrudedAreaSolid,
+    RevolvedAreaSolid,
+    Box,
+    RectangularPyramid,
+    Cone,
+    Cylinder,
+    Sphere,
+    FixedReferenceSweptAreaSolid,
+    AdvancedBrep,
 ]
