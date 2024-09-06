@@ -11,7 +11,6 @@ from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import MassTypes, SpringTypes
 
 
-
 def meshio_to_fem(assembly: Assembly, name: str, scratch_dir=None, metadata=None, model_data_only=False) -> None:
     """Convert Assembly information to FEM using Meshio"""
     if scratch_dir is None:

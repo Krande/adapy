@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
 
-
 class Root:
     UNITS: Units = Units
 

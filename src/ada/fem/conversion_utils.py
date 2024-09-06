@@ -9,7 +9,6 @@ if TYPE_CHECKING:
     from ada import FEM, Assembly
 
 
-
 def convert_ecc_to_mpc(fem: "FEM"):
     """Converts beam offsets to MPC constraints"""
     from ada import Node

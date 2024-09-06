@@ -23,7 +23,6 @@ if TYPE_CHECKING:
     from ada.fem.formats.general import FEATypes
 
 
-
 class DatFormatReader:
     re_flags = re.MULTILINE | re.DOTALL
     re_int = r"[0-9]{1,9}"

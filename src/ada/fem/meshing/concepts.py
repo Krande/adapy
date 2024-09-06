@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import pathlib
 import time
 from dataclasses import dataclass, field
@@ -19,7 +18,6 @@ from ada.core.guid import create_guid
 from ada.fem.containers import FemElements
 from ada.fem.meshing.exceptions import BadJacobians
 from ada.fem.shapes import ElemType
-
 
 
 @dataclass

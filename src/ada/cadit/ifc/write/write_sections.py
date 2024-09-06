@@ -13,7 +13,6 @@ from ada.sections.concept import Section
 from ..utils import create_ifcindexpolyline, create_ifcpolyline
 
 
-
 class UnrecognizedSectionType(Exception):
     pass
 

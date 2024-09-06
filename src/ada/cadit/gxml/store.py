@@ -15,7 +15,7 @@ from ada.cadit.gxml.read.read_sections import get_sections
 from ada.cadit.gxml.read.read_sets import get_sets
 from ada.cadit.gxml.sat_helpers import write_xml_sat_text_to_file
 from ada.cadit.sat.store import SatReaderFactory
-from ada.config import logger, Config
+from ada.config import Config, logger
 
 
 class GxmlStore:

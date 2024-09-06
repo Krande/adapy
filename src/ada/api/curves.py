@@ -29,8 +29,7 @@ if TYPE_CHECKING:
 
 class CurveRevolve:
     def __init__(
-            self, p1, p2, radius=None, rot_axis=None, point_on=None, rot_origin=None, angle=180, parent=None,
-            metadata=None
+        self, p1, p2, radius=None, rot_axis=None, point_on=None, rot_origin=None, angle=180, parent=None, metadata=None
     ):
         self._p1 = p1
         self._p2 = p2
@@ -105,14 +104,14 @@ class CurveOpen2d:
     """A open curve defined by a list of points."""
 
     def __init__(
-            self,
-            points: list[tuple[float, float, Optional[float]]],
-            origin: Iterable | Point = None,
-            normal: Iterable | Direction = None,
-            xdir: Iterable | Direction = None,
-            tol=1e-3,
-            parent=None,
-            orientation: Placement = None,
+        self,
+        points: list[tuple[float, float, Optional[float]]],
+        origin: Iterable | Point = None,
+        normal: Iterable | Direction = None,
+        xdir: Iterable | Direction = None,
+        tol=1e-3,
+        parent=None,
+        orientation: Placement = None,
     ):
         self._tol = tol
         self._parent = parent
@@ -287,14 +286,14 @@ class CurvePoly2d(CurveOpen2d):
     """A closed curve defined by a list of 2d points represented by line and arc segments."""
 
     def __init__(
-            self,
-            points2d,
-            origin: Iterable | Point = None,
-            normal: Iterable | Direction = None,
-            xdir: Iterable | Direction = None,
-            tol=1e-3,
-            parent=None,
-            orientation: Placement = None,
+        self,
+        points2d,
+        origin: Iterable | Point = None,
+        normal: Iterable | Direction = None,
+        xdir: Iterable | Direction = None,
+        tol=1e-3,
+        parent=None,
+        orientation: Placement = None,
     ):
         # Check to see if it is a closed curve
         super().__init__(points2d, origin, normal, xdir, tol, parent, orientation)
@@ -319,14 +318,14 @@ class CurveOpen3d:
     """A 3 dimensional open poly curve defined by a list of 3d points represented by line and arc segments."""
 
     def __init__(
-            self,
-            points3d,
-            origin: Iterable | Point = None,
-            normal: Iterable | Direction = None,
-            xdir: Iterable | Direction = None,
-            tol=1e-3,
-            parent=None,
-            orientation: Placement = None,
+        self,
+        points3d,
+        origin: Iterable | Point = None,
+        normal: Iterable | Direction = None,
+        xdir: Iterable | Direction = None,
+        tol=1e-3,
+        parent=None,
+        orientation: Placement = None,
     ):
         self._radiis = {i: x[-1] for i, x in enumerate(points3d) if len(x) == 4}
         self._points3d = [Point(p[:3]) for p in points3d]
@@ -442,16 +441,16 @@ class LineSegment:
 
 class ArcSegment(LineSegment):
     def __init__(
-            self,
-            p1,
-            p2,
-            midpoint=None,
-            radius=None,
-            center=None,
-            intersection=None,
-            s_normal: Direction = None,
-            e_normal: Direction = None,
-            edge_geom=None,
+        self,
+        p1,
+        p2,
+        midpoint=None,
+        radius=None,
+        center=None,
+        intersection=None,
+        s_normal: Direction = None,
+        e_normal: Direction = None,
+        edge_geom=None,
     ):
         super(ArcSegment, self).__init__(p1, p2)
         if midpoint is not None and not isinstance(midpoint, Point):

@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
 
-
 def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: IfcStore):
     logger.info(f'importing Shape "{name}"')
     color, opacity = get_colour(product, ifc_store.assembly)

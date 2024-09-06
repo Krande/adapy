@@ -12,8 +12,6 @@ if TYPE_CHECKING:
     from ada.fem.steps import Step
 
 
-
-
 class FemBase:
     """Base class for all FEM objects
 

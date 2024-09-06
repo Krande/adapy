@@ -18,7 +18,6 @@ if TYPE_CHECKING:
     from ada import Node
 
 
-
 def is_package_installed(package_name):
     try:
         importlib.util.find_spec(package_name)

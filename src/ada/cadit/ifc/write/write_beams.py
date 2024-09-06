@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
 
-
 def write_ifc_beam(ifc_store: IfcStore, beam: Beam):
     ibw = IfcBeamWriter(ifc_store)
     return ibw.create_ifc_beam(beam)

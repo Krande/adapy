@@ -1,5 +1,4 @@
 import ada
-from ada.config import Config
 
 
 def test_sesam_xml(example_files, tmp_path, monkeypatch):

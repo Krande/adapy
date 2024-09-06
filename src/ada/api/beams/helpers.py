@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from ada.api.connections import JointBase
 
 
-
 class BeamConnectionProps:
     def __init__(self, beam: Beam):
         self._beam = beam

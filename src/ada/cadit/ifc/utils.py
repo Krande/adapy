@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from ada import Assembly, Beam
 
 
-
 def create_reference_subrep(f, global_axes):
     contexts = list(f.by_type("IfcGeometricRepresentationContext"))
     list(f.by_type("IfcGeometricRepresentationSubContext"))

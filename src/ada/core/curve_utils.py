@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     from .. import Placement
 
 
-
 def calculate_center(v1, v2) -> Point | None:
     # Calculate midpoints of v1 and v2
     m1 = v1 / 2

@@ -23,7 +23,6 @@ if TYPE_CHECKING:
     from ada import Material, Section
 
 
-
 class Pipe(BackendGeom):
     def __init__(
         self, name, points, sec, mat="S355", content=None, metadata=None, color=None, units: Units = Units.M, guid=None

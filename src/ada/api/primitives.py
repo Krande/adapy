@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
 
-
 class Shape(BackendGeom):
     IFC_CLASSES = ShapeTypes
 

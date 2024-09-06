@@ -19,7 +19,6 @@ if TYPE_CHECKING:
     from ada import Assembly, Part
 
 
-
 def write_all_parts(assembly: Assembly, analysis_dir):
     for part in assembly.get_all_subparts():
         if len(part.fem.elements) == 0 and len(part.fem.nodes) == 0:

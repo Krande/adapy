@@ -5,7 +5,6 @@ from enum import Enum
 from ada.config import Config
 
 
-
 class InvalidUnit(Exception):
     pass
 
