@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 
     from ada.cadit.ifc.store import IfcStore
 
-_config = Config()
 
 
 def write_ifc_beam(ifc_store: IfcStore, beam: Beam):
@@ -133,7 +132,7 @@ def extrude_straight_tapered_beam(beam: BeamTapered, f: ifile, profile):
 
     vec = beam.xvec
     yvec = beam.yvec
-    if _config.ifc_export_include_ecc and beam.e1 is not None:
+    if Config().ifc_export_include_ecc and beam.e1 is not None:
         e1 = beam.e1
         vec = beam.xvec_e
 

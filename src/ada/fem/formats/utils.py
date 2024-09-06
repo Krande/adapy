@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from ada import Assembly, Beam, Part, Plate
     from ada.fem.formats.general import FEATypes
 
-_config = Config()
 
 
 class DatFormatReader:
@@ -126,10 +125,10 @@ class LocalExecute:
 
     @property
     def execute_dir(self):
-        if _config.fem_analysis_execute_dir is None:
+        if Config().fem_analysis_execute_dir is None:
             return self.analysis_dir
         else:
-            return _config.fem_analysis_execute_dir / self.analysis_name
+            return Config().fem_analysis_execute_dir / self.analysis_name
 
     @property
     def analysis_name(self):
@@ -223,8 +222,8 @@ def get_exe_path(fea_type: FEATypes):
         exe_linux = bin_exe_linux
     exe_win = shutil.which(f"{exe_name}.exe")
 
-    if _config.fem_analysis_fem_exe_paths.get(exe_name, None) is not None:
-        exe_path = _config.fem_analysis_fem_exe_paths[exe_name]
+    if Config().fem_analysis_fem_exe_paths.get(exe_name, None) is not None:
+        exe_path = Config().fem_analysis_fem_exe_paths[exe_name]
     elif exe_linux:
         exe_path = exe_linux
     elif exe_win:
@@ -296,7 +295,7 @@ def get_ff_regex(flag, *args):
 def _overwrite_dir(analysis_dir):
     print("Removing old files before copying new")
     try:
-        if _config.general_safe_deletion is True:
+        if Config().general_safe_deletion is True:
             send2trash(analysis_dir)
         else:
             shutil.rmtree(analysis_dir)
@@ -322,7 +321,7 @@ def _lock_check(analysis_dir):
 
 def folder_prep(scratch_dir, analysis_name, overwrite):
     if scratch_dir is None:
-        scratch_dir = pathlib.Path(_config.fem_analysis_scratch_dir)
+        scratch_dir = pathlib.Path(Config().fem_analysis_scratch_dir)
     else:
         scratch_dir = pathlib.Path(scratch_dir)
 
@@ -361,9 +360,9 @@ echo ON\ncall {run_cmd}"""
         with open(exe.execute_dir / stop_bat, "w") as d:
             d.write(f"cd /d {exe.analysis_dir}\n{stop_cmd}")
 
-    if _config.fem_analysis_execute_dir is not None:
-        shutil.copy(exe.execute_dir / start_bat, _config.fem_analysis_execute_dir / start_bat)
-        shutil.copy(exe.execute_dir / stop_bat, _config.fem_analysis_execute_dir / stop_bat)
+    if Config().fem_analysis_execute_dir is not None:
+        shutil.copy(exe.execute_dir / start_bat, Config().fem_analysis_execute_dir / start_bat)
+        shutil.copy(exe.execute_dir / stop_bat, Config().fem_analysis_execute_dir / stop_bat)
 
     # If the script should be running from batch files, then this can be used
     if run_in_shell:
@@ -532,7 +531,7 @@ def line_elem_to_beam(elem: Elem, parent: Part) -> Beam:
     e1 = None
     e2 = None
     elem.fem_sec.material.parent = parent
-    if _config.fem_convert_options_fem2concepts_include_ecc is True:
+    if Config().fem_convert_options_fem2concepts_include_ecc is True:
         if elem.eccentricity is not None:
             ecc = elem.eccentricity
             if ecc.end1 is not None and ecc.end1.node.id == n1.id:
@@ -569,7 +568,7 @@ def default_fem_res_path(
     from ada.fem.formats.general import FEATypes
 
     if scratch_dir is None and analysis_dir is None:
-        scratch_dir = _config.fem_analysis_scratch_dir
+        scratch_dir = Config().fem_analysis_scratch_dir
 
     base_path = scratch_dir / name / name if analysis_dir is None else analysis_dir / name
     fem_format_map = {

@@ -13,13 +13,12 @@ from ada.visit.colors import Color
 if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
-_config = Config()
 
 
 def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: IfcStore):
     logger.info(f'importing Shape "{name}"')
     color, opacity = get_colour(product, ifc_store.assembly)
-    if _config.ifc_import_shape_geom:
+    if Config().ifc_import_shape_geom:
         geometries = list(get_product_definitions(product))
         if len(geometries) > 1:
             logger.warning(

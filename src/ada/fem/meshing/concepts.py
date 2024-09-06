@@ -20,7 +20,6 @@ from ada.fem.containers import FemElements
 from ada.fem.meshing.exceptions import BadJacobians
 from ada.fem.shapes import ElemType
 
-_config = Config()
 
 
 @dataclass
@@ -101,7 +100,7 @@ class GmshSession:
         silent=True,
         mesh_size=None,
         build_native_lines=False,
-        point_tol=_config.general_point_tol,
+        point_tol=Config().general_point_tol,
         use_native_pointer=True,
     ):
         from ada.core.utils import Counter
@@ -112,8 +111,7 @@ class GmshSession:
             geom_repr = GeomRepr.from_str(geom_repr)
 
         self.apply_settings()
-        temp_dir = _config.general_temp_dir
-        os.makedirs(temp_dir, exist_ok=True)
+        temp_dir = Config().general_temp_dir
 
         if build_native_lines is True and geom_repr == ElemType.LINE and type(obj) is Beam:
             entities = build_bm_lines(self.model, obj, point_tol)

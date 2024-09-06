@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 
     from .. import Placement
 
-_config = Config()
 
 
 def calculate_center(v1, v2) -> Point | None:
@@ -169,10 +168,10 @@ class SegCreator:
         self._curve_data: ArcSegment | None = None
         self._is_closed = is_closed
         if debug is True:
-            self._debug_path = _config.general_debug_dir
+            self._debug_path = Config().general_debug_dir
 
-            if os.path.isdir(_config.general_debug_dir) is False:
-                os.makedirs(_config.general_debug_dir, exist_ok=True)
+            if os.path.isdir(Config().general_debug_dir) is False:
+                os.makedirs(Config().general_debug_dir, exist_ok=True)
             self._start_plot()
 
     def build(self) -> list[LineSegment | ArcSegment]:

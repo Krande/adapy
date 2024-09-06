@@ -9,7 +9,6 @@ from ada.geom.placement import Direction
 
 from .exceptions import VectorNormalizeError
 
-_config = Config()
 
 
 def angle_between(v1, v2):
@@ -100,17 +99,17 @@ def point_on_line(start: np.ndarray, end: np.ndarray, point: np.ndarray) -> np.n
     return result
 
 
-def is_null_vector(ab: np.array, cd: np.array, decimals=_config.general_precision) -> bool:
+def is_null_vector(ab: np.array, cd: np.array, decimals=Config().general_precision) -> bool:
     """Check if difference in vectors AB and CD is null vector"""
     return np.array_equal((cd - ab).round(decimals), np.zeros_like(ab))
 
 
-def is_parallel(ab: np.array, cd: np.array, tol=_config.general_point_tol) -> bool:
+def is_parallel(ab: np.array, cd: np.array, tol=Config().general_point_tol) -> bool:
     """Check if vectors AB and CD are parallel"""
     return float(np.abs(np.sin(angle_between(ab, cd)))) < tol
 
 
-def is_perpendicular(ab: np.array, cd: np.array, tol=_config.general_point_tol) -> bool:
+def is_perpendicular(ab: np.array, cd: np.array, tol=Config().general_point_tol) -> bool:
     """Returns if the vectors are perpendicular"""
     return float(np.abs(np.dot(ab, cd))) < tol
 

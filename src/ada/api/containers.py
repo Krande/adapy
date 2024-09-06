@@ -41,8 +41,6 @@ __all__ = [
     "Sections",
 ]
 
-_config = Config()
-
 
 class BaseCollections:
     """The Base class for all collections"""
@@ -119,6 +117,7 @@ class Beams(BaseCollections):
 
     def merge_beams(self, beam_segments: Iterable[Beam]) -> Beam:
         """Merge all beam segments into the first entry in beam_segments by changing the beam nodes."""
+        precision = Config().general_precision
 
         def get_end_nodes() -> list[Node]:
             end_beams = filter(lambda x: len(self.connected_beams_map.get(x, list())) == 1, beam_segments)
@@ -134,7 +133,7 @@ class Beams(BaseCollections):
             n1, n2 = new_nodes
 
             n1_2_n2_vector = unit_vector(n2.p - n1.p)
-            beam_vector = bm.xvec.round(decimals=_config.general_precision)
+            beam_vector = bm.xvec.round(decimals=precision)
 
             if is_parallel(n1_2_n2_vector, bm.xvec) and not is_null_vector(n1_2_n2_vector, bm.xvec):
                 n1, n2 = n2, n1
@@ -203,7 +202,7 @@ class Beams(BaseCollections):
         self._idmap = {n.guid: n for n in self._beams}
         self._nmap = {n.name: n for n in self._beams}
 
-    def get_beams_within_volume(self, vol_, margins=_config.general_point_tol) -> Iterable[Beam]:
+    def get_beams_within_volume(self, vol_, margins) -> Iterable[Beam]:
         """
         :param vol_: List or tuple of tuples [(xmin, xmax), (ymin, ymax), (zmin, zmax)]
         :param margins: Add margins to the volume box (equal in all directions). Input is in meters. Can be negative.
@@ -405,7 +404,7 @@ class Connections(BaseCollections):
             logger.error(f'No Joint with the name "{name}" found within this connection object')
         return result
 
-    def add(self, joint: JointBase, point_tol=_config.general_point_tol):
+    def add(self, joint: JointBase, point_tol=Config().general_point_tol):
         if joint.name is None:
             raise Exception("Name is not allowed to be None.")
 
@@ -430,7 +429,7 @@ class Connections(BaseCollections):
         if joint.centre in self._nmap.keys():
             self._nmap.pop(joint.centre)
 
-    def find(self, out_of_plane_tol=0.1, joint_func=None, point_tol=_config.general_point_tol):
+    def find(self, out_of_plane_tol=0.1, joint_func=None, point_tol=Config().general_point_tol):
         """
         Find all connections between beams in all parts using a simple clash check.
 
@@ -944,7 +943,7 @@ class Nodes:
         return self._nodes
 
     def get_by_volume(
-        self, p=None, vol_box=None, vol_cyl=None, tol=_config.general_point_tol, single_member=False
+            self, p=None, vol_box=None, vol_cyl=None, tol=Config().general_point_tol, single_member=False
     ) -> list[Node] | Node:
         """
 
@@ -1016,7 +1015,7 @@ class Nodes:
 
         return result
 
-    def add(self, node: Node, point_tol: float = _config.general_point_tol, allow_coincident: bool = False) -> Node:
+    def add(self, node: Node, point_tol: float = Config().general_point_tol, allow_coincident: bool = False) -> Node:
         """Insert node into sorted list"""
 
         def insert_node(n, i):
@@ -1061,7 +1060,7 @@ class Nodes:
         """Remove nodes that are without any usage references"""
         self.remove(filter(lambda x: not x.has_refs, self._nodes))
 
-    def merge_coincident(self, tol: float = _config.general_point_tol) -> None:
+    def merge_coincident(self, tol: float = Config().general_point_tol) -> None:
         """
         Merge nodes which are within the standard default of Nodes.get_by_volume. Nodes merged into the node connected
         to most elements.
@@ -1084,7 +1083,7 @@ class Nodes:
 
         self._sort()
 
-    def rounding_node_points(self, precision: int = _config.general_precision) -> None:
+    def rounding_node_points(self, precision: int = Config().general_precision) -> None:
         """Rounds all nodes to set precision"""
         for node in self.nodes:
             node.p_roundoff(precision=precision)

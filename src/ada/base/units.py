@@ -4,7 +4,6 @@ from enum import Enum
 
 from ada.config import Config
 
-_config = Config()
 
 
 class InvalidUnit(Exception):
@@ -51,9 +50,9 @@ class Units(Enum):
             units = Units.from_str(units)
 
         if units == Units.MM:
-            tol = _config.general_mmtol
+            tol = Config().general_mmtol
         elif units == Units.M:
-            tol = _config.general_mtol
+            tol = Config().general_mtol
         else:
             raise ValueError(f'Unknown unit "{units}"')
         return tol

@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 
     from ada.cadit.ifc.store import IfcStore
 
-_config = Config()
 
 
 class Shape(BackendGeom):
@@ -331,7 +330,6 @@ class PrimExtrude(Shape):
 
         self._poly = poly
         self._extrude_depth = h
-
         super(PrimExtrude, self).__init__(name=name, **kwargs)
 
     @staticmethod
@@ -352,7 +350,7 @@ class PrimExtrude(Shape):
             value = Units.from_str(value)
         if value != self._units:
             scale_factor = Units.get_scale_factor(self._units, value)
-            tol = _config.general_mmtol if value == "mm" else _config.general_mtol
+            tol = Config().general_mmtol if value == "mm" else Config().general_mtol
             self.poly.scale(scale_factor, tol)
             self._extrude_depth = self._extrude_depth * scale_factor
             self._units = value
@@ -422,7 +420,7 @@ class PrimRevolve(Shape):
             value = Units.from_str(value)
         if value != self._units:
             scale_factor = Units.get_scale_factor(self._units, value)
-            tol = _config.general_mmtol if value == "mm" else _config.general_mtol
+            tol = Config().general_mmtol if value == "mm" else Config().general_mtol
             self.poly.scale(scale_factor, tol)
 
     @property

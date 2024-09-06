@@ -34,3 +34,5 @@ def test_import_bspline_w_knots(example_files, monkeypatch, tmp_path):
     p.add_material(shape.material.copy_to("S355", p))
     p.add_shape(shape)
     b.to_ifc(tmp_path / "bsplinewknots.ifc", validate=True)
+
+    monkeypatch.delenv("ADA_IFC_IMPORT_SHAPE_GEOM")

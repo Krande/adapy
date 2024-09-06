@@ -6,7 +6,7 @@ from typing import Any, Dict, List, NamedTuple, Optional, Type, Union
 
 _filename = "ada_config.toml"
 _env_prefix = "ADA_"
-_env_config_file = "ADA_CONFIG_FILE"
+_env_config_file = "CONFIG_FILE"
 _cwd = os.getcwd()
 _tmp_dir = pathlib.Path(_cwd) / "temp"
 _home_dir = pathlib.Path.home() / "ADA"
@@ -100,6 +100,12 @@ class Config:
             ],
         ),
         ConfigSection(
+            "gxml",
+            [
+                ConfigEntry("import_advanced_faces", bool, False),
+            ],
+        ),
+        ConfigSection(
             "fem_analysis",
             [
                 ConfigEntry("execute_dir", str, None, False),
@@ -150,7 +156,8 @@ class Config:
 
     @classmethod
     def find_file(cls, deployment_config: str = None):
-        config_file_env = os.getenv(f"{_env_prefix}{_env_config_file}")
+        env_file_name = f"{_env_prefix}{_env_config_file}"
+        config_file_env = os.getenv(env_file_name)
         deployment_config_files = []
         for f in (deployment_config, config_file_env):
             if f and os.path.isfile(f):

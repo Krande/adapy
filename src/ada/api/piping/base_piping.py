@@ -22,7 +22,6 @@ from ada.sections.utils import get_section
 if TYPE_CHECKING:
     from ada import Material, Section
 
-_config = Config()
 
 
 class Pipe(BackendGeom):
@@ -345,7 +344,7 @@ def build_pipe_segments(pipe: Pipe) -> list[PipeSegStraight | PipeSegElbow]:
     props = dict(section=pipe.section, material=pipe.material, parent=pipe, units=pipe.units)
     angle_tol = 1e-1
 
-    len_tol = _config.general_point_tol if pipe.units == Units.M else _config.general_point_tol * 1000
+    len_tol = Config().general_point_tol if pipe.units == Units.M else Config().general_point_tol * 1000
 
     pipe_segments = []
     if len(segments) == 1:
@@ -427,7 +426,7 @@ def build_pipe_segments_alt(pipe: Pipe) -> list[PipeSegStraight | PipeSegElbow]:
     seg_names = Counter(prefix=pipe.name + "_")
     props = dict(section=pipe.section, material=pipe.material, parent=pipe, units=pipe.units)
     angle_tol = 1e-1
-    len_tol = _config.general_point_tol if pipe.units == Units.M else _config.general_point_tol * 1000
+    len_tol = Config().general_point_tol if pipe.units == Units.M else Config().general_point_tol * 1000
     segments = segments3d_from_points3d(pipe.points, radius=pipe.pipe_bend_radius, angle_tol=angle_tol, len_tol=len_tol)
     pipe_segments = []
     for segment in segments:

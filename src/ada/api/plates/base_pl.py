@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from ada import Placement
 
 _NTYPE = Union[int, float]
-_config = Config()
 
 
 class Plate(BackendGeom):
@@ -177,7 +176,7 @@ class Plate(BackendGeom):
             value = Units.from_str(value)
         if self._units != value:
             scale_factor = Units.get_scale_factor(self._units, value)
-            tol = _config.general_mmtol if value == "mm" else _config.general_mtol
+            tol = Config().general_mmtol if value == "mm" else Config().general_mtol
             self._t *= scale_factor
             self.poly.scale(scale_factor, tol)
             for pen in self.booleans:

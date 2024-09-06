@@ -87,7 +87,8 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         PrimSweep: generate_ifc_prim_sweep_geom,
         AdvancedFace: advanced_face,
     }
-    if isinstance(shape, Shape):
+
+    if type(shape) is Shape:
         param_geo = shape.geom
     else:
         param_geo = shape

@@ -1,8 +1,11 @@
 import ada
+from ada.config import Config
 
 
-def test_sesam_xml(example_files, tmp_path):
+def test_sesam_xml(example_files, tmp_path, monkeypatch):
     xml_file = (example_files / "fem_files/sesam/curved_plates.xml").resolve().absolute()
+
+    monkeypatch.setenv("ADA_GXML_IMPORT_ADVANCED_FACES", "true")
     a = ada.from_genie_xml(xml_file)
 
     assert len(a.get_all_subparts()) == 1
