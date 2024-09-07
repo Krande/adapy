@@ -13,7 +13,7 @@ from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
 
 CURVE_GEOM_TYPES = Union[
-    "Line", "ArcLine", "Circle", "Ellipse", "BSplineCurveWithKnots", "IndexedPolyCurve", "PolyLine", "GeometricCurveSet"
+    "Line", "ArcLine", "Circle", "Ellipse", "BSplineCurveWithKnots", "IndexedPolyCurve", "PolyLine", "GeometricCurveSet", "EdgeLoop"
 ]
 
 

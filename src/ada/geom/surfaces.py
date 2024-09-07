@@ -207,6 +207,12 @@ class BSplineSurfaceWithKnots(BSplineSurface):
     v_knots: list[float]
     knot_spec: geo_cu.KnotType
 
+    def get_num_u_control_points(self) -> int:
+        return len(self.control_points_list)
+
+    def get_num_v_control_points(self) -> int:
+        return len(self.control_points_list[0])
+
 
 @dataclass
 class RationalBSplineSurfaceWithKnots(BSplineSurfaceWithKnots):
@@ -224,7 +230,8 @@ class AdvancedFace:
     """
 
     bounds: list[FaceBound]
-    face_surface: Union[ArbitraryProfileDef, CircleProfileDef, RectangleProfileDef, BSplineSurface]
+    face_surface: Union[
+        ArbitraryProfileDef, CircleProfileDef, RectangleProfileDef, BSplineSurface, BSplineSurfaceWithKnots, RationalBSplineSurfaceWithKnots]
     same_sense: bool = True
 
 

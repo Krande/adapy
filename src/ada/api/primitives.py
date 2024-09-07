@@ -106,7 +106,16 @@ class Shape(BackendGeom):
         return geom_to_occ_geom(self.solid_geom())
 
     def solid_geom(self) -> Geometry:
-        raise NotImplementedError(f"solid_geom() not implemented for {self.__class__.__name__}")
+        if self.geom is None:
+            raise NotImplementedError(f"solid_geom() not implemented for {self.__class__.__name__}")
+
+        from ada.geom.surfaces import AdvancedFace
+        if isinstance(self.geom, AdvancedFace):
+
+            booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+            return Geometry(self.guid, self.geom, self.color, bool_operations=booleans)
+        else:
+            raise NotImplementedError(f"solid_geom() not implemented for {self.geom=}")
 
     @property
     def units(self):
