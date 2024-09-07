@@ -28,4 +28,4 @@ def ifc_to_step_file(
     stp_writer.export(step_file)
 
 if __name__ == '__main__':
-    ifc_to_step_file(ROOT_DIR / "files/ifc_files/bsplinewknots.ifc", THIS_DIR / "temp" / "bsplinewknots.stp")
+    ifc_to_step_file(ROOT_DIR / "files/ifc_files/bsplinesurfacewithknots.ifc", THIS_DIR / "temp" / "bsplinewknots.stp")

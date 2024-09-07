@@ -16,7 +16,7 @@ def test_import_arc_boundary(example_files, monkeypatch):
 
 def test_import_bspline_w_knots(example_files, monkeypatch, tmp_path):
     monkeypatch.setenv("ADA_IFC_IMPORT_SHAPE_GEOM", "true")
-    a = ada.from_ifc(example_files / "ifc_files/bsplinewknots.ifc")
+    a = ada.from_ifc(example_files / "ifc_files/bsplinesurfacewithknots.ifc")
     objects = list(a.get_all_physical_objects())
     assert len(objects) == 1
 
@@ -31,4 +31,4 @@ def test_import_bspline_w_knots(example_files, monkeypatch, tmp_path):
     p = b.add_part(ada.Part("MyPart"))
     p.add_material(shape.material.copy_to("S355", p))
     p.add_shape(shape)
-    b.to_ifc(tmp_path / "bsplinewknots.ifc", validate=True)
+    b.to_ifc(tmp_path / "bsplinesurfacewithknots.ifc", validate=True)

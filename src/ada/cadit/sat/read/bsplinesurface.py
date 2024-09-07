@@ -15,11 +15,7 @@ def create_bsplinesurface_from_sat(spline_data_str: str) -> BSplineSurfaceWithKn
 
     data_lines = [x.strip() for x in data.splitlines()]
     dline = data_lines[0].split()
-    try:
-        u_degree, v_degree = [int(float(x)) for x in dline[3:5]]
-    except ValueError as e:
-        logger.error(f"Could not create shape from bspline: {e}")
-        return None
+    u_degree, v_degree = [int(float(x)) for x in dline[3:5]]
 
     surf_form = BSplineSurfaceForm.UNSPECIFIED
     uknots_in = [float(x) for x in data_lines[1].split()]
