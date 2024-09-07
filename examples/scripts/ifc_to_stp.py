@@ -1,11 +1,10 @@
 import pathlib
-from typing import Callable
 
 import ifcopenshell.geom
 import ifcopenshell.validate
-from ifcopenshell import ifcopenshell_wrapper
-from ada.cadit.step.write.writer import StepWriter
+
 import ada
+from ada.cadit.step.write.writer import StepWriter
 
 THIS_DIR = pathlib.Path(__file__).parent
 ROOT_DIR = THIS_DIR.parent.parent
