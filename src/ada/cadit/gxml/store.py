@@ -16,6 +16,8 @@ from ada.cadit.gxml.read.read_sets import get_sets
 from ada.cadit.gxml.sat_helpers import write_xml_sat_text_to_file
 from ada.cadit.sat.store import SatReaderFactory
 from ada.config import Config, logger
+from ada.core.guid import create_guid
+from ada.geom import Geometry
 
 
 class GxmlStore:
@@ -79,7 +81,9 @@ class GxmlStore:
             for i, advanced_face in enumerate(self.sat_factory.iter_advanced_faces()):
                 if advanced_face is None:
                     continue
-                p._shapes.append(Shape(f"bspline{i}", geom=advanced_face, parent=p))
+
+                shp = Shape(f"bspline{i}", geom=Geometry(create_guid(), advanced_face, None), parent=p)
+                p.add_shape(shp)
 
         for bm in p.beams:
             p.nodes.add(bm.n1)

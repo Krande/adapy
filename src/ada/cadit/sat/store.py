@@ -3,9 +3,10 @@ from __future__ import annotations
 from typing import Iterable
 
 from ada.cadit.sat.read.advanced_face import create_advanced_face_from_sat
-from ada.cadit.sat.read.bsplinesurface import create_bsplinesurface_from_sat
+from ada.cadit.sat.read.bsplinesurface import create_bsplinesurface_from_sat, ACISReferenceDataError
 from ada.cadit.sat.read.curve import create_bspline_curve_from_sat
 from ada.cadit.sat.read.face import PlateFactory
+from ada.config import logger
 from ada.geom.surfaces import (
     AdvancedFace,
     BSplineSurfaceWithKnots,
@@ -145,7 +146,10 @@ class SatReaderFactory:
             ref = face_data.split()
             face_type = self.sat_store.get(ref[10])
             if face_type[1] == "spline-surface":
-                yield create_advanced_face_from_sat(sat_id, self.sat_store)
+                try:
+                    yield create_advanced_face_from_sat(sat_id, self.sat_store)
+                except ACISReferenceDataError as e:
+                    logger.info(f"Error creating AdvancedFace: {e}")
 
     def read_data(self):
         self.store_sat_object_data()

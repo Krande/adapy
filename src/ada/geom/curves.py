@@ -20,8 +20,7 @@ CURVE_GEOM_TYPES = Union[
 @dataclass
 class Line:
     """
-    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcLine.htm
-    (also) https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcLineIndex.htm
+    IFC4x3 https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcLine.htm
     STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_line.html
     """
 
@@ -89,7 +88,7 @@ class PolyLine:
 @dataclass
 class IndexedPolyCurve:
     """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcIndexedPolyCurve.htm)
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcIndexedPolyCurve.htm)
     STEP (not found direct equivalent, but can be represented by using 'B_SPLINE_CURVE' and 'POLYLINE' entities)
     """
 
@@ -97,7 +96,7 @@ class IndexedPolyCurve:
     self_intersect: bool = False
 
     def get_points_and_segment_indices(self) -> tuple[np.ndarray, list[list[int]]]:
-        points = list(chain.from_iterable([list(segment) for segment in self.segments]))
+        points = list(chain.from_iterable([[seg.start, seg.end] for seg in self.segments]))
         points_tuple = [tuple(x) for x in chain.from_iterable([list(segment) for segment in self.segments])]
         unique_pts, pts_index = np.unique(points, axis=0, return_index=False, return_inverse=True)
         indices = [[int(pts_index[points_tuple.index(tuple(s))]) + 1 for s in segment] for segment in self.segments]
@@ -230,6 +229,8 @@ class Edge:
     edge_start: Point
     edge_end: Point
 
+    def reversed(self):
+        return Edge(self.edge_end, self.edge_start)
 
 @dataclass
 class OrientedEdge(Edge):
