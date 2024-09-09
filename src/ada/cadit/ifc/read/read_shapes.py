@@ -8,6 +8,7 @@ from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
 from ada import Assembly, Shape
 from ada.cadit.ifc.read.geom.geom_reader import get_product_definitions
 from ada.config import Config, logger
+from ada.geom import Geometry
 from ada.visit.colors import Color
 
 if TYPE_CHECKING:
@@ -26,7 +27,7 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: Ifc
         elif len(geometries) == 0:
             logger.warning(f"No geometry associated to product {product}")
             geometries = None
-        geometries = geometries[0]
+        geometries = Geometry(product.GlobalId, geometries[0], Color(*color))
     else:
         geometries = None
 

@@ -3,7 +3,7 @@ import numpy as np
 from ada.geom.curves import (
     BSplineCurveFormEnum,
     BSplineCurveWithKnots,
-    BsplineKnotSpecEnum,
+KnotType
 )
 from ada.geom.points import Point
 
@@ -37,11 +37,11 @@ def interpolate_points(points, degree, num_points=100):
 
 
 def create_bspline_curve(
-    points: list[Point | tuple[float, float, float]],
-    degree: int,
-    curve_form: BSplineCurveFormEnum,
-    knot_spec: BsplineKnotSpecEnum = BsplineKnotSpecEnum.UNSPECIFIED,
-    num_interpolation_points: int = 100,
+        points: list[Point | tuple[float, float, float]],
+        degree: int,
+        curve_form: BSplineCurveFormEnum,
+        knot_spec: KnotType = KnotType.UNSPECIFIED,
+        num_interpolation_points: int = 100,
 ) -> BSplineCurveWithKnots:
     num_points = len(points)
     knot_multiplicities = [degree + 1] + [1] * (num_points - 2) + [degree + 1]
@@ -53,3 +53,50 @@ def create_bspline_curve(
     return BSplineCurveWithKnots(
         degree, control_points, curve_form, closed_curve, self_intersect, knot_multiplicities, knots, knot_spec
     )
+
+
+from collections import Counter
+
+
+def calculate_multiplicities(u_degree: int, v_degree: int, u_knots: list[float], v_knots: list[float],
+                             num_u_points: int, num_v_points: int) -> tuple[list[int], list[int]]:
+    """
+    Function to calculate the multiplicities for U and V knot vectors.
+
+    Parameters:
+    - u_degree (int): Degree of the B-spline surface in U direction.
+    - v_degree (int): Degree of the B-spline surface in V direction.
+    - u_knots (list[float]): Knot vector in U direction.
+    - v_knots (list[float]): Knot vector in V direction.
+    - num_u_points (int): Number of control points in U direction.
+    - num_v_points (int): Number of control points in V direction.
+
+    Returns:
+    - u_multiplicities (list[int]): List of multiplicities for U knot vector.
+    - v_multiplicities (list[int]): List of multiplicities for V knot vector.
+    """
+
+    # Ensure that knot vector length matches control points and degree rule
+    def complete_knot_vector(knot_vector: list[float], degree: int, num_points: int) -> list[float]:
+        expected_knot_length = num_points + degree + 1
+        if len(knot_vector) == expected_knot_length:
+            return knot_vector
+        # Assuming missing knots should be clamped at start and end
+        clamped_start = [knot_vector[0]] * degree
+        clamped_end = [knot_vector[-1]] * degree
+        return clamped_start + knot_vector + clamped_end
+
+    # Calculate the multiplicities
+    def calculate_multiplicity(knot_vector: list[float]) -> list[int]:
+        knot_counts = Counter(knot_vector)
+        return [knot_counts[knot] for knot in sorted(knot_counts)]
+
+    # Complete the knot vectors if necessary
+    u_knots_complete = complete_knot_vector(u_knots, u_degree, num_u_points)
+    v_knots_complete = complete_knot_vector(v_knots, v_degree, num_v_points)
+
+    # Calculate multiplicities for U and V
+    u_multiplicities = calculate_multiplicity(u_knots_complete)
+    v_multiplicities = calculate_multiplicity(v_knots_complete)
+
+    return u_multiplicities, v_multiplicities

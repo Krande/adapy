@@ -89,7 +89,7 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
     }
 
     if type(shape) is Shape:
-        param_geo = shape.geom
+        param_geo = shape.geom.geometry
     else:
         param_geo = shape
 
