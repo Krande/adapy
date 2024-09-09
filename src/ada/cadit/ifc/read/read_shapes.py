@@ -27,7 +27,8 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: Ifc
         elif len(geometries) == 0:
             logger.warning(f"No geometry associated to product {product}")
             geometries = None
-        geometries = Geometry(product.GlobalId, geometries[0], Color(*color))
+        geo_color = Color(*color) if color is not None else None
+        geometries = Geometry(product.GlobalId, geometries[0], geo_color)
     else:
         geometries = None
 

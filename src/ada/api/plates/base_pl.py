@@ -40,18 +40,18 @@ class Plate(BackendGeom):
     """
 
     def __init__(
-        self,
-        name: str,
-        points: CurvePoly2d | list[tuple[_NTYPE, _NTYPE]],
-        t: float,
-        mat: str | Material = "S420",
-        origin: Iterable | Point = None,
-        xdir: Iterable | Direction = None,
-        n: Iterable | Direction = None,
-        orientation: Placement = None,
-        pl_id=None,
-        tol=None,
-        **kwargs,
+            self,
+            name: str,
+            points: CurvePoly2d | list[tuple[_NTYPE, _NTYPE]],
+            t: float,
+            mat: str | Material = "S420",
+            origin: Iterable | Point = None,
+            xdir: Iterable | Direction = None,
+            n: Iterable | Direction = None,
+            orientation: Placement = None,
+            pl_id=None,
+            tol=None,
+            **kwargs,
     ):
         super().__init__(name, **kwargs)
         self._pl_id = pl_id
@@ -83,7 +83,8 @@ class Plate(BackendGeom):
         return Plate(name, poly, t, mat=mat, color=color, metadata=metadata, **kwargs)
 
     @staticmethod
-    def from_extruded_area_solid(name, solid: ExtrudedAreaSolid): ...
+    def from_extruded_area_solid(name, solid: ExtrudedAreaSolid):
+        ...
 
     def bbox(self) -> BoundingBox:
         """Bounding Box of plate"""
@@ -197,10 +198,25 @@ class Plate(BackendGeom):
         return f'Plate("{self.name}", {pts}, t={self.t}, "{self.material.name}", {origin}, {xdir}, {normal})'
 
 
-class PlateCurved(Plate):
-    def __init__(self):
-        super().__init__()
-        raise NotImplementedError("PlateCurved is not implemented yet")
+class PlateCurved(BackendGeom):
+    def __init__(self, name, face_geom: Geometry, t: float, mat: str | Material = "S420", **kwargs):
+        super().__init__(name, **kwargs)
+        self._geom = face_geom
+        self._material = mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat), parent=self)
+        self._t = t
 
+    @property
+    def t(self) -> float:
+        return self._t
 
-# https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/lexical/IfcBSplineSurfaceWithKnots.htm
+    @property
+    def material(self) -> Material:
+        return self._material
+
+    @material.setter
+    def material(self, value: Material):
+        self._material = value
+
+    @property
+    def geom(self) -> Geometry:
+        return self._geom

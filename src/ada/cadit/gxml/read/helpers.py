@@ -1,9 +1,11 @@
 import xml.etree.ElementTree as ET
 
+from ada.api.plates import PlateCurved
 from ada.cadit.gxml.read.read_beams import el_to_beam
 from ada.cadit.gxml.read.read_materials import get_materials
 from ada.cadit.gxml.read.read_sections import get_sections
-from ada.config import logger
+from ada.config import logger, Config
+from ada.geom import Geometry
 
 
 def iter_beams_from_xml(xml_path):
@@ -43,26 +45,30 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map):
     mat = parent.materials.get_by_name(plate_elem.attrib["material_ref"])
     for i, res in enumerate(plate_elem.findall(".//face"), start=1):
         face_ref = res.attrib["face_ref"]
-        points = sat_ref_d.get(face_ref, None)
-        if points is None:
-            logger.warning(f'Unable to find face_ref="{face_ref}"')
-            continue
-
         name = plate_elem.attrib["name"]
         if i > 1:
             name += f"_{i:02d}"
 
+        sat_data = sat_ref_d.get(face_ref, None)
         t = thick_map.get(plate_elem.attrib["thickness_ref"])
-        try:
-            pl = Plate.from_3d_points(
-                name,
-                points,
-                t,
-                mat=mat,
-                metadata=dict(props=dict(gxml_face_ref=face_ref)),
-                parent=parent,
-            )
-        except BaseException as e:
-            logger.error(f"Failed converting plate {name} due to {e}")
-            continue
-        yield pl
+
+        if isinstance(sat_data, Geometry) and Config().gxml_import_advanced_faces is True:
+            yield PlateCurved(name, sat_data, t=t, mat=mat, metadata=dict(props=dict(gxml_face_ref=face_ref)), parent=parent)
+        else:
+            if sat_data is None:
+                logger.warning(f'Unable to find face_ref="{face_ref}"')
+                continue
+
+            try:
+                pl = Plate.from_3d_points(
+                    name,
+                    sat_data,
+                    t,
+                    mat=mat,
+                    metadata=dict(props=dict(gxml_face_ref=face_ref)),
+                    parent=parent,
+                )
+            except BaseException as e:
+                logger.error(f"Failed converting plate {name} due to {e}")
+                continue
+            yield pl

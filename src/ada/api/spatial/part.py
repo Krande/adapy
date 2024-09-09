@@ -11,6 +11,7 @@ from ada.api.beams.base_bm import Beam, BeamTapered
 from ada.api.connections import JointBase
 from ada.api.containers import Beams, Connections, Materials, Nodes, Plates, Sections
 from ada.api.groups import Group
+from ada.api.plates import PlateCurved
 from ada.base.changes import ChangeAction
 from ada.base.ifc_types import SpatialTypes
 from ada.base.physical_objects import BackendGeom
@@ -120,7 +121,7 @@ class Part(BackendGeom):
 
         return beam
 
-    def add_plate(self, plate: Plate, add_to_layer: str = None) -> Plate:
+    def add_plate(self, plate: Plate | PlateCurved, add_to_layer: str = None) -> Plate | PlateCurved:
         if plate.units != self.units:
             plate.units = self.units
 

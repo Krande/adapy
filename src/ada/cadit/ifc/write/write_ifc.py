@@ -17,7 +17,7 @@ from ada.cadit.ifc.write.write_instances import write_mapped_instance
 from ada.cadit.ifc.write.write_material import write_ifc_mat
 from ada.cadit.ifc.write.write_openings import generate_ifc_opening
 from ada.cadit.ifc.write.write_pipe import write_ifc_pipe
-from ada.cadit.ifc.write.write_plates import write_ifc_plate
+from ada.cadit.ifc.write.write_plates import write_ifc_plate, write_ifc_plate_curved
 from ada.cadit.ifc.write.write_sections import export_beam_section_profile_def
 from ada.cadit.ifc.write.write_shapes import write_ifc_shape
 from ada.cadit.ifc.write.write_spatial_elements import (
@@ -338,12 +338,14 @@ class IfcWriter:
         return rel_profile_def
 
     def add(self, obj: Beam | Plate | Pipe | Shape | Wall) -> ifcopenshell.entity_instance:
-        from ada import Beam, Pipe, Plate, Shape, Wall
+        from ada import Beam, Pipe, Plate, Shape, Wall, PlateCurved
 
         if isinstance(obj, Beam):
             return write_ifc_beam(self.ifc_store, obj)
         elif isinstance(obj, Plate):
             return write_ifc_plate(obj)
+        elif isinstance(obj, PlateCurved):
+            return write_ifc_plate_curved(obj)
         elif isinstance(obj, Pipe):
             return write_ifc_pipe(obj)
         elif issubclass(type(obj), Shape):

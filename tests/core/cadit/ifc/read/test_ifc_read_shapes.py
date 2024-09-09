@@ -25,7 +25,7 @@ def test_import_bspline_w_knots(example_files, monkeypatch, tmp_path):
 
     geom = shape.geom
 
-    assert isinstance(geom, AdvancedFace)
+    assert isinstance(geom.geometry, AdvancedFace)
 
     b = ada.Assembly()
     p = b.add_part(ada.Part("MyPart"))

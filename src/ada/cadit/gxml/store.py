@@ -2,6 +2,7 @@ import pathlib
 import xml.etree.ElementTree as ET
 
 from ada import Part
+from ada.api.plates import PlateCurved
 from ada.cadit.gxml.read.helpers import (
     apply_mass_density_factors,
     yield_plate_elems_to_plate,
@@ -58,6 +59,9 @@ class GxmlStore:
 
     def iter_plates_from_xml(self):
         sat_d = {name: points for name, points in self.sat_factory.iter_flat_plates()}
+        if Config().gxml_import_advanced_faces is True:
+            sat_d.update({name: geom for name, geom in self.sat_factory.iter_curved_face()})
+
         thick_map = dict()
         for thickn in self.xml_root.iterfind(".//thickness"):
             res = thickn.find(".//constant_thickness")
@@ -70,20 +74,12 @@ class GxmlStore:
             yield from yield_plate_elems_to_plate(fp, self.p, sat_d, thick_map)
 
     def to_part(self, extract_joints=False) -> Part:
-        from ada import Shape
         from ada.api.containers import Beams, Plates
+        from ada import Shape
 
         p = self.p
         p._plates = Plates(self.iter_plates_from_xml(), parent=p)
         p._beams = Beams(self.iter_beams_from_xml(), parent=p)
-
-        if Config().gxml_import_advanced_faces is True:
-            for i, advanced_face in enumerate(self.sat_factory.iter_advanced_faces()):
-                if advanced_face is None:
-                    continue
-
-                shp = Shape(f"bspline{i}", geom=Geometry(create_guid(), advanced_face, None), parent=p)
-                p.add_shape(shp)
 
         for bm in p.beams:
             p.nodes.add(bm.n1)

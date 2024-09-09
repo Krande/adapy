@@ -7,6 +7,8 @@ from ada.cadit.sat.read.bsplinesurface import create_bsplinesurface_from_sat, AC
 from ada.cadit.sat.read.curve import create_bspline_curve_from_sat
 from ada.cadit.sat.read.face import PlateFactory
 from ada.config import logger
+from ada.core.guid import create_guid
+from ada.geom import Geometry
 from ada.geom.surfaces import (
     AdvancedFace,
     BSplineSurfaceWithKnots,
@@ -135,19 +137,27 @@ class SatReaderFactory:
                 continue
             yield pl
 
+    def iter_curved_face(self) -> Iterable[tuple[str, Geometry]]:
+        for i, (sat_id, advanced_face) in enumerate(self.iter_advanced_faces()):
+            if advanced_face is None:
+                continue
+            face_data = self.sat_store.get(sat_id)
+            face_name = self.sat_store.get_name(face_data[2])
+            yield face_name, Geometry(create_guid(), advanced_face, None)
+
     def iter_bspline_objects(self) -> Iterable[BSplineSurfaceWithKnots | RationalBSplineSurfaceWithKnots]:
         for sat_id, face_data in self.iter_faces():
             if "spline-surface" not in face_data:
                 continue
             yield create_bsplinesurface_from_sat(face_data)
 
-    def iter_advanced_faces(self) -> Iterable[AdvancedFace]:
+    def iter_advanced_faces(self) -> Iterable[tuple[int, AdvancedFace]]:
         for sat_id, face_data in self.iter_faces():
             ref = face_data.split()
             face_type = self.sat_store.get(ref[10])
             if face_type[1] == "spline-surface":
                 try:
-                    yield create_advanced_face_from_sat(sat_id, self.sat_store)
+                    yield sat_id, create_advanced_face_from_sat(sat_id, self.sat_store)
                 except ACISReferenceDataError as e:
                     logger.info(f"Error creating AdvancedFace: {e}")
 
