@@ -110,10 +110,10 @@ class Shape(BackendGeom):
             raise NotImplementedError(f"solid_geom() not implemented for {self.__class__.__name__}")
 
         from ada.geom.surfaces import AdvancedFace
-        if isinstance(self.geom, AdvancedFace):
+        if isinstance(self.geom.geometry, AdvancedFace):
 
-            booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
-            return Geometry(self.guid, self.geom, self.color, bool_operations=booleans)
+            self.geom.bool_operations = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+            return self.geom
         else:
             raise NotImplementedError(f"solid_geom() not implemented for {self.geom=}")
 

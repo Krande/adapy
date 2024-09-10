@@ -9,7 +9,7 @@ from ada.occ.exceptions import UnableToCreateCurveOCCGeom
 from ada.occ.utils import point3d
 
 
-def make_edge_from_geom(geom: geo_cu.Line | geo_cu.ArcLine) -> TopoDS_Edge:
+def make_edge_from_line(geom: geo_cu.Line | geo_cu.ArcLine) -> TopoDS_Edge:
     if isinstance(geom, geo_cu.ArcLine):
         a_arc_of_circle = GC_MakeArcOfCircle(point3d(geom.start), point3d(geom.midpoint), point3d(geom.end))
         return BRepBuilderAPI_MakeEdge(a_arc_of_circle.Value()).Edge()
@@ -20,7 +20,11 @@ def make_edge_from_geom(geom: geo_cu.Line | geo_cu.ArcLine) -> TopoDS_Edge:
 def segments_to_edges(
         segments: list[geo_cu.Line | geo_cu.ArcLine],
 ) -> list[TopoDS_Edge]:
-    return [make_edge_from_geom(seg) for seg in segments]
+    return [make_edge_from_line(seg) for seg in segments]
+
+
+def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
+    return BRepBuilderAPI_MakeEdge(point3d(edge.edge_start), point3d(edge.edge_end)).Edge()
 
 
 def segments_to_wire(segments: list[geo_cu.Line | geo_cu.ArcLine]) -> TopoDS_Wire:
@@ -34,9 +38,7 @@ def segments_to_wire(segments: list[geo_cu.Line | geo_cu.ArcLine]) -> TopoDS_Wir
         raise UnableToCreateCurveOCCGeom("Segments do not form a closed loop")
 
 
-def make_wire_from_indexed_poly_curve_geom(
-        curve: geo_cu.IndexedPolyCurve,
-) -> TopoDS_Wire:
+def make_wire_from_indexed_poly_curve_geom(curve: geo_cu.IndexedPolyCurve) -> TopoDS_Wire:
     return segments_to_wire(curve.segments)
 
 
@@ -60,6 +62,14 @@ def make_wire_from_circle(circle: geo_cu.Circle) -> TopoDS_Wire:
     return wire.Wire()
 
 
+def make_wire_from_edge_loop(edge_loop: geo_cu.EdgeLoop) -> TopoDS_Wire:
+    wire = BRepBuilderAPI_MakeWire()
+    for edge in edge_loop.edge_list:
+        wire.Add(make_edge_from_edge(edge))
+    wire.Build()
+    return wire.Wire()
+
+
 def make_wire_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
     if isinstance(outer_curve, geo_cu.IndexedPolyCurve):
         return make_wire_from_indexed_poly_curve_geom(outer_curve)
@@ -68,8 +78,11 @@ def make_wire_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
     else:
         raise NotImplementedError("Only IndexedPolyCurve is implemented")
 
+
 def make_wire_from_face_bound(face_bound: geo_su.FaceBound) -> TopoDS_Wire:
     if isinstance(face_bound.bound, geo_cu.PolyLoop):
         return make_wire_from_poly_loop(face_bound.bound)
+    if isinstance(face_bound.bound, geo_cu.EdgeLoop):
+        return make_wire_from_edge_loop(face_bound.bound)
     else:
         raise NotImplementedError("Only PolyLoop bounds are supported")

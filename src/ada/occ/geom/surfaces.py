@@ -1,11 +1,12 @@
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
-from OCC.Core.Geom import Geom_BSplineSurface
+from OCC.Core.Geom import Geom_BSplineSurface, Geom_Surface
 from OCC.Core.TColStd import TColStd_Array1OfReal, TColStd_Array1OfInteger
 from OCC.Core.TColgp import TColgp_Array2OfPnt
 from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Face
 from OCC.Core.gp import gp_Pnt
 
+from ada.config import Config
 from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
 from ada.geom.curves import PolyLoop
@@ -72,33 +73,55 @@ def make_bspline_surface_with_knots(advanced_face: geo_su.BSplineSurfaceWithKnot
     control_points = TColgp_Array2OfPnt(1, num_u, 1, num_v)
 
     # Fill control points grid
-    for u in range(1, num_u + 1):
-        for v in range(1, num_v + 1):
-            control_points.SetValue(u, v, gp_Pnt(u, v, 0.0))
+    for u in range(0, num_u):
+        for v in range(0, num_v):
+            val = advanced_face.control_points_list[u][v]
+            control_points.SetValue(u + 1, v + 1, gp_Pnt(val.x, val.y, val.z))
 
     # Set degrees (order = degree + 1)
     degree_u = advanced_face.u_degree
     degree_v = advanced_face.v_degree
 
+    num_u_knots = len(advanced_face.u_knots)
+    num_v_knots = len(advanced_face.v_knots)
+
     # Define knots for U direction
-    knots_u = TColStd_Array1OfReal(1, 3)
+    knots_u = TColStd_Array1OfReal(1, num_u_knots)
     for i, knot in enumerate(advanced_face.u_knots, start=1):
         knots_u.SetValue(i, knot)
 
     # Define multiplicities for U direction
-    multiplicities_u = TColStd_Array1OfInteger(1, 3)
+    multiplicities_u = TColStd_Array1OfInteger(1, num_u_knots)
     for i, mult in enumerate(advanced_face.u_multiplicities, start=1):
         multiplicities_u.SetValue(i, mult)
 
     # Define knots for V direction
-    knots_v = TColStd_Array1OfReal(1, 3)
+    knots_v = TColStd_Array1OfReal(1, num_v_knots)
     for i, knot in enumerate(advanced_face.v_knots, start=1):
         knots_v.SetValue(i, knot)
 
     # Define multiplicities for V direction
-    multiplicities_v = TColStd_Array1OfInteger(1, 3)
+    multiplicities_v = TColStd_Array1OfInteger(1, num_v_knots)
     for i, mult in enumerate(advanced_face.v_multiplicities, start=1):
         multiplicities_v.SetValue(i, mult)
+    if Config().general_debug:
+        # print the contents of each array
+        print("Control points:")
+        for u in range(1, num_u + 1):
+            for v in range(1, num_v + 1):
+                print(control_points.Value(u, v).X(), control_points.Value(u, v).Y(), control_points.Value(u, v).Z())
+        print("Knots in U direction:")
+        for i in range(1, num_u_knots + 1):
+            print(knots_u.Value(i))
+        print("Multiplicities in U direction:")
+        for i in range(1, num_u_knots + 1):
+            print(multiplicities_u.Value(i))
+        print("Knots in V direction:")
+        for i in range(1, num_v_knots + 1):
+            print(knots_v.Value(i))
+        print("Multiplicities in V direction:")
+        for i in range(1, num_v_knots + 1):
+            print(multiplicities_v.Value(i))
 
     # Create the B-Spline surface
     bspline_surface = Geom_BSplineSurface(
@@ -113,10 +136,6 @@ def make_bspline_surface_with_knots(advanced_face: geo_su.BSplineSurfaceWithKnot
         False  # Is the surface periodic in V direction
     )
 
-    print("BSpline surface with knots created successfully.")
-
-
-
     return bspline_surface
 
 
@@ -130,8 +149,12 @@ def make_advanced_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_S
         edge_loop_wire = make_wire_from_face_bound(edge_loop)
         wires.append(edge_loop_wire)
 
-    face = BRepBuilderAPI_MakeFace(face_surface, wires[0]).Shape()
-
+    # Wrap the B-Spline surface inside a Geom_Surface handle
+    face = BRepBuilderAPI_MakeFace(face_surface, wires[0])
+    if face.IsDone():
+        face = face.Shape()
+    else:
+        raise Exception("Failed to create face from B-Spline surface")
     return face
 
 
