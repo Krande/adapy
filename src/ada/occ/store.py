@@ -80,7 +80,7 @@ class OCCStore:
 
                 if issubclass(type(obj), ada.Shape):
                     geom = safe_geom(obj, part.name)
-                elif isinstance(obj, (ada.Beam, ada.Plate, ada.Wall)):
+                elif isinstance(obj, (ada.Beam, ada.Plate, ada.PlateCurved, ada.Wall)):
                     geom = safe_geom(obj, part.name)
                 elif isinstance(obj, (ada.PipeSegStraight, ada.PipeSegElbow)):
                     geom = safe_geom(obj, part.name)

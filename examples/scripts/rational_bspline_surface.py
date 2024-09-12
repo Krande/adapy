@@ -18,4 +18,9 @@ def main():
 
 
 if __name__ == "__main__":
+    # get the current process id
+    pid = os.getpid()
+    # attach a running visual studio (with the code-aster project loaded) debugger to this process
+    os.system(f"vsjitdebugger -p {pid}")
+    # run the test
     main()
