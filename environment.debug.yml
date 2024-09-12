@@ -4,7 +4,7 @@ channels:
   - conda-forge
 dependencies:
   - ada-py
-  - ada-cpp
+  #- ada-cpp
   - paradoc
 #  - code-aster
   - occt=*=*novtk*debug*

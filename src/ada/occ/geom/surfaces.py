@@ -1,9 +1,10 @@
+from OCC.Core.BRep import BRep_Builder
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
-from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakeShell
 from OCC.Core.Geom import Geom_BSplineSurface, Geom_Surface
 from OCC.Core.TColStd import TColStd_Array1OfReal, TColStd_Array1OfInteger
 from OCC.Core.TColgp import TColgp_Array2OfPnt
-from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Face
+from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Face, TopoDS_Shell
 from OCC.Core.gp import gp_Pnt
 
 from ada.config import Config
@@ -150,12 +151,21 @@ def make_advanced_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_S
         wires.append(edge_loop_wire)
 
     # Wrap the B-Spline surface inside a Geom_Surface handle
-    face = BRepBuilderAPI_MakeFace(face_surface, wires[0])
+    face = BRepBuilderAPI_MakeFace(face_surface, 1e-6)
     if face.IsDone():
-        face = face.Shape()
+        face = face.Face()
+        shell = TopoDS_Shell()
+        builder = BRep_Builder()
+        builder.MakeShell(shell)
+        builder.UpdateFace(face)
+        builder.Add(shell, face)
+        shell_maker = BRepBuilderAPI_MakeShell(face_surface)
+        shell_maker.Build()
+        shell = shell_maker.Shell()
     else:
         raise Exception("Failed to create face from B-Spline surface")
-    return face
+
+    return shell
 
 
 def make_face_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):

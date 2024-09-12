@@ -1,5 +1,6 @@
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
 from OCC.Core.GC import GC_MakeArcOfCircle
+from OCC.Core.TopAbs import TopAbs_FORWARD
 from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Pnt
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire
 
@@ -24,7 +25,9 @@ def segments_to_edges(
 
 
 def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
-    return BRepBuilderAPI_MakeEdge(point3d(edge.start), point3d(edge.end)).Edge()
+    occ_edge = BRepBuilderAPI_MakeEdge(point3d(edge.start), point3d(edge.end)).Edge()
+    occ_edge.Orientation(TopAbs_FORWARD)
+    return occ_edge
 
 
 def segments_to_wire(segments: list[geo_cu.Edge | geo_cu.ArcLine]) -> TopoDS_Wire:
