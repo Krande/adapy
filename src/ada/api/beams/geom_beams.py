@@ -10,7 +10,7 @@ import ada.geom.surfaces as geo_su
 from ada.core.vector_transforms import transform_csys_to_csys
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
-from ada.geom.curves import Circle, Line
+from ada.geom.curves import Circle, Edge
 from ada.geom.placement import Axis2Placement3D, Direction
 from ada.geom.points import Point
 
@@ -151,7 +151,7 @@ def profile_disconnected_to_face_geom(beam: Beam) -> Geometry:
     xv_l = extrude_dir * beam.length
     for c in sec_profile.outer_curve_disconnected:
         edge = c.curve_geom()
-        if not isinstance(edge, Line):
+        if not isinstance(edge, Edge):
             raise NotImplementedError("Only lines are supported for now")
 
         p1 = edge.start.get_3d()

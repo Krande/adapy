@@ -228,9 +228,12 @@ class BatchTessellator:
                 p.fem.name, shell_color, line_color, points_color, graph, parent_node
             )
 
-            merged_mesh_to_trimesh_scene(scene, face_store, shell_color, shell_color_id, graph)
-            merged_mesh_to_trimesh_scene(scene, edge_store, line_color, line_color_id, graph)
-            merged_mesh_to_trimesh_scene(scene, points_store, points_color, points_color_id, graph)
+            if len(face_store.indices) > 0:
+                merged_mesh_to_trimesh_scene(scene, face_store, shell_color, shell_color_id, graph)
+            if len(edge_store.indices) > 0:
+                merged_mesh_to_trimesh_scene(scene, edge_store, line_color, line_color_id, graph)
+            if len(points_store.position) > 0:
+                merged_mesh_to_trimesh_scene(scene, points_store, points_color, points_color_id, graph)
 
     def tessellate_part(
         self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True

@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Edge
 
     from ada import Beam
-    from ada.geom.curves import ArcLine, IndexedPolyCurve, Line
+    from ada.geom.curves import ArcLine, IndexedPolyCurve, Edge
 
 
 class CurveRevolve:
@@ -235,8 +235,8 @@ class CurveOpen2d:
 
         return segments_to_edges(self.segments3d)
 
-    def curve_geom(self, use_3d_segments=False) -> IndexedPolyCurve | Line | ArcLine:
-        from ada.geom.curves import ArcLine, IndexedPolyCurve, Line
+    def curve_geom(self, use_3d_segments=False) -> IndexedPolyCurve | Edge | ArcLine:
+        from ada.geom.curves import ArcLine, IndexedPolyCurve, Edge
 
         poly_segments = self.segments3d if use_3d_segments else self.segments
 
@@ -245,14 +245,14 @@ class CurveOpen2d:
             if isinstance(seg, ArcSegment):
                 return ArcLine(seg.p1, seg.midpoint, seg.p2)
             else:
-                return Line(seg.p1, seg.p2)
+                return Edge(seg.p1, seg.p2)
 
         segments = []
         for seg in poly_segments:
             if isinstance(seg, ArcSegment):
                 segments.append(ArcLine(seg.p1, seg.midpoint, seg.p2))
             else:
-                segments.append(Line(seg.p1, seg.p2))
+                segments.append(Edge(seg.p1, seg.p2))
 
         return IndexedPolyCurve(segments)
 
@@ -335,8 +335,8 @@ class CurveOpen3d:
         self._parent = parent
         self._orientation = Placement(origin, xdir=xdir, zdir=normal) if orientation is None else orientation
 
-    def curve_geom(self) -> IndexedPolyCurve | Line | ArcLine:
-        from ada.geom.curves import ArcLine, IndexedPolyCurve, Line
+    def curve_geom(self) -> IndexedPolyCurve | Edge | ArcLine:
+        from ada.geom.curves import ArcLine, IndexedPolyCurve, Edge
 
         poly_segments = self.segments
 
@@ -345,14 +345,14 @@ class CurveOpen3d:
             if isinstance(seg, ArcSegment):
                 return ArcLine(seg.p1, seg.midpoint, seg.p2)
             else:
-                return Line(seg.p1, seg.p2)
+                return Edge(seg.p1, seg.p2)
 
         segments = []
         for seg in poly_segments:
             if isinstance(seg, ArcSegment):
                 segments.append(ArcLine(seg.p1, seg.midpoint, seg.p2))
             else:
-                segments.append(Line(seg.p1, seg.p2))
+                segments.append(Edge(seg.p1, seg.p2))
 
         return IndexedPolyCurve(segments)
 
@@ -430,10 +430,10 @@ class LineSegment:
     def placement(self, value: Placement):
         self._placement = value
 
-    def curve_geom(self) -> Line:
-        from ada.geom.curves import Line
+    def curve_geom(self) -> Edge:
+        from ada.geom.curves import Edge
 
-        return Line(self.p1, self.p2)
+        return Edge(self.p1, self.p2)
 
     def __repr__(self):
         return f"LineSegment({self.p1}, {self.p2})"

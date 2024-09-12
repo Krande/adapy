@@ -9,7 +9,7 @@ import numpy as np
 
 from ada.core.curve_utils import calc_arc_radius_center_from_3points
 from ada.core.vector_utils import intersect_calc
-from ada.geom.placement import Axis2Placement3D
+from ada.geom.placement import Axis2Placement3D, Direction
 from ada.geom.points import Point
 
 CURVE_GEOM_TYPES = Union[
@@ -24,29 +24,14 @@ class Line:
     STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_line.html
     """
 
-    start: Point | Iterable
-    end: Point | Iterable
+    pnt: Point | Iterable
+    dir: Direction | Iterable
 
     def __post_init__(self):
-        if isinstance(self.start, Iterable):
-            self.start = Point(*self.start)
-        if isinstance(self.end, Iterable):
-            self.end = Point(*self.end)
-
-        dim = self.start.dim
-        if dim != self.end.dim:
-            raise ValueError("Start and end points must have the same dimension")
-
-    @staticmethod
-    def from_points(start: Iterable, end: Iterable):
-        return Line(Point(*start), Point(*end))
-
-    @property
-    def dim(self):
-        return self.start.dim
-
-    def __iter__(self):
-        return iter((self.start, self.end))
+        if isinstance(self.pnt, Iterable):
+            self.pnt = Point(*self.pnt)
+        if isinstance(self.dir, Iterable):
+            self.dir = Direction(*self.dir)
 
 
 @dataclass
@@ -92,7 +77,7 @@ class IndexedPolyCurve:
     STEP (not found direct equivalent, but can be represented by using 'B_SPLINE_CURVE' and 'POLYLINE' entities)
     """
 
-    segments: list[Line | ArcLine]
+    segments: list[Edge | ArcLine]
     self_intersect: bool = False
 
     def get_points_and_segment_indices(self) -> tuple[np.ndarray, list[list[int]]]:
@@ -118,14 +103,14 @@ class IndexedPolyCurve:
             else:
                 nseg = segments[i + 1]
 
-            if isinstance(seg, Line):
+            if isinstance(seg, Edge):
                 if i == 0:
                     local_points.append(seg.start)
                 else:
-                    if type(segments[i - 1]) is Line:
+                    if type(segments[i - 1]) is Edge:
                         local_points.append(seg.start)
                 if i < len(segments) - 1:
-                    if type(segments[i + 1]) is Line:
+                    if type(segments[i + 1]) is Edge:
                         local_points.append(seg.end)
                 else:
                     local_points.append(seg.end)
@@ -226,11 +211,29 @@ class Edge:
     IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcEdge.htm)
     """
 
-    edge_start: Point
-    edge_end: Point
+    start: Point
+    end: Point
+
+    def __post_init__(self):
+        if isinstance(self.start, Iterable):
+            self.start = Point(*self.start)
+        if isinstance(self.end, Iterable):
+            self.end = Point(*self.end)
+
+        dim = self.start.dim
+        if dim != self.end.dim:
+            raise ValueError("Start and end points must have the same dimension")
 
     def reversed(self):
-        return Edge(self.edge_end, self.edge_start)
+        return Edge(self.end, self.start)
+
+    @property
+    def dim(self):
+        return self.start.dim
+
+    def __iter__(self):
+        return iter((self.start, self.end))
+
 
 @dataclass
 class OrientedEdge(Edge):

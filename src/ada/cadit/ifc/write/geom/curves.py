@@ -34,7 +34,7 @@ def circle_curve(circle: geo_cu.Circle, f: ifcopenshell.file) -> ifcopenshell.en
 
 def edge(e: geo_cu.Edge, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts an Edge to an IFC representation"""
-    return f.create_entity("IfcEdge", EdgeStart=vrtx(f, e.edge_start), EdgeEnd=vrtx(f, e.edge_end))
+    return f.create_entity("IfcEdge", EdgeStart=vrtx(f, e.start), EdgeEnd=vrtx(f, e.end))
 
 
 def oriented_edge(oe: geo_cu.OrientedEdge, f: ifcopenshell.file) -> ifcopenshell.entity_instance:

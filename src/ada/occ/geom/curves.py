@@ -9,7 +9,7 @@ from ada.occ.exceptions import UnableToCreateCurveOCCGeom
 from ada.occ.utils import point3d
 
 
-def make_edge_from_line(geom: geo_cu.Line | geo_cu.ArcLine) -> TopoDS_Edge:
+def make_edge_from_line(geom: geo_cu.Edge | geo_cu.ArcLine) -> TopoDS_Edge:
     if isinstance(geom, geo_cu.ArcLine):
         a_arc_of_circle = GC_MakeArcOfCircle(point3d(geom.start), point3d(geom.midpoint), point3d(geom.end))
         return BRepBuilderAPI_MakeEdge(a_arc_of_circle.Value()).Edge()
@@ -18,16 +18,16 @@ def make_edge_from_line(geom: geo_cu.Line | geo_cu.ArcLine) -> TopoDS_Edge:
 
 
 def segments_to_edges(
-        segments: list[geo_cu.Line | geo_cu.ArcLine],
+        segments: list[geo_cu.Edge | geo_cu.ArcLine],
 ) -> list[TopoDS_Edge]:
     return [make_edge_from_line(seg) for seg in segments]
 
 
 def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
-    return BRepBuilderAPI_MakeEdge(point3d(edge.edge_start), point3d(edge.edge_end)).Edge()
+    return BRepBuilderAPI_MakeEdge(point3d(edge.start), point3d(edge.end)).Edge()
 
 
-def segments_to_wire(segments: list[geo_cu.Line | geo_cu.ArcLine]) -> TopoDS_Wire:
+def segments_to_wire(segments: list[geo_cu.Edge | geo_cu.ArcLine]) -> TopoDS_Wire:
     wire = BRepBuilderAPI_MakeWire()
     for seg in segments_to_edges(segments):
         wire.Add(seg)

@@ -213,6 +213,21 @@ class BSplineSurfaceWithKnots(BSplineSurface):
     def get_num_v_control_points(self) -> int:
         return len(self.control_points_list[0])
 
+    def to_json(self):
+        return {
+            "u_degree": self.u_degree,
+            "v_degree": self.v_degree,
+            "control_points_list": [[(p.x, p.y, p.z) for p in row] for row in self.control_points_list],
+            "surface_form": self.surface_form.value,
+            "u_closed": self.u_closed,
+            "v_closed": self.v_closed,
+            "self_intersect": self.self_intersect,
+            "u_multiplicities": self.u_multiplicities,
+            "v_multiplicities": self.v_multiplicities,
+            "u_knots": self.u_knots,
+            "v_knots": self.v_knots,
+            "knot_spec": self.knot_spec.value
+        }
 
 @dataclass
 class RationalBSplineSurfaceWithKnots(BSplineSurfaceWithKnots):
