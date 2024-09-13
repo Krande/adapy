@@ -191,7 +191,7 @@ def make_advanced_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_S
         raise Exception("Failed to create face from B-Spline surface")
 
     # Create a face from the B-Spline surface with the boundary wire
-    face = BRepBuilderAPI_MakeFace(face_surface, wire).Face()
+    face = face.Face()
 
     # Optionally, update the face tolerance
     builder.UpdateFace(face, 1e-6)  # Set tolerance if needed
