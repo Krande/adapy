@@ -44,20 +44,20 @@ def process_wire(wire: TopoDS_Wire, surface: Geom_Surface) -> list[geo_cu.CURVE_
         edge_curve = BRep_Tool.Curve(edge)
         if edge_curve:
             curve_handle, first, last = BRep_Tool.Curve(edge)
-            print(f"Processing edge from {first} to {last}.")
+            # print(f"Processing edge from {first} to {last}.")
 
             # Here you can check if the edge is a B-spline or other curve type
             # and process accordingly
             if curve_handle.DynamicType().Name() == 'Geom_BSplineCurve':
-                print("This edge is a B-spline curve.")
+                # print("This edge is a B-spline curve.")
                 # Extract B-spline curve parameters here
                 bspline_curve = Geom_BSplineCurve.DownCast(curve_handle)
                 u_knots = bspline_curve.Knots()
                 poles = bspline_curve.Poles()
 
                 # Process the B-spline curve (similar to surface processing)
-                print(f"Knots: {array1_to_list(u_knots)}")
-                print(f"Poles: {[f'({p.X()}, {p.Y()}, {p.Z()})' for p in poles]}")
+                # print(f"Knots: {array1_to_list(u_knots)}")
+                # print(f"Poles: {[f'({p.X()}, {p.Y()}, {p.Z()})' for p in poles]}")
                 curve = geo_cu.BSplineCurveWithKnots(poles=poles, knots=array1_to_list(u_knots))
 
             elif curve_handle.DynamicType().Name() == 'Geom_Line':

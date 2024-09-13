@@ -1,11 +1,16 @@
 from OCC.Core.BRep import BRep_Builder
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
-from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakeShell
-from OCC.Core.Geom import Geom_BSplineSurface, Geom_Surface
+from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakeShell, BRepBuilderAPI_MakeWire, \
+    BRepBuilderAPI_MakeEdge
+from OCC.Core.Geom import Geom_BSplineSurface, Geom_Surface, Geom_Curve, Geom_BoundedCurve, Geom_BoundedSurface
+from OCC.Core.Geom2d import Geom2d_TrimmedCurve, Geom2d_Line
+from OCC.Core.Precision import precision_Confusion
 from OCC.Core.TColStd import TColStd_Array1OfReal, TColStd_Array1OfInteger
 from OCC.Core.TColgp import TColgp_Array2OfPnt
+from OCC.Core.TopAbs import TopAbs_FORWARD
+from OCC.Core.TopLoc import TopLoc_Location
 from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Face, TopoDS_Shell
-from OCC.Core.gp import gp_Pnt
+from OCC.Core.gp import gp_Pnt, gp_Pnt2d, gp_Lin2d, gp_Dir2d
 
 from ada.config import Config
 from ada.geom import curves as geo_cu
@@ -16,9 +21,9 @@ from ada.occ.geom.curves import (
     make_wire_from_circle,
     make_wire_from_curve,
     make_wire_from_indexed_poly_curve_geom,
-    make_wire_from_poly_loop, make_wire_from_face_bound,
+    make_wire_from_poly_loop, make_wire_from_face_bound, make_wire_from_edge_loop, make_edge_from_edge,
 )
-from ada.occ.utils import transform_shape_to_pos
+from ada.occ.utils import transform_shape_to_pos, point3d
 
 
 def make_face_from_poly_loop(poly_loop: PolyLoop) -> TopoDS_Shape:
@@ -145,25 +150,59 @@ def make_advanced_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_S
         face_surface = make_bspline_surface_with_knots(advanced_face.face_surface)
     else:
         raise NotImplementedError("Only BSplineSurfaceWithKnots is implemented")
-    wires = []
-    for edge_loop in advanced_face.bounds:
-        edge_loop_wire = make_wire_from_face_bound(edge_loop)
-        wires.append(edge_loop_wire)
 
-    # Wrap the B-Spline surface inside a Geom_Surface handle
-    face = BRepBuilderAPI_MakeFace(face_surface, 1e-6)
-    if face.IsDone():
-        face = face.Face()
-        shell = TopoDS_Shell()
-        builder = BRep_Builder()
-        builder.MakeShell(shell)
-        builder.UpdateFace(face)
-        builder.Add(shell, face)
-        shell_maker = BRepBuilderAPI_MakeShell(face_surface)
-        shell_maker.Build()
-        shell = shell_maker.Shell()
-    else:
+
+    builder = BRep_Builder()
+    shell = TopoDS_Shell()
+    builder.MakeShell(shell)
+    edges = []
+    for edge_loop in advanced_face.bounds:
+        for para_edge in edge_loop.bound.edge_list:
+            occ_edge = BRepBuilderAPI_MakeEdge(point3d(para_edge.start), point3d(para_edge.end)).Edge()
+            edges.append(occ_edge)
+
+    # Create corresponding 2D curves in the parametric space (u-v space) of the B-Spline surface
+    uv1 = gp_Pnt2d(0.0, 0.0)
+    uv2 = gp_Pnt2d(0.0, 1.0)
+    uv3 = gp_Pnt2d(1.0, 1.0)
+    uv4 = gp_Pnt2d(1.0, 0.0)
+
+    c2d_edges = [
+        Geom2d_TrimmedCurve(Geom2d_Line(gp_Lin2d(uv1, gp_Dir2d(uv2.XY() - uv1.XY()))), 0.0, 1.0),
+        Geom2d_TrimmedCurve(Geom2d_Line(gp_Lin2d(uv2, gp_Dir2d(uv3.XY() - uv2.XY()))), 0.0, 1.0),
+        Geom2d_TrimmedCurve(Geom2d_Line(gp_Lin2d(uv3, gp_Dir2d(uv4.XY() - uv3.XY()))), 0.0, 1.0),
+        Geom2d_TrimmedCurve(Geom2d_Line(gp_Lin2d(uv4, gp_Dir2d(uv1.XY() - uv4.XY()))), 0.0, 1.0)
+    ]
+
+
+    # Assign the 2D curves to the edges on the B-Spline surface using the correct signature
+    builder = BRep_Builder()
+    identity_location = TopLoc_Location()  # No transformation (identity)
+    for i, edge in enumerate(edges):
+        builder.UpdateEdge(edge, c2d_edges[i], face_surface, identity_location, precision_Confusion())
+
+    wire_maker = BRepBuilderAPI_MakeWire()
+    for edge in edges:
+        wire_maker.Add(edge)
+    wire = wire_maker.Wire()
+
+    face = BRepBuilderAPI_MakeFace(face_surface, wire)
+    if not face.IsDone():
         raise Exception("Failed to create face from B-Spline surface")
+
+    # Create a face from the B-Spline surface with the boundary wire
+    face = BRepBuilderAPI_MakeFace(face_surface, wire).Face()
+
+    # Optionally, update the face tolerance
+    builder.UpdateFace(face, 1e-6)  # Set tolerance if needed
+
+    # Create the shell manually and add the face
+    shell = TopoDS_Shell()
+    builder.MakeShell(shell)
+    builder.Add(shell, face)
+
+    # Set the shell as closed
+    shell.Closed(True)
 
     return shell
 

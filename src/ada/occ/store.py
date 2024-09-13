@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import traceback
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Iterable
 
 import ada
 from ada import Units
 from ada.base.types import GeomRepr
-from ada.config import logger
+from ada.config import logger, Config
+from ada.occ.exceptions import UnableToCreateSolidOCCGeom, UnableToCreateSurfaceOCCGeom, UnableToTransformOCCShape
 from ada.visit.colors import Color
 
 if TYPE_CHECKING:
@@ -49,25 +51,44 @@ class OCCStore:
 
         def safe_geom(obj_, name_ref=None):
             geo_repr = render_override.get(obj_.guid, geom_repr)
-            try:
-                if geo_repr == GeomRepr.SOLID:
+            if geo_repr == GeomRepr.SOLID:
+                try:
                     occ_geom = obj_.solid_occ()
-                elif geo_repr == GeomRepr.SHELL:
+                except (RuntimeError, BaseException) as e:
+                    exc = traceback.format_exc()
+                    err_msg = f'Failed to add shape {obj.name} due to "{e}" from {name_ref} in {exc}'
+                    if Config().general_occ_silent_fail:
+                        logger.warning(err_msg)
+                        return None
+                    raise UnableToCreateSolidOCCGeom(err_msg)
+            elif geo_repr == GeomRepr.SHELL:
+                try:
                     occ_geom = obj_.shell_occ()
-                else:
-                    raise ValueError(f"Invalid geometry representation {geo_repr}")
-                position = obj.parent.placement.to_axis2placement3d(use_absolute_placement=True)
+                except (RuntimeError, BaseException) as e:
+                    exc = traceback.format_exc()
+                    err_msg = f"Failed to create shell geometry for {obj.name} due to {e} from {name_ref} in {exc}"
+                    if Config().general_occ_silent_fail:
+                        logger.warning(err_msg)
+                        return None
+                    raise UnableToCreateSurfaceOCCGeom(err_msg)
+            else:
+                raise ValueError(f"Invalid geometry representation {geo_repr}")
 
+            position = obj.parent.placement.to_axis2placement3d(use_absolute_placement=True)
+
+            try:
                 trsf = gp_Trsf()
                 trsf.SetTranslation(gp_Vec(*position.location))
                 occ_geom = BRepBuilderAPI_Transform(occ_geom, trsf, True).Shape()
-                return occ_geom
-            except RuntimeError as e:
-                logger.warning(f'Failed to add shape {obj.name} due to "{e}" from {name_ref}')
-                return None
-            except BaseException as e:
-                logger.warning(f'Failed to add shape {obj.name} due to "{e}" from {name_ref}')
-                return None
+            except (RuntimeError, BaseException) as e:
+                exc = traceback.format_exc()
+                err_msg = f"Failed to transform geometry for {obj.name} due to {e} from {name_ref} in {exc}"
+                if Config().general_occ_silent_fail:
+                    logger.warning(err_msg)
+                    return None
+                raise UnableToTransformOCCShape(err_msg)
+
+            return occ_geom
 
         if isinstance(part, StepStore):
             for shape in part.iter_all_shapes(include_colors=True):

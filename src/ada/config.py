@@ -88,6 +88,7 @@ class Config:
                 ConfigEntry("temp_dir", pathlib.Path, _tmp_dir),
                 ConfigEntry("home_dir", pathlib.Path, _home_dir),
                 ConfigEntry("tools_dir", pathlib.Path, _home_dir / "tools"),
+                ConfigEntry("occ_silent_fail", bool, False),
             ],
         ),
         ConfigSection(

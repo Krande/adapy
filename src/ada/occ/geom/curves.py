@@ -27,6 +27,7 @@ def segments_to_edges(
 def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
     occ_edge = BRepBuilderAPI_MakeEdge(point3d(edge.start), point3d(edge.end)).Edge()
     occ_edge.Orientation(TopAbs_FORWARD)
+
     return occ_edge
 
 
@@ -49,6 +50,7 @@ def make_wire_from_poly_loop(poly_loop: geo_cu.PolyLoop) -> TopoDS_Wire:
     wire = BRepBuilderAPI_MakeWire()
     loop_plus_first = poly_loop.polygon + [poly_loop.polygon[0]]
     for p1, p2 in zip(loop_plus_first[:-1], loop_plus_first[1:]):
+        print(p1, p2)
         wire.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(*p1), gp_Pnt(*p2)).Edge())
     wire.Build()
     return wire.Wire()
@@ -67,8 +69,9 @@ def make_wire_from_circle(circle: geo_cu.Circle) -> TopoDS_Wire:
 
 def make_wire_from_edge_loop(edge_loop: geo_cu.EdgeLoop) -> TopoDS_Wire:
     wire = BRepBuilderAPI_MakeWire()
-    for edge in edge_loop.edge_list:
-        wire.Add(make_edge_from_edge(edge))
+    for para_edge in edge_loop.edge_list:
+        occ_edge = make_edge_from_edge(para_edge)
+        wire.Add(occ_edge)
     wire.Build()
     return wire.Wire()
 
