@@ -30,8 +30,11 @@ def test_read_b_spline_surf_w_knots_2(example_files, tmp_path):
     edge1 = edge_list[0]
     assert isinstance(edge1, geo_cu.OrientedEdge)
 
-    curve = edge1.edge_element
-    assert isinstance(curve, geo_cu.RationalBSplineCurveWithKnots)
+    edge_element = edge1.edge_element
+    assert isinstance(edge_element, geo_cu.EdgeCurve)
+
+    edge_geom = edge_element.edge_geometry
+    assert isinstance(edge_geom, geo_cu.RationalBSplineCurveWithKnots)
 
     shp = ada.Shape("plate", ada.geom.Geometry(1, adv_face, None))
 
