@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import Iterable
 
 from ada.cadit.sat.read.advanced_face import create_advanced_face_from_sat
-from ada.cadit.sat.read.bsplinesurface import create_bsplinesurface_from_sat, ACISReferenceDataError
-from ada.cadit.sat.read.curve import create_bspline_curve_from_sat
+from ada.cadit.sat.read.bsplinesurface import (
+    ACISReferenceDataError,
+    create_bsplinesurface_from_sat,
+)
 from ada.cadit.sat.read.face import PlateFactory
 from ada.config import logger
 from ada.core.guid import create_guid

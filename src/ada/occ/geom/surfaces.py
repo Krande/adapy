@@ -1,18 +1,25 @@
-from OCC.Core.BRep import BRep_Builder
+from OCC.Core.BRep import BRep_Builder, BRep_Tool
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
-from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakeShell, BRepBuilderAPI_MakeWire, \
-    BRepBuilderAPI_MakeEdge
-from OCC.Core.Geom import Geom_BSplineSurface, Geom_Surface, Geom_Curve, Geom_BoundedCurve, Geom_BoundedSurface
-from OCC.Core.Geom2d import Geom2d_TrimmedCurve, Geom2d_Line
-from OCC.Core.Precision import precision_Confusion
-from OCC.Core.TColStd import TColStd_Array1OfReal, TColStd_Array1OfInteger
-from OCC.Core.TColgp import TColgp_Array2OfPnt
-from OCC.Core.TopAbs import TopAbs_FORWARD
+from OCC.Core.BRepBuilderAPI import (
+    BRepBuilderAPI_MakeEdge,
+    BRepBuilderAPI_MakeFace,
+    BRepBuilderAPI_MakeWire,
+)
+from OCC.Core.Geom import Geom_BSplineSurface
+from OCC.Core.Geom2d import Geom2d_Line, Geom2d_TrimmedCurve
+from OCC.Core.Geom2dAPI import Geom2dAPI_PointsToBSpline
+from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnSurf
+from OCC.Core.gp import gp_Dir2d, gp_Lin2d, gp_Pnt, gp_Pnt2d
+from OCC.Core.TColgp import TColgp_Array1OfPnt2d, TColgp_Array2OfPnt
+from OCC.Core.TColStd import (
+    TColStd_Array1OfInteger,
+    TColStd_Array1OfReal,
+    TColStd_Array2OfReal,
+)
 from OCC.Core.TopLoc import TopLoc_Location
-from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Face, TopoDS_Shell
-from OCC.Core.gp import gp_Pnt, gp_Pnt2d, gp_Lin2d, gp_Dir2d
+from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Shell
 
-from ada.config import Config
+from ada.config import Config, logger
 from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
 from ada.geom.curves import PolyLoop
@@ -21,9 +28,9 @@ from ada.occ.geom.curves import (
     make_wire_from_circle,
     make_wire_from_curve,
     make_wire_from_indexed_poly_curve_geom,
-    make_wire_from_poly_loop, make_wire_from_face_bound, make_wire_from_edge_loop, make_edge_from_edge,
+    make_wire_from_poly_loop,
 )
-from ada.occ.utils import transform_shape_to_pos, point3d
+from ada.occ.utils import point3d, transform_shape_to_pos
 
 
 def make_face_from_poly_loop(poly_loop: PolyLoop) -> TopoDS_Shape:
@@ -72,7 +79,9 @@ def make_shell_from_curve_bounded_plane_geom(surface: geo_su.CurveBoundedPlane) 
     return face
 
 
-def make_bspline_surface_with_knots(advanced_face: geo_su.BSplineSurfaceWithKnots) -> Geom_BSplineSurface:
+def make_bspline_surface_with_knots(
+    advanced_face: geo_su.BSplineSurfaceWithKnots | geo_su.RationalBSplineSurfaceWithKnots,
+) -> Geom_BSplineSurface:
     # Define control points
     num_u = advanced_face.get_num_u_control_points()
     num_v = advanced_face.get_num_v_control_points()
@@ -110,57 +119,75 @@ def make_bspline_surface_with_knots(advanced_face: geo_su.BSplineSurfaceWithKnot
     multiplicities_v = TColStd_Array1OfInteger(1, num_v_knots)
     for i, mult in enumerate(advanced_face.v_multiplicities, start=1):
         multiplicities_v.SetValue(i, mult)
+
     if Config().general_debug:
         # print the contents of each array
-        print("Control points:")
+        logger.debug("Control points:")
         for u in range(1, num_u + 1):
             for v in range(1, num_v + 1):
-                print(control_points.Value(u, v).X(), control_points.Value(u, v).Y(), control_points.Value(u, v).Z())
-        print("Knots in U direction:")
+                logger.debug(
+                    control_points.Value(u, v).X(), control_points.Value(u, v).Y(), control_points.Value(u, v).Z()
+                )
+        logger.debug("Knots in U direction:")
         for i in range(1, num_u_knots + 1):
-            print(knots_u.Value(i))
-        print("Multiplicities in U direction:")
+            logger.debug(knots_u.Value(i))
+        logger.debug("Multiplicities in U direction:")
         for i in range(1, num_u_knots + 1):
-            print(multiplicities_u.Value(i))
-        print("Knots in V direction:")
+            logger.debug(multiplicities_u.Value(i))
+        logger.debug("Knots in V direction:")
         for i in range(1, num_v_knots + 1):
-            print(knots_v.Value(i))
-        print("Multiplicities in V direction:")
+            logger.debug(knots_v.Value(i))
+        logger.debug("Multiplicities in V direction:")
         for i in range(1, num_v_knots + 1):
-            print(multiplicities_v.Value(i))
+            logger.debug(multiplicities_v.Value(i))
+    if type(advanced_face) is geo_su.RationalBSplineSurfaceWithKnots:
+        # Define weights
+        weights_data = advanced_face.weights_data
+        num_weights = len(weights_data)
+        # **Define weights**
+        weights = TColStd_Array2OfReal(1, num_u, 1, num_v)
+        # Fill weights grid
+        for u in range(0, num_u):
+            for v in range(0, num_v):
+                weight = weights_data[u][v]
+                weights.SetValue(u + 1, v + 1, weight)
 
-    # Create the B-Spline surface
-    bspline_surface = Geom_BSplineSurface(
-        control_points,  # Control points
-        knots_u,  # Knots in U direction
-        knots_v,  # Knots in V direction
-        multiplicities_u,  # Multiplicities in U direction
-        multiplicities_v,  # Multiplicities in V direction
-        degree_u,  # Degree in U direction
-        degree_v,  # Degree in V direction
-        False,  # Is the surface periodic in U direction
-        False  # Is the surface periodic in V direction
-    )
+        if Config().general_debug:
+            logger.debug("Weights:")
+            for i in range(1, num_weights + 1):
+                logger.debug(weights.Value(i))
+
+        # Create the B-Spline surface
+        bspline_surface = Geom_BSplineSurface(
+            control_points,  # Control points
+            weights,  # Weights
+            knots_u,  # Knots in U direction
+            knots_v,  # Knots in V direction
+            multiplicities_u,  # Multiplicities in U direction
+            multiplicities_v,  # Multiplicities in V direction
+            degree_u,  # Degree in U direction
+            degree_v,  # Degree in V direction
+            False,  # Is the surface periodic in U direction
+            False,  # Is the surface periodic in V direction
+        )
+    else:
+        # Create the B-Spline surface
+        bspline_surface = Geom_BSplineSurface(
+            control_points,  # Control points
+            knots_u,  # Knots in U direction
+            knots_v,  # Knots in V direction
+            multiplicities_u,  # Multiplicities in U direction
+            multiplicities_v,  # Multiplicities in V direction
+            degree_u,  # Degree in U direction
+            degree_v,  # Degree in V direction
+            False,  # Is the surface periodic in U direction
+            False,  # Is the surface periodic in V direction
+        )
 
     return bspline_surface
 
 
-def make_advanced_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Shape:
-    if type(advanced_face.face_surface) is geo_su.BSplineSurfaceWithKnots:
-        face_surface = make_bspline_surface_with_knots(advanced_face.face_surface)
-    else:
-        raise NotImplementedError("Only BSplineSurfaceWithKnots is implemented")
-
-
-    builder = BRep_Builder()
-    shell = TopoDS_Shell()
-    builder.MakeShell(shell)
-    edges = []
-    for edge_loop in advanced_face.bounds:
-        for para_edge in edge_loop.bound.edge_list:
-            occ_edge = BRepBuilderAPI_MakeEdge(point3d(para_edge.start), point3d(para_edge.end)).Edge()
-            edges.append(occ_edge)
-
+def update_edges_4corners(edges, builder, face_surface):
     # Create corresponding 2D curves in the parametric space (u-v space) of the B-Spline surface
     uv1 = gp_Pnt2d(0.0, 0.0)
     uv2 = gp_Pnt2d(0.0, 1.0)
@@ -171,20 +198,77 @@ def make_advanced_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_S
         Geom2d_TrimmedCurve(Geom2d_Line(gp_Lin2d(uv1, gp_Dir2d(uv2.XY() - uv1.XY()))), 0.0, 1.0),
         Geom2d_TrimmedCurve(Geom2d_Line(gp_Lin2d(uv2, gp_Dir2d(uv3.XY() - uv2.XY()))), 0.0, 1.0),
         Geom2d_TrimmedCurve(Geom2d_Line(gp_Lin2d(uv3, gp_Dir2d(uv4.XY() - uv3.XY()))), 0.0, 1.0),
-        Geom2d_TrimmedCurve(Geom2d_Line(gp_Lin2d(uv4, gp_Dir2d(uv1.XY() - uv4.XY()))), 0.0, 1.0)
+        Geom2d_TrimmedCurve(Geom2d_Line(gp_Lin2d(uv4, gp_Dir2d(uv1.XY() - uv4.XY()))), 0.0, 1.0),
     ]
 
-
     # Assign the 2D curves to the edges on the B-Spline surface using the correct signature
-    builder = BRep_Builder()
     identity_location = TopLoc_Location()  # No transformation (identity)
     for i, edge in enumerate(edges):
-        builder.UpdateEdge(edge, c2d_edges[i], face_surface, identity_location, precision_Confusion())
+        builder.UpdateEdge(edge, c2d_edges[i], face_surface, identity_location, 1e-6)
+
+
+def update_edges_uv_gen(edges, builder, face_surface):
+    # Create corresponding 2D curves in the parametric space (u-v space) of the B-Spline surface
+    # Generate c2d_edges dynamically
+    c2d_edges = []
+    identity_location = TopLoc_Location()  # No transformation (identity)
+    for edge in edges:
+        # Get the 3D curve of the edge
+        edge_curve_handle, first, last = BRep_Tool.Curve(edge)
+        # Sample points along the edge
+        num_samples = 10
+        parameters = [first + (last - first) * i / (num_samples - 1) for i in range(num_samples)]
+        points_3d = [edge_curve_handle.Value(u) for u in parameters]
+        # Project points onto the surface to get (u,v) parameters
+        array_2d_points = TColgp_Array1OfPnt2d(1, num_samples)
+        for i, pt in enumerate(points_3d):
+            projector = GeomAPI_ProjectPointOnSurf(pt, face_surface)
+            if projector.NbPoints() == 0:
+                raise Exception("Failed to project point onto surface")
+            u, v = projector.LowerDistanceParameters()
+            array_2d_points.SetValue(i + 1, gp_Pnt2d(u, v))
+        # Build a Geom2d_BSplineCurve from the (u,v) points
+        interpolator = Geom2dAPI_PointsToBSpline(array_2d_points)
+        c2d_edge = interpolator.Curve()
+        c2d_edges.append(c2d_edge)
+        # Now assign the 2D curve to the edge
+        builder.UpdateEdge(edge, c2d_edge, face_surface, identity_location, 1e-6)
+
+
+def create_wire_from_bounds(bounds, face_surface, builder: BRep_Builder):
+    edges = []
+    for edge_loop in bounds:
+        for para_edge in edge_loop.bound.edge_list:
+            occ_edge = BRepBuilderAPI_MakeEdge(point3d(para_edge.start), point3d(para_edge.end)).Edge()
+            edges.append(occ_edge)
+
+    update_edges_uv_gen(edges, builder, face_surface)
+
+    # if len(edges) == 4:
+    #     update_edges_4corners(edges, builder, face_surface)
+    # else:
+    #     update_edges_uv_gen(edges, builder, face_surface)
 
     wire_maker = BRepBuilderAPI_MakeWire()
     for edge in edges:
         wire_maker.Add(edge)
-    wire = wire_maker.Wire()
+
+    return wire_maker.Wire()
+
+
+def make_advanced_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Shape:
+    if type(advanced_face.face_surface) in (geo_su.BSplineSurfaceWithKnots, geo_su.RationalBSplineSurfaceWithKnots):
+        face_surface = make_bspline_surface_with_knots(advanced_face.face_surface)
+    else:
+        raise NotImplementedError(
+            f"Only BSplineSurfaceWithKnots is implemented, not {type(advanced_face.face_surface)}"
+        )
+
+    builder = BRep_Builder()
+    shell = TopoDS_Shell()
+    builder.MakeShell(shell)
+
+    wire = create_wire_from_bounds(advanced_face.bounds, face_surface, builder)
 
     face = BRepBuilderAPI_MakeFace(face_surface, wire)
     if not face.IsDone():

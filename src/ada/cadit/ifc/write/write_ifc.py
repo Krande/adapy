@@ -338,7 +338,7 @@ class IfcWriter:
         return rel_profile_def
 
     def add(self, obj: Beam | Plate | Pipe | Shape | Wall) -> ifcopenshell.entity_instance:
-        from ada import Beam, Pipe, Plate, Shape, Wall, PlateCurved
+        from ada import Beam, Pipe, Plate, PlateCurved, Shape, Wall
 
         if isinstance(obj, Beam):
             return write_ifc_beam(self.ifc_store, obj)

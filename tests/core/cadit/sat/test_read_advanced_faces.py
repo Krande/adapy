@@ -1,7 +1,7 @@
 import ada
-from ada.cadit.sat.store import SatReaderFactory
 import ada.geom
 import ada.geom.surfaces as ada_surf
+from ada.cadit.sat.store import SatReaderFactory
 
 
 def test_read_b_spline_surf_w_knots_2(example_files, tmp_path):
@@ -16,7 +16,7 @@ def test_read_b_spline_surf_w_knots_2(example_files, tmp_path):
     assert len(face_surf.control_points_list) == 3
     assert len(face_surf.control_points_list[0]) == 4
 
-    shp = ada.Shape('plate', ada.geom.Geometry(1, adv_face, None))
+    shp = ada.Shape("plate", ada.geom.Geometry(1, adv_face, None))
 
     a = ada.Assembly() / shp
     a.to_ifc(tmp_path / "curved_plate.ifc", validate=True)
@@ -34,8 +34,7 @@ def test_read_b_spline_surf_w_knots(example_files, tmp_path):
     assert len(face_surf.control_points_list) == 4
     assert len(face_surf.control_points_list[0]) == 2
 
-    shp = ada.Shape('plate', ada.geom.Geometry(1, adv_face, None))
-
+    shp = ada.Shape("plate", ada.geom.Geometry(1, adv_face, None))
 
     a = ada.Assembly() / shp
     a.to_ifc(tmp_path / "bsplinesurfacewithknots.ifc", validate=True)

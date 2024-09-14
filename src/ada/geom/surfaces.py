@@ -226,8 +226,9 @@ class BSplineSurfaceWithKnots(BSplineSurface):
             "v_multiplicities": self.v_multiplicities,
             "u_knots": self.u_knots,
             "v_knots": self.v_knots,
-            "knot_spec": self.knot_spec.value
+            "knot_spec": self.knot_spec.value,
         }
+
 
 @dataclass
 class RationalBSplineSurfaceWithKnots(BSplineSurfaceWithKnots):
@@ -246,7 +247,13 @@ class AdvancedFace:
 
     bounds: list[FaceBound]
     face_surface: Union[
-        ArbitraryProfileDef, CircleProfileDef, RectangleProfileDef, BSplineSurface, BSplineSurfaceWithKnots, RationalBSplineSurfaceWithKnots]
+        ArbitraryProfileDef,
+        CircleProfileDef,
+        RectangleProfileDef,
+        BSplineSurface,
+        BSplineSurfaceWithKnots,
+        RationalBSplineSurfaceWithKnots,
+    ]
     same_sense: bool = True
 
 

@@ -3,6 +3,7 @@ from typing import Iterable
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
 
 from ada.geom import surfaces as geo_su
+
 from .surfaces import iter_faces
 
 

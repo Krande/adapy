@@ -1,7 +1,7 @@
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
 from OCC.Core.GC import GC_MakeArcOfCircle
-from OCC.Core.TopAbs import TopAbs_FORWARD
 from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Pnt
+from OCC.Core.TopAbs import TopAbs_FORWARD
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire
 
 from ada.geom import curves as geo_cu
@@ -19,7 +19,7 @@ def make_edge_from_line(geom: geo_cu.Edge | geo_cu.ArcLine) -> TopoDS_Edge:
 
 
 def segments_to_edges(
-        segments: list[geo_cu.Edge | geo_cu.ArcLine],
+    segments: list[geo_cu.Edge | geo_cu.ArcLine],
 ) -> list[TopoDS_Edge]:
     return [make_edge_from_line(seg) for seg in segments]
 

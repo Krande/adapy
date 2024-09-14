@@ -4,10 +4,8 @@ from typing import TYPE_CHECKING, Iterable
 
 from ada import Point
 from ada.cadit.sat.read.bsplinesurface import create_bsplinesurface_from_sat
-from ada.cadit.sat.read.curve import create_bspline_curve_from_sat
-from ada.cadit.sat.read.face import CurvedPlateFactory
-from ada.geom.curves import OrientedEdge, Edge, EdgeLoop
-from ada.geom.surfaces import AdvancedFace, FaceBound, BSplineSurfaceWithKnots
+from ada.geom.curves import Edge, EdgeLoop, OrientedEdge
+from ada.geom.surfaces import AdvancedFace, BSplineSurfaceWithKnots, FaceBound
 
 if TYPE_CHECKING:
     from ada.cadit.sat.store import SatStore
@@ -36,7 +34,7 @@ def iter_loop_coedges(loop: list[str], sat_store: SatStore) -> Iterable[Oriented
     next_coedge = True
     coedge_next_id = coedge_first[next_coedge_idx]
     edge = sat_store.get(coedge_first[edge_idx])
-    if 'forward' in coedge_first[coedge_sense_idx]:
+    if "forward" in coedge_first[coedge_sense_idx]:
         ori = True
     else:
         ori = False
@@ -56,7 +54,7 @@ def iter_loop_coedges(loop: list[str], sat_store: SatStore) -> Iterable[Oriented
         v2 = sat_store.get(edge[stop_idx])
         p1 = Point(*[float(x) for x in sat_store.get(v1[point_idx])[6:9]])
         p2 = Point(*[float(x) for x in sat_store.get(v2[point_idx])[6:9]])
-        if 'forward' in coedge[coedge_sense_idx]:
+        if "forward" in coedge[coedge_sense_idx]:
             ori = True
         else:
             ori = False
@@ -81,12 +79,14 @@ def get_face_bound(face_data_list: list[str], sat_store: SatStore) -> list[FaceB
 
     return [FaceBound(bound=EdgeLoop(edges), orientation=True)]
 
+
 def get_face_surface(face_data_list: list[str], sat_store: SatStore) -> BSplineSurfaceWithKnots:
     face_spline_str = sat_store.get(face_data_list[10], return_str=True)
     face_surface = create_bsplinesurface_from_sat(face_spline_str)
     if face_surface is None:
         raise NotImplementedError("Only BSplineSurfaces are supported.")
     return face_surface
+
 
 def create_advanced_face_from_sat(face_sat_id: id, sat_store: SatStore) -> AdvancedFace:
     """Creates an AdvancedFace from the SAT object data."""

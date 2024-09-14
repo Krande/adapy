@@ -1,6 +1,6 @@
-from OCC.Core.TColStd import TColStd_Array1OfReal, TColStd_Array1OfInteger
-from OCC.Core.TColgp import TColgp_Array2OfPnt
 from OCC.Core.gp import gp_Pnt
+from OCC.Core.TColgp import TColgp_Array2OfPnt
+from OCC.Core.TColStd import TColStd_Array1OfInteger, TColStd_Array1OfReal
 
 from ada import Point
 

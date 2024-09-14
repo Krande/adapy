@@ -11,8 +11,8 @@ ROOT_DIR = THIS_DIR.parent.parent
 
 
 def ifc_to_step_file(
-        ifc_file_path: str | pathlib.Path,
-        step_file: pathlib.Path | None = None,
+    ifc_file_path: str | pathlib.Path,
+    step_file: pathlib.Path | None = None,
 ) -> None:
     if isinstance(ifc_file_path, str):
         ifc_file_path = pathlib.Path(ifc_file_path)
@@ -27,5 +27,6 @@ def ifc_to_step_file(
     stp_writer.add_shape(occ_geo.geometry, "occ_geo")
     stp_writer.export(step_file)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     ifc_to_step_file(ROOT_DIR / "files/ifc_files/bsplinesurfacewithknots.ifc", THIS_DIR / "temp" / "bsplinewknots.stp")

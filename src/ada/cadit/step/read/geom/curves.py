@@ -1,16 +1,14 @@
-from OCC.Core.gp import gp_Pnt, gp_Dir
-from ada.geom.placement import Direction
-
-from ada.geom.points import Point
-
-from ada.geom import curves as geo_cu
 from OCC.Core.BRep import BRep_Tool
-from OCC.Core.Geom import Geom_Surface, Geom_BSplineCurve, Geom_Line
+from OCC.Core.Geom import Geom_BSplineCurve, Geom_Line, Geom_Surface
+from OCC.Core.gp import gp_Dir, gp_Pnt
 from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_WIRE
 from OCC.Core.TopExp import TopExp_Explorer
-from OCC.Core.TopoDS import TopoDS_Wire, TopoDS_Face
+from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Wire
 
 from ada.cadit.step.read.geom.helpers import array1_to_list
+from ada.geom import curves as geo_cu
+from ada.geom.placement import Direction
+from ada.geom.points import Point
 
 
 def get_wires_from_face(face: TopoDS_Face, surface: Geom_Surface) -> list[geo_cu.CURVE_GEOM_TYPES]:
@@ -48,7 +46,7 @@ def process_wire(wire: TopoDS_Wire, surface: Geom_Surface) -> list[geo_cu.CURVE_
 
             # Here you can check if the edge is a B-spline or other curve type
             # and process accordingly
-            if curve_handle.DynamicType().Name() == 'Geom_BSplineCurve':
+            if curve_handle.DynamicType().Name() == "Geom_BSplineCurve":
                 # print("This edge is a B-spline curve.")
                 # Extract B-spline curve parameters here
                 bspline_curve = Geom_BSplineCurve.DownCast(curve_handle)
@@ -60,7 +58,7 @@ def process_wire(wire: TopoDS_Wire, surface: Geom_Surface) -> list[geo_cu.CURVE_
                 # print(f"Poles: {[f'({p.X()}, {p.Y()}, {p.Z()})' for p in poles]}")
                 curve = geo_cu.BSplineCurveWithKnots(poles=poles, knots=array1_to_list(u_knots))
 
-            elif curve_handle.DynamicType().Name() == 'Geom_Line':
+            elif curve_handle.DynamicType().Name() == "Geom_Line":
                 line_curve: Geom_Line = Geom_Line.DownCast(curve_handle)
                 line_curve: Geom_Line
 

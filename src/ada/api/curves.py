@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Edge
 
     from ada import Beam
-    from ada.geom.curves import ArcLine, IndexedPolyCurve, Edge
+    from ada.geom.curves import ArcLine, Edge, IndexedPolyCurve
 
 
 class CurveRevolve:
@@ -236,7 +236,7 @@ class CurveOpen2d:
         return segments_to_edges(self.segments3d)
 
     def curve_geom(self, use_3d_segments=False) -> IndexedPolyCurve | Edge | ArcLine:
-        from ada.geom.curves import ArcLine, IndexedPolyCurve, Edge
+        from ada.geom.curves import ArcLine, Edge, IndexedPolyCurve
 
         poly_segments = self.segments3d if use_3d_segments else self.segments
 
@@ -336,7 +336,7 @@ class CurveOpen3d:
         self._orientation = Placement(origin, xdir=xdir, zdir=normal) if orientation is None else orientation
 
     def curve_geom(self) -> IndexedPolyCurve | Edge | ArcLine:
-        from ada.geom.curves import ArcLine, IndexedPolyCurve, Edge
+        from ada.geom.curves import ArcLine, Edge, IndexedPolyCurve
 
         poly_segments = self.segments
 

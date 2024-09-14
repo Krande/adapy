@@ -1,10 +1,8 @@
+from collections import Counter
+
 import numpy as np
 
-from ada.geom.curves import (
-    BSplineCurveFormEnum,
-    BSplineCurveWithKnots,
-KnotType
-)
+from ada.geom.curves import BSplineCurveFormEnum, BSplineCurveWithKnots, KnotType
 from ada.geom.points import Point
 
 
@@ -37,11 +35,11 @@ def interpolate_points(points, degree, num_points=100):
 
 
 def create_bspline_curve(
-        points: list[Point | tuple[float, float, float]],
-        degree: int,
-        curve_form: BSplineCurveFormEnum,
-        knot_spec: KnotType = KnotType.UNSPECIFIED,
-        num_interpolation_points: int = 100,
+    points: list[Point | tuple[float, float, float]],
+    degree: int,
+    curve_form: BSplineCurveFormEnum,
+    knot_spec: KnotType = KnotType.UNSPECIFIED,
+    num_interpolation_points: int = 100,
 ) -> BSplineCurveWithKnots:
     num_points = len(points)
     knot_multiplicities = [degree + 1] + [1] * (num_points - 2) + [degree + 1]
@@ -55,11 +53,9 @@ def create_bspline_curve(
     )
 
 
-from collections import Counter
-
-
-def calculate_multiplicities(u_degree: int, v_degree: int, u_knots: list[float], v_knots: list[float],
-                             num_u_points: int, num_v_points: int) -> tuple[list[int], list[int]]:
+def calculate_multiplicities(
+    u_degree: int, v_degree: int, u_knots: list[float], v_knots: list[float], num_u_points: int, num_v_points: int
+) -> tuple[list[int], list[int]]:
     """
     Function to calculate the multiplicities for U and V knot vectors.
 

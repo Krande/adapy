@@ -2,7 +2,6 @@ import pathlib
 import xml.etree.ElementTree as ET
 
 from ada import Part
-from ada.api.plates import PlateCurved
 from ada.cadit.gxml.read.helpers import (
     apply_mass_density_factors,
     yield_plate_elems_to_plate,
@@ -17,8 +16,6 @@ from ada.cadit.gxml.read.read_sets import get_sets
 from ada.cadit.gxml.sat_helpers import write_xml_sat_text_to_file
 from ada.cadit.sat.store import SatReaderFactory
 from ada.config import Config, logger
-from ada.core.guid import create_guid
-from ada.geom import Geometry
 
 
 class GxmlStore:
@@ -75,7 +72,6 @@ class GxmlStore:
 
     def to_part(self, extract_joints=False) -> Part:
         from ada.api.containers import Beams, Plates
-        from ada import Shape
 
         p = self.p
         p._plates = Plates(self.iter_plates_from_xml(), parent=p)

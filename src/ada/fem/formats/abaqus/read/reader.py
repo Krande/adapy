@@ -132,7 +132,7 @@ def read_bulk_w_includes(inp_path) -> str:
         bulk_str = inpDeck.read()
         for m in re_bulk_include.finditer(bulk_str):
             search_key = m.group(0)
-            filepath = (inp_path.parent / m.group(1).replace('\\', '/')).resolve()
+            filepath = (inp_path.parent / m.group(1).replace("\\", "/")).resolve()
             with open(filepath, "r") as d:
                 bulk_repl[search_key] = d.read()
 

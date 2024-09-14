@@ -1,5 +1,4 @@
 import ada
-from ada.config import Config
 from ada.geom.surfaces import AdvancedFace
 
 

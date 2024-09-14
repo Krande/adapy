@@ -10,8 +10,10 @@ from ada.geom.surfaces import (
     RationalBSplineSurfaceWithKnots,
 )
 
+
 class ACISReferenceDataError(Exception):
     pass
+
 
 def create_bsplinesurface_from_sat(spline_data_str: str) -> BSplineSurfaceWithKnots | RationalBSplineSurfaceWithKnots:
     head, data = spline_data_str.split("{")
@@ -25,26 +27,25 @@ def create_bsplinesurface_from_sat(spline_data_str: str) -> BSplineSurfaceWithKn
     has_extra_zero = dline[1] == "0"
 
     # Adjust indices based on whether the "0" is present
-
     surface_type_idx = 3 if has_extra_zero else 2
     u_degree_idx = 4 if has_extra_zero else 3
     v_degree_idx = 5 if has_extra_zero else 4
-    u_closure_idx = 7 if has_extra_zero else 5
-    v_closure_idx = 8 if has_extra_zero else 6
 
     # Surface type: "nurbs", "nubs", or "nullbs"
     surface_type = dline[surface_type_idx]
 
     if surface_type == "nullbs":
-        return {"error": "No curve data available for nullbs surface type"}
+        raise ACISReferenceDataError("Null B-spline surfaces not supported")
 
     # Degrees in U and V directions
     u_degree = int(dline[u_degree_idx])
     v_degree = int(dline[v_degree_idx])
 
     # Knot closure type: "open", "closed", or "periodic"
-    u_closure = dline[u_closure_idx]
-    v_closure = dline[v_closure_idx]
+    # u_closure_idx = 7 if has_extra_zero else 5
+    # v_closure_idx = 8 if has_extra_zero else 6
+    # u_closure = dline[u_closure_idx]
+    # v_closure = dline[v_closure_idx]
 
     # Parse U knot vector (second line)
     u_knot_data = [float(x) for x in data_lines[1].split()]

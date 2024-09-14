@@ -4,7 +4,7 @@ from ada.api.plates import PlateCurved
 from ada.cadit.gxml.read.read_beams import el_to_beam
 from ada.cadit.gxml.read.read_materials import get_materials
 from ada.cadit.gxml.read.read_sections import get_sections
-from ada.config import logger, Config
+from ada.config import Config, logger
 from ada.geom import Geometry
 
 
@@ -53,7 +53,9 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map):
         t = thick_map.get(plate_elem.attrib["thickness_ref"])
 
         if isinstance(sat_data, Geometry) and Config().gxml_import_advanced_faces is True:
-            yield PlateCurved(name, sat_data, t=t, mat=mat, metadata=dict(props=dict(gxml_face_ref=face_ref)), parent=parent)
+            yield PlateCurved(
+                name, sat_data, t=t, mat=mat, metadata=dict(props=dict(gxml_face_ref=face_ref)), parent=parent
+            )
         else:
             if sat_data is None:
                 logger.warning(f'Unable to find face_ref="{face_ref}"')

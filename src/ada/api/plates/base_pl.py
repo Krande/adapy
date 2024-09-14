@@ -18,6 +18,8 @@ from ada.materials import Material
 from ada.materials.metals import CarbonSteel
 
 if TYPE_CHECKING:
+    from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
+
     from ada import Placement
 
 _NTYPE = Union[int, float]
@@ -40,18 +42,18 @@ class Plate(BackendGeom):
     """
 
     def __init__(
-            self,
-            name: str,
-            points: CurvePoly2d | list[tuple[_NTYPE, _NTYPE]],
-            t: float,
-            mat: str | Material = "S420",
-            origin: Iterable | Point = None,
-            xdir: Iterable | Direction = None,
-            n: Iterable | Direction = None,
-            orientation: Placement = None,
-            pl_id=None,
-            tol=None,
-            **kwargs,
+        self,
+        name: str,
+        points: CurvePoly2d | list[tuple[_NTYPE, _NTYPE]],
+        t: float,
+        mat: str | Material = "S420",
+        origin: Iterable | Point = None,
+        xdir: Iterable | Direction = None,
+        n: Iterable | Direction = None,
+        orientation: Placement = None,
+        pl_id=None,
+        tol=None,
+        **kwargs,
     ):
         super().__init__(name, **kwargs)
         self._pl_id = pl_id
@@ -83,8 +85,7 @@ class Plate(BackendGeom):
         return Plate(name, poly, t, mat=mat, color=color, metadata=metadata, **kwargs)
 
     @staticmethod
-    def from_extruded_area_solid(name, solid: ExtrudedAreaSolid):
-        ...
+    def from_extruded_area_solid(name, solid: ExtrudedAreaSolid): ...
 
     def bbox(self) -> BoundingBox:
         """Bounding Box of plate"""
@@ -220,3 +221,11 @@ class PlateCurved(BackendGeom):
     @property
     def geom(self) -> Geometry:
         return self._geom
+
+    def solid_geom(self) -> Geometry:
+        return self.geom
+
+    def solid_occ(self) -> TopoDS_Shape | TopoDS_Compound:
+        from ada.occ.geom import geom_to_occ_geom
+
+        return geom_to_occ_geom(self.solid_geom())

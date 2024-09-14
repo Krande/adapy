@@ -50,11 +50,14 @@ def tessellate_edges(shape: TopoDS_Edge, deflection=0.01) -> LineMesh:
     np_edge_indices = np.arange(np_edge_vertices.shape[0], dtype=np.uint32)
     return LineMesh(np_edge_vertices, np_edge_indices)
 
+
 def tessellate_advanced_face(face: TopoDS_Shape, linear_deflection=0.1, angular_deflection=0.1, relative=True) -> None:
     # Perform tessellation using BRepMesh_IncrementalMesh
     mesh = BRepMesh_IncrementalMesh(face, linear_deflection, relative, angular_deflection)
     if not mesh.IsDone():
         raise RuntimeError("Tessellation failed")
+
+    mesh.Perform()
 
 
 def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, parallel=True) -> TriangleMesh:
@@ -155,12 +158,13 @@ class BatchTessellator:
         #     raise UnableToCreateTesselationFromSolidOCCGeom(e)
 
         if obj is not None and obj.parent is not None and obj.parent.placement is not None:
-            position = obj.parent.placement.to_axis2placement3d(use_absolute_placement=True)
+            if not obj.parent.placement.is_identity(use_absolute_placement=True):
+                position = obj.parent.placement.to_axis2placement3d(use_absolute_placement=True)
 
-            trsf = gp_Trsf()
-            trsf.SetTranslation(gp_Vec(*position.location))
-            occ_geom = BRepBuilderAPI_Transform(occ_geom, trsf, True).Shape()
-            # occ_geom = transform_shape_to_pos(occ_geom, position.location, position.axis, position.ref_direction)
+                trsf = gp_Trsf()
+                trsf.SetTranslation(gp_Vec(*position.location))
+                occ_geom = BRepBuilderAPI_Transform(occ_geom, trsf, True).Shape()
+                # occ_geom = transform_shape_to_pos(occ_geom, position.location, position.axis, position.ref_direction)
 
         return self.tessellate_occ_geom(occ_geom, getattr(obj, "guid", geom.id), geom.color)
 

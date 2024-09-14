@@ -1,18 +1,21 @@
 from typing import Iterable
 
-from ada.cadit.step.read.geom.helpers import array1_to_list, array1_to_int_list, array2_to_point_list
-from ada.cadit.step.read.geom.curves import process_wire, get_wires_from_face
-from ada.config import logger
-
-from ada.geom import surfaces as geo_su
-from ada.geom import curves as geo_cu
 from OCC.Core.BRep import BRep_Tool
 from OCC.Core.Geom import Geom_BSplineSurface, Geom_Surface
-from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_WIRE
-from OCC.Core.TopExp import TopExp_Explorer
-from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Wire
 from OCC.Core.GeomAbs import GeomAbs_C0, GeomAbs_C1, GeomAbs_C2, GeomAbs_CN
+from OCC.Core.TopAbs import TopAbs_FACE
+from OCC.Core.TopExp import TopExp_Explorer
+from OCC.Core.TopoDS import TopoDS_Compound
 
+from ada.cadit.step.read.geom.curves import get_wires_from_face
+from ada.cadit.step.read.geom.helpers import (
+    array1_to_int_list,
+    array1_to_list,
+    array2_to_point_list,
+)
+from ada.config import logger
+from ada.geom import curves as geo_cu
+from ada.geom import surfaces as geo_su
 
 # Assuming occ_geom is your TopoDS_Compound
 # Helper functions to convert OCC arrays to Python lists
@@ -85,6 +88,5 @@ def get_bsplinesurface_with_knots(surface: Geom_Surface) -> geo_su.BSplineSurfac
         v_multiplicities=v_multiplicities_list,
         u_knots=u_knots_list,
         v_knots=v_knots_list,
-        knot_spec=knot_spec
+        knot_spec=knot_spec,
     )
-
