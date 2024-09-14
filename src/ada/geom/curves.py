@@ -226,6 +226,7 @@ class RationalBSplineCurveWithKnots(BSplineCurveWithKnots):
 class Edge:
     """
     IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcEdge.htm)
+    STEP (https://www.steptools.com/stds/stp_aim/html/t_edge.html)
     """
 
     start: Point
@@ -256,10 +257,22 @@ class Edge:
 class OrientedEdge(Edge):
     """
     IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcOrientedEdge.htm)
+    STEP (https://www.steptools.com/stds/stp_aim/html/t_oriented_edge.html)
     """
 
     edge_element: Edge
     orientation: bool
+
+
+@dataclass
+class EdgeCurve(Edge):
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcEdgeCurve.htm)
+    STEP (https://www.steptools.com/stds/stp_aim/html/t_edge_curve.html)
+    """
+
+    edge_geometry: CURVE_GEOM_TYPES
+    same_sense: bool
 
 
 @dataclass
