@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Iterable
 
 from ada import Point
+import numpy as np
 from ada.cadit.sat.read.bsplinesurface import ACISReferenceDataError
 from ada.cadit.sat.read.sat_entities import AcisRecord
 from ada.config import Config, logger
@@ -13,6 +14,7 @@ from ada.geom.curves import (
     KnotType,
     RationalBSplineCurveWithKnots,
 )
+from ada.geom.placement import Axis2Placement3D, Direction
 
 
 class UnsupportedCurveType(Exception):
@@ -45,7 +47,7 @@ def create_bspline_curve_from_sat(spline_record: AcisRecord) -> BSplineCurveWith
 
     spl_type = dline[0]
     if spl_type in ("lawintcur",):
-        logger.info(f"Skipping curve of type {spl_type}")
+        logger.error(f"Skipping curve of type {spl_type}")
         return None
 
     logger.info(f"Creating B-spline curve of type {spl_type}")
@@ -126,6 +128,51 @@ def create_bspline_curve_from_sat(spline_record: AcisRecord) -> BSplineCurveWith
         )
     return curve
 
+def get_ellipse_curve(ellipse_record: AcisRecord) -> geo_cu.Ellipse:
+    chunks = ellipse_record.chunks
+
+    # Ellipse indices
+    center_idx = 6
+    major_axis_idx = 12
+    minor_axis_idx = 9
+
+    # Extract the center point
+    center = Point(
+        float(chunks[center_idx]),
+        float(chunks[center_idx + 1]),
+        float(chunks[center_idx + 2])
+    )
+
+    # Extract major and minor axis vectors
+    major_axis_vector = Direction(
+        float(chunks[major_axis_idx]),
+        float(chunks[major_axis_idx + 1]),
+        float(chunks[major_axis_idx + 2])
+    )
+    minor_axis_vector = Direction(
+        float(chunks[minor_axis_idx]),
+        float(chunks[minor_axis_idx + 1]),
+        float(chunks[minor_axis_idx + 2])
+    )
+
+    # Compute semi-axis lengths
+    semi_axis1 = major_axis_vector.get_length()
+    semi_axis2 = minor_axis_vector.get_length()
+
+    # Normalize the major axis vector
+    direction_major_axis = major_axis_vector.get_normalized()
+
+    # Compute the normal vector using cross product
+    normal_vector = Direction(np.cross(major_axis_vector, minor_axis_vector)).get_normalized()
+
+    # Create the position object
+    position = Axis2Placement3D(
+        location=center,
+        axis=normal_vector,
+        ref_direction=direction_major_axis
+    )
+
+    return geo_cu.Ellipse(position, semi_axis1=semi_axis1, semi_axis2=semi_axis2)
 
 def get_edge(coedge: AcisRecord) -> geo_cu.OrientedEdge:
     sat_store = coedge.sat_store
@@ -157,10 +204,12 @@ def get_edge(coedge: AcisRecord) -> geo_cu.OrientedEdge:
         edge_element = geo_cu.Edge(p1, p2)
     elif curve_record.type == "intcurve-curve":
         edge_curve = create_bspline_curve_from_sat(curve_record)
+        if edge_curve is None:
+            raise ACISReferenceDataError("Failed to create B-spline curve from SAT data")
         edge_element = geo_cu.EdgeCurve(p1, p2, edge_curve, True)
     elif curve_record.type == "ellipse-curve":
-        # edge_element = geo_cu.Ellipse(pos, r1, r2)
-        raise UnsupportedCurveType(f"Curve type {curve_record.type} is not supported.")
+        edge_curve = get_ellipse_curve(curve_record)
+        edge_element = geo_cu.EdgeCurve(p1, p2, edge_curve, True)
     else:
         raise UnsupportedCurveType(f"Curve type {curve_record.type} is not supported.")
 

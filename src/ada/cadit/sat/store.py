@@ -127,7 +127,7 @@ class SatReaderFactory:
                 continue
             try:
                 yield face_record, create_advanced_face_from_sat(face_record)
-            except (ACISReferenceDataError, UnsupportedCurveType) as e:
+            except (ACISReferenceDataError,) as e:
                 trace_msg = traceback.format_exc()
                 name = face_record.get_name()
                 logger.debug(f"Unable to create face record {name}. Fallback to flat Plate due to: {e} {trace_msg}")
@@ -138,3 +138,12 @@ class SatReaderFactory:
                 continue
             face_name = self.sat_store.get_name(record.chunks[2])
             yield face_name, Geometry(create_guid(), advanced_face, None)
+
+    def iter_all_faces(self) -> Iterable[tuple[AcisRecord, Geometry]]:
+        for i, (record, advanced_face) in enumerate(self.iter_advanced_faces()):
+            if advanced_face is None:
+                continue
+            face_name = self.sat_store.get_name(record.chunks[2])
+            yield face_name, Geometry(create_guid(), advanced_face, None)
+        for i, (record, plate) in enumerate(self.iter_flat_plates()):
+            yield record, Geometry(create_guid(), plate, None)

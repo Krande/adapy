@@ -58,3 +58,21 @@ def test_read_b_spline_surf_w_knots(example_files, tmp_path):
 
     a = ada.Assembly() / shp
     a.to_ifc(tmp_path / "bsplinesurfacewithknots.ifc", validate=True)
+
+def test_read_ellipse_face(example_files, tmp_path):
+    sat_reader = SatReaderFactory(example_files / "sat_files/3_plates_ellipse.sat")
+    advanced_faces = list(sat_reader.iter_advanced_faces())
+    assert len(advanced_faces) == 1
+    _, adv_face1 = advanced_faces[0]
+
+    shp1 = ada.Shape("plate", ada.geom.Geometry(1, adv_face1, None))
+
+    assert type(adv_face1.face_surface) is geo_su.RationalBSplineSurfaceWithKnots
+    face_surf = adv_face1.face_surface
+
+    _, adv_face2 = advanced_faces[1]
+
+    shp2 = ada.Shape("plate", ada.geom.Geometry(1, adv_face2, None))
+
+    a = ada.Assembly() / (shp1, shp2)
+    a.to_ifc(tmp_path / "3_plates_ellipse.ifc", validate=True)
