@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ada import Point
+from ada.cadit.sat.read.sat_entities import AcisRecord
 from ada.config import logger
 from ada.geom.curve_utils import calculate_multiplicities
 from ada.geom.curves import KnotType
@@ -15,7 +16,10 @@ class ACISReferenceDataError(Exception):
     pass
 
 
-def create_bsplinesurface_from_sat(spline_data_str: str) -> BSplineSurfaceWithKnots | RationalBSplineSurfaceWithKnots:
+def create_bsplinesurface_from_sat(
+    spline_surface_record: AcisRecord,
+) -> BSplineSurfaceWithKnots | RationalBSplineSurfaceWithKnots:
+    spline_data_str = spline_surface_record.get_as_string()
     head, data = spline_data_str.split("{")
 
     data_lines = [x.strip() for x in data.splitlines()]
@@ -76,11 +80,14 @@ def create_bsplinesurface_from_sat(spline_data_str: str) -> BSplineSurfaceWithKn
     for _ in range(control_points_u):
         weights.append([None] * control_points_v)
 
+    is_rational = True
     for v in range(control_points_v):
         for u in range(control_points_u):
             u_point_data = [float(x) for x in data_lines[control_point_start_line].split()]
             if len(u_point_data) == 4:
                 weights[u][v] = u_point_data[3]
+            else:
+                is_rational = False
             control_points[u][v] = Point(*u_point_data[:3])
             control_point_start_line += 1
 
@@ -93,7 +100,7 @@ def create_bsplinesurface_from_sat(spline_data_str: str) -> BSplineSurfaceWithKn
     if dline[0] == "exactsur":
         logger.info("Exact surface")
 
-    if weights is not None:
+    if is_rational:
         surface = RationalBSplineSurfaceWithKnots(
             u_degree=u_degree,
             v_degree=v_degree,

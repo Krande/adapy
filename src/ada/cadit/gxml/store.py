@@ -57,7 +57,8 @@ class GxmlStore:
     def iter_plates_from_xml(self):
         sat_d = {name: points for name, points in self.sat_factory.iter_flat_plates()}
         if Config().gxml_import_advanced_faces is True:
-            sat_d.update({name: geom for name, geom in self.sat_factory.iter_curved_face()})
+            sat_faces = {name: geom for name, geom in self.sat_factory.iter_curved_face()}
+            sat_d.update(sat_faces)
 
         thick_map = dict()
         for thickn in self.xml_root.iterfind(".//thickness"):

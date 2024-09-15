@@ -3,7 +3,7 @@ from __future__ import annotations
 import ifcopenshell
 
 from ada.cadit.ifc.write.geom.placement import ifc_placement_from_axis3d
-from ada.cadit.ifc.write.geom.points import vrtx
+from ada.cadit.ifc.write.geom.points import cpt, vrtx
 from ada.geom import curves as geo_cu
 
 
@@ -37,13 +37,72 @@ def edge(e: geo_cu.Edge, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     return f.create_entity("IfcEdge", EdgeStart=vrtx(f, e.start), EdgeEnd=vrtx(f, e.end))
 
 
+def rational_b_spline_curve_with_knots(
+    rbs: geo_cu.RationalBSplineCurveWithKnots, f: ifcopenshell.file
+) -> ifcopenshell.entity_instance:
+    """Converts a RationalBSplineCurveWithKnots to an IFC representation"""
+    control_points = [cpt(f, x) for x in rbs.control_points_list]
+
+    return f.create_entity(
+        "IfcRationalBSplineCurveWithKnots",
+        Degree=rbs.degree,
+        ControlPointsList=control_points,
+        CurveForm=rbs.curve_form.value,
+        ClosedCurve=rbs.closed_curve,
+        SelfIntersect=rbs.self_intersect,
+        Knots=rbs.knots,
+        KnotMultiplicities=rbs.knot_multiplicities,
+        KnotSpec=rbs.knot_spec.value,
+        WeightsData=rbs.weights_data,
+    )
+
+
+def b_spline_curve_with_knots(bs: geo_cu.BSplineCurveWithKnots, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a BSplineCurveWithKnots to an IFC representation"""
+    control_points = [cpt(f, x) for x in bs.control_points_list]
+
+    return f.create_entity(
+        "IfcBSplineCurveWithKnots",
+        Degree=bs.degree,
+        ControlPointsList=control_points,
+        CurveForm=bs.curve_form.value,
+        ClosedCurve=bs.closed_curve,
+        SelfIntersect=bs.self_intersect,
+        Knots=bs.knots,
+        KnotMultiplicities=bs.knot_multiplicities,
+        KnotSpec=bs.knot_spec.value,
+    )
+
+
+def edge_curve(ec: geo_cu.EdgeCurve, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts an EdgeCurve to an IFC representation"""
+    if isinstance(ec.edge_geometry, geo_cu.RationalBSplineCurveWithKnots):
+        edge_geometry = rational_b_spline_curve_with_knots(ec.edge_geometry, f)
+    elif isinstance(ec.edge_geometry, geo_cu.BSplineCurveWithKnots):
+        edge_geometry = b_spline_curve_with_knots(ec.edge_geometry, f)
+    else:
+        raise NotImplementedError(f"Unsupported edge geometry type: {type(ec.edge_geometry)}")
+
+    return f.create_entity(
+        "IfcEdgeCurve",
+        EdgeStart=vrtx(f, ec.start),
+        EdgeEnd=vrtx(f, ec.end),
+        EdgeGeometry=edge_geometry,
+        SameSense=ec.same_sense,
+    )
+
+
 def oriented_edge(oe: geo_cu.OrientedEdge, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts an OrientedEdge to an IFC representation"""
+    if isinstance(oe.edge_element, geo_cu.EdgeCurve):
+        edge_element = edge_curve(oe.edge_element, f)
+    elif isinstance(oe.edge_element, geo_cu.Edge):
+        edge_element = edge(oe.edge_element, f)
     return f.create_entity(
         "IfcOrientedEdge",
         EdgeStart=None,  # vrtx(f, oe.edge_start),
         EdgeEnd=None,  # vrtx(f, oe.edge_end),
-        EdgeElement=edge(oe.edge_element, f),
+        EdgeElement=edge_element,
         Orientation=oe.orientation,
     )
 

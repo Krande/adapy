@@ -107,6 +107,12 @@ class Config:
             ],
         ),
         ConfigSection(
+            "sat",
+            [
+                ConfigEntry("read_curve_ignore_bspline", bool, False),
+            ],
+        ),
+        ConfigSection(
             "fem_analysis",
             [
                 ConfigEntry("execute_dir", str, None, False),

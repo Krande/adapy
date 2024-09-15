@@ -41,24 +41,42 @@ def arbitrary_profile_def(apd: geo_su.ArbitraryProfileDef, f: ifcopenshell.file)
 
 
 def bspline_surface_with_knots(
-    bs: geo_su.BSplineSurfaceWithKnots, f: ifcopenshell.file
+    bs: geo_su.BSplineSurfaceWithKnots | geo_su.RationalBSplineSurfaceWithKnots, f: ifcopenshell.file
 ) -> ifcopenshell.entity_instance:
     """Converts a BSplineSurfaceWithKnots to an IFC representation"""
-    return f.create_entity(
-        "IfcBSplineSurfaceWithKnots",
-        UDegree=bs.u_degree,
-        VDegree=bs.v_degree,
-        ControlPointsList=[[cpt(f, p) for p in x] for x in bs.control_points_list],
-        SurfaceForm=bs.surface_form.value,
-        UClosed=bs.u_closed,
-        VClosed=bs.v_closed,
-        SelfIntersect=bs.self_intersect,
-        UMultiplicities=bs.u_multiplicities,
-        VMultiplicities=bs.v_multiplicities,
-        UKnots=bs.u_knots,
-        VKnots=bs.v_knots,
-        KnotSpec=bs.knot_spec.value,
-    )
+    if type(bs) == geo_su.BSplineSurfaceWithKnots:
+        return f.create_entity(
+            "IfcBSplineSurfaceWithKnots",
+            UDegree=bs.u_degree,
+            VDegree=bs.v_degree,
+            ControlPointsList=[[cpt(f, p) for p in x] for x in bs.control_points_list],
+            SurfaceForm=bs.surface_form.value,
+            UClosed=bs.u_closed,
+            VClosed=bs.v_closed,
+            SelfIntersect=bs.self_intersect,
+            UMultiplicities=bs.u_multiplicities,
+            VMultiplicities=bs.v_multiplicities,
+            UKnots=bs.u_knots,
+            VKnots=bs.v_knots,
+            KnotSpec=bs.knot_spec.value,
+        )
+    elif type(bs) == geo_su.RationalBSplineSurfaceWithKnots:
+        return f.create_entity(
+            "IfcRationalBSplineSurfaceWithKnots",
+            UDegree=bs.u_degree,
+            VDegree=bs.v_degree,
+            ControlPointsList=[[cpt(f, p) for p in x] for x in bs.control_points_list],
+            SurfaceForm=bs.surface_form.value,
+            UClosed=bs.u_closed,
+            VClosed=bs.v_closed,
+            SelfIntersect=bs.self_intersect,
+            UMultiplicities=bs.u_multiplicities,
+            VMultiplicities=bs.v_multiplicities,
+            UKnots=bs.u_knots,
+            VKnots=bs.v_knots,
+            KnotSpec=bs.knot_spec.value,
+            WeightsData=bs.weights_data,
+        )
 
 
 def face_bound(fb: geo_su.FaceBound, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
@@ -77,7 +95,7 @@ def face_bound(fb: geo_su.FaceBound, f: ifcopenshell.file) -> ifcopenshell.entit
 
 def advanced_face(af: geo_su.AdvancedFace, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts an AdvancedFace to an IFC representation"""
-    if isinstance(af.face_surface, geo_su.BSplineSurfaceWithKnots):
+    if type(af.face_surface) in (geo_su.BSplineSurfaceWithKnots, geo_su.RationalBSplineSurfaceWithKnots):
         face_surface = bspline_surface_with_knots(af.face_surface, f)
     else:
         raise NotImplementedError(f"Unsupported face surface type: {type(af.face_surface)}")

@@ -1,11 +1,11 @@
 import ada
-import ada.geom
 import ada.geom.curves as geo_cu
 import ada.geom.surfaces as geo_su
 from ada.cadit.sat.store import SatReaderFactory
 
 
-def test_read_b_spline_surf_w_knots_2(example_files, tmp_path):
+def test_read_b_spline_surf_w_knots_2(example_files, tmp_path, monkeypatch):
+    # monkeypatch.setenv("ADA_SAT_READ_CURVE_IGNORE_BSPLINE", "true")
     sat_reader = SatReaderFactory(example_files / "sat_files/curved_plate.sat")
     advanced_faces = list(sat_reader.iter_advanced_faces())
 
@@ -19,7 +19,7 @@ def test_read_b_spline_surf_w_knots_2(example_files, tmp_path):
 
     bounds = adv_face.bounds
     assert len(bounds) == 1
-    
+
     edge_loop = bounds[0].bound
 
     assert isinstance(edge_loop, geo_cu.EdgeLoop)
@@ -48,7 +48,7 @@ def test_read_b_spline_surf_w_knots(example_files, tmp_path):
     assert len(advanced_faces) == 1
     _, adv_face = advanced_faces[0]
 
-    assert isinstance(adv_face.face_surface, geo_su.BSplineSurfaceWithKnots)
+    assert type(adv_face.face_surface) is geo_su.BSplineSurfaceWithKnots
     face_surf = adv_face.face_surface
 
     assert len(face_surf.control_points_list) == 4
