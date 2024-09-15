@@ -58,7 +58,7 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map):
             )
         else:
             if sat_data is None:
-                logger.warning(f'Unable to find face_ref="{face_ref}"')
+                logger.debug(f'Unable to find face_ref="{face_ref}"')
                 continue
 
             try:

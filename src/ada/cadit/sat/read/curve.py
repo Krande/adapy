@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Iterable
 
 from ada import Point
+from ada.cadit.sat.read.bsplinesurface import ACISReferenceDataError
 from ada.cadit.sat.read.sat_entities import AcisRecord
 from ada.config import Config, logger
 from ada.geom import curves as geo_cu
@@ -14,7 +15,11 @@ from ada.geom.curves import (
 )
 
 
-def create_bspline_curve_from_sat(spline_record: AcisRecord) -> BSplineCurveWithKnots:
+class UnsupportedCurveType(Exception):
+    pass
+
+
+def create_bspline_curve_from_sat(spline_record: AcisRecord) -> BSplineCurveWithKnots | None:
     spline_data_str = spline_record.get_as_string()
     split_data = spline_data_str.split("{", 1)
     if len(split_data) < 2:
@@ -33,8 +38,30 @@ def create_bspline_curve_from_sat(spline_record: AcisRecord) -> BSplineCurveWith
         logger.error("Invalid spline header line: {}".format(dline))
         return None
 
-    degree = int(dline[3])
-    closed_curve = False if dline[4] == "open" else True
+    if dline[0] == "ref":
+        raise ACISReferenceDataError("Reference data not supported")
+
+    has_extra_zero = dline[1] == "0"
+
+    spl_type = dline[0]
+    if spl_type in ("lawintcur",):
+        logger.info(f"Skipping curve of type {spl_type}")
+        return None
+
+    logger.info(f"Creating B-spline curve of type {spl_type}")
+
+    # Adjust indices based on whether the "0" is present
+    curve_type_idx = 3 if has_extra_zero else 2
+    u_degree_idx = 4 if has_extra_zero else 3
+    u_closure_idx = 5 if has_extra_zero else 4
+
+    # Curve type: "nurbs", "nubs", or "nullbs"
+    curve_type = dline[curve_type_idx]
+    if curve_type == "nullbs":
+        raise ACISReferenceDataError("Null B-spline surfaces not supported")
+
+    degree = int(dline[u_degree_idx])
+    closed_curve = False if dline[u_closure_idx] == "open" else True
 
     # Extract knots and multiplicities
     knots_in = [float(x) for x in data_lines[1].split()]
@@ -53,10 +80,12 @@ def create_bspline_curve_from_sat(spline_record: AcisRecord) -> BSplineCurveWith
     for line in control_point_lines:
         if line.strip() == "0":  # End of control points
             break
-        values = [float(i) for i in line.split()]
-        if len(values) < 3:
+        lsplit = line.split()
+        if len(lsplit) < 3:
             logger.warning("Incomplete control point data: {}".format(line))
-            continue
+            break
+        values = [float(i) for i in lsplit]
+
         control_points.append(values)
 
     if len(control_points) != num_control_points:
@@ -95,7 +124,6 @@ def create_bspline_curve_from_sat(spline_record: AcisRecord) -> BSplineCurveWith
             knot_multiplicities=mult,
             knot_spec=KnotType.UNSPECIFIED,
         )
-
     return curve
 
 
@@ -130,8 +158,11 @@ def get_edge(coedge: AcisRecord) -> geo_cu.OrientedEdge:
     elif curve_record.type == "intcurve-curve":
         edge_curve = create_bspline_curve_from_sat(curve_record)
         edge_element = geo_cu.EdgeCurve(p1, p2, edge_curve, True)
+    elif curve_record.type == "ellipse-curve":
+        # edge_element = geo_cu.Ellipse(pos, r1, r2)
+        raise UnsupportedCurveType(f"Curve type {curve_record.type} is not supported.")
     else:
-        raise NotImplementedError(f"Curve type {curve_record.type} is not supported.")
+        raise UnsupportedCurveType(f"Curve type {curve_record.type} is not supported.")
 
     return geo_cu.OrientedEdge(p1, p2, edge_element, ori)
 

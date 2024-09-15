@@ -5,6 +5,7 @@ from typing import Iterable
 
 from ada.cadit.sat.read.advanced_face import create_advanced_face_from_sat
 from ada.cadit.sat.read.bsplinesurface import ACISReferenceDataError
+from ada.cadit.sat.read.curve import UnsupportedCurveType
 from ada.cadit.sat.read.face import PlateFactory
 from ada.cadit.sat.read.sat_entities import AcisRecord
 from ada.config import logger
@@ -126,7 +127,7 @@ class SatReaderFactory:
                 continue
             try:
                 yield face_record, create_advanced_face_from_sat(face_record)
-            except ACISReferenceDataError as e:
+            except (ACISReferenceDataError, UnsupportedCurveType) as e:
                 trace_msg = traceback.format_exc()
                 name = face_record.get_name()
                 logger.debug(f"Unable to create face record {name}. Fallback to flat Plate due to: {e} {trace_msg}")
