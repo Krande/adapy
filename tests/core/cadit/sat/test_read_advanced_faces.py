@@ -59,20 +59,29 @@ def test_read_b_spline_surf_w_knots(example_files, tmp_path):
     a = ada.Assembly() / shp
     a.to_ifc(tmp_path / "bsplinesurfacewithknots.ifc", validate=True)
 
+
 def test_read_ellipse_face(example_files, tmp_path):
     sat_reader = SatReaderFactory(example_files / "sat_files/3_plates_ellipse.sat")
-    advanced_faces = list(sat_reader.iter_advanced_faces())
-    assert len(advanced_faces) == 1
-    _, adv_face1 = advanced_faces[0]
+    faces = list(sat_reader.iter_all_faces())
+    assert len(faces) == 3
+    faces_map = {}
+    for face in faces:
+        face_record, face_obj = face
+        face_name = sat_reader.sat_store.get_name(face_record.chunks[2])
+        faces_map[face_name] = face_obj
 
-    shp1 = ada.Shape("plate", ada.geom.Geometry(1, adv_face1, None))
+    face_001 = faces_map["FACE00000001"]
+    assert type(face_001) is geo_su.Face
+    shp1 = ada.Shape("plate", ada.geom.Geometry(1, face_001, None))
 
-    assert type(adv_face1.face_surface) is geo_su.RationalBSplineSurfaceWithKnots
-    face_surf = adv_face1.face_surface
+    face_002 = faces_map["FACE00000002"]
+    assert type(face_002.face_surface) is geo_su.RationalBSplineSurfaceWithKnots
 
-    _, adv_face2 = advanced_faces[1]
+    shp2 = ada.Shape("plate", ada.geom.Geometry(1, face_002, None))
 
-    shp2 = ada.Shape("plate", ada.geom.Geometry(1, adv_face2, None))
+    face_003 = faces_map["FACE00000003"]
+    assert type(face_003.face_surface) is geo_su.RationalBSplineSurfaceWithKnots
+    shp3 = ada.Shape("plate", ada.geom.Geometry(1, face_003, None))
+    a = ada.Assembly() / (shp1, shp2, shp3)
 
-    a = ada.Assembly() / (shp1, shp2)
     a.to_ifc(tmp_path / "3_plates_ellipse.ifc", validate=True)

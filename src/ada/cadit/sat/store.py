@@ -3,15 +3,14 @@ from __future__ import annotations
 import traceback
 from typing import Iterable
 
-from ada.cadit.sat.read.advanced_face import create_advanced_face_from_sat
+import ada.geom.surfaces as geo_su
+from ada.cadit.sat.read.advanced_face import create_advanced_face_from_sat, create_planar_face_from_sat
 from ada.cadit.sat.read.bsplinesurface import ACISReferenceDataError
-from ada.cadit.sat.read.curve import UnsupportedCurveType
 from ada.cadit.sat.read.face import PlateFactory
 from ada.cadit.sat.read.sat_entities import AcisRecord
 from ada.config import logger
 from ada.core.guid import create_guid
 from ada.geom import Geometry
-from ada.geom.surfaces import AdvancedFace
 
 
 class SatReader:
@@ -120,7 +119,7 @@ class SatReaderFactory:
                 continue
             yield pl
 
-    def iter_advanced_faces(self) -> Iterable[tuple[AcisRecord, AdvancedFace]]:
+    def iter_advanced_faces(self) -> Iterable[tuple[AcisRecord, geo_su.AdvancedFace]]:
         for face_record in self.iter_faces():
             face_surface = self.sat_store.get(face_record.chunks[10])
             if face_surface.type != "spline-surface":
@@ -139,11 +138,12 @@ class SatReaderFactory:
             face_name = self.sat_store.get_name(record.chunks[2])
             yield face_name, Geometry(create_guid(), advanced_face, None)
 
-    def iter_all_faces(self) -> Iterable[tuple[AcisRecord, Geometry]]:
-        for i, (record, advanced_face) in enumerate(self.iter_advanced_faces()):
-            if advanced_face is None:
-                continue
-            face_name = self.sat_store.get_name(record.chunks[2])
-            yield face_name, Geometry(create_guid(), advanced_face, None)
-        for i, (record, plate) in enumerate(self.iter_flat_plates()):
-            yield record, Geometry(create_guid(), plate, None)
+    def iter_all_faces(self) -> Iterable[tuple[AcisRecord, geo_su.AdvancedFace | geo_su.CurveBoundedPlane]]:
+        for face_record in self.iter_faces():
+            face_surface = self.sat_store.get(face_record.chunks[10])
+            if face_surface.type == "spline-surface":
+                yield face_record, create_advanced_face_from_sat(face_record)
+            elif face_surface.type == "plane-surface":
+                yield face_record, create_planar_face_from_sat(face_record)
+            else:
+                raise NotImplementedError(f"Unsupported face type: {face_surface.type}")

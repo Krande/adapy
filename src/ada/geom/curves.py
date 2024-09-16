@@ -21,7 +21,6 @@ CURVE_GEOM_TYPES = Union[
     "IndexedPolyCurve",
     "PolyLine",
     "GeometricCurveSet",
-    "EdgeLoop",
 ]
 
 

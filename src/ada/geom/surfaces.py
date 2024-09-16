@@ -62,6 +62,13 @@ class FaceBound:
     bound: Union[PolyLoop, EdgeLoop]
     orientation: bool
 
+@dataclass
+class Face:
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcFace.htm)
+    """
+    bounds: list[FaceBound]
+
 
 @dataclass
 class ConnectedFaceSet:
@@ -83,6 +90,9 @@ class FaceBasedSurfaceModel:
 
 @dataclass
 class CurveBoundedPlane:
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcCurveBoundedPlane.htm)
+    """
     basis_surface: Plane
     outer_boundary: geo_cu.CURVE_GEOM_TYPES
     inner_boundaries: list[geo_cu.CURVE_GEOM_TYPES] = field(default_factory=list)
@@ -270,4 +280,5 @@ SURFACE_GEOM_TYPES = Union[
     BSplineSurfaceWithKnots,
     RationalBSplineSurfaceWithKnots,
     SurfaceOfLinearExtrusion,
+    Plane
 ]

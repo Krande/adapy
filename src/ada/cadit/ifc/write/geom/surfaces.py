@@ -6,7 +6,9 @@ from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
 
 from .curves import circle_curve, edge_loop, indexed_poly_curve
+from .placement import ifc_placement_from_axis3d
 from .points import cpt
+from ...read.geom.placement import axis2placement
 
 
 def arbitrary_profile_def(apd: geo_su.ArbitraryProfileDef, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
@@ -41,7 +43,7 @@ def arbitrary_profile_def(apd: geo_su.ArbitraryProfileDef, f: ifcopenshell.file)
 
 
 def bspline_surface_with_knots(
-    bs: geo_su.BSplineSurfaceWithKnots | geo_su.RationalBSplineSurfaceWithKnots, f: ifcopenshell.file
+        bs: geo_su.BSplineSurfaceWithKnots | geo_su.RationalBSplineSurfaceWithKnots, f: ifcopenshell.file
 ) -> ifcopenshell.entity_instance:
     """Converts a BSplineSurfaceWithKnots to an IFC representation"""
     if type(bs) == geo_su.BSplineSurfaceWithKnots:
@@ -92,6 +94,20 @@ def face_bound(fb: geo_su.FaceBound, f: ifcopenshell.file) -> ifcopenshell.entit
         Orientation=fb.orientation,
     )
 
+def create_face(face: geo_su.Face, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a Face to an IFC representation"""
+
+    bounds = []
+    for bound in face.bounds:
+        if isinstance(bound, geo_su.FaceBound):
+            bounds.append(face_bound(bound, f))
+        else:
+            raise NotImplementedError(f"Unsupported bound type: {type(bound)}")
+
+    return f.create_entity(
+        "IfcFace",
+        Bounds=bounds,
+    )
 
 def advanced_face(af: geo_su.AdvancedFace, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts an AdvancedFace to an IFC representation"""
@@ -112,4 +128,36 @@ def advanced_face(af: geo_su.AdvancedFace, f: ifcopenshell.file) -> ifcopenshell
         Bounds=bounds,
         FaceSurface=face_surface,
         SameSense=af.same_sense,
+    )
+
+
+def create_plane(plane: geo_su.Plane, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a Plane to an IFC representation"""
+    return f.create_entity(
+        "IfcPlane",
+        Position=ifc_placement_from_axis3d(plane.position, f),
+    )
+
+
+def curve_bounded_plane(cbp: geo_su.CurveBoundedPlane, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a CurveBoundedPlane to an IFC representation"""
+    basis_surface = create_plane(cbp.basis_surface, f)
+
+    if isinstance(cbp.outer_boundary, geo_cu.EdgeLoop):
+        outer_boundary = edge_loop(cbp.outer_boundary, f)
+    else:
+        raise NotImplementedError(f"Unsupported outer boundary type: {type(cbp.outer_boundary)}")
+
+    if isinstance(cbp.inner_boundaries, list) and len(cbp.inner_boundaries) == 0:
+        inner_boundaries = cbp.inner_boundaries
+    elif isinstance(cbp.inner_boundaries, geo_cu.EdgeLoop):
+        inner_boundaries = edge_loop(cbp.inner_boundaries, f)
+    else:
+        raise NotImplementedError(f"Unsupported inner boundaries type: {type(cbp.inner_boundaries)}")
+
+    return f.create_entity(
+        "IfcCurveBoundedPlane",
+        BasisSurface=basis_surface,
+        OuterBoundary=outer_boundary,
+        InnerBoundaries=inner_boundaries
     )

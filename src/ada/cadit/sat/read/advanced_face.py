@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ada.geom.curves as geo_cu
 import ada.geom.surfaces as geo_su
+from ada import Point, Direction
 from ada.cadit.sat.read.bsplinesurface import create_bsplinesurface_from_sat
 from ada.cadit.sat.read.curve import iter_loop_coedges
 from ada.cadit.sat.read.sat_entities import AcisRecord
@@ -19,12 +20,15 @@ def get_face_bound(acis_record: AcisRecord) -> list[geo_su.FaceBound]:
     return [geo_su.FaceBound(bound=geo_cu.EdgeLoop(edges), orientation=True)]
 
 
-def get_face_surface(face_record: AcisRecord) -> geo_su.BSplineSurfaceWithKnots:
+def get_face_surface(face_record: AcisRecord) -> geo_su.SURFACE_GEOM_TYPES:
     face_surface_record = face_record.sat_store.get(face_record.chunks[10])
     if face_surface_record.type == "spline-surface":
         face_surface = create_bsplinesurface_from_sat(face_surface_record)
     elif face_surface_record.type == "plane-surface":
-        raise NotImplementedError("Plane surfaces are not yet supported.")
+        pos = Point(*[float(x) for x in face_surface_record.chunks[6:9]])
+        normal = Direction(*[float(x) for x in face_surface_record.chunks[9:12]])
+        ref_dir = Direction(*[float(x) for x in face_surface_record.chunks[12:15]])
+        face_surface = geo_su.Plane(position=geo_su.Axis2Placement3D(location=pos, axis=normal, ref_direction=ref_dir))
     else:
         raise NotImplementedError(f"Unsupported surface type: {face_surface_record.type}")
 
@@ -34,7 +38,7 @@ def get_face_surface(face_record: AcisRecord) -> geo_su.BSplineSurfaceWithKnots:
     return face_surface
 
 
-def create_planar_face_from_sat(face_record: AcisRecord) -> geo_su.FaceBound:
+def create_planar_face_from_sat(face_record: AcisRecord) -> geo_su.Face:
     """Creates a PlanarFace from the SAT object data."""
     bounds = get_face_bound(face_record)
 
@@ -44,7 +48,7 @@ def create_planar_face_from_sat(face_record: AcisRecord) -> geo_su.FaceBound:
     if len(bounds) > 1:
         raise NotImplementedError(f"Multiple bounds found for {face_record}")
 
-    return bounds[0]
+    return geo_su.Face(bounds)
 
 
 def create_advanced_face_from_sat(face_record: AcisRecord) -> geo_su.AdvancedFace:
