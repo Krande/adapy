@@ -94,6 +94,19 @@ def face_bound(fb: geo_su.FaceBound, f: ifcopenshell.file) -> ifcopenshell.entit
         Orientation=fb.orientation,
     )
 
+def create_connected_face_set(cfs: geo_su.ConnectedFaceSet, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a ConnectedFaceSet to an IFC representation"""
+    bounds = []
+    for bound in cfs.cfs_faces:
+        if isinstance(bound, geo_su.FaceBound):
+            bounds.append(face_bound(bound, f))
+        else:
+            raise NotImplementedError(f"Unsupported bound type: {type(bound)}")
+
+    return f.create_entity(
+        "IfcConnectedFaceSet",
+        CfsFaces=bounds,
+    )
 def create_face(face: geo_su.Face, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts a Face to an IFC representation"""
 
@@ -107,6 +120,43 @@ def create_face(face: geo_su.Face, f: ifcopenshell.file) -> ifcopenshell.entity_
     return f.create_entity(
         "IfcFace",
         Bounds=bounds,
+    )
+
+def create_face_surface(fs: geo_su.FaceSurface, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a FaceSurface to an IFC representation"""
+    if isinstance(fs.face_surface, geo_su.Plane):
+        surface = create_plane(fs.face_surface, f)
+    else:
+        raise NotImplementedError(f"Unsupported surface type: {type(fs.face_surface)}")
+
+    bounds = []
+    for bound in fs.bounds:
+        if isinstance(bound, geo_su.FaceBound):
+            bounds.append(face_bound(bound, f))
+        else:
+            raise NotImplementedError(f"Unsupported bound type: {type(bound)}")
+
+    return f.create_entity(
+        "IfcFaceSurface",
+        Bounds=bounds,
+        FaceSurface=surface,
+        SameSense=fs.same_sense,
+    )
+
+def create_closed_shell(cs: geo_su.ClosedShell, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a ClosedShell to an IFC representation"""
+    faces = []
+    for face in cs.cfs_faces:
+        if type(face) is geo_su.Face:
+            faces.append(create_face(face, f))
+        elif type(face) is geo_su.FaceSurface:
+            faces.append(create_face_surface(face, f))
+        else:
+            raise NotImplementedError(f"Unsupported face type: {type(face)}")
+
+    return f.create_entity(
+        "IfcClosedShell",
+        CfsFaces=faces,
     )
 
 def advanced_face(af: geo_su.AdvancedFace, f: ifcopenshell.file) -> ifcopenshell.entity_instance:

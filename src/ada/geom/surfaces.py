@@ -62,6 +62,7 @@ class FaceBound:
     bound: Union[PolyLoop, EdgeLoop]
     orientation: bool
 
+
 @dataclass
 class Face:
     """
@@ -69,6 +70,14 @@ class Face:
     """
     bounds: list[FaceBound]
 
+
+@dataclass
+class FaceSurface(Face):
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcFaceSurface.htm)
+    """
+    face_surface: Union[Plane]
+    same_sense: bool = True
 
 @dataclass
 class ConnectedFaceSet:
@@ -250,6 +259,11 @@ class RationalBSplineSurfaceWithKnots(BSplineSurfaceWithKnots):
 
 
 @dataclass
+class ClosedShell:
+    cfs_faces: list[Face | FaceSurface]
+
+
+@dataclass
 class AdvancedFace:
     """
     IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcAdvancedFace.htm)
@@ -280,5 +294,4 @@ SURFACE_GEOM_TYPES = Union[
     BSplineSurfaceWithKnots,
     RationalBSplineSurfaceWithKnots,
     SurfaceOfLinearExtrusion,
-    Plane
 ]

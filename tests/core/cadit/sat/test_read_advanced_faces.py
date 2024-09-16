@@ -71,7 +71,7 @@ def test_read_ellipse_face(example_files, tmp_path):
         faces_map[face_name] = face_obj
 
     face_001 = faces_map["FACE00000001"]
-    assert type(face_001) is geo_su.Face
+    assert type(face_001) is geo_su.ClosedShell
     shp1 = ada.Shape("plate", ada.geom.Geometry(1, face_001, None))
 
     face_002 = faces_map["FACE00000002"]
@@ -85,3 +85,44 @@ def test_read_ellipse_face(example_files, tmp_path):
     a = ada.Assembly() / (shp1, shp2, shp3)
 
     a.to_ifc(tmp_path / "3_plates_ellipse.ifc", validate=True)
+
+
+def test_read_plate_1_flat(example_files, tmp_path):
+    sat_reader = SatReaderFactory(example_files / "sat_files/plate_1_flat.sat")
+    faces = list(sat_reader.iter_all_faces())
+    assert len(faces) == 1
+
+    face_001 = faces[0][1]
+    assert type(face_001) is geo_su.ClosedShell
+    shp1 = ada.Shape("plate", ada.geom.Geometry(1, face_001, None))
+
+    a = ada.Assembly() / (shp1, )
+
+    a.to_ifc(tmp_path / "plate_1_flat.ifc", validate=True)
+
+
+def test_read_plate_2_curved_complex(example_files, tmp_path):
+    sat_reader = SatReaderFactory(example_files / "sat_files/plate_2_curved_complex.sat")
+    faces = list(sat_reader.iter_all_faces())
+    assert len(faces) == 1
+
+    face_001 = faces[0][1]
+    assert type(face_001) is geo_su.AdvancedFace
+    shp1 = ada.Shape("plate", ada.geom.Geometry(1, face_001, None))
+
+    a = ada.Assembly() / (shp1, )
+
+    a.to_ifc(tmp_path / "plate_2_curved_complex.ifc", validate=True)
+
+def test_read_plate_3_curved(example_files, tmp_path):
+    sat_reader = SatReaderFactory(example_files / "sat_files/plate_3_curved.sat")
+    faces = list(sat_reader.iter_all_faces())
+    assert len(faces) == 1
+
+    face_001 = faces[0][1]
+    assert type(face_001) is geo_su.AdvancedFace
+    shp1 = ada.Shape("plate", ada.geom.Geometry(1, face_001, None))
+
+    a = ada.Assembly() / (shp1, )
+
+    a.to_ifc(tmp_path / "plate_3_curved.ifc", validate=True)

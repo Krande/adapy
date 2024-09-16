@@ -27,7 +27,7 @@ from ada.core.constants import O, X, Z
 from ada.core.utils import to_real
 from ada.geom.solids import Box, Cone, Cylinder
 from ..write.geom.curves import indexed_poly_curve
-from ..write.geom.surfaces import advanced_face, arbitrary_profile_def, curve_bounded_plane, face_bound, create_face
+from ..write.geom.surfaces import advanced_face, arbitrary_profile_def, curve_bounded_plane, create_closed_shell
 
 
 def write_ifc_shape(shape: Shape):
@@ -86,7 +86,7 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         PrimSweep: generate_ifc_prim_sweep_geom,
         geo_su.AdvancedFace: advanced_face,
         geo_su.CurveBoundedPlane: curve_bounded_plane,
-        geo_su.Face: create_face,
+        geo_su.ClosedShell: create_closed_shell
     }
 
     if type(shape) is Shape:

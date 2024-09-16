@@ -20,7 +20,7 @@ def get_face_bound(acis_record: AcisRecord) -> list[geo_su.FaceBound]:
     return [geo_su.FaceBound(bound=geo_cu.EdgeLoop(edges), orientation=True)]
 
 
-def get_face_surface(face_record: AcisRecord) -> geo_su.SURFACE_GEOM_TYPES:
+def get_face_surface(face_record: AcisRecord) -> geo_su.SURFACE_GEOM_TYPES | geo_su.Plane:
     face_surface_record = face_record.sat_store.get(face_record.chunks[10])
     if face_surface_record.type == "spline-surface":
         face_surface = create_bsplinesurface_from_sat(face_surface_record)
@@ -38,17 +38,17 @@ def get_face_surface(face_record: AcisRecord) -> geo_su.SURFACE_GEOM_TYPES:
     return face_surface
 
 
-def create_planar_face_from_sat(face_record: AcisRecord) -> geo_su.Face:
+def create_planar_face_from_sat(face_record: AcisRecord) -> geo_su.ClosedShell:
     """Creates a PlanarFace from the SAT object data."""
     bounds = get_face_bound(face_record)
-
+    face_surface = get_face_surface(face_record)
     if len(bounds) < 1:
         raise NotImplementedError(f"No bounds found for {face_record}")
 
     if len(bounds) > 1:
         raise NotImplementedError(f"Multiple bounds found for {face_record}")
 
-    return geo_su.Face(bounds)
+    return geo_su.ClosedShell([geo_su.FaceSurface(bounds, face_surface, same_sense=True)])
 
 
 def create_advanced_face_from_sat(face_record: AcisRecord) -> geo_su.AdvancedFace:

@@ -5,6 +5,8 @@ from ada.cadit.sat.read.sat_entities import AcisRecord
 from ada.config import logger
 from ada.geom.curves import BSplineCurveWithKnots, RationalBSplineCurveWithKnots, BSplineCurveFormEnum, KnotType
 
+class ACISIncompleteCtrlPoints(Exception):
+    pass
 
 def extract_data_lines(data: str) -> list[str]:
     data_lines = []
@@ -23,14 +25,11 @@ def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> BSplineCurveWi
 
     # Extract degree and closed/open status
     dline = data_lines[0].split()
-    if len(dline) < 5:
-        logger.error("Invalid spline header line: {}".format(dline))
-        return None
 
     if dline[0] == "ref":
         raise ACISReferenceDataError("Reference data not supported")
 
-    has_extra_zero = dline[1] == "0"
+    has_extra_zero = dline[1] != "full"
 
     spl_type = dline[0]
     logger.info(f"Creating B-spline curve of type {spl_type}")
@@ -65,24 +64,22 @@ def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> BSplineCurveWi
     num_control_points = total_knots - degree - 1
 
     # Extract control points
-    control_point_lines = data_lines[ctrl_point_line_idx:]
+    control_point_lines = data_lines[ctrl_point_line_idx:+ctrl_point_line_idx+num_control_points]
     control_points = []
     for line in control_point_lines:
         if line.strip() == "0":  # End of control points
             break
         lsplit = line.split()
         if len(lsplit) < 3:
-            logger.warning("Incomplete control point data: {}".format(line))
-            break
-        values = [float(i) for i in lsplit]
+            raise ACISIncompleteCtrlPoints("Incomplete control point data: {}".format(line))
 
+        values = [float(i) for i in lsplit]
         control_points.append(values)
 
     if len(control_points) != num_control_points:
-        logger.error(
+        raise ACISIncompleteCtrlPoints(
             "Mismatch in number of control points. Expected {}, got {}.".format(num_control_points, len(control_points))
         )
-        return None
 
     # Extract weights if present
     weights = None
@@ -120,11 +117,11 @@ def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> BSplineCurveWi
 def create_bspline_curve_from_exact_sur(data_lines: list[str]) -> BSplineCurveWithKnots | None:
     """Create a B-spline curve from an exact_sur data string."""
     dline = data_lines[0].split()
-    has_extra_zero = dline[1] == "0"
+    should_bump = dline[1] != "full"
     # Adjust indices based on whether the "0" is present
-    curve_type_idx = 3 if has_extra_zero else 2
-    u_degree_idx = 4 if has_extra_zero else 3
-    u_closure_idx = 5 if has_extra_zero else 4
+    curve_type_idx = 3 if should_bump else 2
+    u_degree_idx = 4 if should_bump else 3
+    u_closure_idx = 5 if should_bump else 4
 
     # Curve type: "nurbs", "nubs", or "nullbs"
     curve_type = dline[curve_type_idx]
