@@ -118,8 +118,8 @@ def oriented_edge(oe: geo_cu.OrientedEdge, f: ifcopenshell.file) -> ifcopenshell
 
     return f.create_entity(
         "IfcOrientedEdge",
-        EdgeStart=None,  # vrtx(f, oe.edge_start),
-        EdgeEnd=None,  # vrtx(f, oe.edge_end),
+        EdgeStart=None,
+        EdgeEnd=None,
         EdgeElement=edge_element,
         Orientation=oe.orientation,
     )

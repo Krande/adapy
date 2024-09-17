@@ -99,43 +99,44 @@ def get_edge(coedge: AcisRecord) -> geo_cu.OrientedEdge:
     stop_idx = 8
     point_idx = 7
 
-    # Coedge row
     edge = sat_store.get(coedge.chunks[edge_idx])
+    curve_record = sat_store.get(edge.chunks[curve_idx])
+    edge_direction = edge.chunks[12]
+    coedge_direction = coedge.chunks[coedge_sense_idx]
+    coedge_dir_bool = coedge_direction == "forward"
 
     vertex1 = sat_store.get(edge.chunks[start_idx])
     vertex2 = sat_store.get(edge.chunks[stop_idx])
     p1 = Point(*[float(x) for x in sat_store.get(vertex1.chunks[point_idx]).chunks[6:9]])
     p2 = Point(*[float(x) for x in sat_store.get(vertex2.chunks[point_idx]).chunks[6:9]])
+    if not coedge_dir_bool:
+        p1, p2 = p2, p1
 
     curve_direction = "forward"
-    curve_record = sat_store.get(edge.chunks[curve_idx])
     if curve_record.type == "straight-curve" or Config().sat_read_curve_ignore_bspline:
         line_element = create_line_from_sat(curve_record)
-        edge_element = geo_cu.EdgeCurve(p1, p2, line_element, True)
+        edge_element = geo_cu.EdgeCurve(p1, p2, line_element, coedge_dir_bool)
     elif curve_record.type == "intcurve-curve":
         edge_curve = create_bspline_curve_from_sat(curve_record)
         curve_direction = curve_record.chunks[6]
         if edge_curve is None:
             raise ACISReferenceDataError("Failed to create B-spline curve from SAT data")
-        edge_element = geo_cu.EdgeCurve(p1, p2, edge_curve, True)
+        edge_element = geo_cu.EdgeCurve(p1, p2, edge_curve, coedge_dir_bool)
     elif curve_record.type == "ellipse-curve":
         edge_curve = get_ellipse_curve(curve_record)
-        edge_element = geo_cu.EdgeCurve(p1, p2, edge_curve, True)
+        edge_element = geo_cu.EdgeCurve(p1, p2, edge_curve, coedge_dir_bool)
     else:
         raise UnsupportedCurveType(f"Curve type {curve_record.type} is not supported.")
 
-    edge_direction = edge.chunks[12]
-    coedge_direction = coedge.chunks[coedge_sense_idx]
+
     for direction in [edge_direction, coedge_direction, curve_direction]:
         if direction not in ["forward", "reversed"]:
             raise ValueError(f"Invalid direction: {direction}")
 
     # calculate the orientation of the edge
     edge_dir_value = 1 if edge_direction == "forward" else -1
-    coedge_dir_value = 1 if coedge_direction == "forward" else -1
-    curve_dir_value = 1 if curve_direction == "forward" else -1
 
-    if coedge_dir_value == 1:
+    if edge_dir_value == 1:
         ori = True
     else:
         ori = False
@@ -152,7 +153,7 @@ def iter_loop_coedges(loop_record: AcisRecord) -> Iterable[geo_cu.OrientedEdge]:
     coedge_start_id = loop_record.chunks[coedge_ref]
     coedge_first = sat_store.get(coedge_start_id)
     coedge_first_direction = str(coedge_first.chunks[direction_idx])
-    next_coedge_idx = 6 if coedge_first_direction == "forward" else 7
+    next_coedge_idx = 6 #if coedge_first_direction == "forward" else 7
     coedge_next_id = coedge_first.chunks[next_coedge_idx]
 
     yield get_edge(coedge_first)

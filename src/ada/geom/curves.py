@@ -259,7 +259,7 @@ class OrientedEdge(Edge):
     STEP (https://www.steptools.com/stds/stp_aim/html/t_oriented_edge.html)
     """
 
-    edge_element: Edge
+    edge_element: Edge | EdgeCurve
     orientation: bool
 
 

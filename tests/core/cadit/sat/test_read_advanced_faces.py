@@ -109,18 +109,24 @@ def test_read_plate_1_flat(example_files, tmp_path):
     edge_list = edge_loop.edge_list
     assert len(edge_list) == 4
 
-    # Assert all orientations are True
-    # for edge in edge_list:
-    #     assert edge.orientation
-    # for edge_1,edge_2 in zip(edge_list[:-1], edge_list[1:]):
-    #     if edge_1.orientation and edge_2.orientation:
-    #         assert edge_1.end.is_equal(edge_2.start)
-    #     elif edge_1.orientation and not edge_2.orientation:
-    #         assert edge_1.end.is_equal(edge_2.end)
-    #     elif not edge_1.orientation and edge_2.orientation:
-    #         assert edge_1.start.is_equal(edge_2.start)
-    #     else:
-    #         assert edge_1.start.is_equal(edge_2.end)
+    # Edge 1
+    edge_1 = edge_list[0]
+    assert type(edge_1) is geo_cu.OrientedEdge
+    assert edge_1.orientation == True
+
+    edge_1_curve = edge_1.edge_element
+    assert type(edge_1_curve) is geo_cu.EdgeCurve
+    assert edge_1_curve.same_sense == False
+
+    # Edge 2
+    edge_2 = edge_list[1]
+    assert type(edge_2) is geo_cu.OrientedEdge
+    assert edge_2.orientation == True
+
+    edge_2_curve = edge_2.edge_element
+    assert type(edge_2_curve) is geo_cu.EdgeCurve
+    assert edge_2_curve.same_sense == False
+
     shp1 = ada.Shape("plate", ada.geom.Geometry(1, face_001, None))
 
     a = ada.Assembly() / (shp1, )
@@ -150,14 +156,45 @@ def test_read_plate_2_curved_complex(example_files, tmp_path):
     edge_list = edge_loop.edge_list
     assert len(edge_list) == 4
 
-    # Assert all orientations are True
-    # for edge_1,edge_2 in zip(edge_list[:-1], edge_list[1:]):
-    #     if not edge_1.end.is_equal(edge_2.start):
-    #         assert not edge_1.orientation
-    #         assert edge_2.orientation
-    #     elif not edge_1.start.is_equal(edge_2.end):
-    #         assert edge_1.orientation
-    #         assert not edge_2.orientation
+    # Edge 1
+    edge_1 = edge_list[0]
+
+    assert type(edge_1) is geo_cu.OrientedEdge
+    assert edge_1.orientation == True
+
+    edge_1_curve = edge_1.edge_element
+    assert type(edge_1_curve) is geo_cu.EdgeCurve
+    assert edge_1_curve.same_sense == False
+
+    # Edge 2
+    edge_2 = edge_list[1]
+
+    assert type(edge_2) is geo_cu.OrientedEdge
+    assert edge_2.orientation == True
+
+    edge_2_curve = edge_2.edge_element
+    assert type(edge_2_curve) is geo_cu.EdgeCurve
+    assert edge_2_curve.same_sense == False
+
+    # Edge 3
+    edge_3 = edge_list[2]
+
+    assert type(edge_3) is geo_cu.OrientedEdge
+    assert edge_3.orientation == True
+
+    edge_3_curve = edge_3.edge_element
+    assert type(edge_3_curve) is geo_cu.EdgeCurve
+    assert edge_3_curve.same_sense == True
+
+    # Edge 3
+    edge_4 = edge_list[3]
+
+    assert type(edge_4) is geo_cu.OrientedEdge
+    assert edge_4.orientation == True
+
+    edge_4_curve = edge_4.edge_element
+    assert type(edge_4_curve) is geo_cu.EdgeCurve
+    assert edge_4_curve.same_sense == True
 
     shp1 = ada.Shape("plate", ada.geom.Geometry(1, face_001, None))
 
