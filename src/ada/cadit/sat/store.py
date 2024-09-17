@@ -6,7 +6,7 @@ from typing import Iterable
 import ada.geom.surfaces as geo_su
 from ada.cadit.sat.read.advanced_face import create_advanced_face_from_sat, create_planar_face_from_sat
 from ada.cadit.sat.read.bsplinesurface import ACISReferenceDataError
-from ada.cadit.sat.read.face import PlateFactory
+from ada.cadit.sat.read.faces import PlateFactory
 from ada.cadit.sat.read.sat_entities import AcisRecord
 from ada.config import logger
 from ada.core.guid import create_guid
@@ -138,7 +138,7 @@ class SatReaderFactory:
             face_name = self.sat_store.get_name(record.chunks[2])
             yield face_name, Geometry(create_guid(), advanced_face, None)
 
-    def iter_all_faces(self) -> Iterable[tuple[AcisRecord, geo_su.AdvancedFace | geo_su.CurveBoundedPlane]]:
+    def iter_all_faces(self) -> Iterable[tuple[AcisRecord, geo_su.SURFACE_GEOM_TYPES]]:
         for face_record in self.iter_faces():
             face_surface = self.sat_store.get(face_record.chunks[10])
             if face_surface.type == "spline-surface":

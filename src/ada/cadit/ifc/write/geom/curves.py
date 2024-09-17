@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ifcopenshell
 
-from ada.cadit.ifc.write.geom.placement import ifc_placement_from_axis3d
+from ada.cadit.ifc.write.geom.placement import ifc_placement_from_axis3d, vector
 from ada.cadit.ifc.write.geom.points import cpt, vrtx
 from ada.geom import curves as geo_cu
 
@@ -32,7 +32,7 @@ def circle_curve(circle: geo_cu.Circle, f: ifcopenshell.file) -> ifcopenshell.en
     return f.create_entity("IfcCircle", axis3d, circle.radius)
 
 
-def edge(e: geo_cu.Edge, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+def create_edge(e: geo_cu.Edge, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts an Edge to an IFC representation"""
     return f.create_entity("IfcEdge", EdgeStart=vrtx(f, e.start), EdgeEnd=vrtx(f, e.end))
 
@@ -74,7 +74,7 @@ def b_spline_curve_with_knots(bs: geo_cu.BSplineCurveWithKnots, f: ifcopenshell.
     )
 
 
-def edge_curve(ec: geo_cu.EdgeCurve, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+def create_edge_curve(ec: geo_cu.EdgeCurve, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts an EdgeCurve to an IFC representation"""
     if isinstance(ec.edge_geometry, geo_cu.RationalBSplineCurveWithKnots):
         edge_geometry = rational_b_spline_curve_with_knots(ec.edge_geometry, f)
@@ -82,6 +82,10 @@ def edge_curve(ec: geo_cu.EdgeCurve, f: ifcopenshell.file) -> ifcopenshell.entit
         edge_geometry = b_spline_curve_with_knots(ec.edge_geometry, f)
     elif isinstance(ec.edge_geometry, geo_cu.Ellipse):
         edge_geometry = create_ellipse(ec.edge_geometry, f)
+    elif isinstance(ec.edge_geometry, geo_cu.Circle):
+        edge_geometry = circle_curve(ec.edge_geometry, f)
+    elif isinstance(ec.edge_geometry, geo_cu.Line):
+        edge_geometry = create_line(ec.edge_geometry, f)
     else:
         raise NotImplementedError(f"Unsupported edge geometry type: {type(ec.edge_geometry)}")
 
@@ -99,13 +103,16 @@ def create_ellipse(ellipse: geo_cu.Ellipse, f: ifcopenshell.file) -> ifcopenshel
     axis3d = ifc_placement_from_axis3d(ellipse.position, f)
     return f.create_entity("IfcEllipse", axis3d, ellipse.semi_axis1, ellipse.semi_axis2)
 
+def create_line(line: geo_cu.Line, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a Line to an IFC representation"""
+    return f.create_entity("IfcLine", Pnt=cpt(f, line.pnt), Dir=vector(line.dir, f))
 
 def oriented_edge(oe: geo_cu.OrientedEdge, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts an OrientedEdge to an IFC representation"""
     if isinstance(oe.edge_element, geo_cu.EdgeCurve):
-        edge_element = edge_curve(oe.edge_element, f)
+        edge_element = create_edge_curve(oe.edge_element, f)
     elif isinstance(oe.edge_element, geo_cu.Edge):
-        edge_element = edge(oe.edge_element, f)
+        edge_element = create_edge(oe.edge_element, f)
     else:
         raise NotImplementedError(f"Unsupported edge element type: {type(oe.edge_element)}")
 

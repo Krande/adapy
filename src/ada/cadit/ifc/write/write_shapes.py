@@ -99,9 +99,32 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         raise NotImplementedError(f'Shape type "{type(shape)}" is not yet supported for export to IFC')
 
     solid_geom = ifc_geom_converter(param_geo, f)
-
-    shape_representation = f.create_entity("IfcShapeRepresentation", body_context, "Body", "SweptSolid", [solid_geom])
-    ifc_shape = f.create_entity("IfcProductDefinitionShape", None, None, [shape_representation])
+    repr_type_map = {
+        PrimSphere: "SweptSolid",
+        PrimBox: "SweptSolid",
+        PrimCyl: "SweptSolid",
+        PrimCone: "SweptSolid",
+        PrimExtrude: "SweptSolid",
+        PrimRevolve: "SweptSolid",
+        PrimSweep: "SweptSolid",
+        geo_su.AdvancedFace: "AdvancedSurface",
+        geo_su.CurveBoundedPlane: "AdvancedSurface",
+        geo_su.ClosedShell: "AdvancedSurface"
+    }
+    repr_type_str = repr_type_map.get(type(param_geo), None)
+    shape_representation = f.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=body_context,
+        RepresentationIdentifier="Body",
+        RepresentationType=repr_type_str,
+        Items=[solid_geom]
+    )
+    ifc_shape = f.create_entity(
+        "IfcProductDefinitionShape",
+        Name=None,
+        Description=None,
+        Representations=[shape_representation]
+    )
 
     return ifc_shape
 

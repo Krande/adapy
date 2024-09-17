@@ -294,4 +294,5 @@ SURFACE_GEOM_TYPES = Union[
     BSplineSurfaceWithKnots,
     RationalBSplineSurfaceWithKnots,
     SurfaceOfLinearExtrusion,
+    ClosedShell
 ]

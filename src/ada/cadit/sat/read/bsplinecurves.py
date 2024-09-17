@@ -5,8 +5,10 @@ from ada.cadit.sat.read.sat_entities import AcisRecord
 from ada.config import logger
 from ada.geom.curves import BSplineCurveWithKnots, RationalBSplineCurveWithKnots, BSplineCurveFormEnum, KnotType
 
+
 class ACISIncompleteCtrlPoints(Exception):
     pass
+
 
 def extract_data_lines(data: str) -> list[str]:
     data_lines = []
@@ -19,6 +21,22 @@ def extract_data_lines(data: str) -> list[str]:
         data_lines.append(line_data)
     return data_lines
 
+def get_curve_type(dline: list[str], has_extra_zero) -> str:
+    # Adjust indices based on whether the "0" is present
+    curve_type_idx = 3 if has_extra_zero else 2
+
+    # Curve type: "nurbs", "nubs", or "nullbs"
+    return dline[curve_type_idx]
+
+def get_degree_and_closure(dline: list[str], has_extra_zero) -> tuple[int, bool]:
+    # Adjust indices based on whether the "0" is present
+    u_degree_idx = 4 if has_extra_zero else 3
+    u_closure_idx = 5 if has_extra_zero else 4
+
+    degree = int(dline[u_degree_idx])
+    closed_curve = False if dline[u_closure_idx] == "open" else True
+
+    return degree, closed_curve
 
 def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> BSplineCurveWithKnots | None:
     """Create a B-spline curve from a lawintcur data string."""
@@ -34,18 +52,12 @@ def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> BSplineCurveWi
     spl_type = dline[0]
     logger.info(f"Creating B-spline curve of type {spl_type}")
 
-    # Adjust indices based on whether the "0" is present
-    curve_type_idx = 3 if has_extra_zero else 2
-    u_degree_idx = 4 if has_extra_zero else 3
-    u_closure_idx = 5 if has_extra_zero else 4
-
     # Curve type: "nurbs", "nubs", or "nullbs"
-    curve_type = dline[curve_type_idx]
+    curve_type = get_curve_type(dline, has_extra_zero)
     if curve_type == "nullbs":
         raise ACISReferenceDataError("Null B-spline surfaces not supported")
 
-    degree = int(dline[u_degree_idx])
-    closed_curve = False if dline[u_closure_idx] == "open" else True
+    degree, closed_curve = get_degree_and_closure(dline, has_extra_zero)
 
     # Extract knots and multiplicities
     knots_in = [float(x) for x in data_lines[1].split()]
@@ -64,7 +76,7 @@ def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> BSplineCurveWi
     num_control_points = total_knots - degree - 1
 
     # Extract control points
-    control_point_lines = data_lines[ctrl_point_line_idx:+ctrl_point_line_idx+num_control_points]
+    control_point_lines = data_lines[ctrl_point_line_idx:+ctrl_point_line_idx + num_control_points]
     control_points = []
     for line in control_point_lines:
         if line.strip() == "0":  # End of control points
@@ -114,22 +126,17 @@ def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> BSplineCurveWi
     return curve
 
 
-def create_bspline_curve_from_exact_sur(data_lines: list[str]) -> BSplineCurveWithKnots | None:
+def create_bspline_curve_from_exactcur(data_lines: list[str]) -> BSplineCurveWithKnots | None:
     """Create a B-spline curve from an exact_sur data string."""
     dline = data_lines[0].split()
     should_bump = dline[1] != "full"
-    # Adjust indices based on whether the "0" is present
-    curve_type_idx = 3 if should_bump else 2
-    u_degree_idx = 4 if should_bump else 3
-    u_closure_idx = 5 if should_bump else 4
 
     # Curve type: "nurbs", "nubs", or "nullbs"
-    curve_type = dline[curve_type_idx]
+    curve_type = get_curve_type(dline, should_bump)
     if curve_type == "nullbs":
         raise ACISReferenceDataError("Null B-spline surfaces not supported")
 
-    degree = int(dline[u_degree_idx])
-    closed_curve = False if dline[u_closure_idx] == "open" else True
+    degree, closed_curve = get_degree_and_closure(dline, should_bump)
 
     # Extract knots and multiplicities
     knots_in = [float(x) for x in data_lines[1].split()]
@@ -201,18 +208,10 @@ def create_bspline_curve_from_sat(spline_record: AcisRecord) -> BSplineCurveWith
     if len(split_data) < 2:
         logger.error("Invalid spline data format")
         return None
+
     data = split_data[1].strip("}").strip()
-
     data_lines = extract_data_lines(data)
-    if not data_lines:
-        logger.error("No data lines found in spline data")
-        return None
-
-    # Extract degree and closed/open status
     dline = data_lines[0].split()
-    if len(dline) < 5:
-        logger.error("Invalid spline header line: {}".format(dline))
-        return None
 
     if dline[0] == "ref":
         raise ACISReferenceDataError("Reference data not supported")
@@ -221,6 +220,6 @@ def create_bspline_curve_from_sat(spline_record: AcisRecord) -> BSplineCurveWith
     if spl_type == "lawintcur":
         return create_bspline_curve_from_lawintcur(data_lines)
     elif spl_type == "exactcur":
-        return create_bspline_curve_from_exact_sur(data_lines)
+        return create_bspline_curve_from_exactcur(data_lines)
     else:
         raise ACISReferenceDataError(f"Unsupported spline type: {spl_type}")

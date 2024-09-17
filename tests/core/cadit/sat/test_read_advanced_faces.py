@@ -94,6 +94,33 @@ def test_read_plate_1_flat(example_files, tmp_path):
 
     face_001 = faces[0][1]
     assert type(face_001) is geo_su.ClosedShell
+
+    face_surface = face_001.cfs_faces[0]
+    assert type(face_surface) is geo_su.FaceSurface
+
+    face_bounds = face_surface.bounds
+    assert len(face_bounds) == 1
+    face_bound = face_bounds[0]
+    assert type(face_bound) is geo_su.FaceBound
+
+    edge_loop = face_bound.bound
+    assert type(edge_loop) is geo_cu.EdgeLoop
+
+    edge_list = edge_loop.edge_list
+    assert len(edge_list) == 4
+
+    # Assert all orientations are True
+    # for edge in edge_list:
+    #     assert edge.orientation
+    # for edge_1,edge_2 in zip(edge_list[:-1], edge_list[1:]):
+    #     if edge_1.orientation and edge_2.orientation:
+    #         assert edge_1.end.is_equal(edge_2.start)
+    #     elif edge_1.orientation and not edge_2.orientation:
+    #         assert edge_1.end.is_equal(edge_2.end)
+    #     elif not edge_1.orientation and edge_2.orientation:
+    #         assert edge_1.start.is_equal(edge_2.start)
+    #     else:
+    #         assert edge_1.start.is_equal(edge_2.end)
     shp1 = ada.Shape("plate", ada.geom.Geometry(1, face_001, None))
 
     a = ada.Assembly() / (shp1, )
@@ -108,6 +135,30 @@ def test_read_plate_2_curved_complex(example_files, tmp_path):
 
     face_001 = faces[0][1]
     assert type(face_001) is geo_su.AdvancedFace
+
+    face_surface = face_001.face_surface
+    assert type(face_surface) is geo_su.RationalBSplineSurfaceWithKnots
+
+    face_bounds = face_001.bounds
+    assert len(face_bounds) == 1
+    face_bound = face_bounds[0]
+    assert type(face_bound) is geo_su.FaceBound
+
+    edge_loop = face_bound.bound
+    assert type(edge_loop) is geo_cu.EdgeLoop
+
+    edge_list = edge_loop.edge_list
+    assert len(edge_list) == 4
+
+    # Assert all orientations are True
+    # for edge_1,edge_2 in zip(edge_list[:-1], edge_list[1:]):
+    #     if not edge_1.end.is_equal(edge_2.start):
+    #         assert not edge_1.orientation
+    #         assert edge_2.orientation
+    #     elif not edge_1.start.is_equal(edge_2.end):
+    #         assert edge_1.orientation
+    #         assert not edge_2.orientation
+
     shp1 = ada.Shape("plate", ada.geom.Geometry(1, face_001, None))
 
     a = ada.Assembly() / (shp1, )
