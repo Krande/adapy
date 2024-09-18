@@ -9,7 +9,7 @@ from OCC.Core.Geom import Geom_BSplineSurface
 from OCC.Core.Geom2d import Geom2d_Line, Geom2d_TrimmedCurve
 from OCC.Core.Geom2dAPI import Geom2dAPI_PointsToBSpline
 from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnSurf
-from OCC.Core.gp import gp_Dir2d, gp_Lin2d, gp_Pnt, gp_Pnt2d
+from OCC.Core.gp import gp_Dir2d, gp_Lin2d, gp_Pnt, gp_Pnt2d, gp_Pln, gp_Dir, gp_Ax3
 from OCC.Core.TColgp import TColgp_Array1OfPnt2d, TColgp_Array2OfPnt
 from OCC.Core.TColStd import (
     TColStd_Array1OfInteger,
@@ -28,7 +28,7 @@ from ada.occ.geom.curves import (
     make_wire_from_circle,
     make_wire_from_curve,
     make_wire_from_indexed_poly_curve_geom,
-    make_wire_from_poly_loop,
+    make_wire_from_poly_loop, make_wire_from_edge_loop, make_wire_from_face_bound,
 )
 from ada.occ.utils import point3d, transform_shape_to_pos
 
@@ -80,7 +80,7 @@ def make_shell_from_curve_bounded_plane_geom(surface: geo_su.CurveBoundedPlane) 
 
 
 def make_bspline_surface_with_knots(
-    advanced_face: geo_su.BSplineSurfaceWithKnots | geo_su.RationalBSplineSurfaceWithKnots,
+        advanced_face: geo_su.BSplineSurfaceWithKnots | geo_su.RationalBSplineSurfaceWithKnots,
 ) -> Geom_BSplineSurface:
     # Define control points
     num_u = advanced_face.get_num_u_control_points()
@@ -256,7 +256,8 @@ def create_wire_from_bounds(bounds, face_surface, builder: BRep_Builder):
     return wire_maker.Wire()
 
 
-def make_advanced_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Shape:
+
+def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Shape:
     if type(advanced_face.face_surface) in (geo_su.BSplineSurfaceWithKnots, geo_su.RationalBSplineSurfaceWithKnots):
         face_surface = make_bspline_surface_with_knots(advanced_face.face_surface)
     else:
@@ -289,6 +290,64 @@ def make_advanced_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_S
     shell.Closed(True)
 
     return shell
+
+def make_plane_from_geom(plane: geo_su.Plane) -> gp_Pln:
+    location = plane.position.location
+    axis = plane.position.axis
+    ref_direction = plane.position.ref_direction
+
+    # Define the origin point of the plane
+    origin = gp_Pnt(*location)
+
+    # Define the normal to the plane
+    normal = gp_Dir(*axis)
+
+    # Define the reference direction to orient the plane
+    ref_dir = gp_Dir(*ref_direction)
+
+    # Create an Ax3 object using the origin, normal, and reference direction
+    # The gp_Ax3 constructor with an origin, normal direction, and X-direction
+    ax3 = gp_Ax3(origin, normal, ref_dir)
+
+    # Create the plane using gp_Pln from the Ax3 object
+    return gp_Pln(ax3)
+
+def make_closed_shell_from_geom(shell: geo_su.ClosedShell) -> TopoDS_Shell:
+    builder = BRep_Builder()
+    occ_shell = TopoDS_Shell()
+    builder.MakeShell(occ_shell)
+
+    for cfs_face in shell.cfs_faces:
+        if type(cfs_face) is geo_su.FaceSurface:
+            face_surface = cfs_face.face_surface
+            if type(face_surface) is geo_su.Plane:
+                occ_face_surface = make_plane_from_geom(face_surface)
+            else:
+                raise NotImplementedError(f"Only Plane is implemented, not {type(face_surface)}")
+        else:
+            raise NotImplementedError(f"Only FaceSurface is implemented, not {type(cfs_face)}")
+
+        wire = make_wire_from_edge_loop(cfs_face.bounds[0].bound)
+
+        face = BRepBuilderAPI_MakeFace(occ_face_surface, wire)
+        if not face.IsDone():
+            raise Exception("Failed to create face from B-Spline surface")
+
+        # Create a face from the B-Spline surface with the boundary wire
+        face = face.Face()
+
+        # Optionally, update the face tolerance
+        builder.UpdateFace(face, 1e-6)  # Set tolerance if needed
+
+        # Create the shell manually and add the face
+        shell = TopoDS_Shell()
+        builder.MakeShell(shell)
+        builder.Add(shell, face)
+
+        # Set the shell as closed
+        shell.Closed(True)
+
+    return occ_shell
 
 
 def make_face_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):

@@ -260,7 +260,7 @@ class RationalBSplineSurfaceWithKnots(BSplineSurfaceWithKnots):
 
 @dataclass
 class ClosedShell:
-    cfs_faces: list[Face | FaceSurface]
+    cfs_faces: list[Face | FaceSurface | Plane]
 
 
 @dataclass

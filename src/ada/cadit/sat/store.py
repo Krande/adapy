@@ -60,16 +60,19 @@ class SatStore:
         record.sat_store = self
         self.sat_records[record.index] = record
 
-    def get(self, sat_id: int | str) -> AcisRecord:
+    def get(self, sat_id: int | str) -> AcisRecord | None:
         if isinstance(sat_id, str):
             if sat_id.startswith("$"):
                 sat_id = sat_id.replace("$", "")
             sat_id = int(sat_id)
-
+        if sat_id == -1:
+            return None
         return self.sat_records[sat_id]
 
     def get_name(self, sat_id: int | str) -> str:
         string_attrib_record = self.get(sat_id)
+        if string_attrib_record is None:
+            return ""
         if string_attrib_record.type.startswith("string"):
             return string_attrib_record.chunks[-2]
         elif string_attrib_record.type.startswith("position"):
