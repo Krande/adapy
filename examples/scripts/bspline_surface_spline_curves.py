@@ -32,7 +32,7 @@ def main(add_vs_debugger=False, import_occ_geom=False):
     a.show()
 
     # a.to_gltf("temp/bsplinesurfacewithknots_wsplinecurves.glb")
-    a.to_stp("temp/bsplinesurfacewithknots_wsplinecurves.stp")
+    #a.to_stp("temp/bsplinesurfacewithknots_wsplinecurves.stp")
 
 
 if __name__ == "__main__":

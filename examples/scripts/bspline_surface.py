@@ -35,7 +35,7 @@ def main(add_vs_debugger=False, import_occ_geom=False):
     a.show()
 
     # a.to_gltf("temp/bsplinesurfacewithknots.glb")
-    a.to_stp("temp/bsplinesurfacewithknots.stp")
+    #a.to_stp("temp/bsplinesurfacewithknots.stp")
 
 
 if __name__ == "__main__":

@@ -62,7 +62,7 @@ def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> BSplineCurveWi
     # Extract knots and multiplicities
     knots_in = [float(x) for x in data_lines[1].split()]
     ctrl_point_line_idx = 2
-    if len(data_lines[2].split()) > 3:
+    if len(data_lines[2].split()) != 3:
         knots_in += [float(x) for x in data_lines[2].split()]
         ctrl_point_line_idx = 3
 
@@ -210,6 +210,9 @@ def create_bspline_curve_from_sat(spline_record: AcisRecord) -> BSplineCurveWith
         return None
 
     data = split_data[1].strip("}").strip()
+    if data.startswith("ref"):
+        raise ACISReferenceDataError("Reference data not supported")
+
     data_lines = extract_data_lines(data)
     dline = data_lines[0].split()
 

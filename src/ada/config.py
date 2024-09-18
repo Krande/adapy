@@ -180,6 +180,11 @@ class Config:
         self.config.update(self._get_environ_config())
         self._trigger_update_config()
 
+    def update_env_value_and_reload(self, key: str, value: Any):
+        """Updates an environment variable and triggers a config update."""
+        os.environ[key] = str(value)
+        self._trigger_update_config()
+
     def init(self, path: str) -> None:
         """Load configurations from various places.
 
