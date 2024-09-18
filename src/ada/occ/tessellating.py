@@ -168,6 +168,12 @@ class BatchTessellator:
 
         return self.tessellate_occ_geom(occ_geom, getattr(obj, "guid", geom.id), geom.color)
 
+    def batch_tessellate_using_ifcopenshell(self, objects, ifc_store: IfcStore) -> Iterable[MeshStore]:
+        import ifcopenshell.geom
+
+        ifc_store.get_ifc_geom_iterator()
+        ifcopenshell.geom.iterator(settings, ifc_store.f, cpus, include=products)
+
     def batch_tessellate(
         self, objects: Iterable[Geometry | BackendGeom], render_override: dict[str, GeomRepr] = None
     ) -> Iterable[MeshStore]:
@@ -261,6 +267,8 @@ class BatchTessellator:
 
     def iter_ifc_store(self, ifc_store: IfcStore) -> Iterable[MeshStore]:
         import ifcopenshell.geom
+        import ifcopenshell.util.shape
+        import ifcopenshell.util.element
 
         from ada.visit.colors import Color
         from ada.visit.gltf.meshes import MeshStore, MeshType
@@ -277,8 +285,13 @@ class BatchTessellator:
             if shape:
                 if hasattr(shape, "geometry"):
                     geom = shape.geometry
-                    diffuse = geom.materials[0].diffuse
-                    opacity = 1.0 - geom.materials[0].transparency
+                    mat = ifcopenshell.util.element.get_material(ifc_store.f.by_id(shape[0].id))
+                    diffuse = list(geom.materials[0].diffuse)
+                    transp = geom.materials[0].transparency
+                    if transp is None:
+                        opacity = 1.0
+                    else:
+                        opacity = 1.0 - transp
                     mat_id = self.add_color(Color(*diffuse, opacity=opacity))
                     yield MeshStore(
                         shape.guid,

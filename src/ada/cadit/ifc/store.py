@@ -102,10 +102,10 @@ class IfcStore:
         return contexts[0]
 
     def sync(
-        self,
-        include_fem=False,
-        progress_callback: Callable[[int, int], None] = None,
-        geom_repr_override: dict[str, GeomRepr] = None,
+            self,
+            include_fem=False,
+            progress_callback: Callable[[int, int], None] = None,
+            geom_repr_override: dict[str, GeomRepr] = None,
     ):
         from ada.cadit.ifc.write.write_ifc import IfcWriter
 
@@ -149,7 +149,7 @@ class IfcStore:
             f.write(self.f.wrapped_data.to_string())
 
     def load_ifc_content_from_file(
-        self, ifc_file: str | os.PathLike | ifcopenshell.file = None, data_only=False, elements2part=None
+            self, ifc_file: str | os.PathLike | ifcopenshell.file = None, data_only=False, elements2part=None
     ) -> None:
         from ada.cadit.ifc.read.read_ifc import IfcReader
 
@@ -202,6 +202,27 @@ class IfcStore:
     def get_ifc_geom(self, ifc_elem, settings: ifcopenshell.geom.settings):
         return ifcopenshell.geom.create_shape(settings, inst=ifc_elem)
 
+    def batch_occ_shapes_from_ifc(self, products: list[str], settings: ifcopenshell.geom.settings = None, cpus=None):
+        import multiprocessing
+
+        cpus = multiprocessing.cpu_count() if cpus is None else cpus
+        ifcopenshell.geom.iterator(settings, self.f, cpus, include=products)
+        if settings is None:
+            settings = ifcopenshell.geom.settings()
+            settings.set(settings.USE_PYTHON_OPENCASCADE, True)
+        iterator = self.get_ifc_geom_iterator(settings)
+        iterator.initialize()
+        while True:
+            shape = iterator.get()
+            if shape:
+                if hasattr(shape, "geometry"):
+                    yield shape.geometry
+                else:
+                    logger.warning(f"Shape {shape} is not a TopoDS_Shape")
+
+            if not iterator.next():
+                break
+
     def get_ifc_geom_iterator(self, settings: ifcopenshell.geom.settings, cpus: int = None):
         import multiprocessing
 
@@ -218,7 +239,7 @@ class IfcStore:
         return ifcopenshell.geom.iterator(settings, self.f, cpus, include=products)
 
     def iter_occ_shapes_from_ifc(
-        self, settings: ifcopenshell.geom.settings = None
+            self, settings: ifcopenshell.geom.settings = None
     ) -> Iterable[tuple[str, TopoDS_Shape | TopoDS_Compound]]:
         if settings is None:
             settings = ifcopenshell.geom.settings()

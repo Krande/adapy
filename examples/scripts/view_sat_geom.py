@@ -15,7 +15,8 @@ def run_this():
         shapes.append(shp1)
 
     a = ada.Assembly() / shapes
-    a.show()
+    a.ifc_store.sync()
+    a.show(stream_from_ifc=True)
 
 
 if __name__ == '__main__':
