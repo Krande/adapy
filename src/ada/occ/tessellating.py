@@ -268,8 +268,6 @@ class BatchTessellator:
     def iter_ifc_store(self, ifc_store: IfcStore) -> Iterable[MeshStore]:
         import ifcopenshell.geom
         import ifcopenshell.util.shape
-        import ifcopenshell.util.element
-
         from ada.visit.colors import Color
         from ada.visit.gltf.meshes import MeshStore, MeshType
 
@@ -285,19 +283,18 @@ class BatchTessellator:
             if shape:
                 if hasattr(shape, "geometry"):
                     geom = shape.geometry
-                    mat = ifcopenshell.util.element.get_material(ifc_store.f.by_id(shape[0].id))
-                    diffuse = list(geom.materials[0].diffuse)
+                    diffuse: ifcopenshell.ifcopenshell_wrapper.colour = geom.materials[0].diffuse
                     transp = geom.materials[0].transparency
                     if transp is None:
                         opacity = 1.0
                     else:
                         opacity = 1.0 - transp
-                    mat_id = self.add_color(Color(*diffuse, opacity=opacity))
+                    mat_id = self.add_color(Color(diffuse.r(), diffuse.g(), diffuse.b(), opacity=opacity))
                     yield MeshStore(
                         shape.guid,
                         matrix=shape.transformation.matrix,
-                        position=np.asarray(geom.verts),
-                        indices=np.asarray(geom.faces, dtype=np.uint32),
+                        position=np.frombuffer(geom.verts_buffer, "d"),
+                        indices=np.frombuffer(geom.faces_buffer, dtype="i"),
                         normal=None,
                         material=mat_id,
                         type=MeshType.TRIANGLES,

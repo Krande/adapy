@@ -1,7 +1,7 @@
 // src/App.js
 import "./app.css";
 import React from 'react'
-import CanvasComponent from './components/viewer/Canvas';
+import CanvasComponent from './components/viewer/CanvasComponent';
 import NavBar from './components/NavBar';
 import {useNavBarStore} from './state/navBarStore';
 import {sendMessage} from "./utils/websocket_connector";

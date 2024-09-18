@@ -109,6 +109,7 @@ fdoc = { cmd="python doc_live_html.py", cwd="./tests/fem" }
 
 [tool.pixi.feature.web.tasks]
 npm = { cmd="npm", cwd="./src/frontend" }
+wdev = { cmd="npm run dev", cwd="./src/frontend" }
 
 [tool.pixi.dependencies]
 pixi-pycharm = ">=0.0.6,<0.0.7"
