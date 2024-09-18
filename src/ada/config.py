@@ -89,6 +89,7 @@ class Config:
                 ConfigEntry("home_dir", pathlib.Path, _home_dir),
                 ConfigEntry("tools_dir", pathlib.Path, _home_dir / "tools"),
                 ConfigEntry("occ_silent_fail", bool, False),
+                ConfigEntry("add_trace_to_exception", bool, False),
             ],
         ),
         ConfigSection(
@@ -103,13 +104,14 @@ class Config:
         ConfigSection(
             "gxml",
             [
-                ConfigEntry("import_advanced_faces", bool, False),
+                ConfigEntry("import_advanced_faces", bool, True),
             ],
         ),
         ConfigSection(
             "sat",
             [
                 ConfigEntry("read_curve_ignore_bspline", bool, False),
+                ConfigEntry("import_raise_exception_on_failed_advanced_face", bool, False)
             ],
         ),
         ConfigSection(
@@ -180,9 +182,11 @@ class Config:
         self.config.update(self._get_environ_config())
         self._trigger_update_config()
 
-    def update_env_value_and_reload(self, key: str, value: Any):
-        """Updates an environment variable and triggers a config update."""
-        os.environ[key] = str(value)
+    def update_config_globally(self, key: str, value: Any):
+        """Updates an environment variable and triggers a config reload."""
+        key_upper = f"{_env_prefix}{key.upper()}"
+        os.environ[key_upper] = str(value)
+        self.config.update(self._get_environ_config())
         self._trigger_update_config()
 
     def init(self, path: str) -> None:

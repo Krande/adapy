@@ -1,8 +1,13 @@
-import xml.etree.ElementTree as ET
-from typing import Dict, Union
+from __future__ import annotations
 
-from ada import Beam, Group, Part
+import xml.etree.ElementTree as ET
+from typing import Dict, TYPE_CHECKING
+
+from ada import Group, Part
 from ada.config import logger
+
+if TYPE_CHECKING:
+    from ada import Plate, Beam
 
 
 def get_sets(xml_root: ET.Element, parent: Part) -> Dict[str, Group]:
@@ -15,9 +20,11 @@ def get_sets(xml_root: ET.Element, parent: Part) -> Dict[str, Group]:
     return el_sets
 
 
-def get_concept(xml_el: ET.Element, part: Part) -> Union[Beam]:
+def get_concept(xml_el: ET.Element, part: Part) -> Beam | Plate:
     ref = xml_el.attrib["concept_ref"]
     if ref in part.beams.idmap.keys():
         return part.beams.from_name(ref)
+    elif ref in part.plates.idmap.keys():
+        return part.plates.from_name(ref)
     else:
         logger.debug(f'Currently only Beams are supported. Unable to find group member "{ref}"')

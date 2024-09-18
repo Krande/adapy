@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ada.cadit.sat.exceptions import InsufficientPointsError
+from ada.cadit.sat.exceptions import ACISInsufficientPointsError
 from ada.cadit.sat.read.sat_entities import AcisRecord
 from ada.config import logger
 
@@ -32,7 +32,7 @@ class PlateFactory:
 
         try:
             points = self.get_points(edges)
-        except InsufficientPointsError as e:
+        except ACISInsufficientPointsError as e:
             logger.warning(f"face: '{name}' failed to get points due to {e}. Skipping...")
             return None
 
@@ -54,7 +54,7 @@ class PlateFactory:
                 points.append(p)
 
         if len(points) < 3:
-            raise InsufficientPointsError("Plates cannot have < 3 points")
+            raise ACISInsufficientPointsError("Plates cannot have < 3 points")
 
         coedge_first_direction = str(edges[0].chunks[-4])
         if coedge_first_direction == "reversed":

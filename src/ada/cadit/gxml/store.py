@@ -54,6 +54,13 @@ class GxmlStore:
         for curved_bm in self.xml_root.iterfind(".//curved_beam"):
             yield from el_to_beam(curved_bm, p)
 
+    def iter_plate_shell_elem(self):
+        for fp in self.xml_root.iterfind(".//flat_plate"):
+            yield fp
+
+        for fp in self.xml_root.iterfind(".//curved_shell"):
+            yield fp
+
     def iter_plates_from_xml(self):
         sat_d = {name: points for name, points in self.sat_factory.iter_flat_plates()}
         if Config().gxml_import_advanced_faces is True:

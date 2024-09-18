@@ -4,15 +4,11 @@ from typing import Iterable
 
 from ada import Point
 from ada.cadit.sat.read.bsplinecurves import create_bspline_curve_from_sat
-from ada.cadit.sat.read.bsplinesurface import ACISReferenceDataError
+from ada.cadit.sat.exceptions import ACISReferenceDataError, ACISUnsupportedCurveType
 from ada.cadit.sat.read.sat_entities import AcisRecord
 from ada.config import Config
 from ada.geom import curves as geo_cu
 from ada.geom.placement import Axis2Placement3D, Direction
-
-
-class UnsupportedCurveType(Exception):
-    pass
 
 
 def get_ellipse_curve(ellipse_record: AcisRecord) -> geo_cu.Ellipse | geo_cu.Circle:
@@ -126,7 +122,7 @@ def get_edge(coedge: AcisRecord) -> geo_cu.OrientedEdge:
         edge_curve = get_ellipse_curve(curve_record)
         edge_element = geo_cu.EdgeCurve(p1, p2, edge_curve, coedge_dir_bool)
     else:
-        raise UnsupportedCurveType(f"Curve type {curve_record.type} is not supported.")
+        raise ACISUnsupportedCurveType(f"Curve type {curve_record.type} is not supported.")
 
 
     for direction in [edge_direction, coedge_direction, curve_direction]:

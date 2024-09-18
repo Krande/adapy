@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from ada import Point
+from ada.cadit.sat.exceptions import ACISReferenceDataError, ACISUnsupportedSurfaceType
 from ada.cadit.sat.read.sat_entities import AcisRecord
+from ada.cadit.sat.read.sat_utils import get_ref_type
 from ada.config import logger
 from ada.geom.curve_utils import calculate_multiplicities
 from ada.geom.curves import KnotType
@@ -12,21 +14,21 @@ from ada.geom.surfaces import (
 )
 
 
-class ACISReferenceDataError(Exception):
-    pass
-
-
 def create_bsplinesurface_from_sat(
-    spline_surface_record: AcisRecord,
-) -> BSplineSurfaceWithKnots | RationalBSplineSurfaceWithKnots:
-    spline_data_str = spline_surface_record.get_as_string()
-    head, data = spline_data_str.split("{")
+        spline_surface_record: AcisRecord) -> BSplineSurfaceWithKnots | RationalBSplineSurfaceWithKnots:
+    sub_type = spline_surface_record.get_sub_type()
 
-    data_lines = [x.strip() for x in data.splitlines()]
-    dline = data_lines[0].split()
-    if dline[0] == "ref":
+    if sub_type.type == "ref":
+        original_sub_type = sub_type
+        sub_type = get_ref_type(sub_type)
+        if sub_type.type in ("exactcur", "lawintcur"):
+            raise ACISReferenceDataError(f"Subtype is exactcur when following references from {original_sub_type}")
+
+    if sub_type.type == "exppc":
         raise ACISReferenceDataError("Reference data not supported")
 
+    data_lines = sub_type.get_as_string().splitlines()
+    dline = data_lines[0].split()
     # Check for the extra "0" after "exactsur"
     has_extra_zero = dline[1] == "0"
 
@@ -39,7 +41,7 @@ def create_bsplinesurface_from_sat(
     surface_type = dline[surface_type_idx]
 
     if surface_type == "nullbs":
-        raise ACISReferenceDataError("Null B-spline surfaces not supported")
+        raise ACISUnsupportedSurfaceType("Null B-spline surfaces not supported")
 
     # Degrees in U and V directions
     u_degree = int(dline[u_degree_idx])

@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from ada.cadit.sat.read.bsplinesurface import ACISReferenceDataError
-from ada.cadit.sat.read.sat_entities import AcisRecord
+from ada.cadit.sat.exceptions import ACISReferenceDataError, ACISIncompleteCtrlPoints, ACISUnsupportedCurveType
+from ada.cadit.sat.read.sat_entities import AcisRecord, AcisSubType
+from ada.cadit.sat.read.sat_utils import get_ref_type
 from ada.config import logger
-from ada.geom.curves import BSplineCurveWithKnots, RationalBSplineCurveWithKnots, BSplineCurveFormEnum, KnotType
-
-
-class ACISIncompleteCtrlPoints(Exception):
-    pass
+from ada.geom.curves import BSplineCurveFormEnum, KnotType
+import ada.geom.curves as geo_cu
 
 
 def extract_data_lines(data: str) -> list[str]:
@@ -21,12 +19,14 @@ def extract_data_lines(data: str) -> list[str]:
         data_lines.append(line_data)
     return data_lines
 
+
 def get_curve_type(dline: list[str], has_extra_zero) -> str:
     # Adjust indices based on whether the "0" is present
     curve_type_idx = 3 if has_extra_zero else 2
 
     # Curve type: "nurbs", "nubs", or "nullbs"
     return dline[curve_type_idx]
+
 
 def get_degree_and_closure(dline: list[str], has_extra_zero) -> tuple[int, bool]:
     # Adjust indices based on whether the "0" is present
@@ -38,7 +38,8 @@ def get_degree_and_closure(dline: list[str], has_extra_zero) -> tuple[int, bool]
 
     return degree, closed_curve
 
-def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> BSplineCurveWithKnots | None:
+
+def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> geo_cu.BSplineCurveWithKnots | None:
     """Create a B-spline curve from a lawintcur data string."""
 
     # Extract degree and closed/open status
@@ -101,7 +102,7 @@ def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> BSplineCurveWi
 
     # Create the B-spline curve
     if weights:
-        curve = RationalBSplineCurveWithKnots(
+        curve = geo_cu.RationalBSplineCurveWithKnots(
             degree=degree,
             control_points_list=control_points,
             curve_form=BSplineCurveFormEnum.UNSPECIFIED,
@@ -113,7 +114,7 @@ def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> BSplineCurveWi
             weights_data=weights,
         )
     else:
-        curve = BSplineCurveWithKnots(
+        curve = geo_cu.BSplineCurveWithKnots(
             degree=degree,
             control_points_list=control_points,
             curve_form=BSplineCurveFormEnum.UNSPECIFIED,
@@ -126,7 +127,7 @@ def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> BSplineCurveWi
     return curve
 
 
-def create_bspline_curve_from_exactcur(data_lines: list[str]) -> BSplineCurveWithKnots | None:
+def create_bspline_curve_from_exactcur(data_lines: list[str]) -> geo_cu.BSplineCurveWithKnots | None:
     """Create a B-spline curve from an exact_sur data string."""
     dline = data_lines[0].split()
     should_bump = dline[1] != "full"
@@ -177,7 +178,7 @@ def create_bspline_curve_from_exactcur(data_lines: list[str]) -> BSplineCurveWit
 
     # Create the B-spline curve
     if weights:
-        curve = RationalBSplineCurveWithKnots(
+        curve = geo_cu.RationalBSplineCurveWithKnots(
             degree=degree,
             control_points_list=control_points,
             curve_form=BSplineCurveFormEnum.UNSPECIFIED,
@@ -189,7 +190,7 @@ def create_bspline_curve_from_exactcur(data_lines: list[str]) -> BSplineCurveWit
             weights_data=weights,
         )
     else:
-        curve = BSplineCurveWithKnots(
+        curve = geo_cu.BSplineCurveWithKnots(
             degree=degree,
             control_points_list=control_points,
             curve_form=BSplineCurveFormEnum.UNSPECIFIED,
@@ -202,27 +203,33 @@ def create_bspline_curve_from_exactcur(data_lines: list[str]) -> BSplineCurveWit
     return curve
 
 
-def create_bspline_curve_from_sat(spline_record: AcisRecord) -> BSplineCurveWithKnots | None:
-    spline_data_str = spline_record.get_as_string()
-    split_data = spline_data_str.split("{", 1)
-    if len(split_data) < 2:
-        logger.error("Invalid spline data format")
-        return None
+def create_pcurve_from_exppc(exppc_sub_type: AcisSubType) -> geo_cu.PCurve:
+    """Defines a pcurve from explicit parameter-space curve data."""
+    basis_surface = None
+    reference_curve = None
+    if basis_surface is None or reference_curve is None:
+        raise ACISUnsupportedCurveType("PCurve is not yet supported from SAT data")
 
-    data = split_data[1].strip("}").strip()
-    if data.startswith("ref"):
-        raise ACISReferenceDataError("Reference data not supported")
+    return geo_cu.PCurve(
+        basis_surface=basis_surface,
+        reference_curve=reference_curve,
+    )
 
-    data_lines = extract_data_lines(data)
+def create_bspline_curve_from_sat(spline_record: AcisRecord) -> geo_cu.BSplineCurveWithKnots | geo_cu.PCurve | None:
+    sub_type = spline_record.get_sub_type()
+
+    if sub_type.type == "ref":
+        sub_type = get_ref_type(sub_type)
+
+    data_lines = extract_data_lines(sub_type.get_as_string())
     dline = data_lines[0].split()
-
-    if dline[0] == "ref":
-        raise ACISReferenceDataError("Reference data not supported")
 
     spl_type = dline[0]
     if spl_type == "lawintcur":
         return create_bspline_curve_from_lawintcur(data_lines)
     elif spl_type == "exactcur":
         return create_bspline_curve_from_exactcur(data_lines)
+    elif spl_type == "exppc":
+        return create_pcurve_from_exppc(sub_type)
     else:
-        raise ACISReferenceDataError(f"Unsupported spline type: {spl_type}")
+        raise ACISUnsupportedCurveType(f"Unsupported spline type: {spl_type}")

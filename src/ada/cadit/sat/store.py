@@ -5,10 +5,10 @@ from typing import Iterable
 
 import ada.geom.surfaces as geo_su
 from ada.cadit.sat.read.advanced_face import create_advanced_face_from_sat, create_planar_face_from_sat
-from ada.cadit.sat.read.bsplinesurface import ACISReferenceDataError
+from ada.cadit.sat.exceptions import ACISReferenceDataError, ACISUnsupportedCurveType
 from ada.cadit.sat.read.faces import PlateFactory
 from ada.cadit.sat.read.sat_entities import AcisRecord
-from ada.config import logger
+from ada.config import logger, Config
 from ada.core.guid import create_guid
 from ada.geom import Geometry
 
@@ -52,7 +52,8 @@ class SatReader:
 
 class SatStore:
     def __init__(self):
-        self.sat_records = dict()
+        self.sat_records: dict[int, AcisRecord] = dict()
+        self._ref_store = None
 
     def add(self, sat_object_data: str):
         record = AcisRecord.from_string(sat_object_data)
@@ -75,12 +76,36 @@ class SatStore:
             return self.get_name(string_attrib_record.chunks[4])
         elif string_attrib_record.type.startswith("rgb_color-st-attrib"):
             return self.get_name(string_attrib_record.chunks[4])
+        elif string_attrib_record.type == "CachedPlaneAttribute-DNV-attrib":
+            return self.get_name(string_attrib_record.chunks[5])
         else:
             raise NotImplementedError(f"Unknown reference type: {string_attrib_record.type}")
 
     def iter(self) -> Iterable[AcisRecord]:
         for sat_record in self.sat_records.values():
             yield sat_record
+
+    def _create_ref_store(self):
+        ref_store = dict()
+        i = 1
+        for record in self.sat_records.values():
+            rstr = record.get_as_string()
+            if "{" in rstr and "}" in rstr:
+                ref_store[i] = record.get_sub_type()
+                i += 1
+
+        return ref_store
+
+    def get_ref(self, ref_id):
+        if self._ref_store is None:
+            self._ref_store = self._create_ref_store()
+
+        if isinstance(ref_id, str):
+            if ref_id.startswith("$"):
+                ref_id = ref_id.replace("$", "")
+            ref_id = int(ref_id)
+
+        return self._ref_store[ref_id]
 
 
 class SatReaderFactory:
@@ -89,6 +114,7 @@ class SatReaderFactory:
         self.sat_store = SatStore()
         self.plate_factory = PlateFactory(self.sat_store)
         self.header = ""
+        self.failed_faces = []
 
     def load_sat_data_from_file(self):
         sat_reader = SatReader(self.sat_file)
@@ -120,16 +146,22 @@ class SatReaderFactory:
             yield pl
 
     def iter_advanced_faces(self) -> Iterable[tuple[AcisRecord, geo_su.AdvancedFace]]:
+        conf = Config()
         for face_record in self.iter_faces():
             face_surface = self.sat_store.get(face_record.chunks[10])
             if face_surface.type != "spline-surface":
                 continue
             try:
                 yield face_record, create_advanced_face_from_sat(face_record)
-            except (ACISReferenceDataError,) as e:
-                trace_msg = traceback.format_exc()
+            except (ACISReferenceDataError, ACISUnsupportedCurveType) as e:
                 name = face_record.get_name()
-                logger.debug(f"Unable to create face record {name}. Fallback to flat Plate due to: {e} {trace_msg}")
+                err_msg = f"Unable to create face record {name}. Fallback to flat Plate due to: {e}"
+                if conf.general_add_trace_to_exception:
+                    trace_msg = traceback.format_exc()
+                    err_msg += f"\n{trace_msg}"
+                logger.debug(err_msg)
+                if Config().sat_import_raise_exception_on_failed_advanced_face:
+                    raise e
 
     def iter_curved_face(self) -> Iterable[tuple[AcisRecord, Geometry]]:
         for i, (record, advanced_face) in enumerate(self.iter_advanced_faces()):
@@ -139,11 +171,36 @@ class SatReaderFactory:
             yield face_name, Geometry(create_guid(), advanced_face, None)
 
     def iter_all_faces(self) -> Iterable[tuple[AcisRecord, geo_su.SURFACE_GEOM_TYPES]]:
+        conf = Config()
+        failed_faces = []
         for face_record in self.iter_faces():
+            name = face_record.get_name()
             face_surface = self.sat_store.get(face_record.chunks[10])
             if face_surface.type == "spline-surface":
-                yield face_record, create_advanced_face_from_sat(face_record)
+                try:
+                    yield face_record, create_advanced_face_from_sat(face_record)
+                except (ACISReferenceDataError, ACISUnsupportedCurveType) as e:
+                    err_msg = f"Unable to create face record {name}. Fallback to flat Plate due to: {e}"
+                    if conf.general_add_trace_to_exception:
+                        trace_msg = traceback.format_exc()
+                        err_msg += f"\n{trace_msg}"
+                    logger.debug(err_msg)
+                    failed_faces.append(name)
+                    if Config().sat_import_raise_exception_on_failed_advanced_face:
+                        raise e
             elif face_surface.type == "plane-surface":
-                yield face_record, create_planar_face_from_sat(face_record)
+                try:
+                    yield face_record, create_planar_face_from_sat(face_record)
+                except (ACISReferenceDataError, ACISUnsupportedCurveType ) as e:
+                    err_msg = f"Unable to create face record {name}. Fallback to flat Plate due to: {e}"
+                    if conf.general_add_trace_to_exception:
+                        trace_msg = traceback.format_exc()
+                        err_msg += f"\n{trace_msg}"
+                    logger.debug(err_msg)
+                    failed_faces.append(name)
+                    if Config().sat_import_raise_exception_on_failed_advanced_face:
+                        raise e
             else:
                 raise NotImplementedError(f"Unsupported face type: {face_surface.type}")
+
+        self.failed_faces = failed_faces

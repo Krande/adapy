@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from itertools import chain
-from typing import Iterable, Union
+from typing import Iterable, Union, TYPE_CHECKING
 
 import numpy as np
 
@@ -11,6 +11,9 @@ from ada.core.curve_utils import calc_arc_radius_center_from_3points
 from ada.core.vector_utils import intersect_calc
 from ada.geom.placement import Axis2Placement3D, Direction
 from ada.geom.points import Point
+
+if TYPE_CHECKING:
+    from ada.geom.surfaces import SURFACE_GEOM_TYPES
 
 CURVE_GEOM_TYPES = Union[
     "Line",
@@ -210,6 +213,16 @@ class BSplineCurveWithKnots:
     knot_multiplicities: list[int]
     knots: list[float]
     knot_spec: KnotType
+
+
+@dataclass
+class PCurve:
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcPcurve.htm)
+    """
+
+    basis_surface: SURFACE_GEOM_TYPES
+    reference_curve: CURVE_GEOM_TYPES
 
 
 @dataclass
