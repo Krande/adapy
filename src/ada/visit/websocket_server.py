@@ -124,7 +124,7 @@ class WebSocketServer:
                 await client.send(data)
 
     async def server_start_main(self):
-        async with websockets.serve(self.handler, self.host, self.port, max_size=10**9):
+        async with websockets.serve(self.handler, self.host, self.port, max_size=10 ** 9):
             await asyncio.Future()  # run forever
 
     def start(self):
@@ -164,14 +164,14 @@ class WebSocketServer:
         return False
 
     def send_scene(
-        self,
-        scene: trimesh.Scene,
-        animation_store=None,
-        auto_reposition=True,
-        scene_action: SceneAction = SceneAction.NEW,
-        scene_action_arg: str = None,
-        save_to_file_path: str | None = None,
-        **kwargs,
+            self,
+            scene: trimesh.Scene,
+            animation_store=None,
+            auto_reposition=True,
+            scene_action: SceneAction = SceneAction.NEW,
+            scene_action_arg: str = None,
+            save_to_file_path: str | None = None,
+            **kwargs,
     ):
         import base64
         import json
@@ -212,6 +212,26 @@ class WebSocketServer:
             return f"ws://{self.host}:{self.port}"
 
         return f"{self.host}:{self.port}"
+
+
+@dataclass
+class WebSocketClientAsync:
+    host: str = "localhost"
+    port: int = 8765
+
+    async def __aenter__(self):
+        self._conn = websockets.connect(f"ws://{self.host}:{self.port}")
+        self.websocket = await self._conn.__aenter__()
+        return self
+
+    async def __aexit__(self, *args, **kwargs):
+        await self._conn.__aexit__(*args, **kwargs)
+
+    async def send(self, message):
+        await self.websocket.send(message)
+
+    async def receive(self):
+        return await self.websocket.recv()
 
 
 async def _check_server_running(host="ws://localhost", port=8765):
@@ -299,7 +319,7 @@ class WsRenderMessage:
 
 
 def send_to_viewer(
-    part: ada.Part | trimesh.Scene, host="localhost", port=8765, origins: list[str] = None, meta: dict = None
+        part: ada.Part | trimesh.Scene, host="localhost", port=8765, origins: list[str] = None, meta: dict = None
 ):
     if origins is None:
         send_to_local_viewer(part, host=host, port=port)
@@ -308,14 +328,14 @@ def send_to_viewer(
 
 
 def start_ws_server(
-    host="localhost",
-    port=8765,
-    server_exe: pathlib.Path = None,
-    server_args: list[str] = None,
-    run_in_thread=False,
-    origins: list[str] = None,
-    debug_mode=False,
-    override_binder_check=False,
+        host="localhost",
+        port=8765,
+        server_exe: pathlib.Path = None,
+        server_args: list[str] = None,
+        run_in_thread=False,
+        origins: list[str] = None,
+        debug_mode=False,
+        override_binder_check=False,
 ) -> WebSocketServer:
     ws = WebSocketServer(host=host, port=port)
 
@@ -341,7 +361,7 @@ def start_ws_server(
 
 
 def send_to_ws_server(
-    data: str | bytes, host="localhost", port=8765, server_exe: pathlib.Path = None, server_args: list[str] = None
+        data: str | bytes, host="localhost", port=8765, server_exe: pathlib.Path = None, server_args: list[str] = None
 ):
     ws = start_ws_server(host=host, port=port, server_exe=server_exe, server_args=server_args)
 

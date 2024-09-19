@@ -60,6 +60,9 @@ profile = "black"
 skip = [".pixi", "node_modules", "temp"]
 skip_glob=["**/node_modules/**", "**/temp/**"]
 
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "session"
+
 [tool.pixi.project]
 channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
 platforms = ["win-64", "linux-64"]
