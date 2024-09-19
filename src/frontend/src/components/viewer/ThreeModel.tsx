@@ -9,12 +9,15 @@ import { useAnimationEffects } from '../../hooks/useAnimationEffects';
 import { handleMeshSelected } from '../../utils/mesh_handling';
 import { useModelStore } from '../../state/modelStore';
 import { replaceBlackMaterials } from '../../utils/assignDefaultMaterial';
+import { useTreeViewStore, generateTree } from '../../state/treeViewStore';
+
 
 const ThreeModel: React.FC<ModelProps> = ({ url }) => {
   const { raycaster } = useThree();
   const { scene, animations } = useGLTF(url, false) as unknown as GLTFResult;
   const { action, setCurrentKey, setSelectedAnimation } = useAnimationStore();
   const { setTranslation, setBoundingBox } = useModelStore();
+  const { setTreeData, clearTreeData } = useTreeViewStore();
 
   useAnimationEffects(animations, scene);
 
@@ -68,6 +71,14 @@ const ThreeModel: React.FC<ModelProps> = ({ url }) => {
     setTranslation(translation);
 
     setSelectedAnimation('No Animation');
+      // Generate the tree data and update the store
+    const treeData = generateTree(scene);
+    setTreeData(treeData); // Update the tree view store with the scene graph data
+
+    // Cleanup when the component is unmounted
+    return () => {
+      clearTreeData();
+    };
   }, [scene]);
 
   useFrame((_, delta) => {

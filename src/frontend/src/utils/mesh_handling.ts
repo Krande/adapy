@@ -1,4 +1,5 @@
 import {useSelectedObjectStore} from "../state/selectedObjectStore";
+import {TreeNode, useTreeViewStore} from "../state/treeViewStore";
 import * as THREE from "three";
 import {ThreeEvent} from "@react-three/fiber";
 import {useObjectInfoStore} from "../state/objectInfoStore";
@@ -12,7 +13,7 @@ function deselectObject() {
     const selectedObject = useSelectedObjectStore.getState().selectedObject;
     const originalMaterial = useSelectedObjectStore.getState().originalMaterial;
     if (selectedObject) {
-        selectedObject.material = originalMaterial? originalMaterial : defaultMaterial;
+        selectedObject.material = originalMaterial ? originalMaterial : defaultMaterial;
         useSelectedObjectStore.getState().setOriginalMaterial(null);
         useSelectedObjectStore.getState().setSelectedObject(null);
     }
@@ -28,10 +29,10 @@ export function handleMeshSelected(event: ThreeEvent<PointerEvent>) {
 
     if (selectedObject !== mesh) {
         if (selectedObject) {
-            selectedObject.material = originalMaterial? originalMaterial : defaultMaterial;
+            selectedObject.material = originalMaterial ? originalMaterial : defaultMaterial;
         }
         const material = mesh.material as THREE.MeshBasicMaterial;
-        useSelectedObjectStore.getState().setOriginalMaterial(mesh.material? material : null);
+        useSelectedObjectStore.getState().setOriginalMaterial(mesh.material ? material : null);
         useSelectedObjectStore.getState().setSelectedObject(mesh);
 
         // Update the object info store
@@ -40,6 +41,15 @@ export function handleMeshSelected(event: ThreeEvent<PointerEvent>) {
 
         // Create a new material for the selected mesh
         mesh.material = selectedMaterial;
+
+        // Update the tree view selection
+        const treeViewStore = useTreeViewStore.getState();
+        if (treeViewStore.treeData) {
+            const selectedNode = findNodeById(treeViewStore.treeData, mesh.name);
+            if (selectedNode) {
+                treeViewStore.setSelectedNodeId(selectedNode.id);
+            }
+        }
     } else {
         deselectObject();
     }
@@ -49,4 +59,20 @@ export function handleMeshSelected(event: ThreeEvent<PointerEvent>) {
 export function handleMeshEmptySpace(event: MouseEvent) {
     event.stopPropagation();
     deselectObject();
+}
+
+
+function findNodeById(nodes: TreeNode, id: string): TreeNode | null {
+    if (nodes.id === id) {
+        return nodes;
+    }
+    if (Array.isArray(nodes.children)) {
+        for (let child of nodes.children) {
+            const result = findNodeById(child, id);
+            if (result) {
+                return result;
+            }
+        }
+    }
+    return null;
 }

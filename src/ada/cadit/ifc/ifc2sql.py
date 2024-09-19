@@ -31,7 +31,7 @@ import multiprocessing
 import ifcopenshell
 import ifcopenshell.geom
 import ifcopenshell.util.unit
-import ifcopenshell.util.shape
+
 import ifcopenshell.util.schema
 import ifcopenshell.util.attribute
 import ifcopenshell.util.placement
@@ -119,7 +119,7 @@ class Ifc2SqlPatcher:
         self.should_expand = False  # Set false for ifcopenshell.sqlite
         self.should_get_inverses = True  # Set true for ifcopenshell.sqlite
         self.should_get_psets = True
-        self.should_get_geometry = True  # Set true for ifcopenshell.sqlite
+        self.should_get_geometry = False  # Set true for ifcopenshell.sqlite
         self.should_skip_geometry_data = False  # Set false for ifcopenshell.sqlite
         schema = self.file.schema
         if schema == "IFC4X3":
@@ -190,6 +190,8 @@ class Ifc2SqlPatcher:
         return self.file_patched
 
     def create_geometry(self):
+        import ifcopenshell.util.shape
+
         self.unit_scale = ifcopenshell.util.unit.calculate_unit_scale(self.file)
 
         self.shape_rows = {}

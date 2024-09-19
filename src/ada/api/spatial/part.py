@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import pathlib
 from itertools import chain
-from typing import TYPE_CHECKING, Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal
 
 from ada import Node, Pipe, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.api.animations import AnimationStore
@@ -828,7 +828,7 @@ class Part(BackendGeom):
         scene_override=None,
         stream_from_ifc_store=False,
         merge_meshes=True,
-        scene_action: SceneAction = "new",
+        scene_action: SceneAction | Literal["new", "replace", "add", "remove"] = "new",
         scene_action_arg: str = None,
         scene_post_processor: Callable[[trimesh.Scene], trimesh.Scene] = None,
         auto_reposition=False,

@@ -3,7 +3,6 @@ import React, {useRef} from 'react';
 import {Canvas} from '@react-three/fiber';
 import {OrbitControls} from '@react-three/drei';
 import {OrbitControls as OrbitControlsImpl} from 'three-stdlib';
-import GridHelper from './GridHelper';
 import ThreeModel from './ThreeModel';
 import ColorLegend from './ColorLegend';
 import {Perf} from 'r3f-perf';
@@ -16,7 +15,9 @@ import {useObjectInfoStore} from '../../state/objectInfoStore';
 import CameraControls from './CameraControls';
 import {handleMeshEmptySpace} from '../../utils/mesh_handling';
 import CameraLight from "./CameraLights";
-import DynamicGridHelper from './DynamicGridHelper'; // Import the new component
+import DynamicGridHelper from './DynamicGridHelper';
+
+
 const CanvasComponent: React.FC = () => {
     const {modelUrl, scene_action, scene_action_arg} = useModelStore();
     const {showPerf} = useNavBarStore();
@@ -37,6 +38,7 @@ const CanvasComponent: React.FC = () => {
                 <AnimationControls/>
                 {show && <ObjectInfoBox/>}
             </div>
+
             <div className="absolute right-5 top-80 z-10">
                 <ColorLegend/>
             </div>

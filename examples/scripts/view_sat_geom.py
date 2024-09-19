@@ -16,7 +16,7 @@ def run_this():
 
     a = ada.Assembly() / shapes
     a.ifc_store.sync()
-    a.show(stream_from_ifc=True)
+    a.show(stream_from_ifc_store=True, scene_action="add")
 
 
 if __name__ == '__main__':
