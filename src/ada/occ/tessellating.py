@@ -168,14 +168,8 @@ class BatchTessellator:
 
         return self.tessellate_occ_geom(occ_geom, getattr(obj, "guid", geom.id), geom.color)
 
-    def batch_tessellate_using_ifcopenshell(self, objects, ifc_store: IfcStore) -> Iterable[MeshStore]:
-        import ifcopenshell.geom
-
-        ifc_store.get_ifc_geom_iterator()
-        ifcopenshell.geom.iterator(settings, ifc_store.f, cpus, include=products)
-
     def batch_tessellate(
-        self, objects: Iterable[Geometry | BackendGeom], render_override: dict[str, GeomRepr] = None
+            self, objects: Iterable[Geometry | BackendGeom], render_override: dict[str, GeomRepr] = None
     ) -> Iterable[MeshStore]:
         if render_override is None:
             render_override = dict()
@@ -202,7 +196,7 @@ class BatchTessellator:
                 continue
 
     def meshes_to_trimesh(
-        self, shapes_tess_iter: Iterable[MeshStore], graph, merge_meshes: bool = True
+            self, shapes_tess_iter: Iterable[MeshStore], graph, merge_meshes: bool = True
     ) -> trimesh.Scene:
         import trimesh
 
@@ -246,7 +240,7 @@ class BatchTessellator:
                 merged_mesh_to_trimesh_scene(scene, points_store, points_color, points_color_id, graph)
 
     def tessellate_part(
-        self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True
+            self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True
     ) -> trimesh.Scene:
         shapes_tess_iter = self.batch_tessellate(
             part.get_all_physical_objects(pipe_to_segments=True, filter_by_guids=filter_by_guids),
@@ -267,7 +261,6 @@ class BatchTessellator:
 
     def iter_ifc_store(self, ifc_store: IfcStore) -> Iterable[MeshStore]:
         import ifcopenshell.geom
-        import ifcopenshell.util.shape
         from ada.visit.colors import Color
         from ada.visit.gltf.meshes import MeshStore, MeshType
 

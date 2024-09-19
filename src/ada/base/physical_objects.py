@@ -57,7 +57,7 @@ class BackendGeom(Root):
             else:
                 color = Color(*color)
         elif color is None:
-            color = Color(*color_dict["gray"], opacity=opacity)
+            color = Color(*color_dict["light-gray"], opacity=opacity)
         self.color = color
         self._elem_refs = []
 

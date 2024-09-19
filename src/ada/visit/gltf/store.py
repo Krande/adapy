@@ -12,7 +12,7 @@ from trimesh.path.entities import Line
 
 from ada.config import logger
 from ada.core.vector_transforms import transform_4x4
-from ada.visit.colors import Color
+from ada.visit.colors import Color, color_dict
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import MergedMesh, MeshRef, MeshStore, MeshType
 from ada.visit.gltf.optimize import concatenate_stores
@@ -200,6 +200,8 @@ def merged_mesh_to_trimesh_scene(
         # Setting process=True will automatically merge duplicated vertices
         mesh = trimesh.Trimesh(vertices=vertices, faces=indices, process=False)
         if isinstance(pbr_mat, Color):
+            if pbr_mat.hex == '#000000':
+                pbr_mat = Color(*color_dict["light-gray"])
             pbr_mat = trimesh.visual.material.PBRMaterial(
                 f"mat{buffer_id}", baseColorFactor=pbr_mat.rgb255, doubleSided=True
             )

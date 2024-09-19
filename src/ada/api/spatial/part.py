@@ -826,7 +826,7 @@ class Part(BackendGeom):
         run_ws_in_thread=False,
         origins: list[str] = None,
         scene_override=None,
-        stream_from_ifc=False,
+        stream_from_ifc_store=False,
         merge_meshes=True,
         scene_action: SceneAction = "new",
         scene_action_arg: str = None,
@@ -859,7 +859,7 @@ class Part(BackendGeom):
             ws.send_scene(scene_override, self.animation_store, auto_reposition=auto_reposition, **kwargs)
             return
 
-        scene = self.to_trimesh_scene(stream_from_ifc=stream_from_ifc, merge_meshes=merge_meshes)
+        scene = self.to_trimesh_scene(stream_from_ifc=stream_from_ifc_store, merge_meshes=merge_meshes)
         if scene_post_processor is not None:
             scene = scene_post_processor(scene)
 

@@ -11,6 +11,7 @@ from ada.cadit.sat.read.sat_entities import AcisRecord
 from ada.config import logger, Config
 from ada.core.guid import create_guid
 from ada.geom import Geometry
+from ada.visit.colors import color_dict, Color
 
 
 class SatReader:
@@ -171,7 +172,7 @@ class SatReaderFactory:
             if advanced_face is None:
                 continue
             face_name = self.sat_store.get_name(record.chunks[2])
-            yield face_name, Geometry(create_guid(), advanced_face, None)
+            yield face_name, Geometry(create_guid(), advanced_face, Color(*color_dict["light-gray"]))
 
     def iter_all_faces(self) -> Iterable[tuple[AcisRecord, geo_su.SURFACE_GEOM_TYPES]]:
         conf = Config()

@@ -10,7 +10,7 @@ const CameraLight: React.FC = () => {
 
   useEffect(() => {
     if (lightRef.current) {
-      lightRef.current.castShadow = true; // Enable casting shadows
+      lightRef.current.castShadow = false; // Enable casting shadows
       lightRef.current.shadow.mapSize.width = 2048; // Increase shadow map size for better quality
       lightRef.current.shadow.mapSize.height = 2048;
       lightRef.current.shadow.camera.near = 0.5;
@@ -38,7 +38,7 @@ const CameraLight: React.FC = () => {
     <>
       <directionalLight
         ref={lightRef}
-        intensity={1}
+        intensity={1.4}
         color={0xffffff}
         castShadow
       />
