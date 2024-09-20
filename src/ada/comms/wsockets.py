@@ -9,8 +9,7 @@ import websockets
 
 from ada.comms.fb_deserialize import deserialize_message
 from ada.comms.wsock import Message
-from ada.comms.fb_model import MessageDC
-from ada.comms.fb_model import CommandTypeDC
+from ada.comms.fb_model_gen import MessageDC, CommandTypeDC
 from ada.comms.fb_serializer import serialize_message
 from ada.config import logger
 

@@ -28,7 +28,7 @@ class FileTypeDC(Enum):
 class FileObjectDC:
     file_type: Optional[FileTypeDC] = None
     purpose: Optional[FilePurposeDC] = None
-    filepath: str = None
+    filepath: str = ""
 
 @dataclass
 class BinaryDataDC:
@@ -46,7 +46,7 @@ class MessageDC:
     file_object: Optional[FileObjectDC] = None
     binary_data: Optional[BinaryDataDC] = None
     mesh_info: Optional[MeshInfoDC] = None
-    target_group: str = None
-    client_type: str = None
+    target_group: str = ""
+    client_type: str = ""
     scene_operation: Optional[SceneOperationsDC] = None
     target_id: int = None

@@ -15,7 +15,7 @@ def strip_comments(fbs_content: str) -> str:
 
 
 # Function to parse an .fbs file and generate Python dataclasses and enums
-def parse_fbs_file(fbs_file: str) -> str:
+def parse_fbs_file(fbs_file: str | pathlib.Path) -> str:
     with open(fbs_file, 'r') as file:
         fbs_content = file.read()
 
@@ -69,7 +69,7 @@ def parse_fbs_file(fbs_file: str) -> str:
             else:
                 if has_optional:
                     if python_type == "str":
-                        default_value = ' = None'
+                        default_value = ' = ""'
                     elif python_type == "int":
                         default_value = ' = None'
                     elif python_type == "bool":

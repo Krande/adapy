@@ -3,8 +3,7 @@ import asyncio
 import flatbuffers
 import pytest
 
-from ada.comms.fb_model import CommandTypeDC
-from ada.comms.fb_model import MessageDC
+from ada.comms.fb_model_gen import CommandTypeDC, MessageDC
 from ada.comms.fb_serializer import serialize_message
 from ada.comms.wsockets import (
     WebSocketClientAsync,

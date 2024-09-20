@@ -1,4 +1,4 @@
-from ada.comms.fb_model import MessageDC, FileObjectDC, BinaryDataDC, MeshInfoDC, FileTypeDC, FilePurposeDC, \
+from ada.comms.fb_model_gen import MessageDC, FileObjectDC, BinaryDataDC, MeshInfoDC, FileTypeDC, FilePurposeDC, \
     CommandTypeDC, SceneOperationsDC
 from ada.comms.wsock import Message
 
@@ -23,7 +23,7 @@ def deserialize_message(buf: bytes) -> MessageDC:
     binary_data = None
     if message_fb.BinaryData():
         binary_data = BinaryDataDC(
-            data=list(message_fb.BinaryData().DataAsNumpy())
+            data=message_fb.BinaryData()
         )
 
     # Deserialize the MeshInfo, if it exists

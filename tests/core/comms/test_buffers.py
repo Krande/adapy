@@ -1,7 +1,7 @@
 import flatbuffers
 
 from ada.comms.fb_deserialize import deserialize_message
-from ada.comms.fb_model import CommandTypeDC, FilePurposeDC, FileTypeDC, SceneOperationsDC, MessageDC, FileObjectDC, \
+from ada.comms.fb_model_gen import CommandTypeDC, FilePurposeDC, FileTypeDC, SceneOperationsDC, MessageDC, FileObjectDC, \
     MeshInfoDC
 from ada.comms.fb_serializer import serialize_message
 

@@ -2,7 +2,7 @@ from typing import Optional
 
 import flatbuffers
 # Your Python dataclasses
-from .fb_model import FileObjectDC, BinaryDataDC, MeshInfoDC, MessageDC
+from .fb_model_gen import FileObjectDC, BinaryDataDC, MeshInfoDC, MessageDC
 
 from ada.comms.wsock import Message, FileObject, BinaryData, MeshInfo
 
