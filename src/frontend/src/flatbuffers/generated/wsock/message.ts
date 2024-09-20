@@ -54,28 +54,28 @@ meshInfo(obj?:MeshInfo):MeshInfo|null {
   return offset ? (obj || new MeshInfo()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
-targetId():number {
-  const offset = this.bb!.__offset(this.bb_pos, 14);
-  return offset ? this.bb!.readInt32(this.bb_pos + offset) : 0;
-}
-
 targetGroup():string|null
 targetGroup(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
 targetGroup(optionalEncoding?:any):string|Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 16);
+  const offset = this.bb!.__offset(this.bb_pos, 14);
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
 clientType():string|null
 clientType(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
 clientType(optionalEncoding?:any):string|Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 18);
+  const offset = this.bb!.__offset(this.bb_pos, 16);
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
 sceneOperation():SceneOperations {
-  const offset = this.bb!.__offset(this.bb_pos, 20);
+  const offset = this.bb!.__offset(this.bb_pos, 18);
   return offset ? this.bb!.readInt8(this.bb_pos + offset) : SceneOperations.ADD;
+}
+
+targetId():number {
+  const offset = this.bb!.__offset(this.bb_pos, 20);
+  return offset ? this.bb!.readInt32(this.bb_pos + offset) : 0;
 }
 
 static startMessage(builder:flatbuffers.Builder) {
@@ -102,20 +102,20 @@ static addMeshInfo(builder:flatbuffers.Builder, meshInfoOffset:flatbuffers.Offse
   builder.addFieldOffset(4, meshInfoOffset, 0);
 }
 
-static addTargetId(builder:flatbuffers.Builder, targetId:number) {
-  builder.addFieldInt32(5, targetId, 0);
-}
-
 static addTargetGroup(builder:flatbuffers.Builder, targetGroupOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(6, targetGroupOffset, 0);
+  builder.addFieldOffset(5, targetGroupOffset, 0);
 }
 
 static addClientType(builder:flatbuffers.Builder, clientTypeOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(7, clientTypeOffset, 0);
+  builder.addFieldOffset(6, clientTypeOffset, 0);
 }
 
 static addSceneOperation(builder:flatbuffers.Builder, sceneOperation:SceneOperations) {
-  builder.addFieldInt8(8, sceneOperation, SceneOperations.ADD);
+  builder.addFieldInt8(7, sceneOperation, SceneOperations.ADD);
+}
+
+static addTargetId(builder:flatbuffers.Builder, targetId:number) {
+  builder.addFieldInt32(8, targetId, 0);
 }
 
 static endMessage(builder:flatbuffers.Builder):flatbuffers.Offset {

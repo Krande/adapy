@@ -83,7 +83,8 @@ async def start_mock_web_client_connection():
                         instance_id=ws_client.instance_id,
                         command_type=CommandTypeDC.PONG,
                         target_id=msg.instance_id,
-                        target_group="local"
+                        target_group="local",
+                        client_type="web",
                     )
 
                     # Initialize the FlatBuffer builder

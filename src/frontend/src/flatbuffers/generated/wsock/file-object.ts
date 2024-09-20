@@ -4,8 +4,8 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { FilePurpose } from '../wsock/file-purpose.js';
-import { FileType } from '../wsock/file-type.js';
+import { FilePurpose } from './file-purpose';
+import { FileType } from './file-type';
 
 
 export class FileObject {

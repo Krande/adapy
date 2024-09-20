@@ -46,10 +46,10 @@ table Message {
   file_object: FileObject;
   binary_data: BinaryData;
   mesh_info: MeshInfo;
-  target_id: int = 0; // Default value for optional field
   target_group: string;
   client_type: string;
   scene_operation: SceneOperations;
+  target_id: int = 0; // Default value for optional field
 }
 
 root_type Message;

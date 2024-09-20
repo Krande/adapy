@@ -72,31 +72,31 @@ class Message(object):
         return None
 
     # Message
-    def TargetId(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
-        if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
-        return 0
-
-    # Message
     def TargetGroup(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
         if o != 0:
             return self._tab.String(o + self._tab.Pos)
         return None
 
     # Message
     def ClientType(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
         if o != 0:
             return self._tab.String(o + self._tab.Pos)
         return None
 
     # Message
     def SceneOperation(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
+
+    # Message
+    def TargetId(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
         return 0
 
 def MessageStart(builder):
@@ -135,29 +135,29 @@ def MessageAddMeshInfo(builder, meshInfo):
 def AddMeshInfo(builder, meshInfo):
     MessageAddMeshInfo(builder, meshInfo)
 
-def MessageAddTargetId(builder, targetId):
-    builder.PrependInt32Slot(5, targetId, 0)
-
-def AddTargetId(builder, targetId):
-    MessageAddTargetId(builder, targetId)
-
 def MessageAddTargetGroup(builder, targetGroup):
-    builder.PrependUOffsetTRelativeSlot(6, flatbuffers.number_types.UOffsetTFlags.py_type(targetGroup), 0)
+    builder.PrependUOffsetTRelativeSlot(5, flatbuffers.number_types.UOffsetTFlags.py_type(targetGroup), 0)
 
 def AddTargetGroup(builder, targetGroup):
     MessageAddTargetGroup(builder, targetGroup)
 
 def MessageAddClientType(builder, clientType):
-    builder.PrependUOffsetTRelativeSlot(7, flatbuffers.number_types.UOffsetTFlags.py_type(clientType), 0)
+    builder.PrependUOffsetTRelativeSlot(6, flatbuffers.number_types.UOffsetTFlags.py_type(clientType), 0)
 
 def AddClientType(builder, clientType):
     MessageAddClientType(builder, clientType)
 
 def MessageAddSceneOperation(builder, sceneOperation):
-    builder.PrependInt8Slot(8, sceneOperation, 0)
+    builder.PrependInt8Slot(7, sceneOperation, 0)
 
 def AddSceneOperation(builder, sceneOperation):
     MessageAddSceneOperation(builder, sceneOperation)
+
+def MessageAddTargetId(builder, targetId):
+    builder.PrependInt32Slot(8, targetId, 0)
+
+def AddTargetId(builder, targetId):
+    MessageAddTargetId(builder, targetId)
 
 def MessageEnd(builder):
     return builder.EndObject()
