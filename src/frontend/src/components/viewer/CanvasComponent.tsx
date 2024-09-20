@@ -16,7 +16,8 @@ import CameraControls from './CameraControls';
 import {handleMeshEmptySpace} from '../../utils/mesh_handling';
 import CameraLight from "./CameraLights";
 import DynamicGridHelper from './DynamicGridHelper';
-
+import use3DConnexion from '../../hooks/use3DConnexion';
+import ThreeConnexionControls from "./ThreeConnexionControls";
 
 const CanvasComponent: React.FC = () => {
     const {modelUrl, scene_action, scene_action_arg} = useModelStore();
@@ -74,6 +75,8 @@ const CanvasComponent: React.FC = () => {
 
                     {/* Render CameraControls inside the Canvas */}
                     <CameraControls orbitControlsRef={orbitControlsRef}/>
+                              {/* Integrate 3Dconnexion Controls */}
+                    {/*<ThreeConnexionControls orbitControlsRef={orbitControlsRef} />*/}
                 </Canvas>
             </div>
         </div>
