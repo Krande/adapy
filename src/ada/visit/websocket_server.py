@@ -1,5 +1,7 @@
 import asyncio
+import base64
 import io
+import json
 import os
 import pathlib
 import platform
@@ -11,6 +13,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
 from multiprocessing import Queue
+from typing import Literal
 
 import numpy as np
 import trimesh
@@ -173,8 +176,6 @@ class WebSocketServer:
             save_to_file_path: str | None = None,
             **kwargs,
     ):
-        import base64
-        import json
 
         translation_list = None
         if auto_reposition:
@@ -218,8 +219,10 @@ class WebSocketServer:
 class WebSocketClientAsync:
     host: str = "localhost"
     port: int = 8765
+    client_type: Literal["web", "local"] = "local"
 
     async def __aenter__(self):
+        self.instance_id = id(self)
         self._conn = websockets.connect(f"ws://{self.host}:{self.port}")
         self.websocket = await self._conn.__aenter__()
         return self
@@ -227,11 +230,18 @@ class WebSocketClientAsync:
     async def __aexit__(self, *args, **kwargs):
         await self._conn.__aexit__(*args, **kwargs)
 
-    async def send(self, message):
-        await self.websocket.send(message)
+    async def send(self, message, target_id=None, target_group: Literal["web", "client"] = "web"):
+        """sends a json package to the server"""
+        pkg = {"instance_id": self.instance_id, "message": message, "target_id": target_id,
+               "target_group": target_group, "client_type": self.client_type}
+        await self.websocket.send(json.dumps(pkg))
 
-    async def receive(self):
-        return await self.websocket.recv()
+    async def receive(self) -> dict | str:
+        message = await self.websocket.recv()
+        try:
+            return json.loads(message)
+        except json.JSONDecodeError:
+            return message
 
 
 async def _check_server_running(host="ws://localhost", port=8765):

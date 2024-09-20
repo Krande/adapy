@@ -1,4 +1,4 @@
-name: ada-dev-2
+name: ada-dev
 channels:
   - https://repo.prefix.dev/code-aster
   - conda-forge

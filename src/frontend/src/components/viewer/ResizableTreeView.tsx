@@ -3,7 +3,7 @@ import TreeViewComponent from './TreeViewComponent';
 
 const ResizableTreeView: React.FC = () => {
     const [treeViewWidth, setTreeViewWidth] = useState(256); // Initial width of 256px
-    const [isCollapsed, setIsCollapsed] = useState(false); // Track whether the tree view is collapsed
+    const [isCollapsed, setIsCollapsed] = useState(true); // Track whether the tree view is collapsed
     const isResizing = useRef(false);
 
     // Handle mouse down event on the resize handle
@@ -39,7 +39,7 @@ const ResizableTreeView: React.FC = () => {
         <div className="relative flex flex-col h-full">
             {/* Collapse Button */}
             <button
-                className="absolute bottom-2 left-14 z-10 bg-blue-700 text-white p-1 rounded focus:outline-none"
+                className="absolute bottom-0 left-12 z-10 bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-2 rounded"
                 onClick={() => setIsCollapsed(!isCollapsed)}
             >
                 {isCollapsed ? '▶' : '◀'}

@@ -1,9 +1,12 @@
+import json
+from dataclasses import dataclass
+
 import pytest
 import asyncio
 
 import websockets
 
-from ada.visit.websocket_server import WebSocketServer
+from ada.visit.websocket_server import WebSocketServer, WebSocketClientAsync
 
 HOST = "localhost"
 PORT = 1325
@@ -11,17 +14,48 @@ PORT = 1325
 connected_clients = set()
 
 
-async def echo(websocket, path):
+@pytest.fixture
+def mock_host():
+    return HOST
+
+
+@pytest.fixture
+def mock_port():
+    return PORT
+
+
+@dataclass
+class ConnectedClient:
+    client: websockets.WebSocketServerProtocol
+    instance_id: int | None
+
+    def __hash__(self):
+        return hash(self.client)
+
+
+async def async_ws_server(websocket, path):
     # Register web_client
-    connected_clients.add(websocket)
+    cc = ConnectedClient(websocket, None)
+    connected_clients.add(cc)
     print(f"Client connected: {websocket.remote_address}")
     try:
         async for message in websocket:
             print(f"Received message from client: {message}")
+            try:
+                msg = json.loads(message)
+            except json.JSONDecodeError:
+                print("Invalid message received")
+                continue
+
             # Forward message to all other connected clients
             for client in connected_clients:
-                if client != websocket:
-                    await client.send(message)
+                if client.client == websocket:
+                    if client.instance_id is None:
+                        client.instance_id = msg.get("instance_id")
+                    continue
+                if msg["target_id"] is not None and client.instance_id != msg["target_id"]:
+                    continue
+                await client.client.send(message)
     finally:
         # Unregister web_client
         connected_clients.remove(websocket)
@@ -33,7 +67,7 @@ async def start():
 
     try:
         # await server start here.
-        ws = await websockets.serve(echo, HOST, PORT)
+        ws = await websockets.serve(async_ws_server, HOST, PORT)
         print(f"WebSocket server started on ws://{HOST}:{PORT}")
         await ws.wait_closed()
 
@@ -64,15 +98,24 @@ def server(event_loop):
 # Additional instance to connect to the WebSocket server
 async def connect_to_server():
     uri = f"ws://{HOST}:{PORT}"
-    async with websockets.connect(uri) as websocket:
+
+    async with WebSocketClientAsync(HOST, PORT, "web") as ws_client:
+        websocket = ws_client.websocket
         print(f"Connected to server: {uri}")
         try:
             async for message in websocket:
                 print(f"Received message from server: {message}")
-                if message == "ping":
-                    await websocket.send("pong")
-        except asyncio.CancelledError:
-            print("Connection to server was cancelled")
+                try:
+                    msg = json.loads(message)
+                except json.JSONDecodeError:
+                    print(f"Invalid message received")
+                    continue
+                if msg["target_group"] != ws_client.client_type:
+                    continue
+                if msg["message"] == "ping":
+                    await ws_client.send("pong", target_id=msg["instance_id"], target_group="client")
+        except asyncio.CancelledError as e:
+            print("Connection to server was cancelled due to: ", e)
 
 
 @pytest.fixture(scope="session")
