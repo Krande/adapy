@@ -40,6 +40,7 @@
   "dependencies": {
     "@emotion/react": "^11.13.3",
     "@emotion/styled": "^11.13.0",
-    "@mui/x-tree-view": "^7.17.0"
+    "@mui/x-tree-view": "^7.17.0",
+    "flatbuffers": "^24.3.25"
   }
 }

@@ -1,12 +1,15 @@
 import asyncio
-import json
 
+import flatbuffers
 import pytest
 
+from ada.comms.fb_model import CommandTypeDC
+from ada.comms.fb_model import MessageDC
+from ada.comms.fb_serializer import serialize_message
 from ada.comms.wsockets import (
     WebSocketClientAsync,
     WebSocketAsyncServer,
-    on_message_handler
+    handle_partial_message
 )
 from ada.config import logger
 
@@ -24,7 +27,6 @@ def mock_host():
 def mock_port():
     """Fixture to provide the mock port."""
     return PORT
-
 
 
 async def start():
@@ -61,8 +63,9 @@ def server(event_loop):
         except asyncio.CancelledError:
             pass  # Suppress the CancelledError to prevent it from propagating
 
+
 # Additional instance to connect to the WebSocket server
-async def start_web_client_connection():
+async def start_mock_web_client_connection():
     uri = f"ws://{HOST}:{PORT}"
 
     async with WebSocketClientAsync(HOST, PORT, "web") as ws_client:
@@ -71,22 +74,31 @@ async def start_web_client_connection():
         try:
             async for message in websocket:
                 logger.debug(f"Received message from server: {message}")
-                try:
-                    msg = json.loads(message)
-                except json.JSONDecodeError:
-                    logger.debug(f"Invalid message received")
+                msg = await handle_partial_message(message)
+
+                if msg.target_group != ws_client.client_type:
                     continue
-                if msg["target_group"] != ws_client.client_type:
-                    continue
-                if msg["message"] == "ping":
-                    await ws_client.send("pong", target_id=msg["instance_id"], target_group="local")
+                if msg.command_type == CommandTypeDC.PING:
+                    message = MessageDC(
+                        instance_id=ws_client.instance_id,
+                        command_type=CommandTypeDC.PONG,
+                        target_id=msg.instance_id,
+                        target_group="local"
+                    )
+
+                    # Initialize the FlatBuffer builder
+                    builder = flatbuffers.Builder(1024)
+
+                    # Serialize the dataclass message into a FlatBuffer
+                    flatbuffer_data = serialize_message(builder, message)
+                    await ws_client.websocket.send(flatbuffer_data)
         except asyncio.CancelledError as e:
             logger.debug("Connection to server was cancelled due to: ", e)
 
 
 @pytest.fixture(scope="session")
 def web_client(event_loop):
-    task = asyncio.ensure_future(start_web_client_connection(), loop=event_loop)
+    task = asyncio.ensure_future(start_mock_web_client_connection(), loop=event_loop)
 
     yield  # Use 'yield' to wait for the fixture to complete
 

@@ -1,10 +1,17 @@
 import asyncio
 import json
+import random
 from dataclasses import dataclass
 from typing import Optional, Callable, Set, Literal
 
+import flatbuffers
 import websockets
 
+from ada.comms.fb_deserialize import deserialize_message
+from ada.comms.wsock import Message
+from ada.comms.fb_model import MessageDC
+from ada.comms.fb_model import CommandTypeDC
+from ada.comms.fb_serializer import serialize_message
 from ada.config import logger
 
 
@@ -25,7 +32,7 @@ class WebSocketAsyncServer:
             port: int,
             on_connect: Optional[Callable[['ConnectedClient'], asyncio.Future]] = None,
             on_disconnect: Optional[Callable[['ConnectedClient'], asyncio.Future]] = None,
-            on_message: Optional[Callable[['ConnectedClient', dict], asyncio.Future]] = None
+            on_message: Optional[Callable[['ConnectedClient', MessageDC], asyncio.Future]] = None
     ):
         self.host = host
         self.port = port
@@ -44,11 +51,7 @@ class WebSocketAsyncServer:
         try:
             async for message in websocket:
                 logger.debug(f"Received message from client: {message}")
-                try:
-                    msg = json.loads(message)
-                except json.JSONDecodeError:
-                    logger.debug("Invalid message received")
-                    continue
+                msg = await handle_partial_message(message)
 
                 if self.on_message:
                     await self.on_message(client, msg)
@@ -56,9 +59,9 @@ class WebSocketAsyncServer:
                 # Update instance_id if not set
                 if client.client == websocket:
                     if client.instance_id is None:
-                        client.instance_id = msg.get("instance_id")
+                        client.instance_id = msg.instance_id
                     if client.group_type is None:
-                        client.group_type = msg.get("client_type")
+                        client.group_type = msg.client_type
 
                 # Forward message to appropriate clients
                 await self.forward_message(message, sender=client, msg=msg)
@@ -69,9 +72,9 @@ class WebSocketAsyncServer:
             if self.on_disconnect:
                 await self.on_disconnect(client)
 
-    async def forward_message(self, message: str, sender: ConnectedClient, msg: dict):
-        target_id = msg.get("target_id")
-        target_group = msg.get("target_group")
+    async def forward_message(self, message: str | bytes, sender: ConnectedClient, msg: MessageDC):
+        target_id = msg.target_id
+        target_group = msg.target_group
         for client in self.connected_clients:
             if client == sender:
                 continue
@@ -114,7 +117,7 @@ class WebSocketClientAsync:
     client_type: Literal["web", "local"] = "local"
 
     async def __aenter__(self):
-        self.instance_id = id(self)
+        self.instance_id = random.randint(0, 2 ** 31 - 1)  # Generates a random int32 value
         self._conn = websockets.connect(
             f"ws://{self.host}:{self.port}",
             extra_headers={"Client-Type": self.client_type, "instance-id": str(self.instance_id)}
@@ -131,27 +134,50 @@ class WebSocketClientAsync:
         await self.send("list_clients", target_group="web")
         return await self.receive()
 
-    async def send(self, message, target_id=None, target_group: Literal["web", "local"] = "web"):
-        """Sends a JSON package to the server."""
+
+    async def check_server_liveness_using_fb(self, target_id=None, target_group: Literal["web", "local"] = "web"):
+        """Sends a Flatbuffer package to the server."""
+        message = MessageDC(
+            instance_id=self.instance_id,
+            command_type=CommandTypeDC.PING,
+            target_id=target_id,
+            target_group=target_group
+        )
+
+        # Initialize the FlatBuffer builder
+        builder = flatbuffers.Builder(1024)
+
+        # Serialize the dataclass message into a FlatBuffer
+        flatbuffer_data = serialize_message(builder, message)
+        await self.websocket.send(flatbuffer_data)
+        msg = await self.receive()
+        return msg.command_type == CommandTypeDC.PONG
+
+    async def check_server_liveness_using_json(self, target_id=None, target_group: Literal["web", "local"] = "web"):
         pkg = {
             "instance_id": self.instance_id,
-            "message": message,
+            "command_type": CommandTypeDC.PING.value,
             "target_id": target_id,
             "target_group": target_group,
             "client_type": self.client_type
         }
         await self.websocket.send(json.dumps(pkg))
         logger.info(f"Sent message: {pkg}")
+        msg = await self.receive()
+        return msg.command_type == CommandTypeDC.PONG
 
-    async def receive(self) -> dict | str:
+    async def receive(self) -> MessageDC:
         message = await self.websocket.recv()
-        try:
-            msg = json.loads(message)
-            logger.info(f"Received message: {msg}")
-            return msg
-        except json.JSONDecodeError:
-            logger.error("Received non-JSON message")
-            return message
+        if isinstance(message, bytes):
+            return deserialize_message(message)
+        else:
+            try:
+                msg = json.loads(message)
+                logger.info(f"Received message: {msg}")
+                return msg
+            except json.JSONDecodeError:
+                logger.error("Received non-JSON message")
+                return message
 
 
 async def on_message_handler(client: ConnectedClient, msg: dict):
@@ -164,3 +190,33 @@ async def on_message_handler(client: ConnectedClient, msg: dict):
             "client_type": "web"  # Adjust based on your protocol
         }
         await client.client.send(json.dumps(response))
+
+
+async def handle_partial_message(message) -> MessageDC | None:
+    """Parse """
+    if isinstance(message, bytes):
+        message_fb = Message.Message.GetRootAsMessage(message)
+        target_id = message_fb.TargetId()
+        if target_id == 0:
+            target_id = None
+        return MessageDC(
+            instance_id=message_fb.InstanceId(),
+            command_type=CommandTypeDC(message_fb.CommandType()),
+            target_id=target_id,
+            target_group=message_fb.TargetGroup().decode('utf-8'),
+            client_type=message_fb.ClientType().decode('utf-8')
+        )
+    else:
+        try:
+            msg = json.loads(message)
+        except json.JSONDecodeError:
+            logger.debug("Invalid message received")
+            return None
+
+        return MessageDC(
+            instance_id=msg.get("instance_id"),
+            command_type=CommandTypeDC(msg.get("command_type")),
+            target_id=msg.get("target_id"),
+            target_group=msg.get("target_group"),
+            client_type=msg.get("client_type")
+        )

@@ -77,6 +77,7 @@ frontend = { features = ["web"], no-default-feature = true}
 [tool.pixi.feature.py312.dependencies]
 python="3.12"
 ada-py = "*"
+flatbuffers = "*"
 code-aster = "*"
 lark = "*"
 
@@ -99,11 +100,14 @@ scipy = "*"
 
 [tool.pixi.feature.web.dependencies]
 nodejs = "*"
+flatbuffers = "*"
 
 [tool.pixi.feature.lint.tasks]
 lint = "isort . && black . --config pyproject.toml && ruff check ."
+
 [tool.pixi.feature.docs.tasks]
 docs = "cd docs && make html"
+
 [tool.pixi.feature.tests.tasks]
 test = "pytest tests --ignore=tests/profiling"
 test-no-fem = "pytest tests --ignore=tests/fem --ignore=tests/profiling"
@@ -114,6 +118,8 @@ fdoc = { cmd="python doc_live_html.py", cwd="./tests/fem" }
 npm = { cmd="npm", cwd="./src/frontend" }
 wdev = { cmd="npm run dev", cwd="./src/frontend" }
 wbuild = { cmd="npm run build", cwd="./src/frontend" }
+_flatclean = {cmd="find src/ada/comms/wsock/ src/frontend/src/flatbuffers/generated/ -mindepth 1 -delete || true"}
+flat = { cmd="flatc --python -o src/ada/comms/ src/frontend/src/flatbuffers/schemas/commands.fbs && flatc --ts -o src/frontend/src/flatbuffers/generated/ src/frontend/src/flatbuffers/schemas/commands.fbs && git add src/ada/comms/wsock/ src/frontend/src/flatbuffers/generated/", depends-on=["_flatclean"] }
 
 [tool.pixi.dependencies]
 pixi-pycharm = ">=0.0.6,<0.0.7"
