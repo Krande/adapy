@@ -11,5 +11,6 @@ dependencies:
   - trimesh >=4.1.0
   - python-dotenv
   - pytest
+  - pytest-asyncio
   - shapely
   - pillow

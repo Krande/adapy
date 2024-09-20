@@ -29,6 +29,7 @@ jobs:
           create-args: >-
             python=3.12
             pytest
+            pytest-asyncio
             pytest-benchmark
 
       - name: Install latest adapy
@@ -56,6 +57,7 @@ jobs:
           create-args: >-
             python=3.12
             pytest
+            pytest-asyncio
             pytest-benchmark
             jupyterlab
             pythreejs
