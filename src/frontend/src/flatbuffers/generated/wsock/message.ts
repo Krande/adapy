@@ -4,11 +4,11 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { BinaryData } from '../wsock/binary-data.js';
-import { CommandType } from '../wsock/command-type.js';
-import { FileObject } from '../wsock/file-object.js';
-import { MeshInfo } from '../wsock/mesh-info.js';
-import { SceneOperations } from '../wsock/scene-operations.js';
+import { BinaryData } from './binary-data';
+import { CommandType } from './command-type';
+import { FileObject } from './file-object';
+import { MeshInfo } from './mesh-info';
+import { SceneOperations } from './scene-operations';
 
 
 export class Message {
