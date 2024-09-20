@@ -44,7 +44,10 @@ def serialize_mesh_info(builder: flatbuffers.Builder, mesh_info: Optional[MeshIn
 
 
 # Serialize the entire Message dataclass to FlatBuffer
-def serialize_message(builder: flatbuffers.Builder, message: MessageDC) -> bytes:
+def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
+    if builder is None:
+        # Initialize the FlatBuffer builder
+        builder = flatbuffers.Builder(1024)
     # Create the strings for target_group and client_type
     target_group_str = builder.CreateString(message.target_group)
     client_type_str = builder.CreateString(message.client_type)

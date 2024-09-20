@@ -27,11 +27,8 @@ def test_basic_flat_buffers():
         scene_operation=SceneOperationsDC.ADD
     )
 
-    # Initialize the FlatBuffer builder
-    builder = flatbuffers.Builder(1024)
-
     # Serialize the dataclass message into a FlatBuffer
-    flatbuffer_data = serialize_message(builder, message)
+    flatbuffer_data = serialize_message(message)
 
     # You can now send `flatbuffer_data` over a network, save it to a file, etc.
     print(flatbuffer_data)

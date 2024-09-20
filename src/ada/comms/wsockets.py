@@ -4,7 +4,6 @@ import random
 from dataclasses import dataclass
 from typing import Optional, Callable, Set, Literal
 
-import flatbuffers
 import websockets
 
 from ada.comms.fb_deserialize import deserialize_message
@@ -143,11 +142,8 @@ class WebSocketClientAsync:
             target_group=target_group
         )
 
-        # Initialize the FlatBuffer builder
-        builder = flatbuffers.Builder(1024)
-
         # Serialize the dataclass message into a FlatBuffer
-        flatbuffer_data = serialize_message(builder, message)
+        flatbuffer_data = serialize_message(message)
         await self.websocket.send(flatbuffer_data)
         msg = await self.receive()
         return msg.command_type == CommandTypeDC.PONG
