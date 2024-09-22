@@ -50,33 +50,30 @@ def generate_serialize_root_function(schema: FlatBufferSchema) -> str:
     serialize_code = f"def serialize_{root_table.name.lower()}(message: {root_table.name}DC, builder: flatbuffers.Builder=None) -> bytes:\n"
     serialize_code += "    if builder is None:\n        builder = flatbuffers.Builder(1024)\n"
 
-    # Handle string serialization first
     for field in root_table.fields:
         if field.field_type == "string":
-            serialize_code += f"    {field.name}_str = builder.CreateString(message.{field.name})\n"
+            serialize_code += f"    {field.name}_str = None\n"
+            serialize_code += f"    if message.{field.name} is not None:\n"
+            serialize_code += f"        {field.name}_str = builder.CreateString(message.{field.name})\n"
+        elif field.field_type in table_names:
+            serialize_code += f"    {field.name}_obj = None\n"
+            serialize_code += f"    if message.{field.name} is not None:\n"
+            serialize_code += f"        {field.name}_obj = serialize_{field.field_type.lower()}(builder, message.{field.name})\n"
 
-    # Handle nested object serialization
-    for field in root_table.fields:
-        if field.field_type in ["string", "int", "byte", "ubyte"]:
-            continue  # Already handled or primitive
-        if field.field_type.startswith("[") and "ubyte" in field.field_type:
-            continue  # Already handled
-        if field.field_type in enum_names:
-            continue
-        serialize_code += f"    {field.name}_obj = serialize_{field.field_type.lower()}(builder, message.{field.name})\n"
-
+    # Handle string serialization first
     serialize_code += f"\n    {root_table.name}.Start(builder)\n"
 
     # Add fields to FlatBuffer
     for field in root_table.fields:
+        serialize_code += f"    if message.{field.name} is not None:\n"
         if field.field_type in ["int", "byte", "ubyte"]:
-            serialize_code += f"    {root_table.name}.Add{make_camel_case(field.name)}(builder, message.{field.name})\n"
+            serialize_code += f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, message.{field.name})\n"
         elif field.field_type == "string":
-            serialize_code += f"    {root_table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_str)\n"
+            serialize_code += f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_str)\n"
         elif field.field_type in table_names:
-            serialize_code += f"    if {field.name}_obj is not None:\n        {root_table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_obj)\n"
+            serialize_code += f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_obj)\n"
         elif field.field_type in enum_names:
-            serialize_code += f"    {root_table.name}.Add{make_camel_case(field.name)}(builder, message.{field.name}.value)\n"
+            serialize_code += f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, message.{field.name}.value)\n"
 
     serialize_code += f"\n    {schema.root_type.lower()}_flatbuffer = {root_table.name}.End(builder)\n"
     serialize_code += f"    builder.Finish({schema.root_type.lower()}_flatbuffer)\n"

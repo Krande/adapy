@@ -2,6 +2,7 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import Optional
 
+
 class CommandTypeDC(Enum):
     PING = 0
     PONG = 1
@@ -41,7 +42,7 @@ class MeshInfoDC:
 
 @dataclass
 class MessageDC:
-    instance_id: int
+    instance_id: int = None
     command_type: Optional[CommandTypeDC] = None
     file_object: Optional[FileObjectDC] = None
     binary_data: Optional[BinaryDataDC] = None

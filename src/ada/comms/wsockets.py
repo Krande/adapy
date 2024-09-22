@@ -6,7 +6,7 @@ from typing import Optional, Callable, Set, Literal
 
 import websockets
 
-from ada.comms.fb_deserialize import deserialize_message
+from ada.comms.fb_deserializer import deserialize_root_message
 from ada.comms.wsock import Message
 from ada.comms.fb_model_gen import MessageDC, CommandTypeDC
 from ada.comms.fb_serializer import serialize_message
@@ -164,7 +164,7 @@ class WebSocketClientAsync:
     async def receive(self) -> MessageDC:
         message = await self.websocket.recv()
         if isinstance(message, bytes):
-            return deserialize_message(message)
+            return deserialize_root_message(message)
         else:
             try:
                 msg = json.loads(message)
