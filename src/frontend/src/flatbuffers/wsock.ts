@@ -2,11 +2,11 @@
 
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
-export { BinaryData } from './wsock/binary-data.js';
+export { BinaryData, BinaryDataT } from './wsock/binary-data.js';
 export { CommandType } from './wsock/command-type.js';
-export { FileObject } from './wsock/file-object.js';
+export { FileObject, FileObjectT } from './wsock/file-object.js';
 export { FilePurpose } from './wsock/file-purpose.js';
 export { FileType } from './wsock/file-type.js';
-export { MeshInfo } from './wsock/mesh-info.js';
-export { Message } from './wsock/message.js';
+export { MeshInfo, MeshInfoT } from './wsock/mesh-info.js';
+export { Message, MessageT } from './wsock/message.js';
 export { SceneOperations } from './wsock/scene-operations.js';

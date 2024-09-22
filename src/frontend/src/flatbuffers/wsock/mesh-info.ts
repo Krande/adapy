@@ -4,7 +4,9 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-export class MeshInfo {
+
+
+export class MeshInfo implements flatbuffers.IUnpackableObject<MeshInfoT> {
   bb: flatbuffers.ByteBuffer|null = null;
   bb_pos = 0;
   __init(i:number, bb:flatbuffers.ByteBuffer):MeshInfo {
@@ -56,5 +58,35 @@ static createMeshInfo(builder:flatbuffers.Builder, objectNameOffset:flatbuffers.
   MeshInfo.addObjectName(builder, objectNameOffset);
   MeshInfo.addFaceIndex(builder, faceIndex);
   return MeshInfo.endMeshInfo(builder);
+}
+
+unpack(): MeshInfoT {
+  return new MeshInfoT(
+    this.objectName(),
+    this.faceIndex()
+  );
+}
+
+
+unpackTo(_o: MeshInfoT): void {
+  _o.objectName = this.objectName();
+  _o.faceIndex = this.faceIndex();
+}
+}
+
+export class MeshInfoT implements flatbuffers.IGeneratedObject {
+constructor(
+  public objectName: string|Uint8Array|null = null,
+  public faceIndex: number = 0
+){}
+
+
+pack(builder:flatbuffers.Builder): flatbuffers.Offset {
+  const objectName = (this.objectName !== null ? builder.createString(this.objectName!) : 0);
+
+  return MeshInfo.createMeshInfo(builder,
+    objectName,
+    this.faceIndex
+  );
 }
 }

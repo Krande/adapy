@@ -8,7 +8,7 @@ import { FilePurpose } from './file-purpose';
 import { FileType } from './file-type';
 
 
-export class FileObject {
+export class FileObject implements flatbuffers.IUnpackableObject<FileObjectT> {
   bb: flatbuffers.ByteBuffer|null = null;
   bb_pos = 0;
   __init(i:number, bb:flatbuffers.ByteBuffer):FileObject {
@@ -70,5 +70,39 @@ static createFileObject(builder:flatbuffers.Builder, fileType:FileType, purpose:
   FileObject.addPurpose(builder, purpose);
   FileObject.addFilepath(builder, filepathOffset);
   return FileObject.endFileObject(builder);
+}
+
+unpack(): FileObjectT {
+  return new FileObjectT(
+    this.fileType(),
+    this.purpose(),
+    this.filepath()
+  );
+}
+
+
+unpackTo(_o: FileObjectT): void {
+  _o.fileType = this.fileType();
+  _o.purpose = this.purpose();
+  _o.filepath = this.filepath();
+}
+}
+
+export class FileObjectT implements flatbuffers.IGeneratedObject {
+constructor(
+  public fileType: FileType = FileType.IFC,
+  public purpose: FilePurpose = FilePurpose.DESIGN,
+  public filepath: string|Uint8Array|null = null
+){}
+
+
+pack(builder:flatbuffers.Builder): flatbuffers.Offset {
+  const filepath = (this.filepath !== null ? builder.createString(this.filepath!) : 0);
+
+  return FileObject.createFileObject(builder,
+    this.fileType,
+    this.purpose,
+    filepath
+  );
 }
 }

@@ -4,14 +4,14 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { BinaryData } from './binary-data';
+import { BinaryData, BinaryDataT } from '../wsock/binary-data.js';
 import { CommandType } from './command-type';
-import { FileObject } from './file-object';
-import { MeshInfo } from './mesh-info';
+import { FileObject, FileObjectT } from '../wsock/file-object.js';
+import { MeshInfo, MeshInfoT } from '../wsock/mesh-info.js';
 import { SceneOperations } from './scene-operations';
 
 
-export class Message {
+export class Message implements flatbuffers.IUnpackableObject<MessageT> {
   bb: flatbuffers.ByteBuffer|null = null;
   bb_pos = 0;
   __init(i:number, bb:flatbuffers.ByteBuffer):Message {
@@ -131,4 +131,67 @@ static finishSizePrefixedMessageBuffer(builder:flatbuffers.Builder, offset:flatb
   builder.finish(offset, undefined, true);
 }
 
+
+unpack(): MessageT {
+  return new MessageT(
+    this.instanceId(),
+    this.commandType(),
+    (this.fileObject() !== null ? this.fileObject()!.unpack() : null),
+    (this.binaryData() !== null ? this.binaryData()!.unpack() : null),
+    (this.meshInfo() !== null ? this.meshInfo()!.unpack() : null),
+    this.targetGroup(),
+    this.clientType(),
+    this.sceneOperation(),
+    this.targetId()
+  );
+}
+
+
+unpackTo(_o: MessageT): void {
+  _o.instanceId = this.instanceId();
+  _o.commandType = this.commandType();
+  _o.fileObject = (this.fileObject() !== null ? this.fileObject()!.unpack() : null);
+  _o.binaryData = (this.binaryData() !== null ? this.binaryData()!.unpack() : null);
+  _o.meshInfo = (this.meshInfo() !== null ? this.meshInfo()!.unpack() : null);
+  _o.targetGroup = this.targetGroup();
+  _o.clientType = this.clientType();
+  _o.sceneOperation = this.sceneOperation();
+  _o.targetId = this.targetId();
+}
+}
+
+export class MessageT implements flatbuffers.IGeneratedObject {
+constructor(
+  public instanceId: number = 0,
+  public commandType: CommandType = CommandType.PING,
+  public fileObject: FileObjectT|null = null,
+  public binaryData: BinaryDataT|null = null,
+  public meshInfo: MeshInfoT|null = null,
+  public targetGroup: string|Uint8Array|null = null,
+  public clientType: string|Uint8Array|null = null,
+  public sceneOperation: SceneOperations = SceneOperations.ADD,
+  public targetId: number = 0
+){}
+
+
+pack(builder:flatbuffers.Builder): flatbuffers.Offset {
+  const fileObject = (this.fileObject !== null ? this.fileObject!.pack(builder) : 0);
+  const binaryData = (this.binaryData !== null ? this.binaryData!.pack(builder) : 0);
+  const meshInfo = (this.meshInfo !== null ? this.meshInfo!.pack(builder) : 0);
+  const targetGroup = (this.targetGroup !== null ? builder.createString(this.targetGroup!) : 0);
+  const clientType = (this.clientType !== null ? builder.createString(this.clientType!) : 0);
+
+  Message.startMessage(builder);
+  Message.addInstanceId(builder, this.instanceId);
+  Message.addCommandType(builder, this.commandType);
+  Message.addFileObject(builder, fileObject);
+  Message.addBinaryData(builder, binaryData);
+  Message.addMeshInfo(builder, meshInfo);
+  Message.addTargetGroup(builder, targetGroup);
+  Message.addClientType(builder, clientType);
+  Message.addSceneOperation(builder, this.sceneOperation);
+  Message.addTargetId(builder, this.targetId);
+
+  return Message.endMessage(builder);
+}
 }

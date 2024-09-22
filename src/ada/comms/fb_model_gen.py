@@ -42,7 +42,7 @@ class MeshInfoDC:
 
 @dataclass
 class MessageDC:
-    instance_id: int = None
+    instance_id: int
     command_type: Optional[CommandTypeDC] = None
     file_object: Optional[FileObjectDC] = None
     binary_data: Optional[BinaryDataDC] = None

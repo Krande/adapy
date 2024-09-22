@@ -4,7 +4,9 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-export class BinaryData {
+
+
+export class BinaryData implements flatbuffers.IUnpackableObject<BinaryDataT> {
   bb: flatbuffers.ByteBuffer|null = null;
   bb_pos = 0;
   __init(i:number, bb:flatbuffers.ByteBuffer):BinaryData {
@@ -66,5 +68,31 @@ static createBinaryData(builder:flatbuffers.Builder, dataOffset:flatbuffers.Offs
   BinaryData.startBinaryData(builder);
   BinaryData.addData(builder, dataOffset);
   return BinaryData.endBinaryData(builder);
+}
+
+unpack(): BinaryDataT {
+  return new BinaryDataT(
+    this.bb!.createScalarList<number>(this.data.bind(this), this.dataLength())
+  );
+}
+
+
+unpackTo(_o: BinaryDataT): void {
+  _o.data = this.bb!.createScalarList<number>(this.data.bind(this), this.dataLength());
+}
+}
+
+export class BinaryDataT implements flatbuffers.IGeneratedObject {
+constructor(
+  public data: (number)[] = []
+){}
+
+
+pack(builder:flatbuffers.Builder): flatbuffers.Offset {
+  const data = BinaryData.createDataVector(builder, this.data);
+
+  return BinaryData.createBinaryData(builder,
+    data
+  );
 }
 }

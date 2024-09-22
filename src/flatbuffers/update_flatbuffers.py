@@ -7,11 +7,11 @@ from deserializer_gen import generate_deserialization_code
 from serializer_gen import generate_serialization_code
 from update_imports import update_py_imports, update_ts_imports
 
-ROOT_DIR = pathlib.Path(__file__).parent.parent.parent.parent.parent
+ROOT_DIR = pathlib.Path(__file__).parent.parent.parent
 
 _COMMS_DIR = ROOT_DIR / "src/ada/comms/"
-_SCHEMA_DIR = ROOT_DIR / "src/frontend/src/flatbuffers/schemas/"
-_GEN_DIR = ROOT_DIR / "src/frontend/src/flatbuffers/generated/"
+_SCHEMA_DIR = ROOT_DIR / "src/flatbuffers/schemas/"
+_GEN_DIR = ROOT_DIR / "src/frontend/src/flatbuffers"
 CMD_FILE = _SCHEMA_DIR / "commands.fbs"
 _WSOCK_DIR = ROOT_DIR / "src/ada/comms/wsock/"
 
@@ -23,7 +23,7 @@ def main():
     # Generate FlatBuffers code
     args = [
         "flatc", "--python", "-o", _COMMS_DIR.as_posix(), CMD_FILE.as_posix(), "&&",
-        "flatc", "--ts", "-o", _GEN_DIR.as_posix(), CMD_FILE.as_posix(), "&&",
+        "flatc", "--ts", "--gen-object-api", "-o", _GEN_DIR.as_posix(), CMD_FILE.as_posix(), "&&",
         "git", "add", _WSOCK_DIR.as_posix(), _GEN_DIR.as_posix()]
 
     result = subprocess.run(" ".join(args), shell=True, check=True, cwd=ROOT_DIR)

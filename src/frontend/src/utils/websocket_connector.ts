@@ -11,8 +11,15 @@ class WebSocketHandler {
     }
 
     connect(url: string, onMessageReceived: (event: MessageEvent) => void) {
-        this.socket = new WebSocket(url);
-        console.log('WebSocket connecting to:', url);
+        // Generate a random 32-bit integer for the instance ID
+        const instanceId = Math.floor(Math.random() * 0xFFFFFFFF);
+        const clientType = "web";
+
+        // Append instance ID and client type as query parameters
+        const wsUrl = `${url}?client-type=${clientType}&instance-id=${instanceId}`;
+
+        this.socket = new WebSocket(wsUrl);
+        console.log('WebSocket connecting to:', wsUrl);
 
         this.socket.addEventListener('open', () => {
             console.log('WebSocket connected');

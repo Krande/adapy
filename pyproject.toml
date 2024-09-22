@@ -106,7 +106,7 @@ flatbuffers = "*"
 
 [tool.pixi.feature.lint.tasks]
 lint = "isort . && black . --config pyproject.toml && ruff check ."
-flat = { cmd="python src/frontend/src/flatbuffers/update_flatbuffers.py", cwd="./" }
+flat = { cmd="python src/flatbuffers/update_flatbuffers.py", cwd="./" }
 
 [tool.pixi.feature.docs.tasks]
 docs = "cd docs && make html"
@@ -122,7 +122,6 @@ fdoc = { cmd="python doc_live_html.py", cwd="./tests/fem" }
 npm = { cmd="npm", cwd="./src/frontend" }
 wdev = { cmd="npm run dev", cwd="./src/frontend" }
 wbuild = { cmd="npm run build", cwd="./src/frontend" }
-_flatclean = {cmd="find src/ada/comms/wsock/ src/frontend/src/flatbuffers/generated/ -mindepth 1 -delete || true"}
 
 
 [tool.pixi.dependencies]

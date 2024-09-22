@@ -1,5 +1,4 @@
 import pathlib
-import re
 
 from fbs_serializer import TableDefinition, FlatBufferSchema, parse_fbs_file
 from utils import make_camel_case

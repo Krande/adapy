@@ -1,7 +1,7 @@
 import pathlib
 
 from fbs_serializer import TableDefinition, FlatBufferSchema, parse_fbs_file
-from frontend.src.flatbuffers.utils import make_camel_case
+from utils import make_camel_case
 
 
 # Function to strip comments from the FlatBuffers schema

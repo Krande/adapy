@@ -3,13 +3,14 @@ import json
 import random
 from dataclasses import dataclass
 from typing import Optional, Callable, Set, Literal
+from urllib.parse import urlparse, parse_qs
 
 import websockets
 
 from ada.comms.fb_deserializer import deserialize_root_message
-from ada.comms.wsock import Message
 from ada.comms.fb_model_gen import MessageDC, CommandTypeDC
 from ada.comms.fb_serializer import serialize_message
+from ada.comms.wsock import Message
 from ada.config import logger
 
 
@@ -42,8 +43,21 @@ class WebSocketAsyncServer:
 
     async def handle_client(self, websocket: websockets.WebSocketServerProtocol, path: str):
         client = ConnectedClient(client=websocket, group_type=websocket.request_headers.get("Client-Type"))
+        if client.group_type is None and 'instance-id' in path:
+            # Parse query parameters from the path
+            parsed_url = urlparse(path)
+            query_params = parse_qs(parsed_url.query)
+
+            # Extract client type and instance id
+            group_type = query_params.get("client-type", [None])[0]
+            if group_type is not None:
+                client.group_type = group_type
+            instance_id = query_params.get("instance-id", [None])[0]
+            if instance_id is not None:
+                client.instance_id = int(instance_id)
+
         self.connected_clients.add(client)
-        logger.debug(f"Client connected: {websocket.remote_address}")
+        logger.debug(f"Client connected: {client} - {websocket.remote_address}")
         if self.on_connect:
             await self.on_connect(client)
         try:
@@ -132,7 +146,6 @@ class WebSocketClientAsync:
         await self.send("list_clients", target_group="web")
         return await self.receive()
 
-
     async def check_server_liveness_using_fb(self, target_id=None, target_group: Literal["web", "local"] = "web"):
         """Sends a Flatbuffer package to the server."""
         message = MessageDC(
@@ -175,18 +188,6 @@ class WebSocketClientAsync:
                 return message
 
 
-async def on_message_handler(client: ConnectedClient, msg: dict):
-    if msg.get("message") == "ping":
-        response = {
-            "message": "pong",
-            "instance_id": msg.get("instance_id"),
-            "target_id": msg.get("instance_id"),  # Echo back to the sender
-            "target_group": "client",  # Adjust based on your protocol
-            "client_type": "web"  # Adjust based on your protocol
-        }
-        await client.client.send(json.dumps(response))
-
-
 async def handle_partial_message(message) -> MessageDC | None:
     """Parse """
     if isinstance(message, bytes):
@@ -215,3 +216,13 @@ async def handle_partial_message(message) -> MessageDC | None:
             target_group=msg.get("target_group"),
             client_type=msg.get("client_type")
         )
+
+
+async def start_async_server():
+    server = WebSocketAsyncServer("localhost", 8765)
+    await server.start_async()
+
+
+if __name__ == '__main__':
+    logger.setLevel("DEBUG")
+    asyncio.run(start_async_server())
