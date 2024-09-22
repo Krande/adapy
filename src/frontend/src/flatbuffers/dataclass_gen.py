@@ -109,7 +109,7 @@ if __name__ == "__main__":
     tmp_dir = pathlib.Path('temp')
     tmp_dir.mkdir(exist_ok=True)
 
-    with open(tmp_dir / 'generated_dataclasses.py', 'w') as output_file:
+    with open(tmp_dir / 'fb_model_gen.py', 'w') as output_file:
         output_file.write(python_code)
 
     print("Python dataclasses and enums generated successfully.")
