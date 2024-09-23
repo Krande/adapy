@@ -11,7 +11,8 @@ class CommandTypeDC(Enum):
     UPDATE_SCENE = 2
     UPDATE_SERVER = 3
     MESH_INFO_CALLBACK = 4
-    LIST_WEB_CLIENTS = 5
+    MESH_INFO_REPLY = 5
+    LIST_WEB_CLIENTS = 6
 
 class SceneOperationsDC(Enum):
     ADD = 0
@@ -46,6 +47,7 @@ class FileObjectDC:
 class MeshInfoDC:
     object_name: str
     face_index: int
+    json_data: str
 
 @dataclass
 class MessageDC:

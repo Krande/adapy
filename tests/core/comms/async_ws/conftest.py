@@ -5,11 +5,8 @@ import pytest
 
 from ada.comms.fb_model_gen import CommandTypeDC, MessageDC
 from ada.comms.fb_serializer import serialize_message
-from ada.comms.wsockets import (
-    WebSocketClientAsync,
-    WebSocketAsyncServer,
-    handle_partial_message
-)
+from ada.comms.wsock_server import WebSocketAsyncServer, handle_partial_message
+from ada.comms.wsock_client import WebSocketClient
 from ada.config import logger
 
 HOST = "localhost"
@@ -49,7 +46,7 @@ def server(event_loop):
         except asyncio.CancelledError:
             pass  # Suppress the CancelledError to prevent it from propagating
 
-async def reply_ping(msg: MessageDC, ws_client: WebSocketClientAsync):
+async def reply_ping(msg: MessageDC, ws_client: WebSocketClient):
     message = MessageDC(
         instance_id=ws_client.instance_id,
         command_type=CommandTypeDC.PONG,
@@ -66,7 +63,7 @@ async def reply_ping(msg: MessageDC, ws_client: WebSocketClientAsync):
 async def start_mock_web_client_connection():
     uri = f"ws://{HOST}:{PORT}"
 
-    async with WebSocketClientAsync(HOST, PORT, "web") as ws_client:
+    async with WebSocketClient(HOST, PORT, "web") as ws_client:
         websocket = ws_client.websocket
         logger.debug(f"Connected to server: {uri}")
         try:

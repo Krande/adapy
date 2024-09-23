@@ -36,8 +36,15 @@ faceIndex():number {
   return offset ? this.bb!.readInt32(this.bb_pos + offset) : 0;
 }
 
+jsonData():string|null
+jsonData(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+jsonData(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 8);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
 static startMeshInfo(builder:flatbuffers.Builder) {
-  builder.startObject(2);
+  builder.startObject(3);
 }
 
 static addObjectName(builder:flatbuffers.Builder, objectNameOffset:flatbuffers.Offset) {
@@ -48,22 +55,28 @@ static addFaceIndex(builder:flatbuffers.Builder, faceIndex:number) {
   builder.addFieldInt32(1, faceIndex, 0);
 }
 
+static addJsonData(builder:flatbuffers.Builder, jsonDataOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(2, jsonDataOffset, 0);
+}
+
 static endMeshInfo(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createMeshInfo(builder:flatbuffers.Builder, objectNameOffset:flatbuffers.Offset, faceIndex:number):flatbuffers.Offset {
+static createMeshInfo(builder:flatbuffers.Builder, objectNameOffset:flatbuffers.Offset, faceIndex:number, jsonDataOffset:flatbuffers.Offset):flatbuffers.Offset {
   MeshInfo.startMeshInfo(builder);
   MeshInfo.addObjectName(builder, objectNameOffset);
   MeshInfo.addFaceIndex(builder, faceIndex);
+  MeshInfo.addJsonData(builder, jsonDataOffset);
   return MeshInfo.endMeshInfo(builder);
 }
 
 unpack(): MeshInfoT {
   return new MeshInfoT(
     this.objectName(),
-    this.faceIndex()
+    this.faceIndex(),
+    this.jsonData()
   );
 }
 
@@ -71,22 +84,26 @@ unpack(): MeshInfoT {
 unpackTo(_o: MeshInfoT): void {
   _o.objectName = this.objectName();
   _o.faceIndex = this.faceIndex();
+  _o.jsonData = this.jsonData();
 }
 }
 
 export class MeshInfoT implements flatbuffers.IGeneratedObject {
 constructor(
   public objectName: string|Uint8Array|null = null,
-  public faceIndex: number = 0
+  public faceIndex: number = 0,
+  public jsonData: string|Uint8Array|null = null
 ){}
 
 
 pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const objectName = (this.objectName !== null ? builder.createString(this.objectName!) : 0);
+  const jsonData = (this.jsonData !== null ? builder.createString(this.jsonData!) : 0);
 
   return MeshInfo.createMeshInfo(builder,
     objectName,
-    this.faceIndex
+    this.faceIndex,
+    jsonData
   );
 }
 }

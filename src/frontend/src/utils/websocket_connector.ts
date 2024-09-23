@@ -6,12 +6,14 @@ class WebSocketHandler {
     socket: WebSocket | null;
     retry_wait: number = 1000; // Time to wait before retrying connection in milliseconds
     // Generate a random 32-bit integer for the instance ID
-    instance_id: number = Math.floor(Math.random() * 0xFFFFFFFF);
+    instance_id: number = this.getRandomInt32();
 
     constructor() {
         this.socket = null;
     }
-
+    getRandomInt32(): number {
+        return Math.floor(Math.random() * (2147483647 - (-2147483648) + 1)) + (-2147483648);
+    }
     connect(url: string, onMessageReceived: (event: MessageEvent) => void) {
 
         const clientType = "web";

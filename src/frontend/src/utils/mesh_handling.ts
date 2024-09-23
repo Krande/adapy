@@ -3,6 +3,7 @@ import {TreeNode, useTreeViewStore} from "../state/treeViewStore";
 import * as THREE from "three";
 import {ThreeEvent} from "@react-three/fiber";
 import {useObjectInfoStore} from "../state/objectInfoStore";
+import {query_ws_server_mesh_info} from "./mesh_selected_ws_callback";
 
 
 const selectedMaterial = new THREE.MeshStandardMaterial({color: 'blue', side: THREE.DoubleSide});
@@ -38,7 +39,7 @@ export function handleMeshSelected(event: ThreeEvent<PointerEvent>) {
         // Update the object info store
         useObjectInfoStore.getState().setName(mesh.name);
         useObjectInfoStore.getState().setFaceIndex(event.faceIndex || 0);
-
+        query_ws_server_mesh_info(mesh.name, event.faceIndex || 0);
         // Create a new material for the selected mesh
         mesh.material = selectedMaterial;
 

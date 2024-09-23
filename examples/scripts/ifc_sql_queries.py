@@ -9,7 +9,7 @@ ROOT_DIR = THIS_DIR.parent.parent
 
 
 def run_this(node_name: str):
-    glb_file = THIS_DIR / 'temp' / 'curved_plates.glb'
+    glb_file = THIS_DIR / 'temp' / 'test.glb'
     tri_scene = trimesh.load(glb_file)
     num = node_name.replace('node', '')
 
@@ -21,4 +21,4 @@ def run_this(node_name: str):
 
 
 if __name__ == '__main__':
-    run_this('node1')
+    run_this('node4')

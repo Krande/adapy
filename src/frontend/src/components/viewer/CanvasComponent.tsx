@@ -10,7 +10,7 @@ import OrientationGizmo from './OrientationGizmo';
 import {useModelStore} from '../../state/modelStore';
 import {useNavBarStore} from '../../state/navBarStore';
 import AnimationControls from './AnimationControls';
-import ObjectInfoBox from './objectInfo';
+import ObjectInfoBox from './ObjectInfoBoxComponent';
 import {useObjectInfoStore} from '../../state/objectInfoStore';
 import CameraControls from './CameraControls';
 import {handleMeshEmptySpace} from '../../utils/mesh_handling';

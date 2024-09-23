@@ -198,7 +198,12 @@ class sqlite:
                     result = json.loads(result)
                     results.extend(result)
                     if max_levels is None or max_levels:
-                        queue.extend(result)
+                        if isinstance(result[0], (list, tuple)):
+                            for r in result:
+                                queue.extend(r)
+                        else:
+                            queue.extend(result)
+
                 else:
                     results.append(result)
                     if max_levels is None or max_levels:

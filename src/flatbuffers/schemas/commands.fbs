@@ -6,7 +6,8 @@ enum CommandType : byte {
   UPDATE_SCENE = 2,
   UPDATE_SERVER = 3,
   MESH_INFO_CALLBACK = 4,
-  LIST_WEB_CLIENTS = 5,
+  MESH_INFO_REPLY = 5,
+  LIST_WEB_CLIENTS = 6,
 }
 
 enum SceneOperations : byte {
@@ -43,6 +44,7 @@ table FileObject {
 table MeshInfo {
   object_name: string;      // Mesh object name
   face_index: int;          // Mesh face index
+  json_data: string;        // JSON data
 }
 
 table Message {

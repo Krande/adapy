@@ -63,6 +63,7 @@ class Ifc2SqlPatcher:
         password: str = "pass",
         database: str = "test",
         dest_sql_file: str | pathlib.Path = None,
+        silenced: bool = True
     ):
         """Convert an IFC-SPF model to SQLite or MySQL.
 
@@ -112,6 +113,7 @@ class Ifc2SqlPatcher:
         self.password = password
         self.database = database
         self.dest_sql_file = dest_sql_file
+        self.silenced = silenced
 
     def patch(self):
         self.full_schema = True  # Set true for ifcopenshell.sqlite
@@ -374,7 +376,8 @@ class Ifc2SqlPatcher:
             elif isinstance(primitive, tuple):
                 data_type = "JSON"
             else:
-                print(attribute, primitive)  # Not implemented?
+                if not self.silenced:
+                    print(attribute, primitive)  # Not implemented?
             if not self.is_strict or derived[i]:
                 optional = ""
             else:
@@ -384,7 +387,8 @@ class Ifc2SqlPatcher:
         if self.should_get_inverses:
             statement += ", inverses JSON"
         statement += ");"
-        print(statement)
+        if not self.silenced:
+            print(statement)
         self.c.execute(statement)
 
     def create_mysql_table(self, ifc_class, declaration):
@@ -415,7 +419,8 @@ class Ifc2SqlPatcher:
             elif isinstance(primitive, tuple):
                 data_type = "JSON"
             else:
-                print(attribute, primitive)  # Not implemented?
+                if not self.silenced:
+                    print(attribute, primitive)  # Not implemented?
             if not self.is_strict or derived[i]:
                 optional = "DEFAULT NULL"
             else:
@@ -428,11 +433,13 @@ class Ifc2SqlPatcher:
             statement += " PRIMARY KEY (`ifc_id`)"
 
         statement += ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;"
-        print(statement)
+        if not self.silenced:
+            print(statement)
         self.c.execute(statement)
 
     def insert_data(self, ifc_class):
-        print("Extracting data for", ifc_class)
+        if not self.silenced:
+            print("Extracting data for", ifc_class)
         elements = self.file.by_type(ifc_class, include_subtypes=False)
 
         rows = []

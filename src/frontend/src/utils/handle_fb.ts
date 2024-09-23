@@ -2,6 +2,7 @@ import {CommandType, Message, SceneOperations} from '../flatbuffers/wsock'
 import * as flatbuffers from "flatbuffers";
 import {webSocketHandler} from "./websocket_connector";
 import {useModelStore} from "../state/modelStore";
+import {useObjectInfoStore} from "../state/objectInfoStore";
 
 export const handleFlatbufferMessage = (buffer: ArrayBuffer) => {
     // Wrap ArrayBuffer into FlatBuffer ByteBuffer
@@ -13,6 +14,8 @@ export const handleFlatbufferMessage = (buffer: ArrayBuffer) => {
         handle_ping(message);
     } else if (command_type === CommandType.UPDATE_SCENE) {
         handle_update_scene(message);
+    } else if (command_type === CommandType.MESH_INFO_REPLY) {
+        handle_mesh_info_reply(message);
     }
     console.log('Flatbuffer message received');
     console.log('Instance ID:', message.instanceId());
@@ -43,11 +46,11 @@ const handle_update_scene = (message: Message) => {
     console.log('Received scene update message from server');
     console.log('Scene Operation:', SceneOperations[message.sceneOperation()]);
     let fileObject = message.fileObject();
-        if (!fileObject) {
+    if (!fileObject) {
         console.error("No file object found in the message");
         return;
     }
-        // Get the filedata array (this is typically a Uint8Array)
+    // Get the filedata array (this is typically a Uint8Array)
     let data = fileObject.filedataArray();
 
     if (!data) {
@@ -59,4 +62,18 @@ const handle_update_scene = (message: Message) => {
     const url = URL.createObjectURL(blob);
 
     useModelStore.getState().setModelUrl(url, null, ""); // Set the URL for the model
+}
+
+const handle_mesh_info_reply = (message: Message) => {
+  if (message.meshInfo() && message.meshInfo()?.jsonData()) {
+    const json_str = message.meshInfo()?.jsonData();
+    if (!json_str) {
+      console.error('No JSON data found in the message');
+      return;
+    }
+    const jsonData = JSON.parse(json_str);
+    useObjectInfoStore.getState().setJsonData(jsonData);
+  } else {
+    useObjectInfoStore.getState().setJsonData(null);
+  }
 }

@@ -55,12 +55,17 @@ def serialize_meshinfo(builder: flatbuffers.Builder, obj: Optional[MeshInfoDC]) 
     object_name_str = None
     if obj.object_name is not None:
         object_name_str = builder.CreateString(str(obj.object_name))
+    json_data_str = None
+    if obj.json_data is not None:
+        json_data_str = builder.CreateString(str(obj.json_data))
 
     MeshInfo.Start(builder)
     if object_name_str is not None:
         MeshInfo.AddObjectName(builder, object_name_str)
     if obj.face_index is not None:
         MeshInfo.AddFaceIndex(builder, obj.face_index)
+    if json_data_str is not None:
+        MeshInfo.AddJsonData(builder, json_data_str)
     return MeshInfo.End(builder)
 
 

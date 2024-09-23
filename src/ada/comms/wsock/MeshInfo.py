@@ -38,8 +38,15 @@ class MeshInfo(object):
             return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
         return 0
 
+    # MeshInfo
+    def JsonData(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
 def MeshInfoStart(builder):
-    builder.StartObject(2)
+    builder.StartObject(3)
 
 def Start(builder):
     MeshInfoStart(builder)
@@ -55,6 +62,12 @@ def MeshInfoAddFaceIndex(builder, faceIndex):
 
 def AddFaceIndex(builder, faceIndex):
     MeshInfoAddFaceIndex(builder, faceIndex)
+
+def MeshInfoAddJsonData(builder, jsonData):
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(jsonData), 0)
+
+def AddJsonData(builder, jsonData):
+    MeshInfoAddJsonData(builder, jsonData)
 
 def MeshInfoEnd(builder):
     return builder.EndObject()

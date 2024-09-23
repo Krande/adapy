@@ -8,4 +8,5 @@ class CommandType(object):
     UPDATE_SCENE = 2
     UPDATE_SERVER = 3
     MESH_INFO_CALLBACK = 4
-    LIST_WEB_CLIENTS = 5
+    MESH_INFO_REPLY = 5
+    LIST_WEB_CLIENTS = 6
