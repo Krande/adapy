@@ -10,10 +10,10 @@ def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]
         return None
     name_str = None
     if obj.name is not None:
-        name_str = builder.CreateString(obj.name)
+        name_str = builder.CreateString(str(obj.name))
     address_str = None
     if obj.address is not None:
-        address_str = builder.CreateString(obj.address)
+        address_str = builder.CreateString(str(obj.address))
 
     WebClient.Start(builder)
     if obj.instance_id is not None:
@@ -32,7 +32,7 @@ def serialize_fileobject(builder: flatbuffers.Builder, obj: Optional[FileObjectD
         return None
     filepath_str = None
     if obj.filepath is not None:
-        filepath_str = builder.CreateString(obj.filepath)
+        filepath_str = builder.CreateString(str(obj.filepath))
     filedata_vector = None
     if obj.filedata is not None:
         filedata_vector = builder.CreateByteVector(obj.filedata)
@@ -54,7 +54,7 @@ def serialize_meshinfo(builder: flatbuffers.Builder, obj: Optional[MeshInfoDC]) 
         return None
     object_name_str = None
     if obj.object_name is not None:
-        object_name_str = builder.CreateString(obj.object_name)
+        object_name_str = builder.CreateString(str(obj.object_name))
 
     MeshInfo.Start(builder)
     if object_name_str is not None:

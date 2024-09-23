@@ -237,6 +237,18 @@ class WebSocketClientAsync:
             flatbuffer_data = serialize_message(message)
             await self.websocket.send(flatbuffer_data)
 
+    async def update_file_server(self, file_object: FileObjectDC):
+        message = MessageDC(
+            instance_id=self.instance_id,
+            command_type=CommandTypeDC.UPDATE_SERVER,
+            file_object=file_object,
+            target_group="web"
+        )
+
+        # Serialize the dataclass message into a FlatBuffer
+        flatbuffer_data = serialize_message(message)
+        await self.websocket.send(flatbuffer_data)
+
     async def check_server_liveness_using_json(self, target_id=None, target_group: Literal["web", "local"] = "web"):
         pkg = {
             "instance_id": self.instance_id,

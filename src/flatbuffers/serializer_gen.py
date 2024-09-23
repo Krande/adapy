@@ -19,7 +19,7 @@ def generate_serialize_function(table: TableDefinition) -> str:
         if field.field_type == "string":
             serialize_code += f"    {field.name}_str = None\n"
             serialize_code += f"    if obj.{field.name} is not None:\n"
-            serialize_code += f"        {field.name}_str = builder.CreateString(obj.{field.name})\n"
+            serialize_code += f"        {field.name}_str = builder.CreateString(str(obj.{field.name}))\n"
         elif field.field_type.startswith("[") and "ubyte" in field.field_type:
             serialize_code += f"    {field.name}_vector = None\n"
             serialize_code += f"    if obj.{field.name} is not None:\n"
