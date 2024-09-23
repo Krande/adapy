@@ -1,19 +1,22 @@
 from enum import Enum
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List
+import pathlib
+
 
 
 class CommandTypeDC(Enum):
     PING = 0
     PONG = 1
-    SEND_FILE = 2
-    SEND_BINARY = 3
-    MESH_INFO = 4
+    UPDATE_SCENE = 2
+    UPDATE_SERVER = 3
+    MESH_INFO_CALLBACK = 4
+    LIST_WEB_CLIENTS = 5
 
 class SceneOperationsDC(Enum):
     ADD = 0
     REMOVE = 1
-    UPDATE = 2
+    REPLACE = 2
 
 class FilePurposeDC(Enum):
     DESIGN = 0
@@ -26,14 +29,18 @@ class FileTypeDC(Enum):
     SQLITE = 2
 
 @dataclass
+class WebClientDC:
+    instance_id: int
+    name: str
+    address: str
+    port: int
+
+@dataclass
 class FileObjectDC:
     file_type: Optional[FileTypeDC] = None
     purpose: Optional[FilePurposeDC] = None
-    filepath: str = ""
-
-@dataclass
-class BinaryDataDC:
-    data: bytes
+    filepath: pathlib.Path | str = ""
+    filedata: bytes = None
 
 @dataclass
 class MeshInfoDC:
@@ -45,9 +52,9 @@ class MessageDC:
     instance_id: int
     command_type: Optional[CommandTypeDC] = None
     file_object: Optional[FileObjectDC] = None
-    binary_data: Optional[BinaryDataDC] = None
     mesh_info: Optional[MeshInfoDC] = None
     target_group: str = ""
     client_type: str = ""
     scene_operation: Optional[SceneOperationsDC] = None
     target_id: int = None
+    web_clients: Optional[List[WebClientDC]] = None

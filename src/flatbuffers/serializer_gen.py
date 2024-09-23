@@ -13,24 +13,38 @@ def generate_serialize_function(table: TableDefinition) -> str:
 
     # Handle string and vector serialization first
     for field in table.fields:
+        if field.field_type not in ["string", "[ubyte]"]:
+            continue
+
         if field.field_type == "string":
-            serialize_code += f"    {field.name}_str = builder.CreateString(obj.{field.name})\n"
+            serialize_code += f"    {field.name}_str = None\n"
+            serialize_code += f"    if obj.{field.name} is not None:\n"
+            serialize_code += f"        {field.name}_str = builder.CreateString(obj.{field.name})\n"
         elif field.field_type.startswith("[") and "ubyte" in field.field_type:
-            serialize_code += f"    {field.name}_vector = builder.CreateByteVector(obj.{field.name})\n"
+            serialize_code += f"    {field.name}_vector = None\n"
+            serialize_code += f"    if obj.{field.name} is not None:\n"
+            serialize_code += f"        {field.name}_vector = builder.CreateByteVector(obj.{field.name})\n"
 
     serialize_code += f"\n    {table.name}.Start(builder)\n"
 
     # Add fields to FlatBuffer
     for field in table.fields:
         if field.field_type == "string":
-            serialize_code += f"    {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_str)\n"
-        elif field.field_type.startswith("[") and "ubyte" in field.field_type:
-            serialize_code += f"    {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
+            serialize_code += f"    if {field.name}_str is not None:\n"
+            serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_str)\n"
+        elif field.field_type.startswith("["):
+            if "ubyte" in field.field_type:
+                serialize_code += f"    if {field.name}_vector is not None:\n"
+                serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
+            else:
+                raise NotImplementedError()
         elif field.field_type in ["byte", "ubyte", "int", "bool"]:
-            serialize_code += f"    {table.name}.Add{make_camel_case(field.name)}(builder, obj.{field.name})\n"
+            serialize_code += f"    if obj.{field.name} is not None:\n"
+            serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, obj.{field.name})\n"
         else:
             # Handle enum or nested table
-            serialize_code += f"    {table.name}.Add{make_camel_case(field.name)}(builder, obj.{field.name}.value)\n"
+            serialize_code += f"    if obj.{field.name} is not None:\n"
+            serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, obj.{field.name}.value)\n"
 
     serialize_code += f"    return {table.name}.End(builder)\n"
     return serialize_code
@@ -74,6 +88,12 @@ def generate_serialize_root_function(schema: FlatBufferSchema) -> str:
             serialize_code += f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_obj)\n"
         elif field.field_type in enum_names:
             serialize_code += f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, message.{field.name}.value)\n"
+        elif field.field_type.startswith("["):
+            field_type_value = field.field_type[1:-1].lower()
+            serialize_code += f"        {field_type_value}_list = [serialize_{field_type_value}(builder, item) for item in message.{field.name}]\n"
+            serialize_code += f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, builder.CreateByteVector({field_type_value}_list))\n"
+        else:
+            raise ValueError(f"Unknown field type: {field.field_type}")
 
     serialize_code += f"\n    {schema.root_type.lower()}_flatbuffer = {root_table.name}.End(builder)\n"
     serialize_code += f"    builder.Finish({schema.root_type.lower()}_flatbuffer)\n"

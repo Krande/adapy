@@ -5,5 +5,5 @@
 export enum SceneOperations {
   ADD = 0,
   REMOVE = 1,
-  UPDATE = 2
+  REPLACE = 2
 }

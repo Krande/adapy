@@ -1,5 +1,3 @@
-import flatbuffers
-
 from ada.comms.fb_deserializer import deserialize_root_message
 from ada.comms.fb_model_gen import CommandTypeDC, FilePurposeDC, FileTypeDC, SceneOperationsDC, MessageDC, FileObjectDC, \
     MeshInfoDC
@@ -10,13 +8,12 @@ def test_basic_flat_buffers():
     # Create a sample dataclass message object
     message = MessageDC(
         instance_id=1234,
-        command_type=CommandTypeDC.SEND_FILE,
+        command_type=CommandTypeDC.UPDATE_SERVER,
         file_object=FileObjectDC(
             file_type=FileTypeDC.GLB,
             purpose=FilePurposeDC.DESIGN,
             filepath="/path/to/file.glb"
         ),
-        binary_data=None,
         mesh_info=MeshInfoDC(
             object_name="MyMeshObject",
             face_index=10
@@ -24,7 +21,7 @@ def test_basic_flat_buffers():
         target_id=5678,
         target_group="web",
         client_type="local",
-        scene_operation=SceneOperationsDC.ADD
+        scene_operation=SceneOperationsDC.REPLACE
     )
 
     # Serialize the dataclass message into a FlatBuffer
@@ -38,17 +35,17 @@ def test_basic_flat_buffers():
     print(deserialized_message)
     assert deserialized_message == message
 
+
 def test_basic_flat_buffers_2():
     # Create a sample dataclass message object
     message = MessageDC(
         instance_id=1234,
-        command_type=CommandTypeDC.SEND_FILE,
+        command_type=CommandTypeDC.UPDATE_SERVER,
         file_object=FileObjectDC(
             file_type=FileTypeDC.GLB,
             purpose=FilePurposeDC.DESIGN,
             filepath="/path/to/file.glb"
         ),
-        binary_data=None,
         mesh_info=MeshInfoDC(
             object_name="MyMeshObject",
             face_index=10

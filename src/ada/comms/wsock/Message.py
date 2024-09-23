@@ -50,19 +50,8 @@ class Message(object):
         return None
 
     # Message
-    def BinaryData(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
-        if o != 0:
-            x = self._tab.Indirect(o + self._tab.Pos)
-            from ada.comms.wsock.BinaryData import BinaryData
-            obj = BinaryData()
-            obj.Init(self._tab.Bytes, x)
-            return obj
-        return None
-
-    # Message
     def MeshInfo(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.wsock.MeshInfo import MeshInfo
@@ -73,31 +62,56 @@ class Message(object):
 
     # Message
     def TargetGroup(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             return self._tab.String(o + self._tab.Pos)
         return None
 
     # Message
     def ClientType(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
         if o != 0:
             return self._tab.String(o + self._tab.Pos)
         return None
 
     # Message
     def SceneOperation(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 0
 
     # Message
     def TargetId(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
         return 0
+
+    # Message
+    def WebClients(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
+        if o != 0:
+            x = self._tab.Vector(o)
+            x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
+            x = self._tab.Indirect(x)
+            from ada.comms.wsock.WebClient import WebClient
+            obj = WebClient()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # Message
+    def WebClientsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # Message
+    def WebClientsIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
+        return o == 0
 
 def MessageStart(builder):
     builder.StartObject(9)
@@ -123,41 +137,47 @@ def MessageAddFileObject(builder, fileObject):
 def AddFileObject(builder, fileObject):
     MessageAddFileObject(builder, fileObject)
 
-def MessageAddBinaryData(builder, binaryData):
-    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(binaryData), 0)
-
-def AddBinaryData(builder, binaryData):
-    MessageAddBinaryData(builder, binaryData)
-
 def MessageAddMeshInfo(builder, meshInfo):
-    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(meshInfo), 0)
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(meshInfo), 0)
 
 def AddMeshInfo(builder, meshInfo):
     MessageAddMeshInfo(builder, meshInfo)
 
 def MessageAddTargetGroup(builder, targetGroup):
-    builder.PrependUOffsetTRelativeSlot(5, flatbuffers.number_types.UOffsetTFlags.py_type(targetGroup), 0)
+    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(targetGroup), 0)
 
 def AddTargetGroup(builder, targetGroup):
     MessageAddTargetGroup(builder, targetGroup)
 
 def MessageAddClientType(builder, clientType):
-    builder.PrependUOffsetTRelativeSlot(6, flatbuffers.number_types.UOffsetTFlags.py_type(clientType), 0)
+    builder.PrependUOffsetTRelativeSlot(5, flatbuffers.number_types.UOffsetTFlags.py_type(clientType), 0)
 
 def AddClientType(builder, clientType):
     MessageAddClientType(builder, clientType)
 
 def MessageAddSceneOperation(builder, sceneOperation):
-    builder.PrependInt8Slot(7, sceneOperation, 0)
+    builder.PrependInt8Slot(6, sceneOperation, 0)
 
 def AddSceneOperation(builder, sceneOperation):
     MessageAddSceneOperation(builder, sceneOperation)
 
 def MessageAddTargetId(builder, targetId):
-    builder.PrependInt32Slot(8, targetId, 0)
+    builder.PrependInt32Slot(7, targetId, 0)
 
 def AddTargetId(builder, targetId):
     MessageAddTargetId(builder, targetId)
+
+def MessageAddWebClients(builder, webClients):
+    builder.PrependUOffsetTRelativeSlot(8, flatbuffers.number_types.UOffsetTFlags.py_type(webClients), 0)
+
+def AddWebClients(builder, webClients):
+    MessageAddWebClients(builder, webClients)
+
+def MessageStartWebClientsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def StartWebClientsVector(builder, numElems):
+    return MessageStartWebClientsVector(builder, numElems)
 
 def MessageEnd(builder):
     return builder.EndObject()

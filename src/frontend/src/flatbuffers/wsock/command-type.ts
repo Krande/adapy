@@ -5,7 +5,8 @@
 export enum CommandType {
   PING = 0,
   PONG = 1,
-  SEND_FILE = 2,
-  SEND_BINARY = 3,
-  MESH_INFO = 4
+  UPDATE_SCENE = 2,
+  UPDATE_SERVER = 3,
+  MESH_INFO_CALLBACK = 4,
+  LIST_WEB_CLIENTS = 5
 }

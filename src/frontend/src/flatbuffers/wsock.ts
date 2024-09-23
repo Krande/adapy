@@ -2,7 +2,6 @@
 
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
-export { BinaryData, BinaryDataT } from './wsock/binary-data.js';
 export { CommandType } from './wsock/command-type.js';
 export { FileObject, FileObjectT } from './wsock/file-object.js';
 export { FilePurpose } from './wsock/file-purpose.js';
@@ -10,3 +9,4 @@ export { FileType } from './wsock/file-type.js';
 export { MeshInfo, MeshInfoT } from './wsock/mesh-info.js';
 export { Message, MessageT } from './wsock/message.js';
 export { SceneOperations } from './wsock/scene-operations.js';
+export { WebClient, WebClientT } from './wsock/web-client.js';

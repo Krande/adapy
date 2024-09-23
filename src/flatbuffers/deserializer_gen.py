@@ -15,8 +15,12 @@ def generate_deserialize_function(schema: FlatBufferSchema, table: TableDefiniti
             deserialize_code += f"        {field.name}=fb_obj.{make_camel_case(field.name)}().decode('utf-8'),\n"
         elif field.field_type in ["int", "byte", "ubyte", "bool"]:
             deserialize_code += f"        {field.name}=fb_obj.{make_camel_case(field.name)}(),\n"
-        elif field.field_type.startswith("[") and "ubyte" in field.field_type:
-            deserialize_code += f"        {field.name}=bytes(fb_obj.{make_camel_case(field.name)}()),\n"
+        elif field.field_type.startswith("["):
+            if "ubyte" in field.field_type:
+                deserialize_code += f"        {field.name}=bytes(fb_obj.{make_camel_case(field.name)}AsNumpy()) if fb_obj.{make_camel_case(field.name)}Length() > 0 else None,\n"
+            else:
+                field_type_value = field.field_type[1:-1].lower()
+                deserialize_code += f"        {field.name}=[deserialize_{field_type_value}(fb_obj.{make_camel_case(field.name)}(i)) for i in range(fb_obj.{make_camel_case(field.name)}Length())] if fb_obj.{make_camel_case(field.name)}Length() > 0 else None,\n"
         else:
             # Handle nested tables or enums
             if field.field_type in [en.name for en in schema.enums]:

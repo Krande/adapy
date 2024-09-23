@@ -5,18 +5,19 @@ export function sendMessage() {
 class WebSocketHandler {
     socket: WebSocket | null;
     retry_wait: number = 1000; // Time to wait before retrying connection in milliseconds
+    // Generate a random 32-bit integer for the instance ID
+    instance_id: number = Math.floor(Math.random() * 0xFFFFFFFF);
 
     constructor() {
         this.socket = null;
     }
 
     connect(url: string, onMessageReceived: (event: MessageEvent) => void) {
-        // Generate a random 32-bit integer for the instance ID
-        const instanceId = Math.floor(Math.random() * 0xFFFFFFFF);
+
         const clientType = "web";
 
         // Append instance ID and client type as query parameters
-        const wsUrl = `${url}?client-type=${clientType}&instance-id=${instanceId}`;
+        const wsUrl = `${url}?client-type=${clientType}&instance-id=${this.instance_id}`;
 
         this.socket = new WebSocket(wsUrl);
         console.log('WebSocket connecting to:', wsUrl);
@@ -41,9 +42,18 @@ class WebSocketHandler {
         });
     }
 
-    sendMessage(data: string | object) {
+    sendMessage(data: string | object | Uint8Array) {
         if (this.socket?.readyState === WebSocket.OPEN) {
-            this.socket.send(typeof data === 'string' ? data : JSON.stringify(data));
+            if (typeof data === 'string') {
+                // Send string data directly
+                this.socket.send(data);
+            } else if (data instanceof Uint8Array) {
+                // Send binary data directly
+                this.socket.send(data);
+            } else {
+                // Send objects as JSON strings
+                this.socket.send(JSON.stringify(data));
+            }
         }
     }
 

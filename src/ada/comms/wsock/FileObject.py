@@ -45,8 +45,35 @@ class FileObject(object):
             return self._tab.String(o + self._tab.Pos)
         return None
 
+    # FileObject
+    def Filedata(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
+        return 0
+
+    # FileObject
+    def FiledataAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint8Flags, o)
+        return 0
+
+    # FileObject
+    def FiledataLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # FileObject
+    def FiledataIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        return o == 0
+
 def FileObjectStart(builder):
-    builder.StartObject(3)
+    builder.StartObject(4)
 
 def Start(builder):
     FileObjectStart(builder)
@@ -68,6 +95,18 @@ def FileObjectAddFilepath(builder, filepath):
 
 def AddFilepath(builder, filepath):
     FileObjectAddFilepath(builder, filepath)
+
+def FileObjectAddFiledata(builder, filedata):
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(filedata), 0)
+
+def AddFiledata(builder, filedata):
+    FileObjectAddFiledata(builder, filedata)
+
+def FileObjectStartFiledataVector(builder, numElems):
+    return builder.StartVector(1, numElems, 1)
+
+def StartFiledataVector(builder, numElems):
+    return FileObjectStartFiledataVector(builder, numElems)
 
 def FileObjectEnd(builder):
     return builder.EndObject()

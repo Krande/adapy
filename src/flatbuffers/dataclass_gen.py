@@ -4,7 +4,9 @@ from fbs_serializer import FlatBufferSchema, parse_fbs_file
 
 import_str = """from enum import Enum
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List
+import pathlib
+
 
 """
 
@@ -27,6 +29,9 @@ def generate_dataclasses_from_schema(schema: FlatBufferSchema, output_file: str 
         has_optional = False
         for field in table_def.fields:
             python_type, is_optional = convert_flatbuffer_type_to_python(field.field_type)
+            if python_type == 'str' and 'path' in field.name:
+                python_type = 'pathlib.Path | str'
+
             default_value = f' = {field.default_value}' if field.default_value else (' = None' if is_optional else '')
 
             # Mark fields as Optional if they're nullable
@@ -36,6 +41,8 @@ def generate_dataclasses_from_schema(schema: FlatBufferSchema, output_file: str 
             else:
                 if has_optional:
                     if python_type == "str":
+                        default_value = ' = ""'
+                    elif python_type == "pathlib.Path | str":
                         default_value = ' = ""'
                     elif python_type == "int":
                         default_value = ' = None'
@@ -66,7 +73,10 @@ def convert_flatbuffer_type_to_python(flat_type: str) -> tuple[str, bool]:
     }
 
     # If the field type is a table (i.e., a complex type), it's considered optional
-    if flat_type not in flat_to_python:
+    if flat_type not in flat_to_python.keys():
+        if flat_type.startswith('['):
+            return 'List[' + flat_type[1:-1] + 'DC]', True
+
         return flat_type + 'DC', True  # Tables are optional (nullable) by default
 
     return flat_to_python.get(flat_type, flat_type), False

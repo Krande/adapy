@@ -69,13 +69,7 @@ class WebSocketServer:
     _ping_sender: websockets.WebSocketServerProtocol | None = None
 
     def check_server_running(self):
-        host = self.host
-        if host == "localhost":
-            host = "ws://localhost"
-        if is_server_running(host, self.port):
-            return True
-        else:
-            return False
+        return is_server_running(self.host, self.port)
 
     async def handler(self, websocket: websockets.WebSocketServerProtocol):
         """This will handle the connection of a new client"""
@@ -228,6 +222,8 @@ async def _check_server_running(host="ws://localhost", port=8765):
 
 
 def is_server_running(host="localhost", port=8765):
+    if host == "localhost":
+        host = "ws://localhost"
     loop = asyncio.get_event_loop()
     if loop.is_running():
         from websockets.sync.client import connect as sync_connect

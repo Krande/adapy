@@ -4,11 +4,11 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { BinaryData, BinaryDataT } from '../wsock/binary-data.js';
 import { CommandType } from './command-type';
 import { FileObject, FileObjectT } from '../wsock/file-object.js';
 import { MeshInfo, MeshInfoT } from '../wsock/mesh-info.js';
 import { SceneOperations } from './scene-operations';
+import { WebClient, WebClientT } from '../wsock/web-client.js';
 
 
 export class Message implements flatbuffers.IUnpackableObject<MessageT> {
@@ -44,38 +44,43 @@ fileObject(obj?:FileObject):FileObject|null {
   return offset ? (obj || new FileObject()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
-binaryData(obj?:BinaryData):BinaryData|null {
-  const offset = this.bb!.__offset(this.bb_pos, 10);
-  return offset ? (obj || new BinaryData()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
-}
-
 meshInfo(obj?:MeshInfo):MeshInfo|null {
-  const offset = this.bb!.__offset(this.bb_pos, 12);
+  const offset = this.bb!.__offset(this.bb_pos, 10);
   return offset ? (obj || new MeshInfo()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
 targetGroup():string|null
 targetGroup(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
 targetGroup(optionalEncoding?:any):string|Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 14);
+  const offset = this.bb!.__offset(this.bb_pos, 12);
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
 clientType():string|null
 clientType(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
 clientType(optionalEncoding?:any):string|Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 16);
+  const offset = this.bb!.__offset(this.bb_pos, 14);
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
 sceneOperation():SceneOperations {
-  const offset = this.bb!.__offset(this.bb_pos, 18);
+  const offset = this.bb!.__offset(this.bb_pos, 16);
   return offset ? this.bb!.readInt8(this.bb_pos + offset) : SceneOperations.ADD;
 }
 
 targetId():number {
-  const offset = this.bb!.__offset(this.bb_pos, 20);
+  const offset = this.bb!.__offset(this.bb_pos, 18);
   return offset ? this.bb!.readInt32(this.bb_pos + offset) : 0;
+}
+
+webClients(index: number, obj?:WebClient):WebClient|null {
+  const offset = this.bb!.__offset(this.bb_pos, 20);
+  return offset ? (obj || new WebClient()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
+}
+
+webClientsLength():number {
+  const offset = this.bb!.__offset(this.bb_pos, 20);
+  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
 static startMessage(builder:flatbuffers.Builder) {
@@ -94,28 +99,40 @@ static addFileObject(builder:flatbuffers.Builder, fileObjectOffset:flatbuffers.O
   builder.addFieldOffset(2, fileObjectOffset, 0);
 }
 
-static addBinaryData(builder:flatbuffers.Builder, binaryDataOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(3, binaryDataOffset, 0);
-}
-
 static addMeshInfo(builder:flatbuffers.Builder, meshInfoOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(4, meshInfoOffset, 0);
+  builder.addFieldOffset(3, meshInfoOffset, 0);
 }
 
 static addTargetGroup(builder:flatbuffers.Builder, targetGroupOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(5, targetGroupOffset, 0);
+  builder.addFieldOffset(4, targetGroupOffset, 0);
 }
 
 static addClientType(builder:flatbuffers.Builder, clientTypeOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(6, clientTypeOffset, 0);
+  builder.addFieldOffset(5, clientTypeOffset, 0);
 }
 
 static addSceneOperation(builder:flatbuffers.Builder, sceneOperation:SceneOperations) {
-  builder.addFieldInt8(7, sceneOperation, SceneOperations.ADD);
+  builder.addFieldInt8(6, sceneOperation, SceneOperations.ADD);
 }
 
 static addTargetId(builder:flatbuffers.Builder, targetId:number) {
-  builder.addFieldInt32(8, targetId, 0);
+  builder.addFieldInt32(7, targetId, 0);
+}
+
+static addWebClients(builder:flatbuffers.Builder, webClientsOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(8, webClientsOffset, 0);
+}
+
+static createWebClientsVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
+  builder.startVector(4, data.length, 4);
+  for (let i = data.length - 1; i >= 0; i--) {
+    builder.addOffset(data[i]!);
+  }
+  return builder.endVector();
+}
+
+static startWebClientsVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
 }
 
 static endMessage(builder:flatbuffers.Builder):flatbuffers.Offset {
@@ -137,12 +154,12 @@ unpack(): MessageT {
     this.instanceId(),
     this.commandType(),
     (this.fileObject() !== null ? this.fileObject()!.unpack() : null),
-    (this.binaryData() !== null ? this.binaryData()!.unpack() : null),
     (this.meshInfo() !== null ? this.meshInfo()!.unpack() : null),
     this.targetGroup(),
     this.clientType(),
     this.sceneOperation(),
-    this.targetId()
+    this.targetId(),
+    this.bb!.createObjList<WebClient, WebClientT>(this.webClients.bind(this), this.webClientsLength())
   );
 }
 
@@ -151,12 +168,12 @@ unpackTo(_o: MessageT): void {
   _o.instanceId = this.instanceId();
   _o.commandType = this.commandType();
   _o.fileObject = (this.fileObject() !== null ? this.fileObject()!.unpack() : null);
-  _o.binaryData = (this.binaryData() !== null ? this.binaryData()!.unpack() : null);
   _o.meshInfo = (this.meshInfo() !== null ? this.meshInfo()!.unpack() : null);
   _o.targetGroup = this.targetGroup();
   _o.clientType = this.clientType();
   _o.sceneOperation = this.sceneOperation();
   _o.targetId = this.targetId();
+  _o.webClients = this.bb!.createObjList<WebClient, WebClientT>(this.webClients.bind(this), this.webClientsLength());
 }
 }
 
@@ -165,32 +182,32 @@ constructor(
   public instanceId: number = 0,
   public commandType: CommandType = CommandType.PING,
   public fileObject: FileObjectT|null = null,
-  public binaryData: BinaryDataT|null = null,
   public meshInfo: MeshInfoT|null = null,
   public targetGroup: string|Uint8Array|null = null,
   public clientType: string|Uint8Array|null = null,
   public sceneOperation: SceneOperations = SceneOperations.ADD,
-  public targetId: number = 0
+  public targetId: number = 0,
+  public webClients: (WebClientT)[] = []
 ){}
 
 
 pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const fileObject = (this.fileObject !== null ? this.fileObject!.pack(builder) : 0);
-  const binaryData = (this.binaryData !== null ? this.binaryData!.pack(builder) : 0);
   const meshInfo = (this.meshInfo !== null ? this.meshInfo!.pack(builder) : 0);
   const targetGroup = (this.targetGroup !== null ? builder.createString(this.targetGroup!) : 0);
   const clientType = (this.clientType !== null ? builder.createString(this.clientType!) : 0);
+  const webClients = Message.createWebClientsVector(builder, builder.createObjectOffsetList(this.webClients));
 
   Message.startMessage(builder);
   Message.addInstanceId(builder, this.instanceId);
   Message.addCommandType(builder, this.commandType);
   Message.addFileObject(builder, fileObject);
-  Message.addBinaryData(builder, binaryData);
   Message.addMeshInfo(builder, meshInfo);
   Message.addTargetGroup(builder, targetGroup);
   Message.addClientType(builder, clientType);
   Message.addSceneOperation(builder, this.sceneOperation);
   Message.addTargetId(builder, this.targetId);
+  Message.addWebClients(builder, webClients);
 
   return Message.endMessage(builder);
 }

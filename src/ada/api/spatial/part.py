@@ -817,7 +817,7 @@ class Part(BackendGeom):
 
     def show(
         self,
-        renderer="react",
+        renderer: Literal["react", "pygfx"]="react",
         auto_open_viewer=False,
         host="localhost",
         port=8765,

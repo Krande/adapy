@@ -1,5 +1,6 @@
 // handleWebSocketMessage.ts
 import {webSocketHandler} from "./websocket_connector";
+import {handleFlatbufferMessage} from "./handle_fb";
 
 export enum SceneAction {
     NEW = "new",
@@ -70,7 +71,13 @@ export const handleWebSocketMessage = (setModelUpdate: (url: string | null, scen
         }
         handleStringMessage(setModelUpdate, event.data);
     } else if (event.data instanceof Blob) {
-        handleBlobMessage(setModelUpdate, event.data);
+        // Convert Blob to ArrayBuffer and then handle it as FlatBuffer
+        event.data.arrayBuffer().then((buffer) => {
+            handleFlatbufferMessage(buffer);
+        }).catch(err => {
+            console.error('Error handling FlatBuffer message:', err);
+            handleBlobMessage(setModelUpdate, event.data);
+        });
     } else {
         console.log('Message from server ', event.data);
     }

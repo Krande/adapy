@@ -3,15 +3,16 @@ namespace wsock;
 enum CommandType : byte {
   PING = 0,
   PONG = 1,
-  SEND_FILE = 2,
-  SEND_BINARY = 3,
-  MESH_INFO = 4
+  UPDATE_SCENE = 2,
+  UPDATE_SERVER = 3,
+  MESH_INFO_CALLBACK = 4,
+  LIST_WEB_CLIENTS = 5,
 }
 
 enum SceneOperations : byte {
   ADD = 0,
   REMOVE = 1,
-  UPDATE = 2
+  REPLACE = 2
 }
 
 enum FilePurpose : byte {
@@ -25,14 +26,18 @@ enum FileType : byte {
     SQLITE = 2,
 }
 
+table WebClient {
+  instance_id: int;
+  name: string;
+  address: string;
+  port: int;
+}
+
 table FileObject {
   file_type: FileType;      // design, analysis, fabricate
   purpose: FilePurpose;     // Purpose of the file
   filepath: string;         // Path to the file
-}
-
-table BinaryData {
-  data: [ubyte];            // Binary data (e.g., GLB)
+  filedata: [ubyte];        // Binary data (e.g., IFC, GLB, SQLite)
 }
 
 table MeshInfo {
@@ -44,12 +49,12 @@ table Message {
   instance_id: int;
   command_type: CommandType;
   file_object: FileObject;
-  binary_data: BinaryData;
   mesh_info: MeshInfo;
   target_group: string;
   client_type: string;
   scene_operation: SceneOperations;
   target_id: int = 0; // Default value for optional field
+  web_clients: [WebClient];
 }
 
 root_type Message;

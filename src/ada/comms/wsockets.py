@@ -1,27 +1,64 @@
+from __future__ import annotations
+
 import asyncio
+import io
 import json
+import os
+import pathlib
 import random
-from dataclasses import dataclass
+import socket
+import time
+from dataclasses import dataclass, field
 from typing import Optional, Callable, Set, Literal
 from urllib.parse import urlparse, parse_qs
 
+import trimesh
 import websockets
 
 from ada.comms.fb_deserializer import deserialize_root_message
-from ada.comms.fb_model_gen import MessageDC, CommandTypeDC
+from ada.comms.fb_model_gen import MessageDC, CommandTypeDC, FileObjectDC, SceneOperationsDC, FileTypeDC, FilePurposeDC
 from ada.comms.fb_serializer import serialize_message
 from ada.comms.wsock import Message
 from ada.config import logger
+from ada.visit.websocket_server import start_external_ws_server
 
 
 @dataclass
 class ConnectedClient:
-    client: websockets.WebSocketServerProtocol
+    client: websockets.WebSocketServerProtocol = field(repr=False)
     group_type: str = None
     instance_id: int | None = None
+    port: int = field(init=False, default=None)
 
     def __hash__(self):
         return hash(self.client)
+
+
+async def process_client(websocket, path) -> ConnectedClient:
+    group_type = websocket.request_headers.get("Client-Type")
+    instance_id = websocket.request_headers.get("instance-id")
+    if instance_id is not None:
+        instance_id = int(instance_id)
+    client = ConnectedClient(client=websocket, group_type=group_type, instance_id=instance_id)
+
+    if client.group_type is None and 'instance-id' in path:
+        # Parse query parameters from the path
+        parsed_url = urlparse(path)
+        query_params = parse_qs(parsed_url.query)
+
+        # Extract client type and instance id
+        group_type = query_params.get("client-type", [None])[0]
+        if group_type is not None:
+            client.group_type = group_type
+        instance_id = query_params.get("instance-id", [None])[0]
+        if instance_id is not None:
+            client.instance_id = int(instance_id)
+    return client
+
+
+@dataclass
+class SceneMeta:
+    file_objects: list[FileObjectDC] = field(default_factory=list)
 
 
 class WebSocketAsyncServer:
@@ -29,44 +66,31 @@ class WebSocketAsyncServer:
             self,
             host: str,
             port: int,
-            on_connect: Optional[Callable[['ConnectedClient'], asyncio.Future]] = None,
-            on_disconnect: Optional[Callable[['ConnectedClient'], asyncio.Future]] = None,
-            on_message: Optional[Callable[['ConnectedClient', MessageDC], asyncio.Future]] = None
+            on_connect: Optional[Callable[[ConnectedClient], asyncio.Future]] = None,
+            on_disconnect: Optional[Callable[[ConnectedClient], asyncio.Future]] = None,
+            on_message: Optional[Callable[[WebSocketAsyncServer, ConnectedClient, bytes], None]] = None,
     ):
         self.host = host
         self.port = port
         self.connected_clients: Set[ConnectedClient] = set()
-        self.server: Optional[websockets.server.Serve] = None
+        self.server: Optional[websockets.server.SERVER] = None
         self.on_connect = on_connect
         self.on_disconnect = on_disconnect
         self.on_message = on_message
+        self.scene_meta = SceneMeta()
+        self.instance_id = random.randint(0, 2 ** 31 - 1)  # Generates a random int32 value
 
     async def handle_client(self, websocket: websockets.WebSocketServerProtocol, path: str):
-        client = ConnectedClient(client=websocket, group_type=websocket.request_headers.get("Client-Type"))
-        if client.group_type is None and 'instance-id' in path:
-            # Parse query parameters from the path
-            parsed_url = urlparse(path)
-            query_params = parse_qs(parsed_url.query)
-
-            # Extract client type and instance id
-            group_type = query_params.get("client-type", [None])[0]
-            if group_type is not None:
-                client.group_type = group_type
-            instance_id = query_params.get("instance-id", [None])[0]
-            if instance_id is not None:
-                client.instance_id = int(instance_id)
+        client = await process_client(websocket, path)
 
         self.connected_clients.add(client)
-        logger.debug(f"Client connected: {client} - {websocket.remote_address}")
+        logger.debug(f"Client connected: {client} [{len(self.connected_clients)} clients connected]")
         if self.on_connect:
             await self.on_connect(client)
         try:
             async for message in websocket:
-                logger.debug(f"Received message from client: {message}")
                 msg = await handle_partial_message(message)
-
-                if self.on_message:
-                    await self.on_message(client, msg)
+                logger.debug(f"Received message: {msg}")
 
                 # Update instance_id if not set
                 if client.client == websocket:
@@ -77,6 +101,11 @@ class WebSocketAsyncServer:
 
                 # Forward message to appropriate clients
                 await self.forward_message(message, sender=client, msg=msg)
+
+                if self.on_message:
+                    # Offload to a separate thread
+                    await asyncio.to_thread(self.on_message, self, client, message)
+
         except websockets.ConnectionClosed:
             logger.debug(f"Client disconnected: {websocket.remote_address}")
         finally:
@@ -90,11 +119,17 @@ class WebSocketAsyncServer:
         for client in self.connected_clients:
             if client == sender:
                 continue
+            # check if client is still connected
+            if client.client.closed:
+                logger.debug(f"Client disconnected: {client}")
+                self.connected_clients.remove(client)
+                continue
             # Filtering based on target_id and target_group
             if target_id is not None and client.instance_id != target_id:
                 continue
             if target_group and client.group_type != target_group:
                 continue
+
             await client.client.send(message)
 
     async def start_async(self):
@@ -112,6 +147,19 @@ class WebSocketAsyncServer:
             self.server.close()
             await self.server.wait_closed()
         logger.debug("WebSocket server stopped")
+
+    async def receive(self) -> MessageDC:
+        message = await self.server.recv()
+        if isinstance(message, bytes):
+            return deserialize_root_message(message)
+        else:
+            try:
+                msg = json.loads(message)
+                logger.info(f"Received message: {msg}")
+                return msg
+            except json.JSONDecodeError:
+                logger.error("Received non-JSON message")
+                return message
 
     def run_in_background(self):
         """Run the server in a background thread."""
@@ -143,10 +191,17 @@ class WebSocketClientAsync:
         logger.info(f"Disconnected from server: ws://{self.host}:{self.port}")
 
     async def list_web_clients(self):
-        await self.send("list_clients", target_group="web")
-        return await self.receive()
+        message = MessageDC(
+            instance_id=self.instance_id,
+            command_type=CommandTypeDC.LIST_WEB_CLIENTS,
+        )
+        # Serialize the dataclass message into a FlatBuffer
+        flatbuffer_data = serialize_message(message)
+        await self.websocket.send(flatbuffer_data)
+        msg = await self.receive()
+        return msg
 
-    async def check_server_liveness_using_fb(self, target_id=None, target_group: Literal["web", "local"] = "web"):
+    async def check_target_liveness_using_fb(self, target_id=None, target_group: Literal["web", "local"] = "web"):
         """Sends a Flatbuffer package to the server."""
         message = MessageDC(
             instance_id=self.instance_id,
@@ -160,6 +215,27 @@ class WebSocketClientAsync:
         await self.websocket.send(flatbuffer_data)
         msg = await self.receive()
         return msg.command_type == CommandTypeDC.PONG
+
+    async def update_scene(self, scene: trimesh.Scene, purpose: FilePurposeDC = FilePurposeDC.DESIGN,
+                           scene_op: SceneOperationsDC = SceneOperationsDC.REPLACE):
+        with io.BytesIO() as data:
+            scene.export(file_obj=data, file_type="glb")
+            file_object = FileObjectDC(
+                file_type=FileTypeDC.GLB,
+                purpose=purpose,
+                filedata=data.getvalue()
+            )
+            message = MessageDC(
+                instance_id=self.instance_id,
+                command_type=CommandTypeDC.UPDATE_SCENE,
+                file_object=file_object,
+                target_group="web",
+                scene_operation=scene_op
+            )
+
+            # Serialize the dataclass message into a FlatBuffer
+            flatbuffer_data = serialize_message(message)
+            await self.websocket.send(flatbuffer_data)
 
     async def check_server_liveness_using_json(self, target_id=None, target_group: Literal["web", "local"] = "web"):
         pkg = {
@@ -218,11 +294,74 @@ async def handle_partial_message(message) -> MessageDC | None:
         )
 
 
-async def start_async_server():
-    server = WebSocketAsyncServer("localhost", 8765)
-    await server.start_async()
+def is_port_open(host: str, port: int) -> bool:
+    """Quickly check if a port is open using a socket connection."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(1)
+        try:
+            s.connect((host, port))
+            return True
+        except (ConnectionRefusedError, socket.timeout):
+            return False
 
 
-if __name__ == '__main__':
-    logger.setLevel("DEBUG")
-    asyncio.run(start_async_server())
+async def _check_websocket_server(host: str, port: int) -> bool:
+    """Check if a WebSocket server is running by trying to connect."""
+    try:
+        async with websockets.connect(f"ws://{host}:{port}"):
+            logger.info(f"WebSocket server is running on ws://{host}:{port}")
+            return True
+    except (websockets.exceptions.InvalidURI, OSError, websockets.exceptions.ConnectionClosedError) as e:
+        logger.debug(f"Error checking WebSocket server: {e}")
+        return False
+
+
+def is_server_running(host="localhost", port=8765) -> bool:
+    """Efficiently check if a WebSocket server is running."""
+    if not is_port_open(host, port):
+        logger.info(f"Port {port} on host {host} is not open.")
+        return False
+
+    loop = asyncio.get_event_loop()
+    if loop.is_running():
+        # If an asyncio loop is already running, create a new task.
+        return asyncio.ensure_future(_check_websocket_server(host, port))
+    else:
+        # Run the async check if the loop is not running.
+        return loop.run_until_complete(_check_websocket_server(host, port))
+
+
+def start_ws_async_server(
+        host="localhost",
+        port=8765,
+        server_exe: pathlib.Path = None,
+        server_args: list[str] = None,
+        run_in_thread=False,
+        override_binder_check=False,
+) -> WebSocketAsyncServer:
+    from ada.comms.cli_async_ws_server import WS_ASYNC_SERVER_PY
+
+    if server_exe is None:
+        server_exe = WS_ASYNC_SERVER_PY
+
+    # Check if we are running in a binder environment
+    res = os.getenv("BINDER_SERVICE_HOST", None)
+    if res is not None and override_binder_check is False:
+        logger.info(
+            "Running in binder environment, starting server in thread. Pass override_binder_check=True to override"
+        )
+        logger.warning("Binder does not support websockets, so you will not be able to send data to the viewer")
+        run_in_thread = True
+
+    ws = None
+    if is_server_running(host, port) is False:
+        if run_in_thread:
+            ws = WebSocketAsyncServer(host=host, port=port)
+            ws.run_in_background()
+        else:
+            start_external_ws_server(server_exe, server_args)
+
+        while is_server_running(host, port) is False:
+            time.sleep(0.1)
+
+    return ws
