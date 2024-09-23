@@ -208,8 +208,6 @@ class WebSocketServer:
         return f"{self.host}:{self.port}"
 
 
-
-
 async def _check_server_running(host="ws://localhost", port=8765):
     try:
         async with websockets.connect(f"{host}:{port}"):
@@ -377,5 +375,3 @@ def send_to_web_viewer(part: ada.Part, port=8765, origins: list[str] = None, met
     logger.info(f"Exported to glb in {end - start:.2f} seconds")
 
     send_to_ws_server(data.getvalue(), port=port, server_exe=WEBSOCKET_EXE_PY, server_args=server_args)
-
-

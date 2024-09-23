@@ -170,14 +170,14 @@ class WebSocketAsyncServer:
         return thread
 
 
-@dataclass
 class WebSocketClientAsync:
-    host: str = "localhost"
-    port: int = 8765
-    client_type: Literal["web", "local"] = "local"
+    def __init__(self, host: str = "localhost", port: int = 8765, client_type: Literal["web", "local"] = "local"):
+        self.host = host
+        self.port = port
+        self.client_type = client_type
+        self.instance_id = random.randint(0, 2 ** 31 - 1)
 
     async def __aenter__(self):
-        self.instance_id = random.randint(0, 2 ** 31 - 1)  # Generates a random int32 value
         self._conn = websockets.connect(
             f"ws://{self.host}:{self.port}",
             extra_headers={"Client-Type": self.client_type, "instance-id": str(self.instance_id)}
