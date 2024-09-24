@@ -26,56 +26,67 @@ static getSizePrefixedRootAsFileObject(bb:flatbuffers.ByteBuffer, obj?:FileObjec
   return (obj || new FileObject()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
 }
 
-fileType():FileType {
+name():string|null
+name(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+name(optionalEncoding?:any):string|Uint8Array|null {
   const offset = this.bb!.__offset(this.bb_pos, 4);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
+fileType():FileType {
+  const offset = this.bb!.__offset(this.bb_pos, 6);
   return offset ? this.bb!.readInt8(this.bb_pos + offset) : FileType.IFC;
 }
 
 purpose():FilePurpose {
-  const offset = this.bb!.__offset(this.bb_pos, 6);
+  const offset = this.bb!.__offset(this.bb_pos, 8);
   return offset ? this.bb!.readInt8(this.bb_pos + offset) : FilePurpose.DESIGN;
 }
 
 filepath():string|null
 filepath(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
 filepath(optionalEncoding?:any):string|Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 8);
+  const offset = this.bb!.__offset(this.bb_pos, 10);
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
 filedata(index: number):number|null {
-  const offset = this.bb!.__offset(this.bb_pos, 10);
+  const offset = this.bb!.__offset(this.bb_pos, 12);
   return offset ? this.bb!.readUint8(this.bb!.__vector(this.bb_pos + offset) + index) : 0;
 }
 
 filedataLength():number {
-  const offset = this.bb!.__offset(this.bb_pos, 10);
+  const offset = this.bb!.__offset(this.bb_pos, 12);
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
 filedataArray():Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 10);
+  const offset = this.bb!.__offset(this.bb_pos, 12);
   return offset ? new Uint8Array(this.bb!.bytes().buffer, this.bb!.bytes().byteOffset + this.bb!.__vector(this.bb_pos + offset), this.bb!.__vector_len(this.bb_pos + offset)) : null;
 }
 
 static startFileObject(builder:flatbuffers.Builder) {
-  builder.startObject(4);
+  builder.startObject(5);
+}
+
+static addName(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(0, nameOffset, 0);
 }
 
 static addFileType(builder:flatbuffers.Builder, fileType:FileType) {
-  builder.addFieldInt8(0, fileType, FileType.IFC);
+  builder.addFieldInt8(1, fileType, FileType.IFC);
 }
 
 static addPurpose(builder:flatbuffers.Builder, purpose:FilePurpose) {
-  builder.addFieldInt8(1, purpose, FilePurpose.DESIGN);
+  builder.addFieldInt8(2, purpose, FilePurpose.DESIGN);
 }
 
 static addFilepath(builder:flatbuffers.Builder, filepathOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(2, filepathOffset, 0);
+  builder.addFieldOffset(3, filepathOffset, 0);
 }
 
 static addFiledata(builder:flatbuffers.Builder, filedataOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(3, filedataOffset, 0);
+  builder.addFieldOffset(4, filedataOffset, 0);
 }
 
 static createFiledataVector(builder:flatbuffers.Builder, data:number[]|Uint8Array):flatbuffers.Offset {
@@ -95,8 +106,9 @@ static endFileObject(builder:flatbuffers.Builder):flatbuffers.Offset {
   return offset;
 }
 
-static createFileObject(builder:flatbuffers.Builder, fileType:FileType, purpose:FilePurpose, filepathOffset:flatbuffers.Offset, filedataOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createFileObject(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset, fileType:FileType, purpose:FilePurpose, filepathOffset:flatbuffers.Offset, filedataOffset:flatbuffers.Offset):flatbuffers.Offset {
   FileObject.startFileObject(builder);
+  FileObject.addName(builder, nameOffset);
   FileObject.addFileType(builder, fileType);
   FileObject.addPurpose(builder, purpose);
   FileObject.addFilepath(builder, filepathOffset);
@@ -106,6 +118,7 @@ static createFileObject(builder:flatbuffers.Builder, fileType:FileType, purpose:
 
 unpack(): FileObjectT {
   return new FileObjectT(
+    this.name(),
     this.fileType(),
     this.purpose(),
     this.filepath(),
@@ -115,6 +128,7 @@ unpack(): FileObjectT {
 
 
 unpackTo(_o: FileObjectT): void {
+  _o.name = this.name();
   _o.fileType = this.fileType();
   _o.purpose = this.purpose();
   _o.filepath = this.filepath();
@@ -124,6 +138,7 @@ unpackTo(_o: FileObjectT): void {
 
 export class FileObjectT implements flatbuffers.IGeneratedObject {
 constructor(
+  public name: string|Uint8Array|null = null,
   public fileType: FileType = FileType.IFC,
   public purpose: FilePurpose = FilePurpose.DESIGN,
   public filepath: string|Uint8Array|null = null,
@@ -132,10 +147,12 @@ constructor(
 
 
 pack(builder:flatbuffers.Builder): flatbuffers.Offset {
+  const name = (this.name !== null ? builder.createString(this.name!) : 0);
   const filepath = (this.filepath !== null ? builder.createString(this.filepath!) : 0);
   const filedata = FileObject.createFiledataVector(builder, this.filedata);
 
   return FileObject.createFileObject(builder,
+    name,
     this.fileType,
     this.purpose,
     filepath,

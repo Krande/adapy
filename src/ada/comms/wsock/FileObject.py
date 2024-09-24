@@ -4,12 +4,10 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
-
 np = import_numpy()
 
-
 class FileObject(object):
-    __slots__ = ["_tab"]
+    __slots__ = ['_tab']
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -22,113 +20,109 @@ class FileObject(object):
     def GetRootAsFileObject(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
-
     # FileObject
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
     # FileObject
-    def FileType(self):
+    def Name(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
-        return 0
+            return self._tab.String(o + self._tab.Pos)
+        return None
 
     # FileObject
-    def Purpose(self):
+    def FileType(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 0
 
     # FileObject
-    def Filepath(self):
+    def Purpose(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
+
+    # FileObject
+    def Filepath(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             return self._tab.String(o + self._tab.Pos)
         return None
 
     # FileObject
     def Filedata(self, j):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             a = self._tab.Vector(o)
-            return self._tab.Get(
-                flatbuffers.number_types.Uint8Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 1)
-            )
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
         return 0
 
     # FileObject
     def FiledataAsNumpy(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint8Flags, o)
         return 0
 
     # FileObject
     def FiledataLength(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # FileObject
     def FiledataIsNone(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         return o == 0
 
-
 def FileObjectStart(builder):
-    builder.StartObject(4)
-
+    builder.StartObject(5)
 
 def Start(builder):
     FileObjectStart(builder)
 
+def FileObjectAddName(builder, name):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
+
+def AddName(builder, name):
+    FileObjectAddName(builder, name)
 
 def FileObjectAddFileType(builder, fileType):
-    builder.PrependInt8Slot(0, fileType, 0)
-
+    builder.PrependInt8Slot(1, fileType, 0)
 
 def AddFileType(builder, fileType):
     FileObjectAddFileType(builder, fileType)
 
-
 def FileObjectAddPurpose(builder, purpose):
-    builder.PrependInt8Slot(1, purpose, 0)
-
+    builder.PrependInt8Slot(2, purpose, 0)
 
 def AddPurpose(builder, purpose):
     FileObjectAddPurpose(builder, purpose)
 
-
 def FileObjectAddFilepath(builder, filepath):
-    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(filepath), 0)
-
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(filepath), 0)
 
 def AddFilepath(builder, filepath):
     FileObjectAddFilepath(builder, filepath)
 
-
 def FileObjectAddFiledata(builder, filedata):
-    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(filedata), 0)
-
+    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(filedata), 0)
 
 def AddFiledata(builder, filedata):
     FileObjectAddFiledata(builder, filedata)
 
-
 def FileObjectStartFiledataVector(builder, numElems):
     return builder.StartVector(1, numElems, 1)
-
 
 def StartFiledataVector(builder, numElems):
     return FileObjectStartFiledataVector(builder, numElems)
 
-
 def FileObjectEnd(builder):
     return builder.EndObject()
-
 
 def End(builder):
     return FileObjectEnd(builder)

@@ -9,5 +9,6 @@ export enum CommandType {
   UPDATE_SERVER = 3,
   MESH_INFO_CALLBACK = 4,
   MESH_INFO_REPLY = 5,
-  LIST_WEB_CLIENTS = 6
+  LIST_WEB_CLIENTS = 6,
+  LIST_FILE_OBJECTS = 7
 }

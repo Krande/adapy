@@ -137,6 +137,18 @@ class Config:
                 ConfigEntry("fem2concepts_include_ecc", bool, False),
             ],
         ),
+        ConfigSection(
+            "procedures",
+            [
+                ConfigEntry("script_dir", pathlib.Path, None, required=False),
+            ]
+        ),
+        ConfigSection(
+            "websockets",
+            [
+                ConfigEntry("server_temp_dir", pathlib.Path, None, False),
+            ]
+        )
     ]
     _config_dirs = [_cwd]
     _config_files = [os.path.join(d, _filename) for d in _config_dirs]

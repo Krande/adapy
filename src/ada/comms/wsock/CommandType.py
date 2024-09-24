@@ -2,7 +2,6 @@
 
 # namespace: wsock
 
-
 class CommandType(object):
     PING = 0
     PONG = 1
@@ -11,3 +10,4 @@ class CommandType(object):
     MESH_INFO_CALLBACK = 4
     MESH_INFO_REPLY = 5
     LIST_WEB_CLIENTS = 6
+    LIST_FILE_OBJECTS = 7

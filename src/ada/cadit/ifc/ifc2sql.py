@@ -36,12 +36,14 @@ import ifcopenshell.util.schema
 import ifcopenshell.util.unit
 import numpy as np
 
+from ada.config import logger
+
 SQLTypes = typing.Literal["SQLite", "MySQL"]
 
 try:
     import mysql.connector
 except ImportError:
-    print("No MySQL support")
+    logger.info("No MySQL support")
     SQLTypes = typing.Literal["SQLite"]
 
 

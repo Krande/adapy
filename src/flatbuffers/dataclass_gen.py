@@ -2,7 +2,8 @@ import pathlib
 
 from fbs_serializer import FlatBufferSchema, parse_fbs_file
 
-import_str = """from enum import Enum
+import_str = """from __future__ import annotations
+from enum import Enum
 from dataclasses import dataclass
 from typing import Optional, List
 import pathlib

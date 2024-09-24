@@ -134,6 +134,7 @@ class WebSocketClient:
     @dual_sync_async
     async def update_scene(
         self,
+        name: str,
         scene: trimesh.Scene,
         purpose: FilePurposeDC = FilePurposeDC.DESIGN,
         scene_op: SceneOperationsDC = SceneOperationsDC.REPLACE,
@@ -141,7 +142,7 @@ class WebSocketClient:
     ):
         with io.BytesIO() as data:
             scene.export(file_obj=data, file_type="glb", buffer_postprocessor=gltf_buffer_postprocessor)
-            file_object = FileObjectDC(file_type=FileTypeDC.GLB, purpose=purpose, filedata=data.getvalue())
+            file_object = FileObjectDC(name=name,file_type=FileTypeDC.GLB, purpose=purpose, filedata=data.getvalue())
             message = MessageDC(
                 instance_id=self.instance_id,
                 command_type=CommandTypeDC.UPDATE_SCENE,

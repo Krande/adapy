@@ -7,6 +7,7 @@ from utils import make_camel_case
 
 
 def generate_serialize_function(table: TableDefinition) -> str:
+    table_names = [tbl.name for tbl in table.schema.tables]
     serialize_code = f"def serialize_{table.name.lower()}(builder: flatbuffers.Builder, obj: Optional[{table.name}DC]) -> Optional[int]:\n"
     serialize_code += "    if obj is None:\n        return None\n"
 
@@ -32,14 +33,19 @@ def generate_serialize_function(table: TableDefinition) -> str:
             serialize_code += f"    if {field.name}_str is not None:\n"
             serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_str)\n"
         elif field.field_type.startswith("["):
-            if "ubyte" in field.field_type:
+            field_type_value = field.field_type[1:-1]
+            if field_type_value == "ubyte":
                 serialize_code += f"    if {field.name}_vector is not None:\n"
                 serialize_code += (
                     f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
                 )
-            elif "float" in field.field_type:
+            elif field_type_value == "float":
                 serialize_code += f"    if obj.{field.name} is not None:\n"
                 serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, builder.CreateFloatVector(obj.{field.name}))\n"
+            elif field_type_value in table_names:
+                serialize_code += f"    if obj.{field.name} is not None:\n"
+                serialize_code += f"        {field.name}_list = [serialize_{field_type_value.lower()}(builder, item) for item in obj.{field.name}]\n"
+                serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, builder.CreateByteVector({field.name}_list))\n"
             else:
                 raise NotImplementedError()
         elif field.field_type in ["byte", "ubyte", "int", "bool"]:

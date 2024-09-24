@@ -836,6 +836,7 @@ class Part(BackendGeom):
         gltf_buffer_postprocessor: Callable[[list[bytes], dict], None] = None,
         add_ifc_backend=False,
         backend_file_dir: pathlib.Path | str = None,
+        auto_sync_ifc_store=True,
     ) -> None:
         from ada import Assembly
         from ada.comms.wsock_client import WebSocketClient
@@ -857,6 +858,9 @@ class Part(BackendGeom):
 
                 RendererReact().show()
 
+            if auto_sync_ifc_store and isinstance(self, Assembly):
+                self.ifc_store.sync()
+
             scene = self.to_trimesh_scene(stream_from_ifc=stream_from_ifc_store, merge_meshes=merge_meshes)
             if scene_post_processor is not None:
                 scene = scene_post_processor(scene)
@@ -865,7 +869,7 @@ class Part(BackendGeom):
                 pass
 
             # Send the geometry to the frontend using the websocket server
-            wc.update_scene(scene, purpose=purpose, gltf_buffer_postprocessor=gltf_buffer_postprocessor)
+            wc.update_scene(self.name, scene, purpose=purpose, gltf_buffer_postprocessor=gltf_buffer_postprocessor)
 
             if add_ifc_backend and isinstance(self, Assembly):
                 if isinstance(backend_file_dir, str):
@@ -875,7 +879,7 @@ class Part(BackendGeom):
 
                 ifc_file = backend_file_dir / f"{self.name}.ifc"
                 self.to_ifc(backend_file_dir / ifc_file)
-                wc.update_file_server(FileObjectDC(FileTypeDC.IFC, FilePurposeDC.DESIGN, ifc_file))
+                wc.update_file_server(FileObjectDC(self.name, FileTypeDC.IFC, FilePurposeDC.DESIGN, ifc_file))
 
     @property
     def animation_store(self) -> AnimationStore:

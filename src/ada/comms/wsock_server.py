@@ -23,8 +23,9 @@ from ada.comms.fb_model_gen import (
     TargetTypeDC,
 )
 from ada.comms.fb_serializer import serialize_message
+from ada.comms.procedures import ProcedureStore
 from ada.comms.wsock import Message
-from ada.config import logger
+from ada.config import logger, Config
 
 
 @dataclass
@@ -82,8 +83,9 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
     if message.command_type == CommandTypeDC.UPDATE_SCENE:
         logger.info(f"Received message from {client} to update scene")
         glb_file_data = message.file_object.filedata
-        tmp_dir = pathlib.Path("temp")
-        local_glb_file = tmp_dir / "test.glb"
+        tmp_dir = pathlib.Path("temp") if Config().websockets_server_temp_dir is None else Config().websockets_server_temp_dir
+        local_glb_file = tmp_dir / f"{message.file_object.name}.glb"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
         with open(local_glb_file, "wb") as f:
             f.write(glb_file_data)
 
@@ -91,6 +93,7 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
         server.scene_meta.mesh_meta = tri_scene.metadata
 
         file_object = FileObjectDC(
+            name=message.file_object.name,
             filedata=glb_file_data,
             filepath=local_glb_file,
             file_type=message.file_object.file_type,
@@ -112,8 +115,14 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
         num = node_name.replace("node", "")
 
         meta = server.scene_meta.mesh_meta.get(f"id_sequence{num}")
-        guid = list(meta.keys())[0]
-        entity = server.scene_meta.ifc_sql_store.by_guid(guid)
+        guid = list(meta.keys())
+        if len(guid) == 1:
+            guid = guid[0]
+            entity = server.scene_meta.ifc_sql_store.by_guid(guid)
+        elif len(guid) > 1:
+            raise ValueError(f"Multiple GUIDs found for node {node_name}")
+        else:
+            raise ValueError(f"No GUID found for node {node_name}")
 
         logger.info(f"Entity: {entity}")
         mesh_info = MeshInfoDC(
@@ -135,12 +144,12 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
 
 class WebSocketAsyncServer:
     def __init__(
-        self,
-        host: str,
-        port: int,
-        on_connect: Optional[Callable[[ConnectedClient], asyncio.Future]] = None,
-        on_disconnect: Optional[Callable[[ConnectedClient], asyncio.Future]] = None,
-        on_message: Optional[Callable[[WebSocketAsyncServer, ConnectedClient, bytes], None]] = default_on_message,
+            self,
+            host: str,
+            port: int,
+            on_connect: Optional[Callable[[ConnectedClient], asyncio.Future]] = None,
+            on_disconnect: Optional[Callable[[ConnectedClient], asyncio.Future]] = None,
+            on_message: Optional[Callable[[WebSocketAsyncServer, ConnectedClient, bytes], None]] = default_on_message,
     ):
         self.host = host
         self.port = port
@@ -150,8 +159,9 @@ class WebSocketAsyncServer:
         self.on_disconnect = on_disconnect
         self.on_message = on_message
         self.scene_meta = SceneMeta()
-        self.instance_id = random.randint(0, 2**31 - 1)  # Generates a random int32 value
+        self.instance_id = random.randint(0, 2 ** 31 - 1)  # Generates a random int32 value
         self.msg_queue = asyncio.Queue()
+        self.procedure_store = ProcedureStore()
 
     async def handle_client(self, websocket: websockets.WebSocketServerProtocol, path: str):
         client = await process_client(websocket, path)
@@ -178,7 +188,7 @@ class WebSocketAsyncServer:
                 await self.on_disconnect(client)
 
     async def handle_message(
-        self, message: bytes, client: ConnectedClient, websocket: websockets.WebSocketServerProtocol
+            self, message: bytes, client: ConnectedClient, websocket: websockets.WebSocketServerProtocol
     ):
         msg = await handle_partial_message(message)
         logger.debug(f"Received message: {msg}")

@@ -1,15 +1,9 @@
+import flatbuffers
 from typing import Optional
 
-import flatbuffers
-from ada.comms.fb_model_gen import (
-    FileObjectDC,
-    MeshInfoDC,
-    MessageDC,
-    SceneOperationDC,
-    WebClientDC,
-)
-from ada.comms.wsock import FileObject, MeshInfo, Message, SceneOperation, WebClient
+from ada.comms.wsock import WebClient, FileObject, MeshInfo, SceneOperation, ProcedureStore, Procedure, Parameter, Message
 
+from ada.comms.fb_model_gen import WebClientDC, FileObjectDC, MeshInfoDC, SceneOperationDC, ProcedureStoreDC, ProcedureDC, ParameterDC, MessageDC
 
 def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]) -> Optional[int]:
     if obj is None:
@@ -36,6 +30,9 @@ def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]
 def serialize_fileobject(builder: flatbuffers.Builder, obj: Optional[FileObjectDC]) -> Optional[int]:
     if obj is None:
         return None
+    name_str = None
+    if obj.name is not None:
+        name_str = builder.CreateString(str(obj.name))
     filepath_str = None
     if obj.filepath is not None:
         filepath_str = builder.CreateString(str(obj.filepath))
@@ -44,6 +41,8 @@ def serialize_fileobject(builder: flatbuffers.Builder, obj: Optional[FileObjectD
         filedata_vector = builder.CreateByteVector(obj.filedata)
 
     FileObject.Start(builder)
+    if name_str is not None:
+        FileObject.AddName(builder, name_str)
     if obj.file_type is not None:
         FileObject.AddFileType(builder, obj.file_type.value)
     if obj.purpose is not None:
@@ -89,7 +88,87 @@ def serialize_sceneoperation(builder: flatbuffers.Builder, obj: Optional[SceneOp
     return SceneOperation.End(builder)
 
 
-def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:
+def serialize_procedurestore(builder: flatbuffers.Builder, obj: Optional[ProcedureStoreDC]) -> Optional[int]:
+    if obj is None:
+        return None
+
+    ProcedureStore.Start(builder)
+    if obj.procedures is not None:
+        procedures_list = [serialize_procedure(builder, item) for item in obj.procedures]
+        ProcedureStore.AddProcedures(builder, builder.CreateByteVector(procedures_list))
+    return ProcedureStore.End(builder)
+
+
+def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    id_str = None
+    if obj.id is not None:
+        id_str = builder.CreateString(str(obj.id))
+    name_str = None
+    if obj.name is not None:
+        name_str = builder.CreateString(str(obj.name))
+    description_str = None
+    if obj.description is not None:
+        description_str = builder.CreateString(str(obj.description))
+    script_file_location_str = None
+    if obj.script_file_location is not None:
+        script_file_location_str = builder.CreateString(str(obj.script_file_location))
+    input_ifc_filepath_str = None
+    if obj.input_ifc_filepath is not None:
+        input_ifc_filepath_str = builder.CreateString(str(obj.input_ifc_filepath))
+    output_ifc_filepath_str = None
+    if obj.output_ifc_filepath is not None:
+        output_ifc_filepath_str = builder.CreateString(str(obj.output_ifc_filepath))
+    error_str = None
+    if obj.error is not None:
+        error_str = builder.CreateString(str(obj.error))
+
+    Procedure.Start(builder)
+    if id_str is not None:
+        Procedure.AddId(builder, id_str)
+    if name_str is not None:
+        Procedure.AddName(builder, name_str)
+    if description_str is not None:
+        Procedure.AddDescription(builder, description_str)
+    if script_file_location_str is not None:
+        Procedure.AddScriptFileLocation(builder, script_file_location_str)
+    if obj.parameters is not None:
+        parameters_list = [serialize_parameter(builder, item) for item in obj.parameters]
+        Procedure.AddParameters(builder, builder.CreateByteVector(parameters_list))
+    if input_ifc_filepath_str is not None:
+        Procedure.AddInputIfcFilepath(builder, input_ifc_filepath_str)
+    if output_ifc_filepath_str is not None:
+        Procedure.AddOutputIfcFilepath(builder, output_ifc_filepath_str)
+    if error_str is not None:
+        Procedure.AddError(builder, error_str)
+    return Procedure.End(builder)
+
+
+def serialize_parameter(builder: flatbuffers.Builder, obj: Optional[ParameterDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    name_str = None
+    if obj.name is not None:
+        name_str = builder.CreateString(str(obj.name))
+    type_str = None
+    if obj.type is not None:
+        type_str = builder.CreateString(str(obj.type))
+    value_str = None
+    if obj.value is not None:
+        value_str = builder.CreateString(str(obj.value))
+
+    Parameter.Start(builder)
+    if name_str is not None:
+        Parameter.AddName(builder, name_str)
+    if type_str is not None:
+        Parameter.AddType(builder, type_str)
+    if value_str is not None:
+        Parameter.AddValue(builder, value_str)
+    return Parameter.End(builder)
+
+
+def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
     file_object_obj = None
@@ -101,6 +180,9 @@ def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -
     scene_operation_obj = None
     if message.scene_operation is not None:
         scene_operation_obj = serialize_sceneoperation(builder, message.scene_operation)
+    procedure_store_obj = None
+    if message.procedure_store is not None:
+        procedure_store_obj = serialize_procedurestore(builder, message.procedure_store)
 
     Message.Start(builder)
     if message.instance_id is not None:
@@ -122,6 +204,8 @@ def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -
     if message.web_clients is not None:
         webclient_list = [serialize_webclient(builder, item) for item in message.web_clients]
         Message.AddWebClients(builder, builder.CreateByteVector(webclient_list))
+    if message.procedure_store is not None:
+        Message.AddProcedureStore(builder, procedure_store_obj)
 
     message_flatbuffer = Message.End(builder)
     builder.Finish(message_flatbuffer)

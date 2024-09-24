@@ -1,7 +1,9 @@
-import pathlib
-from dataclasses import dataclass
+from __future__ import annotations
 from enum import Enum
-from typing import List, Optional
+from dataclasses import dataclass
+from typing import Optional, List
+import pathlib
+
 
 
 class CommandTypeDC(Enum):
@@ -12,31 +14,27 @@ class CommandTypeDC(Enum):
     MESH_INFO_CALLBACK = 4
     MESH_INFO_REPLY = 5
     LIST_WEB_CLIENTS = 6
-
+    LIST_FILE_OBJECTS = 7
 
 class TargetTypeDC(Enum):
     WEB = 0
     LOCAL = 1
     SERVER = 2
 
-
 class SceneOperationsDC(Enum):
     ADD = 0
     REMOVE = 1
     REPLACE = 2
-
 
 class FilePurposeDC(Enum):
     DESIGN = 0
     ANALYSIS = 1
     FABRICATE = 2
 
-
 class FileTypeDC(Enum):
     IFC = 0
     GLB = 1
     SQLITE = 2
-
 
 @dataclass
 class WebClientDC:
@@ -45,14 +43,13 @@ class WebClientDC:
     address: str = ""
     port: int = None
 
-
 @dataclass
 class FileObjectDC:
+    name: str = ""
     file_type: Optional[FileTypeDC] = None
     purpose: Optional[FilePurposeDC] = None
     filepath: pathlib.Path | str = ""
     filedata: bytes = None
-
 
 @dataclass
 class MeshInfoDC:
@@ -60,13 +57,32 @@ class MeshInfoDC:
     face_index: int = None
     json_data: str = ""
 
-
 @dataclass
 class SceneOperationDC:
     operation: Optional[SceneOperationsDC] = None
     camera_position: List[float] = None
     look_at_position: List[float] = None
 
+@dataclass
+class ProcedureStoreDC:
+    procedures: Optional[List[ProcedureDC]] = None
+
+@dataclass
+class ProcedureDC:
+    id: str = ""
+    name: str = ""
+    description: str = ""
+    script_file_location: str = ""
+    parameters: Optional[List[ParameterDC]] = None
+    input_ifc_filepath: pathlib.Path | str = ""
+    output_ifc_filepath: pathlib.Path | str = ""
+    error: str = ""
+
+@dataclass
+class ParameterDC:
+    name: str = ""
+    type: str = ""
+    value: str = ""
 
 @dataclass
 class MessageDC:
@@ -79,3 +95,4 @@ class MessageDC:
     scene_operation: Optional[SceneOperationDC] = None
     target_id: int = None
     web_clients: Optional[List[WebClientDC]] = None
+    procedure_store: Optional[ProcedureStoreDC] = None

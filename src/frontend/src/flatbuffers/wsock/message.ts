@@ -7,6 +7,7 @@ import * as flatbuffers from 'flatbuffers';
 import { CommandType } from './command-type';
 import { FileObject, FileObjectT } from '../wsock/file-object.js';
 import { MeshInfo, MeshInfoT } from '../wsock/mesh-info.js';
+import { ProcedureStore, ProcedureStoreT } from '../wsock/procedure-store.js';
 import { SceneOperation, SceneOperationT } from '../wsock/scene-operation.js';
 import { TargetType } from './target-type';
 import { WebClient, WebClientT } from '../wsock/web-client.js';
@@ -80,8 +81,13 @@ webClientsLength():number {
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
+procedureStore(obj?:ProcedureStore):ProcedureStore|null {
+  const offset = this.bb!.__offset(this.bb_pos, 22);
+  return offset ? (obj || new ProcedureStore()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startMessage(builder:flatbuffers.Builder) {
-  builder.startObject(9);
+  builder.startObject(10);
 }
 
 static addInstanceId(builder:flatbuffers.Builder, instanceId:number) {
@@ -132,6 +138,10 @@ static startWebClientsVector(builder:flatbuffers.Builder, numElems:number) {
   builder.startVector(4, numElems, 4);
 }
 
+static addProcedureStore(builder:flatbuffers.Builder, procedureStoreOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(9, procedureStoreOffset, 0);
+}
+
 static endMessage(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
@@ -156,7 +166,8 @@ unpack(): MessageT {
     this.clientType(),
     (this.sceneOperation() !== null ? this.sceneOperation()!.unpack() : null),
     this.targetId(),
-    this.bb!.createObjList<WebClient, WebClientT>(this.webClients.bind(this), this.webClientsLength())
+    this.bb!.createObjList<WebClient, WebClientT>(this.webClients.bind(this), this.webClientsLength()),
+    (this.procedureStore() !== null ? this.procedureStore()!.unpack() : null)
   );
 }
 
@@ -171,6 +182,7 @@ unpackTo(_o: MessageT): void {
   _o.sceneOperation = (this.sceneOperation() !== null ? this.sceneOperation()!.unpack() : null);
   _o.targetId = this.targetId();
   _o.webClients = this.bb!.createObjList<WebClient, WebClientT>(this.webClients.bind(this), this.webClientsLength());
+  _o.procedureStore = (this.procedureStore() !== null ? this.procedureStore()!.unpack() : null);
 }
 }
 
@@ -184,7 +196,8 @@ constructor(
   public clientType: TargetType = TargetType.WEB,
   public sceneOperation: SceneOperationT|null = null,
   public targetId: number = 0,
-  public webClients: (WebClientT)[] = []
+  public webClients: (WebClientT)[] = [],
+  public procedureStore: ProcedureStoreT|null = null
 ){}
 
 
@@ -193,6 +206,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const meshInfo = (this.meshInfo !== null ? this.meshInfo!.pack(builder) : 0);
   const sceneOperation = (this.sceneOperation !== null ? this.sceneOperation!.pack(builder) : 0);
   const webClients = Message.createWebClientsVector(builder, builder.createObjectOffsetList(this.webClients));
+  const procedureStore = (this.procedureStore !== null ? this.procedureStore!.pack(builder) : 0);
 
   Message.startMessage(builder);
   Message.addInstanceId(builder, this.instanceId);
@@ -204,6 +218,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   Message.addSceneOperation(builder, sceneOperation);
   Message.addTargetId(builder, this.targetId);
   Message.addWebClients(builder, webClients);
+  Message.addProcedureStore(builder, procedureStore);
 
   return Message.endMessage(builder);
 }

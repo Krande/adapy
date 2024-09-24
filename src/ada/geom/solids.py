@@ -7,7 +7,7 @@ from ada.core.vector_utils import create_right_hand_vectors_xv_yv_from_zv
 from ada.geom.curves import CURVE_GEOM_TYPES
 from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
 from ada.geom.points import Point
-from ada.geom.surfaces import ConnectedFaceSet, ProfileDef
+from ada.geom.surfaces import ConnectedFaceSet, ProfileDef, ArbitraryProfileDef
 
 
 @dataclass
@@ -17,7 +17,7 @@ class ExtrudedAreaSolid:
     STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_extruded_area_solid.html)
     """
 
-    swept_area: ProfileDef
+    swept_area: ProfileDef | ArbitraryProfileDef
     position: Axis2Placement3D
     depth: float
     extruded_direction: Direction

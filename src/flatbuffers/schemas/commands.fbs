@@ -8,6 +8,7 @@ enum CommandType : byte {
   MESH_INFO_CALLBACK = 4,
   MESH_INFO_REPLY = 5,
   LIST_WEB_CLIENTS = 6,
+  LIST_FILE_OBJECTS = 7,
 }
 
 enum TargetType : byte {
@@ -42,6 +43,7 @@ table WebClient {
 }
 
 table FileObject {
+  name: string;             // Name of the file object (must be unique) "MyStructure-1"
   file_type: FileType;      // design, analysis, fabricate
   purpose: FilePurpose;     // Purpose of the file
   filepath: string;         // Path to the file
@@ -60,6 +62,29 @@ table SceneOperation {
   look_at_position: [float];
 }
 
+// Procedures are picked up by the server and executed
+// The sequence of procedures is defined in the procedure store
+table ProcedureStore {
+    procedures: [Procedure];
+}
+
+table Procedure {
+    id: string;
+    name: string;
+    description: string;
+    script_file_location: string;
+    parameters: [Parameter];
+    input_ifc_filepath: string;     // Input IFC file path
+    output_ifc_filepath: string;    // Output IFC file path
+    error: string;                  // Error message in case the procedure fails
+}
+
+table Parameter {
+    name: string;
+    type: string;  // E.g., 'string', 'number', 'boolean'
+    value: string; // The value of the parameter
+}
+
 table Message {
   instance_id: int;
   command_type: CommandType;
@@ -70,6 +95,7 @@ table Message {
   scene_operation: SceneOperation;
   target_id: int = 0; // Default value for optional field
   web_clients: [WebClient];
+  procedure_store: ProcedureStore;
 }
 
 root_type Message;
