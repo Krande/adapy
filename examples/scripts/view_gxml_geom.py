@@ -11,6 +11,7 @@ from ada.config import logger
 THIS_DIR = pathlib.Path(__file__).parent
 ROOT_DIR = THIS_DIR.parent.parent
 
+
 @dataclass
 class PostProcessor:
     filepath: str | pathlib.Path
@@ -22,6 +23,7 @@ class PostProcessor:
         self.filepath.parent.mkdir(exist_ok=True, parents=True)
         scene.export("temp/curved_plates.glb")
         return scene
+
 
 def run_this():
     a = ada.from_genie_xml(ROOT_DIR / "files/fem_files/sesam/curved_plates.xml")
@@ -40,5 +42,5 @@ def run_this():
     print(f"IFC file: {tmp_ifc_fp}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     run_this()

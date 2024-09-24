@@ -1,12 +1,12 @@
 import pathlib
 
-from fbs_serializer import TableDefinition, FlatBufferSchema, parse_fbs_file
+from fbs_serializer import FlatBufferSchema, TableDefinition, parse_fbs_file
 from utils import make_camel_case
 
 
 def generate_deserialize_function(schema: FlatBufferSchema, table: TableDefinition) -> str:
     deserialize_code = f"def deserialize_{table.name.lower()}(fb_obj) -> {table.name}DC | None:\n"
-    deserialize_code += f"    if fb_obj is None:\n        return None\n\n"
+    deserialize_code += "    if fb_obj is None:\n        return None\n\n"
     deserialize_code += f"    return {table.name}DC(\n"
 
     # Loop over each field and generate deserialization logic
@@ -24,7 +24,9 @@ def generate_deserialize_function(schema: FlatBufferSchema, table: TableDefiniti
         else:
             # Handle nested tables or enums
             if field.field_type in [en.name for en in schema.enums]:
-                deserialize_code += f"        {field.name}={field.field_type}DC(fb_obj.{make_camel_case(field.name)}()),\n"
+                deserialize_code += (
+                    f"        {field.name}={field.field_type}DC(fb_obj.{make_camel_case(field.name)}()),\n"
+                )
             else:
                 deserialize_code += f"        {field.name}=deserialize_{field.field_type.lower()}(fb_obj.{make_camel_case(field.name)}()),\n"
 
@@ -63,7 +65,7 @@ def generate_deserialization_code(fbs_file: str, output_file: str | pathlib.Path
     schema = parse_fbs_file(fbs_file)
     imports_str = add_imports(schema, wsock_model_root, dc_model_root)
 
-    with open(output_file, 'w') as out_file:
+    with open(output_file, "w") as out_file:
         out_file.write("import flatbuffers\nfrom typing import List\n\n")
         out_file.write(imports_str)
 
@@ -78,13 +80,10 @@ def generate_deserialization_code(fbs_file: str, output_file: str | pathlib.Path
     print(f"Deserialization code generated and saved to {output_file}")
 
 
-if __name__ == '__main__':
-    tmp_dir = pathlib.Path('temp')
+if __name__ == "__main__":
+    tmp_dir = pathlib.Path("temp")
     tmp_dir.mkdir(exist_ok=True)
 
     generate_deserialization_code(
-        'schemas/commands.fbs',
-        tmp_dir / "fb_deserializer.py",
-        "ada.comms.wsock",
-        "fb_model_gen"
+        "schemas/commands.fbs", tmp_dir / "fb_deserializer.py", "ada.comms.wsock", "fb_model_gen"
     )

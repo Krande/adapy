@@ -17,37 +17,30 @@
 # along with IfcPatch.  If not, see <http://www.gnu.org/licenses/>.
 
 
-import os
+import itertools
+import json
+import multiprocessing
 import pathlib
 import re
-import json
 import shutil
-import time
+import sqlite3
 import tempfile
+import time
 import typing
-import itertools
-import numpy as np
-import multiprocessing
+
 import ifcopenshell
 import ifcopenshell.geom
-import ifcopenshell.util.unit
-
-import ifcopenshell.util.schema
 import ifcopenshell.util.attribute
 import ifcopenshell.util.placement
-
+import ifcopenshell.util.schema
+import ifcopenshell.util.unit
+import numpy as np
 
 SQLTypes = typing.Literal["SQLite", "MySQL"]
 
 try:
-    import sqlite3
-except:
-    print("No SQLite support")
-    SQLTypes = typing.Literal["MySQL"]
-
-try:
     import mysql.connector
-except:
+except ImportError:
     print("No MySQL support")
     SQLTypes = typing.Literal["SQLite"]
 
@@ -63,7 +56,7 @@ class Ifc2SqlPatcher:
         password: str = "pass",
         database: str = "test",
         dest_sql_file: str | pathlib.Path = None,
-        silenced: bool = True
+        silenced: bool = True,
     ):
         """Convert an IFC-SPF model to SQLite or MySQL.
 
@@ -224,7 +217,7 @@ class Ifc2SqlPatcher:
 
         products = self.elements
         iterator = ifcopenshell.geom.iterator(self.settings, self.file, multiprocessing.cpu_count(), include=products)
-        valid_file = iterator.initialize()
+        iterator.initialize()
         checkpoint = time.time()
         progress = 0
         total = len(products)
@@ -233,7 +226,7 @@ class Ifc2SqlPatcher:
             if progress % 250 == 0:
                 percent_created = round(progress / total * 100)
                 percent_preprocessed = iterator.progress()
-                percent_average = (percent_created + percent_preprocessed) / 2
+                _ = (percent_created + percent_preprocessed) / 2
                 print(
                     "{} / {} ({}% created, {}% preprocessed) elements processed in {:.2f}s ...".format(
                         progress, total, percent_created, percent_preprocessed, time.time() - checkpoint
@@ -391,52 +384,6 @@ class Ifc2SqlPatcher:
             print(statement)
         self.c.execute(statement)
 
-    def create_mysql_table(self, ifc_class, declaration):
-        declaration = self.schema.declaration_by_name(ifc_class)
-        statement = f"CREATE TABLE IF NOT EXISTS {ifc_class} ("
-        statement += "`ifc_id` int(10) unsigned NOT NULL,"
-
-        derived = declaration.derived()
-        for attribute in declaration.all_attributes():
-            primitive = ifcopenshell.util.attribute.get_primitive_type(attribute)
-            if primitive in ("string", "enum"):
-                if "IfcText" in str(attribute.type_of_attribute()):
-                    data_type = "text"
-                else:
-                    data_type = "varchar(255)"
-            elif primitive == "entity":
-                data_type = "int(10) unsigned"
-            elif primitive == "boolean":
-                data_type = "tinyint(1)"
-            elif primitive == "integer":
-                data_type = "int(10)"
-                if "Positive" in str(attribute.type_of_attribute()):
-                    data_type += " unsigned"
-            elif primitive == "float":
-                data_type = "decimal(10,0)"
-            elif self.should_expand and self.is_entity_list(attribute):
-                data_type = "int(10) unsigned"
-            elif isinstance(primitive, tuple):
-                data_type = "JSON"
-            else:
-                if not self.silenced:
-                    print(attribute, primitive)  # Not implemented?
-            if not self.is_strict or derived[i]:
-                optional = "DEFAULT NULL"
-            else:
-                optional = "DEFAULT NULL" if attribute.optional() else "NOT NULL"
-            statement += f" `{attribute.name()}` {data_type} {optional},"
-
-        if self.should_expand:
-            statement = statement[0:-1]
-        else:
-            statement += " PRIMARY KEY (`ifc_id`)"
-
-        statement += ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;"
-        if not self.silenced:
-            print(statement)
-        self.c.execute(statement)
-
     def insert_data(self, ifc_class):
         if not self.silenced:
             print("Extracting data for", ifc_class)
@@ -504,14 +451,14 @@ class Ifc2SqlPatcher:
 
         if self.sql_type == "sqlite":
             if rows:
-                self.c.executemany(f"INSERT INTO {ifc_class} VALUES ({','.join(['?']*len(rows[0]))});", rows)
+                self.c.executemany(f"INSERT INTO {ifc_class} VALUES ({','.join(['?'] * len(rows[0]))});", rows)
                 self.c.executemany("INSERT INTO id_map VALUES (?, ?);", id_map_rows)
                 self.c.executemany("INSERT INTO guid_map VALUES (?, ?);", guid_map_rows)
             if pset_rows:
                 self.c.executemany("INSERT INTO psets VALUES (?, ?, ?, ?);", pset_rows)
         elif self.sql_type == "mysql":
             if rows:
-                self.c.executemany(f"INSERT INTO {ifc_class} VALUES ({','.join(['%s']*len(rows[0]))});", rows)
+                self.c.executemany(f"INSERT INTO {ifc_class} VALUES ({','.join(['%s'] * len(rows[0]))});", rows)
                 self.c.executemany("INSERT INTO id_map VALUES (%s, %s);", id_map_rows)
             if pset_rows:
                 self.c.executemany("INSERT INTO psets VALUES (%s, %s, %s, %s);", pset_rows)

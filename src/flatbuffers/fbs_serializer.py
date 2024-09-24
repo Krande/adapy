@@ -35,20 +35,21 @@ class FlatBufferSchema:
     tables: List[TableDefinition]
     root_type: Optional[str]  # The root table type<
 
+
 # Function to parse enums and tables from the .fbs file and represent them as dataclasses
 def parse_fbs_file(fbs_file: str) -> FlatBufferSchema:
-    with open(fbs_file, 'r') as file:
+    with open(fbs_file, "r") as file:
         fbs_content = file.read()
 
     # Remove comments
-    fbs_content = re.sub(r'//.*', '', fbs_content)
+    fbs_content = re.sub(r"//.*", "", fbs_content)
 
     # Pattern to match enum blocks
-    enum_pattern = r'enum (\w+) : \w+ \{([^\}]+)\}'
+    enum_pattern = r"enum (\w+) : \w+ \{([^\}]+)\}"
     # Pattern to match table blocks
-    table_pattern = r'table (\w+) \{([^\}]+)\}'
+    table_pattern = r"table (\w+) \{([^\}]+)\}"
     # Pattern to find root_type declaration
-    root_pattern = r'root_type (\w+);'
+    root_pattern = r"root_type (\w+);"
 
     # Find all enums and tables
     enums = re.findall(enum_pattern, fbs_content)
@@ -61,10 +62,10 @@ def parse_fbs_file(fbs_file: str) -> FlatBufferSchema:
     parsed_enums = []
     for enum_name, enum_values in enums:
         enum_fields = []
-        for enum_value in enum_values.split(','):
+        for enum_value in enum_values.split(","):
             enum_value = enum_value.strip()
-            if '=' in enum_value:
-                name, value = enum_value.split('=')
+            if "=" in enum_value:
+                name, value = enum_value.split("=")
                 if name.strip() == "":
                     continue
                 enum_fields.append(EnumField(name.strip(), int(value.strip())))
@@ -80,11 +81,11 @@ def parse_fbs_file(fbs_file: str) -> FlatBufferSchema:
     parsed_tables = []
     for table_name, table_fields in tables:
         fields = []
-        for field in table_fields.split(';'):
+        for field in table_fields.split(";"):
             field = field.strip()
             if not field:
                 continue
-            field_name, field_type = field.split(':')
+            field_name, field_type = field.split(":")
             has_default = False
             default_value = None
             if "=" in field_type:
@@ -97,7 +98,7 @@ def parse_fbs_file(fbs_file: str) -> FlatBufferSchema:
                     name=field_name.strip(),
                     field_type=field_type.strip(),
                     default_value=default_value,
-                    has_default=has_default
+                    has_default=has_default,
                 )
             )
         parsed_tables.append(TableDefinition(name=table_name, fields=fields))

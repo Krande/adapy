@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from itertools import chain
-from typing import Iterable, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable, Union
 
 import numpy as np
 

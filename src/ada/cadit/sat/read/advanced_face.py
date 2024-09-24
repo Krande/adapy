@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ada.geom.curves as geo_cu
 import ada.geom.surfaces as geo_su
-from ada import Point, Direction
+from ada import Direction, Point
 from ada.cadit.sat.read.bsplinesurface import create_bsplinesurface_from_sat
 from ada.cadit.sat.read.curves import iter_loop_coedges
 from ada.cadit.sat.read.sat_entities import AcisRecord

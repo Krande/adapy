@@ -112,24 +112,24 @@ def test_read_plate_1_flat(example_files, tmp_path):
     # Edge 1
     edge_1 = edge_list[0]
     assert type(edge_1) is geo_cu.OrientedEdge
-    assert edge_1.orientation == True
+    assert edge_1.orientation is True
 
     edge_1_curve = edge_1.edge_element
     assert type(edge_1_curve) is geo_cu.EdgeCurve
-    assert edge_1_curve.same_sense == False
+    assert edge_1_curve.same_sense is False
 
     # Edge 2
     edge_2 = edge_list[1]
     assert type(edge_2) is geo_cu.OrientedEdge
-    assert edge_2.orientation == True
+    assert edge_2.orientation is True
 
     edge_2_curve = edge_2.edge_element
     assert type(edge_2_curve) is geo_cu.EdgeCurve
-    assert edge_2_curve.same_sense == False
+    assert edge_2_curve.same_sense is False
 
     shp1 = ada.Shape("plate", ada.geom.Geometry(1, face_001, None))
 
-    a = ada.Assembly() / (shp1, )
+    a = ada.Assembly() / (shp1,)
 
     a.to_ifc(tmp_path / "plate_1_flat.ifc", validate=True)
 
@@ -160,47 +160,48 @@ def test_read_plate_2_curved_complex(example_files, tmp_path):
     edge_1 = edge_list[0]
 
     assert type(edge_1) is geo_cu.OrientedEdge
-    assert edge_1.orientation == True
+    assert edge_1.orientation is True
 
     edge_1_curve = edge_1.edge_element
     assert type(edge_1_curve) is geo_cu.EdgeCurve
-    assert edge_1_curve.same_sense == False
+    assert edge_1_curve.same_sense is False
 
     # Edge 2
     edge_2 = edge_list[1]
 
     assert type(edge_2) is geo_cu.OrientedEdge
-    assert edge_2.orientation == True
+    assert edge_2.orientation is True
 
     edge_2_curve = edge_2.edge_element
     assert type(edge_2_curve) is geo_cu.EdgeCurve
-    assert edge_2_curve.same_sense == False
+    assert edge_2_curve.same_sense is False
 
     # Edge 3
     edge_3 = edge_list[2]
 
     assert type(edge_3) is geo_cu.OrientedEdge
-    assert edge_3.orientation == True
+    assert edge_3.orientation is True
 
     edge_3_curve = edge_3.edge_element
     assert type(edge_3_curve) is geo_cu.EdgeCurve
-    assert edge_3_curve.same_sense == True
+    assert edge_3_curve.same_sense is True
 
     # Edge 3
     edge_4 = edge_list[3]
 
     assert type(edge_4) is geo_cu.OrientedEdge
-    assert edge_4.orientation == True
+    assert edge_4.orientation is True
 
     edge_4_curve = edge_4.edge_element
     assert type(edge_4_curve) is geo_cu.EdgeCurve
-    assert edge_4_curve.same_sense == True
+    assert edge_4_curve.same_sense is True
 
     shp1 = ada.Shape("plate", ada.geom.Geometry(1, face_001, None))
 
-    a = ada.Assembly() / (shp1, )
+    a = ada.Assembly() / (shp1,)
 
     a.to_ifc(tmp_path / "plate_2_curved_complex.ifc", validate=True)
+
 
 def test_read_plate_3_curved(example_files, tmp_path):
     sat_reader = SatReaderFactory(example_files / "sat_files/plate_3_curved.sat")
@@ -211,6 +212,6 @@ def test_read_plate_3_curved(example_files, tmp_path):
     assert type(face_001) is geo_su.AdvancedFace
     shp1 = ada.Shape("plate", ada.geom.Geometry(1, face_001, None))
 
-    a = ada.Assembly() / (shp1, )
+    a = ada.Assembly() / (shp1,)
 
     a.to_ifc(tmp_path / "plate_3_curved.ifc", validate=True)

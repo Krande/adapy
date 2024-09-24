@@ -4,11 +4,12 @@ An example demonstrating a wgpu app with imgui renderer
 # run_example = false
 """
 
-from wgpu.gui.auto import WgpuCanvas, run
-import wgpu
 import time
+
 import numpy as np
+import wgpu
 from imgui_bundle import imgui
+from wgpu.gui.auto import WgpuCanvas, run
 from wgpu.utils.imgui import ImguiRenderer
 
 # Create a canvas to render to
@@ -311,24 +312,14 @@ def gui(app_state):
     if imgui.is_item_hovered():
         imgui.set_tooltip("https://www.shadertoy.com/view/Ms2SD1")
 
-    _, app_state["SEA_HEIGHT"] = imgui.slider_float(
-        "SEA_HEIGHT", app_state["SEA_HEIGHT"], 0.1, 2.1
-    )
-    _, app_state["SEA_CHOPPY"] = imgui.slider_float(
-        "SEA_CHOPPY", app_state["SEA_CHOPPY"], 0.1, 10.0
-    )
+    _, app_state["SEA_HEIGHT"] = imgui.slider_float("SEA_HEIGHT", app_state["SEA_HEIGHT"], 0.1, 2.1)
+    _, app_state["SEA_CHOPPY"] = imgui.slider_float("SEA_CHOPPY", app_state["SEA_CHOPPY"], 0.1, 10.0)
 
     _, app_state["SEA_BASE"] = imgui.color_edit3("SEA_BASE", app_state["SEA_BASE"])
-    _, app_state["SEA_WATER_COLOR"] = imgui.color_edit3(
-        "SEA_WATER_COLOR", app_state["SEA_WATER_COLOR"]
-    )
+    _, app_state["SEA_WATER_COLOR"] = imgui.color_edit3("SEA_WATER_COLOR", app_state["SEA_WATER_COLOR"])
 
-    _, app_state["SEA_SPEED"] = imgui.slider_float(
-        "SEA_SPEED", app_state["SEA_SPEED"], 0.1, 3.0
-    )
-    _, app_state["SEA_FREQ"] = imgui.slider_float(
-        "SEA_FREQ", app_state["SEA_FREQ"], 0.01, 0.5
-    )
+    _, app_state["SEA_SPEED"] = imgui.slider_float("SEA_SPEED", app_state["SEA_SPEED"], 0.1, 3.0)
+    _, app_state["SEA_FREQ"] = imgui.slider_float("SEA_FREQ", app_state["SEA_FREQ"], 0.01, 0.5)
 
     imgui.end()
     imgui.end_frame()
@@ -337,9 +328,7 @@ def gui(app_state):
 
 
 global_time = time.perf_counter()
-imgui_renderer = ImguiRenderer(
-    device, canvas, render_target_format=render_texture_format
-)
+imgui_renderer = ImguiRenderer(device, canvas, render_target_format=render_texture_format)
 
 
 def render():
@@ -349,9 +338,7 @@ def render():
     global_time = current_time
 
     canvas_texture = present_context.get_current_texture()
-    render_pass_descriptor["color_attachments"][0][
-        "view"
-    ] = canvas_texture.create_view()
+    render_pass_descriptor["color_attachments"][0]["view"] = canvas_texture.create_view()
 
     # Update uniform buffer
     uniform_data["resolution"] = (canvas_texture.size[0], canvas_texture.size[1])

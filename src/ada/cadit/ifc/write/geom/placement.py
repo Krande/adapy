@@ -28,6 +28,7 @@ def point(p: Point, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Creates an IfcCartesianPoint from a Point object"""
     return f.create_entity("IfcCartesianPoint", to_real(p))
 
+
 def vector(v: Direction, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Creates an IfcDirection from a Direction object"""
     return f.create_entity("IfcVector", Orientation=direction(v, f), Magnitude=to_real(v.get_length()))

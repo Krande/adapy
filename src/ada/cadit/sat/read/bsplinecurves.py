@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from ada.cadit.sat.exceptions import ACISReferenceDataError, ACISIncompleteCtrlPoints, ACISUnsupportedCurveType
+import ada.geom.curves as geo_cu
+from ada.cadit.sat.exceptions import (
+    ACISIncompleteCtrlPoints,
+    ACISReferenceDataError,
+    ACISUnsupportedCurveType,
+)
 from ada.cadit.sat.read.sat_entities import AcisRecord, AcisSubType
 from ada.cadit.sat.read.sat_utils import get_ref_type
 from ada.config import logger
 from ada.geom.curves import BSplineCurveFormEnum, KnotType
-import ada.geom.curves as geo_cu
 
 
 def extract_data_lines(data: str) -> list[str]:
@@ -14,7 +18,7 @@ def extract_data_lines(data: str) -> list[str]:
         line_data = x.strip()
         if not line_data:
             continue
-        if '}' in x:
+        if "}" in x:
             break
         data_lines.append(line_data)
     return data_lines
@@ -77,7 +81,7 @@ def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> geo_cu.BSpline
     num_control_points = total_knots - degree - 1
 
     # Extract control points
-    control_point_lines = data_lines[ctrl_point_line_idx:+ctrl_point_line_idx + num_control_points]
+    control_point_lines = data_lines[ctrl_point_line_idx : +ctrl_point_line_idx + num_control_points]
     control_points = []
     for line in control_point_lines:
         if line.strip() == "0":  # End of control points
@@ -214,6 +218,7 @@ def create_pcurve_from_exppc(exppc_sub_type: AcisSubType) -> geo_cu.PCurve:
         basis_surface=basis_surface,
         reference_curve=reference_curve,
     )
+
 
 def create_bspline_curve_from_sat(spline_record: AcisRecord) -> geo_cu.BSplineCurveWithKnots | geo_cu.PCurve | None:
     sub_type = spline_record.get_sub_type()

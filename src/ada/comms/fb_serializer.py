@@ -1,9 +1,15 @@
-import flatbuffers
 from typing import Optional
 
-from ada.comms.wsock import WebClient, FileObject, MeshInfo, Message
+import flatbuffers
+from ada.comms.fb_model_gen import (
+    FileObjectDC,
+    MeshInfoDC,
+    MessageDC,
+    SceneOperationDC,
+    WebClientDC,
+)
+from ada.comms.wsock import FileObject, MeshInfo, Message, SceneOperation, WebClient
 
-from ada.comms.fb_model_gen import WebClientDC, FileObjectDC, MeshInfoDC, MessageDC
 
 def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]) -> Optional[int]:
     if obj is None:
@@ -69,7 +75,21 @@ def serialize_meshinfo(builder: flatbuffers.Builder, obj: Optional[MeshInfoDC]) 
     return MeshInfo.End(builder)
 
 
-def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
+def serialize_sceneoperation(builder: flatbuffers.Builder, obj: Optional[SceneOperationDC]) -> Optional[int]:
+    if obj is None:
+        return None
+
+    SceneOperation.Start(builder)
+    if obj.operation is not None:
+        SceneOperation.AddOperation(builder, obj.operation.value)
+    if obj.camera_position is not None:
+        SceneOperation.AddCameraPosition(builder, builder.CreateFloatVector(obj.camera_position))
+    if obj.look_at_position is not None:
+        SceneOperation.AddLookAtPosition(builder, builder.CreateFloatVector(obj.look_at_position))
+    return SceneOperation.End(builder)
+
+
+def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
     file_object_obj = None
@@ -78,6 +98,9 @@ def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> 
     mesh_info_obj = None
     if message.mesh_info is not None:
         mesh_info_obj = serialize_meshinfo(builder, message.mesh_info)
+    scene_operation_obj = None
+    if message.scene_operation is not None:
+        scene_operation_obj = serialize_sceneoperation(builder, message.scene_operation)
 
     Message.Start(builder)
     if message.instance_id is not None:
@@ -93,7 +116,7 @@ def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> 
     if message.client_type is not None:
         Message.AddClientType(builder, message.client_type.value)
     if message.scene_operation is not None:
-        Message.AddSceneOperation(builder, message.scene_operation.value)
+        Message.AddSceneOperation(builder, scene_operation_obj)
     if message.target_id is not None:
         Message.AddTargetId(builder, message.target_id)
     if message.web_clients is not None:

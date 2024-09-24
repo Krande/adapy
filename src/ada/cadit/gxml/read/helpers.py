@@ -41,6 +41,7 @@ def apply_mass_density_factors(root, p):
 
 def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map):
     from ada import Plate
+
     name = plate_elem.attrib["name"]
     mat = parent.materials.get_by_name(plate_elem.attrib["material_ref"])
     for i, res in enumerate(plate_elem.findall(".//face"), start=1):

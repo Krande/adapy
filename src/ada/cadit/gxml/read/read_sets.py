@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
-from typing import Dict, TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict
 
 from ada import Group, Part
 from ada.config import logger
 
 if TYPE_CHECKING:
-    from ada import Plate, Beam
+    from ada import Beam, Plate
 
 
 def get_sets(xml_root: ET.Element, parent: Part) -> Dict[str, Group]:

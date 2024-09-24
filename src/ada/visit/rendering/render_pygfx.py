@@ -19,7 +19,8 @@ from ada.core.vector_utils import unit_vector
 from ada.geom import Geometry
 from ada.occ.tessellating import BatchTessellator
 from ada.visit.colors import Color
-from ada.visit.websocket_server import WsRenderMessage
+
+PYGFX_RENDERER_EXE_PY = pathlib.Path(__file__)
 
 try:
     import pygfx as gfx
@@ -282,7 +283,7 @@ def scale_tri_mesh(mesh: trimesh.Trimesh, sfac: float):
 
 
 def standalone_viewer(host="localhost", port="8765"):
-    from ada.visit.websocket_server import start_server
+    from ada.visit.websocket_server import WsRenderMessage, start_server
 
     with Manager() as manager:
         # Create a shared queue

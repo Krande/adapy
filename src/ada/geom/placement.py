@@ -64,7 +64,6 @@ class Direction(Point):
 @dataclass
 class Axis2Placement3D:
 
-
     location: Point | Iterable = field(default_factory=O)
     axis: Direction | Iterable = field(default_factory=ZV)
     ref_direction: Direction | Iterable = field(default_factory=XV)

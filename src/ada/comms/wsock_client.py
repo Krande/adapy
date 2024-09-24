@@ -3,16 +3,34 @@ from __future__ import annotations
 import asyncio
 import io
 import random
-from typing import Callable, Any
+from functools import wraps
+from typing import Any, Callable
 
 import trimesh
 import websockets
 
 from ada.comms.fb_deserializer import deserialize_root_message
-from ada.comms.fb_model_gen import MessageDC, CommandTypeDC, FilePurposeDC, SceneOperationsDC, FileObjectDC, FileTypeDC, \
-    TargetTypeDC
+from ada.comms.fb_model_gen import (
+    CommandTypeDC,
+    FileObjectDC,
+    FilePurposeDC,
+    FileTypeDC,
+    MessageDC,
+    SceneOperationDC,
+    SceneOperationsDC,
+    TargetTypeDC,
+)
 from ada.comms.fb_serializer import serialize_message
 from ada.config import logger
+
+
+def client_as_str(client_type: TargetTypeDC) -> str:
+    if client_type == TargetTypeDC.LOCAL:
+        return "local"
+    elif client_type == TargetTypeDC.WEB:
+        return "web"
+    else:
+        raise ValueError("Invalid client type.")
 
 
 def dual_sync_async(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -30,6 +48,7 @@ def dual_sync_async(func: Callable[..., Any]) -> Callable[..., Any]:
         return asyncio.get_event_loop().run_until_complete(func(*args, **kwargs))
 
     # Detect if function is async or sync depending on its context
+    @wraps(func)
     def wrapper(*args, **kwargs):
         if asyncio.get_event_loop().is_running():
             return async_wrapper(*args, **kwargs)
@@ -39,34 +58,24 @@ def dual_sync_async(func: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
-def client_as_str(client_type: TargetTypeDC) -> str:
-    if client_type == TargetTypeDC.LOCAL:
-        return "local"
-    elif client_type == TargetTypeDC.WEB:
-        return "web"
-
-
-
-
-
 class WebSocketClient:
     def __init__(self, host: str = "localhost", port: int = 8765, client_type: TargetTypeDC | str = TargetTypeDC.LOCAL):
         if isinstance(client_type, str):
-            if client_type == 'local':
+            if client_type == "local":
                 client_type = TargetTypeDC.LOCAL
-            elif client_type == 'web':
+            elif client_type == "web":
                 client_type = TargetTypeDC.WEB
             else:
                 raise ValueError("Invalid client type. Must be either 'local' or 'web'.")
         self.host = host
         self.port = port
         self.client_type = client_type
-        self.instance_id = random.randint(0, 2 ** 31 - 1)
+        self.instance_id = random.randint(0, 2**31 - 1)
 
     async def __aenter__(self):
         self._conn = websockets.connect(
             f"ws://{self.host}:{self.port}",
-            extra_headers={"Client-Type": client_as_str(self.client_type), "instance-id": str(self.instance_id)}
+            extra_headers={"Client-Type": client_as_str(self.client_type), "instance-id": str(self.instance_id)},
         )
         self.websocket = await self._conn.__aenter__()
         logger.info(f"Connected to server: ws://{self.host}:{self.port}")
@@ -81,7 +90,7 @@ class WebSocketClient:
         self.loop = asyncio.get_event_loop()
         self._conn = websockets.connect(
             f"ws://{self.host}:{self.port}",
-            extra_headers={"Client-Type": self.client_type, "instance-id": str(self.instance_id)}
+            extra_headers={"Client-Type": client_as_str(self.client_type), "instance-id": str(self.instance_id)},
         )
         self.websocket = self.loop.run_until_complete(self._conn.__aenter__())
         logger.info(f"Connected to server: ws://{self.host}:{self.port}")
@@ -104,37 +113,41 @@ class WebSocketClient:
         return msg
 
     @dual_sync_async
-    async def check_target_liveness(self, target_id=None, target_group: TargetTypeDC = TargetTypeDC.WEB):
+    async def check_target_liveness(self, target_id=None, target_group: TargetTypeDC = TargetTypeDC.WEB, timeout=1):
         """Sends a Flatbuffer package to the server."""
         message = MessageDC(
             instance_id=self.instance_id,
             command_type=CommandTypeDC.PING,
             target_id=target_id,
-            target_group=target_group
+            target_group=target_group,
         )
 
         # Serialize the dataclass message into a FlatBuffer
         flatbuffer_data = serialize_message(message)
         await self.websocket.send(flatbuffer_data)
-        msg = await self.receive()
+        try:
+            msg = await self.receive(timeout=timeout)
+        except asyncio.TimeoutError:
+            return False
         return msg.command_type == CommandTypeDC.PONG
 
     @dual_sync_async
-    async def update_scene(self, scene: trimesh.Scene, purpose: FilePurposeDC = FilePurposeDC.DESIGN,
-                           scene_op: SceneOperationsDC = SceneOperationsDC.REPLACE):
+    async def update_scene(
+        self,
+        scene: trimesh.Scene,
+        purpose: FilePurposeDC = FilePurposeDC.DESIGN,
+        scene_op: SceneOperationsDC = SceneOperationsDC.REPLACE,
+        gltf_buffer_postprocessor=None,
+    ):
         with io.BytesIO() as data:
-            scene.export(file_obj=data, file_type="glb")
-            file_object = FileObjectDC(
-                file_type=FileTypeDC.GLB,
-                purpose=purpose,
-                filedata=data.getvalue()
-            )
+            scene.export(file_obj=data, file_type="glb", buffer_postprocessor=gltf_buffer_postprocessor)
+            file_object = FileObjectDC(file_type=FileTypeDC.GLB, purpose=purpose, filedata=data.getvalue())
             message = MessageDC(
                 instance_id=self.instance_id,
                 command_type=CommandTypeDC.UPDATE_SCENE,
                 file_object=file_object,
                 target_group=TargetTypeDC.WEB,
-                scene_operation=scene_op
+                scene_operation=SceneOperationDC(operation=scene_op),
             )
 
             # Serialize the dataclass message into a FlatBuffer
@@ -147,7 +160,7 @@ class WebSocketClient:
             instance_id=self.instance_id,
             command_type=CommandTypeDC.UPDATE_SERVER,
             file_object=file_object,
-            target_group=TargetTypeDC.WEB
+            target_group=TargetTypeDC.WEB,
         )
 
         # Serialize the dataclass message into a FlatBuffer
@@ -155,6 +168,9 @@ class WebSocketClient:
         await self.websocket.send(flatbuffer_data)
 
     @dual_sync_async
-    async def receive(self) -> MessageDC:
-        message = await self.websocket.recv()
+    async def receive(self, timeout=None) -> MessageDC:
+        if timeout:
+            message = await asyncio.wait_for(self.websocket.recv(), timeout)
+        else:
+            message = await self.websocket.recv()
         return deserialize_root_message(message)

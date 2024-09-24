@@ -51,13 +51,13 @@ def is_server_running(host="localhost", port=8765) -> bool:
 
 
 def start_ws_async_server(
-        host="localhost",
-        port=8765,
-        server_exe: pathlib.Path = None,
-        server_args: list[str] = None,
-        run_in_thread=False,
-        override_binder_check=False,
-) -> WebSocketAsyncServer:
+    host="localhost",
+    port=8765,
+    server_exe: pathlib.Path = None,
+    server_args: list[str] = None,
+    run_in_thread=False,
+    override_binder_check=False,
+) -> None:
     from ada.comms.cli_async_ws_server import WS_ASYNC_SERVER_PY
 
     if server_exe is None:
@@ -72,7 +72,6 @@ def start_ws_async_server(
         logger.warning("Binder does not support websockets, so you will not be able to send data to the viewer")
         run_in_thread = True
 
-    ws = None
     if is_server_running(host, port) is False:
         if run_in_thread:
             ws = WebSocketAsyncServer(host=host, port=port)
@@ -82,5 +81,3 @@ def start_ws_async_server(
 
         while is_server_running(host, port) is False:
             time.sleep(0.1)
-
-    return ws

@@ -38,7 +38,7 @@ def create_edge(e: geo_cu.Edge, f: ifcopenshell.file) -> ifcopenshell.entity_ins
 
 
 def rational_b_spline_curve_with_knots(
-        rbs: geo_cu.RationalBSplineCurveWithKnots, f: ifcopenshell.file
+    rbs: geo_cu.RationalBSplineCurveWithKnots, f: ifcopenshell.file
 ) -> ifcopenshell.entity_instance:
     """Converts a RationalBSplineCurveWithKnots to an IFC representation"""
     control_points = [cpt(f, x) for x in rbs.control_points_list]
@@ -103,9 +103,11 @@ def create_ellipse(ellipse: geo_cu.Ellipse, f: ifcopenshell.file) -> ifcopenshel
     axis3d = ifc_placement_from_axis3d(ellipse.position, f)
     return f.create_entity("IfcEllipse", axis3d, ellipse.semi_axis1, ellipse.semi_axis2)
 
+
 def create_line(line: geo_cu.Line, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts a Line to an IFC representation"""
     return f.create_entity("IfcLine", Pnt=cpt(f, line.pnt), Dir=vector(line.dir, f))
+
 
 def oriented_edge(oe: geo_cu.OrientedEdge, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts an OrientedEdge to an IFC representation"""

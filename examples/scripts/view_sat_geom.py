@@ -19,5 +19,5 @@ def run_this():
     a.show(stream_from_ifc_store=True, scene_action="add")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     run_this()

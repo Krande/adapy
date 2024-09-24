@@ -7,7 +7,7 @@ import * as flatbuffers from 'flatbuffers';
 import { CommandType } from './command-type';
 import { FileObject, FileObjectT } from '../wsock/file-object.js';
 import { MeshInfo, MeshInfoT } from '../wsock/mesh-info.js';
-import { SceneOperations } from './scene-operations';
+import { SceneOperation, SceneOperationT } from '../wsock/scene-operation.js';
 import { TargetType } from './target-type';
 import { WebClient, WebClientT } from '../wsock/web-client.js';
 
@@ -60,9 +60,9 @@ clientType():TargetType {
   return offset ? this.bb!.readInt8(this.bb_pos + offset) : TargetType.WEB;
 }
 
-sceneOperation():SceneOperations {
+sceneOperation(obj?:SceneOperation):SceneOperation|null {
   const offset = this.bb!.__offset(this.bb_pos, 16);
-  return offset ? this.bb!.readInt8(this.bb_pos + offset) : SceneOperations.ADD;
+  return offset ? (obj || new SceneOperation()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
 targetId():number {
@@ -108,8 +108,8 @@ static addClientType(builder:flatbuffers.Builder, clientType:TargetType) {
   builder.addFieldInt8(5, clientType, TargetType.WEB);
 }
 
-static addSceneOperation(builder:flatbuffers.Builder, sceneOperation:SceneOperations) {
-  builder.addFieldInt8(6, sceneOperation, SceneOperations.ADD);
+static addSceneOperation(builder:flatbuffers.Builder, sceneOperationOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(6, sceneOperationOffset, 0);
 }
 
 static addTargetId(builder:flatbuffers.Builder, targetId:number) {
@@ -154,7 +154,7 @@ unpack(): MessageT {
     (this.meshInfo() !== null ? this.meshInfo()!.unpack() : null),
     this.targetGroup(),
     this.clientType(),
-    this.sceneOperation(),
+    (this.sceneOperation() !== null ? this.sceneOperation()!.unpack() : null),
     this.targetId(),
     this.bb!.createObjList<WebClient, WebClientT>(this.webClients.bind(this), this.webClientsLength())
   );
@@ -168,7 +168,7 @@ unpackTo(_o: MessageT): void {
   _o.meshInfo = (this.meshInfo() !== null ? this.meshInfo()!.unpack() : null);
   _o.targetGroup = this.targetGroup();
   _o.clientType = this.clientType();
-  _o.sceneOperation = this.sceneOperation();
+  _o.sceneOperation = (this.sceneOperation() !== null ? this.sceneOperation()!.unpack() : null);
   _o.targetId = this.targetId();
   _o.webClients = this.bb!.createObjList<WebClient, WebClientT>(this.webClients.bind(this), this.webClientsLength());
 }
@@ -182,7 +182,7 @@ constructor(
   public meshInfo: MeshInfoT|null = null,
   public targetGroup: TargetType = TargetType.WEB,
   public clientType: TargetType = TargetType.WEB,
-  public sceneOperation: SceneOperations = SceneOperations.ADD,
+  public sceneOperation: SceneOperationT|null = null,
   public targetId: number = 0,
   public webClients: (WebClientT)[] = []
 ){}
@@ -191,6 +191,7 @@ constructor(
 pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const fileObject = (this.fileObject !== null ? this.fileObject!.pack(builder) : 0);
   const meshInfo = (this.meshInfo !== null ? this.meshInfo!.pack(builder) : 0);
+  const sceneOperation = (this.sceneOperation !== null ? this.sceneOperation!.pack(builder) : 0);
   const webClients = Message.createWebClientsVector(builder, builder.createObjectOffsetList(this.webClients));
 
   Message.startMessage(builder);
@@ -200,7 +201,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   Message.addMeshInfo(builder, meshInfo);
   Message.addTargetGroup(builder, this.targetGroup);
   Message.addClientType(builder, this.clientType);
-  Message.addSceneOperation(builder, this.sceneOperation);
+  Message.addSceneOperation(builder, sceneOperation);
   Message.addTargetId(builder, this.targetId);
   Message.addWebClients(builder, webClients);
 

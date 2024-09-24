@@ -2,7 +2,7 @@ import asyncio
 import pathlib
 
 import ada
-from ada.comms.fb_model_gen import FileObjectDC, FileTypeDC, FilePurposeDC
+from ada.comms.fb_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
 from ada.comms.wsock_client import WebSocketClient
 
 THIS_DIR = pathlib.Path(__file__).parent
@@ -21,5 +21,5 @@ async def update_scene():
         await client.update_file_server(FileObjectDC(FileTypeDC.IFC, FilePurposeDC.DESIGN, ifc_file))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(update_scene())

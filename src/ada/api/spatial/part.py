@@ -17,6 +17,12 @@ from ada.base.ifc_types import SpatialTypes
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.base.units import Units
+from ada.comms.fb_model_gen import (
+    FileObjectDC,
+    FilePurposeDC,
+    FileTypeDC,
+    SceneOperationDC,
+)
 from ada.config import logger
 from ada.visit.gltf.graph import GraphNode, GraphStore
 
@@ -38,7 +44,6 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
     from ada.fem.containers import COG
     from ada.fem.meshing import GmshOptions
-    from ada.visit.websocket_server import SceneAction
 
 
 class Part(BackendGeom):
@@ -817,61 +822,60 @@ class Part(BackendGeom):
 
     def show(
         self,
-        renderer: Literal["react", "pygfx"]="react",
-        auto_open_viewer=False,
+        renderer: Literal["react", "pygfx"] = "react",
         host="localhost",
         port=8765,
         server_exe: pathlib.Path = None,
         server_args: list[str] = None,
         run_ws_in_thread=False,
-        origins: list[str] = None,
-        scene_override=None,
-        stream_from_ifc_store=False,
+        stream_from_ifc_store=True,
         merge_meshes=True,
-        scene_action: SceneAction | Literal["new", "replace", "add", "remove"] = "new",
-        scene_action_arg: str = None,
+        scene_ops: SceneOperationDC = None,
+        purpose: FilePurposeDC = FilePurposeDC.DESIGN,
         scene_post_processor: Callable[[trimesh.Scene], trimesh.Scene] = None,
-        auto_reposition=False,
-        **kwargs,
+        gltf_buffer_postprocessor: Callable[[list[bytes], dict], None] = None,
+        add_ifc_backend=False,
+        backend_file_dir: pathlib.Path | str = None,
     ) -> None:
-        from ada.visit.websocket_server import PYGFX_RENDERER_EXE_PY, start_ws_server
+        from ada import Assembly
+        from ada.comms.wsock_client import WebSocketClient
+        from ada.comms.wsockets_utils import start_ws_async_server
+        from ada.visit.rendering.render_pygfx import PYGFX_RENDERER_EXE_PY
 
         server_exe = None
         if renderer == "pygfx":
             server_exe = PYGFX_RENDERER_EXE_PY
 
         # Start the websocket server
-        ws = start_ws_server(
-            server_exe=server_exe,
-            server_args=server_args,
-            host=host,
-            port=port,
-            origins=origins,
-            run_in_thread=run_ws_in_thread,
+        start_ws_async_server(
+            server_exe=server_exe, server_args=server_args, host=host, port=port, run_in_thread=run_ws_in_thread
         )
 
-        if renderer == "react" and ws.is_target_alive() is False:
-            from ada.visit.rendering.renderer_react import RendererReact
+        with WebSocketClient(host, port) as wc:
+            if renderer == "react" and wc.check_target_liveness() is False:
+                from ada.visit.rendering.renderer_react import RendererReact
 
-            RendererReact().show()
+                RendererReact().show()
 
-        if scene_override is not None:
-            ws.send_scene(scene_override, self.animation_store, auto_reposition=auto_reposition, **kwargs)
-            return
+            scene = self.to_trimesh_scene(stream_from_ifc=stream_from_ifc_store, merge_meshes=merge_meshes)
+            if scene_post_processor is not None:
+                scene = scene_post_processor(scene)
 
-        scene = self.to_trimesh_scene(stream_from_ifc=stream_from_ifc_store, merge_meshes=merge_meshes)
-        if scene_post_processor is not None:
-            scene = scene_post_processor(scene)
+            while wc.check_target_liveness() is False:
+                pass
 
-        # Send the geometry to the frontend using the websocket server
-        ws.send_scene(
-            scene,
-            self.animation_store,
-            scene_action=scene_action,
-            scene_action_arg=scene_action_arg,
-            auto_reposition=auto_reposition,
-            **kwargs,
-        )
+            # Send the geometry to the frontend using the websocket server
+            wc.update_scene(scene, purpose=purpose, gltf_buffer_postprocessor=gltf_buffer_postprocessor)
+
+            if add_ifc_backend and isinstance(self, Assembly):
+                if isinstance(backend_file_dir, str):
+                    backend_file_dir = pathlib.Path(backend_file_dir)
+                if backend_file_dir is None:
+                    backend_file_dir = pathlib.Path.cwd() / "temp"
+
+                ifc_file = backend_file_dir / f"{self.name}.ifc"
+                self.to_ifc(backend_file_dir / ifc_file)
+                wc.update_file_server(FileObjectDC(FileTypeDC.IFC, FilePurposeDC.DESIGN, ifc_file))
 
     @property
     def animation_store(self) -> AnimationStore:

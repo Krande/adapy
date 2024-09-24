@@ -1,18 +1,13 @@
+import json
 import pathlib
+import re
 
 import ifcopenshell
-try:
-    import re
-    import json
-
-    from ifcopenshell.file import file
-    from ifcopenshell import ifcopenshell_wrapper
-    from ifcopenshell.entity_instance import entity_instance
-except ImportError as e:
-    print(f"No SQL support: {e}")
+from ifcopenshell import ifcopenshell_wrapper
+from ifcopenshell.entity_instance import entity_instance
 
 
-class sqlite:
+class IfcSqlModel:
     def __init__(self, filepath):
         if isinstance(filepath, str):
             filepath = pathlib.Path(filepath)
@@ -36,11 +31,11 @@ class sqlite:
             row = self.cursor.fetchone()
             if row[0] != "IfcOpenShell-1.0.0":
                 assert False, "SQLite schema not supported."
-        except:
+        except sqlite3.OperationalError:
             assert False, "SQLite schema not supported."
 
         schema = row[1]
-        if schema == 'IFC4X3':
+        if schema == "IFC4X3":
             schema = "IFC4X3_add2"
         self.ifc_schema_str = schema
         self.ifc_schema = ifcopenshell.ifcopenshell_wrapper.schema_by_name(schema)
@@ -194,7 +189,7 @@ class sqlite:
                     results.extend(result)
                     if max_levels is None or max_levels:
                         queue.extend(result)
-                elif isinstance(result, str) and '[' in result:
+                elif isinstance(result, str) and "[" in result:
                     result = json.loads(result)
                     results.extend(result)
                     if max_levels is None or max_levels:
@@ -209,7 +204,6 @@ class sqlite:
                     if max_levels is None or max_levels:
                         queue.append(result)
                 att_res[attribute] = result
-
 
             for vatt in value_atts:
                 query = f"SELECT {vatt} FROM {self.id_map[cur]} WHERE `ifc_id` = {cur} LIMIT 1"
@@ -310,7 +304,7 @@ class sqlite:
 
 
 class sqlite_entity(entity_instance):
-    def __init__(self, ifc_id, ifc_class, sqlite_store: sqlite=None):
+    def __init__(self, ifc_id, ifc_class, sqlite_store: IfcSqlModel = None):
         if not ifc_class:
             print(id, ifc_class, sqlite_store)
             assert False
@@ -451,7 +445,7 @@ class sqlite_entity(entity_instance):
 
 
 class sqlite_wrapper:
-    def __init__(self, ifc_id: int, ifc_class: str, sqlite_store: sqlite):
+    def __init__(self, ifc_id: int, ifc_class: str, sqlite_store: IfcSqlModel):
         self.id = ifc_id
         self.ifc_class = ifc_class
         self.sqlite_store = sqlite_store
@@ -462,6 +456,7 @@ class sqlite_wrapper:
 
     def __repr__(self):
         return "todo"
+
 
 def substitute_int_with_object_from_map(source_dict: dict, map_dict: dict) -> None:
     contains_ref_ints = True

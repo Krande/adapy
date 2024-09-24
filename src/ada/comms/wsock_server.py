@@ -5,16 +5,23 @@ import json
 import pathlib
 import random
 from dataclasses import dataclass, field
-from typing import Optional, Callable, Set
-from urllib.parse import urlparse, parse_qs
+from typing import Callable, Optional, Set
+from urllib.parse import parse_qs, urlparse
 
 import trimesh
 import websockets
 
 from ada.cadit.ifc.ifc2sql import Ifc2SqlPatcher
-from ada.cadit.ifc.sql_model import sqlite as ifc_sqlite
+from ada.cadit.ifc.sql_model import IfcSqlModel as ifc_sqlite
 from ada.comms.fb_deserializer import deserialize_root_message
-from ada.comms.fb_model_gen import FileObjectDC, MessageDC, CommandTypeDC, FileTypeDC, MeshInfoDC, TargetTypeDC
+from ada.comms.fb_model_gen import (
+    CommandTypeDC,
+    FileObjectDC,
+    FileTypeDC,
+    MeshInfoDC,
+    MessageDC,
+    TargetTypeDC,
+)
 from ada.comms.fb_serializer import serialize_message
 from ada.comms.wsock import Message
 from ada.config import logger
@@ -47,7 +54,7 @@ async def process_client(websocket, path) -> ConnectedClient:
         group_type = client_from_str(group_type)
     client = ConnectedClient(websocket=websocket, group_type=group_type, instance_id=instance_id)
 
-    if client.group_type is None and 'instance-id' in path:
+    if client.group_type is None and "instance-id" in path:
         # Parse query parameters from the path
         parsed_url = urlparse(path)
         query_params = parse_qs(parsed_url.query)
@@ -59,6 +66,7 @@ async def process_client(websocket, path) -> ConnectedClient:
         instance_id = query_params.get("instance-id", [None])[0]
         if instance_id is not None:
             client.instance_id = int(instance_id)
+
     return client
 
 
@@ -74,7 +82,7 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
     if message.command_type == CommandTypeDC.UPDATE_SCENE:
         logger.info(f"Received message from {client} to update scene")
         glb_file_data = message.file_object.filedata
-        tmp_dir = pathlib.Path('temp')
+        tmp_dir = pathlib.Path("temp")
         local_glb_file = tmp_dir / "test.glb"
         with open(local_glb_file, "wb") as f:
             f.write(glb_file_data)
@@ -86,7 +94,7 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
             filedata=glb_file_data,
             filepath=local_glb_file,
             file_type=message.file_object.file_type,
-            purpose=message.file_object.purpose
+            purpose=message.file_object.purpose,
         )
         server.scene_meta.file_objects.append(file_object)
     elif message.command_type == CommandTypeDC.UPDATE_SERVER:
@@ -101,24 +109,22 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
         logger.info(f"Received message from {client} to update mesh info")
         logger.info(f"Message: {message}")
         node_name = message.mesh_info.object_name
-        num = node_name.replace('node', '')
+        num = node_name.replace("node", "")
 
-        meta = server.scene_meta.mesh_meta.get(f'id_sequence{num}')
+        meta = server.scene_meta.mesh_meta.get(f"id_sequence{num}")
         guid = list(meta.keys())[0]
         entity = server.scene_meta.ifc_sql_store.by_guid(guid)
 
         logger.info(f"Entity: {entity}")
         mesh_info = MeshInfoDC(
-            object_name=node_name,
-            face_index=message.mesh_info.face_index,
-            json_data=json.dumps(entity)
+            object_name=node_name, face_index=message.mesh_info.face_index, json_data=json.dumps(entity)
         )
         reply_message = MessageDC(
             instance_id=server.instance_id,
             command_type=CommandTypeDC.MESH_INFO_REPLY,
             mesh_info=mesh_info,
             target_id=client.instance_id,
-            target_group=TargetTypeDC.WEB
+            target_group=TargetTypeDC.WEB,
         )
         fb_message = serialize_message(reply_message)
         # run the client.websocket in an event loop
@@ -129,12 +135,12 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
 
 class WebSocketAsyncServer:
     def __init__(
-            self,
-            host: str,
-            port: int,
-            on_connect: Optional[Callable[[ConnectedClient], asyncio.Future]] = None,
-            on_disconnect: Optional[Callable[[ConnectedClient], asyncio.Future]] = None,
-            on_message: Optional[Callable[[WebSocketAsyncServer, ConnectedClient, bytes], None]] = default_on_message,
+        self,
+        host: str,
+        port: int,
+        on_connect: Optional[Callable[[ConnectedClient], asyncio.Future]] = None,
+        on_disconnect: Optional[Callable[[ConnectedClient], asyncio.Future]] = None,
+        on_message: Optional[Callable[[WebSocketAsyncServer, ConnectedClient, bytes], None]] = default_on_message,
     ):
         self.host = host
         self.port = port
@@ -144,7 +150,8 @@ class WebSocketAsyncServer:
         self.on_disconnect = on_disconnect
         self.on_message = on_message
         self.scene_meta = SceneMeta()
-        self.instance_id = random.randint(0, 2 ** 31 - 1)  # Generates a random int32 value
+        self.instance_id = random.randint(0, 2**31 - 1)  # Generates a random int32 value
+        self.msg_queue = asyncio.Queue()
 
     async def handle_client(self, websocket: websockets.WebSocketServerProtocol, path: str):
         client = await process_client(websocket, path)
@@ -155,34 +162,46 @@ class WebSocketAsyncServer:
             await self.on_connect(client)
         try:
             async for message in websocket:
-                msg = await handle_partial_message(message)
-                logger.debug(f"Received message: {msg}")
+                await self.handle_message(message, client, websocket)
 
-                # Update instance_id if not set
-                if client.websocket == websocket:
-                    if client.instance_id is None:
-                        client.instance_id = msg.instance_id
-                    if client.group_type is None:
-                        client.group_type = msg.client_type
-
-                if msg.target_group != TargetTypeDC.SERVER:
-                    # Forward message to appropriate clients
-                    await self.forward_message(message, sender=client, msg=msg)
-
-                if self.on_message and msg.command_type not in [CommandTypeDC.PING, CommandTypeDC.PONG]:
-                    # Offload to a separate thread
-                    await asyncio.to_thread(self.on_message, self, client, message)
+            while not self.msg_queue.empty():
+                msg = self.msg_queue.get_nowait()
+                await self.forward_message(serialize_message(msg), sender=client, msg=msg)
 
         except websockets.ConnectionClosed:
             logger.debug(f"Client disconnected: {websocket.remote_address}")
+
         finally:
             self.connected_clients.remove(client)
+            logger.debug(f"Client disconnected: {client} [{len(self.connected_clients)} clients connected]")
             if self.on_disconnect:
                 await self.on_disconnect(client)
+
+    async def handle_message(
+        self, message: bytes, client: ConnectedClient, websocket: websockets.WebSocketServerProtocol
+    ):
+        msg = await handle_partial_message(message)
+        logger.debug(f"Received message: {msg}")
+
+        # Update instance_id if not set
+        if client.websocket == websocket:
+            if client.instance_id is None:
+                client.instance_id = msg.instance_id
+            if client.group_type is None:
+                client.group_type = msg.client_type
+
+        if msg.target_group != TargetTypeDC.SERVER:
+            # Forward message to appropriate clients
+            await self.forward_message(message, sender=client, msg=msg)
+
+        if self.on_message and msg.command_type not in [CommandTypeDC.PING, CommandTypeDC.PONG]:
+            # Offload to a separate thread
+            await asyncio.to_thread(self.on_message, self, client, message)
 
     async def forward_message(self, message: str | bytes, sender: ConnectedClient, msg: MessageDC):
         target_id = msg.target_id
         target_group = msg.target_group
+
         for client in self.connected_clients:
             if client == sender:
                 continue
@@ -191,11 +210,14 @@ class WebSocketAsyncServer:
                 logger.debug(f"Client disconnected: {client}")
                 self.connected_clients.remove(client)
                 continue
+
             # Filtering based on target_id and target_group
             if target_id is not None and client.instance_id != target_id:
                 continue
             if target_group and client.group_type != target_group:
                 continue
+
+            logger.debug(f"Forwarding message to {client}")
 
             await client.websocket.send(message)
 
@@ -214,10 +236,6 @@ class WebSocketAsyncServer:
             self.server.close()
             await self.server.wait_closed()
         logger.debug("WebSocket server stopped")
-
-    async def receive(self) -> MessageDC:
-        message = await self.server.recv()
-        return deserialize_root_message(message)
 
     def run_in_background(self):
         """Run the server in a background thread."""

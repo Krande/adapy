@@ -5,8 +5,8 @@ import pytest
 
 from ada.comms.fb_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
 from ada.comms.fb_serializer import serialize_message
-from ada.comms.wsock_server import WebSocketAsyncServer, handle_partial_message
 from ada.comms.wsock_client import WebSocketClient
+from ada.comms.wsock_server import WebSocketAsyncServer, handle_partial_message
 from ada.config import logger
 
 HOST = "localhost"
@@ -46,6 +46,7 @@ def server(event_loop):
         except asyncio.CancelledError:
             pass  # Suppress the CancelledError to prevent it from propagating
 
+
 async def reply_ping(msg: MessageDC, ws_client: WebSocketClient):
     message = MessageDC(
         instance_id=ws_client.instance_id,
@@ -58,6 +59,7 @@ async def reply_ping(msg: MessageDC, ws_client: WebSocketClient):
     # Serialize the dataclass message into a FlatBuffer
     flatbuffer_data = serialize_message(message)
     await ws_client.websocket.send(flatbuffer_data)
+
 
 # Additional instance to connect to the WebSocket server
 async def start_mock_web_client_connection():

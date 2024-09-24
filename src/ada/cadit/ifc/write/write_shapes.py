@@ -26,8 +26,14 @@ from ada.cadit.ifc.write.geom.placement import ifc_placement_from_axis3d
 from ada.core.constants import O, X, Z
 from ada.core.utils import to_real
 from ada.geom.solids import Box, Cone, Cylinder
+
 from ..write.geom.curves import indexed_poly_curve
-from ..write.geom.surfaces import advanced_face, arbitrary_profile_def, curve_bounded_plane, create_closed_shell
+from ..write.geom.surfaces import (
+    advanced_face,
+    arbitrary_profile_def,
+    create_closed_shell,
+    curve_bounded_plane,
+)
 
 
 def write_ifc_shape(shape: Shape):
@@ -86,7 +92,7 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         PrimSweep: generate_ifc_prim_sweep_geom,
         geo_su.AdvancedFace: advanced_face,
         geo_su.CurveBoundedPlane: curve_bounded_plane,
-        geo_su.ClosedShell: create_closed_shell
+        geo_su.ClosedShell: create_closed_shell,
     }
 
     if type(shape) is Shape:
@@ -109,7 +115,7 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         PrimSweep: "SweptSolid",
         geo_su.AdvancedFace: "AdvancedSurface",
         geo_su.CurveBoundedPlane: "AdvancedSurface",
-        geo_su.ClosedShell: "AdvancedSurface"
+        geo_su.ClosedShell: "AdvancedSurface",
     }
     repr_type_str = repr_type_map.get(type(param_geo), None)
     shape_representation = f.create_entity(
@@ -117,13 +123,10 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         ContextOfItems=body_context,
         RepresentationIdentifier="Body",
         RepresentationType=repr_type_str,
-        Items=[solid_geom]
+        Items=[solid_geom],
     )
     ifc_shape = f.create_entity(
-        "IfcProductDefinitionShape",
-        Name=None,
-        Description=None,
-        Representations=[shape_representation]
+        "IfcProductDefinitionShape", Name=None, Description=None, Representations=[shape_representation]
     )
 
     return ifc_shape

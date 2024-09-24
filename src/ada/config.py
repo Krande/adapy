@@ -111,7 +111,7 @@ class Config:
             "sat",
             [
                 ConfigEntry("read_curve_ignore_bspline", bool, False),
-                ConfigEntry("import_raise_exception_on_failed_advanced_face", bool, False)
+                ConfigEntry("import_raise_exception_on_failed_advanced_face", bool, False),
             ],
         ),
         ConfigSection(

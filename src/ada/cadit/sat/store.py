@@ -4,14 +4,17 @@ import traceback
 from typing import Iterable
 
 import ada.geom.surfaces as geo_su
-from ada.cadit.sat.read.advanced_face import create_advanced_face_from_sat, create_planar_face_from_sat
 from ada.cadit.sat.exceptions import ACISReferenceDataError, ACISUnsupportedCurveType
+from ada.cadit.sat.read.advanced_face import (
+    create_advanced_face_from_sat,
+    create_planar_face_from_sat,
+)
 from ada.cadit.sat.read.faces import PlateFactory
 from ada.cadit.sat.read.sat_entities import AcisRecord
-from ada.config import logger, Config
+from ada.config import Config, logger
 from ada.core.guid import create_guid
 from ada.geom import Geometry
-from ada.visit.colors import color_dict, Color
+from ada.visit.colors import Color, color_dict
 
 
 class SatReader:
@@ -195,7 +198,7 @@ class SatReaderFactory:
             elif face_surface.type == "plane-surface":
                 try:
                     yield face_record, create_planar_face_from_sat(face_record)
-                except (ACISReferenceDataError, ACISUnsupportedCurveType ) as e:
+                except (ACISReferenceDataError, ACISUnsupportedCurveType) as e:
                     err_msg = f"Unable to create face record {name}. Fallback to flat Plate due to: {e}"
                     if conf.general_add_trace_to_exception:
                         trace_msg = traceback.format_exc()

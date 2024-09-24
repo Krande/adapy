@@ -200,7 +200,7 @@ def merged_mesh_to_trimesh_scene(
         # Setting process=True will automatically merge duplicated vertices
         mesh = trimesh.Trimesh(vertices=vertices, faces=indices, process=False)
         if isinstance(pbr_mat, Color):
-            if pbr_mat.hex == '#000000':
+            if pbr_mat.hex == "#000000":
                 pbr_mat = Color(*color_dict["light-gray"])
             pbr_mat = trimesh.visual.material.PBRMaterial(
                 f"mat{buffer_id}", baseColorFactor=pbr_mat.rgb255, doubleSided=True

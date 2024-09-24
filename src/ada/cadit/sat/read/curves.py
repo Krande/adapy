@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Iterable
 
 from ada import Point
-from ada.cadit.sat.read.bsplinecurves import create_bspline_curve_from_sat
 from ada.cadit.sat.exceptions import ACISReferenceDataError, ACISUnsupportedCurveType
+from ada.cadit.sat.read.bsplinecurves import create_bspline_curve_from_sat
 from ada.cadit.sat.read.sat_entities import AcisRecord
 from ada.config import Config
 from ada.geom import curves as geo_cu
@@ -20,22 +20,14 @@ def get_ellipse_curve(ellipse_record: AcisRecord) -> geo_cu.Ellipse | geo_cu.Cir
     normal_vector_idx = 9
 
     # Extract the center point
-    center = Point(
-        float(chunks[center_idx]),
-        float(chunks[center_idx + 1]),
-        float(chunks[center_idx + 2])
-    )
+    center = Point(float(chunks[center_idx]), float(chunks[center_idx + 1]), float(chunks[center_idx + 2]))
     normal_vector = Direction(
-        float(chunks[normal_vector_idx]),
-        float(chunks[normal_vector_idx + 1]),
-        float(chunks[normal_vector_idx + 2])
+        float(chunks[normal_vector_idx]), float(chunks[normal_vector_idx + 1]), float(chunks[normal_vector_idx + 2])
     )
 
     # Extract major and minor axis vectors
     major_axis_vector = Direction(
-        float(chunks[major_axis_idx]),
-        float(chunks[major_axis_idx + 1]),
-        float(chunks[major_axis_idx + 2])
+        float(chunks[major_axis_idx]), float(chunks[major_axis_idx + 1]), float(chunks[major_axis_idx + 2])
     )
 
     # Compute semi-axis lengths
@@ -49,11 +41,7 @@ def get_ellipse_curve(ellipse_record: AcisRecord) -> geo_cu.Ellipse | geo_cu.Cir
     normal_vector = normal_vector.get_normalized()
 
     # Create the position object
-    position = Axis2Placement3D(
-        location=center,
-        axis=normal_vector,
-        ref_direction=direction_major_axis
-    )
+    position = Axis2Placement3D(location=center, axis=normal_vector, ref_direction=direction_major_axis)
     if semi_axis2 == 1.0:
         return geo_cu.Circle(position, semi_axis1)
 
@@ -68,15 +56,9 @@ def create_line_from_sat(line_record: AcisRecord) -> geo_cu.Line:
     direction_idx = 9
 
     # Extract the start and stop points
-    start_point = Point(
-        float(chunks[start_idx]),
-        float(chunks[start_idx + 1]),
-        float(chunks[start_idx + 2])
-    )
+    start_point = Point(float(chunks[start_idx]), float(chunks[start_idx + 1]), float(chunks[start_idx + 2]))
     direction = Direction(
-        float(chunks[direction_idx]),
-        float(chunks[direction_idx + 1]),
-        float(chunks[direction_idx + 2])
+        float(chunks[direction_idx]), float(chunks[direction_idx + 1]), float(chunks[direction_idx + 2])
     )
 
     return geo_cu.Line(start_point, direction)
@@ -124,7 +106,6 @@ def get_edge(coedge: AcisRecord) -> geo_cu.OrientedEdge:
     else:
         raise ACISUnsupportedCurveType(f"Curve type {curve_record.type} is not supported.")
 
-
     for direction in [edge_direction, coedge_direction, curve_direction]:
         if direction not in ["forward", "reversed"]:
             raise ValueError(f"Invalid direction: {direction}")
@@ -149,7 +130,7 @@ def iter_loop_coedges(loop_record: AcisRecord) -> Iterable[geo_cu.OrientedEdge]:
     coedge_start_id = loop_record.chunks[coedge_ref]
     coedge_first = sat_store.get(coedge_start_id)
     coedge_first_direction = str(coedge_first.chunks[direction_idx])
-    next_coedge_idx = 6 #if coedge_first_direction == "forward" else 7
+    next_coedge_idx = 6  # if coedge_first_direction == "forward" else 7
     coedge_next_id = coedge_first.chunks[next_coedge_idx]
 
     yield get_edge(coedge_first)

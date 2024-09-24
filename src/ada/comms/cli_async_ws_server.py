@@ -1,8 +1,9 @@
 import argparse
 import asyncio
 import pathlib
-from ada.config import logger
+
 from ada.comms.wsock_server import WebSocketAsyncServer
+from ada.config import logger
 
 WS_ASYNC_SERVER_PY = pathlib.Path(__file__)
 
@@ -48,5 +49,5 @@ def ws_async_cli_app():
     asyncio.run(start_async_server(args.host, args.port, log_level=args.log_level))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     ws_async_cli_app()

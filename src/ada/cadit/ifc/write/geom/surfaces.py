@@ -8,7 +8,6 @@ from ada.geom import surfaces as geo_su
 from .curves import circle_curve, edge_loop, indexed_poly_curve
 from .placement import ifc_placement_from_axis3d
 from .points import cpt
-from ...read.geom.placement import axis2placement
 
 
 def arbitrary_profile_def(apd: geo_su.ArbitraryProfileDef, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
@@ -43,7 +42,7 @@ def arbitrary_profile_def(apd: geo_su.ArbitraryProfileDef, f: ifcopenshell.file)
 
 
 def bspline_surface_with_knots(
-        bs: geo_su.BSplineSurfaceWithKnots | geo_su.RationalBSplineSurfaceWithKnots, f: ifcopenshell.file
+    bs: geo_su.BSplineSurfaceWithKnots | geo_su.RationalBSplineSurfaceWithKnots, f: ifcopenshell.file
 ) -> ifcopenshell.entity_instance:
     """Converts a BSplineSurfaceWithKnots to an IFC representation"""
     if type(bs) == geo_su.BSplineSurfaceWithKnots:
@@ -94,6 +93,7 @@ def face_bound(fb: geo_su.FaceBound, f: ifcopenshell.file) -> ifcopenshell.entit
         Orientation=fb.orientation,
     )
 
+
 def create_connected_face_set(cfs: geo_su.ConnectedFaceSet, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts a ConnectedFaceSet to an IFC representation"""
     bounds = []
@@ -107,6 +107,8 @@ def create_connected_face_set(cfs: geo_su.ConnectedFaceSet, f: ifcopenshell.file
         "IfcConnectedFaceSet",
         CfsFaces=bounds,
     )
+
+
 def create_face(face: geo_su.Face, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts a Face to an IFC representation"""
 
@@ -121,6 +123,7 @@ def create_face(face: geo_su.Face, f: ifcopenshell.file) -> ifcopenshell.entity_
         "IfcFace",
         Bounds=bounds,
     )
+
 
 def create_face_surface(fs: geo_su.FaceSurface, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts a FaceSurface to an IFC representation"""
@@ -143,6 +146,7 @@ def create_face_surface(fs: geo_su.FaceSurface, f: ifcopenshell.file) -> ifcopen
         SameSense=fs.same_sense,
     )
 
+
 def create_closed_shell(cs: geo_su.ClosedShell, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts a ClosedShell to an IFC representation"""
     faces = []
@@ -158,6 +162,7 @@ def create_closed_shell(cs: geo_su.ClosedShell, f: ifcopenshell.file) -> ifcopen
         "IfcClosedShell",
         CfsFaces=faces,
     )
+
 
 def advanced_face(af: geo_su.AdvancedFace, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts an AdvancedFace to an IFC representation"""
@@ -209,5 +214,5 @@ def curve_bounded_plane(cbp: geo_su.CurveBoundedPlane, f: ifcopenshell.file) -> 
         "IfcCurveBoundedPlane",
         BasisSurface=basis_surface,
         OuterBoundary=outer_boundary,
-        InnerBoundaries=inner_boundaries
+        InnerBoundaries=inner_boundaries,
     )

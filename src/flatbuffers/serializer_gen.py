@@ -1,8 +1,7 @@
 import pathlib
 
-from fbs_serializer import TableDefinition, FlatBufferSchema, parse_fbs_file
+from fbs_serializer import FlatBufferSchema, TableDefinition, parse_fbs_file
 from utils import make_camel_case
-
 
 # Function to strip comments from the FlatBuffers schema
 
@@ -35,7 +34,12 @@ def generate_serialize_function(table: TableDefinition) -> str:
         elif field.field_type.startswith("["):
             if "ubyte" in field.field_type:
                 serialize_code += f"    if {field.name}_vector is not None:\n"
-                serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
+                serialize_code += (
+                    f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
+                )
+            elif "float" in field.field_type:
+                serialize_code += f"    if obj.{field.name} is not None:\n"
+                serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, builder.CreateFloatVector(obj.{field.name}))\n"
             else:
                 raise NotImplementedError()
         elif field.field_type in ["byte", "ubyte", "int", "bool"]:
@@ -44,7 +48,9 @@ def generate_serialize_function(table: TableDefinition) -> str:
         else:
             # Handle enum or nested table
             serialize_code += f"    if obj.{field.name} is not None:\n"
-            serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, obj.{field.name}.value)\n"
+            serialize_code += (
+                f"        {table.name}.Add{make_camel_case(field.name)}(builder, obj.{field.name}.value)\n"
+            )
 
     serialize_code += f"    return {table.name}.End(builder)\n"
     return serialize_code
@@ -72,7 +78,9 @@ def generate_serialize_root_function(schema: FlatBufferSchema) -> str:
         elif field.field_type in table_names:
             serialize_code += f"    {field.name}_obj = None\n"
             serialize_code += f"    if message.{field.name} is not None:\n"
-            serialize_code += f"        {field.name}_obj = serialize_{field.field_type.lower()}(builder, message.{field.name})\n"
+            serialize_code += (
+                f"        {field.name}_obj = serialize_{field.field_type.lower()}(builder, message.{field.name})\n"
+            )
 
     # Handle string serialization first
     serialize_code += f"\n    {root_table.name}.Start(builder)\n"
@@ -81,13 +89,17 @@ def generate_serialize_root_function(schema: FlatBufferSchema) -> str:
     for field in root_table.fields:
         serialize_code += f"    if message.{field.name} is not None:\n"
         if field.field_type in ["int", "byte", "ubyte"]:
-            serialize_code += f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, message.{field.name})\n"
+            serialize_code += (
+                f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, message.{field.name})\n"
+            )
         elif field.field_type == "string":
             serialize_code += f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_str)\n"
         elif field.field_type in table_names:
             serialize_code += f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_obj)\n"
         elif field.field_type in enum_names:
-            serialize_code += f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, message.{field.name}.value)\n"
+            serialize_code += (
+                f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, message.{field.name}.value)\n"
+            )
         elif field.field_type.startswith("["):
             field_type_value = field.field_type[1:-1].lower()
             serialize_code += f"        {field_type_value}_list = [serialize_{field_type_value}(builder, item) for item in message.{field.name}]\n"
@@ -116,7 +128,7 @@ def generate_serialization_code(fbs_file: str, output_file: str | pathlib.Path, 
     schema = parse_fbs_file(fbs_file)
     imports_str = add_imports(schema, wsock_model_root, dc_model_root)
 
-    with open(output_file, 'w') as out_file:
+    with open(output_file, "w") as out_file:
         out_file.write("import flatbuffers\nfrom typing import Optional\n\n")
         out_file.write(imports_str)
         # Write serialization functions for each table
@@ -133,14 +145,9 @@ def generate_serialization_code(fbs_file: str, output_file: str | pathlib.Path, 
 
 
 # Example usage
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Write the generated code to a Python file
-    tmp_dir = pathlib.Path('temp')
+    tmp_dir = pathlib.Path("temp")
     tmp_dir.mkdir(exist_ok=True)
 
-    generate_serialization_code(
-        'schemas/commands.fbs',
-        tmp_dir / "fb_serializer.py",
-        "ada.comms.wsock",
-        "fb_model_gen"
-    )
+    generate_serialization_code("schemas/commands.fbs", tmp_dir / "fb_serializer.py", "ada.comms.wsock", "fb_model_gen")

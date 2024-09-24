@@ -1,6 +1,15 @@
 from ada.comms.fb_deserializer import deserialize_root_message
-from ada.comms.fb_model_gen import CommandTypeDC, FilePurposeDC, FileTypeDC, SceneOperationsDC, MessageDC, FileObjectDC, \
-    MeshInfoDC, TargetTypeDC
+from ada.comms.fb_model_gen import (
+    CommandTypeDC,
+    FileObjectDC,
+    FilePurposeDC,
+    FileTypeDC,
+    MeshInfoDC,
+    MessageDC,
+    SceneOperationDC,
+    SceneOperationsDC,
+    TargetTypeDC,
+)
 from ada.comms.fb_serializer import serialize_message
 
 
@@ -9,19 +18,12 @@ def test_basic_flat_buffers():
     message = MessageDC(
         instance_id=1234,
         command_type=CommandTypeDC.UPDATE_SERVER,
-        file_object=FileObjectDC(
-            file_type=FileTypeDC.GLB,
-            purpose=FilePurposeDC.DESIGN,
-            filepath="/path/to/file.glb"
-        ),
-        mesh_info=MeshInfoDC(
-            object_name="MyMeshObject",
-            face_index=10
-        ),
+        file_object=FileObjectDC(file_type=FileTypeDC.GLB, purpose=FilePurposeDC.DESIGN, filepath="/path/to/file.glb"),
+        mesh_info=MeshInfoDC(object_name="MyMeshObject", face_index=10),
         target_id=5678,
         target_group=TargetTypeDC.WEB,
         client_type=TargetTypeDC.LOCAL,
-        scene_operation=SceneOperationsDC.REPLACE
+        scene_operation=SceneOperationDC(operation=SceneOperationsDC.REPLACE),
     )
 
     # Serialize the dataclass message into a FlatBuffer
@@ -41,19 +43,12 @@ def test_basic_flat_buffers_2():
     message = MessageDC(
         instance_id=1234,
         command_type=CommandTypeDC.UPDATE_SERVER,
-        file_object=FileObjectDC(
-            file_type=FileTypeDC.GLB,
-            purpose=FilePurposeDC.DESIGN,
-            filepath="/path/to/file.glb"
-        ),
-        mesh_info=MeshInfoDC(
-            object_name="MyMeshObject",
-            face_index=10
-        ),
+        file_object=FileObjectDC(file_type=FileTypeDC.GLB, purpose=FilePurposeDC.DESIGN, filepath="/path/to/file.glb"),
+        mesh_info=MeshInfoDC(object_name="MyMeshObject", face_index=10),
         target_id=5678,
         target_group=TargetTypeDC.WEB,
         client_type=TargetTypeDC.LOCAL,
-        scene_operation=SceneOperationsDC.ADD
+        scene_operation=SceneOperationDC(operation=SceneOperationsDC.ADD),
     )
 
     # Serialize the dataclass message into a FlatBuffer

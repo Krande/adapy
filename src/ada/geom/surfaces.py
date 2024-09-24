@@ -68,6 +68,7 @@ class Face:
     """
     IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcFace.htm)
     """
+
     bounds: list[FaceBound]
 
 
@@ -76,8 +77,10 @@ class FaceSurface(Face):
     """
     IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcFaceSurface.htm)
     """
+
     face_surface: Union[Plane]
     same_sense: bool = True
+
 
 @dataclass
 class ConnectedFaceSet:
@@ -102,6 +105,7 @@ class CurveBoundedPlane:
     """
     IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcCurveBoundedPlane.htm)
     """
+
     basis_surface: Plane
     outer_boundary: geo_cu.CURVE_GEOM_TYPES
     inner_boundaries: list[geo_cu.CURVE_GEOM_TYPES] = field(default_factory=list)
@@ -294,5 +298,5 @@ SURFACE_GEOM_TYPES = Union[
     BSplineSurfaceWithKnots,
     RationalBSplineSurfaceWithKnots,
     SurfaceOfLinearExtrusion,
-    ClosedShell
+    ClosedShell,
 ]

@@ -54,6 +54,12 @@ table MeshInfo {
   json_data: string;        // JSON data
 }
 
+table SceneOperation {
+  operation: SceneOperations;
+  camera_position: [float];
+  look_at_position: [float];
+}
+
 table Message {
   instance_id: int;
   command_type: CommandType;
@@ -61,7 +67,7 @@ table Message {
   mesh_info: MeshInfo;
   target_group: TargetType;
   client_type: TargetType;
-  scene_operation: SceneOperations;
+  scene_operation: SceneOperation;
   target_id: int = 0; // Default value for optional field
   web_clients: [WebClient];
 }

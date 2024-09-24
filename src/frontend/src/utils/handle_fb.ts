@@ -1,4 +1,4 @@
-import {CommandType, Message, SceneOperations} from '../flatbuffers/wsock'
+import {CommandType, Message, TargetType} from '../flatbuffers/wsock'
 import * as flatbuffers from "flatbuffers";
 import {webSocketHandler} from "./websocket_connector";
 import {useModelStore} from "../state/modelStore";
@@ -28,15 +28,12 @@ const handle_ping = (message: Message) => {
     console.log('Received ping from server. Replying with flatbuffer message');
     let builder = new flatbuffers.Builder(1024);
 
-    let target_group = builder.createString("local");
-    let client_type = builder.createString("web");
-
     Message.startMessage(builder);
     Message.addInstanceId(builder, webSocketHandler.instance_id);
     Message.addCommandType(builder, CommandType.PONG);
     Message.addTargetId(builder, message.instanceId());
-    Message.addTargetGroup(builder, target_group);
-    Message.addClientType(builder, client_type);
+    Message.addTargetGroup(builder, TargetType.LOCAL);
+    Message.addClientType(builder, TargetType.WEB);
 
     builder.finish(Message.endMessage(builder));
     webSocketHandler.sendMessage(builder.asUint8Array());
@@ -44,7 +41,6 @@ const handle_ping = (message: Message) => {
 
 const handle_update_scene = (message: Message) => {
     console.log('Received scene update message from server');
-    console.log('Scene Operation:', SceneOperations[message.sceneOperation()]);
     let fileObject = message.fileObject();
     if (!fileObject) {
         console.error("No file object found in the message");

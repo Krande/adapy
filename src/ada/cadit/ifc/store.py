@@ -102,10 +102,10 @@ class IfcStore:
         return contexts[0]
 
     def sync(
-            self,
-            include_fem=False,
-            progress_callback: Callable[[int, int], None] = None,
-            geom_repr_override: dict[str, GeomRepr] = None,
+        self,
+        include_fem=False,
+        progress_callback: Callable[[int, int], None] = None,
+        geom_repr_override: dict[str, GeomRepr] = None,
     ):
         from ada.cadit.ifc.write.write_ifc import IfcWriter
 
@@ -149,7 +149,7 @@ class IfcStore:
             f.write(self.f.wrapped_data.to_string())
 
     def load_ifc_content_from_file(
-            self, ifc_file: str | os.PathLike | ifcopenshell.file = None, data_only=False, elements2part=None
+        self, ifc_file: str | os.PathLike | ifcopenshell.file = None, data_only=False, elements2part=None
     ) -> None:
         from ada.cadit.ifc.read.read_ifc import IfcReader
 
@@ -239,7 +239,7 @@ class IfcStore:
         return ifcopenshell.geom.iterator(settings, self.f, cpus, include=products)
 
     def iter_occ_shapes_from_ifc(
-            self, settings: ifcopenshell.geom.settings = None
+        self, settings: ifcopenshell.geom.settings = None
     ) -> Iterable[tuple[str, TopoDS_Shape | TopoDS_Compound]]:
         if settings is None:
             settings = ifcopenshell.geom.settings()

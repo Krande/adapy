@@ -15,7 +15,8 @@ from ada.geom.surfaces import (
 
 
 def create_bsplinesurface_from_sat(
-        spline_surface_record: AcisRecord) -> BSplineSurfaceWithKnots | RationalBSplineSurfaceWithKnots:
+    spline_surface_record: AcisRecord,
+) -> BSplineSurfaceWithKnots | RationalBSplineSurfaceWithKnots:
     sub_type = spline_surface_record.get_sub_type()
 
     if sub_type.type == "ref":
