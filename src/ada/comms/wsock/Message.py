@@ -64,15 +64,15 @@ class Message(object):
     def TargetGroup(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
-            return self._tab.String(o + self._tab.Pos)
-        return None
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
 
     # Message
     def ClientType(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
         if o != 0:
-            return self._tab.String(o + self._tab.Pos)
-        return None
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
 
     # Message
     def SceneOperation(self):
@@ -144,13 +144,13 @@ def AddMeshInfo(builder, meshInfo):
     MessageAddMeshInfo(builder, meshInfo)
 
 def MessageAddTargetGroup(builder, targetGroup):
-    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(targetGroup), 0)
+    builder.PrependInt8Slot(4, targetGroup, 0)
 
 def AddTargetGroup(builder, targetGroup):
     MessageAddTargetGroup(builder, targetGroup)
 
 def MessageAddClientType(builder, clientType):
-    builder.PrependUOffsetTRelativeSlot(5, flatbuffers.number_types.UOffsetTFlags.py_type(clientType), 0)
+    builder.PrependInt8Slot(5, clientType, 0)
 
 def AddClientType(builder, clientType):
     MessageAddClientType(builder, clientType)

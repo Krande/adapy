@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from ada.comms.fb_model_gen import CommandTypeDC, MessageDC
+from ada.comms.fb_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
 from ada.comms.fb_serializer import serialize_message
 from ada.comms.wsock_server import WebSocketAsyncServer, handle_partial_message
 from ada.comms.wsock_client import WebSocketClient
@@ -51,8 +51,8 @@ async def reply_ping(msg: MessageDC, ws_client: WebSocketClient):
         instance_id=ws_client.instance_id,
         command_type=CommandTypeDC.PONG,
         target_id=msg.instance_id,
-        target_group="local",
-        client_type="web",
+        target_group=TargetTypeDC.LOCAL,
+        client_type=TargetTypeDC.WEB,
     )
 
     # Serialize the dataclass message into a FlatBuffer
@@ -85,7 +85,7 @@ async def start_mock_web_client_connection():
 class MockWebParams:
     host: str
     port: int
-    client_type: str
+    client_type: TargetTypeDC.WEB
 
 
 @pytest.fixture(scope="session")

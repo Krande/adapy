@@ -14,17 +14,16 @@ import websockets
 from ada.cadit.ifc.ifc2sql import Ifc2SqlPatcher
 from ada.cadit.ifc.sql_model import sqlite as ifc_sqlite
 from ada.comms.fb_deserializer import deserialize_root_message
-from ada.comms.fb_model_gen import FileObjectDC, MessageDC, CommandTypeDC, FileTypeDC, MeshInfoDC
+from ada.comms.fb_model_gen import FileObjectDC, MessageDC, CommandTypeDC, FileTypeDC, MeshInfoDC, TargetTypeDC
 from ada.comms.fb_serializer import serialize_message
 from ada.comms.wsock import Message
-from ada.comms.wsock_client import dual_sync_async
 from ada.config import logger
 
 
 @dataclass
 class ConnectedClient:
     websocket: websockets.WebSocketServerProtocol = field(repr=False)
-    group_type: str = None
+    group_type: TargetTypeDC | None = None
     instance_id: int | None = None
     port: int = field(init=False, default=None)
 
@@ -32,11 +31,20 @@ class ConnectedClient:
         return hash(self.websocket)
 
 
+def client_from_str(client_type: str) -> TargetTypeDC:
+    if client_type == "local":
+        return TargetTypeDC.LOCAL
+    elif client_type == "web":
+        return TargetTypeDC.WEB
+
+
 async def process_client(websocket, path) -> ConnectedClient:
     group_type = websocket.request_headers.get("Client-Type")
     instance_id = websocket.request_headers.get("instance-id")
     if instance_id is not None:
         instance_id = int(instance_id)
+    if group_type is not None:
+        group_type = client_from_str(group_type)
     client = ConnectedClient(websocket=websocket, group_type=group_type, instance_id=instance_id)
 
     if client.group_type is None and 'instance-id' in path:
@@ -47,7 +55,7 @@ async def process_client(websocket, path) -> ConnectedClient:
         # Extract client type and instance id
         group_type = query_params.get("client-type", [None])[0]
         if group_type is not None:
-            client.group_type = group_type
+            client.group_type = client_from_str(group_type)
         instance_id = query_params.get("instance-id", [None])[0]
         if instance_id is not None:
             client.instance_id = int(instance_id)
@@ -59,6 +67,7 @@ class SceneMeta:
     file_objects: list[FileObjectDC] = field(default_factory=list)
     ifc_sql_store: ifc_sqlite = None
     mesh_meta: dict = None
+
 
 def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, message_data: bytes) -> None:
     message = deserialize_root_message(message_data)
@@ -97,21 +106,19 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
         meta = server.scene_meta.mesh_meta.get(f'id_sequence{num}')
         guid = list(meta.keys())[0]
         entity = server.scene_meta.ifc_sql_store.by_guid(guid)
-        logger.info(f"Entity: {entity}")
-        # Encode to Base64
-        json_str = json.dumps(entity)
 
+        logger.info(f"Entity: {entity}")
         mesh_info = MeshInfoDC(
             object_name=node_name,
             face_index=message.mesh_info.face_index,
-            json_data=json_str
+            json_data=json.dumps(entity)
         )
         reply_message = MessageDC(
             instance_id=server.instance_id,
             command_type=CommandTypeDC.MESH_INFO_REPLY,
             mesh_info=mesh_info,
             target_id=client.instance_id,
-            target_group=client.group_type
+            target_group=TargetTypeDC.WEB
         )
         fb_message = serialize_message(reply_message)
         # run the client.websocket in an event loop
@@ -158,10 +165,11 @@ class WebSocketAsyncServer:
                     if client.group_type is None:
                         client.group_type = msg.client_type
 
-                # Forward message to appropriate clients
-                await self.forward_message(message, sender=client, msg=msg)
+                if msg.target_group != TargetTypeDC.SERVER:
+                    # Forward message to appropriate clients
+                    await self.forward_message(message, sender=client, msg=msg)
 
-                if self.on_message:
+                if self.on_message and msg.command_type not in [CommandTypeDC.PING, CommandTypeDC.PONG]:
                     # Offload to a separate thread
                     await asyncio.to_thread(self.on_message, self, client, message)
 
@@ -209,16 +217,7 @@ class WebSocketAsyncServer:
 
     async def receive(self) -> MessageDC:
         message = await self.server.recv()
-        if isinstance(message, bytes):
-            return deserialize_root_message(message)
-        else:
-            try:
-                msg = json.loads(message)
-                logger.info(f"Received message: {msg}")
-                return msg
-            except json.JSONDecodeError:
-                logger.error("Received non-JSON message")
-                return message
+        return deserialize_root_message(message)
 
     def run_in_background(self):
         """Run the server in a background thread."""
@@ -231,29 +230,15 @@ class WebSocketAsyncServer:
 
 async def handle_partial_message(message) -> MessageDC | None:
     """Parse only parts of the message needed to forward it to the appropriate clients."""
-    if isinstance(message, bytes):
-        message_fb = Message.Message.GetRootAsMessage(message)
-        target_id = message_fb.TargetId()
-        if target_id == 0:
-            target_id = None
-        return MessageDC(
-            instance_id=message_fb.InstanceId(),
-            command_type=CommandTypeDC(message_fb.CommandType()),
-            target_id=target_id,
-            target_group=message_fb.TargetGroup().decode('utf-8'),
-            client_type=message_fb.ClientType().decode('utf-8')
-        )
-    else:
-        try:
-            msg = json.loads(message)
-        except json.JSONDecodeError:
-            logger.debug("Invalid message received")
-            return None
+    message_fb = Message.Message.GetRootAsMessage(message)
+    target_id = message_fb.TargetId()
+    if target_id == 0:
+        target_id = None
 
-        return MessageDC(
-            instance_id=msg.get("instance_id"),
-            command_type=CommandTypeDC(msg.get("command_type")),
-            target_id=msg.get("target_id"),
-            target_group=msg.get("target_group"),
-            client_type=msg.get("client_type")
-        )
+    return MessageDC(
+        instance_id=message_fb.InstanceId(),
+        command_type=CommandTypeDC(message_fb.CommandType()),
+        target_id=target_id,
+        target_group=TargetTypeDC(message_fb.TargetGroup()),
+        client_type=TargetTypeDC(message_fb.ClientType()),
+    )

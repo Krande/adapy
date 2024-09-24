@@ -14,6 +14,11 @@ class CommandTypeDC(Enum):
     MESH_INFO_REPLY = 5
     LIST_WEB_CLIENTS = 6
 
+class TargetTypeDC(Enum):
+    WEB = 0
+    LOCAL = 1
+    SERVER = 2
+
 class SceneOperationsDC(Enum):
     ADD = 0
     REMOVE = 1
@@ -31,10 +36,10 @@ class FileTypeDC(Enum):
 
 @dataclass
 class WebClientDC:
-    instance_id: int
-    name: str
-    address: str
-    port: int
+    instance_id: int = None
+    name: str = ""
+    address: str = ""
+    port: int = None
 
 @dataclass
 class FileObjectDC:
@@ -45,18 +50,18 @@ class FileObjectDC:
 
 @dataclass
 class MeshInfoDC:
-    object_name: str
-    face_index: int
-    json_data: str
+    object_name: str = ""
+    face_index: int = None
+    json_data: str = ""
 
 @dataclass
 class MessageDC:
-    instance_id: int
+    instance_id: int = None
     command_type: Optional[CommandTypeDC] = None
     file_object: Optional[FileObjectDC] = None
     mesh_info: Optional[MeshInfoDC] = None
-    target_group: str = ""
-    client_type: str = ""
+    target_group: Optional[TargetTypeDC] = None
+    client_type: Optional[TargetTypeDC] = None
     scene_operation: Optional[SceneOperationsDC] = None
     target_id: int = None
     web_clients: Optional[List[WebClientDC]] = None

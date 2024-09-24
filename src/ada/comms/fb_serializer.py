@@ -78,12 +78,6 @@ def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> 
     mesh_info_obj = None
     if message.mesh_info is not None:
         mesh_info_obj = serialize_meshinfo(builder, message.mesh_info)
-    target_group_str = None
-    if message.target_group is not None:
-        target_group_str = builder.CreateString(message.target_group)
-    client_type_str = None
-    if message.client_type is not None:
-        client_type_str = builder.CreateString(message.client_type)
 
     Message.Start(builder)
     if message.instance_id is not None:
@@ -95,9 +89,9 @@ def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> 
     if message.mesh_info is not None:
         Message.AddMeshInfo(builder, mesh_info_obj)
     if message.target_group is not None:
-        Message.AddTargetGroup(builder, target_group_str)
+        Message.AddTargetGroup(builder, message.target_group.value)
     if message.client_type is not None:
-        Message.AddClientType(builder, client_type_str)
+        Message.AddClientType(builder, message.client_type.value)
     if message.scene_operation is not None:
         Message.AddSceneOperation(builder, message.scene_operation.value)
     if message.target_id is not None:

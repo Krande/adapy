@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import io
-import json
 import random
-from typing import Callable, Any, Literal
+from typing import Callable, Any
 
 import trimesh
 import websockets
 
 from ada.comms.fb_deserializer import deserialize_root_message
-from ada.comms.fb_model_gen import MessageDC, CommandTypeDC, FilePurposeDC, SceneOperationsDC, FileObjectDC, FileTypeDC
+from ada.comms.fb_model_gen import MessageDC, CommandTypeDC, FilePurposeDC, SceneOperationsDC, FileObjectDC, FileTypeDC, \
+    TargetTypeDC
 from ada.comms.fb_serializer import serialize_message
 from ada.config import logger
 
@@ -39,8 +39,25 @@ def dual_sync_async(func: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
+def client_as_str(client_type: TargetTypeDC) -> str:
+    if client_type == TargetTypeDC.LOCAL:
+        return "local"
+    elif client_type == TargetTypeDC.WEB:
+        return "web"
+
+
+
+
+
 class WebSocketClient:
-    def __init__(self, host: str = "localhost", port: int = 8765, client_type: Literal["web", "local"] = "local"):
+    def __init__(self, host: str = "localhost", port: int = 8765, client_type: TargetTypeDC | str = TargetTypeDC.LOCAL):
+        if isinstance(client_type, str):
+            if client_type == 'local':
+                client_type = TargetTypeDC.LOCAL
+            elif client_type == 'web':
+                client_type = TargetTypeDC.WEB
+            else:
+                raise ValueError("Invalid client type. Must be either 'local' or 'web'.")
         self.host = host
         self.port = port
         self.client_type = client_type
@@ -49,7 +66,7 @@ class WebSocketClient:
     async def __aenter__(self):
         self._conn = websockets.connect(
             f"ws://{self.host}:{self.port}",
-            extra_headers={"Client-Type": self.client_type, "instance-id": str(self.instance_id)}
+            extra_headers={"Client-Type": client_as_str(self.client_type), "instance-id": str(self.instance_id)}
         )
         self.websocket = await self._conn.__aenter__()
         logger.info(f"Connected to server: ws://{self.host}:{self.port}")
@@ -87,7 +104,7 @@ class WebSocketClient:
         return msg
 
     @dual_sync_async
-    async def check_target_liveness(self, target_id=None, target_group: Literal["web", "local"] = "web"):
+    async def check_target_liveness(self, target_id=None, target_group: TargetTypeDC = TargetTypeDC.WEB):
         """Sends a Flatbuffer package to the server."""
         message = MessageDC(
             instance_id=self.instance_id,
@@ -116,7 +133,7 @@ class WebSocketClient:
                 instance_id=self.instance_id,
                 command_type=CommandTypeDC.UPDATE_SCENE,
                 file_object=file_object,
-                target_group="web",
+                target_group=TargetTypeDC.WEB,
                 scene_operation=scene_op
             )
 
@@ -130,7 +147,7 @@ class WebSocketClient:
             instance_id=self.instance_id,
             command_type=CommandTypeDC.UPDATE_SERVER,
             file_object=file_object,
-            target_group="web"
+            target_group=TargetTypeDC.WEB
         )
 
         # Serialize the dataclass message into a FlatBuffer
@@ -138,29 +155,6 @@ class WebSocketClient:
         await self.websocket.send(flatbuffer_data)
 
     @dual_sync_async
-    async def check_server_liveness_using_json(self, target_id=None, target_group: Literal["web", "local"] = "web"):
-        pkg = {
-            "instance_id": self.instance_id,
-            "command_type": CommandTypeDC.PING.value,
-            "target_id": target_id,
-            "target_group": target_group,
-            "client_type": self.client_type
-        }
-        await self.websocket.send(json.dumps(pkg))
-        logger.info(f"Sent message: {pkg}")
-        msg = await self.receive()
-        return msg.command_type == CommandTypeDC.PONG
-
-    @dual_sync_async
     async def receive(self) -> MessageDC:
         message = await self.websocket.recv()
-        if isinstance(message, bytes):
-            return deserialize_root_message(message)
-        else:
-            try:
-                msg = json.loads(message)
-                logger.info(f"Received message: {msg}")
-                return msg
-            except json.JSONDecodeError:
-                logger.error("Received non-JSON message")
-                return message
+        return deserialize_root_message(message)

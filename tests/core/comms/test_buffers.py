@@ -1,6 +1,6 @@
 from ada.comms.fb_deserializer import deserialize_root_message
 from ada.comms.fb_model_gen import CommandTypeDC, FilePurposeDC, FileTypeDC, SceneOperationsDC, MessageDC, FileObjectDC, \
-    MeshInfoDC
+    MeshInfoDC, TargetTypeDC
 from ada.comms.fb_serializer import serialize_message
 
 
@@ -19,8 +19,8 @@ def test_basic_flat_buffers():
             face_index=10
         ),
         target_id=5678,
-        target_group="web",
-        client_type="local",
+        target_group=TargetTypeDC.WEB,
+        client_type=TargetTypeDC.LOCAL,
         scene_operation=SceneOperationsDC.REPLACE
     )
 
@@ -51,8 +51,8 @@ def test_basic_flat_buffers_2():
             face_index=10
         ),
         target_id=5678,
-        target_group="web",
-        client_type="local",
+        target_group=TargetTypeDC.WEB,
+        client_type=TargetTypeDC.LOCAL,
         scene_operation=SceneOperationsDC.ADD
     )
 

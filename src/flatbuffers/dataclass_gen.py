@@ -38,18 +38,17 @@ def generate_dataclasses_from_schema(schema: FlatBufferSchema, output_file: str 
             if is_optional and not field.default_value:
                 python_type = f'Optional[{python_type}]'
                 has_optional = True
-            else:
-                if has_optional:
-                    if python_type == "str":
-                        default_value = ' = ""'
-                    elif python_type == "pathlib.Path | str":
-                        default_value = ' = ""'
-                    elif python_type == "int":
-                        default_value = ' = None'
-                    elif python_type == "bool":
-                        default_value = ' = None'
-                    elif python_type == "bytes":
-                        default_value = ' = None'
+
+            if python_type == "str":
+                default_value = ' = ""'
+            elif python_type == "pathlib.Path | str":
+                default_value = ' = ""'
+            elif python_type == "int":
+                default_value = ' = None'
+            elif python_type == "bool":
+                default_value = ' = None'
+            elif python_type == "bytes":
+                default_value = ' = None'
 
             result.append(f'    {field.name}: {python_type}{default_value}')
         result.append('')

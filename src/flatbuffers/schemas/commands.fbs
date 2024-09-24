@@ -10,6 +10,12 @@ enum CommandType : byte {
   LIST_WEB_CLIENTS = 6,
 }
 
+enum TargetType : byte {
+  WEB = 0,
+  LOCAL = 1,
+  SERVER = 2,
+}
+
 enum SceneOperations : byte {
   ADD = 0,
   REMOVE = 1,
@@ -21,6 +27,7 @@ enum FilePurpose : byte {
   ANALYSIS = 1,
   FABRICATE = 2
 }
+
 enum FileType : byte {
     IFC = 0,
     GLB = 1,
@@ -52,8 +59,8 @@ table Message {
   command_type: CommandType;
   file_object: FileObject;
   mesh_info: MeshInfo;
-  target_group: string;
-  client_type: string;
+  target_group: TargetType;
+  client_type: TargetType;
   scene_operation: SceneOperations;
   target_id: int = 0; // Default value for optional field
   web_clients: [WebClient];

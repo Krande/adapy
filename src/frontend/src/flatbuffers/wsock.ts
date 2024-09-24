@@ -9,4 +9,5 @@ export { FileType } from './wsock/file-type.js';
 export { MeshInfo, MeshInfoT } from './wsock/mesh-info.js';
 export { Message, MessageT } from './wsock/message.js';
 export { SceneOperations } from './wsock/scene-operations.js';
+export { TargetType } from './wsock/target-type.js';
 export { WebClient, WebClientT } from './wsock/web-client.js';
