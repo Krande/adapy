@@ -1,9 +1,9 @@
 from __future__ import annotations
-from enum import Enum
-from dataclasses import dataclass
-from typing import Optional, List
-import pathlib
 
+import pathlib
+from dataclasses import dataclass
+from enum import Enum
+from typing import List, Optional
 
 
 class CommandTypeDC(Enum):
@@ -16,25 +16,30 @@ class CommandTypeDC(Enum):
     LIST_WEB_CLIENTS = 6
     LIST_FILE_OBJECTS = 7
 
+
 class TargetTypeDC(Enum):
     WEB = 0
     LOCAL = 1
     SERVER = 2
+
 
 class SceneOperationsDC(Enum):
     ADD = 0
     REMOVE = 1
     REPLACE = 2
 
+
 class FilePurposeDC(Enum):
     DESIGN = 0
     ANALYSIS = 1
     FABRICATE = 2
 
+
 class FileTypeDC(Enum):
     IFC = 0
     GLB = 1
     SQLITE = 2
+
 
 @dataclass
 class WebClientDC:
@@ -42,6 +47,7 @@ class WebClientDC:
     name: str = ""
     address: str = ""
     port: int = None
+
 
 @dataclass
 class FileObjectDC:
@@ -51,11 +57,13 @@ class FileObjectDC:
     filepath: pathlib.Path | str = ""
     filedata: bytes = None
 
+
 @dataclass
 class MeshInfoDC:
     object_name: str = ""
     face_index: int = None
     json_data: str = ""
+
 
 @dataclass
 class SceneOperationDC:
@@ -63,9 +71,11 @@ class SceneOperationDC:
     camera_position: List[float] = None
     look_at_position: List[float] = None
 
+
 @dataclass
 class ProcedureStoreDC:
     procedures: Optional[List[ProcedureDC]] = None
+
 
 @dataclass
 class ProcedureDC:
@@ -78,11 +88,13 @@ class ProcedureDC:
     output_ifc_filepath: pathlib.Path | str = ""
     error: str = ""
 
+
 @dataclass
 class ParameterDC:
     name: str = ""
     type: str = ""
     value: str = ""
+
 
 @dataclass
 class MessageDC:

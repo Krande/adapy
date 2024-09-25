@@ -1,5 +1,5 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { TypeChecker } = require("esbuild-helpers");
+import { TypeChecker } from "esbuild-helpers";
 
 const frontend = TypeChecker({
     basePath: "./",

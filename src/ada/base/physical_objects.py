@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pathlib
-from typing import TYPE_CHECKING, Callable, Iterable
+from typing import TYPE_CHECKING, Callable, Iterable, Literal
 
 from ada.api.transforms import Placement
 from ada.base.root import Root
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
     from ada.fem import Elem
     from ada.fem.meshing import GmshOptions
+    from ada.visit.renderer_manager import RenderAssemblyParams
 
 
 class BackendGeom(Root):
@@ -163,42 +164,33 @@ class BackendGeom(Root):
 
     def show(
         self,
-        renderer="react",
+        renderer: Literal["react", "pygfx"] = "react",
         auto_open_viewer=False,
         host="localhost",
         port=8765,
         server_exe: pathlib.Path = None,
         server_args: list[str] = None,
         dry_run=False,
+        run_ws_in_thread=False,
+        params_override: RenderAssemblyParams = None,
     ):
-        from itertools import groupby
+        # Use RendererManager to handle renderer setup and WebSocket connection
+        from ada.visit.renderer_manager import RenderAssemblyParams, RendererManager
 
-        import trimesh
+        renderer_manager = RendererManager(
+            renderer=renderer,
+            host=host,
+            port=port,
+            server_exe=server_exe,
+            server_args=server_args,
+            run_ws_in_thread=run_ws_in_thread,
+        )
+        if params_override is None:
+            params_override = RenderAssemblyParams()
 
-        from ada.occ.tessellating import BatchTessellator
-        from ada.visit.gltf.optimize import concatenate_stores
-        from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
-        from ada.visit.websocket_server import start_ws_server
-
-        bt = BatchTessellator()
-        mesh_stores = list(bt.batch_tessellate([self]))
-
-        scene = trimesh.Scene()
-        mesh_map = []
-
-        for mat_id, meshes in groupby(mesh_stores, lambda x: x.material):
-            meshes = list(meshes)
-
-            merged_store = concatenate_stores(meshes)
-            mesh_map.append((mat_id, meshes, merged_store))
-            merged_mesh_to_trimesh_scene(scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, None)
-
-        if dry_run:
-            return None
-
-        ws = start_ws_server(server_exe=server_exe, server_args=server_args, host=host, port=port)
-        ws.send_scene(scene)
-        return scene.show("notebook")
+        # Set up the renderer and WebSocket server
+        renderer_instance = renderer_manager.render_physical_object(self, params_override)
+        return renderer_instance
 
     @property
     def booleans(self) -> list[Boolean]:

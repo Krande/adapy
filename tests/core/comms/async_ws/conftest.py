@@ -5,7 +5,7 @@ import pytest
 
 from ada.comms.fb_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
 from ada.comms.fb_serializer import serialize_message
-from ada.comms.wsock_client import WebSocketClient
+from ada.comms.wsock_client_async import WebSocketClientAsync
 from ada.comms.wsock_server import WebSocketAsyncServer, handle_partial_message
 from ada.config import logger
 
@@ -47,7 +47,7 @@ def server(event_loop):
             pass  # Suppress the CancelledError to prevent it from propagating
 
 
-async def reply_ping(msg: MessageDC, ws_client: WebSocketClient):
+async def reply_ping(msg: MessageDC, ws_client: WebSocketClientAsync):
     message = MessageDC(
         instance_id=ws_client.instance_id,
         command_type=CommandTypeDC.PONG,
@@ -62,10 +62,10 @@ async def reply_ping(msg: MessageDC, ws_client: WebSocketClient):
 
 
 # Additional instance to connect to the WebSocket server
-async def start_mock_web_client_connection():
-    uri = f"ws://{HOST}:{PORT}"
+async def start_mock_web_client_connection(host, port):
+    uri = f"ws://{host}:{port}"
 
-    async with WebSocketClient(HOST, PORT, "web") as ws_client:
+    async with WebSocketClientAsync(host, port, "web") as ws_client:
         websocket = ws_client.websocket
         logger.debug(f"Connected to server: {uri}")
         try:
@@ -91,8 +91,8 @@ class MockWebParams:
 
 
 @pytest.fixture(scope="session")
-def mock_web_client(event_loop) -> MockWebParams:
-    task = asyncio.ensure_future(start_mock_web_client_connection(), loop=event_loop)
+def mock_async_web_client(event_loop) -> MockWebParams:
+    task = asyncio.ensure_future(start_mock_web_client_connection(HOST, PORT), loop=event_loop)
 
     yield MockWebParams(HOST, PORT, "web")  # Use 'yield' to wait for the fixture to complete
 

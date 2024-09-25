@@ -126,10 +126,8 @@ def iter_loop_coedges(loop_record: AcisRecord) -> Iterable[geo_cu.OrientedEdge]:
     sat_store = loop_record.sat_store
     # Coedge indices
     coedge_ref = 7
-    direction_idx = -4
     coedge_start_id = loop_record.chunks[coedge_ref]
     coedge_first = sat_store.get(coedge_start_id)
-    coedge_first_direction = str(coedge_first.chunks[direction_idx])
     next_coedge_idx = 6  # if coedge_first_direction == "forward" else 7
     coedge_next_id = coedge_first.chunks[next_coedge_idx]
 

@@ -4,10 +4,12 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
+
 np = import_numpy()
 
+
 class SceneOperation(object):
-    __slots__ = ['_tab']
+    __slots__ = ["_tab"]
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -20,6 +22,7 @@ class SceneOperation(object):
     def GetRootAsSceneOperation(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
+
     # SceneOperation
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -36,7 +39,9 @@ class SceneOperation(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             a = self._tab.Vector(o)
-            return self._tab.Get(flatbuffers.number_types.Float32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+            return self._tab.Get(
+                flatbuffers.number_types.Float32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4)
+            )
         return 0
 
     # SceneOperation
@@ -63,7 +68,9 @@ class SceneOperation(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
             a = self._tab.Vector(o)
-            return self._tab.Get(flatbuffers.number_types.Float32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+            return self._tab.Get(
+                flatbuffers.number_types.Float32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4)
+            )
         return 0
 
     # SceneOperation
@@ -85,44 +92,58 @@ class SceneOperation(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         return o == 0
 
+
 def SceneOperationStart(builder):
     builder.StartObject(3)
+
 
 def Start(builder):
     SceneOperationStart(builder)
 
+
 def SceneOperationAddOperation(builder, operation):
     builder.PrependInt8Slot(0, operation, 0)
+
 
 def AddOperation(builder, operation):
     SceneOperationAddOperation(builder, operation)
 
+
 def SceneOperationAddCameraPosition(builder, cameraPosition):
     builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(cameraPosition), 0)
+
 
 def AddCameraPosition(builder, cameraPosition):
     SceneOperationAddCameraPosition(builder, cameraPosition)
 
+
 def SceneOperationStartCameraPositionVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
+
 
 def StartCameraPositionVector(builder, numElems):
     return SceneOperationStartCameraPositionVector(builder, numElems)
 
+
 def SceneOperationAddLookAtPosition(builder, lookAtPosition):
     builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(lookAtPosition), 0)
+
 
 def AddLookAtPosition(builder, lookAtPosition):
     SceneOperationAddLookAtPosition(builder, lookAtPosition)
 
+
 def SceneOperationStartLookAtPositionVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
+
 
 def StartLookAtPositionVector(builder, numElems):
     return SceneOperationStartLookAtPositionVector(builder, numElems)
 
+
 def SceneOperationEnd(builder):
     return builder.EndObject()
+
 
 def End(builder):
     return SceneOperationEnd(builder)

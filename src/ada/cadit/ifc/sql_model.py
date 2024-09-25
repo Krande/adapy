@@ -459,7 +459,6 @@ class sqlite_wrapper:
 
 
 def substitute_int_with_object_from_map(source_dict: dict, map_dict: dict) -> None:
-    contains_ref_ints = True
     for key, value in source_dict.items():
         if isinstance(value, int):
             value_obj = map_dict.get(value)

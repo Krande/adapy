@@ -23,11 +23,13 @@ class EnumDefinition:
     values: List[EnumField]
     schema: Optional["FlatBufferSchema"] = None
 
+
 @dataclass
 class TableDefinition:
     name: str
     fields: List[TableField]
     schema: Optional["FlatBufferSchema"] = None
+
 
 @dataclass
 class FlatBufferSchema:
@@ -41,6 +43,7 @@ class FlatBufferSchema:
 
         for enum in self.enums:
             enum.schema = self
+
 
 # Function to parse enums and tables from the .fbs file and represent them as dataclasses
 def parse_fbs_file(fbs_file: str) -> FlatBufferSchema:

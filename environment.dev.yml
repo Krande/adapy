@@ -16,3 +16,4 @@ dependencies:
   - pillow
   - flatbuffers
   - python-flatbuffers
+  - notebook

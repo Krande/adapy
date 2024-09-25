@@ -8,7 +8,6 @@ ROOT_DIR = THIS_DIR.parent.parent
 
 def update_scene():
     a = ada.from_genie_xml(ROOT_DIR / "files/fem_files/sesam/curved_plates.xml")
-    a.ifc_store.sync()
     a.show(add_ifc_backend=True)
 
 

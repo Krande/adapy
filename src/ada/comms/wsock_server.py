@@ -25,7 +25,7 @@ from ada.comms.fb_model_gen import (
 from ada.comms.fb_serializer import serialize_message
 from ada.comms.procedures import ProcedureStore
 from ada.comms.wsock import Message
-from ada.config import logger, Config
+from ada.config import Config, logger
 
 
 @dataclass
@@ -83,7 +83,9 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
     if message.command_type == CommandTypeDC.UPDATE_SCENE:
         logger.info(f"Received message from {client} to update scene")
         glb_file_data = message.file_object.filedata
-        tmp_dir = pathlib.Path("temp") if Config().websockets_server_temp_dir is None else Config().websockets_server_temp_dir
+        tmp_dir = (
+            pathlib.Path("temp") if Config().websockets_server_temp_dir is None else Config().websockets_server_temp_dir
+        )
         local_glb_file = tmp_dir / f"{message.file_object.name}.glb"
         tmp_dir.mkdir(parents=True, exist_ok=True)
         with open(local_glb_file, "wb") as f:
@@ -111,6 +113,9 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
     elif message.command_type == CommandTypeDC.MESH_INFO_CALLBACK:
         logger.info(f"Received message from {client} to update mesh info")
         logger.info(f"Message: {message}")
+        if server.scene_meta.ifc_sql_store is None:
+            logger.error("IFC SQL store not initialized")
+            return
         node_name = message.mesh_info.object_name
         num = node_name.replace("node", "")
 
@@ -142,14 +147,31 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
         logger.error(f"Unknown command type: {message.command_type}")
 
 
+async def retry_message_sending(
+    server: WebSocketAsyncServer, message: bytes, sender: ConnectedClient, msg: MessageDC, num_retries: int = 3
+):
+    """Retry sending the message to the clients."""
+    while num_retries > 0:
+        for client in server.connected_clients:
+            if client.group_type == msg.target_group:
+                if await server.forward_message(message, sender, msg):
+                    return
+        await asyncio.sleep(1)
+        num_retries -= 1
+        logger.warning(f"Retrying message sending. Retries left: {num_retries}")
+
+
 class WebSocketAsyncServer:
     def __init__(
-            self,
-            host: str,
-            port: int,
-            on_connect: Optional[Callable[[ConnectedClient], asyncio.Future]] = None,
-            on_disconnect: Optional[Callable[[ConnectedClient], asyncio.Future]] = None,
-            on_message: Optional[Callable[[WebSocketAsyncServer, ConnectedClient, bytes], None]] = default_on_message,
+        self,
+        host: str,
+        port: int,
+        on_connect: Optional[Callable[[ConnectedClient], asyncio.Future]] = None,
+        on_disconnect: Optional[Callable[[ConnectedClient], asyncio.Future]] = None,
+        on_message: Optional[Callable[[WebSocketAsyncServer, ConnectedClient, bytes], None]] = default_on_message,
+        on_unsent_message: Optional[
+            Callable[[WebSocketAsyncServer, bytes, ConnectedClient, MessageDC, int], None]
+        ] = retry_message_sending,
     ):
         self.host = host
         self.port = port
@@ -158,8 +180,9 @@ class WebSocketAsyncServer:
         self.on_connect = on_connect
         self.on_disconnect = on_disconnect
         self.on_message = on_message
+        self.on_unsent_message = on_unsent_message
         self.scene_meta = SceneMeta()
-        self.instance_id = random.randint(0, 2 ** 31 - 1)  # Generates a random int32 value
+        self.instance_id = random.randint(0, 2**31 - 1)  # Generates a random int32 value
         self.msg_queue = asyncio.Queue()
         self.procedure_store = ProcedureStore()
 
@@ -174,21 +197,22 @@ class WebSocketAsyncServer:
             async for message in websocket:
                 await self.handle_message(message, client, websocket)
 
-            while not self.msg_queue.empty():
-                msg = self.msg_queue.get_nowait()
-                await self.forward_message(serialize_message(msg), sender=client, msg=msg)
-
         except websockets.ConnectionClosed:
             logger.debug(f"Client disconnected: {websocket.remote_address}")
 
         finally:
             self.connected_clients.remove(client)
-            logger.debug(f"Client disconnected: {client} [{len(self.connected_clients)} clients connected]")
+            logger.debug(f"Client disconnected: {client} [{self._get_clients_str()}]")
             if self.on_disconnect:
                 await self.on_disconnect(client)
 
+    async def _get_clients_str(self):
+        web_clients = [cl for cl in self.connected_clients if cl.group_type == TargetTypeDC.WEB]
+        local_clients = [cl for cl in self.connected_clients if cl.group_type == TargetTypeDC.LOCAL]
+        return f"Web clients: {len(web_clients)}, Local clients: {len(local_clients)}"
+
     async def handle_message(
-            self, message: bytes, client: ConnectedClient, websocket: websockets.WebSocketServerProtocol
+        self, message: bytes, client: ConnectedClient, websocket: websockets.WebSocketServerProtocol
     ):
         msg = await handle_partial_message(message)
         logger.debug(f"Received message: {msg}")
@@ -208,10 +232,14 @@ class WebSocketAsyncServer:
             # Offload to a separate thread
             await asyncio.to_thread(self.on_message, self, client, message)
 
-    async def forward_message(self, message: str | bytes, sender: ConnectedClient, msg: MessageDC):
+    async def forward_message(
+        self, message: str | bytes, sender: ConnectedClient, msg: MessageDC, is_forwarded_message=False
+    ) -> bool:
         target_id = msg.target_id
         target_group = msg.target_group
-
+        if is_forwarded_message:
+            logger.debug(f"Forwarding message to {sender}")
+        message_sent = False
         for client in self.connected_clients:
             if client == sender:
                 continue
@@ -230,6 +258,14 @@ class WebSocketAsyncServer:
             logger.debug(f"Forwarding message to {client}")
 
             await client.websocket.send(message)
+            message_sent = True
+
+        if not message_sent and msg.command_type == CommandTypeDC.UPDATE_SCENE:
+            logger.debug("No clients to forward message to. Starting retry mechanism.")
+            asyncio.create_task(self.on_unsent_message(self, message, sender, msg, 3))
+            return False
+
+        return True
 
     async def start_async(self):
         try:

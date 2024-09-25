@@ -17,12 +17,7 @@ from ada.base.ifc_types import SpatialTypes
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.base.units import Units
-from ada.comms.fb_model_gen import (
-    FileObjectDC,
-    FilePurposeDC,
-    FileTypeDC,
-    SceneOperationDC,
-)
+from ada.comms.fb_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
 from ada.config import logger
 from ada.visit.gltf.graph import GraphNode, GraphStore
 
@@ -44,6 +39,7 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
     from ada.fem.containers import COG
     from ada.fem.meshing import GmshOptions
+    from ada.visit.renderer_manager import RenderAssemblyParams
 
 
 class Part(BackendGeom):
@@ -829,57 +825,50 @@ class Part(BackendGeom):
         server_args: list[str] = None,
         run_ws_in_thread=False,
         stream_from_ifc_store=True,
-        merge_meshes=True,
-        scene_ops: SceneOperationDC = None,
         purpose: FilePurposeDC = FilePurposeDC.DESIGN,
-        scene_post_processor: Callable[[trimesh.Scene], trimesh.Scene] = None,
-        gltf_buffer_postprocessor: Callable[[list[bytes], dict], None] = None,
         add_ifc_backend=False,
-        backend_file_dir: pathlib.Path | str = None,
         auto_sync_ifc_store=True,
+        params_override: RenderAssemblyParams = None,
     ) -> None:
-        from ada import Assembly
-        from ada.comms.wsock_client import WebSocketClient
-        from ada.comms.wsockets_utils import start_ws_async_server
-        from ada.visit.rendering.render_pygfx import PYGFX_RENDERER_EXE_PY
+        # Use RendererManager to handle renderer setup and WebSocket connection
+        from ada.visit.renderer_manager import RenderAssemblyParams, RendererManager
 
-        server_exe = None
-        if renderer == "pygfx":
-            server_exe = PYGFX_RENDERER_EXE_PY
-
-        # Start the websocket server
-        start_ws_async_server(
-            server_exe=server_exe, server_args=server_args, host=host, port=port, run_in_thread=run_ws_in_thread
+        renderer_manager = RendererManager(
+            renderer=renderer,
+            host=host,
+            port=port,
+            server_exe=server_exe,
+            server_args=server_args,
+            run_ws_in_thread=run_ws_in_thread,
         )
+        if params_override is None:
+            params_override = RenderAssemblyParams(
+                auto_sync_ifc_store=auto_sync_ifc_store,
+                stream_from_ifc_store=stream_from_ifc_store,
+                add_ifc_backend=add_ifc_backend,
+            )
 
-        with WebSocketClient(host, port) as wc:
-            if renderer == "react" and wc.check_target_liveness() is False:
-                from ada.visit.rendering.renderer_react import RendererReact
+        # Set up the renderer and WebSocket server
+        renderer_instance = renderer_manager.render_part_or_assembly(self, params_override)
+        return renderer_instance
 
-                RendererReact().show()
+    def _sync_ifc_backend(self, backend_file_dir, wc):
+        """Handles syncing the IFC backend if enabled."""
+        from ada import Assembly
 
-            if auto_sync_ifc_store and isinstance(self, Assembly):
-                self.ifc_store.sync()
+        if isinstance(self, Assembly) is False:
+            return None
 
-            scene = self.to_trimesh_scene(stream_from_ifc=stream_from_ifc_store, merge_meshes=merge_meshes)
-            if scene_post_processor is not None:
-                scene = scene_post_processor(scene)
+        if isinstance(backend_file_dir, str):
+            backend_file_dir = pathlib.Path(backend_file_dir)
 
-            while wc.check_target_liveness() is False:
-                pass
+        if backend_file_dir is None:
+            backend_file_dir = pathlib.Path.cwd() / "temp"
 
-            # Send the geometry to the frontend using the websocket server
-            wc.update_scene(self.name, scene, purpose=purpose, gltf_buffer_postprocessor=gltf_buffer_postprocessor)
+        ifc_file = backend_file_dir / f"{self.name}.ifc"
+        self.to_ifc(ifc_file)
 
-            if add_ifc_backend and isinstance(self, Assembly):
-                if isinstance(backend_file_dir, str):
-                    backend_file_dir = pathlib.Path(backend_file_dir)
-                if backend_file_dir is None:
-                    backend_file_dir = pathlib.Path.cwd() / "temp"
-
-                ifc_file = backend_file_dir / f"{self.name}.ifc"
-                self.to_ifc(backend_file_dir / ifc_file)
-                wc.update_file_server(FileObjectDC(self.name, FileTypeDC.IFC, FilePurposeDC.DESIGN, ifc_file))
+        wc.update_file_server(FileObjectDC(self.name, FileTypeDC.IFC, FilePurposeDC.DESIGN, ifc_file))
 
     @property
     def animation_store(self) -> AnimationStore:

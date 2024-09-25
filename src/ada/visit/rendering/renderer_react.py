@@ -1,11 +1,17 @@
+from __future__ import annotations
+
 import os
 import pathlib
 import zipfile
+from typing import TYPE_CHECKING
 
 from ada.config import logger
 from ada.visit.colors import Color
 from ada.visit.rendering.render_backend import SqLiteBackend
 from ada.visit.utils import in_notebook
+
+if TYPE_CHECKING:
+    from IPython.display import HTML
 
 BG_GRAY = Color(57, 57, 57)
 PICKED_COLOR = Color(0, 123, 255)
@@ -39,20 +45,23 @@ class RendererReact:
         with open(HASH_FILE, "w") as f:
             f.write(hash_content)
 
-    def show(self):
+    def show(self) -> None | HTML:
         if in_notebook():
             return self.get_notebook_renderer()
         else:
             # open html file in browser
             os.startfile(self.local_html_path)
 
-    def get_notebook_renderer(self, height=500):
+    def get_notebook_renderer(self, height=500) -> HTML:
+        import html
+
         from IPython.display import HTML
 
         # Copied from https://github.com/mikedh/trimesh/blob/main/trimesh/viewer/notebook.py#L51-L88
         as_html = self.local_html_path.read_text(encoding="utf-8")
         # escape the quotes in the HTML
-        srcdoc = as_html.replace('"', "&quot;")
+        srcdoc = html.escape(as_html)
+        # srcdoc = as_html.replace('"', "&quot;")
         # embed this puppy as the srcdoc attr of an IFframe
         # I tried this a dozen ways and this is the only one that works
         # display.IFrame/display.Javascript really, really don't work

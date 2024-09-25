@@ -52,10 +52,15 @@ class ProcedureStore:
 def get_procedures_from_script_dir(script_dir: pathlib.Path) -> dict[str, Procedure]:
     procedures = {}
     for script in script_dir.glob("*.py"):
-        ...  # Parse the script and extract procedures
+        procedures[script.stem] = get_procedure_from_script(script)
 
     return procedures
 
 
 def get_procedure_from_function(func: Callable) -> Procedure:
     return Procedure(name=func.__name__, description=func.__doc__, func=func)
+
+
+def get_procedure_from_script(script_path: pathlib.Path) -> Procedure:
+    ...  # Parse the script and extract procedures
+    return Procedure(name="name", description="description", script_path=script_path)

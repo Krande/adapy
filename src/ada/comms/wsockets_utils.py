@@ -8,6 +8,7 @@ import time
 
 import websockets
 
+from ada.comms.fb_model_gen import TargetTypeDC
 from ada.comms.wsock_server import WebSocketAsyncServer
 from ada.config import logger
 from ada.visit.websocket_server import start_external_ws_server
@@ -81,3 +82,12 @@ def start_ws_async_server(
 
         while is_server_running(host, port) is False:
             time.sleep(0.1)
+
+
+def client_as_str(client_type: TargetTypeDC) -> str:
+    if client_type == TargetTypeDC.LOCAL:
+        return "local"
+    elif client_type == TargetTypeDC.WEB:
+        return "web"
+    else:
+        raise ValueError("Invalid client type.")
