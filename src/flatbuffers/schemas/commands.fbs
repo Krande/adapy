@@ -9,6 +9,9 @@ enum CommandType : byte {
   MESH_INFO_REPLY = 5,
   LIST_WEB_CLIENTS = 6,
   LIST_FILE_OBJECTS = 7,
+  LIST_PROCEDURES = 8,
+  ERROR = 9,
+  SERVER_REPLY = 10,
 }
 
 enum TargetType : byte {
@@ -83,6 +86,11 @@ table Parameter {
     name: string;
     type: string;  // E.g., 'string', 'number', 'boolean'
     value: string; // The value of the parameter
+}
+
+table Error {
+  code: int;
+  message: string;
 }
 
 table Message {

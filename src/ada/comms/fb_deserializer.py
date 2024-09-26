@@ -1,5 +1,6 @@
 from ada.comms.fb_model_gen import (
     CommandTypeDC,
+    ErrorDC,
     FileObjectDC,
     FilePurposeDC,
     FileTypeDC,
@@ -116,6 +117,15 @@ def deserialize_parameter(fb_obj) -> ParameterDC | None:
         name=fb_obj.Name().decode("utf-8") if fb_obj.Name() is not None else None,
         type=fb_obj.Type().decode("utf-8") if fb_obj.Type() is not None else None,
         value=fb_obj.Value().decode("utf-8") if fb_obj.Value() is not None else None,
+    )
+
+
+def deserialize_error(fb_obj) -> ErrorDC | None:
+    if fb_obj is None:
+        return None
+
+    return ErrorDC(
+        code=fb_obj.Code(), message=fb_obj.Message().decode("utf-8") if fb_obj.Message() is not None else None
     )
 
 

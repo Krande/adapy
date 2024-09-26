@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import pathlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Literal, Optional, OrderedDict
 
+import numpy as np
 import trimesh
 
 from ada.comms.fb_model_gen import FilePurposeDC
@@ -13,24 +14,95 @@ if TYPE_CHECKING:
 
     from ada import Assembly, Part
     from ada.base.physical_objects import BackendGeom
+    from ada.fem.results.common import FEAResult
 
 
 @dataclass
-class RenderAssemblyParams:
+class FEARenderParams:
+    step: int = (None,)
+    field: str = (None,)
+    warp_field: str = (None,)
+    warp_step: int = (None,)
+    cfunc: Callable[[list[float]], float] = (None,)
+    warp_scale: float = 1.0
+
+
+@dataclass
+class RenderParams:
     auto_sync_ifc_store: bool = False
     stream_from_ifc_store: bool = False
     merge_meshes: bool = True
     scene_post_processor: Optional[Callable[[trimesh.Scene], trimesh.Scene]] = None
     purpose: Optional[FilePurposeDC] = FilePurposeDC.DESIGN
     gltf_buffer_postprocessor: Optional[Callable[[OrderedDict, dict], None]] = None
+    gltf_tree_postprocessor: Optional[Callable[[OrderedDict], None]] = None
     add_ifc_backend: bool = False
     backend_file_dir: Optional[str] = None
     unique_id: int = None
+    fea_params: Optional[FEARenderParams] = field(default_factory=FEARenderParams)
 
     def __post_init__(self):
         # ensure that if unique_id is set, it is a 32-bit integer
         if self.unique_id is not None:
             self.unique_id = self.unique_id & 0xFFFFFFFF
+
+
+def scene_from_fem_results(self: FEAResult, params: RenderParams):
+    from trimesh.path.entities import Line
+
+    from ada.api.animations import Animation, AnimationStore
+    from ada.core.vector_transforms import rot_matrix
+
+    warp_scale = params.fea_params.warp_scale
+
+    # initial mesh
+    vertices = self.mesh.nodes.coords
+    edges, faces = self.mesh.get_edges_and_faces_from_mesh()
+
+    faces_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+
+    entities = [Line(x) for x in edges]
+    edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
+
+    scene = trimesh.Scene()
+    face_node = scene.add_geometry(faces_mesh, node_name=self.name, geom_name="faces")
+    _ = scene.add_geometry(edge_mesh, node_name=f"{self.name}_edges", geom_name="edges", parent_node_name=self.name)
+
+    face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == face_node][0]
+    # edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == edge_node][0]
+
+    # React renderer supports animations
+    animation_store = AnimationStore()
+
+    # Loop over the results and create an animation from it
+    vertices = self.mesh.nodes.coords
+    added_results = []
+    for i, result in enumerate(self.results):
+        warped_vertices = self._warp_data(vertices, result.name, result.step, warp_scale)
+        delta_vertices = warped_vertices - vertices
+        result_name = f"{result.name}_{result.step}"
+        if result_name in added_results:
+            result_name = f"{result.name}_{result.step}_{i}"
+        added_results.append(result_name)
+        animation = Animation(
+            result_name,
+            [0, 2, 4, 6, 8],
+            deformation_weights_keyframes=[0, 1, 0, -1, 0],
+            deformation_shape=delta_vertices,
+            node_idx=[face_node_idx],
+        )
+        animation_store.add(animation)
+
+    # Trimesh automatically transforms by setting up = Y. This will counteract that transform
+    m3x3 = rot_matrix((0, -1, 0))
+    m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
+    m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
+    scene.apply_transform(m4x4)
+
+    params.gltf_buffer_postprocessor = animation_store
+    params.gltf_tree_postprocessor = AnimationStore.tree_postprocessor
+
+    return scene
 
 
 def scene_from_object(physical_object: BackendGeom) -> trimesh.Scene:
@@ -56,7 +128,7 @@ def scene_from_object(physical_object: BackendGeom) -> trimesh.Scene:
     return scene
 
 
-def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, params: RenderAssemblyParams) -> trimesh.Scene:
+def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, params: RenderParams) -> trimesh.Scene:
     from ada import Assembly
 
     if params.auto_sync_ifc_store and isinstance(part_or_assembly, Assembly):
@@ -132,10 +204,11 @@ class RendererManager:
 
         return renderer
 
-    def render(self, obj: BackendGeom | Part | Assembly, params: RenderAssemblyParams) -> HTML | None:
+    def render(self, obj: BackendGeom | Part | Assembly | FEAResult, params: RenderParams) -> HTML | None:
         from ada import Assembly, Part
         from ada.base.physical_objects import BackendGeom
         from ada.comms.wsock_client_sync import WebSocketClientSync
+        from ada.fem.results.common import FEAResult
 
         # Set up the renderer and WebSocket server
         self.start_server()
@@ -152,6 +225,8 @@ class RendererManager:
                 scene = scene_from_part_or_assembly(obj, params)
             elif isinstance(obj, BackendGeom):
                 scene = scene_from_object(obj)
+            elif isinstance(obj, FEAResult):
+                scene = scene_from_fem_results(obj, params)
             else:
                 raise ValueError(f"Unsupported object type: {type(obj)}")
 

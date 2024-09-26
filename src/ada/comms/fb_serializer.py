@@ -2,6 +2,7 @@ from typing import Optional
 
 import flatbuffers
 from ada.comms.fb_model_gen import (
+    ErrorDC,
     FileObjectDC,
     MeshInfoDC,
     MessageDC,
@@ -12,6 +13,7 @@ from ada.comms.fb_model_gen import (
     WebClientDC,
 )
 from ada.comms.wsock import (
+    Error,
     FileObject,
     MeshInfo,
     Message,
@@ -111,7 +113,7 @@ def serialize_procedurestore(builder: flatbuffers.Builder, obj: Optional[Procedu
         return None
 
     ProcedureStore.Start(builder)
-    if obj.procedures is not None:
+    if obj.procedures is not None and len(obj.procedures) > 0:
         procedures_list = [serialize_procedure(builder, item) for item in obj.procedures]
         ProcedureStore.AddProcedures(builder, builder.CreateByteVector(procedures_list))
     return ProcedureStore.End(builder)
@@ -151,7 +153,7 @@ def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]
         Procedure.AddDescription(builder, description_str)
     if script_file_location_str is not None:
         Procedure.AddScriptFileLocation(builder, script_file_location_str)
-    if obj.parameters is not None:
+    if obj.parameters is not None and len(obj.parameters) > 0:
         parameters_list = [serialize_parameter(builder, item) for item in obj.parameters]
         Procedure.AddParameters(builder, builder.CreateByteVector(parameters_list))
     if input_ifc_filepath_str is not None:
@@ -184,6 +186,21 @@ def serialize_parameter(builder: flatbuffers.Builder, obj: Optional[ParameterDC]
     if value_str is not None:
         Parameter.AddValue(builder, value_str)
     return Parameter.End(builder)
+
+
+def serialize_error(builder: flatbuffers.Builder, obj: Optional[ErrorDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    message_str = None
+    if obj.message is not None:
+        message_str = builder.CreateString(str(obj.message))
+
+    Error.Start(builder)
+    if obj.code is not None:
+        Error.AddCode(builder, obj.code)
+    if message_str is not None:
+        Error.AddMessage(builder, message_str)
+    return Error.End(builder)
 
 
 def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:

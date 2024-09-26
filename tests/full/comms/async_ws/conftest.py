@@ -1,7 +1,9 @@
 import asyncio
+import threading
 from dataclasses import dataclass
 
 import pytest
+import pytest_asyncio
 
 from ada.comms.fb_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
 from ada.comms.fb_serializer import serialize_message
@@ -13,38 +15,34 @@ WS_HOST = "localhost"
 WS_PORT = 1325
 
 
-async def start():
-    ws_server = WebSocketAsyncServer(WS_HOST, WS_PORT)
-
-    try:
-        ws = await ws_server.start_async()
-        print(f"WebSocket server started on ws://{WS_HOST}:{WS_PORT}")
-        await ws.wait_closed()
-    except asyncio.CancelledError:
-        await ws_server.stop()  # Properly stop the server
-        raise  # Reraise to ensure proper handling in fixtures
-
-
 @pytest.fixture(scope="session")
-def event_loop():
-    return asyncio.get_event_loop()
+def ws_server():
+    # Function to run the WebSocket server in a separate thread
+    def start_ws_server(loop):
+        asyncio.set_event_loop(loop)
+        ws_server_instance = WebSocketAsyncServer(WS_HOST, WS_PORT)
+        loop.run_until_complete(ws_server_instance.start_async())
+        print(f"WebSocket server started on ws://{WS_HOST}:{WS_PORT}")
+        try:
+            loop.run_forever()
+        finally:
+            loop.run_until_complete(ws_server_instance.stop())
+            print("WebSocket server stopped")
 
+    # Create a new event loop for the WebSocket server
+    ws_loop = asyncio.new_event_loop()
+    ws_thread = threading.Thread(target=start_ws_server, args=(ws_loop,), daemon=True)
+    ws_thread.start()
 
-@pytest.fixture(autouse=False, scope="session")
-def ws_server(event_loop):
-    task = asyncio.ensure_future(start(), loop=event_loop)
-
-    # Sleeps to allow the server boot-up.
-    event_loop.run_until_complete(asyncio.sleep(1))
+    # Wait a moment to ensure the server has started
+    # time.sleep(1)
 
     try:
-        yield
+        yield WS_HOST, WS_PORT
     finally:
-        task.cancel()
-        try:
-            event_loop.run_until_complete(task)  # Wait for task to finish
-        except asyncio.CancelledError:
-            pass  # Suppress the CancelledError to prevent it from propagating
+        # Stop the WebSocket server
+        ws_loop.call_soon_threadsafe(ws_loop.stop)
+        ws_thread.join()
 
 
 async def reply_ping(msg: MessageDC, ws_client: WebSocketClientAsync):
@@ -90,7 +88,7 @@ class MockWebParams:
     client_type: TargetTypeDC.WEB
 
 
-@pytest.fixture(scope="session")
+@pytest_asyncio.fixture
 def mock_async_web_client(event_loop) -> MockWebParams:
     task = asyncio.ensure_future(start_mock_web_client_connection(WS_HOST, WS_PORT), loop=event_loop)
 

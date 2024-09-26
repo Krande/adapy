@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
     from ada.fem import Elem
     from ada.fem.meshing import GmshOptions
-    from ada.visit.renderer_manager import RenderAssemblyParams
+    from ada.visit.renderer_manager import RenderParams
 
 
 class BackendGeom(Root):
@@ -176,10 +176,10 @@ class BackendGeom(Root):
         purpose: FilePurposeDC = FilePurposeDC.DESIGN,
         add_ifc_backend=False,
         auto_sync_ifc_store=True,
-        params_override: RenderAssemblyParams = None,
+        params_override: RenderParams = None,
     ):
         # Use RendererManager to handle renderer setup and WebSocket connection
-        from ada.visit.renderer_manager import RenderAssemblyParams, RendererManager
+        from ada.visit.renderer_manager import RendererManager, RenderParams
 
         renderer_manager = RendererManager(
             renderer=renderer,
@@ -191,7 +191,7 @@ class BackendGeom(Root):
         )
 
         if params_override is None:
-            params_override = RenderAssemblyParams(
+            params_override = RenderParams(
                 unique_id=unique_id,
                 auto_sync_ifc_store=auto_sync_ifc_store,
                 stream_from_ifc_store=stream_from_ifc_store,

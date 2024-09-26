@@ -26,7 +26,7 @@ def make_pl_fem(geom_repr) -> ada.Assembly:
 def run(fem_format):
     a = make_pl_fem("shell")
     res = a.to_fem(f"plate_{fem_format}_EIG_sh", fem_format, overwrite=True, execute=True, scratch_dir="temp")
-    res.show(new_glb_file="temp/plate_fem.glb", server_args=["--debug"], update_only=True, warp_scale=1)
+    res.show(warp_scale=1)
     res.to_vtu(f"temp/plate_{fem_format}_fem.vtu")
 
 

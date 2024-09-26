@@ -3,6 +3,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
 export { CommandType } from './wsock/command-type.js';
+export { Error, ErrorT } from './wsock/error.js';
 export { FileObject, FileObjectT } from './wsock/file-object.js';
 export { FilePurpose } from './wsock/file-purpose.js';
 export { FileType } from './wsock/file-type.js';

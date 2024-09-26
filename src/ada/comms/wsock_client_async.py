@@ -11,6 +11,7 @@ from ada.comms.fb_model_gen import (
     FileObjectDC,
     FilePurposeDC,
     MessageDC,
+    ProcedureDC,
     SceneOperationsDC,
     TargetTypeDC,
 )
@@ -63,11 +64,14 @@ class WebSocketClientAsync(WebSocketClientBase):
         purpose: FilePurposeDC = FilePurposeDC.DESIGN,
         scene_op: SceneOperationsDC = SceneOperationsDC.REPLACE,
         gltf_buffer_postprocessor=None,
+        gltf_tree_postprocessor=None,
         target_id=None,
     ):
         # Serialize the dataclass message into a FlatBuffer
         await self.websocket.send(
-            self._scene_update_prep(name, scene, purpose, scene_op, gltf_buffer_postprocessor, target_id)
+            self._scene_update_prep(
+                name, scene, purpose, scene_op, gltf_buffer_postprocessor, gltf_tree_postprocessor, target_id
+            )
         )
 
     async def update_file_server(self, file_object: FileObjectDC):
@@ -79,3 +83,8 @@ class WebSocketClientAsync(WebSocketClientBase):
         else:
             message = await self.websocket.recv()
         return deserialize_root_message(message)
+
+    async def list_procedures(self) -> list[ProcedureDC]:
+        await self.websocket.send(self._list_procedures_prep())
+        msg = await self.receive()
+        return msg.procedure_store.procedures

@@ -15,6 +15,9 @@ class CommandTypeDC(Enum):
     MESH_INFO_REPLY = 5
     LIST_WEB_CLIENTS = 6
     LIST_FILE_OBJECTS = 7
+    LIST_PROCEDURES = 8
+    ERROR = 9
+    SERVER_REPLY = 10
 
 
 class TargetTypeDC(Enum):
@@ -94,6 +97,12 @@ class ParameterDC:
     name: str = ""
     type: str = ""
     value: str = ""
+
+
+@dataclass
+class ErrorDC:
+    code: int = None
+    message: str = ""
 
 
 @dataclass

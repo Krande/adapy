@@ -6,6 +6,7 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from ada.comms.fb_model_gen import ParameterDC, ProcedureDC, ProcedureStoreDC
 from ada.config import Config, logger
 
 
@@ -47,6 +48,16 @@ class Procedure:
     def __call__(self, *args, **kwargs) -> str:
         return self.func(*args, **kwargs)
 
+    def to_procedure_dc(self) -> ProcedureDC:
+        return ProcedureDC(
+            name=self.name,
+            description=self.description,
+            script_file_location=self.script_path.as_posix() if self.script_path is not None else "",
+            parameters=(
+                [ParameterDC(key, value=val) for key, val in self.params.items()] if self.params is not None else None
+            ),
+        )
+
 
 @dataclass
 class ProcedureStore:
@@ -63,6 +74,9 @@ class ProcedureStore:
 
     def get(self, name: str) -> Procedure:
         return self.procedures.get(name)
+
+    def to_procedure_dc(self) -> ProcedureStoreDC:
+        return ProcedureStoreDC(procedures=[proc.to_procedure_dc() for proc in self.procedures.values()])
 
 
 def get_procedures_from_script_dir(script_dir: pathlib.Path) -> dict[str, Procedure]:

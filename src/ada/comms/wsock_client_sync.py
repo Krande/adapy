@@ -7,6 +7,7 @@ from ada.comms.fb_model_gen import (
     FileObjectDC,
     FilePurposeDC,
     MessageDC,
+    ProcedureDC,
     SceneOperationsDC,
     TargetTypeDC,
 )
@@ -39,6 +40,11 @@ class WebSocketClientSync(WebSocketClientBase):
         """Synchronous disconnect."""
         self.disconnect()
 
+    def receive(self, timeout=None) -> MessageDC:
+        """Receives a message from the WebSocket with an optional timeout."""
+        message = self.websocket.recv(timeout=timeout)
+        return deserialize_root_message(message)
+
     def check_target_liveness(self, target_id=None, target_group: TargetTypeDC = TargetTypeDC.WEB, timeout=1):
         """Checks if the target is alive by sending a PING command."""
         self.websocket.send(self._prep_target_liveness(target_id, target_group))
@@ -57,18 +63,22 @@ class WebSocketClientSync(WebSocketClientBase):
         purpose: FilePurposeDC = FilePurposeDC.DESIGN,
         scene_op: SceneOperationsDC = SceneOperationsDC.REPLACE,
         gltf_buffer_postprocessor=None,
+        gltf_tree_postprocessor=None,
         target_id=None,
     ):
         """Updates the scene with the given GLTF data."""
         self.websocket.send(
-            self._scene_update_prep(name, scene, purpose, scene_op, gltf_buffer_postprocessor, target_id=target_id)
+            self._scene_update_prep(
+                name, scene, purpose, scene_op, gltf_buffer_postprocessor, gltf_tree_postprocessor, target_id=target_id
+            )
         )
 
     def update_file_server(self, file_object: FileObjectDC):
         """Updates the file server with a new file."""
         self.websocket.send(self._update_file_server_prep(file_object))
 
-    def receive(self, timeout=None) -> MessageDC:
-        """Receives a message from the WebSocket with an optional timeout."""
-        message = self.websocket.recv(timeout=timeout)
-        return deserialize_root_message(message)
+    def list_procedures(self) -> list[ProcedureDC]:
+        """Lists the available procedures."""
+        self.websocket.send(self._list_procedures_prep())
+        msg = self.receive()
+        return msg.procedure_store.procedures

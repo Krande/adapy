@@ -12,6 +12,7 @@ from ada.comms.fb_model_gen import (
     FilePurposeDC,
     FileTypeDC,
     MessageDC,
+    ProcedureDC,
     SceneOperationDC,
     SceneOperationsDC,
     TargetTypeDC,
@@ -58,10 +59,16 @@ class WebSocketClientBase(ABC):
         purpose: FilePurposeDC = FilePurposeDC.DESIGN,
         scene_op: SceneOperationsDC = SceneOperationsDC.REPLACE,
         gltf_buffer_postprocessor=None,
+        gltf_tree_postprocessor=None,
         target_id=None,
     ) -> bytes:
         with io.BytesIO() as data:
-            scene.export(file_obj=data, file_type="glb", buffer_postprocessor=gltf_buffer_postprocessor)
+            scene.export(
+                file_obj=data,
+                file_type="glb",
+                buffer_postprocessor=gltf_buffer_postprocessor,
+                tree_postprocessor=gltf_tree_postprocessor,
+            )
             file_object = FileObjectDC(name=name, file_type=FileTypeDC.GLB, purpose=purpose, filedata=data.getvalue())
             message = MessageDC(
                 instance_id=self.instance_id,
@@ -82,12 +89,24 @@ class WebSocketClientBase(ABC):
         )
         return serialize_message(message)
 
+    def _list_procedures_prep(self) -> bytes:
+        message = MessageDC(
+            instance_id=self.instance_id,
+            command_type=CommandTypeDC.LIST_PROCEDURES,
+            target_group=TargetTypeDC.SERVER,
+        )
+        return serialize_message(message)
+
     @abstractmethod
     def connect(self):
         pass
 
     @abstractmethod
     def disconnect(self):
+        pass
+
+    @abstractmethod
+    def receive(self, timeout=None) -> MessageDC:
         pass
 
     @abstractmethod
@@ -110,5 +129,5 @@ class WebSocketClientBase(ABC):
         pass
 
     @abstractmethod
-    def receive(self, timeout=None) -> MessageDC:
+    def list_procedures(self) -> list[ProcedureDC]:
         pass

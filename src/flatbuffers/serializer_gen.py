@@ -43,7 +43,7 @@ def generate_serialize_function(table: TableDefinition) -> str:
                 serialize_code += f"    if obj.{field.name} is not None:\n"
                 serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, builder.CreateFloatVector(obj.{field.name}))\n"
             elif field_type_value in table_names:
-                serialize_code += f"    if obj.{field.name} is not None:\n"
+                serialize_code += f"    if obj.{field.name} is not None and len(obj.{field.name}) > 0:\n"
                 serialize_code += f"        {field.name}_list = [serialize_{field_type_value.lower()}(builder, item) for item in obj.{field.name}]\n"
                 serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, builder.CreateByteVector({field.name}_list))\n"
             else:
