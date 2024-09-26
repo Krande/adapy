@@ -30,7 +30,7 @@ def event_loop():
     return asyncio.get_event_loop()
 
 
-@pytest.fixture(autouse=True, scope="session")
+@pytest.fixture(autouse=False, scope="session")
 def ws_server(event_loop):
     task = asyncio.ensure_future(start(), loop=event_loop)
 
