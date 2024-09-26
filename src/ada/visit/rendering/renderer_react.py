@@ -45,9 +45,9 @@ class RendererReact:
         with open(HASH_FILE, "w") as f:
             f.write(hash_content)
 
-    def show(self) -> None | HTML:
+    def show(self, target_id=None) -> None | HTML:
         if in_notebook():
-            return self.get_notebook_renderer()
+            return self.get_notebook_renderer_widget(target_id=target_id)
         else:
             # open html file in browser
             os.startfile(self.local_html_path)
@@ -76,6 +76,15 @@ class RendererReact:
             ).format(srcdoc=srcdoc, height=height)
         )
         return embedded
+
+    def get_notebook_renderer_widget(self, height=500, target_id=None):
+        from ada.visit.rendering.renderer_widget import WebSocketRenderer
+
+        as_html = self.local_html_path.read_text(encoding="utf-8")
+        renderer = WebSocketRenderer(as_html, height=height)
+        if target_id is not None:
+            renderer.unique_id = target_id
+        return renderer.display()
 
 
 def main():

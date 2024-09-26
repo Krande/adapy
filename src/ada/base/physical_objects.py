@@ -7,6 +7,7 @@ from ada.api.transforms import Placement
 from ada.base.root import Root
 from ada.base.types import GeomRepr
 from ada.base.units import Units
+from ada.comms.fb_model_gen import FilePurposeDC
 from ada.geom import Geometry
 from ada.geom.booleans import BoolOpEnum
 from ada.visit.colors import Color, color_dict
@@ -165,13 +166,16 @@ class BackendGeom(Root):
     def show(
         self,
         renderer: Literal["react", "pygfx"] = "react",
-        auto_open_viewer=False,
         host="localhost",
         port=8765,
         server_exe: pathlib.Path = None,
         server_args: list[str] = None,
-        dry_run=False,
         run_ws_in_thread=False,
+        unique_id=None,
+        stream_from_ifc_store=True,
+        purpose: FilePurposeDC = FilePurposeDC.DESIGN,
+        add_ifc_backend=False,
+        auto_sync_ifc_store=True,
         params_override: RenderAssemblyParams = None,
     ):
         # Use RendererManager to handle renderer setup and WebSocket connection
@@ -185,11 +189,17 @@ class BackendGeom(Root):
             server_args=server_args,
             run_ws_in_thread=run_ws_in_thread,
         )
+
         if params_override is None:
-            params_override = RenderAssemblyParams()
+            params_override = RenderAssemblyParams(
+                unique_id=unique_id,
+                auto_sync_ifc_store=auto_sync_ifc_store,
+                stream_from_ifc_store=stream_from_ifc_store,
+                add_ifc_backend=add_ifc_backend,
+            )
 
         # Set up the renderer and WebSocket server
-        renderer_instance = renderer_manager.render_physical_object(self, params_override)
+        renderer_instance = renderer_manager.render(self, params_override)
         return renderer_instance
 
     @property

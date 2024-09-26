@@ -21,7 +21,7 @@ from ada.comms.wsockets_utils import client_as_str
 
 
 class WebSocketClientBase(ABC):
-    def __init__(self, host: str, port: int, client_type: TargetTypeDC | str):
+    def __init__(self, host: str, port: int, client_type: TargetTypeDC | str, url_override: str = None):
         if isinstance(client_type, str):
             if client_type == "local":
                 client_type = TargetTypeDC.LOCAL
@@ -34,6 +34,7 @@ class WebSocketClientBase(ABC):
         self.client_type = client_type
         self.instance_id = random.randint(0, 2**31 - 1)
         self.websocket = None
+        self.url_override = url_override
 
     def _extra_headers(self):
         return {"Client-Type": client_as_str(self.client_type), "instance-id": str(self.instance_id)}
@@ -44,6 +45,7 @@ class WebSocketClientBase(ABC):
             command_type=CommandTypeDC.PING,
             target_id=target_id,
             target_group=target_group,
+            client_type=self.client_type,
         )
 
         # Serialize the dataclass message into a FlatBuffer
@@ -56,6 +58,7 @@ class WebSocketClientBase(ABC):
         purpose: FilePurposeDC = FilePurposeDC.DESIGN,
         scene_op: SceneOperationsDC = SceneOperationsDC.REPLACE,
         gltf_buffer_postprocessor=None,
+        target_id=None,
     ) -> bytes:
         with io.BytesIO() as data:
             scene.export(file_obj=data, file_type="glb", buffer_postprocessor=gltf_buffer_postprocessor)
@@ -65,6 +68,7 @@ class WebSocketClientBase(ABC):
                 command_type=CommandTypeDC.UPDATE_SCENE,
                 file_object=file_object,
                 target_group=TargetTypeDC.WEB,
+                target_id=target_id,
                 scene_operation=SceneOperationDC(operation=scene_op),
             )
             return serialize_message(message)

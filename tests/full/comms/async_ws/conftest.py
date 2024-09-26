@@ -9,16 +9,16 @@ from ada.comms.wsock_client_async import WebSocketClientAsync
 from ada.comms.wsock_server import WebSocketAsyncServer, handle_partial_message
 from ada.config import logger
 
-HOST = "localhost"
-PORT = 1325
+WS_HOST = "localhost"
+WS_PORT = 1325
 
 
 async def start():
-    ws_server = WebSocketAsyncServer(HOST, PORT)
+    ws_server = WebSocketAsyncServer(WS_HOST, WS_PORT)
 
     try:
         ws = await ws_server.start_async()
-        print(f"WebSocket server started on ws://{HOST}:{PORT}")
+        print(f"WebSocket server started on ws://{WS_HOST}:{WS_PORT}")
         await ws.wait_closed()
     except asyncio.CancelledError:
         await ws_server.stop()  # Properly stop the server
@@ -31,7 +31,7 @@ def event_loop():
 
 
 @pytest.fixture(autouse=True, scope="session")
-def server(event_loop):
+def ws_server(event_loop):
     task = asyncio.ensure_future(start(), loop=event_loop)
 
     # Sleeps to allow the server boot-up.
@@ -92,9 +92,9 @@ class MockWebParams:
 
 @pytest.fixture(scope="session")
 def mock_async_web_client(event_loop) -> MockWebParams:
-    task = asyncio.ensure_future(start_mock_web_client_connection(HOST, PORT), loop=event_loop)
+    task = asyncio.ensure_future(start_mock_web_client_connection(WS_HOST, WS_PORT), loop=event_loop)
 
-    yield MockWebParams(HOST, PORT, "web")  # Use 'yield' to wait for the fixture to complete
+    yield MockWebParams(WS_HOST, WS_PORT, "web")  # Use 'yield' to wait for the fixture to complete
 
     # Cancel the task and wait for it to finish
     task.cancel()

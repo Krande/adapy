@@ -63,12 +63,14 @@ jobs:
             pythreejs
             pyparsing
             websockets
+            nodejs
             pygfx
             pyglfw
 
       - name: Install latest adapy
         run: |
           pip install -e .
+          pip install pytest-playwright
 
       - name: Run Tests
         run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/profiling/ --durations=0

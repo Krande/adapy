@@ -17,3 +17,7 @@ dependencies:
   - flatbuffers
   - python-flatbuffers
   - notebook
+  - nodejs
+  - pip
+  - pip:
+      - pytest-playwright

@@ -6,6 +6,7 @@ class WebSocketHandler {
     socket: WebSocket | null;
     retry_wait: number = 1000; // Time to wait before retrying connection in milliseconds
     // Generate a random 32-bit integer for the instance ID
+
     instance_id: number = this.getRandomInt32();
 
     constructor() {
@@ -15,7 +16,12 @@ class WebSocketHandler {
         return Math.floor(Math.random() * (2147483647 - (-2147483648) + 1)) + (-2147483648);
     }
     connect(url: string, onMessageReceived: (event: MessageEvent) => void) {
-
+        // Access the WebSocket ID from the global window object
+        const websocketId = (window as any).WEBSOCKET_ID;
+        if (websocketId) {
+            console.log('WebSocket ID Override:', websocketId);
+            this.instance_id = websocketId;
+        }
         const clientType = "web";
 
         // Append instance ID and client type as query parameters

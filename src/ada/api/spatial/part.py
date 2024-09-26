@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import pathlib
 from itertools import chain
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 from ada import Node, Pipe, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.api.animations import AnimationStore
@@ -39,7 +39,6 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
     from ada.fem.containers import COG
     from ada.fem.meshing import GmshOptions
-    from ada.visit.renderer_manager import RenderAssemblyParams
 
 
 class Part(BackendGeom):
@@ -815,42 +814,6 @@ class Part(BackendGeom):
                 progress_callback(i, num_shapes)
 
         step_writer.export(destination_file)
-
-    def show(
-        self,
-        renderer: Literal["react", "pygfx"] = "react",
-        host="localhost",
-        port=8765,
-        server_exe: pathlib.Path = None,
-        server_args: list[str] = None,
-        run_ws_in_thread=False,
-        stream_from_ifc_store=True,
-        purpose: FilePurposeDC = FilePurposeDC.DESIGN,
-        add_ifc_backend=False,
-        auto_sync_ifc_store=True,
-        params_override: RenderAssemblyParams = None,
-    ) -> None:
-        # Use RendererManager to handle renderer setup and WebSocket connection
-        from ada.visit.renderer_manager import RenderAssemblyParams, RendererManager
-
-        renderer_manager = RendererManager(
-            renderer=renderer,
-            host=host,
-            port=port,
-            server_exe=server_exe,
-            server_args=server_args,
-            run_ws_in_thread=run_ws_in_thread,
-        )
-        if params_override is None:
-            params_override = RenderAssemblyParams(
-                auto_sync_ifc_store=auto_sync_ifc_store,
-                stream_from_ifc_store=stream_from_ifc_store,
-                add_ifc_backend=add_ifc_backend,
-            )
-
-        # Set up the renderer and WebSocket server
-        renderer_instance = renderer_manager.render_part_or_assembly(self, params_override)
-        return renderer_instance
 
     def _sync_ifc_backend(self, backend_file_dir, wc):
         """Handles syncing the IFC backend if enabled."""

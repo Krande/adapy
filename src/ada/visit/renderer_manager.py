@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pathlib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Literal, Optional
+from typing import TYPE_CHECKING, Callable, Literal, Optional, OrderedDict
 
 import trimesh
 
@@ -20,11 +20,52 @@ class RenderAssemblyParams:
     auto_sync_ifc_store: bool = False
     stream_from_ifc_store: bool = False
     merge_meshes: bool = True
-    scene_post_processor: Optional[Callable] = None
+    scene_post_processor: Optional[Callable[[trimesh.Scene], trimesh.Scene]] = None
     purpose: Optional[FilePurposeDC] = FilePurposeDC.DESIGN
-    gltf_buffer_postprocessor: Optional[Callable] = None
+    gltf_buffer_postprocessor: Optional[Callable[[OrderedDict, dict], None]] = None
     add_ifc_backend: bool = False
     backend_file_dir: Optional[str] = None
+    unique_id: int = None
+
+    def __post_init__(self):
+        # ensure that if unique_id is set, it is a 32-bit integer
+        if self.unique_id is not None:
+            self.unique_id = self.unique_id & 0xFFFFFFFF
+
+
+def scene_from_object(physical_object: BackendGeom) -> trimesh.Scene:
+    from itertools import groupby
+
+    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.gltf.optimize import concatenate_stores
+    from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
+
+    bt = BatchTessellator()
+    mesh_stores = list(bt.batch_tessellate([physical_object]))
+    scene = trimesh.Scene()
+    mesh_map = []
+
+    for mat_id, meshes in groupby(mesh_stores, lambda x: x.material):
+        meshes = list(meshes)
+
+        merged_store = concatenate_stores(meshes)
+        mesh_map.append((mat_id, meshes, merged_store))
+
+        merged_mesh_to_trimesh_scene(scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, None)
+
+    return scene
+
+
+def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, params: RenderAssemblyParams) -> trimesh.Scene:
+    from ada import Assembly
+
+    if params.auto_sync_ifc_store and isinstance(part_or_assembly, Assembly):
+        part_or_assembly.ifc_store.sync()
+
+    scene = part_or_assembly.to_trimesh_scene(
+        stream_from_ifc=params.stream_from_ifc_store, merge_meshes=params.merge_meshes
+    )
+    return scene
 
 
 class RendererManager:
@@ -45,7 +86,7 @@ class RendererManager:
         self.run_ws_in_thread = run_ws_in_thread
         self._is_in_notebook = None
 
-    def setup_renderer(self):
+    def start_server(self):
         """Set up the WebSocket server and renderer."""
         self._start_websocket_server()
 
@@ -66,15 +107,6 @@ class RendererManager:
             run_in_thread=self.run_ws_in_thread,
         )
 
-    def _get_renderer_instance(self):
-        """Returns the renderer instance if running in a notebook."""
-        if self.is_in_notebook() and self.renderer == "react":
-            from ada.visit.rendering.renderer_react import RendererReact
-
-            return RendererReact().show()
-
-        return None
-
     def is_in_notebook(self):
         if self._is_in_notebook is None:
             from ada.visit.utils import in_notebook
@@ -83,10 +115,12 @@ class RendererManager:
 
         return self._is_in_notebook
 
-    def ensure_liveness(self, wc) -> None | HTML:
+    def ensure_liveness(self, wc, target_id=None) -> None | HTML:
         """Ensures that the WebSocket client is connected and target is live."""
+        if not self.is_in_notebook():
+            target_id = None  # Currently does not support unique viewer IDs outside of notebooks
 
-        if wc.check_target_liveness():
+        if wc.check_target_liveness(target_id=target_id):
             # The target is alive meaning a viewer is running
             return None
 
@@ -96,77 +130,41 @@ class RendererManager:
 
             renderer = RendererReact().show()
 
-            # while not wc.check_target_liveness():
-            #     pass
-
         return renderer
 
-    def render_physical_object(self, physical_object: BackendGeom, params: RenderAssemblyParams) -> HTML | None:
-        # from ada.comms.wsock_client_async import WebSocketClientAsync
-        from itertools import groupby
-
+    def render(self, obj: BackendGeom | Part | Assembly, params: RenderAssemblyParams) -> HTML | None:
+        from ada import Assembly, Part
+        from ada.base.physical_objects import BackendGeom
         from ada.comms.wsock_client_sync import WebSocketClientSync
-        from ada.occ.tessellating import BatchTessellator
-        from ada.visit.gltf.optimize import concatenate_stores
-        from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
         # Set up the renderer and WebSocket server
-        self.setup_renderer()
+        self.start_server()
 
-        bt = BatchTessellator()
-        mesh_stores = list(bt.batch_tessellate([physical_object]))
-        scene = trimesh.Scene()
-        mesh_map = []
-
-        for mat_id, meshes in groupby(mesh_stores, lambda x: x.material):
-            meshes = list(meshes)
-
-            merged_store = concatenate_stores(meshes)
-            mesh_map.append((mat_id, meshes, merged_store))
-
-            merged_mesh_to_trimesh_scene(scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, None)
+        if self.is_in_notebook():
+            target_id = params.unique_id
+        else:
+            target_id = None  # Currently does not support unique viewer IDs outside of notebooks
 
         with WebSocketClientSync(self.host, self.port) as wc:
-            renderer_instance = self.ensure_liveness(wc)
+            renderer_instance = self.ensure_liveness(wc, target_id=target_id)
+
+            if type(obj) is Part or type(obj) is Assembly:
+                scene = scene_from_part_or_assembly(obj, params)
+            elif isinstance(obj, BackendGeom):
+                scene = scene_from_object(obj)
+            else:
+                raise ValueError(f"Unsupported object type: {type(obj)}")
 
             if params.scene_post_processor is not None:
                 scene = params.scene_post_processor(scene)
 
             # Send the scene to the WebSocket client
             wc.update_scene(
-                physical_object.name,
+                obj.name,
                 scene,
                 purpose=params.purpose,
                 gltf_buffer_postprocessor=params.gltf_buffer_postprocessor,
-            )
-
-        return renderer_instance
-
-    def render_part_or_assembly(self, assembly: Assembly | Part, params: RenderAssemblyParams) -> HTML | None:
-        from ada import Assembly
-
-        # from ada.comms.wsock_client_async import WebSocketClientAsync
-        from ada.comms.wsock_client_sync import WebSocketClientSync
-
-        # Set up the renderer and WebSocket server
-        self.setup_renderer()
-
-        with WebSocketClientSync(self.host, self.port) as wc:
-            renderer_instance = self.ensure_liveness(wc)
-
-            if params.auto_sync_ifc_store and isinstance(assembly, Assembly):
-                assembly.ifc_store.sync()
-
-            scene: trimesh.Scene = assembly.to_trimesh_scene(
-                stream_from_ifc=params.stream_from_ifc_store, merge_meshes=params.merge_meshes
-            )
-
-            if params.scene_post_processor is not None:
-                scene = params.scene_post_processor(scene)
-
-            # Send the scene to the WebSocket client
-            wc.update_scene(
-                assembly.name, scene, purpose=params.purpose, gltf_buffer_postprocessor=params.gltf_buffer_postprocessor
+                target_id=target_id,
             )
 
         return renderer_instance

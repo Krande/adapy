@@ -30,7 +30,7 @@ class Procedure:
         # Build the command-line arguments
         for arg_name, value in kwargs.items():
             # Convert underscores to hyphens
-            arg_name_cli = arg_name.replace('_', '-')
+            arg_name_cli = arg_name.replace("_", "-")
             if isinstance(value, bool):
                 if value:
                     call_args.append(f"--{arg_name_cli}")
@@ -38,7 +38,7 @@ class Procedure:
                 call_args.append(f"--{arg_name_cli}")
                 call_args.append(str(value))
         logger.debug(f"Running script {self.script_path} with args: {call_args}")
-        result = subprocess.run(call_args, check=False, capture_output=True, text=True, encoding='utf-8')
+        result = subprocess.run(call_args, check=False, capture_output=True, text=True, encoding="utf-8")
         if result.returncode != 0:
             raise Exception(f"Error running script {self.script_path} due to {result.stderr}")
 
@@ -80,13 +80,13 @@ def get_procedure_from_function(func: Callable) -> Procedure:
 
 
 def get_procedure_from_script(script_path: pathlib.Path) -> Procedure:
-    with open(script_path, 'r') as f:
+    with open(script_path, "r") as f:
         source_code = f.read()
     tree = ast.parse(source_code, filename=str(script_path))
 
     main_func = None
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == 'main':
+        if isinstance(node, ast.FunctionDef) and node.name == "main":
             main_func = node
             break
 
@@ -100,23 +100,18 @@ def get_procedure_from_script(script_path: pathlib.Path) -> Procedure:
         if arg.annotation:
             arg_type = ast.unparse(arg.annotation)
         else:
-            arg_type = 'Any'
+            arg_type = "Any"
         params[arg_name] = arg_type
 
     # Extract return type
     if main_func.returns:
         return_type = ast.unparse(main_func.returns)
     else:
-        return_type = 'None'
+        return_type = "None"
 
     # Extract docstring
-    description = ast.get_docstring(main_func) or ''
-
+    description = ast.get_docstring(main_func) or ""
 
     return Procedure(
-        name=script_path.stem,
-        description=description,
-        script_path=script_path,
-        params=params,
-        return_type=return_type
+        name=script_path.stem, description=description, script_path=script_path, params=params, return_type=return_type
     )

@@ -20,7 +20,8 @@ class WebSocketClientSync(WebSocketClientBase):
 
     def connect(self):
         """Synchronous connection setup using websockets.sync.client.connect."""
-        self.websocket = connect(f"ws://{self.host}:{self.port}", additional_headers=self._extra_headers())
+        url = f"ws://{self.host}:{self.port}" if self.url_override is None else self.url_override
+        self.websocket = connect(url, additional_headers=self._extra_headers())
         logger.info(f"Connected to server: ws://{self.host}:{self.port}")
 
     def disconnect(self):
@@ -56,9 +57,12 @@ class WebSocketClientSync(WebSocketClientBase):
         purpose: FilePurposeDC = FilePurposeDC.DESIGN,
         scene_op: SceneOperationsDC = SceneOperationsDC.REPLACE,
         gltf_buffer_postprocessor=None,
+        target_id=None,
     ):
         """Updates the scene with the given GLTF data."""
-        self.websocket.send(self._scene_update_prep(name, scene, purpose, scene_op, gltf_buffer_postprocessor))
+        self.websocket.send(
+            self._scene_update_prep(name, scene, purpose, scene_op, gltf_buffer_postprocessor, target_id=target_id)
+        )
 
     def update_file_server(self, file_object: FileObjectDC):
         """Updates the file server with a new file."""

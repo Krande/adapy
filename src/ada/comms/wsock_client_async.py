@@ -19,11 +19,18 @@ from ada.config import logger
 
 
 class WebSocketClientAsync(WebSocketClientBase):
-    def __init__(self, host: str = "localhost", port: int = 8765, client_type: TargetTypeDC | str = TargetTypeDC.LOCAL):
-        super().__init__(host, port, client_type)
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 8765,
+        client_type: TargetTypeDC | str = TargetTypeDC.LOCAL,
+        url_override: str = None,
+    ):
+        super().__init__(host, port, client_type, url_override)
 
     async def connect(self):
-        conn = websockets.connect(f"ws://{self.host}:{self.port}", extra_headers=self._extra_headers())
+        url = f"ws://{self.host}:{self.port}" if self.url_override is None else self.url_override
+        conn = websockets.connect(url, extra_headers=self._extra_headers())
         self.websocket = await conn.__aenter__()
         logger.info(f"Connected to server: ws://{self.host}:{self.port}")
 
@@ -56,9 +63,12 @@ class WebSocketClientAsync(WebSocketClientBase):
         purpose: FilePurposeDC = FilePurposeDC.DESIGN,
         scene_op: SceneOperationsDC = SceneOperationsDC.REPLACE,
         gltf_buffer_postprocessor=None,
+        target_id=None,
     ):
         # Serialize the dataclass message into a FlatBuffer
-        await self.websocket.send(self._scene_update_prep(name, scene, purpose, scene_op, gltf_buffer_postprocessor))
+        await self.websocket.send(
+            self._scene_update_prep(name, scene, purpose, scene_op, gltf_buffer_postprocessor, target_id)
+        )
 
     async def update_file_server(self, file_object: FileObjectDC):
         await self.websocket.send(self._update_file_server_prep(file_object))
