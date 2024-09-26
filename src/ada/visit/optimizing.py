@@ -9,6 +9,7 @@ def optimize_positions(positions: np.ndarray, indices: np.ndarray) -> tuple[np.n
         positions = positions.copy().reshape(len(positions) // 3, 3)
     if len(indices.shape) == 1:
         indices = indices.copy().reshape(len(indices) // 3, 3)
+
     mesh = trimesh.Trimesh(vertices=positions, faces=indices)
     mesh.merge_vertices()
 

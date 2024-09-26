@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Callable, Literal, Optional, OrderedDict
 import numpy as np
 import trimesh
 
-from ada.comms.fb_model_gen import FilePurposeDC
+from ada.comms.fb_model_gen import FilePurposeDC, SceneOperationDC, SceneOperationsDC
 
 if TYPE_CHECKING:
     from IPython.display import HTML
@@ -28,36 +28,26 @@ class FEARenderParams:
 
 
 @dataclass
-class CameraParams:
-    position: list[float] = (0.0, 0.0, 0.0)
-    look_at: list[float] = (0.0, 0.0, 0.0)
-    up: list[float] = (0.0, 0.0, 0.0)
-    fov: float = 60.0
-    near: float = 0.1
-    far: float = 1000.0
-    force_camera: bool = False
-
-
-@dataclass
 class RenderParams:
     auto_sync_ifc_store: bool = False
     stream_from_ifc_store: bool = False
     merge_meshes: bool = True
     scene_post_processor: Optional[Callable[[trimesh.Scene], trimesh.Scene]] = None
     purpose: Optional[FilePurposeDC] = FilePurposeDC.DESIGN
+    scene_operation: SceneOperationDC = None
     gltf_buffer_postprocessor: Optional[Callable[[OrderedDict, dict], None]] = None
     gltf_tree_postprocessor: Optional[Callable[[OrderedDict], None]] = None
     add_ifc_backend: bool = False
     backend_file_dir: Optional[str] = None
     unique_id: int = None
-    camera_params: Optional[CameraParams] = field(default_factory=CameraParams)
     fea_params: Optional[FEARenderParams] = field(default_factory=FEARenderParams)
 
     def __post_init__(self):
         # ensure that if unique_id is set, it is a 32-bit integer
         if self.unique_id is not None:
             self.unique_id = self.unique_id & 0xFFFFFFFF
-
+        if self.scene_operation is None:
+            self.scene_operation = SceneOperationDC(operation=SceneOperationsDC.REPLACE)
 
 def scene_from_fem_results(self: FEAResult, params: RenderParams):
     from trimesh.path.entities import Line
@@ -161,6 +151,7 @@ class RendererManager:
             server_exe: pathlib.Path = None,
             server_args: list[str] = None,
             run_ws_in_thread: bool = False,
+            ping_timeout=1,
     ):
         self.renderer = renderer
         self.host = host
@@ -169,6 +160,7 @@ class RendererManager:
         self.server_args = server_args
         self.run_ws_in_thread = run_ws_in_thread
         self._is_in_notebook = None
+        self.ping_timeout=ping_timeout
 
     def start_server(self):
         """Set up the WebSocket server and renderer."""
@@ -204,7 +196,7 @@ class RendererManager:
         if not self.is_in_notebook():
             target_id = None  # Currently does not support unique viewer IDs outside of notebooks
 
-        if wc.check_target_liveness(target_id=target_id):
+        if wc.check_target_liveness(target_id=target_id, timeout=self.ping_timeout):
             # The target is alive meaning a viewer is running
             return None
 
@@ -250,7 +242,9 @@ class RendererManager:
                 obj.name,
                 scene,
                 purpose=params.purpose,
+                scene_op=params.scene_operation.operation,
                 gltf_buffer_postprocessor=params.gltf_buffer_postprocessor,
+                gltf_tree_postprocessor=params.gltf_tree_postprocessor,
                 target_id=target_id,
             )
 

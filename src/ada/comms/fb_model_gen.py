@@ -65,9 +65,9 @@ class CameraParamsDC:
     position: List[float] = None
     look_at: List[float] = None
     up: List[float] = None
-    fov: floatDC = 60.0
-    near: floatDC = 0.1
-    far: floatDC = 1000.0
+    fov: float = None
+    near: float = None
+    far: float = None
     force_camera: bool = None
 
 @dataclass

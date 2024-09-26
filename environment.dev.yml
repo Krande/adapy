@@ -5,6 +5,7 @@ channels:
 dependencies:
   - ada-py
   - ada-cpp
+  - hdf5=1.14.4.3
   - paradoc
   - code-aster
   - occt=*=*novtk*

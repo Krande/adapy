@@ -282,7 +282,7 @@ def scale_tri_mesh(mesh: trimesh.Trimesh, sfac: float):
 
 
 def standalone_viewer(host="localhost", port="8765"):
-    from ada.visit.websocket_server import WsRenderMessage, start_server
+    from ada.visit.deprecated.websocket_server import WsRenderMessage, start_server
 
     with Manager() as manager:
         # Create a shared queue

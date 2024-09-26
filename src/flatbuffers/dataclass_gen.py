@@ -44,6 +44,8 @@ def generate_dataclasses_from_schema(schema: FlatBufferSchema, output_file: str 
                 default_value = ' = ""'
             elif python_type == "int":
                 default_value = " = None"
+            elif python_type == "float":
+                default_value = " = None"
             elif python_type == "bool":
                 default_value = " = None"
             elif python_type == "bytes":
@@ -70,6 +72,7 @@ def convert_flatbuffer_type_to_python(flat_type: str) -> tuple[str, bool]:
         "int": "int",
         "string": "str",
         "bool": "bool",
+        "float": "float",
         "[float]": "List[float]",
     }
 

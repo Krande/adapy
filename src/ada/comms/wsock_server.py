@@ -182,13 +182,13 @@ class WebSocketAsyncServer:
 
     async def start_async(self):
         """Run the server asynchronously. Blocks until the server is stopped."""
-        self.server = await websockets.serve(self.handle_client, self.host, self.port)
+        self.server = await websockets.serve(self.handle_client, self.host, self.port, max_size=10**9)
         logger.debug(f"WebSocket server started on ws://{self.host}:{self.port}")
         await self.server.wait_closed()
 
     async def start_async_non_blocking(self):
         """Start the server asynchronously. Does not block the event loop."""
-        self.server = await websockets.serve(self.handle_client, self.host, self.port)
+        self.server = await websockets.serve(self.handle_client, self.host, self.port, max_size=10**9)
         print(f"WebSocket server started on ws://{self.host}:{self.port}")
         # Do not call await self.server.wait_closed() here
 

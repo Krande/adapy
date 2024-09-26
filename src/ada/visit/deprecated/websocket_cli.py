@@ -1,6 +1,6 @@
 import argparse
 
-from ada.visit.websocket_server import WebSocketServer
+from ada.visit.deprecated.websocket_server import WebSocketServer
 
 
 def ws_cli_app():

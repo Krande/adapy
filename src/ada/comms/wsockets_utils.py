@@ -10,7 +10,7 @@ import websockets
 
 from ada.comms.fb_model_gen import TargetTypeDC
 from ada.config import logger
-from ada.visit.websocket_server import start_external_ws_server
+from ada.visit.deprecated.websocket_server import start_external_ws_server
 
 
 def is_port_open(host: str, port: int) -> bool:

@@ -1,5 +1,5 @@
 import ada
-from ada.visit.websocket_server import SceneAction
+from ada.visit.deprecated.websocket_server import SceneAction
 
 
 def main():

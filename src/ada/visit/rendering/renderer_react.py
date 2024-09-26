@@ -81,9 +81,7 @@ class RendererReact:
         from ada.visit.rendering.renderer_widget import WebSocketRenderer
 
         as_html = self.local_html_path.read_text(encoding="utf-8")
-        renderer = WebSocketRenderer(as_html, height=height)
-        if target_id is not None:
-            renderer.unique_id = target_id
+        renderer = WebSocketRenderer(as_html, height=height, unique_id=target_id)
         return renderer.display()
 
 

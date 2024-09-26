@@ -17,7 +17,7 @@ from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
 from ada.visit.renderer_manager import RenderParams
 
 from ...comms.fb_model_gen import FilePurposeDC
-from ...visit.websocket_server import send_to_viewer
+from ada.visit.deprecated.websocket_server import send_to_viewer
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 
 if TYPE_CHECKING:
@@ -408,8 +408,9 @@ class FEAResult:
         unique_id=None,
         purpose: FilePurposeDC = FilePurposeDC.ANALYSIS,
         params_override: RenderParams = None,
+        ping_timeout=1,
     ):
-        from ada.visit.renderer_manager import RendererManager, RenderParams
+        from ada.visit.renderer_manager import RendererManager, RenderParams, FEARenderParams
 
         if renderer == "pygfx":
             scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)
@@ -424,8 +425,16 @@ class FEAResult:
             server_exe=server_exe,
             server_args=server_args,
             run_ws_in_thread=run_ws_in_thread,
+            ping_timeout=ping_timeout
         )
 
+        fea_params = FEARenderParams(
+            step=step,
+            field=field,
+            warp_field=warp_field,
+            warp_step=warp_step,
+            warp_scale=warp_scale,
+        )
         if params_override is None:
             params_override = RenderParams(
                 unique_id=unique_id,
@@ -433,6 +442,7 @@ class FEAResult:
                 stream_from_ifc_store=False,
                 add_ifc_backend=False,
                 purpose=purpose,
+                fea_params=fea_params
             )
 
         # Set up the renderer and WebSocket server
