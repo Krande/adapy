@@ -2,6 +2,7 @@
 
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
+export { CameraParams, CameraParamsT } from './wsock/camera-params.js';
 export { CommandType } from './wsock/command-type.js';
 export { Error, ErrorT } from './wsock/error.js';
 export { FileObject, FileObjectT } from './wsock/file-object.js';

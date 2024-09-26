@@ -181,17 +181,20 @@ class WebSocketAsyncServer:
         return True
 
     async def start_async(self):
-        try:
-            self.server = await websockets.serve(self.handle_client, self.host, self.port)
-            logger.debug(f"WebSocket server started on ws://{self.host}:{self.port}")
-            await self.server.wait_closed()
-        except asyncio.CancelledError:
-            await self.stop()  # Call stop to gracefully close connections
-            raise  # Reraise the exception to ensure proper task handling
+        """Run the server asynchronously. Blocks until the server is stopped."""
+        self.server = await websockets.serve(self.handle_client, self.host, self.port)
+        logger.debug(f"WebSocket server started on ws://{self.host}:{self.port}")
+        await self.server.wait_closed()
+
+    async def start_async_non_blocking(self):
+        """Start the server asynchronously. Does not block the event loop."""
+        self.server = await websockets.serve(self.handle_client, self.host, self.port)
+        print(f"WebSocket server started on ws://{self.host}:{self.port}")
+        # Do not call await self.server.wait_closed() here
 
     async def stop(self):
         """Stop the server gracefully."""
-        if self.server:
+        if self.server is not None:
             self.server.close()
             await self.server.wait_closed()
         logger.debug("WebSocket server stopped")

@@ -4,6 +4,7 @@
 
 import * as flatbuffers from 'flatbuffers';
 
+import { CameraParams, CameraParamsT } from '../wsock/camera-params.js';
 import { SceneOperations } from './scene-operations';
 
 
@@ -30,84 +31,21 @@ operation():SceneOperations {
   return offset ? this.bb!.readInt8(this.bb_pos + offset) : SceneOperations.ADD;
 }
 
-cameraPosition(index: number):number|null {
+cameraParams(obj?:CameraParams):CameraParams|null {
   const offset = this.bb!.__offset(this.bb_pos, 6);
-  return offset ? this.bb!.readFloat32(this.bb!.__vector(this.bb_pos + offset) + index * 4) : 0;
-}
-
-cameraPositionLength():number {
-  const offset = this.bb!.__offset(this.bb_pos, 6);
-  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
-}
-
-cameraPositionArray():Float32Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 6);
-  return offset ? new Float32Array(this.bb!.bytes().buffer, this.bb!.bytes().byteOffset + this.bb!.__vector(this.bb_pos + offset), this.bb!.__vector_len(this.bb_pos + offset)) : null;
-}
-
-lookAtPosition(index: number):number|null {
-  const offset = this.bb!.__offset(this.bb_pos, 8);
-  return offset ? this.bb!.readFloat32(this.bb!.__vector(this.bb_pos + offset) + index * 4) : 0;
-}
-
-lookAtPositionLength():number {
-  const offset = this.bb!.__offset(this.bb_pos, 8);
-  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
-}
-
-lookAtPositionArray():Float32Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 8);
-  return offset ? new Float32Array(this.bb!.bytes().buffer, this.bb!.bytes().byteOffset + this.bb!.__vector(this.bb_pos + offset), this.bb!.__vector_len(this.bb_pos + offset)) : null;
+  return offset ? (obj || new CameraParams()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
 static startSceneOperation(builder:flatbuffers.Builder) {
-  builder.startObject(3);
+  builder.startObject(2);
 }
 
 static addOperation(builder:flatbuffers.Builder, operation:SceneOperations) {
   builder.addFieldInt8(0, operation, SceneOperations.ADD);
 }
 
-static addCameraPosition(builder:flatbuffers.Builder, cameraPositionOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(1, cameraPositionOffset, 0);
-}
-
-static createCameraPositionVector(builder:flatbuffers.Builder, data:number[]|Float32Array):flatbuffers.Offset;
-/**
- * @deprecated This Uint8Array overload will be removed in the future.
- */
-static createCameraPositionVector(builder:flatbuffers.Builder, data:number[]|Uint8Array):flatbuffers.Offset;
-static createCameraPositionVector(builder:flatbuffers.Builder, data:number[]|Float32Array|Uint8Array):flatbuffers.Offset {
-  builder.startVector(4, data.length, 4);
-  for (let i = data.length - 1; i >= 0; i--) {
-    builder.addFloat32(data[i]!);
-  }
-  return builder.endVector();
-}
-
-static startCameraPositionVector(builder:flatbuffers.Builder, numElems:number) {
-  builder.startVector(4, numElems, 4);
-}
-
-static addLookAtPosition(builder:flatbuffers.Builder, lookAtPositionOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(2, lookAtPositionOffset, 0);
-}
-
-static createLookAtPositionVector(builder:flatbuffers.Builder, data:number[]|Float32Array):flatbuffers.Offset;
-/**
- * @deprecated This Uint8Array overload will be removed in the future.
- */
-static createLookAtPositionVector(builder:flatbuffers.Builder, data:number[]|Uint8Array):flatbuffers.Offset;
-static createLookAtPositionVector(builder:flatbuffers.Builder, data:number[]|Float32Array|Uint8Array):flatbuffers.Offset {
-  builder.startVector(4, data.length, 4);
-  for (let i = data.length - 1; i >= 0; i--) {
-    builder.addFloat32(data[i]!);
-  }
-  return builder.endVector();
-}
-
-static startLookAtPositionVector(builder:flatbuffers.Builder, numElems:number) {
-  builder.startVector(4, numElems, 4);
+static addCameraParams(builder:flatbuffers.Builder, cameraParamsOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(1, cameraParamsOffset, 0);
 }
 
 static endSceneOperation(builder:flatbuffers.Builder):flatbuffers.Offset {
@@ -115,46 +53,35 @@ static endSceneOperation(builder:flatbuffers.Builder):flatbuffers.Offset {
   return offset;
 }
 
-static createSceneOperation(builder:flatbuffers.Builder, operation:SceneOperations, cameraPositionOffset:flatbuffers.Offset, lookAtPositionOffset:flatbuffers.Offset):flatbuffers.Offset {
-  SceneOperation.startSceneOperation(builder);
-  SceneOperation.addOperation(builder, operation);
-  SceneOperation.addCameraPosition(builder, cameraPositionOffset);
-  SceneOperation.addLookAtPosition(builder, lookAtPositionOffset);
-  return SceneOperation.endSceneOperation(builder);
-}
 
 unpack(): SceneOperationT {
   return new SceneOperationT(
     this.operation(),
-    this.bb!.createScalarList<number>(this.cameraPosition.bind(this), this.cameraPositionLength()),
-    this.bb!.createScalarList<number>(this.lookAtPosition.bind(this), this.lookAtPositionLength())
+    (this.cameraParams() !== null ? this.cameraParams()!.unpack() : null)
   );
 }
 
 
 unpackTo(_o: SceneOperationT): void {
   _o.operation = this.operation();
-  _o.cameraPosition = this.bb!.createScalarList<number>(this.cameraPosition.bind(this), this.cameraPositionLength());
-  _o.lookAtPosition = this.bb!.createScalarList<number>(this.lookAtPosition.bind(this), this.lookAtPositionLength());
+  _o.cameraParams = (this.cameraParams() !== null ? this.cameraParams()!.unpack() : null);
 }
 }
 
 export class SceneOperationT implements flatbuffers.IGeneratedObject {
 constructor(
   public operation: SceneOperations = SceneOperations.ADD,
-  public cameraPosition: (number)[] = [],
-  public lookAtPosition: (number)[] = []
+  public cameraParams: CameraParamsT|null = null
 ){}
 
 
 pack(builder:flatbuffers.Builder): flatbuffers.Offset {
-  const cameraPosition = SceneOperation.createCameraPositionVector(builder, this.cameraPosition);
-  const lookAtPosition = SceneOperation.createLookAtPositionVector(builder, this.lookAtPosition);
+  const cameraParams = (this.cameraParams !== null ? this.cameraParams!.pack(builder) : 0);
 
-  return SceneOperation.createSceneOperation(builder,
-    this.operation,
-    cameraPosition,
-    lookAtPosition
-  );
+  SceneOperation.startSceneOperation(builder);
+  SceneOperation.addOperation(builder, this.operation);
+  SceneOperation.addCameraParams(builder, cameraParams);
+
+  return SceneOperation.endSceneOperation(builder);
 }
 }

@@ -4,12 +4,10 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
-
 np = import_numpy()
 
-
 class SceneOperation(object):
-    __slots__ = ["_tab"]
+    __slots__ = ['_tab']
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -22,7 +20,6 @@ class SceneOperation(object):
     def GetRootAsSceneOperation(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
-
     # SceneOperation
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -35,115 +32,36 @@ class SceneOperation(object):
         return 0
 
     # SceneOperation
-    def CameraPosition(self, j):
+    def CameraParams(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
-            a = self._tab.Vector(o)
-            return self._tab.Get(
-                flatbuffers.number_types.Float32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4)
-            )
-        return 0
-
-    # SceneOperation
-    def CameraPositionAsNumpy(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
-        if o != 0:
-            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Float32Flags, o)
-        return 0
-
-    # SceneOperation
-    def CameraPositionLength(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
-        if o != 0:
-            return self._tab.VectorLen(o)
-        return 0
-
-    # SceneOperation
-    def CameraPositionIsNone(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
-        return o == 0
-
-    # SceneOperation
-    def LookAtPosition(self, j):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
-        if o != 0:
-            a = self._tab.Vector(o)
-            return self._tab.Get(
-                flatbuffers.number_types.Float32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4)
-            )
-        return 0
-
-    # SceneOperation
-    def LookAtPositionAsNumpy(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
-        if o != 0:
-            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Float32Flags, o)
-        return 0
-
-    # SceneOperation
-    def LookAtPositionLength(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
-        if o != 0:
-            return self._tab.VectorLen(o)
-        return 0
-
-    # SceneOperation
-    def LookAtPositionIsNone(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
-        return o == 0
-
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.wsock.CameraParams import CameraParams
+            obj = CameraParams()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
 
 def SceneOperationStart(builder):
-    builder.StartObject(3)
-
+    builder.StartObject(2)
 
 def Start(builder):
     SceneOperationStart(builder)
 
-
 def SceneOperationAddOperation(builder, operation):
     builder.PrependInt8Slot(0, operation, 0)
-
 
 def AddOperation(builder, operation):
     SceneOperationAddOperation(builder, operation)
 
+def SceneOperationAddCameraParams(builder, cameraParams):
+    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(cameraParams), 0)
 
-def SceneOperationAddCameraPosition(builder, cameraPosition):
-    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(cameraPosition), 0)
-
-
-def AddCameraPosition(builder, cameraPosition):
-    SceneOperationAddCameraPosition(builder, cameraPosition)
-
-
-def SceneOperationStartCameraPositionVector(builder, numElems):
-    return builder.StartVector(4, numElems, 4)
-
-
-def StartCameraPositionVector(builder, numElems):
-    return SceneOperationStartCameraPositionVector(builder, numElems)
-
-
-def SceneOperationAddLookAtPosition(builder, lookAtPosition):
-    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(lookAtPosition), 0)
-
-
-def AddLookAtPosition(builder, lookAtPosition):
-    SceneOperationAddLookAtPosition(builder, lookAtPosition)
-
-
-def SceneOperationStartLookAtPositionVector(builder, numElems):
-    return builder.StartVector(4, numElems, 4)
-
-
-def StartLookAtPositionVector(builder, numElems):
-    return SceneOperationStartLookAtPositionVector(builder, numElems)
-
+def AddCameraParams(builder, cameraParams):
+    SceneOperationAddCameraParams(builder, cameraParams)
 
 def SceneOperationEnd(builder):
     return builder.EndObject()
-
 
 def End(builder):
     return SceneOperationEnd(builder)

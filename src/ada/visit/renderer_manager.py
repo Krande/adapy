@@ -28,6 +28,17 @@ class FEARenderParams:
 
 
 @dataclass
+class CameraParams:
+    position: list[float] = (0.0, 0.0, 0.0)
+    look_at: list[float] = (0.0, 0.0, 0.0)
+    up: list[float] = (0.0, 0.0, 0.0)
+    fov: float = 60.0
+    near: float = 0.1
+    far: float = 1000.0
+    force_camera: bool = False
+
+
+@dataclass
 class RenderParams:
     auto_sync_ifc_store: bool = False
     stream_from_ifc_store: bool = False
@@ -39,6 +50,7 @@ class RenderParams:
     add_ifc_backend: bool = False
     backend_file_dir: Optional[str] = None
     unique_id: int = None
+    camera_params: Optional[CameraParams] = field(default_factory=CameraParams)
     fea_params: Optional[FEARenderParams] = field(default_factory=FEARenderParams)
 
     def __post_init__(self):
@@ -142,13 +154,13 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, params: Rende
 
 class RendererManager:
     def __init__(
-        self,
-        renderer: Literal["react", "pygfx"],
-        host: str = "localhost",
-        port: int = 8765,
-        server_exe: pathlib.Path = None,
-        server_args: list[str] = None,
-        run_ws_in_thread: bool = False,
+            self,
+            renderer: Literal["react", "pygfx"],
+            host: str = "localhost",
+            port: int = 8765,
+            server_exe: pathlib.Path = None,
+            server_args: list[str] = None,
+            run_ws_in_thread: bool = False,
     ):
         self.renderer = renderer
         self.host = host

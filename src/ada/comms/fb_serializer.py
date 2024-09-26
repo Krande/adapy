@@ -1,29 +1,9 @@
+import flatbuffers
 from typing import Optional
 
-import flatbuffers
-from ada.comms.fb_model_gen import (
-    ErrorDC,
-    FileObjectDC,
-    MeshInfoDC,
-    MessageDC,
-    ParameterDC,
-    ProcedureDC,
-    ProcedureStoreDC,
-    SceneOperationDC,
-    WebClientDC,
-)
-from ada.comms.wsock import (
-    Error,
-    FileObject,
-    MeshInfo,
-    Message,
-    Parameter,
-    Procedure,
-    ProcedureStore,
-    SceneOperation,
-    WebClient,
-)
+from ada.comms.wsock import WebClient, FileObject, MeshInfo, CameraParams, SceneOperation, ProcedureStore, Procedure, Parameter, Error, Message
 
+from ada.comms.fb_model_gen import WebClientDC, FileObjectDC, MeshInfoDC, CameraParamsDC, SceneOperationDC, ProcedureStoreDC, ProcedureDC, ParameterDC, ErrorDC, MessageDC
 
 def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]) -> Optional[int]:
     if obj is None:
@@ -94,6 +74,28 @@ def serialize_meshinfo(builder: flatbuffers.Builder, obj: Optional[MeshInfoDC]) 
     return MeshInfo.End(builder)
 
 
+def serialize_cameraparams(builder: flatbuffers.Builder, obj: Optional[CameraParamsDC]) -> Optional[int]:
+    if obj is None:
+        return None
+
+    CameraParams.Start(builder)
+    if obj.position is not None:
+        CameraParams.AddPosition(builder, builder.CreateFloatVector(obj.position))
+    if obj.look_at is not None:
+        CameraParams.AddLookAt(builder, builder.CreateFloatVector(obj.look_at))
+    if obj.up is not None:
+        CameraParams.AddUp(builder, builder.CreateFloatVector(obj.up))
+    if obj.fov is not None:
+        CameraParams.AddFov(builder, obj.fov.value)
+    if obj.near is not None:
+        CameraParams.AddNear(builder, obj.near.value)
+    if obj.far is not None:
+        CameraParams.AddFar(builder, obj.far.value)
+    if obj.force_camera is not None:
+        CameraParams.AddForceCamera(builder, obj.force_camera)
+    return CameraParams.End(builder)
+
+
 def serialize_sceneoperation(builder: flatbuffers.Builder, obj: Optional[SceneOperationDC]) -> Optional[int]:
     if obj is None:
         return None
@@ -101,10 +103,8 @@ def serialize_sceneoperation(builder: flatbuffers.Builder, obj: Optional[SceneOp
     SceneOperation.Start(builder)
     if obj.operation is not None:
         SceneOperation.AddOperation(builder, obj.operation.value)
-    if obj.camera_position is not None:
-        SceneOperation.AddCameraPosition(builder, builder.CreateFloatVector(obj.camera_position))
-    if obj.look_at_position is not None:
-        SceneOperation.AddLookAtPosition(builder, builder.CreateFloatVector(obj.look_at_position))
+    if obj.camera_params is not None:
+        SceneOperation.AddCameraParams(builder, obj.camera_params.value)
     return SceneOperation.End(builder)
 
 
@@ -203,7 +203,7 @@ def serialize_error(builder: flatbuffers.Builder, obj: Optional[ErrorDC]) -> Opt
     return Error.End(builder)
 
 
-def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:
+def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
     file_object_obj = None
