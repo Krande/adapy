@@ -81,7 +81,6 @@ table ProcedureStore {
 }
 
 table Procedure {
-    id: string;
     name: string;
     description: string;
     script_file_location: string;

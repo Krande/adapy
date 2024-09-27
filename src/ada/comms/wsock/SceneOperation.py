@@ -4,12 +4,10 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
-
 np = import_numpy()
 
-
 class SceneOperation(object):
-    __slots__ = ["_tab"]
+    __slots__ = ['_tab']
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -22,7 +20,6 @@ class SceneOperation(object):
     def GetRootAsSceneOperation(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
-
     # SceneOperation
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -40,40 +37,31 @@ class SceneOperation(object):
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.wsock.CameraParams import CameraParams
-
             obj = CameraParams()
             obj.Init(self._tab.Bytes, x)
             return obj
         return None
 
-
 def SceneOperationStart(builder):
     builder.StartObject(2)
-
 
 def Start(builder):
     SceneOperationStart(builder)
 
-
 def SceneOperationAddOperation(builder, operation):
     builder.PrependInt8Slot(0, operation, 0)
-
 
 def AddOperation(builder, operation):
     SceneOperationAddOperation(builder, operation)
 
-
 def SceneOperationAddCameraParams(builder, cameraParams):
     builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(cameraParams), 0)
-
 
 def AddCameraParams(builder, cameraParams):
     SceneOperationAddCameraParams(builder, cameraParams)
 
-
 def SceneOperationEnd(builder):
     return builder.EndObject()
-
 
 def End(builder):
     return SceneOperationEnd(builder)

@@ -8,7 +8,7 @@ from ada.comms.fb_model_gen import (
     MessageDC,
     SceneOperationDC,
     SceneOperationsDC,
-    TargetTypeDC,
+    TargetTypeDC, ProcedureDC, ProcedureStoreDC,
 )
 from ada.comms.fb_serializer import serialize_message
 
@@ -49,6 +49,24 @@ def test_basic_flat_buffers_2():
         target_group=TargetTypeDC.WEB,
         client_type=TargetTypeDC.LOCAL,
         scene_operation=SceneOperationDC(operation=SceneOperationsDC.ADD),
+    )
+
+    # Serialize the dataclass message into a FlatBuffer
+    flatbuffer_data = serialize_message(message)
+
+    # You can now send `flatbuffer_data` over a network, save it to a file, etc.
+    print(flatbuffer_data)
+
+    # Deserialize the FlatBuffer back into a dataclass message
+    deserialized_message = deserialize_root_message(flatbuffer_data)
+    print(deserialized_message)
+    assert deserialized_message == message
+
+
+def test_procedure_store():
+    # Create a sample dataclass message object
+    message = MessageDC(
+        procedure_store=ProcedureStoreDC(procedures=[ProcedureDC(name="add_stiffeners", description="Add stiffeners to the structure")])
     )
 
     # Serialize the dataclass message into a FlatBuffer

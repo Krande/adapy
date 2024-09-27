@@ -103,26 +103,6 @@ in python using Jupyter notebook/lab (currently only supported for Code Aster) f
 <img src="docs/_static/figures/code_aster_jupyter_displ.png" alt="Code Aster (jupyter) results" height="220"/>
 
 
-To access the stress and displacement data directly using python here is a way you can use meshio to read the results 
-from Calculix and Code Aster (continuing on the previous example).
-
-```python
-from ada.config import Settings
-import meshio
-
-vtu = Settings.scratch_dir / "MyCantilever_calculix" / "MyCantilever_calculix.vtu"
-mesh = meshio.read(vtu)
-
-# Displacements in [X, Y, Z] at point @ index=-1
-print('Calculix:',mesh.point_data['U'][-1])
-
-rmed = Settings.scratch_dir / "MyCantilever_code_aster" / "MyCantilever_code_aster.rmed"
-ca_mesh = meshio.read(rmed, 'med')
-
-# Displacements in [X, Y, Z] at point @ index=-1
-print('Code Aster:',ca_mesh.point_data['DISP[10] - 1'][-1][:3])
-```
-
 **Note!**
 
 The above example assumes you have installed Abaqus, Calculix and Code Aster locally on your computer.

@@ -1,31 +1,9 @@
+import flatbuffers
 from typing import Optional
 
-import flatbuffers
-from ada.comms.fb_model_gen import (
-    CameraParamsDC,
-    ErrorDC,
-    FileObjectDC,
-    MeshInfoDC,
-    MessageDC,
-    ParameterDC,
-    ProcedureDC,
-    ProcedureStoreDC,
-    SceneOperationDC,
-    WebClientDC,
-)
-from ada.comms.wsock import (
-    CameraParams,
-    Error,
-    FileObject,
-    MeshInfo,
-    Message,
-    Parameter,
-    Procedure,
-    ProcedureStore,
-    SceneOperation,
-    WebClient,
-)
+from ada.comms.wsock import WebClient, FileObject, MeshInfo, CameraParams, SceneOperation, ProcedureStore, Procedure, Parameter, Error, Message
 
+from ada.comms.fb_model_gen import WebClientDC, FileObjectDC, MeshInfoDC, CameraParamsDC, SceneOperationDC, ProcedureStoreDC, ProcedureDC, ParameterDC, ErrorDC, MessageDC
 
 def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]) -> Optional[int]:
     if obj is None:
@@ -108,11 +86,11 @@ def serialize_cameraparams(builder: flatbuffers.Builder, obj: Optional[CameraPar
     if obj.up is not None:
         CameraParams.AddUp(builder, builder.CreateFloatVector(obj.up))
     if obj.fov is not None:
-        CameraParams.AddFov(builder, obj.fov.value)
+        CameraParams.AddFov(builder, obj.fov)
     if obj.near is not None:
-        CameraParams.AddNear(builder, obj.near.value)
+        CameraParams.AddNear(builder, obj.near)
     if obj.far is not None:
-        CameraParams.AddFar(builder, obj.far.value)
+        CameraParams.AddFar(builder, obj.far)
     if obj.force_camera is not None:
         CameraParams.AddForceCamera(builder, obj.force_camera)
     return CameraParams.End(builder)
@@ -133,20 +111,20 @@ def serialize_sceneoperation(builder: flatbuffers.Builder, obj: Optional[SceneOp
 def serialize_procedurestore(builder: flatbuffers.Builder, obj: Optional[ProcedureStoreDC]) -> Optional[int]:
     if obj is None:
         return None
+    procedures_vector = None
+    if obj.procedures is not None and len(obj.procedures) > 0:
+        procedures_list = [serialize_procedure(builder, item) for item in obj.procedures]
+        procedures_vector = builder.CreateByteVector(procedures_list)
 
     ProcedureStore.Start(builder)
     if obj.procedures is not None and len(obj.procedures) > 0:
-        procedures_list = [serialize_procedure(builder, item) for item in obj.procedures]
-        ProcedureStore.AddProcedures(builder, builder.CreateByteVector(procedures_list))
+        ProcedureStore.AddProcedures(builder, procedures_vector)
     return ProcedureStore.End(builder)
 
 
 def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]) -> Optional[int]:
     if obj is None:
         return None
-    id_str = None
-    if obj.id is not None:
-        id_str = builder.CreateString(str(obj.id))
     name_str = None
     if obj.name is not None:
         name_str = builder.CreateString(str(obj.name))
@@ -156,6 +134,10 @@ def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]
     script_file_location_str = None
     if obj.script_file_location is not None:
         script_file_location_str = builder.CreateString(str(obj.script_file_location))
+    parameters_vector = None
+    if obj.parameters is not None and len(obj.parameters) > 0:
+        parameters_list = [serialize_parameter(builder, item) for item in obj.parameters]
+        parameters_vector = builder.CreateByteVector(parameters_list)
     input_ifc_filepath_str = None
     if obj.input_ifc_filepath is not None:
         input_ifc_filepath_str = builder.CreateString(str(obj.input_ifc_filepath))
@@ -167,8 +149,6 @@ def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]
         error_str = builder.CreateString(str(obj.error))
 
     Procedure.Start(builder)
-    if id_str is not None:
-        Procedure.AddId(builder, id_str)
     if name_str is not None:
         Procedure.AddName(builder, name_str)
     if description_str is not None:
@@ -176,8 +156,7 @@ def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]
     if script_file_location_str is not None:
         Procedure.AddScriptFileLocation(builder, script_file_location_str)
     if obj.parameters is not None and len(obj.parameters) > 0:
-        parameters_list = [serialize_parameter(builder, item) for item in obj.parameters]
-        Procedure.AddParameters(builder, builder.CreateByteVector(parameters_list))
+        Procedure.AddParameters(builder, parameters_vector)
     if input_ifc_filepath_str is not None:
         Procedure.AddInputIfcFilepath(builder, input_ifc_filepath_str)
     if output_ifc_filepath_str is not None:
@@ -225,7 +204,7 @@ def serialize_error(builder: flatbuffers.Builder, obj: Optional[ErrorDC]) -> Opt
     return Error.End(builder)
 
 
-def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:
+def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
     file_object_obj = None

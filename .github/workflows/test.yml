@@ -60,7 +60,6 @@ jobs:
             pytest-asyncio
             pytest-benchmark
             jupyterlab
-            pythreejs
             pyparsing
             websockets
             nodejs

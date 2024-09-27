@@ -8,11 +8,11 @@ from urllib.parse import parse_qs, urlparse
 
 import websockets
 
-from ada.cadit.ifc.sql_model import IfcSqlModel as ifc_sqlite
+from ada.cadit.ifc.sql_model import IfcSqlModel
 from ada.comms.fb_model_gen import CommandTypeDC, FileObjectDC, MessageDC, TargetTypeDC
 from ada.comms.procedures import ProcedureStore
 from ada.comms.wsock import Message
-from ada.comms.wsock_server_msg_handling import default_on_message
+from ada.comms.msg_handling.default_on_message import default_on_message
 from ada.comms.wsockets_utils import client_from_str
 from ada.config import logger
 
@@ -56,7 +56,7 @@ async def process_client(websocket, path) -> ConnectedClient:
 @dataclass
 class SceneMeta:
     file_objects: list[FileObjectDC] = field(default_factory=list)
-    ifc_sql_store: ifc_sqlite = None
+    ifc_sql_store: IfcSqlModel = None
     mesh_meta: dict = None
 
 

@@ -13,17 +13,24 @@ def generate_serialize_function(table: TableDefinition) -> str:
 
     # Handle string and vector serialization first
     for field in table.fields:
-        if field.field_type not in ["string", "[ubyte]"]:
-            continue
-
         if field.field_type == "string":
             serialize_code += f"    {field.name}_str = None\n"
             serialize_code += f"    if obj.{field.name} is not None:\n"
             serialize_code += f"        {field.name}_str = builder.CreateString(str(obj.{field.name}))\n"
-        elif field.field_type.startswith("[") and "ubyte" in field.field_type:
-            serialize_code += f"    {field.name}_vector = None\n"
-            serialize_code += f"    if obj.{field.name} is not None:\n"
-            serialize_code += f"        {field.name}_vector = builder.CreateByteVector(obj.{field.name})\n"
+        elif field.field_type.startswith("["):
+            field_type_value = field.field_type[1:-1]
+            if field_type_value == "float":
+                # list of floats can be serialized using CreateFloatVector directly
+                continue
+            if field_type_value == "ubyte":
+                serialize_code += f"    {field.name}_vector = None\n"
+                serialize_code += f"    if obj.{field.name} is not None:\n"
+                serialize_code += f"        {field.name}_vector = builder.CreateByteVector(obj.{field.name})\n"
+            elif field_type_value in table_names:
+                serialize_code += f"    {field.name}_vector = None\n"
+                serialize_code += f"    if obj.{field.name} is not None and len(obj.{field.name}) > 0:\n"
+                serialize_code += f"        {field.name}_list = [serialize_{field_type_value.lower()}(builder, item) for item in obj.{field.name}]\n"
+                serialize_code += f"        {field.name}_vector = builder.CreateByteVector({field.name}_list)\n"
 
     serialize_code += f"\n    {table.name}.Start(builder)\n"
 
@@ -44,11 +51,11 @@ def generate_serialize_function(table: TableDefinition) -> str:
                 serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, builder.CreateFloatVector(obj.{field.name}))\n"
             elif field_type_value in table_names:
                 serialize_code += f"    if obj.{field.name} is not None and len(obj.{field.name}) > 0:\n"
-                serialize_code += f"        {field.name}_list = [serialize_{field_type_value.lower()}(builder, item) for item in obj.{field.name}]\n"
-                serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, builder.CreateByteVector({field.name}_list))\n"
+                serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
             else:
                 raise NotImplementedError()
-        elif field.field_type in ["byte", "ubyte", "int", "bool"]:
+
+        elif field.field_type in ["byte", "ubyte", "int", "bool", "float"]:
             serialize_code += f"    if obj.{field.name} is not None:\n"
             serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, obj.{field.name})\n"
         else:
