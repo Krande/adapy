@@ -2,6 +2,13 @@
 
 
 
+## v0.3.0 (2024-09-27)
+
+### Feature
+
+* feat: update websocket handling, frontend updates, more bspline support (#113) ([`1b15c70`](https://github.com/Krande/adapy/commit/1b15c70f574e8bb01498813cf9e0346bc4ac23ca))
+
+
 ## v0.2.18 (2024-09-04)
 
 ### Chore
