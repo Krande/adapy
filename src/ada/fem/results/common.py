@@ -12,12 +12,12 @@ from ada.config import logger
 from ada.core.guid import create_guid
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
+from ada.visit.deprecated.websocket_server import send_to_viewer
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
 from ada.visit.renderer_manager import RenderParams
 
 from ...comms.fb_model_gen import FilePurposeDC
-from ada.visit.deprecated.websocket_server import send_to_viewer
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 
 if TYPE_CHECKING:
@@ -410,7 +410,11 @@ class FEAResult:
         params_override: RenderParams = None,
         ping_timeout=1,
     ):
-        from ada.visit.renderer_manager import RendererManager, RenderParams, FEARenderParams
+        from ada.visit.renderer_manager import (
+            FEARenderParams,
+            RendererManager,
+            RenderParams,
+        )
 
         if renderer == "pygfx":
             scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)
@@ -425,7 +429,7 @@ class FEAResult:
             server_exe=server_exe,
             server_args=server_args,
             run_ws_in_thread=run_ws_in_thread,
-            ping_timeout=ping_timeout
+            ping_timeout=ping_timeout,
         )
 
         fea_params = FEARenderParams(
@@ -442,7 +446,7 @@ class FEAResult:
                 stream_from_ifc_store=False,
                 add_ifc_backend=False,
                 purpose=purpose,
-                fea_params=fea_params
+                fea_params=fea_params,
             )
 
         # Set up the renderer and WebSocket server

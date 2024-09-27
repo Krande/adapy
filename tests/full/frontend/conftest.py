@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import pytest
 import pytest_asyncio
 
-from ada.comms.fb_model_gen import MessageDC, CommandTypeDC, TargetTypeDC
+from ada.comms.fb_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
 from ada.comms.fb_serializer import serialize_message
 from ada.comms.wsock_client_async import WebSocketClientAsync
 from ada.comms.wsock_server import WebSocketAsyncServer, handle_partial_message

@@ -36,7 +36,7 @@ def main():
     ]
     keyframe_times = [0, 1, 3, 4, 6]  # Example keyframe times
 
-    tri_anim = Animation("TestAnimation", keyframe_times, translation_keyframes,  rotational_keyframes)
+    tri_anim = Animation("TestAnimation", keyframe_times, translation_keyframes, rotational_keyframes)
     a.animation_store.add(tri_anim)
 
     # Set your initial camera position

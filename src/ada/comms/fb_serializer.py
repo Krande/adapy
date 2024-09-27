@@ -1,9 +1,31 @@
-import flatbuffers
 from typing import Optional
 
-from ada.comms.wsock import WebClient, FileObject, MeshInfo, CameraParams, SceneOperation, ProcedureStore, Procedure, Parameter, Error, Message
+import flatbuffers
+from ada.comms.fb_model_gen import (
+    CameraParamsDC,
+    ErrorDC,
+    FileObjectDC,
+    MeshInfoDC,
+    MessageDC,
+    ParameterDC,
+    ProcedureDC,
+    ProcedureStoreDC,
+    SceneOperationDC,
+    WebClientDC,
+)
+from ada.comms.wsock import (
+    CameraParams,
+    Error,
+    FileObject,
+    MeshInfo,
+    Message,
+    Parameter,
+    Procedure,
+    ProcedureStore,
+    SceneOperation,
+    WebClient,
+)
 
-from ada.comms.fb_model_gen import WebClientDC, FileObjectDC, MeshInfoDC, CameraParamsDC, SceneOperationDC, ProcedureStoreDC, ProcedureDC, ParameterDC, ErrorDC, MessageDC
 
 def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]) -> Optional[int]:
     if obj is None:
@@ -203,7 +225,7 @@ def serialize_error(builder: flatbuffers.Builder, obj: Optional[ErrorDC]) -> Opt
     return Error.End(builder)
 
 
-def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
+def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
     file_object_obj = None

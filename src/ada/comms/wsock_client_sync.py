@@ -68,8 +68,8 @@ class WebSocketClientSync(WebSocketClientBase):
     ):
         """Updates the scene with the given GLTF data."""
         buffer = self._scene_update_prep(
-                name, scene, purpose, scene_op, gltf_buffer_postprocessor, gltf_tree_postprocessor, target_id=target_id
-            )
+            name, scene, purpose, scene_op, gltf_buffer_postprocessor, gltf_tree_postprocessor, target_id=target_id
+        )
         self.websocket.send(buffer)
 
     def update_file_server(self, file_object: FileObjectDC):

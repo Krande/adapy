@@ -14,7 +14,7 @@ def generate_deserialize_function(schema: FlatBufferSchema, table: TableDefiniti
     for field in table.fields:
         if field.field_type == "string":
             deserialize_code += f"        {field.name}=fb_obj.{make_camel_case(field.name)}().decode('utf-8') if fb_obj.{make_camel_case(field.name)}() is not None else None,\n"
-        elif field.field_type in ["int", "byte", "ubyte", "bool"]:
+        elif field.field_type in ["int", "byte", "ubyte", "bool", "float"]:
             deserialize_code += f"        {field.name}=fb_obj.{make_camel_case(field.name)}(),\n"
         elif field.field_type.startswith("["):
             field_type_value = field.field_type[1:-1]

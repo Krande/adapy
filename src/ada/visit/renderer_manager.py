@@ -7,7 +7,13 @@ from typing import TYPE_CHECKING, Callable, Literal, Optional, OrderedDict
 import numpy as np
 import trimesh
 
-from ada.comms.fb_model_gen import FilePurposeDC, SceneOperationDC, SceneOperationsDC, FileObjectDC, FileTypeDC
+from ada.comms.fb_model_gen import (
+    FileObjectDC,
+    FilePurposeDC,
+    FileTypeDC,
+    SceneOperationDC,
+    SceneOperationsDC,
+)
 
 if TYPE_CHECKING:
     from IPython.display import HTML
@@ -48,6 +54,7 @@ class RenderParams:
             self.unique_id = self.unique_id & 0xFFFFFFFF
         if self.scene_operation is None:
             self.scene_operation = SceneOperationDC(operation=SceneOperationsDC.REPLACE)
+
 
 def scene_from_fem_results(self: FEAResult, params: RenderParams):
     from trimesh.path.entities import Line
@@ -144,14 +151,14 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, params: Rende
 
 class RendererManager:
     def __init__(
-            self,
-            renderer: Literal["react", "pygfx"],
-            host: str = "localhost",
-            port: int = 8765,
-            server_exe: pathlib.Path = None,
-            server_args: list[str] = None,
-            run_ws_in_thread: bool = False,
-            ping_timeout=1,
+        self,
+        renderer: Literal["react", "pygfx"],
+        host: str = "localhost",
+        port: int = 8765,
+        server_exe: pathlib.Path = None,
+        server_args: list[str] = None,
+        run_ws_in_thread: bool = False,
+        ping_timeout=1,
     ):
         self.renderer = renderer
         self.host = host
@@ -160,7 +167,7 @@ class RendererManager:
         self.server_args = server_args
         self.run_ws_in_thread = run_ws_in_thread
         self._is_in_notebook = None
-        self.ping_timeout=ping_timeout
+        self.ping_timeout = ping_timeout
 
     def start_server(self):
         """Set up the WebSocket server and renderer."""
@@ -264,7 +271,10 @@ class RendererManager:
                 ifc_file = backend_file_dir / f"{obj.name}.ifc"
                 obj.to_ifc(ifc_file)
 
-                wc.update_file_server(FileObjectDC(name=obj.name, file_type=FileTypeDC.IFC, purpose=FilePurposeDC.DESIGN, filepath=ifc_file))
-
+                wc.update_file_server(
+                    FileObjectDC(
+                        name=obj.name, file_type=FileTypeDC.IFC, purpose=FilePurposeDC.DESIGN, filepath=ifc_file
+                    )
+                )
 
         return renderer_instance
