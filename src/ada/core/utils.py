@@ -17,8 +17,6 @@ from ada.config import Config, logger
 if TYPE_CHECKING:
     from ada import Node
 
-_config = Config()
-
 
 def is_package_installed(package_name):
     try:
@@ -73,7 +71,7 @@ class Counter:
         return self.i if self._prefix is None else f"{self._prefix}{self.i}"
 
 
-def roundoff(x: float, precision=_config.general_precision) -> float:
+def roundoff(x: float, precision=Config().general_precision) -> float:
     """Round using a specific number precision using the Decimal package"""
     import warnings
 
@@ -322,7 +320,7 @@ def replace_node(old_node: Node, new_node: Node) -> None:
         logger.debug(f"{old_node} exchanged with {new_node} --> {elem}")
 
 
-def replace_nodes_by_tol(nodes, decimals=0, tol=_config.general_point_tol):
+def replace_nodes_by_tol(nodes, decimals=0, tol=Config().general_point_tol):
     """
 
     :param nodes:
@@ -369,3 +367,23 @@ def get_md5_hash_for_file(filepath: str | pathlib.Path) -> hashlib._Hash:
         while chunk := f.read(8192):
             file_hash.update(chunk)
         return file_hash
+
+
+def to_real(v) -> float | list[float]:
+    from ada import Node, Point
+
+    if isinstance(v, float):
+        return v
+    elif isinstance(v, tuple):
+        return [float(x) for x in v]
+    elif isinstance(v, list):
+        if isinstance(v[0], float):
+            return v
+        else:
+            return [float(x) for x in v]
+    elif isinstance(v, Node):
+        return v.p.astype(float).tolist()
+    elif isinstance(v, Point):
+        return v.astype(float).tolist()
+    else:
+        return v.astype(float).tolist()

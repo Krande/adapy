@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from ada.sections.profiles import SectionProfile
 
 logger = get_logger()
-_config = Config()
 
 
 class Section(Root):
@@ -225,10 +224,10 @@ class Section(Root):
             scale_factor = Units.get_scale_factor(self._units, value)
 
             if self.poly_inner is not None:
-                self.poly_inner.scale(scale_factor, _config.general_point_tol)
+                self.poly_inner.scale(scale_factor, Config().general_point_tol)
 
             if self.poly_outer is not None:
-                self.poly_outer.scale(scale_factor, _config.general_point_tol)
+                self.poly_outer.scale(scale_factor, Config().general_point_tol)
 
             vals = ["h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "wt"]
 

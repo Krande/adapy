@@ -18,10 +18,11 @@ from ada.materials import Material
 from ada.materials.metals import CarbonSteel
 
 if TYPE_CHECKING:
+    from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
+
     from ada import Placement
 
 _NTYPE = Union[int, float]
-_config = Config()
 
 
 class Plate(BackendGeom):
@@ -177,7 +178,7 @@ class Plate(BackendGeom):
             value = Units.from_str(value)
         if self._units != value:
             scale_factor = Units.get_scale_factor(self._units, value)
-            tol = _config.general_mmtol if value == "mm" else _config.general_mtol
+            tol = Config().general_mmtol if value == "mm" else Config().general_mtol
             self._t *= scale_factor
             self.poly.scale(scale_factor, tol)
             for pen in self.booleans:
@@ -198,10 +199,33 @@ class Plate(BackendGeom):
         return f'Plate("{self.name}", {pts}, t={self.t}, "{self.material.name}", {origin}, {xdir}, {normal})'
 
 
-class PlateCurved(Plate):
-    def __init__(self):
-        super().__init__()
-        raise NotImplementedError("PlateCurved is not implemented yet")
+class PlateCurved(BackendGeom):
+    def __init__(self, name, face_geom: Geometry, t: float, mat: str | Material = "S420", **kwargs):
+        super().__init__(name, **kwargs)
+        self._geom = face_geom
+        self._material = mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat), parent=self)
+        self._t = t
 
+    @property
+    def t(self) -> float:
+        return self._t
 
-# https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/lexical/IfcBSplineSurfaceWithKnots.htm
+    @property
+    def material(self) -> Material:
+        return self._material
+
+    @material.setter
+    def material(self, value: Material):
+        self._material = value
+
+    @property
+    def geom(self) -> Geometry:
+        return self._geom
+
+    def solid_geom(self) -> Geometry:
+        return self.geom
+
+    def solid_occ(self) -> TopoDS_Shape | TopoDS_Compound:
+        from ada.occ.geom import geom_to_occ_geom
+
+        return geom_to_occ_geom(self.solid_geom())

@@ -36,11 +36,7 @@ const AnimationControls = () => {
 
 
     return (
-        <div className={"w-full h-full flex flex-row space-x-2"}>
-            <button
-                className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
-                onClick={toggle_info_panel}
-            >{info_svg}</button>
+        <div className={"w-full h-full flex flex-row"}>
             <select
                 className={"text-black font-bold py-2 px-4 ml-2 rounded w-60"}
                 value={selectedAnimation}
@@ -65,7 +61,7 @@ const AnimationControls = () => {
             </button>
 
 
-            <div className="m-2 flex flex-row">
+            <div className="p-2 flex flex-row">
                 <input
                     type="range"
                     min="0"
@@ -78,7 +74,7 @@ const AnimationControls = () => {
                         seekAnimation(newTime); // Use the method from the store
                     }}
                 />
-                <div className={"p-2"}>{roundedCurrentKey}</div>
+                <div className={"px-2 w-12 text-center"}>{roundedCurrentKey}</div>
             </div>
 
 

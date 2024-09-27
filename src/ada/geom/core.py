@@ -15,5 +15,5 @@ if TYPE_CHECKING:
 class Geometry:
     id: int | str
     geometry: SOLID_GEOM_TYPES | SURFACE_GEOM_TYPES | CURVE_GEOM_TYPES
-    color: Color
+    color: Color | None
     bool_operations: list[BooleanOperation] = field(default_factory=list)

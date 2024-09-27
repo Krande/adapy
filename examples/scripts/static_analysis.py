@@ -70,5 +70,5 @@ def get_res():
 
 
 if __name__ == "__main__":
-    main()
-    # get_res()
+    # main()
+    get_res()

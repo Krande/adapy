@@ -19,7 +19,13 @@ from ada.core.vector_utils import unit_vector
 from ada.geom import Geometry
 from ada.occ.tessellating import BatchTessellator
 from ada.visit.colors import Color
-from ada.visit.websocket_server import WsRenderMessage
+from ada.visit.rendering.render_backend import (
+    MeshInfo,
+    SqLiteBackend,
+    create_selected_meshes_from_mesh_info,
+)
+
+PYGFX_RENDERER_EXE_PY = pathlib.Path(__file__)
 
 try:
     import pygfx as gfx
@@ -31,12 +37,6 @@ try:
     from wgpu.gui.auto import WgpuCanvas
 except ImportError:
     raise ImportError("Please install wgpu to use this renderer -> 'mamba install wgpu'.")
-
-from ada.visit.rendering.render_backend import (
-    MeshInfo,
-    SqLiteBackend,
-    create_selected_meshes_from_mesh_info,
-)
 
 BG_GRAY = Color(57, 57, 57)
 PICKED_COLOR = Color(0, 123, 255)
@@ -282,7 +282,7 @@ def scale_tri_mesh(mesh: trimesh.Trimesh, sfac: float):
 
 
 def standalone_viewer(host="localhost", port="8765"):
-    from ada.visit.websocket_server import start_server
+    from ada.visit.deprecated.websocket_server import WsRenderMessage, start_server
 
     with Manager() as manager:
         # Create a shared queue

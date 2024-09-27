@@ -4,12 +4,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+import ada.geom.curves
 import ada.geom.solids as geo_so
 import ada.geom.surfaces as geo_su
 from ada.core.vector_transforms import transform_csys_to_csys
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
-from ada.geom.curves import Circle, Line
+from ada.geom.curves import Circle, Edge
 from ada.geom.placement import Axis2Placement3D, Direction
 from ada.geom.points import Point
 
@@ -150,7 +151,7 @@ def profile_disconnected_to_face_geom(beam: Beam) -> Geometry:
     xv_l = extrude_dir * beam.length
     for c in sec_profile.outer_curve_disconnected:
         edge = c.curve_geom()
-        if not isinstance(edge, Line):
+        if not isinstance(edge, Edge):
             raise NotImplementedError("Only lines are supported for now")
 
         p1 = edge.start.get_3d()
@@ -159,7 +160,7 @@ def profile_disconnected_to_face_geom(beam: Beam) -> Geometry:
         p4 = p1 + xv_l
         points = np.concatenate([p1, p2, p3, p4]).reshape(-1, 3)
         new_points = np.matmul(rotation_matrix, points.T).T + beam.n1.p
-        poly_loop = geo_su.PolyLoop(polygon=[Point(*p) for p in new_points])
+        poly_loop = ada.geom.curves.PolyLoop(polygon=[Point(*p) for p in new_points])
         connected_faces += [geo_su.ConnectedFaceSet([geo_su.FaceBound(bound=poly_loop, orientation=True)])]
 
     geom = geo_su.FaceBasedSurfaceModel(connected_faces)

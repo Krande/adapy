@@ -4,11 +4,10 @@ import React from "react";
 import {webSocketHandler} from "./utils/websocket_connector";
 import {useWebSocketStore} from "./state/webSocketStore";
 import {handleWebSocketMessage} from "./utils/handleWebSocketMessage";
-import {useModelStore} from "./state/modelStore";
 
 // start websocket here
 const url = useWebSocketStore.getState().webSocketAddress;
-webSocketHandler.connect(url, handleWebSocketMessage(useModelStore.getState().setModelUrl));
+webSocketHandler.connect(url, handleWebSocketMessage());
 
 const container = document.getElementById('root');
 // @ts-ignore

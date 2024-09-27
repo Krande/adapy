@@ -1,9 +1,10 @@
 {
   "name": "ada-py-viewer",
   "version": "0.2.18",
+  "type": "module",
   "scripts": {
-    "prebuild": "node clean.js",
-    "build": "vite build && node embed-script.js",
+    "prebuild": "node clean.cjs",
+    "build": "vite build && node embed-script.cjs",
     "dev": "vite --force"
   },
   "devDependencies": {
@@ -17,7 +18,7 @@
     "@typescript-eslint/parser": "6.18.1",
     "@vitejs/plugin-react": "^4.2.1",
     "archiver": "^6.0.1",
-    "autoprefixer": "^10.4.17",
+    "autoprefixer": "10.4.19",
     "esbuild-helpers": "^1.0.0",
     "eslint": "^8.56.0",
     "eslint-config-prettier": "^9.1.0",
@@ -25,16 +26,25 @@
     "eslint-plugin-prettier": "^5.1.3",
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "^4.6.0",
-    "postcss": "^8.4.33",
+    "postcss": "8.4.39",
     "prettier": "^3.2.4",
     "r3f-perf": "^7.1.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "rollup-plugin-visualizer": "^5.12.0",
-    "tailwindcss": "^3.4.1",
+    "tailwindcss": "3.4.4",
     "three": "^0.159.0",
     "typescript": "^4.9.5",
-    "vite": "^5.0.12",
+    "vite": "5.4.8",
     "zustand": "^4.4.7"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.13.3",
+    "@emotion/styled": "^11.13.0",
+    "@mui/x-tree-view": "^7.17.0",
+    "@xyflow/react": "^12.3.0",
+    "flatbuffers": "^24.3.25",
+    "react-json-view-lite": "^1.5.0",
+    "react-rnd": "^10.4.13"
   }
 }

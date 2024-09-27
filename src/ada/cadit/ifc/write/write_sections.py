@@ -6,12 +6,11 @@ import ifcopenshell
 import numpy as np
 
 from ada.config import Config, logger
+from ada.core.utils import to_real
 from ada.sections.categories import SectionCat
 from ada.sections.concept import Section
 
-from ..utils import create_ifcindexpolyline, create_ifcpolyline, to_real
-
-_config = Config()
+from ..utils import create_ifcindexpolyline, create_ifcpolyline
 
 
 class UnrecognizedSectionType(Exception):
@@ -81,14 +80,14 @@ class ProfileBase:
 @dataclass
 class IProfile(ProfileBase):
     def get_ifc_type(self) -> str:
-        if _config.general_force_param_profiles is False:
+        if Config().general_force_param_profiles is False:
             return "IfcArbitraryClosedProfileDef"
         else:
             return "IfcIShapeProfileDef"
 
     def get_ifc_props(self, f: ifcopenshell.file) -> dict:
         section = self.section
-        if _config.general_force_param_profiles is False:
+        if Config().general_force_param_profiles is False:
             section_profile = section.get_section_profile(True)
             polyline = create_ifcpolyline(f, section_profile.outer_curve.points2d)
 
@@ -108,14 +107,14 @@ class IProfile(ProfileBase):
 @dataclass
 class TProfile(ProfileBase):
     def get_ifc_type(self) -> str:
-        if _config.general_force_param_profiles is False:
+        if Config().general_force_param_profiles is False:
             return "IfcArbitraryClosedProfileDef"
         else:
             return "IfcTShapeProfileDef"
 
     def get_ifc_props(self, f) -> dict:
         section = self.section
-        if _config.general_force_param_profiles is False:
+        if Config().general_force_param_profiles is False:
             section_profile = section.get_section_profile(True)
             polyline = create_ifcpolyline(f, section_profile.outer_curve.points2d)
 
@@ -141,7 +140,7 @@ class AngularProfile(ProfileBase):
 
     def get_ifc_props(self, f: ifcopenshell.file) -> dict:
         section = self.section
-        if _config.general_force_param_profiles is True:
+        if Config().general_force_param_profiles is True:
             logger.debug(f'Export of "{section.type}" profile to parametric IFC profile is not yet added')
         section_profile = section.get_section_profile(True)
         points = [f.createIfcCartesianPoint(to_real(p)) for p in section_profile.outer_curve.points2d]
@@ -156,7 +155,7 @@ class BoxProfile(ProfileBase):
 
     def get_ifc_props(self, f: ifcopenshell.file) -> dict:
         section = self.section
-        if _config.general_force_param_profiles is True:
+        if Config().general_force_param_profiles is True:
             logger.debug(f'Export of "{section.type}" profile to parametric IFC profile is not yet added')
         section_profile = section.get_section_profile(True)
         ot_disc = section_profile.outer_curve.points2d
@@ -205,7 +204,7 @@ class FlatBarProfile(ProfileBase):
 
     def get_ifc_props(self, f: ifcopenshell.file) -> dict:
         section = self.section
-        if _config.general_force_param_profiles is True:
+        if Config().general_force_param_profiles is True:
             logger.debug(f'Export of "{section.type}" profile to parametric IFC profile is not yet added')
         section_profile = section.get_section_profile(True)
         polyline = create_ifcpolyline(f, section_profile.outer_curve.points2d)
@@ -215,14 +214,14 @@ class FlatBarProfile(ProfileBase):
 @dataclass
 class ChannelProfile(ProfileBase):
     def get_ifc_type(self) -> str:
-        if _config.general_force_param_profiles is False:
+        if Config().general_force_param_profiles is False:
             return "IfcArbitraryClosedProfileDef"
         else:
             return "IfcUShapeProfileDef"
 
     def get_ifc_props(self, f: ifcopenshell.file) -> dict:
         section = self.section
-        if _config.general_force_param_profiles is False:
+        if Config().general_force_param_profiles is False:
             section_profile = section.get_section_profile(True)
             polyline = create_ifcpolyline(f, section_profile.outer_curve.points2d)
 

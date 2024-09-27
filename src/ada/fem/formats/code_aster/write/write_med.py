@@ -14,8 +14,6 @@ from .write_sets import _add_cell_sets, _add_node_sets
 if TYPE_CHECKING:
     from ada.api.spatial import Part
 
-_config = Config()
-
 
 def med_elements(part: Part, time_step: h5py.Group, profile: str, families: h5py.Group):
     """
@@ -76,7 +74,7 @@ def med_nodes(part: "Part", time_step, profile, families):
     list(map(pmap, part.fem.nodes))
 
     # Try this
-    if _config.code_aster_ca_experimental_id_numbering is True:
+    if Config().code_aster_ca_experimental_id_numbering is True:
         points = np.array([n.p for n in part.fem.nodes])
 
     nodes_group = time_step.create_group("NOE")
@@ -88,7 +86,7 @@ def med_nodes(part: "Part", time_step, profile, families):
     coo.attrs.create("CGT", 1)
     coo.attrs.create("NBR", len(points))
 
-    if _config.code_aster_ca_experimental_id_numbering is True:
+    if Config().code_aster_ca_experimental_id_numbering is True:
         node_ids = [n.id for n in part.fem.nodes]
         num = nodes_group.create_dataset("NUM", data=node_ids)
         num.attrs.create("CGT", 1)

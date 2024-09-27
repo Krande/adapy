@@ -19,3 +19,7 @@ dependencies:
   - kaleido-core 0.1.0
   - python-kaleido
   - calculix
+  - shapely
+  - pillow
+  - flatbuffers
+  - python-flatbuffers

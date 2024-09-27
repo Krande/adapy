@@ -3,12 +3,16 @@ import pathlib
 import pytest
 
 import ada
+from ada.config import Config
 
 is_printed = False
 TESTS_DIR = pathlib.Path(__file__).resolve().absolute().parent
 ROOT_DIR = TESTS_DIR.parent
-print(TESTS_DIR)
-print(ROOT_DIR)
+
+
+@pytest.fixture(autouse=True)
+def clear_config_instances():
+    Config._instances = {}
 
 
 @pytest.fixture
@@ -29,12 +33,6 @@ def example_files(this_dir) -> pathlib.Path:
 @pytest.fixture
 def fem_files(example_files) -> pathlib.Path:
     return example_files / "fem_files"
-
-
-@pytest.fixture
-def test_shell_beam() -> ada.Assembly:
-    bm = ada.Beam("Bm", (0, 0, 0), (1, 0, 0), "IPE300")
-    return ada.Assembly("MyAssembly") / (ada.Part("MyPart", fem=bm.to_fem_obj(0.1, "shell")) / bm)
 
 
 @pytest.fixture

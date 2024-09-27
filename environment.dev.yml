@@ -4,10 +4,21 @@ channels:
   - conda-forge
 dependencies:
   - ada-py
-#  - ada-cpp
+  - ada-cpp
+  - hdf5=1.14.4.3
   - paradoc
   - code-aster
   - occt=*=*novtk*
   - trimesh >=4.1.0
   - python-dotenv
   - pytest
+  - pytest-asyncio
+  - shapely
+  - pillow
+  - flatbuffers
+  - python-flatbuffers
+  - notebook
+  - nodejs
+  - pip
+  - pip:
+      - pytest-playwright

@@ -18,18 +18,16 @@ from .write_surfaces import surfaces_str
 if TYPE_CHECKING:
     from ada import Assembly, Part
 
-_config = Config()
-
 
 def write_all_parts(assembly: Assembly, analysis_dir):
     for part in assembly.get_all_subparts():
         if len(part.fem.elements) == 0 and len(part.fem.nodes) == 0:
             continue
 
-        if _config.fem_convert_options_hinges_to_coupling is True:
+        if Config().fem_convert_options_hinges_to_coupling is True:
             convert_hinges_2_couplings(part.fem)
 
-        if _config.fem_convert_options_ecc_to_mpc is True:
+        if Config().fem_convert_options_ecc_to_mpc is True:
             convert_ecc_to_mpc(part.fem)
 
         write_part_bulk(part, analysis_dir)

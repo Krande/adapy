@@ -8,8 +8,6 @@ from ada.fem import Bc, Connector, ConnectorSection, Constraint, Elem, FemSet
 if TYPE_CHECKING:
     from ada import FEM, Assembly
 
-_config = Config()
-
 
 def convert_ecc_to_mpc(fem: "FEM"):
     """Converts beam offsets to MPC constraints"""
@@ -17,7 +15,7 @@ def convert_ecc_to_mpc(fem: "FEM"):
     from ada.core.vector_utils import vector_length
 
     edited_nodes = dict()
-    tol = _config.general_point_tol
+    tol = Config().general_point_tol
 
     def build_constraint(n_old, elem, ecc, i):
         n_new = edited_nodes[n_old.id]

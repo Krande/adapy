@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import pathlib
-from typing import TYPE_CHECKING, Callable, Iterable
+from typing import TYPE_CHECKING, Callable, Iterable, Literal
 
 from ada.api.transforms import Placement
 from ada.base.root import Root
 from ada.base.types import GeomRepr
 from ada.base.units import Units
+from ada.comms.fb_model_gen import FilePurposeDC
 from ada.geom import Geometry
 from ada.geom.booleans import BoolOpEnum
 from ada.visit.colors import Color, color_dict
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
     from ada.fem import Elem
     from ada.fem.meshing import GmshOptions
+    from ada.visit.renderer_manager import RenderParams
 
 
 class BackendGeom(Root):
@@ -57,7 +59,7 @@ class BackendGeom(Root):
             else:
                 color = Color(*color)
         elif color is None:
-            color = Color(*color_dict["gray"], opacity=opacity)
+            color = Color(*color_dict["light-gray"], opacity=opacity)
         self.color = color
         self._elem_refs = []
 
@@ -163,42 +165,42 @@ class BackendGeom(Root):
 
     def show(
         self,
-        renderer="react",
-        auto_open_viewer=False,
+        renderer: Literal["react", "pygfx"] = "react",
         host="localhost",
         port=8765,
         server_exe: pathlib.Path = None,
         server_args: list[str] = None,
-        dry_run=False,
+        run_ws_in_thread=False,
+        unique_viewer_id=None,
+        stream_from_ifc_store=True,
+        purpose: FilePurposeDC = FilePurposeDC.DESIGN,
+        add_ifc_backend=False,
+        auto_sync_ifc_store=True,
+        params_override: RenderParams = None,
     ):
-        from itertools import groupby
+        # Use RendererManager to handle renderer setup and WebSocket connection
+        from ada.visit.renderer_manager import RendererManager, RenderParams
 
-        import trimesh
+        renderer_manager = RendererManager(
+            renderer=renderer,
+            host=host,
+            port=port,
+            server_exe=server_exe,
+            server_args=server_args,
+            run_ws_in_thread=run_ws_in_thread,
+        )
 
-        from ada.occ.tessellating import BatchTessellator
-        from ada.visit.gltf.optimize import concatenate_stores
-        from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
-        from ada.visit.websocket_server import start_ws_server
+        if params_override is None:
+            params_override = RenderParams(
+                unique_id=unique_viewer_id,
+                auto_sync_ifc_store=auto_sync_ifc_store,
+                stream_from_ifc_store=stream_from_ifc_store,
+                add_ifc_backend=add_ifc_backend,
+            )
 
-        bt = BatchTessellator()
-        mesh_stores = list(bt.batch_tessellate([self]))
-
-        scene = trimesh.Scene()
-        mesh_map = []
-
-        for mat_id, meshes in groupby(mesh_stores, lambda x: x.material):
-            meshes = list(meshes)
-
-            merged_store = concatenate_stores(meshes)
-            mesh_map.append((mat_id, meshes, merged_store))
-            merged_mesh_to_trimesh_scene(scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, None)
-
-        if dry_run:
-            return None
-
-        ws = start_ws_server(server_exe=server_exe, server_args=server_args, host=host, port=port)
-        ws.send_scene(scene)
-        return scene.show("notebook")
+        # Set up the renderer and WebSocket server
+        renderer_instance = renderer_manager.render(self, params_override)
+        return renderer_instance
 
     @property
     def booleans(self) -> list[Boolean]:

@@ -1,8 +1,10 @@
 from typing import TYPE_CHECKING
 
 from ada.core.guid import create_guid
+from ada.core.utils import to_real
 
-from ..utils import create_ifc_placement, ifc_dir, ifc_p, to_real
+from ..utils import create_ifc_placement, ifc_dir
+from .geom.points import cpt
 
 if TYPE_CHECKING:
     from ifcopenshell import file
@@ -26,7 +28,7 @@ def write_mapped_instance(instance: "Instance", f: "file"):
             "IFCCARTESIANTRANSFORMATIONOPERATOR3DNONUNIFORM",
             Axis1=ifc_dir(f, place.xdir),
             Axis2=ifc_dir(f, place.ydir),
-            LocalOrigin=ifc_p(f, place.origin),
+            LocalOrigin=cpt(f, place.origin),
             Scale=to_real(place.scale),
             Axis3=ifc_dir(f, place.zdir),
             Scale2=to_real(place.scale),

@@ -33,6 +33,6 @@ def test_basic_config(monkeypatch, workspace_file):
 def test_env_config(workspace_env):
     from ada.config import Config
 
-    config = Config("tmp_unique_config")
+    config = Config()
 
     assert config.general_point_tol == 1e-1

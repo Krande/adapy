@@ -1,0 +1,16 @@
+name: ada-debug
+channels:
+  - https://repo.prefix.dev/adapy-tools
+  - conda-forge
+dependencies:
+  - ada-py
+  #- ada-cpp
+  - paradoc
+#  - code-aster
+  - occt=*=*novtk*debug*
+  - ifcopenshell=*=*debug*
+  - pythonocc-core=*=*debug*
+  - gmsh=*=*debug*
+  - trimesh >=4.1.0
+  - python-dotenv
+  - pytest

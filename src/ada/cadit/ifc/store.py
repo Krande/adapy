@@ -202,6 +202,27 @@ class IfcStore:
     def get_ifc_geom(self, ifc_elem, settings: ifcopenshell.geom.settings):
         return ifcopenshell.geom.create_shape(settings, inst=ifc_elem)
 
+    def batch_occ_shapes_from_ifc(self, products: list[str], settings: ifcopenshell.geom.settings = None, cpus=None):
+        import multiprocessing
+
+        cpus = multiprocessing.cpu_count() if cpus is None else cpus
+        ifcopenshell.geom.iterator(settings, self.f, cpus, include=products)
+        if settings is None:
+            settings = ifcopenshell.geom.settings()
+            settings.set(settings.USE_PYTHON_OPENCASCADE, True)
+        iterator = self.get_ifc_geom_iterator(settings)
+        iterator.initialize()
+        while True:
+            shape = iterator.get()
+            if shape:
+                if hasattr(shape, "geometry"):
+                    yield shape.geometry
+                else:
+                    logger.warning(f"Shape {shape} is not a TopoDS_Shape")
+
+            if not iterator.next():
+                break
+
     def get_ifc_geom_iterator(self, settings: ifcopenshell.geom.settings, cpus: int = None):
         import multiprocessing
 

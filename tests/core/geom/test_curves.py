@@ -6,7 +6,7 @@ from ada.core.curve_utils import segments3d_from_points3d
 def test_line_segment2d():
     line2d = ada.LineSegment((0, 0), (1, 1))
     curve_geom = line2d.curve_geom()
-    assert isinstance(curve_geom, geo_cu.Line)
+    assert isinstance(curve_geom, geo_cu.Edge)
     assert line2d.p1.is_equal(curve_geom.start)
     assert line2d.p2.is_equal(curve_geom.end)
 
@@ -14,7 +14,7 @@ def test_line_segment2d():
 def test_line_segment3d():
     line3d = ada.LineSegment((0, 0, 0), (1, 1, 1))
     curve_geom = line3d.curve_geom()
-    assert isinstance(curve_geom, geo_cu.Line)
+    assert isinstance(curve_geom, geo_cu.Edge)
     assert line3d.p1.is_equal(curve_geom.start)
     assert line3d.p2.is_equal(curve_geom.end)
 

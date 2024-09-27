@@ -80,4 +80,5 @@ class IfcReader:
                 continue
 
             obj.metadata = props
+
             add_to_assembly(self.ifc_store.assembly, obj, parent, elements2part)

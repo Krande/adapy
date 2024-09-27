@@ -123,13 +123,17 @@ def read_fem(fem_file, fem_name=None) -> Assembly:
 
 
 def read_bulk_w_includes(inp_path) -> str:
+    if isinstance(inp_path, str):
+        inp_path = pathlib.Path(inp_path).resolve().absolute()
+
     re_bulk_include = re.compile(r"\*Include,\s*input=(.*?)$", _re_in)
     bulk_repl = dict()
     with open(inp_path, "r") as inpDeck:
         bulk_str = inpDeck.read()
         for m in re_bulk_include.finditer(bulk_str):
             search_key = m.group(0)
-            with open(os.path.join(os.path.dirname(inp_path), m.group(1)), "r") as d:
+            filepath = (inp_path.parent / m.group(1).replace("\\", "/")).resolve()
+            with open(filepath, "r") as d:
                 bulk_repl[search_key] = d.read()
 
     for key, val in bulk_repl.items():

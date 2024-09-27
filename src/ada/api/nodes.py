@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from ada.fem import Bc, Csys, Elem
 
 numeric = Union[int, float, np.number]
-_config = Config()
 
 
 class Node:
@@ -34,6 +33,7 @@ class Node:
         self._parent = parent
         self._units = units
         self._refs = [] if refs is None else refs
+        self._precision = Config().general_precision
 
     @property
     def id(self) -> int:
@@ -67,8 +67,11 @@ class Node:
     def r(self) -> float:
         return self._r
 
-    def p_roundoff(self, scale_factor: Union[int, float] = 1, precision: int = _config.general_precision) -> None:
+    def p_roundoff(self, scale_factor: Union[int, float] = 1, precision: int = None) -> None:
         from ada.core.utils import roundoff
+
+        if precision is None:
+            precision = self._precision
 
         self.p = np.array([roundoff(scale_factor * x, precision=precision) for x in self.p])
 
@@ -162,7 +165,7 @@ class Node:
         return f"Node([{self.x}, {self.y}, {self.z}], {self.id})"
 
 
-def get_singular_node_by_volume(nodes: Nodes, p: np.ndarray, tol=_config.general_point_tol) -> Node:
+def get_singular_node_by_volume(nodes: Nodes, p: np.ndarray, tol=Config().general_point_tol) -> Node:
     """Returns existing node within the volume, or creates and returns a new Node at the point"""
     nds = nodes.get_by_volume(p, tol=tol)
     if len(nds) > 0:
@@ -180,7 +183,7 @@ def sort_nodes_by_distance(point: Union[Node, np.ndarray], nodes: list[Node]) ->
     return sorted(nodes, key=lambda x: vector_length(x.p - point))
 
 
-def replace_nodes_by_tol(nodes, decimals=0, tol=_config.general_point_tol):
+def replace_nodes_by_tol(nodes, decimals=0, tol=Config().general_point_tol):
     def rounding(vec, decimals_):
         return np.around(vec, decimals=decimals_)
 

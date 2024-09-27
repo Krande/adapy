@@ -15,7 +15,7 @@ from ada.cadit.gxml.read.read_sections import get_sections
 from ada.cadit.gxml.read.read_sets import get_sets
 from ada.cadit.gxml.sat_helpers import write_xml_sat_text_to_file
 from ada.cadit.sat.store import SatReaderFactory
-from ada.config import logger
+from ada.config import Config, logger
 
 
 class GxmlStore:
@@ -54,8 +54,19 @@ class GxmlStore:
         for curved_bm in self.xml_root.iterfind(".//curved_beam"):
             yield from el_to_beam(curved_bm, p)
 
+    def iter_plate_shell_elem(self):
+        for fp in self.xml_root.iterfind(".//flat_plate"):
+            yield fp
+
+        for fp in self.xml_root.iterfind(".//curved_shell"):
+            yield fp
+
     def iter_plates_from_xml(self):
         sat_d = {name: points for name, points in self.sat_factory.iter_flat_plates()}
+        if Config().gxml_import_advanced_faces is True:
+            sat_faces = {name: geom for name, geom in self.sat_factory.iter_curved_face()}
+            sat_d.update(sat_faces)
+
         thick_map = dict()
         for thickn in self.xml_root.iterfind(".//thickness"):
             res = thickn.find(".//constant_thickness")
@@ -73,6 +84,7 @@ class GxmlStore:
         p = self.p
         p._plates = Plates(self.iter_plates_from_xml(), parent=p)
         p._beams = Beams(self.iter_beams_from_xml(), parent=p)
+
         for bm in p.beams:
             p.nodes.add(bm.n1)
             p.nodes.add(bm.n2)

@@ -22,6 +22,7 @@ type State = {
     seekAnimation: (time: number) => void;
     isPlaying: boolean;
     setIsPlaying: (isPlaying: boolean) => void;
+    hasAnimation: boolean;
 };
 
 export const useAnimationStore = create<State>((set) => ({
@@ -32,12 +33,14 @@ export const useAnimationStore = create<State>((set) => ({
     mixer: null,
     action: null,
     isPlaying: false,
+    hasAnimation: false, // Initialize with false
+
     setIsPlaying: (isPlaying) => set({isPlaying}),
 
     setAnimations: (animations) => {
         set((state) => {
             // Set the animations array
-            const newState = {...state, animations};
+            const newState = {...state, animations, hasAnimation: animations.length > 0};
 
 
             // If there are animations, select the first one

@@ -4,8 +4,6 @@ import pytest
 
 import ada
 
-is_printed = False
-
 
 def dummy_display_func(ada_obj):
     try:
@@ -19,7 +17,7 @@ def dummy_display_func(ada_obj):
     if isinstance(ada_obj, ada.Section):
         build_display(ada_obj)
     else:
-        ada_obj.show(dry_run=True)
+        pass
 
 
 @pytest.fixture

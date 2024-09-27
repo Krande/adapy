@@ -2,12 +2,11 @@ import json
 import logging
 import os
 import pathlib
-from dataclasses import dataclass
 from typing import Any, Dict, List, NamedTuple, Optional, Type, Union
 
 _filename = "ada_config.toml"
 _env_prefix = "ADA_"
-_env_config_file = "ADA_CONFIG_FILE"
+_env_config_file = "CONFIG_FILE"
 _cwd = os.getcwd()
 _tmp_dir = pathlib.Path(_cwd) / "temp"
 _home_dir = pathlib.Path.home() / "ADA"
@@ -64,14 +63,8 @@ class ConfigSection(NamedTuple):
     required: bool = True
 
 
-@dataclass
-class ModelExportOptions:
-    export_props: bool = True
-    import_props: bool = True
-    include_ecc = True
-
-
 class Config:
+    # Singleton ("danger danger!" yeah I know).
     # Config class structure based on the wonderful https://github.com/mamba-org/quetz
     _config_map = [
         ConfigSection(
@@ -95,14 +88,30 @@ class Config:
                 ConfigEntry("temp_dir", pathlib.Path, _tmp_dir),
                 ConfigEntry("home_dir", pathlib.Path, _home_dir),
                 ConfigEntry("tools_dir", pathlib.Path, _home_dir / "tools"),
+                ConfigEntry("occ_silent_fail", bool, False),
+                ConfigEntry("add_trace_to_exception", bool, False),
             ],
         ),
         ConfigSection(
-            "ifc_export",
+            "ifc",
             [
                 ConfigEntry("export_props", bool, True),
                 ConfigEntry("import_props", bool, True),
-                ConfigEntry("include_ecc", bool, True),
+                ConfigEntry("export_include_ecc", bool, True),
+                ConfigEntry("import_shape_geom", bool, False),
+            ],
+        ),
+        ConfigSection(
+            "gxml",
+            [
+                ConfigEntry("import_advanced_faces", bool, True),
+            ],
+        ),
+        ConfigSection(
+            "sat",
+            [
+                ConfigEntry("read_curve_ignore_bspline", bool, False),
+                ConfigEntry("import_raise_exception_on_failed_advanced_face", bool, False),
             ],
         ),
         ConfigSection(
@@ -128,6 +137,18 @@ class Config:
                 ConfigEntry("fem2concepts_include_ecc", bool, False),
             ],
         ),
+        ConfigSection(
+            "procedures",
+            [
+                ConfigEntry("script_dir", pathlib.Path, None, required=False),
+            ],
+        ),
+        ConfigSection(
+            "websockets",
+            [
+                ConfigEntry("server_temp_dir", pathlib.Path, None, False),
+            ],
+        ),
     ]
     _config_dirs = [_cwd]
     _config_files = [os.path.join(d, _filename) for d in _config_dirs]
@@ -138,24 +159,15 @@ class Config:
         if not deployment_config and None in cls._instances:
             return cls._instances[None]
 
-        if isinstance(deployment_config, str) and deployment_config.startswith("tmp_unique"):
-            path = deployment_config
-        else:
-            try:
-                path = os.path.abspath(cls.find_file(deployment_config))
-            except TypeError:
-                # if not config path exists, set it to empty string.
-                path = ""
+        try:
+            path = os.path.abspath(cls.find_file(deployment_config))
+        except TypeError:
+            # if not config path exists, set it to empty string.
+            path = ""
 
         if path not in cls._instances:
             config = super().__new__(cls)
-            if isinstance(path, str) and not path.startswith("tmp_unique"):
-                config.init(path)
-            else:
-                config.config: Dict[str, Any] = {}
-                config.config.update(config._get_environ_config())
-                config._trigger_update_config()
-
+            config.init(path)
             cls._instances[path] = config
             # optimization - for default config path we also store the instance
             # under None key
@@ -165,7 +177,8 @@ class Config:
 
     @classmethod
     def find_file(cls, deployment_config: str = None):
-        config_file_env = os.getenv(f"{_env_prefix}{_env_config_file}")
+        env_file_name = f"{_env_prefix}{_env_config_file}"
+        config_file_env = os.getenv(env_file_name)
         deployment_config_files = []
         for f in (deployment_config, config_file_env):
             if f and os.path.isfile(f):
@@ -176,6 +189,17 @@ class Config:
         for f in cls._config_files + deployment_config_files:
             if os.path.isfile(f):
                 return f
+
+    def reload_config(self):
+        self.config.update(self._get_environ_config())
+        self._trigger_update_config()
+
+    def update_config_globally(self, key: str, value: Any):
+        """Updates an environment variable and triggers a config reload."""
+        key_upper = f"{_env_prefix}{key.upper()}"
+        os.environ[key_upper] = str(value)
+        self.config.update(self._get_environ_config())
+        self._trigger_update_config()
 
     def init(self, path: str) -> None:
         """Load configurations from various places.

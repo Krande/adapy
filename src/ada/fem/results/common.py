@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import base64
-import json
 import os
 import pathlib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Iterable
+from typing import TYPE_CHECKING, Callable, Iterable, Literal
 
 import meshio
 import numpy as np
@@ -14,11 +12,12 @@ from ada.config import logger
 from ada.core.guid import create_guid
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
+from ada.visit.deprecated.websocket_server import send_to_viewer
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
-from ada.visit.rendering.renderer_react import RendererReact
+from ada.visit.renderer_manager import RenderParams
 
-from ...visit.websocket_server import send_to_viewer, start_ws_server
+from ...comms.fb_model_gen import FilePurposeDC
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 
 if TYPE_CHECKING:
@@ -400,109 +399,59 @@ class FEAResult:
         warp_step: int = None,
         warp_scale: float = 1.0,
         cfunc=None,
+        renderer: Literal["react", "pygfx"] = "react",
         host="localhost",
         port=8765,
-        renderer="react",
         server_exe: pathlib.Path = None,
         server_args: list[str] = None,
-        new_glb_file: str = None,
-        update_only=False,
-        **kwargs,
+        run_ws_in_thread=False,
+        unique_id=None,
+        purpose: FilePurposeDC = FilePurposeDC.ANALYSIS,
+        params_override: RenderParams = None,
+        ping_timeout=1,
     ):
-        import io
-
-        import trimesh
-        from trimesh.path.entities import Line
-
-        from ada.api.animations import Animation, AnimationStore
-        from ada.core.vector_transforms import rot_matrix
-        from ada.visit.utils import in_notebook
-        from ada.visit.websocket_server import WsRenderMessage
+        from ada.visit.renderer_manager import (
+            FEARenderParams,
+            RendererManager,
+            RenderParams,
+        )
 
         if renderer == "pygfx":
             scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)
             send_to_viewer(scene)
             return None
 
-        # initial mesh
-        vertices = self.mesh.nodes.coords
-        edges, faces = self.mesh.get_edges_and_faces_from_mesh()
+        # Use RendererManager to handle renderer setup and WebSocket connection
+        renderer_manager = RendererManager(
+            renderer=renderer,
+            host=host,
+            port=port,
+            server_exe=server_exe,
+            server_args=server_args,
+            run_ws_in_thread=run_ws_in_thread,
+            ping_timeout=ping_timeout,
+        )
 
-        faces_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
-
-        entities = [Line(x) for x in edges]
-        edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
-
-        scene = trimesh.Scene()
-        face_node = scene.add_geometry(faces_mesh, node_name=self.name, geom_name="faces")
-        _ = scene.add_geometry(edge_mesh, node_name=f"{self.name}_edges", geom_name="edges", parent_node_name=self.name)
-
-        face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == face_node][0]
-        # edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == edge_node][0]
-
-        # Start the websocket server
-        ws = start_ws_server(server_exe=server_exe, server_args=server_args, host=host, port=port)
-
-        renderer = RendererReact()
-        if in_notebook() and update_only is False:
-            return renderer.get_notebook_renderer()
-
-        if update_only is False and ws.is_target_alive() is False:
-            renderer.show()
-
-        # React renderer supports animations
-        animation_store = AnimationStore()
-
-        # Loop over the results and create an animation from it
-        vertices = self.mesh.nodes.coords
-        added_results = []
-        for i, result in enumerate(self.results):
-            warped_vertices = self._warp_data(vertices, result.name, result.step, warp_scale)
-            delta_vertices = warped_vertices - vertices
-            result_name = f"{result.name}_{result.step}"
-            if result_name in added_results:
-                result_name = f"{result.name}_{result.step}_{i}"
-            added_results.append(result_name)
-            animation = Animation(
-                result_name,
-                [0, 2, 4, 6, 8],
-                deformation_weights_keyframes=[0, 1, 0, -1, 0],
-                deformation_shape=delta_vertices,
-                node_idx=[face_node_idx],
-            )
-            animation_store.add(animation)
-
-        # Trimesh automatically transforms by setting up = Y. This will counteract that transform
-        m3x3 = rot_matrix((0, -1, 0))
-        m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
-        m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
-        scene.apply_transform(m4x4)
-
-        with io.BytesIO() as data:
-            scene.export(
-                file_obj=data,
-                file_type="glb",
-                buffer_postprocessor=animation_store,
-                tree_postprocessor=AnimationStore.tree_postprocessor,
+        fea_params = FEARenderParams(
+            step=step,
+            field=field,
+            warp_field=warp_field,
+            warp_step=warp_step,
+            warp_scale=warp_scale,
+        )
+        if params_override is None:
+            params_override = RenderParams(
+                unique_id=unique_id,
+                auto_sync_ifc_store=False,
+                stream_from_ifc_store=False,
+                add_ifc_backend=False,
+                purpose=purpose,
+                fea_params=fea_params,
             )
 
-            msg = WsRenderMessage(
-                data=base64.b64encode(data.getvalue()).decode(),
-                look_at=kwargs.get("look_at", None),
-                camera_position=kwargs.get("camera_position", None),
-            )
-            ws.send(json.dumps(msg.__dict__))
-
-        if new_glb_file is not None:
-            new_glb_file = pathlib.Path(new_glb_file).resolve().absolute()
-            os.makedirs(new_glb_file.parent, exist_ok=True)
-            with open(new_glb_file, "wb") as f:
-                scene.export(
-                    file_obj=f,
-                    file_type="glb",
-                    buffer_postprocessor=animation_store,
-                    tree_postprocessor=AnimationStore.tree_postprocessor,
-                )
+        # Set up the renderer and WebSocket server
+        renderer_instance = renderer_manager.render(self, params_override)
+        return renderer_instance
 
     def get_eig_summary(self) -> EigenDataSummary:
         """If the results are eigenvalue results, this method will return a summary of the eigenvalues and modes"""

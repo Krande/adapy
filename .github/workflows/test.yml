@@ -29,13 +29,15 @@ jobs:
           create-args: >-
             python=3.12
             pytest
+            pytest-asyncio
+            pytest-benchmark
 
       - name: Install latest adapy
         run: |
           pip install -e .
 
       - name: Runs Tests
-        run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/ --ignore=./tests/profiling/
+        run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/ --ignore=./tests/profiling/ --durations=0
 
   test-full:
     name: Test ada-py-full
@@ -55,16 +57,24 @@ jobs:
           create-args: >-
             python=3.12
             pytest
+            pytest-asyncio
+            pytest-benchmark
             jupyterlab
             pythreejs
             pyparsing
             websockets
+            nodejs
             pygfx
             pyglfw
 
       - name: Install latest adapy
         run: |
           pip install -e .
+          pip install pytest-playwright
+
+      - name: install playwright
+        run: |
+          playwright install
 
       - name: Run Tests
         run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/profiling/ --durations=0

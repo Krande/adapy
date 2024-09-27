@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ada.geom.surfaces as geo_su
 from ada import (
     Boolean,
     PrimBox,
@@ -20,14 +21,19 @@ from ada.cadit.ifc.utils import (
     create_ifcrevolveareasolid,
     create_local_placement,
     tesselate_shape,
-    to_real,
 )
 from ada.cadit.ifc.write.geom.placement import ifc_placement_from_axis3d
 from ada.core.constants import O, X, Z
+from ada.core.utils import to_real
 from ada.geom.solids import Box, Cone, Cylinder
 
 from ..write.geom.curves import indexed_poly_curve
-from ..write.geom.surfaces import arbitrary_profile_def
+from ..write.geom.surfaces import (
+    advanced_face,
+    arbitrary_profile_def,
+    create_closed_shell,
+    curve_bounded_plane,
+)
 
 
 def write_ifc_shape(shape: Shape):
@@ -73,7 +79,10 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
     a = shape.parent.get_assembly()
     body_context = a.ifc_store.get_context("Body")
 
-    param_solid_map = {
+    if isinstance(shape, Boolean):
+        raise ValueError(f'Penetration type "{shape}" is not yet supported')
+
+    param_geom_map = {
         PrimSphere: generate_ifc_prim_sphere_geom,
         PrimBox: generate_ifc_box_geom,
         PrimCyl: generate_ifc_cylinder_geom,
@@ -81,19 +90,44 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         PrimExtrude: generate_ifc_prim_extrude_geom,
         PrimRevolve: generate_ifc_prim_revolve_geom,
         PrimSweep: generate_ifc_prim_sweep_geom,
+        geo_su.AdvancedFace: advanced_face,
+        geo_su.CurveBoundedPlane: curve_bounded_plane,
+        geo_su.ClosedShell: create_closed_shell,
     }
 
-    ifc_geom_converter = param_solid_map.get(type(shape), None)
+    if type(shape) is Shape:
+        param_geo = shape.geom.geometry
+    else:
+        param_geo = shape
+
+    ifc_geom_converter = param_geom_map.get(type(param_geo), None)
     if ifc_geom_converter is None:
         raise NotImplementedError(f'Shape type "{type(shape)}" is not yet supported for export to IFC')
 
-    solid_geom = ifc_geom_converter(shape, f)
-
-    if type(shape) is Boolean:
-        raise ValueError(f'Penetration type "{shape}" is not yet supported')
-
-    shape_representation = f.create_entity("IfcShapeRepresentation", body_context, "Body", "SweptSolid", [solid_geom])
-    ifc_shape = f.create_entity("IfcProductDefinitionShape", None, None, [shape_representation])
+    solid_geom = ifc_geom_converter(param_geo, f)
+    repr_type_map = {
+        PrimSphere: "SweptSolid",
+        PrimBox: "SweptSolid",
+        PrimCyl: "SweptSolid",
+        PrimCone: "SweptSolid",
+        PrimExtrude: "SweptSolid",
+        PrimRevolve: "SweptSolid",
+        PrimSweep: "SweptSolid",
+        geo_su.AdvancedFace: "AdvancedSurface",
+        geo_su.CurveBoundedPlane: "AdvancedSurface",
+        geo_su.ClosedShell: "AdvancedSurface",
+    }
+    repr_type_str = repr_type_map.get(type(param_geo), None)
+    shape_representation = f.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=body_context,
+        RepresentationIdentifier="Body",
+        RepresentationType=repr_type_str,
+        Items=[solid_geom],
+    )
+    ifc_shape = f.create_entity(
+        "IfcProductDefinitionShape", Name=None, Description=None, Representations=[shape_representation]
+    )
 
     return ifc_shape
 

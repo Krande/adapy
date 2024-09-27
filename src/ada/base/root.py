@@ -12,8 +12,6 @@ if TYPE_CHECKING:
     from ada import Assembly, Part
     from ada.cadit.ifc.store import IfcStore
 
-_config = Config()
-
 
 class Root:
     UNITS: Units = Units
@@ -45,7 +43,7 @@ class Root:
 
     @name.setter
     def name(self, value):
-        if _config.general_convert_bad_names:
+        if Config().general_convert_bad_names:
             logger.debug("Converting bad name")
             value = value.replace("/", "_").replace("=", "")
             if str.isnumeric(value[0]):

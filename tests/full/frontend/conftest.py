@@ -1,0 +1,194 @@
+import asyncio
+import functools
+import http.server
+import os
+import socketserver
+import threading
+from dataclasses import dataclass
+
+import pytest
+import pytest_asyncio
+
+from ada.comms.fb_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
+from ada.comms.fb_serializer import serialize_message
+from ada.comms.wsock_client_async import WebSocketClientAsync
+from ada.comms.wsock_server import WebSocketAsyncServer, handle_partial_message
+from ada.config import logger
+from ada.visit.rendering.renderer_react import RendererReact
+
+WS_HOST = "localhost"
+WS_PORT = 1122
+
+
+@dataclass
+class MockHttpServer:
+    host: str
+    port: int
+    _url_str: str = None
+
+    @property
+    def url(self):
+        if self._url_str:
+            return self._url_str
+        return f"http://{self.host}:{self.port}"
+
+
+@dataclass
+class MockWSClient:
+    host: str
+    port: int
+
+    @property
+    def url(self):
+        return f"ws://{self.host}:{self.port}"
+
+
+@pytest.fixture(scope="session")
+def ws_server() -> MockWSClient:
+    # Function to run the WebSocket server in a separate thread
+    def start_ws_server(loop):
+        asyncio.set_event_loop(loop)
+        ws_server_instance = WebSocketAsyncServer(WS_HOST, WS_PORT)
+        loop.run_until_complete(ws_server_instance.start_async())
+        print(f"WebSocket server started on ws://{WS_HOST}:{WS_PORT}")
+        try:
+            loop.run_forever()
+        finally:
+            print("WebSocket server stopped")
+
+    # Create a new event loop for the WebSocket server
+    ws_loop = asyncio.new_event_loop()
+    ws_thread = threading.Thread(target=start_ws_server, args=(ws_loop,), daemon=True)
+    ws_thread.start()
+
+    try:
+        yield MockWSClient(WS_HOST, WS_PORT)
+    finally:
+        # Cancel any pending tasks
+        pending_tasks = asyncio.all_tasks(loop=ws_loop)
+        for task in pending_tasks:
+            task.cancel()
+
+        # Stop the WebSocket server and ensure all tasks are completed
+        ws_loop.call_soon_threadsafe(ws_loop.stop)
+        ws_thread.join()
+        print("WebSocket server fully stopped")
+
+
+# Define the custom request handler
+class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *args, unique_id, ws_port, directory=None, **kwargs):
+        self.unique_id = unique_id
+        self.ws_port = ws_port  # Use the actual WebSocket port
+        super().__init__(*args, directory=directory, **kwargs)
+
+    def do_GET(self):
+        if self.path == "/" or self.path == "/index.html":
+            # Serve the index.html file with replacements
+            index_file_path = os.path.join(self.directory, "index.html")
+            try:
+                with open(index_file_path, "r", encoding="utf-8") as f:
+                    html_content = f.read()
+
+                # Perform the replacements
+                modified_html_content = html_content.replace(
+                    "<!--WEBSOCKET_ID_PLACEHOLDER-->",
+                    f'<script>window.WEBSOCKET_ID = "{self.unique_id}";</script>\n'
+                    f"<script>window.WEBSOCKET_PORT = {self.ws_port};</script>",
+                )
+
+                # Send response
+                self.send_response(200)
+                self.send_header("Content-type", "text/html")
+                self.end_headers()
+                self.wfile.write(modified_html_content.encode("utf-8"))
+            except Exception as e:
+                self.send_error(500, f"Internal Server Error: {e}")
+        else:
+            # For other files, use the default handler
+            super().do_GET()
+
+
+@pytest.fixture(scope="module")
+def http_server() -> MockHttpServer:
+    rr = RendererReact()
+    web_dir = rr.local_html_path.parent
+
+    # Generate a unique ID or obtain it from your application logic
+    unique_id: int = 88442233
+
+    # Create a partial function to pass the directory to the handler
+    handler = functools.partial(CustomHTTPRequestHandler, ws_port=WS_PORT, unique_id=unique_id, directory=str(web_dir))
+
+    class ThreadingTCPServer(socketserver.ThreadingTCPServer):
+        allow_reuse_address = True
+
+    # Use port 0 to have the OS assign an available port
+    server = ThreadingTCPServer(("localhost", 0), handler)
+    port = server.server_address[1]
+
+    def start_server():
+        server.serve_forever()
+
+    server_thread = threading.Thread(target=start_server, daemon=True)
+    server_thread.start()
+
+    try:
+        yield MockHttpServer("localhost", port)
+    finally:
+        server.shutdown()
+        server.server_close()
+        server_thread.join()
+
+
+async def reply_ping(msg: MessageDC, ws_client: WebSocketClientAsync):
+    message = MessageDC(
+        instance_id=ws_client.instance_id,
+        command_type=CommandTypeDC.PONG,
+        target_id=msg.instance_id,
+        target_group=TargetTypeDC.LOCAL,
+        client_type=TargetTypeDC.WEB,
+    )
+
+    # Serialize the dataclass message into a FlatBuffer
+    flatbuffer_data = serialize_message(message)
+    await ws_client.websocket.send(flatbuffer_data)
+
+
+async def start_mock_web_client_connection(host, port):
+    uri = f"ws://{host}:{port}"
+
+    async with WebSocketClientAsync(host, port, "web") as ws_client:
+        websocket = ws_client.websocket
+        logger.debug(f"Connected to server: {uri}")
+        try:
+            async for message in websocket:
+                logger.debug(f"Received message from server: {message}")
+                msg = await handle_partial_message(message)
+
+                if msg.target_group != ws_client.client_type:
+                    continue
+
+                if msg.command_type == CommandTypeDC.PING:
+                    await reply_ping(msg, ws_client)
+
+        except asyncio.CancelledError as e:
+            logger.debug("Connection to server was cancelled due to: ", e)
+
+
+@dataclass
+class MockWebParams:
+    host: str
+    port: int
+    client_type: TargetTypeDC.WEB
+
+
+@pytest_asyncio.fixture
+def mock_async_web_client(event_loop) -> MockWebParams:
+    task = asyncio.ensure_future(start_mock_web_client_connection(WS_HOST, WS_PORT), loop=event_loop)
+
+    yield MockWebParams(WS_HOST, WS_PORT, TargetTypeDC.WEB)  # Use 'yield' to wait for the fixture to complete
+
+    # Cancel the task and wait for it to finish
+    task.cancel()
+    event_loop.run_until_complete(task)

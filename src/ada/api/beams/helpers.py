@@ -14,8 +14,6 @@ if TYPE_CHECKING:
     from ada import Beam, Node
     from ada.api.connections import JointBase
 
-_config = Config()
-
 
 class BeamConnectionProps:
     def __init__(self, beam: Beam):
@@ -25,7 +23,7 @@ class BeamConnectionProps:
         self._connected_end2 = None
         self._hinge_prop = None
 
-    def calc_con_points(self, point_tol=_config.general_point_tol):
+    def calc_con_points(self, point_tol=Config().general_point_tol):
         from ada.core.vector_utils import sort_points_by_dist
 
         a = self._beam.n1.p
@@ -193,12 +191,12 @@ def is_equivalent(beam, other_beam: Beam) -> bool:
 
 def is_weak_axis_stiffened(beam: Beam, other_beam: Beam) -> bool:
     """Assumes rotation local z-vector (up) is weak axis"""
-    return np.abs(np.dot(beam.up, other_beam.xvec)) < _config.general_point_tol and beam is not other_beam
+    return np.abs(np.dot(beam.up, other_beam.xvec)) < Config().general_point_tol and beam is not other_beam
 
 
 def is_strong_axis_stiffened(beam: Beam, other_beam: Beam) -> bool:
     """Assumes rotation local y-vector is strong axis"""
-    return np.abs(np.dot(beam.yvec, other_beam.xvec)) < _config.general_point_tol and beam is not other_beam
+    return np.abs(np.dot(beam.yvec, other_beam.xvec)) < Config().general_point_tol and beam is not other_beam
 
 
 def get_justification(beam: Beam) -> Justification:

@@ -1,5 +1,5 @@
-from ada.cadit.ifc.utils import ifc_p
+from ada.cadit.ifc.write.geom.points import cpt
 
 
 def ifc_vertex(p, f):
-    return f.create_entity("IfcVertexPoint", ifc_p(f, p))
+    return f.create_entity("IfcVertexPoint", cpt(f, p))

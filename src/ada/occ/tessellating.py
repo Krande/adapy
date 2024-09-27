@@ -5,6 +5,7 @@ from itertools import groupby
 from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
+from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
 from OCC.Core.Tesselator import ShapeTesselator
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Shape
 from OCC.Extend.TopologyUtils import discretize_edge
@@ -48,6 +49,15 @@ def tessellate_edges(shape: TopoDS_Edge, deflection=0.01) -> LineMesh:
     np_edge_vertices = np.array(points, dtype=np.float32)
     np_edge_indices = np.arange(np_edge_vertices.shape[0], dtype=np.uint32)
     return LineMesh(np_edge_vertices, np_edge_indices)
+
+
+def tessellate_advanced_face(face: TopoDS_Shape, linear_deflection=0.1, angular_deflection=0.1, relative=True) -> None:
+    # Perform tessellation using BRepMesh_IncrementalMesh
+    mesh = BRepMesh_IncrementalMesh(face, linear_deflection, relative, angular_deflection)
+    if not mesh.IsDone():
+        raise RuntimeError("Tessellation failed")
+
+    mesh.Perform()
 
 
 def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, parallel=True) -> TriangleMesh:
@@ -140,18 +150,21 @@ class BatchTessellator:
         from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
         from OCC.Core.gp import gp_Trsf, gp_Vec
 
-        try:
-            occ_geom = geom_to_occ_geom(geom)
-        except BaseException as e:
-            raise UnableToCreateTesselationFromSolidOCCGeom(e)
+        occ_geom = geom_to_occ_geom(geom)
+
+        # try:
+        #     occ_geom = geom_to_occ_geom(geom)
+        # except RuntimeError as e:
+        #     raise UnableToCreateTesselationFromSolidOCCGeom(e)
 
         if obj is not None and obj.parent is not None and obj.parent.placement is not None:
-            position = obj.parent.placement.to_axis2placement3d(use_absolute_placement=True)
+            if not obj.parent.placement.is_identity(use_absolute_placement=True):
+                position = obj.parent.placement.to_axis2placement3d(use_absolute_placement=True)
 
-            trsf = gp_Trsf()
-            trsf.SetTranslation(gp_Vec(*position.location))
-            occ_geom = BRepBuilderAPI_Transform(occ_geom, trsf, True).Shape()
-            # occ_geom = transform_shape_to_pos(occ_geom, position.location, position.axis, position.ref_direction)
+                trsf = gp_Trsf()
+                trsf.SetTranslation(gp_Vec(*position.location))
+                occ_geom = BRepBuilderAPI_Transform(occ_geom, trsf, True).Shape()
+                # occ_geom = transform_shape_to_pos(occ_geom, position.location, position.axis, position.ref_direction)
 
         return self.tessellate_occ_geom(occ_geom, getattr(obj, "guid", geom.id), geom.color)
 
@@ -219,9 +232,12 @@ class BatchTessellator:
                 p.fem.name, shell_color, line_color, points_color, graph, parent_node
             )
 
-            merged_mesh_to_trimesh_scene(scene, face_store, shell_color, shell_color_id, graph)
-            merged_mesh_to_trimesh_scene(scene, edge_store, line_color, line_color_id, graph)
-            merged_mesh_to_trimesh_scene(scene, points_store, points_color, points_color_id, graph)
+            if len(face_store.indices) > 0:
+                merged_mesh_to_trimesh_scene(scene, face_store, shell_color, shell_color_id, graph)
+            if len(edge_store.indices) > 0:
+                merged_mesh_to_trimesh_scene(scene, edge_store, line_color, line_color_id, graph)
+            if len(points_store.position) > 0:
+                merged_mesh_to_trimesh_scene(scene, points_store, points_color, points_color_id, graph)
 
     def tessellate_part(
         self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True
@@ -261,14 +277,18 @@ class BatchTessellator:
             if shape:
                 if hasattr(shape, "geometry"):
                     geom = shape.geometry
-                    diffuse = geom.materials[0].diffuse
-                    opacity = 1.0 - geom.materials[0].transparency
-                    mat_id = self.add_color(Color(*diffuse, opacity=opacity))
+                    diffuse: ifcopenshell.ifcopenshell_wrapper.colour = geom.materials[0].diffuse
+                    transp = geom.materials[0].transparency
+                    if transp is None:
+                        opacity = 1.0
+                    else:
+                        opacity = 1.0 - transp
+                    mat_id = self.add_color(Color(diffuse.r(), diffuse.g(), diffuse.b(), opacity=opacity))
                     yield MeshStore(
                         shape.guid,
                         matrix=shape.transformation.matrix,
-                        position=np.asarray(geom.verts),
-                        indices=np.asarray(geom.faces, dtype=np.uint32),
+                        position=np.frombuffer(geom.verts_buffer, "d"),
+                        indices=np.frombuffer(geom.faces_buffer, dtype="i"),
                         normal=None,
                         material=mat_id,
                         type=MeshType.TRIANGLES,

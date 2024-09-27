@@ -144,7 +144,7 @@ re_gbarm = get_ff_regex("GBARM", "geono", "hz", "bt", "bb", "sfy", "sfz")
 GUNIVEC = DataCard("GUNIVEC", ("transno", "unix", "uniy", "uniz"))
 
 # Shell section
-GELTH = DataCard("GELTH", ("geono", "th"))
+GELTH = DataCard("GELTH", ("geono", "th", "nint|"))
 
 # Other
 re_bnbcd = get_ff_regex("BNBCD", "nodeno", "ndof", "content")

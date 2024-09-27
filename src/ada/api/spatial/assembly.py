@@ -23,7 +23,6 @@ from ada.fem import (
 )
 
 _step_types = Union[StepSteadyState, StepEigen, StepImplicitStatic, StepExplicit]
-_config = Config()
 
 if TYPE_CHECKING:
     import xml.etree.ElementTree as ET
@@ -193,7 +192,7 @@ class Assembly(Part):
         if isinstance(fem_format, str):
             fem_format = FEATypes.from_str(fem_format)
 
-        scratch_dir = _config.general_scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
+        scratch_dir = Config().fem_analysis_scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
 
         write_to_fem(
             self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file, model_data_only

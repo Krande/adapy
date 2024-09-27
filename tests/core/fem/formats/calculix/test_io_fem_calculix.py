@@ -1,8 +1,17 @@
+import pytest
+
+import ada
 from ada import Assembly
 from ada.fem import LoadGravity, StepImplicitStatic
 
 
-def test_read_C3D20(example_files):
+@pytest.fixture
+def test_shell_beam() -> ada.Assembly:
+    bm = ada.Beam("Bm", (0, 0, 0), (1, 0, 0), "IPE300")
+    return ada.Assembly("MyAssembly") / (ada.Part("MyPart", fem=bm.to_fem_obj(0.1, "shell")) / bm)
+
+
+def test_read_c3d20(example_files):
     a = Assembly()
     a.read_fem(example_files / "fem_files/calculix/contact2e.inp")
     beams = list(a.parts.values())[0]

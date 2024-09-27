@@ -11,11 +11,13 @@ from ada.api.beams.base_bm import Beam, BeamTapered
 from ada.api.connections import JointBase
 from ada.api.containers import Beams, Connections, Materials, Nodes, Plates, Sections
 from ada.api.groups import Group
+from ada.api.plates import PlateCurved
 from ada.base.changes import ChangeAction
 from ada.base.ifc_types import SpatialTypes
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.base.units import Units
+from ada.comms.fb_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
 from ada.config import logger
 from ada.visit.gltf.graph import GraphNode, GraphStore
 
@@ -37,7 +39,6 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
     from ada.fem.containers import COG
     from ada.fem.meshing import GmshOptions
-    from ada.visit.websocket_server import SceneAction
 
 
 class Part(BackendGeom):
@@ -120,7 +121,7 @@ class Part(BackendGeom):
 
         return beam
 
-    def add_plate(self, plate: Plate, add_to_layer: str = None) -> Plate:
+    def add_plate(self, plate: Plate | PlateCurved, add_to_layer: str = None) -> Plate | PlateCurved:
         if plate.units != self.units:
             plate.units = self.units
 
@@ -814,63 +815,23 @@ class Part(BackendGeom):
 
         step_writer.export(destination_file)
 
-    def show(
-        self,
-        renderer="react",
-        auto_open_viewer=False,
-        host="localhost",
-        port=8765,
-        server_exe: pathlib.Path = None,
-        server_args: list[str] = None,
-        run_ws_in_thread=False,
-        origins: list[str] = None,
-        scene_override=None,
-        stream_from_ifc=False,
-        merge_meshes=True,
-        scene_action: SceneAction = "new",
-        scene_action_arg: str = None,
-        scene_post_processor: Callable[[trimesh.Scene], trimesh.Scene] = None,
-        auto_reposition=False,
-        **kwargs,
-    ) -> None:
-        from ada.visit.websocket_server import PYGFX_RENDERER_EXE_PY, start_ws_server
+    def _sync_ifc_backend(self, backend_file_dir, wc):
+        """Handles syncing the IFC backend if enabled."""
+        from ada import Assembly
 
-        server_exe = None
-        if renderer == "pygfx":
-            server_exe = PYGFX_RENDERER_EXE_PY
+        if isinstance(self, Assembly) is False:
+            return None
 
-        # Start the websocket server
-        ws = start_ws_server(
-            server_exe=server_exe,
-            server_args=server_args,
-            host=host,
-            port=port,
-            origins=origins,
-            run_in_thread=run_ws_in_thread,
-        )
+        if isinstance(backend_file_dir, str):
+            backend_file_dir = pathlib.Path(backend_file_dir)
 
-        if renderer == "react" and ws.is_target_alive() is False:
-            from ada.visit.rendering.renderer_react import RendererReact
+        if backend_file_dir is None:
+            backend_file_dir = pathlib.Path.cwd() / "temp"
 
-            RendererReact().show()
+        ifc_file = backend_file_dir / f"{self.name}.ifc"
+        self.to_ifc(ifc_file)
 
-        if scene_override is not None:
-            ws.send_scene(scene_override, self.animation_store, auto_reposition=auto_reposition, **kwargs)
-            return
-
-        scene = self.to_trimesh_scene(stream_from_ifc=stream_from_ifc, merge_meshes=merge_meshes)
-        if scene_post_processor is not None:
-            scene = scene_post_processor(scene)
-
-        # Send the geometry to the frontend using the websocket server
-        ws.send_scene(
-            scene,
-            self.animation_store,
-            scene_action=scene_action,
-            scene_action_arg=scene_action_arg,
-            auto_reposition=auto_reposition,
-            **kwargs,
-        )
+        wc.update_file_server(FileObjectDC(self.name, FileTypeDC.IFC, FilePurposeDC.DESIGN, ifc_file))
 
     @property
     def animation_store(self) -> AnimationStore:
@@ -935,6 +896,8 @@ class Part(BackendGeom):
     @fem.setter
     def fem(self, value: FEM):
         value.parent = self
+        for sec in value.sections.sections:
+            sec.material = self.add_material(sec.material)
         self._fem = value
 
     @property

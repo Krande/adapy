@@ -1,57 +1,53 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import Enum
 from itertools import chain
-from typing import Iterable, Union
+from typing import TYPE_CHECKING, Iterable, Union
 
 import numpy as np
 
 from ada.core.curve_utils import calc_arc_radius_center_from_3points
 from ada.core.vector_utils import intersect_calc
-from ada.geom.placement import Axis2Placement3D
+from ada.geom.placement import Axis2Placement3D, Direction
 from ada.geom.points import Point
 
+if TYPE_CHECKING:
+    from ada.geom.surfaces import SURFACE_GEOM_TYPES
+
 CURVE_GEOM_TYPES = Union[
-    "Line", "ArcLine", "Circle", "Ellipse", "BSplineCurveWithKnots", "IndexedPolyCurve", "PolyLine", "GeometricCurveSet"
+    "Line",
+    "ArcLine",
+    "Circle",
+    "Ellipse",
+    "BSplineCurveWithKnots",
+    "IndexedPolyCurve",
+    "PolyLine",
+    "GeometricCurveSet",
 ]
 
 
 @dataclass
 class Line:
     """
-    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcLine.htm
-    (also) https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcLineIndex.htm
+    IFC4x3 https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcLine.htm
     STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_line.html
     """
 
-    start: Point | Iterable
-    end: Point | Iterable
+    pnt: Point | Iterable
+    dir: Direction | Iterable
 
     def __post_init__(self):
-        if isinstance(self.start, Iterable):
-            self.start = Point(*self.start)
-        if isinstance(self.end, Iterable):
-            self.end = Point(*self.end)
-
-        dim = self.start.dim
-        if dim != self.end.dim:
-            raise ValueError("Start and end points must have the same dimension")
-
-    @staticmethod
-    def from_points(start: Iterable, end: Iterable):
-        return Line(Point(*start), Point(*end))
-
-    @property
-    def dim(self):
-        return self.start.dim
-
-    def __iter__(self):
-        return iter((self.start, self.end))
+        if isinstance(self.pnt, Iterable):
+            self.pnt = Point(*self.pnt)
+        if isinstance(self.dir, Iterable):
+            self.dir = Direction(*self.dir)
 
 
 @dataclass
 class ArcLine:
     """
-    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcArcIndex.htm
+    IFC4x3 https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcArcIndex.htm
 
     """
 
@@ -87,11 +83,11 @@ class PolyLine:
 @dataclass
 class IndexedPolyCurve:
     """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcIndexedPolyCurve.htm)
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcIndexedPolyCurve.htm)
     STEP (not found direct equivalent, but can be represented by using 'B_SPLINE_CURVE' and 'POLYLINE' entities)
     """
 
-    segments: list[Line | ArcLine]
+    segments: list[Edge | ArcLine]
     self_intersect: bool = False
 
     def get_points_and_segment_indices(self) -> tuple[np.ndarray, list[list[int]]]:
@@ -117,14 +113,14 @@ class IndexedPolyCurve:
             else:
                 nseg = segments[i + 1]
 
-            if isinstance(seg, Line):
+            if isinstance(seg, Edge):
                 if i == 0:
                     local_points.append(seg.start)
                 else:
-                    if type(segments[i - 1]) is Line:
+                    if type(segments[i - 1]) is Edge:
                         local_points.append(seg.start)
                 if i < len(segments) - 1:
-                    if type(segments[i + 1]) is Line:
+                    if type(segments[i + 1]) is Edge:
                         local_points.append(seg.end)
                 else:
                     local_points.append(seg.end)
@@ -152,7 +148,7 @@ class GeometricCurveSet:
 @dataclass
 class Circle:
     """
-    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcCircle.htm
+    IFC4x3 https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcCircle.htm
     STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_circle.html
     """
 
@@ -163,7 +159,7 @@ class Circle:
 @dataclass
 class Ellipse:
     """
-    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcEllipse.htm
+    IFC4x3 https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcEllipse.htm
     STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_ellipse.html
     """
 
@@ -174,7 +170,7 @@ class Ellipse:
 
 class BSplineCurveFormEnum(Enum):
     """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBSplineCurveForm.htm)
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcBSplineCurveForm.htm)
     STEP (https://www.steptools.com/stds/stp_aim/html/t_b_spline_curve_form.html)
     """
 
@@ -186,23 +182,26 @@ class BSplineCurveFormEnum(Enum):
     UNSPECIFIED = "UNSPECIFIED"
 
 
-class BsplineKnotSpecEnum(Enum):
+class KnotType(Enum):
     """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcKnotType.htm)
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcKnotType.htm)
     STEP (https://www.steptools.com/stds/stp_aim/html/t_knot_type.html)
     """
 
-    UNSPECIFIED = "UNSPECIFIED"
-    PIECEWISE_BEZIER = "PIECEWISE_BEZIER"
-    UNIFORM_KNOTS = "UNIFORM_KNOTS"
+    PIECEWISE_BEZIER_KNOTS = "PIECEWISE_BEZIER_KNOTS"
     QUASI_UNIFORM_KNOTS = "QUASI_UNIFORM_KNOTS"
-    PIECEWISE_CUBIC = "PIECEWISE_CUBIC"
+    UNIFORM_KNOTS = "UNIFORM_KNOTS"
+    UNSPECIFIED = "UNSPECIFIED"
+
+    @staticmethod
+    def from_str(value: str) -> KnotType:
+        return KnotType(value)
 
 
 @dataclass
 class BSplineCurveWithKnots:
     """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBSplineCurveWithKnots.htm)
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcBSplineCurveWithKnots.htm)
     STEP (https://www.steptools.com/stds/stp_aim/html/t_b_spline_curve_with_knots.html)
     """
 
@@ -213,4 +212,94 @@ class BSplineCurveWithKnots:
     self_intersect: bool
     knot_multiplicities: list[int]
     knots: list[float]
-    knot_spec: BsplineKnotSpecEnum
+    knot_spec: KnotType
+
+
+@dataclass
+class PCurve:
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcPcurve.htm)
+    """
+
+    basis_surface: SURFACE_GEOM_TYPES
+    reference_curve: CURVE_GEOM_TYPES
+
+
+@dataclass
+class RationalBSplineCurveWithKnots(BSplineCurveWithKnots):
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcRationalBSplineCurveWithKnots.htm)
+    """
+
+    weights_data: list[float]
+
+
+@dataclass
+class Edge:
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcEdge.htm)
+    STEP (https://www.steptools.com/stds/stp_aim/html/t_edge.html)
+    """
+
+    start: Point
+    end: Point
+
+    def __post_init__(self):
+        if isinstance(self.start, Iterable):
+            self.start = Point(*self.start)
+        if isinstance(self.end, Iterable):
+            self.end = Point(*self.end)
+
+        dim = self.start.dim
+        if dim != self.end.dim:
+            raise ValueError("Start and end points must have the same dimension")
+
+    def reversed(self):
+        return Edge(self.end, self.start)
+
+    @property
+    def dim(self):
+        return self.start.dim
+
+    def __iter__(self):
+        return iter((self.start, self.end))
+
+
+@dataclass
+class OrientedEdge(Edge):
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcOrientedEdge.htm)
+    STEP (https://www.steptools.com/stds/stp_aim/html/t_oriented_edge.html)
+    """
+
+    edge_element: Edge | EdgeCurve
+    orientation: bool
+
+
+@dataclass
+class EdgeCurve(Edge):
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcEdgeCurve.htm)
+    STEP (https://www.steptools.com/stds/stp_aim/html/t_edge_curve.html)
+    """
+
+    edge_geometry: CURVE_GEOM_TYPES
+    same_sense: bool
+
+
+@dataclass
+class PolyLoop:
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcPolyLoop.htm)
+    """
+
+    polygon: list[Point]
+
+
+@dataclass
+class EdgeLoop:
+    """
+    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcEdgeLoop.htm)
+    """
+
+    edge_list: list[OrientedEdge]

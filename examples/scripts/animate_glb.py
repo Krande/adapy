@@ -36,14 +36,14 @@ def main():
     ]
     keyframe_times = [0, 1, 3, 4, 6]  # Example keyframe times
 
-    tri_anim = Animation("TestAnimation", box, translation_keyframes, keyframe_times, rotational_keyframes)
+    tri_anim = Animation("TestAnimation", keyframe_times, translation_keyframes, rotational_keyframes)
     a.animation_store.add(tri_anim)
 
     # Set your initial camera position
     camera_position = p0 + np.array([0.35, 0.25, 0.15])
 
     # Update the view
-    a.show(renderer="react", camera_position=camera_position.astype(float).tolist())
+    a.show()
     # a.to_ifc("temp/moving_box.ifc")
 
 

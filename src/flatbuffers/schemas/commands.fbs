@@ -1,0 +1,118 @@
+namespace wsock;
+
+enum CommandType : byte {
+  PING = 0,
+  PONG = 1,
+  UPDATE_SCENE = 2,
+  UPDATE_SERVER = 3,
+  MESH_INFO_CALLBACK = 4,
+  MESH_INFO_REPLY = 5,
+  LIST_WEB_CLIENTS = 6,
+  LIST_FILE_OBJECTS = 7,
+  LIST_PROCEDURES = 8,
+  ERROR = 9,
+  SERVER_REPLY = 10,
+}
+
+enum TargetType : byte {
+  WEB = 0,
+  LOCAL = 1,
+  SERVER = 2,
+}
+
+enum SceneOperations : byte {
+  ADD = 0,
+  REMOVE = 1,
+  REPLACE = 2
+}
+
+enum FilePurpose : byte {
+  DESIGN = 0,
+  ANALYSIS = 1,
+  FABRICATE = 2
+}
+
+enum FileType : byte {
+    IFC = 0,
+    GLB = 1,
+    SQLITE = 2,
+}
+
+table WebClient {
+  instance_id: int;
+  name: string;
+  address: string;
+  port: int;
+}
+
+table FileObject {
+  name: string;             // Name of the file object (must be unique) "MyStructure-1"
+  file_type: FileType;      // design, analysis, fabricate
+  purpose: FilePurpose;     // Purpose of the file
+  filepath: string;         // Path to the file
+  filedata: [ubyte];        // Binary data (e.g., IFC, GLB, SQLite)
+}
+
+table MeshInfo {
+  object_name: string;      // Mesh object name
+  face_index: int;          // Mesh face index
+  json_data: string;        // JSON data
+}
+
+table CameraParams {
+    position: [float];  // List of floats for position
+    look_at: [float];   // List of floats for look_at
+    up: [float];        // List of floats for up
+    fov: float = 60.0;  // Field of view with a default value
+    near: float = 0.1;  // Near clipping plane with a default value
+    far: float = 1000.0; // Far clipping plane with a default value
+    force_camera: bool = false; // Boolean to force camera with a default value
+}
+
+table SceneOperation {
+  operation: SceneOperations;
+  camera_params: CameraParams;
+}
+
+// Procedures are picked up by the server and executed
+// The sequence of procedures is defined in the procedure store
+table ProcedureStore {
+    procedures: [Procedure];
+}
+
+table Procedure {
+    id: string;
+    name: string;
+    description: string;
+    script_file_location: string;
+    parameters: [Parameter];
+    input_ifc_filepath: string;     // Input IFC file path
+    output_ifc_filepath: string;    // Output IFC file path
+    error: string;                  // Error message in case the procedure fails
+}
+
+table Parameter {
+    name: string;
+    type: string;  // E.g., 'string', 'number', 'boolean'
+    value: string; // The value of the parameter
+}
+
+table Error {
+  code: int;
+  message: string;
+}
+
+table Message {
+  instance_id: int;
+  command_type: CommandType;
+  file_object: FileObject;
+  mesh_info: MeshInfo;
+  target_group: TargetType;
+  client_type: TargetType;
+  scene_operation: SceneOperation;
+  target_id: int = 0; // Default value for optional field
+  web_clients: [WebClient];
+  procedure_store: ProcedureStore;
+}
+
+root_type Message;

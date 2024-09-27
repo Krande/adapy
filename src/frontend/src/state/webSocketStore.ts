@@ -7,7 +7,8 @@ type WebSocketStore = {
 };
 
 export const useWebSocketStore = create<WebSocketStore>((set) => {
-    const webSocketAddress = 'ws://localhost:8765';
+    const websocketPort = (window as any).WEBSOCKET_PORT || 8765;
+    const webSocketAddress = 'ws://localhost:' + websocketPort;
 
     return {
         webSocketAddress,

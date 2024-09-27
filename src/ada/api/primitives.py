@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import Enum
 from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
@@ -26,8 +24,6 @@ if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada.cadit.ifc.store import IfcStore
-
-_config = Config()
 
 
 class Shape(BackendGeom):
@@ -94,6 +90,10 @@ class Shape(BackendGeom):
             value = Point(*value)
         self._cog = value
 
+    @property
+    def geom(self) -> Geometry:
+        return self._geom
+
     def bbox(self) -> BoundingBox:
         if self._bbox is None and self.solid_occ() is not None:
             self._bbox = BoundingBox(self)
@@ -106,7 +106,17 @@ class Shape(BackendGeom):
         return geom_to_occ_geom(self.solid_geom())
 
     def solid_geom(self) -> Geometry:
-        raise NotImplementedError(f"solid_geom() not implemented for {self.__class__.__name__}")
+        if self.geom is None:
+            raise NotImplementedError(f"solid_geom() not implemented for {self.__class__.__name__}")
+
+        import ada.geom.surfaces as geo_su
+
+        if isinstance(self.geom.geometry, (geo_su.AdvancedFace, geo_su.ClosedShell)):
+
+            self.geom.bool_operations = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+            return self.geom
+        else:
+            raise NotImplementedError(f"solid_geom() not implemented for {self.geom=}")
 
     @property
     def units(self):
@@ -329,7 +339,6 @@ class PrimExtrude(Shape):
 
         self._poly = poly
         self._extrude_depth = h
-
         super(PrimExtrude, self).__init__(name=name, **kwargs)
 
     @staticmethod
@@ -350,7 +359,7 @@ class PrimExtrude(Shape):
             value = Units.from_str(value)
         if value != self._units:
             scale_factor = Units.get_scale_factor(self._units, value)
-            tol = _config.general_mmtol if value == "mm" else _config.general_mtol
+            tol = Config().general_mmtol if value == "mm" else Config().general_mtol
             self.poly.scale(scale_factor, tol)
             self._extrude_depth = self._extrude_depth * scale_factor
             self._units = value
@@ -420,7 +429,7 @@ class PrimRevolve(Shape):
             value = Units.from_str(value)
         if value != self._units:
             scale_factor = Units.get_scale_factor(self._units, value)
-            tol = _config.general_mmtol if value == "mm" else _config.general_mtol
+            tol = Config().general_mmtol if value == "mm" else Config().general_mtol
             self.poly.scale(scale_factor, tol)
 
     @property
@@ -528,73 +537,3 @@ class PrimSweep(Shape):
 
     def __repr__(self):
         return f"PrimSweep({self.name})"
-
-
-class IfcBSplineSurfaceForm(Enum):
-    PLANE_SURF = "PLANE_SURF"
-    CYLINDRICAL_SURF = "CYLINDRICAL_SURF"
-    CONICAL_SURF = "CONICAL_SURF"
-    SPHERICAL_SURF = "SPHERICAL_SURF"
-    TOROIDAL_SURF = "TOROIDAL_SURF"
-    SURF_OF_REVOLUTION = "SURF_OF_REVOLUTION"
-    RULED_SURF = "RULED_SURF"
-    GENERALISED_CONE = "GENERALISED_CONE"
-    QUADRIC_SURF = "QUADRIC_SURF"
-    SURF_OF_LINEAR_EXTRUSION = "SURF_OF_LINEAR_EXTRUSION"
-    UNSPECIFIED = "UNSPECIFIED"
-
-
-@dataclass
-class BSplineSurfaceWithKnots:
-    """https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcBSplineSurfaceWithKnots.htm"""
-
-    uDegree: int
-    vDegree: int
-    controlPointsList: list[list[float]]
-    surfaceForm: IfcBSplineSurfaceForm
-    uKnots: list[float]
-    vKnots: list[float]
-    uMultiplicities: list[int]
-    vMultiplicities: list[int]
-
-    def get_entities(self):
-        return {
-            "UDegree": self.uDegree,
-            "VDegree": self.vDegree,
-            "ControlPointsList": self.controlPointsList,
-            "SurfaceForm": self.surfaceForm.value,
-            "UClosed": False,
-            "VClosed": False,
-            "SelfIntersect": False,
-            "UKnots": self.uKnots,
-            "VKnots": self.vKnots,
-            "UMultiplicities": self.uMultiplicities,
-            "VMultiplicities": self.vMultiplicities,
-            "KnotSpec": "UNSPECIFIED",
-        }
-
-    def to_ifcopenshell(self, f):
-        from ada.cadit.ifc.utils import ifc_p
-
-        entities = self.get_entities()
-        entities["ControlPointsList"] = [[ifc_p(f, i) for i in x] for x in self.controlPointsList]
-        return f.create_entity("IfcBSplineSurfaceWithKnots", **entities)
-
-
-@dataclass
-class RationalBSplineSurfaceWithKnots(BSplineSurfaceWithKnots):
-    """https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/lexical/IfcRationalBSplineSurfaceWithKnots.htm"""
-
-    weightsData: list[list[float]]
-
-    def get_entities(self):
-        entities = super().get_entities()
-        entities["WeightsData"] = self.weightsData
-        return entities
-
-    def to_ifcopenshell(self, f):
-        from ada.cadit.ifc.utils import ifc_p
-
-        entities = self.get_entities()
-        entities["ControlPointsList"] = [[ifc_p(f, i[:3]) for i in x] for x in self.controlPointsList]
-        return f.create_entity("IfcRationalBSplineSurfaceWithKnots", **entities)
