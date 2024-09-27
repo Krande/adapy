@@ -44,11 +44,11 @@ jobs:
           cache-environment-key: ada-py-fem-test-001
           condarc: |
             channels:
-              - krande
+              - https://repo.prefix.dev/code-aster
               - conda-forge
           environment-file: conda/environment.core.yml
           create-args: >-
-            python=3.11
+            python=3.12
             code-aster=*=*nompi*
             paradoc
             python-dotenv
