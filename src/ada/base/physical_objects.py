@@ -171,7 +171,7 @@ class BackendGeom(Root):
         server_exe: pathlib.Path = None,
         server_args: list[str] = None,
         run_ws_in_thread=False,
-        unique_id=None,
+        unique_viewer_id=None,
         stream_from_ifc_store=True,
         purpose: FilePurposeDC = FilePurposeDC.DESIGN,
         add_ifc_backend=False,
@@ -192,7 +192,7 @@ class BackendGeom(Root):
 
         if params_override is None:
             params_override = RenderParams(
-                unique_id=unique_id,
+                unique_id=unique_viewer_id,
                 auto_sync_ifc_store=auto_sync_ifc_store,
                 stream_from_ifc_store=stream_from_ifc_store,
                 add_ifc_backend=add_ifc_backend,

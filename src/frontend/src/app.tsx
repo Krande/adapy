@@ -2,39 +2,42 @@
 import "./app.css";
 import React from 'react'
 import CanvasComponent from './components/viewer/CanvasComponent';
-import NavBar from './components/NavBar';
-import {useNavBarStore} from './state/navBarStore';
-import {sendMessage} from "./utils/websocket_connector";
-import ResizableTreeView from './components/viewer/ResizableTreeView'; // Import the new component
+import Menu from './components/Menu';
+import OptionsComponent from './components/OptionsComponent';
+import {useOptionsStore} from './state/optionsStore';
+
+import ResizableTreeView from './components/tree_view/ResizableTreeView';
+import {useNodeEditorStore} from "./state/nodeEditorStore";
+import NodeEditorComponent from "./components/NodeEditorComponent"; // Import the new component
 
 
 function App() {
-    const {isNavBarVisible, setIsNavBarVisible} = useNavBarStore(); // use the useNavBarStore function
-
+    const {isOptionsVisible} = useOptionsStore(); // use the useNavBarStore function
+    const {isNodeEditorVisible} = useNodeEditorStore();
 
     return (
         <div className={"relative flex flex-row h-full w-full bg-gray-900"}>
-            <div className={isNavBarVisible ? "w-60" : "w-0 overflow-hidden"}>
-                <NavBar setIsNavBarVisible={setIsNavBarVisible} sendMessage={sendMessage}/>
-            </div>
-
             {/* Tree View Section */}
             <div className={"relative h-full"}>
-                <ResizableTreeView />
+                <ResizableTreeView/>
             </div>
 
+            <div className={"relative top-0 left-0"}>
+                <Menu/>
+            </div>
 
-
-            <div className={isNavBarVisible ? "flex-1" : "w-full h-full"}>
+            <div className={"w-full h-full"}>
                 <CanvasComponent/>
             </div>
 
-            {!isNavBarVisible && (
-                <button
-                    className={"absolute bottom-0 left-0 bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
-                    onClick={() => setIsNavBarVisible(true)}
-                >☰</button>
+            {/* Only render NodeEditorComponent if it's visible */}
+            {isNodeEditorVisible && <NodeEditorComponent/>}
+
+            {/* Only render NavBar if it's visible */}
+            {isOptionsVisible && (
+                <OptionsComponent/>
             )}
+
         </div>
     );
 }

@@ -12,7 +12,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-const NodeEditor: React.FC = () => {
+const NodeEditorComponent: React.FC = () => {
     const initialNodes = [
         {
             id: '1',
@@ -65,4 +65,4 @@ const NodeEditor: React.FC = () => {
     );
 };
 
-export default NodeEditor;
+export default NodeEditorComponent;

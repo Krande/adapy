@@ -143,7 +143,10 @@ class WebSocketAsyncServer:
 
         if self.on_message and msg.command_type not in [CommandTypeDC.PING, CommandTypeDC.PONG]:
             # Offload to a separate thread
-            await asyncio.to_thread(self.on_message, self, client, message)
+            try:
+                await asyncio.to_thread(self.on_message, self, client, message)
+            except Exception as e:
+                logger.error(f"Error occurred while processing message: {e}")
 
     async def forward_message(
         self, message: str | bytes, sender: ConnectedClient, msg: MessageDC, is_forwarded_message=False
@@ -174,21 +177,21 @@ class WebSocketAsyncServer:
             message_sent = True
 
         if not message_sent and msg.command_type == CommandTypeDC.UPDATE_SCENE:
-            logger.debug("No clients to forward message to. Starting retry mechanism.")
+            logger.debug(f"No clients to forward message {msg} to. Starting retry mechanism.")
             asyncio.create_task(self.on_unsent_message(self, message, sender, msg, 3))
             return False
 
         return True
 
     async def start_async(self):
-        """Run the server asynchronously. Blocks until the server is stopped."""
-        self.server = await websockets.serve(self.handle_client, self.host, self.port, max_size=10**9)
+        """Run the server asynchronously. Blocks until the server is stopped. Max size is set to 10MB."""
+        self.server = await websockets.serve(self.handle_client, self.host, self.port, max_size=10**7)
         logger.debug(f"WebSocket server started on ws://{self.host}:{self.port}")
         await self.server.wait_closed()
 
     async def start_async_non_blocking(self):
-        """Start the server asynchronously. Does not block the event loop."""
-        self.server = await websockets.serve(self.handle_client, self.host, self.port, max_size=10**9)
+        """Start the server asynchronously. Does not block the event loop. Max size is set to 10MB."""
+        self.server = await websockets.serve(self.handle_client, self.host, self.port, max_size=10**7)
         print(f"WebSocket server started on ws://{self.host}:{self.port}")
         # Do not call await self.server.wait_closed() here
 

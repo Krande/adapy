@@ -1,7 +1,3 @@
-export function sendMessage() {
-    console.log('Sending message');
-}
-
 class WebSocketHandler {
     socket: WebSocket | null;
     retry_wait: number = 1000; // Time to wait before retrying connection in milliseconds

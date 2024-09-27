@@ -9,7 +9,7 @@ type ObjectInfoState = {
   setJsonData: (jsonData: any | null) => void;
   isJsonViewVisible: boolean;
   setIsJsonViewVisible: (visible: boolean) => void;
-  show: boolean;
+  show_info_box: boolean;
   toggle: () => void;
 };
 
@@ -22,6 +22,6 @@ export const useObjectInfoStore = create<ObjectInfoState>((set) => ({
   setJsonData: (jsonData) => set(() => ({ jsonData })),
   isJsonViewVisible: false,
   setIsJsonViewVisible: (visible) => set(() => ({ isJsonViewVisible: visible })),
-  show: false,
-  toggle: () => set((state) => ({ show: !state.show })),
+  show_info_box: false,
+  toggle: () => set((state) => ({ show_info_box: !state.show_info_box })),
 }));

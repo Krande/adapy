@@ -8,9 +8,9 @@ import ColorLegend from './ColorLegend';
 import {Perf} from 'r3f-perf';
 import OrientationGizmo from './OrientationGizmo';
 import {useModelStore} from '../../state/modelStore';
-import {useNavBarStore} from '../../state/navBarStore';
+import {useOptionsStore} from '../../state/optionsStore';
 import AnimationControls from './AnimationControls';
-import ObjectInfoBox from './ObjectInfoBoxComponent';
+import ObjectInfoBox from '../info_box/ObjectInfoBoxComponent';
 import {useObjectInfoStore} from '../../state/objectInfoStore';
 import CameraControls from './CameraControls';
 import {handleMeshEmptySpace} from '../../utils/mesh_handling';
@@ -21,8 +21,8 @@ import ThreeConnexionControls from "./ThreeConnexionControls";
 
 const CanvasComponent: React.FC = () => {
     const {modelUrl, scene_action, scene_action_arg} = useModelStore();
-    const {showPerf} = useNavBarStore();
-    const {show} = useObjectInfoStore();
+    const {showPerf} = useOptionsStore();
+    const {show_info_box} = useObjectInfoStore();
 
     const orbitControlsRef = useRef<OrbitControlsImpl>(null);
 
@@ -35,11 +35,6 @@ const CanvasComponent: React.FC = () => {
 
     return (
         <div className="relative w-full h-full">
-            <div className="absolute left-0 top-0 z-10 py-2 flex flex-col">
-                <AnimationControls/>
-                {show && <ObjectInfoBox/>}
-            </div>
-
             <div className="absolute right-5 top-80 z-10">
                 <ColorLegend/>
             </div>

@@ -1,10 +1,11 @@
 import React, { useState, useRef } from 'react';
 import TreeViewComponent from './TreeViewComponent';
+import { useTreeViewStore } from "../../state/treeViewStore";
 
 const ResizableTreeView: React.FC = () => {
     const [treeViewWidth, setTreeViewWidth] = useState(256); // Initial width of 256px
-    const [isCollapsed, setIsCollapsed] = useState(true); // Track whether the tree view is collapsed
     const isResizing = useRef(false);
+    const { isCollapsed } = useTreeViewStore();
 
     // Handle mouse down event on the resize handle
     const handleMouseDown = (e: React.MouseEvent) => {
@@ -36,20 +37,12 @@ const ResizableTreeView: React.FC = () => {
     };
 
     return (
-        <div className="relative flex flex-col h-full">
-            {/* Collapse Button */}
-            <button
-                className="absolute bottom-0 left-12 z-10 bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-2 rounded"
-                onClick={() => setIsCollapsed(!isCollapsed)}
-            >
-                {isCollapsed ? '▶' : '◀'}
-            </button>
-
+        <div className="relative flex h-full">
             {/* Tree View Section */}
             {!isCollapsed && (
                 <div
                     style={{ width: `${treeViewWidth}px` }}
-                    className="flex-grow-0 flex-shrink-0 bg-gray-800 overflow-auto relative"
+                    className="flex-grow-0 flex-shrink-0 h-full bg-gray-800 overflow-auto relative"
                 >
                     {/* The actual tree view component */}
                     <TreeViewComponent />

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Callable, Literal, Optional, OrderedDict
 import numpy as np
 import trimesh
 
-from ada.comms.fb_model_gen import FilePurposeDC, SceneOperationDC, SceneOperationsDC
+from ada.comms.fb_model_gen import FilePurposeDC, SceneOperationDC, SceneOperationsDC, FileObjectDC, FileTypeDC
 
 if TYPE_CHECKING:
     from IPython.display import HTML
@@ -204,7 +204,11 @@ class RendererManager:
         if self.renderer == "react":
             from ada.visit.rendering.renderer_react import RendererReact
 
-            renderer = RendererReact().show()
+            renderer_obj = RendererReact()
+            if self.is_in_notebook():
+                renderer = renderer_obj.get_notebook_renderer_widget(target_id=target_id)
+            else:
+                renderer = renderer_obj.show()
 
         return renderer
 
@@ -216,7 +220,7 @@ class RendererManager:
 
         # Set up the renderer and WebSocket server
         self.start_server()
-
+        # target_id = params.unique_id
         if self.is_in_notebook():
             target_id = params.unique_id
         else:
@@ -247,5 +251,20 @@ class RendererManager:
                 gltf_tree_postprocessor=params.gltf_tree_postprocessor,
                 target_id=target_id,
             )
+
+            if params.add_ifc_backend is True and type(obj) is Assembly:
+                if params.backend_file_dir is None:
+                    backend_file_dir = pathlib.Path.cwd() / "temp"
+                else:
+                    backend_file_dir = params.backend_file_dir
+
+                if isinstance(backend_file_dir, str):
+                    backend_file_dir = pathlib.Path(backend_file_dir)
+
+                ifc_file = backend_file_dir / f"{obj.name}.ifc"
+                obj.to_ifc(ifc_file)
+
+                wc.update_file_server(FileObjectDC(name=obj.name, file_type=FileTypeDC.IFC, purpose=FilePurposeDC.DESIGN, filepath=ifc_file))
+
 
         return renderer_instance

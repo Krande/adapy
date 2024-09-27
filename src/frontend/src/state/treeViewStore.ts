@@ -13,6 +13,8 @@ interface TreeViewState {
   setTreeData: (data: TreeNode) => void;
   clearTreeData: () => void;
   setSelectedNodeId: (id: string | null) => void;
+  isCollapsed: boolean;
+  setIsCollapsed: (collapsed: boolean) => void;
 }
 
 export const useTreeViewStore = create<TreeViewState>((set) => ({
@@ -21,6 +23,8 @@ export const useTreeViewStore = create<TreeViewState>((set) => ({
   setTreeData: (data) => set({ treeData: data }),
   clearTreeData: () => set({ treeData: null }),
   setSelectedNodeId: (id) => set({ selectedNodeId: id }),
+  isCollapsed: true,
+  setIsCollapsed: (collapsed) => set({ isCollapsed: collapsed }),
 }));
 
 // Utility function to generate tree data from the scene
