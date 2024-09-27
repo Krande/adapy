@@ -41,7 +41,7 @@ jobs:
       - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         with:
           cache-environment: true
-          cache-environment-key: ada-py-fem-test-001
+          cache-environment-key: ada-py-fem-test-002
           condarc: |
             channels:
               - https://repo.prefix.dev/code-aster
