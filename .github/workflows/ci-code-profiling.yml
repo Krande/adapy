@@ -43,6 +43,7 @@ jobs:
             pytest
             pytest-benchmark
             pytest-codspeed
+            python-flatbuffers
 
       - name: Install latest version
         run: |

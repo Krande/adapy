@@ -13,7 +13,7 @@ const TreeViewComponent: React.FC = () => {
 
 
     const renderTree = (nodes: TreeNode) => (
-        <TreeItem key={nodes.id} itemId={nodes.id} label={nodes.name}>
+        <TreeItem key={nodes.id} itemId={nodes.id} label={nodes.name} sx={{ color: "white"}}>
             {Array.isArray(nodes.children)
                 ? nodes.children.map((node: TreeNode) => renderTree(node))
                 : null}
