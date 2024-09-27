@@ -4,12 +4,12 @@ import asyncio
 import json
 from typing import TYPE_CHECKING
 
-from ada.comms.fb_model_gen import MessageDC, MeshInfoDC, CommandTypeDC, TargetTypeDC
+from ada.comms.fb_model_gen import CommandTypeDC, MeshInfoDC, MessageDC, TargetTypeDC
 from ada.comms.fb_serializer import serialize_message
 from ada.config import logger
 
 if TYPE_CHECKING:
-    from ada.comms.wsock_server import WebSocketAsyncServer, ConnectedClient
+    from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer
 
 
 def mesh_info_callback(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:
@@ -32,9 +32,7 @@ def mesh_info_callback(server: WebSocketAsyncServer, client: ConnectedClient, me
         raise ValueError(f"No GUID found for node {node_name}")
 
     logger.info(f"Entity: {entity}")
-    mesh_info = MeshInfoDC(
-        object_name=node_name, face_index=message.mesh_info.face_index, json_data=json.dumps(entity)
-    )
+    mesh_info = MeshInfoDC(object_name=node_name, face_index=message.mesh_info.face_index, json_data=json.dumps(entity))
     reply_message = MessageDC(
         instance_id=server.instance_id,
         command_type=CommandTypeDC.MESH_INFO_REPLY,

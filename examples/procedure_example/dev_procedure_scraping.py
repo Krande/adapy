@@ -16,5 +16,5 @@ def main():
     procedure(pathlib.Path("temp/MyBaseStructure.ifc").resolve().absolute().as_posix())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

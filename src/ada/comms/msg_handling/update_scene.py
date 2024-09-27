@@ -5,11 +5,12 @@ from typing import TYPE_CHECKING
 
 import trimesh
 
-from ada.comms.fb_model_gen import MessageDC, FileObjectDC
-from ada.config import logger, Config
+from ada.comms.fb_model_gen import FileObjectDC, MessageDC
+from ada.config import Config, logger
 
 if TYPE_CHECKING:
-    from ada.comms.wsock_server import WebSocketAsyncServer, ConnectedClient
+    from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer
+
 
 def update_scene(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:
     logger.info(f"Received message from {client} to update scene")

@@ -11,7 +11,7 @@ from ada.comms.msg_handling.update_server import update_server
 from ada.config import logger
 
 if TYPE_CHECKING:
-    from ada.comms.wsock_server import WebSocketAsyncServer, ConnectedClient
+    from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer
 
 
 def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, message_data: bytes) -> None:

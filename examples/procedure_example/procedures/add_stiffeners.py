@@ -1,5 +1,6 @@
-import numpy as np
 import pathlib
+
+import numpy as np
 import typer
 
 import ada
@@ -25,7 +26,7 @@ def add_stiffeners(pl: ada.Plate) -> list[ada.Beam]:
 
     spacing = 1
     z = points[0][0]
-    stiffener_section = 'HP180x8'
+    stiffener_section = "HP180x8"
     if length_y > length_x:
         num_stiffeners = int(length_y / spacing)
         # Add stiffeners in the x direction
@@ -57,5 +58,5 @@ def main(ifc_file: pathlib.Path) -> pathlib.Path:
     return modified_ifc_file
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app()

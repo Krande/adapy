@@ -5,12 +5,11 @@ from typing import TYPE_CHECKING
 
 from ada.cadit.ifc.ifc2sql import Ifc2SqlPatcher
 from ada.cadit.ifc.sql_model import IfcSqlModel
-from ada.comms.fb_model_gen import FileTypeDC
-from ada.comms.fb_model_gen import MessageDC
+from ada.comms.fb_model_gen import FileTypeDC, MessageDC
 from ada.config import logger
 
 if TYPE_CHECKING:
-    from ada.comms.wsock_server import WebSocketAsyncServer, ConnectedClient
+    from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer
 
 
 def update_server(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:

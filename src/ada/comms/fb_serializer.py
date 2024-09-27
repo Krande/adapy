@@ -1,9 +1,31 @@
-import flatbuffers
 from typing import Optional
 
-from ada.comms.wsock import WebClient, FileObject, MeshInfo, CameraParams, SceneOperation, ProcedureStore, Procedure, Parameter, Error, Message
+import flatbuffers
+from ada.comms.fb_model_gen import (
+    CameraParamsDC,
+    ErrorDC,
+    FileObjectDC,
+    MeshInfoDC,
+    MessageDC,
+    ParameterDC,
+    ProcedureDC,
+    ProcedureStoreDC,
+    SceneOperationDC,
+    WebClientDC,
+)
+from ada.comms.wsock import (
+    CameraParams,
+    Error,
+    FileObject,
+    MeshInfo,
+    Message,
+    Parameter,
+    Procedure,
+    ProcedureStore,
+    SceneOperation,
+    WebClient,
+)
 
-from ada.comms.fb_model_gen import WebClientDC, FileObjectDC, MeshInfoDC, CameraParamsDC, SceneOperationDC, ProcedureStoreDC, ProcedureDC, ParameterDC, ErrorDC, MessageDC
 
 def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]) -> Optional[int]:
     if obj is None:
@@ -114,7 +136,10 @@ def serialize_procedurestore(builder: flatbuffers.Builder, obj: Optional[Procedu
     procedures_vector = None
     if obj.procedures is not None and len(obj.procedures) > 0:
         procedures_list = [serialize_procedure(builder, item) for item in obj.procedures]
-        procedures_vector = builder.CreateByteVector(procedures_list)
+        ProcedureStore.StartProceduresVector(builder, len(procedures_list))
+        for item in reversed(procedures_list):
+            builder.PrependUOffsetTRelative(item)
+        procedures_vector = builder.EndVector(len(procedures_list))
 
     ProcedureStore.Start(builder)
     if obj.procedures is not None and len(obj.procedures) > 0:
@@ -137,7 +162,10 @@ def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]
     parameters_vector = None
     if obj.parameters is not None and len(obj.parameters) > 0:
         parameters_list = [serialize_parameter(builder, item) for item in obj.parameters]
-        parameters_vector = builder.CreateByteVector(parameters_list)
+        Procedure.StartParametersVector(builder, len(parameters_list))
+        for item in reversed(parameters_list):
+            builder.PrependUOffsetTRelative(item)
+        parameters_vector = builder.EndVector(len(parameters_list))
     input_ifc_filepath_str = None
     if obj.input_ifc_filepath is not None:
         input_ifc_filepath_str = builder.CreateString(str(obj.input_ifc_filepath))
@@ -204,7 +232,7 @@ def serialize_error(builder: flatbuffers.Builder, obj: Optional[ErrorDC]) -> Opt
     return Error.End(builder)
 
 
-def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
+def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
     file_object_obj = None

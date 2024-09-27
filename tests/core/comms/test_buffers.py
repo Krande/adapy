@@ -6,9 +6,12 @@ from ada.comms.fb_model_gen import (
     FileTypeDC,
     MeshInfoDC,
     MessageDC,
+    ParameterDC,
+    ProcedureDC,
+    ProcedureStoreDC,
     SceneOperationDC,
     SceneOperationsDC,
-    TargetTypeDC, ProcedureDC, ProcedureStoreDC,
+    TargetTypeDC,
 )
 from ada.comms.fb_serializer import serialize_message
 
@@ -66,7 +69,20 @@ def test_basic_flat_buffers_2():
 def test_procedure_store():
     # Create a sample dataclass message object
     message = MessageDC(
-        procedure_store=ProcedureStoreDC(procedures=[ProcedureDC(name="add_stiffeners", description="Add stiffeners to the structure")])
+        instance_id=1234,
+        command_type=CommandTypeDC.LIST_PROCEDURES,
+        target_group=TargetTypeDC.SERVER,
+        target_id=0,
+        client_type=TargetTypeDC.LOCAL,
+        procedure_store=ProcedureStoreDC(
+            procedures=[
+                ProcedureDC(
+                    name="add_stiffeners",
+                    description="Add stiffeners to the structure",
+                    parameters=[ParameterDC(name="ifc_file", type="pathlib.Path")],
+                )
+            ]
+        ),
     )
 
     # Serialize the dataclass message into a FlatBuffer

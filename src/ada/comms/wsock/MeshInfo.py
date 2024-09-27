@@ -4,10 +4,12 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
+
 np = import_numpy()
 
+
 class MeshInfo(object):
-    __slots__ = ['_tab']
+    __slots__ = ["_tab"]
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -20,6 +22,7 @@ class MeshInfo(object):
     def GetRootAsMeshInfo(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
+
     # MeshInfo
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -45,32 +48,42 @@ class MeshInfo(object):
             return self._tab.String(o + self._tab.Pos)
         return None
 
+
 def MeshInfoStart(builder):
     builder.StartObject(3)
+
 
 def Start(builder):
     MeshInfoStart(builder)
 
+
 def MeshInfoAddObjectName(builder, objectName):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(objectName), 0)
+
 
 def AddObjectName(builder, objectName):
     MeshInfoAddObjectName(builder, objectName)
 
+
 def MeshInfoAddFaceIndex(builder, faceIndex):
     builder.PrependInt32Slot(1, faceIndex, 0)
+
 
 def AddFaceIndex(builder, faceIndex):
     MeshInfoAddFaceIndex(builder, faceIndex)
 
+
 def MeshInfoAddJsonData(builder, jsonData):
     builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(jsonData), 0)
+
 
 def AddJsonData(builder, jsonData):
     MeshInfoAddJsonData(builder, jsonData)
 
+
 def MeshInfoEnd(builder):
     return builder.EndObject()
+
 
 def End(builder):
     return MeshInfoEnd(builder)
