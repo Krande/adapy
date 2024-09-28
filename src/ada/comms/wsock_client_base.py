@@ -13,9 +13,11 @@ from ada.comms.fb_model_gen import (
     FileTypeDC,
     MessageDC,
     ProcedureDC,
-    SceneOperationDC,
+    ProcedureStartDC,
+    ProcedureStoreDC,
+    SceneDC,
     SceneOperationsDC,
-    TargetTypeDC, ProcedureStoreDC, ProcedureStartDC,
+    TargetTypeDC,
 )
 from ada.comms.fb_serializer import serialize_message
 from ada.comms.wsockets_utils import client_as_str
@@ -33,7 +35,7 @@ class WebSocketClientBase(ABC):
         self.host = host
         self.port = port
         self.client_type = client_type
-        self.instance_id = random.randint(0, 2 ** 31 - 1)
+        self.instance_id = random.randint(0, 2**31 - 1)
         self.websocket = None
         self.url_override = url_override
 
@@ -53,14 +55,14 @@ class WebSocketClientBase(ABC):
         return serialize_message(message)
 
     def _scene_update_prep(
-            self,
-            name: str,
-            scene: trimesh.Scene,
-            purpose: FilePurposeDC = FilePurposeDC.DESIGN,
-            scene_op: SceneOperationsDC = SceneOperationsDC.REPLACE,
-            gltf_buffer_postprocessor=None,
-            gltf_tree_postprocessor=None,
-            target_id=None,
+        self,
+        name: str,
+        scene: trimesh.Scene,
+        purpose: FilePurposeDC = FilePurposeDC.DESIGN,
+        scene_op: SceneOperationsDC = SceneOperationsDC.REPLACE,
+        gltf_buffer_postprocessor=None,
+        gltf_tree_postprocessor=None,
+        target_id=None,
     ) -> bytes:
         with io.BytesIO() as data:
             scene.export(
@@ -76,7 +78,7 @@ class WebSocketClientBase(ABC):
                 file_object=file_object,
                 target_group=TargetTypeDC.WEB,
                 target_id=target_id,
-                scene_operation=SceneOperationDC(operation=scene_op),
+                scene=SceneDC(operation=scene_op),
             )
             return serialize_message(message)
 
@@ -124,12 +126,12 @@ class WebSocketClientBase(ABC):
 
     @abstractmethod
     def update_scene(
-            self,
-            name: str,
-            scene: trimesh.Scene,
-            purpose: FilePurposeDC,
-            scene_op: SceneOperationsDC,
-            gltf_buffer_postprocessor=None,
+        self,
+        name: str,
+        scene: trimesh.Scene,
+        purpose: FilePurposeDC,
+        scene_op: SceneOperationsDC,
+        gltf_buffer_postprocessor=None,
     ):
         pass
 

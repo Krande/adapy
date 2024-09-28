@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from ada.comms.fb_model_gen import CommandTypeDC, MessageDC
+from ada.comms.fb_model_gen import CommandTypeDC, MessageDC, ServerReplyDC
 from ada.comms.fb_serializer import serialize_message
 from ada.config import logger
 
@@ -23,6 +23,7 @@ def list_procedures(server: WebSocketAsyncServer, client: ConnectedClient, messa
         procedure_store=procedure_store_dc,
         target_id=client.instance_id,
         target_group=client.group_type,
+        server_reply=ServerReplyDC(reply_to=message.command_type),
     )
     fb_message = serialize_message(reply_message)
 

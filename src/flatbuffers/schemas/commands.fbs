@@ -77,7 +77,7 @@ table CameraParams {
     force_camera: bool = false; // Boolean to force camera with a default value
 }
 
-table SceneOperation {
+table Scene {
   operation: SceneOperations;
   camera_params: CameraParams;
 }
@@ -87,7 +87,7 @@ table SceneOperation {
 table ProcedureStore {
     procedures: [Procedure];
     start_procedure: ProcedureStart; // Name of the procedure to start
-    state: ProcedureState;      // State of the procedure store
+
 }
 
 table Procedure {
@@ -95,6 +95,10 @@ table Procedure {
     description: string;
     script_file_location: string;
     parameters: [Parameter];
+    input_file_var: string;
+    input_file_type: FileType;
+    export_file_type: FileType;
+    state: ProcedureState;      // State of the procedure
 }
 
 table Parameter {
@@ -115,17 +119,18 @@ table Error {
 
 table ServerReply {
   message: string;
+  reply_to: CommandType;
   error: Error;
 }
 
 table Message {
   instance_id: int;
   command_type: CommandType;
+  scene: Scene;
   file_object: FileObject;
   mesh_info: MeshInfo;
   target_group: TargetType;
   client_type: TargetType;
-  scene_operation: SceneOperation;
   target_id: int = 0; // Default value for optional field
   web_clients: [WebClient];
   procedure_store: ProcedureStore;

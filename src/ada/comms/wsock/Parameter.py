@@ -4,10 +4,12 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
+
 np = import_numpy()
 
+
 class Parameter(object):
-    __slots__ = ['_tab']
+    __slots__ = ["_tab"]
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -20,6 +22,7 @@ class Parameter(object):
     def GetRootAsParameter(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
+
     # Parameter
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -45,32 +48,42 @@ class Parameter(object):
             return self._tab.String(o + self._tab.Pos)
         return None
 
+
 def ParameterStart(builder):
     builder.StartObject(3)
+
 
 def Start(builder):
     ParameterStart(builder)
 
+
 def ParameterAddName(builder, name):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
+
 
 def AddName(builder, name):
     ParameterAddName(builder, name)
 
+
 def ParameterAddType(builder, type):
     builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(type), 0)
+
 
 def AddType(builder, type):
     ParameterAddType(builder, type)
 
+
 def ParameterAddValue(builder, value):
     builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(value), 0)
+
 
 def AddValue(builder, value):
     ParameterAddValue(builder, value)
 
+
 def ParameterEnd(builder):
     return builder.EndObject()
+
 
 def End(builder):
     return ParameterEnd(builder)

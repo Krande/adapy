@@ -6,7 +6,6 @@ import * as flatbuffers from 'flatbuffers';
 
 import { Procedure, ProcedureT } from '../wsock/procedure.js';
 import { ProcedureStart, ProcedureStartT } from '../wsock/procedure-start.js';
-import { ProcedureState } from './procedure-state';
 
 
 export class ProcedureStore implements flatbuffers.IUnpackableObject<ProcedureStoreT> {
@@ -42,13 +41,8 @@ startProcedure(obj?:ProcedureStart):ProcedureStart|null {
   return offset ? (obj || new ProcedureStart()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
-state():ProcedureState {
-  const offset = this.bb!.__offset(this.bb_pos, 8);
-  return offset ? this.bb!.readInt8(this.bb_pos + offset) : ProcedureState.IDLE;
-}
-
 static startProcedureStore(builder:flatbuffers.Builder) {
-  builder.startObject(3);
+  builder.startObject(2);
 }
 
 static addProcedures(builder:flatbuffers.Builder, proceduresOffset:flatbuffers.Offset) {
@@ -71,10 +65,6 @@ static addStartProcedure(builder:flatbuffers.Builder, startProcedureOffset:flatb
   builder.addFieldOffset(1, startProcedureOffset, 0);
 }
 
-static addState(builder:flatbuffers.Builder, state:ProcedureState) {
-  builder.addFieldInt8(2, state, ProcedureState.IDLE);
-}
-
 static endProcedureStore(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
@@ -84,8 +74,7 @@ static endProcedureStore(builder:flatbuffers.Builder):flatbuffers.Offset {
 unpack(): ProcedureStoreT {
   return new ProcedureStoreT(
     this.bb!.createObjList<Procedure, ProcedureT>(this.procedures.bind(this), this.proceduresLength()),
-    (this.startProcedure() !== null ? this.startProcedure()!.unpack() : null),
-    this.state()
+    (this.startProcedure() !== null ? this.startProcedure()!.unpack() : null)
   );
 }
 
@@ -93,15 +82,13 @@ unpack(): ProcedureStoreT {
 unpackTo(_o: ProcedureStoreT): void {
   _o.procedures = this.bb!.createObjList<Procedure, ProcedureT>(this.procedures.bind(this), this.proceduresLength());
   _o.startProcedure = (this.startProcedure() !== null ? this.startProcedure()!.unpack() : null);
-  _o.state = this.state();
 }
 }
 
 export class ProcedureStoreT implements flatbuffers.IGeneratedObject {
 constructor(
   public procedures: (ProcedureT)[] = [],
-  public startProcedure: ProcedureStartT|null = null,
-  public state: ProcedureState = ProcedureState.IDLE
+  public startProcedure: ProcedureStartT|null = null
 ){}
 
 
@@ -112,7 +99,6 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   ProcedureStore.startProcedureStore(builder);
   ProcedureStore.addProcedures(builder, procedures);
   ProcedureStore.addStartProcedure(builder, startProcedure);
-  ProcedureStore.addState(builder, this.state);
 
   return ProcedureStore.endProcedureStore(builder);
 }

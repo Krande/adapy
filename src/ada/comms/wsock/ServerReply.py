@@ -4,10 +4,12 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
+
 np = import_numpy()
 
+
 class ServerReply(object):
-    __slots__ = ['_tab']
+    __slots__ = ["_tab"]
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -20,6 +22,7 @@ class ServerReply(object):
     def GetRootAsServerReply(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
+
     # ServerReply
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -32,36 +35,60 @@ class ServerReply(object):
         return None
 
     # ServerReply
-    def Error(self):
+    def ReplyTo(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
+
+    # ServerReply
+    def Error(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.wsock.Error import Error
+
             obj = Error()
             obj.Init(self._tab.Bytes, x)
             return obj
         return None
 
+
 def ServerReplyStart(builder):
-    builder.StartObject(2)
+    builder.StartObject(3)
+
 
 def Start(builder):
     ServerReplyStart(builder)
 
+
 def ServerReplyAddMessage(builder, message):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(message), 0)
+
 
 def AddMessage(builder, message):
     ServerReplyAddMessage(builder, message)
 
+
+def ServerReplyAddReplyTo(builder, replyTo):
+    builder.PrependInt8Slot(1, replyTo, 0)
+
+
+def AddReplyTo(builder, replyTo):
+    ServerReplyAddReplyTo(builder, replyTo)
+
+
 def ServerReplyAddError(builder, error):
-    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(error), 0)
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(error), 0)
+
 
 def AddError(builder, error):
     ServerReplyAddError(builder, error)
 
+
 def ServerReplyEnd(builder):
     return builder.EndObject()
+
 
 def End(builder):
     return ServerReplyEnd(builder)

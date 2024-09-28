@@ -6,7 +6,14 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from ada.comms.fb_model_gen import ParameterDC, ProcedureDC, ProcedureStoreDC
+import typer
+
+from ada.comms.fb_model_gen import (
+    FileTypeDC,
+    ParameterDC,
+    ProcedureDC,
+    ProcedureStoreDC,
+)
 from ada.config import Config, logger
 
 
@@ -17,6 +24,9 @@ class Procedure:
     func: Callable | None = None
     script_path: Optional[pathlib.Path] = None
     params: dict[str, str] = field(default_factory=dict)
+    input_file_var: str | None = None
+    input_file_type: FileTypeDC | None = None
+    export_file_type: FileTypeDC | None = None
     return_type: str = "None"
 
     def __post_init__(self):
@@ -56,6 +66,9 @@ class Procedure:
             parameters=(
                 [ParameterDC(key, value=val) for key, val in self.params.items()] if self.params is not None else None
             ),
+            input_file_var=self.input_file_var,
+            input_file_type=self.input_file_type,
+            export_file_type=self.export_file_type,
         )
 
 
@@ -93,6 +106,45 @@ def get_procedure_from_function(func: Callable) -> Procedure:
     return Procedure(name=func.__name__, description=func.__doc__, func=func)
 
 
+def procedure_decorator(
+    app: typer.Typer,
+    input_file_var: str | None = None,
+    input_file_type: FileTypeDC | None = None,
+    export_file_type: FileTypeDC | None = None,
+) -> Callable:
+    def wrapper(func: Callable) -> Callable:
+        func.input_file_var = input_file_var
+        func.input_file_type = input_file_type
+        func.export_file_type = export_file_type
+        app.command()(func)  # Apply the app.command decorator
+        return func
+
+    return wrapper
+
+
+def str_to_filetype(filetype: str) -> FileTypeDC:
+    if filetype == "IFC":
+        return FileTypeDC.IFC
+    elif filetype == "GLB":
+        return FileTypeDC.GLB
+    else:
+        raise NotImplementedError(f"Filetype {filetype} not implemented")
+
+
+def extract_decorator_options(decorator: ast.Call) -> dict[str, str | FileTypeDC | None]:
+    options = dict(input_file_var=None, input_file_type=None, export_file_type=None)
+
+    for keyword in decorator.keywords:
+        if keyword.arg == "input_file_var":
+            options["input_file_var"] = keyword.value.s
+        elif keyword.arg == "input_file_type":
+            options["input_file_type"] = str_to_filetype(keyword.value.attr)
+        elif keyword.arg == "export_file_type":
+            options["export_file_type"] = str_to_filetype(keyword.value.attr)
+
+    return options
+
+
 def get_procedure_from_script(script_path: pathlib.Path) -> Procedure:
     with open(script_path, "r") as f:
         source_code = f.read()
@@ -126,6 +178,19 @@ def get_procedure_from_script(script_path: pathlib.Path) -> Procedure:
     # Extract docstring
     description = ast.get_docstring(main_func) or ""
 
+    # extract decorator (if any)
+    decorator_config = {}
+    if main_func.decorator_list:
+        custom_decorator = [d for d in main_func.decorator_list if d.func.id == "procedure_decorator"]
+        if custom_decorator:
+            decorator = custom_decorator[0]
+            decorator_config = extract_decorator_options(decorator)
+
     return Procedure(
-        name=script_path.stem, description=description, script_path=script_path, params=params, return_type=return_type
+        name=script_path.stem,
+        description=description,
+        script_path=script_path,
+        params=params,
+        return_type=return_type,
+        **decorator_config,
     )

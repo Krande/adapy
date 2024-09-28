@@ -8,8 +8,9 @@ from ada.comms.fb_model_gen import (
     FilePurposeDC,
     MessageDC,
     ProcedureDC,
+    ProcedureStartDC,
     SceneOperationsDC,
-    TargetTypeDC, ProcedureStartDC,
+    TargetTypeDC,
 )
 from ada.comms.wsock_client_base import WebSocketClientBase
 from ada.config import logger

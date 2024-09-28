@@ -4,6 +4,7 @@
 
 import * as flatbuffers from 'flatbuffers';
 
+import { CommandType } from './command-type';
 import { Error, ErrorT } from '../wsock/error.js';
 
 
@@ -32,21 +33,30 @@ message(optionalEncoding?:any):string|Uint8Array|null {
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
-error(obj?:Error):Error|null {
+replyTo():CommandType {
   const offset = this.bb!.__offset(this.bb_pos, 6);
+  return offset ? this.bb!.readInt8(this.bb_pos + offset) : CommandType.PING;
+}
+
+error(obj?:Error):Error|null {
+  const offset = this.bb!.__offset(this.bb_pos, 8);
   return offset ? (obj || new Error()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
 static startServerReply(builder:flatbuffers.Builder) {
-  builder.startObject(2);
+  builder.startObject(3);
 }
 
 static addMessage(builder:flatbuffers.Builder, messageOffset:flatbuffers.Offset) {
   builder.addFieldOffset(0, messageOffset, 0);
 }
 
+static addReplyTo(builder:flatbuffers.Builder, replyTo:CommandType) {
+  builder.addFieldInt8(1, replyTo, CommandType.PING);
+}
+
 static addError(builder:flatbuffers.Builder, errorOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(1, errorOffset, 0);
+  builder.addFieldOffset(2, errorOffset, 0);
 }
 
 static endServerReply(builder:flatbuffers.Builder):flatbuffers.Offset {
@@ -58,6 +68,7 @@ static endServerReply(builder:flatbuffers.Builder):flatbuffers.Offset {
 unpack(): ServerReplyT {
   return new ServerReplyT(
     this.message(),
+    this.replyTo(),
     (this.error() !== null ? this.error()!.unpack() : null)
   );
 }
@@ -65,6 +76,7 @@ unpack(): ServerReplyT {
 
 unpackTo(_o: ServerReplyT): void {
   _o.message = this.message();
+  _o.replyTo = this.replyTo();
   _o.error = (this.error() !== null ? this.error()!.unpack() : null);
 }
 }
@@ -72,6 +84,7 @@ unpackTo(_o: ServerReplyT): void {
 export class ServerReplyT implements flatbuffers.IGeneratedObject {
 constructor(
   public message: string|Uint8Array|null = null,
+  public replyTo: CommandType = CommandType.PING,
   public error: ErrorT|null = null
 ){}
 
@@ -82,6 +95,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
 
   ServerReply.startServerReply(builder);
   ServerReply.addMessage(builder, message);
+  ServerReply.addReplyTo(builder, this.replyTo);
   ServerReply.addError(builder, error);
 
   return ServerReply.endServerReply(builder);

@@ -4,64 +4,76 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
+
 np = import_numpy()
 
-class SceneOperation(object):
-    __slots__ = ['_tab']
+
+class Scene(object):
+    __slots__ = ["_tab"]
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
         n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
-        x = SceneOperation()
+        x = Scene()
         x.Init(buf, n + offset)
         return x
 
     @classmethod
-    def GetRootAsSceneOperation(cls, buf, offset=0):
+    def GetRootAsScene(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
-    # SceneOperation
+
+    # Scene
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
-    # SceneOperation
+    # Scene
     def Operation(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 0
 
-    # SceneOperation
+    # Scene
     def CameraParams(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.wsock.CameraParams import CameraParams
+
             obj = CameraParams()
             obj.Init(self._tab.Bytes, x)
             return obj
         return None
 
-def SceneOperationStart(builder):
+
+def SceneStart(builder):
     builder.StartObject(2)
 
-def Start(builder):
-    SceneOperationStart(builder)
 
-def SceneOperationAddOperation(builder, operation):
+def Start(builder):
+    SceneStart(builder)
+
+
+def SceneAddOperation(builder, operation):
     builder.PrependInt8Slot(0, operation, 0)
 
-def AddOperation(builder, operation):
-    SceneOperationAddOperation(builder, operation)
 
-def SceneOperationAddCameraParams(builder, cameraParams):
+def AddOperation(builder, operation):
+    SceneAddOperation(builder, operation)
+
+
+def SceneAddCameraParams(builder, cameraParams):
     builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(cameraParams), 0)
 
-def AddCameraParams(builder, cameraParams):
-    SceneOperationAddCameraParams(builder, cameraParams)
 
-def SceneOperationEnd(builder):
+def AddCameraParams(builder, cameraParams):
+    SceneAddCameraParams(builder, cameraParams)
+
+
+def SceneEnd(builder):
     return builder.EndObject()
 
+
 def End(builder):
-    return SceneOperationEnd(builder)
+    return SceneEnd(builder)

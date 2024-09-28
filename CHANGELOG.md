@@ -2,6 +2,13 @@
 
 
 
+## v0.3.1 (2024-09-27)
+
+### Fix
+
+* fix: update ci&#39;s using micromamba v2 and relies on caching (#114) ([`b156d53`](https://github.com/Krande/adapy/commit/b156d53a5c953fddc4616747bb35a66885c5866c))
+
+
 ## v0.3.0 (2024-09-27)
 
 ### Feature

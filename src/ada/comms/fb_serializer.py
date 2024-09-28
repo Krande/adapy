@@ -1,9 +1,35 @@
-import flatbuffers
 from typing import Optional
 
-from ada.comms.wsock import WebClient, FileObject, MeshInfo, CameraParams, SceneOperation, ProcedureStore, Procedure, Parameter, ProcedureStart, Error, ServerReply, Message
+import flatbuffers
+from ada.comms.fb_model_gen import (
+    CameraParamsDC,
+    ErrorDC,
+    FileObjectDC,
+    MeshInfoDC,
+    MessageDC,
+    ParameterDC,
+    ProcedureDC,
+    ProcedureStartDC,
+    ProcedureStoreDC,
+    SceneDC,
+    ServerReplyDC,
+    WebClientDC,
+)
+from ada.comms.wsock import (
+    CameraParams,
+    Error,
+    FileObject,
+    MeshInfo,
+    Message,
+    Parameter,
+    Procedure,
+    ProcedureStart,
+    ProcedureStore,
+    Scene,
+    ServerReply,
+    WebClient,
+)
 
-from ada.comms.fb_model_gen import WebClientDC, FileObjectDC, MeshInfoDC, CameraParamsDC, SceneOperationDC, ProcedureStoreDC, ProcedureDC, ParameterDC, ProcedureStartDC, ErrorDC, ServerReplyDC, MessageDC
 
 def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]) -> Optional[int]:
     if obj is None:
@@ -96,16 +122,19 @@ def serialize_cameraparams(builder: flatbuffers.Builder, obj: Optional[CameraPar
     return CameraParams.End(builder)
 
 
-def serialize_sceneoperation(builder: flatbuffers.Builder, obj: Optional[SceneOperationDC]) -> Optional[int]:
+def serialize_scene(builder: flatbuffers.Builder, obj: Optional[SceneDC]) -> Optional[int]:
     if obj is None:
         return None
-
-    SceneOperation.Start(builder)
-    if obj.operation is not None:
-        SceneOperation.AddOperation(builder, obj.operation.value)
+    camera_params_obj = None
     if obj.camera_params is not None:
-        SceneOperation.AddCameraParams(builder, obj.camera_params.value)
-    return SceneOperation.End(builder)
+        camera_params_obj = serialize_cameraparams(builder, obj.camera_params)
+
+    Scene.Start(builder)
+    if obj.operation is not None:
+        Scene.AddOperation(builder, obj.operation.value)
+    if obj.camera_params is not None:
+        Scene.AddCameraParams(builder, camera_params_obj)
+    return Scene.End(builder)
 
 
 def serialize_procedurestore(builder: flatbuffers.Builder, obj: Optional[ProcedureStoreDC]) -> Optional[int]:
@@ -118,14 +147,15 @@ def serialize_procedurestore(builder: flatbuffers.Builder, obj: Optional[Procedu
         for item in reversed(procedures_list):
             builder.PrependUOffsetTRelative(item)
         procedures_vector = builder.EndVector(len(procedures_list))
+    start_procedure_obj = None
+    if obj.start_procedure is not None:
+        start_procedure_obj = serialize_procedurestart(builder, obj.start_procedure)
 
     ProcedureStore.Start(builder)
     if obj.procedures is not None and len(obj.procedures) > 0:
         ProcedureStore.AddProcedures(builder, procedures_vector)
     if obj.start_procedure is not None:
-        ProcedureStore.AddStartProcedure(builder, obj.start_procedure.value)
-    if obj.state is not None:
-        ProcedureStore.AddState(builder, obj.state.value)
+        ProcedureStore.AddStartProcedure(builder, start_procedure_obj)
     return ProcedureStore.End(builder)
 
 
@@ -148,6 +178,9 @@ def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]
         for item in reversed(parameters_list):
             builder.PrependUOffsetTRelative(item)
         parameters_vector = builder.EndVector(len(parameters_list))
+    input_file_var_str = None
+    if obj.input_file_var is not None:
+        input_file_var_str = builder.CreateString(str(obj.input_file_var))
 
     Procedure.Start(builder)
     if name_str is not None:
@@ -158,6 +191,14 @@ def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]
         Procedure.AddScriptFileLocation(builder, script_file_location_str)
     if obj.parameters is not None and len(obj.parameters) > 0:
         Procedure.AddParameters(builder, parameters_vector)
+    if input_file_var_str is not None:
+        Procedure.AddInputFileVar(builder, input_file_var_str)
+    if obj.input_file_type is not None:
+        Procedure.AddInputFileType(builder, obj.input_file_type.value)
+    if obj.export_file_type is not None:
+        Procedure.AddExportFileType(builder, obj.export_file_type.value)
+    if obj.state is not None:
+        Procedure.AddState(builder, obj.state.value)
     return Procedure.End(builder)
 
 
@@ -227,27 +268,32 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
     message_str = None
     if obj.message is not None:
         message_str = builder.CreateString(str(obj.message))
+    error_obj = None
+    if obj.error is not None:
+        error_obj = serialize_error(builder, obj.error)
 
     ServerReply.Start(builder)
     if message_str is not None:
         ServerReply.AddMessage(builder, message_str)
+    if obj.reply_to is not None:
+        ServerReply.AddReplyTo(builder, obj.reply_to.value)
     if obj.error is not None:
-        ServerReply.AddError(builder, obj.error.value)
+        ServerReply.AddError(builder, error_obj)
     return ServerReply.End(builder)
 
 
-def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
+def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
+    scene_obj = None
+    if message.scene is not None:
+        scene_obj = serialize_scene(builder, message.scene)
     file_object_obj = None
     if message.file_object is not None:
         file_object_obj = serialize_fileobject(builder, message.file_object)
     mesh_info_obj = None
     if message.mesh_info is not None:
         mesh_info_obj = serialize_meshinfo(builder, message.mesh_info)
-    scene_operation_obj = None
-    if message.scene_operation is not None:
-        scene_operation_obj = serialize_sceneoperation(builder, message.scene_operation)
     procedure_store_obj = None
     if message.procedure_store is not None:
         procedure_store_obj = serialize_procedurestore(builder, message.procedure_store)
@@ -260,6 +306,8 @@ def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> 
         Message.AddInstanceId(builder, message.instance_id)
     if message.command_type is not None:
         Message.AddCommandType(builder, message.command_type.value)
+    if message.scene is not None:
+        Message.AddScene(builder, scene_obj)
     if message.file_object is not None:
         Message.AddFileObject(builder, file_object_obj)
     if message.mesh_info is not None:
@@ -268,8 +316,6 @@ def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> 
         Message.AddTargetGroup(builder, message.target_group.value)
     if message.client_type is not None:
         Message.AddClientType(builder, message.client_type.value)
-    if message.scene_operation is not None:
-        Message.AddSceneOperation(builder, scene_operation_obj)
     if message.target_id is not None:
         Message.AddTargetId(builder, message.target_id)
     if message.web_clients is not None:

@@ -15,7 +15,7 @@ export { Procedure, ProcedureT } from './wsock/procedure.js';
 export { ProcedureStart, ProcedureStartT } from './wsock/procedure-start.js';
 export { ProcedureState } from './wsock/procedure-state.js';
 export { ProcedureStore, ProcedureStoreT } from './wsock/procedure-store.js';
-export { SceneOperation, SceneOperationT } from './wsock/scene-operation.js';
+export { Scene, SceneT } from './wsock/scene.js';
 export { SceneOperations } from './wsock/scene-operations.js';
 export { ServerReply, ServerReplyT } from './wsock/server-reply.js';
 export { TargetType } from './wsock/target-type.js';

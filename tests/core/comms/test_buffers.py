@@ -8,8 +8,9 @@ from ada.comms.fb_model_gen import (
     MessageDC,
     ParameterDC,
     ProcedureDC,
+    ProcedureStateDC,
     ProcedureStoreDC,
-    SceneOperationDC,
+    SceneDC,
     SceneOperationsDC,
     TargetTypeDC,
 )
@@ -26,7 +27,7 @@ def test_basic_flat_buffers():
         target_id=5678,
         target_group=TargetTypeDC.WEB,
         client_type=TargetTypeDC.LOCAL,
-        scene_operation=SceneOperationDC(operation=SceneOperationsDC.REPLACE),
+        scene=SceneDC(operation=SceneOperationsDC.REPLACE),
     )
 
     # Serialize the dataclass message into a FlatBuffer
@@ -51,7 +52,7 @@ def test_basic_flat_buffers_2():
         target_id=5678,
         target_group=TargetTypeDC.WEB,
         client_type=TargetTypeDC.LOCAL,
-        scene_operation=SceneOperationDC(operation=SceneOperationsDC.ADD),
+        scene=SceneDC(operation=SceneOperationsDC.ADD),
     )
 
     # Serialize the dataclass message into a FlatBuffer
@@ -80,8 +81,9 @@ def test_procedure_store():
                     name="add_stiffeners",
                     description="Add stiffeners to the structure",
                     parameters=[ParameterDC(name="ifc_file", type="pathlib.Path")],
+                    state=ProcedureStateDC.IDLE,
                 )
-            ]
+            ],
         ),
     )
 

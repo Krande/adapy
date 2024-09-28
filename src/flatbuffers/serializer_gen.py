@@ -8,6 +8,8 @@ from utils import make_camel_case
 
 def generate_serialize_function(table: TableDefinition) -> str:
     table_names = [tbl.name for tbl in table.schema.tables]
+    enum_names = [enum.name for enum in table.schema.enums]
+
     serialize_code = f"def serialize_{table.name.lower()}(builder: flatbuffers.Builder, obj: Optional[{table.name}DC]) -> Optional[int]:\n"
     serialize_code += "    if obj is None:\n        return None\n"
 
@@ -36,6 +38,12 @@ def generate_serialize_function(table: TableDefinition) -> str:
                 serialize_code += f"        for item in reversed({field.name}_list):\n"
                 serialize_code += "            builder.PrependUOffsetTRelative(item)\n"
                 serialize_code += f"        {field.name}_vector = builder.EndVector(len({field.name}_list))\n"
+        elif field.field_type in table_names:
+            serialize_code += f"    {field.name}_obj = None\n"
+            serialize_code += f"    if obj.{field.name} is not None:\n"
+            serialize_code += (
+                f"        {field.name}_obj = serialize_{field.field_type.lower()}(builder, obj.{field.name})\n"
+            )
 
     serialize_code += f"\n    {table.name}.Start(builder)\n"
 
@@ -65,12 +73,18 @@ def generate_serialize_function(table: TableDefinition) -> str:
         elif field.field_type in ["byte", "ubyte", "int", "bool", "float"]:
             serialize_code += f"    if obj.{field.name} is not None:\n"
             serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, obj.{field.name})\n"
-        else:
+        elif field.field_type in table_names:
+            # Handle enum or nested table
+            serialize_code += f"    if obj.{field.name} is not None:\n"
+            serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_obj)\n"
+        elif field.field_type in enum_names:
             # Handle enum or nested table
             serialize_code += f"    if obj.{field.name} is not None:\n"
             serialize_code += (
                 f"        {table.name}.Add{make_camel_case(field.name)}(builder, obj.{field.name}.value)\n"
             )
+        else:
+            raise NotImplementedError(f"Unknown field type: {field.field_type}")
 
     serialize_code += f"    return {table.name}.End(builder)\n"
     return serialize_code

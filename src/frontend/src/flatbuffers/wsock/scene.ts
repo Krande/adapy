@@ -8,22 +8,22 @@ import { CameraParams, CameraParamsT } from '../wsock/camera-params.js';
 import { SceneOperations } from './scene-operations';
 
 
-export class SceneOperation implements flatbuffers.IUnpackableObject<SceneOperationT> {
+export class Scene implements flatbuffers.IUnpackableObject<SceneT> {
   bb: flatbuffers.ByteBuffer|null = null;
   bb_pos = 0;
-  __init(i:number, bb:flatbuffers.ByteBuffer):SceneOperation {
+  __init(i:number, bb:flatbuffers.ByteBuffer):Scene {
   this.bb_pos = i;
   this.bb = bb;
   return this;
 }
 
-static getRootAsSceneOperation(bb:flatbuffers.ByteBuffer, obj?:SceneOperation):SceneOperation {
-  return (obj || new SceneOperation()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
+static getRootAsScene(bb:flatbuffers.ByteBuffer, obj?:Scene):Scene {
+  return (obj || new Scene()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
 }
 
-static getSizePrefixedRootAsSceneOperation(bb:flatbuffers.ByteBuffer, obj?:SceneOperation):SceneOperation {
+static getSizePrefixedRootAsScene(bb:flatbuffers.ByteBuffer, obj?:Scene):Scene {
   bb.setPosition(bb.position() + flatbuffers.SIZE_PREFIX_LENGTH);
-  return (obj || new SceneOperation()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
+  return (obj || new Scene()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
 }
 
 operation():SceneOperations {
@@ -36,7 +36,7 @@ cameraParams(obj?:CameraParams):CameraParams|null {
   return offset ? (obj || new CameraParams()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
-static startSceneOperation(builder:flatbuffers.Builder) {
+static startScene(builder:flatbuffers.Builder) {
   builder.startObject(2);
 }
 
@@ -48,27 +48,27 @@ static addCameraParams(builder:flatbuffers.Builder, cameraParamsOffset:flatbuffe
   builder.addFieldOffset(1, cameraParamsOffset, 0);
 }
 
-static endSceneOperation(builder:flatbuffers.Builder):flatbuffers.Offset {
+static endScene(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
 
-unpack(): SceneOperationT {
-  return new SceneOperationT(
+unpack(): SceneT {
+  return new SceneT(
     this.operation(),
     (this.cameraParams() !== null ? this.cameraParams()!.unpack() : null)
   );
 }
 
 
-unpackTo(_o: SceneOperationT): void {
+unpackTo(_o: SceneT): void {
   _o.operation = this.operation();
   _o.cameraParams = (this.cameraParams() !== null ? this.cameraParams()!.unpack() : null);
 }
 }
 
-export class SceneOperationT implements flatbuffers.IGeneratedObject {
+export class SceneT implements flatbuffers.IGeneratedObject {
 constructor(
   public operation: SceneOperations = SceneOperations.ADD,
   public cameraParams: CameraParamsT|null = null
@@ -78,10 +78,10 @@ constructor(
 pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const cameraParams = (this.cameraParams !== null ? this.cameraParams!.pack(builder) : 0);
 
-  SceneOperation.startSceneOperation(builder);
-  SceneOperation.addOperation(builder, this.operation);
-  SceneOperation.addCameraParams(builder, cameraParams);
+  Scene.startScene(builder);
+  Scene.addOperation(builder, this.operation);
+  Scene.addCameraParams(builder, cameraParams);
 
-  return SceneOperation.endSceneOperation(builder);
+  return Scene.endScene(builder);
 }
 }
