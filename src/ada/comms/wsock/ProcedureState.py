@@ -2,7 +2,8 @@
 
 # namespace: wsock
 
-class TargetType(object):
-    WEB = 0
-    LOCAL = 1
-    SERVER = 2
+class ProcedureState(object):
+    IDLE = 0
+    RUNNING = 1
+    FINISHED = 2
+    ERROR = 3

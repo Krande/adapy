@@ -11,5 +11,4 @@ async def start_async_server():
 
 if __name__ == "__main__":
     logger.setLevel("DEBUG")
-    # start_ws_async_server()
     asyncio.run(start_async_server())

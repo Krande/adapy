@@ -13,7 +13,7 @@ from ada.comms.fb_model_gen import (
     MessageDC,
     ProcedureDC,
     SceneOperationsDC,
-    TargetTypeDC,
+    TargetTypeDC, ProcedureStartDC,
 )
 from ada.comms.wsock_client_base import WebSocketClientBase
 from ada.config import logger
@@ -21,11 +21,11 @@ from ada.config import logger
 
 class WebSocketClientAsync(WebSocketClientBase):
     def __init__(
-        self,
-        host: str = "localhost",
-        port: int = 8765,
-        client_type: TargetTypeDC | str = TargetTypeDC.LOCAL,
-        url_override: str = None,
+            self,
+            host: str = "localhost",
+            port: int = 8765,
+            client_type: TargetTypeDC | str = TargetTypeDC.LOCAL,
+            url_override: str = None,
     ):
         super().__init__(host, port, client_type, url_override)
 
@@ -58,14 +58,14 @@ class WebSocketClientAsync(WebSocketClientBase):
         return msg.command_type == CommandTypeDC.PONG
 
     async def update_scene(
-        self,
-        name: str,
-        scene: trimesh.Scene,
-        purpose: FilePurposeDC = FilePurposeDC.DESIGN,
-        scene_op: SceneOperationsDC = SceneOperationsDC.REPLACE,
-        gltf_buffer_postprocessor=None,
-        gltf_tree_postprocessor=None,
-        target_id=None,
+            self,
+            name: str,
+            scene: trimesh.Scene,
+            purpose: FilePurposeDC = FilePurposeDC.DESIGN,
+            scene_op: SceneOperationsDC = SceneOperationsDC.REPLACE,
+            gltf_buffer_postprocessor=None,
+            gltf_tree_postprocessor=None,
+            target_id=None,
     ):
         # Serialize the dataclass message into a FlatBuffer
         await self.websocket.send(
@@ -88,3 +88,7 @@ class WebSocketClientAsync(WebSocketClientBase):
         await self.websocket.send(self._list_procedures_prep())
         msg = await self.receive()
         return msg.procedure_store.procedures
+
+    async def run_procedure(self, procedure: ProcedureStartDC) -> None:
+        """Runs a procedure with the given name and arguments."""
+        await self.websocket.send(self._run_procedure_prep(procedure))

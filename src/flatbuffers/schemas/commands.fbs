@@ -10,8 +10,9 @@ enum CommandType : byte {
   LIST_WEB_CLIENTS = 6,
   LIST_FILE_OBJECTS = 7,
   LIST_PROCEDURES = 8,
-  ERROR = 9,
-  SERVER_REPLY = 10,
+  RUN_PROCEDURE = 9,
+  ERROR = 10,
+  SERVER_REPLY = 11,
 }
 
 enum TargetType : byte {
@@ -36,6 +37,13 @@ enum FileType : byte {
     IFC = 0,
     GLB = 1,
     SQLITE = 2,
+}
+
+enum ProcedureState : byte {
+    IDLE = 0,
+    RUNNING = 1,
+    FINISHED = 2,
+    ERROR = 3,
 }
 
 table WebClient {
@@ -78,6 +86,8 @@ table SceneOperation {
 // The sequence of procedures is defined in the procedure store
 table ProcedureStore {
     procedures: [Procedure];
+    start_procedure: ProcedureStart; // Name of the procedure to start
+    state: ProcedureState;      // State of the procedure store
 }
 
 table Procedure {
@@ -85,9 +95,6 @@ table Procedure {
     description: string;
     script_file_location: string;
     parameters: [Parameter];
-    input_ifc_filepath: string;     // Input IFC file path
-    output_ifc_filepath: string;    // Output IFC file path
-    error: string;                  // Error message in case the procedure fails
 }
 
 table Parameter {
@@ -96,9 +103,19 @@ table Parameter {
     value: string; // The value of the parameter
 }
 
+table ProcedureStart {
+    procedure_name: string;
+    parameters: [Parameter];
+}
+
 table Error {
   code: int;
   message: string;
+}
+
+table ServerReply {
+  message: string;
+  error: Error;
 }
 
 table Message {
@@ -112,6 +129,7 @@ table Message {
   target_id: int = 0; // Default value for optional field
   web_clients: [WebClient];
   procedure_store: ProcedureStore;
+  server_reply: ServerReply;
 }
 
 root_type Message;

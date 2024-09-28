@@ -2,7 +2,6 @@
 
 # namespace: wsock
 
-
 class CommandType(object):
     PING = 0
     PONG = 1
@@ -13,5 +12,6 @@ class CommandType(object):
     LIST_WEB_CLIENTS = 6
     LIST_FILE_OBJECTS = 7
     LIST_PROCEDURES = 8
-    ERROR = 9
-    SERVER_REPLY = 10
+    RUN_PROCEDURE = 9
+    ERROR = 10
+    SERVER_REPLY = 11

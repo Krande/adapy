@@ -56,29 +56,8 @@ parametersLength():number {
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
-inputIfcFilepath():string|null
-inputIfcFilepath(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
-inputIfcFilepath(optionalEncoding?:any):string|Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 12);
-  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
-}
-
-outputIfcFilepath():string|null
-outputIfcFilepath(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
-outputIfcFilepath(optionalEncoding?:any):string|Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 14);
-  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
-}
-
-error():string|null
-error(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
-error(optionalEncoding?:any):string|Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 16);
-  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
-}
-
 static startProcedure(builder:flatbuffers.Builder) {
-  builder.startObject(7);
+  builder.startObject(4);
 }
 
 static addName(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset) {
@@ -109,32 +88,17 @@ static startParametersVector(builder:flatbuffers.Builder, numElems:number) {
   builder.startVector(4, numElems, 4);
 }
 
-static addInputIfcFilepath(builder:flatbuffers.Builder, inputIfcFilepathOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(4, inputIfcFilepathOffset, 0);
-}
-
-static addOutputIfcFilepath(builder:flatbuffers.Builder, outputIfcFilepathOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(5, outputIfcFilepathOffset, 0);
-}
-
-static addError(builder:flatbuffers.Builder, errorOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(6, errorOffset, 0);
-}
-
 static endProcedure(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createProcedure(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset, descriptionOffset:flatbuffers.Offset, scriptFileLocationOffset:flatbuffers.Offset, parametersOffset:flatbuffers.Offset, inputIfcFilepathOffset:flatbuffers.Offset, outputIfcFilepathOffset:flatbuffers.Offset, errorOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createProcedure(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset, descriptionOffset:flatbuffers.Offset, scriptFileLocationOffset:flatbuffers.Offset, parametersOffset:flatbuffers.Offset):flatbuffers.Offset {
   Procedure.startProcedure(builder);
   Procedure.addName(builder, nameOffset);
   Procedure.addDescription(builder, descriptionOffset);
   Procedure.addScriptFileLocation(builder, scriptFileLocationOffset);
   Procedure.addParameters(builder, parametersOffset);
-  Procedure.addInputIfcFilepath(builder, inputIfcFilepathOffset);
-  Procedure.addOutputIfcFilepath(builder, outputIfcFilepathOffset);
-  Procedure.addError(builder, errorOffset);
   return Procedure.endProcedure(builder);
 }
 
@@ -143,10 +107,7 @@ unpack(): ProcedureT {
     this.name(),
     this.description(),
     this.scriptFileLocation(),
-    this.bb!.createObjList<Parameter, ParameterT>(this.parameters.bind(this), this.parametersLength()),
-    this.inputIfcFilepath(),
-    this.outputIfcFilepath(),
-    this.error()
+    this.bb!.createObjList<Parameter, ParameterT>(this.parameters.bind(this), this.parametersLength())
   );
 }
 
@@ -156,9 +117,6 @@ unpackTo(_o: ProcedureT): void {
   _o.description = this.description();
   _o.scriptFileLocation = this.scriptFileLocation();
   _o.parameters = this.bb!.createObjList<Parameter, ParameterT>(this.parameters.bind(this), this.parametersLength());
-  _o.inputIfcFilepath = this.inputIfcFilepath();
-  _o.outputIfcFilepath = this.outputIfcFilepath();
-  _o.error = this.error();
 }
 }
 
@@ -167,10 +125,7 @@ constructor(
   public name: string|Uint8Array|null = null,
   public description: string|Uint8Array|null = null,
   public scriptFileLocation: string|Uint8Array|null = null,
-  public parameters: (ParameterT)[] = [],
-  public inputIfcFilepath: string|Uint8Array|null = null,
-  public outputIfcFilepath: string|Uint8Array|null = null,
-  public error: string|Uint8Array|null = null
+  public parameters: (ParameterT)[] = []
 ){}
 
 
@@ -179,18 +134,12 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const description = (this.description !== null ? builder.createString(this.description!) : 0);
   const scriptFileLocation = (this.scriptFileLocation !== null ? builder.createString(this.scriptFileLocation!) : 0);
   const parameters = Procedure.createParametersVector(builder, builder.createObjectOffsetList(this.parameters));
-  const inputIfcFilepath = (this.inputIfcFilepath !== null ? builder.createString(this.inputIfcFilepath!) : 0);
-  const outputIfcFilepath = (this.outputIfcFilepath !== null ? builder.createString(this.outputIfcFilepath!) : 0);
-  const error = (this.error !== null ? builder.createString(this.error!) : 0);
 
   return Procedure.createProcedure(builder,
     name,
     description,
     scriptFileLocation,
-    parameters,
-    inputIfcFilepath,
-    outputIfcFilepath,
-    error
+    parameters
   );
 }
 }

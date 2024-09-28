@@ -9,7 +9,7 @@ from ada.comms.fb_model_gen import (
     MessageDC,
     ProcedureDC,
     SceneOperationsDC,
-    TargetTypeDC,
+    TargetTypeDC, ProcedureStartDC,
 )
 from ada.comms.wsock_client_base import WebSocketClientBase
 from ada.config import logger
@@ -81,3 +81,7 @@ class WebSocketClientSync(WebSocketClientBase):
         self.websocket.send(self._list_procedures_prep())
         msg = self.receive()
         return msg.procedure_store.procedures
+
+    def run_procedure(self, procedure: ProcedureStartDC) -> None:
+        """Runs a procedure with the given name and arguments."""
+        self.websocket.send(self._run_procedure_prep(procedure))

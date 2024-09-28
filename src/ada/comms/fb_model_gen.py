@@ -1,9 +1,9 @@
 from __future__ import annotations
-
-import pathlib
-from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional
+from dataclasses import dataclass
+from typing import Optional, List
+import pathlib
+
 
 
 class CommandTypeDC(Enum):
@@ -16,33 +16,35 @@ class CommandTypeDC(Enum):
     LIST_WEB_CLIENTS = 6
     LIST_FILE_OBJECTS = 7
     LIST_PROCEDURES = 8
-    ERROR = 9
-    SERVER_REPLY = 10
-
+    RUN_PROCEDURE = 9
+    ERROR = 10
+    SERVER_REPLY = 11
 
 class TargetTypeDC(Enum):
     WEB = 0
     LOCAL = 1
     SERVER = 2
 
-
 class SceneOperationsDC(Enum):
     ADD = 0
     REMOVE = 1
     REPLACE = 2
-
 
 class FilePurposeDC(Enum):
     DESIGN = 0
     ANALYSIS = 1
     FABRICATE = 2
 
-
 class FileTypeDC(Enum):
     IFC = 0
     GLB = 1
     SQLITE = 2
 
+class ProcedureStateDC(Enum):
+    IDLE = 0
+    RUNNING = 1
+    FINISHED = 2
+    ERROR = 3
 
 @dataclass
 class WebClientDC:
@@ -50,7 +52,6 @@ class WebClientDC:
     name: str = ""
     address: str = ""
     port: int = None
-
 
 @dataclass
 class FileObjectDC:
@@ -60,13 +61,11 @@ class FileObjectDC:
     filepath: pathlib.Path | str = ""
     filedata: bytes = None
 
-
 @dataclass
 class MeshInfoDC:
     object_name: str = ""
     face_index: int = None
     json_data: str = ""
-
 
 @dataclass
 class CameraParamsDC:
@@ -78,17 +77,16 @@ class CameraParamsDC:
     far: float = None
     force_camera: bool = None
 
-
 @dataclass
 class SceneOperationDC:
     operation: Optional[SceneOperationsDC] = None
     camera_params: Optional[CameraParamsDC] = None
 
-
 @dataclass
 class ProcedureStoreDC:
     procedures: Optional[List[ProcedureDC]] = None
-
+    start_procedure: Optional[ProcedureStartDC] = None
+    state: Optional[ProcedureStateDC] = None
 
 @dataclass
 class ProcedureDC:
@@ -96,10 +94,6 @@ class ProcedureDC:
     description: str = ""
     script_file_location: str = ""
     parameters: Optional[List[ParameterDC]] = None
-    input_ifc_filepath: pathlib.Path | str = ""
-    output_ifc_filepath: pathlib.Path | str = ""
-    error: str = ""
-
 
 @dataclass
 class ParameterDC:
@@ -107,12 +101,20 @@ class ParameterDC:
     type: str = ""
     value: str = ""
 
+@dataclass
+class ProcedureStartDC:
+    procedure_name: str = ""
+    parameters: Optional[List[ParameterDC]] = None
 
 @dataclass
 class ErrorDC:
     code: int = None
     message: str = ""
 
+@dataclass
+class ServerReplyDC:
+    message: str = ""
+    error: Optional[ErrorDC] = None
 
 @dataclass
 class MessageDC:
@@ -126,3 +128,4 @@ class MessageDC:
     target_id: int = None
     web_clients: Optional[List[WebClientDC]] = None
     procedure_store: Optional[ProcedureStoreDC] = None
+    server_reply: Optional[ServerReplyDC] = None

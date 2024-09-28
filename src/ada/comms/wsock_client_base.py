@@ -15,7 +15,7 @@ from ada.comms.fb_model_gen import (
     ProcedureDC,
     SceneOperationDC,
     SceneOperationsDC,
-    TargetTypeDC,
+    TargetTypeDC, ProcedureStoreDC, ProcedureStartDC,
 )
 from ada.comms.fb_serializer import serialize_message
 from ada.comms.wsockets_utils import client_as_str
@@ -33,7 +33,7 @@ class WebSocketClientBase(ABC):
         self.host = host
         self.port = port
         self.client_type = client_type
-        self.instance_id = random.randint(0, 2**31 - 1)
+        self.instance_id = random.randint(0, 2 ** 31 - 1)
         self.websocket = None
         self.url_override = url_override
 
@@ -53,14 +53,14 @@ class WebSocketClientBase(ABC):
         return serialize_message(message)
 
     def _scene_update_prep(
-        self,
-        name: str,
-        scene: trimesh.Scene,
-        purpose: FilePurposeDC = FilePurposeDC.DESIGN,
-        scene_op: SceneOperationsDC = SceneOperationsDC.REPLACE,
-        gltf_buffer_postprocessor=None,
-        gltf_tree_postprocessor=None,
-        target_id=None,
+            self,
+            name: str,
+            scene: trimesh.Scene,
+            purpose: FilePurposeDC = FilePurposeDC.DESIGN,
+            scene_op: SceneOperationsDC = SceneOperationsDC.REPLACE,
+            gltf_buffer_postprocessor=None,
+            gltf_tree_postprocessor=None,
+            target_id=None,
     ) -> bytes:
         with io.BytesIO() as data:
             scene.export(
@@ -97,6 +97,15 @@ class WebSocketClientBase(ABC):
         )
         return serialize_message(message)
 
+    def _run_procedure_prep(self, procedure: ProcedureStartDC) -> bytes:
+        message = MessageDC(
+            instance_id=self.instance_id,
+            command_type=CommandTypeDC.RUN_PROCEDURE,
+            procedure_store=ProcedureStoreDC(start_procedure=procedure),
+            target_group=TargetTypeDC.SERVER,
+        )
+        return serialize_message(message)
+
     @abstractmethod
     def connect(self):
         pass
@@ -115,12 +124,12 @@ class WebSocketClientBase(ABC):
 
     @abstractmethod
     def update_scene(
-        self,
-        name: str,
-        scene: trimesh.Scene,
-        purpose: FilePurposeDC,
-        scene_op: SceneOperationsDC,
-        gltf_buffer_postprocessor=None,
+            self,
+            name: str,
+            scene: trimesh.Scene,
+            purpose: FilePurposeDC,
+            scene_op: SceneOperationsDC,
+            gltf_buffer_postprocessor=None,
     ):
         pass
 
@@ -130,4 +139,8 @@ class WebSocketClientBase(ABC):
 
     @abstractmethod
     def list_procedures(self) -> list[ProcedureDC]:
+        pass
+
+    @abstractmethod
+    def run_procedure(self, procedure: ProcedureStartDC) -> None:
         pass

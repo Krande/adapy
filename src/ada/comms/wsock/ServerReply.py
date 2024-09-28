@@ -6,62 +6,62 @@ import flatbuffers
 from flatbuffers.compat import import_numpy
 np = import_numpy()
 
-class SceneOperation(object):
+class ServerReply(object):
     __slots__ = ['_tab']
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
         n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
-        x = SceneOperation()
+        x = ServerReply()
         x.Init(buf, n + offset)
         return x
 
     @classmethod
-    def GetRootAsSceneOperation(cls, buf, offset=0):
+    def GetRootAsServerReply(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
-    # SceneOperation
+    # ServerReply
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
-    # SceneOperation
-    def Operation(self):
+    # ServerReply
+    def Message(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
-        return 0
+            return self._tab.String(o + self._tab.Pos)
+        return None
 
-    # SceneOperation
-    def CameraParams(self):
+    # ServerReply
+    def Error(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
-            from ada.comms.wsock.CameraParams import CameraParams
-            obj = CameraParams()
+            from ada.comms.wsock.Error import Error
+            obj = Error()
             obj.Init(self._tab.Bytes, x)
             return obj
         return None
 
-def SceneOperationStart(builder):
+def ServerReplyStart(builder):
     builder.StartObject(2)
 
 def Start(builder):
-    SceneOperationStart(builder)
+    ServerReplyStart(builder)
 
-def SceneOperationAddOperation(builder, operation):
-    builder.PrependInt8Slot(0, operation, 0)
+def ServerReplyAddMessage(builder, message):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(message), 0)
 
-def AddOperation(builder, operation):
-    SceneOperationAddOperation(builder, operation)
+def AddMessage(builder, message):
+    ServerReplyAddMessage(builder, message)
 
-def SceneOperationAddCameraParams(builder, cameraParams):
-    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(cameraParams), 0)
+def ServerReplyAddError(builder, error):
+    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(error), 0)
 
-def AddCameraParams(builder, cameraParams):
-    SceneOperationAddCameraParams(builder, cameraParams)
+def AddError(builder, error):
+    ServerReplyAddError(builder, error)
 
-def SceneOperationEnd(builder):
+def ServerReplyEnd(builder):
     return builder.EndObject()
 
 def End(builder):
-    return SceneOperationEnd(builder)
+    return ServerReplyEnd(builder)

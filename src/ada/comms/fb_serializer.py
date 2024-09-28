@@ -1,31 +1,9 @@
+import flatbuffers
 from typing import Optional
 
-import flatbuffers
-from ada.comms.fb_model_gen import (
-    CameraParamsDC,
-    ErrorDC,
-    FileObjectDC,
-    MeshInfoDC,
-    MessageDC,
-    ParameterDC,
-    ProcedureDC,
-    ProcedureStoreDC,
-    SceneOperationDC,
-    WebClientDC,
-)
-from ada.comms.wsock import (
-    CameraParams,
-    Error,
-    FileObject,
-    MeshInfo,
-    Message,
-    Parameter,
-    Procedure,
-    ProcedureStore,
-    SceneOperation,
-    WebClient,
-)
+from ada.comms.wsock import WebClient, FileObject, MeshInfo, CameraParams, SceneOperation, ProcedureStore, Procedure, Parameter, ProcedureStart, Error, ServerReply, Message
 
+from ada.comms.fb_model_gen import WebClientDC, FileObjectDC, MeshInfoDC, CameraParamsDC, SceneOperationDC, ProcedureStoreDC, ProcedureDC, ParameterDC, ProcedureStartDC, ErrorDC, ServerReplyDC, MessageDC
 
 def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]) -> Optional[int]:
     if obj is None:
@@ -144,6 +122,10 @@ def serialize_procedurestore(builder: flatbuffers.Builder, obj: Optional[Procedu
     ProcedureStore.Start(builder)
     if obj.procedures is not None and len(obj.procedures) > 0:
         ProcedureStore.AddProcedures(builder, procedures_vector)
+    if obj.start_procedure is not None:
+        ProcedureStore.AddStartProcedure(builder, obj.start_procedure.value)
+    if obj.state is not None:
+        ProcedureStore.AddState(builder, obj.state.value)
     return ProcedureStore.End(builder)
 
 
@@ -166,15 +148,6 @@ def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]
         for item in reversed(parameters_list):
             builder.PrependUOffsetTRelative(item)
         parameters_vector = builder.EndVector(len(parameters_list))
-    input_ifc_filepath_str = None
-    if obj.input_ifc_filepath is not None:
-        input_ifc_filepath_str = builder.CreateString(str(obj.input_ifc_filepath))
-    output_ifc_filepath_str = None
-    if obj.output_ifc_filepath is not None:
-        output_ifc_filepath_str = builder.CreateString(str(obj.output_ifc_filepath))
-    error_str = None
-    if obj.error is not None:
-        error_str = builder.CreateString(str(obj.error))
 
     Procedure.Start(builder)
     if name_str is not None:
@@ -185,12 +158,6 @@ def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]
         Procedure.AddScriptFileLocation(builder, script_file_location_str)
     if obj.parameters is not None and len(obj.parameters) > 0:
         Procedure.AddParameters(builder, parameters_vector)
-    if input_ifc_filepath_str is not None:
-        Procedure.AddInputIfcFilepath(builder, input_ifc_filepath_str)
-    if output_ifc_filepath_str is not None:
-        Procedure.AddOutputIfcFilepath(builder, output_ifc_filepath_str)
-    if error_str is not None:
-        Procedure.AddError(builder, error_str)
     return Procedure.End(builder)
 
 
@@ -217,6 +184,28 @@ def serialize_parameter(builder: flatbuffers.Builder, obj: Optional[ParameterDC]
     return Parameter.End(builder)
 
 
+def serialize_procedurestart(builder: flatbuffers.Builder, obj: Optional[ProcedureStartDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    procedure_name_str = None
+    if obj.procedure_name is not None:
+        procedure_name_str = builder.CreateString(str(obj.procedure_name))
+    parameters_vector = None
+    if obj.parameters is not None and len(obj.parameters) > 0:
+        parameters_list = [serialize_parameter(builder, item) for item in obj.parameters]
+        ProcedureStart.StartParametersVector(builder, len(parameters_list))
+        for item in reversed(parameters_list):
+            builder.PrependUOffsetTRelative(item)
+        parameters_vector = builder.EndVector(len(parameters_list))
+
+    ProcedureStart.Start(builder)
+    if procedure_name_str is not None:
+        ProcedureStart.AddProcedureName(builder, procedure_name_str)
+    if obj.parameters is not None and len(obj.parameters) > 0:
+        ProcedureStart.AddParameters(builder, parameters_vector)
+    return ProcedureStart.End(builder)
+
+
 def serialize_error(builder: flatbuffers.Builder, obj: Optional[ErrorDC]) -> Optional[int]:
     if obj is None:
         return None
@@ -232,7 +221,22 @@ def serialize_error(builder: flatbuffers.Builder, obj: Optional[ErrorDC]) -> Opt
     return Error.End(builder)
 
 
-def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:
+def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerReplyDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    message_str = None
+    if obj.message is not None:
+        message_str = builder.CreateString(str(obj.message))
+
+    ServerReply.Start(builder)
+    if message_str is not None:
+        ServerReply.AddMessage(builder, message_str)
+    if obj.error is not None:
+        ServerReply.AddError(builder, obj.error.value)
+    return ServerReply.End(builder)
+
+
+def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
     file_object_obj = None
@@ -247,6 +251,9 @@ def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -
     procedure_store_obj = None
     if message.procedure_store is not None:
         procedure_store_obj = serialize_procedurestore(builder, message.procedure_store)
+    server_reply_obj = None
+    if message.server_reply is not None:
+        server_reply_obj = serialize_serverreply(builder, message.server_reply)
 
     Message.Start(builder)
     if message.instance_id is not None:
@@ -270,6 +277,8 @@ def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -
         Message.AddWebClients(builder, builder.CreateByteVector(webclient_list))
     if message.procedure_store is not None:
         Message.AddProcedureStore(builder, procedure_store_obj)
+    if message.server_reply is not None:
+        Message.AddServerReply(builder, server_reply_obj)
 
     message_flatbuffer = Message.End(builder)
     builder.Finish(message_flatbuffer)

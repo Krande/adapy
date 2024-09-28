@@ -39,15 +39,28 @@ jobs:
       - name: Set DATE env var
         run: echo "DATE=$(echo $(date +'%y%m%d'))" >> $GITHUB_ENV
 
-      - uses: prefix-dev/setup-pixi@v0.8.1
+      - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
         with:
-          pixi-version: v0.30.0
-          cache: true
-          environments: tests
+          condarc: |
+            channels:
+              - https://repo.prefix.dev/code-aster
+              - conda-forge
+          environment-file: conda/environment.core.yml
+          create-args: >-
+            python=3.12
+            code-aster=*=*nompi*
+            paradoc
+            python-dotenv
+            pytest
+
+      - name: install latest ada-py
+        run: |
+          pip install .
 
       - name: Create Verification Report
         run: |
-          pixi run fem-doc
+          python build_verification_report.py true true --export-format=docx
+        working-directory: tests/fem
 
       - uses: actions/upload-artifact@v4
         if: failure()
