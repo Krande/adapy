@@ -80,6 +80,12 @@ table CameraParams {
 table Scene {
   operation: SceneOperations;
   camera_params: CameraParams;
+  current_file: FileObject;
+}
+
+table Server {
+    add_file_object: FileObject;
+    all_file_objects: [FileObject];
 }
 
 // Procedures are picked up by the server and executed
@@ -127,11 +133,11 @@ table Message {
   instance_id: int;
   command_type: CommandType;
   scene: Scene;
-  file_object: FileObject;
+  server: Server;
   mesh_info: MeshInfo;
   target_group: TargetType;
   client_type: TargetType;
-  target_id: int = 0; // Default value for optional field
+  target_id: int;
   web_clients: [WebClient];
   procedure_store: ProcedureStore;
   server_reply: ServerReply;

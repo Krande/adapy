@@ -5,6 +5,7 @@
 import * as flatbuffers from 'flatbuffers';
 
 import { CameraParams, CameraParamsT } from '../wsock/camera-params.js';
+import { FileObject, FileObjectT } from '../wsock/file-object.js';
 import { SceneOperations } from './scene-operations';
 
 
@@ -36,8 +37,13 @@ cameraParams(obj?:CameraParams):CameraParams|null {
   return offset ? (obj || new CameraParams()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+currentFile(obj?:FileObject):FileObject|null {
+  const offset = this.bb!.__offset(this.bb_pos, 8);
+  return offset ? (obj || new FileObject()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startScene(builder:flatbuffers.Builder) {
-  builder.startObject(2);
+  builder.startObject(3);
 }
 
 static addOperation(builder:flatbuffers.Builder, operation:SceneOperations) {
@@ -46,6 +52,10 @@ static addOperation(builder:flatbuffers.Builder, operation:SceneOperations) {
 
 static addCameraParams(builder:flatbuffers.Builder, cameraParamsOffset:flatbuffers.Offset) {
   builder.addFieldOffset(1, cameraParamsOffset, 0);
+}
+
+static addCurrentFile(builder:flatbuffers.Builder, currentFileOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(2, currentFileOffset, 0);
 }
 
 static endScene(builder:flatbuffers.Builder):flatbuffers.Offset {
@@ -57,7 +67,8 @@ static endScene(builder:flatbuffers.Builder):flatbuffers.Offset {
 unpack(): SceneT {
   return new SceneT(
     this.operation(),
-    (this.cameraParams() !== null ? this.cameraParams()!.unpack() : null)
+    (this.cameraParams() !== null ? this.cameraParams()!.unpack() : null),
+    (this.currentFile() !== null ? this.currentFile()!.unpack() : null)
   );
 }
 
@@ -65,22 +76,26 @@ unpack(): SceneT {
 unpackTo(_o: SceneT): void {
   _o.operation = this.operation();
   _o.cameraParams = (this.cameraParams() !== null ? this.cameraParams()!.unpack() : null);
+  _o.currentFile = (this.currentFile() !== null ? this.currentFile()!.unpack() : null);
 }
 }
 
 export class SceneT implements flatbuffers.IGeneratedObject {
 constructor(
   public operation: SceneOperations = SceneOperations.ADD,
-  public cameraParams: CameraParamsT|null = null
+  public cameraParams: CameraParamsT|null = null,
+  public currentFile: FileObjectT|null = null
 ){}
 
 
 pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const cameraParams = (this.cameraParams !== null ? this.cameraParams!.pack(builder) : 0);
+  const currentFile = (this.currentFile !== null ? this.currentFile!.pack(builder) : 0);
 
   Scene.startScene(builder);
   Scene.addOperation(builder, this.operation);
   Scene.addCameraParams(builder, cameraParams);
+  Scene.addCurrentFile(builder, currentFile);
 
   return Scene.endScene(builder);
 }

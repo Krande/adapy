@@ -15,8 +15,9 @@ if TYPE_CHECKING:
 def update_server(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:
     logger.info(f"Received message from {client} to update server")
     logger.info(f"Message: {message}")
-    if message.file_object.file_type == FileTypeDC.IFC and message.file_object.filepath:
-        tmp_ifc_fp = pathlib.Path(message.file_object.filepath)
+    add_file = message.server.add_file_object
+    if add_file.file_type == FileTypeDC.IFC and add_file.filepath:
+        tmp_ifc_fp = pathlib.Path(add_file.filepath)
         tmp_sql_fp = tmp_ifc_fp.with_suffix(".sqlite")
         Ifc2SqlPatcher(tmp_ifc_fp, logger, dest_sql_file=tmp_sql_fp).patch()
         server.scene_meta.ifc_sql_store = IfcSqlModel(tmp_sql_fp)

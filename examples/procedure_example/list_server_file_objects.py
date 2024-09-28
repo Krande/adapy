@@ -12,7 +12,7 @@ async def list_procedures():
     async with WebSocketClientAsync("localhost", 8765, "local") as ws_client:
         procedures = await ws_client.list_procedures()
         await ws_client.run_procedure(
-            ProcedureStartDC("add_stiffeners", [ParameterDC(name="ifc_file", value="temp/MyBaseStructure.ifc")])
+            ProcedureStartDC("add_stiffeners", [ParameterDC(name="ifc_file", value="MyBaseStructure.ifc")])
         )
         print(procedures)
 

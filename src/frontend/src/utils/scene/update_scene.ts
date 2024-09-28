@@ -3,7 +3,12 @@ import {useModelStore} from "../../state/modelStore";
 
 export const update_scene = (message: Message) => {
     console.log('Received scene update message from server');
-    let fileObject = message.fileObject();
+    let scene = message.scene();
+    if (!scene) {
+        console.error("No scene object found in the message");
+        return;
+    }
+    let fileObject = scene.currentFile();
     if (!fileObject) {
         console.error("No file object found in the message");
         return;

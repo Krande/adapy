@@ -6,82 +6,86 @@ import flatbuffers
 from flatbuffers.compat import import_numpy
 np = import_numpy()
 
-class ProcedureStart(object):
+class Server(object):
     __slots__ = ['_tab']
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
         n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
-        x = ProcedureStart()
+        x = Server()
         x.Init(buf, n + offset)
         return x
 
     @classmethod
-    def GetRootAsProcedureStart(cls, buf, offset=0):
+    def GetRootAsServer(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
-    # ProcedureStart
+    # Server
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
-    # ProcedureStart
-    def ProcedureName(self):
+    # Server
+    def AddFileObject(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.String(o + self._tab.Pos)
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.wsock.FileObject import FileObject
+            obj = FileObject()
+            obj.Init(self._tab.Bytes, x)
+            return obj
         return None
 
-    # ProcedureStart
-    def Parameters(self, j):
+    # Server
+    def AllFileObjects(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             x = self._tab.Vector(o)
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
-            from ada.comms.wsock.Parameter import Parameter
-            obj = Parameter()
+            from ada.comms.wsock.FileObject import FileObject
+            obj = FileObject()
             obj.Init(self._tab.Bytes, x)
             return obj
         return None
 
-    # ProcedureStart
-    def ParametersLength(self):
+    # Server
+    def AllFileObjectsLength(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
-    # ProcedureStart
-    def ParametersIsNone(self):
+    # Server
+    def AllFileObjectsIsNone(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         return o == 0
 
-def ProcedureStartStart(builder):
+def ServerStart(builder):
     builder.StartObject(2)
 
 def Start(builder):
-    ProcedureStartStart(builder)
+    ServerStart(builder)
 
-def ProcedureStartAddProcedureName(builder, procedureName):
-    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(procedureName), 0)
+def ServerAddAddFileObject(builder, addFileObject):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(addFileObject), 0)
 
-def AddProcedureName(builder, procedureName):
-    ProcedureStartAddProcedureName(builder, procedureName)
+def AddAddFileObject(builder, addFileObject):
+    ServerAddAddFileObject(builder, addFileObject)
 
-def ProcedureStartAddParameters(builder, parameters):
-    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(parameters), 0)
+def ServerAddAllFileObjects(builder, allFileObjects):
+    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(allFileObjects), 0)
 
-def AddParameters(builder, parameters):
-    ProcedureStartAddParameters(builder, parameters)
+def AddAllFileObjects(builder, allFileObjects):
+    ServerAddAllFileObjects(builder, allFileObjects)
 
-def ProcedureStartStartParametersVector(builder, numElems):
+def ServerStartAllFileObjectsVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
 
-def StartParametersVector(builder, numElems):
-    return ProcedureStartStartParametersVector(builder, numElems)
+def StartAllFileObjectsVector(builder, numElems):
+    return ServerStartAllFileObjectsVector(builder, numElems)
 
-def ProcedureStartEnd(builder):
+def ServerEnd(builder):
     return builder.EndObject()
 
 def End(builder):
-    return ProcedureStartEnd(builder)
+    return ServerEnd(builder)

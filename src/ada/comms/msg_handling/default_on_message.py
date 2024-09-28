@@ -6,6 +6,7 @@ from ada.comms.fb_deserializer import deserialize_root_message
 from ada.comms.fb_model_gen import CommandTypeDC
 from ada.comms.msg_handling.list_procedures import list_procedures
 from ada.comms.msg_handling.mesh_info_callback import mesh_info_callback
+from ada.comms.msg_handling.run_procedure import run_procedure
 from ada.comms.msg_handling.update_scene import update_scene
 from ada.comms.msg_handling.update_server import update_server
 from ada.config import logger
@@ -24,5 +25,7 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
         mesh_info_callback(server, client, message)
     elif message.command_type == CommandTypeDC.LIST_PROCEDURES:
         list_procedures(server, client, message)
+    elif message.command_type == CommandTypeDC.RUN_PROCEDURE:
+        run_procedure(server, client, message)
     else:
         logger.error(f"Unknown command type: {message.command_type}")

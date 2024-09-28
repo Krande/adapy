@@ -17,7 +17,7 @@ from ada.comms.fb_model_gen import (
     ProcedureStoreDC,
     SceneDC,
     SceneOperationsDC,
-    TargetTypeDC,
+    TargetTypeDC, ServerDC,
 )
 from ada.comms.fb_serializer import serialize_message
 from ada.comms.wsockets_utils import client_as_str
@@ -75,10 +75,9 @@ class WebSocketClientBase(ABC):
             message = MessageDC(
                 instance_id=self.instance_id,
                 command_type=CommandTypeDC.UPDATE_SCENE,
-                file_object=file_object,
                 target_group=TargetTypeDC.WEB,
                 target_id=target_id,
-                scene=SceneDC(operation=scene_op),
+                scene=SceneDC(operation=scene_op, current_file=file_object),
             )
             return serialize_message(message)
 
@@ -86,7 +85,7 @@ class WebSocketClientBase(ABC):
         message = MessageDC(
             instance_id=self.instance_id,
             command_type=CommandTypeDC.UPDATE_SERVER,
-            file_object=file_object,
+            server=ServerDC(add_file_object=file_object),
             target_group=TargetTypeDC.SERVER,
         )
         return serialize_message(message)
@@ -141,6 +140,10 @@ class WebSocketClientBase(ABC):
 
     @abstractmethod
     def list_procedures(self) -> list[ProcedureDC]:
+        pass
+
+    @abstractmethod
+    def list_server_file_objects(self) -> list[FileObjectDC]:
         pass
 
     @abstractmethod

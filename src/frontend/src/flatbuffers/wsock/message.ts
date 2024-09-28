@@ -5,10 +5,10 @@
 import * as flatbuffers from 'flatbuffers';
 
 import { CommandType } from './command-type';
-import { FileObject, FileObjectT } from '../wsock/file-object.js';
 import { MeshInfo, MeshInfoT } from '../wsock/mesh-info.js';
 import { ProcedureStore, ProcedureStoreT } from '../wsock/procedure-store.js';
 import { Scene, SceneT } from '../wsock/scene.js';
+import { Server, ServerT } from '../wsock/server.js';
 import { ServerReply, ServerReplyT } from '../wsock/server-reply.js';
 import { TargetType } from './target-type';
 import { WebClient, WebClientT } from '../wsock/web-client.js';
@@ -47,9 +47,9 @@ scene(obj?:Scene):Scene|null {
   return offset ? (obj || new Scene()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
-fileObject(obj?:FileObject):FileObject|null {
+server(obj?:Server):Server|null {
   const offset = this.bb!.__offset(this.bb_pos, 10);
-  return offset ? (obj || new FileObject()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+  return offset ? (obj || new Server()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
 meshInfo(obj?:MeshInfo):MeshInfo|null {
@@ -108,8 +108,8 @@ static addScene(builder:flatbuffers.Builder, sceneOffset:flatbuffers.Offset) {
   builder.addFieldOffset(2, sceneOffset, 0);
 }
 
-static addFileObject(builder:flatbuffers.Builder, fileObjectOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(3, fileObjectOffset, 0);
+static addServer(builder:flatbuffers.Builder, serverOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(3, serverOffset, 0);
 }
 
 static addMeshInfo(builder:flatbuffers.Builder, meshInfoOffset:flatbuffers.Offset) {
@@ -171,7 +171,7 @@ unpack(): MessageT {
     this.instanceId(),
     this.commandType(),
     (this.scene() !== null ? this.scene()!.unpack() : null),
-    (this.fileObject() !== null ? this.fileObject()!.unpack() : null),
+    (this.server() !== null ? this.server()!.unpack() : null),
     (this.meshInfo() !== null ? this.meshInfo()!.unpack() : null),
     this.targetGroup(),
     this.clientType(),
@@ -187,7 +187,7 @@ unpackTo(_o: MessageT): void {
   _o.instanceId = this.instanceId();
   _o.commandType = this.commandType();
   _o.scene = (this.scene() !== null ? this.scene()!.unpack() : null);
-  _o.fileObject = (this.fileObject() !== null ? this.fileObject()!.unpack() : null);
+  _o.server = (this.server() !== null ? this.server()!.unpack() : null);
   _o.meshInfo = (this.meshInfo() !== null ? this.meshInfo()!.unpack() : null);
   _o.targetGroup = this.targetGroup();
   _o.clientType = this.clientType();
@@ -203,7 +203,7 @@ constructor(
   public instanceId: number = 0,
   public commandType: CommandType = CommandType.PING,
   public scene: SceneT|null = null,
-  public fileObject: FileObjectT|null = null,
+  public server: ServerT|null = null,
   public meshInfo: MeshInfoT|null = null,
   public targetGroup: TargetType = TargetType.WEB,
   public clientType: TargetType = TargetType.WEB,
@@ -216,7 +216,7 @@ constructor(
 
 pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const scene = (this.scene !== null ? this.scene!.pack(builder) : 0);
-  const fileObject = (this.fileObject !== null ? this.fileObject!.pack(builder) : 0);
+  const server = (this.server !== null ? this.server!.pack(builder) : 0);
   const meshInfo = (this.meshInfo !== null ? this.meshInfo!.pack(builder) : 0);
   const webClients = Message.createWebClientsVector(builder, builder.createObjectOffsetList(this.webClients));
   const procedureStore = (this.procedureStore !== null ? this.procedureStore!.pack(builder) : 0);
@@ -226,7 +226,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   Message.addInstanceId(builder, this.instanceId);
   Message.addCommandType(builder, this.commandType);
   Message.addScene(builder, scene);
-  Message.addFileObject(builder, fileObject);
+  Message.addServer(builder, server);
   Message.addMeshInfo(builder, meshInfo);
   Message.addTargetGroup(builder, this.targetGroup);
   Message.addClientType(builder, this.clientType);
