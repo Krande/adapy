@@ -15,17 +15,17 @@ if TYPE_CHECKING:
 def mesh_info_callback(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:
     logger.info(f"Received message from {client} to update mesh info")
     logger.info(f"Message: {message}")
-    if server.scene_meta.ifc_sql_store is None:
+    if server.scene.ifc_sql_store is None:
         logger.error("IFC SQL store not initialized")
         return
     node_name = message.mesh_info.object_name
     num = node_name.replace("node", "")
 
-    meta = server.scene_meta.mesh_meta.get(f"id_sequence{num}")
+    meta = server.scene.mesh_meta.get(f"id_sequence{num}")
     guid = list(meta.keys())
     if len(guid) == 1:
         guid = guid[0]
-        entity = server.scene_meta.ifc_sql_store.by_guid(guid)
+        entity = server.scene.ifc_sql_store.by_guid(guid)
     elif len(guid) > 1:
         raise ValueError(f"Multiple GUIDs found for node {node_name}")
     else:

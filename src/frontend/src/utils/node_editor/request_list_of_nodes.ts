@@ -2,7 +2,7 @@ import {CommandType, MeshInfo, Message, TargetType} from '../../flatbuffers/wsoc
 import * as flatbuffers from "flatbuffers";
 import {webSocketHandler} from "../websocket_connector";
 
-export const request_list_of_procedures = () => {
+export const request_list_of_nodes = () => {
     console.log('Querying server for mesh info');
     let builder = new flatbuffers.Builder(1024);
     Message.startMessage(builder);

@@ -11,17 +11,16 @@ if TYPE_CHECKING:
     from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer
 
 
-def list_procedures(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:
+def list_file_objects(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:
     logger.info(f"Received message from {client} to list procedures")
     logger.info(f"Message: {message}")
 
-    procedure_store_dc = server.procedure_store.to_procedure_dc()
+    file_objects = server.scene.file_objects
 
     reply_message = MessageDC(
         instance_id=server.instance_id,
         command_type=CommandTypeDC.SERVER_REPLY,
-        server=ServerDC(all_file_objects=server.scene.file_objects),
-        procedure_store=procedure_store_dc,
+        server=ServerDC(all_file_objects=file_objects),
         target_id=client.instance_id,
         target_group=client.group_type,
         server_reply=ServerReplyDC(reply_to=message.command_type),

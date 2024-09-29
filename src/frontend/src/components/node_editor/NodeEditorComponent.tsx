@@ -2,9 +2,10 @@ import React from 'react';
 import {Rnd} from 'react-rnd';
 import {Background, Controls, MiniMap, ReactFlow,} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {request_list_of_procedures} from "../../utils/node_editor/request_list_of_procedures";
+import {request_list_of_nodes} from "../../utils/node_editor/request_list_of_nodes";
 import {useNodeEditorStore} from '../../state/useNodeEditorStore'; // Import the Zustand store
-import InfoPanel from './InfoPanel'; // Import the InfoPanel component
+import InfoPanel from './InfoPanel';
+import {run_sequence} from "../../utils/node_editor/run_sequence"; // Import the InfoPanel component
 
 const info_svg = <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5}
                       stroke="currentColor" className="w-6 h-6">
@@ -42,18 +43,26 @@ const NodeEditorComponent: React.FC = () => {
                     <div className={"flex"}>Node Editor</div>
                     <button
                         className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white font-bold px-4 ml-2 rounded"}
-                        onClick={() => request_list_of_procedures()}
+                        onClick={() => request_list_of_nodes()}
                     >
                         Update
                     </button>
-                    {/*<button*/}
-                    {/*    className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white font-bold px-4 ml-2 rounded"}*/}
-                    {/*>{info_svg}</button>*/}
+                    <button
+                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white font-bold px-4 ml-2 rounded"}
+                        onClick={() => run_sequence()}
+                    >
+                        Run
+                    </button>
+                    <button
+                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white font-bold px-4 ml-2 rounded"}
+                        onClick={() => console.log("Info Panel")}
+                    >{info_svg}</button>
                 </div>
             </div>
             {/* Content Area */}
             <div style={{width: '100%', height: 'calc(100% - 40px)'}}>
                 <ReactFlow
+                    colorMode={"dark"}
                     nodes={nodes}
                     edges={edges}
                     onNodesChange={(changes) => onNodesChange(changes)}

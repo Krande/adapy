@@ -24,7 +24,7 @@ def update_scene(server: WebSocketAsyncServer, client: ConnectedClient, message:
         f.write(glb_file_data.filedata)
 
     tri_scene = trimesh.load(local_glb_file)
-    server.scene_meta.mesh_meta = tri_scene.metadata
+    server.scene.mesh_meta = tri_scene.metadata
 
     file_object = FileObjectDC(
         name=glb_file_data.name,
@@ -33,4 +33,4 @@ def update_scene(server: WebSocketAsyncServer, client: ConnectedClient, message:
         file_type=glb_file_data.file_type,
         purpose=glb_file_data.purpose,
     )
-    server.scene_meta.file_objects.append(file_object)
+    server.scene.file_objects.append(file_object)

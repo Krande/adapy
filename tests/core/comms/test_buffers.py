@@ -25,10 +25,8 @@ def test_basic_flat_buffers():
         scene=SceneDC(
             operation=SceneOperationsDC.REPLACE,
             current_file=FileObjectDC(
-                file_type=FileTypeDC.GLB,
-                purpose=FilePurposeDC.DESIGN,
-                filepath="/path/to/file.glb"
-            )
+                file_type=FileTypeDC.GLB, purpose=FilePurposeDC.DESIGN, filepath="/path/to/file.glb"
+            ),
         ),
         mesh_info=MeshInfoDC(object_name="MyMeshObject", face_index=10),
         target_id=5678,
@@ -56,10 +54,8 @@ def test_basic_flat_buffers_2():
         scene=SceneDC(
             operation=SceneOperationsDC.ADD,
             current_file=FileObjectDC(
-                file_type=FileTypeDC.GLB,
-                purpose=FilePurposeDC.DESIGN,
-                filepath="/path/to/file.glb"
-            )
+                file_type=FileTypeDC.GLB, purpose=FilePurposeDC.DESIGN, filepath="/path/to/file.glb"
+            ),
         ),
         mesh_info=MeshInfoDC(object_name="MyMeshObject", face_index=10),
         target_id=5678,
@@ -94,6 +90,8 @@ def test_procedure_store():
                     description="Add stiffeners to the structure",
                     parameters=[ParameterDC(name="ifc_file", type="pathlib.Path")],
                     state=ProcedureStateDC.IDLE,
+                    input_file_type=FileTypeDC.IFC,
+                    export_file_type=FileTypeDC.IFC,
                 )
             ],
         ),

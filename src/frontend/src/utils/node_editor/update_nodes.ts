@@ -1,7 +1,7 @@
 import {Message} from '../../flatbuffers/wsock';
 import {useNodeEditorStore} from '../../state/useNodeEditorStore'; // Import the node editor Zustand store
 
-export const update_list_of_procedures = (message: Message) => {
+export const update_nodes = (message: Message) => {
     // Get the ProcedureStore from the received message
     const procedureStore = message.procedureStore();
     if (!procedureStore) return;
@@ -10,10 +10,36 @@ export const update_list_of_procedures = (message: Message) => {
     const proceduresLength = procedureStore.proceduresLength();
     if (!proceduresLength) return;
 
+    const newNodes = [];
     // Create a list of nodes from the scene file objects
+    const server = message.server();
+    if (server) {
+        const file_objects_length = server.allFileObjectsLength();
+        if (file_objects_length) {
+            for (let i = 0; i < file_objects_length; i++) {
+                const fileObject = message.server()?.allFileObjects(i);
+                if (fileObject) {
+                    // Create a new node for each file object
+                    const node = {
+                        id: `file-object-${i}`, // Unique node ID
+                        type: 'input',
+                        position: {x: 250, y: i * 100 - 100}, // Stagger positions vertically
+                        data: {
+                            label: fileObject.name(),
+                            description: fileObject.fileType().toString(),
+                            scriptFileLocation: fileObject.filepath(),
+                        },
+                    };
+                    newNodes.push(node);
+                }
+            }
+        }
+
+
+    }
 
     // Create a list of nodes from the procedures
-    const newNodes = [];
+
     for (let i = 0; i < proceduresLength; i++) {
         const procedure = procedureStore.procedures(i);
         if (procedure) {

@@ -20,4 +20,5 @@ def update_server(server: WebSocketAsyncServer, client: ConnectedClient, message
         tmp_ifc_fp = pathlib.Path(add_file.filepath)
         tmp_sql_fp = tmp_ifc_fp.with_suffix(".sqlite")
         Ifc2SqlPatcher(tmp_ifc_fp, logger, dest_sql_file=tmp_sql_fp).patch()
-        server.scene_meta.ifc_sql_store = IfcSqlModel(tmp_sql_fp)
+        server.scene.ifc_sql_store = IfcSqlModel(tmp_sql_fp)
+        server.scene.file_objects.append(add_file)

@@ -17,7 +17,8 @@ from ada.comms.fb_model_gen import (
     ProcedureStoreDC,
     SceneDC,
     SceneOperationsDC,
-    TargetTypeDC, ServerDC,
+    ServerDC,
+    TargetTypeDC,
 )
 from ada.comms.fb_serializer import serialize_message
 from ada.comms.wsockets_utils import client_as_str
@@ -103,6 +104,14 @@ class WebSocketClientBase(ABC):
             instance_id=self.instance_id,
             command_type=CommandTypeDC.RUN_PROCEDURE,
             procedure_store=ProcedureStoreDC(start_procedure=procedure),
+            target_group=TargetTypeDC.SERVER,
+        )
+        return serialize_message(message)
+
+    def _list_server_file_objects_prep(self) -> bytes:
+        message = MessageDC(
+            instance_id=self.instance_id,
+            command_type=CommandTypeDC.LIST_FILE_OBJECTS,
             target_group=TargetTypeDC.SERVER,
         )
         return serialize_message(message)

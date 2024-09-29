@@ -54,7 +54,7 @@ async def process_client(websocket, path) -> ConnectedClient:
 
 
 @dataclass
-class SceneMeta:
+class Scene:
     file_objects: list[FileObjectDC] = field(default_factory=list)
     ifc_sql_store: IfcSqlModel = None
     mesh_meta: dict = None
@@ -94,7 +94,7 @@ class WebSocketAsyncServer:
         self.on_disconnect = on_disconnect
         self.on_message = on_message
         self.on_unsent_message = on_unsent_message
-        self.scene_meta = SceneMeta()
+        self.scene = Scene()
         self.instance_id = random.randint(0, 2**31 - 1)  # Generates a random int32 value
         self.msg_queue = asyncio.Queue()
         self.procedure_store = ProcedureStore()

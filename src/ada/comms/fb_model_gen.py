@@ -1,9 +1,9 @@
 from __future__ import annotations
-from enum import Enum
-from dataclasses import dataclass
-from typing import Optional, List
-import pathlib
 
+import pathlib
+from dataclasses import dataclass
+from enum import Enum
+from typing import List, Optional
 
 
 class CommandTypeDC(Enum):
@@ -20,25 +20,30 @@ class CommandTypeDC(Enum):
     ERROR = 10
     SERVER_REPLY = 11
 
+
 class TargetTypeDC(Enum):
     WEB = 0
     LOCAL = 1
     SERVER = 2
+
 
 class SceneOperationsDC(Enum):
     ADD = 0
     REMOVE = 1
     REPLACE = 2
 
+
 class FilePurposeDC(Enum):
     DESIGN = 0
     ANALYSIS = 1
     FABRICATE = 2
 
+
 class FileTypeDC(Enum):
     IFC = 0
     GLB = 1
     SQLITE = 2
+
 
 class ProcedureStateDC(Enum):
     IDLE = 0
@@ -46,12 +51,14 @@ class ProcedureStateDC(Enum):
     FINISHED = 2
     ERROR = 3
 
+
 @dataclass
 class WebClientDC:
     instance_id: int = None
     name: str = ""
     address: str = ""
     port: int = None
+
 
 @dataclass
 class FileObjectDC:
@@ -61,11 +68,13 @@ class FileObjectDC:
     filepath: pathlib.Path | str = ""
     filedata: bytes = None
 
+
 @dataclass
 class MeshInfoDC:
     object_name: str = ""
     face_index: int = None
     json_data: str = ""
+
 
 @dataclass
 class CameraParamsDC:
@@ -77,21 +86,25 @@ class CameraParamsDC:
     far: float = None
     force_camera: bool = None
 
+
 @dataclass
 class SceneDC:
     operation: Optional[SceneOperationsDC] = None
     camera_params: Optional[CameraParamsDC] = None
     current_file: Optional[FileObjectDC] = None
 
+
 @dataclass
 class ServerDC:
     add_file_object: Optional[FileObjectDC] = None
     all_file_objects: Optional[List[FileObjectDC]] = None
 
+
 @dataclass
 class ProcedureStoreDC:
     procedures: Optional[List[ProcedureDC]] = None
     start_procedure: Optional[ProcedureStartDC] = None
+
 
 @dataclass
 class ProcedureDC:
@@ -104,27 +117,32 @@ class ProcedureDC:
     export_file_type: Optional[FileTypeDC] = None
     state: Optional[ProcedureStateDC] = None
 
+
 @dataclass
 class ParameterDC:
     name: str = ""
     type: str = ""
     value: str = ""
 
+
 @dataclass
 class ProcedureStartDC:
     procedure_name: str = ""
     parameters: Optional[List[ParameterDC]] = None
+
 
 @dataclass
 class ErrorDC:
     code: int = None
     message: str = ""
 
+
 @dataclass
 class ServerReplyDC:
     message: str = ""
     reply_to: Optional[CommandTypeDC] = None
     error: Optional[ErrorDC] = None
+
 
 @dataclass
 class MessageDC:
