@@ -86,7 +86,7 @@ class WebSocketClientAsync(WebSocketClientBase):
             message = await self.websocket.recv()
         msg = deserialize_root_message(message)
 
-        if msg.server_reply.error is not None:
+        if msg.server_reply and msg.server_reply.error is not None:
             raise ServerError(msg.server_reply.error.message)
 
         return msg
