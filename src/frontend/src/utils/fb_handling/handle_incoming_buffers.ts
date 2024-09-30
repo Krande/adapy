@@ -24,11 +24,13 @@ export const handleFlatbufferMessage = (buffer: ArrayBuffer) => {
         } else if (message.serverReply()?.replyTo() === CommandType.MESH_INFO_CALLBACK) {
             receive_mesh_info_reply(message);
         }
+    } else if (command_type == CommandType.ERROR) {
+        console.error('Server Error message received');
+        console.error('Server Error message:', message.serverReply()?.error()?.message());
     }
     console.log('Flatbuffer message received');
     console.log('Instance ID:', message.instanceId());
     console.log('Command Type:', CommandType[message.commandType()]);
-    console.log('File Object:', message.fileObject);
     console.log('Mesh Info:', message.meshInfo());
 }
 

@@ -12,8 +12,9 @@ def main():
     print(procedure.description)  # Outputs the docstring of 'main'
     print(procedure.params)  # Outputs: {'name': 'str', 'age': 'int'}
     print(procedure.return_type)  # Outputs: 'str'
+    dc_procedure = procedure.to_procedure_dc()
 
-    procedure(pathlib.Path("temp/MyBaseStructure.ifc").resolve().absolute().as_posix())
+    procedure(ifc_file=pathlib.Path("temp/MyBaseStructure.ifc").resolve().absolute().as_posix())
 
 
 if __name__ == "__main__":

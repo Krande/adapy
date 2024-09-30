@@ -64,7 +64,7 @@ class Procedure:
             description=self.description,
             script_file_location=self.script_path.as_posix() if self.script_path is not None else "",
             parameters=(
-                [ParameterDC(key, value=val) for key, val in self.params.items()] if self.params is not None else None
+                [ParameterDC(name=key, value=val) for key, val in self.params.items()] if self.params is not None else None
             ),
             input_file_var=self.input_file_var,
             input_file_type=self.input_file_type,
