@@ -1,7 +1,7 @@
 import {Message} from "../../flatbuffers/wsock/message";
 import {useModelStore} from "../../state/modelStore";
 
-export const update_scene = (message: Message) => {
+export const update_scene_from_message = (message: Message) => {
     console.log('Received scene update message from server');
     let scene = message.scene();
     if (!scene) {

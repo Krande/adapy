@@ -1,7 +1,7 @@
 import {CommandType, Message} from '../../flatbuffers/wsock'
 import * as flatbuffers from "flatbuffers";
 import {reply_ping} from "./reply_ping";
-import {update_scene} from "../scene/update_scene";
+import {update_scene_from_message} from "../scene/update_scene_from_message";
 import {receive_mesh_info_reply} from "../mesh_select/receive_mesh_info_reply";
 import {update_nodes} from "../node_editor/update_nodes";
 
@@ -14,7 +14,7 @@ export const handleFlatbufferMessage = (buffer: ArrayBuffer) => {
     if (command_type === CommandType.PING) {
         reply_ping(message);
     } else if (command_type === CommandType.UPDATE_SCENE) {
-        update_scene(message);
+        update_scene_from_message(message);
         update_nodes(message);
     } else if (command_type === CommandType.MESH_INFO_REPLY) {
         receive_mesh_info_reply(message);

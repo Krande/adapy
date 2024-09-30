@@ -1,4 +1,4 @@
-import {Message} from '../../flatbuffers/wsock';
+import {FileType, Message} from '../../flatbuffers/wsock';
 import {useNodeEditorStore} from '../../state/useNodeEditorStore'; // Import the node editor Zustand store
 
 
@@ -31,7 +31,8 @@ export const update_nodes = (message: Message) => {
                             label: fileObject.name(),
                             description: fileObject.fileType().toString(),
                             filepath: fileObject.filepath(),
-                            filetype: fileObject.fileType().toString(),
+                            filetype: FileType[fileObject.fileType()].toString(),
+                            fileobject: fileObject,
                         },
                     };
                     newNodes.push(node);
