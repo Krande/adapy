@@ -25,7 +25,7 @@ export const update_nodes = (message: Message) => {
                     // Create a new node for each file object
                     const node = {
                         id: `file-object-${i}`, // Unique node ID
-                        type: 'input',
+                        type: 'file_object',
                         position: {x: 250, y: i * 100 - 100}, // Stagger positions vertically
                         data: {
                             label: fileObject.name(),

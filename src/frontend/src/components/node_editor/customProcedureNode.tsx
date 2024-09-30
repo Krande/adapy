@@ -12,10 +12,10 @@ function ProcedureNode(props:{id: string, data:Record<string, string>}) {
     return (
         <div className="bg-gray-200 text-gray-800 rounded-md w-56 h-30">
             {/* Header Row */}
-            <div className="flex justify-center items-center mb-4">
-                <div className="font-bold text-center">Node {props.data.label}</div>
+            <div className="flex flex-col justify-center items-center mb-4">
+                <div className="font-bold text-center text-xs">{props.data.label}</div>
                 <button
-                    className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white font-bold px-4 ml-2 rounded"}
+                    className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white text-xs px-4 rounded"}
                     onClick={() => run_sequence(props.id)}
                 >Run
                 </button>

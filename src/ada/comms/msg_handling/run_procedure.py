@@ -18,4 +18,6 @@ def run_procedure(server: WebSocketAsyncServer, client: ConnectedClient, message
     params = procedure.params
     for param in start_procedure.parameters:
         params[param.name] = param.value
+
     procedure(**procedure.params)
+    logger.info(f"Procedure {procedure.name} ran successfully")

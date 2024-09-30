@@ -4,7 +4,6 @@ import {Background, Controls, MiniMap, ReactFlow} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {request_list_of_nodes} from "../../utils/node_editor/request_list_of_nodes";
 import {useNodeEditorStore} from '../../state/useNodeEditorStore'; // Import the Zustand store
-import {run_sequence} from "../../utils/node_editor/run_sequence"; // Import the InfoPanel component
 
 
 const info_svg = <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5}
@@ -14,9 +13,11 @@ const info_svg = <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 
 </svg>
 
 import ProcedureNode from './customProcedureNode';
+import CustomFileObjectNode from './customFileObjectNode';
 
 const nodeTypes = {
     procedure: ProcedureNode,
+    file_object: CustomFileObjectNode,
 };
 
 const NodeEditorComponent: React.FC = () => {
@@ -48,16 +49,10 @@ const NodeEditorComponent: React.FC = () => {
                 <div className={"flex flex-row"}>
                     <div className={"flex"}>Node Editor</div>
                     <button
-                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white font-bold px-4 ml-2 rounded"}
+                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white px-4 ml-2 rounded"}
                         onClick={() => request_list_of_nodes()}
                     >
                         Update
-                    </button>
-                    <button
-                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white font-bold px-4 ml-2 rounded"}
-                        onClick={() => run_sequence()}
-                    >
-                        Run
                     </button>
                     <button
                         className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white font-bold px-4 ml-2 rounded"}
