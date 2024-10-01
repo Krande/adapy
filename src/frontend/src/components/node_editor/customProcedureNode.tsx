@@ -70,8 +70,6 @@ function ProcedureNode(props: { id: string, data: Record<string, string | Proced
                                         <input
                                             type="text" // Use text input for strings
                                             className="m-auto ml-0 mr-0 relative text-gray-800 w-20 border border-gray-400 rounded"
-                                            value={paramValue as string}
-                                            onChange={(e) => console.log(`String value for ${paramName} changed to: ${e.target.value}`)}
                                         />
                                         <span className="pl-2 text-xs text-gray-300">{paramName}</span>
                                     </div>
@@ -82,9 +80,7 @@ function ProcedureNode(props: { id: string, data: Record<string, string | Proced
                                     <div className="flex flex-row items-center">
                                         <input
                                             type="number" // Use number input for floats
-                                            step="any" // Allow decimal values
                                             className="m-auto ml-0 mr-0 relative text-gray-800 w-20 border border-gray-400 rounded"
-                                            onChange={(e) => console.log(`Float value for ${paramName} changed to: ${parseFloat(e.target.value)}`)}
                                         />
                                         <span className="pl-2 text-xs text-gray-300">{paramName}</span>
                                     </div>
@@ -94,27 +90,17 @@ function ProcedureNode(props: { id: string, data: Record<string, string | Proced
                                     <div className="flex flex-row items-center">
                                         <input
                                             type="number"
-                                            step="any"
                                             className="m-auto ml-0 mr-2 relative text-gray-800 w-5 border border-gray-400 rounded"
-                                            onChange={(e) =>
-                                                console.log(`Tuple value for ${paramName} (first element) changed to: ${parseFloat(e.target.value)}`)
-                                            }
+
                                         />
                                         <input
                                             type="number"
-                                            step="any"
                                             className="m-auto ml-1 mr-0 relative text-gray-800 w-5 border border-gray-400 rounded"
-                                            onChange={(e) =>
-                                                console.log(`Tuple value for ${paramName} (second element) changed to: ${parseFloat(e.target.value)}`)
-                                            }
+
                                         />
                                         <input
                                             type="number"
-                                            step="any"
                                             className="m-auto ml-2 mr-0 relative text-gray-800 w-5 border border-gray-400 rounded"
-                                            onChange={(e) =>
-                                                console.log(`Tuple value for ${paramName} (second element) changed to: ${parseFloat(e.target.value)}`)
-                                            }
                                         />
                                         <span className="pl-2 text-xs text-gray-300">{paramName}</span>
                                     </div>
