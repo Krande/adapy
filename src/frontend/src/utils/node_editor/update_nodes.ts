@@ -34,7 +34,8 @@ export const update_nodes = (message: Message) => {
                             filetype: FileType[fileObject.fileType()].toString(),
                             fileobject: fileObject,
                             glbFile: fileObject.glbFile(),
-                            IfcSqliteFile: fileObject.ifcsqliteFile()
+                            IfcSqliteFile: fileObject.ifcsqliteFile(),
+                            isProcedureOutput: fileObject.isProcedureOutput()
                         },
                     };
                     newNodes.push(node);
@@ -59,6 +60,7 @@ export const update_nodes = (message: Message) => {
                     inputFileVar: procedure.inputFileVar(),
                     inputFileType: procedure.inputFileType(),
                     exportFileType: procedure.exportFileType(),
+                    procedure: procedure
                 },
             };
             newNodes.push(node);

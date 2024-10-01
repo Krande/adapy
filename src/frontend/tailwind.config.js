@@ -7,6 +7,9 @@ module.exports = {
         extend: {
             gridTemplateRows: {
                 mainpage: "6rem minmax(0, 3fr) 2rem"
+            },
+            colors: {
+                'bl-background': '#393939',
             }
         }
     },

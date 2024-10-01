@@ -62,12 +62,15 @@ class Procedure:
         return self.func(*args, **kwargs)
 
     def to_procedure_dc(self) -> ProcedureDC:
+        params = []
+        for key, val in self.params.items():
+            params.append(ParameterDC(name=key, type=val))
         return ProcedureDC(
             name=self.name,
             description=self.description,
             script_file_location=self.script_path.as_posix() if self.script_path is not None else "",
             parameters=(
-                [ParameterDC(name=key, value=val) for key, val in self.params.items()]
+                params
                 if self.params is not None
                 else None
             ),
@@ -106,17 +109,16 @@ class Procedure:
 class ProcedureStore:
     procedures: dict[str, Procedure] = field(default_factory=dict)
 
-    def __post_init__(self):
-        # check for env variable SCRIPT_DIR and load all procedures from there
-        proc_script_dir = Config().procedures_script_dir
-        if proc_script_dir is not None:
-            self.procedures.update(get_procedures_from_script_dir(proc_script_dir))
-
     def register(self, name: str, func: Callable[..., bool]):
         self.procedures[name] = get_procedure_from_function(func)
 
     def get(self, name: str) -> Procedure:
         return self.procedures.get(name)
+
+    def update_procedures(self):
+        proc_script_dir = Config().procedures_script_dir
+        if proc_script_dir is not None:
+            self.procedures.update(get_procedures_from_script_dir(proc_script_dir))
 
     def to_procedure_dc(self) -> ProcedureStoreDC:
         return ProcedureStoreDC(procedures=[proc.to_procedure_dc() for proc in self.procedures.values()])
