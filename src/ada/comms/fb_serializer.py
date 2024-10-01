@@ -67,6 +67,15 @@ def serialize_fileobject(builder: flatbuffers.Builder, obj: Optional[FileObjectD
     filedata_vector = None
     if obj.filedata is not None:
         filedata_vector = builder.CreateByteVector(obj.filedata)
+    glb_file_obj = None
+    if obj.glb_file is not None:
+        glb_file_obj = serialize_fileobject(builder, obj.glb_file)
+    ifcsqlite_file_obj = None
+    if obj.ifcsqlite_file is not None:
+        ifcsqlite_file_obj = serialize_fileobject(builder, obj.ifcsqlite_file)
+    procedure_parent_obj = None
+    if obj.procedure_parent is not None:
+        procedure_parent_obj = serialize_procedurestart(builder, obj.procedure_parent)
 
     FileObject.Start(builder)
     if name_str is not None:
@@ -79,6 +88,14 @@ def serialize_fileobject(builder: flatbuffers.Builder, obj: Optional[FileObjectD
         FileObject.AddFilepath(builder, filepath_str)
     if filedata_vector is not None:
         FileObject.AddFiledata(builder, filedata_vector)
+    if obj.glb_file is not None:
+        FileObject.AddGlbFile(builder, glb_file_obj)
+    if obj.ifcsqlite_file is not None:
+        FileObject.AddIfcsqliteFile(builder, ifcsqlite_file_obj)
+    if obj.is_procedure_output is not None:
+        FileObject.AddIsProcedureOutput(builder, obj.is_procedure_output)
+    if obj.procedure_parent is not None:
+        FileObject.AddProcedureParent(builder, procedure_parent_obj)
     return FileObject.End(builder)
 
 
@@ -147,9 +164,9 @@ def serialize_scene(builder: flatbuffers.Builder, obj: Optional[SceneDC]) -> Opt
 def serialize_server(builder: flatbuffers.Builder, obj: Optional[ServerDC]) -> Optional[int]:
     if obj is None:
         return None
-    add_file_object_obj = None
-    if obj.add_file_object is not None:
-        add_file_object_obj = serialize_fileobject(builder, obj.add_file_object)
+    new_file_object_obj = None
+    if obj.new_file_object is not None:
+        new_file_object_obj = serialize_fileobject(builder, obj.new_file_object)
     all_file_objects_vector = None
     if obj.all_file_objects is not None and len(obj.all_file_objects) > 0:
         all_file_objects_list = [serialize_fileobject(builder, item) for item in obj.all_file_objects]
@@ -157,12 +174,22 @@ def serialize_server(builder: flatbuffers.Builder, obj: Optional[ServerDC]) -> O
         for item in reversed(all_file_objects_list):
             builder.PrependUOffsetTRelative(item)
         all_file_objects_vector = builder.EndVector(len(all_file_objects_list))
+    get_file_object_by_name_str = None
+    if obj.get_file_object_by_name is not None:
+        get_file_object_by_name_str = builder.CreateString(str(obj.get_file_object_by_name))
+    get_file_object_by_path_str = None
+    if obj.get_file_object_by_path is not None:
+        get_file_object_by_path_str = builder.CreateString(str(obj.get_file_object_by_path))
 
     Server.Start(builder)
-    if obj.add_file_object is not None:
-        Server.AddAddFileObject(builder, add_file_object_obj)
+    if obj.new_file_object is not None:
+        Server.AddNewFileObject(builder, new_file_object_obj)
     if obj.all_file_objects is not None and len(obj.all_file_objects) > 0:
         Server.AddAllFileObjects(builder, all_file_objects_vector)
+    if get_file_object_by_name_str is not None:
+        Server.AddGetFileObjectByName(builder, get_file_object_by_name_str)
+    if get_file_object_by_path_str is not None:
+        Server.AddGetFileObjectByPath(builder, get_file_object_by_path_str)
     return Server.End(builder)
 
 
@@ -297,6 +324,9 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
     message_str = None
     if obj.message is not None:
         message_str = builder.CreateString(str(obj.message))
+    file_object_obj = None
+    if obj.file_object is not None:
+        file_object_obj = serialize_fileobject(builder, obj.file_object)
     error_obj = None
     if obj.error is not None:
         error_obj = serialize_error(builder, obj.error)
@@ -304,6 +334,8 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
     ServerReply.Start(builder)
     if message_str is not None:
         ServerReply.AddMessage(builder, message_str)
+    if obj.file_object is not None:
+        ServerReply.AddFileObject(builder, file_object_obj)
     if obj.reply_to is not None:
         ServerReply.AddReplyTo(builder, obj.reply_to.value)
     if obj.error is not None:

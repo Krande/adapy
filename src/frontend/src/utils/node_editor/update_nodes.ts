@@ -33,6 +33,8 @@ export const update_nodes = (message: Message) => {
                             filepath: fileObject.filepath(),
                             filetype: FileType[fileObject.fileType()].toString(),
                             fileobject: fileObject,
+                            glbFile: fileObject.glbFile(),
+                            IfcSqliteFile: fileObject.ifcsqliteFile()
                         },
                     };
                     newNodes.push(node);

@@ -11,6 +11,7 @@ from ada.comms.msg_handling.on_error_reply import on_error_reply
 from ada.comms.msg_handling.run_procedure import run_procedure
 from ada.comms.msg_handling.update_scene import update_scene
 from ada.comms.msg_handling.update_server import update_server
+from ada.comms.msg_handling.view_file_object import view_file_object
 from ada.config import logger
 
 if TYPE_CHECKING:
@@ -23,7 +24,7 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
         if message.command_type == CommandTypeDC.UPDATE_SCENE:
             update_scene(server, client, message)
         elif message.command_type == CommandTypeDC.UPDATE_SERVER:
-            update_server(server, client, message)
+            update_server(server, client, message.server.new_file_object)
         elif message.command_type == CommandTypeDC.MESH_INFO_CALLBACK:
             mesh_info_callback(server, client, message)
         elif message.command_type == CommandTypeDC.LIST_PROCEDURES:
@@ -32,6 +33,8 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
             run_procedure(server, client, message)
         elif message.command_type == CommandTypeDC.LIST_FILE_OBJECTS:
             list_file_objects(server, client, message)
+        elif message.command_type == CommandTypeDC.VIEW_FILE_OBJECT:
+            view_file_object(server, client, message)
         else:
             logger.error(f"Unknown command type: {message.command_type}")
             on_error_reply(server, client, error_message=f"Unknown command type: {message.command_type}")

@@ -14,6 +14,7 @@ from ada.comms.fb_model_gen import (
     SceneDC,
     SceneOperationsDC,
 )
+from ada.config import Config
 
 if TYPE_CHECKING:
     from IPython.display import HTML
@@ -260,10 +261,13 @@ class RendererManager:
             )
 
             if params.add_ifc_backend is True and type(obj) is Assembly:
-                if params.backend_file_dir is None:
-                    backend_file_dir = pathlib.Path.cwd() / "temp"
-                else:
+                server_temp = Config().websockets_server_temp_dir
+                if server_temp is not None:
+                    backend_file_dir = server_temp
+                elif params.backend_file_dir is not None:
                     backend_file_dir = params.backend_file_dir
+                else:
+                    backend_file_dir = pathlib.Path.cwd() / "temp"
 
                 if isinstance(backend_file_dir, str):
                     backend_file_dir = pathlib.Path(backend_file_dir)

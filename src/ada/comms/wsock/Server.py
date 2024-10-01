@@ -28,7 +28,7 @@ class Server(object):
         self._tab = flatbuffers.table.Table(buf, pos)
 
     # Server
-    def AddFileObject(self):
+    def NewFileObject(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
@@ -65,21 +65,35 @@ class Server(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         return o == 0
 
+    # Server
+    def GetFileObjectByName(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
+    # Server
+    def GetFileObjectByPath(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
 
 def ServerStart(builder):
-    builder.StartObject(2)
+    builder.StartObject(4)
 
 
 def Start(builder):
     ServerStart(builder)
 
 
-def ServerAddAddFileObject(builder, addFileObject):
-    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(addFileObject), 0)
+def ServerAddNewFileObject(builder, newFileObject):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(newFileObject), 0)
 
 
-def AddAddFileObject(builder, addFileObject):
-    ServerAddAddFileObject(builder, addFileObject)
+def AddNewFileObject(builder, newFileObject):
+    ServerAddNewFileObject(builder, newFileObject)
 
 
 def ServerAddAllFileObjects(builder, allFileObjects):
@@ -96,6 +110,22 @@ def ServerStartAllFileObjectsVector(builder, numElems):
 
 def StartAllFileObjectsVector(builder, numElems):
     return ServerStartAllFileObjectsVector(builder, numElems)
+
+
+def ServerAddGetFileObjectByName(builder, getFileObjectByName):
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(getFileObjectByName), 0)
+
+
+def AddGetFileObjectByName(builder, getFileObjectByName):
+    ServerAddGetFileObjectByName(builder, getFileObjectByName)
+
+
+def ServerAddGetFileObjectByPath(builder, getFileObjectByPath):
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(getFileObjectByPath), 0)
+
+
+def AddGetFileObjectByPath(builder, getFileObjectByPath):
+    ServerAddGetFileObjectByPath(builder, getFileObjectByPath)
 
 
 def ServerEnd(builder):

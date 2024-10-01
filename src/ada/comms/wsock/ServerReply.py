@@ -35,15 +35,27 @@ class ServerReply(object):
         return None
 
     # ServerReply
-    def ReplyTo(self):
+    def FileObject(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.wsock.FileObject import FileObject
+
+            obj = FileObject()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # ServerReply
+    def ReplyTo(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 0
 
     # ServerReply
     def Error(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.wsock.Error import Error
@@ -55,7 +67,7 @@ class ServerReply(object):
 
 
 def ServerReplyStart(builder):
-    builder.StartObject(3)
+    builder.StartObject(4)
 
 
 def Start(builder):
@@ -70,8 +82,16 @@ def AddMessage(builder, message):
     ServerReplyAddMessage(builder, message)
 
 
+def ServerReplyAddFileObject(builder, fileObject):
+    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(fileObject), 0)
+
+
+def AddFileObject(builder, fileObject):
+    ServerReplyAddFileObject(builder, fileObject)
+
+
 def ServerReplyAddReplyTo(builder, replyTo):
-    builder.PrependInt8Slot(1, replyTo, 0)
+    builder.PrependInt8Slot(2, replyTo, 0)
 
 
 def AddReplyTo(builder, replyTo):
@@ -79,7 +99,7 @@ def AddReplyTo(builder, replyTo):
 
 
 def ServerReplyAddError(builder, error):
-    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(error), 0)
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(error), 0)
 
 
 def AddError(builder, error):

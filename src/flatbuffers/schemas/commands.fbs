@@ -13,6 +13,7 @@ enum CommandType : byte {
   RUN_PROCEDURE = 9,
   ERROR = 10,
   SERVER_REPLY = 11,
+  VIEW_FILE_OBJECT = 12,
 }
 
 enum TargetType : byte {
@@ -59,6 +60,11 @@ table FileObject {
   purpose: FilePurpose;     // Purpose of the file
   filepath: string;         // Path to the file
   filedata: [ubyte];        // Binary data (e.g., IFC, GLB, SQLite)
+  glb_file: FileObject;     // GLB file object converted from original file
+  ifcsqlite_file: FileObject;     // IF, the file object is IFC, this is a Boolean to indicate if the ifc file has a corresponding sqlite file
+  // procedure related configs
+  is_procedure_output: bool; // Boolean to indicate if the file object is the output of a procedure
+  procedure_parent: ProcedureStart; // Name of the procedure that generated the file object
 }
 
 table MeshInfo {
@@ -84,8 +90,10 @@ table Scene {
 }
 
 table Server {
-    add_file_object: FileObject;
+    new_file_object: FileObject;
     all_file_objects: [FileObject];
+    get_file_object_by_name: string;
+    get_file_object_by_path: string;
 }
 
 // Procedures are picked up by the server and executed
@@ -125,6 +133,7 @@ table Error {
 
 table ServerReply {
   message: string;
+  file_object: FileObject;
   reply_to: CommandType;
   error: Error;
 }

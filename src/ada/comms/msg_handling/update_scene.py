@@ -33,4 +33,5 @@ def update_scene(server: WebSocketAsyncServer, client: ConnectedClient, message:
         file_type=glb_file_data.file_type,
         purpose=glb_file_data.purpose,
     )
-    server.scene.file_objects.append(file_object)
+
+    server.scene.add_file_object(file_object)

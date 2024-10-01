@@ -8,10 +8,10 @@ from urllib.parse import parse_qs, urlparse
 
 import websockets
 
-from ada.cadit.ifc.sql_model import IfcSqlModel
-from ada.comms.fb_model_gen import CommandTypeDC, FileObjectDC, MessageDC, TargetTypeDC
+from ada.comms.fb_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
 from ada.comms.msg_handling.default_on_message import default_on_message
 from ada.comms.procedures import ProcedureStore
+from ada.comms.scene_model import Scene
 from ada.comms.wsock import Message
 from ada.comms.wsockets_utils import client_from_str
 from ada.config import logger
@@ -51,13 +51,6 @@ async def process_client(websocket, path) -> ConnectedClient:
             client.instance_id = int(instance_id)
 
     return client
-
-
-@dataclass
-class Scene:
-    file_objects: list[FileObjectDC] = field(default_factory=list)
-    ifc_sql_store: IfcSqlModel = None
-    mesh_meta: dict = None
 
 
 async def retry_message_sending(

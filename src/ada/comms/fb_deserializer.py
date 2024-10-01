@@ -44,6 +44,10 @@ def deserialize_fileobject(fb_obj) -> FileObjectDC | None:
         purpose=FilePurposeDC(fb_obj.Purpose()),
         filepath=fb_obj.Filepath().decode("utf-8") if fb_obj.Filepath() is not None else None,
         filedata=bytes(fb_obj.FiledataAsNumpy()) if fb_obj.FiledataLength() > 0 else None,
+        glb_file=deserialize_fileobject(fb_obj.GlbFile()),
+        ifcsqlite_file=deserialize_fileobject(fb_obj.IfcsqliteFile()),
+        is_procedure_output=fb_obj.IsProcedureOutput(),
+        procedure_parent=deserialize_procedurestart(fb_obj.ProcedureParent()),
     )
 
 
@@ -89,11 +93,17 @@ def deserialize_server(fb_obj) -> ServerDC | None:
         return None
 
     return ServerDC(
-        add_file_object=deserialize_fileobject(fb_obj.AddFileObject()),
+        new_file_object=deserialize_fileobject(fb_obj.NewFileObject()),
         all_file_objects=(
             [deserialize_fileobject(fb_obj.AllFileObjects(i)) for i in range(fb_obj.AllFileObjectsLength())]
             if fb_obj.AllFileObjectsLength() > 0
             else None
+        ),
+        get_file_object_by_name=(
+            fb_obj.GetFileObjectByName().decode("utf-8") if fb_obj.GetFileObjectByName() is not None else None
+        ),
+        get_file_object_by_path=(
+            fb_obj.GetFileObjectByPath().decode("utf-8") if fb_obj.GetFileObjectByPath() is not None else None
         ),
     )
 
@@ -174,6 +184,7 @@ def deserialize_serverreply(fb_obj) -> ServerReplyDC | None:
 
     return ServerReplyDC(
         message=fb_obj.Message().decode("utf-8") if fb_obj.Message() is not None else None,
+        file_object=deserialize_fileobject(fb_obj.FileObject()),
         reply_to=CommandTypeDC(fb_obj.ReplyTo()),
         error=deserialize_error(fb_obj.Error()),
     )

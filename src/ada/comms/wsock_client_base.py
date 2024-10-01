@@ -86,7 +86,7 @@ class WebSocketClientBase(ABC):
         message = MessageDC(
             instance_id=self.instance_id,
             command_type=CommandTypeDC.UPDATE_SERVER,
-            server=ServerDC(add_file_object=file_object),
+            server=ServerDC(new_file_object=file_object),
             target_group=TargetTypeDC.SERVER,
         )
         return serialize_message(message)
@@ -113,6 +113,15 @@ class WebSocketClientBase(ABC):
             instance_id=self.instance_id,
             command_type=CommandTypeDC.LIST_FILE_OBJECTS,
             target_group=TargetTypeDC.SERVER,
+        )
+        return serialize_message(message)
+
+    def _get_file_object_prep(self, file_name):
+        message = MessageDC(
+            instance_id=self.instance_id,
+            command_type=CommandTypeDC.GET_FILE_OBJECT,
+            target_group=TargetTypeDC.SERVER,
+            server=ServerDC(get_file_object_by_name=file_name),
         )
         return serialize_message(message)
 
@@ -153,6 +162,10 @@ class WebSocketClientBase(ABC):
 
     @abstractmethod
     def list_server_file_objects(self) -> list[FileObjectDC]:
+        pass
+
+    @abstractmethod
+    def get_file_object(self, name: str) -> FileObjectDC:
         pass
 
     @abstractmethod

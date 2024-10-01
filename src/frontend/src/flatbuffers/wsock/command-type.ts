@@ -14,5 +14,6 @@ export enum CommandType {
   LIST_PROCEDURES = 8,
   RUN_PROCEDURE = 9,
   ERROR = 10,
-  SERVER_REPLY = 11
+  SERVER_REPLY = 11,
+  VIEW_FILE_OBJECT = 12
 }

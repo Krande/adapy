@@ -23,10 +23,17 @@ export const handleFlatbufferMessage = (buffer: ArrayBuffer) => {
             update_nodes(message);
         } else if (message.serverReply()?.replyTo() === CommandType.MESH_INFO_CALLBACK) {
             receive_mesh_info_reply(message);
+        } else if (message.serverReply()?.replyTo() === CommandType.VIEW_FILE_OBJECT) {
+            console.log('VIEW_FILE_OBJECT Server Reply message received');
+            update_scene_from_message(message);
+        } else {
+            console.error('Unknown Server Reply message type received: ', message.serverReply()?.replyTo());
         }
     } else if (command_type == CommandType.ERROR) {
         console.error('Server Error message received');
         console.error('Server Error message:', message.serverReply()?.error()?.message());
+    } else  {
+        console.error('Unknown Flatbuffer message type received: ', CommandType[command_type]);
     }
     console.log('Flatbuffer message received');
     console.log('Instance ID:', message.instanceId());

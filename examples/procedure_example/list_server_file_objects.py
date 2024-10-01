@@ -1,11 +1,7 @@
 import asyncio
 import pathlib
 
-from ada.comms.fb_model_gen import (
-    FileObjectDC,
-    FilePurposeDC,
-    FileTypeDC,
-)
+from ada.comms.fb_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
 from ada.comms.wsock_client_async import WebSocketClientAsync
 
 THIS_DIR = pathlib.Path(__file__).parent

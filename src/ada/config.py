@@ -147,6 +147,7 @@ class Config:
             "websockets",
             [
                 ConfigEntry("server_temp_dir", pathlib.Path, None, False),
+                ConfigEntry("auto_load_files", bool, False, False),
             ],
         ),
     ]

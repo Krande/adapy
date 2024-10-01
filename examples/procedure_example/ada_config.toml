@@ -1,2 +1,6 @@
 [procedures]
 script_dir = "./procedures"
+
+[websockets]
+server_temp_dir = "./server_temp"
+auto_load_files = true

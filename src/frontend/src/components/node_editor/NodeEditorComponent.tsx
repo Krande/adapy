@@ -1,17 +1,9 @@
-import React, {useMemo} from 'react';
+import React from 'react';
 import {Rnd} from 'react-rnd';
 import {Background, Controls, MiniMap, ReactFlow} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {request_list_of_nodes} from "../../utils/node_editor/request_list_of_nodes";
 import {useNodeEditorStore} from '../../state/useNodeEditorStore'; // Import the Zustand store
-
-
-const info_svg = <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5}
-                      stroke="currentColor" className="w-6 h-6">
-    <path strokeLinecap="round" strokeLinejoin="round"
-          d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z"/>
-</svg>
-
 import ProcedureNode from './customProcedureNode';
 import CustomFileObjectNode from './customFileObjectNode';
 
@@ -54,10 +46,6 @@ const NodeEditorComponent: React.FC = () => {
                     >
                         Update
                     </button>
-                    <button
-                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white font-bold px-4 ml-2 rounded"}
-                        onClick={() => console.log("Info Panel")}
-                    >{info_svg}</button>
                 </div>
             </div>
             {/* Content Area */}

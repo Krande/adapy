@@ -6,7 +6,10 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-import typer
+try:
+    from typer import Typer
+except ImportError:
+    Typer = None
 
 from ada.comms.fb_model_gen import (
     FileTypeDC,
@@ -64,12 +67,39 @@ class Procedure:
             description=self.description,
             script_file_location=self.script_path.as_posix() if self.script_path is not None else "",
             parameters=(
-                [ParameterDC(name=key, value=val) for key, val in self.params.items()] if self.params is not None else None
+                [ParameterDC(name=key, value=val) for key, val in self.params.items()]
+                if self.params is not None
+                else None
             ),
             input_file_var=self.input_file_var,
             input_file_type=self.input_file_type,
             export_file_type=self.export_file_type,
         )
+
+    def get_procedure_output(self, input_file_name: str):
+        from ada.comms.scene_model import Scene
+
+        temp_dir = Scene.get_temp_dir()
+        procedure_dir = temp_dir / "procedural"
+
+        output_file_path = None
+        for fp in procedure_dir.iterdir():
+            if not fp.is_dir():
+                continue
+            dir_name = fp.stem
+            if dir_name == input_file_name:
+                output_file_path = fp
+                break
+
+        if output_file_path is None:
+            raise FileNotFoundError(f"Output file for procedure {self.name} not found")
+
+        if self.export_file_type == FileTypeDC.IFC:
+            return (output_file_path / self.name).with_suffix(".ifc")
+        elif self.export_file_type == FileTypeDC.GLB:
+            return (output_file_path / self.name).with_suffix(".glb")
+        else:
+            raise NotImplementedError(f"Export file type {self.export_file_type} not implemented")
 
 
 @dataclass
@@ -107,7 +137,7 @@ def get_procedure_from_function(func: Callable) -> Procedure:
 
 
 def procedure_decorator(
-    app: typer.Typer,
+    app: Typer,
     input_file_var: str | None = None,
     input_file_type: FileTypeDC | None = None,
     export_file_type: FileTypeDC | None = None,
@@ -116,7 +146,8 @@ def procedure_decorator(
         func.input_file_var = input_file_var
         func.input_file_type = input_file_type
         func.export_file_type = export_file_type
-        app.command()(func)  # Apply the app.command decorator
+        if Typer is not None:
+            app.command()(func)  # Apply the app.command decorator
         return func
 
     return wrapper

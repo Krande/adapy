@@ -25,7 +25,7 @@ static getSizePrefixedRootAsServer(bb:flatbuffers.ByteBuffer, obj?:Server):Serve
   return (obj || new Server()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
 }
 
-addFileObject(obj?:FileObject):FileObject|null {
+newFileObject(obj?:FileObject):FileObject|null {
   const offset = this.bb!.__offset(this.bb_pos, 4);
   return offset ? (obj || new FileObject()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
@@ -40,12 +40,26 @@ allFileObjectsLength():number {
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
-static startServer(builder:flatbuffers.Builder) {
-  builder.startObject(2);
+getFileObjectByName():string|null
+getFileObjectByName(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+getFileObjectByName(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 8);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
-static addAddFileObject(builder:flatbuffers.Builder, addFileObjectOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(0, addFileObjectOffset, 0);
+getFileObjectByPath():string|null
+getFileObjectByPath(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+getFileObjectByPath(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 10);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
+static startServer(builder:flatbuffers.Builder) {
+  builder.startObject(4);
+}
+
+static addNewFileObject(builder:flatbuffers.Builder, newFileObjectOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(0, newFileObjectOffset, 0);
 }
 
 static addAllFileObjects(builder:flatbuffers.Builder, allFileObjectsOffset:flatbuffers.Offset) {
@@ -64,46 +78,66 @@ static startAllFileObjectsVector(builder:flatbuffers.Builder, numElems:number) {
   builder.startVector(4, numElems, 4);
 }
 
+static addGetFileObjectByName(builder:flatbuffers.Builder, getFileObjectByNameOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(2, getFileObjectByNameOffset, 0);
+}
+
+static addGetFileObjectByPath(builder:flatbuffers.Builder, getFileObjectByPathOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(3, getFileObjectByPathOffset, 0);
+}
+
 static endServer(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createServer(builder:flatbuffers.Builder, addFileObjectOffset:flatbuffers.Offset, allFileObjectsOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createServer(builder:flatbuffers.Builder, newFileObjectOffset:flatbuffers.Offset, allFileObjectsOffset:flatbuffers.Offset, getFileObjectByNameOffset:flatbuffers.Offset, getFileObjectByPathOffset:flatbuffers.Offset):flatbuffers.Offset {
   Server.startServer(builder);
-  Server.addAddFileObject(builder, addFileObjectOffset);
+  Server.addNewFileObject(builder, newFileObjectOffset);
   Server.addAllFileObjects(builder, allFileObjectsOffset);
+  Server.addGetFileObjectByName(builder, getFileObjectByNameOffset);
+  Server.addGetFileObjectByPath(builder, getFileObjectByPathOffset);
   return Server.endServer(builder);
 }
 
 unpack(): ServerT {
   return new ServerT(
-    (this.addFileObject() !== null ? this.addFileObject()!.unpack() : null),
-    this.bb!.createObjList<FileObject, FileObjectT>(this.allFileObjects.bind(this), this.allFileObjectsLength())
+    (this.newFileObject() !== null ? this.newFileObject()!.unpack() : null),
+    this.bb!.createObjList<FileObject, FileObjectT>(this.allFileObjects.bind(this), this.allFileObjectsLength()),
+    this.getFileObjectByName(),
+    this.getFileObjectByPath()
   );
 }
 
 
 unpackTo(_o: ServerT): void {
-  _o.addFileObject = (this.addFileObject() !== null ? this.addFileObject()!.unpack() : null);
+  _o.newFileObject = (this.newFileObject() !== null ? this.newFileObject()!.unpack() : null);
   _o.allFileObjects = this.bb!.createObjList<FileObject, FileObjectT>(this.allFileObjects.bind(this), this.allFileObjectsLength());
+  _o.getFileObjectByName = this.getFileObjectByName();
+  _o.getFileObjectByPath = this.getFileObjectByPath();
 }
 }
 
 export class ServerT implements flatbuffers.IGeneratedObject {
 constructor(
-  public addFileObject: FileObjectT|null = null,
-  public allFileObjects: (FileObjectT)[] = []
+  public newFileObject: FileObjectT|null = null,
+  public allFileObjects: (FileObjectT)[] = [],
+  public getFileObjectByName: string|Uint8Array|null = null,
+  public getFileObjectByPath: string|Uint8Array|null = null
 ){}
 
 
 pack(builder:flatbuffers.Builder): flatbuffers.Offset {
-  const addFileObject = (this.addFileObject !== null ? this.addFileObject!.pack(builder) : 0);
+  const newFileObject = (this.newFileObject !== null ? this.newFileObject!.pack(builder) : 0);
   const allFileObjects = Server.createAllFileObjectsVector(builder, builder.createObjectOffsetList(this.allFileObjects));
+  const getFileObjectByName = (this.getFileObjectByName !== null ? builder.createString(this.getFileObjectByName!) : 0);
+  const getFileObjectByPath = (this.getFileObjectByPath !== null ? builder.createString(this.getFileObjectByPath!) : 0);
 
   return Server.createServer(builder,
-    addFileObject,
-    allFileObjects
+    newFileObject,
+    allFileObjects,
+    getFileObjectByName,
+    getFileObjectByPath
   );
 }
 }

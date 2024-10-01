@@ -19,6 +19,7 @@ class CommandTypeDC(Enum):
     RUN_PROCEDURE = 9
     ERROR = 10
     SERVER_REPLY = 11
+    VIEW_FILE_OBJECT = 12
 
 
 class TargetTypeDC(Enum):
@@ -67,6 +68,10 @@ class FileObjectDC:
     purpose: Optional[FilePurposeDC] = None
     filepath: pathlib.Path | str = ""
     filedata: bytes = None
+    glb_file: Optional[FileObjectDC] = None
+    ifcsqlite_file: Optional[FileObjectDC] = None
+    is_procedure_output: bool = None
+    procedure_parent: Optional[ProcedureStartDC] = None
 
 
 @dataclass
@@ -96,8 +101,10 @@ class SceneDC:
 
 @dataclass
 class ServerDC:
-    add_file_object: Optional[FileObjectDC] = None
+    new_file_object: Optional[FileObjectDC] = None
     all_file_objects: Optional[List[FileObjectDC]] = None
+    get_file_object_by_name: str = ""
+    get_file_object_by_path: pathlib.Path | str = ""
 
 
 @dataclass
@@ -140,6 +147,7 @@ class ErrorDC:
 @dataclass
 class ServerReplyDC:
     message: str = ""
+    file_object: Optional[FileObjectDC] = None
     reply_to: Optional[CommandTypeDC] = None
     error: Optional[ErrorDC] = None
 
