@@ -15,7 +15,7 @@ export const query_ws_server_mesh_info = (mesh_name: string, face_index: number)
     Message.startMessage(builder);
     Message.addInstanceId(builder, webSocketHandler.instance_id);
     Message.addCommandType(builder, CommandType.MESH_INFO_CALLBACK);
-    Message.addTargetGroup(builder, TargetType.LOCAL);
+    Message.addTargetGroup(builder, TargetType.SERVER);
     Message.addClientType(builder, TargetType.WEB);
     Message.addMeshInfo(builder, mesh_info);
     builder.finish(Message.endMessage(builder));

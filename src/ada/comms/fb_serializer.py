@@ -1,37 +1,9 @@
+import flatbuffers
 from typing import Optional
 
-import flatbuffers
-from ada.comms.fb_model_gen import (
-    CameraParamsDC,
-    ErrorDC,
-    FileObjectDC,
-    MeshInfoDC,
-    MessageDC,
-    ParameterDC,
-    ProcedureDC,
-    ProcedureStartDC,
-    ProcedureStoreDC,
-    SceneDC,
-    ServerDC,
-    ServerReplyDC,
-    WebClientDC,
-)
-from ada.comms.wsock import (
-    CameraParams,
-    Error,
-    FileObject,
-    MeshInfo,
-    Message,
-    Parameter,
-    Procedure,
-    ProcedureStart,
-    ProcedureStore,
-    Scene,
-    Server,
-    ServerReply,
-    WebClient,
-)
+from ada.comms.wsock import WebClient, FileObject, MeshInfo, CameraParams, Scene, Server, ProcedureStore, Procedure, Value, Parameter, ProcedureStart, Error, ServerReply, Message
 
+from ada.comms.fb_model_gen import WebClientDC, FileObjectDC, MeshInfoDC, CameraParamsDC, SceneDC, ServerDC, ProcedureStoreDC, ProcedureDC, ValueDC, ParameterDC, ProcedureStartDC, ErrorDC, ServerReplyDC, MessageDC
 
 def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]) -> Optional[int]:
     if obj is None:
@@ -258,26 +230,62 @@ def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]
     return Procedure.End(builder)
 
 
+def serialize_value(builder: flatbuffers.Builder, obj: Optional[ValueDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    string_value_str = None
+    if obj.string_value is not None:
+        string_value_str = builder.CreateString(str(obj.string_value))
+    array_value_vector = None
+    if obj.array_value is not None and len(obj.array_value) > 0:
+        array_value_list = [serialize_value(builder, item) for item in obj.array_value]
+        Value.StartArrayValueVector(builder, len(array_value_list))
+        for item in reversed(array_value_list):
+            builder.PrependUOffsetTRelative(item)
+        array_value_vector = builder.EndVector(len(array_value_list))
+
+    Value.Start(builder)
+    if string_value_str is not None:
+        Value.AddStringValue(builder, string_value_str)
+    if obj.float_value is not None:
+        Value.AddFloatValue(builder, obj.float_value)
+    if obj.integer_value is not None:
+        Value.AddIntegerValue(builder, obj.integer_value)
+    if obj.boolean_value is not None:
+        Value.AddBooleanValue(builder, obj.boolean_value)
+    if obj.array_value is not None and len(obj.array_value) > 0:
+        Value.AddArrayValue(builder, array_value_vector)
+    if obj.array_value_type is not None:
+        Value.AddArrayValueType(builder, obj.array_value_type.value)
+    if obj.array_length is not None:
+        Value.AddArrayLength(builder, obj.array_length)
+    if obj.array_type is not None:
+        Value.AddArrayType(builder, obj.array_type.value)
+    return Value.End(builder)
+
+
 def serialize_parameter(builder: flatbuffers.Builder, obj: Optional[ParameterDC]) -> Optional[int]:
     if obj is None:
         return None
     name_str = None
     if obj.name is not None:
         name_str = builder.CreateString(str(obj.name))
-    type_str = None
-    if obj.type is not None:
-        type_str = builder.CreateString(str(obj.type))
-    value_str = None
+    value_obj = None
     if obj.value is not None:
-        value_str = builder.CreateString(str(obj.value))
+        value_obj = serialize_value(builder, obj.value)
+    default_value_obj = None
+    if obj.default_value is not None:
+        default_value_obj = serialize_value(builder, obj.default_value)
 
     Parameter.Start(builder)
     if name_str is not None:
         Parameter.AddName(builder, name_str)
-    if type_str is not None:
-        Parameter.AddType(builder, type_str)
-    if value_str is not None:
-        Parameter.AddValue(builder, value_str)
+    if obj.type is not None:
+        Parameter.AddType(builder, obj.type.value)
+    if obj.value is not None:
+        Parameter.AddValue(builder, value_obj)
+    if obj.default_value is not None:
+        Parameter.AddDefaultValue(builder, default_value_obj)
     return Parameter.End(builder)
 
 
@@ -343,7 +351,7 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
     return ServerReply.End(builder)
 
 
-def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:
+def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
     scene_obj = None

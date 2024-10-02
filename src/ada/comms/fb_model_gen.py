@@ -1,9 +1,9 @@
 from __future__ import annotations
-
-import pathlib
-from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional
+from dataclasses import dataclass
+from typing import Optional, List
+import pathlib
+
 
 
 class CommandTypeDC(Enum):
@@ -21,30 +21,25 @@ class CommandTypeDC(Enum):
     SERVER_REPLY = 11
     VIEW_FILE_OBJECT = 12
 
-
 class TargetTypeDC(Enum):
     WEB = 0
     LOCAL = 1
     SERVER = 2
-
 
 class SceneOperationsDC(Enum):
     ADD = 0
     REMOVE = 1
     REPLACE = 2
 
-
 class FilePurposeDC(Enum):
     DESIGN = 0
     ANALYSIS = 1
     FABRICATE = 2
 
-
 class FileTypeDC(Enum):
     IFC = 0
     GLB = 1
     SQLITE = 2
-
 
 class ProcedureStateDC(Enum):
     IDLE = 0
@@ -52,6 +47,18 @@ class ProcedureStateDC(Enum):
     FINISHED = 2
     ERROR = 3
 
+class ParameterTypeDC(Enum):
+    UNKNOWN = 0
+    STRING = 1
+    FLOAT = 2
+    INTEGER = 3
+    BOOLEAN = 4
+    ARRAY = 6
+
+class ArrayTypeDC(Enum):
+    TUPLE = 0
+    LIST = 1
+    SET = 2
 
 @dataclass
 class WebClientDC:
@@ -59,7 +66,6 @@ class WebClientDC:
     name: str = ""
     address: str = ""
     port: int = None
-
 
 @dataclass
 class FileObjectDC:
@@ -73,13 +79,11 @@ class FileObjectDC:
     is_procedure_output: bool = None
     procedure_parent: Optional[ProcedureStartDC] = None
 
-
 @dataclass
 class MeshInfoDC:
     object_name: str = ""
     face_index: int = None
     json_data: str = ""
-
 
 @dataclass
 class CameraParamsDC:
@@ -91,13 +95,11 @@ class CameraParamsDC:
     far: float = None
     force_camera: bool = None
 
-
 @dataclass
 class SceneDC:
     operation: Optional[SceneOperationsDC] = None
     camera_params: Optional[CameraParamsDC] = None
     current_file: Optional[FileObjectDC] = None
-
 
 @dataclass
 class ServerDC:
@@ -106,12 +108,10 @@ class ServerDC:
     get_file_object_by_name: str = ""
     get_file_object_by_path: pathlib.Path | str = ""
 
-
 @dataclass
 class ProcedureStoreDC:
     procedures: Optional[List[ProcedureDC]] = None
     start_procedure: Optional[ProcedureStartDC] = None
-
 
 @dataclass
 class ProcedureDC:
@@ -124,25 +124,33 @@ class ProcedureDC:
     export_file_type: Optional[FileTypeDC] = None
     state: Optional[ProcedureStateDC] = None
 
+@dataclass
+class ValueDC:
+    string_value: str = ""
+    float_value: float = None
+    integer_value: int = None
+    boolean_value: bool = None
+    array_value: Optional[List[ValueDC]] = None
+    array_value_type: Optional[ParameterTypeDC] = None
+    array_length: int = None
+    array_type: Optional[ArrayTypeDC] = None
 
 @dataclass
 class ParameterDC:
     name: str = ""
-    type: str = ""
-    value: str = ""
-
+    type: Optional[ParameterTypeDC] = None
+    value: Optional[ValueDC] = None
+    default_value: Optional[ValueDC] = None
 
 @dataclass
 class ProcedureStartDC:
     procedure_name: str = ""
     parameters: Optional[List[ParameterDC]] = None
 
-
 @dataclass
 class ErrorDC:
     code: int = None
     message: str = ""
-
 
 @dataclass
 class ServerReplyDC:
@@ -150,7 +158,6 @@ class ServerReplyDC:
     file_object: Optional[FileObjectDC] = None
     reply_to: Optional[CommandTypeDC] = None
     error: Optional[ErrorDC] = None
-
 
 @dataclass
 class MessageDC:

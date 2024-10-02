@@ -2,7 +2,6 @@
 
 # namespace: wsock
 
-
 class CommandType(object):
     PING = 0
     PONG = 1

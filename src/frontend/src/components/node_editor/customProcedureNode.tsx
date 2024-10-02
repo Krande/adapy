@@ -1,11 +1,9 @@
 import React, {memo} from 'react';
-import {Connection, Handle, Position} from '@xyflow/react';
 import {run_procedure} from "../../utils/node_editor/run_procedure";
-import {Procedure, ProcedureT} from "../../flatbuffers/wsock/procedure";
+import {Procedure} from "../../flatbuffers/wsock/procedure";
 import DynamicHandle from "./DynamicHandle";
 import {Parameter} from "../../flatbuffers/wsock/parameter";
-import {FileObject} from "../../flatbuffers/wsock/file-object";
-import LeftSideHandles from "./LeftSideHandles";
+import {ParameterType} from "../../flatbuffers/wsock";
 
 const procedure_icon = <svg fill="#ffffff" width="12px" height="12px" viewBox="0 0 24 24"
                             xmlns="http://www.w3.org/2000/svg" enableBackground="new 0 0 24 24">
@@ -14,13 +12,13 @@ const procedure_icon = <svg fill="#ffffff" width="12px" height="12px" viewBox="0
 </svg>
 
 
-function ProcedureNode(props: { id: string, data: Record<string, string | Procedure> }) {
+function ProcedureNode(props: { id: string, data: Record<string, string | Procedure | string[]> }) {
     // Custom connection validation function for `file_object` handle
     const isValidConnection = () => {
         console.log("isValidConnection");
         return true;
     };
-    // console.log("ProcedureNode data:", data);
+
     return (
         <div className="bg-bl-background text-gray-200 rounded-md min-w-40 h-30">
             {/* Header Row */}
@@ -41,70 +39,99 @@ function ProcedureNode(props: { id: string, data: Record<string, string | Proced
             <div className="flex flex-row w-full">
                 {/* Handle Rows Left*/}
                 <div className="flex flex-1 flex-col">
-                    {/* File Object Source Handle Row */}
-                    {props.data.inputFileVar &&
-                        <DynamicHandle id={"file_object"} type={"source"} label={"File Object"}/>}
                     {/* Other dynamic inputs */}
                     {(props.data.procedure as Procedure).parameters && (props.data.procedure as Procedure).parametersLength && (
                         Array.from({length: (props.data.procedure as Procedure).parametersLength()}).map((_, index) => {
                             const param = (props.data.procedure as Procedure).parameters(index); // Get parameter by index
+                            if (!param) return null;
                             const paramName = (param as Parameter)?.name(); // Replace with the correct getter for parameter name
-                            const paramType = param?.type(); // Replace with the correct getter for parameter type
-                            const paramValue = param?.value(); // Replace with the correct getter for parameter value
+                            const paramDefaultValue = param?.defaultValue(); // Replace with the correct getter for parameter value
                             const procedure = props.data.procedure as Procedure;
+                            const procedure_name = procedure.name();
                             const input_file_var = procedure.inputFileVar();
+                            const paramKey = `${procedure_name}-${index}`;
+                            const paramId = `param-${paramKey}`;
 
-                            // Determine datatype based on paramType
+                            if (!props.data.paramids) {
+                                props.data.paramids = [];
+                            }
+                            (props.data.paramids as string[]).push(paramId);
+
                             if (paramName === input_file_var) {
                                 return (
                                     <DynamicHandle
-                                        key={index}
-                                        id={`param${index}`}
-                                        type="target"
+                                        key={paramKey}
+                                        id={paramId}
+                                        type="source"
                                         label={paramName || `Param ${index + 1}`}
                                     />
                                 );
-                            } else if (paramType === 'str') {
+                            } else if (param.type() === ParameterType.STRING || param.type() === ParameterType.STRING) {
+                                let default_value = paramDefaultValue ? paramDefaultValue.stringValue()?.toString() : "";
                                 return (
-                                    <div className="flex flex-row items-center">
+                                    <div className="flex flex-row items-center" key={paramKey} id={paramId}>
                                         <input
                                             type="text" // Use text input for strings
-                                            className="m-auto ml-0 mr-0 relative text-gray-800 w-20 border border-gray-400 rounded"
+                                            defaultValue={default_value}
+                                            className="nodrag m-auto ml-0 mr-0 relative text-gray-800 text-xs w-24 border border-gray-400 rounded"
                                         />
                                         <span className="pl-2 text-xs text-gray-300">{paramName}</span>
                                     </div>
                                 );
-                            } else if (paramType === 'float') {
+                            } else if (param.type() === ParameterType.FLOAT) {
                                 // Return regular float input box
+                                let default_value = paramDefaultValue ? paramDefaultValue.floatValue() : null;
                                 return (
-                                    <div className="flex flex-row items-center">
+                                    <div className="flex flex-row items-center w-26" key={paramKey} id={paramId}>
                                         <input
                                             type="number" // Use number input for floats
-                                            className="m-auto ml-0 mr-0 relative text-gray-800 w-20 border border-gray-400 rounded"
+                                            defaultValue={default_value != null ? default_value.toString() : ""}
+                                            className="flex flex-1 nodrag m-auto ml-0 mr-0 relative text-xs text-gray-800 w-24 border border-gray-400 rounded"
                                         />
-                                        <span className="pl-2 text-xs text-gray-300">{paramName}</span>
+                                        <span className="flex-1 pl-2 text-xs text-gray-300">{paramName}</span>
                                     </div>
                                 );
-                            } else {// if (paramType === 'tuple') {
+                            } else if (param.type() === ParameterType.ARRAY) {
+                                let default_value = null;
+                                let values = [];
+                                if (paramDefaultValue) {
+                                    let array_value_type = paramDefaultValue.arrayValueType()
+                                    for (let i = 0; i < paramDefaultValue?.arrayLength(); i++) {
+                                        let value = paramDefaultValue.arrayValue(i)
+                                        if (value) {
+                                            if (array_value_type === ParameterType.FLOAT) {
+                                                values.push(value.floatValue());
+                                            } else if (array_value_type === ParameterType.STRING) {
+                                                values.push(value.stringValue());
+                                            } else {
+                                                console.error(`Unknown array value type: ${array_value_type}`);
+                                            }
+                                        }
+
+                                    }
+                                }
                                 return (
-                                    <div className="flex flex-row items-center">
+                                    <div className="flex flex-row items-center w-24" key={paramKey} id={paramId}>
                                         <input
                                             type="number"
-                                            className="m-auto ml-0 mr-2 relative text-gray-800 w-5 border border-gray-400 rounded"
-
+                                            defaultValue={values.length > 0 ? values[0]?.toString() : ""}
+                                            className="nodrag flex m-auto text-gray-800 border text-xs border-gray-400 rounded max-w-8"
                                         />
                                         <input
                                             type="number"
-                                            className="m-auto ml-1 mr-0 relative text-gray-800 w-5 border border-gray-400 rounded"
-
+                                            defaultValue={values.length > 0 ? values[1]?.toString() : ""}
+                                            className="nodrag flex-1 m-auto text-gray-800 border text-xs border-gray-400 rounded max-w-8"
                                         />
                                         <input
                                             type="number"
-                                            className="m-auto ml-2 mr-0 relative text-gray-800 w-5 border border-gray-400 rounded"
+                                            defaultValue={values.length > 0 ? values[2]?.toString() : ""}
+                                            className="nodrag flex flex-1 m-auto relative text-gray-800 text-xs border border-gray-400 rounded max-w-8"
                                         />
-                                        <span className="pl-2 text-xs text-gray-300">{paramName}</span>
+                                        <span className="flex flex-1 pl-2 text-xs text-gray-300">{paramName}</span>
                                     </div>
                                 );
+                            } else {
+                                console.error(`Unknown parameter type: ${param.type()}`);
                             }
                         })
                     )}
@@ -112,8 +139,12 @@ function ProcedureNode(props: { id: string, data: Record<string, string | Proced
 
                 {/* Handle Rows Right*/}
                 <div className="flex flex-col">
-                    <DynamicHandle id={"file_object_output"} type={"target"} label={"Output File"}
-                                   left_side={false}/>
+                    <DynamicHandle
+                        key={`procedure-${props.id}-output`}
+                        id={`${props.id}-file_object_output`}
+                        type={"target"}
+                        label={"Output File"}
+                        left_side={false}/>
                 </div>
             </div>
         </div>

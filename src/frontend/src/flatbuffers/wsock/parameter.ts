@@ -4,6 +4,8 @@
 
 import * as flatbuffers from 'flatbuffers';
 
+import { ParameterType } from './parameter-type';
+import { Value, ValueT } from '../wsock/value.js';
 
 
 export class Parameter implements flatbuffers.IUnpackableObject<ParameterT> {
@@ -31,34 +33,39 @@ name(optionalEncoding?:any):string|Uint8Array|null {
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
-type():string|null
-type(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
-type(optionalEncoding?:any):string|Uint8Array|null {
+type():ParameterType {
   const offset = this.bb!.__offset(this.bb_pos, 6);
-  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+  return offset ? this.bb!.readInt8(this.bb_pos + offset) : ParameterType.UNKNOWN;
 }
 
-value():string|null
-value(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
-value(optionalEncoding?:any):string|Uint8Array|null {
+value(obj?:Value):Value|null {
   const offset = this.bb!.__offset(this.bb_pos, 8);
-  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+  return offset ? (obj || new Value()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+defaultValue(obj?:Value):Value|null {
+  const offset = this.bb!.__offset(this.bb_pos, 10);
+  return offset ? (obj || new Value()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
 static startParameter(builder:flatbuffers.Builder) {
-  builder.startObject(3);
+  builder.startObject(4);
 }
 
 static addName(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset) {
   builder.addFieldOffset(0, nameOffset, 0);
 }
 
-static addType(builder:flatbuffers.Builder, typeOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(1, typeOffset, 0);
+static addType(builder:flatbuffers.Builder, type:ParameterType) {
+  builder.addFieldInt8(1, type, ParameterType.UNKNOWN);
 }
 
 static addValue(builder:flatbuffers.Builder, valueOffset:flatbuffers.Offset) {
   builder.addFieldOffset(2, valueOffset, 0);
+}
+
+static addDefaultValue(builder:flatbuffers.Builder, defaultValueOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(3, defaultValueOffset, 0);
 }
 
 static endParameter(builder:flatbuffers.Builder):flatbuffers.Offset {
@@ -66,19 +73,13 @@ static endParameter(builder:flatbuffers.Builder):flatbuffers.Offset {
   return offset;
 }
 
-static createParameter(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset, typeOffset:flatbuffers.Offset, valueOffset:flatbuffers.Offset):flatbuffers.Offset {
-  Parameter.startParameter(builder);
-  Parameter.addName(builder, nameOffset);
-  Parameter.addType(builder, typeOffset);
-  Parameter.addValue(builder, valueOffset);
-  return Parameter.endParameter(builder);
-}
 
 unpack(): ParameterT {
   return new ParameterT(
     this.name(),
     this.type(),
-    this.value()
+    (this.value() !== null ? this.value()!.unpack() : null),
+    (this.defaultValue() !== null ? this.defaultValue()!.unpack() : null)
   );
 }
 
@@ -86,27 +87,31 @@ unpack(): ParameterT {
 unpackTo(_o: ParameterT): void {
   _o.name = this.name();
   _o.type = this.type();
-  _o.value = this.value();
+  _o.value = (this.value() !== null ? this.value()!.unpack() : null);
+  _o.defaultValue = (this.defaultValue() !== null ? this.defaultValue()!.unpack() : null);
 }
 }
 
 export class ParameterT implements flatbuffers.IGeneratedObject {
 constructor(
   public name: string|Uint8Array|null = null,
-  public type: string|Uint8Array|null = null,
-  public value: string|Uint8Array|null = null
+  public type: ParameterType = ParameterType.UNKNOWN,
+  public value: ValueT|null = null,
+  public defaultValue: ValueT|null = null
 ){}
 
 
 pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const name = (this.name !== null ? builder.createString(this.name!) : 0);
-  const type = (this.type !== null ? builder.createString(this.type!) : 0);
-  const value = (this.value !== null ? builder.createString(this.value!) : 0);
+  const value = (this.value !== null ? this.value!.pack(builder) : 0);
+  const defaultValue = (this.defaultValue !== null ? this.defaultValue!.pack(builder) : 0);
 
-  return Parameter.createParameter(builder,
-    name,
-    type,
-    value
-  );
+  Parameter.startParameter(builder);
+  Parameter.addName(builder, name);
+  Parameter.addType(builder, this.type);
+  Parameter.addValue(builder, value);
+  Parameter.addDefaultValue(builder, defaultValue);
+
+  return Parameter.endParameter(builder);
 }
 }

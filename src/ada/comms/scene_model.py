@@ -31,43 +31,50 @@ class Scene:
 
         self.file_objects.append(file_object)
 
-    def __post_init__(self):
+    def load_files_from_server_temp_dir(self):
         # check temp directory for any file objects
-        if Config().websockets_server_temp_dir is not None and Config().websockets_auto_load_files is True:
-            temp_dir = Config().websockets_server_temp_dir
-            if not temp_dir.exists():
-                return
-            for fp in temp_dir.iterdir():
-                if not fp.is_file():
-                    continue
-                if fp.suffix == ".ifc":
-                    glb_fp = fp.with_suffix(".glb")
-                    ifc_sqlite_fp = fp.with_suffix(".sqlite")
-                    ifc_sqlite_file = None
-                    if ifc_sqlite_fp.exists():
-                        ifc_sqlite_file = FileObjectDC(
-                            name=fp.stem,
-                            filepath=ifc_sqlite_fp,
-                            file_type=FileTypeDC.IFC,
-                            purpose=FilePurposeDC.DESIGN,
-                        )
-                    glb_file_object = None
-                    if glb_fp.exists():
-                        glb_file_object = FileObjectDC(
-                            name=fp.stem,
-                            filepath=glb_fp,
-                            file_type=FileTypeDC.GLB,
-                            purpose=FilePurposeDC.DESIGN,
-                        )
-                    file_object = FileObjectDC(
+        if Config().websockets_server_temp_dir is None:
+            return None
+
+        temp_dir = Config().websockets_server_temp_dir
+        if not temp_dir.exists():
+            return
+
+        for fp in temp_dir.iterdir():
+            if not fp.is_file():
+                continue
+            if fp.suffix == ".ifc":
+                glb_fp = fp.with_suffix(".glb")
+                ifc_sqlite_fp = fp.with_suffix(".sqlite")
+                ifc_sqlite_file = None
+                if ifc_sqlite_fp.exists():
+                    ifc_sqlite_file = FileObjectDC(
                         name=fp.stem,
-                        filepath=fp,
+                        filepath=ifc_sqlite_fp,
                         file_type=FileTypeDC.IFC,
                         purpose=FilePurposeDC.DESIGN,
-                        glb_file=glb_file_object,
-                        ifcsqlite_file=ifc_sqlite_file,
                     )
-                    self.add_file_object(file_object)
+                glb_file_object = None
+                if glb_fp.exists():
+                    glb_file_object = FileObjectDC(
+                        name=fp.stem,
+                        filepath=glb_fp,
+                        file_type=FileTypeDC.GLB,
+                        purpose=FilePurposeDC.DESIGN,
+                    )
+                file_object = FileObjectDC(
+                    name=fp.stem,
+                    filepath=fp,
+                    file_type=FileTypeDC.IFC,
+                    purpose=FilePurposeDC.DESIGN,
+                    glb_file=glb_file_object,
+                    ifcsqlite_file=ifc_sqlite_file,
+                )
+                self.add_file_object(file_object)
+
+    def __post_init__(self):
+        if Config().websockets_auto_load_temp_files is True:
+            self.load_files_from_server_temp_dir()
 
     @staticmethod
     def get_temp_dir() -> pathlib.Path:

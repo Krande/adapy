@@ -1,6 +1,8 @@
 [procedures]
 script_dir = "./procedures"
+components_dir = "./components"
+use_ifc_convert = false
 
 [websockets]
 server_temp_dir = "./server_temp"
-auto_load_files = true
+auto_load_temp_files = true

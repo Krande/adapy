@@ -141,13 +141,15 @@ class Config:
             "procedures",
             [
                 ConfigEntry("script_dir", pathlib.Path, None, required=False),
+                ConfigEntry("components_dir", pathlib.Path, None, required=False),
+                ConfigEntry("use_ifc_convert", bool, True, required=False),
             ],
         ),
         ConfigSection(
             "websockets",
             [
                 ConfigEntry("server_temp_dir", pathlib.Path, None, False),
-                ConfigEntry("auto_load_files", bool, False, False),
+                ConfigEntry("auto_load_temp_files", bool, False, False),
             ],
         ),
     ]

@@ -40,13 +40,6 @@ enum FileType : byte {
     SQLITE = 2,
 }
 
-enum ProcedureState : byte {
-    IDLE = 0,
-    RUNNING = 1,
-    FINISHED = 2,
-    ERROR = 3,
-}
-
 table WebClient {
   instance_id: int;
   name: string;
@@ -104,6 +97,13 @@ table ProcedureStore {
 
 }
 
+enum ProcedureState : byte {
+    IDLE = 0,
+    RUNNING = 1,
+    FINISHED = 2,
+    ERROR = 3,
+}
+
 table Procedure {
     name: string;
     description: string;
@@ -115,10 +115,40 @@ table Procedure {
     state: ProcedureState;      // State of the procedure
 }
 
+// Define a ParameterType enum to categorize types
+enum ParameterType : byte {
+    UNKNOWN = 0,
+    STRING = 1,
+    FLOAT = 2,
+    INTEGER = 3,
+    BOOLEAN = 4,
+    ARRAY = 6,
+}
+
+enum ArrayType : byte {
+    TUPLE = 0,
+    LIST = 1,
+    SET = 2,
+}
+
+// Define a Value table for handling different data types
+table Value {
+    string_value: string;   // Value when type is STRING
+    float_value: float;  // Value when type is NUMBER
+    integer_value: int;  // Value when type is NUMBER
+    boolean_value: bool;    // Value when type is BOOLEAN
+    array_value: [Value];     // Array of values
+    array_value_type: ParameterType; // Array of numbers (e.g., [1.0, 2.0, 3.0])
+    array_length: int;      // Length of the array
+    array_type: ArrayType; // Type of the array
+}
+
+// Define a Parameter table that uses a union type for value
 table Parameter {
-    name: string;
-    type: string;  // E.g., 'string', 'number', 'boolean'
-    value: string; // The value of the parameter
+    name: string;               // The name of the parameter
+    type: ParameterType;        // The type of the parameter (enum defined above)
+    value: Value;               // Union value representing different data types
+    default_value: Value;       // Default value of the parameter
 }
 
 table ProcedureStart {

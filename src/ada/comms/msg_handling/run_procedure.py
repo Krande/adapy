@@ -19,7 +19,22 @@ def run_procedure(server: WebSocketAsyncServer, client: ConnectedClient, message
     procedure: Procedure = server.procedure_store.get(start_procedure.procedure_name)
     params = procedure.params
     for param in start_procedure.parameters:
-        params[param.name] = param.value
+        if param.type == "string":
+            params[param.name].value = param.value.string_value
+        elif param.type == "float":
+            params[param.name].value = param.value.float_value
+        elif param.type == "integer":
+            params[param.name].value = param.value.integer_value
+        elif param.type == "boolean":
+            params[param.name].value = param.value.boolean_value
+        elif param.type == "array":
+            params[param.name].value = param.value.array_value
+        else:
+            if param.value.string_value:
+                params[param.name].value = param.value.string_value
+            else:
+                raise ValueError(f"Unknown parameter type {param.type}")
+
 
     procedure(**procedure.params)
     logger.info(f"Procedure {procedure.name} ran successfully")
@@ -29,9 +44,15 @@ def run_procedure(server: WebSocketAsyncServer, client: ConnectedClient, message
 def update_server_on_successful_procedure_run(
     server: WebSocketAsyncServer, procedure: Procedure, client: ConnectedClient, message: MessageDC
 ) -> None:
-    input_file_path = pathlib.Path(procedure.params.get(procedure.input_file_var))
+    param = procedure.params.get(procedure.input_file_var)
+    if isinstance(param.value, str):
+        input_file_path = pathlib.Path(param.value)
+    else:
+        input_file_path = pathlib.Path(param.value.string_value)
+
     server_file_object = server.scene.get_file_object(input_file_path.stem)
     output_file = procedure.get_procedure_output(input_file_path.stem)
+
     new_file_object = FileObjectDC(
         name=output_file.name,
         filepath=output_file,
@@ -41,4 +62,4 @@ def update_server_on_successful_procedure_run(
         procedure_parent=message.procedure_store.start_procedure,
     )
     update_server(server, client, new_file_object)
-    logger.info(f"Added {procedure.name} to the server")
+    logger.info(f"Completed Procedure '{procedure.name}' and added the File Object '{output_file}' to the server")

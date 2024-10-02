@@ -59,7 +59,7 @@ function CustomFileObjectNode(props: { id: string, data: Record<string, string |
                 <div className={"flex flex-row items-center"}>
                     <span className={"m-auto mr-0"}>
                     <Handle
-                        type="source"
+                        type="target"
                         id="file_object_out"
                         position={Position.Right}
                         style={{position: "absolute", background: '#555'}}

@@ -83,6 +83,9 @@ class WebSocketClientSync(WebSocketClientBase):
         msg = self.receive()
         return msg.procedure_store.procedures
 
+    def get_file_object(self, name: str) -> FileObjectDC:
+        ...
+
     def list_server_file_objects(self) -> list[FileObjectDC]:
         self.websocket.send(self._list_server_file_objects_prep())
         msg = self.receive()
