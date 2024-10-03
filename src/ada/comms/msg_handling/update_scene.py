@@ -12,9 +12,8 @@ if TYPE_CHECKING:
     from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer
 
 
-def update_scene(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:
+def update_scene(server: WebSocketAsyncServer, client: ConnectedClient, glb_file_data: FileObjectDC) -> None:
     logger.info(f"Received message from {client} to update scene")
-    glb_file_data = message.scene.current_file
     tmp_dir = (
         pathlib.Path("temp") if Config().websockets_server_temp_dir is None else Config().websockets_server_temp_dir
     )

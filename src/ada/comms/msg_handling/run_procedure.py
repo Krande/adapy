@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import pathlib
+import random
+import uuid
 from typing import TYPE_CHECKING
 
-from ada.comms.fb_model_gen import FileObjectDC, MessageDC, ParameterDC, ParameterTypeDC, ProcedureStartDC
+from ada.comms.fb_model_gen import FileObjectDC, MessageDC, ParameterTypeDC, ProcedureStartDC, FileTypeDC, ValueDC, \
+    ParameterDC, FilePurposeDC
+from ada.comms.msg_handling.update_scene import update_scene
 from ada.comms.msg_handling.update_server import update_server
-from ada.comms.procedures import Procedure
+from ada.comms.msg_handling.view_file_object import view_file_object
+from ada.comms.wsock.Value import Value
+from ada.procedural_modelling.procedure_model import Procedure
 from ada.config import logger
+from tempfile import NamedTemporaryFile
 
 if TYPE_CHECKING:
     from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer
@@ -18,37 +25,54 @@ def run_procedure(server: WebSocketAsyncServer, client: ConnectedClient, message
 
     procedure: Procedure = server.procedure_store.get(start_procedure.procedure_name)
     params = {p.name: p for p in start_procedure.parameters}
+
+    if "output_file" not in params.keys():
+        # add output_file if not exist
+        output_dir = procedure.get_output_dir()
+        if procedure.export_file_type == FileTypeDC.IFC:
+            suffix = ".ifc"
+        elif procedure.export_file_type == FileTypeDC.GLB:
+            suffix = ".glb"
+        else:
+            raise NotImplementedError(f"Export file type {procedure.export_file_type} not implemented")
+
+        # output_dir.mkdir(parents=True, exist_ok=True)
+        params["output_file"] = ParameterDC(
+            name="output_file",
+            type=ParameterTypeDC.STRING,
+            value=ValueDC(string_value=(output_dir / f"{procedure.name}-{random.randint(10000,20000)}{suffix}").as_posix()))
+
     procedure(**params)
 
     logger.info(f"Procedure {procedure.name} ran successfully")
 
-    update_server_on_successful_procedure_run(server, procedure, client, message, start_procedure)
+    update_server_on_successful_procedure_run(server, procedure, client, message, params)
 
 
 def update_server_on_successful_procedure_run(
-    server: WebSocketAsyncServer, procedure: Procedure, client: ConnectedClient, message: MessageDC, start_procedure: ProcedureStartDC
+        server: WebSocketAsyncServer, procedure: Procedure, client: ConnectedClient, message: MessageDC,
+        parameters: dict[str, ParameterDC]
 ) -> None:
-    params = [p for p in start_procedure.parameters if p.name == procedure.input_file_var]
-    if len(params) == 0:
+
+    if procedure.is_component:
         # it's a component procedure
-        input_file_path = None
-        output_dir = procedure.get_component_output_dir()
-        if procedure.export_file_type
-        output_file = output_dir /
+        purpose = FilePurposeDC.DESIGN
     else:
         # it's a modification procedure on an existing file
-        param = params[0]
-        if param.type == ParameterTypeDC.STRING:
-            input_file_path = pathlib.Path(param.value.string_value)
-        elif param.type == ParameterTypeDC.UNKNOWN and param.value.string_value:
-            input_file_path = pathlib.Path(param.value.string_value)
-        else:
+        input_file = parameters.get("input_file")
+        if input_file is None:
+            raise ValueError("No input file provided for procedure?")
+        input_file_value = input_file.value.string_value
+        if input_file_value is None:
             raise NotImplementedError("Only string input file paths are supported for now")
 
+        input_file_path = pathlib.Path(input_file_value)
         server_file_object = server.scene.get_file_object(input_file_path.stem)
-        output_file = procedure.get_procedure_output(input_file_path.stem)
+        if server_file_object is None:
+            raise ValueError(f"Input file {input_file_path.stem} not found on server")
         purpose = server_file_object.purpose
 
+    output_file = pathlib.Path(parameters.get("output_file").value.string_value)
     new_file_object = FileObjectDC(
         name=output_file.name,
         filepath=output_file,
@@ -57,5 +81,7 @@ def update_server_on_successful_procedure_run(
         is_procedure_output=True,
         procedure_parent=message.procedure_store.start_procedure,
     )
+
     update_server(server, client, new_file_object)
+    view_file_object(server, client, new_file_object.name)
     logger.info(f"Completed Procedure '{procedure.name}' and added the File Object '{output_file}' to the server")

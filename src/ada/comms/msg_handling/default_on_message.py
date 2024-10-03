@@ -22,7 +22,7 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
     try:
         message = deserialize_root_message(message_data)
         if message.command_type == CommandTypeDC.UPDATE_SCENE:
-            update_scene(server, client, message)
+            update_scene(server, client, message.scene.current_file)
         elif message.command_type == CommandTypeDC.UPDATE_SERVER:
             update_server(server, client, message.server.new_file_object)
         elif message.command_type == CommandTypeDC.MESH_INFO_CALLBACK:
@@ -34,7 +34,7 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
         elif message.command_type == CommandTypeDC.LIST_FILE_OBJECTS:
             list_file_objects(server, client, message)
         elif message.command_type == CommandTypeDC.VIEW_FILE_OBJECT:
-            view_file_object(server, client, message)
+            view_file_object(server, client, message.server.get_file_object_by_name)
         else:
             logger.error(f"Unknown command type: {message.command_type}")
             on_error_reply(server, client, error_message=f"Unknown command type: {message.command_type}")

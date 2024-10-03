@@ -10,7 +10,7 @@ import websockets
 
 from ada.comms.fb_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
 from ada.comms.msg_handling.default_on_message import default_on_message
-from ada.comms.procedures import ProcedureStore
+from ada.procedural_modelling.procedure_store import ProcedureStore
 from ada.comms.scene_model import Scene
 from ada.comms.wsock import Message
 from ada.comms.wsockets_utils import client_from_str

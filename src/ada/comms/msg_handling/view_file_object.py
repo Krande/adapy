@@ -22,9 +22,8 @@ if TYPE_CHECKING:
     from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer
 
 
-def view_file_object(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:
+def view_file_object(server: WebSocketAsyncServer, client: ConnectedClient, file_object_name: str) -> None:
     logger.info(f"Received message from {client} to get file object")
-    file_object_name = message.server.get_file_object_by_name
     result = server.scene.get_file_object(file_object_name)
     if result is None:
         raise ServerError(f"File object {file_object_name} not found")
@@ -43,7 +42,7 @@ def view_file_object(server: WebSocketAsyncServer, client: ConnectedClient, mess
         msg = MessageDC(
             instance_id=server.instance_id,
             command_type=CommandTypeDC.SERVER_REPLY,
-            server_reply=ServerReplyDC(reply_to=message.command_type, file_object=file_object),
+            server_reply=ServerReplyDC(reply_to=CommandTypeDC.VIEW_FILE_OBJECT, file_object=file_object),
             scene=SceneDC(current_file=file_object),
             target_id=client.instance_id,
             target_group=client.group_type,
@@ -51,3 +50,5 @@ def view_file_object(server: WebSocketAsyncServer, client: ConnectedClient, mess
 
         fb_message = serialize_message(msg)
         asyncio.run(client.websocket.send(fb_message))
+
+    server.scene.mesh_meta = scene.metadata

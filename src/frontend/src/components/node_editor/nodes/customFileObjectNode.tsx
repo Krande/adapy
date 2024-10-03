@@ -1,7 +1,7 @@
 import React, {memo} from 'react';
 import {Handle, Position} from '@xyflow/react';
-import {view_file_object_from_server} from "../../utils/scene/view_file_object_from_server";
-import {FileObject} from "../../flatbuffers/wsock/file-object";
+import {view_file_object_from_server} from "../../../utils/scene/view_file_object_from_server";
+import {FileObject} from "../../../flatbuffers/wsock/file-object";
 
 
 const doc_icon = <svg width="12px" height="24px" viewBox="0 0 24 24" strokeWidth="1.5" fill="none"
@@ -36,7 +36,7 @@ function CustomFileObjectNode(props: { id: string, data: Record<string, string |
     return (
         <div className="bg-bl-background text-gray-200 rounded-md min-w-24">
             {/* Header Row */}
-            <div className="bg-gray-800 flex flex-row justify-center items-center px-1">
+            <div className="bg-gray-800 flex flex-row justify-center items-center px-1 rounded-t">
                 <div className={"flex-1"}>{doc_icon} </div>
                 <div className={"flex-1 text-center text-xs"}>{props.data.label.toString()}</div>
                 <div className={"flex-1 text-xs"}> [{props.data.filetype.toString()}]</div>

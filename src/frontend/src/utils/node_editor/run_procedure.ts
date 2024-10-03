@@ -151,8 +151,7 @@ export function run_procedure(props: { id: string, data: Record<string, string |
     let parameters_list: number[] = []
 
     let procedure = props.data.procedure as Procedure;
-    let input_file_var = procedure.inputFileVar();
-    if (input_file_var) {
+    if (!procedure.isComponent()) {
         const connectedEdges = edges.filter(edge => edge.target.startsWith('file-object'))
         if (connectedEdges.length === 0) return
         const connectedNode = nodes.find(node => node.id === connectedEdges[0].target)

@@ -1,13 +1,11 @@
 import pathlib
 
 import numpy as np
-import typer
 
 import ada
 from ada.comms.fb_model_gen import FileTypeDC
-from ada.comms.procedures import procedure_decorator
+from ada.procedural_modelling.procedures_base import procedure_decorator, app
 
-app = typer.Typer()
 THIS_FILE = pathlib.Path(__file__).resolve().absolute()
 
 
@@ -46,20 +44,16 @@ def add_stiffeners(pl: ada.Plate) -> list[ada.Beam]:
     return stiffeners
 
 
-@procedure_decorator(app, input_file_var="ifc_file", input_file_type=FileTypeDC.IFC, export_file_type=FileTypeDC.IFC)
-def main(ifc_file: pathlib.Path = None, output_file: pathlib.Path = None) -> pathlib.Path:
+@procedure_decorator(input_file_type=FileTypeDC.IFC, export_file_type=FileTypeDC.IFC)
+def main(input_file: pathlib.Path = None, output_file: pathlib.Path = None) -> None:
     """A procedure to add stiffeners to all plates in the IFC file"""
 
-    a = ada.from_ifc(ifc_file)
+    a = ada.from_ifc(input_file)
     for pl in a.get_all_physical_objects(by_type=ada.Plate):
         new_stiffeners = add_stiffeners(pl)
         pl.parent / new_stiffeners
 
-    modified_ifc_file = (ifc_file.parent / "procedural" / ifc_file.stem / THIS_FILE.stem).with_suffix(".ifc")
-    modified_ifc_file.parent.mkdir(parents=True, exist_ok=True)
-    a.to_ifc(modified_ifc_file)
-
-    return modified_ifc_file
+    a.to_ifc(output_file)
 
 
 if __name__ == "__main__":

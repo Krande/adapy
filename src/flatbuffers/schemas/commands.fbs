@@ -112,7 +112,9 @@ table Procedure {
     input_file_var: string;
     input_file_type: FileType;
     export_file_type: FileType;
+    export_file_var: string;
     state: ProcedureState;      // State of the procedure
+    is_component: bool;         // Boolean to indicate if the procedure is a component
 }
 
 // Define a ParameterType enum to categorize types

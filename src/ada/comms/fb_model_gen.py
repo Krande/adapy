@@ -122,7 +122,9 @@ class ProcedureDC:
     input_file_var: str = ""
     input_file_type: Optional[FileTypeDC] = None
     export_file_type: Optional[FileTypeDC] = None
+    export_file_var: str = ""
     state: Optional[ProcedureStateDC] = None
+    is_component: bool = None
 
 @dataclass
 class ValueDC:

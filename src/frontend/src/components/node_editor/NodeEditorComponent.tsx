@@ -4,8 +4,8 @@ import {Background, Controls, MiniMap, ReactFlow} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {request_list_of_nodes} from "../../utils/node_editor/request_list_of_nodes";
 import {useNodeEditorStore} from '../../state/useNodeEditorStore'; // Import the Zustand store
-import ProcedureNode from './customProcedureNode';
-import CustomFileObjectNode from './customFileObjectNode';
+import ProcedureNode from './nodes/procedure_node/ProcedureNode';
+import CustomFileObjectNode from './nodes/customFileObjectNode';
 
 const nodeTypes = {
     procedure: ProcedureNode,

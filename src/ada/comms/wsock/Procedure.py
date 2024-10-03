@@ -92,14 +92,28 @@ class Procedure(object):
         return 0
 
     # Procedure
-    def State(self):
+    def ExportFileVar(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
+    # Procedure
+    def State(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 0
 
+    # Procedure
+    def IsComponent(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(22))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
 def ProcedureStart(builder):
-    builder.StartObject(8)
+    builder.StartObject(10)
 
 def Start(builder):
     ProcedureStart(builder)
@@ -152,11 +166,23 @@ def ProcedureAddExportFileType(builder, exportFileType):
 def AddExportFileType(builder, exportFileType):
     ProcedureAddExportFileType(builder, exportFileType)
 
+def ProcedureAddExportFileVar(builder, exportFileVar):
+    builder.PrependUOffsetTRelativeSlot(7, flatbuffers.number_types.UOffsetTFlags.py_type(exportFileVar), 0)
+
+def AddExportFileVar(builder, exportFileVar):
+    ProcedureAddExportFileVar(builder, exportFileVar)
+
 def ProcedureAddState(builder, state):
-    builder.PrependInt8Slot(7, state, 0)
+    builder.PrependInt8Slot(8, state, 0)
 
 def AddState(builder, state):
     ProcedureAddState(builder, state)
+
+def ProcedureAddIsComponent(builder, isComponent):
+    builder.PrependBoolSlot(9, isComponent, 0)
+
+def AddIsComponent(builder, isComponent):
+    ProcedureAddIsComponent(builder, isComponent)
 
 def ProcedureEnd(builder):
     return builder.EndObject()

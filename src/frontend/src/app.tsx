@@ -8,7 +8,7 @@ import {useOptionsStore} from './state/optionsStore';
 
 import ResizableTreeView from './components/tree_view/ResizableTreeView';
 import {useNodeEditorStore} from "./state/nodeEditorStore";
-import NodeEditorComponent from "./components/node_editor/NodeEditorComponent"; // Import the new component
+import NodeEditorComponent from "./components/node_editor/NodeEditorComponent";
 
 
 function App() {

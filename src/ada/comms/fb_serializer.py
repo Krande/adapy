@@ -209,6 +209,9 @@ def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]
     input_file_var_str = None
     if obj.input_file_var is not None:
         input_file_var_str = builder.CreateString(str(obj.input_file_var))
+    export_file_var_str = None
+    if obj.export_file_var is not None:
+        export_file_var_str = builder.CreateString(str(obj.export_file_var))
 
     Procedure.Start(builder)
     if name_str is not None:
@@ -225,8 +228,12 @@ def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]
         Procedure.AddInputFileType(builder, obj.input_file_type.value)
     if obj.export_file_type is not None:
         Procedure.AddExportFileType(builder, obj.export_file_type.value)
+    if export_file_var_str is not None:
+        Procedure.AddExportFileVar(builder, export_file_var_str)
     if obj.state is not None:
         Procedure.AddState(builder, obj.state.value)
+    if obj.is_component is not None:
+        Procedure.AddIsComponent(builder, obj.is_component)
     return Procedure.End(builder)
 
 

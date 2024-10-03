@@ -102,7 +102,9 @@ def deserialize_procedure(fb_obj) -> ProcedureDC | None:
         input_file_var=fb_obj.InputFileVar().decode('utf-8') if fb_obj.InputFileVar() is not None else None,
         input_file_type=FileTypeDC(fb_obj.InputFileType()),
         export_file_type=FileTypeDC(fb_obj.ExportFileType()),
-        state=ProcedureStateDC(fb_obj.State())
+        export_file_var=fb_obj.ExportFileVar().decode('utf-8') if fb_obj.ExportFileVar() is not None else None,
+        state=ProcedureStateDC(fb_obj.State()),
+        is_component=fb_obj.IsComponent()
     )
 
 
