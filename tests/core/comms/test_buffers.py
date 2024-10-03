@@ -7,6 +7,7 @@ from ada.comms.fb_model_gen import (
     MeshInfoDC,
     MessageDC,
     ParameterDC,
+    ParameterTypeDC,
     ProcedureDC,
     ProcedureStateDC,
     ProcedureStoreDC,
@@ -25,7 +26,10 @@ def test_basic_flat_buffers():
         scene=SceneDC(
             operation=SceneOperationsDC.REPLACE,
             current_file=FileObjectDC(
-                file_type=FileTypeDC.GLB, purpose=FilePurposeDC.DESIGN, filepath="/path/to/file.glb"
+                file_type=FileTypeDC.GLB,
+                purpose=FilePurposeDC.DESIGN,
+                filepath="/path/to/file.glb",
+                is_procedure_output=False,
             ),
         ),
         mesh_info=MeshInfoDC(object_name="MyMeshObject", face_index=10),
@@ -54,7 +58,10 @@ def test_basic_flat_buffers_2():
         scene=SceneDC(
             operation=SceneOperationsDC.ADD,
             current_file=FileObjectDC(
-                file_type=FileTypeDC.GLB, purpose=FilePurposeDC.DESIGN, filepath="/path/to/file.glb"
+                file_type=FileTypeDC.GLB,
+                purpose=FilePurposeDC.DESIGN,
+                filepath="/path/to/file.glb",
+                is_procedure_output=False,
             ),
         ),
         mesh_info=MeshInfoDC(object_name="MyMeshObject", face_index=10),
@@ -88,10 +95,11 @@ def test_procedure_store():
                 ProcedureDC(
                     name="add_stiffeners",
                     description="Add stiffeners to the structure",
-                    parameters=[ParameterDC(name="ifc_file", type="pathlib.Path")],
+                    parameters=[ParameterDC(name="ifc_file", type=ParameterTypeDC.STRING)],
                     state=ProcedureStateDC.IDLE,
                     input_file_type=FileTypeDC.IFC,
                     export_file_type=FileTypeDC.IFC,
+                    is_component=True,
                 )
             ],
         ),
