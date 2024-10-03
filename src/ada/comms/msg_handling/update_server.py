@@ -23,13 +23,6 @@ def update_server(server: WebSocketAsyncServer, client: ConnectedClient, add_fil
         if not tmp_ifc_fp.exists():
             raise FileNotFoundError(f"File not found: {tmp_ifc_fp}")
 
-        if add_file.ifcsqlite_file is None:
-            tmp_sql_fp = tmp_ifc_fp.with_suffix(".sqlite")
-            Ifc2SqlPatcher(tmp_ifc_fp, logger, dest_sql_file=tmp_sql_fp).patch()
-            add_file.ifcsqlite_file = FileObjectDC(
-                name=add_file.name, filepath=tmp_sql_fp, file_type=FileTypeDC.SQLITE, purpose=add_file.purpose
-            )
-
         if add_file.glb_file is None:
             tmp_glb_fp = tmp_ifc_fp.with_suffix(".glb")
 
@@ -47,6 +40,13 @@ def update_server(server: WebSocketAsyncServer, client: ConnectedClient, add_fil
 
             add_file.glb_file = FileObjectDC(
                 name=add_file.name, filepath=tmp_glb_fp, file_type=FileTypeDC.GLB, purpose=add_file.purpose
+            )
+
+        if add_file.ifcsqlite_file is None:
+            tmp_sql_fp = tmp_ifc_fp.with_suffix(".sqlite")
+            Ifc2SqlPatcher(tmp_ifc_fp, logger, dest_sql_file=tmp_sql_fp).patch()
+            add_file.ifcsqlite_file = FileObjectDC(
+                name=add_file.name, filepath=tmp_sql_fp, file_type=FileTypeDC.SQLITE, purpose=add_file.purpose
             )
 
         server.scene.ifc_sql_store = IfcSqlModel(add_file.ifcsqlite_file.filepath)

@@ -142,7 +142,7 @@ class Config:
             [
                 ConfigEntry("script_dir", pathlib.Path, None, required=False),
                 ConfigEntry("components_dir", pathlib.Path, None, required=False),
-                ConfigEntry("use_ifc_convert", bool, True, required=False),
+                ConfigEntry("use_ifc_convert", bool, False, required=False),
             ],
         ),
         ConfigSection(
