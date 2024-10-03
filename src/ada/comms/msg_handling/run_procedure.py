@@ -1,19 +1,27 @@
 from __future__ import annotations
 
+import asyncio
 import pathlib
 import random
-import uuid
 from typing import TYPE_CHECKING
 
-from ada.comms.fb_model_gen import FileObjectDC, MessageDC, ParameterTypeDC, ProcedureStartDC, FileTypeDC, ValueDC, \
-    ParameterDC, FilePurposeDC
-from ada.comms.msg_handling.update_scene import update_scene
+from ada.comms.fb_model_gen import (
+    CommandTypeDC,
+    FileObjectDC,
+    FilePurposeDC,
+    FileTypeDC,
+    MessageDC,
+    ParameterDC,
+    ParameterTypeDC,
+    ServerDC,
+    ServerReplyDC,
+    ValueDC,
+)
+from ada.comms.fb_serializer import serialize_message
 from ada.comms.msg_handling.update_server import update_server
 from ada.comms.msg_handling.view_file_object import view_file_object
-from ada.comms.wsock.Value import Value
-from ada.procedural_modelling.procedure_model import Procedure
 from ada.config import logger
-from tempfile import NamedTemporaryFile
+from ada.procedural_modelling.procedure_model import Procedure
 
 if TYPE_CHECKING:
     from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer
@@ -40,7 +48,10 @@ def run_procedure(server: WebSocketAsyncServer, client: ConnectedClient, message
         params["output_file"] = ParameterDC(
             name="output_file",
             type=ParameterTypeDC.STRING,
-            value=ValueDC(string_value=(output_dir / f"{procedure.name}-{random.randint(10000,20000)}{suffix}").as_posix()))
+            value=ValueDC(
+                string_value=(output_dir / f"{procedure.name}-{random.randint(10000,20000)}{suffix}").as_posix()
+            ),
+        )
 
     procedure(**params)
 
@@ -50,8 +61,11 @@ def run_procedure(server: WebSocketAsyncServer, client: ConnectedClient, message
 
 
 def update_server_on_successful_procedure_run(
-        server: WebSocketAsyncServer, procedure: Procedure, client: ConnectedClient, message: MessageDC,
-        parameters: dict[str, ParameterDC]
+    server: WebSocketAsyncServer,
+    procedure: Procedure,
+    client: ConnectedClient,
+    message: MessageDC,
+    parameters: dict[str, ParameterDC],
 ) -> None:
 
     if procedure.is_component:
@@ -70,11 +84,12 @@ def update_server_on_successful_procedure_run(
         server_file_object = server.scene.get_file_object(input_file_path.stem)
         if server_file_object is None:
             raise ValueError(f"Input file {input_file_path.stem} not found on server")
+
         purpose = server_file_object.purpose
 
     output_file = pathlib.Path(parameters.get("output_file").value.string_value)
     new_file_object = FileObjectDC(
-        name=output_file.name,
+        name=output_file.stem,
         filepath=output_file,
         file_type=procedure.export_file_type,
         purpose=purpose,
@@ -83,5 +98,20 @@ def update_server_on_successful_procedure_run(
     )
 
     update_server(server, client, new_file_object)
+
+    reply_message = MessageDC(
+        instance_id=server.instance_id,
+        command_type=CommandTypeDC.SERVER_REPLY,
+        server=ServerDC(all_file_objects=server.scene.file_objects),
+        target_id=client.instance_id,
+        target_group=client.group_type,
+        server_reply=ServerReplyDC(file_object=new_file_object, reply_to=message.command_type),
+    )
+
+    fb_message = serialize_message(reply_message)
+
+    asyncio.run(client.websocket.send(fb_message))
+
     view_file_object(server, client, new_file_object.name)
+
     logger.info(f"Completed Procedure '{procedure.name}' and added the File Object '{output_file}' to the server")

@@ -1,9 +1,39 @@
-import flatbuffers
 from typing import Optional
 
-from ada.comms.wsock import WebClient, FileObject, MeshInfo, CameraParams, Scene, Server, ProcedureStore, Procedure, Value, Parameter, ProcedureStart, Error, ServerReply, Message
+import flatbuffers
+from ada.comms.fb_model_gen import (
+    CameraParamsDC,
+    ErrorDC,
+    FileObjectDC,
+    MeshInfoDC,
+    MessageDC,
+    ParameterDC,
+    ProcedureDC,
+    ProcedureStartDC,
+    ProcedureStoreDC,
+    SceneDC,
+    ServerDC,
+    ServerReplyDC,
+    ValueDC,
+    WebClientDC,
+)
+from ada.comms.wsock import (
+    CameraParams,
+    Error,
+    FileObject,
+    MeshInfo,
+    Message,
+    Parameter,
+    Procedure,
+    ProcedureStart,
+    ProcedureStore,
+    Scene,
+    Server,
+    ServerReply,
+    Value,
+    WebClient,
+)
 
-from ada.comms.fb_model_gen import WebClientDC, FileObjectDC, MeshInfoDC, CameraParamsDC, SceneDC, ServerDC, ProcedureStoreDC, ProcedureDC, ValueDC, ParameterDC, ProcedureStartDC, ErrorDC, ServerReplyDC, MessageDC
 
 def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]) -> Optional[int]:
     if obj is None:
@@ -302,6 +332,9 @@ def serialize_procedurestart(builder: flatbuffers.Builder, obj: Optional[Procedu
     procedure_name_str = None
     if obj.procedure_name is not None:
         procedure_name_str = builder.CreateString(str(obj.procedure_name))
+    procedure_id_string_str = None
+    if obj.procedure_id_string is not None:
+        procedure_id_string_str = builder.CreateString(str(obj.procedure_id_string))
     parameters_vector = None
     if obj.parameters is not None and len(obj.parameters) > 0:
         parameters_list = [serialize_parameter(builder, item) for item in obj.parameters]
@@ -313,6 +346,8 @@ def serialize_procedurestart(builder: flatbuffers.Builder, obj: Optional[Procedu
     ProcedureStart.Start(builder)
     if procedure_name_str is not None:
         ProcedureStart.AddProcedureName(builder, procedure_name_str)
+    if procedure_id_string_str is not None:
+        ProcedureStart.AddProcedureIdString(builder, procedure_id_string_str)
     if obj.parameters is not None and len(obj.parameters) > 0:
         ProcedureStart.AddParameters(builder, parameters_vector)
     return ProcedureStart.End(builder)
@@ -358,7 +393,7 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
     return ServerReply.End(builder)
 
 
-def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
+def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
     scene_obj = None

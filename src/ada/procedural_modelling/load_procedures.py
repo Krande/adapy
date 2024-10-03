@@ -4,7 +4,14 @@ import ast
 import pathlib
 from typing import Callable
 
-from ada.comms.fb_model_gen import FileTypeDC, ParameterDC, ParameterTypeDC, ValueDC, ArrayTypeDC
+from ada.comms.fb_model_gen import (
+    ArrayTypeDC,
+    FileTypeDC,
+    ParameterDC,
+    ParameterTypeDC,
+    ValueDC,
+)
+
 from .procedure_model import Procedure
 
 
@@ -67,17 +74,17 @@ def arg_to_param(arg: ast.arg, default: ast.expr) -> ParameterDC:
         default_value = ValueDC(float_value=default_arg_value)
     elif param_type == ParameterTypeDC.BOOLEAN:
         default_value = ValueDC(boolean_value=default_arg_value)
-    elif arg_type.startswith('tuple') or arg_type.startswith('list') or arg_type.startswith('set'):
+    elif arg_type.startswith("tuple") or arg_type.startswith("list") or arg_type.startswith("set"):
         param_type = ParameterTypeDC.ARRAY
-        result = arg_type.split('[')[1].split(']')[0]
-        value_types = [r.strip() for r in result.split(',')]
+        result = arg_type.split("[")[1].split("]")[0]
+        value_types = [r.strip() for r in result.split(",")]
         value_type = value_types[0]
         array_value_type = _param_type_map.get(value_type, ParameterTypeDC.UNKNOWN)
-        if arg_type.startswith('tuple'):
+        if arg_type.startswith("tuple"):
             array_type = ArrayTypeDC.TUPLE
-        elif arg_type.startswith('list'):
+        elif arg_type.startswith("list"):
             array_type = ArrayTypeDC.LIST
-        elif arg_type.startswith('set'):
+        elif arg_type.startswith("set"):
             array_type = ArrayTypeDC.SET
         else:
             raise NotImplementedError(f"Parameter type {arg_type} not implemented")
@@ -92,8 +99,12 @@ def arg_to_param(arg: ast.arg, default: ast.expr) -> ParameterDC:
         else:
             raise NotImplementedError(f"Parameter type {arg_type} not implemented")
 
-        default_value = ValueDC(array_value=default_values, array_length=len(value_types), array_type=array_type,
-                                array_value_type=array_value_type)
+        default_value = ValueDC(
+            array_value=default_values,
+            array_length=len(value_types),
+            array_type=array_type,
+            array_value_type=array_value_type,
+        )
     else:
         raise NotImplementedError(f"Parameter type {arg_type} not implemented")
 
@@ -127,7 +138,9 @@ def get_procedure_from_script(script_path: pathlib.Path) -> Procedure:
     # extract decorator (if any)
     decorator_config = {}
     if main_func.decorator_list:
-        custom_decorator = [d for d in main_func.decorator_list if d.func.id in ("procedure_decorator", "component_decorator")]
+        custom_decorator = [
+            d for d in main_func.decorator_list if d.func.id in ("procedure_decorator", "component_decorator")
+        ]
         if custom_decorator:
             decorator = custom_decorator[0]
             decorator_config = extract_decorator_options(decorator)

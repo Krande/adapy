@@ -177,9 +177,11 @@ export function run_procedure(props: { id: string, data: Record<string, string |
         parameters_list.push(...input_params)
 
     let parameters = ProcedureStart.createParametersVector(builder, parameters_list);
+    let procedure_id_str = builder.createString(props.id.toString())
 
     ProcedureStart.startProcedureStart(builder);
     ProcedureStart.addProcedureName(builder, procedure_name);
+    ProcedureStart.addProcedureIdString(builder, procedure_id_str);
     ProcedureStart.addParameters(builder, parameters);
     let procedure_start = ProcedureStart.endProcedureStart(builder);
 

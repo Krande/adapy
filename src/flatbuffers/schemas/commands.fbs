@@ -155,6 +155,7 @@ table Parameter {
 
 table ProcedureStart {
     procedure_name: string;
+    procedure_id_string: string;
     parameters: [Parameter];
 }
 

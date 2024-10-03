@@ -2,6 +2,7 @@
 
 # namespace: wsock
 
+
 class ParameterType(object):
     UNKNOWN = 0
     STRING = 1

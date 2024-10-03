@@ -4,9 +4,12 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from ada.comms.fb_model_gen import ProcedureStoreDC
-from ada.procedural_modelling.procedure_model import Procedure
-from ada.procedural_modelling.load_procedures import get_procedure_from_function, get_procedures_from_script_dir
 from ada.config import Config
+from ada.procedural_modelling.load_procedures import (
+    get_procedure_from_function,
+    get_procedures_from_script_dir,
+)
+from ada.procedural_modelling.procedure_model import Procedure
 
 
 @dataclass

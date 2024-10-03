@@ -3,7 +3,7 @@ import {toggle_info_panel} from "../utils/info_panel_utils";
 import ObjectInfoBox from "./object_info_box/ObjectInfoBoxComponent";
 import {useObjectInfoStore} from "../state/objectInfoStore";
 import AnimationControls from "./viewer/AnimationControls";
-import {useNodeEditorStore} from "../state/nodeEditorStore";
+import {useNodeEditorStore} from "../state/useNodeEditorStore";
 import {useAnimationStore} from "../state/animationStore";
 import {useOptionsStore} from "../state/optionsStore";
 import {useTreeViewStore} from "../state/treeViewStore";

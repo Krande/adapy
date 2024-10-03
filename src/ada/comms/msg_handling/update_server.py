@@ -10,7 +10,7 @@ import ada
 from ada.cadit.ifc.ifc2sql import Ifc2SqlPatcher
 from ada.cadit.ifc.sql_model import IfcSqlModel
 from ada.comms.fb_model_gen import FileObjectDC, FileTypeDC
-from ada.config import logger, Config
+from ada.config import Config, logger
 
 if TYPE_CHECKING:
     from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer

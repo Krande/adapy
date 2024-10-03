@@ -5,7 +5,7 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from ada.comms.fb_model_gen import ParameterDC, FileTypeDC, ParameterTypeDC, ProcedureDC
+from ada.comms.fb_model_gen import FileTypeDC, ParameterDC, ParameterTypeDC, ProcedureDC
 from ada.config import logger
 
 
@@ -61,11 +61,7 @@ class Procedure:
             name=self.name,
             description=self.description,
             script_file_location=self.script_path.as_posix() if self.script_path is not None else "",
-            parameters=(
-                params
-                if self.params is not None
-                else None
-            ),
+            parameters=(params if self.params is not None else None),
             input_file_var="input_file",
             input_file_type=self.input_file_type,
             export_file_type=self.export_file_type,
@@ -75,17 +71,17 @@ class Procedure:
 
     def get_component_output_dir(self):
         from ada.comms.scene_model import Scene
+
         temp_dir = Scene.get_temp_dir()
         component_dir = temp_dir / "components"
 
         return component_dir / self.name
 
-    @staticmethod
-    def get_procedure_output_dir() -> pathlib.Path:
+    def get_procedure_output_dir(self) -> pathlib.Path:
         from ada.comms.scene_model import Scene
 
         temp_dir = Scene.get_temp_dir()
-        return temp_dir / "procedural"
+        return temp_dir / "procedural" / self.name
 
     def get_procedure_output(self, input_file_name: str):
         output_file_path = None
@@ -112,6 +108,7 @@ class Procedure:
             return self.get_procedure_output_dir()
         else:
             return self.get_component_output_dir()
+
 
 def make_param_value(param: ParameterDC) -> str | list[str]:
     if param.type == ParameterTypeDC.STRING:

@@ -4,6 +4,7 @@ import {reply_ping} from "./reply_ping";
 import {update_scene_from_message} from "../scene/update_scene_from_message";
 import {receive_mesh_info_reply} from "../mesh_select/receive_mesh_info_reply";
 import {update_nodes} from "../node_editor/update_nodes";
+import {receive_procedure} from "../node_editor/receive_procedure";
 
 export const handleFlatbufferMessage = (buffer: ArrayBuffer) => {
     // Wrap ArrayBuffer into FlatBuffer ByteBuffer
@@ -26,6 +27,9 @@ export const handleFlatbufferMessage = (buffer: ArrayBuffer) => {
         } else if (message.serverReply()?.replyTo() === CommandType.VIEW_FILE_OBJECT) {
             console.log('VIEW_FILE_OBJECT Server Reply message received');
             update_scene_from_message(message);
+        } else if (message.serverReply()?.replyTo() === CommandType.RUN_PROCEDURE) {
+            console.log('LIST_MESHES Server Reply message received');
+            receive_procedure(message);
         } else {
             console.error('Unknown Server Reply message type received: ', message.serverReply()?.replyTo());
         }

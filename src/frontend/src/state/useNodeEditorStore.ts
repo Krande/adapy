@@ -10,10 +10,14 @@ type NodeEditorState = {
     onNodesChange: (changes: NodeChange[]) => void; // Use NodeChange type for onNodesChange
     onEdgesChange: (changes: EdgeChange[]) => void; // Use EdgeChange type for onEdgesChange
     onConnect: OnConnect;
+    isNodeEditorVisible: boolean;
+    setIsNodeEditorVisible: (visible: boolean) => void;
 };
 
 // Initialize the store with Zustand
 export const useNodeEditorStore = create<NodeEditorState>((set) => ({
+    isNodeEditorVisible: false,
+    setIsNodeEditorVisible: (visible) => set({ isNodeEditorVisible: visible }),
     nodes: [
         {
             id: '1',

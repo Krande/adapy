@@ -32,26 +32,37 @@ procedureName(optionalEncoding?:any):string|Uint8Array|null {
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
-parameters(index: number, obj?:Parameter):Parameter|null {
+procedureIdString():string|null
+procedureIdString(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+procedureIdString(optionalEncoding?:any):string|Uint8Array|null {
   const offset = this.bb!.__offset(this.bb_pos, 6);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
+parameters(index: number, obj?:Parameter):Parameter|null {
+  const offset = this.bb!.__offset(this.bb_pos, 8);
   return offset ? (obj || new Parameter()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
 }
 
 parametersLength():number {
-  const offset = this.bb!.__offset(this.bb_pos, 6);
+  const offset = this.bb!.__offset(this.bb_pos, 8);
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
 static startProcedureStart(builder:flatbuffers.Builder) {
-  builder.startObject(2);
+  builder.startObject(3);
 }
 
 static addProcedureName(builder:flatbuffers.Builder, procedureNameOffset:flatbuffers.Offset) {
   builder.addFieldOffset(0, procedureNameOffset, 0);
 }
 
+static addProcedureIdString(builder:flatbuffers.Builder, procedureIdStringOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(1, procedureIdStringOffset, 0);
+}
+
 static addParameters(builder:flatbuffers.Builder, parametersOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(1, parametersOffset, 0);
+  builder.addFieldOffset(2, parametersOffset, 0);
 }
 
 static createParametersVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
@@ -71,9 +82,10 @@ static endProcedureStart(builder:flatbuffers.Builder):flatbuffers.Offset {
   return offset;
 }
 
-static createProcedureStart(builder:flatbuffers.Builder, procedureNameOffset:flatbuffers.Offset, parametersOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createProcedureStart(builder:flatbuffers.Builder, procedureNameOffset:flatbuffers.Offset, procedureIdStringOffset:flatbuffers.Offset, parametersOffset:flatbuffers.Offset):flatbuffers.Offset {
   ProcedureStart.startProcedureStart(builder);
   ProcedureStart.addProcedureName(builder, procedureNameOffset);
+  ProcedureStart.addProcedureIdString(builder, procedureIdStringOffset);
   ProcedureStart.addParameters(builder, parametersOffset);
   return ProcedureStart.endProcedureStart(builder);
 }
@@ -81,6 +93,7 @@ static createProcedureStart(builder:flatbuffers.Builder, procedureNameOffset:fla
 unpack(): ProcedureStartT {
   return new ProcedureStartT(
     this.procedureName(),
+    this.procedureIdString(),
     this.bb!.createObjList<Parameter, ParameterT>(this.parameters.bind(this), this.parametersLength())
   );
 }
@@ -88,6 +101,7 @@ unpack(): ProcedureStartT {
 
 unpackTo(_o: ProcedureStartT): void {
   _o.procedureName = this.procedureName();
+  _o.procedureIdString = this.procedureIdString();
   _o.parameters = this.bb!.createObjList<Parameter, ParameterT>(this.parameters.bind(this), this.parametersLength());
 }
 }
@@ -95,16 +109,19 @@ unpackTo(_o: ProcedureStartT): void {
 export class ProcedureStartT implements flatbuffers.IGeneratedObject {
 constructor(
   public procedureName: string|Uint8Array|null = null,
+  public procedureIdString: string|Uint8Array|null = null,
   public parameters: (ParameterT)[] = []
 ){}
 
 
 pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const procedureName = (this.procedureName !== null ? builder.createString(this.procedureName!) : 0);
+  const procedureIdString = (this.procedureIdString !== null ? builder.createString(this.procedureIdString!) : 0);
   const parameters = ProcedureStart.createParametersVector(builder, builder.createObjectOffsetList(this.parameters));
 
   return ProcedureStart.createProcedureStart(builder,
     procedureName,
+    procedureIdString,
     parameters
   );
 }

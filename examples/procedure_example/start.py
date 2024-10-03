@@ -6,7 +6,7 @@ def deck(p0, w, l):
 
 
 def main():
-    dck = deck((0, 0, 0), 10, 20)
+    dck = deck((0, 0, 0), 10, 40)
 
     a = ada.Assembly("MyBaseStructure") / dck
     a.show(add_ifc_backend=True)
