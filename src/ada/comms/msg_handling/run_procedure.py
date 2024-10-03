@@ -3,7 +3,7 @@ from __future__ import annotations
 import pathlib
 from typing import TYPE_CHECKING
 
-from ada.comms.fb_model_gen import FileObjectDC, MessageDC
+from ada.comms.fb_model_gen import FileObjectDC, MessageDC, ParameterDC, ParameterTypeDC, ProcedureStartDC
 from ada.comms.msg_handling.update_server import update_server
 from ada.comms.procedures import Procedure
 from ada.config import logger
@@ -17,47 +17,43 @@ def run_procedure(server: WebSocketAsyncServer, client: ConnectedClient, message
     start_procedure = message.procedure_store.start_procedure
 
     procedure: Procedure = server.procedure_store.get(start_procedure.procedure_name)
-    params = procedure.params
-    for param in start_procedure.parameters:
-        if param.type == "string":
-            params[param.name].value = param.value.string_value
-        elif param.type == "float":
-            params[param.name].value = param.value.float_value
-        elif param.type == "integer":
-            params[param.name].value = param.value.integer_value
-        elif param.type == "boolean":
-            params[param.name].value = param.value.boolean_value
-        elif param.type == "array":
-            params[param.name].value = param.value.array_value
-        else:
-            if param.value.string_value:
-                params[param.name].value = param.value.string_value
-            else:
-                raise ValueError(f"Unknown parameter type {param.type}")
+    params = {p.name: p for p in start_procedure.parameters}
+    procedure(**params)
 
-
-    procedure(**procedure.params)
     logger.info(f"Procedure {procedure.name} ran successfully")
-    update_server_on_successful_procedure_run(server, procedure, client, message)
+
+    update_server_on_successful_procedure_run(server, procedure, client, message, start_procedure)
 
 
 def update_server_on_successful_procedure_run(
-    server: WebSocketAsyncServer, procedure: Procedure, client: ConnectedClient, message: MessageDC
+    server: WebSocketAsyncServer, procedure: Procedure, client: ConnectedClient, message: MessageDC, start_procedure: ProcedureStartDC
 ) -> None:
-    param = procedure.params.get(procedure.input_file_var)
-    if isinstance(param.value, str):
-        input_file_path = pathlib.Path(param.value)
+    params = [p for p in start_procedure.parameters if p.name == procedure.input_file_var]
+    if len(params) == 0:
+        # it's a component procedure
+        input_file_path = None
+        output_dir = procedure.get_component_output_dir()
+        if procedure.export_file_type
+        output_file = output_dir /
     else:
-        input_file_path = pathlib.Path(param.value.string_value)
+        # it's a modification procedure on an existing file
+        param = params[0]
+        if param.type == ParameterTypeDC.STRING:
+            input_file_path = pathlib.Path(param.value.string_value)
+        elif param.type == ParameterTypeDC.UNKNOWN and param.value.string_value:
+            input_file_path = pathlib.Path(param.value.string_value)
+        else:
+            raise NotImplementedError("Only string input file paths are supported for now")
 
-    server_file_object = server.scene.get_file_object(input_file_path.stem)
-    output_file = procedure.get_procedure_output(input_file_path.stem)
+        server_file_object = server.scene.get_file_object(input_file_path.stem)
+        output_file = procedure.get_procedure_output(input_file_path.stem)
+        purpose = server_file_object.purpose
 
     new_file_object = FileObjectDC(
         name=output_file.name,
         filepath=output_file,
         file_type=procedure.export_file_type,
-        purpose=server_file_object.purpose,
+        purpose=purpose,
         is_procedure_output=True,
         procedure_parent=message.procedure_store.start_procedure,
     )

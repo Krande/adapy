@@ -1,7 +1,7 @@
 // DynamicHandle.tsx
 import React from 'react';
 import {Connection, Handle, HandleType, Position} from '@xyflow/react';
-import {FileObject} from "../../flatbuffers/wsock/file-object";
+
 
 interface DynamicHandleProps {
     id: string;

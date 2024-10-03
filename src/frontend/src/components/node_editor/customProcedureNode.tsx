@@ -55,6 +55,9 @@ function ProcedureNode(props: { id: string, data: Record<string, string | Proced
                             if (!props.data.paramids) {
                                 props.data.paramids = [];
                             }
+                            if (index == 0) {
+                                props.data.paramids = [];
+                            }
                             (props.data.paramids as string[]).push(paramId);
 
                             if (paramName === input_file_var) {
@@ -92,7 +95,6 @@ function ProcedureNode(props: { id: string, data: Record<string, string | Proced
                                     </div>
                                 );
                             } else if (param.type() === ParameterType.ARRAY) {
-                                let default_value = null;
                                 let values = [];
                                 if (paramDefaultValue) {
                                     let array_value_type = paramDefaultValue.arrayValueType()

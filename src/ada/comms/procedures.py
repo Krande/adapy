@@ -42,12 +42,16 @@ class Procedure:
         for arg in args:
             call_args.append(str(arg))
         # Build the command-line arguments
-        for arg_name, value in kwargs.items():
+        for arg_name, param_dc in kwargs.items():
+            param_dc: ParameterDC
+            value = make_param_value(param_dc)
+
             # Convert underscores to hyphens
-            if isinstance(value, ParameterDC):
-                value = value.value
             arg_name_cli = arg_name.replace("_", "-")
-            if isinstance(value, bool):
+            if param_dc.type == ParameterTypeDC.ARRAY:
+                call_args.append(f"--{arg_name_cli}")
+                call_args.extend(value)
+            elif isinstance(value, bool):
                 if value:
                     call_args.append(f"--{arg_name_cli}")
             else:
@@ -79,6 +83,13 @@ class Procedure:
             export_file_type=self.export_file_type,
         )
 
+    def get_component_output_dir(self):
+        from ada.comms.scene_model import Scene
+        temp_dir = Scene.get_temp_dir()
+        component_dir = temp_dir / "components"
+
+        return component_dir / self.name
+
     def get_procedure_output(self, input_file_name: str):
         from ada.comms.scene_model import Scene
 
@@ -103,6 +114,38 @@ class Procedure:
             return (output_file_path / self.name).with_suffix(".glb")
         else:
             raise NotImplementedError(f"Export file type {self.export_file_type} not implemented")
+
+def make_param_value(param: ParameterDC) -> str | list[str]:
+    if param.type == ParameterTypeDC.STRING:
+        return param.value.string_value
+    elif param.type == ParameterTypeDC.INTEGER:
+        return str(param.value.integer_value)
+    elif param.type == ParameterTypeDC.FLOAT:
+        return str(param.value.float_value)
+    elif param.type == ParameterTypeDC.BOOLEAN:
+        return str(param.value.boolean_value)
+    elif param.type == ParameterTypeDC.ARRAY:
+        if param.value.array_value is None:
+            raise ValueError("Array value is None")
+        values = []
+
+        for val in param.value.array_value:
+            if param.value.array_value_type == ParameterTypeDC.STRING:
+                values.append(val.string_value)
+            elif param.value.array_value_type == ParameterTypeDC.INTEGER:
+                values.append(str(val.integer_value))
+            elif param.value.array_value_type == ParameterTypeDC.FLOAT:
+                values.append(str(val.float_value))
+            elif param.value.array_value_type == ParameterTypeDC.BOOLEAN:
+                values.append(str(val.boolean_value))
+            else:
+                raise NotImplementedError(f"Parameter type {param.value.array_value_type} not implemented")
+
+        return values
+    else:
+        if param.type == ParameterTypeDC.UNKNOWN and param.value.string_value is not None:
+            return param.value.string_value
+        raise NotImplementedError(f"Parameter type {param.type} not implemented")
 
 
 @dataclass
@@ -149,11 +192,13 @@ def procedure_decorator(
     input_file_var: str | None = None,
     input_file_type: FileTypeDC | None = None,
     export_file_type: FileTypeDC | None = None,
+    export_file_var: str | None = None,
 ) -> Callable:
     def wrapper(func: Callable) -> Callable:
         func.input_file_var = input_file_var
         func.input_file_type = input_file_type
         func.export_file_type = export_file_type
+        func.export_file_var = export_file_var
         if Typer is not None:
             app.command()(func)  # Apply the app.command decorator
         return func

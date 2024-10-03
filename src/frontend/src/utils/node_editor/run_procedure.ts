@@ -12,7 +12,7 @@ import * as flatbuffers from "flatbuffers"; // Import the node editor Zustand st
 import {webSocketHandler} from "../websocket_connector";
 import {Builder} from "flatbuffers";
 
-function extract_input_params(builder: Builder, params: string[], procedure: Procedure)  {
+function extract_input_params(builder: Builder, params: string[], procedure: Procedure) {
     // the param strings are div keys in the form of 'param-<procedure_name>-<index>'
     // we need to first get the parent div, then get the input value from the input element
 
@@ -67,29 +67,54 @@ function extract_input_params(builder: Builder, params: string[], procedure: Pro
             Parameter.startParameter(builder);
             Parameter.addName(builder, param_name_str);
             Parameter.addValue(builder, input_value_buf);
+            Parameter.addType(builder, param_type);
             let input_param = Parameter.endParameter(builder);
             input_params.push(input_param)
             continue
         } else if (param_input.length > 1) {
-            let tuple_values = []
+            let tuple_values = [];
+            let array_value_type = parameter.defaultValue?.arrayValueType;
+
             for (let input of param_input) {
-                let input_value = input.value
+                let input_value = input.value;
 
+                // Start building a Value based on the arrayValueType (STRING, FLOAT, etc.)
                 Value.startValue(builder);
-                if (parameter.value?.arrayValueType === ParameterType.STRING) {
-                    let input_value_str = builder.createString(input_value)
-                    Value.addStringValue(builder, input_value_str);
 
+                if (array_value_type === ParameterType.STRING) {
+                    let input_value_str = builder.createString(input_value);
+                    Value.addStringValue(builder, input_value_str);
+                } else if (array_value_type === ParameterType.FLOAT) {
+                    Value.addFloatValue(builder, parseFloat(input_value));
+                } else if (array_value_type === ParameterType.INTEGER) {
+                    Value.addIntegerValue(builder, parseInt(input_value));
+                } else if (array_value_type === ParameterType.BOOLEAN) {
+                    Value.addBooleanValue(builder, input_value === "true");
                 }
+
+                // End building Value and add to the tuple_values array
                 let input_value_buf = Value.endValue(builder);
-                tuple_values.push(input_value_buf)
+                tuple_values.push(input_value_buf);
             }
+
+            let tuple_values_vector = Value.createArrayValueVector(builder, tuple_values);
+            // Create a vector for tuple_values
+            Value.startValue(builder);
+            Value.addArrayValue(builder, tuple_values_vector);
+            if (array_value_type){
+                Value.addArrayValueType(builder, array_value_type);
+            }
+            let array_value = Value.endValue(builder);
+
+            // Start building the Parameter with the array of values
             Parameter.startParameter(builder);
             Parameter.addName(builder, param_name_str);
-            Parameter.addValue(builder, tuple_values_vector);
+            Parameter.addValue(builder, array_value);
+            Parameter.addType(builder, ParameterType.ARRAY); // Indicate that this is an array type parameter
+
             let input_param = Parameter.endParameter(builder);
-            input_params.push(input_param)
-            continue
+            input_params.push(input_param);
+            continue;
         }
 
         // if param_div is an input element, get the value directly
@@ -149,8 +174,9 @@ export function run_procedure(props: { id: string, data: Record<string, string |
         parameters_list.push(input_file)
     }
     let input_params = extract_input_params(builder, props.data.paramids as string[], procedure);
-    parameters_list.push(...input_params)
-    
+    if (input_params)
+        parameters_list.push(...input_params)
+
     let parameters = ProcedureStart.createParametersVector(builder, parameters_list);
 
     ProcedureStart.startProcedureStart(builder);

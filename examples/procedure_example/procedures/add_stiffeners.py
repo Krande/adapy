@@ -47,7 +47,7 @@ def add_stiffeners(pl: ada.Plate) -> list[ada.Beam]:
 
 
 @procedure_decorator(app, input_file_var="ifc_file", input_file_type=FileTypeDC.IFC, export_file_type=FileTypeDC.IFC)
-def main(ifc_file: pathlib.Path = None) -> pathlib.Path:
+def main(ifc_file: pathlib.Path = None, output_file: pathlib.Path = None) -> pathlib.Path:
     """A procedure to add stiffeners to all plates in the IFC file"""
 
     a = ada.from_ifc(ifc_file)
