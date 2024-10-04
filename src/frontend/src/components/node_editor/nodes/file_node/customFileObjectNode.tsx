@@ -1,7 +1,7 @@
 import React, {memo} from 'react';
 import {Handle, Position} from '@xyflow/react';
-import {view_file_object_from_server} from "../../../utils/scene/view_file_object_from_server";
-import {FileObject} from "../../../flatbuffers/wsock/file-object";
+import {view_file_object_from_server} from "../../../../utils/scene/view_file_object_from_server";
+import {FileObject} from "../../../../flatbuffers/wsock/file-object";
 
 
 const doc_icon = <svg width="12px" height="24px" viewBox="0 0 24 24" strokeWidth="1.5" fill="none"
@@ -60,7 +60,7 @@ function CustomFileObjectNode(props: { id: string, data: Record<string, string |
                     <span className={"m-auto mr-0"}>
                     <Handle
                         type="target"
-                        id="file_object_out"
+                        id={`${props.id}-file_object_out`}
                         position={Position.Right}
                         style={{position: "absolute", background: '#555'}}
                         isConnectable={true}
@@ -72,7 +72,7 @@ function CustomFileObjectNode(props: { id: string, data: Record<string, string |
                     <span className={"m-auto mr-0"}>
                     <Handle
                         type="source"
-                        id="procedure_in"
+                        id={`${props.id}-procedure_in`}
                         position={Position.Left}
                         style={{position: "absolute", background: '#555'}}
                         isConnectable={true}

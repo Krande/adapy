@@ -31,20 +31,22 @@ class Procedure:
             call_args.append(str(arg))
         # Build the command-line arguments
         for arg_name, param_dc in kwargs.items():
-            param_dc: ParameterDC
-            value = make_param_value(param_dc)
-
             # Convert underscores to hyphens
             arg_name_cli = arg_name.replace("_", "-")
-            if param_dc.type == ParameterTypeDC.ARRAY:
-                call_args.append(f"--{arg_name_cli}")
-                call_args.extend(value)
-            elif isinstance(value, bool):
-                if value:
-                    call_args.append(f"--{arg_name_cli}")
+            call_args.append(f"--{arg_name_cli}")
+            if isinstance(param_dc, ParameterDC):
+                value = make_param_value(param_dc)
+                if param_dc.type == ParameterTypeDC.ARRAY:
+                    call_args.extend(value)
+                else:
+                    call_args.append(str(value))
             else:
-                call_args.append(f"--{arg_name_cli}")
-                call_args.append(str(value))
+                value = param_dc
+
+                if isinstance(value, bool):
+                    pass
+                else:
+                    call_args.append(str(value))
         logger.debug(f"Running script {self.script_path} with args: {call_args}")
         result = subprocess.run(call_args, check=False, capture_output=True, text=True, encoding="utf-8")
         if result.returncode != 0:

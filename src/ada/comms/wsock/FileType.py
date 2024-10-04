@@ -2,7 +2,6 @@
 
 # namespace: wsock
 
-
 class FileType(object):
     IFC = 0
     GLB = 1

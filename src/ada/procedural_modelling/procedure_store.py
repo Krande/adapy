@@ -31,7 +31,7 @@ class ProcedureStore:
         if components_dir is not None:
             local_scripts.update(get_procedures_from_script_dir(components_dir))
 
-        self.procedures.update(local_scripts)
+        self.procedures = local_scripts
 
     def to_procedure_dc(self) -> ProcedureStoreDC:
         return ProcedureStoreDC(procedures=[proc.to_procedure_dc() for proc in self.procedures.values()])

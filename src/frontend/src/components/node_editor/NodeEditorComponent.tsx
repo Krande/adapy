@@ -5,7 +5,8 @@ import '@xyflow/react/dist/style.css';
 import {request_list_of_nodes} from "../../utils/node_editor/request_list_of_nodes";
 import {useNodeEditorStore} from '../../state/useNodeEditorStore'; // Import the Zustand store
 import ProcedureNode from './nodes/procedure_node/ProcedureNode';
-import CustomFileObjectNode from './nodes/customFileObjectNode';
+import CustomFileObjectNode from './nodes/file_node/customFileObjectNode';
+import {onDelete} from "../../utils/node_editor/on_delete";
 
 const nodeTypes = {
     procedure: ProcedureNode,
@@ -58,6 +59,7 @@ const NodeEditorComponent: React.FC = () => {
                     onEdgesChange={(changes) => onEdgesChange(changes)}
                     onConnect={onConnect}
                     nodeTypes={nodeTypes}
+                    onDelete={onDelete}
                     fitView
                 >
                     <Background/>

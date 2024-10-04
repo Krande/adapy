@@ -14,6 +14,7 @@ enum CommandType : byte {
   ERROR = 10,
   SERVER_REPLY = 11,
   VIEW_FILE_OBJECT = 12,
+  DELETE_FILE_OBJECT = 13,
 }
 
 enum TargetType : byte {
@@ -87,6 +88,7 @@ table Server {
     all_file_objects: [FileObject];
     get_file_object_by_name: string;
     get_file_object_by_path: string;
+    delete_file_object: FileObject;
 }
 
 // Procedures are picked up by the server and executed

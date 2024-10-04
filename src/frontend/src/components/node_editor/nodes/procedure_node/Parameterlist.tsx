@@ -3,27 +3,34 @@ import {Procedure} from "../../../../flatbuffers/wsock/procedure";
 import DynamicHandle from "../DynamicHandle";
 import {ParameterItem} from "./ParameterItem";
 
-export function ParameterList({ procedure, paramIds }: { procedure: Procedure; paramIds: string[] }) {
-    const parametersLength = procedure.parametersLength();
+export function ParameterList({id, data}: { id: string; data: Record<string, any> }) {
+    const parametersLength = data.procedure.parametersLength();
 
     if (!parametersLength) return null;
 
     return (
         <>
-            {Array.from({ length: parametersLength }).map((_, index) => {
-                const param = procedure.parameters(index);
+            {Array.from({length: parametersLength}).map((_, index) => {
+                const param = data.procedure.parameters(index);
                 if (!param) return null;
 
                 const paramName = param.name();
                 if (!paramName) return null;
 
                 if (paramName === 'output_file') return null;
+                if (!data.paramids)
+                    data.paramids = [];
 
+                const procedure = data.procedure;
+                const paramIds = data.paramids;
                 const paramDefaultValue = param.defaultValue();
-                const procedureName = procedure.name();
+                const procedureName = data.procedure.name();
                 const paramKey = `${procedureName}-${index}`;
-                const paramId = `param-${paramKey}`;
-                paramIds.push(paramId);
+                const paramId = `param-${paramName}-${paramKey}`;
+
+                if (!paramIds.includes(paramId)) {
+                    paramIds.push(paramId);
+                }
 
                 if (paramName === procedure.inputFileVar()) {
                     return (

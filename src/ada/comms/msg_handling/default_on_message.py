@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from ada.comms.fb_deserializer import deserialize_root_message
 from ada.comms.fb_model_gen import CommandTypeDC
+from ada.comms.msg_handling.delete_file_object import delete_file_object
 from ada.comms.msg_handling.list_file_objects import list_file_objects
 from ada.comms.msg_handling.list_procedures import list_procedures
 from ada.comms.msg_handling.mesh_info_callback import mesh_info_callback
@@ -35,6 +36,8 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
             list_file_objects(server, client, message)
         elif message.command_type == CommandTypeDC.VIEW_FILE_OBJECT:
             view_file_object(server, client, message.server.get_file_object_by_name)
+        elif message.command_type == CommandTypeDC.DELETE_FILE_OBJECT:
+            delete_file_object(server, client, message)
         else:
             logger.error(f"Unknown command type: {message.command_type}")
             on_error_reply(server, client, error_message=f"Unknown command type: {message.command_type}")

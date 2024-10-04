@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 from ada.cadit.ifc.sql_model import IfcSqlModel
 from ada.comms.fb_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
-from ada.config import Config
+from ada.config import Config, logger
 
 
 @dataclass
@@ -30,6 +30,22 @@ class Scene:
             self.file_objects.pop(remove_existing_idx)
 
         self.file_objects.append(file_object)
+
+    def delete_file_object(self, name: str):
+        logger.info(f"Deleting file object: {name}")
+        remove_existing_idx = None
+        for i, fo in enumerate(self.file_objects):
+            if fo.name == name:
+                remove_existing_idx = i
+
+        if remove_existing_idx is not None:
+            del_file_obj = self.file_objects.pop(remove_existing_idx)
+            if del_file_obj.filepath is not None:
+                del_file_obj.filepath.unlink()
+            if del_file_obj.ifcsqlite_file is not None and del_file_obj.ifcsqlite_file.filepath is not None:
+                del_file_obj.ifcsqlite_file.filepath.unlink()
+            if del_file_obj.glb_file is not None and del_file_obj.glb_file.filepath is not None:
+                del_file_obj.glb_file.filepath.unlink()
 
     def load_files_from_server_temp_dir(self):
         # check temp directory for any file objects

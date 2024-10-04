@@ -2,7 +2,6 @@
 
 # namespace: wsock
 
-
 class CommandType(object):
     PING = 0
     PONG = 1
@@ -17,3 +16,4 @@ class CommandType(object):
     ERROR = 10
     SERVER_REPLY = 11
     VIEW_FILE_OBJECT = 12
+    DELETE_FILE_OBJECT = 13

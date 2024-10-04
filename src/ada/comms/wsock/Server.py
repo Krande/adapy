@@ -4,12 +4,10 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
-
 np = import_numpy()
 
-
 class Server(object):
-    __slots__ = ["_tab"]
+    __slots__ = ['_tab']
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -22,7 +20,6 @@ class Server(object):
     def GetRootAsServer(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
-
     # Server
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -33,7 +30,6 @@ class Server(object):
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.wsock.FileObject import FileObject
-
             obj = FileObject()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -47,7 +43,6 @@ class Server(object):
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
             from ada.comms.wsock.FileObject import FileObject
-
             obj = FileObject()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -79,58 +74,61 @@ class Server(object):
             return self._tab.String(o + self._tab.Pos)
         return None
 
+    # Server
+    def DeleteFileObject(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.wsock.FileObject import FileObject
+            obj = FileObject()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
 
 def ServerStart(builder):
-    builder.StartObject(4)
-
+    builder.StartObject(5)
 
 def Start(builder):
     ServerStart(builder)
 
-
 def ServerAddNewFileObject(builder, newFileObject):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(newFileObject), 0)
-
 
 def AddNewFileObject(builder, newFileObject):
     ServerAddNewFileObject(builder, newFileObject)
 
-
 def ServerAddAllFileObjects(builder, allFileObjects):
     builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(allFileObjects), 0)
-
 
 def AddAllFileObjects(builder, allFileObjects):
     ServerAddAllFileObjects(builder, allFileObjects)
 
-
 def ServerStartAllFileObjectsVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
-
 
 def StartAllFileObjectsVector(builder, numElems):
     return ServerStartAllFileObjectsVector(builder, numElems)
 
-
 def ServerAddGetFileObjectByName(builder, getFileObjectByName):
     builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(getFileObjectByName), 0)
-
 
 def AddGetFileObjectByName(builder, getFileObjectByName):
     ServerAddGetFileObjectByName(builder, getFileObjectByName)
 
-
 def ServerAddGetFileObjectByPath(builder, getFileObjectByPath):
     builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(getFileObjectByPath), 0)
-
 
 def AddGetFileObjectByPath(builder, getFileObjectByPath):
     ServerAddGetFileObjectByPath(builder, getFileObjectByPath)
 
+def ServerAddDeleteFileObject(builder, deleteFileObject):
+    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(deleteFileObject), 0)
+
+def AddDeleteFileObject(builder, deleteFileObject):
+    ServerAddDeleteFileObject(builder, deleteFileObject)
 
 def ServerEnd(builder):
     return builder.EndObject()
-
 
 def End(builder):
     return ServerEnd(builder)

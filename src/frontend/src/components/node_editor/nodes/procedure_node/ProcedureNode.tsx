@@ -1,23 +1,19 @@
 import React, {memo} from 'react';
-import {Procedure} from "../../../../flatbuffers/wsock/procedure";
 import {ProcedureHeader} from "./ProcedureHeader";
 import {ParameterList} from "./Parameterlist";
 import DynamicHandle from "../DynamicHandle";
 import {run_procedure} from "../../../../utils/node_editor/run_procedure";
 
-export function ProcedureNode({ id, data }: { id: string; data: Record<string, any> }) {
-    const procedure = data.procedure as Procedure;
-    const paramIds: string[] = (data.paramids = data.paramids || []);
-
+export function ProcedureNode({id, data}: { id: string; data: Record<string, any> }) {
     return (
         <div className="bg-bl-background text-gray-200 rounded min-w-40 h-30">
             {/* Header Row */}
-            <ProcedureHeader label={data.label as string} onRun={() => run_procedure({ id, data })} />
+            <ProcedureHeader label={data.label as string} onRun={() => run_procedure({id, data})}/>
 
             <div className="flex flex-row w-full h-full py-2">
                 {/* Handle Rows Left */}
                 <div className="flex flex-1 flex-col">
-                    <ParameterList procedure={procedure} paramIds={paramIds} />
+                    <ParameterList id={id} data={data}/>
                 </div>
 
                 {/* Handle Rows Right */}

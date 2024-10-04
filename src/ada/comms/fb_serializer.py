@@ -1,39 +1,9 @@
+import flatbuffers
 from typing import Optional
 
-import flatbuffers
-from ada.comms.fb_model_gen import (
-    CameraParamsDC,
-    ErrorDC,
-    FileObjectDC,
-    MeshInfoDC,
-    MessageDC,
-    ParameterDC,
-    ProcedureDC,
-    ProcedureStartDC,
-    ProcedureStoreDC,
-    SceneDC,
-    ServerDC,
-    ServerReplyDC,
-    ValueDC,
-    WebClientDC,
-)
-from ada.comms.wsock import (
-    CameraParams,
-    Error,
-    FileObject,
-    MeshInfo,
-    Message,
-    Parameter,
-    Procedure,
-    ProcedureStart,
-    ProcedureStore,
-    Scene,
-    Server,
-    ServerReply,
-    Value,
-    WebClient,
-)
+from ada.comms.wsock import WebClient, FileObject, MeshInfo, CameraParams, Scene, Server, ProcedureStore, Procedure, Value, Parameter, ProcedureStart, Error, ServerReply, Message
 
+from ada.comms.fb_model_gen import WebClientDC, FileObjectDC, MeshInfoDC, CameraParamsDC, SceneDC, ServerDC, ProcedureStoreDC, ProcedureDC, ValueDC, ParameterDC, ProcedureStartDC, ErrorDC, ServerReplyDC, MessageDC
 
 def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]) -> Optional[int]:
     if obj is None:
@@ -182,6 +152,9 @@ def serialize_server(builder: flatbuffers.Builder, obj: Optional[ServerDC]) -> O
     get_file_object_by_path_str = None
     if obj.get_file_object_by_path is not None:
         get_file_object_by_path_str = builder.CreateString(str(obj.get_file_object_by_path))
+    delete_file_object_obj = None
+    if obj.delete_file_object is not None:
+        delete_file_object_obj = serialize_fileobject(builder, obj.delete_file_object)
 
     Server.Start(builder)
     if obj.new_file_object is not None:
@@ -192,6 +165,8 @@ def serialize_server(builder: flatbuffers.Builder, obj: Optional[ServerDC]) -> O
         Server.AddGetFileObjectByName(builder, get_file_object_by_name_str)
     if get_file_object_by_path_str is not None:
         Server.AddGetFileObjectByPath(builder, get_file_object_by_path_str)
+    if obj.delete_file_object is not None:
+        Server.AddDeleteFileObject(builder, delete_file_object_obj)
     return Server.End(builder)
 
 
@@ -393,7 +368,7 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
     return ServerReply.End(builder)
 
 
-def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:
+def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
     scene_obj = None

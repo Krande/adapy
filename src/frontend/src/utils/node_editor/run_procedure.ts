@@ -28,7 +28,7 @@ function extract_input_params(builder: Builder, params: string[], procedure: Pro
     let input_params: number[] = []
     for (let param of params) {
         let param_div = document.getElementById(param)
-        if (!param_div) return
+        if (!param_div) continue
         let param_name = param_div.getElementsByTagName('span')[0].innerText
         let parameter = parameter_name_map[param_name]
         let param_type: number = parameter.type
