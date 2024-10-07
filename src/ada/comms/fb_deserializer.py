@@ -133,7 +133,8 @@ def deserialize_parameter(fb_obj) -> ParameterDC | None:
         name=fb_obj.Name().decode('utf-8') if fb_obj.Name() is not None else None,
         type=ParameterTypeDC(fb_obj.Type()),
         value=deserialize_value(fb_obj.Value()),
-        default_value=deserialize_value(fb_obj.DefaultValue())
+        default_value=deserialize_value(fb_obj.DefaultValue()),
+        options=[deserialize_value(fb_obj.Options(i)) for i in range(fb_obj.OptionsLength())] if fb_obj.OptionsLength() > 0 else None
     )
 
 

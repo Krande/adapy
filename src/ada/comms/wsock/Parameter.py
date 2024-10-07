@@ -60,8 +60,33 @@ class Parameter(object):
             return obj
         return None
 
+    # Parameter
+    def Options(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            x = self._tab.Vector(o)
+            x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
+            x = self._tab.Indirect(x)
+            from ada.comms.wsock.Value import Value
+            obj = Value()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # Parameter
+    def OptionsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # Parameter
+    def OptionsIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        return o == 0
+
 def ParameterStart(builder):
-    builder.StartObject(4)
+    builder.StartObject(5)
 
 def Start(builder):
     ParameterStart(builder)
@@ -89,6 +114,18 @@ def ParameterAddDefaultValue(builder, defaultValue):
 
 def AddDefaultValue(builder, defaultValue):
     ParameterAddDefaultValue(builder, defaultValue)
+
+def ParameterAddOptions(builder, options):
+    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(options), 0)
+
+def AddOptions(builder, options):
+    ParameterAddOptions(builder, options)
+
+def ParameterStartOptionsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def StartOptionsVector(builder, numElems):
+    return ParameterStartOptionsVector(builder, numElems)
 
 def ParameterEnd(builder):
     return builder.EndObject()

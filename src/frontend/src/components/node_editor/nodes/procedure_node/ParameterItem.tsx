@@ -8,11 +8,13 @@ export function ParameterItem({
     paramId,
     paramName,
     paramDefaultValue,
+    paramOptions,
 }: {
     param: Parameter;
     paramId: string;
     paramName: string;
     paramDefaultValue: any;
+    paramOptions: any;
 }) {
     switch (param.type()) {
         case ParameterType.STRING:

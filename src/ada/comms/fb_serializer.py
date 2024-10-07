@@ -288,6 +288,13 @@ def serialize_parameter(builder: flatbuffers.Builder, obj: Optional[ParameterDC]
     default_value_obj = None
     if obj.default_value is not None:
         default_value_obj = serialize_value(builder, obj.default_value)
+    options_vector = None
+    if obj.options is not None and len(obj.options) > 0:
+        options_list = [serialize_value(builder, item) for item in obj.options]
+        Parameter.StartOptionsVector(builder, len(options_list))
+        for item in reversed(options_list):
+            builder.PrependUOffsetTRelative(item)
+        options_vector = builder.EndVector(len(options_list))
 
     Parameter.Start(builder)
     if name_str is not None:
@@ -298,6 +305,8 @@ def serialize_parameter(builder: flatbuffers.Builder, obj: Optional[ParameterDC]
         Parameter.AddValue(builder, value_obj)
     if obj.default_value is not None:
         Parameter.AddDefaultValue(builder, default_value_obj)
+    if obj.options is not None and len(obj.options) > 0:
+        Parameter.AddOptions(builder, options_vector)
     return Parameter.End(builder)
 
 

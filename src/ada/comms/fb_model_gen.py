@@ -145,6 +145,7 @@ class ParameterDC:
     type: Optional[ParameterTypeDC] = None
     value: Optional[ValueDC] = None
     default_value: Optional[ValueDC] = None
+    options: Optional[List[ValueDC]] = None
 
 @dataclass
 class ProcedureStartDC:

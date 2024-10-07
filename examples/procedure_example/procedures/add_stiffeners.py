@@ -42,7 +42,7 @@ def add_stiffeners(pl: ada.Plate, spacing, stiffener_section) -> list[ada.Beam]:
     return stiffeners
 
 
-@procedure_decorator(input_file_type=FileTypeDC.IFC, export_file_type=FileTypeDC.IFC)
+@procedure_decorator(input_file_type=FileTypeDC.IFC, export_file_type=FileTypeDC.IFC, options={"hp_section": ["HP180x8", "HP200x10", "HP220x12"]})
 def main(input_file: pathlib.Path = None,
          output_file: pathlib.Path = None,
          hp_section: str = "HP180x8",

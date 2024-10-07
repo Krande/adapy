@@ -24,6 +24,10 @@ export function ParameterList({id, data}: { id: string; data: Record<string, any
                 const procedure = data.procedure;
                 const paramIds = data.paramids;
                 const paramDefaultValue = param.defaultValue();
+                let paramOptions = param.options();
+                if (paramOptions) {
+                    paramOptions = paramOptions.unpack();
+                }
                 const procedureName = data.procedure.name();
                 const paramKey = `${procedureName}-${index}`;
                 const paramId = `param-${paramName}-${paramKey}`;
@@ -49,6 +53,7 @@ export function ParameterList({id, data}: { id: string; data: Record<string, any
                             paramId={paramId}
                             paramName={paramName}
                             paramDefaultValue={paramDefaultValue}
+                            paramOptions={paramOptions}
                         />
                     );
                 }

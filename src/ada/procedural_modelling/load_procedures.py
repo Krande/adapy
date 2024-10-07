@@ -50,11 +50,29 @@ def extract_decorator_options(decorator: ast.Call) -> dict[str, str | FileTypeDC
             options["input_file_type"] = str_to_filetype(keyword.value.attr)
         elif keyword.arg == "export_file_type":
             options["export_file_type"] = str_to_filetype(keyword.value.attr)
+        elif keyword.arg == "options":
+            opts_dict = {}
+            for key, value in zip(keyword.value.keys, keyword.value.values):
+                values = []
+                for elt in value.elts:
+                    if isinstance(elt.value, str):
+                        values.append(ValueDC(string_value=elt.value))
+                    elif isinstance(elt.value, int):
+                        values.append(ValueDC(integer_value=elt.value))
+                    elif isinstance(elt.value, float):
+                        values.append(ValueDC(float_value=elt.value))
+                    elif isinstance(elt.value, bool):
+                        values.append(ValueDC(boolean_value=elt.value))
+                    else:
+                        raise NotImplementedError(f"Value type {type(elt.value)} not implemented")
+                opts_dict[key.s] = values
+
+            options["options"] = opts_dict
 
     return options
 
 
-def arg_to_param(arg: ast.arg, default: ast.expr) -> ParameterDC:
+def arg_to_param(arg: ast.arg, default: ast.expr, decorator_config: dict) -> ParameterDC:
     arg_name = arg.arg
     if arg.annotation:
         arg_type = ast.unparse(arg.annotation)
@@ -108,7 +126,9 @@ def arg_to_param(arg: ast.arg, default: ast.expr) -> ParameterDC:
     else:
         raise NotImplementedError(f"Parameter type {arg_type} not implemented")
 
-    return ParameterDC(name=arg_name, type=param_type, default_value=default_value)
+    options = decorator_config.get("options", {}).get(arg_name, None)
+
+    return ParameterDC(name=arg_name, type=param_type, default_value=default_value, options=options)
 
 
 def get_procedure_from_script(script_path: pathlib.Path) -> Procedure:
@@ -126,15 +146,6 @@ def get_procedure_from_script(script_path: pathlib.Path) -> Procedure:
     if main_func is None:
         raise Exception(f"No 'main' function found in {script_path}")
 
-    # Extract parameters
-    params: dict[str, ParameterDC] = {}
-    for arg, default in zip(main_func.args.args, main_func.args.defaults):
-        arg_name = arg.arg
-        params[arg_name] = arg_to_param(arg, default)
-
-    # Extract docstring
-    description = ast.get_docstring(main_func) or ""
-
     # extract decorator (if any)
     decorator_config = {}
     if main_func.decorator_list:
@@ -144,6 +155,17 @@ def get_procedure_from_script(script_path: pathlib.Path) -> Procedure:
         if custom_decorator:
             decorator = custom_decorator[0]
             decorator_config = extract_decorator_options(decorator)
+
+    # Extract parameters
+    params: dict[str, ParameterDC] = {}
+    for arg, default in zip(main_func.args.args, main_func.args.defaults):
+        arg_name = arg.arg
+        params[arg_name] = arg_to_param(arg, default, decorator_config)
+
+    # Extract docstring
+    description = ast.get_docstring(main_func) or ""
+
+
 
     return Procedure(
         name=script_path.stem,

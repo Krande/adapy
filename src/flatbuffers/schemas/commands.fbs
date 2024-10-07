@@ -153,6 +153,7 @@ table Parameter {
     type: ParameterType;        // The type of the parameter (enum defined above)
     value: Value;               // Union value representing different data types
     default_value: Value;       // Default value of the parameter
+    options: [Value];           // List of options for the parameter
 }
 
 table ProcedureStart {

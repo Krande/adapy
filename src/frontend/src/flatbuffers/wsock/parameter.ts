@@ -48,8 +48,18 @@ defaultValue(obj?:Value):Value|null {
   return offset ? (obj || new Value()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+options(index: number, obj?:Value):Value|null {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? (obj || new Value()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
+}
+
+optionsLength():number {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
+}
+
 static startParameter(builder:flatbuffers.Builder) {
-  builder.startObject(4);
+  builder.startObject(5);
 }
 
 static addName(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset) {
@@ -68,6 +78,22 @@ static addDefaultValue(builder:flatbuffers.Builder, defaultValueOffset:flatbuffe
   builder.addFieldOffset(3, defaultValueOffset, 0);
 }
 
+static addOptions(builder:flatbuffers.Builder, optionsOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(4, optionsOffset, 0);
+}
+
+static createOptionsVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
+  builder.startVector(4, data.length, 4);
+  for (let i = data.length - 1; i >= 0; i--) {
+    builder.addOffset(data[i]!);
+  }
+  return builder.endVector();
+}
+
+static startOptionsVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
+}
+
 static endParameter(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
@@ -79,7 +105,8 @@ unpack(): ParameterT {
     this.name(),
     this.type(),
     (this.value() !== null ? this.value()!.unpack() : null),
-    (this.defaultValue() !== null ? this.defaultValue()!.unpack() : null)
+    (this.defaultValue() !== null ? this.defaultValue()!.unpack() : null),
+    this.bb!.createObjList<Value, ValueT>(this.options.bind(this), this.optionsLength())
   );
 }
 
@@ -89,6 +116,7 @@ unpackTo(_o: ParameterT): void {
   _o.type = this.type();
   _o.value = (this.value() !== null ? this.value()!.unpack() : null);
   _o.defaultValue = (this.defaultValue() !== null ? this.defaultValue()!.unpack() : null);
+  _o.options = this.bb!.createObjList<Value, ValueT>(this.options.bind(this), this.optionsLength());
 }
 }
 
@@ -97,7 +125,8 @@ constructor(
   public name: string|Uint8Array|null = null,
   public type: ParameterType = ParameterType.UNKNOWN,
   public value: ValueT|null = null,
-  public defaultValue: ValueT|null = null
+  public defaultValue: ValueT|null = null,
+  public options: (ValueT)[] = []
 ){}
 
 
@@ -105,12 +134,14 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const name = (this.name !== null ? builder.createString(this.name!) : 0);
   const value = (this.value !== null ? this.value!.pack(builder) : 0);
   const defaultValue = (this.defaultValue !== null ? this.defaultValue!.pack(builder) : 0);
+  const options = Parameter.createOptionsVector(builder, builder.createObjectOffsetList(this.options));
 
   Parameter.startParameter(builder);
   Parameter.addName(builder, name);
   Parameter.addType(builder, this.type);
   Parameter.addValue(builder, value);
   Parameter.addDefaultValue(builder, defaultValue);
+  Parameter.addOptions(builder, options);
 
   return Parameter.endParameter(builder);
 }

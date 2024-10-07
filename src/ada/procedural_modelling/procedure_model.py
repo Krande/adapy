@@ -5,7 +5,7 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from ada.comms.fb_model_gen import FileTypeDC, ParameterDC, ParameterTypeDC, ProcedureDC
+from ada.comms.fb_model_gen import FileTypeDC, ParameterDC, ParameterTypeDC, ProcedureDC, ValueDC
 from ada.config import logger
 
 
@@ -18,6 +18,7 @@ class Procedure:
     params: dict[str, ParameterDC] = field(default_factory=dict)
     input_file_type: FileTypeDC | None = None
     export_file_type: FileTypeDC | None = None
+    options: dict[str, list[ValueDC]] | None = None
     is_component: bool = False
 
     def __post_init__(self):
@@ -29,6 +30,7 @@ class Procedure:
         # Add args
         for arg in args:
             call_args.append(str(arg))
+
         # Build the command-line arguments
         for arg_name, param_dc in kwargs.items():
             # Convert underscores to hyphens
@@ -47,6 +49,7 @@ class Procedure:
                     pass
                 else:
                     call_args.append(str(value))
+
         logger.debug(f"Running script {self.script_path} with args: {call_args}")
         result = subprocess.run(call_args, check=False, capture_output=True, text=True, encoding="utf-8")
         if result.returncode != 0:

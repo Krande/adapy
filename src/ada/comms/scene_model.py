@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+from ctypes import WinError
 from dataclasses import dataclass, field
 
 from ada.cadit.ifc.sql_model import IfcSqlModel
@@ -43,7 +44,11 @@ class Scene:
             if del_file_obj.filepath is not None:
                 del_file_obj.filepath.unlink()
             if del_file_obj.ifcsqlite_file is not None and del_file_obj.ifcsqlite_file.filepath is not None:
+                if self.ifc_sql_store is not None and self.ifc_sql_store.filepath == del_file_obj.ifcsqlite_file.filepath:
+                    self.ifc_sql_store.db.close()
+                    self.ifc_sql_store = None
                 del_file_obj.ifcsqlite_file.filepath.unlink()
+
             if del_file_obj.glb_file is not None and del_file_obj.glb_file.filepath is not None:
                 del_file_obj.glb_file.filepath.unlink()
 

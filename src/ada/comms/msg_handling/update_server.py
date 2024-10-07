@@ -49,5 +49,9 @@ def update_server(server: WebSocketAsyncServer, client: ConnectedClient, add_fil
                 name=add_file.name, filepath=tmp_sql_fp, file_type=FileTypeDC.SQLITE, purpose=add_file.purpose
             )
 
+        if server.scene.ifc_sql_store is not None:
+            server.scene.ifc_sql_store.db.close()
+            server.scene.ifc_sql_store = None
+
         server.scene.ifc_sql_store = IfcSqlModel(add_file.ifcsqlite_file.filepath)
         server.scene.add_file_object(add_file)
