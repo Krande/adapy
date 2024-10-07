@@ -30,6 +30,7 @@ const view_icon = <svg width="12px" height="12px" viewBox="0 0 24 24" fill="none
 function CustomFileObjectNode(props: { id: string, data: Record<string, string | FileObject> }) {
     // Custom connection validation function for `file_object` handle
     const isValidConnection = () => {
+        // Todo: Implement custom connection validation logic for `file_object` handle
         console.log("isValidConnection");
         return true;
     };

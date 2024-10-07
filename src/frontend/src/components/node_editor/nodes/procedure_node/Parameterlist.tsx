@@ -1,7 +1,7 @@
 import React from 'react';
-import {Procedure} from "../../../../flatbuffers/wsock/procedure";
 import DynamicHandle from "../DynamicHandle";
 import {ParameterItem} from "./ParameterItem";
+import {Parameter} from "../../../../flatbuffers/wsock/parameter";
 
 export function ParameterList({id, data}: { id: string; data: Record<string, any> }) {
     const parametersLength = data.procedure.parametersLength();
@@ -11,7 +11,7 @@ export function ParameterList({id, data}: { id: string; data: Record<string, any
     return (
         <>
             {Array.from({length: parametersLength}).map((_, index) => {
-                const param = data.procedure.parameters(index);
+                const param: Parameter = data.procedure.parameters(index);
                 if (!param) return null;
 
                 const paramName = param.name();
@@ -24,9 +24,14 @@ export function ParameterList({id, data}: { id: string; data: Record<string, any
                 const procedure = data.procedure;
                 const paramIds = data.paramids;
                 const paramDefaultValue = param.defaultValue();
-                let paramOptions = param.options();
-                if (paramOptions) {
-                    paramOptions = paramOptions.unpack();
+                let param_length = param.optionsLength();
+                let paramOptions = null;
+
+                if (param_length > 0) {
+                    paramOptions = [];
+                    for (let i = 0; i < param_length; i++) {
+                        paramOptions[i] = param.options(i)?.unpack();
+                    }
                 }
                 const procedureName = data.procedure.name();
                 const paramKey = `${procedureName}-${index}`;

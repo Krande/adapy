@@ -33,7 +33,15 @@ function extract_input_params(builder: Builder, params: string[], procedure: Pro
         let parameter = parameter_name_map[param_name]
         let param_type: number = parameter.type
         let param_type_str = ParameterType[param_type]
-        let param_input = param_div.getElementsByTagName('input')
+        let param_input = null
+
+        if (parameter.options.length > 0) {
+            param_input = param_div.getElementsByTagName('select')
+        }
+        else {
+            param_input = param_div.getElementsByTagName('input')
+        }
+
         // if param_input length is > 1, then it is a tuple
         let param_name_str = builder.createString(param_name)
         if (param_input.length == 1) {
@@ -141,7 +149,11 @@ export function run_procedure(props: { id: string, data: Record<string, string |
     const nodes = useNodeEditorStore.getState().nodes
     const edges = useNodeEditorStore.getState().edges
     const thisProcedureNode = nodes.find(node => node.id === props.id)
-    if (!thisProcedureNode) return
+    if (!thisProcedureNode) {
+        // pop up an error message
+        console.error('Could not find this procedure node')
+        return
+    }
 
 
     // Trigger the procedure on the server
@@ -153,9 +165,15 @@ export function run_procedure(props: { id: string, data: Record<string, string |
     let procedure = props.data.procedure as Procedure;
     if (!procedure.isComponent()) {
         const connectedEdges = edges.filter(edge => edge.target.startsWith('file-object'))
-        if (connectedEdges.length === 0) return
+        if (connectedEdges.length === 0) {
+            console.error('No file object connected to this procedure')
+            return
+        }
         const connectedNode = nodes.find(node => node.id === connectedEdges[0].target)
-        if (!connectedNode) return
+        if (!connectedNode) {
+            console.error('Could not find connected file object node')
+            return
+        }
 
         console.log(connectedNode)
 

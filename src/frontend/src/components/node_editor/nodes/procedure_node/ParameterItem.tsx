@@ -1,15 +1,15 @@
 import React from 'react';
-import {ParameterType} from "../../../../flatbuffers/wsock";
+import {ParameterType, ValueT} from "../../../../flatbuffers/wsock";
 import {Parameter} from "../../../../flatbuffers/wsock/parameter";
 
 
 export function ParameterItem({
-    param,
-    paramId,
-    paramName,
-    paramDefaultValue,
-    paramOptions,
-}: {
+                                  param,
+                                  paramId,
+                                  paramName,
+                                  paramDefaultValue,
+                                  paramOptions,
+                              }: {
     param: Parameter;
     paramId: string;
     paramName: string;
@@ -21,11 +21,24 @@ export function ParameterItem({
             const defaultStringValue = paramDefaultValue?.stringValue()?.toString() || '';
             return (
                 <div className="flex flex-row items-center ml-1" id={paramId}>
-                    <input
-                        type="text"
-                        defaultValue={defaultStringValue}
-                        className="nodrag m-auto ml-0 mr-0 text-gray-800 text-xs w-24 border border-gray-400 rounded"
-                    />
+                    {paramOptions && paramOptions.length > 0 ? (
+                        <select
+                            defaultValue={defaultStringValue}
+                            className="nodrag m-auto ml-0 mr-0 text-gray-800 text-xs w-24 border border-gray-400 rounded"
+                        >
+                            {paramOptions.map((option: ValueT, index: number) => (
+                                <option key={index} value={option.stringValue as string}>
+                                    {option.stringValue}
+                                </option>
+                            ))}
+                        </select>
+                    ) : (
+                        <input
+                            type="text"
+                            defaultValue={defaultStringValue}
+                            className="nodrag m-auto ml-0 mr-0 text-gray-800 text-xs w-24 border border-gray-400 rounded"
+                        />
+                    )}
                     <span className="pl-2 text-xs text-gray-300">{paramName}</span>
                 </div>
             );
@@ -33,12 +46,27 @@ export function ParameterItem({
             const defaultFloatValue = paramDefaultValue?.floatValue();
             return (
                 <div className="flex flex-row items-center w-26 ml-1" id={paramId}>
-                    <input
-                        type="number"
-                        defaultValue={defaultFloatValue != null ? defaultFloatValue.toFixed(4) : ''}
-                        className="flex flex-1 nodrag m-auto ml-0 mr-0 text-xs text-gray-800 w-24 border border-gray-400 rounded"
-                    />
+                    {paramOptions && paramOptions.length > 0 ? (
+                        <select
+                            defaultValue={defaultFloatValue}
+
+                            className="nodrag m-auto ml-0 mr-0 text-xs text-gray-800 w-24 border border-gray-400 rounded"
+                        >
+                            {paramOptions.map((option: ValueT, index: number) => (
+                                <option key={index} value={option.floatValue as number}>
+                                    {option.floatValue}
+                                </option>
+                            ))}
+                        </select>
+                    ) : (
+                        <input
+                            type="number"
+                            defaultValue={defaultFloatValue != null ? defaultFloatValue.toFixed(4) : ''}
+                            className="flex flex-1 nodrag m-auto ml-0 mr-0 text-xs text-gray-800 w-24 border border-gray-400 rounded"
+                        />
+                    )}
                     <span className="flex-1 pl-2 text-xs text-gray-300">{paramName}</span>
+
                 </div>
             );
         case ParameterType.ARRAY:
