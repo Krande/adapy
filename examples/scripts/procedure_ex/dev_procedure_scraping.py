@@ -26,12 +26,7 @@ def main():
         raise FileNotFoundError(f"{input_file} does not exist")
 
     output_file = input_file.with_name("MyBaseStructureWithStiffeners.ifc")
-    procedure(
-        input_file=input_file,
-        output_file=output_file,
-        hp_section="HP180x8",
-        stiff_spacing=1.0
-    )
+    procedure(input_file=input_file, output_file=output_file, hp_section="HP180x8", stiff_spacing=1.0)
 
 
 if __name__ == "__main__":

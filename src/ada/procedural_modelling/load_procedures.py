@@ -165,8 +165,6 @@ def get_procedure_from_script(script_path: pathlib.Path) -> Procedure:
     # Extract docstring
     description = ast.get_docstring(main_func) or ""
 
-
-
     return Procedure(
         name=script_path.stem,
         description=description,

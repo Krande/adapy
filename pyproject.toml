@@ -33,7 +33,7 @@ ada-viewer = "ada.comms.wsock_cli:ws_cli_app"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["ada*"]
-exclude = ["frontend*"]
+exclude = ["frontend*", "flatbuffers*"]
 
 [tool.setuptools.package-data]
 ada = [

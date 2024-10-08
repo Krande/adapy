@@ -28,11 +28,11 @@ def add_stiffeners(pl: ada.Plate, spacing, stiffener_section) -> list[ada.Beam]:
     if length_y > length_x:
         num_stiffeners = int(length_y / spacing)
         # Add stiffeners in the x direction
-        beam_coords = [((min_x, i*spacing, z), (max_x, i*spacing, z)) for i in range(0, num_stiffeners)]
+        beam_coords = [((min_x, i * spacing, z), (max_x, i * spacing, z)) for i in range(0, num_stiffeners)]
     else:
         num_stiffeners = int(length_x / spacing)
         # Add stiffeners in the y direction
-        beam_coords = [((i*spacing, min_y, z), (i*spacing, max_y, z)) for i in range(0, num_stiffeners)]
+        beam_coords = [((i * spacing, min_y, z), (i * spacing, max_y, z)) for i in range(0, num_stiffeners)]
 
     for i, (start, stop) in enumerate(beam_coords, start=1):
         # Create a beam with the same length as the plate
@@ -42,12 +42,17 @@ def add_stiffeners(pl: ada.Plate, spacing, stiffener_section) -> list[ada.Beam]:
     return stiffeners
 
 
-@procedure_decorator(input_file_type=FileTypeDC.IFC, export_file_type=FileTypeDC.IFC, options={"hp_section": ["HP180x8", "HP200x10", "HP220x12"]})
-def main(input_file: pathlib.Path = None,
-         output_file: pathlib.Path = None,
-         hp_section: str = "HP180x8",
-         stiff_spacing: float = 1.0
-         ) -> None:
+@procedure_decorator(
+    input_file_type=FileTypeDC.IFC,
+    export_file_type=FileTypeDC.IFC,
+    options={"hp_section": ["HP180x8", "HP200x10", "HP220x12"]},
+)
+def main(
+    input_file: pathlib.Path = None,
+    output_file: pathlib.Path = None,
+    hp_section: str = "HP180x8",
+    stiff_spacing: float = 1.0,
+) -> None:
     """A procedure to add stiffeners to all plates in the IFC file"""
 
     a = ada.from_ifc(input_file)

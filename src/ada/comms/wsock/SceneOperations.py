@@ -2,6 +2,7 @@
 
 # namespace: wsock
 
+
 class SceneOperations(object):
     ADD = 0
     REMOVE = 1

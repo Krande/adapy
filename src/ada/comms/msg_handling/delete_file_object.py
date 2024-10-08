@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
 
 from ada.comms.fb_model_gen import MessageDC
@@ -12,4 +11,3 @@ if TYPE_CHECKING:
 def delete_file_object(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:
     file_obj = message.server.delete_file_object
     server.scene.delete_file_object(file_obj.name)
-

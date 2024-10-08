@@ -16,7 +16,7 @@ def main(
 ) -> None:
 
     pl = ada.Plate(name, [(0, 0), (width, 0), (width, length), (0, length)], thickness, origin=origin)
-    a = ada.Assembly("TempAssembly") / pl # Assembly level to be discarded. Only pl is relevant
+    a = ada.Assembly("TempAssembly") / pl  # Assembly level to be discarded. Only pl is relevant
     a.to_ifc(output_file)
 
 

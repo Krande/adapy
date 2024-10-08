@@ -5,7 +5,13 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from ada.comms.fb_model_gen import FileTypeDC, ParameterDC, ParameterTypeDC, ProcedureDC, ValueDC
+from ada.comms.fb_model_gen import (
+    FileTypeDC,
+    ParameterDC,
+    ParameterTypeDC,
+    ProcedureDC,
+    ValueDC,
+)
 from ada.config import logger
 
 
