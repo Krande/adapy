@@ -118,7 +118,7 @@ def read_fem(fem_file, fem_name=None) -> Assembly:
         assembly.fem.elements += get_mass_from_bulk(ass_sets, assembly.fem)
 
     add_interactions_from_bulk_str(props_str, assembly)
-    get_initial_conditions_from_lines(assembly, props_str)
+    get_initial_conditions_from_str(assembly, props_str)
     return assembly
 
 
@@ -222,10 +222,8 @@ def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: Ins
     return part
 
 
-def get_initial_conditions_from_lines(assembly: Assembly, bulk_str: str):
+def get_initial_conditions_from_str(assembly: Assembly, bulk_str: str):
     """
-    TODO: Optimize this function
-
 
     ** PREDEFINED FIELDS
     **
@@ -237,7 +235,8 @@ def get_initial_conditions_from_lines(assembly: Assembly, bulk_str: str):
     """
     if bulk_str.find("*Initial Conditions") == -1:
         return
-    re_str = r"(?:\*\*\s*Name:\s*(?P<name>\S+)\s*Type:\s*(?P<type>\S+)\n)+\*Initial Conditions, type=.*?\n(?P<conditions>((?:.*?)(?=\*|\Z)))"
+
+    re_str = r"(?:^\*\*\s*Name:\s*(?P<name>\S+)\s*Type:\s*(?P<type>\S+)\n)+\*Initial Conditions, type=.*?\n(?P<conditions>[\s\S]*?(?=\*|\Z))"
 
     def sort_props(line):
         ev = [x.strip() for x in line.split(",")]
@@ -248,7 +247,7 @@ def get_initial_conditions_from_lines(assembly: Assembly, bulk_str: str):
             logger.debug(e)
             dofs = ev[1]
         if len(ev) > 2:
-            magn = ev[2]
+            magn = float(ev[2])
         else:
             magn = None
         return set_name, dofs, magn
