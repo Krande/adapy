@@ -1,6 +1,5 @@
 name: core
 channels:
-  - krande
   - conda-forge
 dependencies:
   - numpy
