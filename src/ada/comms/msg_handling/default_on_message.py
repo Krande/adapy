@@ -11,6 +11,7 @@ from ada.comms.msg_handling.list_procedures import list_procedures
 from ada.comms.msg_handling.mesh_info_callback import mesh_info_callback
 from ada.comms.msg_handling.on_error_reply import on_error_reply
 from ada.comms.msg_handling.run_procedure import run_procedure
+from ada.comms.msg_handling.start_separate_node_editor import start_separate_node_editor
 from ada.comms.msg_handling.update_scene import update_scene
 from ada.comms.msg_handling.update_server import update_server
 from ada.comms.msg_handling.view_file_object import view_file_object
@@ -39,6 +40,8 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
             view_file_object(server, client, message.server.get_file_object_by_name)
         elif message.command_type == CommandTypeDC.DELETE_FILE_OBJECT:
             delete_file_object(server, client, message)
+        elif message.command_type == CommandTypeDC.START_NEW_NODE_EDITOR:
+            start_separate_node_editor(server, client, message)
         else:
             logger.error(f"Unknown command type: {message.command_type}")
             on_error_reply(server, client, error_message=f"Unknown command type: {message.command_type}")

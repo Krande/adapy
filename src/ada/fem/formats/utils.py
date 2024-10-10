@@ -220,7 +220,6 @@ def get_exe_path(fea_type: FEATypes):
     if exe_linux is None and bin_exe_linux.exists():
         exe_linux = bin_exe_linux
     exe_win = shutil.which(f"{exe_name}.exe")
-    fea_exe_paths = Config().fea_fem_exe_paths
 
     if Config().fea_fem_exe_paths.get(exe_name, None) is not None:
         exe_path = Config().fea_fem_exe_paths[exe_name]

@@ -21,6 +21,7 @@ class CommandTypeDC(Enum):
     SERVER_REPLY = 11
     VIEW_FILE_OBJECT = 12
     DELETE_FILE_OBJECT = 13
+    START_NEW_NODE_EDITOR = 14
 
 
 class TargetTypeDC(Enum):

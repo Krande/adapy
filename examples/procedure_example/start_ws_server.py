@@ -5,7 +5,7 @@ from ada.config import logger
 
 
 async def start_async_server():
-    server = WebSocketAsyncServer("localhost", 8765)
+    server = WebSocketAsyncServer("localhost", 8765, debug=True)
     await server.start_async()
 
 

@@ -15,7 +15,7 @@ class WebSocketRenderer(widgets.DOMWidget):
             html_inject_str += f"<script>window.WEBSOCKET_PORT = {self.ws_port};</script>"
 
         # Inject the unique ID into the HTML content
-        self.html_content = html_content.replace("<!--WEBSOCKET_ID_PLACEHOLDER-->", html_inject_str)
+        self.html_content = html_content.replace("<!--STARTUP_CONFIG_PLACEHOLDER-->", html_inject_str)
 
         # Escape and embed the HTML in the srcdoc of the iframe
         srcdoc = html.escape(self.html_content)

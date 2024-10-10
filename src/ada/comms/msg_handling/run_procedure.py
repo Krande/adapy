@@ -32,7 +32,10 @@ def run_procedure(server: WebSocketAsyncServer, client: ConnectedClient, message
     start_procedure = message.procedure_store.start_procedure
 
     procedure: Procedure = server.procedure_store.get(start_procedure.procedure_name)
-    params = {p.name: p for p in start_procedure.parameters}
+    if start_procedure.parameters is None:
+        params = {}
+    else:
+        params = {p.name: p for p in start_procedure.parameters}
 
     if "output_file" not in params.keys():
         # add output_file if not exist
@@ -98,12 +101,19 @@ def update_server_on_successful_procedure_run(
     )
 
     update_server(server, client, new_file_object)
+    if message.instance_id != client.instance_id:
+        # send the new file object to the target client instead of client triggering the procedure
+        target_client = server.get_client_by_instance_id(message.instance_id)
+        if target_client is None:
+            raise ValueError(f"Client with instance id {message.instance_id} not found")
+    else:
+        target_client = client
 
     reply_message = MessageDC(
         instance_id=server.instance_id,
         command_type=CommandTypeDC.SERVER_REPLY,
         server=ServerDC(all_file_objects=server.scene.file_objects),
-        target_id=client.instance_id,
+        target_id=target_client.instance_id,
         target_group=client.group_type,
         server_reply=ServerReplyDC(file_object=new_file_object, reply_to=message.command_type),
     )
@@ -112,6 +122,6 @@ def update_server_on_successful_procedure_run(
 
     asyncio.run(client.websocket.send(fb_message))
 
-    view_file_object(server, client, new_file_object.name)
+    view_file_object(server, target_client, new_file_object.name)
 
     logger.info(f"Completed Procedure '{procedure.name}' and added the File Object '{output_file}' to the server")

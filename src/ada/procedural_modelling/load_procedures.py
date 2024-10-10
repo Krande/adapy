@@ -146,23 +146,25 @@ def get_procedure_from_script(script_path: pathlib.Path) -> Procedure:
     tree = ast.parse(source_code, filename=str(script_path))
 
     main_func = None
+    custom_decorator = None
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "main":
+        if isinstance(node, ast.FunctionDef):
             main_func = node
-            break
+            if main_func.decorator_list:
+                custom_decorator = [
+                    d for d in main_func.decorator_list if d.func.id in ("procedure_decorator", "component_decorator")
+                ]
+            if custom_decorator is not None and len(custom_decorator) == 1:
+                break
 
     if main_func is None:
         raise Exception(f"No 'main' function found in {script_path}")
 
     # extract decorator (if any)
     decorator_config = {}
-    if main_func.decorator_list:
-        custom_decorator = [
-            d for d in main_func.decorator_list if d.func.id in ("procedure_decorator", "component_decorator")
-        ]
-        if custom_decorator:
-            decorator = custom_decorator[0]
-            decorator_config = extract_decorator_options(decorator)
+    if custom_decorator:
+        decorator = custom_decorator[0]
+        decorator_config = extract_decorator_options(decorator)
 
     # Extract parameters
     params: dict[str, ParameterDC] = {}

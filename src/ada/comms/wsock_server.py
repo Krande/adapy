@@ -94,6 +94,12 @@ class WebSocketAsyncServer:
         self.procedure_store = ProcedureStore()
         self.debug = debug
 
+    def get_client_by_instance_id(self, instance_id: int) -> Optional[ConnectedClient]:
+        for client in self.connected_clients:
+            if client.instance_id == instance_id:
+                return client
+        return None
+
     async def handle_client(self, websocket: websockets.WebSocketServerProtocol, path: str):
         client = await process_client(websocket, path)
 

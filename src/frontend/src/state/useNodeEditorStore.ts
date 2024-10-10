@@ -12,6 +12,7 @@ type NodeEditorState = {
     onConnect: OnConnect;
     isNodeEditorVisible: boolean;
     setIsNodeEditorVisible: (visible: boolean) => void;
+    use_node_editor_only: boolean | undefined;
 };
 
 // Initialize the store with Zustand
@@ -41,4 +42,5 @@ export const useNodeEditorStore = create<NodeEditorState>((set) => ({
         set((state) => ({
             edges: addEdge(params, state.edges),
         })),
+    use_node_editor_only: (window as any).NODE_EDITOR_ONLY || false,
 }));

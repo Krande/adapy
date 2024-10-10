@@ -191,9 +191,12 @@ export function run_procedure(props: { id: string, data: Record<string, string |
         let input_file = Parameter.endParameter(builder);
         parameters_list.push(input_file)
     }
-    let input_params = extract_input_params(builder, props.data.paramids as string[], procedure);
-    if (input_params)
-        parameters_list.push(...input_params)
+    if (props.data.paramids){
+        let input_params = extract_input_params(builder, props.data.paramids as string[], procedure);
+        if (input_params)
+            parameters_list.push(...input_params)
+    }
+
 
     let parameters = ProcedureStart.createParametersVector(builder, parameters_list);
     let procedure_id_str = builder.createString(props.id.toString())
@@ -209,7 +212,13 @@ export function run_procedure(props: { id: string, data: Record<string, string |
     let procedureStore = ProcedureStore.endProcedureStore(builder);
 
     Message.startMessage(builder);
-    Message.addInstanceId(builder, webSocketHandler.instance_id);
+    if ((window as any).TARGET_INSTANCE_ID){
+        console.log('Overriding TARGET_ID:', (window as any).TARGET_INSTANCE_ID)
+        Message.addInstanceId(builder, (window as any).TARGET_INSTANCE_ID);
+    } else {
+        Message.addInstanceId(builder, webSocketHandler.instance_id);
+    }
+
     Message.addCommandType(builder, CommandType.RUN_PROCEDURE);
     Message.addTargetGroup(builder, TargetType.SERVER);
     Message.addClientType(builder, TargetType.WEB);

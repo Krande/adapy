@@ -7,6 +7,7 @@ import {useNodeEditorStore} from '../../state/useNodeEditorStore'; // Import the
 import ProcedureNode from './nodes/procedure_node/ProcedureNode';
 import CustomFileObjectNode from './nodes/file_node/customFileObjectNode';
 import {onDelete} from "../../utils/node_editor/on_delete";
+import {start_new_node_editor} from "../../utils/node_editor/start_new_node_editor";
 
 const nodeTypes = {
     procedure: ProcedureNode,
@@ -31,6 +32,7 @@ const popout_icon = <svg fill="#ffffff" width="24px" height="24px" viewBox="0 0 
     <rect x="0" y="0" width="36" height="36" fillOpacity="0"/>
 </svg>
 
+
 const NodeEditorComponent: React.FC = () => {
     // Access Zustand state and actions using hooks
     const {
@@ -41,9 +43,32 @@ const NodeEditorComponent: React.FC = () => {
         onNodesChange,
         onEdgesChange,
         onConnect,
+        use_node_editor_only
     } = useNodeEditorStore();
 
-    return (
+    const editorContent = (
+        <ReactFlow
+            colorMode={"dark"}
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={(changes) => onNodesChange(changes)}
+            onEdgesChange={(changes) => onEdgesChange(changes)}
+            onConnect={onConnect}
+            nodeTypes={nodeTypes}
+            onDelete={onDelete}
+            fitView
+        >
+            <Background/>
+            <Controls/>
+            <MiniMap/>
+        </ReactFlow>
+    );
+
+    return use_node_editor_only ? (
+        <div style={{width: '100%', height: '100%', background: 'white', border: '1px solid #ccc'}}>
+            {editorContent}
+        </div>
+    ) : (
         <Rnd
             default={{
                 x: 100,
@@ -66,29 +91,18 @@ const NodeEditorComponent: React.FC = () => {
                         {update_icon}
                     </button>
                     <button
-                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded"}>{popout_icon}</button>
+                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded"}
+                        onClick={() => start_new_node_editor()}
+                    >
+                        {popout_icon}
+                    </button>
                 </div>
             </div>
             {/* Content Area */}
             <div style={{width: '100%', height: 'calc(100% - 40px)'}}>
-                <ReactFlow
-                    colorMode={"dark"}
-                    nodes={nodes}
-                    edges={edges}
-                    onNodesChange={(changes) => onNodesChange(changes)}
-                    onEdgesChange={(changes) => onEdgesChange(changes)}
-                    onConnect={onConnect}
-                    nodeTypes={nodeTypes}
-                    onDelete={onDelete}
-                    fitView
-                >
-                    <Background/>
-                    <Controls/>
-                    <MiniMap/>
-                </ReactFlow>
+                {editorContent}
             </div>
         </Rnd>
-
     );
 };
 
