@@ -2,6 +2,13 @@
 
 
 
+## v0.3.2 (2024-10-10)
+
+### Fix
+
+* fix: procedural workflow (#115) ([`6368d4e`](https://github.com/Krande/adapy/commit/6368d4ef1c316d250b85e5337f03429a2de988b3))
+
+
 ## v0.3.1 (2024-09-27)
 
 ### Fix
