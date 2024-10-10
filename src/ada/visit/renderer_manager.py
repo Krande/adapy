@@ -11,9 +11,10 @@ from ada.comms.fb_model_gen import (
     FileObjectDC,
     FilePurposeDC,
     FileTypeDC,
-    SceneOperationDC,
+    SceneDC,
     SceneOperationsDC,
 )
+from ada.config import Config
 
 if TYPE_CHECKING:
     from IPython.display import HTML
@@ -40,7 +41,7 @@ class RenderParams:
     merge_meshes: bool = True
     scene_post_processor: Optional[Callable[[trimesh.Scene], trimesh.Scene]] = None
     purpose: Optional[FilePurposeDC] = FilePurposeDC.DESIGN
-    scene_operation: SceneOperationDC = None
+    scene: SceneDC = None
     gltf_buffer_postprocessor: Optional[Callable[[OrderedDict, dict], None]] = None
     gltf_tree_postprocessor: Optional[Callable[[OrderedDict], None]] = None
     add_ifc_backend: bool = False
@@ -52,8 +53,8 @@ class RenderParams:
         # ensure that if unique_id is set, it is a 32-bit integer
         if self.unique_id is not None:
             self.unique_id = self.unique_id & 0xFFFFFFFF
-        if self.scene_operation is None:
-            self.scene_operation = SceneOperationDC(operation=SceneOperationsDC.REPLACE)
+        if self.scene is None:
+            self.scene = SceneDC(operation=SceneOperationsDC.REPLACE)
 
 
 def scene_from_fem_results(self: FEAResult, params: RenderParams):
@@ -253,17 +254,20 @@ class RendererManager:
                 obj.name,
                 scene,
                 purpose=params.purpose,
-                scene_op=params.scene_operation.operation,
+                scene_op=params.scene.operation,
                 gltf_buffer_postprocessor=params.gltf_buffer_postprocessor,
                 gltf_tree_postprocessor=params.gltf_tree_postprocessor,
                 target_id=target_id,
             )
 
             if params.add_ifc_backend is True and type(obj) is Assembly:
-                if params.backend_file_dir is None:
-                    backend_file_dir = pathlib.Path.cwd() / "temp"
-                else:
+                server_temp = Config().websockets_server_temp_dir
+                if server_temp is not None:
+                    backend_file_dir = server_temp
+                elif params.backend_file_dir is not None:
                     backend_file_dir = params.backend_file_dir
+                else:
+                    backend_file_dir = pathlib.Path.cwd() / "temp"
 
                 if isinstance(backend_file_dir, str):
                     backend_file_dir = pathlib.Path(backend_file_dir)

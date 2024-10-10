@@ -3,7 +3,7 @@ import {TreeNode, useTreeViewStore} from "../state/treeViewStore";
 import * as THREE from "three";
 import {ThreeEvent} from "@react-three/fiber";
 import {useObjectInfoStore} from "../state/objectInfoStore";
-import {query_ws_server_mesh_info} from "./mesh_selected_ws_callback";
+import {query_ws_server_mesh_info} from "./mesh_select/send_mesh_selected_info_callback";
 
 
 const selectedMaterial = new THREE.MeshStandardMaterial({color: 'blue', side: THREE.DoubleSide});

@@ -1,4 +1,5 @@
 from ada.comms.fb_model_gen import (
+    ArrayTypeDC,
     CameraParamsDC,
     CommandTypeDC,
     ErrorDC,
@@ -8,11 +9,17 @@ from ada.comms.fb_model_gen import (
     MeshInfoDC,
     MessageDC,
     ParameterDC,
+    ParameterTypeDC,
     ProcedureDC,
+    ProcedureStartDC,
+    ProcedureStateDC,
     ProcedureStoreDC,
-    SceneOperationDC,
+    SceneDC,
     SceneOperationsDC,
+    ServerDC,
+    ServerReplyDC,
     TargetTypeDC,
+    ValueDC,
     WebClientDC,
 )
 from ada.comms.wsock import Message
@@ -40,6 +47,10 @@ def deserialize_fileobject(fb_obj) -> FileObjectDC | None:
         purpose=FilePurposeDC(fb_obj.Purpose()),
         filepath=fb_obj.Filepath().decode("utf-8") if fb_obj.Filepath() is not None else None,
         filedata=bytes(fb_obj.FiledataAsNumpy()) if fb_obj.FiledataLength() > 0 else None,
+        glb_file=deserialize_fileobject(fb_obj.GlbFile()),
+        ifcsqlite_file=deserialize_fileobject(fb_obj.IfcsqliteFile()),
+        is_procedure_output=fb_obj.IsProcedureOutput(),
+        procedure_parent=deserialize_procedurestart(fb_obj.ProcedureParent()),
     )
 
 
@@ -69,12 +80,35 @@ def deserialize_cameraparams(fb_obj) -> CameraParamsDC | None:
     )
 
 
-def deserialize_sceneoperation(fb_obj) -> SceneOperationDC | None:
+def deserialize_scene(fb_obj) -> SceneDC | None:
     if fb_obj is None:
         return None
 
-    return SceneOperationDC(
-        operation=SceneOperationsDC(fb_obj.Operation()), camera_params=deserialize_cameraparams(fb_obj.CameraParams())
+    return SceneDC(
+        operation=SceneOperationsDC(fb_obj.Operation()),
+        camera_params=deserialize_cameraparams(fb_obj.CameraParams()),
+        current_file=deserialize_fileobject(fb_obj.CurrentFile()),
+    )
+
+
+def deserialize_server(fb_obj) -> ServerDC | None:
+    if fb_obj is None:
+        return None
+
+    return ServerDC(
+        new_file_object=deserialize_fileobject(fb_obj.NewFileObject()),
+        all_file_objects=(
+            [deserialize_fileobject(fb_obj.AllFileObjects(i)) for i in range(fb_obj.AllFileObjectsLength())]
+            if fb_obj.AllFileObjectsLength() > 0
+            else None
+        ),
+        get_file_object_by_name=(
+            fb_obj.GetFileObjectByName().decode("utf-8") if fb_obj.GetFileObjectByName() is not None else None
+        ),
+        get_file_object_by_path=(
+            fb_obj.GetFileObjectByPath().decode("utf-8") if fb_obj.GetFileObjectByPath() is not None else None
+        ),
+        delete_file_object=deserialize_fileobject(fb_obj.DeleteFileObject()),
     )
 
 
@@ -87,7 +121,8 @@ def deserialize_procedurestore(fb_obj) -> ProcedureStoreDC | None:
             [deserialize_procedure(fb_obj.Procedures(i)) for i in range(fb_obj.ProceduresLength())]
             if fb_obj.ProceduresLength() > 0
             else None
-        )
+        ),
+        start_procedure=deserialize_procedurestart(fb_obj.StartProcedure()),
     )
 
 
@@ -96,7 +131,6 @@ def deserialize_procedure(fb_obj) -> ProcedureDC | None:
         return None
 
     return ProcedureDC(
-        id=fb_obj.Id().decode("utf-8") if fb_obj.Id() is not None else None,
         name=fb_obj.Name().decode("utf-8") if fb_obj.Name() is not None else None,
         description=fb_obj.Description().decode("utf-8") if fb_obj.Description() is not None else None,
         script_file_location=(
@@ -107,11 +141,33 @@ def deserialize_procedure(fb_obj) -> ProcedureDC | None:
             if fb_obj.ParametersLength() > 0
             else None
         ),
-        input_ifc_filepath=fb_obj.InputIfcFilepath().decode("utf-8") if fb_obj.InputIfcFilepath() is not None else None,
-        output_ifc_filepath=(
-            fb_obj.OutputIfcFilepath().decode("utf-8") if fb_obj.OutputIfcFilepath() is not None else None
+        input_file_var=fb_obj.InputFileVar().decode("utf-8") if fb_obj.InputFileVar() is not None else None,
+        input_file_type=FileTypeDC(fb_obj.InputFileType()),
+        export_file_type=FileTypeDC(fb_obj.ExportFileType()),
+        export_file_var=fb_obj.ExportFileVar().decode("utf-8") if fb_obj.ExportFileVar() is not None else None,
+        state=ProcedureStateDC(fb_obj.State()),
+        is_component=fb_obj.IsComponent(),
+    )
+
+
+def deserialize_value(fb_obj) -> ValueDC | None:
+    if fb_obj is None:
+        return None
+
+    return ValueDC(
+        string_value=fb_obj.StringValue().decode("utf-8") if fb_obj.StringValue() is not None else None,
+        float_value=fb_obj.FloatValue(),
+        integer_value=fb_obj.IntegerValue(),
+        boolean_value=fb_obj.BooleanValue(),
+        array_value=(
+            [deserialize_value(fb_obj.ArrayValue(i)) for i in range(fb_obj.ArrayValueLength())]
+            if fb_obj.ArrayValueLength() > 0
+            else None
         ),
-        error=fb_obj.Error().decode("utf-8") if fb_obj.Error() is not None else None,
+        array_value_type=ParameterTypeDC(fb_obj.ArrayValueType()),
+        array_length=fb_obj.ArrayLength(),
+        array_type=ArrayTypeDC(fb_obj.ArrayType()),
+        array_any_length=fb_obj.ArrayAnyLength(),
     )
 
 
@@ -121,8 +177,31 @@ def deserialize_parameter(fb_obj) -> ParameterDC | None:
 
     return ParameterDC(
         name=fb_obj.Name().decode("utf-8") if fb_obj.Name() is not None else None,
-        type=fb_obj.Type().decode("utf-8") if fb_obj.Type() is not None else None,
-        value=fb_obj.Value().decode("utf-8") if fb_obj.Value() is not None else None,
+        type=ParameterTypeDC(fb_obj.Type()),
+        value=deserialize_value(fb_obj.Value()),
+        default_value=deserialize_value(fb_obj.DefaultValue()),
+        options=(
+            [deserialize_value(fb_obj.Options(i)) for i in range(fb_obj.OptionsLength())]
+            if fb_obj.OptionsLength() > 0
+            else None
+        ),
+    )
+
+
+def deserialize_procedurestart(fb_obj) -> ProcedureStartDC | None:
+    if fb_obj is None:
+        return None
+
+    return ProcedureStartDC(
+        procedure_name=fb_obj.ProcedureName().decode("utf-8") if fb_obj.ProcedureName() is not None else None,
+        procedure_id_string=(
+            fb_obj.ProcedureIdString().decode("utf-8") if fb_obj.ProcedureIdString() is not None else None
+        ),
+        parameters=(
+            [deserialize_parameter(fb_obj.Parameters(i)) for i in range(fb_obj.ParametersLength())]
+            if fb_obj.ParametersLength() > 0
+            else None
+        ),
     )
 
 
@@ -135,6 +214,18 @@ def deserialize_error(fb_obj) -> ErrorDC | None:
     )
 
 
+def deserialize_serverreply(fb_obj) -> ServerReplyDC | None:
+    if fb_obj is None:
+        return None
+
+    return ServerReplyDC(
+        message=fb_obj.Message().decode("utf-8") if fb_obj.Message() is not None else None,
+        file_object=deserialize_fileobject(fb_obj.FileObject()),
+        reply_to=CommandTypeDC(fb_obj.ReplyTo()),
+        error=deserialize_error(fb_obj.Error()),
+    )
+
+
 def deserialize_message(fb_obj) -> MessageDC | None:
     if fb_obj is None:
         return None
@@ -142,11 +233,11 @@ def deserialize_message(fb_obj) -> MessageDC | None:
     return MessageDC(
         instance_id=fb_obj.InstanceId(),
         command_type=CommandTypeDC(fb_obj.CommandType()),
-        file_object=deserialize_fileobject(fb_obj.FileObject()),
+        scene=deserialize_scene(fb_obj.Scene()),
+        server=deserialize_server(fb_obj.Server()),
         mesh_info=deserialize_meshinfo(fb_obj.MeshInfo()),
         target_group=TargetTypeDC(fb_obj.TargetGroup()),
         client_type=TargetTypeDC(fb_obj.ClientType()),
-        scene_operation=deserialize_sceneoperation(fb_obj.SceneOperation()),
         target_id=fb_obj.TargetId(),
         web_clients=(
             [deserialize_webclient(fb_obj.WebClients(i)) for i in range(fb_obj.WebClientsLength())]
@@ -154,6 +245,7 @@ def deserialize_message(fb_obj) -> MessageDC | None:
             else None
         ),
         procedure_store=deserialize_procedurestore(fb_obj.ProcedureStore()),
+        server_reply=deserialize_serverreply(fb_obj.ServerReply()),
     )
 
 

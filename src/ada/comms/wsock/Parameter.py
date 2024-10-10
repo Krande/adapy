@@ -38,19 +38,62 @@ class Parameter(object):
     def Type(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
-            return self._tab.String(o + self._tab.Pos)
-        return None
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
 
     # Parameter
     def Value(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
-            return self._tab.String(o + self._tab.Pos)
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.wsock.Value import Value
+
+            obj = Value()
+            obj.Init(self._tab.Bytes, x)
+            return obj
         return None
+
+    # Parameter
+    def DefaultValue(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.wsock.Value import Value
+
+            obj = Value()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # Parameter
+    def Options(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            x = self._tab.Vector(o)
+            x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
+            x = self._tab.Indirect(x)
+            from ada.comms.wsock.Value import Value
+
+            obj = Value()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # Parameter
+    def OptionsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # Parameter
+    def OptionsIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        return o == 0
 
 
 def ParameterStart(builder):
-    builder.StartObject(3)
+    builder.StartObject(5)
 
 
 def Start(builder):
@@ -66,7 +109,7 @@ def AddName(builder, name):
 
 
 def ParameterAddType(builder, type):
-    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(type), 0)
+    builder.PrependInt8Slot(1, type, 0)
 
 
 def AddType(builder, type):
@@ -79,6 +122,30 @@ def ParameterAddValue(builder, value):
 
 def AddValue(builder, value):
     ParameterAddValue(builder, value)
+
+
+def ParameterAddDefaultValue(builder, defaultValue):
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(defaultValue), 0)
+
+
+def AddDefaultValue(builder, defaultValue):
+    ParameterAddDefaultValue(builder, defaultValue)
+
+
+def ParameterAddOptions(builder, options):
+    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(options), 0)
+
+
+def AddOptions(builder, options):
+    ParameterAddOptions(builder, options)
+
+
+def ParameterStartOptionsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+
+def StartOptionsVector(builder, numElems):
+    return ParameterStartOptionsVector(builder, numElems)
 
 
 def ParameterEnd(builder):

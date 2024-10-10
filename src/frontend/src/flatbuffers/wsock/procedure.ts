@@ -4,7 +4,9 @@
 
 import * as flatbuffers from 'flatbuffers';
 
+import { FileType } from './file-type';
 import { Parameter, ParameterT } from '../wsock/parameter.js';
+import { ProcedureState } from './procedure-state';
 
 
 export class Procedure implements flatbuffers.IUnpackableObject<ProcedureT> {
@@ -25,87 +27,89 @@ static getSizePrefixedRootAsProcedure(bb:flatbuffers.ByteBuffer, obj?:Procedure)
   return (obj || new Procedure()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
 }
 
-id():string|null
-id(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
-id(optionalEncoding?:any):string|Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 4);
-  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
-}
-
 name():string|null
 name(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
 name(optionalEncoding?:any):string|Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 6);
+  const offset = this.bb!.__offset(this.bb_pos, 4);
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
 description():string|null
 description(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
 description(optionalEncoding?:any):string|Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 8);
+  const offset = this.bb!.__offset(this.bb_pos, 6);
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
 scriptFileLocation():string|null
 scriptFileLocation(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
 scriptFileLocation(optionalEncoding?:any):string|Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 10);
+  const offset = this.bb!.__offset(this.bb_pos, 8);
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
 parameters(index: number, obj?:Parameter):Parameter|null {
-  const offset = this.bb!.__offset(this.bb_pos, 12);
+  const offset = this.bb!.__offset(this.bb_pos, 10);
   return offset ? (obj || new Parameter()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
 }
 
 parametersLength():number {
-  const offset = this.bb!.__offset(this.bb_pos, 12);
+  const offset = this.bb!.__offset(this.bb_pos, 10);
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
-inputIfcFilepath():string|null
-inputIfcFilepath(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
-inputIfcFilepath(optionalEncoding?:any):string|Uint8Array|null {
+inputFileVar():string|null
+inputFileVar(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+inputFileVar(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
+inputFileType():FileType {
   const offset = this.bb!.__offset(this.bb_pos, 14);
-  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+  return offset ? this.bb!.readInt8(this.bb_pos + offset) : FileType.IFC;
 }
 
-outputIfcFilepath():string|null
-outputIfcFilepath(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
-outputIfcFilepath(optionalEncoding?:any):string|Uint8Array|null {
+exportFileType():FileType {
   const offset = this.bb!.__offset(this.bb_pos, 16);
-  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+  return offset ? this.bb!.readInt8(this.bb_pos + offset) : FileType.IFC;
 }
 
-error():string|null
-error(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
-error(optionalEncoding?:any):string|Uint8Array|null {
+exportFileVar():string|null
+exportFileVar(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+exportFileVar(optionalEncoding?:any):string|Uint8Array|null {
   const offset = this.bb!.__offset(this.bb_pos, 18);
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
-static startProcedure(builder:flatbuffers.Builder) {
-  builder.startObject(8);
+state():ProcedureState {
+  const offset = this.bb!.__offset(this.bb_pos, 20);
+  return offset ? this.bb!.readInt8(this.bb_pos + offset) : ProcedureState.IDLE;
 }
 
-static addId(builder:flatbuffers.Builder, idOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(0, idOffset, 0);
+isComponent():boolean {
+  const offset = this.bb!.__offset(this.bb_pos, 22);
+  return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
+}
+
+static startProcedure(builder:flatbuffers.Builder) {
+  builder.startObject(10);
 }
 
 static addName(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(1, nameOffset, 0);
+  builder.addFieldOffset(0, nameOffset, 0);
 }
 
 static addDescription(builder:flatbuffers.Builder, descriptionOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(2, descriptionOffset, 0);
+  builder.addFieldOffset(1, descriptionOffset, 0);
 }
 
 static addScriptFileLocation(builder:flatbuffers.Builder, scriptFileLocationOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(3, scriptFileLocationOffset, 0);
+  builder.addFieldOffset(2, scriptFileLocationOffset, 0);
 }
 
 static addParameters(builder:flatbuffers.Builder, parametersOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(4, parametersOffset, 0);
+  builder.addFieldOffset(3, parametersOffset, 0);
 }
 
 static createParametersVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
@@ -120,16 +124,28 @@ static startParametersVector(builder:flatbuffers.Builder, numElems:number) {
   builder.startVector(4, numElems, 4);
 }
 
-static addInputIfcFilepath(builder:flatbuffers.Builder, inputIfcFilepathOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(5, inputIfcFilepathOffset, 0);
+static addInputFileVar(builder:flatbuffers.Builder, inputFileVarOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(4, inputFileVarOffset, 0);
 }
 
-static addOutputIfcFilepath(builder:flatbuffers.Builder, outputIfcFilepathOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(6, outputIfcFilepathOffset, 0);
+static addInputFileType(builder:flatbuffers.Builder, inputFileType:FileType) {
+  builder.addFieldInt8(5, inputFileType, FileType.IFC);
 }
 
-static addError(builder:flatbuffers.Builder, errorOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(7, errorOffset, 0);
+static addExportFileType(builder:flatbuffers.Builder, exportFileType:FileType) {
+  builder.addFieldInt8(6, exportFileType, FileType.IFC);
+}
+
+static addExportFileVar(builder:flatbuffers.Builder, exportFileVarOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(7, exportFileVarOffset, 0);
+}
+
+static addState(builder:flatbuffers.Builder, state:ProcedureState) {
+  builder.addFieldInt8(8, state, ProcedureState.IDLE);
+}
+
+static addIsComponent(builder:flatbuffers.Builder, isComponent:boolean) {
+  builder.addFieldInt8(9, +isComponent, +false);
 }
 
 static endProcedure(builder:flatbuffers.Builder):flatbuffers.Offset {
@@ -137,77 +153,85 @@ static endProcedure(builder:flatbuffers.Builder):flatbuffers.Offset {
   return offset;
 }
 
-static createProcedure(builder:flatbuffers.Builder, idOffset:flatbuffers.Offset, nameOffset:flatbuffers.Offset, descriptionOffset:flatbuffers.Offset, scriptFileLocationOffset:flatbuffers.Offset, parametersOffset:flatbuffers.Offset, inputIfcFilepathOffset:flatbuffers.Offset, outputIfcFilepathOffset:flatbuffers.Offset, errorOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createProcedure(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset, descriptionOffset:flatbuffers.Offset, scriptFileLocationOffset:flatbuffers.Offset, parametersOffset:flatbuffers.Offset, inputFileVarOffset:flatbuffers.Offset, inputFileType:FileType, exportFileType:FileType, exportFileVarOffset:flatbuffers.Offset, state:ProcedureState, isComponent:boolean):flatbuffers.Offset {
   Procedure.startProcedure(builder);
-  Procedure.addId(builder, idOffset);
   Procedure.addName(builder, nameOffset);
   Procedure.addDescription(builder, descriptionOffset);
   Procedure.addScriptFileLocation(builder, scriptFileLocationOffset);
   Procedure.addParameters(builder, parametersOffset);
-  Procedure.addInputIfcFilepath(builder, inputIfcFilepathOffset);
-  Procedure.addOutputIfcFilepath(builder, outputIfcFilepathOffset);
-  Procedure.addError(builder, errorOffset);
+  Procedure.addInputFileVar(builder, inputFileVarOffset);
+  Procedure.addInputFileType(builder, inputFileType);
+  Procedure.addExportFileType(builder, exportFileType);
+  Procedure.addExportFileVar(builder, exportFileVarOffset);
+  Procedure.addState(builder, state);
+  Procedure.addIsComponent(builder, isComponent);
   return Procedure.endProcedure(builder);
 }
 
 unpack(): ProcedureT {
   return new ProcedureT(
-    this.id(),
     this.name(),
     this.description(),
     this.scriptFileLocation(),
     this.bb!.createObjList<Parameter, ParameterT>(this.parameters.bind(this), this.parametersLength()),
-    this.inputIfcFilepath(),
-    this.outputIfcFilepath(),
-    this.error()
+    this.inputFileVar(),
+    this.inputFileType(),
+    this.exportFileType(),
+    this.exportFileVar(),
+    this.state(),
+    this.isComponent()
   );
 }
 
 
 unpackTo(_o: ProcedureT): void {
-  _o.id = this.id();
   _o.name = this.name();
   _o.description = this.description();
   _o.scriptFileLocation = this.scriptFileLocation();
   _o.parameters = this.bb!.createObjList<Parameter, ParameterT>(this.parameters.bind(this), this.parametersLength());
-  _o.inputIfcFilepath = this.inputIfcFilepath();
-  _o.outputIfcFilepath = this.outputIfcFilepath();
-  _o.error = this.error();
+  _o.inputFileVar = this.inputFileVar();
+  _o.inputFileType = this.inputFileType();
+  _o.exportFileType = this.exportFileType();
+  _o.exportFileVar = this.exportFileVar();
+  _o.state = this.state();
+  _o.isComponent = this.isComponent();
 }
 }
 
 export class ProcedureT implements flatbuffers.IGeneratedObject {
 constructor(
-  public id: string|Uint8Array|null = null,
   public name: string|Uint8Array|null = null,
   public description: string|Uint8Array|null = null,
   public scriptFileLocation: string|Uint8Array|null = null,
   public parameters: (ParameterT)[] = [],
-  public inputIfcFilepath: string|Uint8Array|null = null,
-  public outputIfcFilepath: string|Uint8Array|null = null,
-  public error: string|Uint8Array|null = null
+  public inputFileVar: string|Uint8Array|null = null,
+  public inputFileType: FileType = FileType.IFC,
+  public exportFileType: FileType = FileType.IFC,
+  public exportFileVar: string|Uint8Array|null = null,
+  public state: ProcedureState = ProcedureState.IDLE,
+  public isComponent: boolean = false
 ){}
 
 
 pack(builder:flatbuffers.Builder): flatbuffers.Offset {
-  const id = (this.id !== null ? builder.createString(this.id!) : 0);
   const name = (this.name !== null ? builder.createString(this.name!) : 0);
   const description = (this.description !== null ? builder.createString(this.description!) : 0);
   const scriptFileLocation = (this.scriptFileLocation !== null ? builder.createString(this.scriptFileLocation!) : 0);
   const parameters = Procedure.createParametersVector(builder, builder.createObjectOffsetList(this.parameters));
-  const inputIfcFilepath = (this.inputIfcFilepath !== null ? builder.createString(this.inputIfcFilepath!) : 0);
-  const outputIfcFilepath = (this.outputIfcFilepath !== null ? builder.createString(this.outputIfcFilepath!) : 0);
-  const error = (this.error !== null ? builder.createString(this.error!) : 0);
+  const inputFileVar = (this.inputFileVar !== null ? builder.createString(this.inputFileVar!) : 0);
+  const exportFileVar = (this.exportFileVar !== null ? builder.createString(this.exportFileVar!) : 0);
 
   return Procedure.createProcedure(builder,
-    id,
     name,
     description,
     scriptFileLocation,
     parameters,
-    inputIfcFilepath,
-    outputIfcFilepath,
-    error
+    inputFileVar,
+    this.inputFileType,
+    this.exportFileType,
+    exportFileVar,
+    this.state,
+    this.isComponent
   );
 }
 }

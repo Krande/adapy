@@ -16,8 +16,12 @@ class CommandTypeDC(Enum):
     LIST_WEB_CLIENTS = 6
     LIST_FILE_OBJECTS = 7
     LIST_PROCEDURES = 8
-    ERROR = 9
-    SERVER_REPLY = 10
+    RUN_PROCEDURE = 9
+    ERROR = 10
+    SERVER_REPLY = 11
+    VIEW_FILE_OBJECT = 12
+    DELETE_FILE_OBJECT = 13
+    START_NEW_NODE_EDITOR = 14
 
 
 class TargetTypeDC(Enum):
@@ -44,6 +48,28 @@ class FileTypeDC(Enum):
     SQLITE = 2
 
 
+class ProcedureStateDC(Enum):
+    IDLE = 0
+    RUNNING = 1
+    FINISHED = 2
+    ERROR = 3
+
+
+class ParameterTypeDC(Enum):
+    UNKNOWN = 0
+    STRING = 1
+    FLOAT = 2
+    INTEGER = 3
+    BOOLEAN = 4
+    ARRAY = 6
+
+
+class ArrayTypeDC(Enum):
+    TUPLE = 0
+    LIST = 1
+    SET = 2
+
+
 @dataclass
 class WebClientDC:
     instance_id: int = None
@@ -59,6 +85,10 @@ class FileObjectDC:
     purpose: Optional[FilePurposeDC] = None
     filepath: pathlib.Path | str = ""
     filedata: bytes = None
+    glb_file: Optional[FileObjectDC] = None
+    ifcsqlite_file: Optional[FileObjectDC] = None
+    is_procedure_output: bool = None
+    procedure_parent: Optional[ProcedureStartDC] = None
 
 
 @dataclass
@@ -80,33 +110,68 @@ class CameraParamsDC:
 
 
 @dataclass
-class SceneOperationDC:
+class SceneDC:
     operation: Optional[SceneOperationsDC] = None
     camera_params: Optional[CameraParamsDC] = None
+    current_file: Optional[FileObjectDC] = None
+
+
+@dataclass
+class ServerDC:
+    new_file_object: Optional[FileObjectDC] = None
+    all_file_objects: Optional[List[FileObjectDC]] = None
+    get_file_object_by_name: str = ""
+    get_file_object_by_path: pathlib.Path | str = ""
+    delete_file_object: Optional[FileObjectDC] = None
 
 
 @dataclass
 class ProcedureStoreDC:
     procedures: Optional[List[ProcedureDC]] = None
+    start_procedure: Optional[ProcedureStartDC] = None
 
 
 @dataclass
 class ProcedureDC:
-    id: str = ""
     name: str = ""
     description: str = ""
     script_file_location: str = ""
     parameters: Optional[List[ParameterDC]] = None
-    input_ifc_filepath: pathlib.Path | str = ""
-    output_ifc_filepath: pathlib.Path | str = ""
-    error: str = ""
+    input_file_var: str = ""
+    input_file_type: Optional[FileTypeDC] = None
+    export_file_type: Optional[FileTypeDC] = None
+    export_file_var: str = ""
+    state: Optional[ProcedureStateDC] = None
+    is_component: bool = None
+
+
+@dataclass
+class ValueDC:
+    string_value: str = ""
+    float_value: float = None
+    integer_value: int = None
+    boolean_value: bool = None
+    array_value: Optional[List[ValueDC]] = None
+    array_value_type: Optional[ParameterTypeDC] = None
+    array_length: int = None
+    array_type: Optional[ArrayTypeDC] = None
+    array_any_length: bool = None
 
 
 @dataclass
 class ParameterDC:
     name: str = ""
-    type: str = ""
-    value: str = ""
+    type: Optional[ParameterTypeDC] = None
+    value: Optional[ValueDC] = None
+    default_value: Optional[ValueDC] = None
+    options: Optional[List[ValueDC]] = None
+
+
+@dataclass
+class ProcedureStartDC:
+    procedure_name: str = ""
+    procedure_id_string: str = ""
+    parameters: Optional[List[ParameterDC]] = None
 
 
 @dataclass
@@ -116,14 +181,23 @@ class ErrorDC:
 
 
 @dataclass
+class ServerReplyDC:
+    message: str = ""
+    file_object: Optional[FileObjectDC] = None
+    reply_to: Optional[CommandTypeDC] = None
+    error: Optional[ErrorDC] = None
+
+
+@dataclass
 class MessageDC:
     instance_id: int = None
     command_type: Optional[CommandTypeDC] = None
-    file_object: Optional[FileObjectDC] = None
+    scene: Optional[SceneDC] = None
+    server: Optional[ServerDC] = None
     mesh_info: Optional[MeshInfoDC] = None
     target_group: Optional[TargetTypeDC] = None
     client_type: Optional[TargetTypeDC] = None
-    scene_operation: Optional[SceneOperationDC] = None
     target_id: int = None
     web_clients: Optional[List[WebClientDC]] = None
     procedure_store: Optional[ProcedureStoreDC] = None
+    server_reply: Optional[ServerReplyDC] = None

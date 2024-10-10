@@ -53,9 +53,21 @@ class ProcedureStore(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         return o == 0
 
+    # ProcedureStore
+    def StartProcedure(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.wsock.ProcedureStart import ProcedureStart
+
+            obj = ProcedureStart()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
 
 def ProcedureStoreStart(builder):
-    builder.StartObject(1)
+    builder.StartObject(2)
 
 
 def Start(builder):
@@ -76,6 +88,14 @@ def ProcedureStoreStartProceduresVector(builder, numElems):
 
 def StartProceduresVector(builder, numElems):
     return ProcedureStoreStartProceduresVector(builder, numElems)
+
+
+def ProcedureStoreAddStartProcedure(builder, startProcedure):
+    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(startProcedure), 0)
+
+
+def AddStartProcedure(builder, startProcedure):
+    ProcedureStoreAddStartProcedure(builder, startProcedure)
 
 
 def ProcedureStoreEnd(builder):

@@ -109,9 +109,10 @@ class Shape(BackendGeom):
         if self.geom is None:
             raise NotImplementedError(f"solid_geom() not implemented for {self.__class__.__name__}")
 
+        import ada.geom.solids as geo_so
         import ada.geom.surfaces as geo_su
 
-        if isinstance(self.geom.geometry, (geo_su.AdvancedFace, geo_su.ClosedShell)):
+        if isinstance(self.geom.geometry, (geo_su.AdvancedFace, geo_su.ClosedShell, geo_so.Box)):
 
             self.geom.bool_operations = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
             return self.geom

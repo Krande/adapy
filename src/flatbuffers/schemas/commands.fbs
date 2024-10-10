@@ -10,8 +10,12 @@ enum CommandType : byte {
   LIST_WEB_CLIENTS = 6,
   LIST_FILE_OBJECTS = 7,
   LIST_PROCEDURES = 8,
-  ERROR = 9,
-  SERVER_REPLY = 10,
+  RUN_PROCEDURE = 9,
+  ERROR = 10,
+  SERVER_REPLY = 11,
+  VIEW_FILE_OBJECT = 12,
+  DELETE_FILE_OBJECT = 13,
+  START_NEW_NODE_EDITOR = 14,
 }
 
 enum TargetType : byte {
@@ -51,6 +55,11 @@ table FileObject {
   purpose: FilePurpose;     // Purpose of the file
   filepath: string;         // Path to the file
   filedata: [ubyte];        // Binary data (e.g., IFC, GLB, SQLite)
+  glb_file: FileObject;     // GLB file object converted from original file
+  ifcsqlite_file: FileObject;     // IF, the file object is IFC, this is a Boolean to indicate if the ifc file has a corresponding sqlite file
+  // procedure related configs
+  is_procedure_output: bool; // Boolean to indicate if the file object is the output of a procedure
+  procedure_parent: ProcedureStart; // Name of the procedure that generated the file object
 }
 
 table MeshInfo {
@@ -69,32 +78,90 @@ table CameraParams {
     force_camera: bool = false; // Boolean to force camera with a default value
 }
 
-table SceneOperation {
+table Scene {
   operation: SceneOperations;
   camera_params: CameraParams;
+  current_file: FileObject;
+}
+
+table Server {
+    new_file_object: FileObject;
+    all_file_objects: [FileObject];
+    get_file_object_by_name: string;
+    get_file_object_by_path: string;
+    delete_file_object: FileObject;
 }
 
 // Procedures are picked up by the server and executed
 // The sequence of procedures is defined in the procedure store
 table ProcedureStore {
     procedures: [Procedure];
+    start_procedure: ProcedureStart; // Name of the procedure to start
+
+}
+
+enum ProcedureState : byte {
+    IDLE = 0,
+    RUNNING = 1,
+    FINISHED = 2,
+    ERROR = 3,
 }
 
 table Procedure {
-    id: string;
     name: string;
     description: string;
     script_file_location: string;
     parameters: [Parameter];
-    input_ifc_filepath: string;     // Input IFC file path
-    output_ifc_filepath: string;    // Output IFC file path
-    error: string;                  // Error message in case the procedure fails
+    input_file_var: string;
+    input_file_type: FileType;
+    export_file_type: FileType;
+    export_file_var: string;
+    state: ProcedureState;      // State of the procedure
+    is_component: bool;         // Boolean to indicate if the procedure is a component
 }
 
+// Define a ParameterType enum to categorize types
+enum ParameterType : byte {
+    UNKNOWN = 0,
+    STRING = 1,
+    FLOAT = 2,
+    INTEGER = 3,
+    BOOLEAN = 4,
+    ARRAY = 6,
+}
+
+enum ArrayType : byte {
+    TUPLE = 0,
+    LIST = 1,
+    SET = 2,
+}
+
+// Define a Value table for handling different data types
+table Value {
+    string_value: string;   // Value when type is STRING
+    float_value: float;  // Value when type is NUMBER
+    integer_value: int;  // Value when type is NUMBER
+    boolean_value: bool;    // Value when type is BOOLEAN
+    array_value: [Value];     // Array of values
+    array_value_type: ParameterType; // Array of numbers (e.g., [1.0, 2.0, 3.0])
+    array_length: int;      // Length of the array,
+    array_type: ArrayType; // Type of the array
+    array_any_length: bool; // Boolean to indicate if the array can have any length
+}
+
+// Define a Parameter table that uses a union type for value
 table Parameter {
-    name: string;
-    type: string;  // E.g., 'string', 'number', 'boolean'
-    value: string; // The value of the parameter
+    name: string;               // The name of the parameter
+    type: ParameterType;        // The type of the parameter (enum defined above)
+    value: Value;               // Union value representing different data types
+    default_value: Value;       // Default value of the parameter
+    options: [Value];           // List of options for the parameter
+}
+
+table ProcedureStart {
+    procedure_name: string;
+    procedure_id_string: string;
+    parameters: [Parameter];
 }
 
 table Error {
@@ -102,17 +169,25 @@ table Error {
   message: string;
 }
 
+table ServerReply {
+  message: string;
+  file_object: FileObject;
+  reply_to: CommandType;
+  error: Error;
+}
+
 table Message {
   instance_id: int;
   command_type: CommandType;
-  file_object: FileObject;
+  scene: Scene;
+  server: Server;
   mesh_info: MeshInfo;
   target_group: TargetType;
   client_type: TargetType;
-  scene_operation: SceneOperation;
-  target_id: int = 0; // Default value for optional field
+  target_id: int;
   web_clients: [WebClient];
   procedure_store: ProcedureStore;
+  server_reply: ServerReply;
 }
 
 root_type Message;

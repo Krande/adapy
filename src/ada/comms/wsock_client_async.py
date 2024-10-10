@@ -5,6 +5,7 @@ import asyncio
 import trimesh
 import websockets
 
+from ada.comms.exceptions import ServerError
 from ada.comms.fb_deserializer import deserialize_root_message
 from ada.comms.fb_model_gen import (
     CommandTypeDC,
@@ -12,6 +13,7 @@ from ada.comms.fb_model_gen import (
     FilePurposeDC,
     MessageDC,
     ProcedureDC,
+    ProcedureStartDC,
     SceneOperationsDC,
     TargetTypeDC,
 )
@@ -82,9 +84,28 @@ class WebSocketClientAsync(WebSocketClientBase):
             message = await asyncio.wait_for(self.websocket.recv(), timeout)
         else:
             message = await self.websocket.recv()
-        return deserialize_root_message(message)
+        msg = deserialize_root_message(message)
+
+        if msg.server_reply and msg.server_reply.error is not None:
+            raise ServerError(msg.server_reply.error.message)
+
+        return msg
 
     async def list_procedures(self) -> list[ProcedureDC]:
         await self.websocket.send(self._list_procedures_prep())
         msg = await self.receive()
         return msg.procedure_store.procedures
+
+    async def list_server_file_objects(self) -> list[FileObjectDC]:
+        await self.websocket.send(self._list_server_file_objects_prep())
+        msg = await self.receive()
+        return msg.server.all_file_objects
+
+    async def get_file_object(self, name: str) -> FileObjectDC:
+        await self.websocket.send(self._get_file_object_prep(name))
+        msg = await self.receive()
+        return msg.server.file
+
+    async def run_procedure(self, procedure: ProcedureStartDC) -> None:
+        """Runs a procedure with the given name and arguments."""
+        await self.websocket.send(self._run_procedure_prep(procedure))

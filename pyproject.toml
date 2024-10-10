@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: Utilities",
 ]
 [project.scripts]
-ada-viewer = "ada.visit.websocket_cli:ws_cli_app"
+ada-viewer = "ada.comms.wsock_cli:ws_cli_app"
 
 [project.urls]
 "Homepage" = "https://github.com/Krande/adapy"
@@ -33,7 +33,7 @@ ada-viewer = "ada.visit.websocket_cli:ws_cli_app"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["ada*"]
-exclude = ["frontend*"]
+exclude = ["frontend*", "flatbuffers*"]
 
 [tool.setuptools.package-data]
 ada = [

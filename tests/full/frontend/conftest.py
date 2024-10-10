@@ -1,8 +1,6 @@
 import asyncio
-import functools
 import http.server
 import os
-import socketserver
 import threading
 from dataclasses import dataclass
 
@@ -11,10 +9,10 @@ import pytest_asyncio
 
 from ada.comms.fb_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
 from ada.comms.fb_serializer import serialize_message
+from ada.comms.web_ui import start_serving
 from ada.comms.wsock_client_async import WebSocketClientAsync
 from ada.comms.wsock_server import WebSocketAsyncServer, handle_partial_message
 from ada.config import logger
-from ada.visit.rendering.renderer_react import RendererReact
 
 WS_HOST = "localhost"
 WS_PORT = 1122
@@ -92,7 +90,7 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
                 # Perform the replacements
                 modified_html_content = html_content.replace(
-                    "<!--WEBSOCKET_ID_PLACEHOLDER-->",
+                    "<!--STARTUP_CONFIG_PLACEHOLDER-->",
                     f'<script>window.WEBSOCKET_ID = "{self.unique_id}";</script>\n'
                     f"<script>window.WEBSOCKET_PORT = {self.ws_port};</script>",
                 )
@@ -111,28 +109,13 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
 @pytest.fixture(scope="module")
 def http_server() -> MockHttpServer:
-    rr = RendererReact()
-    web_dir = rr.local_html_path.parent
-
     # Generate a unique ID or obtain it from your application logic
     unique_id: int = 88442233
 
-    # Create a partial function to pass the directory to the handler
-    handler = functools.partial(CustomHTTPRequestHandler, ws_port=WS_PORT, unique_id=unique_id, directory=str(web_dir))
-
-    class ThreadingTCPServer(socketserver.ThreadingTCPServer):
-        allow_reuse_address = True
-
-    # Use port 0 to have the OS assign an available port
-    server = ThreadingTCPServer(("localhost", 0), handler)
+    server, server_thread = start_serving(
+        web_port=0, ws_port=WS_PORT, unique_id=unique_id, node_editor_only=False, non_blocking=True
+    )
     port = server.server_address[1]
-
-    def start_server():
-        server.serve_forever()
-
-    server_thread = threading.Thread(target=start_server, daemon=True)
-    server_thread.start()
-
     try:
         yield MockHttpServer("localhost", port)
     finally:

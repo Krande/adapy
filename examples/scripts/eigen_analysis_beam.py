@@ -29,7 +29,7 @@ def run_ccx():
 def run_code_aster():
     geo_repr = "solid"
     a = make_bm_fem(geo_repr)
-    res = a.to_fem(f"Cantilever_CA_EIG_{geo_repr}", "code_aster", scratch_dir=SCRATCH, overwrite=True, execute=True)
+    res = a.to_fem(f"Cantilever_CA_EIG_{geo_repr}", "abaqus", scratch_dir=SCRATCH, overwrite=True, execute=True)
     res.to_vtu("temp/eigen.vtu")
     for x in res.iter_results_by_field_value():
         print(x)

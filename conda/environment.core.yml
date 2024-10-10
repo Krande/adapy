@@ -1,12 +1,12 @@
 name: core
 channels:
-  - krande
   - conda-forge
 dependencies:
   - numpy
   - hdf5
   - h5py
   - ifcopenshell
+  - bcf-client
   - pythonocc-core
   - python-gmsh
   - pyquaternion

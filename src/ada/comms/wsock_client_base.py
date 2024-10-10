@@ -13,8 +13,11 @@ from ada.comms.fb_model_gen import (
     FileTypeDC,
     MessageDC,
     ProcedureDC,
-    SceneOperationDC,
+    ProcedureStartDC,
+    ProcedureStoreDC,
+    SceneDC,
     SceneOperationsDC,
+    ServerDC,
     TargetTypeDC,
 )
 from ada.comms.fb_serializer import serialize_message
@@ -73,10 +76,9 @@ class WebSocketClientBase(ABC):
             message = MessageDC(
                 instance_id=self.instance_id,
                 command_type=CommandTypeDC.UPDATE_SCENE,
-                file_object=file_object,
                 target_group=TargetTypeDC.WEB,
                 target_id=target_id,
-                scene_operation=SceneOperationDC(operation=scene_op),
+                scene=SceneDC(operation=scene_op, current_file=file_object),
             )
             return serialize_message(message)
 
@@ -84,7 +86,7 @@ class WebSocketClientBase(ABC):
         message = MessageDC(
             instance_id=self.instance_id,
             command_type=CommandTypeDC.UPDATE_SERVER,
-            file_object=file_object,
+            server=ServerDC(new_file_object=file_object),
             target_group=TargetTypeDC.SERVER,
         )
         return serialize_message(message)
@@ -94,6 +96,32 @@ class WebSocketClientBase(ABC):
             instance_id=self.instance_id,
             command_type=CommandTypeDC.LIST_PROCEDURES,
             target_group=TargetTypeDC.SERVER,
+        )
+        return serialize_message(message)
+
+    def _run_procedure_prep(self, procedure: ProcedureStartDC) -> bytes:
+        message = MessageDC(
+            instance_id=self.instance_id,
+            command_type=CommandTypeDC.RUN_PROCEDURE,
+            procedure_store=ProcedureStoreDC(start_procedure=procedure),
+            target_group=TargetTypeDC.SERVER,
+        )
+        return serialize_message(message)
+
+    def _list_server_file_objects_prep(self) -> bytes:
+        message = MessageDC(
+            instance_id=self.instance_id,
+            command_type=CommandTypeDC.LIST_FILE_OBJECTS,
+            target_group=TargetTypeDC.SERVER,
+        )
+        return serialize_message(message)
+
+    def _get_file_object_prep(self, file_name):
+        message = MessageDC(
+            instance_id=self.instance_id,
+            command_type=CommandTypeDC.GET_FILE_OBJECT,
+            target_group=TargetTypeDC.SERVER,
+            server=ServerDC(get_file_object_by_name=file_name),
         )
         return serialize_message(message)
 
@@ -130,4 +158,16 @@ class WebSocketClientBase(ABC):
 
     @abstractmethod
     def list_procedures(self) -> list[ProcedureDC]:
+        pass
+
+    @abstractmethod
+    def list_server_file_objects(self) -> list[FileObjectDC]:
+        pass
+
+    @abstractmethod
+    def get_file_object(self, name: str) -> FileObjectDC:
+        pass
+
+    @abstractmethod
+    def run_procedure(self, procedure: ProcedureStartDC) -> None:
         pass

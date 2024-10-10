@@ -42,20 +42,32 @@ class Message(object):
         return 0
 
     # Message
-    def FileObject(self):
+    def Scene(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
-            from ada.comms.wsock.FileObject import FileObject
+            from ada.comms.wsock.Scene import Scene
 
-            obj = FileObject()
+            obj = Scene()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # Message
+    def Server(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.wsock.Server import Server
+
+            obj = Server()
             obj.Init(self._tab.Bytes, x)
             return obj
         return None
 
     # Message
     def MeshInfo(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.wsock.MeshInfo import MeshInfo
@@ -67,29 +79,17 @@ class Message(object):
 
     # Message
     def TargetGroup(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
-        if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
-        return 0
-
-    # Message
-    def ClientType(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 0
 
     # Message
-    def SceneOperation(self):
+    def ClientType(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
         if o != 0:
-            x = self._tab.Indirect(o + self._tab.Pos)
-            from ada.comms.wsock.SceneOperation import SceneOperation
-
-            obj = SceneOperation()
-            obj.Init(self._tab.Bytes, x)
-            return obj
-        return None
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
 
     # Message
     def TargetId(self):
@@ -136,9 +136,21 @@ class Message(object):
             return obj
         return None
 
+    # Message
+    def ServerReply(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(24))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.wsock.ServerReply import ServerReply
+
+            obj = ServerReply()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
 
 def MessageStart(builder):
-    builder.StartObject(10)
+    builder.StartObject(11)
 
 
 def Start(builder):
@@ -161,16 +173,24 @@ def AddCommandType(builder, commandType):
     MessageAddCommandType(builder, commandType)
 
 
-def MessageAddFileObject(builder, fileObject):
-    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(fileObject), 0)
+def MessageAddScene(builder, scene):
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(scene), 0)
 
 
-def AddFileObject(builder, fileObject):
-    MessageAddFileObject(builder, fileObject)
+def AddScene(builder, scene):
+    MessageAddScene(builder, scene)
+
+
+def MessageAddServer(builder, server):
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(server), 0)
+
+
+def AddServer(builder, server):
+    MessageAddServer(builder, server)
 
 
 def MessageAddMeshInfo(builder, meshInfo):
-    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(meshInfo), 0)
+    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(meshInfo), 0)
 
 
 def AddMeshInfo(builder, meshInfo):
@@ -178,7 +198,7 @@ def AddMeshInfo(builder, meshInfo):
 
 
 def MessageAddTargetGroup(builder, targetGroup):
-    builder.PrependInt8Slot(4, targetGroup, 0)
+    builder.PrependInt8Slot(5, targetGroup, 0)
 
 
 def AddTargetGroup(builder, targetGroup):
@@ -186,19 +206,11 @@ def AddTargetGroup(builder, targetGroup):
 
 
 def MessageAddClientType(builder, clientType):
-    builder.PrependInt8Slot(5, clientType, 0)
+    builder.PrependInt8Slot(6, clientType, 0)
 
 
 def AddClientType(builder, clientType):
     MessageAddClientType(builder, clientType)
-
-
-def MessageAddSceneOperation(builder, sceneOperation):
-    builder.PrependUOffsetTRelativeSlot(6, flatbuffers.number_types.UOffsetTFlags.py_type(sceneOperation), 0)
-
-
-def AddSceneOperation(builder, sceneOperation):
-    MessageAddSceneOperation(builder, sceneOperation)
 
 
 def MessageAddTargetId(builder, targetId):
@@ -231,6 +243,14 @@ def MessageAddProcedureStore(builder, procedureStore):
 
 def AddProcedureStore(builder, procedureStore):
     MessageAddProcedureStore(builder, procedureStore)
+
+
+def MessageAddServerReply(builder, serverReply):
+    builder.PrependUOffsetTRelativeSlot(10, flatbuffers.number_types.UOffsetTFlags.py_type(serverReply), 0)
+
+
+def AddServerReply(builder, serverReply):
+    MessageAddServerReply(builder, serverReply)
 
 
 def MessageEnd(builder):

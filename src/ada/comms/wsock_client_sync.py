@@ -8,6 +8,7 @@ from ada.comms.fb_model_gen import (
     FilePurposeDC,
     MessageDC,
     ProcedureDC,
+    ProcedureStartDC,
     SceneOperationsDC,
     TargetTypeDC,
 )
@@ -81,3 +82,14 @@ class WebSocketClientSync(WebSocketClientBase):
         self.websocket.send(self._list_procedures_prep())
         msg = self.receive()
         return msg.procedure_store.procedures
+
+    def get_file_object(self, name: str) -> FileObjectDC: ...
+
+    def list_server_file_objects(self) -> list[FileObjectDC]:
+        self.websocket.send(self._list_server_file_objects_prep())
+        msg = self.receive()
+        return msg.server.all_file_objects
+
+    def run_procedure(self, procedure: ProcedureStartDC) -> None:
+        """Runs a procedure with the given name and arguments."""
+        self.websocket.send(self._run_procedure_prep(procedure))

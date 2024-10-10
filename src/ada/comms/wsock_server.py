@@ -8,13 +8,13 @@ from urllib.parse import parse_qs, urlparse
 
 import websockets
 
-from ada.cadit.ifc.sql_model import IfcSqlModel as ifc_sqlite
-from ada.comms.fb_model_gen import CommandTypeDC, FileObjectDC, MessageDC, TargetTypeDC
-from ada.comms.procedures import ProcedureStore
+from ada.comms.fb_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
+from ada.comms.msg_handling.default_on_message import default_on_message
+from ada.comms.scene_model import Scene
 from ada.comms.wsock import Message
-from ada.comms.wsock_server_msg_handling import default_on_message
 from ada.comms.wsockets_utils import client_from_str
 from ada.config import logger
+from ada.procedural_modelling.procedure_store import ProcedureStore
 
 
 @dataclass
@@ -53,13 +53,6 @@ async def process_client(websocket, path) -> ConnectedClient:
     return client
 
 
-@dataclass
-class SceneMeta:
-    file_objects: list[FileObjectDC] = field(default_factory=list)
-    ifc_sql_store: ifc_sqlite = None
-    mesh_meta: dict = None
-
-
 async def retry_message_sending(
     server: WebSocketAsyncServer, message: bytes, sender: ConnectedClient, msg: MessageDC, num_retries: int = 3
 ):
@@ -85,6 +78,7 @@ class WebSocketAsyncServer:
         on_unsent_message: Optional[
             Callable[[WebSocketAsyncServer, bytes, ConnectedClient, MessageDC, int], None]
         ] = retry_message_sending,
+        debug=False,
     ):
         self.host = host
         self.port = port
@@ -94,10 +88,17 @@ class WebSocketAsyncServer:
         self.on_disconnect = on_disconnect
         self.on_message = on_message
         self.on_unsent_message = on_unsent_message
-        self.scene_meta = SceneMeta()
+        self.scene = Scene()
         self.instance_id = random.randint(0, 2**31 - 1)  # Generates a random int32 value
         self.msg_queue = asyncio.Queue()
         self.procedure_store = ProcedureStore()
+        self.debug = debug
+
+    def get_client_by_instance_id(self, instance_id: int) -> Optional[ConnectedClient]:
+        for client in self.connected_clients:
+            if client.instance_id == instance_id:
+                return client
+        return None
 
     async def handle_client(self, websocket: websockets.WebSocketServerProtocol, path: str):
         client = await process_client(websocket, path)

@@ -7,13 +7,13 @@ import OptionsComponent from './components/OptionsComponent';
 import {useOptionsStore} from './state/optionsStore';
 
 import ResizableTreeView from './components/tree_view/ResizableTreeView';
-import {useNodeEditorStore} from "./state/nodeEditorStore";
-import NodeEditorComponent from "./components/NodeEditorComponent"; // Import the new component
+import {useNodeEditorStore} from "./state/useNodeEditorStore";
+import NodeEditorComponent from "./components/node_editor/NodeEditorComponent";
 
 
 function App() {
     const {isOptionsVisible} = useOptionsStore(); // use the useNavBarStore function
-    const {isNodeEditorVisible} = useNodeEditorStore();
+    const {isNodeEditorVisible, use_node_editor_only} = useNodeEditorStore();
 
     return (
         <div className={"relative flex flex-row h-full w-full bg-gray-900"}>
@@ -27,11 +27,11 @@ function App() {
             </div>
 
             <div className={"w-full h-full"}>
-                <CanvasComponent/>
+                {use_node_editor_only ? <NodeEditorComponent /> : <CanvasComponent/>}
             </div>
 
             {/* Only render NodeEditorComponent if it's visible */}
-            {isNodeEditorVisible && <NodeEditorComponent/>}
+            {isNodeEditorVisible && <NodeEditorComponent />}
 
             {/* Only render NavBar if it's visible */}
             {isOptionsVisible && (
