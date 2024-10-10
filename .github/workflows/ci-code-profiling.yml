@@ -39,6 +39,7 @@ jobs:
               - conda-forge
           create-args: >-
             ada-py
+            bcf-client
             python=3.12
             pytest
             pytest-benchmark
